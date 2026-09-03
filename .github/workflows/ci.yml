@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # fifty-seven of the gates below build the compiler under test from
+    # fifty-eight of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -722,6 +722,24 @@ jobs:
       # construction to another function must leave this one at zero.
       - name: What an Option construction costs, in blocks
         run: ./scripts/check-unboxed-sums.sh
+
+      # What LLVM's vectorizer does with an Axiom loop, counted in the
+      # IR rather than timed. `opt -O2` already vectorizes a `for` over
+      # a `(Vec Int)` that only reads (width 2, 3.1x measured) and a
+      # byte scan over a String (width 16, 1.9x); the driver's default
+      # `--opt 1` runs no vectorizer at all. The one emitter change
+      # this holds is the trap runtime being `noreturn cold`: before
+      # it, every inlined `vecGet` carried the trap's two syscalls and
+      # backtrace call into the hot loop - 1,518 copies in the
+      # compiler's own IR at --opt 2, 1,685 at --opt 1 - and a call
+      # that returned into the loop was an exit the vectorizer refused
+      # to reason about. 2 copies now, the compiler binary 6.9%
+      # smaller, three more of its loops vectorized (98 -> 101). The
+      # Collatz `while` is the control that must NOT vectorize, and the
+      # ablation blanks the attributes, rebuilds, and requires the
+      # copies back inside the loop.
+      - name: The loops that vectorize still do, and the trap stays out of line
+        run: ./scripts/check-simd.sh
 
       # And the release traffic that could not free anything. Measured
       # 2026-08-31 over the compiler's own emitted IR (`emit-llvm

@@ -16,6 +16,84 @@ its changelog too.
 
 ## Unreleased
 
+### Automatic vectorisation: what `opt` already does to an Axiom loop, and the trap that sat inside it
+
+**Read-only loops vectorize today, at `--opt 2`.** Measured 2026-09-03
+with `opt --pass-remarks-output` on four fixtures (`scripts/check-simd.sh`
+carries them): a `for` over a `(Vec Int)` that sums is vectorized at
+width 2, interleave 4, and runs **3.1x** faster than at `--opt 1`; a
+byte scan over a `String` at width 16, **1.9x** (best of five,
+interleaved arms, load average 9). The driver's default `--opt 1` runs
+**no vectorizer at all** — LLVM enables the loop and SLP vectorizers at
+speedup level 2 — and the default is unchanged, because on the
+compiler's own IR `opt -O2` costs 4.2 s against 2.9 s at `-O1`
+(202,424 lines, three interleaved runs each, load average 7), which is
+not nil. `docs/reference.md`'s Optimisation section now says which
+loop shapes vectorize and why the others do not, with the command that
+shows it.
+
+**What does not vectorize, and why, in LLVM's own words.** A map
+through `vecSet` is refused four ways at once: the length, data
+pointer and ownership flag are re-read every iteration because a
+`__store64` through an integer address may alias any of them; the
+range check's trap was an EXIT inside the loop ("early exit loop with
+writes"); the ownership branch keeps an `axiom_release` call in the
+body ("call instruction cannot be vectorized"); and even with every
+access tagged by hand so the header words hoist and the trap folds,
+`vecSet`'s silent out-of-range skip is a **predicated store**, which
+baseline NEON and SSE2 have no masked-store instruction for, so the
+cost model declines ("not beneficial"). An `i64` multiply is not
+native on either baseline either: the same map with `* 3` is refused
+on cost where `+ 1` is accepted. The Collatz `while` is refused
+correctly — its trip count is data-dependent. `LoopVersioningLICM`
+answers `IllegalLoopStruct` for the loop as emitted. None of this is
+asserted; each row is a remark in the gate's YAML.
+
+**The emitter change: the six traps are `noreturn cold`.**
+`__axiom_index_out_of_range` and its five siblings end in an exit
+syscall — or a recovery point's longjmp — and then `unreachable`, so
+`noreturn` states a fact. Before the attribute, `Vec$vecGet` and every
+accessor like it was inlined everywhere and carried the trap's body —
+two syscalls and a `@__axiom_backtrace` call — with it: **1,518
+inlined copies** in the compiler's own IR at `--opt 2`, **1,685** at
+`--opt 1`, one inside every hot function that indexes a vector. With
+the callee cold the inliner leaves it a call, and with it noreturn the
+block after the call is `unreachable` rather than an edge back into
+the loop. **2 copies now** at either level, the compiler binary
+**6.9% smaller** (2,153,352 → 2,004,600 bytes; `__TEXT` 1,687,552 →
+1,540,096, 8.7%), and **three more of its loops vectorize** (98 →
+101: `lsp$lspChSites`, `lsp$lspSignatureHelp`, `lsp$lspViewHintsCall`).
+`nounwind` was measured beside it and moved nothing, so it is not
+there. Every fixture in `tests/stdlib/` answers the same bytes; the
+self-hosting fixpoint holds.
+
+**The gate.** `scripts/check-simd.sh` holds behaviour across `--opt 0`,
+1 and 2 first, then that the reduction and the byte scan are reported
+`Vectorized` and carry `<N x i64>` and `<N x i8>` operations (the
+width is the target's baseline, not pinned), that the Collatz loop is
+not (the reader must be able to answer zero), that the trap is defined
+`noreturn cold` and the in-place map's body holds no copy of it while
+the module still calls it — with an ablation that blanks `trapFnAttrs`
+in a copy of the tree, rebuilds, and requires the copies back — and a
+census over `self_host/main.ax` with a ceiling of 2 copies and a
+floor of 50 vectorized loops. the count of gates that do is stated once in this section, in the `parallel` entry below.
+now, up from the previous count by this one.
+
+**What is NOT done, stated so nobody infers it.** No aliasing fact is
+asserted to LLVM: the header/element distinction that would let the
+length hoist is true (`docs/memory-model.md`: a data block never
+overlaps a header block) and was prototyped as scalar TBAA on the IR
+by hand, and it is not enough on its own — the data pointer read sits
+inside the range check's branch and LICM will not speculate a load
+through an integer address, the ownership branch's release call
+clobbers everything on its path, and the predicated store remains.
+Making write loops vectorize needs three things together: the
+attribute on the release runtime that says which words it touches,
+the accessors reading the header before the check, and a `vecSet`
+whose out-of-range answer is a fold rather than a skip; that is a
+design note's worth of memory-model argument, not a flag.
+`inbounds`/`nsw` were not added: no refusal named wrap.
+
 ### `parallel`, and the thread lowering behind it
 
 **One construct, two lowerings.** `(parallel p ((a e1) (b e2)) body)`
@@ -88,7 +166,7 @@ fence; the static rule that refuses it is `MM-RGN-3` over sibling
 regions (§3.2 of the design), and until it lands processes are the
 default for exactly this reason. Nothing in `self_host/` or `stdlib/`
 uses `parallel` yet: the committed seed cannot parse it, and the rule
-is land, reseed, then use. fifty-seven gates call `gate_build_axc` now.
+is land, reseed, then use. fifty-eight gates call `gate_build_axc` now.
 ### `region` returns as a checked scope — S2 of the memory-model v2 design
 
 **`(region r body)` is a keyword again.** It reads the allocator's
