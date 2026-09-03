@@ -1,4 +1,4 @@
-import { DOCS } from '../data/site.ts'
+import { DOCS, stat } from '../data/site.ts'
 
 /**
  * The toolchain, in one band.
@@ -55,7 +55,7 @@ export function Editors() {
               <code>axiom explain</code>
             </dt>
             <dd>
-              Every one of the 68 diagnostic codes has a full written
+              Every one of the {stat('codes')} diagnostic codes has a full written
               explanation behind it — and where a fix is machine-applicable, it
               travels with the error as a span and a replacement.
             </dd>
@@ -79,8 +79,8 @@ export function Editors() {
             <dd>
               All of the highlighting, plus rainbow-bracket queries. One query
               file serves Neovim, Helix and the <code>tree-sitter</code> CLI —
-              and it is parsed against all 608 <code>.ax</code> files in the
-              repository on every change.
+              and it is parsed against all {stat('axfiles')}{' '}
+              <code>.ax</code> files in the repository on every change.
             </dd>
           </div>
         </dl>

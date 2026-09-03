@@ -8,7 +8,7 @@ import {
   SET_HUMAN,
   SET_SOURCE,
 } from '../data/samples.ts'
-import { BLOB, DOCS } from '../data/site.ts'
+import { BLOB, DOCS, stat } from '../data/site.ts'
 import { Code } from '../components/Code.tsx'
 import { RenderTabs } from '../components/Terminal.tsx'
 import { Reveal } from '../components/Reveal.tsx'
@@ -106,7 +106,7 @@ export function Agents() {
               >
                 diagnostics.md
               </a>{' '}
-              has the grammar and all 68 codes.
+              has the grammar and all {stat('codes')} codes.
             </p>
           </div>
           <div className="stack">

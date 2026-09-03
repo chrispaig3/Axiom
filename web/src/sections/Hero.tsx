@@ -1,5 +1,5 @@
 import { HERO } from '../data/samples.ts'
-import { INSTALL_CMD, REPO, VERSION } from '../data/site.ts'
+import { INSTALL_CMD, REPO, stat, VERSION } from '../data/site.ts'
 import { Code, RunOutput } from '../components/Code.tsx'
 import { Command } from '../components/Command.tsx'
 import { ArrowRight, GitHub } from '../components/Icons.tsx'
@@ -63,7 +63,7 @@ export function Hero() {
               </span>
             </li>
             <li>
-              <b>87,494</b>
+              <b>{stat('lines')}</b>
               <span>
                 lines of Axiom that compile Axiom — and rebuild themselves
                 byte-for-byte.

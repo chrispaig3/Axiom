@@ -142,8 +142,15 @@ export function Audience() {
         <Reveal className="closing" delay={80}>
           <p>
             One thing Axiom is <em>not</em> built for, said here rather than
-            discovered later: there is no language-level concurrency — no
-            threads, no async, no scheduler.{' '}
+            discovered later: concurrency is one narrow form and no runtime.{' '}
+            <code>(parallel p ((a e1) (b e2)) body)</code> runs its bindings
+            beside the caller and joins them in argument order — as child
+            processes by default, whose isolation is true by construction, or
+            as threads under <code>--threads</code>. Only a machine word
+            crosses a join; a binding that answers a <code>String</code> is a
+            type error at the binding. There is no async, no scheduler, no
+            task system, and under threads the compiler does not yet check
+            what a binding captures — which is why processes are the default.{' '}
             <a
               href={`${BLOB}/stdlib/Job.ax`}
               target="_blank"
@@ -151,7 +158,8 @@ export function Audience() {
             >
               <code>stdlib/Job.ax</code>
             </a>{' '}
-            is a pool of child processes, and that is the whole story.
+            is a bounded pool of child <em>programs</em>, and it is the rest of
+            the story.
           </p>
         </Reveal>
       </div>

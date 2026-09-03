@@ -15,6 +15,8 @@ export const PATH_CMD = 'export PATH="$HOME/.axiom/bin:$PATH"'
  * repository does not belong here.
  */
 export interface Stat {
+  /** How prose asks for this figure: `stat('lines')`. */
+  key: string
   n: string
   label: string
   evidence: string
@@ -22,26 +24,52 @@ export interface Stat {
 
 export const STATS: Stat[] = [
   {
-    n: '96,950',
+    key: 'lines',
+    n: '97,017',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
   {
-    n: '609',
+    key: 'axfiles',
+    n: '611',
     label: '.ax files in the tree, every one parsed by the grammar gate',
     evidence: "find . -name '*.ax' | wc -l",
   },
   {
+    key: 'codes',
     n: '77',
     label: 'diagnostic codes, each with an explanation and a fixture',
     evidence: 'axiom explain --list',
   },
   {
+    key: 'gates',
     n: '72',
     label: 'gate scripts that must pass before anything lands',
     evidence: "ls scripts/check-*.sh | wc -l",
   },
 ]
+
+/**
+ * The figure behind a key, for a SENTENCE that repeats one of the four.
+ *
+ * Three sentences used to spell their number out, and all three had
+ * drifted: the hero read `87,494` lines while the stat block on the same
+ * page read `96,950`, and two sections said `68` diagnostic codes where
+ * `axiom explain --list` prints 77. `check-claims.mjs` held the four
+ * `n:` values to the tree and never looked at the prose beside them.
+ *
+ * A number written twice is a second copy of the fact with no gate on
+ * it - `scripts/lib/version-sites.sh` makes the same argument and
+ * refuses to write its own count down at all. So prose calls this
+ * instead of spelling the number, and `check-claims.mjs` now sweeps
+ * every section for a literal that equals one of these and fails
+ * naming it. There is one copy again.
+ */
+export function stat(key: string): string {
+  const found = STATS.find((s) => s.key === key)
+  if (!found) throw new Error(`site.ts: no STATS entry keyed '${key}'`)
+  return found.n
+}
 
 export interface DocLink {
   name: string
