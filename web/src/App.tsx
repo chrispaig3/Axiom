@@ -12,14 +12,17 @@ import { Footer } from './sections/Footer.tsx'
 import { useTheme } from './lib/theme.ts'
 
 export default function App() {
-  const [theme, toggle] = useTheme()
+  // The theme VALUE is no longer read here: the toggle still stamps
+  // `data-theme`, and the glyph that used to depend on it is chosen by
+  // CSS now, so the markup is identical on the server and the client.
+  const [, toggle] = useTheme()
 
   return (
     <>
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <Nav theme={theme} onToggle={toggle} />
+      <Nav onToggle={toggle} />
       <main id="main">
         <Hero />
         <Bootstrap />
