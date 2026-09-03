@@ -434,6 +434,7 @@ docs/subtypes-design.md
 docs/unboxed-sums-design.md
 docs/generics-design.md
 docs/status.md
+docs/embedded-proposal.md
 DOCS
 }
 

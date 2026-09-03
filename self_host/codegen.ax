@@ -5537,12 +5537,48 @@
 ; implied: a binding's expression may capture any outer name, and
 ; under threads a captured heap value is SHARED with the parent - the
 ; count on its block is touched from two threads with no fence between
-; them, which is a data race the process lowering cannot have. The
-; static rule that refuses it is MM-RGN-3 over sibling regions (§3.2 of
-; the design), which is S3's; until it lands, the process lowering is
-; the default for exactly this reason and the thread lowering is
-; something a program opts into with a word-sized capture discipline
-; of its own. `tests/stdlib/470-parallel.ax` captures only words.
+; them, which is a data race the process lowering cannot have. Neither
+; `axiom_retain` nor `axiom_release` is atomic - both are a plain
+; load-add-store, by design and everywhere - so a lost increment frees
+; a block that is still named.
+;
+; THIS COMMENT USED TO SAY THE RULE WAS COMING WITH S3, AND IT WAS
+; WRONG. It read: "the static rule that refuses it is MM-RGN-3 over
+; sibling regions (§3.2 of the design), which is S3's; until it lands,
+; the process lowering is the default for exactly this reason". S3
+; landed on 2026-09-03 - `AX3060` region-escape, `AX3061`
+; region-return, `AX3062` region-capture - and covers NONE of this.
+; Measured that day rather than assumed:
+;
+;   * `rgnCheckAll` bails immediately unless `rgnProgramUsesRegions`,
+;     which answers 1 only for a signature carrying an `@r`. A
+;     `parallel` program that writes no region annotation runs the
+;     region pass ZERO times.
+;   * §3.2's sibling regions were never created either. `mkParallel`
+;     (`parser.ax`) binds `p` with an ordinary `let` to
+;     `__axiom_arena_mark`, a machine word. There is no region node, so
+;     there are no siblings for MM-RGN-2 to leave unordered and nothing
+;     for MM-RGN-3 to refuse.
+;   * A program capturing a heap `String` into two concurrent bindings
+;     compiles clean under `--threads` and runs.
+;
+; So the state is: the process lowering is the default because it is
+; the safe one, the thread lowering is opt-in with a capture discipline
+; the compiler does not enforce, and `tests/stdlib/470-parallel.ax`
+; captures only words because that is the discipline, not because
+; anything checks it.
+;
+; THE TRACTABLE FIX IS A CHECKER RULE, not this file's. Codegen has
+; `fldClass` but no capture types before emission and no way to report
+; a diagnostic - which is why `AX4006` already sits in `main.ax` - and
+; at `parScan` time the type table is not yet populated, so `fldClass`
+; would answer "not a reference" for every struct and every `data`.
+; The checker has what is needed: `parallel` is desugared in the
+; PARSER, so the checker sees a plain application of `__par_spawn` with
+; a lambda argument; scope entries carry types (`sEntTy`), the lambda
+; boundary is `tc` slot 22, and `checkSet` already uses `scopeFindIdx`
+; against it. Make it unconditional rather than `--threads`-dependent,
+; or a diagnostic appears and disappears with a codegen flag.
 ;
 ; WHERE IT IS NOT AVAILABLE. Threads need a pthread and a local-exec
 ; TLS a C runtime sets up for each new thread: darwin and linux have

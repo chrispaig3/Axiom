@@ -429,6 +429,56 @@ lowering, not the fallback one.
 existing machinery; `tests/net/echo-server.ax`'s pre-forked pool is the
 shape, and it is where `MM-ALLOC-22`'s measurement is taken.
 
+### 3.2b The sibling-region rule did not ship, and `--threads` is unsound without it
+
+*Measured 2026-09-03. This section exists because the tree said the
+opposite in two places.*
+
+§3.2 says each `parallel` binding runs in its own region, siblings are
+unordered by MM-RGN-2, and therefore every cross-thread reference is
+refused by MM-RGN-3 "for free - no `Send`, no `Sync`, no auto-trait."
+`self_host/codegen.ax` cited that as work S3 would deliver. **S3
+delivered region-annotated signatures and the escape rule (`AX3060`,
+`AX3061`, `AX3062`) and none of this.** Three findings, each checked:
+
+1. `rgnCheckAll` returns immediately unless `rgnProgramUsesRegions`
+   answers 1, and that answers 1 only for a signature carrying an `@r`.
+   **A `parallel` program with no region annotation runs the region
+   pass zero times.**
+2. The sibling regions were never created. `mkParallel` binds the
+   region name `p` with an ordinary `let` to `__axiom_arena_mark` — a
+   machine word. There is no region node, so there are no siblings to
+   be unordered.
+3. A program capturing a heap `String` into two concurrent bindings
+   **compiles with no diagnostic and runs** under `--threads`.
+
+The consequence is corruption rather than a leak: `axiom_retain` and
+`axiom_release` are a plain load-add-store, not an `atomicrmw`, so two
+threads touching one block's count lose an increment and the block is
+freed while a live reference names it.
+
+**What holds today.** Processes are the default lowering and are safe by
+construction (MM-PAR-3). `--threads` is opt-in and carries a capture
+discipline *the compiler does not enforce* — `tests/stdlib/470-parallel.ax`
+captures only words because that is the discipline, not because anything
+checks it. `AX4006` refuses `--threads` where there is no thread runtime,
+which is a different question.
+
+**The fix, scoped.** A checker rule at the `__par_spawn` /
+`__thread_spawn` application, not a codegen one. Codegen has `fldClass`
+but no capture types before emission and no way to report a diagnostic;
+at `parScan` time the type table is unpopulated, so `fldClass` would
+answer "not a reference" for every `struct` and every `data` — a check
+that passes on exactly the types that matter. The checker has the
+pieces: `parallel` is desugared in the *parser*, so the checker sees a
+plain application with a lambda argument; scope entries carry types
+(`sEntTy`), the lambda boundary is `tc` slot 22, and `checkSet` already
+uses `scopeFindIdx` against it. Make it **unconditional** rather than
+`--threads`-dependent, or the diagnostic appears and disappears with a
+codegen flag, which nothing else in the AX3xxx band does.
+
+---
+
 **Built 2026-09-03 (S5 and S6), and two things the table above promised
 are narrower than it reads.** The surface is exactly MM-RGN-7's, with
 `p` bound to the arena mark of the enclosing region (§2.5's witness, a
@@ -467,7 +517,7 @@ gate below follows it.
 | S3 | **BUILT 2026-09-03, save the witness.** Region-parameterised signatures, `(Str @r)`, and `MM-RGN-3` checked over every body; `restrict(no-escape)`; the sweep of §5 as a gate | typecheck (`rgnCheckAll`, a facts fixpoint over the call graph plus one reporting walk), parser, formatter, grammar; NO codegen — the witness of §2.5 is deferred to S4, see below | `scripts/check-region-escape.sh`: an annotated program and its stripped twin emit byte-identical IR (1,652 lines); `tests/diagnostics/645`–`649` one per escape shape, AX3060–AX3063; the ablation — `rgnCheckAll` answering 0 — accepts all four and the program it then lets through reads reclaimed memory; the sweep reads 241 of 6,206 (3.88%) |
 | S4 | Delete ownership traffic the region proves dead | codegen | **re-run §1.1's ablation and expect the binary win with the RSS win intact** — the one measurement that decides whether any of this was worth it |
 | **S5** | **DONE 2026-09-03. `__thread_spawn`/`__thread_join`, and `cgThreads`'s owed body** | the primitive pair, the scan (`parScan` in codegen.ax, before `emitAllocator`), the thread runtime (`emitParThread`: the platform's `pthread_create`, an entry that runs the thunk and writes its word) | `scripts/check-thread-local.sh` reaches the ON path through a program that spawns, no ablation: eight globals move and nothing else, the OFF path imports no TLS symbol, a thread's cost is `pthread_create`+`pthread_join` (+`__tlv_bootstrap` on Darwin), local-exec on both Linux targets. freebsd and windows refuse it at build time (`AX4006`) |
-| **S6** | **DONE 2026-09-03, with the limit stated. `parallel`, both lowerings** | the surface is a parser desugaring over `__par_spawn`/`__par_join` (no AST tag); the two backends are `emitParProc` (fork, one `MAP_SHARED` page per binding, `wait4` re-raising a child's status) and `emitParThread`, selected by `--threads` | `scripts/check-parallel.sh`: `tests/stdlib/470-parallel.ax` and `471-parallel-trap.ax` under both lowerings, byte-identical stdout and the same exit (77 out of both for the trap); processes add no import, threads add exactly their own; the flag is inert on a program that spawns nothing; windows emits a status-79 trap in place of both primitives. **What crosses a join is a word, and captures are unchecked under threads** - §3.3 below |
+| **S6** | **DONE 2026-09-03, with the limit stated. `parallel`, both lowerings** | the surface is a parser desugaring over `__par_spawn`/`__par_join` (no AST tag); the two backends are `emitParProc` (fork, one `MAP_SHARED` page per binding, `wait4` re-raising a child's status) and `emitParThread`, selected by `--threads` | `scripts/check-parallel.sh`: `tests/stdlib/470-parallel.ax` and `471-parallel-trap.ax` under both lowerings, byte-identical stdout and the same exit (77 out of both for the trap); processes add no import, threads add exactly their own; the flag is inert on a program that spawns nothing; windows emits a status-79 trap in place of both primitives. **What crosses a join is a word, and captures are unchecked under threads** - §3.3 below, and §3.2b for why S3 did not close it |
 
 **S3 as built, 2026-09-03 — what it is and what it is not.** Every
 signature may name regions, `(Vec String @r)`, and the rule of §2.3 is
