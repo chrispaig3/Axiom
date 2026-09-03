@@ -4,7 +4,7 @@
 [1;34m18 |[0m (fn (slipped n) n)
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mthe restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence
+  [1;34m = [0m[1;32mhelp: [0mthe restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion`, `no-wrap` and `no-escape`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3052` for a full explanation
 
 [1;31merror[AX3052][0m[1m: `mixed` claims `restrict(no-foo)`, and `no-foo` names no restriction[0m
@@ -13,7 +13,7 @@
 [1;34m23 |[0m (fn (mixed n) n)
 [1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mthe restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence
+  [1;34m = [0m[1;32mhelp: [0mthe restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion`, `no-wrap` and `no-escape`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3052` for a full explanation
 
 [1;31merror[AX3052][0m[1m: `empty` claims `restrict()`, which names no restriction[0m
@@ -22,7 +22,7 @@
 [1;34m28 |[0m (fn (empty n) n)
 [1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mthe restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence
+  [1;34m = [0m[1;32mhelp: [0mthe restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion`, `no-wrap` and `no-escape`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3052` for a full explanation
 
 compilation failed due to 3 previous errors

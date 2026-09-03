@@ -712,7 +712,31 @@ floor=8192       # 8 MiB
 # against the 4.85 the entry above measured, so the cost per line fell
 # again. Nothing here copies. 512 leaves 13.8% over the measured 450,
 # the margin these entries keep, and the `ok` line still prints it.
-ceiling=524288   # 512 MiB, over a measured 450
+
+# 448 -> 512 MiB on 2026-09-03, and the margin was gone before this
+# slice arrived: trunk at 6355946 (the `Vec` port landed) already
+# peaks at 444.7 MiB under this gate's own compiler - 0.7% under the
+# ceiling, eaten by the slices between 2026-08-30 and here, exactly
+# the way the 540 -> 420 entry describes. The regions stage (S3 of
+# docs/memory-model-v2-design.md) added 2,005 lines to self_host/ and
+# crossed it at 454 MiB. Priced the way the two entries above price a
+# move, on `axiom build`-produced binaries, in KiB:
+#
+#   trunk's compiler on trunk's source        455,360
+#   the NEW compiler on trunk's source        455,440   +0.02%
+#   trunk's compiler on the NEW source        465,184   +2.16%
+#   the NEW compiler on the NEW source        465,280   +2.18%
+#
+# The compiler CHANGE costs 0.02% on identical input - the region pass
+# does not run for a program whose signatures name no region, and this
+# is that number - and the 2.16% is 2,005 more source lines out of
+# 91,342, which is 2.2%. 4.98 KiB per source line before, 4.98 after:
+# the linear shape, held flat, and the failure text's accumulator was
+# looked for and is not there. 512 leaves 12.7% over the measured
+# 454.4, inside the 12-15% band the entries above keep - and the
+# reader this entry is for is the one merging three more slices onto
+# the same trunk, who should expect to watch the margin again.
+ceiling=524288   # 512 MiB, over a measured 454
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi
@@ -723,3 +747,4 @@ echo "ok   one self-compile peaks at $((peak / 1024)) MiB, under the $((ceiling 
 
 echo
 echo "fixpoint reached from $seed_ll: the Axiom compiler reproduces itself, builds itself, and answers $swept cases correctly"
+

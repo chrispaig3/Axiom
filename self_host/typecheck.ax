@@ -2171,7 +2171,14 @@
   (isEffectOp : Int)
   (effects : (Vec Int))
   (eparams : (Vec Int))
-  (calls : (Vec Int)))
+  (calls : (Vec Int))
+  ; The region FACTS of this function (`rgnFactsNew`, stage S3 of
+  ; docs/memory-model-v2-design.md): which parameters its body stores
+  ; a fresh value into, which parameters flow into which, and where
+  ; its result comes from. 0 until `rgnEnsureFacts` has run, which it
+  ; does only for a program that names a region or claims
+  ; `restrict(no-escape)` - every other program never allocates one.
+  (rgn : Int))
 
 ; `fieldNames` is the constructor's declared field names when it was
 ; written as a struct variant, and 0 otherwise. A NAMED pattern is
@@ -2245,7 +2252,12 @@
   (sigTags : Int)
   (fnSufIdx : Int)
   (privIdx : Int)
-  (retired28 : Int)
+  ; Word 28 was `retired28`, the second dead word the comment above
+  ; explains. It holds the one bit stage S3 needs at module level: 1
+  ; once `rgnEnsureFacts` has run the region-facts fixpoint, so that a
+  ; `restrict(no-escape)` claim inside `tcWalkDecls` and the region
+  ; pass after it share one computation.
+  (rgnFactsDone : Int)
   (curCalls : Int)
   (tyIdx : Int)
   ; Names carrying `;@axiom:deprecated`, built ONCE and lazily, on
@@ -2521,7 +2533,8 @@
   (vecPush
     fns    (cast Int (FnEnt
       name      ty      (- 0 1)      1      0      vecNew      vecNew      vecNew
-    ))
+              0
+        ))
   )
 )
 
@@ -2595,6 +2608,7 @@
       (vecPush
         fns        (cast Int (FnEnt
           name          ty          (- 0 1)          1          0          effs          vecNew          vecNew
+                  0
         ))
       )
     }
@@ -3420,7 +3434,8 @@
           v
         }
       )      vecNew      vecNew
-    ))
+              0
+        ))
   )
 )
 
@@ -3464,7 +3479,8 @@
           v
         }
       )      vecNew      vecNew
-    ))
+              0
+        ))
   )
 )
 
@@ -3654,7 +3670,8 @@
         (tcPushFn
           tc          (cast Int (FnEnt
             (nodeAName d)            ty            (- 0 1)            0            0            vecNew            vecNew            vecNew
-          ))
+                    0
+        ))
         )
         (memSetWord ent 1 ty)
       )
@@ -3690,7 +3707,8 @@
             (tcPushFn
               tc              (cast Int (FnEnt
                 (nodeAName d)                ph                (- 0 1)                0                0                vecNew                vecNew                vecNew
-              ))
+                        0
+        ))
             )
           }
         )
@@ -17125,7 +17143,12 @@
           1
           (if (strEq r "no-cast:deep")
             1
-            0
+            ; `no-escape` reads the region facts, a fixpoint over
+            ; every callee's stores (stage S3, `restrictNoEscape`).
+            (if (strEq r "no-escape")
+              1
+              0
+            )
           )
         )
       )
@@ -17194,7 +17217,10 @@
               (restrictNoRecursion tc d r eff)
               (if (strEq r "no-wrap")
                 (restrictNoWrap tc d r (nodeC d))
-                (emitRestrictUnknown tc d r)
+                (if (strEq r "no-escape")
+                  (restrictNoEscape tc d r)
+                  (emitRestrictUnknown tc d r)
+                )
               )
             )
           )
@@ -18230,7 +18256,7 @@
         SEV_ERROR        "AX3052"        "restriction-unknown"        (nodeSpan d)        (if (== (strLen r) 0)
           (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict()`, which names no restriction")
           (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction"))
-        )        0        0        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
+        )        0        0        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion`, `no-wrap` and `no-escape`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"
       )
     )
   )
@@ -20199,6 +20225,1795 @@
   )
 )
 
+; ==================================================================
+; REGIONS, STAGE S3: region-parameterised signatures and the escape
+; rule (docs/memory-model-v2-design.md §2, staged in §4).
+;
+; WHAT THIS IS. A signature may name the region a reference lives in,
+; `(:: intern (-> (Str @s) (Table @r) (Sym @r)))`, and MM-RGN-3 is
+; then checked over every body: a value MUST NOT be stored into,
+; returned into, or captured by anything in a region that outlives
+; its own. A signature naming no region is region-monomorphic in the
+; caller's current region (MM-RGN-4), which is what makes every
+; program written before this stage the one-region instance.
+;
+; WHERE IT RUNS, AND WHAT IT COSTS A PROGRAM THAT NEVER WRITES `@`.
+; `rgnCheckAll` runs once per module, AFTER `tcWalkDecls`, and its
+; first act is to ask whether any signature in the program carries an
+; annotation (`rgnProgramUsesRegions`). When none does, nothing below
+; runs: no walk, no facts, no diagnostic. That is the compatibility
+; half of MM-RGN-4 measured rather than argued - the check is not
+; merely silent on an un-annotated program, it is absent from it. The
+; annotation itself lives in a spare word of the type node
+; (`tyRegion`, parser.ax) that no reader of a type consults, so an
+; annotated program EMITS byte for byte what its un-annotated spelling
+; emits (`scripts/check-region-escape.sh` holds both claims).
+;
+; TWO WALKS OVER ONE ABSTRACTION. Each body is walked in an abstract
+; domain whose values are SETS OF ORIGINS, carried as a bitmask:
+;
+;   bit 0        this function's own allocation region, CUR0 - the
+;                caller's current region, where every fresh value
+;                (a constructor, `alloc`, a call's result) lands
+;   bit 1+i      "derives from parameter i" - the parameter itself, a
+;                field read out of it, an element of it
+;   bit 1+n+k    the k-th `(region r ...)` form of the body (S2's
+;                node; the arm is written against its contract and
+;                is exercised once that stage lands)
+;
+; Every origin has a REGION IDENTITY: CUR0 is 0; a region NAME the
+; signature declares is 1..m; a form is m+1+k, nested under the
+; identity that was current when it opened. `rgnOutlives` is the
+; order of §2.2 - a named region outlives CUR0 and every form, CUR0
+; outlives every form, a form outlives the forms nested in it, and
+; two named regions are UNORDERED. The escape rule is one predicate
+; over that order, `rgnStoreOk`: for every origin of the value and
+; every origin of the target, the value's region outlives the
+; target's.
+;
+; The first walk, `rgnRounds`, computes FACTS per function and
+; iterates them to a fixpoint over the call graph, exactly as
+; `inferEffects` does for effect rows: which parameters the body
+; stores a fresh (CUR0) value into (`flowsCUR`), which other
+; parameters' values flow into each (`flowsFrom`), and where the
+; result comes from (`resultFrom`/`resultCUR`). Facts are monotone
+; bitmasks, so the rounds terminate. The second walk, `rgnReportAll`,
+; is the same walk with reporting on, and it is the facts that make
+; an UN-annotated callee checkable at all: `(vecPush v x)` inside a
+; region is refused when `v` lives outside it, because `vecPush`'s
+; facts say parameter 1 flows into parameter 0 - and it is accepted
+; when both live outside, because nothing fresh flows into `v`.
+; Without facts the only sound rule would be invariance on every
+; reference argument, which refuses `(strLen s)` on an outer string,
+; and that is the rule `MM-RGN-4`'s prose states; this is the same
+; rule made precise by reading the callee.
+;
+; WHAT IS CONSERVATIVE, stated rather than left to be found:
+;   * a call the compiler cannot resolve - through a parameter, a
+;     closure, a field - is assumed to store every argument into
+;     every argument and to allocate its result (`rgnUnknownCall`);
+;   * a primitive with no body is read-only unless `rgnBuiltinCall`
+;     names it as a store (`__store64` and the atomics) or a read
+;     through a handle (`__load64`); any other primitive's result is
+;     taken as fresh;
+;   * a closure's origins are its creation region plus its captures
+;     (`rgnLam`), so a lambda escapes exactly when a capture would;
+;   * a value promoted out of a region form is treated as the
+;     enclosing region's - shallowly. Whether `reset_keeping` can
+;     carry a value whose FIELDS point into the region is S2's
+;     lowering question (MM-ALLOC-15 carries one contiguous block),
+;     and this checker does not answer it.
+;
+; Each of these refuses MORE than the truth, never less: a false
+; refusal is a diagnostic an author can read, a missed escape is a
+; use-after-reset nobody can.
+;
+; THE FOUR CODES. AX3060 a store (a `set`, a field write, a primitive
+; store, or a callee's store through its parameter) whose target
+; outlives the value; AX3061 a result that does not outlive the
+; declared result region; AX3062 the same two refusals when the
+; escaping value is a CLOSURE, reported against the capture that
+; makes it short-lived; AX3063 a call whose arguments do not agree on
+; a region the callee's signature names, or a signature whose result
+; names a region no parameter supplies.
+;
+; `restrict(no-escape)` (MM-RGN §2.7) reads the same facts: a
+; declaration claims it stores nothing it allocates into any
+; parameter. Refuted by `flowsCUR` (AX3049, naming the parameter and
+; the callee the store went through), unverifiable when the body
+; calls something the walk cannot resolve (AX3051, AX3057 under
+; `strict`), silent when proven - the rail every other restriction
+; rides.
+; ==================================================================
+
+; ---- the facts record, one per FnEnt (FnEnt word 8) ----
+;   0 state (0 fresh, 1 seen)   1 flowsCUR (bit i: a fresh value
+;   flows into parameter i)   2 flowsFrom, Vec Int per parameter (bit
+;   j: parameter j's value flows into parameter i)   3 resultFrom
+;   (bit j)   4 resultCUR   5 unknownCalls   6 culprits, Vec String
+;   per parameter (the callee the fresh value went in through, "" for
+;   this body)   7 nparams
+(pub :: rgnFactsNew (-> Int Int))
+
+(pub fn (rgnFactsNew n)
+  (let (
+    (f (memAlloc 64))
+    (ff (rgnIntVec))
+    (cu (rgnStrVec))
+  )
+    {
+      (rgnFillInts ff n 0)
+      (rgnFillStrs cu n)
+      (memSetWord f 0 0)
+      (memSetWord f 1 0)
+      (memSetWord f 2 (cast Int ff))
+      (memSetWord f 3 0)
+      (memSetWord f 4 0)
+      (memSetWord f 5 0)
+      (memSetWord f 6 (cast Int cu))
+      (memSetWord f 7 n)
+      f
+    }
+  )
+)
+
+(pub :: rgnIntVec (Vec Int))
+
+(pub fn (rgnIntVec) vecNew)
+
+(pub :: rgnStrVec (Vec String))
+
+(pub fn (rgnStrVec) vecNew)
+
+(pub :: rgnFillInts (-> (Vec Int) Int Int Int))
+
+(pub fn (rgnFillInts v n x)
+  (if (>= (vecLen v) n)
+    0
+    {
+      (vecPush v x)
+      (rgnFillInts v n x)
+    }
+  )
+)
+
+(pub :: rgnFillStrs (-> (Vec String) Int Int))
+
+(pub fn (rgnFillStrs v n)
+  (if (>= (vecLen v) n)
+    0
+    {
+      (vecPushStr v "")
+      (rgnFillStrs v n)
+    }
+  )
+)
+
+; The facts of an entry, made on first demand.
+(pub :: rgnFactsOf (-> Int Int Int))
+
+(pub fn (rgnFactsOf ent n)
+  (if (!= (memGetWord ent 8) 0)
+    (memGetWord ent 8)
+    (let ((f (rgnFactsNew n)))
+      {
+        (memSetWord ent 8 f)
+        f
+      }
+    )
+  )
+)
+
+; ---- reading a signature ----
+(pub :: rgnResultTy (-> Int Int))
+
+(pub fn (rgnResultTy t)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_ARR)
+      (rgnResultTy (nodeB t))
+      t
+    )
+  )
+)
+
+; The region name on parameter i's declared type, as a String, or 0.
+(pub :: rgnParamRegion (-> Int Int Int))
+
+(pub fn (rgnParamRegion sigTy i)
+  (let ((pt (nthParamTy sigTy i 0)))
+    (if (== pt 0)
+      0
+      (tyRegion pt)
+    )
+  )
+)
+
+(pub :: tyHasRegion (-> Int Int))
+
+(pub fn (tyHasRegion t)
+  (if (== t 0)
+    0
+    (if (!= (tyRegion t) 0)
+      1
+      (let ((tg (nodeTag t)))
+        (if (== tg TAG_T_ARR)
+          (if (== (tyHasRegion (nodeA t)) 1)
+            1
+            (tyHasRegion (nodeB t))
+          )
+          (if (== tg TAG_T_CON)
+            (tyVecHasRegion (nodeBVec t) 0)
+            (if (== tg TAG_T_TUP)
+              (tyVecHasRegion (nodeAVec t) 0)
+              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+                (tyHasRegion (nodeA t))
+                0
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tyVecHasRegion (-> (Vec Int) Int Int))
+
+(pub fn (tyVecHasRegion xs i)
+  (if (== (cast Int xs) 0)
+    0
+    (if (>= i (vecLen xs))
+      0
+      (if (== (tyHasRegion (vecGet xs i)) 1)
+        1
+        (tyVecHasRegion xs (+ i 1))
+      )
+    )
+  )
+)
+
+; Does any signature in the program name a region? One pass over the
+; declaration list's `::` nodes; the type trees are small and this is
+; the whole cost of this stage for a program that never writes `@`.
+(pub :: rgnProgramUsesRegions (-> Int Int))
+
+(pub fn (rgnProgramUsesRegions tc) (rgnDeclsUseRegions (memGetWordVec tc 10) 0))
+
+(pub :: rgnDeclsUseRegions (-> (Vec Int) Int Int))
+
+(pub fn (rgnDeclsUseRegions decls i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_SIG) (== (tyHasRegion (nodeTy d)) 1))
+        1
+        (rgnDeclsUseRegions decls (+ i 1))
+      )
+    )
+  )
+)
+
+; ---- the per-function walk context ----
+;   0 tc   1 decl   2 ent   3 nparams   4 env names (Vec String)
+;   5 env origins (Vec Int)   6 env binding regions (Vec Int)
+;   7 curBit   8 curRid   9 declared region names (Vec String)
+;   10 form parents (Vec Int)   11 form names (Vec String)
+;   12 report   13 facts   14 changed   15 param region ids (Vec Int)
+;   16 lambda base (env index; -1 outside every lambda)
+;   17 capture mask of the lambda being walked
+;   18 the capture NAMES of the last lambda walked (Vec String), and
+;   20 their origin masks (Vec Int), for AX3062 to name the capture
+;   that carries the offending origin   19 spare
+(pub :: rgnCtxNew (-> Int Int Int Int Int))
+
+(pub fn (rgnCtxNew tc d ent report)
+  (let (
+    (rc (memAlloc 176))
+    (n (vecLen (nodeBVec d)))
+  )
+    {
+      (memSetWord rc 0 tc)
+      (memSetWord rc 1 d)
+      (memSetWord rc 2 ent)
+      (memSetWord rc 3 n)
+      (memSetWord rc 4 (cast Int (rgnStrVec)))
+      (memSetWord rc 5 (cast Int (rgnIntVec)))
+      (memSetWord rc 6 (cast Int (rgnIntVec)))
+      (memSetWord rc 7 1)
+      (memSetWord rc 8 0)
+      (memSetWord rc 9 (cast Int (rgnStrVec)))
+      (memSetWord rc 10 (cast Int (rgnIntVec)))
+      (memSetWord rc 11 (cast Int (rgnStrVec)))
+      (memSetWord rc 12 report)
+      (memSetWord rc 13 (rgnFactsOf ent n))
+      (memSetWord rc 14 0)
+      (memSetWord rc 15 (cast Int (rgnIntVec)))
+      (memSetWord rc 16 (- 0 1))
+      (memSetWord rc 17 0)
+      (memSetWord rc 18 (cast Int (rgnStrVec)))
+      (memSetWord rc 19 (cast Int ""))
+      (memSetWord rc 20 (cast Int (rgnIntVec)))
+      rc
+    }
+  )
+)
+
+(pub :: rgnTc (-> Int Int))
+
+(pub fn (rgnTc rc) (memGetWord rc 0))
+
+(pub :: rgnNames (-> Int (Vec String)))
+
+(pub fn (rgnNames rc) (memGetWordVec rc 4))
+
+(pub :: rgnOrigs (-> Int (Vec Int)))
+
+(pub fn (rgnOrigs rc) (memGetWordVec rc 5))
+
+(pub :: rgnBinds (-> Int (Vec Int)))
+
+(pub fn (rgnBinds rc) (memGetWordVec rc 6))
+
+(pub :: rgnRegionNames (-> Int (Vec String)))
+
+(pub fn (rgnRegionNames rc) (memGetWordVec rc 9))
+
+(pub :: rgnFormParents (-> Int (Vec Int)))
+
+(pub fn (rgnFormParents rc) (memGetWordVec rc 10))
+
+(pub :: rgnFormNames (-> Int (Vec String)))
+
+(pub fn (rgnFormNames rc) (memGetWordVec rc 11))
+
+(pub :: rgnParamRids (-> Int (Vec Int)))
+
+(pub fn (rgnParamRids rc) (memGetWordVec rc 15))
+
+(pub :: rgnReport (-> Int Int))
+
+(pub fn (rgnReport rc) (memGetWord rc 12))
+
+(pub :: rgnFacts (-> Int Int))
+
+(pub fn (rgnFacts rc) (memGetWord rc 13))
+
+; All parameter bits of this function, as a mask.
+(pub :: rgnParamMask (-> Int Int))
+
+(pub fn (rgnParamMask rc)
+  (let ((n (memGetWord rc 3)))
+    (if (>= n 62)
+      0
+      (- (<< 1 (+ n 1)) 2)
+    )
+  )
+)
+
+; The bits that mean "fresh in some region of this body": CUR0 and
+; every form. For the facts a caller reads, both are "fresh".
+(pub :: rgnFreshMask (-> Int Int))
+
+(pub fn (rgnFreshMask rc)
+  (let (
+    (n (memGetWord rc 3))
+    (k (vecLen (rgnFormParents rc)))
+  )
+    (if (>= (+ n k) 62)
+      1
+      (| 1 (<< (- (<< 1 k) 1) (+ n 1)))
+    )
+  )
+)
+
+; The identity of a declared region NAME, minting it on first sight.
+(pub :: rgnNameRid (-> Int String Int))
+
+(pub fn (rgnNameRid rc name)
+  (let ((k (strVecIdx (rgnRegionNames rc) name)))
+    (if (>= k 0)
+      (+ k 1)
+      {
+        (vecPushStr (rgnRegionNames rc) name)
+        (vecLen (rgnRegionNames rc))
+      }
+    )
+  )
+)
+
+; The region identity of one origin bit.
+(pub :: rgnOriginRid (-> Int Int Int))
+
+(pub fn (rgnOriginRid rc bit)
+  (let ((n (memGetWord rc 3)))
+    (if (== bit 0)
+      0
+      (if (<= bit n)
+        (vecGet (rgnParamRids rc) (- bit 1))
+        (+ (+ (vecLen (rgnRegionNames rc)) 1) (- bit (+ n 1)))
+      )
+    )
+  )
+)
+
+; Does region `a` outlive (or equal) region `b`? The order of §2.2.
+(pub :: rgnOutlives (-> Int Int Int Int))
+
+(pub fn (rgnOutlives rc a b)
+  (let ((m (vecLen (rgnRegionNames rc))))
+    (if (== a b)
+      1
+      (if (&& (>= a 1) (<= a m))
+        ; a named region outlives CUR0 and every form; it is
+        ; unordered against another name
+        (if (|| (== b 0) (> b m))
+          1
+          0
+        )
+        (if (== a 0)
+          ; CUR0 outlives every form and nothing else
+          (if (> b m)
+            1
+            0
+          )
+          ; a form outlives the forms nested in it
+          (if (> b m)
+            (rgnFormNestedIn rc a b)
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+; Is form `b` nested (strictly) inside form `a`? Walk b's parents.
+(pub :: rgnFormNestedIn (-> Int Int Int Int))
+
+(pub fn (rgnFormNestedIn rc a b)
+  (let ((m (vecLen (rgnRegionNames rc))))
+    (let ((parent (vecGet (rgnFormParents rc) (- b (+ m 1)))))
+      (if (== parent a)
+        1
+        (if (<= parent m)
+          0
+          (rgnFormNestedIn rc a parent)
+        )
+      )
+    )
+  )
+)
+
+; ---- rendering, for the messages ----
+(pub :: rgnRidText (-> Int Int String))
+
+(pub fn (rgnRidText rc rid)
+  (let ((m (vecLen (rgnRegionNames rc))))
+    (if (== rid 0)
+      "this function's own region (its caller's current region)"
+      (if (<= rid m)
+        (strConcat (strConcat "region `@" (vecGetStr (rgnRegionNames rc) (- rid 1))) "`")
+        (strConcat (strConcat "region `" (vecGetStr (rgnFormNames rc) (- rid (+ m 1)))) "`")
+      )
+    )
+  )
+)
+
+(pub :: rgnOriginText (-> Int Int String))
+
+(pub fn (rgnOriginText rc bit)
+  (let ((n (memGetWord rc 3)))
+    (if (< bit 0)
+      "a static value"
+      (if (== bit 0)
+        "a value allocated in this function's own region"
+        (if (<= bit n)
+          (strConcat (strConcat (strConcat "parameter `" (vecGetStr (nodeBVec (memGetWord rc 1)) (- bit 1))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc bit)))
+          (strConcat "a value allocated in " (rgnRidText rc (rgnOriginRid rc bit)))
+        )
+      )
+    )
+  )
+)
+
+; The same, followed by the comma a relative clause closes with.
+(pub :: rgnOriginTextComma (-> Int Int String))
+
+(pub fn (rgnOriginTextComma rc bit)
+  (if (&& (> bit 0) (<= bit (memGetWord rc 3)))
+    (strConcat (rgnOriginText rc bit) ",")
+    (rgnOriginText rc bit)
+  )
+)
+
+; The lowest set bit's index, or -1.
+(pub :: rgnFirstBit (-> Int Int))
+
+(pub fn (rgnFirstBit mask) (rgnFirstBitFrom mask 0))
+
+(pub :: rgnFirstBitFrom (-> Int Int Int))
+
+(pub fn (rgnFirstBitFrom mask i)
+  (if (>= i 63)
+    (- 0 1)
+    (if (!= (& mask (<< 1 i)) 0)
+      i
+      (rgnFirstBitFrom mask (+ i 1))
+    )
+  )
+)
+
+; ---- the escape rule ----
+; The first (value origin, target region) pair that violates the
+; order, answered as `v * 64 + rid + 1`, or 0 when every pair holds.
+(pub :: rgnStoreBad (-> Int Int Int Int))
+
+(pub fn (rgnStoreBad rc valMask tgtRid)
+  (let (
+    (mut i 0)
+    (mut bad 0)
+  )
+    {
+      (while (&& (< i 63) (== bad 0))
+        {
+          (if (!= (& valMask (<< 1 i)) 0)
+            (if (== (rgnOutlives rc (rgnOriginRid rc i) tgtRid) 0)
+              (set bad (+ (* i 64) (+ tgtRid 1)))
+              0
+            )
+            0
+          )
+          (set i (+ i 1))
+        })
+      bad
+    }
+  )
+)
+
+; The same over a TARGET given as an origin mask: every origin of the
+; target is a region the value must outlive.
+(pub :: rgnStoreBadMask (-> Int Int Int Int))
+
+(pub fn (rgnStoreBadMask rc valMask tgtMask)
+  (let (
+    (mut i 0)
+    (mut bad 0)
+  )
+    {
+      (while (&& (< i 63) (== bad 0))
+        {
+          (if (!= (& tgtMask (<< 1 i)) 0)
+            (set bad (rgnStoreBad rc valMask (rgnOriginRid rc i)))
+            0
+          )
+          (set i (+ i 1))
+        })
+      bad
+    }
+  )
+)
+
+(pub :: rgnEmitEscape (-> Int Int Int String String Int Int))
+
+(pub fn (rgnEmitEscape rc bad span into how valNode)
+  (if (== (rgnReport rc) 0)
+    0
+    (if (== bad 0)
+      0
+      (let (
+        (v (/ (- bad 1) 64))
+        (t (% (- bad 1) 64))
+        (capBad (rgnCaptureBad rc valNode (% (- bad 1) 64)))
+      )
+        (if (== capBad 0)
+          (emitDiag (rgnTc rc) (mkDiag
+            SEV_ERROR            "AX3060"            "region-escape"            span            (strConcat (strConcat (strConcat (strConcat (rgnOriginTextComma rc v) " is stored into ") into) (strConcat ", which lives in " (rgnRidText rc t))) how)            0            0            "MM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region"
+          ))
+          (emitDiag (rgnTc rc) (mkDiag
+            SEV_ERROR            "AX3062"            "region-capture"            span            (strConcat (strConcat (strConcat (strConcat (strConcat "the closure captures `" (rgnCaptureFor rc valNode (/ (- capBad 1) 64))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64)))) (strConcat ", and is stored into " into)) (strConcat (strConcat ", which lives in " (rgnRidText rc t)) how))            0            0            "MM-RGN-3 for a closure: a lambda's region is the region it is created in AND the region of everything it captures, because its record holds a reference to each capture. It may be stored only where every capture outlives the place. Capture a copy made in the place's region, or stop capturing the short-lived value"
+          ))
+        )
+      )
+    )
+  )
+)
+
+; ---- the environment ----
+(pub :: rgnBind (-> Int String Int Int Int))
+
+(pub fn (rgnBind rc name mask rid)
+  {
+    (vecPushStr (rgnNames rc) name)
+    (vecPush (rgnOrigs rc) mask)
+    (vecPush (rgnBinds rc) rid)
+    0
+  }
+)
+
+(pub :: rgnEnvLen (-> Int Int))
+
+(pub fn (rgnEnvLen rc) (vecLen (rgnNames rc)))
+
+(pub :: rgnEnvTrunc (-> Int Int Int))
+
+(pub fn (rgnEnvTrunc rc n)
+  (if (<= (vecLen (rgnNames rc)) n)
+    0
+    {
+      (vecPop (rgnNames rc))
+      (vecPop (rgnOrigs rc))
+      (vecPop (rgnBinds rc))
+      (rgnEnvTrunc rc n)
+    }
+  )
+)
+
+; The innermost binding of `name`, or -1.
+(pub :: rgnEnvFind (-> Int String Int))
+
+(pub fn (rgnEnvFind rc name) (rgnEnvFindFrom rc name (- (vecLen (rgnNames rc)) 1)))
+
+(pub :: rgnEnvFindFrom (-> Int String Int Int))
+
+(pub fn (rgnEnvFindFrom rc name i)
+  (if (< i 0)
+    (- 0 1)
+    (if (strEq (vecGetStr (rgnNames rc) i) name)
+      i
+      (rgnEnvFindFrom rc name (- i 1))
+    )
+  )
+)
+
+; ---- facts recording ----
+(pub :: rgnFactsOr (-> Int Int Int Int))
+
+(pub fn (rgnFactsOr rc word mask)
+  (let ((f (rgnFacts rc)))
+    (if (== (| (memGetWord f word) mask) (memGetWord f word))
+      0
+      {
+        (memSetWord f word (| (memGetWord f word) mask))
+        (memSetWord rc 14 1)
+        0
+      }
+    )
+  )
+)
+
+; A value with origins `valMask` flows into a place with origins
+; `tgtMask`: every parameter among the targets learns what flowed in.
+; `via` names the callee the flow went through, "" for this body.
+(pub :: rgnNoteFlow (-> Int Int Int String Int))
+
+(pub fn (rgnNoteFlow rc valMask tgtMask via)
+  (let (
+    (f (rgnFacts rc))
+    (params (& tgtMask (rgnParamMask rc)))
+    (fresh (!= (& valMask (rgnFreshMask rc)) 0))
+    (fromP (>> (& valMask (rgnParamMask rc)) 1))
+    (mut i 0)
+  )
+    {
+      (while (< i (memGetWord rc 3))
+        {
+          (if (!= (& params (<< 1 (+ i 1))) 0)
+            {
+              (if fresh
+                {
+                  (if (== (& (memGetWord f 1) (<< 1 i)) 0)
+                    (vecSet (memGetWordVec f 6) i via)
+                    (cast (Vec String) 0)
+                  )
+                  (rgnFactsOr rc 1 (<< 1 i))
+                }
+                0
+              )
+              (let ((ff (memGetWordVec f 2)))
+                (if (== (| (vecGet ff i) fromP) (vecGet ff i))
+                  0
+                  {
+                    (vecSet ff i (| (vecGet ff i) fromP))
+                    (memSetWord rc 14 1)
+                    0
+                  }
+                )
+              )
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; ---- the walk ----
+(pub :: rgnExpr (-> Int Int Int))
+
+(pub fn (rgnExpr rc e)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_VAR)
+        (rgnVar rc e)
+        (if (== tag TAG_E_APP)
+          (rgnApp rc e)
+          (if (== tag TAG_E_LAM)
+            (rgnLam rc e)
+            (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+              (let ((v (rgnExpr rc (nodeB e))))
+                (let ((mark (rgnEnvLen rc)))
+                  {
+                    (rgnBind rc (nodeAName e) v (memGetWord rc 8))
+                    (let ((r (rgnExpr rc (nodeC e))))
+                      {
+                        (rgnEnvTrunc rc mark)
+                        r
+                      }
+                    )
+                  }
+                )
+              )
+              (if (== tag TAG_E_IF)
+                {
+                  (rgnExpr rc (nodeA e))
+                  (| (rgnExpr rc (nodeB e)) (rgnExpr rc (nodeC e)))
+                }
+                (if (== tag TAG_E_COND)
+                  (| (rgnCondClauses rc (nodeAVec e) 0 0) (rgnExpr rc (nodeB e)))
+                  (if (== tag TAG_E_BEGIN)
+                    (rgnSeq rc (nodeAVec e) 0 0)
+                    (if (== tag TAG_E_MATCH)
+                      (rgnMatch rc e)
+                      (if (== tag TAG_E_WHILE)
+                        (rgnWhile rc e)
+                        (if (== tag TAG_E_SET)
+                          (rgnSet rc e)
+                          (if (== tag TAG_E_SETF)
+                            (rgnSetField rc e)
+                            (if (== tag TAG_E_FIELD)
+                              (rgnExpr rc (nodeA e))
+                              (if (== tag TAG_E_HANDLE)
+                                (let ((b (rgnExpr rc (nodeA e))))
+                                  {
+                                    (rgnExpr rc (nodeC e))
+                                    b
+                                  }
+                                )
+                                (if (== tag TAG_E_STRUCTCON)
+                                  (| (memGetWord rc 7) (rgnArgsUnion rc (nodeBVec e) 0 0))
+                                  (if (== tag TAG_E_ALLOC)
+                                    (memGetWord rc 7)
+                                    (if (== tag TAG_E_REGION)
+                                      (rgnRegionForm rc e)
+                                      0
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: rgnVar (-> Int Int Int))
+
+(pub fn (rgnVar rc e)
+  (let ((idx (rgnEnvFind rc (nodeAName e))))
+    (if (< idx 0)
+      ; a global: a function's name, a constructor, a builtin - static
+      0
+      {
+        ; A read below the innermost lambda's base is a CAPTURE, and
+        ; the closure's origins grow by it.
+        (if (&& (>= (memGetWord rc 16) 0) (< idx (memGetWord rc 16)))
+          (if (!= (vecGet (rgnOrigs rc) idx) 0)
+            {
+              (memSetWord rc 17 (| (memGetWord rc 17) (vecGet (rgnOrigs rc) idx)))
+              (if (< (strVecIdx (memGetWordVec rc 18) (nodeAName e)) 0)
+                {
+                  (vecPushStr (memGetWordVec rc 18) (nodeAName e))
+                  (vecPush (memGetWordVec rc 20) (vecGet (rgnOrigs rc) idx))
+                  0
+                }
+                0
+              )
+            }
+            0
+          )
+          0
+        )
+        (vecGet (rgnOrigs rc) idx)
+      }
+    )
+  )
+)
+
+(pub :: rgnSeq (-> Int (Vec Int) Int Int Int))
+
+(pub fn (rgnSeq rc v i last)
+  (if (== (cast Int v) 0)
+    last
+    (if (>= i (vecLen v))
+      last
+      (rgnSeq rc v (+ i 1) (rgnExpr rc (vecGet v i)))
+    )
+  )
+)
+
+(pub :: rgnArgsUnion (-> Int (Vec Int) Int Int Int))
+
+(pub fn (rgnArgsUnion rc v i acc)
+  (if (== (cast Int v) 0)
+    acc
+    (if (>= i (vecLen v))
+      acc
+      (rgnArgsUnion rc v (+ i 1) (| acc (rgnExpr rc (vecGet v i))))
+    )
+  )
+)
+
+(pub :: rgnCondClauses (-> Int (Vec Int) Int Int Int))
+
+(pub fn (rgnCondClauses rc clauses i acc)
+  (if (>= i (vecLen clauses))
+    acc
+    (let ((cl (vecGet clauses i)))
+      {
+        (rgnExpr rc (nodeA cl))
+        (rgnCondClauses rc clauses (+ i 1) (| acc (rgnExpr rc (nodeB cl))))
+      }
+    )
+  )
+)
+
+; A loop body is walked twice: a `set` late in the body widens a
+; binding a read early in the body already answered for, and the
+; second pass sees the widened origins. Reporting is off for the
+; first pass so a refusal is written once.
+(pub :: rgnWhile (-> Int Int Int))
+
+(pub fn (rgnWhile rc e)
+  (let ((rep (memGetWord rc 12)))
+    {
+      (memSetWord rc 12 0)
+      (rgnExpr rc (nodeA e))
+      (rgnSeq rc (nodeBVec e) 0 0)
+      (memSetWord rc 12 rep)
+      (rgnExpr rc (nodeA e))
+      (rgnSeq rc (nodeBVec e) 0 0)
+      0
+    }
+  )
+)
+
+(pub :: rgnMatch (-> Int Int Int))
+
+(pub fn (rgnMatch rc e)
+  (let ((s (rgnExpr rc (nodeA e))))
+    (rgnArms rc (nodeBVec e) 0 s 0)
+  )
+)
+
+(pub :: rgnArms (-> Int (Vec Int) Int Int Int Int))
+
+(pub fn (rgnArms rc arms i s acc)
+  (if (>= i (vecLen arms))
+    acc
+    (let (
+      (arm (vecGet arms i))
+      (mark (rgnEnvLen rc))
+    )
+      {
+        (rgnBindPat rc (nodeA arm) s)
+        (let ((r (rgnExpr rc (nodeB arm))))
+          {
+            (rgnEnvTrunc rc mark)
+            (rgnArms rc arms (+ i 1) s (| acc r))
+          }
+        )
+      }
+    )
+  )
+)
+
+; A pattern's binders take the scrutinee's origins: a field of a
+; value lives where the value does.
+(pub :: rgnBindPat (-> Int Int Int Int))
+
+(pub fn (rgnBindPat rc pat s)
+  (if (== pat 0)
+    0
+    (let ((tag (nodeTag pat)))
+      (if (== tag TAG_E_VAR)
+        (if (|| (strEq (nodeAName pat) "_") (|| (strEq (nodeAName pat) "true") (strEq (nodeAName pat) "false")))
+          0
+          (rgnBind rc (nodeAName pat) s (memGetWord rc 8))
+        )
+        (if (== tag TAG_E_APP)
+          (rgnBindPats rc (spineArgVec pat vecNew) 0 s)
+          (if (== tag TAG_P_CONNAMED)
+            (rgnBindPats rc (nodeCVec pat) 0 s)
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: rgnBindPats (-> Int (Vec Int) Int Int Int))
+
+(pub fn (rgnBindPats rc pats i s)
+  (if (== (cast Int pats) 0)
+    0
+    (if (>= i (vecLen pats))
+      0
+      {
+        (rgnBindPat rc (vecGet pats i) s)
+        (rgnBindPats rc pats (+ i 1) s)
+      }
+    )
+  )
+)
+
+; `(set x v)`: the cell was made in the region current at its `let`,
+; and the value must outlive that. Then the binding's origins widen.
+(pub :: rgnSet (-> Int Int Int))
+
+(pub fn (rgnSet rc e)
+  (let (
+    (v (rgnExpr rc (nodeB e)))
+    (idx (rgnEnvFind rc (nodeAName e)))
+  )
+    (if (< idx 0)
+      0
+      {
+        (rgnEmitEscape
+          rc          (rgnStoreBad rc v (vecGet (rgnBinds rc) idx))          (nodeSpan e)          (strConcat (strConcat "the binding `" (nodeAName e)) "`")          ""          (nodeB e)
+        )
+        (vecSet (rgnOrigs rc) idx (| (vecGet (rgnOrigs rc) idx) v))
+        0
+      }
+    )
+  )
+)
+
+; `(set b.f v)`: the field's owner is the place.
+(pub :: rgnSetField (-> Int Int Int))
+
+(pub fn (rgnSetField rc e)
+  (let (
+    (b (rgnExpr rc (nodeA e)))
+    (v (rgnExpr rc (nodeC e)))
+  )
+    {
+      (rgnEmitEscape
+        rc        (rgnStoreBadMask rc v b)        (nodeSpan e)        (strConcat (strConcat "the field `" (nodeBName e)) "` of a value")        ""        (nodeC e)
+      )
+      (rgnNoteFlow rc v b "")
+      0
+    }
+  )
+)
+
+; A closure: created in the current region, and holding a reference
+; to every capture. Its parameters arrive from a caller this walk
+; cannot see, so they are taken as fresh in the current region - the
+; conservative reading. Nested lambdas propagate captures outward: a
+; capture of the inner lambda that is below the OUTER lambda's base is
+; the outer's capture too.
+(pub :: rgnLam (-> Int Int Int))
+
+(pub fn (rgnLam rc e)
+  (let (
+    (mark (rgnEnvLen rc))
+    (savedBase (memGetWord rc 16))
+    (savedCap (memGetWord rc 17))
+    (savedNames (memGetWord rc 18))
+    (savedMasks (memGetWord rc 20))
+    (params (nodeAVec e))
+  )
+    {
+      (memSetWord rc 16 mark)
+      (memSetWord rc 17 0)
+      (memSetWord rc 18 (cast Int (rgnStrVec)))
+      (memSetWord rc 20 (cast Int (rgnIntVec)))
+      (rgnBindParams rc params 0 (memGetWord rc 7))
+      (rgnExpr rc (nodeB e))
+      (rgnEnvTrunc rc mark)
+      (let ((cap (memGetWord rc 17)))
+        {
+          (memSetWord rc 16 savedBase)
+          ; what the inner captured below the outer's base, the outer
+          ; captured too - and the outer's capture list grows by the
+          ; inner's, so a store of the outer names the right capture
+          (memSetWord rc 17 (| savedCap (rgnCapBelow rc cap savedBase)))
+          (if (< savedBase 0)
+            0
+            (rgnMergeCaps (memGetWordVec rc 18) (memGetWordVec rc 20) (cast (Vec String) savedNames) (cast (Vec Int) savedMasks) 0)
+          )
+          ; The closure's own origins: where it was made, and what it
+          ; holds. Its capture lists stay in words 18/20 for the store
+          ; or return that follows this expression to name a capture.
+          (| (memGetWord rc 7) cap)
+        }
+      )
+    }
+  )
+)
+
+; Of a capture mask, the part that is ALSO a capture for a lambda
+; whose base is `base` - conservatively the whole mask, because the
+; mask carries origins and not env indices.
+; Add the inner lambda's captures to the outer's lists, by name.
+(pub :: rgnMergeCaps (-> (Vec String) (Vec Int) (Vec String) (Vec Int) Int Int))
+
+(pub fn (rgnMergeCaps names masks outNames outMasks i)
+  (if (>= i (vecLen names))
+    0
+    {
+      (if (< (strVecIdx outNames (vecGetStr names i)) 0)
+        {
+          (vecPushStr outNames (vecGetStr names i))
+          (vecPush outMasks (vecGet masks i))
+          0
+        }
+        0
+      )
+      (rgnMergeCaps names masks outNames outMasks (+ i 1))
+    }
+  )
+)
+
+; The name of the last lambda's capture that carries origin `bit`,
+; when the value at `node` IS that lambda; "" otherwise.
+(pub :: rgnCaptureFor (-> Int Int Int String))
+
+(pub fn (rgnCaptureFor rc node bit)
+  (if (== node 0)
+    ""
+    (if (!= (nodeTag node) TAG_E_LAM)
+      ""
+      (rgnCaptureFrom (memGetWordVec rc 18) (memGetWordVec rc 20) bit 0)
+    )
+  )
+)
+
+; When the value at `node` is the last lambda walked: the first
+; (capture origin, target) pair that violates the order against
+; `tgtRid`, in `rgnStoreBad`'s encoding, or 0. Asked BEFORE the
+; closure's own record is blamed, because "the closure captures `s`"
+; is the fix's address and "a value allocated here" is not.
+(pub :: rgnCaptureBad (-> Int Int Int Int))
+
+(pub fn (rgnCaptureBad rc node tgtRid)
+  (if (== node 0)
+    0
+    (if (!= (nodeTag node) TAG_E_LAM)
+      0
+      (rgnCaptureBadFrom rc (memGetWordVec rc 20) tgtRid 0)
+    )
+  )
+)
+
+(pub :: rgnCaptureBadFrom (-> Int (Vec Int) Int Int Int))
+
+(pub fn (rgnCaptureBadFrom rc masks tgtRid i)
+  (if (>= i (vecLen masks))
+    0
+    (let ((bad (rgnStoreBad rc (vecGet masks i) tgtRid)))
+      (if (!= bad 0)
+        bad
+        (rgnCaptureBadFrom rc masks tgtRid (+ i 1))
+      )
+    )
+  )
+)
+
+(pub :: rgnCaptureFrom (-> (Vec String) (Vec Int) Int Int String))
+
+(pub fn (rgnCaptureFrom names masks bit i)
+  (if (>= i (vecLen names))
+    ""
+    (if (!= (& (vecGet masks i) (<< 1 bit)) 0)
+      (vecGetStr names i)
+      (rgnCaptureFrom names masks bit (+ i 1))
+    )
+  )
+)
+
+(pub :: rgnCapBelow (-> Int Int Int Int))
+
+(pub fn (rgnCapBelow rc cap base)
+  (if (< base 0)
+    0
+    cap
+  )
+)
+
+(pub :: rgnBindParams (-> Int (Vec String) Int Int Int))
+
+(pub fn (rgnBindParams rc params i mask)
+  (if (== (cast Int params) 0)
+    0
+    (if (>= i (vecLen params))
+      0
+      {
+        (rgnBind rc (vecGetStr params i) mask (memGetWord rc 8))
+        (rgnBindParams rc params (+ i 1) mask)
+      }
+    )
+  )
+)
+
+; `(region r E)` - S2's node, walked against its contract: `r` in the
+; name slot, `E` in word 2. Fresh values inside are the form's; the
+; form's value is PROMOTED into the enclosing region, shallowly.
+(pub :: rgnRegionForm (-> Int Int Int))
+
+(pub fn (rgnRegionForm rc e)
+  (let (
+    (n (memGetWord rc 3))
+    (k (vecLen (rgnFormParents rc)))
+    (savedBit (memGetWord rc 7))
+    (savedRid (memGetWord rc 8))
+  )
+    (if (>= (+ n k) 61)
+      (rgnExpr rc (nodeB e))
+      (let ((bit (<< 1 (+ (+ n 1) k))))
+        {
+          (vecPush (rgnFormParents rc) savedRid)
+          (vecPushStr (rgnFormNames rc) (nodeAName e))
+          (memSetWord rc 7 bit)
+          (memSetWord rc 8 (+ (+ (vecLen (rgnRegionNames rc)) 1) k))
+          (let ((v (rgnExpr rc (nodeB e))))
+            {
+              (memSetWord rc 7 savedBit)
+              (memSetWord rc 8 savedRid)
+              (if (!= (& v bit) 0)
+                (| (& v (^ v bit)) savedBit)
+                v
+              )
+            }
+          )
+        }
+      )
+    )
+  )
+)
+
+; ---- calls ----
+(pub :: rgnApp (-> Int Int Int))
+
+(pub fn (rgnApp rc e)
+  (let (
+    (head (spineHead e))
+    (args (spineArgVec e vecNew))
+    (tc (rgnTc rc))
+  )
+    (if (!= (nodeTag head) TAG_E_VAR)
+      {
+        (rgnExpr rc head)
+        (rgnUnknownCall rc args (spanOf e))
+      }
+      (let ((n (nodeAName head)))
+        (if (>= (rgnEnvFind rc n) 0)
+          (rgnUnknownCall rc args (spanOf e))
+          (if (== (isCastLike n) 1)
+            (rgnLastArg rc args)
+            (if (!= (findCtor tc n) 0)
+              (| (memGetWord rc 7) (rgnArgsUnion rc args 0 0))
+              (if (!= (findStructIfConstruct tc n) 0)
+                (| (memGetWord rc 7) (rgnArgsUnion rc args 0 0))
+                (let ((ent (findFnEnt tc n)))
+                  (if (== ent 0)
+                    (rgnUnknownCall rc args (spanOf e))
+                    (if (== (memGetWord ent 3) 1)
+                      (rgnBuiltinCall rc n args (spanOf e))
+                      (if (== (memGetWord ent 4) 1)
+                        (rgnUnknownCall rc args (spanOf e))
+                        (if (== (memGetWord ent 4) 2)
+                          {
+                            (rgnArgsUnion rc args 0 0)
+                            (memGetWord rc 7)
+                          }
+                          (rgnKnownCall rc ent n args (spanOf e))
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: rgnLastArg (-> Int (Vec Int) Int))
+
+(pub fn (rgnLastArg rc args)
+  (if (== (vecLen args) 0)
+    0
+    (let ((mut i 0) (mut last 0))
+      {
+        (while (< i (vecLen args))
+          {
+            (set last (rgnExpr rc (vecGet args i)))
+            (set i (+ i 1))
+          })
+        last
+      }
+    )
+  )
+)
+
+; A callee the walk cannot read: assume it stores every argument into
+; every argument and allocates its result.
+(pub :: rgnUnknownCall (-> Int (Vec Int) Int Int))
+
+(pub fn (rgnUnknownCall rc args span)
+  (let (
+    (masks (rgnIntVec))
+    (mut i 0)
+    (mut u 0)
+  )
+    {
+      (while (< i (vecLen args))
+        {
+          (vecPush masks (rgnExpr rc (vecGet args i)))
+          (set u (| u (vecGet masks i)))
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (vecLen args))
+        {
+          (if (!= (vecGet masks i) 0)
+            {
+              (rgnEmitEscape
+                rc                (rgnStoreBadMask rc (| u (memGetWord rc 7)) (vecGet masks i))                span                (strConcat (strConcat "argument " (decStr (+ i 1))) " of a call the compiler cannot resolve")                " - a call through a parameter, a closure or a field is assumed to store every argument into every argument"                0
+              )
+              (rgnNoteFlow rc (| u (memGetWord rc 7)) (vecGet masks i) "<unresolved call>")
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      (if (== (memGetWord (rgnFacts rc) 5) 0)
+        {
+          (memSetWord (rgnFacts rc) 5 1)
+          (memSetWord rc 14 1)
+        }
+        0
+      )
+      (| (memGetWord rc 7) u)
+    }
+  )
+)
+
+; A primitive with no body, classified by name. Stores and reads
+; through a handle are the two shapes that matter; everything else
+; answers a word.
+(pub :: rgnBuiltinCall (-> Int String (Vec Int) Int Int))
+
+(pub fn (rgnBuiltinCall rc n args span)
+  (let (
+    (masks (rgnIntVec))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen args))
+        {
+          (vecPush masks (rgnExpr rc (vecGet args i)))
+          (set i (+ i 1))
+        })
+      (if (|| (strEq n "__store64") (|| (strEq n "__atomic_store") (|| (strEq n "__atomic_cas") (strEq n "__atomic_add"))))
+        (if (>= (vecLen masks) 2)
+          (let ((v (vecGet masks (- (vecLen masks) 1))))
+            {
+              (rgnEmitEscape
+                rc                (rgnStoreBadMask rc v (vecGet masks 0))                span                (strConcat (strConcat "the block `" n) "` writes")                ""                (vecGet args (- (vecLen args) 1))
+              )
+              (rgnNoteFlow rc v (vecGet masks 0) "")
+              0
+            }
+          )
+          0
+        )
+        (if (|| (strEq n "__load64") (|| (strEq n "__load8") (strEq n "__atomic_load")))
+          (if (>= (vecLen masks) 1)
+            (vecGet masks 0)
+            0
+          )
+          (if (strEq n "__alloc")
+            (memGetWord rc 7)
+            (if (strEq n "__axiom_arena_reset_keeping")
+              (if (>= (vecLen masks) 2)
+                (vecGet masks 1)
+                0
+              )
+              (if (strEq n "__call_word")
+                (rgnUnknownCall rc args span)
+                0
+              )
+            )
+          )
+        )
+      )
+    }
+  )
+)
+
+; A user function: its signature's regions instantiate against the
+; arguments, and its facts say what it stores where.
+(pub :: rgnKnownCall (-> Int Int String (Vec Int) Int Int))
+
+(pub fn (rgnKnownCall rc ent spelled args span)
+  (let (
+    (masks (rgnIntVec))
+    ; the entry's own name is the mangled one the declaration carries
+    ; (`Vec$vecPush`); the spelling at the call may be bare or qualified
+    (callee (memGetWordStr ent 0))
+    (sig (memGetWord ent 1))
+    (f (memGetWord ent 8))
+    (tc (rgnTc rc))
+    (instNames (rgnStrVec))
+    (instMasks (rgnIntVec))
+    (mut i 0)
+    (mut res 0)
+  )
+    {
+      (while (< i (vecLen args))
+        {
+          (vecPush masks (rgnExpr rc (vecGet args i)))
+          (set i (+ i 1))
+        })
+      ; 1. the annotated parameters: bind each region name to the
+      ;    union of its arguments' origins, and every argument under
+      ;    one name must carry exactly that union - two arguments in
+      ;    two regions cannot both be `@r`.
+      (set i 0)
+      (while (< i (vecLen args))
+        {
+          (let ((rn (rgnParamRegion sig i)))
+            (if (== rn 0)
+              0
+              (let ((k (strVecIdx instNames (cast String rn))))
+                (if (< k 0)
+                  {
+                    (vecPushStr instNames (cast String rn))
+                    (vecPush instMasks (vecGet masks i))
+                    0
+                  }
+                  {
+                    (if (&& (== (rgnReport rc) 1) (== (rgnSameRegion rc (vecGet instMasks k) (vecGet masks i)) 0))
+                      (emitDiag tc (mkDiag
+                        SEV_ERROR                        "AX3063"                        "region-argument"                        span                        (strConcat (strConcat (strConcat (strConcat (strConcat "`" (bareOf callee)) "` names one region `@") (cast String rn)) "` for two of these arguments, and they do not live in the same region: ") (strConcat (strConcat (rgnOriginText rc (rgnFirstBit (vecGet instMasks k))) " against ") (rgnOriginText rc (rgnFirstBit (vecGet masks i)))))                        0                        0                        "a region parameter is instantiated ONCE per call, like a type variable; every argument annotated with it must live in that one region. Pass values from one region, or give the parameters different region names"
+                      ))
+                      0
+                    )
+                    (vecSet instMasks k (| (vecGet instMasks k) (vecGet masks i)))
+                    0
+                  }
+                )
+              )
+            )
+          )
+          (set i (+ i 1))
+        })
+      ; 2. the facts: what the callee stores through each parameter
+      (if (== f 0)
+        0
+        {
+          (set i 0)
+          (while (< i (vecLen args))
+            {
+              (if (< i (memGetWord f 7))
+                (let (
+                  (fresh (!= (& (memGetWord f 1) (<< 1 i)) 0))
+                  (from (vecGet (memGetWordVec f 2) i))
+                  (into (strConcat (strConcat (strConcat (strConcat "parameter `" (rgnCalleeParamName tc callee i)) "` of `") (bareOf callee)) "`"))
+                )
+                  {
+                    (if fresh
+                      {
+                        (rgnEmitEscape
+                          rc                          (rgnStoreBadMask rc (memGetWord rc 7) (vecGet masks i))                          span                          into                          (strConcat (strConcat " - `" (bareOf callee)) "` stores a value it allocates into that parameter")                          0
+                        )
+                        (rgnNoteFlow rc (memGetWord rc 7) (vecGet masks i) callee)
+                      }
+                      0
+                    )
+                    (let ((mut j 0))
+                      (while (< j (vecLen args))
+                        {
+                          (if (!= (& from (<< 1 j)) 0)
+                            {
+                              (rgnEmitEscape
+                                rc                                (rgnStoreBadMask rc (vecGet masks j) (vecGet masks i))                                span                                into                                (strConcat (strConcat (strConcat (strConcat " - `" (bareOf callee)) "` stores its parameter `") (rgnCalleeParamName tc callee j)) "` into it")                                (vecGet args j)
+                              )
+                              (rgnNoteFlow rc (vecGet masks j) (vecGet masks i) callee)
+                            }
+                            0
+                          )
+                          (set j (+ j 1))
+                        })
+                    )
+                  }
+                )
+                0
+              )
+              (set i (+ i 1))
+            })
+          (if (!= (memGetWord f 5) 0)
+            (if (== (memGetWord (rgnFacts rc) 5) 0)
+              {
+                (memSetWord (rgnFacts rc) 5 1)
+                (memSetWord rc 14 1)
+              }
+              0
+            )
+            0
+          )
+        }
+      )
+      ; 3. the result: the declared region if the signature names one,
+      ;    else what the facts say - fresh, and/or some parameters'
+      (let ((rr (tyRegion (rgnResultTy sig))))
+        (if (!= rr 0)
+          (let ((k (strVecIdx instNames (cast String rr))))
+            (if (< k 0)
+              (memGetWord rc 7)
+              (vecGet instMasks k)
+            )
+          )
+          (if (== f 0)
+            (memGetWord rc 7)
+            {
+              (if (!= (memGetWord f 4) 0)
+                (set res (memGetWord rc 7))
+                0
+              )
+              (set i 0)
+              (while (< i (vecLen args))
+                {
+                  (if (!= (& (memGetWord f 3) (<< 1 i)) 0)
+                    (set res (| res (vecGet masks i)))
+                    0
+                  )
+                  (set i (+ i 1))
+                })
+              res
+            }
+          )
+        )
+      )
+    }
+  )
+)
+
+; The set of region identities an origin mask stands in, as a mask
+; over identities. A static value (origin mask 0) stands in none - it
+; outlives every region, so it agrees with any.
+(pub :: rgnMaskRids (-> Int Int Int))
+
+(pub fn (rgnMaskRids rc mask)
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
+    {
+      (while (< i 63)
+        {
+          (if (!= (& mask (<< 1 i)) 0)
+            (set acc (| acc (<< 1 (rgnOriginRid rc i))))
+            0
+          )
+          (set i (+ i 1))
+        })
+      acc
+    }
+  )
+)
+
+; Do two origin masks stand in one region? Equal identity sets, or
+; either empty (static).
+(pub :: rgnSameRegion (-> Int Int Int Int))
+
+(pub fn (rgnSameRegion rc a b)
+  (let (
+    (ra (rgnMaskRids rc a))
+    (rb (rgnMaskRids rc b))
+  )
+    (if (|| (== ra 0) (== rb 0))
+      1
+      (if (== ra rb)
+        1
+        0
+      )
+    )
+  )
+)
+
+; The i-th parameter's NAME of a callee, from its `fn` declaration,
+; or its index when the declaration is not at hand.
+(pub :: rgnCalleeParamName (-> Int String Int String))
+
+(pub fn (rgnCalleeParamName tc callee i)
+  (let ((d (rgnDeclOf tc callee)))
+    (if (== d 0)
+      (decStr i)
+      (if (< i (vecLen (nodeBVec d)))
+        (vecGetStr (nodeBVec d) i)
+        (decStr i)
+      )
+    )
+  )
+)
+
+(pub :: rgnDeclOf (-> Int String Int))
+
+(pub fn (rgnDeclOf tc name) (rgnDeclOfFrom (memGetWordVec tc 10) name 0))
+
+(pub :: rgnDeclOfFrom (-> (Vec Int) String Int Int))
+
+(pub fn (rgnDeclOfFrom decls name i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_FN) (strEq (nodeAName d) name))
+        d
+        (rgnDeclOfFrom decls name (+ i 1))
+      )
+    )
+  )
+)
+
+; ---- one function ----
+(pub :: rgnWalkFn (-> Int Int Int Int Int))
+
+(pub fn (rgnWalkFn tc d ent report)
+  (let (
+    (rc (rgnCtxNew tc d ent report))
+    (sig (memGetWord ent 1))
+    (params (nodeBVec d))
+    (mut i 0)
+  )
+    {
+      ; the parameters: origin bit 1+i, region = declared or CUR0
+      (while (< i (vecLen params))
+        {
+          (let ((rn (rgnParamRegion sig i)))
+            (vecPush (rgnParamRids rc) (if (== rn 0)
+              0
+              (rgnNameRid rc (cast String rn))
+            ))
+          )
+          (rgnBind rc (vecGetStr params i) (<< 1 (+ i 1)) (vecGet (rgnParamRids rc) i))
+          (set i (+ i 1))
+        })
+      (let (
+        (rr (tyRegion (rgnResultTy sig)))
+        (body (rgnExpr rc (nodeC d)))
+      )
+        (let ((resRid
+          (if (== rr 0)
+            0
+            (if (>= (strVecIdx (rgnRegionNames rc) (cast String rr)) 0)
+              (rgnNameRid rc (cast String rr))
+              (- 0 1)
+            )
+          )
+        ))
+          {
+            (if (== resRid (- 0 1))
+              (if (== report 1)
+                (emitDiag tc (mkDiag
+                  SEV_ERROR                  "AX3063"                  "region-argument"                  (nodeSpan d)                  (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` answers a value in region `@") (cast String rr)) "`, which no parameter supplies")                  0                  0                  "a region parameter is chosen by the CALLER through an argument, as a type variable is; a region named only in the result is one the callee would have to invent. Name it on a parameter, or drop the annotation and answer a value in the caller's current region"
+                ))
+                0
+              )
+              {
+                (rgnEmitReturn rc (rgnStoreBad rc body resRid) (nodeSpan d) (nodeC d))
+                0
+              }
+            )
+            (rgnFactsOr rc 3 (>> (& body (rgnParamMask rc)) 1))
+            (if (!= (& body (rgnFreshMask rc)) 0)
+              (if (== (memGetWord (rgnFacts rc) 4) 0)
+                {
+                  (memSetWord (rgnFacts rc) 4 1)
+                  (memSetWord rc 14 1)
+                }
+                0
+              )
+              0
+            )
+            (memGetWord rc 14)
+          }
+        )
+      )
+    }
+  )
+)
+
+(pub :: rgnEmitReturn (-> Int Int Int Int Int))
+
+(pub fn (rgnEmitReturn rc bad span bodyNode)
+  (if (== (rgnReport rc) 0)
+    0
+    (if (== bad 0)
+      0
+      (let (
+        (v (/ (- bad 1) 64))
+        (t (% (- bad 1) 64))
+        (capBad (rgnCaptureBad rc bodyNode (% (- bad 1) 64)))
+        (cap (if (== (rgnCaptureBad rc bodyNode (% (- bad 1) 64)) 0)
+          ""
+          (rgnCaptureFor rc bodyNode (/ (- (rgnCaptureBad rc bodyNode (% (- bad 1) 64)) 1) 64))
+        ))
+      )
+        (if (== (strLen cap) 0)
+          (emitDiag (rgnTc rc) (mkDiag
+            SEV_ERROR            "AX3061"            "region-return"            span            (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName (memGetWord rc 1)))) "` answers ") (rgnOriginText rc v)) (strConcat ", and its result is declared to live in " (rgnRidText rc t)))            0            0            "MM-RGN-3 at the return: the result is read by a caller in the declared region, after every shorter region has been reclaimed. Answer a value that lives in the declared region - one derived from a parameter annotated with it - or drop the result's annotation, which makes the result the caller's current region and lets the caller decide"
+          ))
+          (emitDiag (rgnTc rc) (mkDiag
+            SEV_ERROR            "AX3062"            "region-capture"            span            (strConcat (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName (memGetWord rc 1)))) "` answers a closure that captures `") cap) "`, which lives in ") (strConcat (strConcat (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64))) ", and its result is declared to live in ") (rgnRidText rc t)))            0            0            "MM-RGN-3 for a closure: a lambda's region is the region it is created in AND the region of everything it captures, because its record holds a reference to each capture. It may be answered into a region only if every capture outlives it. Capture a copy made in that region, or stop capturing the short-lived value"
+          ))
+        )
+      )
+    )
+  )
+)
+
+; ---- the driver ----
+(pub :: rgnCheckAll (-> Int Int))
+
+(pub fn (rgnCheckAll tc)
+  (if (== (rgnProgramUsesRegions tc) 0)
+    0
+    {
+      (rgnEnsureFacts tc)
+      (rgnPass tc (memGetWordVec tc 10) 0 1)
+      0
+    }
+  )
+)
+
+; The facts fixpoint, run once per module and on first demand - the
+; region pass demands it, and so does a `restrict(no-escape)` claim
+; checked in the middle of `tcWalkDecls`. TC word 28 records that it
+; has run.
+(pub :: rgnEnsureFacts (-> Int Int))
+
+(pub fn (rgnEnsureFacts tc)
+  (if (!= (memGetWord tc 28) 0)
+    0
+    {
+      (memSetWord tc 28 1)
+      (rgnRounds tc (memGetWordVec tc 10) 0)
+      0
+    }
+  )
+)
+
+(pub :: rgnRounds (-> Int (Vec Int) Int Int))
+
+(pub fn (rgnRounds tc decls round)
+  (if (>= round 40)
+    0
+    (if (== (rgnPass tc decls 0 0) 0)
+      0
+      (rgnRounds tc decls (+ round 1))
+    )
+  )
+)
+
+; One walk over every `fn`; answers whether any facts changed.
+(pub :: rgnPass (-> Int (Vec Int) Int Int Int))
+
+(pub fn (rgnPass tc decls i report)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      (if (!= (nodeTag d) TAG_D_FN)
+        (rgnPass tc decls (+ i 1) report)
+        (let (
+          (_m (memSetWord tc 16 (nodeModule d)))
+          (ent (findFnEnt tc (nodeAName d)))
+          (_m0 (memSetWord tc 16 0))
+        )
+          (if (== ent 0)
+            (rgnPass tc decls (+ i 1) report)
+            (let (
+              (_m1 (memSetWord tc 16 (nodeModule d)))
+              (changed (rgnWalkFn tc d ent report))
+              (_m2 (memSetWord tc 16 0))
+            )
+              (if (== (rgnPass tc decls (+ i 1) report) 1)
+                1
+                changed
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; ---- `restrict(no-escape)` ----
+; The claim: this declaration stores nothing it allocates into any of
+; its parameters. Read off the facts, on the rail every restriction
+; rides: refuted (AX3049, naming the parameter and the callee the
+; store went through), unverifiable (AX3051, or AX3057 under
+; `strict`) when the body calls something the walk cannot resolve,
+; silent when proven.
+; The first parameter a fresh value flows into through a RESOLVED
+; door - this body or a named callee - or -1. A flow recorded by an
+; unresolved call is the conservative assumption, not a finding, and
+; the claim over it is unverifiable rather than refuted.
+(pub :: rgnResolvedCulprit (-> Int Int Int))
+
+(pub fn (rgnResolvedCulprit f i)
+  (if (>= i (memGetWord f 7))
+    (- 0 1)
+    (if (&& (!= (& (memGetWord f 1) (<< 1 i)) 0) (if (strEq (vecGetStr (memGetWordVec f 6) i) "<unresolved call>") false true))
+      i
+      (rgnResolvedCulprit f (+ i 1))
+    )
+  )
+)
+
+(pub :: restrictNoEscape (-> Int Int String Int))
+
+(pub fn (restrictNoEscape tc d r)
+  {
+    (rgnEnsureFacts tc)
+    (let ((ent (findFnEnt tc (nodeAName d))))
+      (if (== ent 0)
+        0
+        (let ((f (memGetWord ent 8)))
+          (if (== f 0)
+            0
+            (let ((i (rgnResolvedCulprit f 0)))
+              (if (>= i 0)
+                (emitRestrictViolated
+                  tc                  d                  r                  (strConcat (strConcat (strConcat "the body stores a value it allocates into its parameter `" (rgnCalleeParamName tc (nodeAName d) i)) "`") (if (== (strLen (vecGetStr (memGetWordVec f 6) i)) 0)
+                    " in its own body"
+                    (strConcat (strConcat " through `" (bareOf (vecGetStr (memGetWordVec f 6) i))) "`")
+                  ))
+                )
+                (if (!= (memGetWord f 5) 0)
+                  (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve - a parameter, a closure or a field - so where its allocations flow is not something the walk can settle")
+                  0
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  }
+)
+
 ; ------------------------------------------------------------------
 ; Every diagnostic for one module, in stage0's emission order.
 ; ------------------------------------------------------------------
@@ -20223,6 +22038,11 @@
         (checkImportNames entryDecls allDecls out 0)
         (checkMissingDefs (defIdxBuild allDecls) entryDecls out 0)
         (tcWalkDecls tc 0)
+        ; Stage S3's escape rule, after every body has been checked:
+        ; it reads the call graph the effect fixpoint built and the
+        ; signatures as declared, and it is ABSENT - not silent - for a
+        ; program whose signatures name no region (`rgnCheckAll`).
+        (rgnCheckAll tc)
         tc
       }
     )

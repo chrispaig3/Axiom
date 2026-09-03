@@ -165,10 +165,10 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-03, `axiom fmt --check` over every one of the 601 `.ax` files
-in the repository answers `is already formatted` for 478 of them and
-`needs formatting` for 123. Two of the 123 are deliberate and are named
-below; the other 121 were committed unformatted, and that same sweep is
+2026-09-03, `axiom fmt --check` over every one of the 608 `.ax` files
+in the repository answers `is already formatted` for 483 of them and
+`needs formatting` for 125. Two of the 125 are deliberate and are named
+below; the other 123 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
@@ -302,6 +302,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-diverging-tyvar.sh` | `AX3040` is an error, and the analysis that made that possible tells a function that never returns from one that fabricates a value. Eight diverging spellings must be accepted, three fabricating ones refused, and the accepted program with ONE WORD changed - the `(exit 70)` a cast wraps becoming the literal `70` - must be refused |
 | `check-vec-field-shape.sh` | A `Vec` field maps exactly as the `Int` it replaces. `fldClass`'s third answer is UNCLASSIFIABLE, which forces the whole block to the LEAF shape - so a record holding a `Vec` lost the reference map for its OTHER fields and read shape word 8 where an `Int` in that slot reads 262152. Four rows, two of which must read a different number, so the equality cannot pass vacuously |
 | `check-region-scope.sh` | `(region r body)` is a checked scope (S2 of `docs/memory-model-v2-design.md`): a no-region program emits no region cell; 4,000 regions of 64 KiB against the same body without the word is a peak-RSS ratio; `631`/`630` draw exactly their rows; and an ablation — `rgTyScalar` answering 1 — rebuilds the compiler and shows the refused store reading the next allocation's bytes |
+| `check-region-escape.sh` | Region-annotated signatures (`(Str @r)`) and the escape rule, MM-RGN-3. An annotated program and its stripped twin emit byte-identical IR; five fixtures are refused for the codes they name; an ABLATED compiler accepts them and the program it lets through reads reclaimed memory; and §5's two-region sweep is held as a band |
 | `check-type-pinning.sh` | A type placeholder that is BOUND stays bound. `tyCompat` compared and recorded nothing, so a let-bound container could be written at `Int` and read at `String` — `check` OK, exit 139, no `cast` written. Two halves, because a checker that refused everything would pass the first: the unsound shapes are refused, and the correct ones — including two containers pinned to DIFFERENT element types in one scope — are still accepted |
 | `check-diagnostics.sh` | the AXDL corpus against its goldens, with every span recomputed from the fixture's own bytes |
 | `check-degenerate.sh` | degenerate input answers with a diagnostic, not with a signal |
@@ -328,7 +329,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the fifty-nine gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim fifty-nine gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the sixty gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim sixty gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-install.sh` | the script `README.md` tells a stranger to pipe into bash. A release built from this tree is served over the loopback and installed; a tampered archive, one with no checksum and one with no `stdlib/` must each be refused. Its own probe deletes `install.sh`'s checksum comparison in a copy and requires the tampered case to stop being refused |
 | `check-release-targets.sh` | what a release BUILDS and what `install.sh` REFUSES are one fact split across two files on opposite sides of the project. A target in both uploads an archive the installer will not fetch; a target in neither gives the user a bare `curl` 404. Also holds the two axes apart: nothing is shipped that README does not call supported, and nothing is supported-but-unshipped without a CI leg or a README paragraph saying why (`darwin-x86_64`) |
@@ -792,3 +793,4 @@ did not read was the one that went stale.
 ---
 
 Thank you for contributing to Axiom! Every contribution — from fixing a typo to adding a new language feature — makes the language better for everyone.
+

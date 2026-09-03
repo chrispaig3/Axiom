@@ -432,3 +432,10 @@
 ;@axiom:restrict(no-io,no-cast)
 (:: restrictedTwice (-> Int Int))
 (fn (restrictedTwice n) (* n 3))
+
+; --- region annotations, the last thing inside a type's parentheses --
+; `@r` prints as written (`fpType`), on a constructor application, a
+; keyword type and a type variable; in expression position the printer
+; refuses it as the compiler does (AX2001).
+(:: regionKeep (-> (Vec String @r) (String @r) (a @s) Int))
+(fn (regionKeep t s x) 7)

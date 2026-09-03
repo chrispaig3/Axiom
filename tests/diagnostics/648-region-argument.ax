@@ -1,0 +1,27 @@
+; A region parameter is instantiated ONCE per call, like a type
+; variable (docs/memory-model-v2-design.md §2.4). `pair` asks for two
+; strings from one region `@r`; `twoRegions` hands it one from `@s` and
+; one from `@t`, two regions its own signature keeps apart: AX3063 at
+; the call. `oneRegion` passes the same `@s` value twice and is SILENT,
+; and `plain` - a caller that names no region at all - passes two
+; values from its own region and is silent too, which is MM-RGN-4: a
+; program that never writes `@` is the one-region instance.
+(:: pair (-> (String @r) (String @r) Int))
+
+(fn (pair a b) 0)
+
+(:: twoRegions (-> (String @s) (String @t) Int))
+
+(fn (twoRegions x y) (pair x y))
+
+(:: oneRegion (-> (String @s) Int))
+
+(fn (oneRegion x) (pair x x))
+
+(:: plain (-> String String Int))
+
+(fn (plain x y) (pair x y))
+
+(:: main Int)
+
+(fn (main) 0)

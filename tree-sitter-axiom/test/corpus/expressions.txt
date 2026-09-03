@@ -470,3 +470,60 @@ a keyword-spelled name is an identifier outside head position
         operand: (identifier)
         operand: (identifier)
         operand: (identifier)))))
+
+================================================================
+region annotations on a signature, a struct field and a variable
+================================================================
+
+(struct Cell (mut s : (String @r)))
+(:: lookup (-> (Vec String @r) Int (String @r)))
+(fn (lookup t i) (vecGet t i))
+(:: pick (-> (a @s) (Table @r) (a @r)))
+(fn (pick x t) x)
+
+----------------------------------------------------------------
+
+(source_file
+  (struct_declaration
+    (identifier)
+    (field_declaration
+      (identifier)
+      (region_type
+        (builtin_type)
+        (region_annotation))))
+  (type_signature
+    (identifier)
+    (function_type
+      (type_constructor
+        (constructor_identifier)
+        (builtin_type)
+        (region_annotation))
+      (builtin_type)
+      (region_type
+        (builtin_type)
+        (region_annotation))))
+  (function_definition
+    (identifier)
+    (identifier)
+    (identifier)
+    (application
+      (identifier)
+      (identifier)
+      (identifier)))
+  (type_signature
+    (identifier)
+    (function_type
+      (region_type
+        (type_variable)
+        (region_annotation))
+      (type_constructor
+        (constructor_identifier)
+        (region_annotation))
+      (region_type
+        (type_variable)
+        (region_annotation))))
+  (function_definition
+    (identifier)
+    (identifier)
+    (identifier)
+    (identifier)))

@@ -719,12 +719,29 @@
                                     ; a different program, with no diagnostic anywhere. stage0 refuses
                                     ; it as AX1001. A bare `#` still lands here; only `#|` is claimed
                                     ; by the arm above.
+                                    ; `@` followed by an identifier start is a REGION ANNOTATION,
+                                    ; `@r`, one token whose lexeme keeps the `@` so a diagnostic
+                                    ; that quotes it reads as the author wrote it. It is read only
+                                    ; in TYPE position (`parseTypeAtomsRgn`); anywhere else the
+                                    ; parser refuses it as AX2001. A bare `@` still lands on the
+                                    ; TK_ERROR arm below and stays AX1001, which is what
+                                    ; tests/diagnostics/800-unexpected-char's help text promises.
+                                    (if (&& (== ch 64) (&& (< (+ pos 1) len) (isIdentStart (strByte src (+ pos 1)))))
+                                      (let ((ep (skipIdent src (+ pos 2) len)))
+                                        {
+                                          (emitToken
+                                            TK_REGION                                            pos                                            ep                                            tokens                                            src
+                                          )
+                                          ep
+                                        }
+                                      )
                                     {
                                       (emitToken
                                         TK_ERROR                                        pos                                        (+ pos 1)                                        tokens                                        src
                                       )
                                       (+ pos 1)
                                     }
+                                    )
                                   )
                                 )
                               )

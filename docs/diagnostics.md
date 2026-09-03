@@ -567,8 +567,8 @@ Both NID and AXTAG are now implemented.
   one an agent must re-read the warnings of. A claim it is not in a
   position to check is `AX3037`, which remains a warning. A
   `restrict(no-io | no-alloc | no-foreign | no-cast | no-cast:deep |
-  no-recursion)` claim is checked against the same effect row and the
-  call graph: a violation is `AX3049`, an error, whose message renders
+  no-recursion | no-wrap | no-escape)` claim is checked against the same
+  effect row, the call graph, or the region facts: a violation is `AX3049`, an error, whose message renders
   the path of resolved calls to where the effect enters, or the cycle; a claim over a row the walk could not close is
   `AX3051`, a warning; a name that is not a restriction is `AX3052`,
   an error, because that list is closed
@@ -581,6 +581,15 @@ Both NID and AXTAG are now implemented.
   guarantee. Other tags
   (`no_refactor`, `owned(arena=frame)`, etc.) are preserved and
   emitted but not yet validated.
+- **Regions.** A signature naming the region a reference lives in
+  (`(Str @r)`, [reference.md](reference.md) Region Annotations) is
+  checked by the escape rule after every body has been typed: a store
+  whose place outlives the value is `AX3060`, a result that does not
+  live in its declared region `AX3061`, either of those with a closure
+  as the value `AX3062` (named against the capture), and a call whose
+  arguments disagree on a region the callee names - or a result-only
+  region - `AX3063`. All four are errors, and all four are ABSENT from
+  a program whose signatures name no region: the pass does not run.
 
 AXSYM output for a file whose first declaration carries `;@axiom:pure`,
 whose second is an `extern` item and whose third is a data type - the

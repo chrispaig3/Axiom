@@ -1,0 +1,82 @@
+; MM-RGN-3, the escape rule, at a STORE (docs/memory-model-v2-design.md
+; §2.3; stage S3 of §4). A value may be stored only into a place its
+; own region outlives. Four functions, each a different door:
+;
+;   1  `putField`   `(set c.s x)`: `@s` into a `@r` cell. Two named
+;                   regions are UNORDERED, so refused - at the store.
+;   2  `putSame`    the same store with both in `@r`: SILENT. This is
+;                   the accepted half that keeps the refusals honest.
+;   3  `putVec`     `(vecPush v x)`: the store is made by a CALLEE.
+;                   `vecPush` names no region, so the compiler reads
+;                   its body (`rgnKnownCall`, typecheck.ax) and finds
+;                   TWO flows into its first parameter, each a row:
+;                   its second parameter (`x`, `@s`, refused as in 1),
+;                   and the buffer it ALLOCATES when it grows - a
+;                   value in this function's own region, which is
+;                   its caller's current region and does not outlive
+;                   `@r`. That second row is the honest one: under
+;                   this stage nothing can grow a container that lives
+;                   in a named region, because allocating INTO a named
+;                   region is stage S4's work. The rows name `vecPush`
+;                   and its parameter.
+;   4  `putFresh`   `(vecPush v (strConcat x "!"))`: the growth row
+;                   again, and the fresh string through `vecPush`'s
+;                   second parameter - both "a value allocated in this
+;                   function's own region", by two doors.
+;
+; Every refusal carries the STORE's span, not the declaration's: the
+; fix is where the store is.
+;
+; ABLATION: `scripts/check-region-escape.sh` builds a compiler whose
+; `rgnCheckAll` answers 0, requires this file to be ACCEPTED by it,
+; and runs the program that compiler lets through - `tests/region/
+; escape-store.ax` - which reclaims the region past the stored value
+; and reads it back.
+(import IO)
+
+(import Vec)
+
+(import Str)
+
+(struct Cell
+  (mut s : String))
+
+(:: putField (-> (Cell @r) (String @s) Int))
+
+(fn (putField c x)
+  {
+    (set c.s x)
+    0
+  }
+)
+
+(:: putSame (-> (Cell @r) (String @r) Int))
+
+(fn (putSame c x)
+  {
+    (set c.s x)
+    0
+  }
+)
+
+(:: putVec (-> (Vec String @r) (String @s) Int))
+
+(fn (putVec v x)
+  {
+    (vecPush v x)
+    0
+  }
+)
+
+(:: putFresh (-> (Vec String @r) String Int))
+
+(fn (putFresh v x)
+  {
+    (vecPush v (strConcat x "!"))
+    0
+  }
+)
+
+(:: main Int)
+
+(fn (main) 0)

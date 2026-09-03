@@ -462,6 +462,64 @@ about what the checker stops proving applies from here.
 
 The `(a)` after the type name introduces a type parameter. Types can be polymorphic — the same `Maybe` can hold any type.
 
+### Region Annotations
+
+A signature may name the **region** a reference lives in, with `@name`
+as the last thing inside a type's parentheses:
+
+```scheme
+(:: lookup (-> (Vec String @r) Int (String @r)))
+(:: intern (-> (String @s) (Table @r) (Sym @r)))
+```
+
+`@r` and `@s` are *region parameters*: chosen by the caller through the
+arguments, once per call, as a type variable is. A region named in a
+signature outlives the function's own region — its caller's current
+one — and two named regions are **unordered**: neither is known to
+outlive the other. A signature that names no region is
+region-monomorphic in the caller's current region, so a program that
+never writes `@` is the one-region instance, and an annotated program
+emits byte for byte what its un-annotated spelling emits: the
+annotation lives in a word of the type node that no reader of a type
+consults (`scripts/check-region-escape.sh` section 1 holds
+`tests/stdlib/468-region-signatures.ax` against its stripped twin,
+1,652 lines of identical IR on 2026-09-03).
+
+The annotation buys one rule, `MM-RGN-3` of
+[memory-model-v2-design.md](memory-model-v2-design.md) §2.3: **a value
+may be stored into, returned into, or captured by a place only if the
+value's region outlives the place's.** Four codes, all errors, one
+fixture per shape in `tests/diagnostics/645`–`649`:
+
+| Code | Refuses |
+|---|---|
+| `AX3060` | a store — a `set`, a field write, a raw `__store64`, or a store a CALLEE makes through its parameter — whose place outlives the value |
+| `AX3061` | a result that does not live in the region the signature names for it |
+| `AX3062` | either of the above when the value is a closure, reported against the capture that makes it short-lived |
+| `AX3063` | a call whose arguments do not agree on a region the callee names, or a signature naming a region on its result that no parameter supplies |
+
+An un-annotated callee is checked by reading its body, not by
+invariance. The checker computes, per function and as a fixpoint over
+the call graph like the effect row, which parameters its body stores a
+fresh value into and which parameters flow into which: `vecPush`
+stores its second parameter into its first, so `(vecPush v x)` is
+refused when `x`'s region does not outlive `v`'s and accepted when both
+live in one region, and `(strLen s)` on a string from any region is
+legal because nothing flows into `s`. The same facts answer
+`restrict(no-escape)` below. Two limits are stated rather than hidden:
+a call the compiler cannot resolve — through a parameter, a closure, a
+field — is assumed to store every argument into every argument; and
+nothing this stage compiles allocates *into* a named region, so a
+value the body allocates lives in the caller's region and cannot be
+stored into a `@r` place or answered as `(T @r)` — which includes
+growing a container that lives in `@r`, because `vecPush` allocates.
+Allocating into a named region is stage S4 of the design note.
+
+The annotation is read from the declared signature only; the checker's
+instantiation copies of a type carry none, which is why the emitter
+never sees one. `@` on its own stays `AX1001`, and `@r` anywhere but
+the end of a type's parentheses is `AX2001`.
+
 ### Type Signatures
 
 Every function has an optional type signature declared with `::`:
@@ -1751,7 +1809,7 @@ distance from `pure` is not evidence about anything.
 does not do something, answered from analysis the checker already
 performs and used to throw away. The list is CLOSED - a name outside
 it is `AX3052`, an error, because inside the one key the compiler has
-said it checks an unknown name is a claim and not metadata. Seven
+said it checks an unknown name is a claim and not metadata. Eight
 restrictions are checked:
 
 | Restriction | Decided by | Scope |
@@ -1764,6 +1822,7 @@ restrictions are checked:
 | `no-recursion` | no cycle in the call graph reachable from this declaration | transitive |
 | `strict` | a MODIFIER: an unsettleable claim in this set is `AX3057` (error), not `AX3051` (warning) | — |
 | `no-wrap` | no `+`, `-` or `*` head in this body | LOCAL |
+| `no-escape` | nothing this body allocates flows into any of its parameters, read off the region facts ([Region Annotations](#region-annotations)); refuted through a named callee (`vecPush` grows its argument), unverifiable over a call the walk cannot resolve | transitive |
 
 Every transitive violation names its path. The checker walks the call
 graph breadth-first from the claiming declaration to the nearest entry

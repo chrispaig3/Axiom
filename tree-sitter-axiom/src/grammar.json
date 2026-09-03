@@ -1805,6 +1805,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "region_type"
+        },
+        {
+          "type": "SYMBOL",
           "name": "function_type"
         },
         {
@@ -1980,12 +1984,81 @@
               }
             },
             {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "FIELD",
+                  "name": "region",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "region_annotation"
+                  }
+                },
+                {
+                  "type": "BLANK"
+                }
+              ]
+            },
+            {
               "type": "STRING",
               "value": ")"
             }
           ]
         }
       ]
+    },
+    "region_type": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "FIELD",
+          "name": "type",
+          "content": {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "builtin_type"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "type_variable"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "function_type"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "list_type"
+              }
+            ]
+          }
+        },
+        {
+          "type": "FIELD",
+          "name": "region",
+          "content": {
+            "type": "SYMBOL",
+            "name": "region_annotation"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
+    "region_annotation": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "@[a-z][A-Za-z0-9_']*"
+      }
     },
     "function_type": {
       "type": "SEQ",

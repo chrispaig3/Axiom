@@ -140,6 +140,13 @@
 
 (pub fn (FT_ERROR) 21)
 
+; `@r`, a region annotation in type position (`parseTypeAtomsRgn`,
+; parser.ax). Printed by `fpType` only; in expression position the
+; compiler refuses it (AX2001) and so does this printer (`fpBad`).
+(pub :: FT_REGION Int)
+
+(pub fn (FT_REGION) 22)
+
 ; A token: its kind and its half-open byte range in the source.
 ;
 ; The lexeme is not stored. Every use of a token's text wants a slice of
@@ -801,6 +808,8 @@
                               }
                               (if (isFOperChar ch)
                                 (fscanOperator src p len toks)
+                                (if (&& (== ch 64) (&& (< (+ p 1) len) (isFNameStart (strByte src (+ p 1)))))
+                                  (fscanRegion src p len toks)
                                 (if (isFNameStart ch)
                                   (fscanName src p len toks)
                                   ; An unrecognised byte is a token rather than a skip. A formatter
@@ -811,6 +820,7 @@
                                     (vecPush toks (mkFTok FT_ERROR p (+ p 1)))
                                     (+ p 1)
                                   }
+                                )
                                 )
                               )
                             )
@@ -926,6 +936,21 @@
 ; `-5` adjacency rule, and because `? ~ $` are operator bytes here and
 ; not identifier bytes at all. What that leaves is recorded in
 ; the self-hosting record rather than guessed at.
+; `@` and the name after it, one token. The name is scanned by the
+; compiler's own `isIdentChar`, as `fscanName` scans one.
+(pub :: fscanRegion (-> String Int Int (Vec Int) Int))
+
+(pub fn (fscanRegion src p len toks)
+  (let ((mut e (+ p 1)))
+    {
+      (while (&& (< e len) (isIdentChar (strByte src e)))
+        (set e (+ e 1)))
+      (vecPush toks (mkFTok FT_REGION p e))
+      e
+    }
+  )
+)
+
 (pub :: fscanName (-> String Int Int (Vec Int) Int))
 
 (pub fn (fscanName src p len toks)
@@ -4135,7 +4160,14 @@
             (fpP p t)
           )
         )
-        (fpBad p)
+        ; `@r` inside a type's parentheses prints as written; the
+        ; parser puts it last (`parseTypeAtomsRgn`) and this printer
+        ; keeps the order it was given, so a misplaced one round-trips
+        ; to the same refusal.
+        (if (== (ftKind (fnTok n)) FT_REGION)
+          (fpP p (fnText (fpSrc p) n))
+          (fpBad p)
+        )
       )
       (if (== k FN_BRACK)
         (if (== (fnLen n) 1)

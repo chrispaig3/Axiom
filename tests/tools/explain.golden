@@ -70,6 +70,10 @@
   [93mAX3057[0m  a `strict` restriction the effect walk cannot prove  (restriction-unproven)
   [93mAX3058[0m  a nested region reusing an enclosing region's name  (region-name-shadowed)
   [93mAX3059[0m  a value leaving the region it was allocated in  (region-escape)
+  [93mAX3060[0m  a value stored where its region has already ended  (region-escape)
+  [93mAX3061[0m  a result that does not live in the region its signature names  (region-return)
+  [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
+  [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1810,6 +1814,93 @@ MM-ALLOC-16, exactly as they are for a hand-written
 `__axiom_arena_mark`, and typed regions (docs/memory-model-v2-design.md
 section 4, S3) are what close them.
 
+### explain AX3060
+AX3060 - a value stored where its region has already ended
+
+A signature may name the REGION a reference lives in:
+
+    (:: intern (-> (Str @s) (Table @r) (Sym @r)))
+
+`@s` and `@r` are region parameters, chosen by the caller through
+the arguments, as type variables are. A region named in a signature
+outlives the function's own region (its caller's current one), and
+two named regions are UNORDERED - neither is known to outlive the
+other. A region opened by `(region r ...)` is inside the region it
+was opened in.
+
+The escape rule (docs/memory-model-v2-design.md, MM-RGN-3): a value
+may be stored only into a place its own region OUTLIVES, because the
+place is still readable after the value's region has been reclaimed.
+This code is that rule refusing a store - a `set` on a binding, a
+field write, a raw `__store64`, or a store a CALLEE makes through its
+parameter, which the compiler reads off the callee's body: `vecPush`
+stores its second parameter into its first, so `(vecPush v x)` is
+refused when `x`'s region does not outlive `v`'s.
+
+A function that names no region is region-monomorphic in its
+caller's region (MM-RGN-4): everything it allocates lives there, so
+storing what it allocates into a `@r`-annotated parameter is refused
+too - the caller's region does not outlive `@r`. Allocating INTO a
+named region is stage S4's work and is not available yet.
+
+Keep the value in the region of the place: allocate or copy it there,
+or widen the place's annotation to the value's region. A call the
+compiler cannot resolve - through a parameter, a closure or a field -
+is assumed to store every argument into every argument, which is the
+conservative reading; name the function at the call to lift it.
+
+### explain AX3061
+AX3061 - a result that does not live in the region its signature names
+
+`(:: pick (-> (Str @s) (Str @r) (Str @r)))` promises a value in
+`@r`. A body answering its `@s` parameter, or a value it allocated
+itself, breaks that promise: the caller reads the result in `@r`
+after every shorter region has been reclaimed (MM-RGN-3 at the
+return, docs/memory-model-v2-design.md).
+
+A value derived from a parameter annotated `@r` - the parameter
+itself, a field or an element read out of it - is what the signature
+asks for. A value the body allocates lives in the function's own
+region, which is its caller's current region and does not outlive a
+named one; allocating into `@r` is stage S4's work.
+
+Answer such a value, or drop the result's annotation: an unannotated
+result lives in the caller's current region, and the caller's own
+signature decides from there.
+
+### explain AX3062
+AX3062 - a closure escaping the region of something it captures
+
+A lambda's record holds a reference to every value it captures, so
+the closure lives in the region it was created in AND in the region
+of each capture: it may be stored, or answered, only where every
+capture outlives the place (MM-RGN-3 for closures,
+docs/memory-model-v2-design.md §2.3).
+
+This is AX3060 or AX3061 with the escaping value a closure, reported
+against the capture that makes it short-lived - the message names it.
+Capture a copy made in the place's region, or stop capturing the
+short-lived value; a closure that captures nothing shorter than the
+place is stored like any other value.
+
+### explain AX3063
+AX3063 - a region the callee's signature names and the arguments do not agree on
+
+A region parameter is instantiated ONCE per call, like a type
+variable. `(:: pair (-> (Str @r) (Str @r) Int))` asks for two values
+from one region, and `(pair x y)` with `x` in `@s` and `y` in `@t` -
+two regions the callee's body may not tell apart - is refused, because
+the body was checked on the promise that they are one.
+
+The same code refuses a signature whose RESULT names a region no
+parameter supplies, `(:: orphan (-> Int (Str @q)))`: a region is chosen
+by the caller through an argument, and a region named only in the
+result is one the callee would have to invent - the shape AX3040
+refuses for a type variable.
+
+Pass values from one region, give the parameters different region
+names, or name the result's region on a parameter.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2015,6 +2106,10 @@ run `axiom explain --list` to see all known codes
   [93mAX3057[0m  a `strict` restriction the effect walk cannot prove  (restriction-unproven)
   [93mAX3058[0m  a nested region reusing an enclosing region's name  (region-name-shadowed)
   [93mAX3059[0m  a value leaving the region it was allocated in  (region-escape)
+  [93mAX3060[0m  a value stored where its region has already ended  (region-escape)
+  [93mAX3061[0m  a result that does not live in the region its signature names  (region-return)
+  [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
+  [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

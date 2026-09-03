@@ -195,6 +195,7 @@ F splitTags tests/fmt/syntax-zoo.ax:410:5-14 "(Int -> Int)" @1149cb6053381fbc #n
 F beside tests/fmt/syntax-zoo.ax:418:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effects=Alloc,IO #calls=+,__axiom_arena_mark,__par_join,__par_spawn
 F alone tests/fmt/syntax-zoo.ax:422:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effects=Alloc,IO #calls=*,+,__axiom_arena_mark,__par_join,__par_spawn
 F restrictedTwice tests/fmt/syntax-zoo.ax:433:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast #calls=*
+F regionKeep tests/fmt/syntax-zoo.ax:440:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option

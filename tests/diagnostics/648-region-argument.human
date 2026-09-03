@@ -1,0 +1,10 @@
+[1;31merror[AX3063][0m[1m: `pair` names one region `@r` for two of these arguments, and they do not live in the same region: parameter `x`, which lives in region `@s` against parameter `y`, which lives in region `@t`[0m
+  [1;34m--> [0m648-region-argument.ax:15:23
+[1;34m   |[0m
+[1;34m15 |[0m (fn (twoRegions x y) (pair x y))
+[1;34m   |[0m                       [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma region parameter is instantiated ONCE per call, like a type variable; every argument annotated with it must live in that one region. Pass values from one region, or give the parameters different region names
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3063` for a full explanation
+
+compilation failed due to 1 previous error

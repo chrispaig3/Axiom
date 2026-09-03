@@ -195,6 +195,7 @@ Fn       splitTags            (Int -> Int)                             [tests/fm
 Fn       beside               (Int -> Int)                             [tests/fmt/syntax-zoo.ax:418:5-11]
 Fn       alone                (Int -> Int)                             [tests/fmt/syntax-zoo.ax:422:5-10]
 Fn       restrictedTwice      (Int -> Int)                             [tests/fmt/syntax-zoo.ax:433:5-20]
+Fn       regionKeep           (Vec String -> (String -> (a -> Int)))   [tests/fmt/syntax-zoo.ax:440:5-15]
 Data     Option               data Option                              [builtin]
 Ctor     Some                 (a -> Option a)                          [builtin]
 Ctor     None                 Option a                                 [builtin]

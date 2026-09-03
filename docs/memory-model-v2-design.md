@@ -464,10 +464,57 @@ gate below follows it.
 | **S0** | **DONE 2026-08-31. Stop emitting the 5,762 no-op releases** on static literals (§1.2) | one compile-time test on the operand's definition; no rule, no type change | `scripts/check-static-release.sh`. 5,762 static releases became **5**, total release sites 10,849 -> 5,117, the compiler binary 5.6% smaller, emitted output byte-identical. The gate ablates `isStaticSentinelNode`'s answer, rebuilds, and requires the count back in the thousands — and asserts separately that a join over a literal still gives its share back, which is the trap the obvious one-line fix falls into |
 | **S1** | **DONE 2026-08-31. `MM-ALLOC-16b` alone** becomes checked, as `16a` did — a reset that would reclaim a live `handle`'s evidence record | one gated call in `resetbody`, one on the unwind walk, and `@__axiom_ev_check` over the effect slots | `tests/stdlib/167-arena-live-handle.ax`, exit **76**. Before: the operation ran off reclaimed memory and the program **exited 0**. The two legal shapes beside it stay silent, and `401-recover-effect.ax` still exits 71 — the recovery path needs no exemption because it restores every slot *before* it resets. Byte-identical IR for a program declaring no effect, `self_host/` included |
 | **S2** | **DONE 2026-09-03. `region` returns as a checked scope with no types yet** — mark/reset on a STACK cell, names scope-checked (`AX3058`), `AX2004`'s false advice deleted. "No typechecker change" was wrong as written and is corrected here: without types the checker still has to refuse the two escape channels a scope can see — the region's own value when it is not a scalar, and a `set` on a binding bound outside the region when the stored value is not one — as `AX3059`, or the reset hands a program a dangling descriptor with every gate green | a real node (`TAG_E_REGION`, so S3 can find extents) + the open-region stack + the value/store rule in `typecheck.ax`; `emitRegion` is three loads, one hoisted `alloca` and the existing `@__axiom_arena_reset_fn` | `scripts/check-region-scope.sh`: a no-region program emits no cell; 4,000 × 64 KiB with the region against without is 185x on peak RSS; `tests/diagnostics/631` draws exactly its three rows; and the ABLATION — `rgTyScalar` answering 1 — builds a compiler under which `hello world` stored out of a region reads back as `XXXXXXXXXXX`, the next allocation. `tests/stdlib/168-region.ax` (ten terms). Byte-identical IR for a program with no region, measured against the previous commit's compiler on `self_host/main.ax`: 202,021 lines both ways. NOT done here, by design: a reference leaving a region, which is S3's typed promotion, and the two channels a scope cannot see (a call that stores, a raw `Int`), which stay `MM-ALLOC-16`'s obligation |
-| S3 | Region-parameterised types and `MM-RGN-3` | the real work: typecheck, the witness of §2.5 | `tests/diagnostics/*` per escape shape, plus the two-region corpus sweep of §5 |
+| S3 | **BUILT 2026-09-03, save the witness.** Region-parameterised signatures, `(Str @r)`, and `MM-RGN-3` checked over every body; `restrict(no-escape)`; the sweep of §5 as a gate | typecheck (`rgnCheckAll`, a facts fixpoint over the call graph plus one reporting walk), parser, formatter, grammar; NO codegen — the witness of §2.5 is deferred to S4, see below | `scripts/check-region-escape.sh`: an annotated program and its stripped twin emit byte-identical IR (1,652 lines); `tests/diagnostics/645`–`649` one per escape shape, AX3060–AX3063; the ablation — `rgnCheckAll` answering 0 — accepts all four and the program it then lets through reads reclaimed memory; the sweep reads 241 of 6,206 (3.88%) |
 | S4 | Delete ownership traffic the region proves dead | codegen | **re-run §1.1's ablation and expect the binary win with the RSS win intact** — the one measurement that decides whether any of this was worth it |
 | **S5** | **DONE 2026-09-03. `__thread_spawn`/`__thread_join`, and `cgThreads`'s owed body** | the primitive pair, the scan (`parScan` in codegen.ax, before `emitAllocator`), the thread runtime (`emitParThread`: the platform's `pthread_create`, an entry that runs the thunk and writes its word) | `scripts/check-thread-local.sh` reaches the ON path through a program that spawns, no ablation: eight globals move and nothing else, the OFF path imports no TLS symbol, a thread's cost is `pthread_create`+`pthread_join` (+`__tlv_bootstrap` on Darwin), local-exec on both Linux targets. freebsd and windows refuse it at build time (`AX4006`) |
 | **S6** | **DONE 2026-09-03, with the limit stated. `parallel`, both lowerings** | the surface is a parser desugaring over `__par_spawn`/`__par_join` (no AST tag); the two backends are `emitParProc` (fork, one `MAP_SHARED` page per binding, `wait4` re-raising a child's status) and `emitParThread`, selected by `--threads` | `scripts/check-parallel.sh`: `tests/stdlib/470-parallel.ax` and `471-parallel-trap.ax` under both lowerings, byte-identical stdout and the same exit (77 out of both for the trap); processes add no import, threads add exactly their own; the flag is inert on a program that spawns nothing; windows emits a status-79 trap in place of both primitives. **What crosses a join is a word, and captures are unchecked under threads** - §3.3 below |
+
+**S3 as built, 2026-09-03 — what it is and what it is not.** Every
+signature may name regions, `(Vec String @r)`, and the rule of §2.3 is
+checked after the type checker has run, over EVERY body in the program:
+a store (`set`, a field write, `__store64`, or a store a callee makes
+through its parameter), a return, and a capture. The half that made it
+tractable is that an un-annotated callee is read rather than assumed:
+`rgnRounds` computes per function, as a monotone fixpoint over the
+call graph exactly as `inferEffects` does, which parameters the body
+stores a fresh value into and which parameters flow into which, so
+`(vecPush v x)` is refused across regions and accepted within one
+without any annotation on `vecPush`. §2.4's "region-monomorphic in the
+caller's current region" is that rule made precise by reading the
+callee; stated as invariance it would refuse `(strLen s)` on an outer
+string. The same facts answer `restrict(no-escape)` (§2.7): refuted by
+name through the callee the store went through, unverifiable over a
+call the walk cannot resolve, on AX3049/AX3051/AX3057's rail.
+
+Three things S3 does NOT do, each measured rather than assumed:
+
+- **Nothing allocates INTO a named region.** A value the body makes
+  lives in the caller's current region (§2.4), which no named region
+  is inside of, so storing it into a `@r` place or answering it as
+  `(T @r)` is refused - and that includes `vecPush` on a `@r` vector,
+  because growing it allocates (`tests/diagnostics/640`, row 3). That is
+  the honest reading until S4 hands a callee a region to allocate in,
+  which is what the witness is for.
+- **The witness of §2.5 is not plumbed**, and deliberately. Its value is
+  a region's mark cell, which S2's lowering defines, and its only reader
+  is S4's allocation. Adding a hidden trailing word to a
+  region-polymorphic function now would change the IR of exactly the
+  programs this stage can otherwise prove inert - the byte-identity of
+  `check-region-escape.sh` section 1 - for no consumer. It lands with
+  its first reader.
+- **A value promoted out of a `(region r ...)` form is treated as the
+  enclosing region's, shallowly.** The walk has the arm for S2's node,
+  written against its contract; whether `reset_keeping` can carry a
+  value whose FIELDS point into the region (MM-ALLOC-15 carries one
+  contiguous block) is S2's lowering question and is not answered here.
+
+And two conservative readings, each a false refusal rather than a
+missed escape: a call the compiler cannot resolve - through a
+parameter, a closure, a field - is assumed to store every argument into
+every argument; and a `match` binder takes the SCRUTINEE's origins, so
+an element unwrapped from a freshly built `Some` carries the wrapper's
+region as well as the payload's (`tests/stdlib/468`'s `left` is written
+over a `@r` value for that reason).
 
 **`MM-ALLOC-16` is not in S1, and the first draft of this table was wrong
 to put it there.** That row read "`MM-ALLOC-16`/`16b` become checked,
@@ -571,12 +618,34 @@ narrows what the work is allowed to claim.
   written above as if regions were an extra parameter list. Whether
   they are a second binder or share the existing type-variable binder
   decides how much of `typecheck.ax` moves.
+  *Answered 2026-09-03: in neither binder.* The name sits in a spare
+  word of the annotated type NODE (`tyRegion`, parser.ax, word 7), read
+  by the region pass from the declared signature and by nothing else.
+  The count of type-checker functions that moved for it is **zero** -
+  `tyCompat`, `tyResolve`, `tyRender`, `evClassOf`, codegen's `fldClass`
+  all read a type through its tag and payload words and never see it -
+  which is what makes an annotated program emit byte for byte what its
+  stripped twin emits (`check-region-escape.sh` section 1). The cost:
+  an instantiation copy of a type carries no annotation, so the pass
+  reads declarations, never inferred types.
 - **What is `main`'s region?** Naming it `@global` makes today's
   programs the one-region instance (§2.4). Whether it is resettable at
   all is a separate decision.
+  *Answered 2026-09-03: it has no name, and needs none.* Every function's
+  own region is "its caller's current region" (identity 0 in the walk),
+  and `main`'s caller is the runtime, so `main`'s region is the arena
+  as a whole; a static literal has no region at all and instantiates
+  any. Whether the root is resettable is S2's question about the
+  `region` form, not this stage's.
 - **Does `restrict(no-escape)` need a new diagnostic code**, or does it
   join `AX3049`? The restriction rail is closed by design (`AX3052`),
   unlike the AXTAG key namespace, so adding one is a table edit.
+  *Answered 2026-09-03: it joins the rail.* AX3049 refuted (naming the
+  parameter and the callee the fresh value went in through), AX3051
+  unverifiable, AX3057 under `strict`; `tests/diagnostics/644` holds
+  the three. The four codes that ARE new, AX3060-AX3063, belong to the
+  escape rule and not to the restriction.
 - **Cycles promoted out of a region still leak** (§2.6). This design
   neither fixes nor worsens `MM-LIFE-3`, and says so rather than
   leaving a reader to hope.
+
