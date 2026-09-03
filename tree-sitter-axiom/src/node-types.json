@@ -110,6 +110,10 @@
         "named": true
       },
       {
+        "type": "parallel_expression",
+        "named": true
+      },
+      {
         "type": "qualified_identifier",
         "named": true
       },
@@ -1435,6 +1439,68 @@
     }
   },
   {
+    "type": "parallel_binding",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "parallel_expression",
+    "named": true,
+    "fields": {
+      "binding": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "parallel_binding",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "region": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "paren_group",
     "named": true,
     "fields": {},
@@ -2441,6 +2507,10 @@
   },
   {
     "type": "mut",
+    "named": false
+  },
+  {
+    "type": "parallel",
     "named": false
   },
   {

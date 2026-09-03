@@ -1,0 +1,44 @@
+; exit 77 (see .exit)
+;
+; A trap inside a `parallel` binding is the PROGRAM's trap, under either
+; lowering.
+;
+; Under threads that is already so: the runtime's traps exit the whole
+; process (`targetExitNum` is `exit_group` on Linux, and its comment
+; records why that mattered before there was a second thread). Under
+; processes the child dies alone, so `__axiom_par_join_proc` reads its
+; wait status and exits with the same number - the child wrote the
+; message. Status 77 is `vecGet`'s out-of-range trap
+; (`docs/generics-design.md` section 4); this case pins it out of both
+; lowerings, with `before` on stdout and nothing after the form.
+;
+; The join of `a` is what propagates, and `b` - which would have
+; answered - is never reached: the body never runs, and nothing after
+; the form does either.
+(import IO)
+
+(import Str)
+
+(import Vec)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((v vecNew))
+    {
+      (vecPush v 1)
+      (println "before")
+      (parallel p ((a (vecGet v 5)) (b 2))
+        (println (+ a b)))
+      ; Nothing after the form runs: the join of `a` re-raises 77. The
+      ; tail is a CALL and not the literal 0 for `464-index-trap.ax`'s
+      ; reason - `verify-stdlib-out.py` models a case's exit status from
+      ; `main`'s tail when that tail is a literal, and this program's
+      ; status comes from the child's trap. It is also the tripwire for
+      ; the join swallowing the status: if it ever answers instead of
+      ; exiting 77, this line runs and the golden says so.
+      (printlnLit (strCStr "UNREACHABLE: the join returned"))
+    }
+  )
+)

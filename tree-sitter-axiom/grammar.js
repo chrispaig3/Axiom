@@ -848,6 +848,7 @@ module.exports = grammar({
       $.qualified_identifier,
       $.if_expression,
       $.while_expression,
+      $.parallel_expression,
       $.set_expression,
       $.cond_expression,
       $.match_expression,
@@ -904,6 +905,24 @@ module.exports = grammar({
       field('condition', $._expression),
       repeat(field('body', $._expression)),
       ')',
+    ),
+
+    // `(parallel p ((a e1) (b e2) ...) body...)` - the region name, a
+    // binding list of `(name expr)` pairs, one or more body expressions
+    // (`self_host/parser.ax`'s `parseParallelExpr`). A binding is its own
+    // node rather than a `let_binding` because `mut` is refused here -
+    // the compiler makes it AX2001 (`tests/diagnostics/640-parallel-shape`)
+    // and this grammar simply does not admit it.
+    parallel_expression: $ => seq(
+      '(', 'parallel',
+      field('region', $.identifier),
+      '(', repeat1(field('binding', $.parallel_binding)), ')',
+      repeat1(field('body', $._expression)),
+      ')',
+    ),
+
+    parallel_binding: $ => seq(
+      '(', field('name', $.identifier), field('value', $._expression), ')',
     ),
 
     // The target is an identifier, not an expression: `set` names a

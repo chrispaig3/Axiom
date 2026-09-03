@@ -426,6 +426,139 @@ platform_table_report() {
   ' "$ir"
 }
 
+# The `parallel` runtime's numbers - `fork`, `getpid`, `wait4` and
+# `munmap` - added 2026-09-03 and paired the same way. They are read
+# by the FUNCTION they sit in rather than by argument shape, because
+# a `fork` and a `getpid` pass six zeros after the number exactly as
+# an `exit` does, and the classifier above would read both as exits
+# with the wrong number. `@__axiom_par_spawn_proc` assigns the fork to
+# `%pid` and the getpid (Darwin's normalisation) to `%me`,
+# `@__axiom_par_join_proc` the wait to `%w`, and `@__axiom_par_finish`
+# the munmap to nothing; each register name is the emitter's own
+# (`emitParProc`, `emitParCommon`) and a rename there fails here as
+# "no site", which is the right failure. The probe below carries one
+# `parallel`, so the runtime is in the module; the census is a floor
+# of one site per number.
+#
+# `munmap` has no `Sys.Platform` counterpart today, and the END block
+# holds that the way `mmap`'s arm does: the day the library grows one,
+# this is told rather than left to notice nothing.
+par_table_report() {
+  local target="$1" ir="$2" platfile="$3"
+  awk -v target="$target" -v platfile="$platfile" '
+    BEGIN {
+      std_of["fork"]   = "sysFork";      cg_of["fork"]   = "targetForkNum"
+      std_of["getpid"] = "sysGetPidNum"; cg_of["getpid"] = "targetGetPidNum"
+      std_of["wait4"]  = "sysWait4";     cg_of["wait4"]  = "targetWait4Num"
+      std_of["munmap"] = "-";            cg_of["munmap"] = "targetMunmapNum"
+      std_arg["fork"]  = "sysForkArg"
+    }
+    /^define / {
+      fn = $0
+      sub(/^.*@/, "", fn)
+      sub(/\(.*$/, "", fn)
+      pending = ""
+      if (fn ~ /^Sys\.Platform\$/) pending = substr(fn, index(fn, "$") + 1)
+      next
+    }
+    pending != "" && $1 == "ret" {
+      if ($3 ~ /^-?[0-9]+$/) stdval[pending] = $3
+      pending = ""
+      next
+    }
+    /asm sideeffect/ {
+      q = 0
+      for (i = length($0); i > 0; i--)
+        if (substr($0, i, 1) == "\"") { q = i; break }
+      args = substr($0, q + 1)
+      gsub(/[()]/, "", args)
+      gsub(/i64/, "", args)
+      gsub(/ /, "", args)
+      n = split(args, a, ",")
+      name = ""
+      if (fn == "__axiom_par_spawn_proc" && $0 ~ /^  %pid = /) name = "fork"
+      else if (fn == "__axiom_par_spawn_proc" && $0 ~ /^  %me = /) name = "getpid"
+      else if (fn == "__axiom_par_join_proc" && $0 ~ /^  %w = /) name = "wait4"
+      else if (fn == "__axiom_par_finish") name = "munmap"
+      if (name == "") next
+      count[name]++
+      num[name] = a[1]
+      if (name == "fork") forkarg = a[2]
+      next
+    }
+    END {
+      nn = split("fork getpid wait4 munmap", ord, " ")
+      for (i = 1; i <= nn; i++) {
+        name = ord[i]
+        sn = std_of[name]
+        if (name == "getpid" && target !~ /^darwin-/) {
+          # Only Darwin normalises its two-register fork with a getpid;
+          # the other targets answer 0 to the child and need none.
+          if (count[name] > 0)
+            printf "FAIL [%s] getpid: the emitted runtime calls getpid after fork on a target whose fork answers 0 to the child\n", target
+          else
+            printf "ok   [%s] getpid: not emitted, because fork answers 0 to the child here\n", target
+          continue
+        }
+        if (count[name] < 1) {
+          printf "FAIL [%s] %s: the parallel runtime has no site for it (the probe carries a `parallel`,\n", target, name
+          printf "     so the runtime is in the module; the register the reader keys on has moved)\n"
+          continue
+        }
+        if (sn == "-") {
+          grew = ""
+          for (s in stdval)
+            if (tolower(s) ~ name) grew = grew " " s
+          if (grew != "") {
+            printf "FAIL [%s] %s: %s now defines%s, so this is no longer one copy of one fact.\n", target, name, platfile, grew
+            printf "     Map it in std_of[] above so the two are compared.\n"
+            continue
+          }
+          printf "ok   [%s] %-6s = %-9s %d emitted site(s); no Sys.Platform counterpart, by design\n", target, name, num[name], count[name]
+          continue
+        }
+        if (!(sn in stdval)) {
+          printf "FAIL [%s] %s: %s exposes no integer constant `%s`\n", target, name, platfile, sn
+          continue
+        }
+        if (num[name] != stdval[sn]) {
+          printf "FAIL [%s] %s: the parallel runtime uses %s, Sys.Platform.%s is %s\n", target, name, num[name], sn, stdval[sn]
+          printf "     %s in self_host/codegen.ax vs %s - one fact, two copies, and they disagree.\n", cg_of[name], platfile
+          continue
+        }
+        if (name == "fork") {
+          sa = std_arg[name]
+          if (!(sa in stdval)) {
+            printf "FAIL [%s] fork: %s exposes no integer constant `%s` for the first argument\n", target, platfile, sa
+            continue
+          }
+          if (forkarg != stdval[sa]) {
+            printf "FAIL [%s] fork: the parallel runtime passes %s as the first argument, Sys.Platform.%s is %s\n", target, forkarg, sa, stdval[sa]
+            printf "     (linux-aarch64 spells fork as clone(SIGCHLD): the argument is the fact, not only the number)\n"
+            continue
+          }
+        }
+        printf "ok   [%s] %-6s = %-9s %d emitted site(s) and Sys.Platform.%s agree%s\n", target, name, num[name], count[name], sn, (name == "fork") ? " (and so does the first argument)" : ""
+      }
+    }
+  ' "$ir"
+}
+
+# The probe for it: one `parallel`, so the runtime is emitted, and
+# `main` naming the four platform constants so they are in the module
+# to read (`sysForkArg` included, for linux-aarch64's clone argument).
+par_probe="$work/platform-parallel-probe.ax"
+cat > "$par_probe" <<'PROBE'
+(import Sys.Platform)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (parallel p ((a 1))
+    (+ a (+ (sysFork) (+ (sysForkArg) (+ (sysGetPidNum) (sysWait4)))))))
+PROBE
+
 # The Windows shape of the same comparison. The runtime's kernel32
 # calls are read out of the functions the emitter writes (`axiom_alloc`,
 # `__axiom_*`, `mainCRTStartup`), the library's out of `@Sys.Platform$*`,
@@ -571,7 +704,23 @@ for target in "${targets[@]}"; do
   fi
   case "$target" in
     windows-*) report="$(kernel32_table_report "$target" "$ir" "$(platform_file "$target")")" ;;
-    *)         report="$(platform_table_report "$target" "$ir" "$(platform_file "$target")")" ;;
+    *)
+      report="$(platform_table_report "$target" "$ir" "$(platform_file "$target")")"
+      # The `parallel` runtime's four numbers, from a second module:
+      # the probe above is a staticlib and spawns nothing, so the
+      # runtime is not in it; this one spawns once and names the
+      # constants beside it. A refusal to emit is a FAIL here, not a
+      # skip - the six POSIX targets all lower `parallel` to processes.
+      par_ir="$work/par-$target.ll"
+      if ! "$axc" --target="$target" emit-llvm "$par_probe" -o "$par_ir" >"$work/par-emit.log" 2>&1; then
+        report="$report
+FAIL [$target]: emit-llvm refused the parallel probe
+$(sed 's/^/    /' "$work/par-emit.log" | head -6)"
+      else
+        report="$report
+$(par_table_report "$target" "$par_ir" "$(platform_file "$target")")"
+      fi
+      ;;
   esac
   report="$report
 $(syscall_abi_report "$target" "$ir" "$(platform_file "$target")")"

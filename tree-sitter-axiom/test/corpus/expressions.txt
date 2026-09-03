@@ -331,6 +331,38 @@ while loop with a mutable binding and set
             operand: (integer_literal)))))))
 
 ================================================================
+parallel: a region name, two bindings, one body
+================================================================
+
+(:: main Int)
+(fn (main)
+  (parallel p ((a 1) (b (f 2)))
+    (+ a b)))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    body: (parallel_expression
+      region: (identifier)
+      binding: (parallel_binding
+        name: (identifier)
+        value: (integer_literal))
+      binding: (parallel_binding
+        name: (identifier)
+        value: (application
+          operand: (identifier)
+          operand: (integer_literal)))
+      body: (application
+        operand: (identifier)
+        operand: (identifier)
+        operand: (identifier)))))
+
+================================================================
 set writes a struct field through a dotted path
 ================================================================
 

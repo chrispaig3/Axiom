@@ -1,0 +1,5 @@
+(:: g (-> Int Int))
+(fn (g parallel) parallel)
+(fn (h xs)
+  (let ((parallel 1))
+    (match xs ((Some parallel) (g parallel)) (_ 0))))

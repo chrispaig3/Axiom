@@ -712,6 +712,18 @@ prim_case "__atomic_store"              "(__atomic_store n 42)"                "
 prim_case "__atomic_add"                "(__atomic_add n 1)"                   "Mut"
 prim_case "__atomic_cas"                "(__atomic_cas n 0 1)"                 "Mut"
 prim_case "__fence"                     "(__fence)"                            "Mut"
+# The `parallel` primitives (2026-09-03) reach the kernel - a fork or a
+# thread creation, and the wait or join that collects it - and carry `IO`
+# for the syscall primitives' reason: a `parallel` in a body claiming
+# `no-io` is refused exactly as a `__syscall3` there is. The thunk is a
+# lambda so the probe compiles; a lambda's own record is a constructor
+# allocation, which MM-EXEC-9a lists as invisible, so the row reads `IO`
+# alone - and would read `Alloc,IO` the day that changes, which is the
+# right answer then too.
+prim_case "__par_spawn"                 "(__par_spawn (lambda (x) x) n)"       "IO"
+prim_case "__par_join"                  "(__par_join n)"                       "IO"
+prim_case "__thread_spawn"              "(__thread_spawn (lambda (x) x) n)"    "IO"
+prim_case "__proc_join"                 "(__proc_join n)"                      "IO"
 # THE CONTROLS, and they are what make the eight above mean anything. A
 # registration that gave EVERY primitive an effect would satisfy all of
 # them and destroy the discrimination the whole mechanism is for. These

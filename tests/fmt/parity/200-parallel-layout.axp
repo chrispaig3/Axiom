@@ -1,0 +1,5 @@
+(fn (f)
+  {
+    (parallel p ((a 1)) (println a))
+    (parallel q ((a 1) (b 2)) (println a) (println b))
+  })

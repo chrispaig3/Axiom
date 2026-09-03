@@ -1,9 +1,19 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 48 cases: 24 rewrites and 24 refusals, which is why this
+# it formatted at all. 50 cases: 26 rewrites and 24 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# TWO CASES WERE ADDED for the `parallel` keyword (2026-09-03). 200 pins
+# `fpParallel`'s layout - the region name on the head line, one binding
+# inline and several one per line as `let` prints them, the body indented
+# under the closing `)` of the list - which is `let`'s layout and not the
+# application layout a three-operand unknown head printed before the arm
+# existed. 201 pins the other half of the Keywords rule: `parallel` in
+# parameter, `let` binder, pattern and argument position is an ordinary
+# identifier and prints as one. Regenerating this file for them moved no
+# other case's bytes.
 #
 # TWO CASES CHANGED SIDES on 2026-08-28, the other way round from the three
 # below, and for the same reason - this file records what the formatter DID,
@@ -179,3 +189,33 @@
 )
 ### 196-consume-head-refused.axp (exit 1)
 ### 197-begin-head-refused.axp (exit 1)
+### 200-parallel-layout.axp (exit 0)
+(fn (f)
+  {
+    (parallel p ((a 1))
+      (println a)
+    )
+    (parallel q (
+      (a 1)
+      (b 2)
+    )
+      {
+        (println a)
+        (println b)
+      }
+    )
+  }
+)
+### 201-parallel-arg-position.axp (exit 0)
+(:: g (-> Int Int))
+
+(fn (g parallel) parallel)
+
+(fn (h xs)
+  (let ((parallel 1))
+    (match xs
+      ((Some parallel) (g parallel))
+      (_ 0)
+    )
+  )
+)

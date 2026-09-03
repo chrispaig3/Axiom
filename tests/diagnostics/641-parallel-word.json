@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX3004","slug":"type-mismatch","message":"type mismatch: expected (Int -> Int), found (_a -> String)","file":"641-parallel-word.ax","span":{"start":{"line":17,"col":19},"end":{"line":17,"col":22},"char_start":668,"char_end":671},"label":"this has type `(_a -> String)`, expected `(Int -> Int)`","related":[],"notes":[],"help":[],"expansion":[]}

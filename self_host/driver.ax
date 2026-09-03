@@ -1527,7 +1527,22 @@
   )
 )
 
-; The name in each `declare i64 @NAME(` line of the IR.
+; The two symbols a `--threads` build declares that no archive on the
+; link line defines, because the PLATFORM defines them: `pthread_create`
+; and `pthread_join`, from libSystem on Darwin and libc on Linux, the
+; libraries `cc` links whether or not it is asked to. The emitter
+; writes their `declare`s only when `cgThreads` is on
+; (`emitParThread`), and only for a target `targetHasThreads` admits,
+; so grounding them against the link line would refuse every
+; thread-lowered program for a library it cannot name. They are the
+; thread lowering's whole import surface, and `scripts/check-parallel.sh`
+; measures exactly that.
+(pub :: platformGroundedSym (-> String Bool))
+
+(pub fn (platformGroundedSym n) (|| (strEq n "pthread_create") (strEq n "pthread_join")))
+
+; The name in each `declare i64 @NAME(` line of the IR - less the two
+; the platform grounds (`platformGroundedSym`).
 (pub :: declareNamesOf (-> String (Vec Int)))
 
 (pub fn (declareNamesOf ir)
@@ -1547,8 +1562,14 @@
                   (if (< open 0)
                     (set at (- 0 1))
                     {
-                      (vecPush
-                        out                        (cast Int (strSlice ir (+ sym 1) (- open (+ sym 1))))
+                      (if (platformGroundedSym (strSlice ir (+ sym 1) (- open (+ sym 1))))
+                        0
+                        {
+                          (vecPush
+                            out                            (cast Int (strSlice ir (+ sym 1) (- open (+ sym 1))))
+                          )
+                          0
+                        }
                       )
                       (set at open)
                     }
@@ -2161,7 +2182,7 @@
 ; is a compiler nobody gets past.
 (pub :: usageText String)
 
-(pub fn (usageText) (cat3 (strConcat (strConcat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n") "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default: the `name` in\n                     the project's `axiom.pkg`, else `output`;\n                     `.exe` is appended for windows-x86_64 unless already spelled)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, windows-x86_64\n                     (the last three emit and are not yet supported; README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1)\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for windows-x86_64)\n"))
+(pub fn (usageText) (cat3 (strConcat (strConcat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n") "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default: the `name` in\n                     the project's `axiom.pkg`, else `output`;\n                     `.exe` is appended for windows-x86_64 unless already spelled)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, windows-x86_64\n                     (the last three emit and are not yet supported; README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1)\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --threads          lower `parallel` to the platform's threads instead of\n                     processes (build, run, test); darwin and linux only,\n                     and the runtime's globals go thread-local\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for windows-x86_64)\n"))
 
 ; One command's help: its synopsis and the flags it actually reads.
 ;
@@ -2344,7 +2365,7 @@
 (pub fn (flagArity a)
   (if (|| (strEq a "--input") (|| (strEq a "--output") (|| (strEq a "-o") (|| (strEq a "--target") (|| (strEq a "--opt") (|| (strEq a "--link-lib") (|| (strEq a "--link-search") (|| (strEq a "--crate") (|| (strEq a "--emit-rust-binding") (|| (strEq a "--filter") (strEq a "--diagnostic-format")))))))))))
     1
-    (if (|| (strEq a "--emit-llvm") (|| (strEq a "--emit-staticlib") (|| (strEq a "--check") (|| (|| (strEq a "--builtins") (strEq a "--calls")) (|| (strEq a "--list") (|| (strEq a "--no-banner") (|| (strEq a "--gc") (|| (strEq a "--help") (|| (strEq a "-h") (|| (strEq a "--version") (strEq a "-V")))))))))))
+    (if (|| (strEq a "--emit-llvm") (|| (strEq a "--emit-staticlib") (|| (strEq a "--threads") (|| (strEq a "--check") (|| (|| (strEq a "--builtins") (strEq a "--calls")) (|| (strEq a "--list") (|| (strEq a "--no-banner") (|| (strEq a "--gc") (|| (strEq a "--help") (|| (strEq a "-h") (|| (strEq a "--version") (strEq a "-V"))))))))))))
       0
       (- 0 1)
     )
