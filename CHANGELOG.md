@@ -16,6 +16,75 @@ its changelog too.
 
 ## Unreleased
 
+### A mutual tail call runs in constant stack at `--opt 0`, and a `let` body always was a tail position
+
+**`(fn (ev i acc) (if (>= i n) acc (od (+ i 1) (+ acc 1))))` — ten
+million alternating calls, `--opt 0`, a 512 KiB stack — answers.**
+Before, it died by SIGSEGV at `--opt 0` and ran only because LLVM's
+sibling-call pass happens to rescue it at `--opt 1`, which is what
+`docs/memory-model.md` MM-EXEC-6c said and what a program MUST NOT
+rely on. `emitPlainCall` now marks the call **`musttail`**, LLVM's
+guaranteed tail call — `llc` lowers it to a jump at every level or
+refuses the module — when every one of LLVM's conditions and this
+compiler's holds (`mustTailOK` in `self_host/codegen.ax` is the list:
+tail position with no leaf retain owed, a defined callee applied to
+exactly its arity, a plain `fn` caller that is not a self-tail loop, no
+`let` temporary pending, identical prototypes — the same `i64` count,
+evidence word included — and no owned temporary the caller releases
+after the call). `tests/stdlib/467-mutual-tail.ax` pins six terms;
+`scripts/check-tail-calls.sh` builds it at `--opt 0`, runs it under
+512 KiB, and then **deletes the marker from the same IR and requires
+the program to die by signal**, because the marker is the whole
+mechanism and a fixture that survived without it would be measuring
+the stack rather than the guarantee. On the compiler's own IR: **386
+of the 1,059 calls** sitting immediately before a `ret` are marked
+(the gate holds a floor of 300).
+
+**What is NOT guaranteed, stated rather than implied.** A callee of a
+DIFFERENT arity stays a plain call — 603 of the compiler's own tail
+calls — because LLVM requires identical prototypes for `musttail`
+under the C convention. The `tailcc` convention lifts that, and it was
+measured rather than assumed: `llc -O0` accepts `musttail` between
+`tailcc` functions of two and three parameters and emits a jump on all
+seven triples, and the darwin binary runs ten million such calls under
+512 KiB. It is not adopted here, because every function in the module
+would change convention and the runtime's callback trampoline and
+every `extern` boundary with it; MM-EXEC-6c records it as the measured
+next step. A call handing over an OWNED TEMPORARY —
+`(od (+ i 1) (strConcat s "x"))` — also stays plain, and must: the
+caller releases the temporary after the callee returns, and releasing
+it before the call would free a block the callee is about to read.
+The gate holds both refusals, the second with its `axiom_release`
+still following the call.
+
+**And a correction the measurement forced.** `docs/reference.md`'s
+Optimisation section and `scripts/check-stack-depth.sh`'s header both
+said a tail call in a `let` body was not a tail position and needed
+`--opt 1`. It has been one since 2026-08-22 (the comment under
+`tailCallsSelf`); measured 2026-09-03, a self call through a `let`
+body, a `cond` arm, a `match` arm and a `{ }` tail each ran ten million
+iterations at `--opt 0`. Both documents now say so, MM-EXEC-6b lists
+every tail position and the three that are not, and the stack-depth
+gate's header keeps its history in the past tense.
+
+**LTO was measured and deliberately not flagged.** A program is one
+LLVM module already, and the emitter prunes unreachable definitions
+before `opt` sees it, so `-Wl,-dead_strip` recovers 10 runtime symbols
+and 752 bytes on a hello world and 32 bytes on the compiler — not a
+byte-layout change worth making on every target. Cross-language LTO
+over `extern` is reachable and stays a documented next step: a crate's
+`--emit=llvm-bc` links into the module with `llvm-link` and one
+`opt -O2` inlines the Rust function into the Axiom loop, once the
+`"target-cpu"` attribute rustc stamps on it is stripped; a
+`-C linker-plugin-lto` staticlib carries no bitcode member (0 of 393)
+and cannot feed it. `docs/reference.md`'s Optimisation section holds
+the measurements; the C ABI (`check-c-abi`, `check-ffi`) is untouched.
+
+**The stack-depth gate reports 600 KiB with and without this change.**
+Its header and `ci.yml` quoted ~224 and ~216 KiB from August; the
+number moved with the tree, not with `musttail`, and the gate's
+ceiling of 1024 KiB still holds.
+
 ### `for` is a keyword, and it has two shapes
 
 **`(for i lo hi body)` counts `[lo, hi)`; `(for x xs body)` binds `x`
@@ -927,7 +996,7 @@ well by a function that was never emitted).
 `docs/unboxed-sums-design.md` §4 asks for, written first and on
 purpose. It counts the heap blocks an `Option` construction costs **in
 the emitted IR**, for a fixture whose matched lookups are a known
-number. fifty-five gates call `gate_build_axc` now, up from fifty-two —
+number. fifty-six gates call `gate_build_axc` now, up from fifty-two —
 this one and `check-vec-field-shape.sh`.
 
 Why a count and not a timing: `bench-compile.sh` is explicit that a

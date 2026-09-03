@@ -3727,7 +3727,8 @@ Use `--opt 2` for anything that iterates over a large input.
 | | Depth at `--opt 0` |
 |---|---|
 | `while` | Unbounded — it is a real loop. 10⁷ iterations in constant stack (`tests/selfhost/500-while-mut.ax`) |
-| **Self** tail recursion | Unbounded — the loop is built by Axiom's own codegen at every `--opt` level (`memory-model.md` MM-EXEC-6b). Mutual tail recursion, and a tail call in a `let` body, are flattened only by LLVM at `--opt 1`+ (MM-EXEC-6c) |
+| **Self** tail recursion | Unbounded — the loop is built by Axiom's own codegen at every `--opt` level, in every tail position: a `{ }` block's last expression, an `if` or `cond` or `match` arm, and a `let` body (`memory-model.md` MM-EXEC-6b; `tests/stdlib/467-mutual-tail.ax` term 6 runs ten million through a `let` body at `--opt 0`) |
+| **Mutual** tail recursion | Unbounded when the two prototypes match and nothing is owed after the call — the emitter marks it `musttail`, LLVM's guaranteed tail call, at every `--opt` level (MM-EXEC-6c; `467-mutual-tail.ax` terms 1–3 under a 512 KiB stack, `scripts/check-tail-calls.sh`). **Bounded** for a callee of a different arity, or a call handing over an owned temporary such as `(od (+ i 1) (strConcat s "x"))`: those stay plain calls and are flattened only by LLVM at `--opt 1`+, when at all |
 | **Non-tail** recursion | **Bounded** by the machine stack: measured on an 8176 KiB stack, **174,000–175,000** frames at `--opt 0` and **260,000–262,000** at `--opt 1`, beyond which the process dies with SIGSEGV, status 139 (`memory-model.md` MM-EXEC-6d) |
 
 So the shape to avoid at scale is a fold whose combining step happens
@@ -3743,9 +3744,51 @@ So the shape to avoid at scale is a fold whose combining step happens
   (if (>= i hi) acc (count v (+ i 1) hi (+ acc (vecGet v i)))))
 ```
 
-`--opt 1` and above are worth using for anything hot, and are still
-needed for the *correctness* of mutual tail recursion — only a **self**
-tail call is a loop without the optimiser.
+`--opt 1` and above are worth using for anything hot. They are no
+longer needed for the *correctness* of mutual tail recursion between
+functions of one arity: since 2026-09-03 that call is a `musttail`,
+and `llc` either jumps or refuses the module. What still needs the
+optimiser — and gets no guarantee from it — is a mutual call across
+arities, or one that hands the callee a temporary the caller must
+release afterwards (MM-EXEC-6c names both, with the measurement).
+
+### Link-time optimisation, and why there is no flag for it
+
+Every Axiom program is emitted as **one LLVM module** — user code,
+every imported stdlib module, and the runtime allocator — and `opt`
+runs over that module, so what a C toolchain calls link-time
+optimisation (inlining and dead-code elimination across translation
+units) is the ordinary optimisation here: there is only one unit. The
+emitter also prunes every `define` nothing reaches before `opt` sees
+the module (`pruneDeadDefs` in `self_host/codegen.ax`;
+`scripts/check-dead-code.sh` holds that a hello world's binary names
+nothing a walk from `main` cannot reach).
+
+Two things were measured on 2026-09-03 before deciding not to add a
+link flag:
+
+- **`-Wl,-dead_strip` at the `cc` line** (the darwin spelling;
+  `--gc-sections` with `-function-sections` is the ELF one) removes
+  **10 runtime symbols and 752 bytes** from a 34,896-byte hello world
+  and **32 bytes** from the 1,955,712-byte compiler — the IR-level
+  prune has already done the work, and a flag whose whole effect is
+  ten unreferenced runtime helpers is not worth a byte-layout change
+  on every target.
+- **Cross-language LTO over `extern`** is the boundary the single
+  module cannot cross, and it is reachable: a Rust crate built with
+  `rustc --emit=llvm-bc` links into the Axiom module with `llvm-link`,
+  one `opt -O2` over the union **inlines the Rust function into the
+  Axiom loop** (`call i64 @adder_add` 2 → 0), and the result links
+  against the crate's archive for the rest and answers. Two facts
+  gate a driver flag: a `staticlib` built with `-C linker-plugin-lto`
+  carries **no bitcode member at all** (0 of 393 objects), so the
+  bitcode has to be asked for as its own artifact; and the inliner
+  refuses the merged callee **until its `"target-cpu"`/
+  `"target-features"` attributes are stripped** — rustc stamps
+  `apple-m1` on every function and Axiom's module stamps nothing, and
+  LLVM will not inline across that (the same probe with the attribute
+  removed inlines). Both are mechanical, neither is built, and
+  `docs/ffi.md`'s C-ABI contract is unchanged either way.
 
 ---
 
