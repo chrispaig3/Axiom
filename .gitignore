@@ -55,3 +55,16 @@ web/.smoke-entry.tsx
 web/.smoke-bundle.mjs
 web/.tok-entry.ts
 web/.tok-bundle.mjs
+
+# `axiom run` builds into the WORKING DIRECTORY. self_host/main.ax:1668
+# names the scratch executable `axiom_temp_output.<pid>` and
+# `buildToExecutable` derives `<base>.ll`, `<base>.o` and
+# `<base>.opt.ll` from it. The run unlinks the executable when the
+# child returns, so a clean run leaves nothing - but a hard kill, a
+# crash, or a link that fails halfway leaves all four. One of them,
+# `examples/web/axiom_temp_output.92420`, a 156 KB arm64 Mach-O, was
+# committed in d1e4a71 and lived in the tree until 2026-09-03 with
+# every gate green, because nothing was looking. This line stops the
+# next one; `scripts/check-web.sh`'s hygiene sweep is what notices if
+# one is committed anyway.
+axiom_temp_output.*

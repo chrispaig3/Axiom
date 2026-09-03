@@ -48,7 +48,11 @@
 #     for refusing and none for accepting");
 #   - the memory: the same binary is run with the arena flag OFF, and
 #     that run must grow past 2x between the short and the long drive,
-#     or the flat scoped column means the measurement reads nothing.
+#     or the flat scoped column means the measurement reads nothing;
+#   - the hygiene sweep over `examples/`: a planted build artefact, an
+#     `.ax` tracked 100755, and an empty file list must each turn it
+#     red - one ablation per arm, because two arms sharing one
+#     ablation is one arm and a decoration.
 #
 # MEASURED when this was written (2026-08-29, two workers, peak worker
 # RSS, `GET /` - the 749-byte templated index page - per request, one
@@ -108,6 +112,198 @@ status=0
 command -v python3 >/dev/null 2>&1 || {
   echo "FAIL: python3 is needed to drive the requests"; exit 1
 }
+
+# ---------------------------------------------------------------
+# examples/ HOLDS SOURCES, NOT BUILD OUTPUT. This gate is the only
+# thing CI points at examples/web, so the directory's hygiene is
+# asserted here rather than in a gate of its own.
+#
+# `axiom run` builds into the WORKING DIRECTORY - self_host/main.ax
+# names the scratch executable `axiom_temp_output.<pid>` and derives
+# `<base>.ll`, `<base>.o` and `<base>.opt.ll` beside it - and unlinks
+# only the executable, only when the child returns. A hard kill leaves
+# all four where the operator stood. One of them,
+# `examples/web/axiom_temp_output.92420`, a 156 KB arm64 Mach-O, was
+# committed in d1e4a71 and sat in the tree until 2026-09-03 with
+# every gate green, because no gate read the file LIST - they all read
+# file CONTENTS, and a file nothing imports has no contents anyone
+# reads. .gitignore now names the pattern; this is what notices a
+# build artefact committed past it, by any name.
+#
+# THE ALLOWED LIST IS DELIBERATELY IN ONE DIRECTION. Adding a
+# legitimate asset type - a .png for a page, a .json fixture - is a
+# visible edit to `ex_allowed` below and to the table in
+# examples/README.md, which is the property check-stdlib-api.sh's
+# module list is written for: a list that rots silently in the
+# permissive direction is worse than no list.
+#
+# TWO ARMS, and each has its own ablation because each catches a
+# different thing. The extension arm catches a file with no extension
+# or a foreign one (a stray executable, a core dump, a .o); the mode
+# arm catches a file whose NAME is innocent and whose bit is not - a
+# `server.ax` chmod +x, which the extension arm would wave through.
+# The ablations feed synthetic rows to the same function rather than
+# writing into the repository, because a gate that plants a file in
+# the tree it is checking can leave one behind when it is interrupted.
+# ---------------------------------------------------------------
+ex_allowed="ax js css md"
+
+# Reads `<mode> <path>` rows on stdin, one per tracked file, and
+# answers 0 only if every one is a source or a static asset that is
+# not executable. $1 is what to call the population in a message.
+examples_hygiene() {
+  local what="$1" bad=0 n=0 nax=0 mode path ext ok a
+  while read -r mode path; do
+    [[ -n "$path" ]] || continue
+    n=$((n + 1))
+    ext="${path##*.}"
+    [[ "$ext" == "$path" ]] && ext=""
+    case "$path" in *.ax) nax=$((nax + 1)) ;; esac
+    ok=0
+    for a in $ex_allowed; do [[ "$ext" == "$a" ]] && ok=1; done
+    if (( ok == 0 )); then
+      echo "     $what: $path is neither a source nor a static asset (allowed: $ex_allowed)"
+      bad=$((bad + 1))
+      continue
+    fi
+    if [[ "$mode" != "100644" ]]; then
+      echo "     $what: $path is tracked with mode $mode - an example's sources are not executables"
+      bad=$((bad + 1))
+    fi
+  done
+  # The population floor. Without it this function answers 0 for an
+  # empty stream, which is what it would read if the file list were
+  # ever produced from the wrong path - a check that passes because
+  # it looked at nothing.
+  if (( n < 4 || nax < 3 )); then
+    echo "     $what: read $n tracked files and $nax programs, which is fewer than examples/ has"
+    bad=$((bad + 1))
+  fi
+  return $(( bad > 0 ? 1 : 0 ))
+}
+
+echo "== examples/ holds sources and static assets, and no build output =="
+ex_rows="$work/examples.rows"
+git ls-files -s examples/ | awk '{print $1, $4}' > "$ex_rows"
+ex_n="$(wc -l < "$ex_rows" | tr -d ' ')"
+if examples_hygiene "examples/" < "$ex_rows"; then
+  echo "ok   $ex_n tracked files under examples/, all sources or static assets, none executable"
+else
+  echo "FAIL: examples/ holds a file that is not part of an example's source."
+  echo '      `axiom run` writes axiom_temp_output.<pid> into the working directory;'
+  echo "      if that is what this is, delete it - .gitignore names the pattern."
+  status=1
+fi
+
+echo "== ablation: the sweep must go red on a planted artefact and on a set bit =="
+{ cat "$ex_rows"; echo "100755 examples/web/axiom_temp_output.92420"; } > "$work/examples.abl1"
+{ cat "$ex_rows"; echo "100755 examples/web/server-copy.ax"; } > "$work/examples.abl2"
+if examples_hygiene "abl-extension" < "$work/examples.abl1" >/dev/null 2>&1; then
+  echo "FAIL negative probe: the sweep accepted a committed axiom_temp_output.<pid>,"
+  echo "     so its green above is green about nothing"
+  status=1
+else
+  echo "ok   negative probe: a committed build artefact is refused by the extension arm"
+fi
+if examples_hygiene "abl-mode" < "$work/examples.abl2" >/dev/null 2>&1; then
+  echo "FAIL negative probe: the sweep accepted an executable .ax, so the mode arm"
+  echo "     is being carried by the extension arm and catches nothing of its own"
+  status=1
+else
+  echo "ok   negative probe: an .ax tracked 100755 is refused by the mode arm"
+fi
+if examples_hygiene "abl-empty" < /dev/null >/dev/null 2>&1; then
+  echo "FAIL negative probe: the sweep passed on an empty population, so a"
+  echo "     mistyped path would read nothing and answer green"
+  status=1
+else
+  echo "ok   negative probe: an empty file list is refused, so the green arm read something"
+fi
+
+# ---------------------------------------------------------------
+# AND EVERY PROGRAM IS DOCUMENTED. A directory of examples nobody can
+# find is a directory of dead files: before 2026-09-03 there was no
+# examples/README.md and README.md contained no occurrence of the
+# string `examples`, so the three programs below were reachable only
+# by `ls`. Two directions, because a table checked one way rots the
+# other - the same rule the module list in check-stdlib-api.sh
+# carries:
+#
+#   - every `.ax` tracked under examples/ is named in
+#     examples/README.md, so a new program cannot land undocumented;
+#   - every `examples/…​.ax` path the table names is in the tree, so a
+#     deleted program cannot leave a row pointing at nothing.
+#
+# The top-level README.md must link to it, which is the whole reason
+# any of this is discoverable.
+#
+# The ablation for each direction is a synthetic pair fed to the same
+# function: a program absent from the table, and a table row naming a
+# program that does not exist.
+# ---------------------------------------------------------------
+
+# $1 what to call the population; $2 a file of `.ax` paths; $3 the
+# document that must name each of them.
+examples_documented() {
+  local what="$1" progs="$2" doc="$3" bad=0 n=0 p
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    n=$((n + 1))
+    grep -qF -- "$p" "$doc" || {
+      echo "     $what: $p is not named in $doc"
+      bad=$((bad + 1))
+    }
+  done < "$progs"
+  # Back the other way: a row naming a program that is gone.
+  while IFS= read -r p; do
+    [[ -e "$repo_root/$p" ]] || {
+      echo "     $what: $doc names $p, which is not in the tree"
+      bad=$((bad + 1))
+    }
+  done < <(grep -oE 'examples/[A-Za-z0-9_./-]+\.ax' "$doc" | LC_ALL=C sort -u)
+  if (( n < 3 )); then
+    echo "     $what: read $n programs, which is fewer than examples/ has"
+    bad=$((bad + 1))
+  fi
+  return $(( bad > 0 ? 1 : 0 ))
+}
+
+echo "== every example is named in examples/README.md, and README.md points there =="
+ex_progs="$work/examples.progs"
+awk '$2 ~ /\.ax$/ {print $2}' "$ex_rows" > "$ex_progs"
+if [[ ! -f "$repo_root/examples/README.md" ]]; then
+  echo "FAIL: examples/README.md does not exist - the programs are reachable only by ls"
+  status=1
+elif examples_documented "examples/" "$ex_progs" "$repo_root/examples/README.md"; then
+  echo "ok   $(wc -l < "$ex_progs" | tr -d ' ') programs, each named in examples/README.md, and no row names a program that is gone"
+else
+  echo "FAIL: examples/README.md and examples/ have drifted apart"
+  status=1
+fi
+if grep -q 'examples/README.md' "$repo_root/README.md"; then
+  echo "ok   README.md links to examples/README.md"
+else
+  echo "FAIL: README.md does not mention examples/ - it did not, for the whole of"
+  echo "      this project's history before 2026-09-03, and that is how the"
+  echo "      directory came to hold a committed build artefact nobody saw"
+  status=1
+fi
+
+echo "== ablation: the documentation check must go red both ways =="
+{ cat "$ex_progs"; echo "examples/web/undocumented.ax"; } > "$work/examples.abl3"
+{ cat "$repo_root/examples/README.md"; echo "see examples/gone/gone.ax"; } > "$work/examples.abl4"
+if examples_documented "abl-undocumented" "$work/examples.abl3" "$repo_root/examples/README.md" >/dev/null 2>&1; then
+  echo "FAIL negative probe: an example missing from the table was accepted"
+  status=1
+else
+  echo "ok   negative probe: a program the table does not name is refused"
+fi
+if examples_documented "abl-dangling" "$ex_progs" "$work/examples.abl4" >/dev/null 2>&1; then
+  echo "FAIL negative probe: a table row naming a program that does not exist was accepted"
+  status=1
+else
+  echo "ok   negative probe: a row naming a program that is gone is refused"
+fi
 
 # ---------------------------------------------------------------
 # The server, and the site it serves. The static directory is a COPY
@@ -456,7 +652,8 @@ if (( status == 0 )); then
   echo "           pages and its files byte for byte, escapes what the peer"
   echo "           sent in text and in attributes, refuses a path that climbs"
   echo "           out of its static directory, holds its memory flat across"
-  echo "           $reqs_large page requests with the handler an arena scope, and"
+  echo "           $reqs_large page requests with the handler an arena scope, its"
+  echo "           examples/ directory holds sources and nothing built, and"
   echo "           every one of those claims has an ablation that goes red"
 fi
 exit "$status"
