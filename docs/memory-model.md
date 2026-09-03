@@ -652,6 +652,8 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 | 74 | a `__syscallN` reached on a target with no syscall ABI (windows-x86_64) | emitted, not yet executed: `emitPrimSyscall` lowers the primitive there to `__axiom_no_syscall`, which prints `axiom: no syscall ABI on this target` (37 bytes) and exits 74; 73 is the FFI's (`ffiHandleClose`) |
 | 75 | `__axiom_arena_reset` handed a mark whose chunk is no longer on the active list (`MM-ALLOC-16a`) | measured: `tests/stdlib/166-arena-bad-mark.ax` resets an inner mark after its outer one, the run prints `axiom: arena reset to an invalid mark` to fd 2 and exits 75. The same fixture's first two blocks — nested marks reset innermost-first, and the same mark reset twice — must still exit silently, so the trap is pinned against firing on legal use |
 | 77 | an index out of range, raised by `(__indexTrap)` — a call that never returns, so it inhabits every result type. It exists because traps are `internal` LLVM functions the runtime block emits and nothing in `stdlib/` could reach one: a container that refuses an out-of-range index rather than answering a value needs exactly that (`docs/generics-design.md` §4). Measured: `tests/stdlib/464-index-trap.ax` prints `axiom: vector index out of range` to fd 2 and exits 77, and the same trap stands in an `Int` result and a `String` result in one program, which a concrete-typed trap could not | measured |
+| 78 | `parallel`: the kernel refused the fork or the pthread (`__axiom_par_spawn_failed`) | emitted 2026-09-03 and not yet executed - a refused spawn needs a process at its limits; the trap is recoverable, as 77 is, and prints `axiom: parallel: could not spawn the binding` |
+| 79 | `parallel` on a target with neither `fork` nor a pthread - windows-x86_64 | emitted, not executed: both primitives compile there to `__axiom_par_unsupported`, which prints `axiom: parallel is not available on this target` and exits 79, so the program builds for every target and says at its first spawn what it cannot do (`scripts/check-parallel.sh` reads the IR) |
 | 76 | `__axiom_arena_reset` handed a mark taken before a `handle` whose extent is still live (`MM-ALLOC-16b`) | measured: `tests/stdlib/167-arena-live-handle.ax` resets a mark that predates the extent, the run prints `axiom: arena reset past a live handle` to fd 2 and exits 76. Its first two blocks — a mark taken inside the extent, and a mark with no handle in scope — must still exit silently, and `tests/stdlib/401-recover-effect.ax` must still exit 71, because a recovery abort performs this very reset legitimately |
 `tests/stdlib/310-effect-unhandled.err` pins its sentence beside the
 `.exit` that had pinned the status alone since the case was written.
@@ -3601,11 +3603,36 @@ is an accepted tag with no meaning.
 ## 6. Parallelism
 
 **MM-PAR-1 (H, its reason amended 2026-08-24; its atomics clause
-withdrawn 2026-08-29).** Axiom has **no language-level concurrency**:
-no threads, no tasks, no async, and no scheduler. Nothing in this
-section is a compiler feature except the five atomic primitives, which
-are stated next because the clause that denied them was true until the
-day it was not.
+withdrawn 2026-08-29; its first sentence withdrawn 2026-09-03).** Axiom
+has **no language-level concurrency**: no threads, no tasks, no async,
+and no scheduler. Nothing in this section is a compiler feature except
+the five atomic primitives, which are stated next because the clause
+that denied them was true until the day it was not.
+
+**The first sentence is withdrawn, and the price it named is now paid
+only by the programs that ask.** Since 2026-09-03 the language has one
+concurrency form, `(parallel p ((a e1) (b e2)) body)`, and it is a
+compiler feature: the parser desugars it into `let`s over the
+`__par_spawn`/`__par_join` primitives, and codegen lowers the pair two
+ways (`docs/memory-model-v2-design.md` §3.3, `docs/reference.md`'s
+`parallel` section). The DEFAULT lowering is `MM-PAR-2`'s unit, a
+forked child per binding with the answer crossing through one
+`MAP_SHARED` page, so a program that writes `parallel` and nothing else
+pays none of the two prices below - it imports nothing and every
+global stays process-private (`MM-PAR-3`). The THREAD lowering, under
+`axiom build --threads` or by naming `__thread_spawn`, pays both and
+pays them knowingly: the program imports `pthread_create` and
+`pthread_join` (and `__tlv_bootstrap` on Darwin), which is tier 3 of
+`MM-FFI-1`'s table, and the eight mutable globals of the emitted
+runtime take `thread_local(localexec)` - the obligation `MM-PAR-6`
+states, discharged by `cgThreads` in `self_host/codegen.ax`, a scan
+that answers 1 exactly for a module that spawns a thread. A program
+that spawns none is byte-identical to what the compiler emitted before
+the form existed, on every target: `scripts/check-thread-local.sh`
+holds the OFF path, `scripts/check-parallel.sh` measures the deltas.
+There is still no scheduler and no async; what a join hands back is a
+word; and what a thread may capture is not yet checked - `MM-PAR-6`
+below says which of its clauses hold.
 
 **The atomics clause is withdrawn, and only that clause.** Since
 2026-08-29 the emitter lowers `__atomic_load`, `__atomic_store`,
@@ -3686,7 +3713,14 @@ under CI by `scripts/check-net.sh`, with
 corpus. `MM-ALLOC-22`'s measurement is taken on those workers.
 
 Why forking needs no compiler support at all is unchanged, and it is
-`MM-PAR-3`.
+`MM-PAR-3`. Since 2026-09-03 the emitted runtime forks too:
+`@__axiom_par_spawn_proc` is what a `parallel` binding lowers to by
+default - `fork` through the syscall template, the thunk run in the
+child, its word written through a shared page, and `@__axiom_par_join_proc`
+a `wait4` whose status is re-raised as the parent's own exit when it is
+not 0 (`tests/stdlib/471-parallel-trap.ax`, 77 out of a child that
+trapped). Darwin's two-register `fork` is normalised the way
+`sysForkProcess` normalises it, with one `getpid`.
 
 **MM-PAR-3 (H).** **Memory safety across processes is by construction,
 not by discipline.** *Every* process-wide mutable global — the five
@@ -3768,14 +3802,39 @@ children take 4.61 s at width 1 and 0.93 s at width 8, and
 `tests/stdlib/302-job.ax` pins ascending output with children whose
 completion order is deliberately reversed.
 
-**MM-PAR-6 (P).** Should a future implementation add threads on a
-platform that permits them, this specification **SHALL** require: one
-arena per thread with no cross-thread reference, values handed to a
-thread copied or moved, results moved into the parent's arena at join,
-and combination in argument order so that scheduling nondeterminism
-stays unobservable. The five allocator globals **MUST** then become
-thread-local rather than acquiring a lock, since a shared bump pointer
-is the one thing this allocator's design cannot absorb.
+**MM-PAR-6 (P; three of its five clauses H since 2026-09-03).** Should
+a future implementation add threads on a platform that permits them,
+this specification **SHALL** require: one arena per thread with no
+cross-thread reference, values handed to a thread copied or moved,
+results moved into the parent's arena at join, and combination in
+argument order so that scheduling nondeterminism stays unobservable.
+The five allocator globals **MUST** then become thread-local rather
+than acquiring a lock, since a shared bump pointer is the one thing
+this allocator's design cannot absorb.
+
+*What the thread lowering of `parallel` holds, and what it does not
+(`scripts/check-parallel.sh`, `scripts/check-thread-local.sh`):*
+
+- **one arena per thread** - holds. All eight mutable globals, the five
+  allocator words included, are `thread_local(localexec)` in a module
+  that spawns, so a thread starts from the zeroed image and its first
+  `axiom_alloc` maps a chunk of its own; no lock exists anywhere.
+- **results moved into the parent's arena at join** - holds, for a
+  WORD: the join hands back the thunk's `Int` through a page the
+  parent mapped. A heap value cannot be a binding's answer yet
+  (`AX3004` at the expression), because moving one out of the child's
+  arena is the typed promotion S3/S4 of `docs/memory-model-v2-design.md`
+  own.
+- **combination in argument order** - holds by construction: the
+  parser joins in the order written, and a child's completion order is
+  not observable through the form.
+- **no cross-thread reference, values copied or moved** - NOT held. A
+  binding's expression may capture any name in scope, and under
+  threads a captured heap value is shared with the parent, its count
+  touched from two threads with no fence. The rule that refuses this
+  is `MM-RGN-3` over sibling regions (the design's §3.2), which is why
+  the process lowering - where the same program is safe by `MM-PAR-3`
+  - is the default and threads are opt-in.
 
 ---
 
@@ -3801,6 +3860,7 @@ executable):
 | program | undefined symbols | forbidden libc names |
 |---|---|---|
 | no `extern` | **0** | 0 |
+| no `extern`, `parallel` under `--threads` (2026-09-03) | **3** on Darwin (`pthread_create`, `pthread_join`, `__tlv_bootstrap`), **2** elsewhere | 0 |
 | `extern` → a `no_std` Rust crate | **0** | 0 |
 | `extern` → a `std` Rust crate | 188 | 18 |
 

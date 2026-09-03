@@ -683,6 +683,8 @@ instead of writing to fd 2 and exiting:
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
 | a violated contract answers **77** | ``axiom: precondition failed in `half`: (> n 0)``, exit 77 |
+| a `parallel` spawn the kernel refused answers **78** | `axiom: parallel: could not spawn the binding`, exit 78 (2026-09-03; emitted, not yet executed) |
+| `parallel` on a target with no lowering answers **79** | `axiom: parallel is not available on this target`, exit 79 (windows-x86_64; emitted, not executed) |
 
 The first three have both halves in one program per case, at four
 optimisation levels: `tests/stdlib/401-recover-effect.ax`,
