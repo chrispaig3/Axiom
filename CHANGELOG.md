@@ -167,6 +167,7 @@ regions (§3.2 of the design), and until it lands processes are the
 default for exactly this reason. Nothing in `self_host/` or `stdlib/`
 uses `parallel` yet: the committed seed cannot parse it, and the rule
 is land, reseed, then use. fifty-eight gates call `gate_build_axc` now.
+
 ### `region` returns as a checked scope — S2 of the memory-model v2 design
 
 **`(region r body)` is a keyword again.** It reads the allocator's
@@ -254,6 +255,7 @@ seed cannot parse `region`, so nothing in `self_host/` or `stdlib/`
 writes one — land, reseed, then use. The compiler's own per-line
 `checkModule` reset and the pre-forked server's per-request mark are
 the first two candidates once a reseed lands.
+
 ### `for` is a keyword, and it has two shapes
 
 **`(for i lo hi body)` counts `[lo, hi)`; `(for x xs body)` binds `x`
@@ -1661,6 +1663,7 @@ against `0`; two `if` arms became `{ (sysCloseFd fd) 0 }` where a
 discarded close sat opposite an `Int`.
 
 >>>>>>> origin/trunk
+
 ### Seven socket calls that answered a negative errno now answer a `Result`, and a callee nearly undid the exclusion the slice was drawn around
 
 `ERR-ADOPT-1`'s third slice. `netBind`, `netListen`, `netConnect`,

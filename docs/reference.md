@@ -887,6 +887,7 @@ keyword, so `self_host/` and `stdlib/` cannot write `for` until a
 reseed follows it (`scripts/reseed.sh`'s rule: land the construct,
 reseed, then use it). The keyword's range shape mirrors `range`'s
 template binding for binding, so the two agree by construction.
+
 ### `parallel` — bindings that run beside the caller
 
 `(parallel p ((a e1) (b e2) ...) body...)` evaluates every binding's
