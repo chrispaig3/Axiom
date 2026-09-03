@@ -1,0 +1,9 @@
+# Axiom — https://chrispaig3.github.io/Axiom/
+#
+# Everything here is public documentation for an MIT-licensed language,
+# and the site is prerendered, so a crawler that executes no JavaScript
+# still receives the whole page. Nothing is disallowed.
+User-agent: *
+Allow: /
+
+Sitemap: https://chrispaig3.github.io/Axiom/sitemap.xml
