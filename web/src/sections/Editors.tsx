@@ -79,7 +79,7 @@ export function Editors() {
             <dd>
               All of the highlighting, plus rainbow-bracket queries. One query
               file serves Neovim, Helix and the <code>tree-sitter</code> CLI —
-              and it is parsed against all 588 <code>.ax</code> files in the
+              and it is parsed against all 600 <code>.ax</code> files in the
               repository on every change.
             </dd>
           </div>

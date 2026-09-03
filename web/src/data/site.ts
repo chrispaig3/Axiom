@@ -22,22 +22,22 @@ export interface Stat {
 
 export const STATS: Stat[] = [
   {
-    n: '89,587',
+    n: '93,541',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
   {
-    n: '588',
+    n: '600',
     label: '.ax files in the tree, every one parsed by the grammar gate',
     evidence: "find . -name '*.ax' | wc -l",
   },
   {
-    n: '69',
+    n: '73',
     label: 'diagnostic codes, each with an explanation and a fixture',
     evidence: 'axiom explain --list',
   },
   {
-    n: '64',
+    n: '70',
     label: 'gate scripts that must pass before anything lands',
     evidence: "ls scripts/check-*.sh | wc -l",
   },
