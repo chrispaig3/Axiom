@@ -284,6 +284,22 @@ jobs:
       - name: A shipped binary names the tree it was built from
         run: ./scripts/check-build-id.sh
 
+      # The seed's supply chain, and it runs HERE rather than beside
+      # `seed-provenance` for two reasons. It needs no compiler, no
+      # `llc` and no history - it is a second of shell over the tree -
+      # so it does not belong in a seven-minute job with `fetch-depth:
+      # 0`. And this matrix is three operating systems, which is where
+      # `scripts/lib/seed-sums.sh` gets exercised under the bash 3.2 the
+      # macOS runner ships, on the one code path a fresh clone with no
+      # Axiom toolchain executes.
+      #
+      # It is the gate `bootstrap/THREATS.md` rows 1, 10 and 11 name.
+      # A `yes` row naming a gate this file does not run is exactly what
+      # its section 3 refuses, so removing this step turns those three
+      # rows red rather than turning them into quiet fiction.
+      - name: The seed's supply chain is one fact, and its sums are not vacuous
+        run: ./scripts/check-seed-supply-chain.sh
+
       # These cases were also run by the deleted Rust test suite, as
       # `stdlib_golden`. This script is now their only runner, which is
       # the reason it was kept alive alongside that suite for so long.
@@ -1293,6 +1309,19 @@ jobs:
   # it on every run. And it costs a compiler build plus six
   # whole-compiler emissions, about seven minutes, which is a poor
   # neighbour for the `test` job's fifty-one steps.
+  #
+  # ONE LEG, DELIBERATELY, and the reason is worth writing down because
+  # the obvious improvement is a two-leg matrix. The seed is generated
+  # on darwin-aarch64 and regenerated here on ubuntu: that is two
+  # operating systems reaching the same 1,235,917 lines of IR, and
+  # `check-seed-provenance.sh`'s second-witness section now prints which
+  # case each run is. A darwin leg would make the property survive a
+  # change in where the seed is generated - but this job is seven
+  # minutes, macOS runner minutes bill at ten times ubuntu's, and the
+  # leg that would matter is the one that is already here. What a
+  # maintainer needs is to SEE the property lapse, which the report
+  # gives for free; adding the second leg is the lever to pull if the
+  # generating host ever moves.
   seed-provenance:
     name: The seed is its source's emission
     needs: grammar
@@ -1302,6 +1331,15 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/provision
+
+      # The same gate the `test` matrix runs, and it runs here too for
+      # ONE arm: its section 5 compares the anchor's stated size against
+      # `bb730db`, which a depth-1 checkout does not have. There it says
+      # so and compares only the four prose sites to each other; here,
+      # under `fetch-depth: 0`, it counts the commit. Two seconds, and
+      # without it the git half of that check would run nowhere in CI.
+      - name: The anchor's stated size, against the anchor
+        run: ./scripts/check-seed-supply-chain.sh
 
       - name: Regenerate all six seeds from the source they came from
         run: ./scripts/check-seed-provenance.sh

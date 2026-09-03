@@ -69,6 +69,7 @@ set -uo pipefail
 # which is exactly the situation this script exists to handle, and it
 # must be the one to say so. The helpers are all that is needed.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-sums.sh"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root" || exit 1
 link_entry="$(gate_link_entry)"
@@ -103,7 +104,12 @@ case "$(uname -m)" in
 esac
 host="$os-$arch"
 
-targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
+# One list, in `scripts/lib/seed-sums.sh`. It was written out here and
+# in `check-seed-provenance.sh` and implied by `bootstrap/SHA256SUMS`,
+# the files on disk and `bootstrap/README.md`'s box - five copies of one
+# fact that nothing compared. `check-seed-supply-chain.sh` compares them
+# now, and this is the copy it treats as the declaration.
+targets="$(seed_targets | tr '\n' ' ')"
 
 # --------------------------------------------------------------------
 # The previous seed: the commit that last wrote the six `.ll` files,
@@ -215,6 +221,31 @@ nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l
   printf 'Source stamp:          %s\n' "$stamp"
   printf 'Source files:          %s\n' "$nfiles"
   printf 'Generated on:          %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # THE HOST, so that a second witness can be named as one.
+  #
+  # The committed seed is generated here, on darwin-aarch64, and
+  # `check-seed-provenance.sh` regenerates it byte-identically on
+  # `ubuntu-latest`. That is two toolchains on two operating systems
+  # agreeing on 1.2 M lines of IR, which is a stronger fact than the
+  # regeneration alone - and until this line existed nothing recorded
+  # which host generated the seed, so nothing could tell the two-host
+  # case from the one-host case, and nothing would have noticed the
+  # property quietly becoming the second. The provenance gate reads this
+  # line when it is there and reports ABSENT when it is not; it never
+  # reads absence as agreement.
+  #
+  # `llc` is in it because `llc` is on the trust base
+  # (`bootstrap/THREATS.md`, row 5): two hosts running the same `llc`
+  # build are less of a second witness than two running different ones,
+  # and that is a difference a reader should be able to see.
+  # `.*LLVM version` and not `^ *LLVM version`: Homebrew's llc prints
+  # "Homebrew LLVM version 23.1.0" and the anchored pattern this first
+  # had matched nothing, which would have written `darwin-aarch64 ()` -
+  # a recorded fact silently emptied, in the file whose whole subject is
+  # facts that cannot be wrong when they are written. Measured here
+  # 2026-09-03 before it could be committed.
+  printf 'Generated on host:     %s (llc %s)\n' "$host" \
+    "$(llc --version 2>/dev/null | sed -n 's/.*LLVM version *//p' | head -1 | tr -d '\n')"
   printf 'Regenerate with:       scripts/reseed.sh\n'
   printf 'Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh, scripts/check-seed-lineage.sh\n'
   printf '\n'
@@ -226,6 +257,12 @@ nfiles="$( cd "$repo_root" && find self_host stdlib -name '*.ax' -type f | wc -l
   printf 'directory, which also holds metadata about them - requires that\n'
   printf "commit's sources to hash to this line, and then regenerates all six\n"
   printf 'seeds from them and requires the result to be byte-identical.\n'
+  printf '\n'
+  printf '`Generated on host:` is a REPORT, not a claim: nothing can check where\n'
+  printf 'a file was written. It is here so that when the provenance gate\n'
+  printf 'regenerates these bytes on a different host it can say so - two\n'
+  printf 'toolchains agreeing is more than one repeating itself - and so that the\n'
+  printf 'day it stops being a different host, that is visible rather than silent.\n'
 } > bootstrap/STAMP
 cat bootstrap/STAMP
 

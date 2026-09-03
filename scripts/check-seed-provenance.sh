@@ -21,7 +21,12 @@
 # WHAT IT PROVES, AND WHAT IT CANNOT. It proves the seed is a build
 # product of reviewable source, reproducibly, on six targets: a
 # tampered seed now has to be a tamper somebody can find by reading
-# `.ax` files rather than 139,638 lines of LLVM IR. It does NOT answer
+# `.ax` files rather than the LLVM IR beside them - `wc -l
+# bootstrap/*.ll`, which read 205,986 lines per target and 1,235,917 in
+# all on 2026-09-03. The numeral used to be written here as 139,638 and
+# was three reseeds stale, in the header of the gate whose whole subject
+# is a recorded fact going quietly wrong; the command is what to run.
+# It does NOT answer
 # Ken Thompson - the compiler that regenerates the seed here is itself
 # seed-descended, so a compiler that reproduces a backdoor in its own
 # output reproduces it here too. Nothing a single implementation can
@@ -61,7 +66,12 @@ fail() { echo "FAIL: $*"; failed=$((failed + 1)); }
 
 command -v git >/dev/null || { echo "FAIL: git is not on PATH"; exit 1; }
 
-targets="darwin-aarch64 darwin-x86_64 linux-aarch64 linux-x86_64 freebsd-x86_64 freebsd-aarch64"
+# The declaration is `seed_targets` in scripts/lib/seed-sums.sh; this
+# used to be a second handwritten copy of it. If the two ever disagreed
+# this gate would regenerate a set of seeds that is not the set
+# `reseed.sh` writes, and pass.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/seed-sums.sh"
+targets="$(seed_targets | tr '\n' ' ')"
 
 # --------------------------------------------------------------------
 echo "== STAMP states a source stamp, and it is well formed =="
@@ -88,6 +98,80 @@ if grep -q '^Generated from commit:' "$stamp_file"; then
   fail "$stamp_file has gone back to recording a commit; see its own note"
 else
   echo "ok   it records no 'Generated from commit:' line"
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== the second witness =="
+# --------------------------------------------------------------------
+# WHAT THIS SECTION IS AND IS NOT. Everything below it regenerates the
+# seed and requires byte-identity; that is the gate. This is a REPORT
+# about the regeneration that follows, and it does not fail, because
+# there is nothing here that a checkout can be wrong about: nothing can
+# verify where a file was written, and a `Generated on host:` line is a
+# claim the machine that wrote it makes about itself.
+#
+# It is worth printing anyway. The committed seed is generated on
+# darwin-aarch64 and this gate regenerates it on `ubuntu-latest`, so
+# every green run is two operating systems and two toolchains reaching
+# the same 1.2 M lines of IR - Wheeler's second witness in the weak,
+# same-source sense. That was true before this line existed and named
+# nowhere, which means it could have become one host and one toolchain
+# without anything noticing. Now the run says which case it is.
+#
+# ABSENT IS NOT AGREEMENT. A STAMP written before `reseed.sh` learned to
+# record the host has no such line, and this reports it as absent rather
+# than reading silence as either answer - the same distinction
+# `check-seed-lineage.sh`'s (e4) probe exists to hold. The line arrives
+# at the next real reseed; hand-writing one into STAMP would make STAMP
+# disagree with what `reseed.sh` emits, in the one file whose whole
+# subject is a recorded fact nobody could have got wrong when it was
+# written.
+#
+# THE ABLATION, run 2026-09-03 on darwin-aarch64, by putting a synthetic
+# `Generated on host:` line into a copy of STAMP and restoring it after.
+# All three branches were exercised:
+#
+#   line absent (the committed STAMP as it stands):
+#     --   STAMP records no generating host: this seed predates the line,
+#          so whether the regeneration below is a second witness is
+#          UNKNOWN. It arrives at the next reseed. Absent, not agreed.
+#
+#   `Generated on host: darwin-aarch64 (21.1.0)` - the host running it:
+#     --   regenerating on darwin-aarch64, which is also where the seed
+#          was generated ... not a second witness.
+#
+#   `Generated on host: linux-x86_64 (18.1.8)`:
+#     ok   second witness: generated on linux-x86_64 (18.1.8),
+#          regenerated here on darwin-aarch64.
+#
+# The middle case is the one that matters: a report that said "second
+# witness" whatever it read would be worth nothing, and it WITHHOLDS the
+# claim when the two hosts are the same.
+gen_host="$(sed -n 's/^Generated on host: *//p' "$stamp_file" | sed 's/[[:space:]]*$//')"
+case "$(uname -s)" in
+  Darwin)  here_os=darwin ;;
+  Linux)   here_os=linux ;;
+  FreeBSD) here_os=freebsd ;;
+  *)       here_os="$(uname -s)" ;;
+esac
+case "$(uname -m)" in
+  arm64|aarch64) here_arch=aarch64 ;;
+  x86_64|amd64)  here_arch=x86_64 ;;
+  *)             here_arch="$(uname -m)" ;;
+esac
+here_host="$here_os-$here_arch"
+if [[ -z "$gen_host" ]]; then
+  echo "--   STAMP records no generating host: this seed predates the line, so"
+  echo "     whether the regeneration below is a second witness is UNKNOWN."
+  echo "     It arrives at the next reseed. Absent, not agreed."
+elif [[ "${gen_host%% *}" == "$here_host" ]]; then
+  echo "--   regenerating on $here_host, which is also where the seed was"
+  echo "     generated ($gen_host). Byte-identity below is one toolchain"
+  echo "     repeating itself - the provenance claim, and not a second witness."
+else
+  echo "ok   second witness: generated on $gen_host, regenerated here on"
+  echo "     $here_host. Byte-identity below is two hosts agreeing."
 fi
 
 # --------------------------------------------------------------------
