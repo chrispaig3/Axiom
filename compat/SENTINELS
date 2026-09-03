@@ -408,9 +408,51 @@
 # for what they answer, and the two `Tui` per-keystroke reads. There is
 # no longer a row here that a fresh measurement would settle.
 
+# CORRECTED 2026-09-03: 19 -> 16, AND NO LINE OF stdlib/ MOVED. Three
+# of the rows were not debt anybody could pay, and a census that names
+# unpayable debt is a census whose floor nobody can reach.
+#
+#   * `Tui/Term.ax` 3 -> 1. `mkKeyIn` answers `KeyIn` and `keyNext`
+#     answers `KeyEv`, and a STRUCT return has no integer channel: the
+#     checker refuses `(- 0 1)` there outright, measured as
+#     `AX3004: type mismatch: expected Int, found Pair` on a two-line
+#     probe. What the census had actually found was the `pfd` FIELD
+#     inside `mkKeyIn`'s constructor - the descriptor-or-`-1` this file
+#     documents four lines above it - and the TIMEOUT ARGUMENT `(- 0 1)`
+#     that `keyNext` hands `keyInFill` to mean "block". Neither is an
+#     answer. `keyInFill` is the one real absence row of the three and
+#     it stays.
+#
+#   * `Sys/Platform.darwin.ax` 3 -> 2. `platformExitWith` exits the
+#     process. Windows is the only target that implements it - the only
+#     one with no syscall ABI - and there it is `(winExitProcess code)`,
+#     which does not return; the four syscall-ABI files answer -ENOSYS
+#     from a stub their own comment calls "never reached"; and its one
+#     caller, `sysExitWith` (stdlib/Sys.ax:303), puts it in STATEMENT
+#     position inside a `{ ... 0 }` and discards the value. There is no
+#     observer on any target, so there is no outcome for a `Result` to
+#     carry. `platformWriteFd` and `platformReadFd` are NOT excluded
+#     with it: those two answer a real count on Windows and stay.
+#
+# THE SISTER FIX WAS MEASURED AND REJECTED, which is the part worth
+# keeping. `in_return_position` is not transitive - it climbs one form,
+# sees `if`, and stops without asking whether that `if` is an answer or
+# an argument - and both phantom rows are its doing. Fixing it there
+# looks right and UNDER-REPORTS THIRTEEN ROWS, `strFindByte`,
+# `utf8DecodeAt` and `keyStrEnd` among them, because `let` and `fn` are
+# transparent to return position and the obvious climb treats them as
+# opaque. Under-reporting is the exact failure the 2026-08-30 rewrite
+# ended, so the TYPE rule landed and the position rule is left alone and
+# named in `tests/compat/verify-compat.py`.
+#
+# ABLATED BOTH WAYS, because a census that stopped counting is worse
+# than one that over-counts: a new `Int`-returning `(- 0 1)` planted in
+# `Utf8.ax` takes it 2 -> 3, and the SAME body declared to answer a
+# struct stays at 2.
+
 stdlib/Str.ax 0 2
 stdlib/Sys.ax 7 1
-stdlib/Sys/Platform.darwin.ax 3 0
+stdlib/Sys/Platform.darwin.ax 2 0
 stdlib/Tui/Keys.ax 0 1
-stdlib/Tui/Term.ax 0 3
+stdlib/Tui/Term.ax 0 1
 stdlib/Utf8.ax 0 2

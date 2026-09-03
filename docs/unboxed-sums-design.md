@@ -4,8 +4,8 @@
 16-byte heap block with a refcount, a shape word, a tag and the field,
 built by `axiom_alloc` and handed back to the arena by
 `axiom_release`. That is the entire cost of `Option` and `Result` in
-Axiom today, and it is the reason `compat/SENTINELS` still carries nine
-absence rows and ten failure rows that the migration wants and cannot
+Axiom today, and it is the reason `compat/SENTINELS` still carries seven
+absence rows and nine failure rows that the migration wants and cannot
 have.
 
 This note measures that cost, prototypes a representation that removes
@@ -282,13 +282,20 @@ second lowering path selected by the scrutinee's type.
 
 ## 5. What it unblocks, which is the actual argument for doing it
 
-This is not only a speed change. `compat/SENTINELS` records **nine
-absence rows and ten failure rows**, and the reason four of the nine
-cannot move is stated there and in `docs/error-model.md` §10:
+This is not only a speed change. `compat/SENTINELS` records **seven
+absence rows and nine failure rows** (nine and ten until the
+2026-09-03 correction removed three rows that were never portable —
+`docs/error-model.md` §10.1), and the reason five of the seven cannot
+move is stated there and in `docs/error-model.md` §10:
 
 > `strHexVal`, `utf8DecodeAt`, `utf8CharAt` and `keyStrEnd` all read
 > `#restrict=no-io,no-alloc,no-foreign`. They cannot become `Option`
 > without WITHDRAWING a checked claim.
+
+`strFindByte` reads the same three restrictions and is the fifth; it is
+listed apart from the four above because its own exclusion was argued
+on cost (7.4× per call over its scanning-path sites) rather than on the
+claim, and the claim refuses it either way.
 
 **~~If `(Some v)` does not allocate, that blocker is gone~~ — MEASURED FALSE, 2026-09-01** — those four
 become `Option` while keeping the claim they already make, and the

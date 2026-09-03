@@ -362,6 +362,32 @@ SENTINEL_SYSCALL = re.compile(r'__syscall\d|platform[A-Z]\w*|__winapi')
 SENTINEL_BRANCH = re.compile(r'\((?:if|match)[ \n]')
 SENTINEL_NORETURN = re.compile(r'sysExit\b|sysExitNum|ExitProcess')
 SENTINEL_INFALLIBLE = re.compile(r'sysGetPidNum|sysGetPpidNum')
+# A NAME WHOSE CONTRACT IS NOT WHAT ITS BODY'S SYNTAX SAYS, on the
+# `SENTINEL_INFALLIBLE` precedent one line above.
+#
+# `platformExitWith` exits the process, and on NO target does it hand a
+# caller an outcome:
+#
+#   * `stdlib/Sys/Platform.windows.ax:502` is `(winExitProcess code)`,
+#     which does not return - and Windows is the only target that
+#     implements it, because it is the only one with no syscall ABI;
+#   * darwin, freebsd and the two linux files answer `(- 0 78)`,
+#     -ENOSYS, under `;@axiom:pure`, and their own comment says the
+#     call is "never reached - `Sys.ax` tests this capability first";
+#   * its one caller, `sysExitWith` at `stdlib/Sys.ax:303`, puts it in
+#     STATEMENT position inside a `{ ... 0 }` that answers `0`, so the
+#     value is discarded whatever it is.
+#
+# The census reads the DARWIN file, so `SENTINEL_NORETURN` - which
+# already knows `ExitProcess` - never sees the noreturn implementation,
+# and the ENOSYS stub reads as an errno a caller could act on. None
+# can: a `(Result Int Error)` here would allocate on the process-exit
+# path, break the `pure` claim, and encode an outcome nobody observes.
+# This is the `sysRandomNum` shape - a constant in a body read as a
+# sentinel - surviving the rewrite that removed `sysRandomNum`, because
+# unlike that one it really is a negative in return position, so only a
+# fact about its CALLER settles it.
+SENTINEL_NO_OBSERVER = ("platformExitWith",)
 # `(r (__syscall3 ...))` - a binder whose value is a raw syscall call, so
 # that returning `r` counts as returning the syscall's result.
 SENTINEL_SYSCALL_BOUND = re.compile(
@@ -393,9 +419,55 @@ def sentinel_return_type(ty):
     return parts[-1] if parts else ty
 
 
+# WHAT COUNTS AS A CHANNEL, AND THE SECOND REASON A RETURN HAS NONE.
+# Two different facts land on the same answer, and both are reasons not
+# to count the row.
+#
+#   * `(Result ...)` and `(Option ...)` carry the outcome in the type
+#     already: the row is PORTED, not debt.
+#   * every other return except `Int` cannot hold a `(- 0 n)` AT ALL,
+#     because the checker refuses it. Measured 2026-09-03:
+#
+#         (pub :: mkPair (-> Int Pair))
+#         (pub fn (mkPair n) (if (< n 0) (- 0 1) (Pair n n)))
+#         AX3004: type mismatch: expected Int, found Pair
+#
+#     so a `Bool`, `String`, `Char`, `Float`, type variable, `struct`
+#     or `data` return has no integer sentinel channel and never had
+#     one. `Bool` was already skipped for exactly this reason without
+#     saying so; the rule is now stated once and covers the rest.
+#
+# THIS COST TWO PHANTOM ROWS IN `Tui/Term`, and they are why the rule
+# is here rather than a note. `mkKeyIn` answers `KeyIn` and `keyNext`
+# answers `KeyEv` - structs - and both were counted as `absence` debt
+# somebody could pay. Neither can be. The `(- 0 1)` the census found in
+# `mkKeyIn` is the `pfd` FIELD, the descriptor-or-`-1` that file's own
+# comment describes; the one in `keyNext` is the TIMEOUT ARGUMENT to
+# `keyInFill`, meaning "block". Neither is an answer, and no
+# `(Option Int)` could have replaced either.
+#
+# THE IMPRECISION UNDERNEATH IS `in_return_position`, WHICH IS NOT
+# TRANSITIVE: it climbs to the enclosing form, sees `if`, and stops
+# without asking whether THAT `if` is an answer or an argument. Fixing
+# it there is the obvious move and it is WRONG. Measured 2026-09-03, a
+# climb that keeps going until it meets a non-`if`/`match`/`{` head
+# drops THIRTEEN rows, including `strFindByte`, `utf8DecodeAt` and
+# `keyStrEnd` - the realest absence sentinels in the tree - because
+# `let` and `fn` are transparent to return position and that climb
+# treats them as opaque. Under-reporting is the failure this census was
+# rewritten to end (see the header of `compat/SENTINELS`), so the TYPE
+# rule is what lands and the position rule stays as it is, named here
+# so the next reader does not re-derive the same wrong fix.
+#
+# A `(type Port = Int)` alias WOULD escape this, since an alias is
+# expanded before checking while the declaration still says `Port`.
+# There are none - measured 2026-09-03, zero `(type ...)` declarations
+# in `stdlib/` - and this paragraph is what the first one has to read.
 def sentinel_has_channel(ret):
     r = ret.strip()
-    return r.startswith("(Result") or r.startswith("(Option") or r == "Bool"
+    if r.startswith("(Result") or r.startswith("(Option"):
+        return True
+    return r != "Int"
 
 
 def sentinel_body(lines, name):
@@ -503,6 +575,8 @@ def sentinel_census(root):
                         body = body + "\n" + helper
                         break
             if SENTINEL_NORETURN.search(body):
+                continue
+            if name in SENTINEL_NO_OBSERVER:
                 continue
             neg = bool(sentinel_returns(body))
             sysc = SENTINEL_SYSCALL.search(body) and not SENTINEL_INFALLIBLE.search(body)

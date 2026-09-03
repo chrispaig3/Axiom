@@ -1670,6 +1670,7 @@ changes what "finishing the migration" means.
 | `stdlib/`, by the census that read prose | 8 | 5 |
 | `stdlib/`, by the census that reads bodies | **9** | **29** |
 | `self_host/`, slice 4's 25 | 21 | 1 |
+| `stdlib/`, today — after slices 1–4 and the 2026-09-03 type correction | **7** | **9** |
 
 **THE ROW ABOVE IT WAS WRONG IN BOTH COLUMNS, AND THIS SECTION DREW THE
 WRONG CONCLUSION FROM IT.** Audited 2026-08-30. The census those numbers
@@ -1701,8 +1702,8 @@ a caller a negative errno; the socket-configuration slice took seven of
 them on 2026-08-31, the "did it work" slice five more on 2026-09-01,
 the descriptor slice five more the same day, the working-directory
 slice one more, and one of the remainder turned out to be an absence
-the census had misfiled — so **10** are left, seven in `stdlib/Sys.ax`
-and three in `stdlib/Sys/Platform.darwin.ax`, every one of them
+the census had misfiled — so **nine** are left, seven in `stdlib/Sys.ax`
+and two in `stdlib/Sys/Platform.darwin.ax`, every one of them
 excluded on a measurement rather than pending.
 
 **Slice 4 is the one that found an exclusion which was not a
@@ -1733,22 +1734,21 @@ the accept path, that gate stayed green at 182× against its floor of
 one 32-byte block per connection. And "excluded" is a decision about a
 handful of the twenty-nine, not a description of the whole.
 
-The other half is unchanged in kind and larger in count: **ten**
-lookups in `stdlib/` that answer `-1` for "not found" and want
-**`Option`**, which is built in and needs no import (§1). Two of the
-ten are in `stdlib/Str.ax`, which **cannot** import `Err` — `Err`
-imports `Str` — so they could never have been `Result` debt. The tenth
-is a declared rise rather than a new sentinel: `netPollSignalAt` was
-counted as a failure until the census learned to follow a syscall
-result through a `let` binder, and it is `Option` debt, not `Result`
-debt. `compat/SENTINELS` records it.
+The other half is unchanged in kind: **seven** lookups in `stdlib/`
+that answer `-1` for "not found" and want **`Option`**, which is built
+in and needs no import (§1). Two of the seven are in `stdlib/Str.ax`,
+which **cannot** import `Err` — `Err` imports `Str` — so they could
+never have been `Result` debt. One is a declared rise rather than a new
+sentinel: `netPollSignalAt` was counted as a failure until the census
+learned to follow a syscall result through a `let` binder, and it is
+`Option` debt, not `Result` debt. `compat/SENTINELS` records it.
 
 **And `Option` is not free — in two different ways.** Measured
 2026-08-30 over 20,000,000 calls at `--opt 2`: a `-1` return costs
 **1.4 ns** and a `(Some v)` costs **10.4 ns**, 7.4×, for the
 allocate/store/match/release round trip. And measured 2026-09-01, that
 allocation is not merely a cost but a **refusal** wherever the lookup
-claims `restrict(no-alloc)`: four of the ten do, and porting them is a
+claims `restrict(no-alloc)`: five of the seven do, and porting them is a
 decision to withdraw a checked claim rather than a port. The
 arena bump moves **zero bytes** for that loop — the block is recycled
 through its size class — so a bytes-only measurement reports `Option` as
@@ -1762,6 +1762,63 @@ change to this section, and because the sentinel census
 (`compat/SENTINELS`, gated by `scripts/check-compat.sh`) counts both
 kinds — so the number will not reach zero by porting failures alone,
 and a reader watching it fall should know why it stops.
+
+**AND THREE OF THE ROWS WERE NOT DEBT ANYBODY COULD PAY. Corrected
+2026-09-03; 19 → 16, and no line of `stdlib/` moved.** The census that
+reads bodies was right to replace the one that read prose, and it
+inherited one thing from it: it decides from what a body *contains*
+without asking what the declaration can *hold*.
+
+*A struct return has no integer channel.* `mkKeyIn` answers `KeyIn` and
+`keyNext` answers `KeyEv`, and the checker refuses a `-1` there
+outright — measured on a two-line probe as `AX3004: type mismatch:
+expected Int, found Pair`. What the census had found in `mkKeyIn` was
+the `pfd` **field** inside its constructor, the descriptor-or-`-1` that
+module documents four lines above it, and in `keyNext` the **timeout
+argument** `(- 0 1)` handed to `keyInFill` to mean "block". Neither is
+an answer and no `(Option Int)` could have replaced either.
+`keyInFill` is the one real absence row of the three and it stays.
+
+*And a function nobody observes has no outcome to report.*
+`platformExitWith` exits the process. Windows is the only target that
+implements it — the only one with no syscall ABI — and there it is
+`(winExitProcess code)`, which does not return; the four syscall-ABI
+files answer `-ENOSYS` from a stub their own comment calls "never
+reached"; and its one caller, `sysExitWith`, puts it in **statement**
+position inside a `{ ... 0 }` and discards the value. A `(Result Int
+Error)` there would allocate on the process-exit path, break the
+function's `pure` claim, and encode an outcome no caller reads.
+`platformWriteFd` and `platformReadFd` are *not* excluded with it —
+those answer a real count on Windows and stay.
+
+**The sister fix was measured and REJECTED, and that is the part worth
+keeping.** Both phantom absence rows are `in_return_position` failing
+to be transitive: it climbs to the enclosing form, sees `if`, and stops
+without asking whether that `if` is an answer or an argument. Fixing it
+there is the obvious move and it **under-reports thirteen rows** —
+`strFindByte`, `utf8DecodeAt` and `keyStrEnd` among them, the realest
+absence sentinels in the tree — because `let` and `fn` are transparent
+to return position and the obvious climb treats them as opaque.
+Under-reporting is the failure the 2026-08-30 rewrite ended, so the
+**type** rule landed and the position rule is left alone and named in
+`tests/compat/verify-compat.py`. Ablated both ways: a new
+`Int`-returning `(- 0 1)` planted in `Utf8.ax` takes it 2 → 3, and the
+same body declared to answer a struct stays at 2.
+
+**What this does not do is move a single row of the migration itself,
+and the reason is a decision rather than an effort.** Every one of the
+sixteen is blocked or excluded on a measurement. The nine failures wait
+on one question — whether `println`'s effect row may widen — and
+re-measured on 2026-09-03 the answer that forces it is unchanged by
+unboxed sums: a function returning `(Result Int Error)` still reports
+`#effects=Alloc`, and so does one returning `(Option Int)`, so porting
+`sysWriteFd` from `#effects=IO` still widens every caller beneath
+`writeStr` and `println`. Five of the seven absences claim
+`restrict(no-alloc)` and porting them withdraws a checked claim
+(AX3049); `strFindByte` is separately excluded at 7.4× over its
+scanning-path call sites; `keyInFill` answers three outcomes — a count,
+end-of-input, and a full buffer that is still a prefix — which is not
+`Option`'s shape. **The floor is 16 and it is a floor, not a backlog.**
 
 **ERR-ADOPT-2 (P). Every slice keeps `stage2 == stage3`.** No slice
 touches the seed until one has to, and the one that does — a built-in
