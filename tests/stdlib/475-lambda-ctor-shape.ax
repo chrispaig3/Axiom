@@ -1,0 +1,152 @@
+; A constructor's shape word must not depend on whether the
+; constructor ran inside a lambda.
+;
+; Three emitters read the same per-field evidence witness out of a
+; call's stamp. `emitPrimRetainRef` enumerated THREE witness classes -
+; unconditional, "bit k of the enclosing function's evidence word",
+; and `EV_LAMARG - d`, the lifted lambda's own argument, whose class
+; only the application knows. The two CONSTRUCTOR emitters enumerated
+; two and let the third fall into a silent else: `fieldRetainCode`
+; answered -1 ("no retain") and `ctorShapeEmit` set no map bit.
+;
+; So until 2026-09-03 the same value at the same type got two
+; different headers:
+;
+;     (fn (wrap x) (Some x))                    131076  bitmap 0b10
+;     (fn (viaLam s) ((lambda (x) (Some x)) s))      4  LEAF
+;
+; The lambda-built block claimed to hold no references, so the walk at
+; its death never handed the payload's share back. It did not crash:
+; the two halves were wrong TOGETHER - the store took no share and the
+; map promised none - which is why every gate stayed green. It was a
+; leak, and the pair is why fixing one half alone would have been
+; worse than the bug: a map bit without its store is an OVER-release.
+;
+; Both halves therefore land together, and terms 2 and 5 are what say
+; so.
+;
+; The shape word is `padded-word-count * 2` plus a bit `17 + j` per
+; reference field j, so 131076 is "4 payload words, field 0 is a
+; reference" and 393224 is "4 words, fields 0 and 1 are references".
+;
+; What each term establishes:
+;
+;   1. THE DEFECT. `(Some s)` built outside a lambda and inside one
+;      report the SAME shape word. Two numbers, not one: a regression
+;      shows up as a difference between two lines rather than as one
+;      line moving.
+;   2. THE STORE TOOK THE SHARE. The payload String's own count under
+;      each. This is the half that makes term 1 safe - a shape bit
+;      whose store never retained is an over-release, and this is the
+;      line that would catch it. Both must read 2: the local binding's
+;      share and the field's.
+;   3. TWO reference fields, and the two witness classes side by side:
+;      field 0 is the lambda's own argument, field 1 is a capture of
+;      the enclosing function's parameter, which always worked. The
+;      broken half is exactly the bit the plain build has and this one
+;      lost.
+;   4. TWO LAMBDAS DEEP, so both fields are lambda arguments at
+;      DIFFERENT depths - `y` at depth 0 and `x` one level out, caught
+;      by `evwaSym`'s level shift. A fix that read only depth 0 passes
+;      term 3 and fails here.
+;   5. THE OVER-RELEASE CONTROL, and the reason the bit has to be
+;      emitted as a run-time read rather than folded into the
+;      constant. The SAME lifted lambda serves `(Option Int)` and
+;      `(Option String)`; only the application knows which. An `Int`
+;      payload must still read LEAF. A fix that set the bit
+;      unconditionally would make this line 131076 and would be
+;      handing back a share the store never took.
+(import IO)
+
+(import Str)
+
+(data Two (a b) (Mk a b))
+
+; the shape word sits one word above the count, at `p - 8`
+(:: shapeOf (-> Int Int))
+
+(fn (shapeOf p) (__load64 (- p 16) 1))
+
+(:: payloadRc (-> Int Int))
+
+(fn (payloadRc p) (__load64 (- (__load64 p 1) 16) 0))
+
+(:: fieldRc (-> Int Int Int))
+
+(fn (fieldRc p j) (__load64 (- (__load64 p j) 16) 0))
+
+; --- 1, 2: the same value at the same type, two ways ---
+(:: wrap (-> a (Option a)))
+
+(fn (wrap x) (Some x))
+
+(:: viaLam (-> String (Option String)))
+
+(fn (viaLam s) ((lambda (x) (Some x)) s))
+
+; --- 3: two reference fields, built outside any lambda ---
+(:: mkPlain (-> a b (Two a b)))
+
+(fn (mkPlain x y) (Mk x y))
+
+; --- 3: field 0 is the lambda's argument, field 1 a capture ---
+(:: mkLam1 (-> String String (Two String String)))
+
+(fn (mkLam1 s t) ((lambda (x) (Mk x t)) s))
+
+; --- 4: both fields lambda arguments, at depths 1 and 0 ---
+(:: mkLam2 (-> String String (Two String String)))
+
+(fn (mkLam2 s t) (((lambda (x) (lambda (y) (Mk x y))) s) t))
+
+; --- 5: the same lambda shape over a word payload ---
+(:: viaLamInt (-> Int (Option Int)))
+
+(fn (viaLamInt n) ((lambda (x) (Some x)) n))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- 1, 2: outside a lambda, then inside one ---
+    (let ((a (strConcat "ab" "cd")))
+      (let ((p (cast Int (wrap a))))
+        {
+          (println (shapeOf p))
+          (println (payloadRc p))
+        }
+      )
+    )
+    (let ((b (strConcat "ab" "cd")))
+      (let ((p (cast Int (viaLam b))))
+        {
+          (println (shapeOf p))
+          (println (payloadRc p))
+        }
+      )
+    )
+    ; --- 3: two reference fields, plain then one lambda deep ---
+    (let ((c (strConcat "ef" "gh")))
+      (let ((d (strConcat "ij" "kl")))
+        {
+          (println (shapeOf
+            (cast Int (mkPlain c d))
+          ))
+          (println (shapeOf
+            (cast Int (mkLam1 c d))
+          ))
+          ; --- 4: two lambdas deep, both fields lambda arguments ---
+          (println (shapeOf
+            (cast Int (mkLam2 c d))
+          ))
+        }
+      )
+    )
+    ; --- 5: a word payload through the same lambda stays LEAF ---
+    (println (shapeOf
+      (cast Int (viaLamInt 7))
+    ))
+    0
+  }
+)
