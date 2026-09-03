@@ -150,18 +150,32 @@ ln -s "$repo_root/self_host" "$work/self_host"
 # move together under any edit - it is a corruption check, and it
 # names the file that changed, which a link error three steps later
 # does not.
+#
+# It used to be a corruption check with a hole in it, and this is the
+# one path where that mattered: a clone with no compiler, no CI and no
+# second opinion. `shasum -c` verifies the rows it is handed and is
+# silent about a file it was handed no row for, so DELETING a row and
+# replacing the file it named exits 0 - measured 2026-09-03, three
+# files, two OKs and rc=0. `seed_sums_verify` compares the rows and the
+# files as sets, both directions, before it hashes anything.
+#
+# `scripts/lib/seed-sums.sh` and NOT `scripts/lib/gate.sh`: this script
+# sources nothing that assumes a compiler (see the note above the
+# `link_entry` case), and seed-sums.sh assumes none - it is shell, a
+# `mktemp -d`, `sed`, `comm` and `shasum`.
 # ---------------------------------------------------------------
-[[ -f bootstrap/SHA256SUMS ]] \
-  || fail "bootstrap/SHA256SUMS is missing: an unverifiable seed is not a seed"
-# The sums name the files bare, so the check runs from beside them.
-if command -v sha256sum >/dev/null; then
-  sumcheck() { sha256sum -c SHA256SUMS; }
-else
-  sumcheck() { shasum -a 256 -c SHA256SUMS; }
-fi
-(cd bootstrap && sumcheck) >"$work/sums.log" 2>&1 \
-  || { sed 's/^/    /' "$work/sums.log" >&2; fail "a bootstrap seed does not match its recorded hash"; }
-echo "ok   the seeds match bootstrap/SHA256SUMS"
+source "$repo_root/scripts/lib/seed-sums.sh"
+seed_sums_verify bootstrap \
+  || fail "bootstrap/SHA256SUMS does not account for the seeds in bootstrap/"
+echo "ok   the seeds match bootstrap/SHA256SUMS, and it names every seed present"
+
+# NO SEPARATE "and this host's seed is named" CHECK, deliberately. The
+# first draft of this block had one, and it could not fail: `$seed_ll`
+# is required to exist forty lines above, and `seed_sums_verify` refuses
+# any `.ll` present that the sums do not name - so a row for THIS host's
+# seed is already implied by the two checks that ran. A third line
+# asserting it would read as extra care and be a check with no failing
+# input, which is the defect this whole file is a correction of.
 
 # ---------------------------------------------------------------
 # The seed itself.
