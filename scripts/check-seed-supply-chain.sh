@@ -296,6 +296,16 @@ check_threats() { # <THREATS.md>
   # does not trip them and high enough that a broken parse cannot pass.
   (( nrows >= 8 )) || { fail "$1 parses to only $nrows rows; the floor is 8 (the table moved or the parse broke)"; return; }
   (( nyes  >= 3 )) || { fail "$1 parses to only $nyes 'yes' rows; the floor is 3"; return; }
+  # The document's own count of itself, recomputed. The opening
+  # paragraph tells a reader how much of the table is `yes` before they
+  # read a row of it, and the first draft of that sentence was wrong -
+  # it claimed more rows undefended than defended when six of eleven
+  # said yes. A prose summary of a table two paragraphs above it is
+  # exactly the claim that goes stale silently.
+  if ! grep -qF "This table has $nrows rows, $nyes defended," "$1"; then
+    fail "$1 parses to $nrows rows, $nyes of them defended, and does not say so:"
+    fail "  its opening must read \"This table has $nrows rows, $nyes defended,\""
+  fi
   while IFS='|' read -r n d by; do
     [[ -n "$n" ]] || continue
     [[ "$d" == yes* ]] || continue
@@ -372,6 +382,23 @@ check_threats "$p7"
 probe_mode=0
 if (( probe_failed )); then ok "probe: a row naming a gate ci.yml does not run is refused ($probe_first)"
 else fail "probe: a row naming an unwired gate was accepted"; fi
+
+# And the document's count of itself. A copy whose opening paragraph
+# claims one more defended row than the table carries:
+#
+#     FAIL: <copy> parses to 11 rows, 6 of them defended, and does not
+#           say so
+p13="$work/THREATS.miscounted.md"
+sed 's/This table has 11 rows, 6 defended,/This table has 11 rows, 7 defended,/' "$threats" > "$p13"
+if cmp -s "$p13" "$threats"; then
+  fail "probe 3d changed no count in the copy - the sentence this section pins has been reworded"
+else
+  probe_mode=1; probe_failed=0; probe_first=""
+  check_threats "$p13"
+  probe_mode=0
+  if (( probe_failed )); then ok "probe: a THREATS.md miscounting its own table is refused ($probe_first)"
+  else fail "probe: a THREATS.md claiming 7 defended rows over 6 was accepted"; fi
+fi
 
 # ---------------------------------------------------------------------
 echo

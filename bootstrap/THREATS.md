@@ -11,11 +11,18 @@ gate and the assertion inside it —
 `scripts/check-seed-supply-chain.sh` refuses this file if a `yes` row
 names a script that does not exist or that `.github/workflows/ci.yml`
 does not run, so a row cannot promise a check that nobody performs.
-Everything else is a `no` row. Six of the eleven say yes and five say
-no, and the five are not an oversight: they are the trust base and the
+Everything else is a `no` row. This table has 11 rows, 6 defended, and
+the 5 that are not are not an oversight: they are the trust base and the
 things a gate cannot reach, and a truthful "not defended" is worth more
 here than a "defended" the tree cannot back. Row 3 says yes in a sense
 narrow enough that the cell spells the narrowness out.
+
+That sentence is recomputed, not restated: §3 of
+`scripts/check-seed-supply-chain.sh` counts the rows it parses and
+requires this paragraph to state those two numbers. The first draft of it
+said more rows were undefended than defended, which was false when it was
+written, in the second paragraph of the file whose whole subject is a
+claim nobody checked.
 
 ## The table
 
