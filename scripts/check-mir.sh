@@ -583,7 +583,7 @@ elif which == "2":
     # untouched; every other block loses its terminator.
     pat = re.compile(r"\(if\s+(\(>\s+\(vecLen lc\.cur\.term\)\s+0\))(\s+0\s+\{\s+\(vecPush lc\.cur\.term n\))")
     rep = r"(if (|| \g<1> (== n.op MT_BR))\g<2>"
-else:
+elif which == "4":
     # An `if` answers the THEN arm's register instead of the join
     # block's parameter. Every block still has its terminator and
     # every register is still defined exactly once, so ablations 1
@@ -592,6 +592,9 @@ else:
     # DOMINATE the use.
     pat = re.compile(r"\(set lc\.cur bj\)(\s+)pj")
     rep = r"(set lc.cur bj)\g<1>r1"
+else:
+    sys.stderr.write("no such ablation: %s\n" % which)
+    sys.exit(1)
 hits = len(pat.findall(s))
 if hits != 1:
     sys.stderr.write("seam %s appears %d times, expected 1\n" % (which, hits))
@@ -826,6 +829,53 @@ if [[ -s "$work/self.ll" ]]; then
     ok "population: $n_div divisions, $n_divzero divzero_, $n_divok divok_, $n_helper trap calls"
   else
     bad "population disagrees: $n_div divisions, $n_divzero divzero_, $n_divok divok_, $n_helper trap calls (floor 80)"
+  fi
+fi
+
+# --- ABLATION 4: the join's parameter replaced by one arm's register ---
+# WITHOUT THIS, THE DOMINANCE CHECK CANNOT FAIL. Ablations 1 and 2
+# reach the operand order and the terminator count; neither produces
+# an IR whose definitions are all present and all single-assigned and
+# still out of reach of their uses. That is the shape block
+# parameters exist to make impossible to write by accident - and a
+# rule that only ever answers "fine" is not a rule.
+if ! ablate 4; then
+  bad "ABLATION 4 could not be built"
+  sed 's/^/     /' "$work/abl4/build.log" 2>/dev/null | head -10
+else
+  a4="$work/abl4/mirtool"
+  n_spoke4=0
+  n_lines4=0
+  n_domlines=0
+  wrong4=""
+  for f in "${fixtures[@]}"; do
+    n="$(basename "$f" .ax)"
+    if grep -q 'condbr' "tests/mir/$n.mir"; then expect=speak; else expect=silent; fi
+    "$a4" verify "$f" > "$work/abl4.$n.verify" 2>&1
+    if [[ -s "$work/abl4.$n.verify" ]]; then
+      n_spoke4=$((n_spoke4 + 1))
+      n_lines4=$((n_lines4 + $(wc -l < "$work/abl4.$n.verify" | tr -d ' ')))
+      n_domlines=$((n_domlines + $(grep -c 'does not dominate the use' "$work/abl4.$n.verify")))
+      [[ "$expect" == "silent" ]] && wrong4="$wrong4 $n(spoke)"
+    else
+      [[ "$expect" == "speak" ]] && wrong4="$wrong4 $n(silent)"
+    fi
+  done
+  if [[ -z "$wrong4" && $n_spoke4 -gt 0 ]]; then
+    ok "ABLATION 4: §3 speaks about every branching fixture and is silent about the rest"
+  else
+    bad "ABLATION 4: §3 answered wrongly for:$wrong4"
+    sed 's/^/     /' "$work/abl4.020-if.verify" 2>/dev/null | head -6
+  fi
+  # Every complaint must be the DOMINANCE one. If the terminator or
+  # single-assignment rules fired here too, this ablation and
+  # ablation 2 would be reporting the same thing and only one of them
+  # would be evidence.
+  if (( n_domlines == n_lines4 && n_lines4 > 0 )); then
+    ok "ABLATION 4: all $n_lines4 complaints are the dominance rule, not a side effect"
+  else
+    bad "ABLATION 4: $n_domlines of $n_lines4 complaints named dominance"
+    sed 's/^/     /' "$work/abl4.020-if.verify" 2>/dev/null | head -6
   fi
 fi
 
