@@ -107,7 +107,8 @@ OUTLINE_FLOOR = 10
 # Writing the integers in the manifests instead would be copying down
 # whatever the server under test happens to emit.
 LSP_SEVERITY = {"E": 1, "W": 2}
-LSP_SYMBOL_KIND = {"Function": 12, "Enum": 10, "Struct": 23}
+LSP_SYMBOL_KIND = {"Function": 12, "Enum": 10, "Struct": 23,
+                   "EnumMember": 22, "Field": 8}
 
 
 def frame(obj):
@@ -293,15 +294,30 @@ def check_range(srclines, d):
     return None, 1
 
 
-def symbol_invariants(srclines, syms):
-    """The two things every symbol must satisfy in every document, with
-    no manifest: `selectionRange` inside `range`, and the source at
-    `selectionRange` spelling the symbol's own name.
+def symbol_invariants(srclines, syms, outer=None, parent=None):
+    """What every symbol must satisfy in every document, with no
+    manifest: `selectionRange` inside `range`, the source at
+    `selectionRange` spelling the symbol's own name, and - since
+    2026-09-03 - the two things that make the first of those mean
+    something about EXTENT rather than about identity:
+
+      * a symbol that HAS children must contain its own
+        `selectionRange` STRICTLY. Measured before the outline learnt
+        to nest, `range == selectionRange` on 543 of 543 symbols over
+        ten documents, so "contained in" was satisfied by equality and
+        the only ablation that could reach it was one that made `range`
+        SMALLER. A parent whose range is its name is a tree a client
+        cannot draw.
+      * every child's `range` must lie inside its parent's. This is the
+        protocol's own requirement and the one the `lspFormStart`
+        fallback could break: a declaration indented mid-edit recovers
+        the parameter list as its form, which does not contain the
+        name - so the server drops back to the name span AND publishes
+        no children, and this is what would notice if it stopped.
 
     Answers (reason or None, number of names actually read back out of
-    the source). Between them these catch a symbol placed anywhere it
-    does not belong: collapse `range` and the containment fails,
-    collapse both and the name no longer spells."""
+    the source). Collapse `range` and the containment fails; collapse
+    both and the name no longer spells."""
     checked = 0
     for s in syms:
         if not isinstance(s, dict) or "name" not in s or "kind" not in s:
@@ -320,6 +336,22 @@ def symbol_invariants(srclines, syms):
                     f"{pos(sel['start'])}-{pos(sel['end'])} is not contained in "
                     f"range {pos(rg['start'])}-{pos(rg['end'])}, which the "
                     f"protocol requires"), checked
+        kids = s.get("children")
+        if kids is not None and not isinstance(kids, list):
+            return f"symbol {s['name']!r} has non-list children {kids!r:.80}", checked
+        if kids == []:
+            return (f"symbol {s['name']!r} carries an empty `children` array - "
+                    f"omit the key, or a client draws an expander over nothing"), checked
+        if kids and (pos(rg["start"]), pos(rg["end"])) == (pos(sel["start"]),
+                                                           pos(sel["end"])):
+            return (f"symbol {s['name']!r} has {len(kids)} child(ren) and its "
+                    f"range {pos(rg['start'])}-{pos(rg['end'])} is exactly its "
+                    f"selectionRange, so it cannot contain any of them"), checked
+        if outer is not None and not (pos(outer["start"]) <= pos(rg["start"])
+                                      and pos(rg["end"]) <= pos(outer["end"])):
+            return (f"symbol {parent!r} has a child {s['name']!r} whose range "
+                    f"{pos(rg['start'])}-{pos(rg['end'])} is not inside the "
+                    f"parent's {pos(outer['start'])}-{pos(outer['end'])}"), checked
         ln = sel["start"]["line"]
         if sel["end"]["line"] != ln:
             return f"symbol {s['name']!r}: selectionRange spans lines", checked
@@ -343,6 +375,10 @@ def symbol_invariants(srclines, syms):
             return (f"symbol says its name is {s['name']!r} but the source at "
                     f"{ln}:{st}-{en} spells {covers!r}"), checked
         checked += 1
+        why, n = symbol_invariants(srclines, kids or [], rg, s["name"])
+        checked += n
+        if why:
+            return why, checked
     return None, checked
 
 
@@ -403,11 +439,13 @@ def expected_for(fx, rows, src):
 
 
 def outline_for(fx, orows, src):
-    """The (name, kind, line, start, end) list fixture `fx` must publish
-    as its outline, in document order. Kinds come from the hand-written
-    SymbolKind names; positions are derived here."""
+    """The (name, kind, line, start, end, container) list fixture `fx`
+    must publish as its outline, FLATTENED in document order - a parent
+    followed by its own children. Kinds come from the hand-written
+    SymbolKind names; positions are derived here; the container is the
+    parent symbol's name, or "-" for a top-level one."""
     want = []
-    for f, kind, anchor in orows:
+    for f, kind, container, anchor in orows:
         if f != fx:
             continue
         if kind not in LSP_SYMBOL_KIND:
@@ -415,8 +453,22 @@ def outline_for(fx, orows, src):
                      f"one of {sorted(LSP_SYMBOL_KIND)}")
         n, text = parse_anchor(anchor)
         p = locate(src, text, n)
-        want.append((text, LSP_SYMBOL_KIND[kind], p["line"], p["start"], p["end"]))
+        want.append((text, LSP_SYMBOL_KIND[kind], p["line"], p["start"],
+                     p["end"], container))
     return want
+
+
+def outline_flat(syms, container="-"):
+    """The server's answer in the same shape: a parent, then its
+    children, then the next parent."""
+    flat = []
+    for s in syms:
+        flat.append((s["name"], s["kind"],
+                     s["selectionRange"]["start"]["line"],
+                     s["selectionRange"]["start"]["character"],
+                     s["selectionRange"]["end"]["character"], container))
+        flat.extend(outline_flat(s.get("children") or [], s["name"]))
+    return flat
 
 
 # --------------------------------------------------------------------
@@ -425,7 +477,7 @@ def outline_for(fx, orows, src):
 # server that answers the same way to everything.
 # --------------------------------------------------------------------
 rows = read_rows(MANIFEST, 5, "diagnostic manifest")
-orows = read_rows(OUTLINE, 3, "outline manifest")
+orows = read_rows(OUTLINE, 4, "outline manifest")
 
 if len(rows) < MANIFEST_FLOOR:
     sys.exit(f"FAIL: manifest has {len(rows)} rows, floor is {MANIFEST_FLOOR}")
@@ -456,6 +508,16 @@ if len({r[1] for r in orows}) < 3:
     sys.exit("FAIL: the outline manifest names fewer than 3 distinct "
              "SymbolKinds, so it cannot tell an enum from a struct from a "
              "function and a server that answered 12 to everything would pass")
+if not [r for r in orows if r[2] != "-"]:
+    sys.exit("FAIL: no row in the outline manifest names a container, so every "
+             "expected outline is flat and a server that published no "
+             "`children` at all would satisfy it - which is the state this "
+             "server was in until 2026-09-03. Restore the fixture whose "
+             "`data` and `struct` carry members.")
+if len({r[2] for r in orows if r[2] != "-"}) < 2:
+    sys.exit("FAIL: the outline manifest nests under a single container, so a "
+             "server that hung every member off one parent would pass. Two "
+             "parents with members is the minimum this can distinguish.")
 
 # `.axbad` is a fixture that deliberately does NOT parse. It cannot be
 # called `.ax`: check-fmt.sh and check-tree-sitter.sh both sweep every
@@ -687,9 +749,7 @@ for fx in fixtures:
         print(f"FAIL {name}: {why}")
         failed += 1
         continue
-    sym_got = [(s["name"], s["kind"], s["selectionRange"]["start"]["line"],
-                s["selectionRange"]["start"]["character"],
-                s["selectionRange"]["end"]["character"]) for s in syms]
+    sym_got = outline_flat(syms)
     try:
         sym_want = outline_for(fx, orows, text)
     except LookupError as e:
@@ -4336,6 +4396,156 @@ else:
           f"under {SLOPE_CEILING_KIB} slope and {ABSOLUTE_CEILING_KIB} absolute "
           f"on {sys.platform}, every edit checked)")
     passed += 1
+
+# =====================================================================
+# THE OUTLINE'S EXTENT, AND WHAT IT FALLS BACK TO.
+#
+# `range` is the whole top-level form, recovered from the bytes by
+# `lspFormStart`/`lspFormEnd` - the same pair hover has quoted
+# declarations with since 2026-08-26. `lspFormStart`'s rule is COLUMN
+# ZERO, and a document mid-edit that INDENTS a declaration is where it
+# stops being able to answer. That fallback has two shapes and only one
+# of them is wrong, so the guard has to be able to tell them apart -
+# and these three documents are written here rather than kept as
+# fixtures because each is a shape `axiom fmt` would remove.
+#
+#   A. an indented `fn` AFTER a top-level form. `lspFormStart` finds
+#      the preceding form's opener, which is at column zero and ends
+#      before this declaration begins. Refused by containment: the
+#      answer is the name span, with no children.
+#   B. an indented `fn` as the FIRST form. Nothing is at column zero,
+#      so `lspNearestOpen` answers the `(` of the PARAMETER LIST -
+#      which contains the name and would pass containment on its own.
+#      Refused because it is `lspHeaderOpen`'s byte.
+#   C. an indented `struct` as the first form. The nearest opener is
+#      its OWN, its name is not inside a parameter list, and the right
+#      answer is the whole form with its fields as children. NOT
+#      refused - a guard that failed this one would be aimed at
+#      indentation rather than at the shape that goes wrong.
+#
+# Every expected range is computed from these documents' own bytes.
+# =====================================================================
+EXT_DIR = tempfile.mkdtemp(prefix="axiom-lsp-extent-")
+EXT_A = """(data Colour
+  (Red)
+  (Green))
+
+  (fn (indented q) q)
+"""
+EXT_B = """  (fn (only y) y)
+"""
+EXT_C = """  (struct Only
+    (g : Int))
+"""
+
+
+def ext_symbols(text, label):
+    uri = "file://" + os.path.join(EXT_DIR, label)
+    r = subprocess.run([stage1, "lsp"], cwd=EXT_DIR, capture_output=True,
+                       input=b"".join(frame(m) for m in [
+                           {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                            "params": {}},
+                           {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+                            "params": {"textDocument": {
+                                "uri": uri, "languageId": "axiom",
+                                "version": 1, "text": text}}},
+                           {"jsonrpc": "2.0", "id": 2,
+                            "method": "textDocument/documentSymbol",
+                            "params": {"textDocument": {"uri": uri}}},
+                           {"jsonrpc": "2.0", "id": 3, "method": "shutdown",
+                            "params": None},
+                           {"jsonrpc": "2.0", "method": "exit", "params": None},
+                       ]))
+    ms, _ = unframe(r.stdout)
+    by = {m["id"]: m for m in ms if "id" in m}
+    if 3 not in by:
+        return None
+    return by.get(2, {}).get("result")
+
+
+def whole_form(text, opener):
+    """The LSP range of the form starting at `opener` in `text`, closing
+    paren included - counted here rather than asked of the server."""
+    i, depth = text.index(opener), 0
+    start = i
+    while i < len(text):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                i += 1
+                break
+        i += 1
+    sl, stext, sc = line_of(text, start)
+    el, etext, ec = line_of(text, i)
+    return {"start": {"line": sl, "character": u16(stext[:sc])},
+            "end": {"line": el, "character": u16(etext[:ec])}}
+
+
+def name_range(text, name, n=1):
+    at = ident_at(text, name, n)
+    return {"start": {"line": at["line"], "character": at["start"]},
+            "end": {"line": at["line"], "character": at["end"]}}
+
+
+ewhy = ""
+esyms = {k: ext_symbols(t, k + ".ax")
+         for k, t in (("A", EXT_A), ("B", EXT_B), ("C", EXT_C))}
+if any(v is None for v in esyms.values()):
+    ewhy = ("a session over the indented documents never answered shutdown: "
+            f"{[k for k, v in esyms.items() if v is None]}")
+elif [s["name"] for s in esyms["A"]] != ["Colour", "indented"]:
+    ewhy = f"document A published {[s['name'] for s in esyms['A']]!r}, want Colour and indented"
+# The column-zero declaration beside it: whole form, and its
+# constructors as children. If this ever stopped being true the two
+# refusals below would be indistinguishable from a server that had
+# given up on extents entirely.
+elif esyms["A"][0]["range"] != whole_form(EXT_A, "(data Colour"):
+    ewhy = (f"the column-zero `data` in A got range {esyms['A'][0]['range']!r}, "
+            f"want the whole form at {whole_form(EXT_A, '(data Colour')!r}")
+elif [c["name"] for c in esyms["A"][0].get("children") or []] != ["Red", "Green"]:
+    ewhy = f"the column-zero `data` in A published children {esyms['A'][0].get('children')!r:.200}"
+# A: refused by containment.
+elif esyms["A"][1]["range"] != name_range(EXT_A, "indented"):
+    ewhy = (f"the INDENTED `fn` in A got range {esyms['A'][1]['range']!r}; the form "
+            f"`lspFormStart` recovers for it is the `data` above, which does not "
+            f"contain it, so the answer must fall back to its name span "
+            f"{name_range(EXT_A, 'indented')!r}")
+elif "children" in esyms["A"][1]:
+    ewhy = "the INDENTED `fn` in A published children, and a fallback range cannot contain any"
+# B: refused because the recovered opener is the parameter list's.
+elif [s["name"] for s in esyms["B"]] != ["only"]:
+    ewhy = f"document B published {[s['name'] for s in esyms['B']]!r}, want only"
+elif esyms["B"][0]["range"] != name_range(EXT_B, "only"):
+    ewhy = (f"the INDENTED `fn` alone in B got range {esyms['B'][0]['range']!r}; "
+            f"nothing is at column zero, so `lspNearestOpen` answers the PARAMETER "
+            f"LIST `(only y)` - which contains the name and would pass containment - "
+            f"and the answer must be the name span {name_range(EXT_B, 'only')!r}")
+# C: NOT refused - the guard is aimed at one shape, not at indentation.
+elif [s["name"] for s in esyms["C"]] != ["Only"]:
+    ewhy = f"document C published {[s['name'] for s in esyms['C']]!r}, want Only"
+elif esyms["C"][0]["range"] != whole_form(EXT_C, "(struct Only"):
+    ewhy = (f"the INDENTED `struct` in C got range {esyms['C'][0]['range']!r}, want "
+            f"the whole form at {whole_form(EXT_C, '(struct Only')!r} - its name is "
+            f"not inside a parameter list, so the nearest opener IS its own form and "
+            f"there is nothing here to refuse")
+elif [c["name"] for c in esyms["C"][0].get("children") or []] != ["g"]:
+    ewhy = (f"the INDENTED `struct` in C published children "
+            f"{esyms['C'][0].get('children')!r:.200}, want its field `g`")
+
+if ewhy:
+    print(f"FAIL outline-extent: {ewhy}")
+    failed += 1
+else:
+    print("ok   outline-extent (a column-zero `data` as its whole form with its "
+          "constructors; an indented `fn` after it, and one alone in its document, "
+          "each falling back to its name span with no children for two different "
+          "reasons; an indented `struct` keeping its whole form and its field, "
+          "because the guard is aimed at the parameter-list shape and not at "
+          "indentation)")
+    passed += 1
+shutil.rmtree(EXT_DIR, ignore_errors=True)
 
 # =====================================================================
 # DIAGNOSTIC FIDELITY: the editor must not be shown less than the

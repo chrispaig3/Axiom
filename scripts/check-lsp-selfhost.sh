@@ -91,13 +91,22 @@
 #       source contains, and the message line it must render; it carries
 #       no line and no column at all. A list and not a set, so a
 #       document with three diagnostics is three obligations.
-#     * every symbol of every fixture: name, SymbolKind and
+#     * every symbol of every fixture: name, SymbolKind, container and
 #       selectionRange, against tests/lsp/expected-outline.txt, which
 #       is total - a fixture with no rows must publish an empty outline.
-#     * two invariants on every symbol of every document including the
+#       The manifest gained a CONTAINER column on 2026-09-03, when the
+#       outline learnt to nest, and drive.py flattens the server's tree
+#       in document order to compare against it, so a member hung off
+#       the wrong parent is as visible as a member that is missing.
+#     * four invariants on every symbol of every document including the
 #       6001-symbol generated one, needing no manifest: selectionRange
-#       contained in range, and the source sliced at selectionRange
-#       spelling the symbol's own name.
+#       contained in range; a symbol that HAS children containing its
+#       selectionRange STRICTLY; every child's range inside its
+#       parent's; and the source sliced at selectionRange spelling the
+#       symbol's own name. The second of those exists because the first
+#       was satisfied by IDENTITY - measured 2026-09-03, range ==
+#       selectionRange on 543 of 543 symbols over ten documents, so
+#       only an ablation that made range SMALLER could reach it.
 #     * every non-empty diagnostic range must SPELL the name its own
 #       message quotes in backticks, read back out of the source at
 #       exactly those UTF-16 units - the shape of
@@ -435,6 +444,70 @@
 # drive.py exits without a verdict - "no fixture in tests/lsp produces
 # a diagnostic with a secondary span, so the relatedInformation
 # comparison below would be two empty lists on every fixture".
+#
+# THE OUTLINE'S EXTENT AND ITS NESTING, five more ablations,
+# 2026-09-03. `documentSymbol` published `range` equal to
+# `selectionRange` - the declaration's NAME - for every symbol, and no
+# `children` at all, so `workspace/symbol` listed a `data`'s
+# constructors at their own spans while the outline of the same file
+# showed neither them nor a `struct`'s fields, and an editor's
+# breadcrumb, sticky scroll and expand-to-symbol had four characters to
+# work with. The header comment claimed the extent needed "spans this
+# parser does not record"; hover has recovered it from the bytes since
+# 2026-08-26.
+#
+# Same method as the four above: patch a scratch copy, build, re-bless
+# all 9 goldens into a scratch tests/lsp/, run drive.py clean.
+#
+#   NO EXTENT. `lspSymbolExtent` always answers 0, which is the state
+#   the outline was in until today - the name span, and no children,
+#   because a fallback range cannot contain one. Exit 1, "35 passed, 2
+#   failed": the manifest comparison ("outline is not what
+#   expected-outline.txt and the source say") and the extent block.
+#
+#   CHILDREN WITHOUT THE EXTENT. `range` goes back to the name span
+#   while `children` are still published - a protocol violation the
+#   OLD containment check could not see, because range and
+#   selectionRange were equal everywhere. Exit 1:
+#     "FAIL 060-outline: symbol 'Color' has 2 child(ren) and its range
+#      (0, 6)-(0, 11) is exactly its selectionRange, so it cannot
+#      contain any of them"
+#   This is the one that says the strengthened invariant earns its
+#   place.
+#
+#   ONE KIND FOR EVERY MEMBER. `lspMemberKind` answers EnumMember for
+#   a `struct` too, so fields and constructors are indistinguishable.
+#   Exit 1 with exactly one failure, from the hand-written manifest -
+#   the CONTAINER column is satisfied and the kind column is not, which
+#   is what that column is for.
+#
+# The last two are the extent GUARD, and they are separate because it
+# refuses two different fallbacks for two different reasons. Both are
+# exercised on documents drive.py writes itself, since `axiom fmt`
+# would take an indented top-level declaration out of any fixture:
+#
+#   NO CONTAINMENT TEST. An indented `fn` after a top-level form takes
+#   the PRECEDING form's range - one that ends two lines before the
+#   declaration starts. Exit 1: "the INDENTED `fn` in A got range
+#   (0,0)-(2,10) ... must fall back to its name span (4,7)-(4,15)".
+#
+#   NO HEADER TEST. An indented `fn` with nothing at column zero takes
+#   its own PARAMETER LIST as its form - `(only y)` - which CONTAINS
+#   the name and passes the containment test on its own. Exit 1: "the
+#   INDENTED `fn` alone in B got range (0,6)-(0,14) ... must be the
+#   name span (0,7)-(0,11)".
+#
+#   AND THE THIRD DOCUMENT IS THE ONE NEITHER MAY BREAK: an indented
+#   `struct` keeps its whole form and its field as a child, because its
+#   name is not inside a parameter list and the nearest opener IS its
+#   own form. A guard aimed at indentation rather than at that one
+#   shape fails there.
+#
+# THE COST of widening the range: `lspFormEnd` scans each form
+# forward, so the outline became O(document) rather than O(symbols).
+# The ratio block below is what watches it - measured 0.48x before and
+# 0.64x after on the same 2,051-symbol document, against a 2.00x
+# ceiling.
 #
 # AND ONE THE GATE CAUGHT WITHOUT BEING ASKED, recorded because it is
 # the sweep's whole purpose: adding `declarationProvider` to

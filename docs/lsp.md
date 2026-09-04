@@ -719,12 +719,37 @@ link, not an error; `resolveProvider` is false.
 
 **`textDocument/documentSymbol`.** The outline: every `fn` and
 `macro` as `Function`, every `data` as `Enum`, every `struct` as
-`Struct`, each at its NAME's span, straight off the parse tree with no
-checker running — a file with a type error still has an outline, and
-a file that does not parse has an empty one. A `::` signature is not
-listed beside its `fn`, and neither is a `type` alias.
+`Struct`, straight off the parse tree with no checker running — a file
+with a type error still has an outline, and a file that does not parse
+has an empty one. A `::` signature is not listed beside its `fn`, and
+neither is a `type` alias.
+
+`range` is the whole top-level form and `selectionRange` is the name
+inside it. Both used to be the name, which the protocol permits and an
+editor cannot use: `range` is what a client highlights in the
+breadcrumb, keeps in sticky scroll, and expands a selection to, and
+four characters of it is none of those. The extent is recovered from
+the BYTES by the same `lspFormStart`/`lspFormEnd` pair hover quotes a
+declaration with; when it cannot be — a declaration indented mid-edit,
+where `lspFormStart`'s column-zero rule has nothing to find — this
+answers the name span and publishes no children, rather than a range
+that does not contain what it claims to.
+
+And it NESTS: a `data`'s constructors are `EnumMember` children and a
+`struct`'s fields are `Field` children, each at its own name span.
+`workspace/symbol` had been listing constructors at those spans all
+along while the outline of the same file showed neither them nor a
+field, which is two views of one document disagreeing. `children` is
+omitted rather than sent empty, so no client draws an expander over
+nothing.
+
 `tests/lsp/expected-outline.txt` is total: a fixture publishes exactly
-those rows, in that order, and `tests/lsp/060-outline.ax` is one.
+those rows, in that order, with the CONTAINER each belongs to, and
+`tests/lsp/060-outline.ax` is the one that carries a `data` and a
+`struct` with members. Four invariants hold for every symbol of every
+document with no row at all — `selectionRange` inside `range`, a
+parent containing its `selectionRange` STRICTLY, every child inside its
+parent, and the source at `selectionRange` spelling the symbol's name.
 
 **`workspace/symbol`.** Every declaration the OPEN documents can see
 — their own and every module each imports — whose bare name holds the

@@ -7,12 +7,23 @@
 # "9 passed, 0 failed". `--bless` writes *.golden; it has never written
 # this file, and there is no field here a wrong kind could land in.
 #
-# Columns:  fixture  kind  anchor
+# Columns:  fixture  kind  container  anchor
 #
-# `kind` is the LSP `SymbolKind` NAME - Function, Enum, Struct - and
-# drive.py maps it to the protocol's integer itself (12, 10, 23). The
-# names are the protocol's, not this compiler's: writing 12 here would
-# be copying down whatever the server happens to emit.
+# `kind` is the LSP `SymbolKind` NAME - Function, Enum, Struct,
+# EnumMember, Field - and drive.py maps it to the protocol's integer
+# itself (12, 10, 23, 22, 8). The names are the protocol's, not this
+# compiler's: writing 12 here would be copying down whatever the server
+# happens to emit.
+#
+# `container` is the NAME of the symbol this one is a child of, or `-`
+# for a top-level symbol. It was added 2026-09-03, when the outline
+# learnt to nest: a `data`'s constructors and a `struct`'s fields are
+# children, which `workspace/symbol` had been listing at their own
+# spans all along while `documentSymbol` showed neither. drive.py
+# FLATTENS the server's answer in document order - a parent, then its
+# own children, then the next parent - and compares that list to these
+# rows, so a member hung off the wrong parent is as visible as a member
+# that is missing.
 #
 # `anchor` is the same form the diagnostic manifest uses: a string the
 # fixture contains, optionally `N@` for the N-th occurrence. drive.py
@@ -27,34 +38,48 @@
 # fixture with NO rows must publish an empty array - that is what pins
 # 050-unparseable.axbad, whose whole job is to have no outline.
 #
-# Two invariants are checked for every symbol of every document,
+# Four invariants are checked for every symbol of every document,
 # including the 6001-symbol generated one, and need no rows at all:
 #
 #   * `selectionRange` must be contained in `range`, which is what the
-#     protocol requires and what self_host/lsp.ax's own comment claims
-#     it satisfies;
+#     protocol requires;
+#   * a symbol that HAS children must contain its `selectionRange`
+#     STRICTLY. Until 2026-09-03 the containment above was satisfied by
+#     IDENTITY - measured, `range == selectionRange` on 543 of 543
+#     symbols over ten documents - so it asserted nothing about extent
+#     and only an ablation that made `range` SMALLER could reach it;
+#   * every child's `range` must lie inside its parent's. This is the
+#     one the `lspFormStart` fallback could break: a declaration
+#     indented mid-edit recovers its parameter list as its form, which
+#     does not contain its own name, so the server drops back to the
+#     name span AND publishes no children;
 #   * the source, sliced at `selectionRange`'s UTF-16 units, must
 #     literally spell the symbol's `name` - the shape of
 #     tests/tools/verify-axsym.py.
 #
-# Between them those two catch a symbol moved anywhere it does not
+# Between them those four catch a symbol moved anywhere it does not
 # belong without naming a single position here. This file exists for
-# the one thing they cannot see: the KIND.
+# the two things they cannot see: the KIND, and which parent a member
+# belongs to.
 #
-# fixture                  kind      anchor
-010-clean.ax               Function  2@main
-020-undefined.ax           Function  2@main
-030-utf16-columns.ax       Function  3@f
-030-utf16-columns.ax       Function  2@main
-040-missing-import.ax      Function  2@main
-060-outline.ax             Enum      Color
-060-outline.ax             Struct    P
-060-outline.ax             Function  2@area
-060-outline.ax             Function  2@main
-070-warning-only.ax        Function  2@pure
-070-warning-only.ax        Function  2@main
-080-many-diagnostics.ax    Function  2@pure
-080-many-diagnostics.ax    Function  2@alpha
-080-many-diagnostics.ax    Function  2@beta
-090-related-spans.ax       Function  2@main
-090-related-spans.ax       Function  4@main
+# fixture                  kind        container  anchor
+010-clean.ax               Function    -          2@main
+020-undefined.ax           Function    -          2@main
+030-utf16-columns.ax       Function    -          3@f
+030-utf16-columns.ax       Function    -          2@main
+040-missing-import.ax      Function    -          2@main
+060-outline.ax             Enum        -          Color
+060-outline.ax             EnumMember  Color      Red
+060-outline.ax             EnumMember  Color      Green
+060-outline.ax             Struct      -          P
+060-outline.ax             Field       P          x
+060-outline.ax             Field       P          y
+060-outline.ax             Function    -          2@area
+060-outline.ax             Function    -          2@main
+070-warning-only.ax        Function    -          2@pure
+070-warning-only.ax        Function    -          2@main
+080-many-diagnostics.ax    Function    -          2@pure
+080-many-diagnostics.ax    Function    -          2@alpha
+080-many-diagnostics.ax    Function    -          2@beta
+090-related-spans.ax       Function    -          2@main
+090-related-spans.ax       Function    -          4@main

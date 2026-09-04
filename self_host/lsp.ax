@@ -662,10 +662,38 @@
 ; with the `(fn (f) ...)` beside it, and an outline that shows every
 ; name twice is worse than one that shows it once.
 ;
-; `range` and `selectionRange` are both the name's span. The protocol
-; requires `selectionRange` to be contained in `range`, which is
-; satisfied, and recovering the declaration's full extent would mean
-; spans this parser does not record.
+; `range` IS THE WHOLE FORM and `selectionRange` is the name inside it.
+; This comment used to say that both were the name's span and that
+; "recovering the declaration's full extent would mean spans this
+; parser does not record" - which stopped being true when hover learnt
+; to quote a declaration: `lspFormStart` and `lspFormEnd` recover the
+; extent from the BYTES, and hover has been reading it since
+; 2026-08-26. The protocol's containment requirement was satisfied by
+; identity until then - measured 2026-09-03, `range` equalled
+; `selectionRange` on 543 of 543 symbols over ten documents - which is
+; a check that cannot fail on extent. What it costs a reader: an editor
+; uses `range` for the breadcrumb it highlights, for sticky scroll, and
+; for "expand selection to the enclosing symbol", and a range four
+; characters wide makes all three useless.
+;
+; AND THE OUTLINE NESTS. A `data`'s constructors and a `struct`'s
+; fields are children - `workspace/symbol` has listed constructors at
+; their own spans all along, so the two views of one file disagreed,
+; and a struct's fields were invisible to both. Both live in slot b
+; (`mkDDataAt` and `mkDStructAt` put them there) and both carry their
+; name's span from the parser, so this needs nothing the frontend does
+; not already record.
+;
+; THE FALLBACK IS THE NAME SPAN, AND IT TAKES THE CHILDREN WITH IT.
+; `lspFormStart`'s rule is COLUMN ZERO, and a document mid-edit that
+; indents a declaration falls back to the nearest opener - which for a
+; `fn` is its parameter list, a form that does NOT contain the
+; declaration's name span. Publishing that as `range` would put a
+; parent's range inside its own child's, which the protocol forbids and
+; a client renders as a scrambled tree. So the extent is CHECKED to
+; contain the name before it is used, and when it does not this answers
+; exactly what it answered before 2026-09-03: the name span, with no
+; children.
 ; ------------------------------------------------------------------
 ; LSP SymbolKind. Function 12, Enum 10, Struct 23.
 (pub :: lspSymKind (-> Int Int))
@@ -683,6 +711,117 @@
 (pub :: lspWantsSymbol (-> Int Bool))
 
 (pub fn (lspWantsSymbol tag) (|| (== tag TAG_D_FN) (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_MACRO)))))
+
+; LSP SymbolKind for what a declaration holds INSIDE it: EnumMember 22
+; for a `data`'s constructors - the kind `workspace/symbol` already
+; publishes them under - and Field 8 for a `struct`'s fields. 0 for a
+; declaration with no members to list, which is a `fn` (slot b is its
+; parameter NAMES, strings rather than nodes) and a macro.
+(pub :: lspMemberKind (-> Int Int))
+
+(pub fn (lspMemberKind tag)
+  (if (== tag TAG_D_DATA)
+    22
+    (if (== tag TAG_D_STRUCT)
+      8
+      0
+    )
+  )
+)
+
+; The whole top-level form a declaration's name sits in, or 0 when the
+; recovered extent does not contain that name - see the header. 0 is
+; the caller's signal to answer the name span and publish no children.
+(pub :: lspSymbolExtent (-> String Int Int))
+
+(pub fn (lspSymbolExtent src nameSpan)
+  (let ((o (lspFormStart src (spanStart nameSpan))))
+    (let ((e (lspFormEnd src o)))
+      ; TWO CONDITIONS, and each rules out a different wrong answer
+      ; from the same fallback. `lspFormStart`'s rule is COLUMN ZERO
+      ; and it falls back to the nearest opener when nothing is there,
+      ; so for an INDENTED declaration it answers one of two things.
+      ; The PRECEDING top-level form, when the document has one: a
+      ; range that ends before this declaration begins, which the
+      ; containment test refuses. Or, when it does not, the nearest
+      ; `(` - and for a `fn` that is its own PARAMETER LIST, the trap
+      ; `lspFormStart`'s header spells out, which contains the name and
+      ; would pass containment on its own. `lspHeaderOpen` answers
+      ; exactly that paren, so the extent is refused when the two are
+      ; the same byte.
+      ;
+      ; An indented `data` or `struct` keeps its extent under both
+      ; tests, and should: its name is not inside a parameter list, so
+      ; the nearest opener IS its own form. The guard is aimed at the
+      ; one shape that goes wrong, not at indentation.
+      (if (&& (!= o (lspHeaderOpen src (spanStart nameSpan))) (&& (<= o (spanStart nameSpan)) (<= (spanEnd nameSpan) e)))
+        (mkSpan o e)
+        0
+      )
+    )
+  )
+)
+
+; One DocumentSymbol. `children` is omitted rather than sent empty:
+; a client draws an expander arrow for `children: []` and gives the
+; reader an empty drawer to open.
+(pub :: lspSymbolJson (-> String (Vec Int) Int Int))
+
+(pub fn (lspSymbolJson src ix d)
+  (let ((form (lspSymbolExtent src (nodeSpan d))))
+    (let ((base (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName d))) "kind" (jsonNum (lspSymKind (nodeTag d)))) "range" (lspRangeIx src ix (if (== form 0)
+      (nodeSpan d)
+      form
+    ))) "selectionRange" (lspRangeIx src ix (nodeSpan d)))))
+      (if (== form 0)
+        base
+        (let ((kids (lspSymbolChildren src ix d)))
+          (if (== (jsonArrLen kids) 0)
+            base
+            (jsonObjPut base "children" kids)
+          )
+        )
+      )
+    )
+  )
+)
+
+; The members, in the order they are written. Each is its own name and
+; nothing more: a constructor node's span is its name's, and widening
+; it to `(Circle Int)` would mean a second extent rule for a form that
+; is not at column zero. Contained in the parent's form either way,
+; which is what the protocol asks and what the gate now requires
+; STRICTLY of every parent that has children.
+(pub :: lspSymbolChildren (-> String (Vec Int) Int Int))
+
+(pub fn (lspSymbolChildren src ix d)
+  (let (
+    (out jsonArr)
+    (kind (lspMemberKind (nodeTag d)))
+  )
+    (if (== kind 0)
+      out
+      (let (
+        (ms (nodeBVec d))
+        (mut i 0)
+      )
+        {
+          (while (< i (vecLen ms))
+            (let ((m (vecGet ms i)))
+              {
+                (if (!= (nodeSpan m) 0)
+                  (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName m))) "kind" (jsonNum kind)) "range" (lspRangeIx src ix (nodeSpan m))) "selectionRange" (lspRangeIx src ix (nodeSpan m))))
+                  0
+                )
+                (set i (+ i 1))
+              }
+            ))
+          out
+        }
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Navigation: a macro invocation is a REFERENCE to its declaration
@@ -1918,7 +2057,7 @@
                 ; what resolves or refuses it, and either way the
                 ; marker is not a name anyone can navigate to.
                 (if (&& (lspWantsSymbol (nodeTag n)) (&& (!= (nodeSpan n) 0) (== (expIsJoinMarker (nodeAName n)) 0)))
-                  (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName n))) "kind" (jsonNum (lspSymKind (nodeTag n)))) "range" (lspRangeIx src ix (nodeSpan n))) "selectionRange" (lspRangeIx src ix (nodeSpan n))))
+                  (jsonArrPush out (lspSymbolJson src ix n))
                   0
                 )
                 (set i (+ i 1))
