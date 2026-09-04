@@ -1,0 +1,47 @@
+; Self-recursion through a direct call.
+;
+; `call` is the only call this IR has, and recursion is what makes
+; the evaluator's per-call register file a real requirement rather
+; than a detail: a shared one would answer the last frame's value.
+; `(% (+ n 1) 11)` keeps the argument in 0..10, so the largest answer
+; is 10! = 3628800 and nothing overflows. The divisor is the constant
+; and the dividend is derived from k on purpose: with the operands
+; swapped - which is what check-mir.sh's first ablation does - the
+; divisor becomes k+1, never zero, so the ablation reports a wrong
+; number instead of dying on a division by zero. An ablation that
+; crashes is a weaker red than one that answers.
+;
+(import IO)
+
+(:: probeFact (-> Int Int))
+
+(fn (probeFact n)
+  (if (<= n 1)
+    1
+    (* n (probeFact (- n 1)))
+  )
+)
+
+(:: probe (-> Int Int))
+
+(fn (probe n) (probeFact (% (+ n 1) 11)))
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

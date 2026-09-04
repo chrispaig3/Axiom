@@ -1,0 +1,49 @@
+; `begin` - a sequence whose value is its last element.
+;
+; The elements before the last are lowered and then unused. That
+; is deliberate: the verifier must accept a register that nothing
+; reads (dead code is not a broken IR) while still refusing one
+; that nothing writes.
+;
+; The answering expression subtracts, and that is not decoration:
+; every operator here was commutative to begin with, so swapping a
+; binary operator's operands - check-mir.sh's first ablation - left
+; this fixture's output byte-identical while changing seven others.
+; A fixture the ablation cannot move is a fixture that proves less.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+
+(fn (probe n)
+  {
+    (+ n 1)
+    (* n 2)
+    (let ((a (+ n 5)))
+      {
+        (+ a 1)
+        (- (* a 3) 1)
+      }
+    )
+  }
+)
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

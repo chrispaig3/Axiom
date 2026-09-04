@@ -1,0 +1,46 @@
+; Every arithmetic opcode, and no branch at all.
+;
+; One straight-line block. `add`, `sub`, `mul`, `sdiv` and `srem`
+; each appear once, and the whole function is a single `bb0` -
+; so this is the fixture whose .mir golden has no `condbr`, `br`
+; or block parameter in it, and the one that would still pass if
+; the control-flow rules were deleted.
+; Every divisor is a constant, so no k in 0..19 divides by zero.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+
+(fn (probe n)
+  (let ((a (+ n 3)))
+    (let ((b (* a 2)))
+      (let ((c (- b 1)))
+        (let ((d (/ c 2)))
+          (let ((e (% c 7)))
+            (+ (* d 10) e)
+          )
+        )
+      )
+    )
+  )
+)
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

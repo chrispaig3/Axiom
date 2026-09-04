@@ -1,0 +1,45 @@
+; A `let` whose value is an `if` - the join parameter, used.
+;
+; The block parameter this IR has instead of a phi only earns its
+; keep if something READS it after the join. Here `a` is bound to
+; the value of an `if` and then used three times, so the golden
+; shows `bb3(%k):` with `%k` feeding the instructions after it.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+
+(fn (probe n)
+  (let ((a 
+    (if (< n 5)
+      100
+      200
+    )
+  ))
+    (let ((b (+ a n)))
+      (let ((c (* b 2)))
+        (- c a)
+      )
+    )
+  )
+)
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

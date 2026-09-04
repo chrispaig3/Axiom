@@ -16,14 +16,70 @@ its changelog too.
 
 ## Unreleased
 
+### A mid-level IR, and the first thing that lowers through it
+
+`self_host/mir.ax` is an SSA IR between the checked AST and the code
+generator: functions of numbered basic blocks, values as integer
+registers, and BLOCK PARAMETERS rather than phi nodes. `self_host/
+mireval.ax` is a reference evaluator over it. **Nothing in the compiler
+imports either**, and `scripts/check-mir.sh` asserts that, so `axiom
+emit-llvm self_host/main.ax` is what it was and the committed seed
+compiles what it always compiled. Routing the code generator through
+the IR is the next slice; this one exists so that the IR exists, is
+inspectable, and something real goes through it.
+
+What lowers: integer literals, variables, `let`, `if`, `begin`, the
+eleven arithmetic and comparison operators, and a direct call of a
+top-level function. Anything else makes `mLowerFn` refuse the whole
+function rather than answer a partial one — measured over `self_host/`
+and `stdlib/`, **2,000 of 4,796 top-level functions lower end to end**,
+and `check-mir.sh` prints that number every run and holds a floor under
+it, because a subset that quietly narrowed itself to keep a
+differential green is the failure this slice is most exposed to.
+
+The IR is UNTYPED, and that is not an oversight: there is no typed AST
+here to lower from. `checkModule` answers a `Vec` of diagnostics and
+nothing else, and the AST's `ty` word is a multiplexed stamp — an
+evidence class on `TAG_E_APP`, a resolved struct name on
+`TAG_E_FIELD`, an alias-expanded signature on `TAG_D_SIG` — not a
+type. Every value here is the i64 machine word the code generator
+already emits.
+
+`mirVerify` answers a list of complaints: one terminator per block,
+block ids equal to their index, single assignment, every register
+defined and in range, every branch target real, block-argument arity,
+`condbr` successors taking no parameters, every block reachable, and
+DOMINANCE, computed by the textbook iterative dataflow over a bit
+matrix.
+
+**The gate is a differential, not a golden.** A printer pinned only by
+checked-in goldens states the FORM of the IR and nothing about its
+meaning, and `AXIOM_BLESS=1` rewrites those goldens. So each of the
+eight fixtures under `tests/mir/` is compiled and run by the real
+compiler, then lowered and run by the evaluator, and the two stdouts
+must be byte-identical. Two ablations, chosen to fire DIFFERENT checks
+because two that fire the same one are one ablation written twice:
+swapping a binary operator's operands leaves the IR well formed, so the
+goldens and the differential must go red while the verifier stays
+SILENT; dropping every `br` terminator must make the verifier speak
+about exactly the fixtures whose goldens carry a `condbr`, and stay
+silent about the ones that do not. Every fixture is written so the
+first ablation answers a wrong NUMBER rather than diverging — a red
+that is a SIGSEGV says less than a red that is an answer.
+
+`scripts/check-gate-lib.sh`'s guard over its own `word_for` table had
+fallen four arms behind the table it guards, so the range the count had
+most recently moved through was the range the guard could not see. It
+now runs to the table's end. sixty-one gates call `gate_build_axc`.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a
      release is cut: `scripts/check-gate-lib.sh` reads this file starting at
      `## Unreleased` and takes the two sections below it, so removing the
      heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
-     state \"sixty gates\" anywhere". Measured on the 0.7.0 tag, which is how
-     this comment came to be here. -->
+     state \"sixty-one gates\" anywhere" - the count as it stands today.
+     Measured on the 0.7.0 tag, which is how this comment came to be here. -->
 
 ### `AX3064`: a concurrent binding may not capture a reference the parent holds
 

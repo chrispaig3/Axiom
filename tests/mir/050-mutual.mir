@@ -1,0 +1,48 @@
+fn probeEven(%0) {
+bb0:
+  %1 = const 0
+  %2 = sle %0, %1
+  condbr %2, bb1, bb2
+bb1:
+  %4 = const 1
+  br bb3(%4)
+bb2:
+  %5 = const 1
+  %6 = sub %0, %5
+  %7 = call probeOdd(%6)
+  br bb3(%7)
+bb3(%3):
+  ret %3
+}
+fn probeOdd(%0) {
+bb0:
+  %1 = const 0
+  %2 = sle %0, %1
+  condbr %2, bb1, bb2
+bb1:
+  %4 = const 0
+  br bb3(%4)
+bb2:
+  %5 = const 1
+  %6 = sub %0, %5
+  %7 = call probeEven(%6)
+  br bb3(%7)
+bb3(%3):
+  ret %3
+}
+fn probe(%0) {
+bb0:
+  %1 = const 10
+  %2 = call probeEven(%0)
+  %3 = mul %1, %2
+  %4 = call probeOdd(%0)
+  %5 = add %3, %4
+  ret %5
+}
+fn main() {
+bb0:
+  %0 = const 0
+  %1 = call emit(%0)
+  ret %1
+}
+; not lowered: emit

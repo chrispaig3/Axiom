@@ -2,7 +2,7 @@
 # Assert that `gate_build_axc`'s cache cannot hide a change to the tree.
 #
 # WHY THIS GATE EXISTS AT ALL. `scripts/lib/gate.sh` is not a gate; it
-# is the preamble sixty gates share, and `gate_build_axc` is the
+# is the preamble sixty-one gates share, and `gate_build_axc` is the
 # line in it that makes those twenty-six test the compiler in the
 # WORKING TREE rather than whatever binary happens to be on disk. Its
 # own comment says so: building from `self_host/` "is also what makes
@@ -13,7 +13,7 @@
 # 60,881 lines was about sixteen minutes of every CI run, measured on
 # all three legs. An environment variable naming a prebuilt compiler is
 # EXACTLY the shape that deletes the property above, silently, in every
-# one of those sixty gates at once - and the failure would look like
+# one of those sixty-one gates at once - and the failure would look like
 # green CI, which is the worst way for a gate to be wrong.
 #
 # So the cache is content-addressed: `$AXIOM_AXC` is used only when
@@ -266,11 +266,21 @@ word_for() {
     58) echo "fifty-eight" ;;
     59) echo "fifty-nine" ;;
     60) echo "sixty" ;;
+    61) echo "sixty-one" ;;
     *)  echo "" ;;
   esac
 }
 
 # A GUARD ON THE TABLE ABOVE, because it is data that looks like prose.
+#
+# THE PAIR LIST BELOW IS HAND-WRITTEN AND HAD GONE STALE AGAIN. It
+# stopped at fifty-six on 2026-09-03 while `word_for` answered up to
+# sixty, so the four arms the count had most recently moved through
+# were the four this guard could not see - the same shape the note
+# further down records being closed twice already, in the file whose
+# subject is a check whose domain excludes the cases it is for. It is
+# extended here to the table's end because a new arm was added beside
+# it; a guard that does not cover the arm just written is not a guard.
 # Both of this file's count moves on 2026-08-24 were made with a sweep
 # over the word, and both rewrote the table's own arms - `19) echo
 # twenty-six` after the first, `24) echo "twenty-six"` after the second.
@@ -292,7 +302,9 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
             "43 forty-three" "44 forty-four" "45 forty-five" \
             "46 forty-six" "47 forty-seven" "48 forty-eight" \
             "49 forty-nine" "50 fifty" "51 fifty-one" "52 fifty-two" \
-            "53 fifty-three" "54 fifty-four" "55 fifty-five" "56 fifty-six"; do
+            "53 fifty-three" "54 fifty-four" "55 fifty-five" "56 fifty-six" \
+            "57 fifty-seven" "58 fifty-eight" "59 fifty-nine" "60 sixty" \
+            "61 sixty-one"; do
   set -- $pair
   arms=$((arms + 1))
   got="$(word_for "$1")"
@@ -493,7 +505,7 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-gate-lib: $checks checks - the shared artifact is used only when it"
-echo "                was built from the tree as it stands, so sixty gates"
+echo "                was built from the tree as it stands, so sixty-one gates"
 echo "                still see an ablation of self_host/, and a path that names"
 echo "                no build product is refused rather than ignored"
 

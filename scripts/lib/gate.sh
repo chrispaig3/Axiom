@@ -262,7 +262,7 @@ gate_sha() {
 # first - which is also what makes an ablation of `self_host/` visible
 # to that gate rather than invisible.
 #
-# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Sixty gates
+# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Sixty-one gates
 # call this, each rebuilding the same 60,881 lines. Measured on the
 # three CI legs on 2026-08-24: the `test` job took 17m38s / 18m54s /
 # 10m01s before the cache and 10m48s / 11m51s / 7m46s after it, so the

@@ -1,0 +1,1328 @@
+; ------------------------------------------------------------------
+; THE MID-LEVEL IR - slice 1: the representation, a lowering, a
+; printer and a verifier.
+;
+; WHAT IS HERE AND WHAT IS NOT. Today the compiler goes
+;
+;   lex -> parse -> resolveImports -> expand -> typecheck -> codegen
+;
+; and `codegen.ax` walks the checked AST emitting LLVM text directly:
+; 21k lines in which "what the program means" and "what the text
+; says" are the same walk. This module is the first half of the seam
+; between them. It holds an IR that a lowering can produce and a
+; backend can consume, and NOTHING IN THE COMPILER IMPORTS IT - that
+; is deliberate and `scripts/check-mir.sh` asserts it. While no
+; module imports `mir`, `axiom emit-llvm self_host/main.ax` is
+; byte-identical with this file present and with it deleted, so
+; adding it cannot have moved anything, and the seed compiles what it
+; always compiled (checked before starting rather than after:
+; `check-seed-provenance.sh` and `check-seed-lineage.sh` both hash a
+; tree extracted at the SEED COMMIT, never HEAD). Slice 2 is what
+; deletes that assertion, on purpose.
+;
+; THE SHAPE, AND WHY THIS ONE. Functions of numbered basic blocks,
+; values as integer registers, and BLOCK PARAMETERS rather than phi
+; nodes - Cranelift's shape, not LLVM's. A join is a block that takes
+; a parameter and each predecessor's `br` carries the argument. The
+; reason is not taste: a phi names its predecessor blocks, so every
+; edge is written down twice and an SSA rewrite has to keep the two
+; copies in step. With block parameters an edge is written once, and
+; "a use of a register defined in another block" cannot be spelled
+; before that register's block has run - which is why the verifier
+; below can check dominance rather than assume it.
+;
+; UNTYPED, AND THAT IS NOT AN OVERSIGHT. There is no typed AST in
+; this compiler to lower FROM. `checkModule` answers a `Vec` of
+; diagnostics and nothing else; the AST's `ty` word is a multiplexed
+; ad-hoc stamp (an evidence class on `TAG_E_APP`, a resolved struct
+; name on `TAG_E_FIELD`, an alias-expanded signature on `TAG_D_SIG`)
+; rather than a type. So every value here is an i64 machine word,
+; which is exactly what `codegen.ax` emits anyway. A slice that wants
+; types needs a side table keyed by node, and that is a later slice.
+;
+; THE SUBSET. `mLowerFn` lowers a function whose body is built from
+; integer literals, variables, `let`, `if`, `begin` and applications
+; of the eleven arithmetic and comparison operators or of a
+; TOP-LEVEL function. Anything else - a string, a match, a lambda, a
+; field access, an application whose head is a local - makes it
+; REFUSE the whole function. It never answers a partial one. Measured
+; over `self_host/*.ax stdlib/*.ax stdlib/*/*.ax`, that subset lowers
+; 1,969 of 4,720 top-level functions end to end, including 395 of 653
+; in `codegen.ax` and 611 of 908 in `typecheck.ax`; `check-mir.sh`
+; keeps a floor under that number and prints it, so the day a
+; lowering rule narrows itself to keep a differential green, the
+; count says so.
+;
+; WHY THE OPERATOR TABLE IS DUPLICATED. `codegen.ax` already has
+; `binopToLLVM` and `cmpToLLVM`, and `mBinOp` below is those two
+; joined. Importing them would point `mir -> codegen`, and slice 2
+; points `codegen -> mir`; an arrow that already runs the other way
+; is a cycle nobody can unpick later. The duplication is therefore
+; on purpose, and it is not left to drift: `check-mir.sh` compiles a
+; probe that imports BOTH modules and requires them to agree operator
+; by operator. The one place they deliberately differ is the
+; fall-through - `binopToLLVM` answers "add" for a name it does not
+; know, and `mBinOp` answers "", which is what makes the lowering
+; refuse a function rather than emit a wrong one.
+; ------------------------------------------------------------------
+(import Str)
+
+(import Vec)
+
+(import Fmt)
+
+(import parser)
+
+; ------------------------------------------------------------------
+; Opcodes. Instructions are 1..9, terminators 10..19, and `mIsTerm`
+; is the only place that split is written down.
+; ------------------------------------------------------------------
+(pub :: MO_CONST Int)
+
+(pub fn (MO_CONST) 1)
+
+(pub :: MO_BIN Int)
+
+(pub fn (MO_BIN) 2)
+
+(pub :: MO_CALL Int)
+
+(pub fn (MO_CALL) 3)
+
+(pub :: MT_RET Int)
+
+(pub fn (MT_RET) 10)
+
+(pub :: MT_BR Int)
+
+(pub fn (MT_BR) 11)
+
+(pub :: MT_CONDBR Int)
+
+(pub fn (MT_CONDBR) 12)
+
+(pub :: mIsTerm (-> Int Bool))
+
+(pub fn (mIsTerm op) (>= op 10))
+
+; ------------------------------------------------------------------
+; One instruction or terminator.
+;
+; The fields are NOT multiplexed by opcode the way `ASTNode`'s `ty`
+; word is. That word is the frontend's standing tax - three passes
+; store three unrelated things in it and a fourth cannot use it at
+; all - and the whole point of a fresh IR is not to inherit the
+; habit. So a branch target has its own field even though `MO_BIN`
+; never fills it.
+;
+;   op    MO_* or MT_*
+;   dst   the register this defines, or -1 for a terminator
+;   a     MO_CONST: the literal. MO_BIN: the left register.
+;         MT_RET / MT_CONDBR: the register returned or tested.
+;   b     MO_BIN: the right register.
+;   name  MO_BIN: the opcode spelling. MO_CALL: the callee.
+;   args  MO_CALL: the argument registers. MT_BR: the block
+;         arguments, one per parameter of the target block.
+;   tgt   MT_BR: the block branched to. MT_CONDBR: the block taken
+;         when the tested register is nonzero.
+;   alt   MT_CONDBR: the block taken when it is zero.
+; ------------------------------------------------------------------
+(pub struct MInst
+  (op : Int)
+  (dst : Int)
+  (a : Int)
+  (b : Int)
+  (name : String)
+  (args : (Vec Int))
+  (tgt : Int)
+  (alt : Int))
+
+; A basic block. `id` is its index in the enclosing function's block
+; vector - `mirVerify` checks that, because every branch names a
+; block by that number.
+;
+; `term` holds 0 or 1 instructions rather than being an `MInst` with
+; a null spelling. A struct-typed field has no null in this language,
+; and "the terminator is missing" is a state the lowering passes
+; through for real: a block is created, then filled, then terminated.
+; A `Vec` of at most one says that without inventing a sentinel
+; instruction that the printer and the evaluator would both have to
+; know about.
+(pub struct MBlock
+  (id : Int)
+  (params : (Vec Int))
+  (instrs : (Vec MInst))
+  (term : (Vec MInst)))
+
+; A function. `nreg` is one past the highest register number, so a
+; register file is `nreg` words - the evaluator allocates exactly
+; that, and `mirVerify` refuses any register at or above it.
+(pub struct MFunc
+  (name : String)
+  (params : (Vec Int))
+  (blocks : (Vec MBlock))
+  (nreg : Int))
+
+; ------------------------------------------------------------------
+; The printer.
+;
+; THE GRAMMAR, which is the contract the `.mir` tooling reads:
+;
+;   fn NAME(%0, %1) {
+;   bb0:
+;     %2 = const 42
+;     %3 = add %0, %2
+;     %4 = call foo(%3, %2)
+;     condbr %3, bb1, bb2
+;   bb1:
+;     br bb3(%4)
+;   bb3(%5):
+;     ret %5
+;   }
+;
+; A block with no parameters prints `bbN:`; one with parameters
+; prints `bbN(%a, %b):`. `br` always prints its parentheses, empty or
+; not, so a reader never has to decide whether a missing list means
+; "no arguments" or "not written yet".
+;
+; `condbr` prints two bare block names and no argument lists, because
+; in this IR a conditional branch's successors take NO parameters.
+; That is a restriction of slice 1's lowering rather than of the
+; representation, and it is not a comment: `mirVerify` fails a
+; `condbr` to a block that has parameters, so the printer's grammar
+; and the verifier's rule are the same statement.
+;
+; The op spellings are LLVM's - `add`, `sdiv`, `srem`, `slt` - and
+; not Axiom's source operators, so the backend slice is a rename
+; rather than a translation.
+; ------------------------------------------------------------------
+(pub :: mcat3 (-> String String String String))
+
+(pub fn (mcat3 a b c) (strConcat (strConcat a b) c))
+
+(pub :: mirReg (-> Int String))
+
+(pub fn (mirReg r) (strConcat "%" (fmtInt r)))
+
+(pub :: mirBB (-> Int String))
+
+(pub fn (mirBB b) (strConcat "bb" (fmtInt b)))
+
+; `%0, %1, %2` - the one place a register list is spelled, so the
+; parameter list, the call arguments and the block arguments cannot
+; disagree about the separator.
+(pub :: mirRegList (-> (Vec Int) Int String String))
+
+(pub fn (mirRegList v i acc)
+  (if (>= i (vecLen v))
+    acc
+    (mirRegList
+      v      (+ i 1)      (strConcat
+        (if (== i 0)
+          acc
+          (strConcat acc ", ")
+        )        (mirReg (vecGet v i))
+      )
+    )
+  )
+)
+
+(pub :: mirInst (-> MInst String))
+
+(pub fn (mirInst n)
+  (if (== n.op MO_CONST)
+    (mcat3 "  " (mirReg n.dst) (strConcat " = const " (fmtInt n.a)))
+    (if (== n.op MO_BIN)
+      (mcat3 (strConcat "  " (mirReg n.dst)) (mcat3 " = " n.name " ") (mcat3 (mirReg n.a) ", " (mirReg n.b)))
+      (if (== n.op MO_CALL)
+        (mcat3 (strConcat "  " (mirReg n.dst)) (mcat3 " = call " n.name "(") (strConcat (mirRegList n.args 0 "") ")"))
+        (if (== n.op MT_RET)
+          (strConcat "  ret " (mirReg n.a))
+          (if (== n.op MT_BR)
+            (mcat3 "  br " (mirBB n.tgt) (mcat3 "(" (mirRegList n.args 0 "") ")"))
+            (if (== n.op MT_CONDBR)
+              (mcat3 (mcat3 "  condbr " (mirReg n.a) ", ") (mirBB n.tgt) (strConcat ", " (mirBB n.alt)))
+              (strConcat "  <unknown op " (strConcat (fmtInt n.op) ">"))
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: mirInsts (-> (Vec MInst) Int String String))
+
+(pub fn (mirInsts v i acc)
+  (if (>= i (vecLen v))
+    acc
+    (mirInsts v (+ i 1) (mcat3 acc (mirInst (vecGet v i)) "\n"))
+  )
+)
+
+(pub :: mirBlock (-> MBlock String))
+
+(pub fn (mirBlock b)
+  (mcat3
+    (mcat3
+      (mirBB b.id)      (if (== (vecLen b.params) 0)
+        ""
+        (mcat3 "(" (mirRegList b.params 0 "") ")")
+      )      ":\n"
+    )    (mirInsts b.instrs 0 "")    (if (== (vecLen b.term) 0)
+      ; A block with no terminator is a broken block, and the printer
+      ; says so rather than printing nothing: a silently short block
+      ; would read as a legal fall-through, which this IR does not
+      ; have. `mirVerify` fails the same case.
+      "  <missing terminator>\n"
+      (strConcat (mirInst (vecGet b.term 0)) "\n")
+    )
+  )
+)
+
+(pub :: mirBlocks (-> (Vec MBlock) Int String String))
+
+(pub fn (mirBlocks v i acc)
+  (if (>= i (vecLen v))
+    acc
+    (mirBlocks v (+ i 1) (strConcat acc (mirBlock (vecGet v i))))
+  )
+)
+
+(pub :: mirFunc (-> MFunc String))
+
+(pub fn (mirFunc f) (mcat3 (mcat3 "fn " f.name (mcat3 "(" (mirRegList f.params 0 "") ") {\n")) (mirBlocks f.blocks 0 "") "}\n"))
+
+; ------------------------------------------------------------------
+; The lowering.
+;
+; `MLC` is the state a single function's lowering carries: the next
+; register, the blocks made so far, and the block instructions are
+; being appended to. `cur` moves as `if` opens and closes blocks, and
+; it is read rather than remembered at every emit - a nested `if`
+; inside a branch leaves `cur` somewhere other than the block that
+; branch started in, and terminating the block you STARTED with
+; instead of the one you ENDED in is the bug that produces an
+; unreachable join.
+;
+; `MBind` is one name-to-register binding. The environment is a `Vec`
+; scanned from the END, so an inner `let` shadows an outer one
+; without the scan having to remove anything.
+; ------------------------------------------------------------------
+(pub struct MLC
+  (mut nreg : Int)
+  (blocks : (Vec MBlock))
+  (mut cur : MBlock))
+
+(pub struct MBind
+  (name : String)
+  (reg : Int))
+
+(pub :: mlcFresh (-> MLC Int))
+
+(pub fn (mlcFresh lc)
+  (let ((r lc.nreg))
+    {
+      (set lc.nreg (+ r 1))
+      r
+    }
+  )
+)
+
+; A new block, numbered by its position, appended and answered. The
+; caller decides when `cur` moves to it.
+(pub :: mlcBlock (-> MLC (Vec Int) MBlock))
+
+(pub fn (mlcBlock lc ps)
+  (let ((b (MBlock (vecLen lc.blocks) ps vecNew vecNew)))
+    {
+      (vecPush lc.blocks b)
+      b
+    }
+  )
+)
+
+(pub :: mlcEmit (-> MLC MInst Int))
+
+(pub fn (mlcEmit lc n)
+  {
+    (vecPush lc.cur.instrs n)
+    n.dst
+  }
+)
+
+; Terminate whatever block `cur` is now. A second terminator on one
+; block is dropped rather than appended: `term` holding two would be
+; a state `mirVerify` reports and no lowering rule intends, and
+; keeping the FIRST is what makes the report say which block, not
+; which of two.
+(pub :: mlcTerm (-> MLC MInst Int))
+
+(pub fn (mlcTerm lc n)
+  (if (> (vecLen lc.cur.term) 0)
+    0
+    {
+      (vecPush lc.cur.term n)
+      0
+    }
+  )
+)
+
+(pub :: mSingleton (-> Int (Vec Int)))
+
+(pub fn (mSingleton r)
+  (let ((v vecNew))
+    {
+      (vecPush v r)
+      v
+    }
+  )
+)
+
+(pub :: mEnvLook (-> (Vec MBind) String Int Int))
+
+(pub fn (mEnvLook env name i)
+  (if (< i 0)
+    (- 0 1)
+    (let ((bnd (vecGet env i)))
+      (if (strEq bnd.name name)
+        bnd.reg
+        (mEnvLook env name (- i 1))
+      )
+    )
+  )
+)
+
+(pub :: mEnvFind (-> (Vec MBind) String Int))
+
+(pub fn (mEnvFind env name) (mEnvLook env name (- (vecLen env) 1)))
+
+; The operator table. Answers the MIR spelling of an Axiom binary
+; operator, or "" for a name that is not one - and "" is what makes
+; the caller refuse. `codegen.ax`'s `binopToLLVM` answers "add" in
+; that position, which is right for a table that only ever sees names
+; the checker already approved and wrong for one deciding whether a
+; call is an operator at all.
+(pub :: mBinOp (-> String String))
+
+(pub fn (mBinOp nm)
+  (if (strEq nm "+")
+    "add"
+    (if (strEq nm "-")
+      "sub"
+      (if (strEq nm "*")
+        "mul"
+        (if (strEq nm "/")
+          "sdiv"
+          (if (strEq nm "%")
+            "srem"
+            (if (strEq nm "==")
+              "eq"
+              (if (strEq nm "!=")
+                "ne"
+                (if (strEq nm "<")
+                  "slt"
+                  (if (strEq nm ">")
+                    "sgt"
+                    (if (strEq nm "<=")
+                      "sle"
+                      (if (strEq nm ">=")
+                        "sge"
+                        ""
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The head of a curried application spine. `TAG_E_APP` is
+; left-nested with one argument per node, so `(f a b)` is
+; `((f a) b)`; `parser.ax`'s `spineArgVec` flattens the arguments and
+; this walks to the function.
+(pub :: mSpineHead (-> Int Int))
+
+(pub fn (mSpineHead e)
+  (if (== (nodeTag e) TAG_E_APP)
+    (mSpineHead (nodeA e))
+    e
+  )
+)
+
+; Lower every argument, left to right, onto `out`. Answers false the
+; moment one of them leaves the subset - and the caller then refuses
+; the whole function, so the half-lowered instructions already in the
+; block are discarded with it.
+(pub :: mLowArgs (-> MLC (Vec MBind) (Vec Int) Int (Vec Int) Bool))
+
+(pub fn (mLowArgs lc env args i out)
+  (if (>= i (vecLen args))
+    true
+    (let ((r (mLower lc env (vecGet args i))))
+      (if (< r 0)
+        false
+        {
+          (vecPush out r)
+          (mLowArgs
+            lc            env            args            (+ i 1)            out
+          )
+        }
+      )
+    )
+  )
+)
+
+; Lower one expression. Answers the register holding its value, or a
+; NEGATIVE number when the expression is outside the subset. Every
+; caller checks; nothing here answers a register it did not define.
+(pub :: mLower (-> MLC (Vec MBind) Int Int))
+
+(pub fn (mLower lc env e)
+  (let ((t (nodeTag e)))
+    (if (== t TAG_E_INT)
+      (mlcEmit lc (MInst
+        MO_CONST        (mlcFresh lc)        (nodeA e)        0        ""        vecNew        0        0
+      ))
+      (if (== t TAG_E_VAR)
+        ; A name the environment does not hold is a global - a
+        ; nullary function, a constant, an imported binding - and
+        ; slice 1 has no instruction for one, so it refuses. The
+        ; refusal is what keeps the differential honest: an
+        ; unresolved name lowered as "some register" would evaluate
+        ; to whatever that register happened to hold.
+        (mEnvFind env (nodeAName e))
+        (if (== t TAG_E_LET)
+          (mLowerLet lc env e)
+          (if (== t TAG_E_IF)
+            (mLowerIf lc env e)
+            (if (== t TAG_E_BEGIN)
+              (mLowerSeq
+                lc                env                (nodeAVec e)                0                (- 0 1)
+              )
+              (if (== t TAG_E_APP)
+                (mLowerApp lc env e)
+                (- 0 1)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `TAG_E_LET` binds exactly one name per node (parser.ax builds it
+; that way and codegen relies on it), so there is no binding list to
+; walk: value, push, body, pop.
+(pub :: mLowerLet (-> MLC (Vec MBind) Int Int))
+
+(pub fn (mLowerLet lc env e)
+  (let ((rv (mLower lc env (nodeB e))))
+    (if (< rv 0)
+      (- 0 1)
+      {
+        (vecPush env (MBind (nodeAName e) rv))
+        (let ((rb (mLower lc env (nodeC e))))
+          {
+            (vecPop env)
+            rb
+          }
+        )
+      }
+    )
+  )
+)
+
+; `if` is three new blocks and a join parameter. The join block is
+; created BEFORE either arm is lowered, so a nested `if` inside an
+; arm gets a higher number than the join it eventually branches to;
+; block numbering here is creation order, not layout order, and
+; nothing depends on the two agreeing.
+;
+; Each arm terminates `lc.cur` - the block the arm ENDED in - rather
+; than the block it started in.
+(pub :: mLowerIf (-> MLC (Vec MBind) Int Int))
+
+(pub fn (mLowerIf lc env e)
+  (let ((rc (mLower lc env (nodeA e))))
+    (if (< rc 0)
+      (- 0 1)
+      (let (
+        (bt (mlcBlock lc vecNew))
+        (bf (mlcBlock lc vecNew))
+        (pj (mlcFresh lc))
+      )
+        (let ((bj (mlcBlock lc (mSingleton pj))))
+          {
+            (mlcTerm lc (MInst
+              MT_CONDBR              (- 0 1)              rc              0              ""              vecNew              bt.id              bf.id
+            ))
+            (set lc.cur bt)
+            (let ((r1 (mLower lc env (nodeB e))))
+              (if (< r1 0)
+                (- 0 1)
+                {
+                  (mlcTerm lc (MInst
+                    MT_BR                    (- 0 1)                    0                    0                    ""                    (mSingleton r1)                    bj.id                    0
+                  ))
+                  (set lc.cur bf)
+                  (let ((r2 (mLower lc env (nodeC e))))
+                    (if (< r2 0)
+                      (- 0 1)
+                      {
+                        (mlcTerm lc (MInst
+                          MT_BR                          (- 0 1)                          0                          0                          ""                          (mSingleton r2)                          bj.id                          0
+                        ))
+                        (set lc.cur bj)
+                        pj
+                      }
+                    )
+                  )
+                }
+              )
+            )
+          }
+        )
+      )
+    )
+  )
+)
+
+; A `begin` is its elements in order, answering the last. An EMPTY
+; one has no value to answer, so it refuses rather than inventing a
+; zero - `last` starts negative and that is the answer if the loop
+; never runs.
+(pub :: mLowerSeq (-> MLC (Vec MBind) (Vec Int) Int Int Int))
+
+(pub fn (mLowerSeq lc env v i last)
+  (if (>= i (vecLen v))
+    last
+    (let ((r (mLower lc env (vecGet v i))))
+      (if (< r 0)
+        (- 0 1)
+        (mLowerSeq
+          lc          env          v          (+ i 1)          r
+        )
+      )
+    )
+  )
+)
+
+; An application is one of exactly two things here: a binary operator
+; on two lowered arguments, or a direct call of a TOP-LEVEL function.
+;
+; The three refusals, each for a reason a wrong answer would be
+; silent:
+;   - a head that is not a variable (a lambda, a field, a call
+;     answering a function) - there is no indirect call in this IR;
+;   - a head whose name is in the ENVIRONMENT, meaning the callee is
+;     a local holding a closure - a direct call to a symbol of that
+;     name would call a DIFFERENT function that happens to share it;
+;   - an operator applied to other than two arguments, which is a
+;     partial application.
+(pub :: mLowerApp (-> MLC (Vec MBind) Int Int))
+
+(pub fn (mLowerApp lc env e)
+  (let ((hd (mSpineHead e)))
+    (if (!= (nodeTag hd) TAG_E_VAR)
+      (- 0 1)
+      (let (
+        (nm (nodeAName hd))
+        (args (spineArgVec e vecNew))
+        (out vecNew)
+      )
+        (if (mLowArgs
+          lc          env          args          0          out
+        )
+          (let ((bop (mBinOp nm)))
+            (if (> (strLen bop) 0)
+              (if (== (vecLen out) 2)
+                (mlcEmit lc (MInst
+                  MO_BIN                  (mlcFresh lc)                  (vecGet out 0)                  (vecGet out 1)                  bop                  vecNew                  0                  0
+                ))
+                (- 0 1)
+              )
+              (if (>= (mEnvFind env nm) 0)
+                (- 0 1)
+                (mlcEmit lc (MInst
+                  MO_CALL                  (mlcFresh lc)                  0                  0                  nm                  out                  0                  0
+                ))
+              )
+            )
+          )
+          (- 0 1)
+        )
+      )
+    )
+  )
+)
+
+(pub :: mBindParams (-> MLC (Vec MBind) (Vec String) Int (Vec Int) Int))
+
+(pub fn (mBindParams lc env ps i out)
+  (if (>= i (vecLen ps))
+    0
+    (let ((r (mlcFresh lc)))
+      {
+        (vecPush out r)
+        (vecPush env (MBind (vecGet ps i) r))
+        (mBindParams
+          lc          env          ps          (+ i 1)          out
+        )
+      }
+    )
+  )
+)
+
+; Lower one `TAG_D_FN`.
+;
+; Answers a `Vec` of at most one `MFunc`: the function, or nothing at
+; all. There is no third answer and in particular no PARTIAL
+; function - a lowering that emitted what it understood and stopped
+; would produce a block with no terminator, which the verifier would
+; then report as a defect in this file rather than as the refusal it
+; is.
+(pub :: mLowerFn (-> Int (Vec MFunc)))
+
+(pub fn (mLowerFn d)
+  (let (
+    (entry (MBlock 0 vecNew vecNew vecNew))
+    (out vecNew)
+  )
+    (let ((lc (MLC 0 vecNew entry)))
+      {
+        (vecPush lc.blocks entry)
+        (let (
+          (env vecNew)
+          (pregs vecNew)
+        )
+          {
+            (mBindParams
+              lc              env              (nodeBVec d)              0              pregs
+            )
+            (let ((r (mLower lc env (nodeC d))))
+              (if (< r 0)
+                0
+                {
+                  (mlcTerm lc (MInst
+                    MT_RET                    (- 0 1)                    r                    0                    ""                    vecNew                    0                    0
+                  ))
+                  (vecPush out (MFunc (nodeAName d) pregs lc.blocks lc.nreg))
+                  0
+                }
+              )
+            )
+          }
+        )
+        out
+      }
+    )
+  )
+)
+
+; Walk a declaration list, lowering every `TAG_D_FN`. Lowered
+; functions land on `out` in source order; the names of the ones that
+; refused land on `refused`. Both drivers under `tests/mir/` share
+; this walk, so "which functions lowered" is one answer rather than
+; two that could disagree.
+(pub :: mLowerDecls (-> (Vec Int) (Vec MFunc) (Vec String) Int Int))
+
+(pub fn (mLowerDecls ds out refused i)
+  (if (>= i (vecLen ds))
+    0
+    (let ((d (vecGet ds i)))
+      {
+        (if (== (nodeTag d) TAG_D_FN)
+          (let ((got (mLowerFn d)))
+            (if (== (vecLen got) 0)
+              {
+                (vecPush refused (nodeAName d))
+                0
+              }
+              {
+                (vecPush out (vecGet got 0))
+                0
+              }
+            )
+          )
+          0
+        )
+        (mLowerDecls ds out refused (+ i 1))
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; The verifier.
+;
+; `mirVerify` answers a `Vec` of complaints - empty when the function
+; is well formed. It is not a re-run of the lowering: it reads only
+; the finished `MFunc` and asks the questions a CONSUMER of this IR
+; needs answered before it can trust one.
+;
+;   1. every block's `id` is its index, since branches name blocks by
+;      that number;
+;   2. every block carries exactly one terminator;
+;   3. no register is defined twice - the SSA property itself;
+;   4. every register mentioned is below `nreg` and has a definition;
+;   5. every branch names a block that exists;
+;   6. a `br`'s argument count equals its target's parameter count;
+;   7. a `condbr`'s targets take no parameters (slice 1's
+;      restriction, stated here so the printer's grammar is checked
+;      rather than assumed);
+;   8. every block is reachable from block 0;
+;   9. DOMINANCE - the definition of every register used reaches the
+;      use on every path. Block parameters make a cross-block use
+;      structurally hard to get wrong, which is exactly why this is
+;      worth checking rather than assuming: if it can only fail when
+;      the lowering is broken, then it is a test of the lowering.
+;
+; Check 9 is the one that costs something. Dominators are computed by
+; the textbook iterative dataflow over a bit matrix - `dom[b]` is the
+; set of blocks that dominate `b`, initialised to everything and
+; narrowed to `{b} u (intersection over predecessors)` until nothing
+; moves. Functions here have a handful of blocks, so an n-by-n matrix
+; and a fixpoint loop is the cheap implementation as well as the
+; obvious one.
+; ------------------------------------------------------------------
+(pub :: mFill (-> (Vec Int) Int Int (Vec Int)))
+
+(pub fn (mFill v n x)
+  (if (<= n 0)
+    v
+    {
+      (vecPush v x)
+      (mFill v (- n 1) x)
+    }
+  )
+)
+
+; `dom` is a flat n*n matrix of 0/1: `dom[y*n + x]` is 1 when block x
+; dominates block y.
+(pub :: mDomAt (-> (Vec Int) Int Int Int Int))
+
+(pub fn (mDomAt dom n y x) (vecGet dom (+ (* y n) x)))
+
+(pub :: mSuccs (-> MBlock (Vec Int) (Vec Int)))
+
+(pub fn (mSuccs b out)
+  (if (== (vecLen b.term) 0)
+    out
+    (let ((t (vecGet b.term 0)))
+      (if (== t.op MT_BR)
+        {
+          (vecPush out t.tgt)
+          out
+        }
+        (if (== t.op MT_CONDBR)
+          {
+            (vecPush out t.tgt)
+            (vecPush out t.alt)
+            out
+          }
+          out
+        )
+      )
+    )
+  )
+)
+
+; Mark every block reachable from `b`, depth first. `seen` is one
+; word per block.
+(pub :: mReach (-> MFunc (Vec Int) Int Int))
+
+(pub fn (mReach f seen b)
+  (if (|| (< b 0) (>= b (vecLen f.blocks)))
+    0
+    (if (== (vecGet seen b) 1)
+      0
+      {
+        (vecSet seen b 1)
+        (mReachSuccs f seen (mSuccs (vecGet f.blocks b) vecNew) 0)
+      }
+    )
+  )
+)
+
+(pub :: mReachSuccs (-> MFunc (Vec Int) (Vec Int) Int Int))
+
+(pub fn (mReachSuccs f seen ss i)
+  (if (>= i (vecLen ss))
+    0
+    {
+      (mReach f seen (vecGet ss i))
+      (mReachSuccs f seen ss (+ i 1))
+    }
+  )
+)
+
+; One pass of the dominator fixpoint over block `b`: intersect the
+; predecessors' rows, add `b` itself, and answer 1 if the row moved.
+(pub :: mDomRefineRow (-> (Vec Int) Int Int (Vec Int) Int Int))
+
+(pub fn (mDomRefineRow dom n b preds x)
+  (if (>= x n)
+    0
+    (let (
+      (want (if (== x b)
+        1
+        (mDomMeet
+          dom          n          preds          x          0          (- 0 1)
+        )
+      ))
+      (have (mDomAt dom n b x))
+    )
+      (if (== want have)
+        (mDomRefineRow
+          dom          n          b          preds          (+ x 1)
+        )
+        {
+          (vecSet dom (+ (* b n) x) want)
+          (+ 1 (mDomRefineRow
+            dom            n            b            preds            (+ x 1)
+          ))
+        }
+      )
+    )
+  )
+)
+
+; The intersection over `preds` of "does x dominate p". `acc` starts
+; at -1 meaning "no predecessor seen yet"; a block with no
+; predecessors keeps its row, which is what leaves an unreachable
+; block dominated by everything - check 8 reports it separately
+; rather than letting it corrupt check 9.
+(pub :: mDomMeet (-> (Vec Int) Int (Vec Int) Int Int Int Int))
+
+(pub fn (mDomMeet dom n preds x i acc)
+  (if (>= i (vecLen preds))
+    (if (< acc 0)
+      1
+      acc
+    )
+    (let ((v (mDomAt dom n (vecGet preds i) x)))
+      (mDomMeet
+        dom        n        preds        x        (+ i 1)        (if (< acc 0)
+          v
+          (if (&& (== acc 1) (== v 1))
+            1
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: mPredsOf (-> MFunc Int (Vec Int) Int (Vec Int)))
+
+(pub fn (mPredsOf f b out i)
+  (if (>= i (vecLen f.blocks))
+    out
+    {
+      (mPredsOfOne
+        f        b        out        i        (mSuccs (vecGet f.blocks i) vecNew)        0
+      )
+      (mPredsOf f b out (+ i 1))
+    }
+  )
+)
+
+(pub :: mPredsOfOne (-> MFunc Int (Vec Int) Int (Vec Int) Int Int))
+
+(pub fn (mPredsOfOne f b out p ss i)
+  (if (>= i (vecLen ss))
+    0
+    {
+      (if (== (vecGet ss i) b)
+        {
+          (vecPush out p)
+          0
+        }
+        0
+      )
+      (mPredsOfOne
+        f        b        out        p        ss        (+ i 1)
+      )
+    }
+  )
+)
+
+(pub :: mDomPass (-> MFunc (Vec Int) Int Int Int Int))
+
+(pub fn (mDomPass f dom n b moved)
+  (if (>= b n)
+    moved
+    (mDomPass
+      f      dom      n      (+ b 1)      (+ moved (mDomRefineRow
+        dom        n        b        (mPredsOf f b vecNew 0)        0
+      ))
+    )
+  )
+)
+
+(pub :: mDomFix (-> MFunc (Vec Int) Int Int Int))
+
+(pub fn (mDomFix f dom n fuel)
+  (if (<= fuel 0)
+    0
+    (if (== (mDomPass
+      f      dom      n      1      0
+    ) 0)
+      0
+      (mDomFix f dom n (- fuel 1))
+    )
+  )
+)
+
+; The dominator matrix: block 0 dominated only by itself, every other
+; row starting at "dominated by everything" and narrowing.
+(pub :: mDominators (-> MFunc (Vec Int)))
+
+(pub fn (mDominators f)
+  (let (
+    (n (vecLen f.blocks))
+    (dom vecNew)
+  )
+    {
+      (mFill dom (* n n) 1)
+      (mDomZeroRow0 dom n 1)
+      (mDomFix f dom n (+ (* n n) 4))
+      dom
+    }
+  )
+)
+
+(pub :: mDomZeroRow0 (-> (Vec Int) Int Int Int))
+
+(pub fn (mDomZeroRow0 dom n x)
+  (if (>= x n)
+    0
+    {
+      (vecSet dom x 0)
+      (mDomZeroRow0 dom n (+ x 1))
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; The complaint list, and the definition tables checks 3, 4 and 9
+; read.
+;
+; `defBlk[r]` is the block that defines register r (-1 = nowhere,
+; -2 = more than once), and `defIdx[r]` its position within that
+; block: -1 for a parameter, i for the i-th instruction. A use is
+; then legal when either the definition is a parameter or an earlier
+; instruction of the SAME block, or the defining block strictly
+; dominates the using one.
+; ------------------------------------------------------------------
+(pub :: mvSay (-> (Vec String) String Int))
+
+(pub fn (mvSay out s)
+  {
+    (vecPush out s)
+    0
+  }
+)
+
+(pub :: mvDefine (-> (Vec Int) (Vec Int) (Vec String) String Int Int Int Int))
+
+(pub fn (mvDefine defBlk defIdx out what r blk idx)
+  (if (|| (< r 0) (>= r (vecLen defBlk)))
+    (mvSay out (mcat3 what " defines out-of-range register " (mirReg r)))
+    (if (>= (vecGet defBlk r) 0)
+      {
+        (vecSet defBlk r (- 0 2))
+        (mvSay out (strConcat (mirReg r) " is defined more than once"))
+      }
+      {
+        (vecSet defBlk r blk)
+        (vecSet defIdx r idx)
+        0
+      }
+    )
+  )
+)
+
+(pub :: mvUse (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) String Int Int Int Int))
+
+(pub fn (mvUse f dom defBlk defIdx out what r blk idx)
+  (if (|| (< r 0) (>= r (vecLen defBlk)))
+    (mvSay out (mcat3 what " uses out-of-range register " (mirReg r)))
+    (let ((db (vecGet defBlk r)))
+      (if (< db 0)
+        (mvSay out (mcat3 what " uses " (strConcat (mirReg r) " which is never defined")))
+        (if (== db blk)
+          (if (< (vecGet defIdx r) idx)
+            0
+            (mvSay out (mcat3 what " uses " (strConcat (mirReg r) " before it is defined")))
+          )
+          (if (== (mDomAt dom (vecLen f.blocks) blk db) 1)
+            0
+            (mvSay out (mcat3 (strConcat what " uses ") (mirReg r) (mcat3 " whose definition in " (mirBB db) " does not dominate the use")))
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: mvWhere (-> Int String))
+
+(pub fn (mvWhere b) (strConcat (mirBB b) ":"))
+
+(pub :: mvCollectDefs (-> MFunc (Vec Int) (Vec Int) (Vec String) Int Int))
+
+(pub fn (mvCollectDefs f defBlk defIdx out i)
+  (if (>= i (vecLen f.blocks))
+    0
+    (let ((b (vecGet f.blocks i)))
+      {
+        (mvDefsParams
+          defBlk          defIdx          out          b.params          b.id          0
+        )
+        (mvDefsInsts
+          defBlk          defIdx          out          b.instrs          b.id          0
+        )
+        (mvCollectDefs
+          f          defBlk          defIdx          out          (+ i 1)
+        )
+      }
+    )
+  )
+)
+
+(pub :: mvDefsParams (-> (Vec Int) (Vec Int) (Vec String) (Vec Int) Int Int Int))
+
+(pub fn (mvDefsParams defBlk defIdx out ps blk i)
+  (if (>= i (vecLen ps))
+    0
+    {
+      (mvDefine
+        defBlk        defIdx        out        (mvWhere blk)        (vecGet ps i)        blk        (- 0 1)
+      )
+      (mvDefsParams
+        defBlk        defIdx        out        ps        blk        (+ i 1)
+      )
+    }
+  )
+)
+
+(pub :: mvDefsInsts (-> (Vec Int) (Vec Int) (Vec String) (Vec MInst) Int Int Int))
+
+(pub fn (mvDefsInsts defBlk defIdx out insts blk i)
+  (if (>= i (vecLen insts))
+    0
+    (let ((n (vecGet insts i)))
+      {
+        (mvDefine
+          defBlk          defIdx          out          (mvWhere blk)          n.dst          blk          i
+        )
+        (mvDefsInsts
+          defBlk          defIdx          out          insts          blk          (+ i 1)
+        )
+      }
+    )
+  )
+)
+
+(pub :: mvUseList (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) String (Vec Int) Int Int Int Int))
+
+(pub fn (mvUseList f dom defBlk defIdx out what rs blk idx i)
+  (if (>= i (vecLen rs))
+    0
+    {
+      (mvUse
+        f        dom        defBlk        defIdx        out        what        (vecGet rs i)        blk        idx
+      )
+      (mvUseList
+        f        dom        defBlk        defIdx        out        what        rs        blk        idx        (+ i 1)
+      )
+    }
+  )
+)
+
+(pub :: mvCheckInst (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) MInst Int Int Int))
+
+(pub fn (mvCheckInst f dom defBlk defIdx out n blk idx)
+  (let ((what (mvWhere blk)))
+    (if (== n.op MO_BIN)
+      {
+        (mvUse
+          f          dom          defBlk          defIdx          out          what          n.a          blk          idx
+        )
+        (mvUse
+          f          dom          defBlk          defIdx          out          what          n.b          blk          idx
+        )
+      }
+      (if (== n.op MO_CALL)
+        (mvUseList
+          f          dom          defBlk          defIdx          out          what          n.args          blk          idx          0
+        )
+        0
+      )
+    )
+  )
+)
+
+(pub :: mvCheckInsts (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) (Vec MInst) Int Int Int))
+
+(pub fn (mvCheckInsts f dom defBlk defIdx out insts blk i)
+  (if (>= i (vecLen insts))
+    0
+    {
+      (mvCheckInst
+        f        dom        defBlk        defIdx        out        (vecGet insts i)        blk        i
+      )
+      (mvCheckInsts
+        f        dom        defBlk        defIdx        out        insts        blk        (+ i 1)
+      )
+    }
+  )
+)
+
+(pub :: mvBlockAt (-> MFunc Int Int))
+
+(pub fn (mvBlockAt f id)
+  (if (|| (< id 0) (>= id (vecLen f.blocks)))
+    (- 0 1)
+    (let ((b (vecGet f.blocks id)))
+      (vecLen b.params)
+    )
+  )
+)
+
+(pub :: mvCheckTerm (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) MBlock Int))
+
+(pub fn (mvCheckTerm f dom defBlk defIdx out b)
+  (if (!= (vecLen b.term) 1)
+    (mvSay out (mcat3 (mvWhere b.id) " has " (strConcat (fmtInt (vecLen b.term)) " terminators, want exactly 1")))
+    (let (
+      (t (vecGet b.term 0))
+      (idx (vecLen b.instrs))
+      (what (mvWhere b.id))
+    )
+      (if (== t.op MT_RET)
+        (mvUse
+          f          dom          defBlk          defIdx          out          what          t.a          b.id          idx
+        )
+        (if (== t.op MT_BR)
+          (let ((np (mvBlockAt f t.tgt)))
+            (if (< np 0)
+              (mvSay out (mcat3 what " branches to " (strConcat (mirBB t.tgt) ", which does not exist")))
+              {
+                (if (!= np (vecLen t.args))
+                  (mvSay out (mcat3 (mcat3 what " passes " (fmtInt (vecLen t.args))) (mcat3 " arguments to " (mirBB t.tgt) ", which takes ") (fmtInt np)))
+                  0
+                )
+                (mvUseList
+                  f                  dom                  defBlk                  defIdx                  out                  what                  t.args                  b.id                  idx                  0
+                )
+              }
+            )
+          )
+          (if (== t.op MT_CONDBR)
+            {
+              (mvUse
+                f                dom                defBlk                defIdx                out                what                t.a                b.id                idx
+              )
+              (mvCondTarget f out what t.tgt)
+              (mvCondTarget f out what t.alt)
+            }
+            (mvSay out (mcat3 what " ends in opcode " (strConcat (fmtInt t.op) ", which is not a terminator")))
+          )
+        )
+      )
+    )
+  )
+)
+
+; A `condbr` successor must exist and take no parameters - the
+; printer has nowhere to write an argument list for one, and the
+; lowering never makes one, so a block with parameters here means
+; something upstream is wrong.
+(pub :: mvCondTarget (-> MFunc (Vec String) String Int Int))
+
+(pub fn (mvCondTarget f out what id)
+  (let ((np (mvBlockAt f id)))
+    (if (< np 0)
+      (mvSay out (mcat3 what " branches to " (strConcat (mirBB id) ", which does not exist")))
+      (if (> np 0)
+        (mvSay out (mcat3 (mcat3 what " conditionally branches to " (mirBB id)) ", which takes " (strConcat (fmtInt np) " parameters; condbr passes none")))
+        0
+      )
+    )
+  )
+)
+
+(pub :: mvCheckBlocks (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) Int Int))
+
+(pub fn (mvCheckBlocks f dom defBlk defIdx seen out i)
+  (if (>= i (vecLen f.blocks))
+    0
+    (let ((b (vecGet f.blocks i)))
+      {
+        (if (!= b.id i)
+          (mvSay out (mcat3 (mcat3 "block at index " (fmtInt i) " carries id ") (fmtInt b.id) " - a branch names a block by its index"))
+          0
+        )
+        (if (== (vecGet seen i) 0)
+          (mvSay out (strConcat (mvWhere i) " is not reachable from bb0"))
+          0
+        )
+        (mvCheckInsts
+          f          dom          defBlk          defIdx          out          b.instrs          b.id          0
+        )
+        (mvCheckTerm
+          f          dom          defBlk          defIdx          out          b
+        )
+        (mvCheckBlocks
+          f          dom          defBlk          defIdx          seen          out          (+ i 1)
+        )
+      }
+    )
+  )
+)
+
+(pub :: mirVerify (-> MFunc (Vec String)))
+
+(pub fn (mirVerify f)
+  (let ((out vecNew))
+    (if (== (vecLen f.blocks) 0)
+      {
+        (mvSay out (strConcat f.name " has no blocks"))
+        out
+      }
+      ; The function's own parameters are defined on entry, which
+      ; is bb0's parameter position: `defIdx` -1 puts them before
+      ; instruction 0 of block 0.
+      (let (
+        (defBlk (mFill vecNew f.nreg (- 0 1)))
+        (defIdx (mFill vecNew f.nreg (- 0 1)))
+        (seen (mFill vecNew (vecLen f.blocks) 0))
+        (dom (mDominators f))
+      )
+        {
+          (mvDefsParams
+            defBlk            defIdx            out            f.params            0            0
+          )
+          (mvCollectDefs
+            f            defBlk            defIdx            out            0
+          )
+          (mReach f seen 0)
+          (mvCheckBlocks
+            f            dom            defBlk            defIdx            seen            out            0
+          )
+          out
+        }
+      )
+    )
+  )
+)

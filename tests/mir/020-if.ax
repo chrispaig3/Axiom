@@ -1,0 +1,88 @@
+; All six comparison opcodes, one per branch.
+;
+; `eq`, `ne`, `slt`, `sgt`, `sle` and `sge` are the six spellings
+; `mBinOp` answers for a comparison, and a comparison in this
+; language is a `Bool` - it can only reach the IR through an `if`
+; condition. So there are six functions rather than one
+; expression, each answering a distinct power of two, and the sum
+; says which of them fired.
+;
+(import IO)
+
+(:: probeLt (-> Int Int))
+
+(fn (probeLt n)
+  (if (< n 10)
+    1
+    0
+  )
+)
+
+(:: probeLe (-> Int Int))
+
+(fn (probeLe n)
+  (if (<= n 10)
+    2
+    0
+  )
+)
+
+(:: probeGt (-> Int Int))
+
+(fn (probeGt n)
+  (if (> n 10)
+    4
+    0
+  )
+)
+
+(:: probeGe (-> Int Int))
+
+(fn (probeGe n)
+  (if (>= n 10)
+    8
+    0
+  )
+)
+
+(:: probeEq (-> Int Int))
+
+(fn (probeEq n)
+  (if (== n 10)
+    16
+    0
+  )
+)
+
+(:: probeNe (-> Int Int))
+
+(fn (probeNe n)
+  (if (!= n 10)
+    32
+    0
+  )
+)
+
+(:: probe (-> Int Int))
+
+(fn (probe n) (+ (probeLt n) (+ (probeLe n) (+ (probeGt n) (+ (probeGe n) (+ (probeEq n) (probeNe n)))))))
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

@@ -1,0 +1,355 @@
+; ------------------------------------------------------------------
+; THE MID-LEVEL IR's TEST DRIVER. `scripts/check-mir.sh` is its only
+; caller.
+;
+;   mirtool lower  FILE      the .mir text of every function that
+;                            lowers, and `; not lowered: NAME` for
+;                            every one that refuses, in source order
+;   mirtool verify FILE      `mirVerify`'s complaints, one per line,
+;                            prefixed with the function they are
+;                            about; SILENCE is the passing answer
+;   mirtool run    FILE N    `(probe k)` for k in 0..N-1, one per
+;                            line, computed by the IR EVALUATOR
+;   mirtool count  FILE      `N M` - how many of the file's top-level
+;                            functions lower
+;   mirtool optable          one row per binary operator, bar
+;                            separated: the MIR spelling `mir.ax`
+;                            gives it beside the one `codegen.ax`
+;                            already emits
+;
+; ONE TOOL RATHER THAN THREE, because "which functions lowered" must
+; be one answer. Three drivers could each walk the declarations their
+; own way and disagree about it, and the differential compares the
+; run of one against the golden of another.
+;
+; TWO FRONTENDS, AND THE DIFFERENCE IS THE POINT.
+;
+;   `lower`, `verify` and `run` put the file through the REAL
+;   frontend: lex, parse, resolve imports, expand macros, typecheck,
+;   and refuse if the checker reports an error. So the tree they
+;   lower is the tree `codegen.ax` would be handed, macros already
+;   expanded, and a fixture that does not compile cannot produce a
+;   green differential.
+;
+;   `count` parses and stops. It is the corpus sweep's mode, run over
+;   every module in `self_host/` and `stdlib/`, and resolving each of
+;   those import graphs would mean compiling the compiler once per
+;   module - minutes, for a number that is a coverage floor rather
+;   than a correctness claim. The number it answers is therefore
+;   structural coverage of the PARSED tree, and `check-mir.sh` says
+;   so where it prints it.
+; ------------------------------------------------------------------
+(import Str)
+
+(import Vec)
+
+(import Fmt)
+
+(import Sys)
+
+(import IO)
+
+(import Host)
+
+(import lexer)
+
+(import parser)
+
+(import diag)
+
+(import codegen)
+
+(import expand)
+
+(import typecheck)
+
+(import mir)
+
+(import mireval)
+
+; ------------------------------------------------------------------
+; The frontend, once.
+;
+; Answers the entry file's declaration list after expansion, or an
+; EMPTY vector when the file does not lex, parse, expand or check.
+; The caller cannot tell those apart and does not need to: a fixture
+; that fails any of them is a broken fixture, and `check-mir.sh`
+; separately compiles every fixture with the real compiler, so the
+; message a reader needs is already printed there.
+; ------------------------------------------------------------------
+(:: frontend (-> String (Vec Int)))
+
+;@axiom:effect(io)
+(fn (frontend path)
+  (let ((src (sysReadFile (strCStr path))))
+    (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+      (if (== (memGetWord pr 0) 0)
+        vecNew
+        (let (
+          (decls (memGetWordVec pr 1))
+          (bares vecNew)
+          (fulls vecNew)
+          (mods vecNew)
+          (units vecNew)
+          (eds vecNew)
+          (ftbl vecNew)
+        )
+          {
+            (vecPush
+              units              (cast Int (CUnit2
+                path                src                (cast String 0)
+              ))
+            )
+            (let ((allDecls (resolveImports
+              decls              bares              fulls              mods              (checkedTargetCode hostTarget)              (pathDir path)              units
+            )))
+              {
+                (expandProgram
+                  decls                  allDecls                  eds                  ftbl                  units                  bares                  fulls                  mods
+                )
+                (if (> (countErrorDiags eds) 0)
+                  vecNew
+                  (if (> (countErrorDiags (checkModule decls allDecls units)) 0)
+                    vecNew
+                    decls
+                  )
+                )
+              }
+            )
+          }
+        )
+      )
+    )
+  )
+)
+
+; Parse only - `count`'s frontend. See the header for why the two
+; differ.
+(:: parseOnly (-> String (Vec Int)))
+
+;@axiom:effect(io)
+(fn (parseOnly path)
+  (let ((src (sysReadFile (strCStr path))))
+    (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+      (if (== (memGetWord pr 0) 0)
+        vecNew
+        (memGetWordVec pr 1)
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `lower`
+; ------------------------------------------------------------------
+(:: printFuncs (-> (Vec MFunc) Int Int))
+
+;@axiom:effect(io)
+(fn (printFuncs fns i)
+  (if (>= i (vecLen fns))
+    0
+    {
+      (writeStr stdout (mirFunc (vecGet fns i)))
+      (printFuncs fns (+ i 1))
+    }
+  )
+)
+
+(:: printRefused (-> (Vec String) Int Int))
+
+;@axiom:effect(io)
+(fn (printRefused ns i)
+  (if (>= i (vecLen ns))
+    0
+    (let ((nm (vecGet ns i)))
+      {
+        (println "; not lowered: {nm}")
+        (printRefused ns (+ i 1))
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `verify`
+; ------------------------------------------------------------------
+(:: printComplaints (-> String (Vec String) Int Int))
+
+;@axiom:effect(io)
+(fn (printComplaints fname cs i)
+  (if (>= i (vecLen cs))
+    0
+    (let ((c (vecGet cs i)))
+      {
+        (println "{fname}: {c}")
+        (printComplaints fname cs (+ i 1))
+      }
+    )
+  )
+)
+
+(:: verifyAll (-> (Vec MFunc) Int Int Int))
+
+;@axiom:effect(io)
+(fn (verifyAll fns i bad)
+  (if (>= i (vecLen fns))
+    bad
+    (let ((f (vecGet fns i)))
+      (let ((cs (mirVerify f)))
+        {
+          (printComplaints f.name cs 0)
+          (verifyAll fns (+ i 1) (+ bad (vecLen cs)))
+        }
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `run` - the differential's IR side. One line per k, exactly what
+; every fixture's own `main` prints natively.
+; ------------------------------------------------------------------
+(:: runProbe (-> (Vec MFunc) Int Int Int))
+
+;@axiom:effect(io)
+(fn (runProbe fns k n)
+  (if (>= k n)
+    0
+    (let ((v (mvalCall1 fns "probe" k)))
+      {
+        (println "{v}")
+        (runProbe fns (+ k 1) n)
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; `optable` - the seam with `codegen.ax`.
+;
+; `mir.ax` carries its own operator table because it must not import
+; `codegen.ax` (slice 2 points the arrow the other way). A duplicate
+; table drifts unless something reads both, and this mode is that
+; something: it is the ONE place in the tree that imports `mir` and
+; `codegen` together, and it prints, per operator, what each answers.
+; `check-mir.sh` requires the two columns to agree on all eleven, and
+; requires the twelfth row - a name that is not an operator - to
+; DISAGREE, because that difference is deliberate: `codegen.ax`
+; answers "add" for a name it was never going to be asked about,
+; where `mBinOp` answers "" and the lowering refuses.
+; ------------------------------------------------------------------
+(:: opRow (-> String String Int))
+
+;@axiom:effect(io)
+(fn (opRow nm cg)
+  ; Bar-separated, because `mBinOp` answers the EMPTY string
+  ; for a non-operator and a space-separated row would let the
+  ; reader's field splitting slide `cg` into `mine`'s column -
+  ; which is exactly how the twelfth row first read as agreeing.
+  (let ((mine (mBinOp nm)))
+    {
+      (println "{nm}|{mine}|{cg}")
+      0
+    }
+  )
+)
+
+(:: printOpTable Int)
+
+;@axiom:effect(io)
+(fn (printOpTable)
+  {
+    (opRow "+" (binopToLLVM "+"))
+    (opRow "-" (binopToLLVM "-"))
+    (opRow "*" (binopToLLVM "*"))
+    (opRow "/" (binopToLLVM "/"))
+    (opRow "%" (binopToLLVM "%"))
+    (opRow "==" (cmpToLLVM "=="))
+    (opRow "!=" (cmpToLLVM "!="))
+    (opRow "<" (cmpToLLVM "<"))
+    (opRow ">" (cmpToLLVM ">"))
+    (opRow "<=" (cmpToLLVM "<="))
+    (opRow ">=" (cmpToLLVM ">="))
+    (opRow "notanoperator" (binopToLLVM "notanoperator"))
+    0
+  }
+)
+
+; ------------------------------------------------------------------
+; The entry point.
+; ------------------------------------------------------------------
+(:: usage Int)
+
+;@axiom:effect(io)
+(fn (usage)
+  {
+    (println "usage: mirtool (lower|verify|run|count) FILE [N] | mirtool optable")
+    2
+  }
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mode (sysArg 1))
+    (path (sysArg 2))
+  )
+    (if (strEq mode "optable")
+      printOpTable
+      (if (== (strLen path) 0)
+        usage
+        (let (
+          (decls (if (strEq mode "count")
+            (parseOnly path)
+            (frontend path)
+          ))
+          (fns vecNew)
+          (refused vecNew)
+        )
+          (if (== (vecLen decls) 0)
+            {
+              (println "; frontend refused {path}")
+              1
+            }
+            {
+              (mLowerDecls decls fns refused 0)
+              (if (strEq mode "lower")
+                {
+                  (printFuncs fns 0)
+                  (printRefused refused 0)
+                  0
+                }
+                (if (strEq mode "verify")
+                  (if (== (verifyAll fns 0 0) 0)
+                    0
+                    1
+                  )
+                  (if (strEq mode "run")
+                    {
+                      (runProbe fns 0 (strToInt (sysArg 3)))
+                      0
+                    }
+                    (if (strEq mode "count")
+                      (let (
+                        (nl (vecLen fns))
+                        (nt (+ (vecLen fns) (vecLen refused)))
+                      )
+                        {
+                          (println "{nl} {nt}")
+                          0
+                        }
+                      )
+                      usage
+                    )
+                  )
+                )
+              )
+            }
+          )
+        )
+      )
+    )
+  )
+)

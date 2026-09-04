@@ -1,0 +1,56 @@
+; Mutual recursion - two functions that call each other.
+;
+; The lowering answers one function at a time and resolves a call
+; by NAME, so a mutually recursive pair is the case where
+; `mLowerFn`'s per-function state must not leak: two register
+; numberings, one function table.
+;
+; The base case is `<= 0` rather than `== 0` so that the pair still
+; TERMINATES when check-mir.sh's first ablation swaps a binary
+; operator's operands: with `== 0` the decrement becomes `1 - n` and
+; the two functions chase each other forever, and a red that is a
+; SIGSEGV says less than a red that is a wrong number.
+;
+(import IO)
+
+(:: probeEven (-> Int Int))
+
+(fn (probeEven n)
+  (if (<= n 0)
+    1
+    (probeOdd (- n 1))
+  )
+)
+
+(:: probeOdd (-> Int Int))
+
+(fn (probeOdd n)
+  (if (<= n 0)
+    0
+    (probeEven (- n 1))
+  )
+)
+
+(:: probe (-> Int Int))
+
+(fn (probe n) (+ (* 10 (probeEven n)) (probeOdd n)))
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))
