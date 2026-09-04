@@ -16,6 +16,8 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.5 — 2026-09-04
+
 ### The website said things the tree no longer did, and hid the rest until you scrolled
 
 Every section of the page rendered at `opacity: 0` until an intersection
@@ -144,9 +146,6 @@ about a linked binary's symbol table; the two `.axir` gates next to
 which pins the piped sessions the terminal ones cannot reach. The
 coverage gate itself runs in the cheap grammar job, because it reads two
 lists of file names and needs no compiler.
-
-## 0.7.5 — 2026-09-04
-
 
 ### Three layout defects in `axiom fmt`, and the second printer that shared one of them
 
