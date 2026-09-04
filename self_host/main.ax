@@ -44,6 +44,8 @@
 
 (import symbols)
 
+(import axir)
+
 (import lsp)
 
 (import style)
@@ -116,32 +118,97 @@
 ; default - stage0's split, and the last of the three divergences the
 ; self-hosting record kept OPEN. The table is derived from the AXSYM
 ; text, so the two cannot disagree about what the symbols are.
+; `--axir` REPLACES the stream rather than adding to it: the `.axir`
+; record file is the second half of one design, holding per function
+; exactly what an AXSYM line has no room for - the arity, the
+; parameter names, the region-facts words, and the block and
+; instruction lines a mid-level IR will write. The two join on the
+; whole `F` header tuple, which is why the record repeats it verbatim.
+; It is not affected by `--diagnostic-format`: there is one rendering
+; of a record file, and the human table is a rendering of AXSYM.
+;
+; `--mir` is orthogonal to both, and it is the slow one. It FORCES the
+; region-facts fixpoint - measured 0.72s to 21.7s on this compiler,
+; 30x - so it is never implied by anything.
 (pub :: symbolsEmit (-> Int (Vec Int) String Int Int))
 
 ;@axiom:effect(io)
 (pub fn (symbolsEmit tc gens cmd dfmt)
   {
     symbolsFormatNotice
-    (let ((axsym 
-      (symbolsRenderGens
-        tc        (if (hasFlagAnywhere cmd "--builtins")
-          1
-          0
-        )        gens        (if (hasFlagAnywhere cmd "--calls")
-          1
-          0
-        )
-      )
-    ))
-      (replOut
-        (if (== dfmt FMT_HUMAN)
-          (symbolsHumanTable axsym)
-          axsym
+    (let (
+      (bi (if (hasFlagAnywhere cmd "--builtins")
+        1
+        0
+      ))
+      (mir (if (hasFlagAnywhere cmd "--mir")
+        1
+        0
+      ))
+    )
+      (if (hasFlagAnywhere cmd "--axir")
+        (replOut (axirRender tc bi mir (targetArg hostTarget)))
+        (let ((axsym 
+          (symbolsRenderGens
+            tc            bi            gens            (if (hasFlagAnywhere cmd "--calls")
+              1
+              0
+            )            mir
+          )
+        ))
+          (replOut
+            (if (== dfmt FMT_HUMAN)
+              (symbolsHumanTable axsym)
+              axsym
+            )
+          )
         )
       )
     )
     0
   }
+)
+
+; `axiom symbols --axir` on a file that IS an AXIR record file reads it
+; back and re-emits it, rather than trying to compile it.
+;
+; THE MAGIC LINE IS THE DISCRIMINATOR, not the extension. That is the
+; whole reason `axir 1 <target> <version>` is the first line of every
+; record file: a tool holding one never has to guess, and the guess
+; that would otherwise be on offer - the file name - is exactly the one
+; that fails, because LLVM's Machine IR is also written by this
+; toolchain and also carries an IR in a text file.
+;
+; This is what `scripts/check-mir-roundtrip.sh` drives: emit, read
+; back, emit again, and the two emissions must be identical byte for
+; byte. A GOLDEN was deliberately not used. check-tools-selfhost.sh's
+; own header records the run where both AXSYM goldens were re-blessed
+; clean against a compiler emitting a start column shifted by one, and
+; only `verify-axsym.py` - which re-derives the claim - caught it.
+; Round-trip identity is a property a re-bless cannot satisfy.
+;
+; A parse refusal is exit 1 with the reader's own message on stderr,
+; not a silent short file.
+(pub :: symbolsAxirReadBack (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (symbolsAxirReadBack src)
+  (if (axirLooksLikeFile src)
+    (let (
+      (msg vecNew)
+      (out (axirReemit src msg))
+    )
+      (if (> (vecLen msg) 0)
+        (die (cat3 "error: " (vecGetStr msg 0) "\n") 1)
+        {
+          (replOut out)
+          (sysExitWith 0)
+          0
+        }
+      )
+    )
+    0
+  )
 )
 
 (pub :: symbolsFormatNotice Int)
@@ -1440,7 +1507,15 @@
                       (let ((rerr (sourceReadErrnoFor f src)))
                       (if (!= rerr 0)
                         (die (readFailMsg f rerr) 1)
-                          (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+                          (let (
+                            ; An AXIR record file re-emits and exits here;
+                            ; anything else is a source to compile. The
+                            ; binding is in the same list rather than a
+                            ; wrapping `let` so that this arm's paren
+                            ; depth does not move.
+                            (_ax (symbolsAxirReadBack src))
+                            (pr (parseModuleWith (lex src) (scanAxtags src)))
+                          )
                             (if (== (memGetWord pr 0) 0)
                               (die "compilation failed due to a syntax error\n" 1)
                               ; `symbols` type-checks to get the types it

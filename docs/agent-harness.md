@@ -444,6 +444,51 @@ reference exactly as it attributes a call, and a graph that disagreed
 with the effect row about what counts would break containment by
 construction.
 
+**And the second thing the compiler had already computed: the
+per-function dataflow summary.** `FnEnt` word 8 is the region-facts
+record `rgnFactsNew` builds (`typecheck.ax`, stage S3): which parameters
+a body stores a *freshly allocated* value into, which parameters flow
+into which, where the result comes from, and whether the walk hit a call
+head it could not resolve. It was computed, spent on `AX3049` and
+`AX3060`–`AX3063`, and thrown away. `symbols --mir` prints it and
+`symbols --axir` serialises it:
+
+```console
+F keep p.ax:3:5-9 "(Int -> (Int -> Int))" @ee8bd13… #effects=Alloc,Mut #mir-params=2 #mir-escapes=p #mir-result-from=v
+F pass p.ax:12:5-9 "(Int -> (Int -> Int))" @c4b4251… #effects=Alloc,Mut #mir-params=2 #mir-escapes=p #mir-result-from=v
+F fresh p.ax:16:5-10 "(Int -> Int)" @24c9891… #effects=Alloc #mir-params=1 #mir-result-fresh
+```
+
+`pass` calls `keep` and does nothing else, so the escape reaching its
+row is the summary being interprocedural rather than local.
+
+This is a *lower bound*, and it says so in the stream rather than in a
+document. `#mir-incomplete` is the per-row admission — this body called
+something the walk could not resolve — and `#mir-truncated` is the
+whole-module one: the facts fixpoint stopped at `rgnRounds`' 40-round
+cap instead of converging. That cap is reached, and until this release
+it was silent: measured 2026-09-03 on a generated chain whose leaf
+stores a fresh allocation into its parameter, `restrict(no-escape)` on
+the head is refused at depth 39 and **accepted** at depth 40.
+`scripts/check-mir-projection.sh` pins the sentinel to that boundary,
+and `docs/mir-design.md` §4.1 is the record of it.
+
+`--mir` is off by default for the same reason `--calls` is, and for a
+second one: it *forces* a walk that otherwise never runs. Measured
+2026-09-03, `axiom check self_host/main.ax` goes from 0.72s to 21.7s.
+Silence therefore has two guards, the flag and the on-demand fixpoint,
+and both must be removed before the gate's silence assertion fires.
+
+The `.axir` file is the same facts as a record file rather than a line
+format, with room for the arity, the parameter names, the raw region
+words, and the block and instruction lines a mid-level IR will write.
+It joins to AXSYM on the **whole `F` header tuple**, not on the nid,
+because the nid is not unique across modules — measured over
+`self_host/main.ax --builtins`, 4,068 rows carry one and 4,066 are
+distinct, with `die` and `jsonHexDigit` each colliding between two
+genuinely different functions. `docs/mir-design.md` is the format's
+design record.
+
 **Still refused, separately:** emitted IR is not a function of (source,
 target) alone. Module resolution searches the input file's own directory
 ahead of `$AXIOM_STDLIB`, so a stray file beside the input changes the
@@ -729,3 +774,5 @@ Following the convention that a claim without a gate is a comment:
 | declaration-macro expansion is bounded | fixture that today is SIGKILLed |
 | the call graph explains the effect rows it sits beside | **`scripts/check-agent-calls.sh`** — containment, totality, grounding, and silence, each with a negative probe |
 | the edges themselves do not change unnoticed | **`tests/tools/symbols-zoo-calls.golden`**, cross-checked against the plain golden by stripping the key |
+| a published dataflow summary is the record's own words | **`scripts/check-mir-projection.sh`** — containment against the raw region words, totality on the header tuple, silence by default, and the truncation sentinel held to the depth it reports |
+| the record file survives its own reader, and that reader reads | **`scripts/check-mir-roundtrip.sh`** — round trip over the corpus, a non-normal file normalised to a fixed point, and a closed grammar with every malformed fixture refused |

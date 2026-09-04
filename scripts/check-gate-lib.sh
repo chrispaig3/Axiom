@@ -2,7 +2,8 @@
 # Assert that `gate_build_axc`'s cache cannot hide a change to the tree.
 #
 # WHY THIS GATE EXISTS AT ALL. `scripts/lib/gate.sh` is not a gate; it
-# is the preamble sixty-one gates share, and `gate_build_axc` is the
+# is the preamble sixty-three gates share, and `gate_build_axc` is the
+# is the preamble sixty-three gates share, and `gate_build_axc` is the
 # line in it that makes those twenty-six test the compiler in the
 # WORKING TREE rather than whatever binary happens to be on disk. Its
 # own comment says so: building from `self_host/` "is also what makes
@@ -13,7 +14,8 @@
 # 60,881 lines was about sixteen minutes of every CI run, measured on
 # all three legs. An environment variable naming a prebuilt compiler is
 # EXACTLY the shape that deletes the property above, silently, in every
-# one of those sixty-one gates at once - and the failure would look like
+# one of those sixty-three gates at once - and the failure would look like
+# one of those sixty-three gates at once - and the failure would look like
 # green CI, which is the worst way for a gate to be wrong.
 #
 # So the cache is content-addressed: `$AXIOM_AXC` is used only when
@@ -267,6 +269,8 @@ word_for() {
     59) echo "fifty-nine" ;;
     60) echo "sixty" ;;
     61) echo "sixty-one" ;;
+    62) echo "sixty-two" ;;
+    63) echo "sixty-three" ;;
     *)  echo "" ;;
   esac
 }
@@ -304,7 +308,7 @@ for pair in "15 fifteen" "16 sixteen" "17 seventeen" "18 eighteen" \
             "49 forty-nine" "50 fifty" "51 fifty-one" "52 fifty-two" \
             "53 fifty-three" "54 fifty-four" "55 fifty-five" "56 fifty-six" \
             "57 fifty-seven" "58 fifty-eight" "59 fifty-nine" "60 sixty" \
-            "61 sixty-one"; do
+            "61 sixty-one" "62 sixty-two" "63 sixty-three"; do
   set -- $pair
   arms=$((arms + 1))
   got="$(word_for "$1")"
@@ -505,7 +509,8 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-gate-lib: $checks checks - the shared artifact is used only when it"
-echo "                was built from the tree as it stands, so sixty-one gates"
+echo "                was built from the tree as it stands, so sixty-three gates"
+echo "                was built from the tree as it stands, so sixty-three gates"
 echo "                still see an ablation of self_host/, and a path that names"
 echo "                no build product is refused rather than ignored"
 

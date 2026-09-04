@@ -70,7 +70,114 @@ that is a SIGSEGV says less than a red that is an answer.
 `scripts/check-gate-lib.sh`'s guard over its own `word_for` table had
 fallen four arms behind the table it guards, so the range the count had
 most recently moved through was the range the guard could not see. It
-now runs to the table's end. sixty-one gates call `gate_build_axc`.
+now runs to the table's end. sixty-three gates call `gate_build_axc`.
+### `.axir`: the compiler's dataflow summary, written down and read back
+
+`FnEnt` word 8 has been an interprocedural dataflow summary since stage
+S3 of the memory-model work — which parameters a body stores a freshly
+allocated value into, which parameters flow into which, where the result
+comes from, whether the walk hit a call it could not resolve. It was
+computed, spent on `AX3049` and `AX3060`–`AX3063`, and thrown away. Two
+surfaces now publish it, and `docs/mir-design.md` is the design record
+for both.
+
+`axiom symbols --mir` prints it beside `#effects=`, as
+`#mir-params=`, `#mir-escapes=`, `#mir-result-fresh` and
+`#mir-result-from=`. `axiom symbols --axir` writes a record file
+instead: one record per function carrying AXSYM's `F` header tuple
+verbatim, then `sig`, `param` and the raw `region` words, joined to
+AXSYM on the whole tuple. Given a file that opens `axir 1 ` it reads
+that back and re-emits it.
+
+**The extension is `.axir` and not `.mir` because LLVM owns `.mir`.** It
+is Machine IR, and this toolchain writes it: measured 2026-09-03,
+`llc -stop-after=finalize-isel` turned a 1,312-line `.ll` into 248,183
+bytes of it, exit 0, under Homebrew LLVM 23.1.0. Axiom's IR sits above
+LLVM IR and LLVM's Machine IR sits below it, and two IRs cannot share
+one extension without every later tool sniffing content. The magic first
+line is load-bearing on day one rather than reserved for later: the
+reader is selected by it, in both directions, and
+`scripts/check-mir-roundtrip.sh` asserts that a record file named `.ax`
+still reads back and a source file named `.axir` still compiles.
+
+**The join key is the whole header tuple, not the nid, and COMPAT-2 has
+been corrected.** The nid is FNV-1a 64 over `DKind:name` with the *bare*
+name, so two modules declaring the same unmangled name collide by
+construction. Measured over `symbols self_host/main.ax --builtins`:
+4,068 rows carry a nid and **4,066** are distinct — `die`
+(`stdlib/IO.ax:501` vs `self_host/main.ax:2009`) and `jsonHexDigit`
+(`self_host/render.ax:1184` vs `stdlib/Json.ax:453`) each collide
+between two genuinely different functions.
+
+**`rgnRounds` truncates, and it no longer does so in silence.** The
+facts fixpoint caps at a bare 40 rounds; a chain deeper than that stops
+propagating before it converges, and what comes out is an
+under-approximation the walk treats as final. Measured 2026-09-03 on
+generated chains `f0 -> … -> fN` whose leaf stores a fresh allocation
+into its parameter, with `restrict(no-escape)` on `f0`: `check` reports
+`AX3049` at depths 5, 20, 30, 38 and 39, and prints `OK` at 40, 41, 42
+and 60. Depth 39 refuses; depth 40 **accepts** a claim the analysis can
+itself refute one round later. Fixing the cap is the region
+workstream's — `inferEffects` in the same file already has the shape,
+a limit of `(vecLen decls) + 1` with a worklist. What is fixed here is
+the silence: the truncation is recorded, `#mir-truncated` reports it,
+and `scripts/check-mir-projection.sh` pins the sentinel to the boundary
+(present at depth 41, absent at depth 5) so that a fix to the cap is
+verified rather than assumed. It is the only assertion in the tree that
+watches that constant.
+
+**Both keys are lower bounds and both say so.** `#mir-incomplete` is the
+per-row admission and `#mir-truncated` the whole-module one, on
+`#effects-incomplete`'s exact model and for its exact reason:
+`docs/agent-harness.md` §3.4 has `Agent.Policy` reading these rows, and
+a summary published without its admissions would be a policy gate
+reporting a guarantee the compiler does not have.
+
+**Off by default, twice over, and slow when asked.** `--mir` forces a
+walk that otherwise never runs: measured, `axiom check
+self_host/main.ax` goes from 0.72s to 21.7s and `axiom symbols` from
+10.6s to 79.8s. Silence has two independent guards — the flag, and the
+fact that `rgnEnsureFacts` runs only on demand — and removing the flag
+guard alone leaves the gate green, which the gate's header records so
+the next person ablating it does not conclude the check is vacuous.
+
+Two new gates, sixty-three gates now call `gate_build_axc`:
+
+- **`scripts/check-mir-roundtrip.sh`** — emit, read back, emit again,
+  byte-identical over the stdlib corpus and `self_host/main.ax` (4,862
+  records). A golden was deliberately not used: `check-tools-selfhost.sh`'s
+  own header records the run where both AXSYM goldens were re-blessed
+  clean against a compiler emitting a shifted start column, and round-trip
+  identity is a property a re-bless cannot satisfy. It also asserts the
+  reader **decomposes** — a file spelled with doubled spaces must come
+  back normalised, and the normal form must be a fixed point. That is
+  the assertion that stops the round trip being vacuous, and it is the
+  one a passthrough reader fails while passing every other check in the
+  file: measured on a deliberately passthrough build, the corpus round
+  trip reported 839 and 4,024 records "identical after read-back" and
+  only this probe reddened.
+- **`scripts/check-mir-projection.sh`** — every `#mir-*` value
+  re-derived from its record's raw region words by a third
+  implementation, in Python, from the encoding `typecheck.ax`
+  documents; every row matched to a record on the whole tuple, in
+  order; the `--mir` stream with its own keys stripped byte-identical
+  to the default stream; and the truncation sentinel held to the depth
+  it reports.
+
+`blk`, `op` and `term` are in the grammar and in the reader and nothing
+writes them: `codegen.ax` walks the typed AST and emits LLVM text
+directly, so there are no blocks to serialise yet. They are exercised by
+`tests/axir/body.axir` rather than left untested, because a reader arm
+nothing exercises is a reader arm that is wrong the day something does.
+
+The AXDL half of the projection is designed and **not built**.
+`docs/mir-design.md` §5 has the measurement (no `AX3049` line in the
+201-golden corpus carries a `^` field, while 16 goldens carry a resolved
+`->` chain inside the quoted message), the four steps, and the one thing
+that blocks it: `DLabel` is `(span, msg)` with no `unit`, so a related
+location cannot point into another source file, and four of the six hops
+in a typical `AX3049` path are in `stdlib/`. Widening it is a change to
+a stable format and is not made here.
 
 ## 0.7.3 — 2026-09-03
 
@@ -78,8 +185,10 @@ now runs to the table's end. sixty-one gates call `gate_build_axc`.
      release is cut: `scripts/check-gate-lib.sh` reads this file starting at
      `## Unreleased` and takes the two sections below it, so removing the
      heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
-     state \"sixty-one gates\" anywhere" - the count as it stands today.
+     state \"sixty-three gates\" anywhere" - the count as it stands today.
      Measured on the 0.7.0 tag, which is how this comment came to be here. -->
+     state \"sixty-three gates\" anywhere". Measured on the 0.7.0 tag, which is how
+     this comment came to be here. -->
 
 ### `AX3064`: a concurrent binding may not capture a reference the parent holds
 

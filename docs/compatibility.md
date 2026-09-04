@@ -61,6 +61,26 @@ it is contract-independent: it did not move when a signature went from
 `(Int -> Int)` to `(Int -> (Int -> Int))`. So a diff can separate *this
 name is gone* from *this name changed* with no heuristic.
 
+**WITHIN ONE COMPARISON. It is not unique across modules, and a tool
+that joins two streams must not assume it is.** The nid is FNV-1a 64
+over `DKind:name` and the name it hashes is the **bare** one, so two
+modules declaring the same unmangled name collide by construction.
+Measured 2026-09-03 over `axiom symbols self_host/main.ax --builtins
+--diagnostic-format ai`: 4,153 lines, 4,068 carrying a nid, **4,066
+distinct**. Both collisions are between genuinely different functions —
+`die` at `stdlib/IO.ax:501` and at `self_host/main.ax:2009`, both
+`@52fb9ccad9feab1b`; `jsonHexDigit` at `self_host/render.ax:1184` and
+`stdlib/Json.ax:453`, both `@9adebbbea99ca85b`.
+
+That does not weaken this rule, because `check-compat.sh` compares one
+library's stream against a baseline of the same library, where the name
+set is the module's own. It does constrain anything that joins AXSYM to
+another stream: `docs/mir-design.md` §3 joins `.axir` records to AXSYM
+rows on the **whole header tuple** — name, location, quoted type and
+nid — for exactly this reason, and `scripts/check-mir-projection.sh`
+asserts the two tuple sequences are equal in order rather than looking
+the nid up.
+
 **COMPAT-3 (H, and the hole it recorded is CLOSED).** This rule used to
 read: "Thirteen public names are outside the symbol stream: twelve
 macros — `println` and `format` among them — and one effect
@@ -83,7 +103,14 @@ make. A count would let one name leave while another joined.
 **What is deliberately NOT in the surface.** `#calls=` is the graph
 *behind* the effect row, not part of the promise — a function may
 reorganise its callees freely. `file:line:col` is not either: a
-contract does not move when a declaration moves down its file.
+contract does not move when a declaration moves down its file. Nor is
+any `#mir-*` key: `tests/compat/verify-compat.py`'s `CONTRACT_META` is
+an explicit allowlist and `#mir-` is not on it, so a dataflow summary
+that widens or narrows is not a compatibility event. That is the right
+default while the facts behind it are a lower bound with two sentinels
+on it (`docs/mir-design.md` §4.1); whether `#mir-escapes=` should one
+day become contract, as `#effects=` is, is a later decision and needs
+the round-cap fix first.
 
 ---
 

@@ -2264,7 +2264,10 @@
   ; explains. It holds the one bit stage S3 needs at module level: 1
   ; once `rgnEnsureFacts` has run the region-facts fixpoint, so that a
   ; `restrict(no-escape)` claim inside `tcWalkDecls` and the region
-  ; pass after it share one computation.
+  ; pass after it share one computation. It is 2 when that fixpoint
+  ; stopped at `rgnRounds`' round cap instead of converging -
+  ; `rgnFactsTruncated` reads that, and every other reader asks
+  ; `!= 0`, for which 2 is still "done".
   (rgnFactsDone : Int)
   (curCalls : Int)
   (tyIdx : Int)
@@ -23188,6 +23191,36 @@
   )
 )
 
+; THE ROUND CAP IS A TRUNCATION, AND IT IS NOW RECORDED.
+;
+; 40 is a bare constant, not a bound derived from the program. A
+; monotone chain fixpoint over N functions needs up to N rounds, so a
+; call chain deeper than the cap stops propagating BEFORE it has
+; converged - and the facts that come out are an under-approximation
+; the walk then treats as final.
+;
+; Measured 2026-09-03 on generated chains f0 -> f1 -> ... -> fN whose
+; leaf does `(memSetWord p 0 (memAlloc 8))`, with
+; `restrict(no-escape)` on f0: `check` reports AX3049 at depths 5, 20,
+; 30, 38 and 39, and prints `OK` at 40, 41, 42 and 60. The bisect is
+; exact - depth 39 refuses, depth 40 accepts a claim the analysis can
+; itself refute one round later. Timing confirms saturation rather
+; than convergence: 0.05s at depth 5, 0.11s at 20, 0.24s at 39, and
+; 0.24s at 60, linear in rounds and then flat.
+;
+; FIXING THE CAP IS THE REGION WORKSTREAM'S JOB, not this line's:
+; `inferEffects` above passes `limit = (vecLen decls) + 1`, runs
+; forward and reverse, and switches to a worklist over
+; `callersIdxBuild` after round 1, and that is the shape this wants.
+; What is fixed HERE is the silence. Word 28 goes to 2 when the cap
+; was reached, so that a tool republishing these facts can say the
+; walk stopped early instead of publishing a lower bound as a
+; guarantee - `axiom symbols --mir` prints `#mir-truncated`, and
+; `scripts/check-mir-projection.sh` asserts the sentinel appears at
+; depth 41 and does not appear at depth 5.
+;
+; The value is 2 rather than a second word because every reader of
+; word 28 asks `!= 0`; 2 is still "done".
 (pub :: rgnRounds (-> Int (Vec Int) Int Int))
 
 ; Answers 0 when the facts CONVERGED and 1 when the round cap was
@@ -23201,11 +23234,33 @@
 ; written leaf-first converges in two passes at any depth.
 (pub fn (rgnRounds tc decls round)
   (if (>= round 40)
-    1
+    ; The cap was reached with facts still moving. TWO consumers need
+    ; to know, and both are set here so they cannot drift: word 28
+    ; becomes 2, which `rgnTruncated` reads for AXIR's
+    ; `#mir-truncated`, and the ANSWER becomes 1, which word 33
+    ; carries to `restrictNoEscape` so an abandoned fixpoint stops
+    ; buying the silence a proven one does. Word 28 == 2 and word 33
+    ; == 1 are one fact spelled twice, written at one site.
+    {
+      (memSetWord tc 28 2)
+      1
+    }
     (if (== (rgnPass tc decls 0 0) 0)
       0
       (rgnRounds tc decls (+ round 1))
     )
+  )
+)
+
+; Whether the facts fixpoint stopped at its round cap rather than
+; converging. Read by the AXSYM/AXIR projection, which must not
+; publish an under-approximation without saying so.
+(pub :: rgnFactsTruncated (-> Int Int))
+
+(pub fn (rgnFactsTruncated tc)
+  (if (== (memGetWord tc 28) 2)
+    1
+    0
   )
 )
 

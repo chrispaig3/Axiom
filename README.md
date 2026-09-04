@@ -20,12 +20,12 @@ this project **refuses to state anything it cannot execute a check for.**
 `;@axiom:effect(io)` is not documentation — it is a *claim*, and the
 compiler falsifies it against the syscalls the body really reaches; declare
 `pure` over a function that writes and the build stops. The same discipline
-runs the whole way down: 72 gate scripts, nearly every one carrying an
+runs the whole way down: 74 gate scripts, nearly every one carrying an
 *ablation* that has to go red, so a check that could never fail is itself a
 bug. Even the prose is held to it — the numbers in this file, and on the
 website, are recomputed from the tree on every build.
 
-The compiler is written in Axiom: 99,322 lines of it, which rebuild
+The compiler is written in Axiom: 100,244 lines of it, which rebuild
 themselves from a committed LLVM seed until two successive compilers are
 **byte-identical**. And because the syntax is uniform S-expressions with a
 machine-readable diagnostic surface (`AXSYM`, `AXDL`, content-derived `NID`s,

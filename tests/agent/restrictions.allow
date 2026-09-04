@@ -431,6 +431,8 @@ termWsRows stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
 tokenKind self_host/core.ax no-io,no-alloc,no-foreign ok
 tokenLexeme self_host/core.ax no-io,no-alloc,no-foreign ok
 tokenSpan self_host/core.ax no-io,no-alloc,no-foreign ok
+top tests/diagnostics/650-region-fixpoint-cap.ax no-escape unverifiable
+topStrict tests/diagnostics/650-region-fixpoint-cap.ax no-escape,strict unproven
 tuiCat stdlib/Tui/Edit.ax no-io,no-foreign ok
 tuiVisLen stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
 twice tests/diagnostics/376-restrict-unknown-name.ax no-io,no-io ok

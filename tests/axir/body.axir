@@ -1,0 +1,34 @@
+axir 1 darwin-aarch64 0.0.0
+F alpha src/a.ax:1:5-10 "(Int -> Int)" @0000000000000001
+sig 1
+param 0 n
+region 0 0 1 0 0
+blk entry
+op %0 const 1
+op %1 add n %0
+term ret %1
+end
+F beta src/a.ax:9:5-9 "(Int -> (Int -> Int))" @0000000000000002
+sig 2
+param 0 p
+param 1 v
+region 1 0,0 2 0 0
+blk entry
+op %0 alloc 8
+op %1 store p %0
+term ret v
+end
+F gamma - "Int" @0000000000000003
+sig 0
+region 0 - 0 1 0
+blk entry
+term unreachable
+end
+F delta src/a.ax:20:5-10 "(Int -> Int)"
+sig 1
+param 0 x%20y
+blk entry
+blk loop
+op %0 phi %1 %2
+term br loop
+end
