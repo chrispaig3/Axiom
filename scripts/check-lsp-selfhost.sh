@@ -91,17 +91,40 @@
 #       source contains, and the message line it must render; it carries
 #       no line and no column at all. A list and not a set, so a
 #       document with three diagnostics is three obligations.
-#     * every symbol of every fixture: name, SymbolKind and
+#     * every symbol of every fixture: name, SymbolKind, container and
 #       selectionRange, against tests/lsp/expected-outline.txt, which
 #       is total - a fixture with no rows must publish an empty outline.
-#     * two invariants on every symbol of every document including the
+#       The manifest gained a CONTAINER column on 2026-09-03, when the
+#       outline learnt to nest, and drive.py flattens the server's tree
+#       in document order to compare against it, so a member hung off
+#       the wrong parent is as visible as a member that is missing.
+#     * four invariants on every symbol of every document including the
 #       6001-symbol generated one, needing no manifest: selectionRange
-#       contained in range, and the source sliced at selectionRange
-#       spelling the symbol's own name.
+#       contained in range; a symbol that HAS children containing its
+#       selectionRange STRICTLY; every child's range inside its
+#       parent's; and the source sliced at selectionRange spelling the
+#       symbol's own name. The second of those exists because the first
+#       was satisfied by IDENTITY - measured 2026-09-03, range ==
+#       selectionRange on 543 of 543 symbols over ten documents, so
+#       only an ablation that made range SMALLER could reach it.
 #     * every non-empty diagnostic range must SPELL the name its own
 #       message quotes in backticks, read back out of the source at
 #       exactly those UTF-16 units - the shape of
 #       tests/tools/verify-axsym.py.
+#     * THE EDITOR IS NOT SHOWN LESS THAN THE TERMINAL, added
+#       2026-09-03. For every fixture, `$axiom check --diagnostic-format
+#       json` is run beside the server and the two are compared: the
+#       same diagnostics in the same order, every caret LABEL carried
+#       into the published message, and every SECONDARY span published
+#       as `relatedInformation` at the UTF-16 position drive.py converts
+#       from the terminal's character offset. Nothing here is written
+#       down, so nothing here can be blessed - and the assertion is
+#       containment rather than equality, so the editor's side cannot
+#       satisfy it by also saying nothing. Two floors over the whole
+#       corpus keep it from going vacuous from below: at least 5 label(s)
+#       and at least 1 related location, or drive.py exits without a
+#       verdict. tests/lsp/090-related-spans.ax is the fixture that
+#       supplies the second, and it is the only one that does.
 #
 # The one thing the deleted differential had that this does not is
 # stage0's opinion about WHICH diagnostics a file deserves; the manifest
@@ -304,6 +327,188 @@
 #   This is the one ablation that produces a plausible answer rather
 #   than a wrong one, which is why it has a check of its own.
 #
+# CONSTRUCTORS, seven more ablations, 2026-09-03. A constructor was a
+# name five requests could see and three could not: `completion`
+# offered it, `references` found it, `signatureHelp` rendered it,
+# `workspace/symbol` listed it at its own span and `typeDefinition`
+# jumped to its `data`, while `definition`, `declaration` and `hover`
+# answered null on the same character - 116 such occurrences over four
+# real files, measured 2026-09-03.
+#
+# THESE SEVEN TOUCH NO GOLDEN, and that is worth saying rather than
+# leaving to be noticed: the constructor block's requests are written
+# INTO drive.py's navigation session, not read from tests/lsp/, so
+# there is no *.golden a bless could satisfy and none of these runs
+# rewrote one. Each patches self_host/lsp.ax in a scratch copy, builds
+# a server with scripts/build-shared-axc.sh, and runs drive.py against
+# the UNBLESSED goldens. Every one exits 1 with "33 passed, 1 failed"
+# and exactly one FAIL line, which is also the proof that the change
+# moved nothing else.
+#
+#   NO LOCAL STEP. `lspCtorDefinition`'s call site is removed from
+#   `lspDefinition`, so it falls straight through to the imported
+#   lookup - the state this server was in until today. Exit 1:
+#     "FAIL nav-constructors: definition on `Circle` as a pattern
+#      head: request 40 answered null"
+#
+#   THE `data`'S SPAN, NOT THE CONSTRUCTOR'S. `lspCtorDefinition`
+#   answers `(nodeSpan dat)` where it answered `(nodeSpan c)`. This is
+#   the one that says the fix landed on the right WORD rather than
+#   merely inside the right declaration, and NavMain.ax declares
+#   `Shape` and `Circle` on one line on purpose so a wrong answer
+#   differs only in column. drive.py refuses to run if that line is
+#   ever split. Exit 1:
+#     "request 40 answered ... character 10 ... to ... 15 ..., want
+#      ... character 23 ... to ... 29 ..."
+#   - `Shape` where `Circle` was asked for.
+#
+#   NO IMPORTED HALF, `definition` alone. The `data` an import brought
+#   in is skipped in `lspDefinitionImported`. Exit 1 on the OTHER
+#   document alone, with every local assertion still green:
+#     "definition on the imported `Circle`, from NavUser.ax: request
+#      43 answered null"
+#
+#   NO NOTE. `lspCtorNote` answers "". The fence is untouched and the
+#   paragraph still there, so the hover is a plausible answer rather
+#   than an empty one - it quotes `(pub data Shape ...)` and never
+#   says which of its two constructors the cursor is on. Exit 1:
+#     "hover on `Circle`: request 46 did not carry 'constructor
+#      `Circle` of `Shape`'; it answered '```axiom\n(pub data Shape
+#      (Dot) (Circle Int))\n```\n\nA shape with two constructors...'"
+#
+# The last three exist because "the imported half" is four halves, and
+# a gate must be shown to catch each ALONE or the weaker assertion is
+# carried by the stronger. Each drops ONE request's imported step:
+#
+#   HOVER.          "hover on the imported `Circle`, from NavUser.ax:
+#                    request 47 answered null"
+#   TYPEDEFINITION. "typeDefinition on the imported `Circle`, which is
+#                    `Shape`: request 45 answered null"
+#   DECLARATION.    "declaration on the imported `Circle`, from
+#                    NavUser.ax: request 44 answered null"
+#
+# WHAT NO ABLATION ABOVE PRODUCES, and is asserted structurally
+# instead: `declaration` answering something OTHER than `definition`
+# on a constructor (they are compared to each other, since a
+# constructor is written once), and `typeDefinition` answering the
+# SAME range as `definition` (they are compared for inequality, since
+# one is the constructor and the other is the `data`). An
+# implementation that aliased either pair fails without any patch.
+#
+# DIAGNOSTIC FIDELITY, four more ablations, 2026-09-03. `lspDiagJson`
+# published range/severity/code/source/message and dropped the two
+# fields the terminal shows at the caret: the primary LABEL (215 of the
+# 422 diagnostics in tests/diagnostics carry one) and the SECONDARY
+# spans (32 do). `axiom check` on a duplicate `main` names and points at
+# the first definition; VS Code said "duplicate definition `main`" and
+# pointed at nothing.
+#
+# Each of these patches self_host/lsp.ax in a scratch copy, builds a
+# server, re-blesses all 9 goldens FROM THAT BUILD into a scratch copy
+# of tests/lsp/ so the golden half is green by construction, and runs
+# drive.py clean against it. All four exit 1.
+#
+#   NO RELATED. `lspDiagRelated`'s result is replaced by an empty
+#   array, which is a legal LSP answer and the state this server was in
+#   until today. 9 goldens rewritten, "35 passed, 1 failed":
+#     "FAIL diagnostic-fidelity: 090-related-spans.ax: AX3006 published
+#      0 related location(s) and the terminal derives 1"
+#
+#   THE PRIMARY SPAN. The related range becomes `(diagSpan d)` - the
+#   right COUNT at the wrong PLACE, which is the answer a client would
+#   render as a link back to the squiggle you are already on. This is
+#   the one that makes the ablation above non-carryable. Exit 1:
+#     "published 1 related location(s) and the terminal derives 1: ...
+#      line 14 ... against ... line 10 ..."
+#
+#   NO LABEL. The label is dropped from `lspDiagText` again. Exit 1 on
+#   the FIRST fixture that has one, not on the fixture written for
+#   this:
+#     "020-undefined.ax: AX3001 - the terminal prints the label 'no
+#      binding named `nosuch` in scope' at the caret and the editor's
+#      message does not carry it"
+#
+#   NO NULL GUARD, and this one is not hypothetical - it is what the
+#   change did on its first build. A diagnostic with no label carries 0
+#   rather than an empty String (render.ax's own header records the
+#   same trap, found there 2026-08-16), so reading `strLen` off it
+#   takes the server down. Exit 1 with only 7 of 9 goldens written:
+#     "FAIL 070-warning-only: server exited -11"
+#     "FAIL 080-many-diagnostics: server exited -11"
+#   Both fixtures carry an AX3039 with no label. The gate found this
+#   before any of it was committed.
+#
+# AND THE FLOOR ITSELF, checked the way the manifest floors are: run
+# against a tests/lsp/ with 090-related-spans.ax removed (and the
+# fixture floor lowered to 8, so the earlier refusal does not mask it),
+# drive.py exits without a verdict - "no fixture in tests/lsp produces
+# a diagnostic with a secondary span, so the relatedInformation
+# comparison below would be two empty lists on every fixture".
+#
+# THE OUTLINE'S EXTENT AND ITS NESTING, five more ablations,
+# 2026-09-03. `documentSymbol` published `range` equal to
+# `selectionRange` - the declaration's NAME - for every symbol, and no
+# `children` at all, so `workspace/symbol` listed a `data`'s
+# constructors at their own spans while the outline of the same file
+# showed neither them nor a `struct`'s fields, and an editor's
+# breadcrumb, sticky scroll and expand-to-symbol had four characters to
+# work with. The header comment claimed the extent needed "spans this
+# parser does not record"; hover has recovered it from the bytes since
+# 2026-08-26.
+#
+# Same method as the four above: patch a scratch copy, build, re-bless
+# all 9 goldens into a scratch tests/lsp/, run drive.py clean.
+#
+#   NO EXTENT. `lspSymbolExtent` always answers 0, which is the state
+#   the outline was in until today - the name span, and no children,
+#   because a fallback range cannot contain one. Exit 1, "35 passed, 2
+#   failed": the manifest comparison ("outline is not what
+#   expected-outline.txt and the source say") and the extent block.
+#
+#   CHILDREN WITHOUT THE EXTENT. `range` goes back to the name span
+#   while `children` are still published - a protocol violation the
+#   OLD containment check could not see, because range and
+#   selectionRange were equal everywhere. Exit 1:
+#     "FAIL 060-outline: symbol 'Color' has 2 child(ren) and its range
+#      (0, 6)-(0, 11) is exactly its selectionRange, so it cannot
+#      contain any of them"
+#   This is the one that says the strengthened invariant earns its
+#   place.
+#
+#   ONE KIND FOR EVERY MEMBER. `lspMemberKind` answers EnumMember for
+#   a `struct` too, so fields and constructors are indistinguishable.
+#   Exit 1 with exactly one failure, from the hand-written manifest -
+#   the CONTAINER column is satisfied and the kind column is not, which
+#   is what that column is for.
+#
+# The last two are the extent GUARD, and they are separate because it
+# refuses two different fallbacks for two different reasons. Both are
+# exercised on documents drive.py writes itself, since `axiom fmt`
+# would take an indented top-level declaration out of any fixture:
+#
+#   NO CONTAINMENT TEST. An indented `fn` after a top-level form takes
+#   the PRECEDING form's range - one that ends two lines before the
+#   declaration starts. Exit 1: "the INDENTED `fn` in A got range
+#   (0,0)-(2,10) ... must fall back to its name span (4,7)-(4,15)".
+#
+#   NO HEADER TEST. An indented `fn` with nothing at column zero takes
+#   its own PARAMETER LIST as its form - `(only y)` - which CONTAINS
+#   the name and passes the containment test on its own. Exit 1: "the
+#   INDENTED `fn` alone in B got range (0,6)-(0,14) ... must be the
+#   name span (0,7)-(0,11)".
+#
+#   AND THE THIRD DOCUMENT IS THE ONE NEITHER MAY BREAK: an indented
+#   `struct` keeps its whole form and its field as a child, because its
+#   name is not inside a parameter list and the nearest opener IS its
+#   own form. A guard aimed at indentation rather than at that one
+#   shape fails there.
+#
+# THE COST of widening the range: `lspFormEnd` scans each form
+# forward, so the outline became O(document) rather than O(symbols).
+# The ratio block below is what watches it - measured 0.48x before and
+# 0.64x after on the same 2,051-symbol document, against a 2.00x
+# ceiling.
+#
 # AND ONE THE GATE CAUGHT WITHOUT BEING ASKED, recorded because it is
 # the sweep's whole purpose: adding `declarationProvider` to
 # `lspCapabilities` before adding it to the sweep's table below failed
@@ -349,7 +554,7 @@ fixtures=$(find tests/lsp \( -name '*.ax' -o -name '*.axbad' \) | wc -l | tr -d 
 # A sweep that quietly shrinks is the failure mode this floor exists
 # for: a glob that stops matching removes fixtures while the gate goes
 # on reporting the silence it was looking for.
-floor=8
+floor=9
 if [[ "$fixtures" -lt "$floor" ]]; then
   echo "FAIL: only $fixtures LSP fixtures found, expected at least $floor" >&2
   echo "      (a gate that reads fewer files than it should reports success it has not earned)" >&2

@@ -285,10 +285,30 @@
 ; One Axiom diagnostic as an LSP `Diagnostic`.
 ;
 ; The notes and help texts are appended to the message rather than
-; dropped: LSP has no field for either, `relatedInformation` wants a
-; location a help does not carry, and a help is often the whole value of
-; an Axiom diagnostic - `AX3001`'s "did you mean" is the reason the
-; fix-help form exists at all.
+; dropped: LSP has no field for either, and a help is often the whole
+; value of an Axiom diagnostic - `AX3001`'s "did you mean" is the reason
+; the fix-help form exists at all.
+;
+; A SECONDARY SPAN DOES carry a location, and that is what
+; `relatedInformation` is for. Until 2026-09-03 this function dropped
+; both halves of what the terminal shows at the caret: the primary
+; LABEL, which 215 of the corpus's 422 diagnostics carry, and the
+; SECONDARY spans, which 32 do. `axiom check` on a duplicate `main`
+; points at the first definition; VS Code said "duplicate definition
+; `main`" and pointed at nothing. The editor now sees what the terminal
+; sees - that is the whole of the change, and tests/lsp/drive.py holds
+; it as a differential between the two surfaces rather than as a list
+; written down twice.
+;
+; WHICH FILE A SECONDARY SPAN INDEXES is the one thing this rests on,
+; and it is the OPEN DOCUMENT: `struct DLabel` carries a span and a
+; message and no unit, the publish loop already reports only
+; diagnostics whose unit is 0, and both emitters that produce a
+; secondary take their two spans from one unit - `checkDuplicates`
+; examines the entry file's declarations alone (its own header says
+; so), and `emitAX3012` goes through `emitDiag`, which stamps the unit
+; the spans came from. So one uri and one line index serve every
+; secondary, and there is no unit table to consult.
 ;
 ; Read through diag.ax's accessors. This function used to carry a second
 ; copy of the twelve-word field list as a comment and index it by hand,
@@ -305,6 +325,35 @@
   )
     {
       (vecPush parts (diagMsg d))
+      ; THE LABEL IS WHAT THE CARET SAYS, and it goes directly under
+      ; the message because that is where the terminal puts it. It is
+      ; often not a restatement: `AX3012`'s is "`x` is a parameter",
+      ; `AX3048`'s names the `;@axiom:deprecated(...)` that was
+      ; declared, and `AX2004`'s carries the whole reason a construct
+      ; was removed. The message's FIRST line is unchanged by this,
+      ; which is what tests/lsp/expected-diagnostics.txt pins.
+      ; A DIAGNOSTIC WITH NO LABEL CARRIES 0, NOT "" - the trap
+      ; render.ax's own header records, where walking one read
+      ; `strLen` off a null handle and took the renderer down with
+      ; SIGSEGV. `renderDiagJson` tests for it at the same read; so
+      ; does this. Found again here the same way, by the gate: 070 and
+      ; 080 both carry an AX3039 with no label, and the server exited
+      ; -11 on both.
+      (let ((lab
+        (if (== (cast Int (diagLabel d)) 0)
+          ""
+          (diagLabel d)
+        )
+      ))
+        (if (== (strLen lab) 0)
+          0
+          {
+            (vecPush parts "\n\n")
+            (vecPush parts lab)
+            0
+          }
+        )
+      )
       (while (< i (diagNoteCount d))
         {
           (vecPush parts "\n\nnote: ")
@@ -337,9 +386,40 @@
 ; Takes the line index rather than building one: its caller at the
 ; publish loop reports every diagnostic in the file, and building the
 ; index per diagnostic would keep the whole cost it exists to remove.
-(pub :: lspDiagJson (-> Int String (Vec Int) Int))
+(pub :: lspDiagJson (-> Int String (Vec Int) String Int))
 
-(pub fn (lspDiagJson d src ix) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (diagSpan d))) "severity" (jsonNum (lspSeverity (diagSev d)))) "code" (jsonStr (diagCode d))) "source" (jsonStr "axiom")) "message" (jsonStr (lspDiagText d))))
+(pub fn (lspDiagJson d src ix uri)
+  (let ((base (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (diagSpan d))) "severity" (jsonNum (lspSeverity (diagSev d)))) "code" (jsonStr (diagCode d))) "source" (jsonStr "axiom")) "message" (jsonStr (lspDiagText d)))))
+    ; The key is OMITTED rather than sent empty when there is nothing
+    ; to relate. An empty array is legal and would have rewritten every
+    ; golden in tests/lsp/ for no information; a client reads the
+    ; absent key and the empty array the same way.
+    (if (== (diagSecCount d) 0)
+      base
+      (jsonObjPut base "relatedInformation" (lspDiagRelated d src ix uri))
+    )
+  )
+)
+
+; The secondary spans, as `DiagnosticRelatedInformation[]`. One uri and
+; one line index for all of them, for the reason the header gives.
+(pub :: lspDiagRelated (-> Int String (Vec Int) String Int))
+
+(pub fn (lspDiagRelated d src ix uri)
+  (let (
+    (out jsonArr)
+    (mut i 0)
+  )
+    {
+      (while (< i (diagSecCount d))
+        {
+          (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "location" (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix (diagSecSpan d i)))) "message" (jsonStr (diagSecMsg d i))))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
 
 ; A one-diagnostic array, for the failures that happen before the
 ; checker runs and therefore have no span to report. `lspRange` already
@@ -468,7 +548,7 @@
               (if (== lexD 0)
                 (parseErrDiag toks pr src)
                 lexD
-              )              src              (lspLineIndex src)
+              )              src              (lspLineIndex src)              (lspPathToUri path)
             )
           )
           (let (
@@ -535,6 +615,10 @@
                         (let (
                           (out jsonArr)
                           (ix (lspLineIndex src))
+                          ; Once, not per diagnostic: `lspPathToUri`
+                          ; is IO, and a related location names the
+                          ; document being published.
+                          (uri (lspPathToUri path))
                           (mut i 0)
                         )
                           {
@@ -542,7 +626,7 @@
                               (let ((d (vecGet ds i)))
                                 {
                                   (if (== (diagUnit d) 0)
-                                    (jsonArrPush out (lspDiagJson d src ix))
+                                    (jsonArrPush out (lspDiagJson d src ix uri))
                                     0
                                   )
                                   (set i (+ i 1))
@@ -578,10 +662,38 @@
 ; with the `(fn (f) ...)` beside it, and an outline that shows every
 ; name twice is worse than one that shows it once.
 ;
-; `range` and `selectionRange` are both the name's span. The protocol
-; requires `selectionRange` to be contained in `range`, which is
-; satisfied, and recovering the declaration's full extent would mean
-; spans this parser does not record.
+; `range` IS THE WHOLE FORM and `selectionRange` is the name inside it.
+; This comment used to say that both were the name's span and that
+; "recovering the declaration's full extent would mean spans this
+; parser does not record" - which stopped being true when hover learnt
+; to quote a declaration: `lspFormStart` and `lspFormEnd` recover the
+; extent from the BYTES, and hover has been reading it since
+; 2026-08-26. The protocol's containment requirement was satisfied by
+; identity until then - measured 2026-09-03, `range` equalled
+; `selectionRange` on 543 of 543 symbols over ten documents - which is
+; a check that cannot fail on extent. What it costs a reader: an editor
+; uses `range` for the breadcrumb it highlights, for sticky scroll, and
+; for "expand selection to the enclosing symbol", and a range four
+; characters wide makes all three useless.
+;
+; AND THE OUTLINE NESTS. A `data`'s constructors and a `struct`'s
+; fields are children - `workspace/symbol` has listed constructors at
+; their own spans all along, so the two views of one file disagreed,
+; and a struct's fields were invisible to both. Both live in slot b
+; (`mkDDataAt` and `mkDStructAt` put them there) and both carry their
+; name's span from the parser, so this needs nothing the frontend does
+; not already record.
+;
+; THE FALLBACK IS THE NAME SPAN, AND IT TAKES THE CHILDREN WITH IT.
+; `lspFormStart`'s rule is COLUMN ZERO, and a document mid-edit that
+; indents a declaration falls back to the nearest opener - which for a
+; `fn` is its parameter list, a form that does NOT contain the
+; declaration's name span. Publishing that as `range` would put a
+; parent's range inside its own child's, which the protocol forbids and
+; a client renders as a scrambled tree. So the extent is CHECKED to
+; contain the name before it is used, and when it does not this answers
+; exactly what it answered before 2026-09-03: the name span, with no
+; children.
 ; ------------------------------------------------------------------
 ; LSP SymbolKind. Function 12, Enum 10, Struct 23.
 (pub :: lspSymKind (-> Int Int))
@@ -599,6 +711,117 @@
 (pub :: lspWantsSymbol (-> Int Bool))
 
 (pub fn (lspWantsSymbol tag) (|| (== tag TAG_D_FN) (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_MACRO)))))
+
+; LSP SymbolKind for what a declaration holds INSIDE it: EnumMember 22
+; for a `data`'s constructors - the kind `workspace/symbol` already
+; publishes them under - and Field 8 for a `struct`'s fields. 0 for a
+; declaration with no members to list, which is a `fn` (slot b is its
+; parameter NAMES, strings rather than nodes) and a macro.
+(pub :: lspMemberKind (-> Int Int))
+
+(pub fn (lspMemberKind tag)
+  (if (== tag TAG_D_DATA)
+    22
+    (if (== tag TAG_D_STRUCT)
+      8
+      0
+    )
+  )
+)
+
+; The whole top-level form a declaration's name sits in, or 0 when the
+; recovered extent does not contain that name - see the header. 0 is
+; the caller's signal to answer the name span and publish no children.
+(pub :: lspSymbolExtent (-> String Int Int))
+
+(pub fn (lspSymbolExtent src nameSpan)
+  (let ((o (lspFormStart src (spanStart nameSpan))))
+    (let ((e (lspFormEnd src o)))
+      ; TWO CONDITIONS, and each rules out a different wrong answer
+      ; from the same fallback. `lspFormStart`'s rule is COLUMN ZERO
+      ; and it falls back to the nearest opener when nothing is there,
+      ; so for an INDENTED declaration it answers one of two things.
+      ; The PRECEDING top-level form, when the document has one: a
+      ; range that ends before this declaration begins, which the
+      ; containment test refuses. Or, when it does not, the nearest
+      ; `(` - and for a `fn` that is its own PARAMETER LIST, the trap
+      ; `lspFormStart`'s header spells out, which contains the name and
+      ; would pass containment on its own. `lspHeaderOpen` answers
+      ; exactly that paren, so the extent is refused when the two are
+      ; the same byte.
+      ;
+      ; An indented `data` or `struct` keeps its extent under both
+      ; tests, and should: its name is not inside a parameter list, so
+      ; the nearest opener IS its own form. The guard is aimed at the
+      ; one shape that goes wrong, not at indentation.
+      (if (&& (!= o (lspHeaderOpen src (spanStart nameSpan))) (&& (<= o (spanStart nameSpan)) (<= (spanEnd nameSpan) e)))
+        (mkSpan o e)
+        0
+      )
+    )
+  )
+)
+
+; One DocumentSymbol. `children` is omitted rather than sent empty:
+; a client draws an expander arrow for `children: []` and gives the
+; reader an empty drawer to open.
+(pub :: lspSymbolJson (-> String (Vec Int) Int Int))
+
+(pub fn (lspSymbolJson src ix d)
+  (let ((form (lspSymbolExtent src (nodeSpan d))))
+    (let ((base (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName d))) "kind" (jsonNum (lspSymKind (nodeTag d)))) "range" (lspRangeIx src ix (if (== form 0)
+      (nodeSpan d)
+      form
+    ))) "selectionRange" (lspRangeIx src ix (nodeSpan d)))))
+      (if (== form 0)
+        base
+        (let ((kids (lspSymbolChildren src ix d)))
+          (if (== (jsonArrLen kids) 0)
+            base
+            (jsonObjPut base "children" kids)
+          )
+        )
+      )
+    )
+  )
+)
+
+; The members, in the order they are written. Each is its own name and
+; nothing more: a constructor node's span is its name's, and widening
+; it to `(Circle Int)` would mean a second extent rule for a form that
+; is not at column zero. Contained in the parent's form either way,
+; which is what the protocol asks and what the gate now requires
+; STRICTLY of every parent that has children.
+(pub :: lspSymbolChildren (-> String (Vec Int) Int Int))
+
+(pub fn (lspSymbolChildren src ix d)
+  (let (
+    (out jsonArr)
+    (kind (lspMemberKind (nodeTag d)))
+  )
+    (if (== kind 0)
+      out
+      (let (
+        (ms (nodeBVec d))
+        (mut i 0)
+      )
+        {
+          (while (< i (vecLen ms))
+            (let ((m (vecGet ms i)))
+              {
+                (if (!= (nodeSpan m) 0)
+                  (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName m))) "kind" (jsonNum kind)) "range" (lspRangeIx src ix (nodeSpan m))) "selectionRange" (lspRangeIx src ix (nodeSpan m))))
+                  0
+                )
+                (set i (+ i 1))
+              }
+            ))
+          out
+        }
+      )
+    )
+  )
+)
 
 ; ------------------------------------------------------------------
 ; Navigation: a macro invocation is a REFERENCE to its declaration
@@ -1016,7 +1239,17 @@
                   (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
                     (if (!= d 0)
                       (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRange src (nodeSpan d)))
-                      (lspDefinitionImported (lspUriToPath uri) src decls w)
+                      ; A CONSTRUCTOR THIS DOCUMENT DECLARES, before
+                      ; any import is resolved. `lspFindDecl` matches
+                      ; whole declarations and never looks inside a
+                      ; `data`'s constructor list, which is the only
+                      ; place `Circle` is written.
+                      (let ((c (lspCtorDefinition src uri decls w)))
+                        (if (!= c 0)
+                          c
+                          (lspDefinitionImported (lspUriToPath uri) src decls w)
+                        )
+                      )
                     )
                   )
                 )
@@ -1047,7 +1280,7 @@
       )
         (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
           (if (== d 0)
-            jsonNull
+            (lspCtorDefinitionImported allDecls units w)
             (let ((u (lspUnitOf units (nodeModule d))))
               (if (< u 0)
                 jsonNull
@@ -1120,7 +1353,18 @@
                   (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
                     (if (!= d 0)
                       (lspHoverAt src decls d range "")
-                      (lspHoverImported (lspUriToPath uri) src decls w range)
+                      ; A CONSTRUCTOR is read at the `data` that
+                      ; declares it - the whole form, so its siblings
+                      ; and its field types are in the tooltip - with
+                      ; one line naming which of them is under the
+                      ; cursor. The `range` stays the WORD, which is
+                      ; what the rest of this function's header says.
+                      (let ((dat (lspFindCtorData decls w (- (vecLen decls) 1))))
+                        (if (== (lspCtorNodeOf dat w) 0)
+                          (lspHoverImported (lspUriToPath uri) src decls w range)
+                          (lspHoverAtNote src decls dat range "" (lspCtorNote dat w))
+                        )
+                      )
                     )
                   )
                 )
@@ -1149,7 +1393,16 @@
 ; is for.
 (pub :: lspHoverAt (-> String (Vec Int) Int Int String Int))
 
-(pub fn (lspHoverAt dsrc ddecls d range origin)
+(pub fn (lspHoverAt dsrc ddecls d range origin) (lspHoverAtNote dsrc ddecls d range origin ""))
+
+; The same, plus one line of prose between the fence and the `from`
+; line. It exists for the constructor hover: the fence quotes the
+; whole `data`, which is the right thing to read, and without a note
+; the tooltip would not say which of its constructors the cursor is
+; actually on. "" is the ordinary case and costs nothing.
+(pub :: lspHoverAtNote (-> String (Vec Int) Int Int String String Int))
+
+(pub fn (lspHoverAtNote dsrc ddecls d range origin note)
   (let ((sig 
     (if (== (nodeTag d) TAG_D_FN)
       (lspFindSig ddecls (nodeAName d) (- (vecLen ddecls) 1))
@@ -1167,7 +1420,13 @@
           (code (lspClampLines (lspHoverCode dsrc d sig o) 40))
           (doc (lspDocComment dsrc o))
         )
-          (let ((body (strConcat (strConcat "```axiom\n" code) "\n```\n")))
+          (let ((fence (strConcat (strConcat "```axiom\n" code) "\n```\n")))
+            (let ((body
+              (if (== (strLen note) 0)
+                fence
+                (strConcat fence (strConcat (strConcat "\n" note) "\n"))
+              )
+            ))
             (let ((withMod 
               (if (== (strLen origin) 0)
                 body
@@ -1182,6 +1441,7 @@
               ))
                 (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr value))) "range" range)
               )
+            )
             )
           )
         )
@@ -1222,7 +1482,7 @@
       )
         (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
           (if (== d 0)
-            jsonNull
+            (lspHoverCtorImported allDecls units w range)
             (let ((u (lspUnitOf units (nodeModule d))))
               (if (< u 0)
                 jsonNull
@@ -1797,7 +2057,7 @@
                 ; what resolves or refuses it, and either way the
                 ; marker is not a name anyone can navigate to.
                 (if (&& (lspWantsSymbol (nodeTag n)) (&& (!= (nodeSpan n) 0) (== (expIsJoinMarker (nodeAName n)) 0)))
-                  (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (nodeAName n))) "kind" (jsonNum (lspSymKind (nodeTag n)))) "range" (lspRangeIx src ix (nodeSpan n))) "selectionRange" (lspRangeIx src ix (nodeSpan n))))
+                  (jsonArrPush out (lspSymbolJson src ix n))
                   0
                 )
                 (set i (+ i 1))
@@ -5226,7 +5486,17 @@
                       (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
                         (if (!= d 0)
                           (lspNavLocOf uri src (nodeSpan d))
-                          (lspDeclarationImported (lspUriToPath uri) src decls w)
+                          ; Step 3a: a constructor. It is not written
+                          ; twice, so there is no `(:: ...)` step 2
+                          ; could have preferred and this answers what
+                          ; `definition` answers - the rule step 3
+                          ; already states for a `data` or a macro.
+                          (let ((c (lspCtorDefinition src uri decls w)))
+                            (if (!= c 0)
+                              c
+                              (lspDeclarationImported (lspUriToPath uri) src decls w)
+                            )
+                          )
                         )
                       )
                     )
@@ -5265,7 +5535,12 @@
         (let ((s (lspFindImportedSig allDecls w (- (vecLen allDecls) 1))))
           (if (!= s 0)
             (lspUnitLocation units s)
-            (lspUnitLocation units (lspFindImported allDecls w (- (vecLen allDecls) 1)))
+            (let ((d (lspFindImported allDecls w (- (vecLen allDecls) 1))))
+              (if (!= d 0)
+                (lspUnitLocation units d)
+                (lspCtorDefinitionImported allDecls units w)
+              )
+            )
           )
         )
       )
@@ -8452,7 +8727,7 @@
 ; binds its "apply preferred fix" key to exactly this flag.
 (pub :: lspQuickfixJson (-> Int Int Int String String (Vec Int) Int))
 
-(pub fn (lspQuickfixJson d i fsp src uri ix) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (diagHelpMsg d i))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix))) "isPreferred" (jsonBool 1)) "edit" (lspEditJson uri (lspRangeIx src ix fsp) (diagHelpFixText d i))))
+(pub fn (lspQuickfixJson d i fsp src uri ix) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (diagHelpMsg d i))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "isPreferred" (jsonBool 1)) "edit" (lspEditJson uri (lspRangeIx src ix fsp) (diagHelpFixText d i))))
 
 ; A `WorkspaceEdit` of one `TextEdit` in one document.
 (pub :: lspEditJson (-> String Int String Int))
@@ -8731,9 +9006,9 @@
 )
 
 ; A CodeAction carrying one diagnostic and one WorkspaceEdit.
-(pub :: lspFixActionJson (-> String String Int String (Vec Int) Int Int))
+(pub :: lspFixActionJson (-> String String Int String String (Vec Int) Int Int))
 
-(pub fn (lspFixActionJson title kind d src ix edit) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr title)) "kind" (jsonStr kind)) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix))) "edit" edit))
+(pub fn (lspFixActionJson title kind d src uri ix edit) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr title)) "kind" (jsonStr kind)) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "edit" edit))
 
 ; One zero-width TextEdit at byte `at` of the text `ix` indexes.
 (pub :: lspFixTextEdit (-> String (Vec Int) Int String Int))
@@ -8798,7 +9073,7 @@
           0
           {
             (vecPush seen key)
-            (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src ix edit))
+            (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src uri ix edit))
             0
           }
         )
@@ -9291,7 +9566,7 @@
                     0
                     {
                       (vecPush seen key)
-                      (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src ix edit))
+                      (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src uri ix edit))
                       0
                     }
                   )
@@ -9313,7 +9588,7 @@
                       )
                     )
                     (vecPush seen key)
-                    (jsonArrPush out (lspFixActionJson (strConcat (strConcat (strConcat "Make `" name) "` public in `") (strConcat mod "`")) "quickfix" d src ix (jsonObjPut jsonObj "changes" (jsonObjPut jsonObj (lspPathToUri hpath) edits))))
+                    (jsonArrPush out (lspFixActionJson (strConcat (strConcat (strConcat "Make `" name) "` public in `") (strConcat mod "`")) "quickfix" d src uri ix (jsonObjPut jsonObj "changes" (jsonObjPut jsonObj (lspPathToUri hpath) edits))))
                     0
                   }
                 )
@@ -9962,6 +10237,177 @@
   )
 )
 
+; ------------------------------------------------------------------
+; A CONSTRUCTOR IS A DECLARATION, and until 2026-09-03 three requests
+; disagreed about that. `completion` offered `Circle`, `references`
+; found every occurrence of it, `signatureHelp` rendered
+; `(Circle Int)` for one an import brought in, `workspace/symbol`
+; listed it at its own span and `typeDefinition` jumped to the `data`
+; it belongs to - while `definition`, `declaration` and `hover`
+; answered null on the same character. Measured 2026-09-03 over four
+; files that declare ADTs (stdlib/Err.ax, tests/selfhost/745, /140,
+; tests/lsp/060-outline.ax): 116 occurrences where `typeDefinition`
+; found the `data` and `definition` said nothing.
+;
+; THE ANSWER IS THE CONSTRUCTOR'S OWN SPAN, not the `data`'s name.
+; `(pub data Shape (Dot) (Circle Int))` puts both on one line, so an
+; answer that landed on `Shape` would look right in an editor and be
+; wrong. The ctor node carries its name's span from the parser, which
+; is where `workspace/symbol` already publishes it.
+;
+; `typeDefinition` keeps answering the `data`, and that is not an
+; inconsistency: the TYPE of `Circle` is `Shape`. The gate asks both
+; requests at one position and requires the two answers to DIFFER.
+;
+; DECLARATION EQUALS DEFINITION HERE, which is step 3's rule already:
+; a constructor is not written twice, so there is no `(:: ...)` for
+; step 2 to have preferred.
+;
+; The lookups below are `lspFindCtorData`'s, split on which half of
+; the merged declaration list they read - this document's own
+; declarations (module 0) or the ones an import brought in. The ctor
+; node inside is found by `lspViewCtorIn`, which SECTION VIEW wrote
+; for `signatureHelp`: a constructor is NOT mangled by
+; `resolveImports` even when its `data` is, so one comparison serves
+; both halves.
+;
+; THE TWO HALVES ANSWER DIFFERENT KINDS OF NOTHING, because they sit
+; at different places in a chain. The local one is a STEP - 0 means
+; "not a constructor, carry on to the imports" - and the imported one
+; is the LAST step, so it answers `jsonNull`, which is the protocol's
+; "nothing here". Neither may answer a Location built on a span of 0:
+; `lspRange` reads that as line one, and an editor would jump there.
+; ------------------------------------------------------------------
+
+; The imported `data` declaring constructor `name`, or 0. The module
+; filter is on the DATA, which is the node `resolveImports`
+; attributes; the constructors inside it carry no module of their own.
+(pub :: lspFindCtorDataImported (-> (Vec Int) String Int Int))
+
+(pub fn (lspFindCtorDataImported decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_DATA) (&& (!= (nodeModule d) 0) (&& (!= (nodeSpan d) 0) (!= (lspCtorIndex (nodeBVec d) name 0) (- 0 1)))))
+        d
+        (lspFindCtorDataImported decls name (- i 1))
+      )
+    )
+  )
+)
+
+; The constructor node `name` names inside `dat`, or 0 - and 0 also
+; for one whose name carries no span, which is what the parser
+; recovers from a half-written form.
+(pub :: lspCtorNodeOf (-> Int String Int))
+
+(pub fn (lspCtorNodeOf dat name)
+  (if (== dat 0)
+    0
+    (let ((c (lspViewCtorIn (nodeBVec dat) name)))
+      (if (== c 0)
+        0
+        (if (== (nodeSpan c) 0)
+          0
+          c
+        )
+      )
+    )
+  )
+)
+
+; A Location on the constructor `name` this document declares, or 0
+; for "the word is not one of ours".
+(pub :: lspCtorDefinition (-> String String (Vec Int) String Int))
+
+(pub fn (lspCtorDefinition src uri decls name)
+  (let ((c (lspCtorNodeOf (lspFindCtorData decls name (- (vecLen decls) 1)) name)))
+    (if (== c 0)
+      0
+      (lspNavLocOf uri src (nodeSpan c))
+    )
+  )
+)
+
+; The same for an imported one, and the difference is which bytes the
+; span indexes: the DECLARING file's, not the open document's. The
+; unit table decides both the uri and the text `lspRange` counts lines
+; in - `lspViewSymCtors` publishes constructors through exactly this
+; pair. `jsonNull` on a miss, and on a `data` the resolver did not
+; attribute to a unit, because this is the end of the chain.
+(pub :: lspCtorDefinitionImported (-> (Vec Int) (Vec Int) String Int))
+
+;@axiom:effect(io)
+(pub fn (lspCtorDefinitionImported allDecls units name)
+  (let ((dat (lspFindCtorDataImported allDecls name (- (vecLen allDecls) 1))))
+    (let ((c (lspCtorNodeOf dat name)))
+      (if (== c 0)
+        jsonNull
+        (let ((u (lspUnitOf units (nodeModule dat))))
+          (if (< u 0)
+            jsonNull
+            (let ((unit (vecGet units u)))
+              (lspNavLocOf (lspPathToUri (memGetWordStr unit 0)) (memGetWordStr unit 1) (nodeSpan c))
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The line hover puts under the fence. The `data`'s name is BARE, for
+; the reason `lspViewSigCtor` reads a bare one: an imported `data` is
+; `Shapes$Shape` in the merged list and nobody writes it that way.
+(pub :: lspCtorNote (-> Int String String))
+
+(pub fn (lspCtorNote dat name) (strConcat (strConcat (strConcat "constructor `" name) "` of `") (strConcat (bareOf (nodeAName dat)) "`")))
+
+; Hover on a constructor an import brought in: the `data` quoted out
+; of the DECLARING file, the module named, and the note saying which
+; constructor. `range` is still the word in the document being edited,
+; which is a different file - the same split `lspHoverImported` makes.
+(pub :: lspHoverCtorImported (-> (Vec Int) (Vec Int) String Int Int))
+
+(pub fn (lspHoverCtorImported allDecls units name range)
+  (let ((dat (lspFindCtorDataImported allDecls name (- (vecLen allDecls) 1))))
+    (if (== (lspCtorNodeOf dat name) 0)
+      jsonNull
+      (let ((u (lspUnitOf units (nodeModule dat))))
+        (if (< u 0)
+          jsonNull
+          (let ((unit (vecGet units u)))
+            (lspHoverAtNote (memGetWordStr unit 1) allDecls dat range (memGetWordStr unit 2) (lspCtorNote dat name))
+          )
+        )
+      )
+    )
+  )
+)
+
+; `typeDefinition` on an imported constructor: the `data`'s own name
+; span, in the file that declares it. This is the ONE request whose
+; answer is the declaration rather than the constructor, because the
+; type of `Circle` is `Shape`.
+(pub :: lspTypeCtorImported (-> (Vec Int) (Vec Int) String Int))
+
+;@axiom:effect(io)
+(pub fn (lspTypeCtorImported allDecls units name)
+  (let ((dat (lspFindCtorDataImported allDecls name (- (vecLen allDecls) 1))))
+    (if (== (lspCtorNodeOf dat name) 0)
+      jsonNull
+      (let ((u (lspUnitOf units (nodeModule dat))))
+        (if (< u 0)
+          jsonNull
+          (let ((unit (vecGet units u)))
+            (lspLocationJson (lspPathToUri (memGetWordStr unit 0)) (memGetWordStr unit 1) (nodeSpan dat))
+          )
+        )
+      )
+    )
+  )
+)
+
 ; A declaration a TYPE name can land on: `data`, `struct` or `type`.
 (pub :: lspIsTypeDecl (-> Int Bool))
 
@@ -10071,7 +10517,14 @@
           )
         ))
           (if (== t 0)
-            jsonNull
+            ; The last thing `w` can be: a constructor an import
+            ; brought in, whose TYPE is the `data` that declares it.
+            ; `lspTypeDefinition` asks the same question of this
+            ; document before any import is resolved; this is the half
+            ; that was missing, and it is why `signatureHelp` could
+            ; render `(Circle Int)` at a position where this request
+            ; answered null.
+            (lspTypeCtorImported allDecls units w)
             (if (!= (nodeTag t) TAG_T_CON)
               jsonNull
               (let ((local (lspTypeLocalOf src uri decls t)))

@@ -99,7 +99,7 @@ DOC_URI = "file:///DOC.ax"
 MANIFEST = os.path.join(fixdir, "expected-diagnostics.txt")
 OUTLINE = os.path.join(fixdir, "expected-outline.txt")
 
-FIXTURE_FLOOR = 8
+FIXTURE_FLOOR = 9
 MANIFEST_FLOOR = 6
 OUTLINE_FLOOR = 10
 
@@ -107,7 +107,8 @@ OUTLINE_FLOOR = 10
 # Writing the integers in the manifests instead would be copying down
 # whatever the server under test happens to emit.
 LSP_SEVERITY = {"E": 1, "W": 2}
-LSP_SYMBOL_KIND = {"Function": 12, "Enum": 10, "Struct": 23}
+LSP_SYMBOL_KIND = {"Function": 12, "Enum": 10, "Struct": 23,
+                   "EnumMember": 22, "Field": 8}
 
 
 def frame(obj):
@@ -293,15 +294,30 @@ def check_range(srclines, d):
     return None, 1
 
 
-def symbol_invariants(srclines, syms):
-    """The two things every symbol must satisfy in every document, with
-    no manifest: `selectionRange` inside `range`, and the source at
-    `selectionRange` spelling the symbol's own name.
+def symbol_invariants(srclines, syms, outer=None, parent=None):
+    """What every symbol must satisfy in every document, with no
+    manifest: `selectionRange` inside `range`, the source at
+    `selectionRange` spelling the symbol's own name, and - since
+    2026-09-03 - the two things that make the first of those mean
+    something about EXTENT rather than about identity:
+
+      * a symbol that HAS children must contain its own
+        `selectionRange` STRICTLY. Measured before the outline learnt
+        to nest, `range == selectionRange` on 543 of 543 symbols over
+        ten documents, so "contained in" was satisfied by equality and
+        the only ablation that could reach it was one that made `range`
+        SMALLER. A parent whose range is its name is a tree a client
+        cannot draw.
+      * every child's `range` must lie inside its parent's. This is the
+        protocol's own requirement and the one the `lspFormStart`
+        fallback could break: a declaration indented mid-edit recovers
+        the parameter list as its form, which does not contain the
+        name - so the server drops back to the name span AND publishes
+        no children, and this is what would notice if it stopped.
 
     Answers (reason or None, number of names actually read back out of
-    the source). Between them these catch a symbol placed anywhere it
-    does not belong: collapse `range` and the containment fails,
-    collapse both and the name no longer spells."""
+    the source). Collapse `range` and the containment fails; collapse
+    both and the name no longer spells."""
     checked = 0
     for s in syms:
         if not isinstance(s, dict) or "name" not in s or "kind" not in s:
@@ -320,6 +336,22 @@ def symbol_invariants(srclines, syms):
                     f"{pos(sel['start'])}-{pos(sel['end'])} is not contained in "
                     f"range {pos(rg['start'])}-{pos(rg['end'])}, which the "
                     f"protocol requires"), checked
+        kids = s.get("children")
+        if kids is not None and not isinstance(kids, list):
+            return f"symbol {s['name']!r} has non-list children {kids!r:.80}", checked
+        if kids == []:
+            return (f"symbol {s['name']!r} carries an empty `children` array - "
+                    f"omit the key, or a client draws an expander over nothing"), checked
+        if kids and (pos(rg["start"]), pos(rg["end"])) == (pos(sel["start"]),
+                                                           pos(sel["end"])):
+            return (f"symbol {s['name']!r} has {len(kids)} child(ren) and its "
+                    f"range {pos(rg['start'])}-{pos(rg['end'])} is exactly its "
+                    f"selectionRange, so it cannot contain any of them"), checked
+        if outer is not None and not (pos(outer["start"]) <= pos(rg["start"])
+                                      and pos(rg["end"]) <= pos(outer["end"])):
+            return (f"symbol {parent!r} has a child {s['name']!r} whose range "
+                    f"{pos(rg['start'])}-{pos(rg['end'])} is not inside the "
+                    f"parent's {pos(outer['start'])}-{pos(outer['end'])}"), checked
         ln = sel["start"]["line"]
         if sel["end"]["line"] != ln:
             return f"symbol {s['name']!r}: selectionRange spans lines", checked
@@ -343,6 +375,10 @@ def symbol_invariants(srclines, syms):
             return (f"symbol says its name is {s['name']!r} but the source at "
                     f"{ln}:{st}-{en} spells {covers!r}"), checked
         checked += 1
+        why, n = symbol_invariants(srclines, kids or [], rg, s["name"])
+        checked += n
+        if why:
+            return why, checked
     return None, checked
 
 
@@ -403,11 +439,13 @@ def expected_for(fx, rows, src):
 
 
 def outline_for(fx, orows, src):
-    """The (name, kind, line, start, end) list fixture `fx` must publish
-    as its outline, in document order. Kinds come from the hand-written
-    SymbolKind names; positions are derived here."""
+    """The (name, kind, line, start, end, container) list fixture `fx`
+    must publish as its outline, FLATTENED in document order - a parent
+    followed by its own children. Kinds come from the hand-written
+    SymbolKind names; positions are derived here; the container is the
+    parent symbol's name, or "-" for a top-level one."""
     want = []
-    for f, kind, anchor in orows:
+    for f, kind, container, anchor in orows:
         if f != fx:
             continue
         if kind not in LSP_SYMBOL_KIND:
@@ -415,8 +453,22 @@ def outline_for(fx, orows, src):
                      f"one of {sorted(LSP_SYMBOL_KIND)}")
         n, text = parse_anchor(anchor)
         p = locate(src, text, n)
-        want.append((text, LSP_SYMBOL_KIND[kind], p["line"], p["start"], p["end"]))
+        want.append((text, LSP_SYMBOL_KIND[kind], p["line"], p["start"],
+                     p["end"], container))
     return want
+
+
+def outline_flat(syms, container="-"):
+    """The server's answer in the same shape: a parent, then its
+    children, then the next parent."""
+    flat = []
+    for s in syms:
+        flat.append((s["name"], s["kind"],
+                     s["selectionRange"]["start"]["line"],
+                     s["selectionRange"]["start"]["character"],
+                     s["selectionRange"]["end"]["character"], container))
+        flat.extend(outline_flat(s.get("children") or [], s["name"]))
+    return flat
 
 
 # --------------------------------------------------------------------
@@ -425,7 +477,7 @@ def outline_for(fx, orows, src):
 # server that answers the same way to everything.
 # --------------------------------------------------------------------
 rows = read_rows(MANIFEST, 5, "diagnostic manifest")
-orows = read_rows(OUTLINE, 3, "outline manifest")
+orows = read_rows(OUTLINE, 4, "outline manifest")
 
 if len(rows) < MANIFEST_FLOOR:
     sys.exit(f"FAIL: manifest has {len(rows)} rows, floor is {MANIFEST_FLOOR}")
@@ -456,6 +508,16 @@ if len({r[1] for r in orows}) < 3:
     sys.exit("FAIL: the outline manifest names fewer than 3 distinct "
              "SymbolKinds, so it cannot tell an enum from a struct from a "
              "function and a server that answered 12 to everything would pass")
+if not [r for r in orows if r[2] != "-"]:
+    sys.exit("FAIL: no row in the outline manifest names a container, so every "
+             "expected outline is flat and a server that published no "
+             "`children` at all would satisfy it - which is the state this "
+             "server was in until 2026-09-03. Restore the fixture whose "
+             "`data` and `struct` carry members.")
+if len({r[2] for r in orows if r[2] != "-"}) < 2:
+    sys.exit("FAIL: the outline manifest nests under a single container, so a "
+             "server that hung every member off one parent would pass. Two "
+             "parents with members is the minimum this can distinguish.")
 
 # `.axbad` is a fixture that deliberately does NOT parse. It cannot be
 # called `.ax`: check-fmt.sh and check-tree-sitter.sh both sweep every
@@ -687,9 +749,7 @@ for fx in fixtures:
         print(f"FAIL {name}: {why}")
         failed += 1
         continue
-    sym_got = [(s["name"], s["kind"], s["selectionRange"]["start"]["line"],
-                s["selectionRange"]["start"]["character"],
-                s["selectionRange"]["end"]["character"]) for s in syms]
+    sym_got = outline_flat(syms)
     try:
         sym_want = outline_for(fx, orows, text)
     except LookupError as e:
@@ -1425,6 +1485,32 @@ if not (SHAPE_A[0]["byte"] < NAV_MAIN.index("(pub struct Box") < SHAPE_A[1]["byt
         < INT_IN_SIG["byte"] < NAV_MAIN.index("\n", _radius_sig)):
     sys.exit("FAIL: NavMain.ax no longer spells `Shape` in the four positions - data, "
              "struct field, alias, signature - the type-position checks are written for")
+# THE CONSTRUCTOR CHECKS' OWN FLOOR. `Shape` and `Circle` are declared
+# on ONE line, and every constructor assertion below rests on that: a
+# server that answered the `data`'s name span instead of the
+# constructor's would land on the same line, one column range away, and
+# an equality against a whole-identifier position is the only thing
+# that can tell the two apart. If the corpus ever splits them, that
+# ablation stops being reachable and these checks weaken without
+# failing - which is the shape this gate refuses everywhere else.
+if SHAPE_A[0]["line"] != CIRCLE_A[0]["line"]:
+    sys.exit("FAIL: NavMain.ax no longer declares `Shape` and its constructors on "
+             "one line - a wrong answer of the `data`'s span would then differ in "
+             "LINE from the right one, and the constructor checks below could not "
+             "tell an off-by-a-declaration answer from a correct one")
+if not (SHAPE_A[0]["byte"] < CIRCLE_A[0]["byte"]
+        < NAV_MAIN.index("\n", SHAPE_A[0]["byte"])):
+    sys.exit("FAIL: NavMain.ax's first `Circle` is not the one inside "
+             "`(pub data Shape ...)` - every constructor position below is written "
+             "for that occurrence being the declaration")
+# The form a constructor hover must quote: the WHOLE `data`, because
+# that is where a reader finds the constructor's siblings and its field
+# types. Cut from the document, like every other hover text here.
+SHAPE_DATA_TEXT = between(NAV_MAIN, "(pub data Shape", "\n\n; A struct")
+SHAPE_DOC = "A shape with two constructors, one of them carrying a field."
+if "(Circle Int)" not in SHAPE_DATA_TEXT or SHAPE_DOC not in NAV_MAIN:
+    sys.exit(f"FAIL: the derived `data Shape` form {SHAPE_DATA_TEXT!r} or its "
+             f"paragraph is not in NavMain.ax - the constructor hovers rest on both")
 KW_MATCH = ident_at(NAV_MAIN, "match", 1)
 KW_LET = ident_at(NAV_MAIN, "let", 1)
 LITERAL = locate(NAV_MAIN, "((Dot) 0)", 1)
@@ -1500,6 +1586,20 @@ nav_session2 = b"".join(frame(m) for m in [
     refs(35, A_URI, SHAPE_A[3], True), hilite(36, A_URI, SHAPE_A[0]),
     prep(37, A_URI, INT_IN_SIG), ren(38, A_URI, SHAPE_A[1], "Blob"),
     ren(39, A_URI, SHAPE_A[0], "Int"),
+    # constructors: definition, declaration, typeDefinition and hover,
+    # in this document and across the import. 40-42, 46 and 48 are the
+    # local half; 43-45 and 47 the imported one, so a build that
+    # answered only for the open document fails on those alone.
+    nav_req(40, "textDocument/definition", A_URI, CIRCLE_A[1]),
+    nav_req(41, "textDocument/definition", A_URI, CIRCLE_A[2]),
+    nav_req(42, "textDocument/declaration", A_URI, CIRCLE_A[1]),
+    nav_req(43, "textDocument/definition", B_URI, CIRCLE_B[0]),
+    nav_req(44, "textDocument/declaration", B_URI, CIRCLE_B[0]),
+    nav_req(45, "textDocument/typeDefinition", B_URI, CIRCLE_B[0]),
+    nav_req(46, "textDocument/hover", A_URI, CIRCLE_A[1]),
+    nav_req(47, "textDocument/hover", B_URI, CIRCLE_B[0]),
+    nav_req(48, "textDocument/definition", A_URI, CIRCLE_A[0]),
+    nav_req(49, "textDocument/definition", C_URI, CIRCLE_A[1]),
     {"jsonrpc": "2.0", "id": 34, "method": "shutdown", "params": None},
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
@@ -1792,6 +1892,77 @@ else:
           f"shadowing `let`, hover `pw : {PARAM_TYPE}` from the signature and "
           f"{LET_TEXT!r} cut from the document; null on a broken document)")
     passed += 4
+# ---------------------------------------------------------------------
+# CONSTRUCTOR NAVIGATION, over the session above. Its own block, so a
+# failure names the constructor rather than the whole of SECTION NAV.
+#
+# Every expected answer is a whole-identifier position in NavMain.ax:
+# `definition` and `declaration` land on the constructor's own name
+# inside the `data`, from a pattern head, from an expression, from the
+# declaration itself, and from the OTHER document that imports it;
+# `typeDefinition` lands on `Shape` instead, and is asked at the same
+# character as `definition` so the two cannot be one answer wearing two
+# names. `hover` quotes the whole `data` form cut from the document,
+# carries the paragraph above it, says which constructor, and - across
+# the import - names the module; its range is the WORD, in whichever
+# document the cursor is in.
+CIRCLE_DECL = loc(A_URI, CIRCLE_A[0])
+cwhy = ""
+if nwhy:
+    cwhy = "the session above failed first"
+elif rcaps.get("typeDefinitionProvider") is not True:
+    cwhy = f"typeDefinitionProvider is not advertised: capabilities were {sorted(rcaps)}"
+elif nav_landed(40, A_URI, CIRCLE_A[0]):
+    cwhy = "definition on `Circle` as a pattern head: " + nav_landed(40, A_URI, CIRCLE_A[0])
+elif nav_landed(41, A_URI, CIRCLE_A[0]):
+    cwhy = "definition on `Circle` applied to an argument: " + nav_landed(41, A_URI, CIRCLE_A[0])
+elif nav_landed(42, A_URI, CIRCLE_A[0]):
+    cwhy = "declaration on `Circle`: " + nav_landed(42, A_URI, CIRCLE_A[0])
+elif rresp.get(42, {}).get("result") != rresp.get(40, {}).get("result"):
+    cwhy = ("declaration and definition disagree on `Circle`, which is written once: "
+            f"{rresp.get(42, {}).get('result')!r} against {rresp.get(40, {}).get('result')!r}")
+elif nav_landed(43, A_URI, CIRCLE_A[0]):
+    cwhy = ("definition on the imported `Circle`, from NavUser.ax: "
+            + nav_landed(43, A_URI, CIRCLE_A[0]))
+elif nav_landed(44, A_URI, CIRCLE_A[0]):
+    cwhy = ("declaration on the imported `Circle`, from NavUser.ax: "
+            + nav_landed(44, A_URI, CIRCLE_A[0]))
+elif nav_landed(45, A_URI, SHAPE_A[0]):
+    cwhy = ("typeDefinition on the imported `Circle`, which is `Shape`: "
+            + nav_landed(45, A_URI, SHAPE_A[0]))
+elif rresp.get(45, {}).get("result") == rresp.get(43, {}).get("result"):
+    cwhy = ("typeDefinition and definition answered the same range on the imported "
+            f"`Circle` ({rresp.get(45, {}).get('result')!r}) - the definition is the "
+            f"constructor and the type is the `data` that declares it, and they are "
+            f"one line apart by construction here")
+elif nav_hover(46, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`", SHAPE_DOC],
+               CIRCLE_A[1]):
+    cwhy = ("hover on `Circle`: "
+            + nav_hover(46, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`",
+                             SHAPE_DOC], CIRCLE_A[1]))
+elif nav_hover(47, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`",
+                    "from `NavMain`", SHAPE_DOC], CIRCLE_B[0]):
+    cwhy = ("hover on the imported `Circle`, from NavUser.ax: "
+            + nav_hover(47, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`",
+                             "from `NavMain`", SHAPE_DOC], CIRCLE_B[0]))
+elif nav_landed(48, A_URI, CIRCLE_A[0]):
+    cwhy = ("definition on the constructor's own declaration: "
+            + nav_landed(48, A_URI, CIRCLE_A[0]))
+elif want_null(49, "definition on `Circle` in the document that does not parse"):
+    cwhy = want_null(49, "definition on `Circle` in the document that does not parse")
+
+if cwhy:
+    print(f"FAIL nav-constructors: {cwhy}")
+    failed += 1
+else:
+    print(f"ok   constructors (definition and declaration on `Circle` from a pattern "
+          f"head, an application, its own declaration and the importing document, all "
+          f"landing on the constructor's name inside `(pub data Shape ...)` and not on "
+          f"`Shape`; typeDefinition at the same character landing on `Shape` instead; "
+          f"hover quoting the {len(SHAPE_DATA_TEXT)}-byte form cut from NavMain.ax with "
+          f"its paragraph, naming the constructor, and naming `NavMain` across the "
+          f"import; null on a document that does not parse)")
+    passed += 1
 shutil.rmtree(NAVREF_DIR, ignore_errors=True)
 
 # ---------------------------------------------------------------------
@@ -4224,6 +4395,318 @@ else:
           f"{rss[BIG_N]} KiB at {BIG_N}, grew {rss[BIG_N] - rss[SMALL]} KiB, "
           f"under {SLOPE_CEILING_KIB} slope and {ABSOLUTE_CEILING_KIB} absolute "
           f"on {sys.platform}, every edit checked)")
+    passed += 1
+
+# =====================================================================
+# THE OUTLINE'S EXTENT, AND WHAT IT FALLS BACK TO.
+#
+# `range` is the whole top-level form, recovered from the bytes by
+# `lspFormStart`/`lspFormEnd` - the same pair hover has quoted
+# declarations with since 2026-08-26. `lspFormStart`'s rule is COLUMN
+# ZERO, and a document mid-edit that INDENTS a declaration is where it
+# stops being able to answer. That fallback has two shapes and only one
+# of them is wrong, so the guard has to be able to tell them apart -
+# and these three documents are written here rather than kept as
+# fixtures because each is a shape `axiom fmt` would remove.
+#
+#   A. an indented `fn` AFTER a top-level form. `lspFormStart` finds
+#      the preceding form's opener, which is at column zero and ends
+#      before this declaration begins. Refused by containment: the
+#      answer is the name span, with no children.
+#   B. an indented `fn` as the FIRST form. Nothing is at column zero,
+#      so `lspNearestOpen` answers the `(` of the PARAMETER LIST -
+#      which contains the name and would pass containment on its own.
+#      Refused because it is `lspHeaderOpen`'s byte.
+#   C. an indented `struct` as the first form. The nearest opener is
+#      its OWN, its name is not inside a parameter list, and the right
+#      answer is the whole form with its fields as children. NOT
+#      refused - a guard that failed this one would be aimed at
+#      indentation rather than at the shape that goes wrong.
+#
+# Every expected range is computed from these documents' own bytes.
+# =====================================================================
+EXT_DIR = tempfile.mkdtemp(prefix="axiom-lsp-extent-")
+EXT_A = """(data Colour
+  (Red)
+  (Green))
+
+  (fn (indented q) q)
+"""
+EXT_B = """  (fn (only y) y)
+"""
+EXT_C = """  (struct Only
+    (g : Int))
+"""
+
+
+def ext_symbols(text, label):
+    uri = "file://" + os.path.join(EXT_DIR, label)
+    r = subprocess.run([stage1, "lsp"], cwd=EXT_DIR, capture_output=True,
+                       input=b"".join(frame(m) for m in [
+                           {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                            "params": {}},
+                           {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+                            "params": {"textDocument": {
+                                "uri": uri, "languageId": "axiom",
+                                "version": 1, "text": text}}},
+                           {"jsonrpc": "2.0", "id": 2,
+                            "method": "textDocument/documentSymbol",
+                            "params": {"textDocument": {"uri": uri}}},
+                           {"jsonrpc": "2.0", "id": 3, "method": "shutdown",
+                            "params": None},
+                           {"jsonrpc": "2.0", "method": "exit", "params": None},
+                       ]))
+    ms, _ = unframe(r.stdout)
+    by = {m["id"]: m for m in ms if "id" in m}
+    if 3 not in by:
+        return None
+    return by.get(2, {}).get("result")
+
+
+def whole_form(text, opener):
+    """The LSP range of the form starting at `opener` in `text`, closing
+    paren included - counted here rather than asked of the server."""
+    i, depth = text.index(opener), 0
+    start = i
+    while i < len(text):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                i += 1
+                break
+        i += 1
+    sl, stext, sc = line_of(text, start)
+    el, etext, ec = line_of(text, i)
+    return {"start": {"line": sl, "character": u16(stext[:sc])},
+            "end": {"line": el, "character": u16(etext[:ec])}}
+
+
+def name_range(text, name, n=1):
+    at = ident_at(text, name, n)
+    return {"start": {"line": at["line"], "character": at["start"]},
+            "end": {"line": at["line"], "character": at["end"]}}
+
+
+ewhy = ""
+esyms = {k: ext_symbols(t, k + ".ax")
+         for k, t in (("A", EXT_A), ("B", EXT_B), ("C", EXT_C))}
+if any(v is None for v in esyms.values()):
+    ewhy = ("a session over the indented documents never answered shutdown: "
+            f"{[k for k, v in esyms.items() if v is None]}")
+elif [s["name"] for s in esyms["A"]] != ["Colour", "indented"]:
+    ewhy = f"document A published {[s['name'] for s in esyms['A']]!r}, want Colour and indented"
+# The column-zero declaration beside it: whole form, and its
+# constructors as children. If this ever stopped being true the two
+# refusals below would be indistinguishable from a server that had
+# given up on extents entirely.
+elif esyms["A"][0]["range"] != whole_form(EXT_A, "(data Colour"):
+    ewhy = (f"the column-zero `data` in A got range {esyms['A'][0]['range']!r}, "
+            f"want the whole form at {whole_form(EXT_A, '(data Colour')!r}")
+elif [c["name"] for c in esyms["A"][0].get("children") or []] != ["Red", "Green"]:
+    ewhy = f"the column-zero `data` in A published children {esyms['A'][0].get('children')!r:.200}"
+# A: refused by containment.
+elif esyms["A"][1]["range"] != name_range(EXT_A, "indented"):
+    ewhy = (f"the INDENTED `fn` in A got range {esyms['A'][1]['range']!r}; the form "
+            f"`lspFormStart` recovers for it is the `data` above, which does not "
+            f"contain it, so the answer must fall back to its name span "
+            f"{name_range(EXT_A, 'indented')!r}")
+elif "children" in esyms["A"][1]:
+    ewhy = "the INDENTED `fn` in A published children, and a fallback range cannot contain any"
+# B: refused because the recovered opener is the parameter list's.
+elif [s["name"] for s in esyms["B"]] != ["only"]:
+    ewhy = f"document B published {[s['name'] for s in esyms['B']]!r}, want only"
+elif esyms["B"][0]["range"] != name_range(EXT_B, "only"):
+    ewhy = (f"the INDENTED `fn` alone in B got range {esyms['B'][0]['range']!r}; "
+            f"nothing is at column zero, so `lspNearestOpen` answers the PARAMETER "
+            f"LIST `(only y)` - which contains the name and would pass containment - "
+            f"and the answer must be the name span {name_range(EXT_B, 'only')!r}")
+# C: NOT refused - the guard is aimed at one shape, not at indentation.
+elif [s["name"] for s in esyms["C"]] != ["Only"]:
+    ewhy = f"document C published {[s['name'] for s in esyms['C']]!r}, want Only"
+elif esyms["C"][0]["range"] != whole_form(EXT_C, "(struct Only"):
+    ewhy = (f"the INDENTED `struct` in C got range {esyms['C'][0]['range']!r}, want "
+            f"the whole form at {whole_form(EXT_C, '(struct Only')!r} - its name is "
+            f"not inside a parameter list, so the nearest opener IS its own form and "
+            f"there is nothing here to refuse")
+elif [c["name"] for c in esyms["C"][0].get("children") or []] != ["g"]:
+    ewhy = (f"the INDENTED `struct` in C published children "
+            f"{esyms['C'][0].get('children')!r:.200}, want its field `g`")
+
+if ewhy:
+    print(f"FAIL outline-extent: {ewhy}")
+    failed += 1
+else:
+    print("ok   outline-extent (a column-zero `data` as its whole form with its "
+          "constructors; an indented `fn` after it, and one alone in its document, "
+          "each falling back to its name span with no children for two different "
+          "reasons; an indented `struct` keeping its whole form and its field, "
+          "because the guard is aimed at the parameter-list shape and not at "
+          "indentation)")
+    passed += 1
+shutil.rmtree(EXT_DIR, ignore_errors=True)
+
+# =====================================================================
+# DIAGNOSTIC FIDELITY: the editor must not be shown less than the
+# terminal.
+#
+# `axiom check --diagnostic-format json` and the language server are two
+# renderings of ONE diagnostic. Until 2026-09-03 they disagreed about
+# two of its fields. Over the 422 diagnostics in tests/diagnostics/*.json,
+# 215 carry a `label` - what the terminal prints at the caret - and 32
+# carry `related`, a second span with its own message; `lspDiagJson`
+# published neither. `axiom check` on a duplicate `main` points at the
+# first definition and names it; VS Code said "duplicate definition
+# `main`" and pointed at nothing.
+#
+# So this block is a DIFFERENTIAL, and the reason it is a legitimate one
+# where the deleted stage0 comparison was not: the two sides are
+# different code (render.ax's JSON writer against lsp.ax's publisher),
+# and the assertion is not "they are equal" but "the editor's side
+# contains the terminal's" - a strictly weaker side cannot satisfy it by
+# agreeing to say nothing.
+#
+# It can still be made vacuous from BELOW - if the checker stopped
+# producing labels and secondaries, both surfaces would fall silent
+# together and every comparison would be two empty lists. That is what
+# the two floors are for. They are computed over the WHOLE corpus, not
+# over the selection, so `drive.py DIR 010` cannot switch them off, and
+# they exit rather than count a failure: a corpus that cannot exercise
+# this comparison is not a run whose verdict means anything. Unlike the
+# manifest floors they are measured here rather than before the first
+# server starts, because they need the checker's own answer for each
+# fixture - the whole point is that nothing writes those down.
+#
+# WHAT IS COMPARED, per fixture:
+#   * the same diagnostics in the same order, by code. A server that
+#     drops one, or reorders them, fails here as well as against the
+#     manifest - and this one notices a drop even for a fixture whose
+#     manifest row count happened to match.
+#   * every non-empty `label` appears in the published message. The
+#     manifest pins the message's FIRST line; the label sits below it,
+#     where no row can see it.
+#   * `relatedInformation` equals the terminal's `related`, position by
+#     position: the uri is the fixture's own, the range is the
+#     terminal's CHARACTER offsets converted here to UTF-16 code units
+#     (the same `u16` conversion the anchors use, applied to a number
+#     the server never sees), and the message is the secondary's own
+#     label. "It published something" cannot pass for "it published the
+#     right place".
+# =====================================================================
+def term_diags(path):
+    """What `axiom check --diagnostic-format json` says about `path`.
+    One JSON object per line, on stderr - the driver writes diagnostics
+    there and keeps stdout for output."""
+    r = subprocess.run([stage1, "check", "--diagnostic-format", "json", path],
+                       capture_output=True, cwd=fixdir)
+    out = []
+    for line in (r.stdout + r.stderr).decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                pass
+    return out
+
+
+def char_pos(src_text, k):
+    """A 0-based CHARACTER offset, as the position LSP asks for. The
+    terminal's `char_start`/`char_end` are character offsets; every
+    column the server publishes is a UTF-16 code-unit count."""
+    ln, text, col = line_of(src_text, k)
+    return {"line": ln, "character": u16(text[:col])}
+
+
+# The floors, over the WHOLE corpus, before any server starts.
+corpus_labels, corpus_related = 0, 0
+for fx in all_fixtures:
+    for d in term_diags(os.path.join(fixdir, fx)):
+        if d.get("label"):
+            corpus_labels += 1
+        corpus_related += len(d.get("related") or [])
+if corpus_labels < 5:
+    sys.exit(f"FAIL: only {corpus_labels} diagnostic(s) in the whole tests/lsp "
+             f"corpus carry a `label`, under a floor of 5 - a comparison over "
+             f"that few asserts nearly nothing, and one over none would be two "
+             f"empty strings agreeing")
+if corpus_related < 1:
+    sys.exit("FAIL: no fixture in tests/lsp produces a diagnostic with a "
+             "secondary span, so the relatedInformation comparison below "
+             "would be two empty lists on every fixture. "
+             "090-related-spans.ax exists to be that fixture: restore it, or "
+             "add another whose checker output carries `related`.")
+
+dwhy = ""
+dlabels = drelated = 0
+for fx in fixtures:
+    path = os.path.join(fixdir, fx)
+    text = open(path, encoding="utf-8").read()
+    uri = "file://" + os.path.abspath(path)
+    term = term_diags(path)
+    msgs, tail = unframe(subprocess.run(
+        [stage1, "lsp"], cwd=fixdir, capture_output=True,
+        input=b"".join(frame(m) for m in [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+             "params": {"textDocument": {"uri": uri, "languageId": "axiom",
+                                         "version": 1, "text": text}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+            {"jsonrpc": "2.0", "method": "exit", "params": None},
+        ])).stdout)
+    pub = None
+    for m in msgs:
+        if m.get("method") == "textDocument/publishDiagnostics":
+            pub = m["params"]["diagnostics"]
+    if pub is None:
+        dwhy = f"{fx}: the server published no diagnostics array at all"
+        break
+    if [d.get("code") for d in term] != [d.get("code") for d in pub]:
+        dwhy = (f"{fx}: the terminal reports {[d.get('code') for d in term]} and "
+                f"the editor is published {[d.get('code') for d in pub]}")
+        break
+    for t, e in zip(term, pub):
+        label = t.get("label") or ""
+        if label:
+            dlabels += 1
+            if label not in (e.get("message") or ""):
+                dwhy = (f"{fx}: {t.get('code')} - the terminal prints the label "
+                        f"{label!r} at the caret and the editor's message does "
+                        f"not carry it: {e.get('message')!r}")
+                break
+        want = [{"location": {"uri": uri,
+                              "range": {"start": char_pos(text, r["span"]["char_start"]),
+                                        "end": char_pos(text, r["span"]["char_end"])}},
+                 "message": r.get("label") or ""}
+                for r in (t.get("related") or [])]
+        drelated += len(want)
+        got = e.get("relatedInformation") or []
+        if got != want:
+            dwhy = (f"{fx}: {t.get('code')} published {len(got)} related "
+                    f"location(s) and the terminal derives {len(want)}: "
+                    f"{got!r:.300} against {want!r:.300}")
+            break
+    if dwhy:
+        break
+
+if dwhy:
+    print(f"FAIL diagnostic-fidelity: {dwhy}")
+    failed += 1
+elif dlabels < 1 or drelated < 1:
+    # A filtered run may legitimately select a fixture with neither; say
+    # so rather than reporting a comparison that did not happen.
+    print(f"ok   fidelity   ({len(fixtures)} fixture(s) compared against "
+          f"`axiom check --diagnostic-format json`: {dlabels} label(s) and "
+          f"{drelated} related location(s) in this selection; the corpus "
+          f"carries {corpus_labels} and {corpus_related})")
+    passed += 1
+else:
+    print(f"ok   fidelity   (every diagnostic of every fixture published in the "
+          f"terminal's own order, {dlabels} caret label(s) carried into the "
+          f"editor's message and {drelated} secondary span(s) published as "
+          f"relatedInformation at UTF-16 positions converted here from the "
+          f"terminal's character offsets)")
     passed += 1
 
 # ---------------------------------------------------------------------

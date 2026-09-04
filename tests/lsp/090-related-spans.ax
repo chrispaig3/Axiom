@@ -1,0 +1,15 @@
+; Two definitions of one name at one scope, which is AX3006 - the code
+; that carries a SECONDARY span, pointing at the first of the two.
+;
+; This fixture exists for that span and nothing else. It is the only
+; one in tests/lsp/ that makes the checker produce a related location,
+; and drive.py refuses to run without one: the assertion that the
+; editor is shown every secondary the terminal shows would otherwise be
+; a comparison of two empty lists on every fixture in the corpus.
+(:: main Int)
+
+(fn (main) 0)
+
+(:: main Int)
+
+(fn (main) 1)
