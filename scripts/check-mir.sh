@@ -2,12 +2,12 @@
 # THE MID-LEVEL IR: WHAT IT PRINTS, WHAT IT MEANS, AND HOW MUCH OF
 # THE TREE GOES THROUGH IT.
 #
-# `self_host/mir.ax` is the first slice of an IR between the checked
-# AST and `codegen.ax`: a representation, a lowering, a printer and a
+# `self_host/mir.ax` is an IR between the checked AST and
+# `codegen.ax`: a representation, a lowering, a printer and a
 # verifier. `self_host/mireval.ax` is a reference evaluator over it.
-# Nothing in the compiler imports either - §6 asserts that - so this
-# gate is the only thing that runs them, and if it is weak they rot
-# silently.
+# `codegen.ax` EMITS FROM the IR for one measured subset of functions
+# (slice 2, §6); the evaluator is still test-only, because it is what
+# §4 compares the compiler against.
 #
 # THE HOLLOW VERSION OF THIS GATE, which is what every assertion
 # below is shaped against: compile eight fixtures, print their IR,
@@ -29,14 +29,13 @@
 # every other check green - and that is drilled rather than asserted:
 # ABLATION 1 below is exactly such a rule.
 #
-# THE EIGHT SECTIONS.
+# THE SECTIONS.
 #
 #   1. THE DRIVER BUILDS. `tests/mir/mirtool.ax` imports `mir`,
 #      `mireval` and the whole frontend, and is compiled by the
-#      compiler under test. That it builds at all is the check that
-#      the two new modules still compile against the current tree -
-#      they are not in `self_host/main.ax`'s import graph, so nothing
-#      else would notice them breaking.
+#      compiler under test. `mir` is inside `self_host/main.ax`'s
+#      import graph now and would be noticed breaking; `mireval` is
+#      not, and this is the only thing that would.
 #
 #   2. THE PRINTER, against `tests/mir/NAME.mir`, byte for byte. The
 #      regenerable half, and it is here for the reason a golden is
@@ -60,40 +59,49 @@
 #      that all print the same twenty lines would satisfy §4 against
 #      a lowering that ignored its input.
 #
-#   6. THE BOUNDARY, and the coverage floor.
+#   6. THE COMPILER EMITS FROM THE IR. This section used to assert
+#      the opposite - that nothing imported `mir`, so `emit-llvm`
+#      could not have moved. `codegen.ax` imports it now, and
+#      `mirEmitOrWalk` emits the single-block arithmetic subset FROM
+#      the IR. The claim that nothing moved is therefore made where
+#      it can still be checked: the routing has an OFF switch, and
+#      `AXIOM_MIR_EMIT=0` against the default must be byte-identical
+#      over `self_host/main.ax`, every stdlib module and every
+#      `tests/selfhost` and `tests/stdlib` program.
 #
-#      No module in `self_host/` imports `mir` or `mireval` except
-#      `mireval` itself. While that holds, `axiom emit-llvm
-#      self_host/main.ax` cannot have moved: the emitted program is
-#      the transitive import closure of the entry file, and these two
-#      are not in it. Slice 2 deletes this assertion deliberately -
-#      it is a statement about where the work has got to, not a rule
-#      forever.
+#      With a FLOOR on how many functions took the IR path, printed
+#      every run, because a routing that fell back to the walk for
+#      everything answers "identical" too. The count is read off the
+#      emitted text (`AXIOM_MIR_EMIT=mark`), and stripping the marks
+#      must reproduce the unmarked emission - so it is a measurement
+#      of that text and not a report about it. ABLATION 3 breaks one
+#      emission rule and requires the comparison to go red.
 #
-#      Then the floor. The lowering handles a SUBSET, and refuses
-#      anything else outright, so a rule that narrowed itself to keep
-#      §4 green would leave every other check passing. §6 lowers
-#      every module in `self_host/` and `stdlib/` and requires the
-#      count not to fall; it PRINTS the live number, so drift is
+#   6b. THE COVERAGE FLOOR. The lowering handles a SUBSET, and
+#      refuses anything else outright, so a rule that narrowed itself
+#      to keep §4 green would leave every other check passing. This
+#      lowers every module in `self_host/` and `stdlib/` and requires
+#      the count not to fall; it PRINTS the live number, so drift is
 #      visible long before it is a failure. It also requires the
 #      count to be a strict subset of the corpus, because "everything
 #      lowered" would mean the counter, not the lowering, is what
 #      changed.
 #
 #   7. THE OPERATOR TABLE, against `codegen.ax`'s. `mir.ax` cannot
-#      import `codegen.ax` - slice 2 points that arrow the other way
-#      - so it carries its own copy of `binopToLLVM` + `cmpToLLVM`.
+#      import `codegen.ax` - the arrow runs the other way now, and a
+#      cycle is what the two tables exist to avoid - so it carries
+#      its own copy of `binopToLLVM` + `cmpToLLVM`.
 #      `mirtool optable` is the one place in the tree that imports
 #      both, and all eleven operators must agree. The twelfth row
 #      must DISAGREE: `codegen.ax` answers "add" for a name it never
 #      expects to be handed, and `mir.ax` answers "", which is what
 #      makes the lowering refuse rather than emit a wrong opcode.
 #
-#   8. THE ABLATIONS, both in a shadow tree with the driver rebuilt
-#      from it, and both chosen so that they are ORTHOGONAL - each
-#      must turn its own checks red and leave the other's green,
-#      because two ablations that fire the same check are one
-#      ablation written twice.
+#   8. THE ABLATIONS, each in a shadow tree with the driver - or, for
+#      the third, the whole compiler - rebuilt from it, and each
+#      chosen so that they are ORTHOGONAL: each must turn its own
+#      checks red and leave the others' green, because two ablations
+#      that fire the same check are one ablation written twice.
 #
 #      ABLATION 1 swaps a binary operator's operands in
 #      `mLowerApp`. The IR stays well formed - so §3 must stay
@@ -108,9 +116,16 @@
 #      the second. Which fixtures are which is read off the goldens
 #      rather than listed here.
 #
+#      ABLATION 3 removes the CONSTANT FOLD from `mirEmitInsts` in
+#      `codegen.ax` and rebuilds the compiler from the shadow tree.
+#      §6's byte comparison must then go red - and, in the same
+#      breath, the ablated compiler must still emit the reference
+#      text with the routing OFF, or the red would be about something
+#      other than the IR path.
+#
 # AXIOM_BLESS=1 rewrites the §2 goldens and nothing else. It cannot
-# write `self_host/mir.ax`, the fixtures, `codegen.ax`'s operator
-# table or the corpus, which is why §3 to §8 survive a bless.
+# write `self_host/mir.ax`, the fixtures, `codegen.ax` or the corpus,
+# which is why §3 to §9 survive a bless.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -303,20 +318,142 @@ fi
 
 # ---------------------------------------------------------------
 echo
-echo "--- 6. the boundary, and the coverage floor ---"
+echo "--- 6. the compiler emits from the IR, and how much of it ---"
 # ---------------------------------------------------------------
-# `mireval` imports `mir`; nothing else in self_host/ may import
-# either, or the two would be inside `self_host/main.ax`'s import
-# closure and this change would no longer be inert.
-importers="$(grep -l -E '^\(import (mir|mireval)\)' self_host/*.ax | grep -v '^self_host/mireval\.ax$' | tr '\n' ' ')"
-if [[ -z "$importers" ]]; then
-  ok "no compiler module imports mir or mireval - the emitted compiler cannot have moved"
+# THE ASSERTION THAT USED TO BE HERE said that no module imported
+# `mir`, and that `axiom emit-llvm self_host/main.ax` was identical
+# with `mir.ax` deleted. Slice 2 deletes it on purpose: `codegen.ax`
+# imports `mir` now, and `mirEmitOrWalk` emits a measured subset of
+# functions FROM the IR rather than from the AST walk.
+#
+# What replaces it is the same claim, made where it can still be
+# checked. The routing has an OFF switch - `AXIOM_MIR_EMIT=0` - so
+# the comparison is ONE compiler against ITSELF over ONE tree, which
+# is what isolates the routing from everything else the import
+# brought with it. Byte for byte, on the largest Axiom program there
+# is and on 325 smaller ones.
+#
+# Then a FLOOR, printed every run, because "identical" is also what a
+# routing that had fallen back to zero functions would answer, and
+# every other check here would still pass - which is this
+# repository's most common defect. The count is read off the EMITTED
+# TEXT rather than claimed: `AXIOM_MIR_EMIT=mark` writes one
+# `  ; mir` comment inside each function the IR emitted, and
+# stripping those comments back out must reproduce the unmarked
+# emission exactly. So the number cannot be a report about a path
+# nothing took, and the marks cannot be moving anything themselves.
+if grep -q '^(import mir)$' self_host/codegen.ax; then
+  ok "codegen.ax imports mir - the seam is live"
 else
-  bad "these modules import the IR: $importers"
-  echo "     While that is true, this gate's inertness claim is void; slice 2"
-  echo "     removes the claim rather than the import."
+  bad "codegen.ax does not import mir; slice 2's routing is not wired in"
+fi
+if grep -q 'mirEmitOrWalk' self_host/codegen.ax; then
+  ok "emitFnDef routes through mirEmitOrWalk"
+else
+  bad "codegen.ax has no mirEmitOrWalk - the import is there and the routing is not"
+fi
+# `mireval` is the reference evaluator and is still test-only: it is
+# what §4 compares the compiler against, and a compiler that imported
+# its own reference would be comparing one walk with itself.
+ev_importers="$(grep -l -E '^\(import mireval\)' self_host/*.ax | grep -v '^self_host/mireval\.ax$' | tr '\n' ' ')"
+if [[ -z "$ev_importers" ]]; then
+  ok "no compiler module imports mireval - §4's reference is still independent"
+else
+  bad "these modules import the evaluator §4 compares against: $ev_importers"
 fi
 
+# The corpus: the compiler itself, every stdlib module, and every
+# `tests/selfhost` and `tests/stdlib` program. The stdlib modules
+# contribute no routed functions of their own - compiled as an entry
+# file a library keeps only what its `main` reaches - and they are
+# here for the other half of the claim, that nothing moved.
+mir_corpus=()
+while IFS= read -r line; do
+  mir_corpus+=("$line")
+done < <(ls self_host/main.ax stdlib/*.ax stdlib/*/*.ax tests/selfhost/*.ax tests/stdlib/*.ax)
+
+MARK_FLOOR=1600
+MAIN_FLOOR=240
+n_same=0
+n_moved=0
+n_marks=0
+n_markbad=0
+n_defs=0
+main_marks=0
+moved=""
+for f in "${mir_corpus[@]}"; do
+  AXIOM_MIR_EMIT=0 "$axc" emit-llvm --input "$f" > "$work/mir.off" 2>/dev/null; s_off=$?
+  "$axc" emit-llvm --input "$f" > "$work/mir.on" 2>/dev/null; s_on=$?
+  if [[ "$s_off" != "$s_on" ]]; then
+    n_moved=$((n_moved + 1))
+    moved="$moved $f(exit $s_off/$s_on)"
+    continue
+  fi
+  # A file the compiler refuses either way says nothing about the
+  # routing and is not counted as agreement.
+  (( s_off != 0 )) && continue
+  if cmp -s "$work/mir.off" "$work/mir.on"; then
+    n_same=$((n_same + 1))
+  else
+    n_moved=$((n_moved + 1))
+    moved="$moved $f"
+    diff "$work/mir.off" "$work/mir.on" | head -8 | sed 's/^/     /'
+  fi
+  AXIOM_MIR_EMIT=mark "$axc" emit-llvm --input "$f" > "$work/mir.mark" 2>/dev/null
+  m="$(grep -c '^  ; mir$' "$work/mir.mark" || true)"
+  n_marks=$((n_marks + m))
+  n_defs=$((n_defs + $(grep -c '^define ' "$work/mir.mark" || true)))
+  [[ "$f" == "self_host/main.ax" ]] && main_marks="$m"
+  grep -v '^  ; mir$' "$work/mir.mark" > "$work/mir.strip"
+  cmp -s "$work/mir.strip" "$work/mir.on" || n_markbad=$((n_markbad + 1))
+done
+echo "     $n_marks of $n_defs emitted functions took the IR path across ${#mir_corpus[@]} files"
+echo "     ($main_marks of them in self_host/main.ax, the compiler itself)"
+if (( n_same >= 300 )); then
+  ok "$n_same files emit byte-identical text with the routing on and off"
+else
+  bad "only $n_same files were compared - the corpus glob found nothing to measure"
+fi
+if (( n_moved == 0 )); then
+  ok "no file moved a byte"
+else
+  bad "the routing moved bytes in:$moved"
+fi
+if (( n_markbad == 0 )); then
+  ok "stripping the marks reproduces the unmarked emission everywhere"
+else
+  bad "$n_markbad files differ once the marks are stripped - the count is not about the text emitted"
+fi
+if (( n_marks >= MARK_FLOOR )); then
+  ok "$n_marks functions took the IR path (floor $MARK_FLOOR)"
+else
+  bad "only $n_marks functions took the IR path, under the floor of $MARK_FLOOR"
+  echo "     A routing that silently fell back to the walk for everything looks"
+  echo "     exactly like this, with the byte comparison above still green."
+fi
+if (( main_marks >= MAIN_FLOOR )); then
+  ok "$main_marks of the compiler's own functions took it (floor $MAIN_FLOOR)"
+else
+  bad "only $main_marks of the compiler's own functions took the IR path (floor $MAIN_FLOOR)"
+fi
+if (( n_marks < n_defs )); then
+  ok "the routed set is a strict subset: $((n_defs - n_marks)) functions stayed on the walk"
+else
+  bad "every emitted function routed - the marker, not the router, is what changed"
+fi
+
+# ---------------------------------------------------------------
+echo
+echo "--- 6b. the coverage floor: how much of the corpus lowers ---"
+# ---------------------------------------------------------------
+# The lowering handles a SUBSET and refuses anything else outright,
+# so a rule that narrowed itself to keep §4 green would leave every
+# other check passing. This lowers every module in `self_host/` and
+# `stdlib/` and requires the count not to fall; it PRINTS the live
+# number, so drift is visible long before it is a failure. It also
+# requires the count to be a strict subset of the corpus, because
+# "everything lowered" would mean the counter, not the lowering, is
+# what changed.
 FLOOR=1900
 CORPUS_FLOOR=4700
 tot_l=0
@@ -540,6 +677,76 @@ else
   fi
 fi
 
+
+# --- ABLATION 3: the constant fold, removed ---
+#
+# §6's byte comparison is the acceptance of the whole slice, and a
+# comparison of a compiler with itself is exactly the shape that can
+# pass while measuring nothing. So one emission rule is broken and
+# the comparison must go RED.
+#
+# The rule is the fold. `MO_CONST` emits no line and consumes no
+# register number - `emitExpr`'s `TAG_E_INT` path puts the literal
+# straight into the operand of whatever reads it - and the ablation
+# makes it take a number instead. Every register after a literal then
+# shifts, which is the failure mode this slice is most exposed to.
+#
+# TWO ASSERTIONS, not one. The comparison must go red WITH the
+# routing on, and the ablated compiler must still emit the reference
+# text with the routing OFF - otherwise the break would be somewhere
+# else in the compiler and the red would prove nothing about the IR
+# path.
+ablate_codegen() {
+  local root="$work/abl3"
+  rm -rf "$root"
+  mkdir -p "$root"
+  cp -R "$repo_root/self_host" "$repo_root/stdlib" "$root/"
+  python3 - "$root/self_host/codegen.ax" <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+# Whitespace-insensitive between atoms, for the reason ABLATION 1's
+# seam records: `axiom fmt` rewrites a file IN PLACE and runs a long
+# constructor's arguments together on one line, and a seam its own
+# formatter can invalidate is a check that stops firing.
+pat = re.compile(r"\(vecSet\s+ops\s+n\.dst\s+\(cast\s+Int\s+\(constStr\s+n\.a\)\)\s*\)")
+rep = "(vecSet ops n.dst (cast Int (regStr (allocReg cg))))"
+hits = len(pat.findall(s))
+if hits != 1:
+    sys.stderr.write("seam 3 appears %d times, expected 1\n" % hits)
+    sys.exit(1)
+open(p, "w", encoding="utf-8").write(pat.sub(rep, s, count=1))
+PY
+  if [[ $? -ne 0 ]]; then
+    return 1
+  fi
+  ( cd "$root" && "$axc" build --input self_host/main.ax --output "$root/axc" ) \
+    > "$root/build.log" 2>&1
+}
+
+if ! ablate_codegen; then
+  bad "ABLATION 3 could not be built"
+  sed 's/^/     /' "$work/abl3/build.log" 2>/dev/null | head -10
+else
+  a3="$work/abl3/axc"
+  AXIOM_MIR_EMIT=0 "$axc"  emit-llvm --input self_host/main.ax > "$work/abl3.ref"    2>/dev/null
+  AXIOM_MIR_EMIT=0 "$a3"   emit-llvm --input self_host/main.ax > "$work/abl3.off"    2>/dev/null
+  "$a3"                    emit-llvm --input self_host/main.ax > "$work/abl3.on"     2>/dev/null
+  if cmp -s "$work/abl3.off" "$work/abl3.ref"; then
+    ok "ABLATION 3: with the routing off the ablated compiler emits the reference text"
+  else
+    bad "ABLATION 3: the break reaches the AST walk too - the red below proves nothing about the IR path"
+    diff "$work/abl3.ref" "$work/abl3.off" | head -8 | sed 's/^/     /'
+  fi
+  if cmp -s "$work/abl3.on" "$work/abl3.off"; then
+    bad "ABLATION 3: the byte comparison stayed green with the constant fold removed"
+    echo "     §6 is comparing something other than what the IR emitter writes."
+  else
+    n_lines="$(diff "$work/abl3.off" "$work/abl3.on" | grep -c '^[<>]' || true)"
+    ok "ABLATION 3: §6 goes red - $n_lines lines move when the fold is removed"
+  fi
+fi
+
 # ---------------------------------------------------------------
 echo
 echo "--- 9. the guard, at the emitted bytes ---"
@@ -597,5 +804,6 @@ fi
 echo "check-mir: $checks checks - $n_fix fixtures lower to SSA with block"
 echo "           parameters, print what their goldens say, verify clean,"
 echo "           and EVALUATE to what the compiled program prints;"
-echo "           $tot_l of $tot_t corpus functions lower; nothing in the"
-echo "           compiler imports the IR yet."
+echo "           $tot_l of $tot_t corpus functions lower, and codegen.ax"
+echo "           EMITS $n_marks of $n_defs functions from the IR - the same"
+echo "           bytes it emits with the routing switched off."
