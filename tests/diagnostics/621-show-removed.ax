@@ -1,0 +1,26 @@
+; `show` is not a name any more (0.7.4), and this is the fixture that
+; keeps it that way.
+;
+; It was the head every `{hole}` and every `(println x)` lowered to,
+; so a program could call it - and could also DECLARE it, and capture
+; the lowering (tests/selfhost/383-format-capture.ax). The lowering
+; emits `format#` now, which `#` makes unwritable, and `(format x)` is
+; the only spelling. So `(show 1)` has to be the ordinary
+; undefined-variable error and nothing special at all.
+;
+; `Fmt` and `Str` are loaded, which is what the rewrite targets, so
+; nothing here is missing but the name: this file would compile if the
+; name still existed.
+;
+; WHY THIS IS NOT VACUOUS. Reverting `showIsHead` in
+; self_host/typecheck.ax to `(strEq (bareOf hname) "show")` and
+; `expFmtShow` in self_host/expand.ax to `(expFmtCall env "show" ...)`
+; makes the call resolve again - `checkVar`'s quiet arm suppresses the
+; AX3001 for a `show` HEAD - and this golden's only line disappears.
+(import Fmt)
+
+(import Str)
+
+(:: main Int)
+
+(fn (main) (strLen (show 1)))

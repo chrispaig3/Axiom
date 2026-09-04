@@ -39,7 +39,7 @@
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
-  [93mAX3025[0m  `show` has no rendering for this argument  (trait-impl)
+  [93mAX3025[0m  a format hole's argument has no rendering  (no-rendering)
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)
@@ -616,11 +616,12 @@ function is compiled once however many times it is called, which is
 the whole difference.
 
 ### explain AX3025
-AX3025 - `show` has no rendering for this argument
+AX3025 - a format hole's argument has no rendering
 
-`show` renders a value from the STATIC type of its argument, decided
-at compile time and generated field by field from the declaration.
-This code is what it says when it cannot:
+A `{hole}`, a `(println x)` and a `(format x)` all render their
+argument from its STATIC type, decided at compile time and generated
+field by field from the declaration. This code is what they say when
+there is no such rendering:
 
   - the argument is a type VARIABLE - a generic function's own `a`.
     A type variable is not a type, so there is nothing to render
@@ -633,12 +634,19 @@ This code is what it says when it cannot:
 
 Write a function that renders the type and interpolate its result.
 
-The code is older than that wording. Until 0.6.0 it covered every
-way a `trait` and an `impl` failed to agree, and `show` was one
-arm of it because `Show` was a trait. Traits were removed and the
-other arms went with them; the code is kept for this meaning rather
-than retired, so a reader who already looks for AX3025 when `show`
-refuses still finds it.
+THE NUMBER IS OLDER THAN THIS MEANING, AND IS KEPT ANYWAY. Until
+0.6.0 it covered every way a `trait` and an `impl` failed to agree,
+and rendering was one arm of it because `Show` was a trait; traits
+were removed and the other arms went with them. Retiring the number
+would cost a reader who already looks for AX3025 when a hole refuses,
+and `scripts/check-doc-drift.sh` compares constructed codes against
+explained ones in both directions, so a retired number has to leave
+both lists together. The SLUG did move, in 0.7.4: it read
+`trait-impl`, which was the last trait word on the user-facing
+surface, and it is `no-rendering` now. `show` moved with it - the
+name a hole lowered to was an ordinary identifier a program could
+declare and capture, so it is an unwritable head now and `(format x)`
+is the only spelling.
 
 ### explain AX3026
 AX3026 - a name the emitted runtime owns
@@ -795,7 +803,7 @@ before the program is type-checked - so a hole that names nothing,
 a brace that never closes, and a stray `}` are all compile errors
 rather than runtime surprises. This is the whole reason the
 printing macros exist: `(println "x = {x}")` is a rewrite into
-`strConcat` and `show` calls, and there is no runtime format
+`strConcat` and rendering calls, and there is no runtime format
 parser to fail in.
 
 The grammar is small on purpose:
@@ -815,10 +823,10 @@ at expansion time rather than leaving it to you:
 
   {n:x}      (fmtHex n)
   {x:.2}     (fmtFloatPrec x 2)
-  {n:>8}     (fmtPadLeft (show n) 8)
-  {s:<12}    (fmtPadRight (show s) 12)
-  {s:^12}    (fmtPadCenter (show s) 12)
-  {n:04}     (fmtPadZerosLeft (show n) 4)
+  {n:>8}     (fmtPadLeft (format n) 8)
+  {s:<12}    (fmtPadRight (format s) 12)
+  {s:^12}    (fmtPadCenter (format s) 12)
+  {n:04}     (fmtPadZerosLeft (format n) 4)
   {x:>10.2}  (fmtPadLeft (fmtFloatPrec x 2) 10)
 
 This paragraph said there were no specifiers and told you to build
@@ -827,7 +835,7 @@ the padded or rounded string by hand with `fmtPadLeft`,
 you. It said so until 2026-08-16, a day after they shipped.
 
 A hole whose name is not in scope is AX3001, and one whose type
-has no `Show` instance is AX3025; neither is this code. This code
+has no rendering is AX3025; neither is this code. This code
 is only for a string the parser could not make holes out of at
 all.
 
@@ -2102,7 +2110,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3022[0m  a macro parameter used as a `set` target was given an expression  (macro-set-target)
   [93mAX3023[0m  a name its module does not export  (private-name)
   [93mAX3024[0m  macro expansion produced more than the limit  (macro-expansion-limit)
-  [93mAX3025[0m  `show` has no rendering for this argument  (trait-impl)
+  [93mAX3025[0m  a format hole's argument has no rendering  (no-rendering)
   [93mAX3026[0m  a name the emitted runtime owns  (reserved-runtime-name)
   [93mAX3027[0m  a declaration-macro invocation the expander cannot resolve  (declaration-macro)
   [93mAX3028[0m  a syntax/* query with no answer  (syntax-query)

@@ -516,6 +516,97 @@ compiler source is touched.
 
 With it, sixty-one gates call `gate_build_axc`.
 
+### `show` is gone: the hole lowering is a head no program can write
+
+A format hole and a `(println x)` lowered to a call named `show`, and
+`show` is an ordinary identifier. So the compiler's own lowering and a
+user's function competed for one spelling, and the user won: an entry
+file declaring `(:: show (-> a String))` captured **every hole in the
+program**, silently, at exit 0. `docs/reference.md` had claimed since
+0.3.8 that "the compiler decides how a type prints, and a program
+cannot override it"; `tests/selfhost/383-format-capture.ax` existed to
+measure that claim FALSE, and re-measured it as recently as
+2026-08-31.
+
+The expander emits `format#` now (`expFmtShow`, `self_host/expand.ax`),
+and `#` is not an identifier character — `(:: format# ...)` is `AX1001
+unexpected character` from the lexer — so no declaration in any module
+can name the head. It does not go through `expQualify` either: a
+compiler-known head is not a library name to resolve. The checker
+claims it by exact spelling and rewrites it from the argument's static
+type exactly as before, so nothing about WHAT a hole renders changed.
+`(format x)` is the only way a program writes the lowering, and
+`(show 1)` is now the ordinary `AX3001`
+(`tests/diagnostics/621-show-removed.ax`).
+
+MEASURED INERT, and by the proof that actually holds: the same
+unchanged sources — the pre-change tree, compiler and library — compiled
+by the 0.7.3 binary and by this one give byte-identical IR, 217,935
+lines, sha256 `5c2c84fa…35f`. (Comparing `emit-llvm self_host/main.ax`
+before and after does NOT show this: the compiler's own source is what
+changed.)
+
+`tests/selfhost/383-format-capture.ax` flips rather than being
+preserved, which is the point of the workstream: its bit 1 asserted 3,
+the hijack's `xyz`, and asserts 2 now, `fmtInt` on 42, through a file
+that still declares its own `show` — with a second bit calling that
+`show` directly to prove it is a live function the lowering merely does
+not reach. Exit 20 to exit 60.
+
+**And its `strConcat` half had already closed, unnoticed.**
+`self_host/expand.ax` and `docs/macro-system.md` both said an entry
+file defining `strConcat` captures the literal-run join, which had
+stopped being true when `expQualify` grew MAC-HYG-8's fourth rule:
+`Str` is the only module declaring the name, so the lowering emits
+`Str$strConcat`. Re-measured on the 0.7.3 binary — the hijack program
+prints `n=42`, and `symbols --calls` reads
+`#calls=IO$writeStr,Str$strConcat,Sys$stdout`. 383's third bit is that
+measurement, so the paragraph cannot go stale again. MAC-CAP-10.5 is
+CLOSED.
+
+**`showNameFree` is deleted, not kept as a guard.** It asked
+`scopeFindFrame` and `findFnEnt` whether the program had taken the
+spelling. With the spelling unwritable both answers are constant, and a
+check that cannot fail is this repository's most common defect. Its
+history is preserved as a comment on `checkApp`'s hook, because the
+measurement that motivated it — `(let ((sz (lambda (q) 7))) (sz 5))`
+answering 111 when the hook asked nothing — outlives the guard. Two
+scope lookups on every application head become one `strEq`.
+`showBuiltin`'s arity arm goes for the same reason: `format#` has two
+producers and both build a one-argument application, so the arm was
+unreachable and could not be given an ablation.
+
+`AX3025`'s slug was `trait-impl`, the last trait word on the
+user-facing surface; it is `no-rendering`. The NUMBER is kept —
+`check-doc-drift.sh` compares constructed codes against explained ones
+both directions, and a reader who already looks for AX3025 when a hole
+refuses should keep finding it. Its five message strings read `format`
+where they read `show`.
+
+### `stdlib/Show.ax` is deleted; `format` moves to `Fmt`
+
+53 lines, of which two were live: `(import Fmt)` and the four-token
+`format` macro. The other 40 argued that a trait was the only construct
+that could answer a format hole — an argument that has been false in
+both directions since traits were removed in 0.6.0.
+
+`format` belongs in `Fmt`, which is where its lowering already pointed:
+a hole on an `Int` becomes `fmtInt`, on a `Float` `fmtFloat`, and every
+width and precision specifier is one of that module's `fmtPad*`
+functions. `IO` imported `Show` for nothing but the macro, so that edge
+goes too. Byte-identical `emit-llvm` across the move, ablation-checked.
+
+The compat surface does not move: `verify-compat.py` keys a row on
+`(kind, name)` and the nid is FNV-1a over `DKind:name`, so
+`M format @f0b2b594fd323246` is the same row in a different file. What
+does move is every list that named the module: `MODULES` in
+`verify-compat.py` (a listed-but-absent module is a hard `Fatal`),
+`modules=` in `check-stdlib-api.sh`, `docs/stdlib-api.md` (regenerated),
+`docs/reference.md`'s module table — twenty-five rows to twenty-four —
+three inventories in `CONTRIBUTING.md`, `docs/status.md`, and one
+website sample that imported it.
+
+
 ## 0.7.3 — 2026-09-03
 
 ## 0.7.4 — 2026-09-03

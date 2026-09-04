@@ -204,11 +204,11 @@ two-parameter shape is no longer the asymmetry it was; what Axiom still
 does not have is INSTANCE SEARCH. `From`'s whole point in Rust is that
 the compiler finds the instance from the types at the call site, and
 nothing in Axiom searches for a conversion — dispatch is application,
-and an instance is a value someone wrote down. (`show` is resolved by
-the checker from its argument's static type, but that is one built-in
-head rewriting to a known renderer, not a search over declared
-instances.) Conversion therefore stays a function the program calls
-(`mapErr`) or a record it passes, never an instance the compiler
+and an instance is a value someone wrote down. (A format hole is
+resolved by the checker from its argument's static type, but that is
+one built-in head rewriting to a known renderer, not a search over
+declared instances.) Conversion therefore stays a function the program
+calls (`mapErr`) or a record it passes, never an instance the compiler
 supplies. This was blocker **B2** in §8, resolved by removal in 0.6.0.
 
 **ERR-TYPE-3a (RETIRED 2026-08-25). An error-inspecting combinator

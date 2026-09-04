@@ -1,11 +1,12 @@
-; `show` as a compiler-known head - phase 0 of the traits removal
-; (docs/reference.md, "Printing and Formatting"). Every `{hole}` and
-; every `(println x)` lowers to `(show x)`; the checker now answers it
-; from the argument's static type where no `(impl (Show T))` claims
-; the type, and this file pins the RENDERING that answer produces,
-; because it is a compatibility surface the moment it ships:
+; The RENDERING a hole produces, pinned per shape.
 ;
-;   scalars      unchanged - `Show.ax`'s four instances still win
+; Every `{hole}` and every `(println x)` lowers to a reserved head the
+; checker resolves from the argument's static type
+; (docs/reference.md, "Printing and Formatting"); `(format x)` is the
+; only way to write that lowering, and this file is what fixes the
+; bytes it produces, because they are a compatibility surface:
+;
+;   scalars      `Int`, `Float`, `Bool`, `String` - `Fmt`'s functions
 ;   Char         the character literal, escaped as the lexer spells it
 ;   data         a constructor application in the language's own
 ;                spelling, a nullary constructor bare
@@ -84,14 +85,13 @@
 
 (fn (noneInt) None)
 
-; A WRITTEN implementation still wins at the call while `Show.ax`
-; declares its instances, and a value INSIDE a structure is rendered
-; structurally regardless. That preference used to be pinned here with
-; an `(impl (Show Custom))` of this file's own. Traits went in 0.6.0
-; and took both the preference and the shape that expressed it: there
-; is no user-written instance to prefer any more, so `showResolve`
-; renders every type from its static type and this file pins that
-; alone.
+; There is no user-written rendering to prefer. A written `impl` used
+; to win at the call and that preference was pinned here with an
+; `(impl (Show Custom))` of this file's own; traits went in 0.6.0 and
+; took both the preference and the shape that expressed it. 0.7.4 took
+; the last of it: the head a hole lowers to is not a name a program can
+; declare, so `showResolve` renders every type from its static type and
+; this file pins that alone.
 (:: main Int)
 
 ;@axiom:effect(io)
@@ -106,41 +106,41 @@
     (bare "bo\"b")
   )
     {
-      (eq "int" (show 42) "42")
-      (eq "string bare at top level" (show bare) "bo\"b")
-      (eq "bool" (show true) "true")
-      (eq "float" (show 2.5) "2.500000")
+      (eq "int" (format 42) "42")
+      (eq "string bare at top level" (format bare) "bo\"b")
+      (eq "bool" (format true) "true")
+      (eq "float" (format 2.5) "2.500000")
       ; Char: the literal, escaped
-      (eq "char" (show 'x') "'x'")
-      (eq "char newline" (show '\n') "'\\n'")
-      (eq "char quote" (show ''') "'\\''")
-      (eq "char non-ascii" (show 'é') "'é'")
-      (eq "char four bytes" (show '😀') "'😀'")
+      (eq "char" (format 'x') "'x'")
+      (eq "char newline" (format '\n') "'\\n'")
+      (eq "char quote" (format ''') "'\\''")
+      (eq "char non-ascii" (format 'é') "'é'")
+      (eq "char four bytes" (format '😀') "'😀'")
       ; data
-      (eq "nullary" (show Red) "Red")
-      (eq "one field" (show (Circle 3)) "(Circle 3)")
-      (eq "two fields" (show (Rect 3 4)) "(Rect 3 4)")
-      (eq "nullary among fieldful" (show Dot) "Dot")
-      (eq "struct variant is positional" (show (Circ 7)) "(Circ 7)")
-      (eq "option some" (show (Some 3)) "(Some 3)")
-      (eq "option none" (show noneInt) "None")
-      (eq "option nested" (show (Some (Some 5))) "(Some (Some 5))")
-      (eq "one renderer per instantiation" (show (MkBox true)) "(MkBox true)")
-      (eq "and another" (show (MkBox 3)) "(MkBox 3)")
+      (eq "nullary" (format Red) "Red")
+      (eq "one field" (format (Circle 3)) "(Circle 3)")
+      (eq "two fields" (format (Rect 3 4)) "(Rect 3 4)")
+      (eq "nullary among fieldful" (format Dot) "Dot")
+      (eq "struct variant is positional" (format (Circ 7)) "(Circ 7)")
+      (eq "option some" (format (Some 3)) "(Some 3)")
+      (eq "option none" (format noneInt) "None")
+      (eq "option nested" (format (Some (Some 5))) "(Some (Some 5))")
+      (eq "one renderer per instantiation" (format (MkBox true)) "(MkBox true)")
+      (eq "and another" (format (MkBox 3)) "(MkBox 3)")
       ; struct
-      (eq "struct" (show p) "{x = 1, y = -2}")
+      (eq "struct" (format p) "{x = 1, y = -2}")
       (eq "struct in a hole" (format "p = {p}") "p = {x = 1, y = -2}")
-      (eq "string quoted inside a structure" (show n) "{name = \"bo\\\"b\\n\", ok = true, c = 'x', f = 1.500000}")
+      (eq "string quoted inside a structure" (format n) "{name = \"bo\\\"b\\n\", ok = true, c = 'x', f = 1.500000}")
       ; nested
-      (eq "struct inside data" (show (Some p)) "(Some {x = 1, y = -2})")
-      (eq "string inside data" (show (Some "top")) "(Some \"top\")")
-      (eq "char inside data" (show (Some 'q')) "(Some 'q')")
-      (eq "three fields, mixed" (show w) "(Wrap {x = 3, y = 4} Green (Some \"hi\"))")
+      (eq "struct inside data" (format (Some p)) "(Some {x = 1, y = -2})")
+      (eq "string inside data" (format (Some "top")) "(Some \"top\")")
+      (eq "char inside data" (format (Some 'q')) "(Some 'q')")
+      (eq "three fields, mixed" (format w) "(Wrap {x = 3, y = 4} Green (Some \"hi\"))")
       ; recursion
-      (eq "recursive type in full" (show xs) "(Cons 1 (Cons 2 Nil))")
-      (eq "strings in a list" (show (Cons "a\tb" (Cons "c" Nil))) "(Cons \"a\\tb\" (Cons \"c\" Nil))")
+      (eq "recursive type in full" (format xs) "(Cons 1 (Cons 2 Nil))")
+      (eq "strings in a list" (format (Cons "a\tb" (Cons "c" Nil))) "(Cons \"a\\tb\" (Cons \"c\" Nil))")
       (set c.next (Some c))
-      (eq "a value that reaches itself" (show c) "{v = 7, next = (Some ...)}")
+      (eq "a value that reaches itself" (format c) "{v = 7, next = (Some ...)}")
       0
     }
   )

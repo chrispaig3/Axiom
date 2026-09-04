@@ -81,7 +81,7 @@ See [reference.md](reference.md) for the language, and
 | `errCode` | value | `(-> Error Int)` |  |  |
 | `errMessage` | value | `(-> Error String)` |  |  |
 | `errContext` | value | `(-> Error String)` |  |  |
-| `errorText` | value | `(-> Error String)` | `Alloc,Mut` | The rendering `main` writes to fd 2 (ERR-REC-4), and the one a program builds a longer report out of. A plain function rather than a `Show` instance: dispatch is keyed on a type NAME, so an instance reached through a type variable is AX3025, and every caller here has a concrete `Error` in hand anyway. |
+| `errorText` | value | `(-> Error String)` | `Alloc,Mut` | The rendering `main` writes to fd 2 (ERR-REC-4), and the one a program builds a longer report out of. A plain function rather than a format hole: a rendering is chosen from a concrete type, so a value reached through a type variable is AX3025, and every caller here has a concrete `Error` in hand anyway. |
 | `isOk` | value | `(-> (Result a e) Bool)` |  |  |
 | `isErr` | value | `(-> (Result a e) Bool)` |  |  |
 | `unwrapOr` | value | `(-> (Result a e) a a)` |  |  |
@@ -149,7 +149,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Fmt`
 
-`stdlib/Fmt.ax` — 10 public names
+`stdlib/Fmt.ax` — 11 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -163,6 +163,7 @@ See [reference.md](reference.md) for the language, and
 | `fmtHexUpper` | value | `(-> Int String)` | `Alloc,Mut` | Uppercase hexadecimal, for the `{n:X}` specifier. Same digits as `fmtHex`, and deliberately a separate function rather than a flag: the specifier picks one at expansion time, so a branch would be a runtime test of a compile-time constant. |
 | `fmtFloat` | value | `(-> Float String)` | `Alloc,Mut` | `x` with six decimal places. |
 | `fmtFloatPrec` | value | `(-> Float Int String)` | `Alloc,Mut` | `x` with `places` decimal places, rounded half away from zero. |
+| `format` | macro |  |  | `format` — a String, built at compile time from a literal's runs and holes, or the hole lowering applied to anything else. |
 
 ## `Html`
 

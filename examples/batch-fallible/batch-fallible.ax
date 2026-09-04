@@ -138,7 +138,7 @@
   )
     (let (
       ; `cast Int`: a `handle` expression's type is the checker's
-      ; wildcard, and `println` selects a `Show` instance by type.
+      ; wildcard, and `println` selects a rendering by type.
       (skipTotal
         (cast Int (handle (sumRecords n k) (Fallible Alloc Mut) (fallibleCounting tally fallibleSkip)))
       )

@@ -53,9 +53,9 @@
 ; `writeStr` above is the whole runtime side: bytes, to a descriptor.
 ; Everything between a value and those bytes is decided at expansion
 ; time, so this module exports no `printInt`, no `printFloat`, and no
-; per-type anything - a type is rendered by the `Show` instance the
-; checker selects, and a WIDTH or a RADIX is chosen by a format
-; specifier rather than by picking a different function to call.
+; per-type anything - a type is rendered by the rendering the checker
+; selects from its static type, and a WIDTH or a RADIX is chosen by a
+; format specifier rather than by picking a different function to call.
 ;
 ; That is the whole of the unification. Before it, printing an `Int`
 ; padded to eight columns meant `(print (fmtPadLeft (fmtInt n) 8))` -
@@ -102,12 +102,12 @@
 ; docs/macro-system.md MAC-CAP-10 for the grammar, the lowering and
 ; the refusals.
 ;
-; Given anything that is NOT a literal, `syntax/format` answers
-; `(show e)` - so these are equally the general "print a value"
-; spelling. `(println n)` on an `Int` prints the integer, and
-; `(println s)` on a `String` is the identity instance, which is why
-; the seventy-eight `(println expr)` call sites that predate the macros
-; did not have to change.
+; Given anything that is NOT a literal, `syntax/format` answers one
+; rendering call on it - so these are equally the general "print a
+; value" spelling. `(println n)` on an `Int` prints the integer, and
+; `(println s)` on a `String` renders as itself (the call is elided
+; outright), which is why the seventy-eight `(println expr)` call sites
+; that predate the macros did not have to change.
 ;
 ; `syntax/formatln` is `syntax/format` with the newline folded into the
 ; last literal run AT EXPANSION TIME, so `(println "hi")` is one

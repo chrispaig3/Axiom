@@ -2223,7 +2223,7 @@
 ; than the declaration list, and it is what makes `(println "x =
 ; {x}")` a rewrite instead of a runtime parse. It is the whole of the
 ; compiler's involvement in formatting: the printing macros in
-; `stdlib/IO.ax` and `format` in `stdlib/Show.ax` are four lines each
+; `stdlib/IO.ax` and `format` in `stdlib/Fmt.ax` are four lines each
 ; on top of it (macro-system.md MAC-CAP-10).
 ;
 ; WHY THIS IS A COMPILER PRIMITIVE AND NOT A MACRO. Tier 1 is a
@@ -2245,14 +2245,15 @@
 ;
 ;   a string literal   parse it, and answer the concatenation of its
 ;                      literal runs with a rendering call per hole
-;   anything else      answer `(show e)` - one call, dispatched on
-;                      the argument's STATIC type
+;   anything else      answer `(format# e)` - one call, dispatched
+;                      on the argument's STATIC type
 ;
 ; The second case is why taking the name `println` for a macro cost
 ; no call site: every `(println expr)` written before this existed
-; still means what it meant, because `Show`'s `String` instance is
-; the identity. It is also `format`'s whole definition - `(format x)`
-; is "render x", which is what `format!("{}", x)` spells in Rust.
+; still means what it meant, because the rendering of a `String` is
+; the identity - the call is elided outright. It is also `format`'s
+; whole definition - `(format x)` is "render x", which is what
+; `format!("{}", x)` spells in Rust.
 ;
 ; `syntax/formatln` is the same thing with a newline folded into the
 ; last literal run at expansion time, so `(println "hi")` emits one
@@ -2261,7 +2262,7 @@
 ;
 ; THE HOLE GRAMMAR, and why it is this one:
 ;
-;   {name}                    render `name` with its `Show` instance
+;   {name}                    render `name` by its static type
 ;   {name:SPEC}               render it the way SPEC says
 ;   {{  }}                    a literal brace
 ;
@@ -2273,19 +2274,19 @@
 ; time - there is no run time here. Each part chooses a different
 ; `Fmt` FUNCTION, and the choice is made once, during expansion:
 ;
-;   {n}        (show n)
+;   {n}        (format# n)
 ;   {n:x}      (fmtHex n)
 ;   {x:.2}     (fmtFloatPrec x 2)
-;   {n:>8}     (fmtPadLeft (show n) 8)
-;   {s:<12}    (fmtPadRight (show s) 12)
-;   {s:^12}    (fmtPadCenter (show s) 12)
-;   {n:04}     (fmtPadZerosLeft (show n) 4)
+;   {n:>8}     (fmtPadLeft (format# n) 8)
+;   {s:<12}    (fmtPadRight (format# s) 12)
+;   {s:^12}    (fmtPadCenter (format# s) 12)
+;   {n:04}     (fmtPadZerosLeft (format# n) 4)
 ;   {x:>10.2}  (fmtPadLeft (fmtFloatPrec x 2) 10)
 ;
 ; This is what replaces a print function per type. `printInt` existed
 ; because rendering an `Int` was a different CALL from rendering a
 ; `String`; the rendering call is now chosen by the specifier and the
-; instance, so there is one `println` and no `printInt`.
+; argument's static type, so there is one `println` and no `printInt`.
 ;
 ; It is also where "validated at compile time" stops being a slogan.
 ; The parser rejects a malformed specifier (AX3031), and the CHECKER
@@ -2304,12 +2305,12 @@
 ; than left to fail as an empty identifier.
 ;
 ; TYPES ARE NOT CONSULTED HERE, and cannot be (MAC-CAP-7). A hole
-; becomes a CALL, and which instance or overload that call reaches is
-; the checker's business, decided after expansion from the argument's
-; static type. A hole naming a type with no `Show` instance is
-; `AX3025` at the invocation, with the expansion backtrace pointing
-; at the macro - which is the correct place for it, and is why this
-; needs no diagnostic of its own for the case.
+; becomes a CALL to the reserved head `format#`, and which function
+; that head is rewritten to is the checker's business, decided after
+; expansion from the argument's static type. A hole naming a type
+; with no rendering is `AX3025` at the invocation, with the expansion
+; backtrace pointing at the macro - which is the correct place for
+; it, and is why this needs no diagnostic of its own for the case.
 ; ------------------------------------------------------------------
 ; A parsed specifier. `align` is the byte `<`, `^` or `>`; `prec` is
 ; -1 when absent, `ty` is 0 when absent, and `ok` is 0 once a refusal
@@ -2334,35 +2335,78 @@
 
 ; The generated call `(f x)`, with `f` resolved the way a template's
 ; free identifier resolves - at the macro's DEFINITION site
-; (MAC-HYG-6). `strConcat` and `show` are the only two names this
-; query invents, and neither is written in any template, so they
-; cannot go through substTpl's path and have to take the same rule
-; explicitly.
+; (MAC-HYG-6). `strConcat`, `fmtInt` and the `fmtPad*` family are the
+; names this query invents, and none of them is written in any
+; template, so they cannot go through substTpl's path and have to take
+; the same rule explicitly.
 ;
-; The residue this leaves is MAC-HYG-8's, unchanged and now shared:
-; `expQualify` rewrites a name the MACRO's own module declares, and
-; `strConcat` belongs to `Str` rather than to `IO`, so it stays bare
-; and an entry file defining `show` or `strConcat` CAPTURES it.
+; THIS COMMENT HAS BEEN WRONG ABOUT CAPTURE TWICE, in opposite
+; directions, so what follows is a measurement each time.
 ;
-; That capture is SILENT and answers wrongly. This comment claimed the
-; opposite - "loud, a type error at the invocation" - until it was
-; measured, and the measurement is two programs:
+; It first said a capture would be "loud, a type error at the
+; invocation". It is not: a well-typed hijack is silent and answers
+; wrongly, and the two programs that showed it were
 ;
 ;   (:: show (-> a String)) (fn (show x) "HIJACKED")
-;   ... (println "n={n}")            prints  n=HIJACKED
+;   ... (println "n={n}")            printed  n=HIJACKED
 ;
 ;   (:: strConcat (-> String String String))
 ;   (fn (strConcat a b) "HIJACKED")
-;   ... (println "n={n}")            prints  HIJACKED
+;   ... (println "n={n}")            printed  HIJACKED
 ;
-; both at exit 0. A capture that happens to be ill-typed is loud, and
-; that is the case the old claim generalised from; a well-typed one is
-; not. Scope sets (MAC-HYG-9) are what close this, and until they land
-; it is pinned by tests/selfhost/383-format-capture.ax so the fix has
-; a test to flip.
+; both at exit 0. It then said, from that measurement, that an entry
+; file defining `show` OR `strConcat` captures - and kept saying so
+; after `expQualify` grew MAC-HYG-8's fourth rule, which is what
+; retired the second half. That rule rewrites a free identifier to
+; `Mod$name` when exactly ONE module in the merged declaration list
+; declares it; `Str` is the only module declaring `strConcat`, and the
+; entry file's own declaration is not a module's, so the lowering
+; emits `Str$strConcat` and the hijack is not reached. Re-measured on
+; the 0.7.3 binary, which predates this file's 0.7.4 changes: the
+; second program above prints `n=42`, and `symbols --calls` on `main`
+; reads `#calls=IO$writeStr,Str$strConcat,Sys$stdout`.
+;
+; The first half is closed differently, and by this commit: the
+; rendering head is `format#` (`expFmtShow`, below) and does not come
+; through here at all. tests/selfhost/383-format-capture.ax measures
+; both halves, so neither can go back to being a paragraph.
 (pub :: expFmtCall (-> Int String Int Int Int))
 
 (pub fn (expFmtCall env f x sp) (mkEApp (mkEVarAt (expQualify env f) sp) x))
+
+; The rendering call for one hole: `(format# x)`, and `format#` is a
+; head no program can write.
+;
+; This does NOT go through `expQualify`, and that is the whole point.
+; `expQualify` resolves a template's free identifier at the macro's
+; definition site, which is the right rule for `strConcat` and
+; `fmtInt` - they are library functions and a program may legitimately
+; own the name. `format#` is not a library function: nothing declares
+; it, `typecheck.ax`'s `showIsHead` claims the head and rewrites it
+; from the argument's static type, and no node carrying it survives
+; checking. Qualifying it would only give a module a chance to shadow
+; a name that is not its to shadow.
+;
+; `#` is not an identifier character - `(:: format# ...)` is `AX1001
+; unexpected character `#`` from the lexer - so the spelling is
+; unwritable in source and no declaration, in any module, can reach
+; it. It is spelled with the same `#` as the generated renderers
+; `show#Point`, `show#(Option Int)`, for the same reason and with no
+; collision: those are real emitted functions with a type name after
+; the `#`, this is a bare head with nothing after it.
+;
+; Until 0.7.4 this was `(expFmtCall env "show" v vsp)` and the head was
+; the ordinary, writable name `show`. An entry file declaring
+; `(:: show (-> a String))` captured every hole in the program,
+; silently and at exit 0 - measured, and pinned by
+; tests/selfhost/383-format-capture.ax, which now measures that it
+; does not.
+; It takes no `env`, unlike every other member of this family.
+; That absence is the signature of the rule: there is no environment
+; in which this head means anything but itself.
+(pub :: expFmtShow (-> Int Int Int))
+
+(pub fn (expFmtShow v sp) (mkEApp (mkEVarAt "format#" sp) v))
 
 ; `(f x n)` - the shape every width and precision specifier lowers
 ; to, since each of them is a `Fmt` function of a rendered String (or
@@ -2628,7 +2672,7 @@
 ;
 ; A macro that wants to render its own argument composes instead:
 ;
-;   (macro (logIt v) (println (strConcat "value is " (show v))))
+;   (macro (logIt v) (println (strConcat "value is " (format v))))
 ;
 ; The failure is loud, at the macro's own line, and pinned by
 ; tests/diagnostics/570-format-refusals.ax.
@@ -2656,7 +2700,7 @@
             (expFmtCall2
               env              "fmtFloatPrec"              v              (mkEInt prec)              vsp
             )
-            (expFmtCall env "show" v vsp)
+            (expFmtShow v vsp)
           )
         )
       )
@@ -2703,7 +2747,7 @@
             (cast Int (nodeB e))            0
           )
         )
-          ; Not a source literal: one `show`, dispatched on the
+          ; Not a source literal: one rendering call, dispatched on the
           ; static type. This is the arm that keeps `(println x)`
           ; meaning what it meant before `println` was a macro,
           ; and (via the word-b mark) the arm that stops an
@@ -2714,7 +2758,7 @@
               isp
             )
           ))
-            (let ((r (expFmtCall env "show" e sp)))
+            (let ((r (expFmtShow e sp)))
               (if (== nl 0)
                 r
                 (expFmtCat env r (expFmtLit "\\n" sp) sp)

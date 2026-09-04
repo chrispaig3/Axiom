@@ -1678,7 +1678,7 @@ what the argument *is*:
 | argument | answer |
 |---|---|
 | a string literal | the concatenation of its literal runs with one rendering call per hole |
-| anything else | `(show e)` — one call, dispatched on `e`'s static type |
+| anything else | `(format# e)` — one call, dispatched on `e`'s static type; `(format e)` is how a program writes it |
 
 The second row is load-bearing rather than a convenience: it is why
 `println` could *take the name* of the function it replaced. All 78
@@ -1719,21 +1719,21 @@ once, during expansion:
 
 | written | expands to |
 |---|---|
-| `{n}` | `(show n)` |
+| `{n}` | `(format n)` |
 | `{n:x}` / `{n:X}` | `(fmtHex n)` / `(fmtHexUpper n)` |
 | `{x:.2}` | `(fmtFloatPrec x 2)` |
-| `{n:>8}`, `{n:8}` | `(fmtPadLeft (show n) 8)` |
-| `{s:<12}` | `(fmtPadRight (show s) 12)` |
-| `{s:^12}` | `(fmtPadCenter (show s) 12)` |
-| `{n:04}` | `(fmtPadZerosLeft (show n) 4)` |
+| `{n:>8}`, `{n:8}` | `(fmtPadLeft (format n) 8)` |
+| `{s:<12}` | `(fmtPadRight (format s) 12)` |
+| `{s:^12}` | `(fmtPadCenter (format s) 12)` |
+| `{n:04}` | `(fmtPadZerosLeft (format n) 4)` |
 | `{x:>10.2}` | `(fmtPadLeft (fmtFloatPrec x 2) 10)` |
 
 **This is what replaces a print function per type.** `printInt`
 existed because rendering an `Int` was a different *call* from
 rendering a `String`; the call is now chosen by the specifier and the
-instance, so there is one `println` and the per-type family is gone
-(`IO` exported `printInt`/`printlnInt` until 2026-08-15; 445 call
-sites moved to `println`).
+argument's static type, so there is one `println` and the per-type
+family is gone (`IO` exported `printInt`/`printlnInt` until
+2026-08-15; 445 call sites moved to `println`).
 
 **MAC-CAP-10.3 — validation, and who owns which half.** The claim
 "format specifiers are validated at compile time" decomposes into two
@@ -1751,7 +1751,7 @@ mechanisms, and neither is a runtime check:
   function with a type, so a well-formed specifier applied to the
   wrong type is an ordinary `AX3004` at the invocation — `{s:.2}` on a
   `String` reaches `fmtFloatPrec`'s `Float` parameter. A hole naming
-  an unbound name is `AX3001`; one whose type `show` cannot render — a
+  an unbound name is `AX3001`; one whose type has no rendering — a
   type variable, a function value, a `Foreign` — is `AX3025`.
 
 No specifier can be "ignored at run time", because none of them
@@ -1766,26 +1766,27 @@ language has, and it is the form Rust's own 2021 edition settled on;
 `{}` is refused **by name** — naming the capture form in its help —
 rather than left to fail as an empty identifier.
 
-**MAC-CAP-10.5 (H, defective).** The two names these queries invent —
-`strConcat` and `show` — resolve through `expQualify`, the same
-definition-site rule a template's free identifier follows
-(`MAC-HYG-6`). Because `expQualify` only rewrites a name the *macro's
-own module* declares, and `strConcat` belongs to `Str` rather than to
-`IO`, both stay bare: an entry file defining `show` or `strConcat`
-captures them. This is `MAC-HYG-8`'s residue, now shared by the format
-lowering.
+**MAC-CAP-10.5 (H, CLOSED 0.7.4).** The names these queries invent —
+`strConcat`, `fmtInt`, the `fmtPad*` family, and the rendering call
+for a hole — are not written in any template, so they take
+`expQualify`'s definition-site rule (`MAC-HYG-6`) explicitly rather
+than through substitution. For as long as any of them could stay
+*bare*, an entry file declaring the same name captured it. That was
+`MAC-HYG-8`'s residue, shared by the format lowering, and it is now
+closed on both counts — by two different mechanisms, which is why the
+history is kept.
 
-**The capture is silent and answers wrongly**, and this paragraph said
-the opposite — "loud rather than silent, a type error at the
-invocation carrying the expansion backtrace" — until it was run. Two
-programs, both at exit 0:
+**The capture was silent and answered wrongly**, and this paragraph
+first said the opposite — "loud rather than silent, a type error at
+the invocation carrying the expansion backtrace" — until it was run.
+Two programs, both at exit 0:
 
 ```scheme
 (import IO)
 (:: show (-> a String))
 (fn (show x) "HIJACKED")
 ;@axiom:effect(io)
-(fn (main) (let ((n 42)) { (println "n={n}") 0 }))   ; prints n=HIJACKED
+(fn (main) (let ((n 42)) { (println "n={n}") 0 }))   ; printed n=HIJACKED
 ```
 
 ```scheme
@@ -1793,16 +1794,37 @@ programs, both at exit 0:
 (:: strConcat (-> String String String))
 (fn (strConcat a b) "HIJACKED")
 ;@axiom:effect(io)
-(fn (main) (let ((n 42)) { (println "n={n}") 0 }))   ; prints HIJACKED
+(fn (main) (let ((n 42)) { (println "n={n}") 0 }))   ; printed HIJACKED
 ```
 
 A capture that happens to be *ill-typed* is loud — an entry-file
 `(:: show (-> Int String))` fails, though it fails inside
 `stdlib/IO.ax` with no backtrace, which is its own defect — and that
-is the case the old claim generalised from. A well-typed capture is
-not loud at all. Scope sets (`MAC-HYG-9`) are what close this; until
-they land it is pinned by `tests/selfhost/383-format-capture.ax`, so
-the fix has a test to flip rather than a paragraph to re-read.
+is the case the old claim generalised from. A well-typed capture was
+not loud at all.
+
+**What closed the second program.** `expQualify` grew a fourth rule
+(`MAC-HYG-8` hole 4): a free identifier is rewritten to `Mod$name`
+when exactly *one module* in the merged declaration list declares it,
+and the entry file's own declaration is not a module's. `Str` is the
+only module declaring `strConcat`, so the lowering emits
+`Str$strConcat` and the hijack is not reached. Re-measured on the
+0.7.3 binary, which predates the 0.7.4 work below: the second program
+prints `n=42`, and `symbols --calls` on `main` reads
+`#calls=IO$writeStr,Str$strConcat,Sys$stdout`. This paragraph went on
+asserting the capture for as long as it took someone to re-run it,
+which is the argument for the fixture rather than the paragraph.
+
+**What closed the first program, in 0.7.4.** A hole's rendering call
+is no longer a name at all. `expFmtShow` emits the head `format#`,
+`#` is not an identifier character (`AX1001`), and the checker claims
+that head and rewrites it from the argument's static type — so
+`expQualify` is not consulted, nothing can declare the spelling, and
+`(format x)` is the only way a program writes the lowering.
+`tests/selfhost/383-format-capture.ax` measures both halves against a
+file that still declares its own `show` and its own `strConcat`, and
+`tests/diagnostics/621-show-removed.ax` pins that `(show 1)` is now an
+ordinary `AX3001`.
 
 <!-- doc-gate:negative-exempt narrative: this says what the corpus DOES contain - two shapes with no named type - which the AX3025 fixtures witness directly. It is a positive population claim wearing a negative clause. -->
 **MAC-CAP-10.6 — the dispatch cliff, and the two compiler bugs it
@@ -2658,13 +2680,13 @@ rule:
 | Language | LANG-1…12, LANG-14 (multi-rule over the declaration form — selected by ARITY for one day, and by a pattern MATCH in rule order since 2026-08-16, with arity surviving inside the match as a pre-filter), LANG-15 (four of its six pattern kinds), LANG-16 (v1: one repeating bare NAME as a rule's last element), LANG-18 | LANG-14 (rules over expression templates), LANG-15's last two kinds — a repeat over a PATTERN (LANG-16's second half) and a literal identifier (LANG-17) | LANG-13 |
 | Expansion | EXP-1…17 (module-side invocation landed 2026-08-15) | — | — |
 | Hygiene | HYG-1…8 (HYG-8's four holes are all closed, the last two on 2026-08-16; HYG-3a held-but-defective) | HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`type`/`effect`/invocation/iteration templates — the kind list closed 2026-08-15, and `impl` left it with the construct in 0.6.0), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5 held-but-defective) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
+| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`type`/`effect`/invocation/iteration templates — the kind list closed 2026-08-15, and `impl` left it with the construct in 0.6.0), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5's capture CLOSED in 0.7.4) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…6 | — | — |
 | Diagnostics | DIAG-1…5 (DIAG-5's second snippet landed 2026-08-15) | — | — |
 | Tooling | TOOL-1…6 (TOOL-6 held-but-defective) | — | — |
 
-Seven rules in the Holds column are held-but-defective, each with the
+Six rules in the Holds column are held-but-defective, each with the
 defect stated inline where it is defined —
 `MAC-EXP-8` (the over-application diagnostic anchors at the expansion,
 not the surplus argument), `MAC-EXP-11a` (the node budget counts
@@ -2673,9 +2695,10 @@ unexpanded nodes and its message blames macros that may not exist),
 offsets), `MAC-HYG-3a` (a renamed binder is still RENDERED under its
 gensym spelling; the `~>` half of that defect closed with
 `MAC-TOOL-5` on 2026-08-15), `MAC-CAP-3a` (`AX3022` reports and then
-emits the bad node anyway), `MAC-CAP-10.5` (the format lowering's
-`show` and `strConcat` are capturable by an entry file), and
-`MAC-TOOL-6` (`fmt` rewrites what `check` refuses to lex). This is [memory-model.md §9.0](memory-model.md)'s
+emits the bad node anyway), and
+`MAC-TOOL-6` (`fmt` rewrites what `check` refuses to lex).
+`MAC-CAP-10.5` was the seventh until 0.7.4, when the format
+lowering's last capturable name stopped being a name. This is [memory-model.md §9.0](memory-model.md)'s
 convention; the list, not any one entry, is the argument for gating.
 
 ### 11.1 What is gated

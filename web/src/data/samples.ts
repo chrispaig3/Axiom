@@ -97,8 +97,6 @@ export const SAMPLES: Sample[] = [
 
 (import Err)
 
-(import Show)
-
 (data Parcel
   (Ordered)
   (InTransit { carrier : String, days : Int })
