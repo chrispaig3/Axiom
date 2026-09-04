@@ -56,6 +56,27 @@ unfixed compiler answers 22, run) and a new `big` arm in
 stays green through the one-line ablation of this fix, which is why the
 cliff needed a fixture of its own.
 
+### Two match emitters could have written past a terminator, and now cannot
+
+`emitPairArms` and `emitArms` emitted a per-arm store and `br` — and, in
+the pair case, the scrutinee release — into whatever block the arm body
+left current, without asking whether the body had written its own
+terminator. Six other emitters ask (`emitArmsTail`, `emitPairArmsTail`,
+`emitIfTail`, `emitLet`, `emitRegion`, `retainTailLeaf`); these two did
+not.
+
+**It cannot fire today, and that is stated rather than assumed.** Word
+31 has exactly six setters, all in `codegen.ax`: a self tail jump, an
+`if` whose arms both terminated, a `musttail` leaf, `emitPairFwd` and
+`emitPairRet` twice. The last three are reached only from
+`emitExprTail`; the first two need word 30 (tail position), and
+`emitApp` snapshots word 30 and clears it before emitting an argument.
+Both of these emitters use `emitExpr`. So no Axiom source reaches the
+new branch, and it is **proved inert** rather than argued: 163 files
+across `tests/stdlib/`, `examples/`, `self_host/` and `stdlib/` emit
+byte-identical IR with and without it, `self_host/main.ax` (8,776,218
+bytes) included.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a
