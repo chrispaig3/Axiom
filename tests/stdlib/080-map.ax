@@ -47,7 +47,7 @@
 
 ; Insert `k -> k*10` for k in [lo, hi). Recursion, because there is no
 ; loop and no function value to fold with.
-(pub :: mtInsertRange (-> Int Int Int Int))
+(pub :: mtInsertRange (-> Map Int Int Map))
 
 (pub fn (mtInsertRange m lo hi)
   (if (>= lo hi)
@@ -63,7 +63,7 @@
 ; of keys that do. A single number that must equal `hi - lo` is a
 ; stronger assertion than a handful of spot checks, and it localises
 ; nothing - which is why the spot checks are also kept.
-(pub :: mtCountIntact (-> Int Int Int Int))
+(pub :: mtCountIntact (-> Map Int Int Int))
 
 (pub fn (mtCountIntact m lo hi)
   (if (>= lo hi)
@@ -86,7 +86,7 @@
 ; counter in `mapFindLoop` turns that into a wrong answer rather than a
 ; hang, so the assertion after this runs is that lookups are still
 ; *right*, not merely that the program terminated.
-(pub :: mtChurn (-> Int Int Int Int))
+(pub :: mtChurn (-> Map Int Int Map))
 
 (pub fn (mtChurn m key n)
   (if (<= n 0)

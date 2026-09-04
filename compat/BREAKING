@@ -478,3 +478,57 @@
 0.6.4  F  ledCtrlKey          (-> LineEd KeyEv Int Int) -> (-> LineEd KeyEv (Vec String) Int)
 0.6.4  F  termFlush           (-> Int Int) -> (-> (Vec String) Int): the output buffer is a vector of pieces
 0.6.4  F  tuiCat              (-> Int String) -> (-> (Vec String) String)
+
+# 0.7.4 - `stdlib/Map.ax` declares its handle. `Map` is a private
+# `(struct Map ...)` over the seven-word header `mapAllocTable` already
+# built, and the 36 declarations that spelled the handle position `Int`
+# spell it `Map`. The layout does not move - struct fields ARE words
+# 0..n-1, so `m.len` and `(memGetWord m 0)` are the same load, and
+# `tests/stdlib/404-container-reference-maps.ax` still reads the shape
+# word 1835024.
+#
+# WHY IT IS WORTH A BREAK. `Int` is this language's universal heap
+# handle and `tests/diagnostics/498-param-through-int.ax` defends it.
+# What the convention stops buying is anything at all once two modules'
+# handles are the same declared type: `(mapLen internNew)` and
+# `(mapGet 12345 1 0)` were well-typed programs, and the first thing
+# either did at run time was read a word that was not a map header.
+# Both are AX3004 now - tests/diagnostics/483-map-handle-not-int.ax.
+#
+# THE MUTATORS ANSWER 0, NOT THE HANDLE, and that half is not
+# cosmetic. A declared struct is `fldClass` class 2, so codegen retains
+# a reference-typed value at every return; a mutator declared
+# `(-> Map ... Map)` emits an unpaired retain per call. Measured
+# 2026-09-03 on the header's refcount word: 1/1/1 as shipped, 2/2/2
+# with the constructor's retain restored, and the reclaim fixture goes
+# from 1,359,872 to 87,130,112 bytes of max RSS while printing the same
+# answer. A caller that chained on the result passes the handle it
+# already holds instead; there were exactly two such sites in this
+# tree.
+0.7.4  F  mapNew                   Int -> Map
+0.7.4  F  mapNewRefVals            Int -> Map
+0.7.4  F  mapWithCapacity          (-> Int Int) -> (-> Int Map)
+0.7.4  F  mapWithCapacityRefVals   (-> Int Int) -> (-> Int Map)
+0.7.4  F  mapFree                  (-> Int Int) -> (-> Map Int)
+0.7.4  F  mapLen                   (-> Int Int) -> (-> Map Int)
+0.7.4  F  mapCap                   (-> Int Int) -> (-> Map Int)
+0.7.4  F  mapUsed                  (-> Int Int) -> (-> Map Int)
+0.7.4  F  mapOwnsVals              (-> Int Bool) -> (-> Map Bool)
+0.7.4  F  mapHas                   (-> Int Int Bool) -> (-> Map Int Bool)
+0.7.4  F  mapGet                   (-> Int Int Int Int) -> (-> Map Int Int Int)
+0.7.4  F  mapGetStr                (-> Int Int String String) -> (-> Map Int String String)
+0.7.4  F  mapSumVals               (-> Int Int) -> (-> Map Int)
+0.7.4  F  mapSumKeys               (-> Int Int) -> (-> Map Int)
+0.7.4  F  mapInsert                (-> Int Int a Int) -> (-> Map Int a Int); answers 0, not the handle
+0.7.4  F  mapRemove                (-> Int Int Int) -> (-> Map Int Int); answers 0, not the handle
+# THE FIVE ROWS BELOW ARE INVISIBLE TO THE GATE, and they are declared
+# anyway, for the reason the `Tui` block above gives: `compat/0.5.0.axsym`
+# is the baseline and none of these five existed at 0.5.0, so
+# `verify-compat.py` reads them as ADDED and asks for nothing. They DID
+# exist at the tagged v0.7.3 carrying the `Int` handle, and v0.7.3 is
+# the hop a consumer actually makes.
+0.7.4  F  mapKeyAt                 (-> Int Int Int) -> (-> Map Int Int)
+0.7.4  F  mapValAt                 (-> Int Int Int) -> (-> Map Int Int)
+0.7.4  F  mapLiveFrom              (-> Int Int (Option Int)) -> (-> Map Int (Option Int))
+0.7.4  F  mapKeys                  (-> Int (Vec Int)) -> (-> Map (Vec Int))
+0.7.4  F  mapValues                (-> Int (Vec Int)) -> (-> Map (Vec Int))

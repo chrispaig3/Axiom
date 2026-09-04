@@ -1,0 +1,26 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Map, found Int[0m
+  [1;34m--> [0m483-map-handle-not-int.ax:59:15
+[1;34m   |[0m
+[1;34m59 |[0m       (mapLen it)
+[1;34m   |[0m               [1;31m^^ this has type `Int`, expected `Map`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Map, found Int[0m
+  [1;34m--> [0m483-map-handle-not-int.ax:60:15
+[1;34m   |[0m
+[1;34m60 |[0m       (mapGet 12345 1 0)
+[1;34m   |[0m               [1;31m^^^^^ this has type `Int`, expected `Map`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `Map`[0m
+  [1;34m--> [0m483-map-handle-not-int.ax:61:16
+[1;34m   |[0m
+[1;34m61 |[0m       (mapLen (Map 0 8 0 0 0 0 0))
+[1;34m   |[0m                [1;31m^^^ no binding named `Map` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 3 previous errors

@@ -137,7 +137,7 @@
     {
       (set acc (+ acc (* 128 (b2i (&& (== (shapeOf (memGetWord (cast Int vr) 2)) 32784) (== (shapeOf (memGetWord (cast Int vp) 2)) 16))))))
       (set acc (+ acc (* 64 (b2i (== (shapeOf (memGetWord (memGetWord it 0) 2)) 32896)))))
-      (set acc (+ acc (* 32 (b2i (&& (== (shapeOf (cast Int vr)) 262152) (&& (== (shapeOf mp) 1835024) (== (shapeOf it) 327688)))))))
+      (set acc (+ acc (* 32 (b2i (&& (== (shapeOf (cast Int vr)) 262152) (&& (== (shapeOf (cast Int mp)) 1835024) (== (shapeOf it) 327688)))))))
       (set acc (+ acc (* 16 (b2i (bytesComeBack true)))))
       (set acc (+ acc (* 8 (b2i (== (b2i (bytesComeBack false)) 0)))))
       ; Cap 8 means a 64-byte data block. Nine pushes double it, the
@@ -152,7 +152,7 @@
           }
         )
       )
-      (set acc (+ acc (* 2 (b2i (&& (== (shapeOf (memGetWord mr 3)) 32784) (== (shapeOf (memGetWord mp 3)) 16))))))
+      (set acc (+ acc (* 2 (b2i (&& (== (shapeOf (memGetWord (cast Int mr) 3)) 32784) (== (shapeOf (memGetWord (cast Int mp) 3)) 16))))))
       ; The popped element keeps the caller's share: two retains put its
       ; count at 3, the pop zeroes the word, and the free walks past a
       ; zero rather than spending a share. Without `vecPop`'s zero the

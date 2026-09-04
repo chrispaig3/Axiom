@@ -16,6 +16,54 @@ its changelog too.
 
 ## Unreleased
 
+### `Map` is a type, not an `Int` — **breaking**
+
+`stdlib/Map.ax` had `0` structs and `61` raw `mem*` accesses. Its handle
+was a bare `Int`, which is this language's universal heap handle and is
+defended on purpose (`tests/diagnostics/498-param-through-int.ax`). What
+that convention stops buying is anything at all once two modules' handles
+are the *same declared type*: until now
+
+```scheme
+(let ((it internNew)) (+ (mapLen it) (mapGet 12345 1 0)))
+```
+
+**checked OK**, and the first thing `mapLen` did at run time was read
+word 0 of an intern table and call it a length. `Map` is now a private
+`(struct Map ...)` over the seven-word header `mapAllocTable` already
+built, and 36 declarations spell the handle position `Map`. Both calls
+above are `AX3004` — `tests/diagnostics/483-map-handle-not-int.ax`, whose
+own header records the two ablations that turn it green again.
+
+**The layout does not move.** Struct fields *are* words `0..n-1`, so
+`m.len` and `(memGetWord m 0)` are the same load; construction stays
+`memAllocMapped 56 28` because a struct *literal* would compute its own
+shape word from seven `Int` fields and emit bitmap `0`, dropping the
+three array words out of the block's reference map.
+`tests/stdlib/404-container-reference-maps.ax` still reads `1835024`, and
+`axiom emit-llvm self_host/main.ax` is byte-identical across the change
+(217,935 lines, `cmp` clean) — the compiler reaches `Map` only through
+`Intern`'s scalar helpers.
+
+**The mutators answer `0`, not the handle, and that is load-bearing.** A
+declared struct is `fldClass` class 2, so codegen retains a
+reference-typed value at every *return*; a mutator declared
+`(-> Map ... Map)` emits an unpaired retain per call. Measured on the
+header's refcount word over 0/10/110 inserts: `1/1/1` as shipped,
+`2/2/2` with the constructor's retain restored — and the reclaim fixture
+goes from **1,359,872 to 87,130,112 bytes** of max RSS while printing the
+same answer, with `080`, `200` and `473` all still matching their
+goldens. `scripts/check-container-reclaim.sh` is the only thing that sees
+it, and it reports `1328 KiB` before and after this change. Callers that
+chained on a mutator's result pass the handle they already hold; there
+were exactly two such sites in the tree.
+
+Casts in `Map.ax` go **up**, `1` to `3`, not down: `(cast Map m)` at
+`mapAllocTable`'s return and `(cast Int m)` at `mapFree`'s argument
+root. Raw `memGetWord`/`memSetWord` go from `51` to `24`. Every retyped
+public name is declared in `compat/BREAKING`, including the five
+`verify-compat.py` cannot see because they postdate the `0.5.0` baseline.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a

@@ -1,2 +1,2 @@
-E AX3004 354-map-value-type.ax:33:19-27 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"
-E AX3004 354-map-value-type.ax:33:8-14 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
+E AX3004 354-map-value-type.ax:39:19-27 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"
+E AX3004 354-map-value-type.ax:39:8-14 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
