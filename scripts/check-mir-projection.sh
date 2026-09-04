@@ -425,9 +425,21 @@ fi
 echo "ok   containment refuses a row its record does not support"
 
 # 2. TOTALITY sees a record deleted.
-# `head -n -N` is a GNU extension; BSD head refuses it. Count first.
-axirlines=$(wc -l < "$work/probe.axir" | tr -d ' ')
-head -n "$(( axirlines - 7 ))" "$work/probe.axir" > "$work/short.axir"
+# `head -n -N` is a GNU extension; BSD head refuses it, so the cut is
+# counted from the front. It is counted to the LAST `F ` line rather
+# than a fixed number of lines back from the end: a record was header,
+# `sig`, `param`s, `region` and `end` when this was written, and since
+# 2026-09-04 it can also carry a whole lowered body, so "seven lines"
+# stopped being "one record" and would have left the header in place -
+# which makes this probe report that totality ACCEPTED a short file
+# when nothing had been removed from it.
+lastF=$(grep -n '^F ' "$work/probe.axir" | tail -1 | cut -d: -f1)
+head -n "$(( lastF - 1 ))" "$work/probe.axir" > "$work/short.axir"
+if (( $(grep -c '^F ' "$work/short.axir") + 1 != $(grep -c '^F ' "$work/probe.axir") )); then
+  echo "FAIL: the totality probe did not remove exactly one record; it cannot"
+  echo "      test what it claims to."
+  exit 1
+fi
 if python3 - "$work/mir.axsym" "$work/short.axir" <<'PY' >/dev/null 2>&1
 import sys
 def tuple_of(line):

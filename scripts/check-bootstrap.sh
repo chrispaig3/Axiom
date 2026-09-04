@@ -736,6 +736,26 @@ floor=8192       # 8 MiB
 # 454.4, inside the 12-15% band the entries above keep - and the
 # reader this entry is for is the one merging three more slices onto
 # the same trunk, who should expect to watch the margin again.
+# NOT MOVED on 2026-09-04, and the number is here because the entries
+# above all end by telling the next reader to watch the margin. The
+# `.axir` record file started writing block bodies, which put
+# `self_host/mir.ax` inside `self_host/main.ax`'s import closure - 1,824
+# more source lines for a self-compile to read. Priced the same way, on
+# `emit-llvm self_host/main.ax`, in KiB:
+#
+#   HEAD's compiler on HEAD's source          496,560
+#   the NEW compiler on HEAD's source         496,560   +0.00%
+#   HEAD's compiler on the NEW source         505,152   +1.73%
+#   the NEW compiler on the NEW source        505,152   +1.73%
+#
+# The compiler CHANGE costs EXACTLY nothing on identical input - the two
+# pairs are equal to the KiB - and the 1.73% is 4.7 KiB per added source
+# line, against the 4.98 the entry above measured. The linear shape held.
+# This gate's own measurement path reports 493 MiB against the 512
+# ceiling, 3% of headroom, and HEAD's margin was already thin before
+# this landed: the ceiling is left where it is because nothing here
+# regressed, and the next slice onto this trunk should expect to be the
+# one that has to move it and say why.
 ceiling=524288   # 512 MiB, over a measured 454
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"

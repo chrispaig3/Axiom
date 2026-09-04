@@ -10,15 +10,28 @@
 ; 21k lines in which "what the program means" and "what the text
 ; says" are the same walk. This module is the first half of the seam
 ; between them. It holds an IR that a lowering can produce and a
-; backend can consume, and NOTHING IN THE COMPILER IMPORTS IT - that
-; is deliberate and `scripts/check-mir.sh` asserts it. While no
-; module imports `mir`, `axiom emit-llvm self_host/main.ax` is
-; byte-identical with this file present and with it deleted, so
-; adding it cannot have moved anything, and the seed compiles what it
-; always compiled (checked before starting rather than after:
-; `check-seed-provenance.sh` and `check-seed-lineage.sh` both hash a
-; tree extracted at the SEED COMMIT, never HEAD). Slice 2 is what
-; deletes that assertion, on purpose.
+; backend can consume.
+;
+; ONE MODULE OF THE COMPILER IMPORTS IT, since 2026-09-04:
+; `self_host/axir.ax`, which writes the `blk`, `op` and `term` lines
+; of the `.axir` record file under `symbols --axir --mir` from
+; whatever `mLowerFn` lowers here. That is the deliberate deletion the
+; first draft of this header promised - it said "NOTHING IN THE
+; COMPILER IMPORTS IT ... slice 2 is what deletes that assertion, on
+; purpose", and this is it. What replaces the assertion is not silence:
+; `scripts/check-mir.sh` §6 now pins the importer set EXACTLY, so a
+; second consumer of this IR is a decision someone wrote down rather
+; than an import that arrived with a copied block, and `mireval` -
+; the reference evaluator §4's differential compares the compiler
+; AGAINST - is still outside the compiler and still asserted to be.
+;
+; The consequence the old text was protecting is gone with it:
+; `axiom emit-llvm self_host/main.ax` is no longer byte-identical
+; with this file present and deleted, because the emitted program is
+; its entry file's import closure and this is now in it. The seed
+; compiles it, and `check-seed-provenance.sh` and
+; `check-seed-lineage.sh` still hash a tree extracted at the SEED
+; COMMIT rather than HEAD, so what the seed IS did not move.
 ;
 ; THE SHAPE, AND WHY THIS ONE. Functions of numbered basic blocks,
 ; values as integer registers, and BLOCK PARAMETERS rather than phi

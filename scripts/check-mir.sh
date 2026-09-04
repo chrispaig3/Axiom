@@ -5,9 +5,13 @@
 # `self_host/mir.ax` is the first slice of an IR between the checked
 # AST and `codegen.ax`: a representation, a lowering, a printer and a
 # verifier. `self_host/mireval.ax` is a reference evaluator over it.
-# Nothing in the compiler imports either - §6 asserts that - so this
-# gate is the only thing that runs them, and if it is weak they rot
-# silently.
+#
+# THE COMPILER NOW IMPORTS `mir`, and §6 has changed from "nobody does"
+# to "exactly `axir.ax` does". `axiom symbols --axir --mir` writes the
+# `blk`, `op` and `term` lines of every function `mLowerFn` lowers, so
+# the IR is inside `self_host/main.ax`'s import closure and the
+# self-host build compiles it. `mireval` is still outside, and is still
+# run only from here.
 #
 # THE HOLLOW VERSION OF THIS GATE, which is what every assertion
 # below is shaped against: compile eight fixtures, print their IR,
@@ -33,10 +37,10 @@
 #
 #   1. THE DRIVER BUILDS. `tests/mir/mirtool.ax` imports `mir`,
 #      `mireval` and the whole frontend, and is compiled by the
-#      compiler under test. That it builds at all is the check that
-#      the two new modules still compile against the current tree -
-#      they are not in `self_host/main.ax`'s import graph, so nothing
-#      else would notice them breaking.
+#      compiler under test. `mir` is now in `self_host/main.ax`'s
+#      import graph and the self-host build would notice IT breaking;
+#      `mireval` is not, so for that half this is still the only check
+#      that it compiles against the current tree at all.
 #
 #   2. THE PRINTER, against `tests/mir/NAME.mir`, byte for byte. The
 #      regenerable half, and it is here for the reason a golden is
@@ -62,13 +66,20 @@
 #
 #   6. THE BOUNDARY, and the coverage floor.
 #
-#      No module in `self_host/` imports `mir` or `mireval` except
-#      `mireval` itself. While that holds, `axiom emit-llvm
-#      self_host/main.ax` cannot have moved: the emitted program is
-#      the transitive import closure of the entry file, and these two
-#      are not in it. Slice 2 deletes this assertion deliberately -
-#      it is a statement about where the work has got to, not a rule
-#      forever.
+#      The boundary USED to be "nothing in `self_host/` imports the
+#      IR", which made `axiom emit-llvm self_host/main.ax`
+#      byte-identical with `mir.ax` present and deleted. That is over:
+#      `self_host/axir.ax` imports `mir` to write the `blk`, `op` and
+#      `term` lines of the record file, exactly the deliberate
+#      deletion the old text promised. What replaces it is an
+#      assertion with the same job - saying where the arrow points -
+#      rather than a deleted line: the importer set is EXACTLY
+#      `axir.ax` for `mir` and `mireval.ax` alone for `mireval`, so a
+#      second consumer of either is an edit someone made on purpose
+#      and not one that arrived with a copied import block. `mireval`
+#      staying out is the load-bearing half now: it is the reference
+#      evaluator, it exists to disagree with the compiler, and a
+#      compiler that imported it could not.
 #
 #      Then the floor. The lowering handles a SUBSET, and refuses
 #      anything else outright, so a rule that narrowed itself to keep
@@ -305,16 +316,30 @@ fi
 echo
 echo "--- 6. the boundary, and the coverage floor ---"
 # ---------------------------------------------------------------
-# `mireval` imports `mir`; nothing else in self_host/ may import
-# either, or the two would be inside `self_host/main.ax`'s import
-# closure and this change would no longer be inert.
-importers="$(grep -l -E '^\(import (mir|mireval)\)' self_host/*.ax | grep -v '^self_host/mireval\.ax$' | tr '\n' ' ')"
-if [[ -z "$importers" ]]; then
-  ok "no compiler module imports mir or mireval - the emitted compiler cannot have moved"
+# WHO IMPORTS THE IR, spelled as an exact set rather than as "nobody".
+# `axir.ax` imports `mir` because `symbols --axir --mir` writes the
+# body lines; `mireval.ax` imports `mir` because it evaluates it. Any
+# THIRD importer is a widening of the compiler's dependency on an IR
+# that is still one slice old, and any importer of `mireval` at all
+# would put the reference evaluator inside the thing it is the
+# reference for.
+mir_importers="$(grep -l -E '^\(import mir\)' self_host/*.ax | LC_ALL=C sort | tr '\n' ' ')"
+mir_want="self_host/axir.ax self_host/mireval.ax "
+if [[ "$mir_importers" == "$mir_want" ]]; then
+  ok "mir is imported by exactly axir.ax (the record writer) and mireval.ax"
 else
-  bad "these modules import the IR: $importers"
-  echo "     While that is true, this gate's inertness claim is void; slice 2"
-  echo "     removes the claim rather than the import."
+  bad "mir's importers are [$mir_importers], want [$mir_want]"
+  echo "     A module that lowers to this IR is a decision, not a default. If the"
+  echo "     new importer is intended, say so here and move the expected set with"
+  echo "     it; the point of the set is that it cannot grow in silence."
+fi
+eval_importers="$(grep -l -E '^\(import mireval\)' self_host/*.ax | tr '\n' ' ')"
+if [[ -z "$eval_importers" ]]; then
+  ok "no compiler module imports mireval - the reference evaluator is outside the compiler"
+else
+  bad "these compiler modules import the reference evaluator: $eval_importers"
+  echo "     §4's differential compares the compiler against mireval. A compiler"
+  echo "     that contains mireval is comparing something with itself."
 fi
 
 FLOOR=1900
@@ -597,5 +622,5 @@ fi
 echo "check-mir: $checks checks - $n_fix fixtures lower to SSA with block"
 echo "           parameters, print what their goldens say, verify clean,"
 echo "           and EVALUATE to what the compiled program prints;"
-echo "           $tot_l of $tot_t corpus functions lower; nothing in the"
-echo "           compiler imports the IR yet."
+echo "           $tot_l of $tot_t corpus functions lower; mir is imported by"
+echo "           axir.ax alone and mireval by nothing."

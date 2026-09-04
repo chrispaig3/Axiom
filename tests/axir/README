@@ -1,16 +1,28 @@
 tests/axir - hand-written `.axir` fixtures.
 
-WHY THEY ARE HAND-WRITTEN. `axiom symbols --axir` writes the record
-header, `sig`, `param` and `region` lines; it writes no `blk`, `op` or
-`term`, because there is no mid-level IR in this tree yet for them to
-describe. Those three line kinds are nonetheless in the grammar and in
-the reader, and a reader arm that nothing exercises is a reader arm
-that is wrong the day something does. The `.axir` files here are the
-input the compiler cannot yet produce, and `check-mir-roundtrip.sh`
-round-trips them beside the emitted corpus.
+WHY THEY ARE STILL HAND-WRITTEN, NOW THAT THE COMPILER EMITS BODIES.
+`axiom symbols --axir --mir` writes the record header, `sig`, `param`,
+`region`, and - since 2026-09-04 - the `blk`, `op` and `term` lines of
+every function `self_host/mir.ax`'s `mLowerFn` lowers and `mirVerify`
+passes. That corpus is thousands of records deep and
+`check-mir-roundtrip.sh` round-trips it, so these files stopped being
+the only evidence the body arms of the reader work.
+
+What they still are is the corpus for what the compiler does NOT write.
+`body.axir` names blocks `entry` and `loop` and carries opcodes -
+`alloc`, `store`, `phi` - that this IR does not have, because the
+grammar is a format and not a spelling of one lowering: a reader that
+only accepted what today's `mLowerFn` emits would refuse the next one's
+output. `lowered.axir` is the other side, and is the emitted shape
+verbatim: `bb0` numbering, block parameters on the join, `condbr`,
+`trapz`, a `trap` block, `call`, and `br` carrying its argument.
 
 The `.bad` files are the other half: each is one way a file can be
 malformed, and the gate asserts the reader REFUSES it. A reader that
 accepted them would round-trip a shorter file than it was given, which
 is the failure a round-trip check on well-formed input alone cannot
-see.
+see. `blk-param-without-sigil.bad` and `blk-unlabelled.bad` are the two
+the widened `blk` line added: it went from a fixed two atoms to a label
+plus a block-parameter list when the body started being written, so
+"too few fields" and "a register spelled without its `%`" are both
+reachable there now.

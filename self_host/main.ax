@@ -121,9 +121,10 @@
 ; `--axir` REPLACES the stream rather than adding to it: the `.axir`
 ; record file is the second half of one design, holding per function
 ; exactly what an AXSYM line has no room for - the arity, the
-; parameter names, the region-facts words, and the block and
-; instruction lines a mid-level IR will write. The two join on the
-; whole `F` header tuple, which is why the record repeats it verbatim.
+; parameter names, the region-facts words, and, under `--mir`, the
+; block and instruction lines of the function as `mir.ax`'s `mLowerFn`
+; lowered it. The two join on the whole `F` header tuple, which is why
+; the record repeats it verbatim.
 ; It is not affected by `--diagnostic-format`: there is one rendering
 ; of a record file, and the human table is a rendering of AXSYM.
 ;

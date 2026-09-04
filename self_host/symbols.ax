@@ -643,13 +643,25 @@
   ; had no row, so `Assert` was public API outside the stream.
   (efN : (Vec Int))
   (efS : (Vec Int))
-  (efU : (Vec Int)))
+  (efU : (Vec Int))
+  ; The `fn` DECLARATION NODE, on slot 16's key, so that a reader who
+  ; has the parameter names can also reach the body they belong to.
+  ; `axir.ax` lowers it to the mid-level IR for the `blk`/`op`/`term`
+  ; lines under `--mir`.
+  ;
+  ; A SECOND VALUE ON ONE KEY, not a second map. `saIdx` is a linear
+  ; scan and this map is one entry per declared function - 4,098 of
+  ; them for `self_host/main.ax` - so a parallel map keyed the same way
+  ; would have cost a second scan per put AND per get, quadratically,
+  ; to answer the question this one is already standing next to.
+  ; `saPut2` is what the span maps already do for exactly this shape.
+  (fnD : (Vec Int)))
 
 (pub :: smNew Int)
 
 (pub fn (smNew)
   (cast Int (SymMaps
-    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew
+    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew
   ))
 )
 
@@ -694,7 +706,9 @@
               )
               (smNid sm name "DFn:")
               (smTags sm d name)
-              (saPut (memGetWordVec sm 16) (memGetWordVec sm 17) name (nodeB d))
+              (saPut2
+                (memGetWordVec sm 16)                (memGetWordVec sm 17)                (memGetWordVec sm 26)                name                (nodeB d)                d
+              )
             }
             (if (== tag TAG_D_DATA)
               {

@@ -1,0 +1,8 @@
+axir 1 darwin-aarch64 0.0.0
+F alpha src/a.ax:1:5-10 "(Int -> Int)" @1
+sig 1
+blk bb0
+term br bb1 %0
+blk bb1 3
+term ret %3
+end

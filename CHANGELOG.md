@@ -30,12 +30,16 @@ its changelog too.
 `self_host/mir.ax` is an SSA IR between the checked AST and the code
 generator: functions of numbered basic blocks, values as integer
 registers, and BLOCK PARAMETERS rather than phi nodes. `self_host/
-mireval.ax` is a reference evaluator over it. **Nothing in the compiler
-imports either**, and `scripts/check-mir.sh` asserts that, so `axiom
-emit-llvm self_host/main.ax` is what it was and the committed seed
-compiles what it always compiled. Routing the code generator through
-the IR is the next slice; this one exists so that the IR exists, is
-inspectable, and something real goes through it.
+mireval.ax` is a reference evaluator over it. **Exactly one module of
+the compiler imports the IR** — `self_host/axir.ax`, which writes the
+`blk`, `op` and `term` lines of the record file below — and nothing
+imports the evaluator, which is what keeps `check-mir.sh` §4's
+differential a comparison between two implementations rather than a
+comparison with itself. `check-mir.sh` §6 pins that importer set
+exactly, so a second consumer is a decision someone wrote down.
+Routing the code GENERATOR through the IR is still the next slice;
+this one exists so that the IR exists, is inspectable, and something
+real goes through it.
 
 What lowers: integer literals, variables, `let`, `if`, `begin`, the
 eleven arithmetic and comparison operators, and a direct call of a
@@ -173,11 +177,44 @@ Two new gates, sixty-three gates now call `gate_build_axc`:
   to the default stream; and the truncation sentinel held to the depth
   it reports.
 
-`blk`, `op` and `term` are in the grammar and in the reader and nothing
-writes them: `codegen.ax` walks the typed AST and emits LLVM text
-directly, so there are no blocks to serialise yet. They are exercised by
-`tests/axir/body.axir` rather than left untested, because a reader arm
-nothing exercises is a reader arm that is wrong the day something does.
+**`blk`, `op` and `term` are written now, and the sentence that said
+they were not is deleted rather than qualified.** They were in the
+grammar and in the reader with nothing writing them, exercised only by
+`tests/axir/body.axir`, because there was no mid-level IR to describe.
+There is one in this same release, so `symbols --axir --mir` renders
+every function `mLowerFn` lowers: one `blk` per block, one `op` per
+instruction, one `term` per terminator. A body is ALL OR NOTHING and is
+run through `mirVerify` before a line is written, because a record
+carrying a body its own verifier complains about publishes a defect in
+the lowering as a fact about the program; a function outside the subset
+emits what it emitted before and nothing more. Measured 2026-09-04: 389
+of a stdlib probe's 839 records carry a body and 1,457 of
+`self_host/main.ax`'s 4,097, together reaching all 13 opcode spellings
+and all 5 terminator spellings, with 1,236 blocks taking a parameter.
+
+`blk` widened with them, from a fixed two atoms to a label plus a
+block-parameter list: this IR has block parameters instead of phi nodes,
+so a `blk` that could write a branch's arguments down but not the
+parameter they land in is a record no reader can turn back into a
+function. The parameters carry the `%` sigil and the reader strips it,
+so `tests/axir/blk-param-without-sigil.bad` is refused.
+
+Under `--mir` and not without it, which `check-mir-roundtrip.sh` holds
+in both directions: the default stream carries no body line, and the
+`--mir` stream with its body lines deleted IS the default stream.
+Measured 2026-09-04 on `self_host/main.ax`, `--axir` is 7.2s and
+`--axir --mir` is 31.7s — against 37.6s for the AXSYM `symbols --mir`
+on the same file, which lowers nothing, so nearly all of it is the
+region fixpoint that flag already forced. The round trip alone cannot
+see an emitter that stopped emitting, so the gate also holds a floor
+under the body count and an opcode census derived from `mBinOp` and
+`axirTermLine` rather than listed beside them.
+
+`tests/axir/body.axir` is now the corpus for what the compiler does NOT
+write — `entry`, `loop`, `alloc`, `store`, `phi` — because the grammar
+is a format rather than a spelling of one lowering, and a reader that
+accepted only today's output would refuse tomorrow's.
+`tests/axir/lowered.axir` is the emitted shape verbatim.
 
 The AXDL half of the projection is designed and **not built**.
 `docs/mir-design.md` §5 has the measurement (no `AX3049` line in the

@@ -14,18 +14,36 @@
 ;
 ;     axir 1 <target> <version>
 ;
-; WHAT IS IN A RECORD TODAY, and what is reserved. There is no
-; mid-level IR in this tree yet - the code generator walks the typed
-; AST and emits LLVM text directly (`codegen.ax` names its own
-; dependencies as core.ax and parser.ax), so there are no blocks and
-; no instructions to serialise. What the compiler DOES have per
-; function, and threw away unprojected, is the region-facts record the
-; checker builds: `FnEnt` word 8, an interprocedural dataflow summary
-; of which parameters a body stores a fresh value into, which
-; parameters flow into which, and where its result comes from. That is
-; what a record carries now. `blk`, `op` and `term` are SPECIFIED and
-; READ - the fixtures under tests/axir/ exercise them - and nothing
-; writes them until a mid-level IR lands.
+; WHAT IS IN A RECORD TODAY. Two halves, arriving by two routes. The
+; first is the region-facts record the checker builds and used to
+; throw away unprojected: `FnEnt` word 8, an interprocedural dataflow
+; summary of which parameters a body stores a fresh value into, which
+; parameters flow into which, and where its result comes from - the
+; `region` line. The second is the BODY: `blk`, `op` and `term`, one
+; line per block, instruction and terminator of the SSA IR in
+; `self_host/mir.ax`, as `mLowerFn` lowered it.
+;
+; THE BODY LINES WERE SPECIFIED AND READ AND NOT WRITTEN, and this
+; paragraph used to say why: there was no mid-level IR for them to
+; describe. There is one now, so this file imports `mir` and writes
+; them, and the hand-written fixtures under tests/axir/ stopped being
+; the only evidence those reader arms work.
+;
+; A BODY IS ALL OR NOTHING, AND IT IS VERIFIED BEFORE IT IS WRITTEN.
+; `mLowerFn` lowers a subset of the checked AST and refuses the whole
+; function outside it - it never answers a partial one - and what it
+; does answer goes through `mirVerify` before a line is rendered. A
+; record carrying a body its own verifier complains about would
+; publish a defect in the lowering as a fact about the program. A
+; function that refuses, or whose lowering does not verify, emits
+; exactly what it emitted before this landed and nothing more.
+;
+; UNDER `--mir`, NOT WITHOUT IT. `--mir` is the flag documented as
+; slow - it forces the region-facts fixpoint, 0.72s to 21.7s on this
+; compiler - and lowering plus verifying every function is the same
+; kind of cost on the same stream. `symbols --axir` alone emits what
+; it always did, byte for byte, and `check-mir-roundtrip.sh` compares
+; the two streams to say so.
 ;
 ; THE JOIN KEY IS THE WHOLE HEADER TUPLE, NOT THE NID, and that is a
 ; correction to docs/compatibility.md COMPAT-2, which says the nid IS
@@ -86,6 +104,8 @@
 
 (import build)
 
+(import mir)
+
 ; ------------------------------------------------------------------
 ; The line kinds. A closed set: `axirRead` refuses anything else, the
 ; way the driver's flag table refuses an unknown flag, because a
@@ -128,8 +148,16 @@
 )
 
 ; Whether the kind's arity is exact. `op` and `term` carry a variable
-; operand list; `F` carries an optional nid; every other kind is
-; fixed.
+; operand list and `blk` a variable BLOCK-PARAMETER list; `F` carries
+; an optional nid; every other kind is fixed.
+;
+; `blk` WIDENED WHEN THE BODY STARTED BEING WRITTEN, and that is a
+; change to the grammar rather than to its implementation. This IR has
+; block parameters and no phi nodes - mir.ax's header says why - so a
+; join block names its incoming value once and each `br` names the
+; argument. A `blk` fixed at two atoms could write the arguments down
+; and not the parameter they land in, which is a record no reader can
+; turn back into a function.
 (pub :: axirKindExact (-> String Bool))
 
 (pub fn (axirKindExact k)
@@ -137,9 +165,12 @@
     false
     (if (strEq k "term")
       false
-      (if (strEq k "F")
+      (if (strEq k "blk")
         false
-        true
+        (if (strEq k "F")
+          false
+          true
+        )
       )
     )
   )
@@ -221,6 +252,255 @@
         )
       )
     }
+  )
+)
+
+; ------------------------------------------------------------------
+; The body lines: `blk`, `op` and `term`.
+;
+; THE SPELLINGS ARE `mirInst`'s, not a second set. `add`, `sdiv`,
+; `condbr`, `trapz`, `__axiom_div_by_zero` - a tool holding both
+; `mirtool print`'s output and a record file joins them on the opcode
+; word rather than on a table mapping one vocabulary to the other, and
+; `mirReg` and `mirBB` are CALLED rather than re-spelled, so a
+; register and a block cannot be numbered one way here and another
+; way there.
+;
+; A REGISTER CARRIES ITS SIGIL AND A BLOCK DOES NOT. `%3` is a value,
+; `bb3` is a place, and `term br bb3 %4` puts one of each in the same
+; operand list - so the byte tells them apart, not the position.
+; ------------------------------------------------------------------
+
+; A possibly negative integer. `symsDigits` is unsigned - AXSYM reaches
+; it only for indices - and `MO_CONST` carries a source literal, so the
+; sign is written here rather than assumed away.
+(pub :: axirNum (-> Int String))
+
+(pub fn (axirNum n)
+  (if (< n 0)
+    (strConcat "-" (symsDigits (- 0 n)))
+    (symsDigits n)
+  )
+)
+
+; ` %0 %1 %2` - the operand SUFFIX a register list renders as, leading
+; space included so an empty list renders as nothing at all. One
+; spelling for the block parameters, the call arguments and the block
+; arguments, for the reason `mirRegList` is one spelling: three that
+; agreed today would be three to keep in step.
+(pub :: axirRegs (-> (Vec Int) Int String String))
+
+(pub fn (axirRegs v i acc)
+  (if (>= i (vecLen v))
+    acc
+    (axirRegs
+      v      (+ i 1)      (strConcat acc (strConcat " " (mirReg (vecGet v i))))
+    )
+  )
+)
+
+; One instruction, or "" for an opcode this grammar does not spell.
+;
+; THE OPCODE SET IS CLOSED HERE TOO, and "" is what closes it.
+; `mirInst` answers `<unknown op 7>` in that position - three atoms,
+; two of them meaningless - and an `op` line built from it would reach
+; the reader as a well-formed line about nothing. `mirVerify` refuses
+; such an instruction and runs first, so this arm should be
+; unreachable; it is written as a refusal rather than a fall-through
+; because "should be unreachable" is how the verifier's own opcode set
+; came to be open in the first place.
+(pub :: axirOpLine (-> MInst String))
+
+(pub fn (axirOpLine n)
+  (if (== n.op MO_CONST)
+    (strConcat "op " (strConcat (mirReg n.dst) (strConcat " const " (axirNum n.a))))
+    (if (== n.op MO_BIN)
+      (strConcat
+        "op "        (strConcat
+          (mirReg n.dst)          (strConcat
+            " "            (strConcat n.name (strConcat " " (strConcat (mirReg n.a) (strConcat " " (mirReg n.b)))))
+          )
+        )
+      )
+      (if (== n.op MO_CALL)
+        (strConcat
+          "op "          (strConcat
+            (mirReg n.dst)            (strConcat " call " (strConcat (saAxSafe n.name) (axirRegs n.args 0 "")))
+          )
+        )
+        ""
+      )
+    )
+  )
+)
+
+; One terminator, or "" for an opcode this grammar does not spell.
+;
+; THE CALLEE AND THE TRAP HELPER GO THROUGH `saAxSafe`, the parameter
+; names' escaper, and the header name still does not. That asymmetry
+; is the one docs/mir-design.md §3 argues for: the header tuple is
+; joined to AXSYM by BYTE equality and must not be escaped where
+; `symLine` is not, while these two are read by nothing but this file,
+; and a structural byte in either would silently add an atom to the
+; line.
+(pub :: axirTermLine (-> MInst String))
+
+(pub fn (axirTermLine t)
+  (if (== t.op MT_RET)
+    (strConcat "term ret " (mirReg t.a))
+    (if (== t.op MT_BR)
+      (strConcat "term br " (strConcat (mirBB t.tgt) (axirRegs t.args 0 "")))
+      (if (== t.op MT_CONDBR)
+        (strConcat
+          "term condbr "          (strConcat
+            (mirReg t.a)            (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))
+          )
+        )
+        (if (== t.op MT_TRAPZ)
+          (strConcat
+            "term trapz "            (strConcat
+              (mirReg t.a)              (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))
+            )
+          )
+          (if (== t.op MT_TRAP)
+            (if (>= t.a 0)
+              (strConcat "term trap " (strConcat (saAxSafe t.name) (strConcat " " (mirReg t.a))))
+              (strConcat "term trap " (saAxSafe t.name))
+            )
+            ""
+          )
+        )
+      )
+    )
+  )
+)
+
+; One block onto `out`. Answers 0 the moment a line renders as "" or
+; the block carries other than one terminator - `mirVerify` reports
+; both, and this asks again rather than trusting it, because here the
+; two questions are one line apart and there they are a whole pass
+; apart.
+(pub :: axirBlockLines (-> MBlock (Vec String) Int))
+
+(pub fn (axirBlockLines b out)
+  (let (
+    (mut ok 1)
+    (mut i 0)
+  )
+    {
+      (vecPushStr
+        out        (strConcat "blk " (strConcat (mirBB b.id) (strConcat (axirRegs b.params 0 "") "\n")))
+      )
+      (while (< i (vecLen b.instrs))
+        {
+          (let ((s (axirOpLine (vecGet b.instrs i))))
+            (if (== (strLen s) 0)
+              (set ok 0)
+              {
+                (vecPushStr out (strConcat s "\n"))
+                0
+              }
+            )
+          )
+          (set i (+ i 1))
+        })
+      (if (== (vecLen b.term) 1)
+        (let ((s (axirTermLine (vecGet b.term 0))))
+          (if (== (strLen s) 0)
+            (set ok 0)
+            {
+              (vecPushStr out (strConcat s "\n"))
+              0
+            }
+          )
+        )
+        (set ok 0)
+      )
+      ok
+    }
+  )
+)
+
+; The whole body of one lowered function, appended to `parts`, or
+; nothing appended at all.
+;
+; THE LINES ARE BUILT ASIDE AND MOVED ACROSS ONLY WHEN EVERY BLOCK
+; RENDERED. Appending straight onto `parts` and stopping at the first
+; refusal would leave a record holding the blocks up to the one that
+; failed - a partial body, which is exactly what `mLowerFn` goes out
+; of its way never to answer.
+(pub :: axirBodyLines (-> MFunc (Vec String) Int))
+
+(pub fn (axirBodyLines f parts)
+  (let (
+    (body vecNew)
+    (mut ok 1)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen f.blocks))
+        {
+          (if (== (axirBlockLines (vecGet f.blocks i) body) 0)
+            (set ok 0)
+            0
+          )
+          (set i (+ i 1))
+        })
+      (if (== ok 1)
+        (let ((mut k 0))
+          {
+            (while (< k (vecLen body))
+              {
+                (vecPush parts (vecGetStr body k))
+                (set k (+ k 1))
+              })
+            0
+          }
+        )
+        0
+      )
+      ok
+    }
+  )
+)
+
+; The `fn` declaration behind one `FnEnt`, or 0.
+;
+; THE INDEX IS `smBuild`'s, NOT A SECOND ONE. `smCollect` already keys
+; a map by the MANGLED name - what `tcFnsVec` holds - and hangs the
+; parameter names off it; slot 26 hangs the declaration node off the
+; same key through `saPut2`. A parallel map built here would be a
+; second walk of every declaration and a second `saIdx` scan per
+; record, and `saIdx` is linear: measured on `self_host/main.ax`,
+; `--axir` costs 7.6s for 4,098 records against 0.29s for the 839-row
+; stdlib probe, which is (4098/839)^2 to within 10% - this map's scans
+; ARE the shape of that curve, and doubling them would have been paid
+; on the largest module in the tree.
+(pub :: axirDeclFor (-> Int String Int))
+
+(pub fn (axirDeclFor sm key) (cast Int (saGet (memGetWordVec sm 16) (memGetWordVec sm 26) key)))
+
+; The body of `d`, when there is a `d`, when it lowers, and when what
+; it lowers to verifies. Three refusals and one answer, and each
+; refusal is silent for the same reason: this stream reports what the
+; compiler knows about a program, and "this lowering does not handle
+; that shape" is a fact about the lowering.
+(pub :: axirLowered (-> Int (Vec String) Int))
+
+(pub fn (axirLowered d parts)
+  (if (== d 0)
+    0
+    (let ((got (mLowerFn d)))
+      (if (== (vecLen got) 0)
+        0
+        (let ((fnir (vecGet got 0)))
+          (if (== (vecLen (mirVerify fnir)) 0)
+            (axirBodyLines fnir parts)
+            0
+          )
+        )
+      )
+    )
   )
 )
 
@@ -308,6 +588,14 @@
                               0
                             }
                           )
+                        )
+                        ; The body goes AFTER the region line, so a
+                        ; record reads outside-in: who the function is,
+                        ; what its signature is, what the checker
+                        ; concluded about it, and then what it does.
+                        (if (== mir 1)
+                          (axirLowered (axirDeclFor sm name) parts)
+                          0
                         )
                         (vecPush parts "end\n")
                         0
@@ -453,33 +741,60 @@
           )
           0
         }
-        (if (strEq kind "op")
-          ; %n opcode operand... - the destination carries its sigil
-          (let ((dst (axirUnsigil (vecGetStr toks 1) 37)))
-            (if (== (cast Int dst) 0)
-              (set ok 0)
-              (let ((mut k 2))
-                {
-                  (vecPushStr rec dst)
-                  (while (< k (vecLen toks))
-                    {
-                      (vecPushStr rec (vecGetStr toks k))
-                      (set k (+ k 1))
-                    })
-                  0
-                }
-              )
-            )
-          )
-          (let ((mut k 1))
+        (if (strEq kind "blk")
+          ; LABEL %p... - a block's parameters are registers and
+          ; NOTHING ELSE, so unlike an `op` operand they are stripped
+          ; here rather than kept raw. The position cannot hold a
+          ; block name or a literal, so the sigil is a checkable claim
+          ; in it; in an operand list it is not, which is why
+          ; `term br bb3 %4` keeps both atoms as they were written.
+          (let ((mut k 2))
             {
-              (while (< k (vecLen toks))
+              (vecPushStr rec (vecGetStr toks 1))
+              (while (&& (< k (vecLen toks)) (== ok 1))
                 {
-                  (vecPushStr rec (vecGetStr toks k))
+                  (let ((pr (axirUnsigil (vecGetStr toks k) 37)))
+                    (if (== (cast Int pr) 0)
+                      (set ok 0)
+                      {
+                        (vecPushStr rec pr)
+                        0
+                      }
+                    )
+                  )
                   (set k (+ k 1))
                 })
               0
             }
+          )
+          (if (strEq kind "op")
+            ; %n opcode operand... - the destination carries its sigil
+            (let ((dst (axirUnsigil (vecGetStr toks 1) 37)))
+              (if (== (cast Int dst) 0)
+                (set ok 0)
+                (let ((mut k 2))
+                  {
+                    (vecPushStr rec dst)
+                    (while (< k (vecLen toks))
+                      {
+                        (vecPushStr rec (vecGetStr toks k))
+                        (set k (+ k 1))
+                      })
+                    0
+                  }
+                )
+              )
+            )
+            (let ((mut k 1))
+              {
+                (while (< k (vecLen toks))
+                  {
+                    (vecPushStr rec (vecGetStr toks k))
+                    (set k (+ k 1))
+                  })
+                0
+              }
+            )
           )
         )
       )
@@ -572,7 +887,7 @@
                       {
                         (set s (strConcat
                           s                          (strConcat
-                            " "                            (if (&& (strEq kind "op") (== k 1))
+                            " "                            (if (|| (&& (strEq kind "op") (== k 1)) (&& (strEq kind "blk") (> k 1)))
                               (strConcat "%" (vecGetStr rec k))
                               (vecGetStr rec k)
                             )
