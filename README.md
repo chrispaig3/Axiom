@@ -6,24 +6,7 @@
 
 <img width="1500" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
 
-Axiom has algebraic data types, exhaustive pattern matching, first-class
-functions and a Hindley–Milner-style type system — and it compiles through
-LLVM straight to a native executable. There is no virtual machine, no
-garbage collector, and no C library underneath it: `nm -u` on a compiled
-Axiom program lists **zero** undefined symbols, and a gate fails the build
-if that ever stops being true. Memory comes from an `mmap`-backed bump
-allocator; heap blocks carry a reference count, and `region` reclaims a
-whole scope at once where peak memory matters.
-
-What is actually unusual about Axiom is not a language feature. It is that
-this project **refuses to state anything it cannot execute a check for.**
-`;@axiom:effect(io)` is not documentation — it is a *claim*, and the
-compiler falsifies it against the syscalls the body really reaches; declare
-`pure` over a function that writes and the build stops. The same discipline
-runs the whole way down: 74 gate scripts, nearly every one carrying an
-*ablation* that has to go red, so a check that could never fail is itself a
-bug. Even the prose is held to it — the numbers in this file, and on the
-website, are recomputed from the tree on every build.
+Algebraic data types, exhaustive matching and an effect system the compiler checks, lowered through LLVM to a native executable with no VM, no collector and no libc inside it.
 
 The compiler is written in Axiom: 102,352 lines of it, which rebuild
 themselves from a committed LLVM seed until two successive compilers are
