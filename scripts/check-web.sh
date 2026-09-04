@@ -184,6 +184,10 @@ examples_hygiene() {
 
 echo "== examples/ holds sources and static assets, and no build output =="
 ex_rows="$work/examples.rows"
+# `$4` is the path, so a path containing a space arrives truncated. That
+# fails LOUD rather than quiet - the truncated name has the wrong
+# extension and the arm above refuses it - which is the direction this
+# gate wants to be wrong in.
 git ls-files -s examples/ | awk '{print $1, $4}' > "$ex_rows"
 ex_n="$(wc -l < "$ex_rows" | tr -d ' ')"
 if examples_hygiene "examples/" < "$ex_rows"; then
