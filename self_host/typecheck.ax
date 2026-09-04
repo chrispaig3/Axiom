@@ -19505,10 +19505,10 @@
     ; guarantee that might not hold is worth less than no claim at all.
     (if (== (memGetWord tc 32) 1)
       (emitDiag tc (mkDiag
-        SEV_ERROR        "AX3057"        "restriction-unproven"        (nodeSpan d)        (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ", strict)` and the claim cannot be PROVEN: " why))        0        0        "`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The three readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller. Name the function at the call site, stop calling the parameter, or drop `strict` to keep the claim as a checked best effort (AX3051)"
+        SEV_ERROR        "AX3057"        "restriction-unproven"        (nodeSpan d)        (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ", strict)` and the claim cannot be PROVEN: " why))        0        0        "`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The four readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller, and a region fixpoint that hit its round limit. Name the function at the call site, stop calling the parameter, shorten the chain, or drop `strict` to keep the claim as a checked best effort (AX3051)"
       ))
       (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved"
+      SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved"
       ))
     )
   )
@@ -23179,7 +23179,10 @@
     0
     {
       (memSetWord tc 28 1)
-      (rgnRounds tc (memGetWordVec tc 10) 0)
+      ; Word 33 is the fixpoint's own verdict: 1 when it gave up. Kept
+      ; beside word 28 ("has run") because "ran" and "converged" are
+      ; different facts and only one of them licenses a silence.
+      (memSetWord tc 33 (rgnRounds tc (memGetWordVec tc 10) 0))
       0
     }
   )
@@ -23187,9 +23190,18 @@
 
 (pub :: rgnRounds (-> Int (Vec Int) Int Int))
 
+; Answers 0 when the facts CONVERGED and 1 when the round cap was
+; reached with facts still moving. Both used to answer 0, so a caller
+; could not tell a proven claim from an abandoned one - and
+; `restrictNoEscape` read that silence as proof. Measured before the
+; fix, with the callees declared BELOW their callers so one level
+; propagates per pass: a chain of depth 38 was refused and depth 39 was
+; ACCEPTED, on a body that provably stores a fresh allocation into its
+; parameter. Declaration order is why this hid so long - the same chain
+; written leaf-first converges in two passes at any depth.
 (pub fn (rgnRounds tc decls round)
   (if (>= round 40)
-    0
+    1
     (if (== (rgnPass tc decls 0 0) 0)
       0
       (rgnRounds tc decls (+ round 1))
@@ -23274,7 +23286,14 @@
                 )
                 (if (!= (memGetWord f 5) 0)
                   (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve - a parameter, a closure or a field - so where its allocations flow is not something the walk can settle")
-                  0
+                  ; No culprit and no unresolved call - but that is only
+                  ; proof if the facts SETTLED. If the fixpoint hit its
+                  ; round cap the facts are a lower bound, not an answer,
+                  ; and the claim is unproven rather than proven.
+                  (if (!= (memGetWord tc 33) 0)
+                    (emitRestrictUnverifiable tc d r "the region fixpoint reached its round limit before the facts settled, so this claim is unproven rather than proven - the call chain below this declaration is deeper than the walk resolves. `strict` already means an unproven claim is refused; without it this is a warning")
+                    0
+                  )
                 )
               )
             )

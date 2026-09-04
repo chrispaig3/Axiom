@@ -1,0 +1,19 @@
+[1;33mwarning[AX3051][0m[1m: `top` claims `restrict(no-escape)` and the claim cannot be checked: the region fixpoint reached its round limit before the facts settled, so this claim is unproven rather than proven - the call chain below this declaration is deeper than the walk resolves. `strict` already means an unproven claim is refused; without it this is a warning[0m
+  [1;34m--> [0m650-region-fixpoint-cap.ax:30:6
+[1;34m   |[0m
+[1;34m30 |[0m (fn (top v x) (f42 v x))
+[1;34m   |[0m      [1;33m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
+
+[1;31merror[AX3057][0m[1m: `topStrict` claims `restrict(no-escape, strict)` and the claim cannot be PROVEN: the region fixpoint reached its round limit before the facts settled, so this claim is unproven rather than proven - the call chain below this declaration is deeper than the walk resolves. `strict` already means an unproven claim is refused; without it this is a warning[0m
+  [1;34m--> [0m650-region-fixpoint-cap.ax:35:6
+[1;34m   |[0m
+[1;34m35 |[0m (fn (topStrict v x) (f42 v x))
+[1;34m   |[0m      [1;31m^^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0m`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The four readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller, and a region fixpoint that hit its round limit. Name the function at the call site, stop calling the parameter, shorten the chain, or drop `strict` to keep the claim as a checked best effort (AX3051)
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3057` for a full explanation
+
+compilation failed due to 1 previous error

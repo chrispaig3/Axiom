@@ -1,0 +1,216 @@
+; The region fixpoint has a round cap, and reaching it is not proof.
+;
+; `rgnRounds` walks every `fn` until no fact moves, or until 40 rounds
+; have passed. Both outcomes used to answer 0, so `restrictNoEscape`
+; could not tell a claim the walk PROVED from one it ABANDONED - and it
+; read the abandoned one as a silence, which is what a proven claim
+; looks like.
+;
+; MEASURED before the fix, on this exact shape: a chain of depth 38 was
+; refused with AX3049 and a chain of depth 39 was ACCEPTED IN SILENCE,
+; on a leaf that provably stores a fresh allocation into its parameter.
+;
+; DECLARATION ORDER IS WHY THIS HID. `rgnPass` walks the declaration
+; list in order, so when a callee is declared ABOVE its caller the facts
+; travel the whole chain in one pass and any depth converges in two.
+; This file declares each callee BELOW its caller, so exactly one level
+; propagates per pass and the chain outruns the cap. Written the other
+; way round, this same program is refused at any depth.
+;
+; So: `top` gets AX3051, a warning - the claim is unproven, not
+; disproven - and `topStrict` gets AX3057, because `strict` means an
+; unproven claim is refused.
+(import Vec)
+
+(import Str)
+
+;@axiom:restrict(no-escape)
+(:: top (-> (Vec String) String Int))
+
+(fn (top v x) (f42 v x))
+
+;@axiom:restrict(no-escape, strict)
+(:: topStrict (-> (Vec String) String Int))
+
+(fn (topStrict v x) (f42 v x))
+
+(:: f42 (-> (Vec String) String Int))
+
+(fn (f42 v x) (f41 v x))
+
+(:: f41 (-> (Vec String) String Int))
+
+(fn (f41 v x) (f40 v x))
+
+(:: f40 (-> (Vec String) String Int))
+
+(fn (f40 v x) (f39 v x))
+
+(:: f39 (-> (Vec String) String Int))
+
+(fn (f39 v x) (f38 v x))
+
+(:: f38 (-> (Vec String) String Int))
+
+(fn (f38 v x) (f37 v x))
+
+(:: f37 (-> (Vec String) String Int))
+
+(fn (f37 v x) (f36 v x))
+
+(:: f36 (-> (Vec String) String Int))
+
+(fn (f36 v x) (f35 v x))
+
+(:: f35 (-> (Vec String) String Int))
+
+(fn (f35 v x) (f34 v x))
+
+(:: f34 (-> (Vec String) String Int))
+
+(fn (f34 v x) (f33 v x))
+
+(:: f33 (-> (Vec String) String Int))
+
+(fn (f33 v x) (f32 v x))
+
+(:: f32 (-> (Vec String) String Int))
+
+(fn (f32 v x) (f31 v x))
+
+(:: f31 (-> (Vec String) String Int))
+
+(fn (f31 v x) (f30 v x))
+
+(:: f30 (-> (Vec String) String Int))
+
+(fn (f30 v x) (f29 v x))
+
+(:: f29 (-> (Vec String) String Int))
+
+(fn (f29 v x) (f28 v x))
+
+(:: f28 (-> (Vec String) String Int))
+
+(fn (f28 v x) (f27 v x))
+
+(:: f27 (-> (Vec String) String Int))
+
+(fn (f27 v x) (f26 v x))
+
+(:: f26 (-> (Vec String) String Int))
+
+(fn (f26 v x) (f25 v x))
+
+(:: f25 (-> (Vec String) String Int))
+
+(fn (f25 v x) (f24 v x))
+
+(:: f24 (-> (Vec String) String Int))
+
+(fn (f24 v x) (f23 v x))
+
+(:: f23 (-> (Vec String) String Int))
+
+(fn (f23 v x) (f22 v x))
+
+(:: f22 (-> (Vec String) String Int))
+
+(fn (f22 v x) (f21 v x))
+
+(:: f21 (-> (Vec String) String Int))
+
+(fn (f21 v x) (f20 v x))
+
+(:: f20 (-> (Vec String) String Int))
+
+(fn (f20 v x) (f19 v x))
+
+(:: f19 (-> (Vec String) String Int))
+
+(fn (f19 v x) (f18 v x))
+
+(:: f18 (-> (Vec String) String Int))
+
+(fn (f18 v x) (f17 v x))
+
+(:: f17 (-> (Vec String) String Int))
+
+(fn (f17 v x) (f16 v x))
+
+(:: f16 (-> (Vec String) String Int))
+
+(fn (f16 v x) (f15 v x))
+
+(:: f15 (-> (Vec String) String Int))
+
+(fn (f15 v x) (f14 v x))
+
+(:: f14 (-> (Vec String) String Int))
+
+(fn (f14 v x) (f13 v x))
+
+(:: f13 (-> (Vec String) String Int))
+
+(fn (f13 v x) (f12 v x))
+
+(:: f12 (-> (Vec String) String Int))
+
+(fn (f12 v x) (f11 v x))
+
+(:: f11 (-> (Vec String) String Int))
+
+(fn (f11 v x) (f10 v x))
+
+(:: f10 (-> (Vec String) String Int))
+
+(fn (f10 v x) (f9 v x))
+
+(:: f9 (-> (Vec String) String Int))
+
+(fn (f9 v x) (f8 v x))
+
+(:: f8 (-> (Vec String) String Int))
+
+(fn (f8 v x) (f7 v x))
+
+(:: f7 (-> (Vec String) String Int))
+
+(fn (f7 v x) (f6 v x))
+
+(:: f6 (-> (Vec String) String Int))
+
+(fn (f6 v x) (f5 v x))
+
+(:: f5 (-> (Vec String) String Int))
+
+(fn (f5 v x) (f4 v x))
+
+(:: f4 (-> (Vec String) String Int))
+
+(fn (f4 v x) (f3 v x))
+
+(:: f3 (-> (Vec String) String Int))
+
+(fn (f3 v x) (f2 v x))
+
+(:: f2 (-> (Vec String) String Int))
+
+(fn (f2 v x) (f1 v x))
+
+(:: f1 (-> (Vec String) String Int))
+
+(fn (f1 v x) (f0 v x))
+
+(:: f0 (-> (Vec String) String Int))
+
+(fn (f0 v x)
+  {
+    (vecPush v (strConcat x "!"))
+    0
+  }
+)
+
+(:: main Int)
+
+(fn (main) 0)

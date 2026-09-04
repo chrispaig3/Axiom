@@ -4,7 +4,7 @@
 [1;34m74 |[0m (fn (softIo f n) (f n))
 [1;34m   |[0m      [1;33m^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are three readings: an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all. Name the function at the call, stop calling the parameter, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
+  [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
 
 [1;31merror[AX3057][0m[1m: `hardIo` claims `restrict(no-io, strict)` and the claim cannot be PROVEN: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
@@ -13,7 +13,7 @@
 [1;34m59 |[0m (fn (hardIo f n) (f n))
 [1;34m   |[0m      [1;31m^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0m`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The three readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller. Name the function at the call site, stop calling the parameter, or drop `strict` to keep the claim as a checked best effort (AX3051)
+  [1;34m = [0m[1;32mhelp: [0m`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The four readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller, and a region fixpoint that hit its round limit. Name the function at the call site, stop calling the parameter, shorten the chain, or drop `strict` to keep the claim as a checked best effort (AX3051)
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3057` for a full explanation
 
 [1;31merror[AX3057][0m[1m: `hardAlloc` claims `restrict(no-alloc, strict)` and the claim cannot be PROVEN: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
@@ -22,7 +22,7 @@
 [1;34m64 |[0m (fn (hardAlloc f n) (f n))
 [1;34m   |[0m      [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0m`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The three readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller. Name the function at the call site, stop calling the parameter, or drop `strict` to keep the claim as a checked best effort (AX3051)
+  [1;34m = [0m[1;32mhelp: [0m`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The four readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller, and a region fixpoint that hit its round limit. Name the function at the call site, stop calling the parameter, shorten the chain, or drop `strict` to keep the claim as a checked best effort (AX3051)
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3057` for a full explanation
 
 [1;31merror[AX3057][0m[1m: `hardRec` claims `restrict(no-recursion, strict)` and the claim cannot be PROVEN: the body CALLS its own parameter `f`, so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call[0m
@@ -31,7 +31,7 @@
 [1;34m69 |[0m (fn (hardRec f n) (f n))
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0m`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The three readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, and a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller. Name the function at the call site, stop calling the parameter, or drop `strict` to keep the claim as a checked best effort (AX3051)
+  [1;34m = [0m[1;32mhelp: [0m`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The four readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller, and a region fixpoint that hit its round limit. Name the function at the call site, stop calling the parameter, shorten the chain, or drop `strict` to keep the claim as a checked best effort (AX3051)
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3057` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `refuted` claims `restrict(no-io)` and the body performs IO: refuted -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3[0m
