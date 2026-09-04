@@ -221,4 +221,5 @@ tests/lsp/050-unparseable.golden|1|lspg_version|lspg_replace
 tests/lsp/060-outline.golden|1|lspg_version|lspg_replace
 tests/lsp/070-warning-only.golden|1|lspg_version|lspg_replace
 tests/lsp/080-many-diagnostics.golden|1|lspg_version|lspg_replace
+tests/lsp/090-related-spans.golden|1|lspg_version|lspg_replace
 "
