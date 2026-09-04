@@ -1,0 +1,618 @@
+; axir.ax - the `.axir` record file: Axiom IR facts, written and read back.
+;
+; WHY THE EXTENSION IS NOT `.mir`. LLVM owns `.mir` - it is Machine IR,
+; the post-ISel form `llc -stop-after=<pass>` writes - and this
+; toolchain writes it today. Measured 2026-09-03 on this machine:
+; `llc --version` is Homebrew LLVM 23.1.0, and
+; `llc -stop-after=finalize-isel -o s1.mir s1.ll` turned a 1,312-line
+; `.ll` into 248,183 bytes of Machine IR, exit 0. Axiom's own
+; mid-level IR sits ABOVE LLVM IR and LLVM's sits below it; two
+; different IRs in one tree cannot share one extension without every
+; later tool sniffing content to know which it is holding. Hence
+; `.axir`, and hence the magic first line, so a reader never has to
+; guess:
+;
+;     axir 1 <target> <version>
+;
+; WHAT IS IN A RECORD TODAY, and what is reserved. There is no
+; mid-level IR in this tree yet - the code generator walks the typed
+; AST and emits LLVM text directly (`codegen.ax` names its own
+; dependencies as core.ax and parser.ax), so there are no blocks and
+; no instructions to serialise. What the compiler DOES have per
+; function, and threw away unprojected, is the region-facts record the
+; checker builds: `FnEnt` word 8, an interprocedural dataflow summary
+; of which parameters a body stores a fresh value into, which
+; parameters flow into which, and where its result comes from. That is
+; what a record carries now. `blk`, `op` and `term` are SPECIFIED and
+; READ - the fixtures under tests/axir/ exercise them - and nothing
+; writes them until a mid-level IR lands.
+;
+; THE JOIN KEY IS THE WHOLE HEADER TUPLE, NOT THE NID, and that is a
+; correction to docs/compatibility.md COMPAT-2, which says the nid IS
+; a name's identity. Measured 2026-09-03 over
+; `axiom symbols self_host/main.ax --builtins --diagnostic-format ai`:
+; 4,153 lines, 4,068 carrying a nid, 4,066 distinct. The two
+; collisions are between genuinely different functions - `die` at
+; stdlib/IO.ax:501 and at self_host/main.ax:2009 both hash to
+; @52fb9ccad9feab1b, and `jsonHexDigit` at self_host/render.ax:1184
+; and stdlib/Json.ax:453 both to @9adebbbea99ca85b. The nid is FNV-1a
+; 64 over `DKind:name` with the BARE name, so two modules declaring
+; the same unmangled name collide by construction. A record's header
+; line therefore repeats AXSYM's whole tuple verbatim, and a tool
+; joining the two streams joins on the tuple.
+;
+; ONE FACT PER LINE, LF-terminated, ASCII, whitespace-delimited, and
+; colourless - AXSYM's rules, because a second set of rules for a
+; second agent-facing stream is a second thing to get wrong. A
+; parameter name goes through `saAxSafe`, symbols.ax's escaper, rather
+; than through a second one.
+;
+; THE HEADER NAME DOES NOT, and that is deliberate rather than an
+; oversight. `symLine` does not escape it either, and the join between
+; the two streams is BYTE equality of the whole tuple: a record that
+; escaped where AXSYM does not would fail to join on exactly the name
+; that needed escaping. `check-mir-projection.sh` asserts the tuples
+; are equal, in order, so the day the two spellings diverge is the day
+; that gate reddens rather than the day a join silently misses a row.
+; What makes it safe today is that a declared name is an identifier
+; and an operator is punctuation, neither of which can carry a
+; structural byte - a name that could is `smGenerated`, and
+; `symFnRowSkipped` drops it before either renderer sees it.
+;
+; THE READER IS NOT A PASSTHROUGH, and the round-trip gate depends on
+; that. `axirRead` decomposes each line into its atoms with the sigils
+; (`@`, `%`, the quotes) STRIPPED, and `axirWrite` puts them back. A
+; reader that kept raw lines would satisfy `emit | read | emit ==
+; emit` without reading anything, which is the vacuous check this
+; repository names most often.
+
+(import Pre (range))
+
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import core)
+
+(import parser)
+
+(import typecheck)
+
+(import symbols)
+
+(import diag)
+
+(import build)
+
+; ------------------------------------------------------------------
+; The line kinds. A closed set: `axirRead` refuses anything else, the
+; way the driver's flag table refuses an unknown flag, because a
+; format that silently drops a line it does not know is a format that
+; reports less than it was given. The number is how many
+; whitespace-separated atoms the line carries INCLUDING the kind
+; word; -1 is "no such kind".
+; ------------------------------------------------------------------
+(pub :: axirKindArityMin (-> String Int))
+
+(pub fn (axirKindArityMin k)
+  (if (strEq k "axir")
+    4
+    (if (strEq k "F")
+      4
+      (if (strEq k "sig")
+        2
+        (if (strEq k "param")
+          3
+          (if (strEq k "region")
+            6
+            (if (strEq k "blk")
+              2
+              (if (strEq k "op")
+                3
+                (if (strEq k "term")
+                  2
+                  (if (strEq k "end")
+                    1
+                    (- 0 1)
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Whether the kind's arity is exact. `op` and `term` carry a variable
+; operand list; `F` carries an optional nid; every other kind is
+; fixed.
+(pub :: axirKindExact (-> String Bool))
+
+(pub fn (axirKindExact k)
+  (if (strEq k "op")
+    false
+    (if (strEq k "term")
+      false
+      (if (strEq k "F")
+        false
+        true
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Writing.
+; ------------------------------------------------------------------
+
+; One record's header, byte for byte AXSYM's own `F` tuple. The
+; arguments arrive already escaped and already rendered by the same
+; helpers `symbolsRenderGens` uses, so "verbatim" is a property of the
+; call site rather than a hope.
+(pub :: axirHeader (-> String String String String String))
+
+(pub fn (axirHeader name loc ty nid)
+  (let ((mut s "F "))
+    {
+      (set s (strConcat s (strConcat name (strConcat " " loc))))
+      (set s (strConcat s (strConcat " \"" (strConcat ty "\""))))
+      (if (> (strLen nid) 0)
+        (set s (strConcat s (strConcat " @" nid)))
+        ""
+      )
+      (strConcat s "\n")
+    }
+  )
+)
+
+; The `region` line: the checker's own words, undecoded.
+;
+; RAW, DELIBERATELY. `axiom symbols --mir` prints the DECODED form -
+; `#mir-escapes=p,q` - and if this line carried the same decoding then
+; `check-mir-projection.sh`'s containment property would be comparing
+; a value with itself. The numbers here are `rgnFactsNew`'s words 1,
+; 2, 3, 4 and 5 as the fixpoint left them, so the gate re-derives the
+; meta from the encoding typecheck.ax documents and compares two
+; independent derivations.
+;
+; `flows-from` is one mask per parameter, comma-joined; a function
+; with no parameters renders `-`, because an empty field would make
+; the line's arity depend on its content.
+(pub :: axirRegionLine (-> Int Int String))
+
+(pub fn (axirRegionLine f np)
+  (let (
+    (ff (memGetWordVec f 2))
+    (mut from "")
+    (mut i 0)
+  )
+    {
+      (while (< i np)
+        {
+          (if (> i 0)
+            (set from (strConcat from ","))
+            ""
+          )
+          (set from (strConcat
+            from            (if (&& (!= (cast Int ff) 0) (< i (vecLen ff)))
+              (symsDigits (vecGet ff i))
+              "0"
+            )
+          ))
+          (set i (+ i 1))
+        })
+      (if (== np 0)
+        (set from "-")
+        ""
+      )
+      (strConcat
+        "region "        (strConcat
+          (symsDigits (memGetWord f 1))          (strConcat
+            (strConcat " " from)            (strConcat
+              (strConcat " " (symsDigits (memGetWord f 3)))              (strConcat
+                (strConcat " " (symsDigits (memGetWord f 4)))                (strConcat (strConcat " " (symsDigits (memGetWord f 5))) "\n")
+              )
+            )
+          )
+        )
+      )
+    }
+  )
+)
+
+; The whole file for one checked module.
+;
+; THE WALK IS `symbolsRenderGens`' WALK. It runs over `tcFnsVec` in
+; the same order and skips the same rows through the same predicate,
+; `symFnRowSkipped`, which exists so that there is ONE predicate
+; rather than two that agree today. `check-mir-projection.sh` asserts
+; the consequence - record headers, in order, are the AXSYM `F` rows,
+; in order - so a drift here reddens a gate rather than producing a
+; file that joins to the wrong row.
+(pub :: axirRender (-> Int Int Int String String))
+
+(pub fn (axirRender tc builtins mir target)
+  (let (
+    (units (memGetWordVec tc 13))
+    (decls (tcAllDeclsVec tc))
+    (parts vecNew)
+    (_rgn (if (== mir 1)
+      (rgnEnsureFacts tc)
+      0
+    ))
+  )
+    (let ((sm (smBuild decls units)))
+      {
+        (vecPush
+          parts          (strConcat
+            "axir 1 "            (strConcat target (strConcat " " (strConcat axiomVersion "\n")))
+          )
+        )
+        (let (
+          (fns (tcFnsVec tc))
+          (mut i 0)
+        )
+          (while (< i (vecLen fns))
+            (let ((e (vecGet fns i)))
+              (let ((name (memGetWordStr e 0)))
+                {
+                  (if (== (symFnRowSkipped name (memGetWord e 3) (memGetWord e 4) builtins) 1)
+                    0
+                    (let (
+                      (loc (smLocReal
+                        sm                        0                        1                        2                        name                        units
+                      ))
+                      (params (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name))
+                      (opTy (saGet (memGetWordVec sm 18) (memGetWordVec sm 19) name))
+                    )
+                      {
+                        (vecPush
+                          parts                          (axirHeader
+                            (bareOf name)                            (if (== (strLen loc) 0)
+                              "-"
+                              loc
+                            )                            (if (&& (== (memGetWord e 4) 1) (!= (cast Int opTy) 0))
+                              (symTy (cast Int opTy))
+                              (symTy (memGetWord e 1))
+                            )                            (smNidFor sm name)
+                          )
+                        )
+                        (vecPush
+                          parts                          (strConcat "sig " (strConcat (symsDigits (memGetWord e 2)) "\n"))
+                        )
+                        (let ((mut k 0))
+                          (if (== (cast Int params) 0)
+                            0
+                            (while (< k (vecLen params))
+                              {
+                                (vecPush
+                                  parts                                  (strConcat
+                                    "param "                                    (strConcat
+                                      (symsDigits k)                                      (strConcat " " (strConcat (saAxSafe (vecGetStr params k)) "\n"))
+                                    )
+                                  )
+                                )
+                                (set k (+ k 1))
+                              })
+                          )
+                        )
+                        (let ((f (memGetWord e 8)))
+                          (if (== f 0)
+                            0
+                            {
+                              (vecPush parts (axirRegionLine f (memGetWord f 7)))
+                              0
+                            }
+                          )
+                        )
+                        (vecPush parts "end\n")
+                        0
+                      }
+                    )
+                  )
+                  (set i (+ i 1))
+                }
+              )
+            ))
+        )
+        (catStrs parts)
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Reading.
+;
+; `axirRead` answers a Vec of decomposed lines - each a `(Vec String)`
+; whose element 0 is the kind and whose remainder is that kind's atoms
+; with every sigil stripped. On the first line it cannot account for
+; it answers a single record `("axir-error" <message>)`, which
+; `axirWrite` refuses to render: a reader that returned a partial
+; parse would let a malformed file round-trip as a shorter one.
+; ------------------------------------------------------------------
+
+; The tokens of `s[i..e)`, splitting on spaces, with a quoted field
+; kept whole. Quoting is a property of the BYTE here rather than of
+; the field position, because the only quoted field in the grammar is
+; the type and `saAxSafe` escapes a `"` inside every other one.
+(pub :: axirTokens (-> String Int Int (Vec String)))
+
+(pub fn (axirTokens s i e)
+  (let (
+    (out vecNew)
+    (mut j i)
+  )
+    {
+      (while (< j e)
+        (if (== (strByte s j) 32)
+          (set j (+ j 1))
+          (if (== (strByte s j) 34)
+            (let ((mut k (+ j 1)))
+              {
+                (while (&& (< k e) (!= (strByte s k) 34))
+                  (set k (+ k 1)))
+                (vecPushStr out (strSlice s (+ j 1) (- k (+ j 1))))
+                (set j (+ k 1))
+              }
+            )
+            (let ((mut k j))
+              {
+                (while (&& (< k e) (!= (strByte s k) 32))
+                  (set k (+ k 1)))
+                (vecPushStr out (strSlice s j (- k j)))
+                (set j k)
+              }
+            )
+          )
+        ))
+      out
+    }
+  )
+)
+
+; One error record, so that the shape of a refusal is the shape of a
+; line.
+(pub :: axirErr (-> String (Vec Int)))
+
+(pub fn (axirErr msg)
+  (let (
+    (rec vecNew)
+    (out vecNew)
+  )
+    {
+      (vecPushStr rec "axir-error")
+      (vecPushStr rec msg)
+      (vecPush
+        out        (cast Int rec)
+      )
+      out
+    }
+  )
+)
+
+(pub :: axirIsErr (-> (Vec Int) Bool))
+
+(pub fn (axirIsErr recs)
+  (if (== (vecLen recs) 1)
+    (strEq (vecGetStr (vecGetVec recs 0) 0) "axir-error")
+    false
+  )
+)
+
+; Strip a leading sigil byte, refusing the token that does not carry
+; it. The refusal matters: `@` and `%` are what tell a nid from a name
+; and a register from an opcode, and a reader that accepted a bare
+; token there would re-emit a line the writer could never have
+; written.
+(pub :: axirUnsigil (-> String Int String))
+
+(pub fn (axirUnsigil tok b)
+  (if (&& (> (strLen tok) 1) (== (strByte tok 0) b))
+    (strSlice tok 1 (- (strLen tok) 1))
+    (cast String 0)
+  )
+)
+
+; One line's atoms, sigils removed. 0 means the line carried a field
+; the grammar spells with a sigil and the file spelled without one.
+(pub :: axirDecompose (-> String (Vec String) (Vec String)))
+
+(pub fn (axirDecompose kind toks)
+  (let (
+    (rec vecNew)
+    (mut ok 1)
+  )
+    {
+      (vecPushStr rec kind)
+      (if (strEq kind "F")
+        ; name loc "ty" [@nid] - the nid is optional, and a row for a
+        ; name the collector never keyed genuinely has none.
+        {
+          (vecPushStr rec (vecGetStr toks 1))
+          (vecPushStr rec (vecGetStr toks 2))
+          (vecPushStr rec (vecGetStr toks 3))
+          (if (> (vecLen toks) 4)
+            (let ((nid (axirUnsigil (vecGetStr toks 4) 64)))
+              (if (== (cast Int nid) 0)
+                (set ok 0)
+                {
+                  (vecPushStr rec nid)
+                  0
+                }
+              )
+            )
+            {
+              (vecPushStr rec "")
+              0
+            }
+          )
+          0
+        }
+        (if (strEq kind "op")
+          ; %n opcode operand... - the destination carries its sigil
+          (let ((dst (axirUnsigil (vecGetStr toks 1) 37)))
+            (if (== (cast Int dst) 0)
+              (set ok 0)
+              (let ((mut k 2))
+                {
+                  (vecPushStr rec dst)
+                  (while (< k (vecLen toks))
+                    {
+                      (vecPushStr rec (vecGetStr toks k))
+                      (set k (+ k 1))
+                    })
+                  0
+                }
+              )
+            )
+          )
+          (let ((mut k 1))
+            {
+              (while (< k (vecLen toks))
+                {
+                  (vecPushStr rec (vecGetStr toks k))
+                  (set k (+ k 1))
+                })
+              0
+            }
+          )
+        )
+      )
+      (if (== ok 1)
+        rec
+        (cast (Vec String) 0)
+      )
+    }
+  )
+)
+
+(pub :: axirRead (-> String (Vec Int)))
+
+(pub fn (axirRead text)
+  (let (
+    (n (strLen text))
+    (out vecNew)
+    (mut i 0)
+    (mut bad "")
+  )
+    {
+      (while (&& (< i n) (== (strLen bad) 0))
+        (let ((e (lineEndFrom text i)))
+          {
+            (if (> e i)
+              (let ((toks (axirTokens text i e)))
+                (let ((kind (vecGetStr toks 0)))
+                  (let ((want (axirKindArityMin kind)))
+                    (if (< want 0)
+                      (set bad (strConcat "unknown line kind `" (strConcat kind "`")))
+                      (if (|| (< (vecLen toks) want) (&& (axirKindExact kind) (> (vecLen toks) want)))
+                        (set bad (strConcat "`" (strConcat kind "` line has the wrong number of fields")))
+                        (let ((rec (axirDecompose kind toks)))
+                          (if (== (cast Int rec) 0)
+                            (set bad (strConcat "`" (strConcat kind "` line is malformed")))
+                            {
+                              (vecPush
+                                out                                (cast Int rec)
+                              )
+                              ""
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+              ""
+            )
+            (set i (+ e 1))
+          }
+        ))
+      (if (> (strLen bad) 0)
+        (axirErr bad)
+        out
+      )
+    }
+  )
+)
+
+; ------------------------------------------------------------------
+; Writing a parse back out. The inverse of `axirDecompose`, and the
+; two together are what `scripts/check-mir-roundtrip.sh` measures.
+; ------------------------------------------------------------------
+(pub :: axirWrite (-> (Vec Int) String))
+
+(pub fn (axirWrite recs)
+  (let (
+    (parts vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen recs))
+        (let ((rec (vecGetVec recs i)))
+          (let ((kind (vecGetStr rec 0)))
+            {
+              (if (strEq kind "F")
+                (vecPush
+                  parts                  (axirHeader
+                    (vecGetStr rec 1)                    (vecGetStr rec 2)                    (vecGetStr rec 3)                    (vecGetStr rec 4)
+                  )
+                )
+                (let (
+                  (mut s kind)
+                  (mut k 1)
+                )
+                  {
+                    (while (< k (vecLen rec))
+                      {
+                        (set s (strConcat
+                          s                          (strConcat
+                            " "                            (if (&& (strEq kind "op") (== k 1))
+                              (strConcat "%" (vecGetStr rec k))
+                              (vecGetStr rec k)
+                            )
+                          )
+                        ))
+                        (set k (+ k 1))
+                      })
+                    (vecPush parts (strConcat s "\n"))
+                  }
+                )
+              )
+              (set i (+ i 1))
+            }
+          )
+        ))
+      (catStrs parts)
+    }
+  )
+)
+
+; `text` looks like an AXIR file: it opens with the magic word. Used
+; by `axiom symbols --axir` to tell an input it should COMPILE from an
+; input it should READ BACK, which is the whole reason the magic line
+; is there rather than a convention about the extension.
+(pub :: axirLooksLikeFile (-> String Bool))
+
+(pub fn (axirLooksLikeFile text) (strStartsWith text "axir 1 "))
+
+; The round trip itself: read, then write. Answers "" when the parse
+; refused, and pushes the message onto `msg`.
+(pub :: axirReemit (-> String (Vec String) String))
+
+(pub fn (axirReemit text msg)
+  (let ((recs (axirRead text)))
+    (if (axirIsErr recs)
+      {
+        (vecPushStr msg (vecGetStr (vecGetVec recs 0) 1))
+        ""
+      }
+      (axirWrite recs)
+    )
+  )
+)

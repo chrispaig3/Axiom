@@ -1,0 +1,4 @@
+axir 1 darwin-aarch64 0.0.0
+F alpha src/a.ax:1:5-10 "(Int -> Int)" @1
+region 0 0 1 0
+end

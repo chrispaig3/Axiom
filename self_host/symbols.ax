@@ -1194,19 +1194,186 @@
   )
 )
 
+; ------------------------------------------------------------------
+; Whether a `FnEnt` gets no row.
+;
+; ONE PREDICATE, not two that agree today. `symbolsRenderGens` below
+; and `axirRender` (self_host/axir.ax) walk `tcFnsVec` in the same
+; order and must skip the same entries, because an `.axir` record
+; joins to an AXSYM row by its whole header tuple and a walk that
+; kept one row more would shift every join after it. The three arms
+; are stage0's, and the reasons are its:
+;
+;   - a GENERATED name is not a symbol. `show` derives a structural
+;     renderer named `show#Point`, and the trait lowering appended
+;     `Trait#Type#method` before 0.6.0. `#` is not an identifier
+;     byte, so a name containing one cannot have been written.
+;   - a builtin has no row unless `--builtins` asked for one.
+;   - an effect OPERATION has a row under its bare name only; the
+;     mangled spelling is the compiler's.
+; ------------------------------------------------------------------
+(pub :: symFnRowSkipped (-> String Int Int Int Int))
+
+(pub fn (symFnRowSkipped name isB isOp builtins)
+  (if (|| (smGenerated name) (|| (&& (== isB 1) (== builtins 0)) (&& (== isOp 1) (!= (strLen (bareOf name)) (strLen name)))))
+    1
+    0
+  )
+)
+
+; ------------------------------------------------------------------
+; THE MIR PROJECTION.
+;
+; `FnEnt` word 8 is the region-facts record `rgnFactsNew` builds
+; (self_host/typecheck.ax, stage S3): a full interprocedural dataflow
+; summary of one function - which parameters its body stores a FRESH
+; value into, which parameters flow into which, where its result comes
+; from, and whether the walk hit a call it could not resolve. It is
+; computed, spent on AX3049 and AX3060-63, and then thrown away. This
+; is the only reader outside typecheck.ax.
+;
+; THE BIT ENCODINGS ARE typecheck.ax's, restated here because a
+; renderer that guessed them would print confident nonsense:
+;
+;   word 1 flowsCUR   bit i: a value allocated in this body flows
+;                     into parameter i (0-based)
+;   word 3 resultFrom bit j: parameter j's value reaches the result
+;   word 4 resultCUR  the result is allocated in this body
+;   word 5 unknown    the walk hit a call head it could not resolve
+;   word 7 nparams
+;
+; An origin MASK inside typecheck.ax uses bit 0 for "current region"
+; and bits 1..n for the parameters; words 1 and 3 are already shifted
+; down to 0-based parameter indices by `rgnNoteFlow`, which is why
+; nothing here shifts again.
+;
+; WHY THE KEYS ARE OPT-IN AND SLOW. `rgnEnsureFacts` runs on DEMAND -
+; for a program that names a region or claims `restrict(no-escape)`,
+; and otherwise never. Asking for these keys forces it over every
+; declaration. Measured 2026-09-03 with `/usr/bin/time -p axc check
+; self_host/main.ax`, three runs each way: 0.73 / 0.71 / 0.72s without
+; the fixpoint, 22.24 / 21.69 / 21.52s with it - 30x, and the whole of
+; it is `rgnEnsureFacts` over 4,095 symbols. That is a flag, never a
+; default.
+;
+; WHY `#mir-truncated` IS NOT OPTIONAL. `rgnRounds` caps at 40 rounds
+; and, until this release, returned in silence; a chain deeper than
+; the cap stops propagating before the fixpoint converges and the
+; facts that come out are an UNDER-approximation. `#mir-escapes=` is
+; therefore a lower bound in exactly the sense `#effects=` is, and it
+; gets the same treatment `#effects-incomplete` gets: its own meta,
+; saying something about the LIST rather than naming a member of it.
+; Publishing the list without it would hand `Agent.Policy` a guarantee
+; the compiler does not have - the AXTAG forgery hole's shape,
+; arriving through the compiler's own front door.
+;
+; `#mir-incomplete` is the per-row half of the same admission: this
+; body called something the walk could not resolve, so its own facts
+; are a lower bound whatever the fixpoint did.
+(pub :: symMirParams (-> (Vec String) Int Int (Vec String)))
+
+(pub fn (symMirParams params np mask)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i np)
+        {
+          (if (!= (& mask (<< 1 i)) 0)
+            (vecPush
+              out              (if (&& (!= (cast Int params) 0) (< i (vecLen params)))
+                (vecGetStr params i)
+                (symsDigits i)
+              )
+            )
+            (cast (Vec String) 0)
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; Push this function's `#mir-*` keys onto `metas`. `ent` is the
+; `FnEnt`, `params` its parameter names (or 0), `truncated` whether
+; the module's fixpoint stopped at its round cap.
+;
+; A function whose word 8 is 0 has no facts - the fixpoint did not
+; reach it - and gets NO keys at all rather than keys reading zero.
+; "No answer" and "the answer is none" are different claims and this
+; stream has to keep them apart.
+(pub :: symMirMetas (-> Int (Vec String) Int (Vec String) Int))
+
+(pub fn (symMirMetas ent params truncated metas)
+  (let ((f (memGetWord ent 8)))
+    (if (== f 0)
+      0
+      (let (
+        (np (memGetWord f 7))
+        (esc (symMirParams params (memGetWord f 7) (memGetWord f 1)))
+        (rfr (symMirParams params (memGetWord f 7) (memGetWord f 3)))
+      )
+        {
+          (vecPush metas (strConcat "mir-params=" (symsDigits np)))
+          (if (> (vecLen esc) 0)
+            (vecPush metas (strConcat "mir-escapes=" (saJoinComma esc)))
+            (cast (Vec String) 0)
+          )
+          (if (!= (memGetWord f 4) 0)
+            (vecPush metas "mir-result-fresh")
+            (cast (Vec String) 0)
+          )
+          (if (> (vecLen rfr) 0)
+            (vecPush metas (strConcat "mir-result-from=" (saJoinComma rfr)))
+            (cast (Vec String) 0)
+          )
+          (if (!= (memGetWord f 5) 0)
+            (vecPush metas "mir-incomplete")
+            (cast (Vec String) 0)
+          )
+          (if (== truncated 1)
+            (vecPush metas "mir-truncated")
+            (cast (Vec String) 0)
+          )
+          0
+        }
+      )
+    )
+  )
+)
+
 ; `gens` is `expandProgram`'s answer - the (name, macro) pairs of every
 ; declaration phase D generated. A row it names carries `#generated=`
 ; and the macro's own name, which is what tells a reader why a symbol
 ; has no visible definition (MAC-TOOL-4). 0 means "no table", which is
 ; every caller that did not expand.
-(pub :: symbolsRenderGens (-> Int Int (Vec Int) Int String))
+; `mir` is `--mir`: FORCE the region-facts fixpoint and project it.
+; It is a separate parameter from `calls` rather than a bit in one
+; because the two differ in cost by two orders of magnitude - `--calls`
+; prints edges the effect walk already resolved, `--mir` runs a walk
+; that would otherwise never run at all (see `symMirMetas`).
+(pub :: symbolsRenderGens (-> Int Int (Vec Int) Int Int String))
 
-(pub fn (symbolsRenderGens tc builtins gens calls)
+(pub fn (symbolsRenderGens tc builtins gens calls mir)
   ; --- functions --------------------------------------------
   (let (
     (units (memGetWordVec tc 13))
     (decls (tcAllDeclsVec tc))
     (lines vecNew)
+    ; Demanded HERE, before the row walk, because the fixpoint is a
+    ; whole-module computation and `rgnFactsTruncated` is a
+    ; whole-module answer: every row has to be told the same thing
+    ; about it.
+    (_rgn (if (== mir 1)
+      (rgnEnsureFacts tc)
+      0
+    ))
+    (trunc (if (== mir 1)
+      (rgnFactsTruncated tc)
+      0
+    ))
   )
     (let ((sm (smBuild decls units)))
       {
@@ -1222,14 +1389,10 @@
                 (isOp (memGetWord e 4))
               )
                 {
-                  ; A GENERATED name is not a symbol. Lowering an
-                  ; `impl` appends `Trait#Type#method` declarations,
-                  ; and they are the compiler's business: `symbols`
-                  ; reports what the file declares, and the position
-                  ; verifier is right to refuse a claim the source does
-                  ; not spell. `#` is not an identifier byte, so a name
-                  ; containing one cannot have been written.
-                  (if (|| (smGenerated name) (|| (&& (== isB 1) (== builtins 0)) (&& (== isOp 1) (!= (strLen (bareOf name)) (strLen name)))))
+                  ; The skip predicate is `symFnRowSkipped` above, and
+                  ; it is a named function because `axirRender` walks
+                  ; this same list and has to skip the same rows.
+                  (if (== (symFnRowSkipped name isB isOp builtins) 1)
                     0
                     (let (
                       (metas vecNew)
@@ -1405,6 +1568,17 @@
                             )
                             (cast (Vec String) 0)
                           )
+                        )
+                        ; AFTER the author's AXTAGs, like every other derived key,
+                        ; and for the reason spelled out at `smTagMetas`:
+                        ; `symTagFrom` answers the LAST `#key` on the line,
+                        ; so a compiler-owned key placed after the tags
+                        ; cannot be shadowed by a forged one.
+                        (if (&& (== mir 1) (== isB 0))
+                          (symMirMetas
+                            e                            (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name)                            trunc                            metas
+                          )
+                          0
                         )
                         (let ((opTy (saGet (memGetWordVec sm 18) (memGetWordVec sm 19) name)))
                           (vecPush

@@ -1,0 +1,16 @@
+tests/axir - hand-written `.axir` fixtures.
+
+WHY THEY ARE HAND-WRITTEN. `axiom symbols --axir` writes the record
+header, `sig`, `param` and `region` lines; it writes no `blk`, `op` or
+`term`, because there is no mid-level IR in this tree yet for them to
+describe. Those three line kinds are nonetheless in the grammar and in
+the reader, and a reader arm that nothing exercises is a reader arm
+that is wrong the day something does. The `.axir` files here are the
+input the compiler cannot yet produce, and `check-mir-roundtrip.sh`
+round-trips them beside the emitted corpus.
+
+The `.bad` files are the other half: each is one way a file can be
+malformed, and the gate asserts the reader REFUSES it. A reader that
+accepted them would round-trip a shorter file than it was given, which
+is the failure a round-trip check on well-formed input alone cannot
+see.
