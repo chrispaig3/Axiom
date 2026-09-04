@@ -1,0 +1,69 @@
+axir 1 darwin-aarch64 0.0.0
+F rate src/rate.ax:1:5-9 "(Int -> (Int -> Int))" @83cd6f03efd06ad1
+sig 2
+param 0 hits
+param 1 total
+region 0 0,0 0 0 0
+blk bb0
+op %2 const 0
+op %3 sgt %1 %2
+term condbr %3 bb1 bb2
+blk bb1
+op %5 const 100
+op %6 mul %0 %5
+term trapz %1 bb4 bb5
+blk bb2
+op %8 const 0
+term br bb3 %8
+blk bb3 %4
+term ret %4
+blk bb4
+term trap __axiom_div_by_zero
+blk bb5
+op %7 sdiv %6 %1
+term br bb3 %7
+end
+F clamp src/rate.ax:10:5-10 "(Int -> Int)" @db7183b0a0e8aaea
+sig 1
+param 0 n
+region 0 0 1 0 0
+blk bb0
+op %1 const 0
+op %2 slt %0 %1
+term condbr %2 bb1 bb2
+blk bb1
+op %4 const 0
+term br bb3 %4
+blk bb2
+op %5 const 100
+op %6 sgt %0 %5
+term condbr %6 bb4 bb5
+blk bb3 %3
+term ret %3
+blk bb4
+op %8 const 100
+term br bb6 %8
+blk bb5
+term br bb6 %0
+blk bb6 %7
+term br bb3 %7
+end
+F report src/rate.ax:14:5-11 "(Int -> (Int -> Int))" @c9dfa4d37f242eb5
+sig 2
+param 0 hits
+param 1 total
+region 0 0,0 0 0 0
+blk bb0
+op %2 call rate %0 %1
+op %3 call clamp %2
+term ret %3
+end
+F main src/rate.ax:18:5-9 "Int" @6159d363201f7f2a
+sig 0
+region 0 - 0 0 0
+blk bb0
+op %0 const 3
+op %1 const 4
+op %2 call report %0 %1
+term ret %2
+end

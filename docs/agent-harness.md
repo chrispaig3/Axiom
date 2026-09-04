@@ -481,8 +481,13 @@ and both must be removed before the gate's silence assertion fires.
 
 The `.axir` file is the same facts as a record file rather than a line
 format, with room for the arity, the parameter names, the raw region
-words, and the block and instruction lines a mid-level IR will write.
-It joins to AXSYM on the **whole `F` header tuple**, not on the nid,
+words, and — since 2026-09-04 — the block and instruction lines of the
+function as `self_host/mir.ax`'s `mLowerFn` lowered it, one `blk`, `op`
+or `term` per block, instruction and terminator. A function outside that
+lowering's subset carries no body rather than a partial one, so an agent
+reading a record can tell "this function does *that*" from "nothing here
+knows what this function does". It joins to AXSYM on the **whole `F`
+header tuple**, not on the nid,
 because the nid is not unique across modules — measured over
 `self_host/main.ax --builtins`, 4,068 rows carry one and 4,066 are
 distinct, with `die` and `jsonHexDigit` each colliding between two

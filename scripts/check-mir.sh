@@ -352,6 +352,23 @@ if grep -q 'mirEmitOrWalk' self_host/codegen.ax; then
 else
   bad "codegen.ax has no mirEmitOrWalk - the import is there and the routing is not"
 fi
+# THE IMPORTER SET IS EXACT, not merely non-empty. Slice 2 replaced
+# "nothing imports mir" with "these things do", and an exact set is the
+# only version of that which still says something: a third consumer
+# arriving silently is what a `grep -q` would miss, and each consumer
+# is a place the IR's shape becomes load-bearing.
+#
+#   codegen.ax   emits from it (slice 2)
+#   axir.ax      projects it into the `.axir` record file
+#   mireval.ax   evaluates it, and is §4's independent reference
+want_mir="axir.ax codegen.ax mireval.ax"
+got_mir="$(grep -l -E '^\(import mir\)$' self_host/*.ax | xargs -n1 basename | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+if [[ "$got_mir" == "$want_mir" ]]; then
+  ok "exactly three modules import mir: $got_mir"
+else
+  bad "the importers of mir have moved: want [$want_mir], got [$got_mir]"
+fi
+
 # `mireval` is the reference evaluator and is still test-only: it is
 # what §4 compares the compiler against, and a compiler that imported
 # its own reference would be comparing one walk with itself.

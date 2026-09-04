@@ -1,12 +1,13 @@
 # The `.axir` record file, and the MIR projection through AXSYM
 
 **Status.** The format, its reader, and the AXSYM projection shipped in
-this release, gated by `scripts/check-mir-roundtrip.sh` and
+0.7.3, gated by `scripts/check-mir-roundtrip.sh` and
 `scripts/check-mir-projection.sh`. The AXDL half is **designed and not
 built**, and §5 says exactly what blocks it. The block-and-instruction
-half of the grammar is **specified and read, and nothing writes it**,
-because there is no mid-level IR in the tree for it to describe; §2
-says what that means in practice.
+half of the grammar was **specified and read, and written by nothing**
+until 2026-09-04, because there was no mid-level IR in the tree for it
+to describe. There is one now — `self_host/mir.ax` — and
+`symbols --axir --mir` writes it; §2 says what that means in practice.
 
 This document is the design record for both halves. It is not a
 tutorial: `axiom help symbols` is the user-facing text.
@@ -57,7 +58,7 @@ F <name> <file>:<line>:<c1>-<c2> "<type>" @<nid>
 sig <arity>
 param <index> <name>
 region <flows-cur> <flows-from> <result-from> <result-cur> <unknown>
-blk <label>
+blk <label> %<param>...
 op %<n> <opcode> <operand>...
 term <opcode> <operand>...
 end
@@ -71,16 +72,48 @@ format that reports less than it was given, which is this repository's
 named hazard.
 
 **What is written today.** The header, `sig`, `param`, and — under
-`--mir` — `region`. That is the whole of what the compiler has per
-function: `codegen.ax` walks the typed AST and emits LLVM text directly,
-with no intermediate representation, so there are no blocks and no
-instructions to serialise.
+`--mir` — `region` followed by the function's body: one `blk` per basic
+block, one `op` per instruction and one `term` per terminator, of the
+SSA IR in `self_host/mir.ax` as `mLowerFn` lowered it. `self_host/axir.ax`
+imports `mir` for exactly that, and is the one module of the compiler
+that does; `scripts/check-mir.sh` §6 pins the importer set rather than
+leaving it to grow.
 
-**What is read and not written.** `blk`, `op` and `term`. They are in
-the grammar because a mid-level IR will write them, and they are in the
-reader — and exercised by `tests/axir/body.axir` — because a reader arm
-that nothing exercises is a reader arm that is wrong the day something
-does.
+**A body is all or nothing, and it is verified before it is written.**
+`mLowerFn` lowers a subset of the checked AST and refuses the whole
+function outside it — it never answers a partial one — and what it does
+answer goes through `mirVerify` before a line is rendered. A record
+carrying a body its own verifier complains about would publish a defect
+in the lowering as a fact about the program. Measured 2026-09-04: 389 of
+the 839 records for a probe importing every stdlib module carry a body,
+and 1,457 of `self_host/main.ax`'s 4,097.
+
+**Under `--mir`, not without it.** `--mir` is the flag documented as
+slow — it forces the region-facts fixpoint — and lowering plus verifying
+every function is the same kind of cost on the same stream. Measured
+2026-09-04 on `self_host/main.ax`: `--axir` 7.2s, `--axir --mir` 31.7s,
+and the AXSYM `symbols --mir` on the same file — which lowers nothing —
+37.6s, so nearly all of the difference is the fixpoint that flag already
+forced. `check-mir-roundtrip.sh` asserts that the default stream carries
+no body line, and that the `--mir` stream with its body lines deleted is
+the default stream.
+
+**`blk` widened when the body started being written**, and that is a
+change to the grammar rather than to its implementation. It was a fixed
+two atoms; it is now a label plus a block-parameter list. This IR has
+block parameters instead of phi nodes, so a join block names its
+incoming value once and each `br` names the argument — and a `blk` that
+could write the arguments down but not the parameter they land in is a
+record no reader can turn back into a function. The parameters carry the
+`%` sigil and the reader strips it, so a register spelled without one is
+refused: `tests/axir/blk-param-without-sigil.bad`.
+
+**What is read and still written by nothing.** The grammar is a format
+rather than a spelling of one lowering, so the reader accepts block
+labels and opcodes this IR does not have — a reader that took only
+today's output would refuse tomorrow's. `tests/axir/body.axir` is that
+corpus: `entry`, `loop`, `alloc`, `store`, `phi`.
+`tests/axir/lowered.axir` is the other side, the emitted shape verbatim.
 
 **Escaping.** A parameter name goes through `saAxSafe`, the escaper
 `symbols.ax` already uses for AXTAG payloads on an AXSYM line: every
@@ -298,8 +331,16 @@ less than it knows. Do not add a line kind; the fields above are enough.
 | the AXSYM goldens do not move | `scripts/check-tools-selfhost.sh` |
 | a `#mir-*` key is not a compatibility contract | `scripts/check-compat.sh` — `CONTRACT_META` is an explicit allowlist and `#mir-` is not on it |
 
-**Not gated by the emitted corpus, and named as such:** the
-`blk`/`op`/`term` half of the grammar rests on the hand-written
-`tests/axir/body.axir` alone, because nothing emits those lines. When a
-mid-level IR lands, the emitted corpus covers them and that file becomes
-a supplement rather than the whole evidence.
+| the body is written under `--mir` and nowhere else, and `--mir` is additive on the byte level | `scripts/check-mir-roundtrip.sh` |
+| a floor under how many records carry a body, and an opcode census derived from `mBinOp` and `axirTermLine` rather than listed | `scripts/check-mir-roundtrip.sh` |
+| `mir` is imported by `axir.ax` alone, and `mireval` by nothing in the compiler | `scripts/check-mir.sh` §6 |
+
+**Formerly not gated by the emitted corpus, and now gated by it:** the
+`blk`/`op`/`term` half of the grammar rested on the hand-written
+`tests/axir/body.axir` alone, because nothing emitted those lines. Since
+2026-09-04 the emitted corpus covers them — 1,846 bodies over the two
+corpora, every one of the 13 opcode spellings and 5 terminator spellings
+reached, 1,236 blocks carrying a parameter — and that file is a
+supplement rather than the whole evidence. What it supplements is the
+half nothing emits: labels and opcodes outside this lowering, which the
+reader must still accept.
