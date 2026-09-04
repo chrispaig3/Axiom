@@ -90,6 +90,61 @@ rather than the tree against itself:
 `npm run build`, `node scripts/smoke.mjs`, `check-doc-drift.sh` and
 `check-version.sh` are green on the result.
 
+### Seven gates were run by nothing, and all seven passed
+
+`CONTRIBUTING.md` introduces its table of gates with the sentence
+"`.github/workflows/ci.yml` runs all of these". Measured 2026-09-04, it
+ran 71 of the 78: `check-dead-code.sh`, `check-mir-projection.sh`,
+`check-mir-roundtrip.sh`, `check-repl-highlight.sh`,
+`check-repl-history.sh`, `check-repl-tui.sh` and `check-replcomp.sh`
+were named by no step in the file.
+
+Every one of them passes — run here in the order above, 34s, 18s, 56s,
+7s, 4s, 36s and one more, all exit 0. That is the finding rather than a
+consolation: **a gate no job runs is indistinguishable from a gate that
+passes**, and CI is the only thing that runs any of them on Linux. This
+file's own risk note and two comments in `ci.yml` already say so in the
+words of the last two people who found it — "a gate no job runs is a
+script", "a tool with no CI gate is silently broken, as `fmt` was" —
+which is three occurrences of one defect and no check for it.
+
+The local battery cannot drift this way, and the difference is the
+whole fix. `run-gates.sh` GLOBS `scripts/check-*.sh`, so a gate is in it
+the moment it is written; `ci.yml` names its gates one at a time,
+because it also decides which job and which platform each belongs to.
+That is the right design for the workflow and it is why the list has to
+be checked rather than trusted.
+
+`scripts/check-ci-coverage.sh` checks it, in both directions: every gate
+on disk is named on a `run:` line, and every gate a step names exists.
+The second direction is not hypothetical — `720a0d5` deleted
+`check-game-of-life.sh` and the sample it ran and left the step invoking
+it, so every run of that job failed on a missing file.
+
+**It reads `run:` lines, not the file, and that is load-bearing.**
+`ci.yml` is 1,300 lines of mostly prose, and gates are named in its
+comments constantly. A whole-file grep answers 72 where the steps answer
+71, and the one it invents is `check-game-of-life.sh` — named today only
+by the comment recording its deletion. A gate built on a whole-file grep
+would have called that broken step covered. Ablating the comment-strip
+proves both halves at once: the deleted script is reported as missing,
+and the "named only in a comment" ablation stops being refused.
+
+Three ablations run on every invocation, each required to go red: a step
+deleted, a step naming a script that is not in the tree, and an
+uncovered gate named only in a comment. The exclusion table is empty and
+is written for the empty set — `compat/UNCOVERED` reaching zero once
+killed a gate two seconds in, which is the failure a success condition
+of "nothing left" invites.
+
+The eight steps are placed beside their siblings rather than in a block:
+`check-dead-code.sh` next to `check-freestanding.sh`, both being claims
+about a linked binary's symbol table; the two `.axir` gates next to
+`check-mir.sh`; the four REPL gates next to `check-repl-selfhost.sh`,
+which pins the piped sessions the terminal ones cannot reach. The
+coverage gate itself runs in the cheap grammar job, because it reads two
+lists of file names and needs no compiler.
+
 ## 0.7.5 — 2026-09-04
 
 

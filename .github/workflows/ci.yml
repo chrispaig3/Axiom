@@ -332,6 +332,21 @@ jobs:
       - name: Every .ax file parses under the checked-in grammar
         run: ./scripts/check-tree-sitter.sh
 
+      # THIS FILE IS MAINTAINED BY HAND AND DRIFTS, so something has to
+      # hold it to the tree. `run-gates.sh` globs `scripts/check-*.sh`
+      # and therefore cannot drift; this file names its gates one at a
+      # time, because it also decides which job and which platform each
+      # one belongs to - and on 2026-09-04 seven of the 78 gate scripts
+      # turned out to be named by no step at all. All seven passed,
+      # which is the point: a gate no job runs is indistinguishable
+      # from a gate that passes, and this file already says so twice in
+      # the words of the last two people who found it.
+      #
+      # It runs here, in the cheap job, because it reads two lists of
+      # file names and needs no compiler.
+      - name: Every gate in the tree is run by a step in this file
+        run: ./scripts/check-ci-coverage.sh
+
   # THE OTHER HALF OF `scope`, AND THE REASON IT IS NOT A SUPPRESSION.
   # Skipping the platform legs on a documentation change is only
   # defensible if the claims a documentation change CAN break are still
@@ -679,6 +694,20 @@ jobs:
       # IR is emitted cross, so each leg reads it.
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
+
+      # The other claim about the linked binary's symbol table, and it
+      # belongs beside the one above because both are answered by `nm`
+      # on a real executable rather than by reading IR. A hello world
+      # must contain only what it can reach: every `define` the emitter
+      # writes is reachable from `main` by a walk the gate implements
+      # itself, `nm` on the LINKED binary names nothing that walk could
+      # not reach, and an address-taken callback - a bare reference
+      # through a thunk, a comparator through a lifted lambda -
+      # survives the pass and still answers. Turning the pass off in a
+      # shadow tree must name 361 of 397 symbols, which is the
+      # ablation.
+      - name: A program contains only what it uses
+        run: ./scripts/check-dead-code.sh
 
       # It runs in the matrix rather than on a single host because it
       # compiles, assembles and *runs* the output of the self-hosted
@@ -1107,6 +1136,30 @@ jobs:
       - name: The mid-level IR lowers, prints, verifies and evaluates to what the compiler answers
         run: ./scripts/check-mir.sh
 
+      # The record file that carries that IR out of the compiler, and
+      # the two claims about it that the gate above does not make.
+      #
+      # Round trip: emit, read back, emit again, byte-identical over
+      # the stdlib corpus and `self_host/main.ax` - 4,862 records. A
+      # golden is deliberately NOT used here, and
+      # `check-tools-selfhost.sh`'s header records why: both AXSYM
+      # goldens were once re-blessed clean against a compiler emitting
+      # a shifted column. The reader is proved to DECOMPOSE rather than
+      # pass lines through, which is the assertion a passthrough reader
+      # fails while passing every other check in the file.
+      - name: The .axir record file survives its own reader
+        run: ./scripts/check-mir-roundtrip.sh
+
+      # And the projection: every `#mir-*` key `symbols --mir` prints
+      # is re-derivable from the raw region words of the record whose
+      # whole header tuple matches that row, so the gate compares two
+      # independent derivations rather than one number twice. It also
+      # holds the truncation sentinel to the boundary it reports -
+      # present at call-chain depth 41, absent at 5 - which is the only
+      # assertion in the tree watching `rgnRounds`' 40-round cap.
+      - name: Every published dataflow key is the record's own words
+        run: ./scripts/check-mir-projection.sh
+
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,
       # deliberately, so a slow runner cannot fail it - which left rate
@@ -1232,6 +1285,39 @@ jobs:
       # stderr required empty and the exit code pinned.
       - name: REPL sessions against their goldens
         run: ./scripts/check-repl-selfhost.sh
+
+      # The three surfaces the piped-session gate above cannot reach,
+      # because each of them only exists in front of a TERMINAL.
+      #
+      # A real pty: arrows, control keys, Alt- prefixes and multi-byte
+      # characters decoded; Ctrl-C a key rather than a signal; the
+      # terminal restored byte-exact on both exit paths; and the
+      # wrapped screen matched against an independent model at the
+      # deferred-wrap boundary and away from it.
+      - name: The REPL on a real terminal
+        run: ./scripts/check-repl-tui.sh
+
+      # History, and it is the one gate here whose assertion is a FLOOR
+      # rather than a total: its D3 arm forks six REPLs that each append
+      # 200 entries and compact a shared file, and the design carries a
+      # documented one-syscall window - an append landing between the
+      # size re-check and the rename is lost - so it requires 995 of
+      # 1200. That window widens under load, which is why
+      # `run-gates.sh` serialises it locally. A CI job runs its steps
+      # one at a time, so it has the machine here.
+      - name: REPL history, across concurrent sessions
+        run: ./scripts/check-repl-history.sh
+
+      # Completion, and the highlighter. The highlighter is the second
+      # implementation of a rule the tree-sitter queries already carry,
+      # which is the shape this repository has been bitten by before -
+      # the formatter is a second implementation of the grammar - so it
+      # is pinned rather than trusted.
+      - name: REPL completion
+        run: ./scripts/check-replcomp.sh
+
+      - name: REPL highlighting
+        run: ./scripts/check-repl-highlight.sh
 
       # The language server. The first tool surface that is NOT a port
       # of a stage0 tool - there is no `axiom lsp` in the Rust compiler
