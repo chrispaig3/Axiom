@@ -206,7 +206,26 @@ Notes on the layout, all of them things the renderer is checked on:
   span, and a span past end of file is clamped so "unexpected end of
   file" shows the last real line instead of rendering blank.
 * **A machine-applicable fix shows its replacement**, after `~>` - the
-  same notation AXDL uses for the same fact.
+  same notation AXDL uses for the same fact. A replacement with a line
+  break in it ends the help line at `~>` and follows on lines of its
+  own, each indented to the help text's column and otherwise verbatim,
+  so it reads as the block of source it is with its own indentation
+  kept; the break that begins or ends such a replacement prints no
+  blank line. The two AX3005 fixes on `tests/diagnostics/250-non-exhaustive-match.ax`:
+
+  ```
+   = help: add the missing arms, each a `todo` until it is written ~>
+                ((Green _) (todo "Green"))
+                ((Blue) (todo "Blue"))
+   = help: import `todo` from IO ~>
+            (import IO (todo))
+  ```
+
+  On the AXDL line the same two replacements are
+  `"\n    ((Green _) (todo \"Green\"))\n    ((Blue) (todo \"Blue\"))"`
+  and `"(import IO (todo))\n"`: escaped, because a diagnostic there is
+  one line. Until 2026-09-04 the human surface printed those two bytes
+  too, and `scripts/check-render-selfhost.sh` now fails them by name.
 
 ## AI-optimized notation (`--diagnostic-format=ai`)
 
