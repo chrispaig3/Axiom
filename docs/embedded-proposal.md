@@ -39,7 +39,8 @@ shown. Re-run them rather than quoting them.
 | distinct syscalls, minimal program | **3** | `mmap`, `write`, `exit` — see below |
 | runtime globals | 30 | `grep -cE '^@__axiom' min.ll` |
 | emitted IR, minimal program | 570 lines | `wc -l min.ll` |
-| stack floor, hello world | runs in **32 KiB**, fails at 16 | `ulimit -s`, bisected |
+| stack floor, hello world, whole process | runs in **32 KiB**, fails at 16 | `ulimit -s`, bisected |
+| stack, hello world, the Axiom program itself | **192 bytes** | `scripts/check-stack-bound.sh`, computed |
 | arena chunk | **1 MiB**, fixed | `MM-ALLOC-4`; the literal is `self_host/codegen.ax:8342` |
 
 **The three syscalls are the whole of it, and that is the finding.** A
@@ -137,6 +138,76 @@ that combines them and additionally refuses a non-empty parameter list,
 so an ISR that allocates is a compile error rather than a heap
 corruption at 3 a.m.
 
+### 4.6 A static stack bound from the call graph *(done — `check-stack-bound.sh`)*
+
+This was the item to do first, and it is done. `scripts/lib/stack-bound.py`
+computes the longest weighted path through a program's call graph and
+reports "this binary needs at most N bytes of stack"; it REFUSES, naming
+the site, when the question has no static answer — a cycle, a dynamic
+frame, an extern whose frame is unknown, a function address it cannot
+classify. `scripts/check-stack-bound.sh` gates it with twelve assertions
+and three ablations.
+
+**Two things this proposal said, that measurement contradicted.**
+
+*"The emitter knows each frame's size."* It does not, and cannot. Axiom
+emits LLVM **text** IR and shells out (`self_host/driver.ax`, `IR → opt →
+llc → cc`); frame layout is LLVM's register allocator's decision, taken
+after `codegen.ax` has stopped running. A number computed inside
+`codegen.ax` would be either unsound or a large over-estimate. So the
+sizes come from the same `llc` invocation the driver already makes:
+llc's own `--stack-usage-file` where the toolchain has it (LLVM 19+),
+and otherwise a prologue parse of `llc -filetype=asm`. The two are
+cross-checked against each other over all **3,767** functions of the
+compiler — 3,767 agree, 0 disagree — which is what earns the portable
+parse its trust on a toolchain that offers no table.
+
+*"Hello world needs 32 KiB of stack."* That figure is the **host
+process's** dyld and libc startup, not the Axiom program. The program's
+own need is **192 bytes**, and A6 gates it. The old number was measured
+correctly and interpreted wrongly: bisecting `ulimit -s` on a binary
+measures everything the process does, including everything that runs
+before `main`.
+
+**What made a precise answer possible**, both measured rather than
+assumed:
+
+* Every one of the compiler's 3,767 frames is reported `static`. There
+  is no dynamic `alloca` anywhere in emitted IR, so a frame is a
+  constant and a path is a sum. Nothing asserted this before; A3 does.
+* The whole self-hosted compiler contains exactly **one** indirect call
+  site (the foreign drop glue in `axiom_release`) and, once the
+  backtrace symbol table `@__axiom_symtab` is excluded, **zero**
+  address-taken functions. That site is therefore provably dead, and
+  hello world gets a real bound rather than a refusal. A closure
+  program, by contrast, resolves to exactly its own lambda and stays
+  precise.
+
+**The arithmetic is checked against a measurement**, because a computed
+number nothing measures is a comment. Two generated `no-recursion` chain
+programs at 400 and 1,200 frames, built at `--opt 0`:
+
+| frames | computed | bisected `ulimit -s` floor |
+|---|---|---|
+| 400 | 204,864 B (200 KiB) | 193 KiB |
+| 1,200 | 614,464 B (600 KiB) | 593 KiB |
+
+The **difference** is the sharper half, because it cancels the
+per-process constant entirely: 800 more frames cost 400 KiB computed and
+400 KiB measured, exactly. `--opt 0` is required — at `--opt 1` the LLVM
+inliner flattens a deep arithmetic chain to `ret i64 0`, and the bound
+then correctly reports a tiny number without exercising the path
+arithmetic.
+
+**What is deferred, and is not pretended to be done.** `axiom
+--stack-bound` as a compiler flag is what an embedded user finally
+wants. The driver already holds the post-`opt` `.ll` and the `llc`
+argument vector, so the plumbing exists; what it needs is an LLVM-IR
+text scanner written in Axiom — a second grammar for a foreign language
+— plus a diagnostic code with its registry, severity policy and
+fixtures. The analysis is proved first; promoting it into the compiler
+is a separate change.
+
 ## 5. Memory and stack budgets
 
 Proposed budgets for a Cortex-M4-class part (192 KiB SRAM, 1 MiB flash),
@@ -147,16 +218,18 @@ derived from section 2's measurements rather than from a target:
 | flash, runtime + minimal program | ≤ 24 KiB | 17,472 measured on aarch64; ARM Thumb-2 is typically smaller |
 | flash, with the freestanding stdlib subset | ≤ 64 KiB | 34,856 measured with all of `IO` linked |
 | SRAM, arena | 32 KiB, statically reserved | 8 × the proposed 4 KiB chunk |
-| SRAM, stack | 8 KiB | hello world measured at under 32 KiB *with* `IO`'s buffers; a `no-recursion` program is bounded by its call graph |
+| SRAM, stack | 8 KiB | hello world's own need is **192 bytes** computed (`check-stack-bound.sh`); the 8 KiB is headroom for a deeper program, and any `no-recursion` program's need is now a number rather than an estimate |
 | SRAM, runtime globals | < 256 bytes | 30 globals, one word each |
 
-The honest uncertainty: the stack figure is the one I would not commit
-to. It was measured for one program on one architecture with a
-host-sized `IO`, and the number that matters is per-program. The static
-answer is `restrict(no-recursion)` plus a frame-size sum over the call
-graph, which the compiler can compute and does not today — that is
-proposal 4.6 and it is the one worth doing first, because it turns the
-budget above from an estimate into a check.
+This row used to carry the honest uncertainty that the stack figure was
+the one I would not commit to: measured for one program, on one
+architecture, with a host-sized `IO`, when the number that matters is
+per-program. That is settled. `restrict(no-recursion)` plus a frame-size
+sum over the call graph is section 4.6, it is built, and it turns this
+row from an estimate into a check — for any program, not just this one.
+What remains uncertain is the *other* direction: 192 bytes is hello
+world on aarch64, and a Cortex-M4's frames are not aarch64's, so the
+8 KiB above is headroom rather than a measurement of the target.
 
 ## 6. A minimal reference port
 
@@ -215,9 +288,12 @@ A row is done when the gate named beside it is green in CI.
 | 4.3 | `trapWrite` seam, statuses unchanged | existing `.exit` fixtures | proposed |
 | 4.4 | freestanding stdlib subset | new variant of `check-freestanding.sh` | proposed |
 | 4.5 | ISR entry form | `check-restrictions.sh` extension | proposed |
-| 4.6 | static stack bound from the call graph | new | proposed |
+| 4.6 | static stack bound from the call graph | `check-stack-bound.sh` | **done** |
 | 6 | the QEMU reference port | `check-embedded.sh` | proposed |
 
-**Do 4.6 first.** Every other item is mechanical once the constants
-move; the stack bound is the only one that changes what the language can
-promise, and it is the promise an embedded user actually needs.
+**4.6 was done first**, for the reason it was ranked first: every other
+item is mechanical once the constants move, while the stack bound is the
+only one that changes what the language can *promise*, and it is the
+promise an embedded user actually needs. It is also the only one that
+needed no compiler source change at all — which was not the expectation,
+and is written up in 4.6.

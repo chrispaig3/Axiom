@@ -16,6 +16,36 @@ its changelog too.
 
 ## Unreleased
 
+### A static stack bound from the call graph
+
+`scripts/check-stack-bound.sh` and `scripts/lib/stack-bound.py` compute
+"this binary needs at most N bytes of stack" for a program whose call
+graph is acyclic, and refuse — naming the site — for one whose is not.
+This is the static counterpart to `check-stack-depth.sh`, which answers
+the same question by bisecting `ulimit -s`: you cannot bisect a
+microcontroller, and docs/embedded-proposal.md 4.6 asked for a number
+that can be read off the binary instead.
+
+Measured, and gated: hello world needs **192 bytes**, not the 32 KiB
+the proposal quoted — that figure was the host process's dyld and libc
+startup, not the Axiom program. A 400-frame chain's computed bound
+(204,864 B) lands within 7 KiB of its bisected floor, and over 800 more
+frames the computed and measured costs agree exactly (400 KiB each).
+All 3,767 frames the compiler emits are `static`; none is a dynamic
+alloca, which is what makes any of this possible and which nothing
+asserted before.
+
+The proposal's premise that `self_host/codegen.ax` knows frame sizes is
+**wrong** and the section is corrected: Axiom emits LLVM text IR and
+shells out, so the frame is LLVM's register allocator's decision. The
+sizes come from the same `llc` invocation the driver already makes, and
+a prologue parse is cross-checked against `llc --stack-usage-file` over
+all 3,767 functions of the compiler — 3,767 agree, 0 disagree — so the
+portable path is trusted for a reason rather than by assumption. No
+compiler source is touched.
+
+With it, sixty-one gates call `gate_build_axc`.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a
