@@ -101,6 +101,32 @@
 
 (pub fn (MT_CONDBR) 12)
 
+; A guard: `trapz %a, bbT, bbA` branches to bbT when %a is zero and to
+; bbA otherwise, and `trap <helper>` calls a noreturn runtime helper.
+;
+; THE GUARD IS LOWERED IN rather than left for the emitter, and that is
+; the whole point of these two. `codegen.ax` wraps `/` and `%` in a
+; zero test, a trap block calling `@__axiom_div_by_zero` and a
+; continuation; the IR represented the division as ONE instruction, so
+; an emitter written from it would have dropped the trap silently. With
+; the guard in the IR the trap block is a real block: `mReach` flags one
+; nothing branches to, `mvCheckTerm` requires it to carry exactly one
+; terminator, and `mSuccs` answers empty for `MT_TRAP` exactly as it
+; already does for `MT_RET`, so the dominance fixpoint needs no new case.
+;
+; THE EXIT STATUS IS NOT IN THE IR. `MT_TRAP` carries the helper's
+; SYMBOL; which status that symbol exits with is `codegen.ax`'s
+; property of it. Putting the number here would mean the IR had to
+; round-trip a status, and a status in this tree does not identify a
+; condition uniquely - 77 is both the index trap and the contract trap.
+(pub :: MT_TRAPZ Int)
+
+(pub fn (MT_TRAPZ) 13)
+
+(pub :: MT_TRAP Int)
+
+(pub fn (MT_TRAP) 14)
+
 (pub :: mIsTerm (-> Int Bool))
 
 (pub fn (mIsTerm op) (>= op 10))
@@ -242,7 +268,16 @@
             (mcat3 "  br " (mirBB n.tgt) (mcat3 "(" (mirRegList n.args 0 "") ")"))
             (if (== n.op MT_CONDBR)
               (mcat3 (mcat3 "  condbr " (mirReg n.a) ", ") (mirBB n.tgt) (strConcat ", " (mirBB n.alt)))
-              (strConcat "  <unknown op " (strConcat (fmtInt n.op) ">"))
+              (if (== n.op MT_TRAPZ)
+                (mcat3 (mcat3 "  trapz " (mirReg n.a) ", ") (mirBB n.tgt) (strConcat ", " (mirBB n.alt)))
+                (if (== n.op MT_TRAP)
+                  (if (>= n.a 0)
+                    (mcat3 "  trap " n.name (strConcat ", " (mirReg n.a)))
+                    (strConcat "  trap " n.name)
+                  )
+                  (strConcat "  <unknown op " (strConcat (fmtInt n.op) ">"))
+                )
+              )
             )
           )
         )
@@ -626,6 +661,50 @@
 ;     name would call a DIFFERENT function that happens to share it;
 ;   - an operator applied to other than two arguments, which is a
 ;     partial application.
+; `sdiv` and `srem` are the only operators this IR lowers that carry a
+; runtime guard, and `mIsDivOp` is the one place that set is written
+; down. `codegen.ax`'s `isDivOp` is the same set on the other side of
+; the seam; `check-mir.sh` compares the two operator tables row by row
+; for exactly this reason.
+(pub :: mIsDivOp (-> String Bool))
+
+(pub fn (mIsDivOp bop) (|| (strEq bop "sdiv") (strEq bop "srem")))
+
+; Plant the guard: terminate the current block with `trapz` on the
+; DIVISOR, put a `trap` in the block it branches to when the divisor is
+; zero, and leave the builder on the continuation so the division that
+; follows is emitted there.
+;
+; The trap block is a REAL block, which is the reason for this shape
+; rather than a flag on the instruction. `mReach` will flag it if
+; nothing branches to it, `mvCheckTerm` requires its single terminator,
+; and `mSuccs` answers empty for `MT_TRAP` as it already does for
+; `MT_RET` - so dominance, reachability and the one-terminator rule all
+; cover the guard without a new case in any of them.
+(pub :: mLowerDivGuard (-> MLC String Int Int))
+
+(pub fn (mLowerDivGuard lc bop divisor)
+  (if (mIsDivOp bop)
+    (let (
+      (bt (mlcBlock lc vecNew))
+      (bk (mlcBlock lc vecNew))
+    )
+      {
+        (mlcTerm lc (MInst
+          MT_TRAPZ          (- 0 1)          divisor          0          ""          vecNew          bt.id          bk.id
+        ))
+        (set lc.cur bt)
+        (mlcTerm lc (MInst
+          MT_TRAP          (- 0 1)          (- 0 1)          0          "__axiom_div_by_zero"          vecNew          0          0
+        ))
+        (set lc.cur bk)
+        0
+      }
+    )
+    0
+  )
+)
+
 (pub :: mLowerApp (-> MLC (Vec MBind) Int Int))
 
 (pub fn (mLowerApp lc env e)
@@ -643,9 +722,18 @@
           (let ((bop (mBinOp nm)))
             (if (> (strLen bop) 0)
               (if (== (vecLen out) 2)
-                (mlcEmit lc (MInst
-                  MO_BIN                  (mlcFresh lc)                  (vecGet out 0)                  (vecGet out 1)                  bop                  vecNew                  0                  0
-                ))
+                {
+                  ; A division's zero guard is lowered IN, before the
+                  ; division itself is emitted. `codegen.ax` wraps `/`
+                  ; and `%` in a zero test, a trap block and a
+                  ; continuation; representing the division as one
+                  ; instruction and leaving the guard to the emitter is
+                  ; how the trap gets dropped.
+                  (mLowerDivGuard lc bop (vecGet out 1))
+                  (mlcEmit lc (MInst
+                    MO_BIN                    (mlcFresh lc)                    (vecGet out 0)                    (vecGet out 1)                    bop                    vecNew                    0                    0
+                  ))
+                }
                 (- 0 1)
               )
               (if (>= (mEnvFind env nm) 0)
@@ -821,12 +909,14 @@
           (vecPush out t.tgt)
           out
         }
-        (if (== t.op MT_CONDBR)
+        (if (|| (== t.op MT_CONDBR) (== t.op MT_TRAPZ))
           {
             (vecPush out t.tgt)
             (vecPush out t.alt)
             out
           }
+          ; `MT_TRAP` falls here and answers empty, which is what
+          ; `MT_RET` already does - a trap block leaves the function.
           out
         )
       )
@@ -1166,7 +1256,22 @@
         (mvUseList
           f          dom          defBlk          defIdx          out          what          n.args          blk          idx          0
         )
-        0
+        ; `MO_CONST` uses no register, so it has nothing for `mvUse`
+        ; to check - but it is a VALID opcode and must say so, or the
+        ; closed set below refuses every constant in the corpus. It
+        ; did, on the first run: all eight fixtures reported
+        ; "holds opcode 1, which is not an instruction".
+        (if (== n.op MO_CONST)
+          0
+        ; THE OPCODE SET IS CLOSED, and it was not before. This arm
+        ; answered 0 for every opcode it did not recognise, so an
+        ; instruction the lowering should never have built passed the
+        ; verifier in silence: seeding `mLower`'s integer arm with
+        ; opcode 7 made the printer say `<unknown op 7>` five times
+        ; while `mirtool verify` exited 0 with no output. `mireval.ax`'s
+        ; header claims this function refuses exactly that. It does now.
+        (mvSay out (mcat3 what " holds opcode " (strConcat (fmtInt n.op) ", which is not an instruction")))
+        )
       )
     )
   )
@@ -1236,7 +1341,24 @@
               (mvCondTarget f out what t.tgt)
               (mvCondTarget f out what t.alt)
             }
-            (mvSay out (mcat3 what " ends in opcode " (strConcat (fmtInt t.op) ", which is not a terminator")))
+            (if (== t.op MT_TRAPZ)
+              {
+                (mvUse
+                  f                  dom                  defBlk                  defIdx                  out                  what                  t.a                  b.id                  idx
+                )
+                (mvCondTarget f out what t.tgt)
+                (mvCondTarget f out what t.alt)
+              }
+              (if (== t.op MT_TRAP)
+                (if (>= t.a 0)
+                  (mvUse
+                    f                    dom                    defBlk                    defIdx                    out                    what                    t.a                    b.id                    idx
+                  )
+                  0
+                )
+                (mvSay out (mcat3 what " ends in opcode " (strConcat (fmtInt t.op) ", which is not a terminator")))
+              )
+            )
           )
         )
       )

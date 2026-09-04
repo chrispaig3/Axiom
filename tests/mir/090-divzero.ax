@@ -1,0 +1,53 @@
+; A division that actually divides by zero, and the only fixture here
+; whose two sides must agree on an EXIT STATUS rather than on stdout
+; alone.
+;
+; WHY THIS FIXTURE EXISTS. `codegen.ax` wraps `/` and `%` in a zero
+; test, a trap block calling `@__axiom_div_by_zero` and a
+; continuation. Until the IR carried that guard it represented a
+; division as ONE instruction, so an emitter written from the IR would
+; have dropped the trap - and, worse, the differential could not see
+; it: `mireval.ax`'s `sdiv` arm was Axiom's own `/`, which is guarded
+; when the evaluator itself is compiled, so the evaluator trapped
+; because its HOST trapped. Measured before the fix: native and
+; evaluated output were byte-identical and both exited 72 with the IR
+; saying nothing whatever about traps.
+;
+; So two things had to change together, and this fixture is what holds
+; them together. `mireval.ax`'s arithmetic is TOTAL now - `sdiv` and
+; `srem` answer 0 on a zero divisor instead of trapping - and the trap
+; comes from an `MT_TRAP` terminator the lowering planted. Ablate
+; either and this case goes red: drop the guard from the lowering and
+; the evaluator runs on to print 20 lines and exit 0 against the
+; native's 5 and 72; un-total the arithmetic and the evaluator is
+; trapping for the host's reason again, which the ablation in §8
+; catches by leaving the IR well formed and the answer wrong.
+;
+; `probe(k)` is `100 / (5 - k)`, so k = 5 divides by zero on the sixth
+; line. Five lines reach stdout before it, which is why this fixture
+; carries a `.lines` count of 5 rather than the bank's usual 20.
+(import IO)
+
+(:: probe (-> Int Int))
+
+(fn (probe n) (/ 100 (- 5 n)))
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

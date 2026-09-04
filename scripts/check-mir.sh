@@ -137,10 +137,10 @@ while IFS= read -r line; do
   fixtures+=("$line")
 done < <(ls tests/mir/*.ax | grep -v '/mirtool\.ax$' | sort)
 n_fix="${#fixtures[@]}"
-if (( n_fix >= 8 )); then
+if (( n_fix >= 9 )); then
   ok "tests/mir/ holds $n_fix fixtures"
 else
-  bad "tests/mir/ holds $n_fix fixtures; this gate expects at least 8"
+  bad "tests/mir/ holds $n_fix fixtures; this gate expects at least 9"
 fi
 
 tool="$work/mirtool"
@@ -229,18 +229,32 @@ for f in "${fixtures[@]}"; do
     sed 's/^/     /' "$work/$n.build" | head -10
     continue
   fi
-  if ! "$work/$n.bin" > "$work/$n.native" 2>"$work/$n.native.err"; then
-    bad "$n: the natively compiled fixture did not run"
+  # A TRAPPING FIXTURE EXITS NONZERO ON PURPOSE, so the status is
+  # compared rather than refused. Refusing it - which this did - meant
+  # a fixture whose whole point is the trap failed here with a message
+  # about the wrong thing.
+  #
+  # THREE equalities, not two. `NAME.exit` states the status the
+  # fixture is supposed to reach, and native and evaluator are each
+  # checked against IT as well as against each other: two sides alone
+  # would agree happily if both drifted together, which is the shape
+  # this repository refuses elsewhere.
+  want_exit=0
+  [[ -f "${f%.ax}.exit" ]] && want_exit="$(tr -d ' \n' < "${f%.ax}.exit")"
+  "$work/$n.bin" > "$work/$n.native" 2>"$work/$n.native.err"; nst=$?
+  "$tool" run "$f" "$PROBES" > "$work/$n.evald" 2>"$work/$n.evald.err"; est=$?
+  if [[ "$nst" != "$want_exit" ]]; then
+    bad "$n: the native run exited $nst, and ${n}.exit says $want_exit"
     sed 's/^/     /' "$work/$n.native.err" | head -5
     continue
   fi
-  if ! "$tool" run "$f" "$PROBES" > "$work/$n.evald" 2>"$work/$n.evald.err"; then
-    bad "$n: the IR evaluator did not run"
+  if [[ "$est" != "$want_exit" ]]; then
+    bad "$n: the IR evaluator exited $est, and ${n}.exit says $want_exit"
     sed 's/^/     /' "$work/$n.evald.err" | head -5
     continue
   fi
   if cmp -s "$work/$n.native" "$work/$n.evald"; then
-    ok "$n: the IR evaluates to what the compiled program prints"
+    ok "$n: the IR evaluates to what the compiled program prints, and both exit $nst"
   else
     bad "$n: the IR and the compiled program disagree"
     diff "$work/$n.native" "$work/$n.evald" | head -10 | sed 's/^/     /'
@@ -257,13 +271,17 @@ for f in "${fixtures[@]}"; do
   n="$(basename "$f" .ax)"
   [[ -f "$work/$n.native" ]] || { short="$short $n(missing)"; continue; }
   lines="$(wc -l < "$work/$n.native" | tr -d ' ')"
-  [[ "$lines" == "$PROBES" ]] || short="$short $n($lines)"
+  # A fixture that traps stops early on purpose, and says how early in
+  # `NAME.lines`; everything else prints the bank's $PROBES.
+  want_lines="$PROBES"
+  [[ -f "${f%.ax}.lines" ]] && want_lines="$(tr -d ' \n' < "${f%.ax}.lines")"
+  [[ "$lines" == "$want_lines" ]] || short="$short $n($lines want $want_lines)"
   grep -q '^$' "$work/$n.native" && blank="$blank $n"
 done
 if [[ -z "$short" ]]; then
-  ok "every fixture printed exactly $PROBES lines on both sides"
+  ok "every fixture printed the number of lines it declares"
 else
-  bad "these fixtures did not print $PROBES lines:$short"
+  bad "these fixtures printed an unexpected number of lines:$short"
 fi
 if [[ -z "$blank" ]]; then
   ok "no fixture printed an empty line"
@@ -519,6 +537,55 @@ else
   else
     bad "ABLATION 2: $n_named of $n_spoke complaints named the missing terminator"
     sed 's/^/     /' "$work/abl2.020-if.verify" 2>/dev/null | head -6
+  fi
+fi
+
+# ---------------------------------------------------------------
+echo
+echo "--- 9. the guard, at the emitted bytes ---"
+# ---------------------------------------------------------------
+# THE EVALUATOR IS NOT THE ONLY WITNESS, and it must not be. §4 proves
+# the IR and the compiled program agree; this proves the compiled
+# program still WRAPS EVERY DIVISION, read straight off the compiler's
+# own emitted IR with no evaluator in the loop. An emitter that began
+# dropping guards while the evaluator dropped them too would satisfy
+# §4 and fail here.
+#
+# The property is an exact correspondence in both directions: every
+# `sdiv`/`srem` is the first instruction of a `divok_` block, and every
+# `divok_` block starts with one.
+"$axc" emit-llvm --input self_host/main.ax > "$work/self.ll" 2>"$work/self.ll.err" || {
+  bad "could not emit the compiler's own IR"
+}
+if [[ -s "$work/self.ll" ]]; then
+  n_divzero="$(grep -c '^divzero_' "$work/self.ll" || true)"
+  n_divok="$(grep -c '^divok_' "$work/self.ll" || true)"
+  # ANCHORED TO THE INSTRUCTION SHAPE, not to the name. A bare grep for
+  # the symbol also matches its `declare` line, which made this count 94
+  # against 93 divisions on the first run - the same family as the
+  # `check-recover` grep that matched a backtrace symbol table.
+  n_helper="$(grep -cE '^ *(%[^ ]+ = )?(tail )?call .*@__axiom_div_by_zero\(' "$work/self.ll" || true)"
+  n_div="$(grep -cE '= (sdiv|srem) i64' "$work/self.ll" || true)"
+  # a division not immediately preceded by its divok_ label
+  unguarded="$(awk '/= (sdiv|srem) i64/ { if (prev !~ /^divok_/) n++ } { prev=$0 } END { print n+0 }' "$work/self.ll")"
+  # a divok_ label not immediately followed by a division
+  empty_ok="$(awk '/^divok_/ { getline nxt; if (nxt !~ /= (sdiv|srem) i64/) n++ } END { print n+0 }' "$work/self.ll")"
+  if [[ "$unguarded" == 0 ]]; then
+    ok "every sdiv/srem in the compiler's own IR follows a divok_ label"
+  else
+    bad "$unguarded sdiv/srem in the compiler's own IR are not guarded"
+  fi
+  if [[ "$empty_ok" == 0 ]]; then
+    ok "every divok_ label in the compiler's own IR is followed by an sdiv/srem"
+  else
+    bad "$empty_ok divok_ labels are not followed by a division"
+  fi
+  # A floor, so the two zeroes above cannot be satisfied by a tree with
+  # no divisions in it at all.
+  if (( n_div >= 80 && n_divzero == n_div && n_divok == n_div && n_helper == n_div )); then
+    ok "population: $n_div divisions, $n_divzero divzero_, $n_divok divok_, $n_helper trap calls"
+  else
+    bad "population disagrees: $n_div divisions, $n_divzero divzero_, $n_divok divok_, $n_helper trap calls (floor 80)"
   fi
 fi
 

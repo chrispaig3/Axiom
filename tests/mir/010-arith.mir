@@ -7,8 +7,16 @@ bb0:
   %5 = const 1
   %6 = sub %4, %5
   %7 = const 2
+  trapz %7, bb1, bb2
+bb1:
+  trap __axiom_div_by_zero
+bb2:
   %8 = sdiv %6, %7
   %9 = const 7
+  trapz %9, bb3, bb4
+bb3:
+  trap __axiom_div_by_zero
+bb4:
   %10 = srem %6, %9
   %11 = const 10
   %12 = mul %8, %11

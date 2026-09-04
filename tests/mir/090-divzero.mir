@@ -1,0 +1,19 @@
+fn probe(%0) {
+bb0:
+  %1 = const 100
+  %2 = const 5
+  %3 = sub %2, %0
+  trapz %3, bb1, bb2
+bb1:
+  trap __axiom_div_by_zero
+bb2:
+  %4 = sdiv %1, %3
+  ret %4
+}
+fn main() {
+bb0:
+  %0 = const 0
+  %1 = call emit(%0)
+  ret %1
+}
+; not lowered: emit

@@ -31,6 +31,8 @@
 
 (import Vec)
 
+(import IO)
+
 (import mir)
 
 ; The function table is a plain `Vec` scanned by name, because a
@@ -70,10 +72,26 @@
       (- x y)
       (if (strEq nm "mul")
         (* x y)
+        ; TOTAL, and that is the load-bearing line in this file.
+        ; `/` and `%` are Axiom's own operators, which `codegen.ax`
+        ; guards when THIS module is compiled - so before the IR
+        ; carried a guard the evaluator trapped because its host
+        ; trapped, and a divide-by-zero fixture came out byte-identical
+        ; and exit-identical with the IR saying nothing about traps at
+        ; all. The differential was vacuous on exactly the case it now
+        ; exists to check. The `0` below is dead in any well-formed IR:
+        ; it is reachable only when the lowering has lost the guard,
+        ; which is precisely when the gate must go red.
         (if (strEq nm "sdiv")
-          (/ x y)
+          (if (== y 0)
+            0
+            (/ x y)
+          )
           (if (strEq nm "srem")
-            (% x y)
+            (if (== y 0)
+              0
+              (% x y)
+            )
             (mvalCmp nm x y)
           )
         )
@@ -157,6 +175,7 @@
 
 (pub :: mvalInsts (-> (Vec MFunc) (Vec Int) (Vec MInst) Int Int))
 
+;@axiom:effect(io)
 (pub fn (mvalInsts fns regs insts i)
   (if (>= i (vecLen insts))
     0
@@ -197,6 +216,7 @@
 ; than as a crash that could be mistaken for a machine problem.
 (pub :: mvalCall (-> (Vec MFunc) String (Vec Int) Int))
 
+;@axiom:effect(io)
 (pub fn (mvalCall fns nm args)
   (let ((got (mvalFind fns nm 0)))
     (if (== (vecLen got) 0)
@@ -222,6 +242,7 @@
 
 (pub :: mvalRunBlock (-> (Vec MFunc) MFunc (Vec Int) MBlock (Vec Int) Int))
 
+;@axiom:effect(io)
 (pub fn (mvalRunBlock fns f regs b vals)
   {
     (mvalBindParams regs b.params vals 0)
@@ -242,7 +263,18 @@
                   t.alt
                 )                vecNew
               )
-              0
+              (if (== t.op MT_TRAPZ)
+                (mvalGoto
+                  fns                  f                  regs                  (if (== (vecGet regs t.a) 0)
+                    t.tgt
+                    t.alt
+                  )                  vecNew
+                )
+                (if (== t.op MT_TRAP)
+                  (mvalTrap t.name)
+                  0
+                )
+              )
             )
           )
         )
@@ -251,8 +283,27 @@
   }
 )
 
+; A trap terminator leaves the program the way the emitted runtime
+; leaves it: the helper's own message on fd 2 and the helper's own exit
+; status. The status is a property of the SYMBOL, not of the IR - see
+; `mir.ax`'s note on why it is not a field.
+;
+; Measured against the real thing rather than read off a table: a
+; divide-by-zero program prints `axiom: division by zero` to fd 2,
+; leaves stdout untouched, and exits 72.
+(pub :: mvalTrap (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (mvalTrap name)
+  (if (strEq name "__axiom_div_by_zero")
+    (die "axiom: division by zero\n" 72)
+    (die (strConcat (strConcat "axiom: trap " name) "\n") 70)
+  )
+)
+
 (pub :: mvalGoto (-> (Vec MFunc) MFunc (Vec Int) Int (Vec Int) Int))
 
+;@axiom:effect(io)
 (pub fn (mvalGoto fns f regs id vals)
   (let ((got (mvalBlockAt f id)))
     (if (== (vecLen got) 0)
@@ -270,6 +321,7 @@
 ; reads past the end.
 (pub :: mvalRunFn (-> (Vec MFunc) MFunc (Vec Int) Int))
 
+;@axiom:effect(io)
 (pub fn (mvalRunFn fns f args)
   (let ((regs (mvalZeros vecNew f.nreg)))
     {
@@ -285,6 +337,7 @@
 ; fixture's `probe` has.
 (pub :: mvalCall1 (-> (Vec MFunc) String Int Int))
 
+;@axiom:effect(io)
 (pub fn (mvalCall1 fns nm x)
   (let ((v vecNew))
     {

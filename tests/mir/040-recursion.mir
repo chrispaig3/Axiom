@@ -20,6 +20,10 @@ bb0:
   %1 = const 1
   %2 = add %0, %1
   %3 = const 11
+  trapz %3, bb1, bb2
+bb1:
+  trap __axiom_div_by_zero
+bb2:
   %4 = srem %2, %3
   %5 = call probeFact(%4)
   ret %5
