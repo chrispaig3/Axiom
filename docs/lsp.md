@@ -76,9 +76,20 @@ What the lifecycle does, and what it does not:
   that failed, then `AX5001` for an import that does not resolve, then
   the expander's refusals alone when it refused, else the expander's
   and the checker's diagnostics merged in the compiler's order. Each
-  carries the `AX` code as `code`, `axiom` as `source`, and the
-  message's first line followed by its `help:` paragraph. Only THIS
-  document's diagnostics are published: a diagnostic the checker
+  carries the `AX` code as `code`, `axiom` as `source`, and
+  everything the terminal prints about it: the message's first line,
+  the LABEL the terminal draws at the caret, and its `note:` and
+  `help:` paragraphs. A SECONDARY span — `AX3006`'s "first defined
+  here", `AX3012`'s "`x` is bound here" — is published as
+  `relatedInformation`, which an editor renders as a link: before
+  2026-09-03 a duplicate `main` said "duplicate definition `main`" and
+  pointed at nothing while `axiom check` pointed at the other one. The
+  gate holds that as a differential against
+  `axiom check --diagnostic-format json` over every fixture — every
+  label carried into the message, every secondary published at the
+  UTF-16 position converted in Python from the terminal's character
+  offset — and refuses to run if the corpus stops producing either.
+  Only THIS document's diagnostics are published: a diagnostic the checker
   raised inside an imported module is not attributed to the file that
   imports it — open that module and it is published there. `didClose`
   publishes an empty list, which is how a server retracts squiggles.
@@ -488,7 +499,14 @@ variable, landing on the binder — then this document's declarations,
 then the merged declarations of every module this document imports,
 answering a `Location` in that module's own file. A macro invocation
 is a reference to its `macro` declaration (`MAC-TOOL-2` in
-[macro-system.md](macro-system.md)). What it does not do: a builtin
+[macro-system.md](macro-system.md)). A CONSTRUCTOR is a declaration
+too, and since 2026-09-03 this says where: the answer is the
+constructor's OWN name span inside the `data` — `Green` in
+`(data Colour (Red) (Green))`, not `Colour` — from a pattern head,
+from an application, from its own declaration, and from another
+document that imports it. `lspFindDecl` matches whole declarations and
+never looks inside a constructor list, which is why five requests
+could see a constructor and three could not. What it does not do: a builtin
 (`Int`, `+`), a keyword and a name nothing declares answer `null`; a
 name a macro would generate has no definition, because nothing has
 expanded it; and an import that does not resolve narrows the search
@@ -503,9 +521,11 @@ spans; so `declaration` on any occurrence of `bump` lands on the `::`
 and `definition` on the `fn` below it. The order is `definition`'s
 with one step inserted: a local binding first, then this document's
 `::`, then this document's declaration of that name, then the imported
-modules, signature first. A `data`, a `struct`, a macro and a local
-are not written twice, so for them the two requests agree, by
-construction rather than by fallback. There is one position where this
+modules, signature first. A `data`, a `struct`, a macro, a CONSTRUCTOR and a
+local are not written twice, so for them the two requests agree, by
+construction rather than by fallback — the gate asks both at a
+constructor and requires the two answers to be EQUAL, where at a `fn`
+it requires them to differ. There is one position where this
 answers and `definition` cannot: a signature whose `fn` has not been
 written yet — what an editor sees mid-keystroke, and what `AX3015`
 reports. `null` for a keyword, a builtin, a name nothing declares and
@@ -600,9 +620,15 @@ checker to publish nothing for the pair.
 
 **`textDocument/typeDefinition`.** From a signed function's result,
 a header parameter or a constructor to the `data`, `struct` or `type`
-that declares its type, in this document or an imported one. `null`
-for a builtin type, for a `fn` with no `::`, and for a position that
-is none of those three.
+that declares its type, in this document or an imported one. On a
+constructor this is the one request that answers the `data` rather
+than the constructor, because the type of `Green` is `Colour`;
+`definition` at the same character answers `Green`, and
+`SECTION NAV TESTS` asks both there and requires the two to differ.
+The imported half of that was missing until 2026-09-03 — `null` at a
+character where `signatureHelp` was rendering the constructor's own
+shape. `null` for a builtin type, for a `fn` with no `::`, and for a
+position that is none of those three.
 
 ### Reading
 
@@ -613,7 +639,20 @@ its `(:: f T)` signature rather than its body, and its paragraph is
 read from above the signature, because that is where this language
 puts it; a `fn` with no signature is quoted as its first line. A
 `data`, `struct` or `macro` is quoted whole, cut to a tooltip's
-height by `lspClampLines`. A local answers from the walk: a parameter
+height by `lspClampLines`. A CONSTRUCTOR is read at the whole `data`
+that declares it — its siblings and its field types are what a reader
+wants — with one line under the fence naming which of them the cursor
+is on:
+
+```text
+(data Colour
+  (Red)
+  (Green))
+
+constructor `Green` of `Colour`
+```
+
+and the module below that when the `data` came from another file. A local answers from the walk: a parameter
 of `bump` answers
 
 ```text
