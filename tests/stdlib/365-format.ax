@@ -18,8 +18,6 @@
 ; golden holds the padded one.
 (import IO)
 
-(import Show)
-
 (pub :: main Int)
 
 ;@axiom:effect(io)

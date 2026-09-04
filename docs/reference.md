@@ -3148,7 +3148,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 
 ### Modules at a Glance
 
-Twenty-five modules, all of them Axiom source under `stdlib/`. A name a
+Twenty-four modules, all of them Axiom source under `stdlib/`. A name a
 module does not mark `pub` is not part of its surface — reaching one is
 `AX3023` — so `grep '^(pub' stdlib/M.ax` is always the authoritative
 answer to what a module exports. The table below says what each module
@@ -3168,8 +3168,7 @@ requires the result to be byte-identical.
 | `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
 | `Vec` | growable `Int` array: `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear`, `vecSort`, `vecSortBy` |
 | `Map` | `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapUsed` (open-addressing `Int→Int` hash map) |
-| `Fmt` | `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth` — the functions a format specifier selects |
-| `Show` | the `format` macro, and nothing else — since traits were removed in 0.6.0 it is the module's one public name. `show`, which a hole lowers to, is resolved by the **compiler** from the value's static type (`Int`, `String`, `Bool`, `Float`); an argument shape with no rendering is `AX3025` |
+| `Fmt` | the `format` macro, and the functions a format specifier selects: `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth`. A hole's rendering is chosen by the **compiler** from the value's static type (`Int`, `Float`, `Bool`, `Char`, `String`, and any `data` or `struct` of those) and lowered to the functions in this module; an argument shape with no rendering is `AX3025`. `format` lived in a `Show` module until 0.7.4 |
 | `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try!`, `toOption`, `withContext`, and the checked arithmetic `divChecked`, `remChecked`, `shlChecked`, `shrChecked` ([error-model.md](error-model.md) is the specification) |
 | `Fallible` | `fallibleMalformed` — the operation a batch loop's callee performs on a malformed record — and the handlers that answer it without unwinding: `fallibleSkip`, `fallibleDefault`, `fallibleCounting`; the skip sentinel `fallibleSkipped`/`fallibleIsSkipped`; the `FallibleTally` a counting handler writes, `fallibleTally`/`fallibleCount` ([error-model.md](error-model.md) ERR-REC-7) |
 | `Intern` | `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |

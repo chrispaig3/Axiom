@@ -21,12 +21,6 @@
 
 (import Fmt)
 
-; The printing macros expand to `show`, so `IO` is where a program
-; picks up the `Show` instances by importing one module rather than
-; two. `Show` does not import `IO` - rendering has no effects and
-; must not acquire one - so the edge is one-way.
-(import Show)
-
 ; ------------------------------------------------------------------
 ; Writing
 ; ------------------------------------------------------------------

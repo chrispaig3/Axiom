@@ -21,8 +21,6 @@
 ; cannot make a wrong rendering pass.
 (import IO)
 
-(import Show)
-
 (:: eq (-> String String String Int))
 
 ;@axiom:effect(io)

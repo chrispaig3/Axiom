@@ -28,8 +28,6 @@
 ; `(println "hi")` is one `write` of one static literal.
 (import IO)
 
-(import Show)
-
 (import Str)
 
 (:: bit (-> Bool Int Int))

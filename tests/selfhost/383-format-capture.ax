@@ -20,8 +20,6 @@
 ;     of it.
 (import IO)
 
-(import Show)
-
 (import Str)
 
 ; The hijack. `(-> a String)` is deliberately type-COMPATIBLE with

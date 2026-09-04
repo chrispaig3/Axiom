@@ -397,3 +397,24 @@
     )
   )
 )
+
+; ------------------------------------------------------------------
+; `format` — a String, built at compile time from a literal's runs and
+; holes, or the hole lowering applied to anything else.
+;
+;   (format "x = {x}, y = {y}")   ; the interpolating form
+;   (format n)                    ; Rust's format!("{}", n)
+;
+; The macro is four tokens because `syntax/format` is the whole
+; implementation: it reads the literal, splits it, and emits the
+; `strConcat` chain with one rendering call per hole. See
+; docs/macro-system.md MAC-CAP-10 for the grammar and the lowering.
+;
+; It lives HERE because the lowering it emits targets this module:
+; a hole on an `Int` becomes `fmtInt`, on a `Float` `fmtFloat`, and
+; every width and precision specifier is one of the `fmtPad*`
+; functions above. It was `stdlib/Show.ax` until 0.7.4, a module whose
+; other 40 lines argued for a trait system that no longer exists;
+; `IO` imported it solely to carry this macro, and that edge is gone
+; with the file.
+(pub macro (format e) (syntax/format e))
