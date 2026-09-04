@@ -358,7 +358,7 @@
       (__retain vals)
       (__retain states)
       (if (== refs 1)
-        (memMarkArray vals)
+        (memMarkArray vals cap)
         vals
       )
       (memSetWord m 0 0)
@@ -968,7 +968,7 @@
         (__retain newVals)
         (__retain newStates)
         (if (mapOwnsVals m)
-          (memMarkArray newVals)
+          (memMarkArray newVals newCap)
           newVals
         )
         (set m.cap newCap)

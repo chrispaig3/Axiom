@@ -8627,13 +8627,22 @@
     ; the unsafe layer's own rule; monomorphic construction sites
     ; overwrite the word with their record shape, and a container
     ; stamps its element buffer with the array form through
-    ; `Mem.memMarkArray`. A payload past 16383 words overflows the
-    ; count field and stores 0 - the unknown-size sentinel release
-    ; refuses to file (262KB read buffers exist; the clamp is not
-    ; decorative). The ceiling was 32767 words until the array form
-    ; took the count's top bit on 2026-08-24; what that costs is reuse
-    ; of blocks between 131KB and 262KB, which now read as
-    ; unknown-size rather than being filed.
+    ; `Mem.memMarkArray`, which writes its LENGTH into bits 16..62.
+    ;
+    ; A payload past 16383 words overflows the count field and stores
+    ; 0 - the unknown-size sentinel release refuses to file (262KB
+    ; read buffers exist; the clamp is not decorative). The ceiling was
+    ; 32767 words until the array form took the count's top bit on
+    ; 2026-08-24; what that costs is reuse of blocks between 131KB and
+    ; 262KB, which now read as unknown-size rather than being filed.
+    ;
+    ; WHAT THE CLAMP MUST NOT COST is the array form's length, and
+    ; until 2026-09-03 it did: the walk read this same field as the
+    ; number of handles, so a clamped buffer said "zero handles" and
+    ; released none of them. That is why the length lives in bits
+    ; 16..62 and not here - a size class the allocator may throw away
+    ; and a length the walk may not are two numbers, and this field is
+    ; only the first of them.
     (emitLine cg "  %cwp = inttoptr i64 %hb to ptr")
     (emitLine cg "  store i64 0, ptr %cwp")
     (emitLine cg "  %shpw = add i64 %hb, 8")
@@ -8888,8 +8897,26 @@
     ; exist.
     (emitLine cg "  %parr = and i64 %pshw, 32768")
     (emitLine cg "  %pisarr = icmp ne i64 %parr, 0")
-    (emitLine cg "  %pcnt0 = lshr i64 %pshw, 1")
-    (emitLine cg "  %pcnt = and i64 %pcnt0, 16383")
+    ; THE ARRAY LENGTH SHARES BITS 16..62 WITH THE RECORD BITMAP, and
+    ; that is the whole encoding: the two forms are disjoint, so the
+    ; field can be a bitmap for one and a count for the other. It used
+    ; to read bits 1..14 - the ALLOCATOR's padded word count - which
+    ; the allocator clamps to 0 past 16,383 words, so a container's
+    ; element buffer of 131,072 bytes or more announced itself as an
+    ; array of ZERO handles and the walk below stepped over every
+    ; element it held. Measured 2026-09-03: a 16,384-element reference
+    ; vector and the same program built with `vecNew` had the same
+    ; peak RSS to the kilobyte, which is what a form doing nothing
+    ; looks like from outside (`tests/stdlib/406-array-form-large-
+    ; block.ax`).
+    ;
+    ; `Mem.memMarkArray` writes this field from the ELEMENT count its
+    ; caller already has, so it never needs a number the allocator
+    ; threw away, and `Mem.memMarkLeaf` clears it along with bit 15 -
+    ; a leaf that kept it would read back as a record with a bitmap.
+    ; The mask is 47 bits (bits 16..62), leaving bit 63 out so the
+    ; shape word stays non-negative.
+    (emitLine cg "  %pcnt = and i64 %pmap, 140737488355327")
     (emitLine cg "  %pwm = select i1 %pisarr, i64 %pcnt, i64 %pmap")
     (emitLine cg "  %pflg = select i1 %pisarr, i64 1, i64 0")
     (emitLine cg "  store i64 %pwm, ptr %wm")
@@ -13626,10 +13653,17 @@
               ; unsound rather than merely incomplete: a lambda
               ; captures everything in scope, so a closure escaping
               ; the loop would otherwise hold a parameter the next
-              ; boundary releases. The share is unbalanced - a
-              ; closure record still carries no map - so it leaks,
-              ; which is the safe direction and no worse than the
-              ; unretained store it replaces.
+              ; boundary releases. The share is BALANCED, by the map
+              ; three lines above: `lamShapeBits` sets bit 16+1+i for
+              ; exactly the captures `retainParamCaps` retains, so the
+              ; record's death gives each of them back. (This comment
+              ; used to say the share was unbalanced and leaked "in
+              ; the safe direction". It said so from before the map
+              ; existed. Probed 2026-09-03: `emit-llvm` of a lambda
+              ; capturing one `String` parameter emits
+              ; `store i64 131076` for the record's shape word -
+              ; 0x20004, two payload words and bit 17, the map naming
+              ; word 1.)
               ;
               ; Captures that are `let` bindings stay unretained on
               ; purpose: nothing releases a binding, so nothing can
@@ -14127,6 +14161,37 @@
             (memSetWord ff 0 (memGetWord cgB 14))
             0
           ))
+          ; WORD 31 IS "THE BODY WROTE ITS OWN TERMINATOR", and this
+          ; reads it for the reason `emitPairArmsTail` does: the three
+          ; steps below - the release, the store and the `br` - all
+          ; land in the block the body left current, and a body that
+          ; ended that block with a `ret` or a `br` of its own would
+          ; put them past a terminator. `emitLine` writes text, so LLVM
+          ; would take the instructions after the terminator and the
+          ; verifier would reject the module.
+          ;
+          ; IT CANNOT FIRE TODAY, AND SAYING SO IS THE POINT. Word 31
+          ; has exactly six setters, all in this file: `emitTailJump`
+          ; (a self tail jump), `emitIfTail` (both arms terminated),
+          ; the `musttail` leaf, `emitPairFwd`, and `emitPairRet`
+          ; twice. The last three are called only from `emitExprTail`;
+          ; the first two are reached only with word 30 - tail position
+          ; - already set, and `emitApp` snapshots word 30 and clears
+          ; it before it emits a single argument. `emitPairArms` emits
+          ; its bodies with `emitExpr`, which is entered with word 30
+          ; at 0, so no Axiom source reaches this branch. The guard is
+          ; therefore INERT, and it was verified inert the way this
+          ; repository verifies inertness: `axiom emit-llvm
+          ; self_host/main.ax` is byte-identical with and without it.
+          ;
+          ; It is written down rather than left out because the
+          ; invariant that made it unnecessary is not local to this
+          ; function and not written anywhere it would be read from
+          ; here - it is a property of six call sites in two other
+          ; emitters. If a match arm ever regains tail position under
+          ; the register-pair specialisation, this branch becomes the
+          ; difference between a jump and a rejected module.
+          (termd (memGetWord cgB 31))
           (bv (strDup (memGetWordStr cgB 2)))
           ; THE SHARE THE PAIR CARRIED, GIVEN BACK PER ARM. A block was
           ; released once because one release reached every field
@@ -14140,15 +14205,25 @@
           ; `rel` is `scrutineeReleasable`'s answer, so an arm whose
           ; binder ESCAPES has already turned this off for the whole
           ; match - the same guard the boxed path uses.
-          (_r (if (== rel 1)
-            (if (== (pairPayloadClass cgB rt (pairArmCtorName pat)) 2)
-              (emitReleaseOf cgB (strDup payR))
+          (_r (if (== termd 1)
+            cgB
+            (if (== rel 1)
+              (if (== (pairPayloadClass cgB rt (pairArmCtorName pat)) 2)
+                (emitReleaseOf cgB (strDup payR))
+                cgB
+              )
               cgB
             )
-            cgB
           ))
-          (_d (storeWordAt cgB cell 0 bv))
-          (_e (emitLine cgB (cat2 "  br label %" mergeB)))
+          (_d (if (== termd 1)
+            0
+            (storeWordAt cgB cell 0 bv)
+          ))
+          (_e (if (== termd 1)
+            0
+            (emitLine cgB (cat2 "  br label %" mergeB))
+          ))
+          (_z (memSetWord cgB 31 0))
           (_f (emitLabel cgB nextB))
           (_g (symRestore cgB mark))
         )
@@ -14472,9 +14547,27 @@
             (memSetWord ff 0 (memGetWord cgB 14))
             0
           ))
+          ; The same word-31 guard `emitPairArms` carries, for the same
+          ; reason and with the same standing: a body that wrote its
+          ; own terminator would leave this store and `br` past it. It
+          ; is unreachable from `emitExpr` today - the argument is
+          ; written out at `emitPairArms` and applies verbatim here -
+          ; and it was proved inert by a byte-identical `emit-llvm` of
+          ; `self_host/main.ax`. `emitArmsTail`, `emitPairArmsTail`,
+          ; `emitIfTail`, `emitLet`, `emitRegion` and `retainTailLeaf`
+          ; all read word 31 already; these two were the ones that did
+          ; not.
+          (termd (memGetWord cgB 31))
           (bv (strDup (memGetWordStr cgB 2)))
-          (_d (storeWordAt cgB cell 0 bv))
-          (_e (emitLine cgB (cat2 "  br label %" mergeB)))
+          (_d (if (== termd 1)
+            0
+            (storeWordAt cgB cell 0 bv)
+          ))
+          (_e (if (== termd 1)
+            0
+            (emitLine cgB (cat2 "  br label %" mergeB))
+          ))
+          (_z (memSetWord cgB 31 0))
           (_f (emitLabel cgB nextB))
           (_g (symRestore cgB mark))
         )
@@ -18029,9 +18122,9 @@
 ;     (`pendingOwned`, field 42, paid after the body);
 ;   * the prototypes are identical - every parameter is `i64` and both
 ;     return `i64`, so identical means the same COUNT, evidence word
-;     included: `pairSlot 4` for the caller, `args + takesEv` for the
+;     included: `pairSlot 6` for the caller, `args + takesEv` for the
 ;     callee - and the caller is a plain `fn`, not a lambda or a thunk
-;     (slot 4 is 0 there);
+;     (slot 6 is 0 there, set by `emitLamDef`);
 ;   * no argument is an owned temporary the caller would release after
 ;     the call (`ownedArgReleases`, the same predicate
 ;     `releaseOwnedArgs` spends).
@@ -21677,9 +21770,19 @@
 ; THE BODY IS EMITTED IN NON-TAIL POSITION, on purpose. The reset
 ; must run after it, so a self call inside a region is a call and not
 ; the jump `emitExprTail` would make of it. A body that terminated its
-; own block (word 31: a trap, an abort) gets no reset after the
-; terminator - an instruction after one is not LLVM, and the process
-; is ending anyway.
+; own block gets no reset after the terminator, because an instruction
+; after one is not LLVM.
+;
+; WORD 31 IS NOT WHAT THIS USED TO SAY IT WAS. It read "word 31: a
+; trap, an abort", and no trap and no abort sets it: the exhaustive
+; list, re-grepped 2026-09-03, is `emitTailJump` (a self tail jump),
+; `emitIfTail` when both arms terminated, the `musttail` leaf,
+; `emitPairFwd`, and `emitPairRet` twice - six sites, all in this file,
+; all reachable only under `emitExprTail`. Which makes this guard
+; unreachable from a non-tail body exactly as the two in `emitArms`
+; and `emitPairArms` are, and worth keeping for the same reason: the
+; invariant lives in other functions and can move without warning
+; here.
 ;
 ; THE VALUE IS THE BODY'S REGISTER, UNCHANGED. The checker refuses a
 ; body whose type is not a scalar (AX3059, `checkRegion`), so the word

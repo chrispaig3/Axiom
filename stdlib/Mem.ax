@@ -97,15 +97,40 @@
   )
 )
 
-; The ARRAY FORM: every payload word of this block is a handle to
-; another counted block, so releasing it releases all of them
-; (docs/memory-model.md MM-LIFE-2d names the two forms; the array form
-; landed 2026-08-24).
+; The ARRAY FORM: payload words 0..n-1 of this block are handles to
+; other counted blocks, so releasing it releases all of them, and `n`
+; is the caller's ELEMENT count (docs/memory-model.md MM-LIFE-2d names
+; the two forms; the array form landed 2026-08-24 and took its own
+; length 2026-09-03).
 ;
-; It is one bit - bit 15 of the shape word - and no second header word,
-; because the count field had a bit to spare: the allocator already
-; clamps a payload past 16,383 words to the unknown-size sentinel, and
-; the clamp used to sit one bit higher up.
+; It is one bit - bit 15 of the shape word - and no second header word.
+; The LENGTH goes in bits 16..62, which the record form uses for its
+; reference bitmap and this form therefore has to itself: the two forms
+; are disjoint by construction, so the field can be a bitmap for one
+; and a count for the other.
+;
+; THE LENGTH IS THE CALLER'S, AND IT HAS TO BE. Until 2026-09-03 this
+; function took only the handle and the walk read the length out of the
+; ALLOCATOR's word count in bits 1..14 - a field the allocator clamps
+; to 0 past 16,383 words, because it is a size class and a size class
+; it cannot represent is one it refuses to pool. A container's element
+; buffer of 131,072 bytes or more therefore announced itself as an
+; array of ZERO handles, and `vecFree` released the block and none of
+; the elements. Measured: a 16,384-element `vecNewRef` and the same
+; program on `vecNew` had the same peak RSS to the kilobyte.
+;
+; No spelling of this function could recover a number the allocator had
+; already thrown away, so the count comes in as an argument - every
+; caller has it, because every caller just asked for a buffer of that
+; many elements. `tests/stdlib/406-array-form-large-block.ax` is the
+; fixture; it answers 22 against the one-argument version and 31
+; against this one.
+;
+; PASS THE ELEMENT COUNT, NOT THE BLOCK'S WORDS. `memAlloc` rounds up
+; to 16 bytes, so a block of an odd number of words carries a pad word
+; the caller never names; walking 0..n-1 covers exactly the elements
+; and steps over the pad, which is strictly safer than the padded count
+; the walk used to read.
 ;
 ; WHY A CONTAINER CANNOT USE `memAllocMapped` INSTEAD. The record form's
 ; bitmap holds 47 words. `Intern`'s string vector is **64 words at
@@ -122,11 +147,14 @@
 ; the caller still holds. That is a use-after-free rather than a leak,
 ; and it is the one obligation this form puts on its user.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: memMarkArray (-> Int Int))
+(pub :: memMarkArray (-> Int Int Int))
 
-(pub fn (memMarkArray h)
+; `n` is masked to 47 bits before it is shifted, so a count nobody can
+; hold cannot push a 1 into bit 63 and make the shape word negative -
+; `codegen.ax`'s `shapeBits` rests on that word being non-negative.
+(pub fn (memMarkArray h n)
   {
-    (__store64 (- h 8) 0 (| (__load64 (- h 8) 0) 32768))
+    (__store64 (- h 8) 0 (| (| (__load64 (- h 8) 0) 32768) (<< (& n 140737488355327) 16)))
     h
   }
 )
@@ -137,12 +165,29 @@
 ; old block while it still reads as an array would spend every share
 ; twice. Clearing the bit first makes the old block a leaf, and its
 ; release then reclaims the block and touches nothing it used to hold.
+;
+; IT CLEARS THE LENGTH TOO, and that half is load-bearing rather than
+; tidy. Bits 16..62 are the record form's REFERENCE BITMAP, so a block
+; that dropped bit 15 and kept its length would not read as a leaf at
+; all - it would read as a record whose map names whichever payload
+; words the length's set bits happen to fall on, and release would
+; spend a share of each. A buffer of 8,192 elements would name word 13.
+; That is a wild write rather than a leak, and it is why the mask here
+; and the count in `memMarkArray` are one change and not two.
+;
+; WHICH MEANS THIS IS NOT A NO-OP ON A RECORD. The mask used to clear
+; bit 15 alone, so calling it on a record-mapped block left the map
+; standing; it now clears the map too. Both callers in this tree hand
+; it an ARRAY-FORM buffer - `vecReserveExactly`'s abandoned data block
+; and `mapRehashCap`'s abandoned value array, neither of which ever
+; carried a record map - and the name says what it does: it makes the
+; block a leaf, and a leaf has no map.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memMarkLeaf (-> Int Int))
 
 (pub fn (memMarkLeaf h)
   {
-    (__store64 (- h 8) 0 (& (__load64 (- h 8) 0) (- (- 0 1) 32768)))
+    (__store64 (- h 8) 0 (& (__load64 (- h 8) 0) 32767))
     h
   }
 )
@@ -153,10 +198,10 @@
 ; carry the array form" - and the first version of this work had one.
 ; It is not sound, because bit 15 is only unambiguous against an
 ; allocator that clamps at 16,383 words, and this file is compiled by
-; whichever compiler is building it. The COMMITTED SEED clamps at
-; 32,767, which is where the bit used to be the top of the count field,
-; so under the seed's runtime every block of 16,384 words or more has
-; bit 15 set and reads back as an array of handles.
+; whichever compiler is building it. The seed that made this a crash
+; clamped at 32,767, which is where the bit used to be the top of the
+; count field, so under THAT seed's runtime every block of 16,384 words
+; or more had bit 15 set and read back as an array of handles.
 ;
 ; `tests/stdlib/200-scale.ax` interns 100,000 strings, so its `Map`
 ; reaches 262,144 slots, so its value array passes 16,384 words - and
@@ -165,6 +210,16 @@
 ; builds and wrong under the one that builds this tree. `stage1` runs
 ; on the seed's runtime, so the bootstrap ladder is exactly where this
 ; lands.
+;
+; THAT PARTICULAR SEED IS GONE, AND THE RULE IS NOT. Checked
+; 2026-09-03: the committed seeds (09f3eb4) all carry
+; `icmp ugt i64 %wcnt, 16383` and `%aform = and i64 %shw, 32768`, so
+; today's seed agrees with today's compiler and a reader would not
+; crash on this tree. It would crash on the NEXT tree whose allocator
+; moves, which is the same hazard with a different date on it - a
+; reader here is sound only by accident of what happens to be in
+; `bootstrap/`, and this file cannot see what that is. The flag word
+; stays.
 ;
 ; A container therefore carries its own flag in its own header - one
 ; word it wrote itself, with no encoding to be ambiguous about - and

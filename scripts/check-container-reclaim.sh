@@ -37,6 +37,11 @@
 #                buffer; every element leaks. This is the ablation of
 #                the array form itself.
 #
+#   big/mapped   the SAME pair at 16,384 elements instead of 32, which
+#   big/leaf     is past the point where the array form used to stop
+#                working. Its own section below says why it is not
+#                simply a third `n` on the pair above.
+#
 #   chain/freed  an `Intern` and a ref-valued `Map` built and freed
 #                each iteration - five levels of map-walking, header
 #                to `Vec` to data block to `Str` header to bytes.
@@ -85,11 +90,12 @@ max_rss_kb() {
 emit_probe() {
   local probe="$1" variant="$2" n="$3" out="$4"
   case "$probe" in
-    vec)
-      local ctor='vecNewRef'
+    vec|big)
+      local ctor='vecNewRef' elems=32
       [[ "$variant" == leaf ]] && ctor='vecNew'
+      [[ "$probe" == big ]] && elems=16384
       cat > "$out" <<AX
-; $n iterations, each building a 32-element Vec of freshly duplicated
+; $n iterations, each building a $elems-element Vec of freshly duplicated
 ; Strings and dropping it. Variant: $variant (constructor $ctor).
 (import IO)
 (import Vec)
@@ -109,7 +115,7 @@ emit_probe() {
 
 (:: loop (-> Int Int Int))
 (fn (loop n acc)
-  (if (== n 0) acc (loop (- n 1) (+ acc (build 32)))))
+  (if (== n 0) acc (loop (- n 1) (+ acc (build $elems)))))
 
 (:: main Int)
 ;@axiom:effect(io)
@@ -232,6 +238,36 @@ for probe in vec chain; do
   done
 done
 
+# THE BIG ARM, at ONE iteration count and outside the loop above, and
+# both of those are deliberate.
+#
+# 16,384 elements is past the point where the array form used to stop
+# working: the shape word's array LENGTH used to be read out of the
+# allocator's word count in bits 1..14, which the allocator clamps to 0
+# past 16,383 words, so a data block of 131,072 bytes announced itself
+# as an array of zero handles and `vecFree` released none of its
+# elements. Measured on the compiler at 50ae6a2 (2026-09-03), n=200:
+# big/mapped and big/leaf were BOTH 335,344 KiB - identical to the
+# kilobyte, which is what an ablation that stopped being an ablation
+# looks like. The length now lives in bits 16..62.
+#
+# ONE COUNT, BECAUSE THIS ARM DOES NOT PLATEAU AND SHOULD NOT CLAIM TO.
+# The 131,072-byte data block is itself past the 8,192-word (64 KiB)
+# pool ceiling in the release path's `filev`, so it is never filed and
+# never reused; only the ELEMENTS come back. big/mapped is therefore
+# linear in the iteration count at about 130 KiB a turn - measured
+# 9,520 / 16,048 / 29,088 / 55,120 KiB at n = 50 / 100 / 200 / 400 -
+# and assertion 2's plateau test would go red on a correct compiler.
+# Anyone reading this arm as "big reference vectors are now flat" will
+# be wrong. What it asserts is the 10x separation from its ablation,
+# which is the elements and nothing else.
+bigN=100
+for variant in mapped leaf; do
+  build_and_measure big "$variant" "$bigN" || { failed=1; continue; }
+  setv "big_${variant}_${bigN}_rss" "$rss"
+  setv "big_${variant}_${bigN}_out" "$out"
+done
+
 rssof() {
   local v
   v="$(getv "$1_rss")"
@@ -244,6 +280,11 @@ if [[ "$report" == 1 ]]; then
   for k in vec_mapped vec_leaf chain_freed chain_held; do
     a="$(rssof "${k}_${small}")"; b="$(rssof "${k}_${large}")"
     printf '%-18s %8s %8s  %sx\n' "$k" "$a" "$b" "$(( a > 0 ? b / a : 0 ))"
+  done
+  echo
+  printf '%-18s %8s\n' "probe/variant" "n=$bigN"
+  for k in big_mapped big_leaf; do
+    printf '%-18s %8s\n' "$k" "$(rssof "${k}_${bigN}")"
   done
   echo
 fi
@@ -330,6 +371,40 @@ for k in vec_mapped chain_freed; do
   fi
 done
 
+# 5. THE BIG ARM, past the count field's ceiling. Two assertions, and
+#    each is red on the pre-fix compiler for its own reason.
+#
+#    (a) the same program. big/mapped and big/leaf must print the same
+#        answer, or the RSS difference is two programs and not one
+#        release path.
+#    (b) the separation. Measured after the fix at n=100: big/mapped
+#        16,032 KiB, big/leaf 168,416 KiB - 10.5x. Before it: 168,416
+#        against 168,416, 1x.
+#    (c) a ceiling on the live arm, derived rather than guessed. Each
+#        iteration strands one 131,072-byte data block that `filev`
+#        will not pool, so the floor this arm can reach is
+#        $bigN x 128 KiB = 12,800 KiB and 16,032 is what it measures.
+#        40,960 KiB is a little over 3x that headroom and a little over
+#        4x below the 168,432 the unfixed compiler produces, so the
+#        ceiling separates the two without pinning the measurement to
+#        one machine's quantisation. There is no floor pair here
+#        because (b)'s denominator already refuses to be zero.
+lo="$(getv "big_mapped_${bigN}_out")"
+do_="$(getv "big_leaf_${bigN}_out")"
+if [[ -z "$lo" || "$lo" != "$do_" ]]; then
+  echo "FAIL: big printed '$lo' live and '$do_' ablated at n=$bigN - different programs"
+  failed=1
+fi
+ratio_at_least "big/leaf over big/mapped at n=$bigN" \
+  "$(rssof "big_leaf_${bigN}")" "$(rssof "big_mapped_${bigN}")" 5
+bigr="$(rssof "big_mapped_${bigN}")"
+if [[ "$bigr" -gt 40960 ]]; then
+  echo "FAIL: big/mapped holds ${bigr} KiB at n=$bigN, past the 40960 KiB ceiling - the elements are not coming back"
+  failed=1
+else
+  echo "ok   big/mapped holds ${bigr} KiB at n=$bigN, inside the 40960 KiB ceiling"
+fi
+
 # ---------------------------------------------------------------
 # THE NEGATIVE PROBE, run in full every time this gate runs.
 #
@@ -384,12 +459,34 @@ done
 # says the two probes are independent rather than one measurement
 # printed twice.
 #
+# (c) THE BIG ARM'S ABLATION IS THE COMPILER ITSELF, and it was not
+#     imagined either. The pre-fix compiler - the tree at 50ae6a2,
+#     where the array LENGTH was read out of the allocator's clamped
+#     word count - measured, at n=100:
+#
+#       big_mapped           168416
+#       big_leaf             168416
+#
+#       FAIL: big/leaf over big/mapped at n=100 is 168416 against
+#             168416, under the 5x this gate exists to see
+#       FAIL: big/mapped holds 168416 KiB at n=100, past the 40960 KiB
+#             ceiling - the elements are not coming back
+#       check-container-reclaim: FAILED          (exit status 1)
+#
+#     Both of its assertions fire, and the `vec` and `chain` halves
+#     stayed green on that compiler - which is the point of adding this
+#     arm at all: the 32-element probe above is entirely correct on a
+#     compiler where the form stops working at 16,384 words, so it
+#     could not see this and did not.
+#
 # The unablated run, for the record:
 #
 #       vec_mapped             1344     1344  1x
 #       vec_leaf               4320    61328  14x
 #       chain_freed            1344     1344  1x
 #       chain_held            10272   179824  17x
+#       big_mapped            16032
+#       big_leaf             168416
 # ---------------------------------------------------------------
 
 if [[ "$failed" == 0 ]]; then

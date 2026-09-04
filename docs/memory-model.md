@@ -2954,11 +2954,39 @@ plan. This rule is that migration, measured.
 
 The array form is **bit 15** of the shape word, and it says *every
 payload word `0..count-1` of this block is a handle*. It costs one bit
-and no second header word, because the count field had one to spare: the
-allocator already clamped a payload past 32,767 words to the
-unknown-size sentinel, and the clamp now sits at 16,383. What that costs
-is reuse of blocks between 131 KB and 262 KB, which read as unknown-size
-rather than being filed.
+and no second header word: the allocator already clamped a payload past
+32,767 words to the unknown-size sentinel, and the clamp now sits at
+16,383. What that costs is reuse of blocks between 131 KB and 262 KB,
+which read as unknown-size rather than being filed.
+
+**The `count` is the caller's, in bits 16..62, and that is a
+correction** (2026-09-03). It was read out of the allocator's word
+count in bits 1..14 until then, and that field is a **size class**: the
+allocator clamps it to 0 past 16,383 words precisely because it will
+not pool a block that large. A container's element buffer of 131,072
+bytes or more therefore announced itself as *an array of zero handles*,
+and the walk released the block and none of its elements — the whole
+form, silently off, above one specific size. Measured at 16,384
+elements over 200 iterations: `vecNewRef` and `vecNew` both peaked at
+**335,344 KiB**, identical to the kilobyte.
+
+Bits 16..62 are the record form's reference bitmap, and the two forms
+are disjoint by construction, so the field can be a bitmap for one and
+a count for the other. `Mem.memMarkArray` therefore takes the element
+count — `(-> Int Int Int)`, a declared break in `compat/BREAKING` —
+because no spelling of a one-argument version could recover a number
+the allocator had already thrown away. `Mem.memMarkLeaf` clears bits
+15..62 together: a leaf that kept the count would read back as a record
+whose bitmap names whichever payload words the count's set bits fall
+on, which is a wild write rather than a leak.
+
+`tests/stdlib/406-array-form-large-block.ax` is the fixture (it answers
+22 against the old encoding and 31 against this one) and
+`scripts/check-container-reclaim.sh`'s `big` arm is the measurement.
+**What is still not reclaimed is the buffer itself**: 131,072 bytes is
+past the release path's 64 KiB pool ceiling, so the block is never
+filed and `big/mapped` stays linear in the iteration count at about
+130 KiB a turn. The elements come back; the buffer does not.
 
 A bitmap could not have done this job, and the number is the argument:
 the record form holds **47** words, and `Intern`'s string vector is
@@ -2967,9 +2995,9 @@ count is the only encoding that describes a buffer.
 
 | block | shape word | means |
 |---|---|---|
-| `vecNewRef`'s data | `32784` | array form, 8 words |
+| `vecNewRef`'s data | `557072` | array form, size class 8 words, length 8 (`8 << 16`) |
 | `vecNew`'s data | `16` | the same block, the same size, no claim about its contents |
-| `internNew`'s string vector | `32896` | array form, 64 words — past the bitmap's capacity |
+| `internNew`'s string vector | `4227200` | array form, size class 64 words, length 64 — past the bitmap's capacity |
 | a `Vec` header | `262152` | 4 words, bit 2 — the data block |
 | a `Map` header | `1835024` | 8 words, bits 2/3/4 — keys, values, states |
 | an `Intern` header | `327688` | 4 words, bits 0 and 2 — the `Vec` and the slot table |
@@ -2985,15 +3013,21 @@ vacates.
 **The bit is written by the container and read only by the runtime.**
 There is no `memIsArray`, and its absence is a measured result rather
 than an omission. Bit 15 is unambiguous only against an allocator that
-clamps the count at 16,383 words, and the committed seed clamps at
-32,767 — where the bit used to be the count's top — so under the seed's
-runtime every block of 16,384 words or more reads back as an array of
-handles. `tests/stdlib/200-scale.ax` builds a `Map` of 262,144 slots,
-whose value array passes that line, and `mapRemove` believed the bit and
-released a raw integer: **SIGSEGV**, in a program correct under the
-compiler this tree builds and wrong under the one that builds this tree.
-`stage1` runs on the seed's runtime, so the bootstrap ladder is exactly
-where it lands. Each container therefore carries a flag word of its own
+clamps the count at 16,383 words, and the seed that made this a crash
+clamped at 32,767 — where the bit used to be the count's top — so under
+*that* seed's runtime every block of 16,384 words or more read back as
+an array of handles. `tests/stdlib/200-scale.ax` builds a `Map` of
+262,144 slots, whose value array passes that line, and `mapRemove`
+believed the bit and released a raw integer: **SIGSEGV**, in a program
+correct under the compiler this tree builds and wrong under the one that
+builds this tree. `stage1` runs on the seed's runtime, so the bootstrap
+ladder is exactly where it lands. (Checked 2026-09-03: the committed
+seeds at `09f3eb4` clamp at 16,383 and carry
+`%aform = and i64 %shw, 32768`, so today's seed agrees with today's
+compiler. The rule outlives that particular seed — a reader would be
+sound only by accident of what is in `bootstrap/`, and `stdlib/Mem.ax`
+cannot see what that is.) Each container therefore carries a flag word
+of its own
 — `Vec` word 3, `Map` word 6 — written by the same code that reads it,
 with no encoding to disagree about. That is why a `Map` header is eight
 words for the six it holds.
@@ -3149,8 +3183,11 @@ every classifiable neighbour's bit kept. `@axiom_release`'s dead path walks the 
 itself per set bit (its own guards cover immediates, statics, and
 zero counts), then files the block. The allocator and the arena keep
 helper stamp the LEAF of their dynamic size with a shared clamp: a
-payload past 32767 words stores count 0, the unknown-size sentinel
-release refuses to file.
+payload past 16383 words stores count 0, the unknown-size sentinel
+release refuses to file. (16,383 and not the 32,767 this said until
+2026-09-03: the ceiling moved down a bit when the array form took bit
+15 on 2026-08-24, and `bootstrap/axiom-*.ll` and `codegen.ax` have both
+carried `icmp ugt i64 %wcnt, 16383` since.)
 
 *The evidence half holds since 2026-08-15*
 (`tests/stdlib/354-arc-evidence.ax`, 255): a function whose

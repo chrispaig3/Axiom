@@ -1,19 +1,19 @@
 F memAlloc stdlib/Mem.ax:39:9-17 "(Int -> Int)" @0fd03fba89121d1d #restrict=no-io,no-foreign #effects=Alloc #calls=__alloc
 F memAllocMapped stdlib/Mem.ax:75:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=&,-,<<,==,>,>>,__alloc,__load64,__store64,|
-F memMarkArray stdlib/Mem.ax:125:9-21 "(Int -> Int)" @d007f6fd2106dcb2 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=-,__load64,__store64,|
-F memMarkLeaf stdlib/Mem.ax:141:9-20 "(Int -> Int)" @7d30ebb403b48901 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=&,-,__load64,__store64
-F memCopy stdlib/Mem.ax:180:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=Mem$memCopyFrom
-F memCopyFrom stdlib/Mem.ax:205:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=+,<,__load8,__store8
-F memSet stdlib/Mem.ax:222:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=Mem$memSetFrom
-F memSetFrom stdlib/Mem.ax:227:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=+,<,__store8
-F memCmp stdlib/Mem.ax:245:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #restrict=no-io,no-alloc,no-foreign #calls=Mem$memCmpFrom
-F memCmpFrom stdlib/Mem.ax:250:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #restrict=no-io,no-alloc,no-foreign #calls=&&,+,-,<,==,__load8
-F memGetWord stdlib/Mem.ax:281:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #calls=__load64
-F memGetWordStr stdlib/Mem.ax:294:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
-F memGetWordVec stdlib/Mem.ax:307:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
-F memSetWord stdlib/Mem.ax:338:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__retainref,__store64
-F memGetByte stdlib/Mem.ax:351:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #calls=__load8
-F memPutByte stdlib/Mem.ax:356:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__store8
+F memMarkArray stdlib/Mem.ax:150:9-21 "(Int -> (Int -> Int))" @d007f6fd2106dcb2 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=&,-,<<,__load64,__store64,|
+F memMarkLeaf stdlib/Mem.ax:186:9-20 "(Int -> Int)" @7d30ebb403b48901 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=&,-,__load64,__store64
+F memCopy stdlib/Mem.ax:235:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=Mem$memCopyFrom
+F memCopyFrom stdlib/Mem.ax:260:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=+,<,__load8,__store8
+F memSet stdlib/Mem.ax:277:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=Mem$memSetFrom
+F memSetFrom stdlib/Mem.ax:282:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=+,<,__store8
+F memCmp stdlib/Mem.ax:300:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #restrict=no-io,no-alloc,no-foreign #calls=Mem$memCmpFrom
+F memCmpFrom stdlib/Mem.ax:305:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #restrict=no-io,no-alloc,no-foreign #calls=&&,+,-,<,==,__load8
+F memGetWord stdlib/Mem.ax:336:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #calls=__load64
+F memGetWordStr stdlib/Mem.ax:349:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
+F memGetWordVec stdlib/Mem.ax:362:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
+F memSetWord stdlib/Mem.ax:393:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__retainref,__store64
+F memGetByte stdlib/Mem.ax:406:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #calls=__load8
+F memPutByte stdlib/Mem.ax:411:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__store8
 F vecDefaultCap stdlib/Vec.ax:81:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
 F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecDefaultCap,Vec$vecWithCapacity
 F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecBuild
