@@ -78,7 +78,7 @@ axiom: backtrace (most recent call first)
   at __axiom_user_main
   at main
 $ echo $?
-76
+77
 ```
 
 **Not behind a flag.** A check that is off by default is a comment by
@@ -87,17 +87,26 @@ default, which is the thing being refused. The three statuses
 (`docs/ffi.md` §5.1, taken precisely because a Rust panic and an Axiom
 division were indistinguishable at 72), 74 is a `__syscallN` on a
 target with no syscall ABI, and 75 is an arena reset handed an invalid
-mark (`MM-ALLOC-16a`). A violated contract is a sixth thing and gets
-**76**, so a supervisor reading a status can tell it from a broken
-machine.
+mark (`MM-ALLOC-16a`) and 76 is a reset past a live handle
+(`MM-ALLOC-16b`). A violated contract gets **77**.
 
-**It was designed on 75, and that is the merge's doing rather than the
-design's.** `MM-ALLOC-16a`'s trap and this one were written on two
-branches on 2026-08-31 and both took 75. The one that had not shipped
-is the one that moved. The number is recorded here because the whole
-argument for taking 73 was that two failures at one status cannot be
-told apart, and repeating that on 75 would have made this note's own
-paragraph false.
+**It was designed on 75, it has moved twice, and the second move landed
+on an occupied number.** `MM-ALLOC-16a`'s trap and this one were
+written on two branches on 2026-08-31 and both took 75; the one that
+had not shipped is the one that moved, to 76. It moved again to 77 in
+the merge `3f2f39a`, as a conflict resolution, onto the number
+`91f33f7` had given `__indexTrap` on trunk in the meantime.
+
+**So 77 is shared, and this note's own argument indicts it.** The whole
+reason for taking 73 was that two failures at one status cannot be told
+apart; that is now true of a violated contract and an out-of-range
+index, which differ only in the sentence on fd 2. Corrected here
+2026-09-04, along with the AX3050 help text, `explain.ax`'s AX3050
+page, `codegen.ax`'s header comment, `docs/reference.md`,
+`docs/error-model.md` and `CONTRIBUTING.md`, all of which said 76 — a
+number that means `MM-ALLOC-16b`. **The status itself is not moved**,
+because that is a compatibility decision rather than a correction; the
+two candidates are recorded in `docs/subtypes-design.md`.
 
 **Where the lowering lives, and why not in the emitter.**
 `expandProgram` — the pass whose own header says it "rewrites the
@@ -468,7 +477,7 @@ $ axc run --input h1.ax ; echo $?
 0
 ```
 
-The same file without that first statement exits 76. The `post` arm was
+The same file without that first statement exits 77. The `post` arm was
 the same shape, under a `let` binding `result`. A checked claim a
 program can withdraw by writing one expression is a check that cannot
 fail, which is the defect this whole feature exists to prevent, and it
@@ -495,7 +504,7 @@ puts the guard back and requires section 6 to go red.
 body.** There is no call site for a caller to miss: a contract fires
 through an indirect call (`(apply half 0)` where `apply` takes the
 function as a parameter) and through a lambda (`((lambda (x) (half x))
-0)`), both exit 76, because the compare is inside `half` and not at
+0)`), both exit 77, because the compare is inside `half` and not at
 either call.
 
 ## What shipped
@@ -507,6 +516,6 @@ either call.
 | Diagnostic | `AX3050` `contract-malformed`, an error, four arms |
 | Lowering | `expLowerContracts` at the end of `expandProgram` |
 | Primitive | `__contract`, `(-> a String Int)`, no effect row |
-| Runtime | `@__axiom_contract_fail`, emitted unconditionally and pruned where nothing calls it, exit **76** |
+| Runtime | `@__axiom_contract_fail`, emitted unconditionally and pruned where nothing calls it, exit **77** — shared with the index trap, see below |
 | Fixtures | `tests/diagnostics/385`, `tests/selfhost/132`, `tests/selfhost/133` |
 | Gate | `scripts/check-contracts.sh`, seven sections, three ablations |

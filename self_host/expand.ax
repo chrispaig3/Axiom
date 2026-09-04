@@ -7777,7 +7777,7 @@
 ; it, and one that did silenced its own contract: measured, `(fn (f n)
 ; { (__contract true "...") n })` under `;@axiom:pre((> n 0))` called
 ; as `(f 0)` checked `OK` and exited **0**, where the same file without
-; the first statement exits 76. The `post` arm was the same shape. A
+; the first statement exits 77. The `post` arm was the same shape. A
 ; contract that a program can turn off by writing one expression is a
 ; check that cannot fail, which is the defect this whole feature
 ; exists to prevent.
