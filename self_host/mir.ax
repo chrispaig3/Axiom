@@ -1,6 +1,6 @@
 ; ------------------------------------------------------------------
-; THE MID-LEVEL IR - slice 1: the representation, a lowering, a
-; printer and a verifier.
+; THE MID-LEVEL IR: the representation, a lowering, a printer and a
+; verifier.
 ;
 ; WHAT IS HERE AND WHAT IS NOT. Today the compiler goes
 ;
@@ -8,17 +8,25 @@
 ;
 ; and `codegen.ax` walks the checked AST emitting LLVM text directly:
 ; 21k lines in which "what the program means" and "what the text
-; says" are the same walk. This module is the first half of the seam
-; between them. It holds an IR that a lowering can produce and a
-; backend can consume, and NOTHING IN THE COMPILER IMPORTS IT - that
-; is deliberate and `scripts/check-mir.sh` asserts it. While no
-; module imports `mir`, `axiom emit-llvm self_host/main.ax` is
-; byte-identical with this file present and with it deleted, so
-; adding it cannot have moved anything, and the seed compiles what it
-; always compiled (checked before starting rather than after:
-; `check-seed-provenance.sh` and `check-seed-lineage.sh` both hash a
-; tree extracted at the SEED COMMIT, never HEAD). Slice 2 is what
-; deletes that assertion, on purpose.
+; says" are the same walk. This module is the seam between them. It
+; holds an IR that a lowering can produce and a backend can consume.
+;
+; SLICE 1 built it with NOTHING IN THE COMPILER IMPORTING IT, and
+; `check-mir.sh` asserted that: while no module imported `mir`,
+; `axiom emit-llvm self_host/main.ax` was byte-identical with this
+; file present and with it deleted, so adding it could not have moved
+; anything.
+;
+; SLICE 2 DELETED THAT ASSERTION, on purpose. `codegen.ax` imports
+; this module and `mirEmitOrWalk` EMITS FROM it - the LLVM text of a
+; function whose IR is one basic block of constants and arithmetic is
+; written by reading this IR rather than by walking the AST. The
+; claim that nothing moved is now made where it can still be checked:
+; the routing has an off switch, and `check-mir.sh` §6 requires
+; `AXIOM_MIR_EMIT=0` and the default to emit the same bytes for the
+; compiler itself and 325 other programs, with a floor under how many
+; functions took the IR path and an ablation that turns the
+; comparison red.
 ;
 ; THE SHAPE, AND WHY THIS ONE. Functions of numbered basic blocks,
 ; values as integer registers, and BLOCK PARAMETERS rather than phi
@@ -55,12 +63,11 @@
 ;
 ; WHY THE OPERATOR TABLE IS DUPLICATED. `codegen.ax` already has
 ; `binopToLLVM` and `cmpToLLVM`, and `mBinOp` below is those two
-; joined. Importing them would point `mir -> codegen`, and slice 2
-; points `codegen -> mir`; an arrow that already runs the other way
-; is a cycle nobody can unpick later. The duplication is therefore
-; on purpose, and it is not left to drift: `check-mir.sh` compiles a
-; probe that imports BOTH modules and requires them to agree operator
-; by operator. The one place they deliberately differ is the
+; joined. Importing them would point `mir -> codegen`, and the arrow
+; runs `codegen -> mir`; the other direction is a cycle nobody can
+; unpick later. The duplication is therefore on purpose, and it is
+; not left to drift: `check-mir.sh` compiles a probe that imports
+; BOTH modules and requires them to agree operator by operator. The one place they deliberately differ is the
 ; fall-through - `binopToLLVM` answers "add" for a name it does not
 ; know, and `mBinOp` answers "", which is what makes the lowering
 ; refuse a function rather than emit a wrong one.
@@ -183,9 +190,21 @@
 ; A function. `nreg` is one past the highest register number, so a
 ; register file is `nreg` words - the evaluator allocates exactly
 ; that, and `mirVerify` refuses any register at or above it.
+;
+; `pnames` is the SOURCE SPELLING of each parameter, beside the
+; register `params` gives it. Nothing in this file reads it - the
+; printer prints `%0`, the evaluator indexes a register file - and it
+; is here for the one consumer that cannot do without it:
+; `codegen.ax` renders a parameter as `%<source name>`, because that
+; is the name its own `define` line wrote. A backend emitting from
+; this IR alone would have to invent `%0` and then rewrite the header
+; to match, which is a second spelling of the same fact and the kind
+; that drifts. The two vectors are built by one loop (`mBindParams`)
+; and are the same length by construction.
 (pub struct MFunc
   (name : String)
   (params : (Vec Int))
+  (pnames : (Vec String))
   (blocks : (Vec MBlock))
   (nreg : Int))
 
@@ -801,7 +820,9 @@
                   (mlcTerm lc (MInst
                     MT_RET                    (- 0 1)                    r                    0                    ""                    vecNew                    0                    0
                   ))
-                  (vecPush out (MFunc (nodeAName d) pregs lc.blocks lc.nreg))
+                  (vecPush out (MFunc
+                    (nodeAName d)                    pregs                    (nodeBVec d)                    lc.blocks                    lc.nreg
+                  ))
                   0
                 }
               )

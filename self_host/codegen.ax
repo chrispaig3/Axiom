@@ -31,6 +31,14 @@
 
 (import pkg)
 
+; `mir`: the mid-level IR. The arrow runs codegen -> mir and never the
+; other way, which is why `mir.ax` carries its own copy of the operator
+; table rather than importing `binopToLLVM` (`check-mir.sh` compares
+; the two row by row). What this file uses it for is `mirEmitOrWalk`
+; below: the subset of functions whose whole body is one basic block of
+; arithmetic is emitted FROM the IR rather than by the AST walk.
+(import mir)
+
 ; ------------------------------------------------------------------
 ; Type registry: constructor/struct name -> arity, kind, tag.
 ; ------------------------------------------------------------------
@@ -548,6 +556,12 @@
       ; enclosing declaration, so an index into the first was being
       ; read against the second's arrow. `curParamRefClass` and
       ; `curParamEvBit` read this before trusting that pairing.
+      (vecPush ps 0)
+      ; slot 8: the mid-level IR routing mode, read once from
+      ; `AXIOM_MIR_EMIT` by `mirRouting` and cached here. 0 is "not
+      ; read yet", which is why the modes below start at 1 - `sysEnv`
+      ; walks the whole environment block, and a mode of 0 would send
+      ; it round once per function emitted.
       (vecPush ps 0)
       (addTypeNamed
         ts        "Some"        TF_DATA        1        0        2        (let ((f vecNew))
@@ -11222,6 +11236,445 @@
   )
 )
 
+; ------------------------------------------------------------------
+; EMITTING FROM THE MID-LEVEL IR.
+;
+; `self_host/mir.ax` holds an IR, a lowering into it, a printer and a
+; verifier, and until now nothing in the compiler imported any of
+; them: `check-mir.sh` asserted the isolation, and the assertion was
+; the whole of the claim that adding the module could not have moved
+; a byte. This is the half that deletes it. For one measured SUBSET
+; of functions the emitted text now comes from the IR rather than
+; from the AST walk, and the acceptance is that not one byte moves -
+; the same text, produced twice, by two different readings of the
+; same program.
+;
+; THE SUBSET, and why it is drawn exactly here. `mLowerFn` refuses
+; anything outside its own subset outright, and of what it does lower
+; this takes the functions whose IR is ONE BASIC BLOCK of constants
+; and arithmetic ending in `ret`. That shape is chosen for what it
+; EXCLUDES, because every emission-time decision this IR does not
+; carry lives in one of the excluded shapes:
+;
+;   `musttail` is a property of a tail CALL (`mustTailOK`), and this
+;   subset has no calls at all - the IR stores a call's callee as the
+;   SOURCE spelling, and which of `dispatchCall`'s twenty branches
+;   that spelling reaches (a primitive, a constructor, an effect
+;   operation, a closure through a local) is knowledge the IR does
+;   not hold;
+;
+;   a division's zero guard is a `trapz`, a trap block and a
+;   continuation (`mLowerDivGuard`), so a guarded function is not
+;   single-block and never arrives here;
+;
+;   a phi, a branch label and a block argument all need a second
+;   block, so every consumer of the register counter is in view.
+;
+; and the walk's own per-function machinery is asked about directly
+; rather than assumed away: an evidence word, a register-pair variant,
+; a self tail call, a borrowed tail leaf and a known tail call each
+; keep a function on `emitExprTail`, and `mirEmitOrWalk` is reached
+; only when none of them holds.
+;
+; THE COUNTER RESETS PER FUNCTION - `emitFnDef` does `(memSetWord cg
+; 1 0)` - so a module in which some functions come from the IR and
+; some from the walk has no numbering continuity to preserve. That is
+; what makes the routing safe to do one function at a time.
+;
+; THE FALLBACK IS SILENT AND TOTAL. Every question below is asked
+; BEFORE a line is emitted; the answer chooses the emitter, and the
+; walk runs unchanged when anything at all is unanswerable. No
+; function can half-emit.
+; ------------------------------------------------------------------
+; The routing mode, cached in pair-state slot 8. `AXIOM_MIR_EMIT=0`
+; is the ablation copy `check-mir.sh` compares against: the same
+; compiler, the same tree, the routing off. `mark` is how that gate
+; COUNTS what took the IR path - see `mirEmitFn`.
+(pub :: MIR_OFF Int)
+
+(pub fn (MIR_OFF) 1)
+
+(pub :: MIR_ON Int)
+
+(pub fn (MIR_ON) 2)
+
+(pub :: MIR_MARK Int)
+
+(pub fn (MIR_MARK) 3)
+
+(pub :: mirRouting (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (mirRouting cg)
+  (let ((cached (pairSlot cg 8)))
+    (if (!= cached 0)
+      cached
+      (let ((mode 
+        (let ((v (sysEnv "AXIOM_MIR_EMIT")))
+          (if (strEq v "0")
+            MIR_OFF
+            (if (strEq v "mark")
+              MIR_MARK
+              MIR_ON
+            )
+          )
+        )
+      ))
+        {
+          (pairSetSlot cg 8 mode)
+          mode
+        }
+      )
+    )
+  )
+)
+
+; The six spellings `mBinOp` gives a comparison. A comparison is TWO
+; lines and TWO numbers where an arithmetic operator is one of each
+; (`emitICmp` against `emitIBinop`), so this is the only thing about
+; an `MO_BIN` that changes how many registers it consumes.
+(pub :: mirIsCmpOp (-> String Bool))
+
+(pub fn (mirIsCmpOp nm)
+  (if (strEq nm "eq")
+    true
+    (if (strEq nm "ne")
+      true
+      (if (strEq nm "slt")
+        true
+        (if (strEq nm "sgt")
+          true
+          (if (strEq nm "sle")
+            true
+            (strEq nm "sge")
+          )
+        )
+      )
+    )
+  )
+)
+
+; A name the AST walk renders as the bare register `%<name>`.
+;
+; `emitVar` reaches that spelling only at the END of a chain: a `let`
+; binding, `true`, `false`, a constructor, a nullary function and a
+; function value each claim the name before it. `mLower` knows none
+; of that - it answers whatever register its own environment holds -
+; so a parameter or a binder spelled like any of them would be
+; emitted two different ways, and this is the question that keeps
+; such a function on the walk. The operator spellings are here for
+; the same reason from the other side: `mLowerApp` consults `mBinOp`
+; BEFORE its environment, so `(let ((+ f)) (+ a b))` is an `add` to
+; the IR and a call through a closure to `dispatchCall`. And the
+; float flag, because `(+ a b)` on float parameters is `fadd` and
+; this IR has one `add`.
+(pub :: mirPlainName (-> Int String Bool))
+
+(pub fn (mirPlainName cg name)
+  (if (|| (strEq name "true") (strEq name "false"))
+    false
+    (if (|| (isPrimName name) (|| (isBinop name) (|| (isCmpOp name) (|| (isAndOr name) (isCastName name)))))
+      false
+      (if (!= (lookupType (memGetWordVec cg 3) name) 0)
+        false
+        (if (isNullaryFnCg cg (mangledForCg cg name))
+          false
+          (== (paramFloatByName cg name) 0)
+        )
+      )
+    )
+  )
+)
+
+(pub :: mirPlainNames (-> Int (Vec String) Int Bool))
+
+(pub fn (mirPlainNames cg ps i)
+  (if (>= i (vecLen ps))
+    true
+    (if (mirPlainName cg (vecGetStr ps i))
+      (mirPlainNames cg ps (+ i 1))
+      false
+    )
+  )
+)
+
+; Every name the body binds or reads means the same thing to both
+; readings of it.
+;
+; One question beyond `mirPlainName`'s, and it is the same shape: a
+; reference carrying `defScope` - a macro template's free identifier
+; - resolves where the TEMPLATE was written, however many `let`s
+; enclose the call site, and the IR's environment has no such rule.
+;
+; The node kinds below are exactly `mLower`'s subset minus `if`,
+; which cannot reach here: an `if` makes blocks, and this emitter
+; takes single-block functions. Anything else is a shape `mLowerFn`
+; already refused, and answering `false` for it costs nothing.
+(pub :: mirScopeClean (-> Int Int Bool))
+
+(pub fn (mirScopeClean cg e)
+  (let ((t (nodeTag e)))
+    (if (== t TAG_E_INT)
+      true
+      (if (== t TAG_E_VAR)
+        (!= (nodeDefScope e) 1)
+        (if (== t TAG_E_LET)
+          (if (mirPlainName cg (nodeAName e))
+            (if (mirScopeClean cg (nodeB e))
+              (mirScopeClean cg (nodeC e))
+              false
+            )
+            false
+          )
+          (if (== t TAG_E_APP)
+            (if (mirScopeClean cg (nodeA e))
+              (mirScopeClean cg (nodeB e))
+              false
+            )
+            (if (== t TAG_E_BEGIN)
+              (mirScopeCleanVec cg (nodeAVec e) 0)
+              false
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: mirScopeCleanVec (-> Int (Vec Int) Int Bool))
+
+(pub fn (mirScopeCleanVec cg v i)
+  (if (>= i (vecLen v))
+    true
+    (if (mirScopeClean cg (vecGet v i))
+      (mirScopeCleanVec cg v (+ i 1))
+      false
+    )
+  )
+)
+
+; Nothing in the block but constants and arithmetic.
+(pub :: mirNoCalls (-> (Vec MInst) Int Bool))
+
+(pub fn (mirNoCalls v i)
+  (if (>= i (vecLen v))
+    true
+    (let ((n (vecGet v i)))
+      (if (|| (== n.op MO_CONST) (== n.op MO_BIN))
+        (mirNoCalls v (+ i 1))
+        false
+      )
+    )
+  )
+)
+
+; ONE block, no block parameters, one terminator, and that terminator
+; a `ret`. See the header for what each exclusion buys.
+(pub :: mirStraightLine (-> MFunc Bool))
+
+(pub fn (mirStraightLine f)
+  (if (!= (vecLen f.blocks) 1)
+    false
+    (let ((b (vecGet f.blocks 0)))
+      (if (!= (vecLen b.params) 0)
+        false
+        (if (!= (vecLen b.term) 1)
+          false
+          (let ((tm (vecGet b.term 0)))
+            (if (!= tm.op MT_RET)
+              false
+              (mirNoCalls b.instrs 0)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `nreg` slots, so a register can be written before it is read
+; without the vector having to grow at the write.
+(pub :: mirZeros (-> (Vec Int) Int (Vec Int)))
+
+(pub fn (mirZeros v n)
+  (if (<= n 0)
+    v
+    {
+      (vecPush v 0)
+      (mirZeros v (- n 1))
+    }
+  )
+)
+
+; A parameter renders as `%<source name>`, which is the name the
+; `define` line already wrote (`emitParams`). The IR numbers its own
+; parameters `%0, %1` for its printer; that numbering is not the LLVM
+; one and must not reach the text.
+(pub :: mirParamOps (-> (Vec Int) (Vec Int) (Vec String) Int Int))
+
+(pub fn (mirParamOps ops regs names i)
+  (if (>= i (vecLen regs))
+    0
+    {
+      (vecSet
+        ops        (vecGet regs i)        (cast Int (cat2 "%" (llvmSym (strDup (vecGetStr names i)))))
+      )
+      (mirParamOps ops regs names (+ i 1))
+    }
+  )
+)
+
+; The block, instruction by instruction.
+;
+; `MO_CONST` EMITS NOTHING AND CONSUMES NO NUMBER. `emitExpr`'s
+; `TAG_E_INT` path puts `(constStr c)` straight into the result slot
+; and writes no line, so a literal is folded into the operand of
+; whatever reads it. An emitter that materialised one - `%.tN = add
+; i64 0, 42` - would be legal LLVM and would shift every register
+; number after it, which is the failure this whole slice is shaped to
+; make impossible to miss.
+(pub :: mirEmitInsts (-> Int (Vec MInst) (Vec Int) Int Int))
+
+(pub fn (mirEmitInsts cg v ops i)
+  (if (>= i (vecLen v))
+    cg
+    (let ((n (vecGet v i)))
+      (if (== n.op MO_CONST)
+        {
+          (vecSet
+            ops            n.dst            (cast Int (constStr n.a))
+          )
+          (mirEmitInsts cg v ops (+ i 1))
+        }
+        (let (
+          (a (cast String (vecGet ops n.a)))
+          (b (cast String (vecGet ops n.b)))
+        )
+          (if (mirIsCmpOp n.name)
+            (let (
+              (cn (allocReg cg))
+              (rn (allocReg cg))
+            )
+              (let (
+                (cr (tmpStr "c" cn))
+                (r (regStr rn))
+              )
+                {
+                  (emitLine cg (cat4 (cat3 (cat2 "  " cr) " = icmp " n.name) " i64 " (cat3 a ", " b) ""))
+                  (emitLine cg (cat4 (cat2 "  " r) " = zext i1 " cr " to i64"))
+                  (vecSet
+                    ops                    n.dst                    (cast Int r)
+                  )
+                  (mirEmitInsts cg v ops (+ i 1))
+                }
+              )
+            )
+            (let ((rn (allocReg cg)))
+              (let ((r (regStr rn)))
+                {
+                  (emitLine cg (cat4 (cat3 (cat2 "  " r) " = " n.name) " i64 " (cat3 a ", " b) ""))
+                  (vecSet
+                    ops                    n.dst                    (cast Int r)
+                  )
+                  (mirEmitInsts cg v ops (+ i 1))
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The function body, from the IR. The `define` line, the blank line
+; the allocas splice into and the `ret` are all `emitFnDef`'s: this
+; writes what goes between them and leaves the returned operand in
+; slot 2, which is where `emitFnDef` reads it from either emitter.
+;
+; The `; mir` line under `AXIOM_MIR_EMIT=mark` is the gate's counter.
+; It is a comment, so it allocates no register and moves nothing
+; after it - `check-mir.sh` proves exactly that by stripping the
+; marks back out and requiring the result to equal the unmarked
+; emission byte for byte. Without a count the routing could fall back
+; to zero functions and every other check there would still pass.
+(pub :: mirEmitFn (-> Int MFunc Int Int))
+
+(pub fn (mirEmitFn cg f mode)
+  (let (
+    (b (vecGet f.blocks 0))
+    (ops (mirZeros vecNew f.nreg))
+    (cgM (if (== mode MIR_MARK)
+      (emitLine cg "  ; mir")
+      cg
+    ))
+  )
+    {
+      (mirParamOps ops f.params f.pnames 0)
+      (let ((cgB (mirEmitInsts cgM b.instrs ops 0)))
+        (let ((tm (vecGet b.term 0)))
+          {
+            (memSetWord
+              cgB              2              (cast String (vecGet ops tm.a))
+            )
+            (memSetWord cgB 14 0)
+            cgB
+          }
+        )
+      )
+    }
+  )
+)
+
+; The routing. Every refusal below falls through to `emitExpr` with
+; nothing emitted, so the walk runs exactly as it did.
+;
+; THE ALLOCATION-FREE QUESTIONS COME FIRST, and that ordering is
+; measured rather than tidy. `mLowerFn` builds a block, an
+; environment and an instruction per node before it reaches the node
+; it cannot lower, out of a bump arena that never frees, and most of
+; the compiler's functions are an `if` or a `match` at the top and
+; refuse at once. `mirScopeClean` answers `false` for every one of
+; those by walking the same tree and allocating nothing - an `if` is
+; not in its subset, because an `if` makes blocks. Asking it first
+; took the routing's cost on a self-compile from 4.8 MiB of peak RSS
+; to 1.2 MiB, against the 512 MiB ceiling `check-bootstrap.sh` holds
+; with three per cent of headroom.
+(pub :: mirEmitOrWalk (-> Int Int Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (mirEmitOrWalk node body cg takesEv)
+  ; `takesEv` puts a hidden `%__evw.h` in the header and a binding
+  ; under it in the symbol table; `bodyHasMatch` puts a `%__scr.h`
+  ; alloca in the entry block. Neither can reach this subset -
+  ; `mLower` refuses a match outright - and both are asked anyway,
+  ; because the cost of asking is a word and the cost of assuming
+  ; is a wrong function body.
+  (let ((mode (mirRouting cg)))
+    (if (|| (== mode MIR_OFF) (|| (!= takesEv 0) (!= (bodyHasMatch body) 0)))
+      (emitExpr body cg)
+      (if (mirScopeClean cg body)
+        (let ((got (mLowerFn node)))
+          (if (== (vecLen got) 0)
+            (emitExpr body cg)
+            (let ((f (vecGet got 0)))
+              (if (mirStraightLine f)
+                (if (mirPlainNames cg f.pnames 0)
+                  (mirEmitFn cg f mode)
+                  (emitExpr body cg)
+                )
+                (emitExpr body cg)
+              )
+            )
+          )
+        )
+        (emitExpr body cg)
+      )
+    )
+  )
+)
+
 (pub :: emitFnDef (-> Int Int Int))
 
 ;@axiom:effect(io)
@@ -11405,7 +11858,12 @@
                             ; tail call becomes `musttail` (`mustTailOK`).
                             (if (|| (!= (pairSlot cg1c 0) 0) (|| (== wantsTCO 1) (|| (> (vecLen (memGetWordVec cg1c 41)) 0) (== (tailCallsKnown cg1c body selfName) 1))))
                               (emitExprTail body cg1c)
-                              (emitExpr body cg1c)
+                              ; ... and what is left is where the MID-LEVEL
+                              ; IR gets its turn: a straight-line body is
+                              ; emitted from `mLowerFn`'s lowering and
+                              ; everything else from the walk, byte for byte
+                              ; the same either way. See `mirEmitOrWalk`.
+                              (mirEmitOrWalk node body cg1c takesEv)
                             )
                           ))
                             {
