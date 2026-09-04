@@ -149,7 +149,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Fmt`
 
-`stdlib/Fmt.ax` — 11 public names
+`stdlib/Fmt.ax` — 10 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -163,7 +163,6 @@ See [reference.md](reference.md) for the language, and
 | `fmtHexUpper` | value | `(-> Int String)` | `Alloc,Mut` | Uppercase hexadecimal, for the `{n:X}` specifier. Same digits as `fmtHex`, and deliberately a separate function rather than a flag: the specifier picks one at expansion time, so a branch would be a runtime test of a compile-time constant. |
 | `fmtFloat` | value | `(-> Float String)` | `Alloc,Mut` | `x` with six decimal places. |
 | `fmtFloatPrec` | value | `(-> Float Int String)` | `Alloc,Mut` | `x` with `places` decimal places, rounded half away from zero. |
-| `format` | macro |  |  | `format` — a String, built at compile time from a literal's runs and holes, or the hole lowering applied to anything else. |
 
 ## `Html`
 
@@ -546,7 +545,7 @@ See [reference.md](reference.md) for the language, and
 | `strFind` | value | `(-> String String Int (Option Int))` |  | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. `no-alloc` came off on 2026-08-31: the `(Some found)` answer allocates. Accepted until then because a constructor contributed nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign` are unchanged. |
 | `strTrim` | value | `(-> String String)` | `Alloc,Mut` | `s` without the `strIsSpace` bytes at either end, as a SLICE that shares `s`'s storage - so it is not NUL-terminated unless it ends where `s` does, exactly as `strSlice` says. A string that is all space trims to "". |
 | `strParseInt` | value | `(-> String (Option Int))` |  | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
-| `format` | macro |  |  | `format` — a String, built at compile time from a literal's runs and holes, or `show` applied to anything else. |
+| `format` | macro |  |  | `format` — a String, built at compile time from a literal's runs and holes, or the hole lowering applied to anything else. |
 
 ## `Sys`
 

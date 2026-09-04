@@ -739,14 +739,14 @@
 )
 
 ; `format` — a String, built at compile time from a literal's runs and
-; holes, or `show` applied to anything else.
+; holes, or the hole lowering applied to anything else.
 ;
 ;   (format "x = {x}, y = {y}")   ; the interpolating form
 ;   (format n)                    ; = (show n); Rust's format!("{}", n)
 ;
 ; The macro is four tokens because `syntax/format` is the whole
 ; implementation: it reads the literal, splits it, and emits the
-; `strConcat` chain with a `show` call per hole. See
+; `strConcat` chain with one rendering call per hole. See
 ; docs/macro-system.md MAC-CAP-10 for the grammar and the lowering.
 ;
 ; WHY IT LIVES HERE AND NOT IN ITS OWN MODULE. It was `Show.ax`, a

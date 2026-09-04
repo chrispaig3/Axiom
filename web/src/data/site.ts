@@ -31,7 +31,7 @@ export const STATS: Stat[] = [
   },
   {
     key: 'axfiles',
-    n: '631',
+    n: '634',
     label: '.ax files in the tree, every one parsed by the grammar gate',
     evidence: "find . -name '*.ax' | wc -l",
   },
@@ -43,7 +43,7 @@ export const STATS: Stat[] = [
   },
   {
     key: 'gates',
-    n: '77',
+    n: '78',
     label: 'gate scripts that must pass before anything lands',
     evidence: "ls scripts/check-*.sh | wc -l",
   },
