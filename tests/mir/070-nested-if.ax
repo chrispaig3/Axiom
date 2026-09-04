@@ -1,0 +1,45 @@
+; An `if` in the CONDITION of another `if`.
+;
+; A join parameter feeding a `condbr` is the shape that catches a
+; lowering which terminates the block it STARTED in rather than
+; the one it ENDED in: the outer test is computed in bb3, not bb0,
+; and a `condbr` written into bb0 would leave bb3 unterminated and
+; bb0 branching on a register bb3 defines. `mirVerify` reports
+; both.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+
+(fn (probe n)
+  (if (if (< n 10)
+    (< n 5)
+    (> n 15)
+  )
+    (* n 3)
+    (if (== n 10)
+      999
+      (+ n 1)
+    )
+  )
+)
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

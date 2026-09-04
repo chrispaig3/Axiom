@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # sixty of the gates below build the compiler under test from
+    # sixty-one of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -850,6 +850,24 @@ jobs:
       # where nothing spawns; the targets that cannot say so.
       - name: parallel answers the same bytes as processes and as threads
         run: ./scripts/check-parallel.sh
+
+      # The mid-level IR's first slice - a representation, a lowering
+      # for a real subset, a printer and a verifier, in
+      # `self_host/mir.ax`, which NOTHING in the compiler imports yet.
+      # A printer gate would be hollow: its goldens are whatever the
+      # lowering last printed. So the anchor is a differential - each
+      # fixture compiled and run by the real compiler, then lowered and
+      # run by `self_host/mireval.ax`, with the two stdouts required to
+      # be byte-identical - plus a floor on how much of `self_host/`
+      # and `stdlib/` lowers end to end (2,000 of 4,796 functions
+      # today), so a rule that narrowed its subset to keep the
+      # differential green is what goes red. Two orthogonal ablations:
+      # swapping a binary operator's operands must break the goldens
+      # and the differential while the verifier stays SILENT, and
+      # dropping every `br` must make the verifier speak about exactly
+      # the fixtures whose goldens carry a `condbr`.
+      - name: The mid-level IR lowers, prints, verifies and evaluates to what the compiler answers
+        run: ./scripts/check-mir.sh
 
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,

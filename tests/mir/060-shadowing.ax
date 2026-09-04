@@ -1,0 +1,50 @@
+; An inner `let` shadowing an outer one, in both arms of an `if`.
+;
+; The environment is a vector scanned from the END and popped when
+; a `let` body finishes. If the pop were missed, or the scan ran
+; forwards, `x` after the `if` would read the arm's binding
+; instead of the outer one - and both arms bind `x`, so a scan in
+; the wrong direction picks a DIFFERENT wrong answer per branch,
+; which is what makes this fixture discriminating rather than
+; merely shadowed.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+
+(fn (probe n)
+  (let ((x 1))
+    (let ((r 
+      (if (< n 3)
+        (let ((x 100))
+          (+ x n)
+        )
+        (let ((x 200))
+          (- x n)
+        )
+      )
+    ))
+      (+ (* r 10) x)
+    )
+  )
+)
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

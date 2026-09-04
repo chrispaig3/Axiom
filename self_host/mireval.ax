@@ -1,0 +1,295 @@
+; ------------------------------------------------------------------
+; A REFERENCE EVALUATOR FOR THE MID-LEVEL IR.
+;
+; WHY THIS EXISTS. A printer can be checked against a golden, and a
+; golden can be regenerated - so a printer gate alone pins the FORM
+; of the IR and says nothing about its MEANING. What
+; `scripts/check-mir.sh` runs instead is a differential: a fixture is
+; compiled and run by the real compiler, the same fixture is lowered
+; and run by this evaluator, and the two stdouts must be byte-equal.
+; The reference in that differential is the native compiler - 97k
+; lines this change did not touch - so a lowering rule that quietly
+; means something other than the source it came from fails here, with
+; a golden freshly blessed and every other assertion green.
+;
+; WHY IT IS A SEPARATE FILE FROM `mir.ax`. Layering, not suspicion.
+; The IR is the thing slice 2's backend imports; an interpreter is a
+; CONSUMER of it, and the moment `codegen.ax` points at `mir.ax` it
+; must not drag an interpreter into the compiler. Keeping them apart
+; now means that arrow is drawn once, correctly, rather than unpicked
+; later.
+;
+; WHAT IT DOES NOT DO. There is no type here, because there is none
+; in the IR: every value is a machine word and every operator is the
+; signed 64-bit one `codegen.ax` emits. It evaluates the SUBSET the
+; lowering produces - const, binop, direct call, ret, br, condbr -
+; and nothing else. An opcode it does not know answers 0 rather than
+; guessing; `mirVerify` is what refuses such an instruction, and the
+; gate runs it on every function before the differential.
+; ------------------------------------------------------------------
+(import Str)
+
+(import Vec)
+
+(import mir)
+
+; The function table is a plain `Vec` scanned by name, because a
+; direct call is the only call this IR has and a fixture holds a
+; handful of functions. Answers a `Vec` of at most one, the same
+; shape `mLowerFn` answers, so "not found" is a length and not a
+; sentinel pointer.
+(pub :: mvalFind (-> (Vec MFunc) String Int (Vec MFunc)))
+
+(pub fn (mvalFind fns nm i)
+  (if (>= i (vecLen fns))
+    vecNew
+    (let ((f (vecGet fns i)))
+      (if (strEq f.name nm)
+        (let ((v vecNew))
+          {
+            (vecPush v f)
+            v
+          }
+        )
+        (mvalFind fns nm (+ i 1))
+      )
+    )
+  )
+)
+
+; The MIR spellings, not Axiom's operators. This reads what
+; `mir.ax`'s `mBinOp` WROTE, so a rule that lowered `-` to `add`
+; would be caught by the differential rather than cancelled out by an
+; evaluator that had also been told `-` means subtract.
+(pub :: mvalBin (-> String Int Int Int))
+
+(pub fn (mvalBin nm x y)
+  (if (strEq nm "add")
+    (+ x y)
+    (if (strEq nm "sub")
+      (- x y)
+      (if (strEq nm "mul")
+        (* x y)
+        (if (strEq nm "sdiv")
+          (/ x y)
+          (if (strEq nm "srem")
+            (% x y)
+            (mvalCmp nm x y)
+          )
+        )
+      )
+    )
+  )
+)
+
+; A comparison answers 1 or 0, which is what `codegen.ax`'s `icmp`
+; result is widened to.
+(pub :: mvalCmp (-> String Int Int Int))
+
+(pub fn (mvalCmp nm x y)
+  (if (strEq nm "eq")
+    (mvalBool (== x y))
+    (if (strEq nm "ne")
+      (mvalBool (!= x y))
+      (if (strEq nm "slt")
+        (mvalBool (< x y))
+        (if (strEq nm "sgt")
+          (mvalBool (> x y))
+          (if (strEq nm "sle")
+            (mvalBool (<= x y))
+            (if (strEq nm "sge")
+              (mvalBool (>= x y))
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: mvalBool (-> Bool Int))
+
+(pub fn (mvalBool b)
+  (if b
+    1
+    0
+  )
+)
+
+(pub :: mvalZeros (-> (Vec Int) Int (Vec Int)))
+
+(pub fn (mvalZeros v n)
+  (if (<= n 0)
+    v
+    {
+      (vecPush v 0)
+      (mvalZeros v (- n 1))
+    }
+  )
+)
+
+; Read a register list into a value list - call arguments and block
+; arguments both.
+(pub :: mvalArgs (-> (Vec Int) (Vec Int) Int (Vec Int) (Vec Int)))
+
+(pub fn (mvalArgs regs rs i out)
+  (if (>= i (vecLen rs))
+    out
+    {
+      (vecPush out (vecGet regs (vecGet rs i)))
+      (mvalArgs regs rs (+ i 1) out)
+    }
+  )
+)
+
+(pub :: mvalBindParams (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
+
+(pub fn (mvalBindParams regs ps vals i)
+  (if (>= i (vecLen ps))
+    0
+    {
+      (vecSet regs (vecGet ps i) (vecGet vals i))
+      (mvalBindParams regs ps vals (+ i 1))
+    }
+  )
+)
+
+(pub :: mvalInsts (-> (Vec MFunc) (Vec Int) (Vec MInst) Int Int))
+
+(pub fn (mvalInsts fns regs insts i)
+  (if (>= i (vecLen insts))
+    0
+    (let ((n (vecGet insts i)))
+      {
+        (if (== n.op MO_CONST)
+          {
+            (vecSet regs n.dst n.a)
+            0
+          }
+          (if (== n.op MO_BIN)
+            {
+              (vecSet regs n.dst (mvalBin n.name (vecGet regs n.a) (vecGet regs n.b)))
+              0
+            }
+            (if (== n.op MO_CALL)
+              {
+                (vecSet regs n.dst (mvalCall fns n.name (mvalArgs regs n.args 0 vecNew)))
+                0
+              }
+              ; An opcode this evaluator does not know leaves the
+              ; register file alone. `mirVerify` is what refuses one,
+              ; and the gate runs it first.
+              0
+            )
+          )
+        )
+        (mvalInsts fns regs insts (+ i 1))
+      }
+    )
+  )
+)
+
+; A call to a name the table does not hold answers 0. The gate never
+; reaches that arm - it lowers whole modules and `mirVerify` runs
+; first - but "answer 0" is a value, and a differential compares
+; values, so an unresolved callee shows up as a wrong number rather
+; than as a crash that could be mistaken for a machine problem.
+(pub :: mvalCall (-> (Vec MFunc) String (Vec Int) Int))
+
+(pub fn (mvalCall fns nm args)
+  (let ((got (mvalFind fns nm 0)))
+    (if (== (vecLen got) 0)
+      0
+      (mvalRunFn fns (vecGet got 0) args)
+    )
+  )
+)
+
+(pub :: mvalBlockAt (-> MFunc Int (Vec MBlock)))
+
+(pub fn (mvalBlockAt f id)
+  (if (|| (< id 0) (>= id (vecLen f.blocks)))
+    vecNew
+    (let ((v vecNew))
+      {
+        (vecPush v (vecGet f.blocks id))
+        v
+      }
+    )
+  )
+)
+
+(pub :: mvalRunBlock (-> (Vec MFunc) MFunc (Vec Int) MBlock (Vec Int) Int))
+
+(pub fn (mvalRunBlock fns f regs b vals)
+  {
+    (mvalBindParams regs b.params vals 0)
+    (mvalInsts fns regs b.instrs 0)
+    (if (== (vecLen b.term) 0)
+      0
+      (let ((t (vecGet b.term 0)))
+        (if (== t.op MT_RET)
+          (vecGet regs t.a)
+          (if (== t.op MT_BR)
+            (mvalGoto
+              fns              f              regs              t.tgt              (mvalArgs regs t.args 0 vecNew)
+            )
+            (if (== t.op MT_CONDBR)
+              (mvalGoto
+                fns                f                regs                (if (!= (vecGet regs t.a) 0)
+                  t.tgt
+                  t.alt
+                )                vecNew
+              )
+              0
+            )
+          )
+        )
+      )
+    )
+  }
+)
+
+(pub :: mvalGoto (-> (Vec MFunc) MFunc (Vec Int) Int (Vec Int) Int))
+
+(pub fn (mvalGoto fns f regs id vals)
+  (let ((got (mvalBlockAt f id)))
+    (if (== (vecLen got) 0)
+      0
+      (mvalRunBlock
+        fns        f        regs        (vecGet got 0)        vals
+      )
+    )
+  )
+)
+
+; One call. The register file is exactly `nreg` words and is fresh
+; per call, which is what makes recursion work: `mirVerify` has
+; already refused any register at or above `nreg`, so nothing here
+; reads past the end.
+(pub :: mvalRunFn (-> (Vec MFunc) MFunc (Vec Int) Int))
+
+(pub fn (mvalRunFn fns f args)
+  (let ((regs (mvalZeros vecNew f.nreg)))
+    {
+      (mvalBindParams regs f.params args 0)
+      (mvalGoto
+        fns        f        regs        0        vecNew
+      )
+    }
+  )
+)
+
+; Call a function by name with one integer argument - the shape every
+; fixture's `probe` has.
+(pub :: mvalCall1 (-> (Vec MFunc) String Int Int))
+
+(pub fn (mvalCall1 fns nm x)
+  (let ((v vecNew))
+    {
+      (vecPush v x)
+      (mvalCall fns nm v)
+    }
+  )
+)

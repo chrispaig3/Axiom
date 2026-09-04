@@ -1,0 +1,42 @@
+fn probe(%0) {
+bb0:
+  %1 = const 10
+  %2 = slt %0, %1
+  condbr %2, bb1, bb2
+bb1:
+  %4 = const 5
+  %5 = slt %0, %4
+  br bb3(%5)
+bb2:
+  %6 = const 15
+  %7 = sgt %0, %6
+  br bb3(%7)
+bb3(%3):
+  condbr %3, bb4, bb5
+bb4:
+  %9 = const 3
+  %10 = mul %0, %9
+  br bb6(%10)
+bb5:
+  %11 = const 10
+  %12 = eq %0, %11
+  condbr %12, bb7, bb8
+bb6(%8):
+  ret %8
+bb7:
+  %14 = const 999
+  br bb9(%14)
+bb8:
+  %15 = const 1
+  %16 = add %0, %15
+  br bb9(%16)
+bb9(%13):
+  br bb6(%13)
+}
+fn main() {
+bb0:
+  %0 = const 0
+  %1 = call emit(%0)
+  ret %1
+}
+; not lowered: emit
