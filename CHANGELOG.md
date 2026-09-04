@@ -55,7 +55,7 @@ matrix.
 **The gate is a differential, not a golden.** A printer pinned only by
 checked-in goldens states the FORM of the IR and nothing about its
 meaning, and `AXIOM_BLESS=1` rewrites those goldens. So each of the
-eight fixtures under `tests/mir/` is compiled and run by the real
+nine fixtures under `tests/mir/` is compiled and run by the real
 compiler, then lowered and run by the evaluator, and the two stdouts
 must be byte-identical. Three ablations, chosen to fire DIFFERENT
 checks because two that fire the same one are one ablation written

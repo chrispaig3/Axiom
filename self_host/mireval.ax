@@ -7,7 +7,7 @@
 ; `scripts/check-mir.sh` runs instead is a differential: a fixture is
 ; compiled and run by the real compiler, the same fixture is lowered
 ; and run by this evaluator, and the two stdouts must be byte-equal.
-; The reference in that differential is the native compiler - 97k
+; The reference in that differential is the native compiler - 97,680
 ; lines this change did not touch - so a lowering rule that quietly
 ; means something other than the source it came from fails here, with
 ; a golden freshly blessed and every other assertion green.
