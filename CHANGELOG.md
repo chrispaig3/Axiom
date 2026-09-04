@@ -16,6 +16,15 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.4 — 2026-09-03
+
+<!-- Empty by design until the next change lands. The heading STAYS when a
+     release is cut: `scripts/check-gate-lib.sh` reads this file starting at
+     `## Unreleased` and takes the two sections below it, so removing the
+     heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
+     state \"sixty-three gates\" anywhere" - the count as it stands today.
+     Measured on the 0.7.0 tag, which is how this comment came to be here. -->
+
 ### A mid-level IR, and the first thing that lowers through it
 
 `self_host/mir.ax` is an SSA IR between the checked AST and the code
@@ -179,16 +188,37 @@ location cannot point into another source file, and four of the six hops
 in a typical `AX3049` path are in `stdlib/`. Widening it is a change to
 a stable format and is not made here.
 
-## 0.7.3 — 2026-09-03
+### `Show.ax` is gone: `format` is exported by `Str.ax`
 
-<!-- Empty by design until the next change lands. The heading STAYS when a
-     release is cut: `scripts/check-gate-lib.sh` reads this file starting at
-     `## Unreleased` and takes the two sections below it, so removing the
-     heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
-     state \"sixty-three gates\" anywhere" - the count as it stands today.
-     Measured on the 0.7.0 tag, which is how this comment came to be here. -->
-     state \"sixty-three gates\" anywhere". Measured on the 0.7.0 tag, which is how
-     this comment came to be here. -->
+The module held one declaration - `(pub macro (format e)
+(syntax/format e))` - under a header explaining a `trait` mechanism the
+language removed in 0.6.0. `show` was never declared there or anywhere:
+the expander emits a var node named `show` per hole
+(`expand.ax:2659,2717`) and the CHECKER resolves it from the hole's
+static type (`showIsHead`, `showBuiltin`, `showResolve`).
+
+`Str` rather than `Fmt`, and not by preference. Every expansion emits
+`strConcat`, which resolves on the qualifier's FIRST path from `Str`.
+`Fmt` imports `Str`, so `format` living in `Str` could not import `Fmt`
+back without a module cycle - and does not need to: a specifier's
+expansion names `fmtFloatPrec` and `fmtPadLeft`, and `expQualify`
+reaches those through `expUniqueModuleName` over the MERGED declaration
+list rather than through import edges. Measured, from a program
+importing only `Str` and `IO`: `{n:x}`, `{n:>8}`, `{x:.2}` and `{n}`
+render `ff`, `     255`, `3.14` and `255`.
+
+No `BREAKING` row for the macro: the nid is FNV-1a over `DKind:name`
+with the BARE name, so `format`'s identity does not travel with its
+module and `check-compat` reports 32 checks passed. What breaks is
+`(import Show)`, and `compat/BREAKING` records that as the module
+removal it is. `tests/compat/verify-compat.py`'s module list is a
+separate checked list and had to learn it too.
+
+Gates: compat 32, stdlib-api 8 with the reference regenerated,
+stdlib-selfhost 637 claims over 46 files, fmt-selfhost, diagnostics 206.
+
+
+## 0.7.3 — 2026-09-03
 
 ### `AX3064`: a concurrent binding may not capture a reference the parent holds
 

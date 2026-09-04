@@ -38,7 +38,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.7.3"
+version = "0.7.4"
 # EDITION 2024, from 2021 on 2026-09-03, and the reason is one lint.
 # `unsafe_op_in_unsafe_fn` is a hard error in this edition, so the body
 # of a `pub unsafe fn` can no longer perform unsafe operations without
@@ -84,9 +84,9 @@ undocumented_unsafe_blocks = "warn"
 chunks_exact_to_as_chunks = "allow"
 
 [workspace.dependencies]
-axiom-abi = { path = "axiom-abi", version = "0.7.3" }
-axiom-ffi-macros = { path = "axiom-ffi-macros", version = "0.7.3" }
-axiom-ffi-classify = { path = "axiom-ffi-classify", version = "0.7.3" }
+axiom-abi = { path = "axiom-abi", version = "0.7.4" }
+axiom-ffi-macros = { path = "axiom-ffi-macros", version = "0.7.4" }
+axiom-ffi-classify = { path = "axiom-ffi-classify", version = "0.7.4" }
 # `parsing` and `printing` are syn defaults; the `visit` visitor API is
 # used by none of the three crates that parse Rust here.
 syn = { version = "2", features = ["full", "extra-traits"] }

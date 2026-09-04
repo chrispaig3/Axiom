@@ -478,3 +478,15 @@
 0.6.4  F  ledCtrlKey          (-> LineEd KeyEv Int Int) -> (-> LineEd KeyEv (Vec String) Int)
 0.6.4  F  termFlush           (-> Int Int) -> (-> (Vec String) Int): the output buffer is a vector of pieces
 0.6.4  F  tuiCat              (-> Int String) -> (-> (Vec String) String)
+
+# 0.7.4 - `stdlib/Show.ax` is deleted and its one declaration, the
+# `format` macro, is exported by `stdlib/Str.ax` instead. The macro's
+# NAME and meaning are unchanged and its nid does not move with it, so
+# the symbol contract is intact and `check-compat` reports no
+# difference; what breaks is the import. A program writing
+# `(import Show)` must write `(import Str)`.
+#
+# The module was a 53-line wrapper around that one macro under a
+# header describing the `trait` mechanism removed in 0.6.0 - see the
+# `0.6.0  T  Show` row above, which took the trait and left the file.
+0.7.4  M  format  moved from stdlib/Show.ax to stdlib/Str.ax; `(import Show)` no longer resolves
