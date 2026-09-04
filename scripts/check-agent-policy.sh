@@ -262,14 +262,6 @@ cat > "$work/rowless.exempt" <<'ROWLESS'
 Pre    macros only - `when`, `unless`, `cond2`, `deriveShow`. A macro is
 Pre    expanded into its caller and has no declaration of its own to
 Pre    carry an effect row.
-Show   a trait, four impls and one macro, and no top-level `fn`. An impl
-Show   METHOD BODY gets no AXSYM row at all: measured with an
-Show   `(impl (Show T) ((show (lambda (v) { (println "io") "s" }))))`,
-Show   the stream held no `F` row for it and the IO surfaced only on the
-Show   caller's row as `#effects=Alloc,IO`. That is a real gap in this
-Show   gate's input and it is `symbols.ax`'s to close, not this file's;
-Show   until it is, a `Show` instance in the standard library is policed
-Show   only through whoever calls it.
 ROWLESS
 awk '{print $1}' "$work/rowless.exempt" | LC_ALL=C sort -u > "$work/rowless.names"
 
