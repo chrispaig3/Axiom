@@ -3032,7 +3032,7 @@ The standard library is built on these low-level primitives, and so is any code 
 | `(__retain h)` / `(__release h)` | Take or hand back a share of the counted block at `h` |
 | `(__retainref v)` | Take a share of `v` **iff `v` is a reference** — decided from the call's type, so an `Int` argument emits nothing. The store that hides a value behind a `cast Int` uses this |
 | `__axiom_arena_mark` / `(__axiom_arena_reset m)` | Read the allocator's waterline (it takes no argument), and roll it back to a mark |
-| `(memMarkArray h)` / `(memMarkLeaf h)` | Say that every payload word of the block at `h` is a handle, or that none is — the array form, `Mem`. There is no reader: the bit is the RUNTIME's instruction and is ambiguous against an allocator with a different clamp, so a container carries its own flag ([memory-model.md](memory-model.md) MM-LIFE-2h) |
+| `(memMarkArray h n)` / `(memMarkLeaf h)` | Say that payload words `0..n-1` of the block at `h` are handles, or that none is — the array form, `Mem`. `n` is the caller's ELEMENT count and not the block's size: the allocator's own word count is a size class it clamps to 0 past 16,383 words, and reading the length out of it silently reclaimed nothing above 131,072 bytes (0.7.4, `compat/BREAKING`). There is no reader: the bit is the RUNTIME's instruction and is ambiguous against an allocator with a different clamp, so a container carries its own flag ([memory-model.md](memory-model.md) MM-LIFE-2h) |
 | `(__axiom_recover m thunk)` | Arm a recovery point at mark `m` and run `thunk`: out of memory, an unhandled effect and a division by zero answer this call with 70, 71 or 72 instead of exiting. Outside one they still exit ([error-model.md](error-model.md) ERR-REC-6) |
 | `(__addr "literal")` | Address of a string literal's bytes |
 
@@ -3692,9 +3692,9 @@ whole structure back:
 ```
 
 The two constructors differ in ONE WORD at allocation: the data block
-of a `vecNewRef` carries the **array form** (`Mem.memMarkArray`), which
-says every payload word of it is a handle, so releasing the block
-releases them all. `vecNew`'s data block is a leaf and makes no claim
+of a `vecNewRef` carries the **array form** (`Mem.memMarkArray cap`),
+which says its first `cap` payload words are handles, so releasing the
+block releases them all. `vecNew`'s data block is a leaf and makes no claim
 about its contents. For the `Int`s a compiler's vectors are full of that
 is exactly right and free - the store emits no instruction at all. For a
 REFERENCE it is not a borrow: the store still takes a share

@@ -1,0 +1,215 @@
+; exit 31 (see .exit)
+; MM-LIFE-2h's ARRAY FORM ABOVE THE COUNT FIELD'S CEILING.
+;
+; `404-container-reference-maps.ax` proves the array form reclaims a
+; container's elements. It proves it at cap 8. This one proves it at
+; 16,384 words, which is where it used to stop working entirely, and
+; the two are separate fixtures because the failure is a CLIFF and not
+; a slope: every array-form block from one word to 16,383 was correct,
+; and at 16,384 the walk released nothing at all.
+;
+; WHY. The shape word's count lived in bits 1..14, and `memAlloc`
+; clamps a payload past 16,383 words to 0 - the unknown-size sentinel
+; `filev` refuses to pool. Release read that same field as the array
+; form's LENGTH, so a block past the ceiling said "I am an array of
+; zero handles" and the walk stepped over every element it held. The
+; count now lives in bits 16..62, written by `Mem.memMarkArray` from
+; the ELEMENT count its caller already has, and bits 1..14 stay the
+; allocator's size class - the two fields had been asked to be one
+; number, and they are not the same number.
+;
+; MEASURED BEFORE THE FIX (200 iterations of build-a-16,384-element
+; reference vector of duplicated strings and free it, peak RSS): the
+; `vecNewRef` arm and the `vecNew` arm both measured 335,344 KiB -
+; identical to the kilobyte, which is what "the array form is doing
+; nothing here" looks like from outside.
+;
+; EVERY PROBE IS A SHARE COUNT, NOT A FREE-LIST QUERY. `404`'s probes
+; ask whether a released block comes back from `memAlloc`, which is the
+; right question there and the wrong one here: these vectors grow, and
+; a growth allocating out of the same size class the probe is watching
+; measures the free list instead of the release. Counting shares asks
+; the release path directly - the walk either spent one or it did not -
+; and an extra `__retain` keeps the answer readable by making sure the
+; probe string never reaches zero and disappears mid-measurement.
+;
+;   16  the form still works BELOW the cliff: an 8-element reference
+;       vector's element loses a share when the vector is freed. This
+;       is the control, and it is green on the unfixed compiler -
+;       without it a fixture that went red for a build failure would
+;       read the same as one that went red for the defect
+;    8  THE FIX: a 16,384-element reference vector's element loses a
+;       share too
+;    4  THE ABLATION, in the fixture: the same 16,384-element program
+;       built with `vecNew` does NOT spend it. It passes on the unfixed
+;       compiler too - a compiler that reclaims nothing satisfies every
+;       "did not release" - which is why it is asserted beside 8 and
+;       never alone
+;    2  GROWTH ACROSS THE CLIFF DOES NOT DOUBLE-SPEND. `vecPush`
+;       doubling 8,192 -> 16,384 marks the abandoned buffer a LEAF
+;       before releasing it, because the copy MOVED the shares. Now
+;       that the count sits in bits 16..62, `memMarkLeaf` has to clear
+;       those bits as well as bit 15: a buffer that kept them would
+;       read back as a RECORD WITH A BITMAP, and release would spend a
+;       share of whichever payload word the old count happens to name
+;       (8,192 = bit 13, so element 13). Every element's count is 1
+;       after the growth, and 0 is what the wrong mask produces
+;    1  THE ENCODING ITSELF, at the raw layer and independent of
+;       `Vec`: a hand-allocated 16,384-word block with bit 15 set and
+;       16,384 in bits 16..62 spends the share in word 0. Spelled with
+;       `__store64` rather than `memMarkArray` on purpose, so this
+;       fixture compiles unchanged against the pre-fix compiler and can
+;       be run there
+;
+; THE UNFIXED COMPILER ANSWERS 22 - 16, 4 and 2, the control and the
+; two claims that do not depend on the encoding - and this was RUN, not
+; predicted (2026-09-03, against the compiler built from the tree at
+; 50ae6a2). Its ABLATION is one line: revert `codegen.ax`'s
+; `%pcnt = and i64 %pmap, 140737488355327` in `@axiom_release`'s `popD`
+; to the pair of lines that read bits 1..14, rebuild the compiler, and
+; this fixture answers 22 again (run, 2026-09-03:
+; `FAIL 406-array-form-large-block (exit: expected 31, got 22)`).
+;
+; AND `404` STAYS GREEN THROUGH THAT ABLATION, which is the reason this
+; is a second fixture rather than two more bits in the first one. `404`
+; reads the shape words back as literals, and the ablation does not
+; change what `memMarkArray` WRITES - only what the release walk reads
+; out of it - so `404` had no way to see this and did not.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(:: b2i (-> Bool Int))
+
+(fn (b2i x)
+  (if x
+    1
+    0
+  )
+)
+
+(:: countOf (-> Int Int))
+
+(fn (countOf h) (__load64 (- h 16) 0))
+
+; Push `n` freshly duplicated strings, so the vector crosses every
+; growth boundary a real one does.
+(:: fillWith (-> (Vec String) Int Int))
+
+(fn (fillWith v n)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (vecPush v (strDup "abcdefgh"))
+          (set i (+ i 1))
+        })
+      n
+    }
+  )
+)
+
+; Build an `n`-element vector whose first element is a string this
+; function keeps an extra share of, free the vector, and answer that
+; string's remaining count. `strDup` gives 1, `vecPush` retains to 2,
+; the explicit retain makes 3: the walk that reaches the element leaves
+; 2 and the walk that does not leaves 3. `refs` picks the constructor
+; and is the only difference between probes 8 and 4.
+(:: sharesAfterFree (-> Bool Int Int))
+
+(fn (sharesAfterFree refs n)
+  (let ((s (strDup "probe")))
+    (let ((v 
+      (if refs
+        vecNewRef
+        vecNew
+      )
+    ))
+      {
+        (vecPush v s)
+        (__retain
+          (cast Int s)
+        )
+        (fillWith v (- n 1))
+        (vecFree v)
+        (countOf
+          (cast Int s)
+        )
+      }
+    )
+  )
+)
+
+; The smallest share count over elements 0..n-1, read while the vector
+; is still live. Recursive rather than a `while` so nothing has to be
+; `mut` across the read.
+(:: minCount (-> (Vec String) Int Int Int))
+
+(fn (minCount v n acc)
+  (if (== n 0)
+    acc
+    (let ((c 
+      (countOf
+        (cast Int (vecGet v (- n 1)))
+      )
+    ))
+      (minCount
+        v        (- n 1)        (if (< c acc)
+          c
+          acc
+        )
+      )
+    )
+  )
+)
+
+; Probe 1, at the raw layer. `nwords` words, array form, count written
+; where the fix puts it. Word 0 holds a string's handle and the block
+; holds a share of it; the question is whether releasing the block
+; spends that share.
+(:: rawArrayShares (-> Int Int))
+
+(fn (rawArrayShares nwords)
+  (let (
+    (s (strDup "raw"))
+    (blk (memAlloc (* nwords 8)))
+  )
+    {
+      (__retain blk)
+      (memSetWord
+        blk        0        (cast Int s)
+      )
+      (__retain
+        (cast Int s)
+      )
+      (__store64 (- blk 8) 0 (| (| (__load64 (- blk 8) 0) 32768) (* nwords 65536)))
+      (__release blk)
+      (countOf
+        (cast Int s)
+      )
+    }
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let ((mut acc 0))
+    {
+      (set acc (+ acc (* 16 (b2i (== (sharesAfterFree true 8) 2)))))
+      (set acc (+ acc (* 8 (b2i (== (sharesAfterFree true 16384) 2)))))
+      (set acc (+ acc (* 4 (b2i (== (sharesAfterFree false 16384) 3)))))
+      (let ((g vecNewRef))
+        {
+          (fillWith g 16384)
+          (set acc (+ acc (* 2 (b2i (== (minCount g 16384 999) 1)))))
+          (vecFree g)
+        }
+      )
+      (set acc (+ acc (b2i (== (rawArrayShares 16384) 1))))
+      acc
+    }
+  )
+)

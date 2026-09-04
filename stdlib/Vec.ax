@@ -136,7 +136,7 @@
       (__retain v)
       (__retain d)
       (if (== refs 1)
-        (memMarkArray d)
+        (memMarkArray d n)
         d
       )
       (memSetWord v 0 0)
@@ -446,7 +446,7 @@
     {
       (__retain bigger)
       (if (vecOwnsRefs v)
-        (memMarkArray bigger)
+        (memMarkArray bigger newCap)
         bigger
       )
       (memCopy bigger old (* (vecLen v) 8))

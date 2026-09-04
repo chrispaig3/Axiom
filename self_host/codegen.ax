@@ -8513,13 +8513,22 @@
     ; the unsafe layer's own rule; monomorphic construction sites
     ; overwrite the word with their record shape, and a container
     ; stamps its element buffer with the array form through
-    ; `Mem.memMarkArray`. A payload past 16383 words overflows the
-    ; count field and stores 0 - the unknown-size sentinel release
-    ; refuses to file (262KB read buffers exist; the clamp is not
-    ; decorative). The ceiling was 32767 words until the array form
-    ; took the count's top bit on 2026-08-24; what that costs is reuse
-    ; of blocks between 131KB and 262KB, which now read as
-    ; unknown-size rather than being filed.
+    ; `Mem.memMarkArray`, which writes its LENGTH into bits 16..62.
+    ;
+    ; A payload past 16383 words overflows the count field and stores
+    ; 0 - the unknown-size sentinel release refuses to file (262KB
+    ; read buffers exist; the clamp is not decorative). The ceiling was
+    ; 32767 words until the array form took the count's top bit on
+    ; 2026-08-24; what that costs is reuse of blocks between 131KB and
+    ; 262KB, which now read as unknown-size rather than being filed.
+    ;
+    ; WHAT THE CLAMP MUST NOT COST is the array form's length, and
+    ; until 2026-09-03 it did: the walk read this same field as the
+    ; number of handles, so a clamped buffer said "zero handles" and
+    ; released none of them. That is why the length lives in bits
+    ; 16..62 and not here - a size class the allocator may throw away
+    ; and a length the walk may not are two numbers, and this field is
+    ; only the first of them.
     (emitLine cg "  %cwp = inttoptr i64 %hb to ptr")
     (emitLine cg "  store i64 0, ptr %cwp")
     (emitLine cg "  %shpw = add i64 %hb, 8")
@@ -8774,8 +8783,26 @@
     ; exist.
     (emitLine cg "  %parr = and i64 %pshw, 32768")
     (emitLine cg "  %pisarr = icmp ne i64 %parr, 0")
-    (emitLine cg "  %pcnt0 = lshr i64 %pshw, 1")
-    (emitLine cg "  %pcnt = and i64 %pcnt0, 16383")
+    ; THE ARRAY LENGTH SHARES BITS 16..62 WITH THE RECORD BITMAP, and
+    ; that is the whole encoding: the two forms are disjoint, so the
+    ; field can be a bitmap for one and a count for the other. It used
+    ; to read bits 1..14 - the ALLOCATOR's padded word count - which
+    ; the allocator clamps to 0 past 16,383 words, so a container's
+    ; element buffer of 131,072 bytes or more announced itself as an
+    ; array of ZERO handles and the walk below stepped over every
+    ; element it held. Measured 2026-09-03: a 16,384-element reference
+    ; vector and the same program built with `vecNew` had the same
+    ; peak RSS to the kilobyte, which is what a form doing nothing
+    ; looks like from outside (`tests/stdlib/406-array-form-large-
+    ; block.ax`).
+    ;
+    ; `Mem.memMarkArray` writes this field from the ELEMENT count its
+    ; caller already has, so it never needs a number the allocator
+    ; threw away, and `Mem.memMarkLeaf` clears it along with bit 15 -
+    ; a leaf that kept it would read back as a record with a bitmap.
+    ; The mask is 47 bits (bits 16..62), leaving bit 63 out so the
+    ; shape word stays non-negative.
+    (emitLine cg "  %pcnt = and i64 %pmap, 140737488355327")
     (emitLine cg "  %pwm = select i1 %pisarr, i64 %pcnt, i64 %pmap")
     (emitLine cg "  %pflg = select i1 %pisarr, i64 1, i64 0")
     (emitLine cg "  store i64 %pwm, ptr %wm")

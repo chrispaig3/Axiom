@@ -10,13 +10,25 @@
 ; could not have done it, because `Intern`'s table is 64 words at
 ; CONSTRUCTION and a bitmap holds 47.
 ;
-;   128  a reference vector's data block reads array form and its word
-;        count: 32768 (bit 15) + 16 (8 words, cap 8), and the plain
+; THE COUNT MOVED ON 2026-09-03, and the two literals below moved with
+; it. It used to be read out of the ALLOCATOR's word count in bits
+; 1..14, which the allocator clamps to 0 past 16,383 words, so a buffer
+; of 131,072 bytes or more read as an array of zero handles and the
+; walk released none of them. It now sits in bits 16..62, written by
+; `Mem.memMarkArray` from the element count its caller passes.
+; `406-array-form-large-block.ax` is the fixture for the cliff itself;
+; this one still pins the ENCODING, and the numbers below are the only
+; place in the tree that spells it out.
+;
+;   128  a reference vector's data block reads array form, its
+;        allocator size class, and its length: 32768 (bit 15) + 16
+;        (8 words, cap 8) + 524288 (8 << 16) = 557072, and the plain
 ;        `vecNew`'s reads 16 - the same block, the same size, no claim
 ;        about its contents
 ;    64  `internNew`'s string vector holds 64 words, so its shape reads
-;        32768 + 128 - PAST the record bitmap's 47-word capacity, in a
-;        structure the standard library builds by default
+;        32768 + 128 + 4194304 (64 << 16) = 4227200 - PAST the record
+;        bitmap's 47-word capacity, in a structure the standard library
+;        builds by default
 ;    32  the three container headers carry record maps naming their own
 ;        buffers: `Vec` 262152 (4 words, bit 2), `Map` 1835024 (8
 ;        words, bits 2/3/4), `Intern` 327688 (4 words, bits 0 and 2).
@@ -49,8 +61,10 @@
 ; edit inside `stdlib/`, so both cost a rebuild of this fixture and
 ; nothing else:
 ;
-;   `Mem.memMarkArray` made a no-op (`(| sw 32768)` -> `(| sw 0)`), so
-;   no block ever carries the array form: this fixture answers 45,
+;   `Mem.memMarkArray` made a no-op - its `32768` changed to `0`, and
+;   since 2026-09-03 its `(<< (& n 140737488355327) 16)` to `0` as
+;   well, since either half alone leaves a shape the walk still reads
+;   - so no block ever carries the array form: this fixture answers 45,
 ;   losing 128, 64, 16 and 2 - the two shape probes, the transitive
 ;   reclaim, and the map-table shape. 32, 8, 4 and 1 survive, and they
 ;   are exactly the four that do not depend on the form: the record
@@ -135,8 +149,8 @@
     (mut acc 0)
   )
     {
-      (set acc (+ acc (* 128 (b2i (&& (== (shapeOf (memGetWord (cast Int vr) 2)) 32784) (== (shapeOf (memGetWord (cast Int vp) 2)) 16))))))
-      (set acc (+ acc (* 64 (b2i (== (shapeOf (memGetWord (memGetWord it 0) 2)) 32896)))))
+      (set acc (+ acc (* 128 (b2i (&& (== (shapeOf (memGetWord (cast Int vr) 2)) 557072) (== (shapeOf (memGetWord (cast Int vp) 2)) 16))))))
+      (set acc (+ acc (* 64 (b2i (== (shapeOf (memGetWord (memGetWord it 0) 2)) 4227200)))))
       (set acc (+ acc (* 32 (b2i (&& (== (shapeOf (cast Int vr)) 262152) (&& (== (shapeOf mp) 1835024) (== (shapeOf it) 327688)))))))
       (set acc (+ acc (* 16 (b2i (bytesComeBack true)))))
       (set acc (+ acc (* 8 (b2i (== (b2i (bytesComeBack false)) 0)))))
@@ -152,7 +166,7 @@
           }
         )
       )
-      (set acc (+ acc (* 2 (b2i (&& (== (shapeOf (memGetWord mr 3)) 32784) (== (shapeOf (memGetWord mp 3)) 16))))))
+      (set acc (+ acc (* 2 (b2i (&& (== (shapeOf (memGetWord mr 3)) 557072) (== (shapeOf (memGetWord mp 3)) 16))))))
       ; The popped element keeps the caller's share: two retains put its
       ; count at 3, the pop zeroes the word, and the free walks past a
       ; zero rather than spending a share. Without `vecPop`'s zero the

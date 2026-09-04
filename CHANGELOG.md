@@ -16,6 +16,46 @@ its changelog too.
 
 ## Unreleased
 
+### The array form stopped reclaiming above 131 KB, and nothing said so
+
+`MM-LIFE-2h`'s array form says *payload words `0..count-1` of this block
+are handles*, and the release walk read that `count` out of bits 1..14
+of the shape word. That field is the **allocator's size class**, and the
+allocator clamps it to `0` past 16,383 words because it will not pool a
+block that large. A container's element buffer of 131,072 bytes or more
+therefore announced itself as *an array of zero handles*: `vecFree`
+reclaimed the block and released none of its elements. Every array-form
+block from one word to 16,383 was correct, which is why this survived —
+it is a cliff, not a slope.
+
+Measured at 16,384 elements over 200 iterations, peak RSS: `vecNewRef`
+and `vecNew` both **335,344 KiB**, identical to the kilobyte. That is
+what an ablation looks like when it has stopped being an ablation.
+
+The length moves to **bits 16..62**, which the record form uses for its
+reference bitmap and the array form is free to use for a count — the two
+forms are disjoint by construction. `Mem.memMarkArray` takes the element
+count from its caller (`(-> Int Int Int)`, declared in `compat/BREAKING`
+for `0.7.4`; all four call sites already had the number in scope),
+because no one-argument spelling could recover a number the allocator
+had already thrown away. `Mem.memMarkLeaf` now clears bits 15..62
+together: a leaf that kept the count would read back as a *record with a
+bitmap*, and release would spend a share of whichever payload word the
+count's set bits named — a wild write, not a leak. The two changes ship
+together or neither is safe.
+
+After it, the same measurement at 100 iterations reads **16,032 KiB**
+against the ablation's **168,416 KiB**. What is still not reclaimed is
+the buffer itself: 131,072 bytes is past the release path's 64 KiB pool
+ceiling, so `big/mapped` stays linear at about 130 KiB a turn. The
+elements come back; the block does not.
+
+Held by `tests/stdlib/406-array-form-large-block.ax` (exit 31; the
+unfixed compiler answers 22, run) and a new `big` arm in
+`scripts/check-container-reclaim.sh`. `tests/stdlib/404-container-reference-maps.ax`
+stays green through the one-line ablation of this fix, which is why the
+cliff needed a fixture of its own.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a

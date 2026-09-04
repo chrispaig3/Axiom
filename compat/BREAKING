@@ -478,3 +478,15 @@
 0.6.4  F  ledCtrlKey          (-> LineEd KeyEv Int Int) -> (-> LineEd KeyEv (Vec String) Int)
 0.6.4  F  termFlush           (-> Int Int) -> (-> (Vec String) Int): the output buffer is a vector of pieces
 0.6.4  F  tuiCat              (-> Int String) -> (-> (Vec String) String)
+
+# 0.7.4 - MM-LIFE-2h, the array form's length. It was read out of the
+# allocator's word count in bits 1..14 of the shape word, and that is a
+# SIZE CLASS the allocator clamps to 0 past 16,383 words: a container's
+# element buffer of 131,072 bytes or more announced itself as an array
+# of zero handles and the release walk reclaimed none of its elements.
+# The length moves to bits 16..62, and nothing could recover a number
+# the allocator had already thrown away - so the marker takes the count
+# from its caller, all four of which already had it in scope. See
+# docs/memory-model.md MM-LIFE-2h and
+# tests/stdlib/406-array-form-large-block.ax.
+0.7.4  F  memMarkArray  (-> Int Int) -> (-> Int Int Int): the array form carries its own length
