@@ -110,7 +110,8 @@
         {
           (vecPush __w __f0)
           (vecPush
-            __w            (cast Int __f1)
+            __w
+            (cast Int __f1)
           )
           (__pointToWords __ps __w (+ __i 1))
         }
@@ -279,7 +280,8 @@
   (let (
     (__c ffiCellNew)
     (__st (fromCharsRaw
-      (cast Int cs)      __c
+      (cast Int cs)
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
@@ -338,7 +340,8 @@
   (let (
     (__c ffiCellNew)
     (__st (joinWordsRaw
-      (cast Int parts)      __c
+      (cast Int parts)
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
@@ -581,7 +584,9 @@
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
     (__c ffiCellNew)
     (__st (pointsScaleRaw
-      (cast Int __a0)      k      __c
+      (cast Int __a0)
+      k
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
@@ -603,7 +608,8 @@
     (__a0 (__pointToWords ps (vecWithCapacity (* (vecLen ps) 2)) 0))
     (__c ffiCellNew)
     (__st (pointsTryRaw
-      (cast Int __a0)      __c
+      (cast Int __a0)
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))

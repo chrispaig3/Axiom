@@ -21,9 +21,11 @@
 //!   block are never simple (`isSimpleForm`);
 //! - an application prints on one line iff its head is simple, it has
 //!   at most four arguments and every argument is simple; otherwise
-//!   the head ends the line and the arguments follow at one deeper
-//!   indent WITH NO NEWLINE BETWEEN THEM (stage0's quirk, kept for
-//!   byte-identity), then `)` on its own line (`fpApp`);
+//!   the head ends the line and the arguments follow ONE PER LINE at
+//!   one deeper indent, then `)` on its own line (`fpApp`). Until
+//!   2026-09-04 there was no newline between the arguments - stage0's
+//!   quirk, kept for byte-identity - and both printers wrote the
+//!   indent as a run of spaces between them;
 //! - `let` with one binding keeps the binding on the `let` line (the
 //!   init breaks onto its own line if it is not simple); with several,
 //!   each binding sits on its own line under `(let (` and the list
@@ -123,7 +125,10 @@ pub fn print(e: &Ex, level: usize, out: &mut String) {
                 out.push(')');
             } else {
                 out.push('\n');
-                for a in args {
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        out.push('\n');
+                    }
                     out.push_str(&ind(level + 1));
                     print(a, level + 1, out);
                 }
@@ -273,7 +278,7 @@ mod tests {
             1,
             &mut s,
         );
-        assert_eq!(s, "(f\n    a    b    c    d    e\n  )");
+        assert_eq!(s, "(f\n    a\n    b\n    c\n    d\n    e\n  )");
     }
 
     #[test]

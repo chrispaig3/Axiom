@@ -133,10 +133,12 @@
         {
           (vecPush __w __f0)
           (vecPush
-            __w            (cast Int __f1)
+            __w
+            (cast Int __f1)
           )
           (vecPush
-            __w            (cast Int __f2)
+            __w
+            (cast Int __f2)
           )
           (__pixelToWords __ps __w (+ __i 1))
         }
@@ -243,7 +245,8 @@
   (let (
     (__c ffiCellNew)
     (__st (concatRaw
-      (cast Int parts)      __c
+      (cast Int parts)
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
@@ -315,7 +318,8 @@
   (let (
     (__c ffiCellNew)
     (__st (fromCharsRaw
-      (cast Int cs)      __c
+      (cast Int cs)
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
@@ -574,7 +578,8 @@
 (pub fn (mean xs weights)
   (let ((__r 
     (meanRaw
-      (cast Int xs)      (cast Int weights)
+      (cast Int xs)
+      (cast Int weights)
     )
   ))
     __r
@@ -681,7 +686,14 @@
                 (__a2 (cast Foreign (ffiHandlePtr __h2)))
                 (__c (ffiCellNewN 3))
                 (__st (pixelMixRaw
-                  __f0                  __f1                  __f2                  __f3                  __f4                  __f5                  __a2                  __c
+                  __f0
+                  __f1
+                  __f2
+                  __f3
+                  __f4
+                  __f5
+                  __a2
+                  __c
                 ))
                 (__p (ffiCellWord __c 0))
                 (__n (ffiCellWord __c 1))
@@ -766,7 +778,9 @@
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
     (__c ffiCellNew)
     (__st (pixelsDimRaw
-      (cast Int __a0)      by      __c
+      (cast Int __a0)
+      by
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
@@ -788,7 +802,8 @@
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
     (__c ffiCellNew)
     (__st (pixelsTryRaw
-      (cast Int __a0)      __c
+      (cast Int __a0)
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
@@ -1078,7 +1093,12 @@
   (let (
     (__c ffiCellNew)
     (__st (wideRaw
-      a      b      c      d      e      __c
+      a
+      b
+      c
+      d
+      e
+      __c
     ))
     (__p (ffiCellWord __c 0))
     (__n (ffiCellWord __c 1))
