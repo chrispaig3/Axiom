@@ -379,23 +379,36 @@ ablate() {
   mkdir -p "$root/tests"
   cp -R "$repo_root/tests/mir" "$root/tests/"
   python3 - "$root/self_host/mir.ax" "$which" <<'PY'
-import sys
+import re, sys
 p, which = sys.argv[1], sys.argv[2]
 s = open(p, encoding="utf-8").read()
+# THE SEAMS ARE MATCHED WHITESPACE-INSENSITIVELY, and that is not
+# tidiness. `axiom fmt` rewrites a file IN PLACE and puts a long
+# constructor's arguments on ONE line separated by runs of spaces.
+# Ablation 1's seam was written against the unformatted spelling of
+# `mLowApp`'s `MO_BIN` emission, `mir.ax` was formatted afterwards,
+# and the seam then appeared ZERO times: the ablation could not be
+# built, so this gate reported a failure it could not explain in
+# place of the evidence it exists to produce. A seam that this
+# repository's own formatter can invalidate is a check that stops
+# firing, so both are written with `\s+` between atoms - and both
+# still assert the seam matches EXACTLY ONCE, which is what makes a
+# vanished seam loud instead of silent.
 if which == "1":
     # A binary operator's operands, swapped. Well-formed IR, wrong
     # meaning - `sub`, `sdiv`, `srem` and every comparison invert.
-    old = "(mlcEmit lc (MInst MO_BIN (mlcFresh lc) (vecGet out 0) (vecGet out 1) bop vecNew 0 0))"
-    new = "(mlcEmit lc (MInst MO_BIN (mlcFresh lc) (vecGet out 1) (vecGet out 0) bop vecNew 0 0))"
+    pat = re.compile(r"(MO_BIN\s+\(mlcFresh lc\)\s+)\(vecGet out 0\)(\s+)\(vecGet out 1\)")
+    rep = r"\g<1>(vecGet out 1)\g<2>(vecGet out 0)"
 else:
     # Every unconditional branch dropped. The branchless fixture is
     # untouched; every other block loses its terminator.
-    old = "  (if (> (vecLen lc.cur.term) 0)\n    0\n    {\n      (vecPush lc.cur.term n)"
-    new = "  (if (|| (> (vecLen lc.cur.term) 0) (== n.op MT_BR))\n    0\n    {\n      (vecPush lc.cur.term n)"
-if s.count(old) != 1:
-    sys.stderr.write("seam %s appears %d times, expected 1\n" % (which, s.count(old)))
+    pat = re.compile(r"\(if\s+(\(>\s+\(vecLen lc\.cur\.term\)\s+0\))(\s+0\s+\{\s+\(vecPush lc\.cur\.term n\))")
+    rep = r"(if (|| \g<1> (== n.op MT_BR))\g<2>"
+hits = len(pat.findall(s))
+if hits != 1:
+    sys.stderr.write("seam %s appears %d times, expected 1\n" % (which, hits))
     sys.exit(1)
-open(p, "w", encoding="utf-8").write(s.replace(old, new))
+open(p, "w", encoding="utf-8").write(pat.sub(rep, s, count=1))
 PY
   if [[ $? -ne 0 ]]; then
     return 1
