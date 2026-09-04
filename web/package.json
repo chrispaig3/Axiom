@@ -1,7 +1,7 @@
 {
   "name": "axiom-site",
   "private": true,
-  "version": "0.7.4",
+  "version": "0.7.5",
   "type": "module",
   "description": "The official website for the Axiom programming language.",
   "scripts": {

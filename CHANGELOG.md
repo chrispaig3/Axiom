@@ -16,6 +16,9 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.5 — 2026-09-04
+
+
 ### The seed's corruption check no longer walks past a deleted row
 
 `bootstrap/SHA256SUMS` is what a fresh clone with no Axiom toolchain
@@ -605,7 +608,6 @@ does move is every list that named the module: `MODULES` in
 `docs/reference.md`'s module table — twenty-five rows to twenty-four —
 three inventories in `CONTRIBUTING.md`, `docs/status.md`, and one
 website sample that imported it.
-
 
 ## 0.7.4 — 2026-09-03
 
