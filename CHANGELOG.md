@@ -87,6 +87,14 @@ one: it turns red on `Demo.ax` and prints the five lines that moved. That is
 the whole reason the formatter fix is left to a change that owns both
 printers.
 
+One count moved with it: the compiler is **97,680 → 97,708** lines, which is
+exactly the 28 lines of expired-rationale note added to
+`self_host/format.ax`. `README.md` and `web/src/data/site.ts` both restate
+it, because `check-doc-drift.sh` and `web/scripts/check-claims.mjs`
+recompute it from `cat self_host/*.ax | wc -l` rather than trusting either.
+`.ax` files stay at 613 and gate scripts at 72 — no new file, no new gate;
+the two new sections live in gates that already own their subject.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a
