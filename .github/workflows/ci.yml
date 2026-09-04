@@ -468,7 +468,13 @@ jobs:
       # switched off. Twenty thousand rendered requests is under a
       # minute, and the memory criterion is a RATIO between two runs of
       # the same binary, so it is not sensitive to how fast the runner
-      # is. This is also the only thing that runs examples/web at all.
+      # is. This is also the only thing that runs examples/web at all,
+      # which is why it also sweeps the examples/ DIRECTORY: every
+      # tracked file a source or a static asset, none executable, every
+      # program named in examples/README.md and README.md linking there.
+      # A 156 KB Mach-O sat in examples/web from d1e4a71 until
+      # 2026-09-03 with every gate green, because every gate read file
+      # contents and none read the file list.
       - name: A templated server serves its pages and holds its memory
         run: ./scripts/check-web.sh
 

@@ -132,6 +132,11 @@ axiom repl                                      # Axiom 0.7.4 - REPL
 for printing, not for allocation. Delete the `;@axiom:effect(io)` line and
 the compiler tells you the claim is missing, with the path to the syscall.
 
+For something the size of a real program, [`examples/`](examples/README.md)
+holds a web server, a batch job over a million records, and the generator
+that writes this repository's own API reference. Every one of them is run by
+a gate in CI, which is the only reason they still work.
+
 ### Targets
 
 `--target` selects the platform to generate code for, and with it both the
@@ -167,6 +172,7 @@ the word mean nothing, so silence about one is a gate failure.
 | | |
 |---|---|
 | [Language reference](docs/reference.md) | The whole language, section by section |
+| [Examples](examples/README.md) | Worked programs — a web server, a batch job, an API-reference generator — each one pinned by a gate |
 | [Implementation status](docs/status.md) | What is complete, functional, or partial — with the fixture that proves each row |
 | [Standard library API](docs/stdlib-api.md) | Every public name, generated from the source and gated against it |
 | [Diagnostics](docs/diagnostics.md) | `AXDL`, `AXSYM`, `NID`, and the agent-facing output formats |

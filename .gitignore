@@ -55,3 +55,24 @@ web/.smoke-entry.tsx
 web/.smoke-bundle.mjs
 web/.tok-entry.ts
 web/.tok-bundle.mjs
+
+# `axiom run` builds into the WORKING DIRECTORY. self_host/main.ax:1668
+# names the scratch executable `axiom_temp_output.<pid>`, and the
+# `sysUnlink` that removes it is reached only after the child RETURNS.
+# A clean run therefore leaves nothing and an interrupted one leaves
+# the executable.
+#
+# REPRODUCED 2026-09-03, because the shape of the leak decides whether
+# one line here is enough: `axiom run examples/web/server.ax 8961 1 1`
+# from a scratch directory, then SIGTERM to the runner - a server is
+# how you interrupt a `run`, since it is the program that does not
+# return on its own - leaves `axiom_temp_output.99072`, mode 755, a
+# 113,880-byte arm64 Mach-O. Only the executable: `buildToExecutable`
+# removes its own `.ll`, `.o` and `.opt.ll`. That is exactly the shape
+# of `examples/web/axiom_temp_output.92420`, a 156 KB arm64 Mach-O
+# committed in d1e4a71, which lived in the tree until 2026-09-03 with
+# every gate green because nothing was looking at the file list.
+#
+# This line stops the next one; `scripts/check-web.sh`'s hygiene sweep
+# is what notices one committed past it, under any name.
+axiom_temp_output.*

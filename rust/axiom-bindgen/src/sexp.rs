@@ -2,6 +2,16 @@
 //! `axiom fmt` would, so a generated module is formatter-clean without
 //! shelling out to the formatter.
 //!
+//! THAT IS A CLAIM ABOUT TWO IMPLEMENTATIONS, and `check-fmt.sh`
+//! section 1b is what holds it: every committed binding under
+//! `rust/examples/*/axiom/` must be a fixed point of `axiom fmt`. It
+//! was held by nothing until 2026-09-03 - `check-ffi.sh` diffs each
+//! binding against a FRESH GENERATION, which compares this printer
+//! with itself and stays green while both sides drift together away
+//! from the formatter. Measured then: a one-line change to `fpApp` in
+//! `self_host/format.ax` moves `Demo.ax` by five lines and this file
+//! not at all. Change one printer, change the other.
+//!
 //! The formatter (`self_host/format.ax`) has no line-width rule; its
 //! layout is STRUCTURAL, and the rules for the forms this generator
 //! emits are:
