@@ -544,3 +544,27 @@
 0.7.5  F  mapLiveFrom              (-> Int Int (Option Int)) -> (-> Map Int (Option Int))
 0.7.5  F  mapKeys                  (-> Int (Vec Int)) -> (-> Map (Vec Int))
 0.7.5  F  mapValues                (-> Int (Vec Int)) -> (-> Map (Vec Int))
+
+# 0.7.5 - `stdlib/Job.ax` is deleted and `stdlib/Par.ax` replaces it.
+# `jobRunAll` was Job's ONLY public name, so this one line is the whole
+# cost of the module going away.
+#
+# `parRunAll` has jobRunAll's signature, its submit-order guarantee and
+# its `sysRun` error contract unchanged, so the port is
+# `s/jobRunAll/parRunAll/` and `s/(import Job)/(import Par)/` - measured
+# on `tests/stdlib/302-job.ax`, whose output under the replacement was
+# byte-identical to its own golden. It is still REMOVED and therefore
+# breaking: a consumer who does not make that edit does not compile.
+0.7.5  F  jobRunAll   replaced by Par.parRunAll over __proc_spawn/__proc_join; same signature, same submit order, same -errno contract
+
+# 0.7.5 - MM-LIFE-2h, the array form's length. It was read out of the
+# allocator's word count in bits 1..14 of the shape word, and that is a
+# SIZE CLASS the allocator clamps to 0 past 16,383 words: a container's
+# element buffer of 131,072 bytes or more announced itself as an array
+# of zero handles and the release walk reclaimed none of its elements.
+# The length moves to bits 16..62, and nothing could recover a number
+# the allocator had already thrown away - so the marker takes the count
+# from its caller, all four of which already had it in scope. See
+# docs/memory-model.md MM-LIFE-2h and
+# tests/stdlib/406-array-form-large-block.ax.
+0.7.5  F  memMarkArray  (-> Int Int) -> (-> Int Int Int): the array form carries its own length
