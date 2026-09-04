@@ -682,9 +682,104 @@
 
 (pub fn (helpLineEsc gw text) (helpLine gw (ctlEsc text)))
 
+; A fix that spans lines is printed as the block of source it is.
+;
+; The replacement went through `ctlEsc` like every other string that
+; enters a line, so a line break inside it printed as the two bytes
+; `\n` - right on the AXDL line, which is escaped precisely so that one
+; diagnostic stays one line, and wrong on this surface, which is for a
+; person:
+;
+;   = help: add the missing arms, each a `todo` until it is written ~> \n      ((B) (todo "B"))
+;   = help: import `todo` from IO ~> (import IO (todo))\n
+;
+; Ten goldens carried that and check-render-selfhost.sh was green on
+; every one, because its help-line derivation read the AXDL's `~>`
+; field with the `\n` still escaped and so matched the defect byte for
+; byte. The gate now undoes that one escape before deriving, and fails
+; by name on the two bytes.
+;
+; The rule. A replacement with no line break stays on the help line
+; after `~>`, as before: ` ~> mut x` is text to splice into a line. One
+; WITH a line break ends the help line at `~>` and follows on lines of
+; its own, one per line of the replacement, each indented to the
+; column the help text starts in (`gw` plus the width of ` = help: `)
+; and otherwise verbatim - the source's own indentation is kept, so a
+; two-arm insertion reads with the arms aligned as they will sit in
+; the file:
+;
+;   = help: add the missing arms, each a `todo` until it is written ~>
+;                ((Green _) (todo "Green"))
+;                ((Blue) (todo "Blue"))
+;   = help: import `todo` from IO ~>
+;           (import IO (todo))
+;
+; A leading line break prints no empty line - the arms insertion
+; begins with one because it is anchored at the end of the last arm,
+; and the break after `~>` is it. A trailing one prints no empty line
+; either - the whole-line insertions `(import IO (todo))\n` and
+; `;@axiom:effect(io)\n` end in one, and the last line's own
+; terminator is it. What keeps a whole-line insertion unambiguous is
+; the form itself: a replacement printed on lines of its own is lines,
+; and the only replacement that shares the help line is one with no
+; line break in it. An empty line INSIDE a replacement prints as its
+; indentation alone, never as a blank line, because a blank line is
+; what separates one diagnostic's block from the next and the gate
+; splits on exactly that.
+;
+; Every other control byte still escapes: the split is on byte 10 and
+; each line still passes through `ctlEsc`, so a tab in a replacement
+; prints `\t` as it did. Painted per line rather than once around the
+; block, because the gate's escape check requires every line's SGR
+; sequences to open and reset on that line - a colour left open at a
+; newline is one the terminal keeps.
 (pub :: helpLineFix (-> Int String String String))
 
-(pub fn (helpLineFix gw text repl) (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX (strConcat " ~> " (ctlEsc repl))))))
+(pub fn (helpLineFix gw text repl)
+  (if (< (strFindByte repl 10 0) 0)
+    (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX (strConcat " ~> " (ctlEsc repl)))))
+    (strConcat (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX " ~>"))) (fixBlock (+ gw 9) repl))
+  )
+)
+
+; The lines of a multi-line replacement, each indented `indent`
+; columns, escaped and painted on its own. An empty first or last
+; segment is the leading or trailing line break and prints nothing;
+; an empty segment between two others prints its indentation only.
+(pub :: fixBlock (-> Int String String))
+
+(pub fn (fixBlock indent repl)
+  (let (
+    (segs (strSplit repl 10))
+    (acc vecNew)
+    (mut i 0)
+    (mut end (vecLen segs))
+  )
+    {
+      (if (== (strLen (vecGetStr segs 0)) 0)
+        (set i 1)
+        0
+      )
+      (if (== (strLen (vecGetStr segs (- end 1))) 0)
+        (set end (- end 1))
+        0
+      )
+      (while (< i end)
+        (let ((seg (vecGetStr segs i)))
+          {
+            (vecPush acc (spacesN indent))
+            (if (> (strLen seg) 0)
+              (vecPush acc (paint SGR_FIX (ctlEsc seg)))
+              (cast (Vec String) 0)
+            )
+            (vecPush acc "\n")
+            (set i (+ i 1))
+          }
+        ))
+      (catStrs acc)
+    }
+  )
+)
 
 ; `   = note: ...`, which renders before the helps.
 (pub :: noteLine (-> Int String String))

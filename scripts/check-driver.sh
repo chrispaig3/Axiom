@@ -531,7 +531,7 @@ fi
 # TRANSPOSITION, which plain Levenshtein scores as two edits, so this
 # case is also what pins the suggestion threshold at 2 rather than 1.
 "$s1" buidl hello.ax >tc.out 2>tc.err; rc=$?
-if [[ $rc == 2 ]] && grep -q 'unrecognised subcommand' tc.err && grep -q 'build' tc.err; then
+if [[ $rc == 2 ]] && grep -q 'unknown command `buidl`' tc.err && grep -q 'did you mean `build`' tc.err; then
   ok "a mistyped subcommand is refused, and suggests the real one"
 else
   bad "typo'd subcommand (rc=$rc): $(head -1 tc.err)"
@@ -541,6 +541,63 @@ fi
 # legacy reading, which is what the five harnesses depend on.
 "$s1" hello.ax >lg.ll 2>/dev/null && grep -q '^target triple' lg.ll \
   && ok "a real file is still read as a file, not guessed at" || bad "legacy reading lost"
+
+# ---------------------------------------------------------------
+# A word that is no command AND near no command was still read as a
+# file. The suggestion above was the only thing that refused a word,
+# so `axiom frobnicate` - two edits from nothing - fell through to the
+# legacy reading and answered `Failed to read file 'frobnicate': No
+# such file or directory` at exit 1, while the EXIT CODES block of
+# `--help` promised 2 for "an unknown command or flag". The rule that
+# now separates the word from the path is `spelledLikePath` in
+# driver.ax: a first operand that opens as nothing is a path if it
+# carries a `/` or a `.`, and an unknown command if it carries neither.
+#
+# Both directions, and the truth is outside the compiler in each: the
+# probe word names nothing in this directory (asserted, not assumed),
+# the status is the one `--help` prints, and a path is a path by its
+# spelling, which the test itself chose.
+[[ ! -e frobnicate ]] || bad "the probe word \`frobnicate\` names something in $work, so nothing below means anything"
+"$s1" frobnicate >uc.out 2>uc.err; rc=$?
+if [[ $rc == 2 ]] && grep -q 'unknown command `frobnicate`' uc.err && grep -q 'axiom --help' uc.err; then
+  ok "a word that is no command and no path is an unknown command: exit 2, named, pointed at --help"
+else
+  bad "unknown command (rc=$rc): $(head -1 uc.err)"
+fi
+grep -q 'did you mean' uc.err \
+  && bad "\`frobnicate\` drew a suggestion, and it is within two edits of no command" \
+  || ok "a word near no command draws no suggestion"
+# With a filename after it - the shape `axiom buidl f.ax` had - it is
+# still the command that is wrong, not the file.
+"$s1" frobnicate hello.ax >uc2.out 2>uc2.err; rc=$?
+[[ $rc == 2 ]] && grep -q 'unknown command `frobnicate`' uc2.err \
+  && ok "an unknown command followed by a real file is still an unknown command" \
+  || bad "unknown command with a file after it (rc=$rc): $(head -1 uc2.err)"
+
+# The other direction. A path that does not exist is a READ FAILURE at
+# exit 1 naming the path, in both spellings a path has: an extension,
+# or a separator. Under the narrower rule "no `.ax` suffix" the first
+# would still pass and `hello.aax` would be an unknown command, which
+# is why the rule is any dot rather than that suffix.
+for p in nosuch.ax ./frobnicate hello.aax; do
+  [[ ! -e "$p" ]] || bad "the probe path \`$p\` exists in $work"
+  "$s1" "$p" >rp.out 2>rp.err; rc=$?
+  if [[ $rc == 1 ]] && grep -q "Failed to read file '$p': No such file or directory" rp.err \
+     && ! grep -q 'unknown command' rp.err; then
+    ok "\`$p\` is a path by its spelling: read failure, exit 1, named"
+  else
+    bad "\`$p\` (rc=$rc): $(head -1 rp.err)"
+  fi
+done
+
+# And the boundary the rule is drawn at: an extensionless file that
+# EXISTS is opened before its spelling is ever asked about, so it is
+# still a file.
+cp hello.ax hello
+"$s1" hello >bare.ll 2>bare.err; rc=$?
+[[ $rc == 0 ]] && grep -q '^target triple' bare.ll \
+  && ok "an existing extensionless file is still read as a file" \
+  || bad "existing extensionless file (rc=$rc): $(head -1 bare.err)"
 
 # ---------------------------------------------------------------
 # `--gc` names a capability this compiler does not have.

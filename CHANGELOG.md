@@ -92,6 +92,64 @@ rather than the tree against itself:
 
 ## 0.7.5 — 2026-09-04
 
+### A fix printed `\n`, `axiom frobnicate` was a file, and `--help` contradicted README on targets
+
+Three things at the front door, each confirmed by probe against 0.7.5,
+none caught by a gate, and each green for a reason worth writing down.
+
+**A multi-line fix rendered its line break as the two bytes `\n`.**
+`helpLineFix` in `self_host/render.ax` passed the replacement through
+`ctlEsc` like every other string that enters a line - right on the
+AXDL line, which is escaped so that one diagnostic stays one line, and
+wrong on the surface that is for a person, where AX3005 read
+`~> \n      ((B) (todo "B"))` and AX3042 read `~> ;@axiom:effect(io)\n`.
+Ten goldens carried it, and `check-render-selfhost.sh` was green on
+every one because its help-line derivation read the AXDL's `~>` field
+with the `\n` still escaped: it derived the defect and matched it. A
+replacement with a line break now ends the help line at `~>` and
+follows on lines of its own, one per line, each indented to the help
+text's column and otherwise verbatim - the block of source it is, its
+own indentation kept - and the break that begins or ends it prints no
+blank line. The gate undoes that one escape before deriving, requires
+the block form line by line, fails the two bytes by name, and drill
+(k) folds a real golden back into the old shape on every run and
+requires that refusal. Ablated by restoring the escape in a copy of the
+tree: 10 of 139 cases fail, every one naming the two bytes, and the
+drill's own baseline reports itself broken. Only the ten `.human`
+goldens moved; all 204 `.axdl` and `.json` goldens are byte-identical
+before and after the bless.
+
+**`axiom frobnicate` was read as a file.** The only thing that refused
+a first operand was the typo suggestion, which asked whether a command
+name lay within two edits of it - so `buidl` was refused and
+`frobnicate` fell through to the legacy `FILE [TARGET]` reading at
+exit 1 with `Failed to read file 'frobnicate': No such file or
+directory`, while the EXIT CODES block of `--help` promised 2 for "an
+unknown command or flag". The rule is now the spelling
+(`spelledLikePath`, `self_host/driver.ax`): a first operand that names
+nothing that opens is a path if it carries a `/` or a `.`, and
+otherwise an unknown command - exit 2, named, with `did you mean` when
+a command is within two edits. Any dot rather than a `.ax` suffix, so
+that `hello.aax` is a misspelled file and not a misspelled command.
+The message is `unknown command`, the words the exit-code table uses,
+for the near-miss too. `check-driver.sh` holds both directions:
+`frobnicate` and `frobnicate hello.ax` at 2 by name with no suggestion;
+`nosuch.ax`, `./frobnicate` and `hello.aax` at 1 as read failures
+naming the path; an existing extensionless file still read as a file;
+`buidl hello.ax` still suggesting `build`. Ablated by restoring the
+near-a-command-only refusal in a copy of the tree: the two
+unknown-command cases fail (117 passed, 2 failed) and every path case,
+the suggestion and the legacy spelling stay green.
+
+**`--help`'s `--target` line said three targets were "not yet
+supported".** README's Targets section, the one place the rule lives,
+says six are supported and that `freebsd-aarch64` alone is assembled
+and relocation-checked but executed by no runner; `--help` called the
+last three of seven unsupported, two of which had joined the list on
+2026-08-30. The line now lists the six supported targets first, then
+`freebsd-aarch64`, and says of it what README says. There was one copy
+of the sentence. `check-doc-drift.sh`, `check-release-targets.sh` and
+`check-driver.sh` all read that line and are green.
 
 ### The seed's corruption check no longer walks past a deleted row
 

@@ -29,9 +29,12 @@
 ; The ambiguity cuts the other way too, and used to cut silently:
 ; `axiom buidl f.ax` was read as FILE=`buidl` TARGET=`f.ax` and answered
 ; `cannot read input: buidl`, discarding the filename the user had
-; actually typed. `rejectTypoedSubcommand` breaks that tie by asking the
-; filesystem - an unreadable first operand within two edits of a command
-; name is a typo, not a file.
+; actually typed. `rejectUnknownCommand` (main.ax) breaks that tie by
+; asking the filesystem and then the spelling: a first operand that
+; names nothing that opens is a file only if it is SPELLED as a path -
+; `spelledLikePath` below states the rule - and is otherwise an unknown
+; command, exit 2, with the nearest command name suggested when there
+; is one within two edits.
 ; ------------------------------------------------------------------
 (import core)
 
@@ -2221,7 +2224,7 @@
 ; is a compiler nobody gets past.
 (pub :: usageText String)
 
-(pub fn (usageText) (cat3 (strConcat (strConcat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls,\n             --mir, --axir too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n") "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default: the `name` in\n                     the project's `axiom.pkg`, else `output`;\n                     `.exe` is appended for windows-x86_64 unless already spelled)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, windows-x86_64\n                     (the last three emit and are not yet supported; README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1)\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --threads          lower `parallel` to the platform's threads instead of\n                     processes (build, run, test); darwin and linux only,\n                     and the runtime's globals go thread-local\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --mir              also list each function's region-facts summary as\n                     `#mir-*`; forces the facts fixpoint and is SLOW,\n                     ~30x on a large module (symbols)\n  --axir             emit the `.axir` record file instead of AXSYM: the\n                     same functions with their arity, parameter names\n                     and, under --mir, their region words and lowered\n                     block bodies, joined to AXSYM on the `F` header\n                     tuple. Given an `.axir` file it reads it back and\n                     re-emits it (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for windows-x86_64)\n"))
+(pub fn (usageText) (cat3 (strConcat (strConcat "Axiom " axiomVersion) "\n\nUSAGE:\n  axiom [OPTIONS] <COMMAND> [ARGS]\n  axiom [OPTIONS] <FILE> [TARGET]   emit LLVM IR to stdout\n\nCOMMANDS:\n  build      compile a source file to an executable\n  check      check syntax and types, emitting no code\n  run        compile a source file and run it, forwarding any further ARGS\n  test       run every `test`-named function in a file or directory\n  emit-llvm  print the generated LLVM IR\n  fmt        format a source file in place (--check to only report)\n  explain    describe a diagnostic code (--list for all codes)\n  symbols    list every top-level symbol in AXSYM (--builtins, --calls,\n             --mir, --axir too)\n  repl       start the interactive read-eval-print loop\n  lsp        run the language server on stdin/stdout (JSON-RPC)\n  version    print the version\n  help       print this message, or `help <COMMAND>` for one command\n\n") "OPTIONS:\n  --input <PATH>     input file (build, check, run, emit-llvm; a bare\n                     path also works)\n  --output <PATH>    output file (build, emit-llvm; default: the `name` in\n                     the project's `axiom.pkg`, else `output`;\n                     `.exe` is appended for windows-x86_64 unless already spelled)\n  -o <PATH>          short for --output\n  --target <NAME>    darwin-aarch64, darwin-x86_64, freebsd-x86_64, linux-aarch64, linux-x86_64, windows-x86_64, freebsd-aarch64\n                     (default: the host; the first six are supported, and freebsd-aarch64\n                     is emitted and assembled but executed by no runner - README, Targets)\n  --opt <0-3>        optimisation level (build, run, test; default 1)\n  --filter <TEXT>    run only the tests whose name contains TEXT (test)\n  --crate <DIR>      a Rust crate to bind: its `axiom/` module directory\n                     is searched for imports and its `target/release`\n                     for the archive, repeatable (build, run, check)\n  --link-lib <NAME>  link an FFI archive, repeatable (build, run);\n                     an `extern` block's library links by itself when a\n                     search directory holds `libNAME.a`\n  --link-search <DIR>  where to look for it, repeatable (build, run);\n                     `$AXIOM_LINK_SEARCH` and `<AXIOM_PATH entry>/../target/release` too\n  --emit-llvm        keep the generated .ll beside the executable (build)\n  --emit-staticlib   write a static archive instead of an executable: no\n                     `main` is needed, every `pub fn` of the file is a C\n                     symbol a Rust or C host can call (build)\n  --threads          lower `parallel` to the platform's threads instead of\n                     processes (build, run, test); darwin and linux only,\n                     and the runtime's globals go thread-local\n  --emit-rust-binding <PATH>  with --emit-staticlib, also write a Rust\n                     module binding the archive's `pub` functions (build)\n  --check            report whether the file is formatted, do not write (fmt)\n  --builtins         also list the built-in operators (symbols)\n  --calls            also list each function's resolved call edges as\n                     `#calls=` - the graph behind `#effects=` (symbols)\n  --mir              also list each function's region-facts summary as\n                     `#mir-*`; forces the facts fixpoint and is SLOW,\n                     ~30x on a large module (symbols)\n  --axir             emit the `.axir` record file instead of AXSYM: the\n                     same functions with their arity, parameter names\n                     and, under --mir, their region words and lowered\n                     block bodies, joined to AXSYM on the `F` header\n                     tuple. Given an `.axir` file it reads it back and\n                     re-emits it (symbols)\n  --list             list every diagnostic code (explain)\n  --no-banner        skip the startup banner (repl)\n  --diagnostic-format <human|ai|json>  how to render diagnostics (default human)\n  -h, --help         print help; accepted anywhere, including after the file\n  -V, --version      print the version; before the command\n  --                 end of options, so a file whose name begins with `-`\n                     can be named at all\n\n" "EXIT CODES:\n  0  success\n  1  the program is wrong: unreadable input, a syntax error, a failing\n     check, no entry point, or an unresolvable import\n  2  the command line is wrong: an unknown command or flag, or a flag\n     given the wrong number of values\n  3  a module could not be read or parsed, or a target name is unknown\n  4  a native tool failed or is missing (llc, cc; lld-link for windows-x86_64)\n"))
 
 ; One command's help: its synopsis and the flags it actually reads.
 ;
@@ -2772,6 +2775,16 @@
 ; A wrong suggestion costs nothing here: the caller only asks after the
 ; operand has already failed to open, so there is no reading of the
 ; argument under which the invocation was going to work.
+;
+; And the SUGGESTION is no longer what decides whether the word was a
+; command. It used to be: a first operand that failed to open was
+; refused only when a command name lay within two edits of it, so
+; `axiom frobnicate` - two edits from nothing - fell through to the
+; legacy `FILE [TARGET]` reading and answered `Failed to read file
+; 'frobnicate': No such file or directory` at exit 1, while `--help`
+; promised 2 for "an unknown command or flag". `spelledLikePath` is
+; the rule that replaced the distance test; the distance now only
+; chooses whether the refusal carries a `did you mean`.
 (pub :: nearestSubcommand (-> String String))
 
 (pub fn (nearestSubcommand w) (nearestSubcommandFrom w subcommandNames 0))
@@ -2789,6 +2802,40 @@
     )
   )
 )
+
+; Is a first operand that names nothing that opens a PATH, or a word?
+;
+; The legacy `axiom FILE [TARGET]` spelling makes any first operand a
+; filename, and the subcommand grammar makes it a command, so a word
+; that names no existing file has to be read one way or the other with
+; nothing but its spelling to go on. The rule is the spelling: a path
+; a person meant almost always carries a separator or an extension -
+; every source file in this language ends in `.ax` - and a command
+; name never carries either (`emit-llvm` has a dash, and nothing has a
+; dot). So a word with a `/` or a `.` in it is a path and its failure
+; to open is reported as a read failure, exit 1, naming it; a word with
+; neither is an unknown command, exit 2.
+;
+; Weighed against the narrower rule "no `/` and no `.ax` suffix": that
+; one reads a mistyped extension as a mistyped command, so
+; `axiom hello.aax` would answer `unknown command `hello.aax``, which
+; sends the reader to the command list when the fault is in the
+; filename. Any dot is the better cut. What it costs is an
+; extensionless file that does not exist - `axiom notes` for a missing
+; `notes` is an unknown command - and that is the right answer more
+; often than not, and the existing one when it is not: an extensionless
+; file that DOES exist is opened before this is ever asked.
+;
+; A bare `-` is stdin by convention (`looksLikeFlag` declines it for
+; the same reason) and counts as a path.
+;
+; check-driver.sh holds both directions of this - `frobnicate` and
+; `frobnicate hello.ax` are refused at 2 by name, `nosuch.ax` and
+; `./frobnicate` fail to read at 1 by name, and an existing
+; extensionless file is still read as a file.
+(pub :: spelledLikePath (-> String Bool))
+
+(pub fn (spelledLikePath w) (|| (strEq w "-") (|| (>= (strFindByte w 47 0) 0) (>= (strFindByte w 46 0) 0))))
 
 ; Is `want` present as a FLAG - anywhere in argv, not as another flag's
 ; value, and not after `--`?

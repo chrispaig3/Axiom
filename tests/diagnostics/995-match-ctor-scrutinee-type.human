@@ -36,8 +36,10 @@
 [1;34m80 |[0m       (match x
 [1;34m   |[0m              [1;31m^ this `match` does not cover: Blue[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~> \n        ((Blue) (todo "Blue"))[0m
-  [1;34m = [0m[1;32mhelp: [0mimport `todo` from IO[1;35m ~> (import IO (todo))\n[0m
+  [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~>[0m
+           [1;35m        ((Blue) (todo "Blue"))[0m
+  [1;34m = [0m[1;32mhelp: [0mimport `todo` from IO[1;35m ~>[0m
+           [1;35m(import IO (todo))[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
