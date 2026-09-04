@@ -62,11 +62,12 @@ malicious", and no mechanism here claims the second one.
 Gate: `scripts/check-seed-supply-chain.sh` §3 — every `yes` row must
 name a `scripts/check-*.sh` that exists **and** that
 `.github/workflows/ci.yml` runs, with floors on the row count and the
-`yes` count so a broken parse cannot pass. Its three probes re-point a
-cell at a nonexistent gate, at a real gate CI does not run
-(`check-dead-code.sh`), and delete every row, and require each to be
-refused. A row that promises a check nobody performs cannot be
-committed.
+`yes` count so a broken parse cannot pass, and requires the document's
+opening paragraph to state the counts the parse found. Its four probes
+re-point a cell at a nonexistent gate, at a real gate CI does not run
+(`check-dead-code.sh`), delete every row, and miscount the table by one,
+and require each to be refused. A row that promises a check nobody
+performs cannot be committed.
 
 ### The six-target seed set is one fact, and the trust prose is swept
 
