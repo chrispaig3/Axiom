@@ -16,9 +16,10 @@
 ; a specifier parsed and then dropped - these are the lines that say
 ; so, because a dropped specifier prints the unpadded value and the
 ; golden holds the padded one.
+(import Str)
+
 (import IO)
 
-(import Show)
 
 (pub :: main Int)
 

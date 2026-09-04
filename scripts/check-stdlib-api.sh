@@ -76,7 +76,6 @@ stdlib/Mem.ax
 stdlib/Path.ax
 stdlib/Pre.ax
 stdlib/Rpc.ax
-stdlib/Show.ax
 stdlib/Str.ax
 stdlib/Sys.ax
 stdlib/Sys/Platform.darwin.ax

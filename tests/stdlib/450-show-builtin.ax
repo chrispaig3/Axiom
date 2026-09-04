@@ -19,9 +19,10 @@
 ; Self-grading, `340-json`'s shape: `verify-stdlib-out.py` reads the
 ; `eq` calls below and forbids a `FAIL` line, so a re-blessed golden
 ; cannot make a wrong rendering pass.
+(import Str)
+
 (import IO)
 
-(import Show)
 
 (:: eq (-> String String String Int))
 

@@ -737,3 +737,36 @@
     }
   )
 )
+
+; `format` — a String, built at compile time from a literal's runs and
+; holes, or `show` applied to anything else.
+;
+;   (format "x = {x}, y = {y}")   ; the interpolating form
+;   (format n)                    ; = (show n); Rust's format!("{}", n)
+;
+; The macro is four tokens because `syntax/format` is the whole
+; implementation: it reads the literal, splits it, and emits the
+; `strConcat` chain with a `show` call per hole. See
+; docs/macro-system.md MAC-CAP-10 for the grammar and the lowering.
+;
+; WHY IT LIVES HERE AND NOT IN ITS OWN MODULE. It was `Show.ax`, a
+; 53-line file whose only declaration was this macro and whose header
+; described a `trait` mechanism the language no longer has (`trait`
+; and `impl` are `AX2004`). `show` itself is not declared anywhere:
+; the expander emits a var node named `show` per hole
+; (`expand.ax:2659,2717`) and the CHECKER resolves it from the hole's
+; static type (`showIsHead`, `showBuiltin`, `showResolve`). So the
+; module was a wrapper around one macro, and one import for it.
+;
+; STR AND NOT FMT, WHICH IS THE PART WORTH READING. Every expansion of
+; this macro emits `strConcat`, so from here the expander's qualifier
+; resolves it on its FIRST path instead of the fallback. Fmt was the
+; other candidate and is the wrong one twice over: `Fmt` imports
+; `Str`, so `format` living in `Str` cannot import `Fmt` back without
+; a module cycle - and it does not need to. A specifier's expansion
+; names `fmtFloatPrec` and `fmtPadLeft`, and `expQualify` reaches
+; those through `expUniqueModuleName` over the MERGED declaration
+; list, not through import edges, so `{x:.2}` and `{n:>8}` resolve
+; from a program that imports neither this module's old home nor
+; `Fmt`. That is measured, not assumed - see the gate below.
+(pub macro (format e) (syntax/format e))

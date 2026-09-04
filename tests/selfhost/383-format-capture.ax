@@ -20,7 +20,6 @@
 ;     of it.
 (import IO)
 
-(import Show)
 
 (import Str)
 

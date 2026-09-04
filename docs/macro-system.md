@@ -1647,7 +1647,7 @@ macros in `stdlib/`, four lines each.
 ; stdlib/IO.ax
 (pub macro (println e)  (writeStr stdout (syntax/formatln e)))
 (pub macro (eprintln e) (writeStr stderr (syntax/formatln e)))
-; stdlib/Show.ax
+; stdlib/Str.ax
 (pub macro (format e)   (syntax/format e))
 ```
 
@@ -1683,7 +1683,7 @@ what the argument *is*:
 The second row is load-bearing rather than a convenience: it is why
 `println` could *take the name* of the function it replaced. All 78
 `(println expr)` that predate the macro still mean what they meant,
-because `Show`'s `String` instance is the identity.
+because `show` on a `String` is the identity.
 
 That is not the same as "no call site changed", and an earlier
 revision of this paragraph said so and was wrong. **Forty did**, all
