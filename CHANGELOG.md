@@ -93,6 +93,102 @@ rather than the tree against itself:
 ## 0.7.5 — 2026-09-04
 
 
+### Three layout defects in `axiom fmt`, and the second printer that shared one of them
+
+`axiom fmt` had three defects a reader met in the first file they
+formatted, and every one of them was recorded as correct by a golden
+that compares the formatter with its own previous output.
+
+- **A broken application printed its indent as an inter-argument
+  separator.** `fpApp`'s multi-line branch emitted an indent per
+  argument with no newline between them, so `(g a b c d e)` came out as
+  `(g\n  a  b  c  d  e\n)` and a fourteen-operand call was one line.
+  The comment beside it called this a bug, justified it as
+  byte-identity with `stage0`, and recorded on 2026-09-03 that the
+  rationale had expired; the fix waited a day because it moves four
+  things at once (below). The tree committed the artefact: **2,687
+  lines in 133 files** carry a run of three or more spaces between two
+  tokens on a code line - `self_host/` 2,208, `tests/` 357, `stdlib/`
+  93, `examples/` 29 - and the OLD printer's own output over the same
+  tree carries 3,349 such lines in 158 files. The corrected printer's
+  output carries **zero**.
+- **A comment written as the first line inside a `{ }` block was
+  hoisted out past the brace and above the enclosing `let`.**
+  `fpAnchor` transliterates stage0's `Expr::span()`, which recurses to
+  a leaf: a `let`'s span is its body's, and a block's was its first
+  statement's, so the enclosing flush ran against a position the
+  comment sat in front of. A block that prints as a block - two or more
+  statements - now anchors at its own `{`, and `fpBeginVec` places the
+  comment at the block's indent, where the second pass leaves it. A
+  singleton block and a `[ ]` list still recurse, because neither has a
+  brace to keep a comment inside.
+- **An application headed by a qualified name exploded one element per
+  line.** `isSimpleForm` transliterated stage0's omission of
+  `EQualified` from `is_simple_expr`, so `(println (Vec::vecLen v))`
+  was five lines while `(println (vecLen v))` was one. A qualified name
+  is a name; `fpQualLeft` already refuses anything but an ident-rooted
+  chain.
+
+Measured over copies of all 634 tracked `.ax` files: the corrected
+printer refuses none, is a fixed point on the second pass for all 634,
+and changes the formatted bytes of **177** (159 of 613 was the
+2026-09-03 measurement of the first fix alone, over a smaller tree).
+Two files that were unformatted under the old printer are formatted
+under the new one without a byte changing - `tests/repl/history/read.ax`
+and `tests/selfhost/979-repl-history.ax` - which is the second defect
+seen from the other side: the source was right and the printer was
+moving it.
+
+**Two printers, one layout.** `rust/axiom-bindgen/src/sexp.rs` restates
+the formatter's rules in Rust, and `check-fmt.sh` 1b requires its output
+to be a fixed point of `axiom fmt`; a compiler carrying the first fix
+alone turned that section red on `Demo.ax`, which is why the section
+that added the fixed-point check left the formatter alone.
+Both printers move here: `sexp.rs` prints one argument per line and its
+unit test pins the shape; `rust/examples/demo/axiom/Demo.ax` is
+regenerated (five applications, eleven lines - `Hash.ax` has no broken
+application and is byte-identical); the `nested` snapshot fixture and
+the hand-written assertions in `tests/snapshot.rs` follow. `cargo test
+-p axiom-bindgen` is 9 of 9 with the corrected formatter as `$AXIOM`.
+
+**Three goldens re-blessed, each diff read.**
+`tests/fmt/syntax-zoo.expected.ax` moves by nine lines, exactly the
+three shapes above (two broken `+` forms and `(Mem::memAlloc x)`).
+`tests/fmt/parity.golden` gains cases **220-222**, one per defect, and
+no older case's bytes moved - none of the 54 carried a five-operand
+application, a comment-first block or a qualified head, which is why
+the bank never saw any of this. `tests/fmt/corpus-fmt.golden` is
+regenerated per its header at 627 entries from 627: of the 621 source
+hashes in both tables, **168** map to new formatted bytes and 453 to
+the same ones; the other six are re-keyings of edited files. Each new
+parity case was then run against a compiler built from a scratch copy
+of `self_host/` with ITS fix alone reverted: every ablation goes red on
+its own case and stays green on the other two.
+
+**The census moved, and the prose says why.** `CONTRIBUTING.md` said,
+measured 2026-09-03, that `fmt --check` answered formatted for 483 of
+the tree's 634 `.ax` files and unformatted for 125. Over today's tree the
+old printer answers 498 and 136; the corrected one answers **411 and
+223**, and the 89 files that changed sides did not drift - the normal
+form did. The 2,687 committed run-of-spaces lines are not repaired
+here, because a whitespace diff of that size is one nobody reads; the
+two sites named when this was scoped (`self_host/typecheck.ax:9036`,
+`self_host/render.ax:616`) are collapsed on their own lines,
+line-count-neutral, so no AXSYM golden that pins a line number moves.
+`README.md` restates the compiler's line count, **+20 lines** to
+102,372: the comment that replaces the expired-rationale note in
+`format.ax`. `web/src/data/site.ts` states the same figure and is not
+touched here.
+
+Gates: `check-fmt-selfhost.sh` (zoo, parity, corpus, preservation,
+re-read and rebuild), `check-fmt.sh` (every file formats; the bindings
+are fixed points, with their per-file ablation), `check-ffi.sh` (a
+fresh generation equals the committed bindings), `check-tools-selfhost.sh`
+and `check-lsp-selfhost.sh` (the LSP's `textDocument/formatting` runs
+the same `fmtFormat`), `check-render-selfhost.sh` and
+`check-diagnostics.sh` for the two touched compiler sources, and
+`check-doc-drift.sh` for the counts.
+
 ### The seed's corruption check no longer walks past a deleted row
 
 `bootstrap/SHA256SUMS` is what a fresh clone with no Axiom toolchain

@@ -613,7 +613,7 @@
 
 (pub fn (ctlEsc s)
   (if (==
-    (cast Int s)    0
+    (cast Int s) 0
   )
     s
     ; Start of the current escape-free run, and doubling as the "has

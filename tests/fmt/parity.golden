@@ -1,9 +1,26 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 54 cases: 29 rewrites and 25 refusals, which is why this
+# it formatted at all. 57 cases: 32 rewrites and 25 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
+#
+# THREE CASES WERE ADDED on 2026-09-04, one per layout defect fixed that day,
+# and each is a case the previous formatter FORMATTED - exit 0 both before and
+# after - to different bytes, which is the only kind of regression this bank
+# can see. 220 pins `fpApp`'s broken branch printing one argument per line:
+# before it, the arguments of a five-operand application shared one line
+# separated by the indent width - `a  b  c  d  e` - a run of spaces the
+# printer wrote and the tree then committed in 2,687 lines. 221 pins a comment
+# written as the first line inside a `{ }` block STAYING there: before it,
+# `fpAnchor` gave the block its first statement's position, so the enclosing
+# flush hoisted the comment out past the brace and above the `let`. 222 pins
+# an application whose head is a qualified name laying out like any other:
+# `(println (Vec::vecLen v))` exploded to five lines while `(println (vecLen
+# v))` stayed on one, because `isSimpleForm` transliterated stage0's omission
+# of `EQualified`. Regenerating this file for them moved no other case's
+# bytes - none of the 54 older cases carries a five-operand application, a
+# comment-first block or a qualified head - which is also why they were added.
 #
 # TWO CASES WERE ADDED for the `for` keyword (0.6.4). 198 pins `fpFor`'s head
 # layout for BOTH shapes - the range's three operands and the container's two
@@ -274,3 +291,23 @@
   }
 )
 ### 211-region-arity-refused.axp (exit 1)
+### 220-broken-app-one-arg-per-line.axp (exit 0)
+(fn (f a b c d e) (g
+  a
+  b
+  c
+  d
+  e
+))
+### 221-comment-first-in-block.axp (exit 0)
+(fn (f)
+  (let ((v 1))
+    {
+      ; first
+      (g v)
+      (h v)
+    }
+  )
+)
+### 222-qualified-head-inline.axp (exit 0)
+(fn (f v) (println (Vec::vecLen v)))

@@ -9033,7 +9033,7 @@
             (diagSetLabel
               (if (== (memGetWord best 0) 0)
                 (mkDiag
-                  SEV_ERROR                  "AX3001"                  "undefined-variable"                  span                  msg                  0                  0                  "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
+                  SEV_ERROR "AX3001" "undefined-variable" span msg 0 0 "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
                 )
                 (mkDiagFix
                   SEV_ERROR                  "AX3001"                  "undefined-variable"                  span                  msg                  0                  0                  (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")                  span                  (memGetWord best 0)

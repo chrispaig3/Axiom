@@ -165,14 +165,30 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-03, `axiom fmt --check` over every one of the 634 `.ax` files
-in the repository answers `is already formatted` for 483 of them and
-`needs formatting` for 125. Two of the 125 are deliberate and are named
-below; the other 123 were committed unformatted, and that same sweep is
+2026-09-04, `axiom fmt --check` over every one of the 634 `.ax` files
+in the repository answers `is already formatted` for 411 of them and
+`needs formatting` for 223. Two of the 223 are deliberate and are named
+below; the other 221 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
 more than 60 files stop being covered by `tests/fmt/corpus-fmt.golden`.
+
+Over the same tree the previous printer answered 498 and 136, and the
+89 files that stopped being formatted did not drift: the NORMAL FORM
+moved. On 2026-09-04 the formatter stopped printing a broken
+application's arguments on one line separated by its indent width, and
+every file carrying that shape — the formatter wrote it, and the tree
+committed it, in 2,687 lines across 133 files — is unformatted under
+the corrected printer without a byte of it having changed. Two went the
+other way for the same reason: `tests/repl/history/read.ax` and
+`tests/selfhost/979-repl-history.ax` were "unformatted" only because
+the old printer moved a comment the author had placed correctly. That
+is the count doing what it is for: it measures distance from the normal
+form, and it is allowed to jump when the normal form is corrected.
+Those 2,687 lines are NOT repaired here, because a whitespace diff of
+that size is one nobody reads; running `axiom fmt` over a file you are
+editing anyway is how they go.
 
 This paragraph promised something else until 2026-09-02: a tree kept in
 the normal form "as of 2026-08-22", clean "apart from the two named
