@@ -777,16 +777,13 @@
           (let ((nm (strFindSub text "name" at)))
             (if (< nm 0)
               ""
-              (let ((q1 (strFindByte text 34 nm)))
-                (if (< q1 0)
-                  ""
-                  (let ((q2 (strFindByte text 34 (+ q1 1))))
-                    (if (< q2 0)
-                      ""
-                      (strSlice text (+ q1 1) (- q2 (+ q1 1)))
-                    )
-                  )
-                )
+              (match (strFindByte text 34 nm)
+                ((None) "")
+                ((Some q1)
+                  (match (strFindByte text 34 (+ q1 1))
+                    ((None) "")
+                    ((Some q2) (strSlice text (+ q1 1) (- q2 (+ q1 1))))
+                  ))
               )
             )
           )
@@ -840,11 +837,16 @@
           (let ((e 
             (cast String (vecGet entries i))
           ))
-            (if (&& (> (strLen e) 3) (&& (strEq (strSlice e (- (strLen e) 3) 3) ".ax") (== (strFindByte e 46 0) (- (strLen e) 3))))
+            (if (&& (> (strLen e) 3) (&& (strEq (strSlice e (- (strLen e) 3) 3) ".ax") (match (strFindByte e 46 0) ((None) false) ((Some d) (== d (- (strLen e) 3))))))
               {
                 (if (== (strLen found) 0)
                   {
-                    (set found (strSlice e 0 (strFindByte e 46 0)))
+                    ; The guard above has just established that the ONLY
+                    ; `.` is at `strLen - 3`, so this is that index
+                    ; rather than a second scan for it. It used to be a
+                    ; second `strFindByte` whose `-1` could not happen
+                    ; and was not tested for.
+                    (set found (strSlice e 0 (- (strLen e) 3)))
                     0
                   }
                   0
@@ -980,14 +982,13 @@
 (pub fn (strFindSub hay needle from)
   (if (== (strLen needle) 0)
     from
-    (let ((i (strFindByte hay (strByte needle 0) from)))
-      (if (< i 0)
-        (- 0 1)
+    (match (strFindByte hay (strByte needle 0) from)
+      ((None) (- 0 1))
+      ((Some i)
         (if (subMatchesAt hay needle i 0)
           i
           (strFindSub hay needle (+ i 1))
-        )
-      )
+        ))
     )
   )
 )
@@ -1081,9 +1082,9 @@
           (if (< d 0)
             (set at (- 0 1))
             (let ((start (+ d 20)))
-              (let ((end (strFindByte ir 10 start)))
-                (if (< end 0)
-                  (set at (- 0 1))
+              (match (strFindByte ir 10 start)
+                ((None) (set at (- 0 1)))
+                ((Some end)
                   {
                     (let ((nm (strSlice ir start (- end start))))
                       (if (== (strIndexIn out nm) (- 0 1))
@@ -1094,8 +1095,7 @@
                       )
                     )
                     (set at end)
-                  }
-                )
+                  })
               )
             )
           )
@@ -1499,9 +1499,9 @@
   (let ((at (strFindSub blob "axffi_" from)))
     (if (< at 0)
       0
-      (let ((end (strFindByte blob 0 at)))
-        (if (< end 0)
-          0
+      (match (strFindByte blob 0 at)
+        ((None) 0)
+        ((Some end)
           {
             (let ((nm (strSlice blob at (- end at))))
               (if (&& (< (strLen nm) 200) (== (strIndexIn out nm) (- 0 1)))
@@ -1512,8 +1512,7 @@
               )
             )
             (collectFfiNames blob out end)
-          }
-        )
+          })
       )
     )
   )
@@ -1592,12 +1591,12 @@
         (let ((d (strFindSub ir "\ndeclare " at)))
           (if (< d 0)
             (set at (- 0 1))
-            (let ((sym (strFindByte ir 64 d)))
-              (if (< sym 0)
-                (set at (- 0 1))
-                (let ((open (strFindByte ir 40 sym)))
-                  (if (< open 0)
-                    (set at (- 0 1))
+            (match (strFindByte ir 64 d)
+              ((None) (set at (- 0 1)))
+              ((Some sym)
+                (match (strFindByte ir 40 sym)
+                  ((None) (set at (- 0 1)))
+                  ((Some open)
                     {
                       (if (platformGroundedSym (strSlice ir (+ sym 1) (- open (+ sym 1))))
                         0
@@ -1609,10 +1608,8 @@
                         }
                       )
                       (set at open)
-                    }
-                  )
-                )
-              )
+                    })
+                ))
             )
           )
         ))
@@ -1939,9 +1936,9 @@
   (let ((at (strFindSub blob prefix from)))
     (if (< at 0)
       0
-      (let ((end (strFindByte blob 0 at)))
-        (if (< end 0)
-          0
+      (match (strFindByte blob 0 at)
+        ((None) 0)
+        ((Some end)
           {
             (let ((tail (strSlice blob (+ at (strLen prefix)) (- end (+ at (strLen prefix))))))
               (if (&& (< (strLen tail) 80) (== (strIndexIn out tail) (- 0 1)))
@@ -1952,8 +1949,7 @@
               )
             )
             (collectPrefixed blob prefix out end)
-          }
-        )
+          })
       )
     )
   )
@@ -1963,9 +1959,9 @@
 (pub :: sigTagSpelled (-> String String))
 
 (pub fn (sigTagSpelled tag)
-  (let ((us (strFindByte tag 95 0)))
-    (if (< us 0)
-      (cat3 "`" tag "`")
+  (match (strFindByte tag 95 0)
+    ((None) (cat3 "`" tag "`"))
+    ((Some us)
       (let (
         (ps (strSlice tag 0 us))
         (r (strSlice tag (+ us 1) (- (strLen tag) (+ us 1))))
@@ -1974,8 +1970,7 @@
           (cat3 "`" (tagWord r) "` (nullary)")
           (cat3 "`(-> " (cat2 (tagWords ps 0) (tagWord r)) ")`")
         )
-      )
-    )
+      ))
   )
 )
 
@@ -2434,26 +2429,27 @@
 (pub :: flagNamePart (-> String String))
 
 (pub fn (flagNamePart a)
-  (let ((e (strFindByte a 61 0)))
-    (if (< e 0)
-      a
-      (strSlice a 0 e)
-    )
+  (match (strFindByte a 61 0)
+    ((None) a)
+    ((Some e) (strSlice a 0 e))
   )
 )
 
 (pub :: flagHasValuePart (-> String Bool))
 
-(pub fn (flagHasValuePart a) (>= (strFindByte a 61 0) 0))
+(pub fn (flagHasValuePart a)
+  (match (strFindByte a 61 0)
+    ((None) false)
+    ((Some _) true)
+  )
+)
 
 (pub :: flagValuePart (-> String String))
 
 (pub fn (flagValuePart a)
-  (let ((e (strFindByte a 61 0)))
-    (if (< e 0)
-      ""
-      (strSlice a (+ e 1) (- (strLen a) (+ e 1)))
-    )
+  (match (strFindByte a 61 0)
+    ((None) "")
+    ((Some e) (strSlice a (+ e 1) (- (strLen a) (+ e 1))))
   )
 )
 

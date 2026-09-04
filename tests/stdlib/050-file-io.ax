@@ -21,7 +21,7 @@
               ; no newline of its own, and no rendering: this is
               ; the primitive, and `print` no longer exists
               (writeStr stdout contents)
-              (println (strFindByte contents 10 0))
+              (println (match (strFindByte contents 10 0) ((None) (- 0 1)) ((Some i) i)))
               (println (strSlice contents 0 8))
               (println (strLen (readFileLit (__addr "no-such-file-here"))))
               0

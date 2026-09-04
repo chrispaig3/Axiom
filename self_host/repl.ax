@@ -971,7 +971,7 @@
 ;@axiom:effect(io)
 (fn (replTmpRoot)
   (let ((t (sysEnv "TMPDIR")))
-    (if (&& (pathIsAbsolute t) (< (strFindByte t 39 0) 0))
+    (if (&& (pathIsAbsolute t) (match (strFindByte t 39 0) ((None) true) ((Some _) false)))
       t
       "/tmp"
     )

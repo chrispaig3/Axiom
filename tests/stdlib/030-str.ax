@@ -25,9 +25,17 @@
       (println (strCmp hello world))
       (println (strCmp world hello))
       (println (strCmp hello (strConcat hello world)))
-      (println (strFindByte hello 108 0))
-      (println (strFindByte hello 108 3))
-      (println (strFindByte hello 122 0))
+      ; `strFindByte` answers `(Option Int)` since 0.7.5. The three
+      ; prints below keep the numbers this fixture always asserted, by
+      ; folding `None` back to -1 at the call - and the two after them
+      ; are the assertion the `Int` channel could not carry: absence is
+      ; a TAG now, not a sign, so it survives a lookup that legitimately
+      ; answers a negative index and it cannot be confused with one.
+      (println (match (strFindByte hello 108 0) ((None) (- 0 1)) ((Some i) i)))
+      (println (match (strFindByte hello 108 3) ((None) (- 0 1)) ((Some i) i)))
+      (println (match (strFindByte hello 122 0) ((None) (- 0 1)) ((Some i) i)))
+      (println (match (strFindByte hello 122 0) ((None) 1) ((Some _) 0)))
+      (println (match (strFindByte hello 104 0) ((None) 1) ((Some _) 0)))
       (println (strDup hello))
       0
     }

@@ -6887,11 +6887,9 @@
 
 (pub fn (axtagKeyOf t)
   (let ((txt (memGetWordStr t 1)))
-    (let ((op (strFindByte txt 40 0)))
-      (if (< op 0)
-        txt
-        (strSlice txt 0 op)
-      )
+    (match (strFindByte txt 40 0)
+      ((None) txt)
+      ((Some op) (strSlice txt 0 op))
     )
   )
 )
@@ -6908,16 +6906,15 @@
 
 (pub fn (axtagTextValue t)
   (let ((txt (memGetWordStr t 1)))
-    (let ((op (strFindByte txt 40 0)))
-      (if (< op 0)
-        ""
+    (match (strFindByte txt 40 0)
+      ((None) "")
+      ((Some op)
         (let ((cl (axtagCloseAt txt)))
           (if (|| (>= cl (strLen txt)) (<= cl op))
             ""
             (strSlice txt (+ op 1) (- cl (+ op 1)))
           )
-        )
-      )
+        ))
     )
   )
 )
@@ -18221,7 +18218,14 @@
     (if (>= i (vecLen tags))
       0
       (let ((content (memGetWordStr (vecGet tags i) 1)))
-        (let ((op (strFindByte content 40 0)))
+        ; `op` STAYS AN INT HERE. It is handed on to `axtagListValue`,
+        ; whose own signature takes the open-paren index with -1 for
+        ; "no value" and documents it four lines above itself. The
+        ; match is at the point of production, so the `Option` is
+        ; consumed in registers and nothing is boxed; what survives is
+        ; a private convention between two functions in this file, not
+        ; a public sentinel contract.
+        (let ((op (match (strFindByte content 40 0) ((None) (- 0 1)) ((Some k) k))))
           {
             (if (strEq
               (if (< op 0)
@@ -19845,17 +19849,17 @@
   (if (>= i (vecLen tags))
     0
     (let ((content (memGetWordStr (vecGet tags i) 1)))
-      (let ((op (strFindByte content 40 0)))
-        (let ((key (if (< op 0)
-          content
-          (strSlice content 0 op)
+      {
+        (let ((key (match (strFindByte content 40 0)
+          ((None) content)
+          ((Some op) (strSlice content 0 op))
         )))
           (if (|| (strEq key "pure") (strEq key "effect"))
             1
             (axtagsClaimAt tags (+ i 1))
           )
         )
-      )
+      }
     )
   )
 )
@@ -20191,7 +20195,10 @@
 (pub :: checkOneAxtag (-> Int Int String (Vec a) (Vec Int) Int))
 
 (pub fn (checkOneAxtag tc d content eff eparams)
-  (let ((op (strFindByte content 40 0)))
+  ; Same as `restrictCollect`: `op` is read twice in one `let` group
+  ; and once as an offset into `content`, so it stays an Int and the
+  ; match sits where the call is.
+  (let ((op (match (strFindByte content 40 0) ((None) (- 0 1)) ((Some k) k))))
     (let (
       (key (if (< op 0)
         content
@@ -20237,7 +20244,7 @@
 (pub :: axtagKeyTypo (-> Int Int String Int))
 
 (pub fn (axtagKeyTypo tc d key)
-  (if (|| (== (strLen key) 0) (>= (strFindByte key 58 0) 0))
+  (if (|| (== (strLen key) 0) (match (strFindByte key 58 0) ((None) false) ((Some _) true)))
     0
     ; RESERVED BEFORE NEAR-MISS, and the order is the point. `effects`
     ; is one edit from `effect`, so the near-miss arm would have

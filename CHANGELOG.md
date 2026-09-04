@@ -884,6 +884,125 @@ does move is every list that named the module: `MODULES` in
 three inventories in `CONTRIBUTING.md`, `docs/status.md`, and one
 website sample that imported it.
 
+### `strFindByte` answers `Option`, and the refusal that held it out was about the body
+
+`docs/error-model.md` ERR-ADOPT-1 recorded three absence sentinels as a
+floor rather than a backlog, and named a refusal for each. One of the
+three was not a refusal. `strFindByte` was held out because it
+"tail-calls itself, and a self tail call is the one shape the register
+pair does not take yet, so a port would keep the boxed body and refuse
+its own `restrict(no-alloc)` claim". The first half is a true statement
+about the emitter — `wantsTCO` is a refusal in the pair's eligibility
+test. The conclusion does not follow, because a body is a thing an
+author chooses. Probed both ways on a copy of the tree, 2026-09-04:
+
+    ; the recursive spelling, declared (Option Int)
+    E AX3049 stdlib/Str.ax:352 `strFindByte` claims `restrict(no-alloc)`
+             and the body performs Alloc
+
+    ; the same function as a `while` loop over `hit` and `i`
+    OK
+
+`strFind`, three hundred lines below it in the same file, was already
+written as a loop for an unrelated reason and has answered
+`(Option Int)` all along. Nobody had compared the two.
+
+So `strFindByte` answers `(Option Int)` and keeps
+`restrict(no-io,no-alloc,no-foreign)`. `symbols` before and after:
+`#effects=` empty both times, `#restrict=` unchanged, nid
+`@38cfa6a2400e724f` unchanged, only the type moved — a CHANGED row in
+`compat/BREAKING`, not a WIDENED one. **71 call expressions over 18
+files** (73 after the port, which adds two arms to
+`tests/stdlib/030-str.ax` and drops the self-call), every one of them a
+`(< x 0)` or `(>= x 0)` test or a printed index, and every one is now a
+`match` where the call is, so the pair is consumed in two
+registers and no caller builds the block
+`tests/diagnostics/384-restrict-no-alloc-ctor.ax` calls `held`. Two
+sites keep an integer index deliberately and say so at the site:
+`restrictCollect` and `checkOneAxtag` hand it to `axtagListValue`, whose
+own signature takes -1 for "no value". `compat/SENTINELS` goes
+**0 failure + 3 absence** to **0 + 2**, and the two that remain are one
+refusal stated twice — `keyStrEnd` and `keyInFill` each answer three
+outcomes, and three outcomes are not `Option`'s shape.
+
+**Two latent defects the type surfaced, both the shape §10 already
+names.** `Http.httpParseHead` bound `eol` to a `strFindByte` and then
+computed `(strSlice buf base (- eol base))`: a head with no CR made that
+a slice of NEGATIVE length, and nothing refused it — the reader's
+framing was what kept it from being reached, which is a caller's
+property and not the parser's. `httpParseHeaders` had the same shape on
+`le`. Both are 400 refusals now, written in the `None` arm the type
+forced someone to fill in. And `driver.ax`'s directory walk called
+`strFindByte` a second time to re-find a `.` its own guard had just
+proved was at `strLen - 3`; that is the index now.
+
+### The census's own floor named three functions that stopped being sentinels
+
+`compat/SENTINELS` states what it cannot see, which is the right habit
+and was not being re-read. Its floor names the literal-`0` sentinel as
+"`vecGet`, `vecPop`, `vecLast`, `strByte`, `jsonGet`, `jsonArrGet`", and
+three of those six answer `(__indexTrap)` now — a call that does not
+return, status 77 — with `stdlib/Vec.ax`'s own comment recording why.
+`strByte`'s `0` is deliberate and documented at its declaration: a
+lexer's lookahead wants one past the end to read as end-of-input, and
+NUL already is that. So the literal-`0` debt the census cannot see is
+**`jsonGet` and `jsonArrGet`**, and `jsonGet`'s comment names its cost —
+`jsonTag` reports 0 as `JNULL`, so an absent member and one explicitly
+set to null are the same answer, and `self_host/lsp.ax` tests against 0
+directly to tell a request from a notification. Thirty call sites,
+twenty-nine of them in `lsp.ax`.
+
+**And the census cannot simply grow a `0` arm**, measured before
+proposing it. Applying the existing rules with `(- 0 n)` replaced by a
+bare `0` in return position yields **69 candidates** across `stdlib/`,
+almost every one the library's idiomatic unit answer rather than a
+sentinel — `vecFree`, `ledReset`, `assertEq`, `termFlush`, twenty-four
+in `Tui/Edit.ax` alone. `-1` carries signal because no lookup
+legitimately answers a negative; `0` carries none, because half the
+library answers `0` for "done". A `0`-sentinel census would have to read
+the doc-comment, which is the metric the 2026-08-30 rewrite replaced for
+rewarding silence. The floor stays a floor, and the note now says which
+two rows are actually under it.
+
+### ERR-ADOPT-1's own size and order were wrong, and both are re-derived
+
+`docs/error-model.md` §1.2 sized the migration with
+`grep -cE "errno|sentinel|\(- 0 1\)"` over `stdlib/`, at 64 sites over
+12 files, and told the reader to recompute rather than quote it.
+Recomputed 2026-09-04 it reads **120 over 17 files** — while the
+population it stands for has fallen from 38 public declarations to 2.
+
+**94 of the 120 are comment lines.** `stdlib/Sys.ax` alone carries 52 in
+prose against 5 in code, and each of the 52 was written by a slice of
+this migration explaining what an errno used to mean at a call that no
+longer returns one. The proxy rises when the migration succeeds. Of the
+26 code hits, not one is a public declaration answering a sentinel: nine
+initialise a loop accumulator, four are private helpers under a public
+wrapper that already answers `Option`, four are `Map.ax`'s probe walk
+under a `mapGet` whose absent answer is a caller-supplied default, three
+pass -1 as an argument, two are a bitwise NOT written as XOR, two are
+`EVFILT_READ`'s value, one is `Json.ax`'s `jcPeek`, and one is `IO.ax`
+rendering an errno into a message this migration wrote. The two rows
+that ARE still debt are invisible to it: they live in `stdlib/Tui/`, and
+the glob is `stdlib/*.ax` and `stdlib/Sys/*.ax`. The proxy is retired as
+a sizing metric; `compat/SENTINELS` is what sizes the work, and it is
+gated.
+
+**And the slice order was backwards.** §10 lists five slices; the tree
+ran them 1, 3, 4, 2(part), 3, 3, 3, 3, —, 2(rest), 3, 2(last). Slice 2
+was called "the rehearsal" and finished LAST, over four commits nine
+days apart; slice 3 was called the hard one and went second, in a day,
+because `self_host/` called none of it. The list was ordered by how
+complicated the convention read — `-1` looks simpler than `-errno` — and
+that is not what the work costs. What it costs is whether the module
+carries a `restrict` claim the port must withdraw (`Str.ax` and
+`Utf8.ax` are the most restricted in the tree; `Sys.ax` restricts
+nothing and declares `effect(io)` seventy times) and whether the answer
+gets BOUND or only tested. Slice 2's stated "11 sites" is **6 public
+functions**: recounted against `9f99ccd`, the tree as it stood when that
+table was written, three of the twelve hits in those files are prose and
+one function contributed three of the rest. New §10.2 carries the table.
+
 ## 0.7.4 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a
