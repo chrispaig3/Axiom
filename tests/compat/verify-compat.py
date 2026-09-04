@@ -40,7 +40,7 @@ import sys, re, os, subprocess
 # reason `scripts/check-stdlib-api.sh` gives: `Sys/Platform` has one
 # file per target declaring the same names, so a glob prints it three
 # times and the choice of which to carry is a decision worth seeing.
-MODULES = ("Agent/Tags Err Fallible Ffi Fmt Html Http IO Intern Job Json Map Mem Path Pre Rpc Show Str Sys "
+MODULES = ("Agent/Tags Err Fallible Ffi Fmt Html Http IO Intern Json Map Mem Par Path Pre Rpc Show Str Sys "
            "Sys/Platform.darwin Test Tui/Edit Tui/Keys Tui/Term Utf8 Vec").split()
 
 # Visibility is not in AXSYM - `symbols` has no `pub` field - so the

@@ -248,6 +248,9 @@
                                   ; counting the attempt spins forever -
                                   ; the shape `Job.jobSubmit` took when
                                   ; `302-job` hung instead of failing.
+                                  ; Both were deleted at 0.7.4 with
+                                  ; `stdlib/Job.ax`; the defect is
+                                  ; quoted as it happened.
                                   ((Err e) (set sent (+ sent 1)))
                                   ((Ok c)
                                   {

@@ -370,14 +370,6 @@ See [reference.md](reference.md) for the language, and
 | `internFind` | value | `(-> Int String (Option Int))` |  | The id of a string equal in content to `s`, or `None`. |
 | `internIntern` | value | `(-> Int String Int)` | `Alloc,Mut` | The id for `s`, interning it if its content is new. |
 
-## `Job`
-
-`stdlib/Job.ax` — 1 public names
-
-| Name | Kind | Type | Effects | Summary |
-|---|---|---|---|---|
-| `jobRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,IO,Mut` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
-
 ## `Json`
 
 `stdlib/Json.ax` — 21 public names
@@ -458,6 +450,17 @@ See [reference.md](reference.md) for the language, and
 | `memSetWord` | value | `(-> Int Int a Int)` | `Mut` | Storing a word here is the moment a value can leave the type system's sight: `(cast Int value)` erases whatever `value` was, and the machine word that lands in `addr` is indistinguishable from an integer forever after. That is the whole of MM-LIFE-2c's co-ownership blocker, and the fix is one line - the store takes a SHARE of what it is about to hide. |
 | `memGetByte` | value | `(-> Int Int Int)` |  |  |
 | `memPutByte` | value | `(-> Int Int Int Int)` | `Mut` |  |
+
+## `Par`
+
+`stdlib/Par.ax` — 4 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `parMapWords` | value | `(-> (-> Int Int) Int Int (Vec Int))` | `Alloc,IO,Mut` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering the results in SUBMIT order. |
+| `parArgvVector` | value | `(-> (Vec String) Int)` | `Alloc,Mut` | A NULL-terminated array of char* from a Vec of `String`, which is the shape `execve` and `posix_spawn` both take. |
+| `parRunOne` | value | `(-> (Vec String) (Result Int Error))` | `Alloc,IO,Mut` | Run one argv - element 0 is the program, looked up on `PATH` the way `sysRunPath` does it. |
+| `parRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,IO,Mut` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
 
 ## `Path`
 

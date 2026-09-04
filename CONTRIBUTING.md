@@ -76,7 +76,7 @@ axiom/
 ├── bootstrap/          the compiler's own LLVM IR, one file per target — how a
 │                       clean checkout builds a compiler with no compiler
 ├── stdlib/             standard library, in Axiom (Pre, Mem, Str, Vec, Map, Fmt,
-│                       Intern, Sys, IO, Path, Json, Rpc, Utf8, Show, Err, Job,
+│                       Intern, Sys, IO, Path, Json, Rpc, Utf8, Show, Err, Par,
 │                       Ffi), plus Sys/Platform.<target>.ax
 ├── rust/               the FFI's Rust side, a cargo workspace: axiom-ffi,
 │                       axiom-ffi-macros, axiom-ffi-classify, axiom-abi,
@@ -232,7 +232,7 @@ the same build.
 | Change how diagnostics look | `self_host/render.ax` (human) and `self_host/style.ax` (its palette) — AXDL and JSON are in `self_host/diag.ax` |
 | Work on the formatter, REPL, `symbols`, or the language server | `self_host/{format,repl,symbols,lsp}.ax` |
 | Work on the Rust FFI | `self_host/rustbind.ax` and the crates under `rust/` — [docs/ffi.md](docs/ffi.md) |
-| Add a stdlib function | `stdlib/` — `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`, `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Ffi` |
+| Add a stdlib function | `stdlib/` — `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`, `Rpc`, `Utf8`, `Show`, `Err`, `Par`, `Ffi` |
 | Add a new syntax feature | `tree-sitter-axiom/grammar.js` + parser + ast + lexer |
 
 ---
@@ -594,7 +594,7 @@ primitives. When adding a new stdlib function:
 
 1. **Add it to the appropriate module** in `stdlib/` — `Pre`, `Mem`,
    `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`,
-   `Rpc`, `Utf8`, `Show`, `Err`, `Job`, `Html`, `Http`, `Ffi`.
+   `Rpc`, `Utf8`, `Show`, `Err`, `Par`, `Html`, `Http`, `Ffi`.
 2. **Use `::` for the type signature** and `fn` for the definition, with
    `pub` on both if the function is part of the module's surface.
 3. **If the function performs I/O**, annotate it with

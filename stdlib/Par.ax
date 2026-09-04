@@ -1,0 +1,259 @@
+; A bounded pool of concurrent tasks, joined in SUBMIT order, built on
+; the primitives `(parallel ...)` desugars to.
+;
+; This replaces `stdlib/Job.ax`, which was a pool of child PROGRAMS over
+; `sysSpawn`/`sysWaitPid`. The replacement is strictly more general:
+; `parRunAll` is `parMapWords` over a closure that runs one argv, and
+; `parMapWords` will run any Axiom thunk. `docs/memory-model.md`
+; MM-PAR-2 named "`Job` cannot run an Axiom closure - it execs an
+; external program" as Job's hard limit; that limit is lifted here.
+;
+; WHY `__proc_spawn` AND NOT `__par_spawn`, and why that is not a
+; concession to AX3064.
+;
+; `parMapWords` hands the caller's thunk to a spawn, and that thunk
+; captures whatever the caller wrote - a `Vec` of argv vectors, in
+; `parRunAll`'s case. AX3064 (`capSpawnHead`, self_host/typecheck.ax)
+; refuses a captured reference at `__par_spawn` and `__thread_spawn`,
+; because those two may lower to a pthread SHARING the parent's address
+; space, where a non-atomic refcount is a race (MM-PAR-6).
+;
+; `__proc_spawn` NAMES the forked lowering. Its isolation is MM-PAR-3's
+; by construction - the child gets a copy-on-write address space, so a
+; captured reference is the child's own - and `capSpawnHead`'s own
+; header says the exemption is a statement about that primitive rather
+; than about a build flag. So this module does not weaken, dodge or
+; argue with the rule: it names the lowering whose guarantee it needs.
+;
+; AND AX3064 CANNOT CHECK THIS MODULE'S CALLERS, which is the part a
+; reader has to be told rather than left to assume.
+;
+; `checkSpawnCaptures` inspects argument 0 of a spawn only when it is
+; LITERALLY a lambda; anything else - a parameter, a `let`-bound name -
+; is a symbol rather than a record and the walk answers 0. `parMapWords`
+; spawns `f`, a PARAMETER, so the check never sees the thunk a caller
+; wrote. Measured on this compiler, 2026-09-03: a literal
+; `(__par_spawn (lambda (w) (+ (strLen s) w)) 1)` capturing a `String`
+; draws AX3064, and the same lambda handed to a one-line wrapper
+; `(fn (viaHop f w) (__par_join (__par_spawn f w)))` draws nothing and
+; runs. That hole is not opened by this module and not closed by it -
+; it is `__par_spawn`'s, and it is reported separately.
+;
+; What it means HERE is that the safety of every caller's capture rests
+; on ONE fact: this file names `__proc_spawn`. Nothing in the type
+; system will notice if that word changes. So the fact is GATED rather
+; than commented - `scripts/check-parallel.sh` section 6 arm (b) builds
+; this pool with `--threads` and without and requires the two modules to
+; be BYTE-IDENTICAL, which they are (measured: 0 pthread declares and 0
+; `thread_local` lines out of both). Ablated - `__proc_spawn` swapped
+; for `__par_spawn` in a copy of `stdlib/` - the `--threads` build grows
+; 2 pthread declares and 7 thread-local globals and the arm goes red.
+; That gate is standing in for the check the rule cannot make.
+;
+; WHY THE RESULT ORDER IS THE SUBMIT ORDER, ALWAYS. Inherited from
+; `Job.ax` unchanged, for the reason it gave: a pool that answered in
+; completion order is a pool whose output depends on which core was
+; free, and this project compares bytes for a living. `__axiom_par_join_proc`
+; is a `wait4` on a SPECIFIC pid, not a `wait` for any child, which is
+; what lets "join the oldest outstanding" bound the width without
+; reordering anything. Completion order is not exposed; there is
+; deliberately no API for it. That is MM-PAR-5.
+;
+; WIDTH BOUNDS RUNNING TASKS, NOT SUBMISSIONS. The submit loop blocks
+; by joining the oldest outstanding handle whenever `width` are already
+; out, so a thousand-case sweep never forks a thousand processes. The
+; width is CLAMPED to at least 1 rather than trusted: a width of 0
+; would never spawn and never finish.
+;
+; THE ONE BEHAVIOUR THAT DIFFERS FROM `Job`, and a caller must know it.
+; A thunk that TRAPS kills the PARENT. `__axiom_par_join_proc` re-raises
+; a non-zero wait status as the parent's own exit - that is
+; `tests/stdlib/471-parallel-trap.ax`'s pinned rule (status 77) and it
+; is not this module's to change. Measured: three thunks whose middle
+; one indexes a `Vec` out of range prints the first answer, then exits
+; 77 with the trap's backtrace, and the remaining handles are never
+; joined.
+;
+; This does NOT affect `parRunAll`'s contract. An external program that
+; fails - exits 42, dies of a signal, or does not exist at all - is not
+; a trap: `parRunOne` answers a word and its child exits 0. Only an
+; Axiom-side trap inside the thunk propagates, and a caller wanting
+; per-slot failure of those cannot have it without changing the join.
+;
+; THE ERROR CONTRACT IS `sysRun`'S, EXACTLY, unchanged from `Job`:
+;
+;   >= 0   the child's exit code
+;   128+n  the child was killed by signal n
+;   < 0    the spawn's own -errno: the program NEVER RAN
+;
+; That last distinction is the one a driver must not lose - "could not
+; start llc" and "llc rejected the module" are different failures.
+(import Mem)
+
+(import Str)
+
+(import Vec)
+
+(import Sys)
+
+(import Err)
+
+; Run `f i` for every `i` in `0 .. n`, at most `width` at once,
+; answering the results in SUBMIT order.
+;
+; `hs` holds one handle per spawn and `out` one word per join, and the
+; two are read in lockstep by index: `joined` is how far `out` has got
+; through `hs`. They are NOT two parallel vectors pushed together - that
+; is the discipline `Job.ax` had to keep by hand between `pids` and
+; `codes`, and the shape `codegen.ax`'s `bares`/`fulls` pair got wrong
+; the hard way. Here `out`'s length IS `joined`, so the invariant is a
+; consequence of the loop rather than something to maintain.
+(pub :: parMapWords (-> (-> Int Int) Int Int (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (parMapWords f n width)
+  (let (
+    (w (if (< width 1)
+      1
+      width
+    ))
+    (hs vecNew)
+    (out vecNew)
+    (mut i 0)
+    (mut joined 0)
+  )
+    {
+      (while (< i n)
+        {
+          ; Block before spawning, not after, so at most `w` children
+          ; are ever outstanding. `(- i joined)` is the count of
+          ; handles spawned but not yet joined.
+          (while (>= (- i joined) w)
+            {
+              (vecPush out (__proc_join (vecGet hs joined)))
+              (set joined (+ joined 1))
+            })
+          (vecPush hs (__proc_spawn f i))
+          (set i (+ i 1))
+        })
+      ; The drain. It joins the OLDEST outstanding first, which is what
+      ; keeps `out` in submit order; joining the newest would answer the
+      ; same multiset in a different order, and `check-parallel.sh`
+      ; ablates exactly that.
+      (while (< joined (vecLen hs))
+        {
+          (vecPush out (__proc_join (vecGet hs joined)))
+          (set joined (+ joined 1))
+        })
+      out
+    }
+  )
+)
+
+; A NULL-terminated array of char* from a Vec of `String`, which is the
+; shape `execve` and `posix_spawn` both take.
+;
+; Every element goes through `strDup`, and that is not defensive
+; copying - it is required. `strCStr` is `strData` and nothing more
+; (Str.ax), so it is NUL-terminated only because every `String` that
+; module BUILDS is. A `strSlice` is not built, it is `strWrap` over
+; somebody else's buffer, so its bytes run on into whatever follows and
+; the kernel reads a path or an argument that does not end where the
+; `String` does. `tests/stdlib/300-process.ax` records the same rule for
+; the same reason on its own argv helper, and
+; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches it.
+(pub :: parArgvVector (-> (Vec String) Int))
+
+(pub fn (parArgvVector argv)
+  (let (
+    (n (vecLen argv))
+    (mut i 0)
+  )
+    (let ((v (memAlloc (* 8 (+ n 1)))))
+      {
+        (while (< i n)
+          {
+            (memSetWord v i (strCStr (strDup (vecGetStr argv i))))
+            (set i (+ i 1))
+          })
+        (memSetWord v n 0)
+        v
+      }
+    )
+  )
+)
+
+; Run one argv - element 0 is the program, looked up on `PATH` the way
+; `sysRunPath` does it.
+;
+; THIS ANSWERS A `Result` AND NOT A SENTINEL, and `Job.jobSubmitArgv`
+; did not. That is not a gratuitous difference: `sysRunPath` has
+; answered `(Result Int Error)` since 0.3.4, `Job` immediately re-encoded
+; it back into an Int, and `compat/SENTINELS` counts exactly that kind of
+; re-encoding on a PUBLIC name. The word form is still needed - only a
+; word crosses a join - but it is needed in ONE place, so it lives there
+; and is private (`parRunWord` below) rather than being this module's
+; public surface.
+;
+; An EMPTY argv is `Err ENOENT` without spawning anything. There is no
+; program to run, and "the program never ran" is exactly what that
+; means.
+(pub :: parRunOne (-> (Vec String) (Result Int Error)))
+
+;@axiom:effect(io)
+(pub fn (parRunOne argv)
+  (if (== (vecLen argv) 0)
+    (Err (mkError 2 "parRunOne: an empty argv names no program"))
+    (sysRunPath (strDup (vecGetStr argv 0)) (parArgvVector argv) sysEnvp)
+  )
+)
+
+; `parRunOne` collapsed into the one word a join can carry, which is
+; where `sysRun`'s sign convention gets re-established:
+;
+;   >= 0   the child's exit code
+;   128+n  the child was killed by signal n
+;   < 0    the program NEVER RAN, as a negated errno
+;
+; MATCH, not `unwrapOr`. The sign convention carries "the program never
+; ran" in the same Int as an exit code, so a mechanical unwrap would
+; destroy the distinction without the checker noticing; the arms cannot.
+; That is the argument `Job.ax` made after `302-job` HUNG rather than
+; failed, and it is inherited here rather than rediscovered.
+;
+; PRIVATE, deliberately. A caller who wants the failure in the type calls
+; `parRunOne`; a caller who wants a pool calls `parRunAll` and reads the
+; convention its header states. Nothing needs the lossy form by name.
+(:: parRunWord (-> (Vec String) Int))
+
+;@axiom:effect(io)
+(fn (parRunWord argv)
+  (match (parRunOne argv)
+    ((Ok c) c)
+    ((Err e) (- 0 (errCode e)))
+  )
+)
+
+; Run every command in `cmds` at up to `width` at once, answering their
+; exit codes in the order they appear in `cmds`.
+;
+; `cmds` is a Vec of Vecs: each inner Vec is an argv whose element 0 is
+; the program, exactly as `sysRunPath` expects. This is the shape a gate
+; script wants - a list of cases, a width, and an answer per case in the
+; order it was listed - and it is `Job.jobRunAll`'s signature and
+; contract unchanged, which is what makes the replacement a drop-in.
+;
+; The lookup of element 0 happens in the CHILD here, where `Job` did it
+; in the parent. The observable contract is the same either way: a
+; missing program answers `-ENOENT` in its own slot and occupies that
+; slot, because `sysRunPath` resolves the name BEFORE it spawns and
+; answers `Err` without ever exec'ing. What changed is only which
+; process pays for the `PATH` walk.
+(pub :: parRunAll (-> (Vec (Vec String)) Int (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (parRunAll cmds width)
+  (parMapWords
+    (lambda (i) (parRunWord (vecGet cmds i)))    (vecLen cmds)    width
+  )
+)

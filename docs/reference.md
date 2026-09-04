@@ -991,12 +991,37 @@ typed promotion of the regions design and not this form's. `mut` on a
 binding is a parse error (`AX2001`, `640-parallel-shape`): a binding is
 bound once, at its join.
 
-**What the thread lowering does not yet check.** A binding may capture
-any name in scope. Under processes that is safe by construction; under
-threads a captured *heap* value is shared with the parent and its count
-is touched from two threads with no fence — a data race the static rule
-`MM-RGN-3` over sibling regions will refuse, and until it lands the
-process lowering is the default for exactly this reason. Capture words.
+**What a binding may capture.** Words. A binding that captures a
+*reference* the parent holds is refused as `AX3064` at the occurrence —
+under threads that value is shared with the parent and its count is
+touched from two threads with no fence, and `axiom_retain`/`axiom_release`
+are a plain load-add-store rather than an `atomicrmw`, so an increment is
+lost and a block a live reference still names is freed (`MM-PAR-6`). The
+rule is the *language's* and not the lowering's: it does not depend on
+`--threads`, because a program must not mean two different things
+depending on how it was built. Pass the value in through the thunk's word
+argument, or build a copy of it inside the binding.
+
+> This paragraph said "the thread lowering does not yet check … a binding
+> may capture any name in scope" until 2026-09-03. `AX3064` landed in
+> 0.7.3 and the sentence did not move — measured against this compiler,
+> a `parallel` binding capturing a `String` is refused at the occurrence.
+
+`__proc_spawn`/`__proc_join` are **exempt**, and that is a statement about
+the primitive rather than a concession to a flag: they name the forked
+lowering, whose isolation is `MM-PAR-3` by construction, so the child
+reads its own copy-on-write copy. `stdlib/Par.ax` is built on that
+exemption — a bounded pool that runs an Axiom closure over whatever the
+caller captured.
+
+`AX3064` is bypassed by **one hop**, and this is worth knowing before
+hand-spelling a primitive. `checkSpawnCaptures` inspects argument 0 only
+when it is literally a lambda, so the same capturing lambda passed
+through a wrapper — `(fn (viaHop f w) (__par_join (__par_spawn f w)))` —
+draws nothing and runs (measured 2026-09-03). No `parallel` written in
+source can reach that: the parser's desugaring always emits a literal
+lambda. It is reachable only from a hand-written `__par_spawn` or
+`__thread_spawn`, and closing it is open work.
 
 **Where it is not available.** `--threads` on freebsd-* or
 windows-x86_64, and `__thread_spawn` there, are refused at build time
@@ -1011,8 +1036,11 @@ primitives — `__par_spawn`/`__par_join`, which follow `--threads`, and
 name their lowering — each spawn `(-> (-> Int Int) Int Int)` and each
 join `(-> Int Int)`, all carrying `IO`, so a `parallel` in a body
 claiming `no-io` is refused as a syscall there is. Nothing in
-`self_host/` or `stdlib/` uses the form yet: the committed seed cannot
-parse it, and the rule is land, reseed, then use.
+`self_host/` uses the *form* yet: the committed seed cannot parse it, and
+the rule is land, reseed, then use. `stdlib/Par.ax` spells the
+`__proc_spawn`/`__proc_join` pair directly instead, which the seed's
+stage1 compiles without trouble — the form is what the seed cannot parse,
+not an application of a primitive it registers.
 
 ### Sequential Let Bindings
 
@@ -3179,7 +3207,7 @@ requires the result to be byte-identical.
 | `Ffi` | `ffiHandleNew`/`ffiHandlePtr`/`ffiHandleClose`, the out-cell (`ffiCellNew`, `ffiCellWord`, `ffiCellFree`) and the `Vec` conversions a generated binding needs ([ffi.md](ffi.md)) |
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them — written for JSON-RPC |
 | `Rpc` | the LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled` |
-| `Job` | `jobRunAll` — a bounded pool of child processes, joined in submit order |
+| `Par` | `parMapWords` — a bounded pool of concurrent tasks over `__proc_spawn`/`__proc_join`, joined in submit order; `parRunAll` is that pool over external commands, and `parRunOne`/`parArgvVector` the pieces underneath. Replaced `Job` at 0.7.4 |
 | `Html` | the templating DSL, written in the macro system: the element macros `div`/`divA` and the rest of the tag table, the void elements `br`/`hr`/`img`/`input`/`link`/`meta`, `el`/`elA`/`elVoid`/`elVoidA` for any tag, `text`, `raw`, `for`/`forInt`, `style`/`script`/`scriptA`, the attribute macros (`class`, `id`, `href`, `src`, `name`, `value`, …) and `attr`/`flag`; underneath, the builder `hNew`/`hPut`/`hLen`/`hFinish` and the escapers `hEscText`/`hEscAttr`/`hEscTagEnd` |
 | `Http` | the request parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`), the `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`, the writer `httpRespond`/`httpRespondRaw`/`httpFail` with `httpStatusText` and `httpContentType`, the router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells, `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the ceilings `httpMaxHead`/`httpMaxBody` |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs — what `axiom test` discovers and isolates ([error-model.md](error-model.md) ERR-REC-6) |

@@ -407,7 +407,7 @@ Each binding runs in **its own region**, siblings under `p`. Results
 are moved into `p` at join — the `reset_keeping` promotion of §2.6.
 Combination is in **argument order**, always, because `MM-PAR-5`
 requires submit-order results and every byte-comparing gate in the
-repository depends on it (`tests/stdlib/302-job.ax` pins ascending
+repository depends on it (`tests/stdlib/476-par-pool.ax` pins ascending
 output with children whose completion order is deliberately reversed).
 
 | | threads | processes |
@@ -425,7 +425,7 @@ developed and gated under the process lowering — where safety is
 proved safe for the thread lowering. Isolation is the conservative
 lowering, not the fallback one.
 
-`stdlib/Job.ax` and `sysForkProcess` are the process lowering's
+`stdlib/Par.ax` and `sysForkProcess` are the process lowering's
 existing machinery; `tests/net/echo-server.ax`'s pre-forked pool is the
 shape, and it is where `MM-ALLOC-22`'s measurement is taken.
 

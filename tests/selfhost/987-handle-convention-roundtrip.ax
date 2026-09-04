@@ -3,10 +3,13 @@
 ; declared result against the body by `tyCompat` - the comparison an
 ; argument has always got - for every declared result but one, and the
 ; exception is a bare `Int`: this language's universal heap handle.
-; 29 sites in this tree return a handle through a declared `Int`
-; (`core.mkSpan`, ten in `parser.ax`, eight builders in `format.ax`,
-; `stdlib/Job.ax`'s `jobPoolNew`), so the exemption is load-bearing
-; and nothing but a run proves it still holds.
+; 29 sites in this tree returned a handle through a declared `Int`
+; when that was counted on 2026-08-31 - `core.mkSpan`, ten in
+; `parser.ax`, eight builders in `format.ax` such as `mkFPr`, and
+; `stdlib/Job.ax`'s `jobPoolNew`. That last module was deleted at
+; 0.7.4 and its replacement `stdlib/Par.ax` holds no record at all, so
+; the count is 28 today; the exemption is load-bearing either way, and
+; nothing but a run proves it still holds.
 ;
 ; `tests/diagnostics/499-nominal-return-int-body.ax` is the other
 ; half - the REVERSE direction, a `data` or `struct` declared over an

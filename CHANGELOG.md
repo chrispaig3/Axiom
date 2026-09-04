@@ -16,6 +16,47 @@ its changelog too.
 
 ## Unreleased
 
+### `stdlib/Par.ax` replaces `stdlib/Job.ax`: the pool runs an Axiom closure
+
+`Job` was a bounded pool of child PROGRAMS over `sysSpawn`/`sysWaitPid`,
+and `docs/memory-model.md` MM-PAR-2 named its limit: **it could not run
+an Axiom closure**, only exec a binary on the filesystem. `Par` is the
+same pool over `__proc_spawn`/`__proc_join` — the primitives
+`(parallel ...)` desugars to — and it is strictly more general:
+`parMapWords` runs any thunk, and `parRunAll` is that function over a
+closure that runs one argv.
+
+The replacement is a drop-in, and that is measured rather than asserted.
+`tests/stdlib/302-job.ax` with `(import Job)`→`(import Par)` and
+`jobRunAll`→`parRunAll` produced its own golden **byte for byte** — all
+three of its discriminating terms, including the missing program
+answering `-ENOENT` in its own slot. That port is now
+`tests/stdlib/476-par-pool.ax`, with a fourth term `Job` could not have
+run: `parMapWords` over a lambda capturing a `Vec` the parent built.
+
+`AX3064` is not weakened, dodged, or argued with. The pool names
+`__proc_spawn`, which `capSpawnHead` exempts because it NAMES the forked
+lowering, whose isolation is `MM-PAR-3` by construction — not because of
+a build flag. And because `AX3064` cannot see a capture through
+`parMapWords`'s parameter, the fact is **gated** instead of commented:
+`scripts/check-parallel.sh` section 6b requires the pool's module to be
+byte-identical with `--threads` and without. Ablated — `__proc_spawn`
+swapped for `__par_spawn` in a copy of `stdlib/` — the `--threads` build
+grows 2 pthread declares and 7 thread-local globals and the arm goes red.
+
+One behaviour genuinely differs and `Par.ax`'s header says so: a thunk
+that **traps** exits the parent with the child's status, because
+`__axiom_par_join_proc` re-raises a non-zero wait status. That is
+`471-parallel-trap.ax`'s pinned rule. An external program that fails is
+unaffected — it answers a word and its child exits 0.
+
+Five new arms in `scripts/check-parallel.sh` section 6 and five
+ablations behind them: the golden, flag-independence, the width bound as
+a RATIO (measured 6.6x, ablated 0.99x), the clamp, and that the pool adds
+no import over the gate's existing `plain.ax` control.
+`jobRunAll` was `Job`'s only public name, so the break is one line in
+`compat/BREAKING`.
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a

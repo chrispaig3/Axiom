@@ -86,7 +86,7 @@ expression position and `AX3003` in pattern position. That asymmetry is
 `ERR-TYPE-2` holding rather than a gap, and it is the one difference a
 reader of §2 has to carry: `Option` needs no import and `Result` does.
 
-### 1.2 Failure is a sentinel, in 64 places
+### 1.2 Failure is a sentinel, in 61 places
 
 The standard library signals failure by returning a value from the
 success type's own range:
@@ -97,9 +97,9 @@ success type's own range:
 | `stdlib/IO.ax` | 11 | `-errno`, forwarded from `Sys` |
 | `stdlib/Utf8.ax` | 6 | `-1` |
 | `stdlib/Map.ax` | 6 | `-1` / absent-key |
-| `stdlib/Job.ax` | 4 | `-errno` |
 | `stdlib/Json.ax`, `stdlib/Path.ax`, `stdlib/Rpc.ax` | 3 each | `-1` |
 | `stdlib/Str.ax`, `stdlib/Intern.ax`, `stdlib/Sys/Platform.darwin.ax` | 2 each | `-1` / `-errno` |
+| `stdlib/Par.ax` | 1 | `-errno`, in the private `parRunWord` only — the one word a join can carry |
 | `stdlib/Vec.ax` | 1 | `-1` |
 
 64 sites over 12 files, counted 2026-08-22 with
@@ -1553,7 +1553,11 @@ before the next:
    section already names.** In `311-preforked-server.ax` the connect
    loop's `Err` arm did not advance `sent`, whose bound is the loop
    condition — the hang shape `Job.jobSubmit` produced when `302-job`
-   hung rather than failed. And in `315-signal-in-poll.ax` the
+   hung rather than failed. (`stdlib/Job.ax` and `302-job` were deleted
+   at 0.7.4, replaced by `stdlib/Par.ax` and
+   `tests/stdlib/476-par-pool.ax`; the defect is quoted here as it
+   happened, and `Par.parRunOne` carries the same `match`-not-`unwrapOr`
+   argument forward.) And in `315-signal-in-poll.ax` the
    assertion `(>= sh 0)` became a check that cannot fail once `sh` is
    an `Ok` binder, because `sysResult` builds `Ok` only for a
    non-negative answer; the assertion moved to the `Err` arm, where it
@@ -1592,6 +1596,9 @@ before the next:
    - `Job.jobSubmit` — a failed spawn became pid `0`, which is not
      `< 0`, so the pool counted it live and `sysWaitPid 0` waited for
      any child in the group. `302-job` **hung** rather than failed.
+     (That module was replaced by `stdlib/Par.ax` at 0.7.4. The lesson
+     was not: `parRunOne` matches on `sysRunPath`'s `Result` for
+     exactly this reason, and says so where it does it.)
    - `993-filesystem-verbs` — `(== (unwrapOr … 0) -2)` is silently
      false, so the case counted one fewer success and exited 1 for 77.
    - `305-path-search` — printed the fallback for every failure, which

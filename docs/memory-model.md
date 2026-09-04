@@ -3740,13 +3740,36 @@ document sells elsewhere:
 Neither price is prohibitive by nature and neither is being paid. That
 is the honest shape of a refusal: a cost named, and declined.
 
-**MM-PAR-2 (H, amended 2026-08-24).** The unit of parallelism is the
-**process**. `stdlib/Job.ax` over `sysSpawn`/`sysWaitPid` is one route
-to it and was the only one when this rule was written; it is not the
-only one now, and the difference decides what can be parallelised at
-all. **`Job` cannot run an Axiom closure** — it execs an external
-program and answers what that program wrote, so the work has to be a
-binary on the filesystem.
+**MM-PAR-2 (H, amended 2026-08-24, again 2026-09-03).** The unit of
+parallelism is the **process**. `stdlib/Job.ax` over
+`sysSpawn`/`sysWaitPid` was the only route to it when this rule was
+written, and its limit was the one this paragraph used to state:
+**`Job` could not run an Axiom closure** — it execs an external program
+and answers what that program wrote, so the work had to be a binary on
+the filesystem.
+
+**That limit is gone, and `Job` with it.** `stdlib/Par.ax` replaced it
+at 0.7.4: the same bounded pool, the same submit-order guarantee and
+the same `sysRun` error contract, built on `__proc_spawn` /
+`__proc_join` — the primitives `(parallel ...)` desugars to — instead
+of on `posix_spawn`. `parMapWords` runs an **Axiom closure**, and
+`parRunAll` is that function over a closure which runs one argv, so the
+external-program pool is now a special case of the general one rather
+than the only thing on offer. `tests/stdlib/476-par-pool.ax` is the
+evidence, and it was the `302-job` fixture first: the port produced its
+predecessor's golden byte for byte, and then grew a fourth term the old
+pool could not have run at all.
+
+The primitive is `__proc_spawn` and not `__par_spawn` deliberately.
+`__par_spawn` follows `--threads`, so `AX3064` refuses a captured
+reference at it; `__proc_spawn` names the **forked** lowering, whose
+isolation is `MM-PAR-3` by construction, and `capSpawnHead` exempts it
+for that reason rather than as a concession to a build flag. The pool
+therefore takes a caller's capture safely without the rule being
+weakened — and because `AX3064` cannot see a capture through
+`parMapWords`'s parameter, `scripts/check-parallel.sh` section 6b
+measures the substitute directly: the module the compiler emits for the
+pool is byte-identical with `--threads` and without.
 
 `stdlib/Sys.ax`'s `sysForkProcess` is the other route, and it leaves
 the child running **this** program's code. It answers the POSIX
@@ -3786,7 +3809,8 @@ slot per declared effect — is private after `fork` and fresh after
 
 The allocator therefore needs no atomics, no lock and no thread-local
 storage, and the effect slots inherit correctly for free. This is why
-`Job` needed no compiler change at all.
+the process pool needed no compiler change at all — first `Job` over
+`posix_spawn`, and now `Par` over the emitted runtime's own `fork`.
 
 **The same set is what threads would have to buy, and since 2026-08-30
 the emitter can spell the purchase.** Under `fork` the property is
@@ -3833,7 +3857,7 @@ that imports `__tlsdesc_resolve` through the PLT.
 **MM-PAR-4 (H, with a stated escape).** **Nothing the language or the
 standard library provides shares mutable memory between processes.**
 Values cross a process boundary as bytes, through a file descriptor or
-the filesystem, and `Job`'s determinism (`MM-PAR-5`) rests on that.
+the filesystem, and `Par`'s determinism (`MM-PAR-5`) rests on that.
 
 The claim is about what is *provided*, not about what is *reachable*: a
 program holds raw `mmap` through `__syscallN`, so it can map a
@@ -3848,7 +3872,7 @@ always. Completion order is not exposed at all, because a pool whose
 output depended on which core was free would make every byte-comparing
 gate in this repository nondeterministic. Measured: eight `sleep 0.5`
 children take 4.61 s at width 1 and 0.93 s at width 8, and
-`tests/stdlib/302-job.ax` pins ascending output with children whose
+`tests/stdlib/476-par-pool.ax` pins ascending output with children whose
 completion order is deliberately reversed.
 
 **MM-PAR-6 (P; three of its five clauses H since 2026-09-03).** Should
@@ -4056,7 +4080,7 @@ breaks if it is violated, because that is the useful half.
 | **I8** | Marks nest, and a mark is never reclaimed by its own reset | `MM-ALLOC-12` | a mark reset OUT OF NESTING ORDER restores a position from freed memory. **Enforced since 2026-08-31**, status 75 (`MM-ALLOC-16a`, `tests/stdlib/166-arena-bad-mark.ax`) — the first of these fifteen to move from argued to trapped. The consequence column said "a doubly-reset mark" until then, and that was the wrong shape: resetting the SAME mark twice is legal by this invariant's own first clause (the cell is never reclaimed by its own reset, so it stays readable) and is measurably harmless — the second reset finds its chunk still active and takes the equal-chunk fast path. What is not harmless is an INNER mark reset after its outer one |
 | **I9** | Chunk addresses are unordered | `MM-ALLOC-5` | a backward copy across chunks corrupts |
 | **I10** | The stack holds no data, only frames, `mut` cells, and the per-function merge scratch (one `alloca` whose value never outlives the merge that loads it - amended 2026-08-15 with `MM-ALLOC-9`) | `MM-ALLOC-11` | dangling values would become possible |
-| **I11** | All allocator state is process-private | `MM-PAR-3` | `Job` would need atomics |
+| **I11** | All allocator state is process-private | `MM-PAR-3` | a shared-address-space pool would need atomics |
 | **I12** | Compilation is deterministic and reproducible | `MM-EXEC-13` | `check-reproducible.sh` |
 | **I13** | The compiler executes no user code | `MM-EXEC-14` | the threat model |
 | **I14** | The heap graph **may** contain cycles | `MM-LIFE-3` | the chosen ARC leaks them by stated cost (`MM-LIFE-2f`); any future cycle collector must trace them, with the maps `MM-LIFE-2d` specifies |
@@ -4221,7 +4245,7 @@ equivalent honesty for this one.
 | `scripts/check-cross-targets.sh` | that every target's allocator and syscall lowering assembles at `-O0` and `-O2` |
 | `scripts/check-bootstrap.sh` | that the compiler survives compiling itself under this allocator |
 | `scripts/check-reproducible.sh` | EXEC-13 |
-| `tests/stdlib/302-job.ax` | PAR-5 |
+| `tests/stdlib/476-par-pool.ax` | PAR-5 |
 | `tests/selfhost/500-while-mut.ax` | MUT-1 in constant stack |
 | `tests/diagnostics/465-set-on-parameter.ax`, `466-set-captured.ax` | MUT-1a — both refusals, byte-pinned in all three renderings |
 | `tests/diagnostics/471-reserved-runtime-name.ax` | ALLOC-8's refusal arm (`AX3026`) |

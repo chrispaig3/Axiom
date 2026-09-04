@@ -478,3 +478,15 @@
 0.6.4  F  ledCtrlKey          (-> LineEd KeyEv Int Int) -> (-> LineEd KeyEv (Vec String) Int)
 0.6.4  F  termFlush           (-> Int Int) -> (-> (Vec String) Int): the output buffer is a vector of pieces
 0.6.4  F  tuiCat              (-> Int String) -> (-> (Vec String) String)
+
+# 0.7.4 - `stdlib/Job.ax` is deleted and `stdlib/Par.ax` replaces it.
+# `jobRunAll` was Job's ONLY public name, so this one line is the whole
+# cost of the module going away.
+#
+# `parRunAll` has jobRunAll's signature, its submit-order guarantee and
+# its `sysRun` error contract unchanged, so the port is
+# `s/jobRunAll/parRunAll/` and `s/(import Job)/(import Par)/` - measured
+# on `tests/stdlib/302-job.ax`, whose output under the replacement was
+# byte-identical to its own golden. It is still REMOVED and therefore
+# breaking: a consumer who does not make that edit does not compile.
+0.7.4  F  jobRunAll   replaced by Par.parRunAll over __proc_spawn/__proc_join; same signature, same submit order, same -errno contract
