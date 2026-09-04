@@ -20239,10 +20239,18 @@
 (pub fn (axtagKeyTypo tc d key)
   (if (|| (== (strLen key) 0) (>= (strFindByte key 58 0) 0))
     0
-    (let ((want (axtagNearMiss key)))
-      (if (== (strLen want) 0)
-        0
-        (emitAxtagKeyTypo tc d key want)
+    ; RESERVED BEFORE NEAR-MISS, and the order is the point. `effects`
+    ; is one edit from `effect`, so the near-miss arm would have
+    ; reported it as a typo - a WARNING, and about the wrong thing.
+    ; It is not a misspelling of an author's key; it is the compiler's
+    ; key, spelled correctly.
+    (if (== (axtagReservedKey key) 1)
+      (emitAxtagKeyReserved tc d key)
+      (let ((want (axtagNearMiss key)))
+        (if (== (strLen want) 0)
+          0
+          (emitAxtagKeyTypo tc d key want)
+        )
       )
     )
   )
@@ -20562,6 +20570,127 @@
 ; `AX3053` declines to report. A tag on a declaration no walk visits is
 ; a tag nothing can typo-check, so `checkEffectDeclAxtags` walks them -
 ; see its own note.
+; The keys the COMPILER derives and writes into AXSYM. An AXTAG may
+; not spell one, and that is not a narrowing of the open namespace -
+; it is the line the openness always had.
+;
+; `checkOneAxtag`'s note says an unknown key "is metadata, it is
+; recorded, and nothing checks it", and AX3039's page says a key of
+; your own should be namespaced "so it cannot be mistaken for a
+; claim". Both are about keys the compiler has nothing to say about.
+; These are the opposite: `symbols.ax` writes them itself, from the
+; checker's own answers, and a reader of the stream cannot tell an
+; author's copy from the compiler's.
+;
+; MEASURED, 2026-09-04, before this existed. A file carrying
+;
+;     ;@axiom:effects(Pure)
+;     ;@axiom:mir-result-fresh(1)
+;
+; on a body compiled clean, and `symbols` wrote
+;
+;     F liar ... #effects=Pure #mir-result-fresh=1
+;
+; The `effects` line drew AX3039 - as a TYPO of `effect`, which is the
+; wrong reason and a warning. `mir-result-fresh` drew nothing at all,
+; because it is not one slip from any key the compiler checks, and the
+; near-miss rule is the only thing that had ever looked at a key.
+;
+; THE ORDERING RULE DOES NOT COVER THIS, and `smTagMetas`'s note
+; overstates it. Compiler keys are pushed after the author's so
+; `symTagFrom` answers the last one - which holds only where the
+; compiler emits that key on that row. It emits no `#effects=` for a
+; body with no effects and no `#mir-*` at all for a program that names
+; no region, so on exactly the rows where a forged guarantee is worth
+; forging there is no later key to win. The ordering is a second line
+; of defence; this is the first.
+;
+; AN ERROR, like AX3052 and AX3054 and unlike AX3039. The argument is
+; AX3052's verbatim: accepting it would let a tag read like a
+; guarantee and buy silence. `restrict`, `pure`, `effect`, `pre`,
+; `post`, `unhandled` and `raw` are the author's to write and are not
+; here - they are CHECKED, which is the difference.
+(pub :: axtagReservedKey (-> String Int))
+
+(pub fn (axtagReservedKey key)
+  (if (strEq key "effects")
+    1
+    (if (strEq key "effect-params")
+      1
+      (if (strEq key "effects-incomplete")
+        1
+        (if (strEq key "effects-overapprox")
+          1
+          (if (strEq key "effects-possible")
+            1
+            (if (strEq key "ctors")
+              1
+              (if (strEq key "of")
+                1
+                (if (strEq key "fields")
+                  1
+                  (if (strEq key "tyvars")
+                    1
+                    (if (strEq key "methods")
+                      1
+                      (if (strEq key "generated")
+                        1
+                        (if (strEq key "calls")
+                          1
+                          (axtagReservedMir key)
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Split out rather than continued inline: the `#mir-*` set is one
+; workstream's and moves with it, and a reader adding a seventh key
+; there should not have to count sixteen closing parens to find where
+; it goes.
+(pub :: axtagReservedMir (-> String Int))
+
+(pub fn (axtagReservedMir key)
+  (if (strEq key "mir-params")
+    1
+    (if (strEq key "mir-escapes")
+      1
+      (if (strEq key "mir-result-fresh")
+        1
+        (if (strEq key "mir-result-from")
+          1
+          (if (strEq key "mir-incomplete")
+            1
+            (if (strEq key "mir-truncated")
+              1
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: emitAxtagKeyReserved (-> Int Int String Int))
+
+(pub fn (emitAxtagKeyReserved tc d key)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3065"      "axtag-key-reserved"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "AXTAG key `" key) "` on `") (bareOf (nodeAName d))) "` is a key the compiler derives and writes itself")      0      0      "the AXTAG namespace is open, but not for the keys `axiom symbols` writes from the checker's own answers: a reader of that stream cannot tell an author's copy from the compiler's. Namespace it - `;@axiom:my:effects(...)` - or drop it"
+    ))
+  )
+)
+
 (pub :: axtagKnownKey (-> String Int))
 
 (pub fn (axtagKnownKey key)
