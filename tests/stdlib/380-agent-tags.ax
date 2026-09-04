@@ -67,22 +67,22 @@
 (fn (main)
   (let ((syms (axsymParse (stream))))
     {
-      (println (show (vecLen syms)))
+      (println (format (vecLen syms)))
       (let ((sh (cast Sym (vecGet syms 0))))
         {
           (println sh.name)
           (println (symEffects sh))
           (println (symTag sh "effect"))
-          (println (show (symHasAgentTag sh "readonly")))
-          (println (show (symDerivedPure sh)))
+          (println (format (symHasAgentTag sh "readonly")))
+          (println (format (symDerivedPure sh)))
           (println sh.nid)
           (println sh.ty)
         })
       (let ((q (cast Sym (vecGet syms 1))))
         {
-          (println (show (symHasTag q "pure")))
-          (println (show (strLen (symTag q "pure"))))
-          (println (show (symDerivedPure q)))
+          (println (format (symHasTag q "pure")))
+          (println (format (strLen (symTag q "pure"))))
+          (println (format (symDerivedPure q)))
         })
       (let ((o (cast Sym (vecGet syms 2))))
         {

@@ -1,0 +1,1 @@
+E AX3001 621-show-removed.ax:26:21-25 undefined-variable "undefined variable `show`" #"no binding named `show` in scope" ?"variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"

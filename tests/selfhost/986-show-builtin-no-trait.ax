@@ -1,14 +1,17 @@
 ; expect 59
-; `show` with no `Show` trait in the program at all: neither `IO` nor
-; `Show` is imported, so `traitRewrite` finds no trait owning the name
-; and the builtin answers alone - which is the shape every program has
-; once `Show.ax`'s instances are gone, reachable today only like this.
-; Before the builtin this file was `AX3001 undefined variable show`.
+; `(format x)` on every shape, with `IO` NOT imported.
 ;
-; Only `Fmt` and `Str` are loaded, because they are what the rewrite
-; targets: `fmtInt`/`fmtFloat`, `strConcat`/`strByte`/`strFromByte`
-; (and `Vec`, which `Str` imports, for the ancestor stack). Each
-; rendering is measured by its length, and the sum is the exit status:
+; This is the minimal program that renders: `Fmt` and `Str` are the
+; only modules loaded, because they are exactly what the rewrite
+; targets - `fmtInt`/`fmtFloat`, `strConcat`/`strByte`/`strFromByte`
+; (and `Vec`, which `Str` imports, for the ancestor stack) - and
+; `Fmt` is where the `format` macro lives since 0.7.4, so no third
+; import is needed to reach it.
+;
+; It was written when `Show` was still a trait, to show the builtin
+; answering with no trait in the program at all; it holds the same
+; shape now for the opposite reason. Each rendering is measured by its
+; length, and the sum is the exit status:
 ;
 ;   "123"                 3    fmtInt
 ;   "abcd"                4    the call ELIDED - the String itself
@@ -40,4 +43,4 @@
 
 (:: main Int)
 
-(fn (main) (+ (strLen (show 123)) (+ (strLen (show "abcd")) (+ (strLen (show true)) (+ (strLen (show 1.5)) (+ (strLen (show 'x')) (+ (strLen (show Green)) (+ (strLen (show (Pair 1 "x"))) (+ (strLen (show (Some Green))) (strLen (show noneInt)))))))))))
+(fn (main) (+ (strLen (format 123)) (+ (strLen (format "abcd")) (+ (strLen (format true)) (+ (strLen (format 1.5)) (+ (strLen (format 'x')) (+ (strLen (format Green)) (+ (strLen (format (Pair 1 "x"))) (+ (strLen (format (Some Green))) (strLen (format noneInt)))))))))))

@@ -1,17 +1,23 @@
-; What `show` refuses now that the checker resolves it (phase 0 of the
-; traits removal), every one under AX3025 so the code a reader already
-; looks for still finds it.
+; What a format hole refuses, every case under AX3025 so the code a
+; reader already looks for still finds it. `(println x)` below is the
+; hole: it lowers to the same reserved head `(format x)` does, and the
+; refusal is the checker's, made from the argument's static type.
 ;
-;   1  a type VARIABLE - a generic function's own `a` - is the refusal
-;      it always was, word for word: `Show.ax`'s instances still claim
-;      the name, so the trait path reports it before the builtin is
-;      asked
+;   1  a type VARIABLE - a generic function's own `a`. A rendering is
+;      chosen from a STATIC type and a variable is not one
 ;   2  a constructor applied to a type variable - `(Box a)` inside a
-;      generic function - is the builtin's own wording of shape 1,
-;      because no `(impl (Show Box))` exists to fall back on
-;   3  a `data` or `struct` the builtin cannot take apart: `Holder`
+;      generic function - the same refusal one level in, and the
+;      message says which type mentions the variable
+;   3  a `data` or `struct` the checker cannot take apart: `Holder`
 ;      holds a `Foreign`, and the refusal names the field type and
 ;      lands at the CALL, before anything is generated
+;
+; The three read `show` until 0.7.4 and read `format` now, because the
+; head they refuse is no longer a name a program can write. The SLUG
+; moved with them - `trait-impl` was the last trait word on the
+; user-facing surface - while the NUMBER did not: `check-doc-drift.sh`
+; compares constructed codes against explained ones both directions,
+; so retiring one is a two-sided move and this is not it.
 (import IO)
 
 (:: generic (-> a Int))

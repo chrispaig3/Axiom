@@ -120,7 +120,7 @@ they are the only thing an automated test on-device can observe.
 
 `Sys`, `IO`, `Path`, `Http`, `Rpc` and `Job` all assume a filesystem, a
 process model, or sockets. `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`,
-`Utf8`, `Err`, `Show` do not. Proposed: mark the second group as the
+`Utf8` and `Err` do not. Proposed: mark the second group as the
 freestanding subset and gate it — a probe that imports only those and
 builds for a bare-metal target must produce a binary importing nothing
 but the target's own primitives. That gate is a variant of

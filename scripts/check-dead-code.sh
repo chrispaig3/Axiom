@@ -132,8 +132,8 @@ cat > "$work/sorted.ax" <<'PROBE'
   ; it bare hands every later use its own fresh `a`. The pushes still
   ; pin the binding - `check-type-pinning.sh` measures that, and writing
   ; an `Int` and then a `String` into this same `v` is refused - but
-  ; pinning is what the checker REFUSES on, not a substitution `show`
-  ; can read: `(vecGet v 0)` off a bare `vecNew` reaches `println` as a
+  ; pinning is what the checker REFUSES on, not a substitution the
+  ; hole rendering can read: `(vecGet v 0)` off a bare `vecNew` reaches `println` as a
   ; type variable and is AX3025. Threading one push through the binding
   ; makes the element type `Int` at the binding itself, which is the
   ; shape the standard library's own fixtures use.

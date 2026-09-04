@@ -84,7 +84,7 @@
 
 ; The rendering `main` writes to fd 2 (ERR-REC-4), and the one a
 ; program builds a longer report out of. A plain function rather than a
-; `Show` instance: dispatch is keyed on a type NAME, so an instance
+; format hole: a rendering is chosen from a concrete type, so a value
 ; reached through a type variable is AX3025, and every caller here has
 ; a concrete `Error` in hand anyway.
 (pub :: errorText (-> Error String))

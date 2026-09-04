@@ -1404,8 +1404,8 @@ A field the type does not have is `AX3007`, anchored at the field name,
 and it answers for every type rather than only for structs: `n.x` where
 `n` is an `Int` reports "field `x` not found on type `Int`".
 
-`show` renders a struct without any declaration of yours —
-`(show (Point 1 2))` is `{x = 1, y = 2}`.
+A struct renders without any declaration of yours —
+`(format (Point 1 2))` is `{x = 1, y = 2}`.
 
 ### Writing a field
 
@@ -1762,7 +1762,7 @@ and each consumer reads the half it is entitled to:
   possible `Alloc` is accused: until 2026-08-29 one row-global marker
   excused the whole row, so every untagged function one hop above a
   `println` with a `{hole}` compiled clean and printed - the hole went
-  through `show`'s four implementations, and the excuse for their
+  through `Show`'s four trait implementations, and the excuse for their
   `Alloc` was excusing the `writeStr`.
 - `AX3011`, the *missing* arm of `AX3010` and `restrict(...)` read the
   union. A `handle` list must name what the body may reach, and a
@@ -1772,8 +1772,8 @@ and each consumer reads the half it is entitled to:
   `#effects-possible=A,B` naming which. `(fn (handoff k) shout)`
   renders `#effects=IO #effects-overapprox #effects-possible=IO`; a
   function that prints `"n={n}"` renders `#effects=Alloc,IO,Mut` with
-  no admission, because everything `show` can contribute is also
-  definite there.
+  no admission, because everything the hole's rendering can contribute
+  is also definite there.
 
 One shape is a lower bound wearing an upper bound's clothes and is
 recorded as the lower bound it is: a call that supplies more arguments
@@ -2344,7 +2344,7 @@ clean until 2026-08-29 and were memory-unsafe at run time - a SIGSEGV
 when the dispatch applied `0`, a string's address plus one flowing into
 the caller's arithmetic (`tests/diagnostics/386-handler-type.ax`). The
 form's own type is its body's, so `(println (handle (ask 1) (Ask) h))`
-selects `show` on the `Int` that `ask` declares; until the same day the
+selects the `Int` rendering that `ask` declares; until the same day the
 form answered the checker's wildcard, which is why every `handle` in the
 tree was spelled `(cast Int (handle ..))`.
 
@@ -2789,7 +2789,7 @@ is planned in.
 
 Printing is **two macros and no per-type functions**. `println` and
 `eprintln` come from `IO`; `format`, which answers a `String` instead
-of writing one, comes from `Show` (and arrives with `IO`, which imports
+of writing one, comes from `Fmt` (and arrives with `IO`, which imports
 it).
 
 There is deliberately no newline-less `print`. A partial-line printer
@@ -2824,7 +2824,7 @@ A hole names a binding **in scope at the call**. There is no argument
 list and no positional `{}`: the name goes in the string.
 
 ```
-{name}          render `name` with `show`
+{name}          render `name` by its static type
 {name:SPEC}     render it the way SPEC says
 {{   }}         a literal brace
 ```
@@ -2842,13 +2842,13 @@ type  := 'x' (lowercase hex) | 'X' (uppercase hex)
 
 | Written | Means | Expands to |
 |---|---|---|
-| `{n}` | the value's own rendering | `(show n)` |
+| `{n}` | the value's own rendering | `(format n)` |
 | `{n:x}` | hexadecimal | `(fmtHex n)` |
 | `{x:.2}` | two decimal places | `(fmtFloatPrec x 2)` |
-| `{n:>8}` | right-aligned in 8 columns | `(fmtPadLeft (show n) 8)` |
-| `{s:<8}` | left-aligned | `(fmtPadRight (show s) 8)` |
-| `{s:^8}` | centred | `(fmtPadCenter (show s) 8)` |
-| `{n:04}` | zero-padded, sign kept in front | `(fmtPadZerosLeft (show n) 4)` |
+| `{n:>8}` | right-aligned in 8 columns | `(fmtPadLeft (format n) 8)` |
+| `{s:<8}` | left-aligned | `(fmtPadRight (format s) 8)` |
+| `{s:^8}` | centred | `(fmtPadCenter (format s) 8)` |
+| `{n:04}` | zero-padded, sign kept in front | `(fmtPadZerosLeft (format n) 4)` |
 | `{x:>10.2}` | both, composed | `(fmtPadLeft (fmtFloatPrec x 2) 10)` |
 
 **Everything above happens at compile time.** A specifier is not
@@ -2865,18 +2865,20 @@ string survives to run time.
   the string on the offending byte.
 - **Type** is the checker's: a specifier picks a function with a type,
   so `{s:.2}` on a `String` is `AX3004` on `fmtFloatPrec`'s `Float`
-  parameter. An unbound hole is `AX3001`; a hole `show` has no
-  rendering for — a type variable, a function value, a `Foreign`, or a
-  `data`/`struct` holding one of those — is `AX3025`.
+  parameter. An unbound hole is `AX3001`; a hole with no rendering —
+  a type variable, a function value, a `Foreign`, or a `data`/`struct`
+  holding one of those — is `AX3025`.
 
 ### Rendering your own types
 
-`show` is a compiler-known head (0.3.8). The checker resolves it from
-the argument's **static** type at the call — the way it already
-resolves `==` on two `String`s into a content comparison — and a
-`data` or `struct` needs no declaration to be interpolable: its
-rendering is derived from the declaration, in the language's own
-spelling.
+A hole lowers to a **reserved head** the checker resolves from the
+argument's **static** type at the call — the way it already resolves
+`==` on two `String`s into a content comparison — and a `data` or
+`struct` needs no declaration to be interpolable: its rendering is
+derived from the declaration, in the language's own spelling.
+`(format x)` is how you write that lowering by hand; there is no other
+spelling for it, and since 0.7.4 the head itself is not a name a
+program can write.
 
 ```scheme
 (import IO)
@@ -2913,9 +2915,17 @@ and checked and compiled like anything written; `symbols` does not
 list it, because a generated name is not a symbol.
 `tests/stdlib/450-show-builtin.ax` pins every row of the table.
 
-**The rule, from 0.3.8: the compiler decides how a type prints, and a
-program cannot override it.** The escape hatch is a function whose
-result is interpolated:
+**The rule: the compiler decides how a type prints, and a program
+cannot override it.** That was the intent from 0.3.8 and it was not
+true until 0.7.4, in a way nothing in the documentation admitted: a
+hole lowered to a call named `show`, which is an ordinary identifier,
+so an entry file declaring `(:: show (-> a String))` captured every
+hole in the program — silently, at exit 0.
+`tests/selfhost/383-format-capture.ax` measured that hijack working
+for as long as it worked. The head is spelled `format#` now, `#` is
+not an identifier character (`AX1001`), and the same fixture measures
+the hole reaching `fmtInt` through a file that still declares its own
+`show`. The escape hatch is a function whose result is interpolated:
 
 ```scheme
 (:: showColour (-> Colour String))
@@ -2927,10 +2937,13 @@ result is interpolated:
 ```
 
 There is no override left to write. A `(impl (Show T))` used to win at
-the call over the derived rendering; `impl` is `AX2004` since 0.6.0, so
-the compiler's rendering is the only one, inside a structure and out.
-`Pre`'s `deriveShow` still writes `showT` — an ordinary function you
-call by name, exactly like `showColour` above.
+the call over the derived rendering; `impl` is `AX2004` since 0.6.0 and
+`stdlib/Show.ax` is deleted in 0.7.4, so the compiler's rendering is
+the only one, inside a structure and out. `Pre`'s `deriveShow` still
+writes `showT` — an ordinary function you call by name, exactly like
+`showColour` above. `show` itself is not a name the standard library
+declares any more: `(show 1)` is `AX3001`, and
+`tests/diagnostics/621-show-removed.ax` pins it.
 
 ### When the type is not known
 
@@ -3492,8 +3505,8 @@ a compiled example. Both words report `AX2004` and say what to write:
 ```
 
 Dispatch is spelled `((c.eq) x y)` — an application, not a resolution
-rule — and `show` needs no record at all, because the compiler renders
-every type from its static type
+rule — and rendering needs no record at all, because the compiler
+renders every type from its static type
 ([Printing and Formatting](#printing-and-formatting)).
 
 They are **reserved** rather than freed, for the sharper of AX2004's two

@@ -49,8 +49,8 @@
       0
     }
     ; the SAME format string as `eq` above, over `Int` rather than
-    ; `String` holes: the rendering is the `Show` instance the checker
-    ; selects, so one spelling covers both harnesses
+    ; `String` holes: the rendering is chosen by the checker from each
+    ; hole's static type, so one spelling covers both harnesses
     {
       (println "FAIL {name} got={got} want={want}")
       1

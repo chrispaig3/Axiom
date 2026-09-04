@@ -370,8 +370,8 @@
 (pub fn (mkUnitTy) (mkTTup vecNew))
 
 ; `(Vec Int)`, the one instantiation this file writes for itself: the
-; `show` builtin's ancestor stack. Before `Vec` carried an element type
-; the generated signature said `Int` and was right by accident - the
+; rendering builtin's ancestor stack. Before `Vec` carried an element
+; type the generated signature said `Int` and was right by accident - the
 ; handle and the machine word were the same type. They are not any
 ; more, and `vecPush`/`vecLen`/`vecGet` in the generated body ask for
 ; the container.
@@ -8265,8 +8265,8 @@
 ; A lambda checked AGAINST an arrow rather than inferred: the
 ; parameter is bound to the arrow's parameter type instead of a fresh
 ; variable, so inside a handler `s` IS the `String` the operation
-; declared and `show` resolves on it - where the fresh variable drew
-; AX3025 and forced `(cast String s)` at every use. Recurses through
+; declared and a hole's rendering resolves on it - where the fresh
+; variable drew AX3025 and forced `(cast String s)` at every use. Recurses through
 ; the curried chain: `(-> Int Int Int)` is `(Int -> (Int -> Int))`,
 ; and `(lambda (a b) ..)` is `(lambda (a) (lambda (b) ..))` by the
 ; parser (`curryLam`), so a flat two-parameter lambda for a
@@ -8809,15 +8809,27 @@
                     (let ((ctor (findCtor tc name)))
                       (if (!= ctor 0)
                         (tyInstStamped tc (memGetWord ctor 3) e)
-                        ; `show` AS A CALL HEAD is the builtin's
-                        ; (`showBuiltin`), which has already
-                        ; rewritten it or reported on it by the
-                        ; time the head is walked - so a second
-                        ; and wrong AX3001 on top of that is
-                        ; suppressed here. Only as a head: `show`
-                        ; standing as a bare value is a reference
-                        ; nothing resolves, and stays the AX3001
-                        ; it was.
+                        ; `format#` AS A CALL HEAD is the
+                        ; builtin's (`showBuiltin`), which has
+                        ; already rewritten it or reported on it
+                        ; by the time the head is walked - so a
+                        ; second and wrong AX3001 on top of that
+                        ; is suppressed here. Only as a head, and
+                        ; only the reserved spelling: it survives
+                        ; to this point solely on the path where
+                        ; `showBuiltin` refused, and the refusal
+                        ; is the report the call gets.
+                        ;
+                        ; This disjunct read `show` until 0.7.4,
+                        ; and that made the ordinary user-facing
+                        ; name quiet too - `(show x)` as a head
+                        ; got no AX3001 whether or not anything
+                        ; declared it. With the head unwritable,
+                        ; a program that writes `(show 1)` gets
+                        ; the plain undefined-variable error every
+                        ; other unknown name gets, which is what
+                        ; tests/diagnostics/621-show-removed.ax
+                        ; pins.
                         ;
                         ; A trait method was quiet here for the
                         ; same reason until 0.6.0 - it was never
@@ -9504,7 +9516,7 @@
 (pub :: checkApp (-> Int Int Int Int))
 
 (pub fn (checkApp tc e inHead)
-  ; The `show` rewrite happens FIRST: if the head names `show`, the
+  ; The hole rewrite happens FIRST: if the head is `format#`, the
   ; builtin resolves it from the argument's static type - splicing the
   ; call away, rewriting the head to a library function, or generating
   ; a renderer - and everything below (saturation, argument checking,
@@ -9516,10 +9528,23 @@
   ; each time, so rewriting at each level reported the same refusal
   ; once per argument.
   ;
-  ; And only when nothing else claims the spelling - see
-  ; `showNameFree`. `checkSaturation`, twenty lines down, has
-  ; asked `scopeFindFrame` first since it was written; this call
-  ; was added later and asked nothing.
+  ; THERE IS NO LONGER A "IS THE NAME FREE?" QUESTION HERE, and the
+  ; history is worth keeping because the answer was once wrong twice
+  ; over. The head was the writable name `show` until 0.7.4, so this
+  ; hook had to ask whether the program had taken the spelling -
+  ; `scopeFindFrame` for a parameter or `let` binding, `findFnEnt` for
+  ; a declaration - the way `checkSaturation` twenty lines down has
+  ; always asked. Asking NEITHER, which is how the hook shipped,
+  ; captured every one of them at exit 0:
+  ; `(let ((sz (lambda (q) 7))) (sz 5))` answered 111.
+  ;
+  ; `format#` cannot be spelled in source - `#` is not an identifier
+  ; character, and the lexer answers `AX1001` - so both questions now
+  ; have the constant answer "free", and a guard that cannot fire is
+  ; this repository's most common defect. `showNameFree` is deleted
+  ; rather than left as a comforting no-op; a reader who wants it back
+  ; wants the writable name back with it. What replaces two scope
+  ; lookups on EVERY application head is one `strEq`.
   ; `hname` is a NAME; the non-variable head has none, and the
   ; absent one is now spelled `""` rather than `0`. Every reader
   ; below guards on `headIsVar` first, so neither is ever read -
@@ -9532,12 +9557,12 @@
       )
     ))
       (let ((spliced
-        (if (&& (== headIsVar 1) (&& (== inHead 0) (== (showNameFree tc (nodeAName head)) 1)))
+        (if (&& (== headIsVar 1) (== inHead 0))
           (showRewrite tc e head (nodeAName head))
           0
         )
       ))
-        ; A `show` the builtin SPLICED - a `String` argument stands
+        ; A rendering the builtin SPLICED - a `String` argument stands
         ; in for the call, a `Bool` becomes the two-literal `if`
         ; (`showSplice`) - leaves `e` no longer an application, and
         ; everything below reads `(nodeA e)` as a callee. So the
@@ -9810,7 +9835,7 @@
   )
 )
 
-; The `show` probe must not REPORT.
+; The rendering probe must not REPORT.
 ;
 ; Choosing a rendering means knowing the argument's type, and the only
 ; way to know a type here is to check the expression - so that
@@ -9823,7 +9848,7 @@
 ; It was latent for as long as traits existed and stayed cheap because
 ; nothing in this repository called a trait method on a failing
 ; expression. The printing macros make it the common case - every
-; `{hole}` is a `show` call, so every misspelled hole is a doubled
+; `{hole}` is a `format#` call, so every misspelled hole is a doubled
 ; diagnostic - which is what turned a curiosity into a fix.
 ;
 ; The PROBE's diagnostics are dropped rather than the second walk's,
@@ -9849,8 +9874,8 @@
   )
 )
 
-; Rewrite a `show` head to the rendering its argument's static type
-; selects. `e` is the application and `head` its var node.
+; Rewrite a `format#` head to the rendering its argument's static
+; type selects. `e` is the application and `head` its var node.
 ;
 ; This was `traitRewrite` until 0.6.0, and dispatch was its subject: a
 ; head naming a trait method became the implementation
@@ -9863,7 +9888,7 @@
 ; Answers what `showBuiltin` answers: 1 when the call was SPLICED, so
 ; `e` is no longer an application and must be re-checked, and 0 when
 ; the head was rewritten, a diagnostic was emitted, or the head was
-; not `show` at all.
+; not `format#` at all.
 (pub :: showRewrite (-> Int Int Int String Int))
 
 (pub fn (showRewrite tc e head hname)
@@ -9873,50 +9898,33 @@
   )
 )
 
-; Is `name` still `show`'s to claim at this call site?
-;
-; Rewriting the head node is name RESOLUTION, so it obeys the same
-; order as every other resolution in this file: a frame-local binding
-; first, then a declaration. Asking neither made the spelling globally
-; unavailable - it captured `let` bindings, lambda and function
-; parameters, top-level functions and imported standard-library
-; functions alike, and the rewrite won every one of them at exit 0.
-; `(let ((sz (lambda (q) 7))) (sz 5))` answered 111. That was measured
-; while this hook was still trait dispatch; the guard outlives it
-; because a program is free to declare its own `show`.
-;
-; The two questions are the two ways a name can already be taken:
-;   - `scopeFindFrame`, a parameter or a `let` binding, which shadows;
-;   - `findFnEnt`, a real declaration of that name. `show` is never
-;     itself in `tcFns` - `checkVar`'s quiet arm exists precisely
-;     because the bare name resolves to nothing - so a hit here is a
-;     declaration the program wrote, and it wins.
-(pub :: showNameFree (-> Int String Int))
-
-(pub fn (showNameFree tc name)
-  (if (!= (scopeFindFrame tc name) 0)
-    0
-    (if (!= (findFnEnt tc name) 0)
-      0
-      1
-    )
-  )
-)
-
 ; ------------------------------------------------------------------
-; `show` as a compiler-known head.
+; `format#` - the hole rendering, as a compiler-known head.
 ;
-; `(show x)` is what every `{hole}` and every `(println expr)` lowers
-; to (`syntax/format`, expand.ax). Until 2026-08-29 the only thing
-; that could answer it was a trait: `stdlib/Show.ax` declared `Show`
-; with four instances and the dispatcher selected one from the
+; `(format# x)` is what every `{hole}` and every `(println expr)`
+; lowers to (`syntax/format`, expand.ax). Until 2026-08-29 the only
+; thing that could answer it was a trait: `stdlib/Show.ax` declared
+; `Show` with four instances and the dispatcher selected one from the
 ; argument's static type or refused with AX3025. That was the whole of
 ; what traits were used for in this repository - one trait, four
 ; impls, one file - and it is why they are gone (docs/reference.md,
-; "Printing and Formatting"). `show` is a head the CHECKER resolves,
-; the way `checkNumeric` already resolves `==` on two `String`s into
+; "Printing and Formatting"). This is a head the CHECKER resolves, the
+; way `checkNumeric` already resolves `==` on two `String`s into
 ; `__streq` - by rewriting the head node in place from the operand's
 ; static type, with no table and no runtime tag.
+;
+; THE HEAD IS UNWRITABLE, since 0.7.4. It was the ordinary name `show`
+; for as long as `Show.ax` had instances to dispatch to, and it stayed
+; that way after they were deleted - so the compiler's own lowering
+; and a user's function competed for one spelling, and the user's
+; `(:: show (-> a String))` captured every hole in the program at exit
+; 0. `#` is not an identifier character (`AX1001 unexpected character
+; `#``), so no source file can name this head, no import can shadow
+; it, `expQualify` is not consulted for it, and `(show 1)` is now the
+; plain `AX3001` any other unknown name gets. The generated renderers
+; below share the `#`: `show#Point` is a real emitted function with a
+; type name after the mark, this is a bare head with nothing after it,
+; and neither can be written either.
 ;
 ; The builtin ran SECOND while both existed: a written `impl` won, and
 ; this answered only where none covered the type. It is the whole of
@@ -9971,7 +9979,7 @@
 ;     its own before rendering its fields and pops after, and a
 ;     value already on the stack renders as `...`. Measured: the
 ;     cell above prints `{v = 1, next = (Some ...)}`. The stack is
-;     fresh per top-level `show` - `(show#T x vecNew)` - and a
+;     fresh per top-level rendering - `(show#T x vecNew)` - and a
 ;     nullary-only type takes it and never reads it.
 ;
 ; WHAT IT REFUSES, all AX3025 so the code a reader already looks for
@@ -9988,19 +9996,27 @@
 ;
 ; Free identifiers in a generated body are the library's QUALIFIED
 ; spellings (`Str$strConcat`), which is what makes them immune to the
-; capture `tests/selfhost/383-format-capture.ax` pins for the
-; expander's own `show`/`strConcat`.
+; capture `tests/selfhost/383-format-capture.ax` still pins for the
+; expander's own `strConcat`.
 ; ------------------------------------------------------------------
+; The reserved head, by exact spelling.
+;
+; NOT `bareOf`, which this asked until 0.7.4 because the head went
+; through `expQualify` and could arrive as `Mod$show`. `expFmtShow`
+; does not qualify, so the head arrives bare or not at all; asking
+; `bareOf` would additionally claim a `Mod$format#`, which no program
+; can declare and no expansion emits, so it would widen the claim
+; without widening what it can ever match.
 (pub :: showIsHead (-> String Int))
 
 (pub fn (showIsHead hname)
-  (if (strEq (bareOf hname) "show")
+  (if (strEq hname "format#")
     1
     0
   )
 )
 
-; Resolve `(show x)`, `e` the application and `head` its var node.
+; Resolve `(format# x)`, `e` the application and `head` its var node.
 ;
 ; The argument is PROBED here - checked silently, its diagnostics
 ; dropped - because a rendering is chosen from the argument's type and
@@ -10020,28 +10036,33 @@
 
 (pub fn (showBuiltin tc e head)
   (let ((args (spineArgVec e vecNew)))
-    (if (!= (vecLen args) 1)
-      ; This is the only report the call gets - `checkVar` is quiet on
-      ; a `show` head - so it is made here.
-      (showDiag
-        tc        (spanOf e)        (strConcat "`show` renders exactly one value, and this call passes " (decStr (vecLen args)))        "write `(show x)`; to render several values interpolate them: `(format \"{a} {b}\")`"        "`show` is a compiler-known head, resolved from its one argument's static type"
-      )
-      (let ((arg (vecGet args 0)))
-        (let ((at
-          (let ((mark (tcOutMark tc)))
-            (let ((probed (checkExprH tc arg 0)))
-              {
-                (tcOutTrunc tc mark)
-                probed
-              }
-            )
+    ; THERE IS NO ARITY ARM, and its absence is deliberate. This
+    ; carried one - `(!= (vecLen args) 1)` under an AX3025 reading
+    ; "`show` renders exactly one value" - for as long as `show` was a
+    ; name a program could write and therefore call with two
+    ; arguments. `format#` has exactly two producers, `expFmtHole` and
+    ; `expEvalFormat` in `self_host/expand.ax`, and both build
+    ; `(mkEApp (mkEVarAt "format#" sp) v)` - one argument, structurally.
+    ; A guard against the other case could not be reached, and could
+    ; not be given an ablation either, which is the argument for
+    ; deleting it rather than keeping it for comfort. A third producer
+    ; has to read this paragraph before it becomes the second thing
+    ; that can put a node here.
+    (let ((arg (vecGet args 0)))
+      (let ((at
+        (let ((mark (tcOutMark tc)))
+          (let ((probed (checkExprH tc arg 0)))
+            {
+              (tcOutTrunc tc mark)
+              probed
+            }
           )
-        ))
-          (let ((r (showResolve tc e head arg at)))
-            (if (== r (- 0 1))
-              (showNoRenderingDiag tc arg at)
-              r
-            )
+        )
+      ))
+        (let ((r (showResolve tc e head arg at)))
+          (if (== r (- 0 1))
+            (showNoRenderingDiag tc arg at)
+            r
           )
         )
       )
@@ -10138,7 +10159,7 @@
 )
 
 ; `(if b "true" "false")` in the application's place. Word 6 is the
-; stamp the `show` head may have been given and is cleared with it.
+; stamp the `format#` head may have been given and is cleared with it.
 (pub :: showSpliceBool (-> Int Int Int))
 
 (pub fn (showSpliceBool e arg)
@@ -10173,7 +10194,7 @@
 
 ; The head renamed to the generated renderer for `ty`, generating it
 ; first when this is the type's first use. `withSeen` adds the
-; ancestor stack as a second argument: `(show x)` becomes
+; ancestor stack as a second argument: `(format# x)` becomes
 ; `(show#T x vecNew)`, the inner application built here and the outer
 ; node `e` re-pointed at it.
 (pub :: showRewriteGen (-> Int Int Int Int Int Int Int))
@@ -10222,7 +10243,7 @@
         name
         {
           (showDiag
-            tc            sp            (strConcat (strConcat (strConcat (strConcat "`show` renders with `" mod) "`'s `") name) (strConcat (strConcat "`, and `" mod) "` is not loaded here"))            (strConcat (strConcat "(import " mod) ") - `IO` imports it, so a program that prints already has it")            "the builtin `show` is a rewrite to the standard library's own functions, not a runtime of its own"
+            tc            sp            (strConcat (strConcat (strConcat (strConcat "`format` renders with `" mod) "`'s `") name) (strConcat (strConcat "`, and `" mod) "` is not loaded here"))            (strConcat (strConcat "(import " mod) ") - `IO` imports it, so a program that prints already has it")            "a rendering is a rewrite to the standard library's own functions, not a runtime of its own"
           )
           ""
         }
@@ -10239,7 +10260,7 @@
     0
     {
       (emitDiag tc (diagSetLabel (mkDiagNote
-        SEV_ERROR        "AX3025"        "trait-impl"        sp        msg        0        0        help        note
+        SEV_ERROR        "AX3025"        "no-rendering"        sp        msg        0        0        help        note
       ) "no rendering derived"))
       0
     }
@@ -10253,14 +10274,14 @@
 (pub fn (showUnknownDiag tc arg at)
   (showDiag
     tc    (spanOf arg)    (strConcat
-      "cannot render this argument with `show`: its type "      (if (== at 0)
+      "cannot render this argument with `format`: its type "      (if (== at 0)
         "is not known here"
         (if (== (nodeTag at) TAG_T_VAR)
           "is a type variable, not a named type"
           (strConcat (strConcat "is `" (tyRender at)) "`, which mentions a type variable")
         )
       )
-    )    "`show` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either"    "a rendering is chosen at compile time from the argument's static type, and a type variable is not a type"
+    )    "`format` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either"    "a rendering is chosen at compile time from the argument's static type, and a type variable is not a type"
   )
 )
 
@@ -10268,7 +10289,7 @@
 
 (pub fn (showNoRenderingDiag tc arg at)
   (showDiag
-    tc    (spanOf arg)    (strConcat (strConcat "`show` has no rendering for `" (tyRender at)) "`")    "`show` renders `Int`, `Float`, `Bool`, `Char` and `String`, and derives one for any `data` or `struct` whose fields it can render; for anything else write a function that renders it and interpolate its result"    "a rendering is derived from the static type at compile time, and a type the compiler cannot take apart has none"
+    tc    (spanOf arg)    (strConcat (strConcat "`format` has no rendering for `" (tyRender at)) "`")    "`format` renders `Int`, `Float`, `Bool`, `Char` and `String`, and derives one for any `data` or `struct` whose fields it can render; for anything else write a function that renders it and interpolate its result"    "a rendering is derived from the static type at compile time, and a type the compiler cannot take apart has none"
   )
 )
 
@@ -10495,11 +10516,11 @@
           {
             (showDiag
               tc              sp              (strConcat
-                (strConcat (strConcat "`show` cannot render `" (tyRender ty)) "`: it holds ")                (if (== (nodeTag bad) TAG_T_VAR)
+                (strConcat (strConcat "`format` cannot render `" (tyRender ty)) "`: it holds ")                (if (== (nodeTag bad) TAG_T_VAR)
                   "a value whose type is a type variable"
                   (strConcat (strConcat "a `" (tyRender bad)) "`, which has no rendering")
                 )
-              )              "give the field a type `show` can render, or write a function that renders this type and interpolate its result"              "a rendering is derived from the static type at compile time, field by field, and a type the compiler cannot take apart has none"
+              )              "give the field a type `format` can render, or write a function that renders this type and interpolate its result"              "a rendering is derived from the static type at compile time, field by field, and a type the compiler cannot take apart has none"
             )
             ""
           }
@@ -13040,7 +13061,7 @@
           ; needs the argument's TYPE, which this walk does not have,
           ; and the effects any implementation can perform are the
           ; effects the call can perform. Traits went in 0.6.0 and took
-          ; that arm with them - `show` resolves in `checkApp` to an
+          ; that arm with them - `format#` resolves in `checkApp` to an
           ; ordinary function or a generated renderer, both of which
           ; `findFnEnt` answers for.
           ;
@@ -14783,7 +14804,7 @@
 ;
 ; The form's own type is its BODY's: an operation's result is its
 ; declared arrow's result, so `(handle (ask 1) (Ask) h)` is an `Int`
-; and `(println (handle ..))` selects `show` on it. It answered the
+; and `(println (handle ..))` selects a rendering on it. It answered the
 ; silent wildcard until 2026-08-29, which is why every fixture and
 ; both stdlib effects spelled `(cast Int (handle ..))` and drew AX3025
 ; without it.

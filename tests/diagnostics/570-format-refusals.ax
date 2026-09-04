@@ -12,7 +12,7 @@
 ;
 ; Not here, because they are not this code:
 ;   {nope}   an unbound hole is AX3001, at the hole's own span
-;   {c}      a type with no `Show` instance is AX3025
+;   {c}      a type with no rendering is AX3025
 ;   {s:.2}   a well-formed specifier applied to the wrong type is
 ;            AX3004, on `fmtFloatPrec`'s Float parameter
 ; Those three are the division of labour this design turns on - the

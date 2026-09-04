@@ -1,31 +1,31 @@
-[1;31merror[AX3025][0m[1m: cannot render this argument with `show`: its type is a type variable, not a named type[0m
-  [1;34m--> [0m620-show-refusals.ax:22:14
+[1;31merror[AX3025][0m[1m: cannot render this argument with `format`: its type is a type variable, not a named type[0m
+  [1;34m--> [0m620-show-refusals.ax:28:14
 [1;34m   |[0m
-[1;34m22 |[0m     (println x)
+[1;34m28 |[0m     (println x)
 [1;34m   |[0m              [1;31m^ no rendering derived[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma rendering is chosen at compile time from the argument's static type, and a type variable is not a type
-  [1;34m = [0m[1;32mhelp: [0m`show` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either
+  [1;34m = [0m[1;32mhelp: [0m`format` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
 
-[1;31merror[AX3025][0m[1m: cannot render this argument with `show`: its type is `Box a`, which mentions a type variable[0m
-  [1;34m--> [0m620-show-refusals.ax:38:14
+[1;31merror[AX3025][0m[1m: cannot render this argument with `format`: its type is `Box a`, which mentions a type variable[0m
+  [1;34m--> [0m620-show-refusals.ax:44:14
 [1;34m   |[0m
-[1;34m38 |[0m     (println b)
+[1;34m44 |[0m     (println b)
 [1;34m   |[0m              [1;31m^ no rendering derived[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma rendering is chosen at compile time from the argument's static type, and a type variable is not a type
-  [1;34m = [0m[1;32mhelp: [0m`show` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either
+  [1;34m = [0m[1;32mhelp: [0m`format` renders by the STATIC type of its argument: bind it to a `let` with a signature, or write the type at the call - a generic function's own type variable cannot select a rendering either
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
 
-[1;31merror[AX3025][0m[1m: `show` cannot render `Holder`: it holds a `Foreign`, which has no rendering[0m
-  [1;34m--> [0m620-show-refusals.ax:53:16
+[1;31merror[AX3025][0m[1m: `format` cannot render `Holder`: it holds a `Foreign`, which has no rendering[0m
+  [1;34m--> [0m620-show-refusals.ax:59:16
 [1;34m   |[0m
-[1;34m53 |[0m       (println h)
+[1;34m59 |[0m       (println h)
 [1;34m   |[0m                [1;31m^ no rendering derived[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma rendering is derived from the static type at compile time, field by field, and a type the compiler cannot take apart has none
-  [1;34m = [0m[1;32mhelp: [0mgive the field a type `show` can render, or write a function that renders this type and interpolate its result
+  [1;34m = [0m[1;32mhelp: [0mgive the field a type `format` can render, or write a function that renders this type and interpolate its result
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3025` for a full explanation
 
 compilation failed due to 3 previous errors

@@ -1,33 +1,69 @@
-; expect 20
-; MAC-CAP-10.5 - the capture the format lowering inherits from
-; MAC-HYG-8, measured rather than asserted.
+; expect 60
+; MAC-CAP-10.5 - what an entry file can and cannot capture from the
+; format lowering. Measured rather than asserted; the file exists
+; because this repository got the answer wrong in a comment twice.
 ;
-; The re-parse defect this used to share a file with is
-; `382-format-macros.ax`'s bit 2: it cannot be tested here, because
-; the hijack below intercepts the `show` a nested format goes through.
+; The lowering invents two free identifiers that no template spells:
+; the rendering call for a hole, and the `strConcat` that joins a
+; literal run to it. Both were capturable when this file was written.
+; NEITHER IS NOW, and they closed separately, which is why both are
+; measured here:
 ;
-;  1  A HOLE NAMES A BINDING AT THE INVOCATION, and `show`/`strConcat`
-;     are ordinary free identifiers of the expansion. An entry file
-;     that declares either one CAPTURES it, silently. That is
-;     MAC-HYG-8's residue and it is not fixed here - it is MEASURED
-;     here, so the scope-sets work (MAC-HYG-9) has a test to flip
-;     rather than a paragraph to re-read. `capture` below answers 9
-;     BECAUSE the hijack works; when hygiene closes, it answers 3 and
-;     this fixture fails loudly at the line that documents why.
+;  1  THE RENDERING IS NOT CAPTURABLE, since 0.7.4. The expander emits
+;     `format#` (`expFmtShow`, self_host/expand.ax), and `#` is not an
+;     identifier character - `AX1001` - so no declaration can name the
+;     head, and `expFmtShow` does not consult `expQualify` at all.
+;     `capture` below answers 2, `fmtInt` on 42, THROUGH a file that
+;     declares its own `show`. It answered 3 until 0.7.4, because
+;     `xyz` is 3, and that was this fixture's whole subject.
+;     ABLATION, run rather than reasoned: put
+;     `(expFmtCall env "show" v vsp)` back in `expFmtHole`, rebuild
+;     from the seed, and this file exits 40 - `capture` back to 3 and
+;     `captureCat` to 5 (`n=` plus `xyz`), with bits 2 and 4 still
+;     passing so the failure names itself.
 ;
-;  2  A hole with a specifier still resolves the same way, so the two
-;     interact: the capture applies before the padding, not instead
-;     of it.
+;  2  THE ENTRY FILE'S `show` IS STILL A LIVE FUNCTION, and the point
+;     is that the lowering does not reach it rather than that it does
+;     not exist. `direct` calls it by name and gets its 3 characters.
+;     Without this bit, bit 1 would also pass if `show` had simply
+;     stopped compiling.
+;
+;  3  `strConcat` IS NOT CAPTURABLE EITHER, and it closed EARLIER and
+;     for a different reason - which is worth a bit of its own,
+;     because `self_host/expand.ax` went on claiming the opposite
+;     until 0.7.4 and this fixture never asked. `expQualify`'s fourth
+;     rule (MAC-HYG-8 hole 4) rewrites a template's free identifier to
+;     `Mod$name` when exactly ONE module in the merged declaration
+;     list declares it, and `Str` is the only one that declares
+;     `strConcat`, so the lowering emits `Str$strConcat` and the entry
+;     file's own declaration is not in the running. Measured on the
+;     0.7.3 binary as well as this tree: `#calls=` on `main` reads
+;     `Str$strConcat` in both.
+;     The hole needs a NON-EMPTY literal run to emit a join at all -
+;     `expFmtCat` answers the accumulated node itself when there is
+;     nothing to join to, so a bare `{n}` emits no `strConcat`, which
+;     is also why bit 1's probe is undisturbed by the hijack below.
+;     `captureCat` answers 4 - `n=42` - and 8 would be `HIJACKED`.
+;
+;  4  A SPECIFIER still composes with the rendering rather than
+;     replacing it, under both hijacks. This was bit 2 until 0.7.4,
+;     where it measured the padding wrapping a CAPTURED rendering;
+;     what survives the capture is the composition.
 (import IO)
 
 (import Str)
 
-; The hijack. `(-> a String)` is deliberately type-COMPATIBLE with
-; every use the expansion makes of it - an ill-typed capture is loud
-; and would prove nothing about the silent one.
+; The two hijacks. Each signature is deliberately type-COMPATIBLE with
+; the use the expansion makes of it - an ill-typed capture is loud and
+; would prove nothing about the silent one this file was written to
+; catch.
 (:: show (-> a String))
 
 (fn (show x) "xyz")
+
+(:: strConcat (-> String String String))
+
+(fn (strConcat a b) "HIJACKED")
 
 (:: bit (-> Bool Int Int))
 
@@ -38,15 +74,28 @@
   )
 )
 
-; 1: every hole in the file goes through the entry file's `show`, so a
-;    3-character answer is the capture and a 2-character one would be
-;    `fmtInt`. Measured, not asserted: `xyz` is 3.
+; 1: the hole does not go through this file's `show`. 2 is `fmtInt` on
+;    42; 3 would be `xyz`.
 (:: capture (-> Int Int))
 
 (fn (capture n) (strLen (format "{n}")))
 
-; 2: the capture feeds the padding rather than bypassing it - width 6
-;    over the captured 3 characters.
+; 2: and `show` is nonetheless a function this file can call.
+(:: direct (-> Int Int))
+
+(fn (direct n) (strLen (show n)))
+
+; 3: the literal run's join does not go through this file's
+;    `strConcat` either. 4 is `n=42`; 8 would be `HIJACKED`.
+(:: captureCat (-> Int Int))
+
+(fn (captureCat n) (strLen (format "n={n}")))
+
+; 4: a SPECIFIER is undisturbed by either hijack - the padding is
+;    `Fmt`'s and it wraps the rendering rather than replacing it.
+;    6 is `    42`. This was bit 2 of this file until 0.7.4, where it
+;    measured the capture feeding the padding; the composition is what
+;    survives the capture's removal.
 (:: captureWidth (-> Int Int))
 
 (fn (captureWidth n) (strLen (format "{n:>6}")))
@@ -55,6 +104,6 @@
 
 (fn (main)
   (let ((n 42))
-    (+ (bit (== (capture n) 3) 4) (bit (== (captureWidth n) 6) 16))
+    (+ (bit (== (capture n) 2) 4) (+ (bit (== (direct n) 3) 8) (+ (bit (== (captureCat n) 4) 16) (bit (== (captureWidth n) 6) 32))))
   )
 )

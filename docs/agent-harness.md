@@ -460,14 +460,18 @@ the output. That is the sandbox the proposal wanted, and it holds.
 Two measured defects still block a *safe* expansion API, and neither is
 small. A third, the one that was never a hygiene defect, is closed:
 
-1. **Reverse hygiene has a live hole.** A template's free identifier is
-   captured by an entry-file declaration of the same name: the printing
-   macros expand to bare `show` and `strConcat` calls, so an entry file
-   that declares either one hijacks every hole in the file. The
-   stdlib's own `format` macro is subject to it, and
-   `tests/selfhost/383-format-capture.ax` pins the broken behaviour —
-   re-measured 2026-08-31, it still exits 20, the value that says the
-   hijack won.
+1. **Reverse hygiene has a live hole**, and the printing macros are no
+   longer an instance of it. A template's free identifier can still be
+   captured by an entry-file declaration of the same name, which is
+   what a general expansion API would have to answer for. The format
+   lowering was the worked example — it expanded to bare `show` and
+   `strConcat` calls, and an entry file declaring either hijacked every
+   hole in the file — and both halves closed:
+   `expQualify`'s exactly-one-module rule takes `strConcat` to
+   `Str$strConcat`, and 0.7.4 replaced the rendering head with the
+   unwritable `format#`.
+   `tests/selfhost/383-format-capture.ax` measures both, at exit 60,
+   where 20 was the value that said the hijack won.
 2. **Declaration-level generated names are unhygienic**, colliding with
    hand-written ones as `AX3006` at a positionless span.
 3. ~~**A declaration-macro fan-out is unbounded.**~~ **Bounded,
