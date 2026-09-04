@@ -21199,7 +21199,10 @@
 ; `Diag` and `SrcIx`, `codegen.ax`'s `CG`, `expand.ax`'s `FmtSpec`,
 ; `stdlib/Job.ax`'s `JobPool`, three `*mut Int` in fixtures. NOT ONE
 ; site in the tree declares a non-`Int` result over a body that
-; disagrees with it. So exempting a declared `Int`, and only a
+; disagrees with it. (That count is of the 558-file tree it names.
+; `stdlib/Job.ax` was deleted at 0.7.4 and its replacement
+; `stdlib/Par.ax` holds no record at all, so one of the 29 is gone; the
+; conclusion is not, and the remaining 28 are the same shape.) So exempting a declared `Int`, and only a
 ; declared `Int`, costs the tree nothing and closes every row above.
 ;
 ; `(cast Box n)` remains the explicit escape, and is what a function
@@ -21305,7 +21308,7 @@
 ; This is deliberately NOT `tyCompat`. `Int` is this language's
 ; universal heap-handle type, and the whole tree relies on it: the
 ; compiler's own `(pub :: mkSpan (-> Int Int Int))` has the body
-; `(Span start end)`, and `Job.ax`'s `jobPoolNew` answers a `JobPool`
+; `(Span start end)`, and `format.ax`'s `mkFPr` answers an `FPr`
 ; through an `Int` signature. Comparing a declared result with an
 ; inferred one through `tyCompat` reports 21 of this repository's 271
 ; files, every one of them a handle returned through `Int` on purpose.
@@ -21348,8 +21351,8 @@
 ; exempts at its second line.
 ;
 ; The convention is real: `Int` is this language's universal heap
-; handle, `mkSpan` declares `Int` and answers a `Span`, `jobPoolNew`
-; answers a `JobPool`. Every one of those is a MONOMORPHIC struct, and
+; handle, `mkSpan` declares `Int` and answers a `Span`, `mkFPr`
+; answers an `FPr`. Every one of those is a MONOMORPHIC struct, and
 ; the handle is the whole value - a caller that knows the convention
 ; knows what it holds.
 ;

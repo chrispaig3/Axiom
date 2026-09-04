@@ -118,7 +118,7 @@ they are the only thing an automated test on-device can observe.
 
 ### 4.4 A `--no-std`-shaped subset of the standard library
 
-`Sys`, `IO`, `Path`, `Http`, `Rpc` and `Job` all assume a filesystem, a
+`Sys`, `IO`, `Path`, `Http`, `Rpc` and `Par` all assume a filesystem, a
 process model, or sockets. `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`,
 `Utf8`, `Err`, `Show` do not. Proposed: mark the second group as the
 freestanding subset and gate it — a probe that imports only those and

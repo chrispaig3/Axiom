@@ -251,7 +251,7 @@ message itself.
 
 Axiom has a standard library written in Axiom (`stdlib/`: `Sys`, `Mem`,
 `Str`, `Fmt`, `IO`, `Vec`, `Map`, `Json`, `Path`, `Utf8`, `Err`, `Ffi`,
-`Intern`, `Show`, `Pre`, `Job`, `Rpc`), built on the freestanding
+`Intern`, `Show`, `Pre`, `Par`, `Rpc`), built on the freestanding
 primitives `__syscall0`-`__syscall6`, `__load8`/`__store8`,
 `__load64`/`__store64`, `__alloc`, and `__addr`. Use it: `(import IO)`
 and `println`. Generated code calls no libc function, and

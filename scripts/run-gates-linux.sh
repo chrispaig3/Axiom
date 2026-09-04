@@ -232,7 +232,35 @@ if [[ -f /work/.git ]]; then
     rm -f /work/.git
     cp -a /srcgit /work/.git
     rm -f /work/.git/index /work/.git/HEAD.lock 2>/dev/null || true
-    [[ -n "$head_ref" ]] && printf '%s\n' "$head_ref" > /work/.git/HEAD
+    # A SYMBOLIC HEAD IS `ref: refs/heads/x`, NOT `refs/heads/x`, and
+    # writing the bare ref name makes git reject the ENTIRE directory:
+    # `fatal: not a git repository: '/work/.git'`, with `objects/`,
+    # `refs/` and `config` all present and correct. Measured 2026-09-03
+    # in this container - every one of the five git-consuming gates got
+    # that, on every worktree run, since this block landed. It went
+    # unnoticed because each of them tolerated the failure in its own
+    # way; `check-doc-drift.sh`'s `.ax` census now asks git a question
+    # it needs an ANSWER to, and that is what surfaced it.
+    #
+    # `$AXIOM_WORKTREE_HEAD` is `git symbolic-ref HEAD` on the host when
+    # a branch is checked out and `git rev-parse HEAD` when it is
+    # detached, so both spellings arrive here and both are handled.
+    if [[ -n "$head_ref" ]]; then
+      case "$head_ref" in
+        refs/*) printf 'ref: %s\n' "$head_ref" > /work/.git/HEAD ;;
+        *)      printf '%s\n'      "$head_ref" > /work/.git/HEAD ;;
+      esac
+    fi
+    # And the rebuild is CHECKED rather than announced. A block whose
+    # only output is "rebuilt" cannot tell the difference between a
+    # repository and a directory of the right shape - which is exactly
+    # the difference it got wrong above.
+    if ! git -C /work rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      echo "== the rebuilt /work/.git is NOT a usable repository - the five" >&2
+      echo "   git-consuming gates will fail for this harness's reason and" >&2
+      echo "   not the tree's. HEAD is [$(cat /work/.git/HEAD 2>&1)] =="  >&2
+      exit 1
+    fi
     # AND THE INDEX MUST BE REBUILT, not merely deleted. A worktree's
     # index lives in `.git/worktrees/<name>/index`, not in the shared
     # store copied above, so the copy arrives with either no index or
@@ -242,7 +270,7 @@ if [[ -f /work/.git ]]; then
     # run is modified", a content failure over a plumbing cause, and
     # exactly the class this whole block exists to stop manufacturing.
     git -C /work reset -q 2>/dev/null || true
-    echo "== worktree .git rebuilt from the mounted object store =="
+    echo "== worktree .git rebuilt from the mounted object store, at $(git -C /work rev-parse --short HEAD) =="
   else
     echo "== /work/.git is a worktree pointer and no object store was mounted;"
     echo "   git-consuming gates will fail for that reason and not the tree's. =="

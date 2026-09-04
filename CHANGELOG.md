@@ -334,6 +334,83 @@ root. Raw `memGetWord`/`memSetWord` go from `51` to `24`. Every retyped
 public name is declared in `compat/BREAKING`, including the five
 `verify-compat.py` cannot see because they postdate the `0.5.0` baseline.
 
+### `stdlib/Par.ax` replaces `stdlib/Job.ax`: the pool runs an Axiom closure
+
+`Job` was a bounded pool of child PROGRAMS over `sysSpawn`/`sysWaitPid`,
+and `docs/memory-model.md` MM-PAR-2 named its limit: **it could not run
+an Axiom closure**, only exec a binary on the filesystem. `Par` is the
+same pool over `__proc_spawn`/`__proc_join` — the primitives
+`(parallel ...)` desugars to — and it is strictly more general:
+`parMapWords` runs any thunk, and `parRunAll` is that function over a
+closure that runs one argv.
+
+The replacement is a drop-in, and that is measured rather than asserted.
+`tests/stdlib/302-job.ax` with `(import Job)`→`(import Par)` and
+`jobRunAll`→`parRunAll` produced its own golden **byte for byte** — all
+three of its discriminating terms, including the missing program
+answering `-ENOENT` in its own slot. That port is now
+`tests/stdlib/476-par-pool.ax`, with a fourth term `Job` could not have
+run: `parMapWords` over a lambda capturing a `Vec` the parent built.
+
+`AX3064` is not weakened, dodged, or argued with. The pool names
+`__proc_spawn`, which `capSpawnHead` exempts because it NAMES the forked
+lowering, whose isolation is `MM-PAR-3` by construction — not because of
+a build flag. And because `AX3064` cannot see a capture through
+`parMapWords`'s parameter, the fact is **gated** instead of commented:
+`scripts/check-parallel.sh` section 6b requires the pool's module to be
+byte-identical with `--threads` and without. Ablated — `__proc_spawn`
+swapped for `__par_spawn` in a copy of `stdlib/` — the `--threads` build
+grows 2 pthread declares and 7 thread-local globals and the arm goes red.
+
+One behaviour genuinely differs and `Par.ax`'s header says so: a thunk
+that **traps** exits the parent with the child's status, because
+`__axiom_par_join_proc` re-raises a non-zero wait status. That is
+`471-parallel-trap.ax`'s pinned rule. An external program that fails is
+unaffected — it answers a word and its child exits 0.
+
+Five new arms in `scripts/check-parallel.sh` section 6 and five
+ablations behind them: the golden, flag-independence, the width bound as
+a RATIO (measured 6.6x, ablated 0.99x), the clamp, and that the pool adds
+no import over the gate's existing `plain.ax` control.
+`jobRunAll` was `Job`'s only public name, so the break is one line in
+`compat/BREAKING`.
+
+### The `.ax` census reads the index, so the local battery stops flaking
+
+`scripts/check-doc-drift.sh` counted `.ax` files with
+`glob("**/*.ax", recursive=True)` and runs in `run-gates.sh`'s PARALLEL
+phase, six gates at a time — so it counted whatever was momentarily in
+the tree. Measured **616 in-battery against 613 alone**, while CI stayed
+green because `ci.yml` runs it as its own sequential step.
+
+The culprit gate was hunted and does not exist: all 54 gates of the
+parallel phase were run under a 0.1 s watcher and **not one** created a
+`.ax` inside the tree. The mechanism that WAS reproduced is an untracked
+`.ax` sitting in the working tree — an editor's, a scratch file's, a
+concurrent agent's.
+
+So the measurement is made independent of concurrency rather than
+serialised: `scripts/lib/ax-census.py` asks `git ls-files`, which reads
+the INDEX. On a clean tree the two answers are identical (613 and 613,
+with an empty `diff` of the sorted lists), so the substitution changes
+the answer in no case except the one it exists for. A `git` that will
+not answer is a loud FAILURE, never a silent fallback to the glob, and
+untracked strays are NAMED rather than dropped.
+
+`scripts/check-tree-sitter.sh` had the same defect one line worse — it
+`find`s every `.ax` and PARSES it, so a stray or vanishing file there is
+a parse failure or a missing-file error blamed on the grammar. Same
+substitution, and it drops both `-not -path` exclusions the `find`
+needed, because neither `target/` nor `.claude/` is in the index.
+
+New section 9 of `check-doc-drift.sh` is the ablation, and it runs the
+SHIPPED program against a synthetic repository rather than a copy of it:
+two `.ax` added to the index and one left untracked, where the census
+must answer 2 and a glob answers 3; the stray must be named; `git add`
+the third and the census must answer 3, so it is not a constant; and
+outside a repository it must FAIL rather than fall back.
+
+
 ## 0.7.3 — 2026-09-03
 
 ## 0.7.4 — 2026-09-03

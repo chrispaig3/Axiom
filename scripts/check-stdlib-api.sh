@@ -69,10 +69,10 @@ stdlib/Html.ax
 stdlib/Http.ax
 stdlib/IO.ax
 stdlib/Intern.ax
-stdlib/Job.ax
 stdlib/Json.ax
 stdlib/Map.ax
 stdlib/Mem.ax
+stdlib/Par.ax
 stdlib/Path.ax
 stdlib/Pre.ax
 stdlib/Rpc.ax

@@ -385,18 +385,56 @@ echo "== grounding: every inferred IO reaches a primitive through the graph =="
 # the gate was holding the old definition, and a grounding check whose
 # origin list is short reports honest effects as unexplained.
 #
-# So the list is four, not two, and it is the SAME list the compiler
-# registers with `regFnEff` in `self_host/typecheck.ax`. When one
-# grows, so does the other; there is no third place to look.
+# So the list is not two, and it is the SAME list the compiler registers
+# with `regFnEff` in `self_host/typecheck.ax`. That sentence was here
+# before this line was, and it was NOT TRUE: the list was hand-copied
+# and had been short by SIX since `parallel` landed. `__par_spawn`,
+# `__par_join`, `__thread_spawn`, `__thread_join`, `__proc_spawn` and
+# `__proc_join` are all registered `(builtinEff "IO")` there, and none
+# of them was here. Nothing failed, because no `stdlib/` module named
+# one until `stdlib/Par.ax` did on 2026-09-03 - and then a correct
+# module was reported as an effect with no origin.
+#
+# A hand-copied list that a comment PROMISES is a copy is a copy that
+# will drift, so it is not copied any more: it is read out of
+# `regFnEff` at run time, below, with a floor under the count so that a
+# grep which stops matching fails loudly instead of grounding nothing.
+# The spawn primitives are real origins for the same reason `__argc` is
+# - `@__axiom_par_spawn_proc` is `fork` and `wait4` through the syscall
+# template, a syscall the EMITTER writes rather than one the library
+# spells, which no walk over `#calls=` can ever reach.
 #
 # It is a transitive walk, not a one-hop check, because the library is
 # four and five hops deep: `writeStr` -> `sysWriteAllFd` -> `sysWriteFd`
 # -> ... -> `__syscall3`. An earlier version of this probe asserted the
 # one hop and failed on a correct tree, which is why it is spelled as
 # reachability now.
-python3 - "$work/calls" "$stdlib_prefix" <<'PYG' > "$work/ground.out" || { cat "$work/ground.out"; exit 1; }
+# The origin list, READ from the compiler rather than restated here.
+# `regFnEff <name> <type> (builtinEff "IO")` is the one place a
+# primitive is given `IO`, so it is the one place this gate asks.
+# `|| true` IS LOAD-BEARING, and leaving it off made the floor below
+# unreachable. This script runs under `set -e` (re-armed at line 89) and
+# `pipefail`, so a `grep` that matches nothing fails the whole pipeline
+# and kills the script AT THE ASSIGNMENT - before the floor can report
+# anything. Measured: ablating the second `grep` exited 1 with the
+# section header as the last line and no message at all, which reads as
+# a crash rather than as the finding it is.
+io_prims="$(grep 'regFnEff fns "' "$repo_root/self_host/typecheck.ax" \
+  | grep 'builtinEff "IO"' \
+  | sed 's/.*regFnEff fns "\([^"]*\)".*/\1/' | LC_ALL=C sort -u | tr '\n' ',' || true)"
+n_io_prims="$(printf '%s' "$io_prims" | tr ',' '\n' | grep -c . || true)"
+if [[ "$n_io_prims" -lt 4 ]]; then
+  echo "FAIL: only $n_io_prims IO-registering primitive(s) found in self_host/typecheck.ax;"
+  echo "      the floor is 4 (8 on 2026-09-03: __argc, __argv and the six spawn/join"
+  echo "      primitives). The grep has stopped matching \`regFnEff\`, and a grounding"
+  echo "      check with no origins grounds nothing."
+  exit 1
+fi
+echo "     origins: __syscallN, stdlib/Ffi.ax, and $n_io_prims from regFnEff: ${io_prims%,}"
+python3 - "$work/calls" "$stdlib_prefix" "$io_prims" <<'PYG' > "$work/ground.out" || { cat "$work/ground.out"; exit 1; }
 import re, sys
 axsym, prefix = sys.argv[1], sys.argv[2]
+IO_PRIMS = {p for p in sys.argv[3].split(",") if p}
 rows, spans = {}, {}
 for line in open(axsym):
     if not line.startswith('F '):
@@ -434,7 +472,7 @@ def grounded(key, seen):
         return False
     seen.add(key)
     for callee in rows[key][1]:
-        if callee.startswith('__syscall') or callee in ('__argc', '__argv'):
+        if callee.startswith('__syscall') or callee in IO_PRIMS:
             return True
         nxt = resolve(callee)
         if nxt is None:
@@ -458,7 +496,8 @@ for key, (effs, calls) in rows.items():
 
 if ungrounded:
     print("FAIL: these rows carry IO but no path through #calls= reaches a")
-    print("      `__syscallN`, an `extern`, `__argc` or `__argv`, so the")
+    print("      `__syscallN`, an `extern`, or a primitive `regFnEff` gives")
+    print("      `IO` (%s), so the" % ", ".join(sorted(IO_PRIMS)))
     print("      effect has no origin:")
     for (mod, name), span in ungrounded[:20]:
         print("     %s.%s  %s" % (mod, name, span))

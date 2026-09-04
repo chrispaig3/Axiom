@@ -1,10 +1,11 @@
-; A bounded pool of child processes, joined in submit order.
+; A bounded pool of concurrent tasks, joined in submit order.
 ;
-; `Sys` has always had the unfused pair - `sysSpawn` and `sysWaitPid`
-; take an explicit pid - and nothing had ever used it that way. `Job`
-; is that pair with a width bound, and this case is chosen to fail
-; loudly on each of the three things that can go wrong rather than
-; merely to observe that something ran.
+; This is the deleted `302-job` fixture with `Job` replaced by `Par`,
+; plus one term `Job` could never have run. The first three terms and
+; their golden are inherited BYTE FOR BYTE from that fixture -
+; measured, `diff` of the two outputs was empty - which is the evidence
+; that `parRunAll` is a drop-in for `jobRunAll` rather than merely a
+; similar function.
 ;
 ; THE DISCRIMINATING TERMS, and what each one alone would catch:
 ;
@@ -14,23 +15,35 @@
 ;      completion order would print them exactly reversed, and a pool
 ;      that answered in submit order prints them ascending. A test
 ;      whose children all exited 0, or all took the same time, could
-;      not tell those two pools apart.
+;      not tell those two pools apart. `check-parallel.sh` section 6
+;      ablates the drain to join the NEWEST outstanding, which is the
+;      one-line edit that turns this pool into the wrong one.
 ;
 ;   2. THE SLICE. One argument is a `strSlice` of a longer string
 ;      rather than a literal. `strCStr` is `strData` and nothing more,
 ;      so a slice is NUL-terminated only by accident of what follows it
-;      in memory; `jobArgvVector` must `strDup` every element. Ablated
+;      in memory; `parArgvVector` must `strDup` every element. Ablated
 ;      (dropping the strDup), this term makes `sh` receive an argument
 ;      with trailing garbage and exit non-zero, so it shows up as a
 ;      wrong code rather than as a crash.
 ;
 ;   3. THE MISSING PROGRAM. A command that does not exist must answer a
-;      NEGATIVE errno - the child never ran - and must still occupy its
-;      own slot, so that every later result keeps its index. Conflating
-;      "could not start it" with "it exited 127" is the distinction
-;      `Sys.ax` goes out of its way to preserve in `sysRun`, and a
-;      failed submission that consumed no slot would silently shift
-;      every subsequent answer by one.
+;      NEGATIVE errno - the program never ran - and must still occupy
+;      its own slot, so that every later result keeps its index.
+;      Conflating "could not start it" with "it exited 127" is the
+;      distinction `Sys.ax` goes out of its way to preserve in
+;      `sysRun`, and a failed submission that consumed no slot would
+;      silently shift every subsequent answer by one.
+;
+;   4. AN AXIOM CLOSURE, which is the whole reason this module replaced
+;      `Job`. `docs/memory-model.md` MM-PAR-2 named "`Job` cannot run
+;      an Axiom closure - it execs an external program" as Job's hard
+;      limit. `parMapWords` runs a lambda that CAPTURES a `Vec` the
+;      parent built, at width 3 over six tasks, and answers in submit
+;      order. Nothing here execs anything. The capture is safe because
+;      `__proc_spawn` names the FORKED lowering, so the child reads its
+;      own copy-on-write copy - which is why AX3064 exempts that
+;      primitive and does not have to be weakened for this to compile.
 ;
 ; Width 3 against 8 submissions, so the pool genuinely blocks and reaps
 ; mid-run rather than spawning everything at once.
@@ -44,7 +57,7 @@
 
 (import Vec)
 
-(import Job)
+(import Par)
 
 (pub :: sh3 (-> String (Vec String)))
 
@@ -81,7 +94,7 @@
         })
       ; Term 1: order under a deliberately reversed completion order.
       (let (
-        (res (jobRunAll cmds 3))
+        (res (parRunAll cmds 3))
         (mut k 0)
       )
         {
@@ -97,7 +110,7 @@
       )
       ; Term 2: an argument that is a SLICE, not a literal. "exit 23" is
       ; carved out of a longer string, so its bytes do not end where the
-      ; `Str` does.
+      ; `String` does.
       (let (
         (long "XXexit 23YYYY")
         (c2 vecNew)
@@ -106,7 +119,7 @@
           (vecPush c2 (sh3 (strSlice long 2 7)))
           (println "slice argument")
           (println
-            (cast Int (vecGet (jobRunAll c2 2) 0))
+            (cast Int (vecGet (parRunAll c2 2) 0))
           )
         }
       )
@@ -121,7 +134,7 @@
           (vecPush c3 (sh3 "exit 5"))
           (vecPush c3 miss)
           (vecPush c3 (sh3 "exit 6"))
-          (let ((r3 (jobRunAll c3 3)))
+          (let ((r3 (parRunAll c3 3)))
             {
               (println "missing program")
               (println (vecLen r3))
@@ -137,6 +150,38 @@
               (println
                 (cast Int (vecGet r3 2))
               )
+            }
+          )
+        }
+      )
+      ; Term 4: an Axiom closure over a captured Vec, no exec at all.
+      ; The multipliers are the parent's; each task reads its own slot
+      ; out of the child's copy of them.
+      (let (
+        (muls vecNew)
+        (mut m 0)
+      )
+        {
+          (while (< m 6)
+            {
+              (vecPush muls (* m 101))
+              (set m (+ m 1))
+            })
+          (let (
+            (r4 (parMapWords
+              (lambda (t) (vecGet muls t))              6              3
+            ))
+            (mut q 0)
+          )
+            {
+              (println "closure")
+              (while (< q (vecLen r4))
+                {
+                  (println
+                    (cast Int (vecGet r4 q))
+                  )
+                  (set q (+ q 1))
+                })
             }
           )
         }
