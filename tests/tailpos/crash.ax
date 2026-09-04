@@ -1,0 +1,60 @@
+; MM-EXEC-6b: a `match` on a DIRECT CALL loses tail position when the
+; payload is a reference.
+;
+; THIS PROGRAM IS EXPECTED TO CRASH, and `scripts/check-tail-position.sh`
+; requires that it does. It is a defect's own demonstration, pinned so
+; that fixing the defect turns the gate red and forces whoever fixes it
+; to say so - which is this repository's rule for a quoted-broken
+; program everywhere else.
+;
+; `run` is written in tail position: the recursive call is the whole of
+; the `Some` arm. `codegen.ax:12547` routes a match whose scrutinee is a
+; direct call to a pair-returning function through `emitMatch` rather
+; than `emitMatchTail` when the payload is a reference, so the frame is
+; not reused and the stack grows once per iteration.
+;
+; ITS TWO CONTROLS ARE BESIDE IT AND MUST STAY GREEN. `boxed.ax` binds
+; the scrutinee with `let` first; `intpay.ax` carries an `Int` payload
+; instead of a `String`. Either change alone makes the same program
+; iterate in constant stack, which is what localises the defect to the
+; INTERSECTION rather than to recursion depth. Two controls that pass
+; are what stop this file from being a test that a deep recursion
+; overflows, which would prove nothing.
+;
+; MEASURED at 2,000,000 iterations on the default stack, exit 139 at
+; both `--opt 0` and `--opt 2`. The gate runs it at 20,000 under
+; `ulimit -s 512`, where it still fails and both controls still pass -
+; milliseconds instead of seconds, which is why this is gateable at all.
+(import Str)
+
+(import IO)
+
+(:: step (-> Int (Option String)))
+
+(fn (step n)
+  (if (== n 0)
+    None
+    (Some "x")
+  )
+)
+
+(:: run (-> Int Int Int))
+
+(fn (run n acc)
+  (match (step n)
+    ((Some s) (run (- n 1) (+ acc (strLen s))))
+    ((None) acc)
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let ((v (run 20000 0)))
+      (println "{v}")
+    )
+    0
+  }
+)

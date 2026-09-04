@@ -77,10 +77,6 @@
 
 (type_alias name: (identifier) @type.definition)
 
-(trait_declaration name: (identifier) @type)
-(trait_method name: (identifier) @function.method)
-(impl_declaration trait: (identifier) @type)
-(impl_method name: (identifier) @function.method)
 
 (effect_declaration name: (identifier) @keyword.modifier)
 (effect_operation name: (identifier) @function.method)
@@ -129,8 +125,6 @@
   "data"
   "struct"
   "type"
-  "trait"
-  "impl"
   "effect"
 ] @keyword.type
 
@@ -151,7 +145,6 @@
 [
   "let"
   "handle"
-  "where"
   "pub"
   "import"
   "region"

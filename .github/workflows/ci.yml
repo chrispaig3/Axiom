@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # sixty-three of the gates below build the compiler under test from
+    # seventy of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -637,6 +637,21 @@ jobs:
       # this is how we find out when that stops being true.
       - name: Checking the compiler fits in a small stack
         run: ./scripts/check-stack-depth.sh
+
+      # MM-EXEC-6b, PINNED rather than fixed. A `match` on a direct call
+      # to a pair-returning function loses tail position when the payload
+      # is a reference, so a program written in tail position overflows
+      # the stack anyway. This gate REQUIRES the crash, alongside two
+      # controls - the scrutinee `let`-bound, and an `Int` payload -
+      # which must both pass, so the defect is localised to the
+      # intersection rather than being a test that deep recursion
+      # overflows. It goes red the day the defect is fixed, which is the
+      # point: a defect's own demonstration is an assertion. Under
+      # `ulimit -s 512` it reproduces at 20,000 iterations instead of the
+      # 2,000,000 the default stack needs, which is what makes it
+      # gateable at all.
+      - name: A match on a direct call still loses tail position
+        run: ./scripts/check-tail-position.sh
 
       # The STATIC half of the same question, and the one an embedded
       # target actually needs: "this binary needs at most N bytes",
@@ -1453,7 +1468,7 @@ jobs:
   # Every row, from the Rust anchor: cargo builds the compiler at
   # `bb730db`, it reproduces the first seed, and each seed after that
   # is reproduced from the one before - thirteen links and a
-  # sixty-three-commit walk. Nightly, and on the button; `grammar` is
+  # seventy-commit walk. Nightly, and on the button; `grammar` is
   # skipped on both triggers so nothing else runs.
   #
   # This job does NOT bless `bootstrap/CHAIN.checkpoint`, and the

@@ -20,10 +20,6 @@
         "named": true
       },
       {
-        "type": "impl_declaration",
-        "named": true
-      },
-      {
         "type": "import",
         "named": true
       },
@@ -37,10 +33,6 @@
       },
       {
         "type": "syntax_for_declaration",
-        "named": true
-      },
-      {
-        "type": "trait_declaration",
         "named": true
       },
       {
@@ -982,88 +974,6 @@
     }
   },
   {
-    "type": "impl_declaration",
-    "named": true,
-    "fields": {
-      "effects": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "paren_group",
-            "named": true
-          }
-        ]
-      },
-      "member": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "impl_method",
-            "named": true
-          }
-        ]
-      },
-      "trait": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "type": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "_type",
-            "named": true
-          }
-        ]
-      },
-      "visibility": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "pub",
-            "named": false
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "impl_method",
-    "named": true,
-    "fields": {
-      "body": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "_expression",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
     "type": "import",
     "named": true,
     "fields": {
@@ -1539,25 +1449,6 @@
     }
   },
   {
-    "type": "paren_group",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "_type",
-          "named": true
-        },
-        {
-          "type": "builtin_effect",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "parenthesized_pattern",
     "named": true,
     "fields": {
@@ -2020,108 +1911,6 @@
           },
           {
             "type": "syntax_join_name",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "trait_declaration",
-    "named": true,
-    "fields": {
-      "group": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "paren_group",
-            "named": true
-          }
-        ]
-      },
-      "member": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "trait_method",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "type_parameter": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "visibility": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "pub",
-            "named": false
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "trait_method",
-    "named": true,
-    "fields": {
-      "default": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "_expression",
-            "named": true
-          }
-        ]
-      },
-      "effects": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "paren_group",
-            "named": true
-          }
-        ]
-      },
-      "name": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "identifier",
-            "named": true
-          }
-        ]
-      },
-      "type": {
-        "multiple": false,
-        "required": true,
-        "types": [
-          {
-            "type": "_type",
             "named": true
           }
         ]
@@ -2686,7 +2475,7 @@
     "named": true
   },
   {
-    "type": "where",
+    "type": "union",
     "named": false
   },
   {

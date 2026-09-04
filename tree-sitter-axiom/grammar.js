@@ -218,8 +218,6 @@ module.exports = grammar({
       $.data_declaration,
       $.struct_declaration,
       $.type_alias,
-      $.trait_declaration,
-      $.impl_declaration,
       $.import,
       $.effect_declaration,
       $.extern_declaration,
@@ -494,57 +492,7 @@ module.exports = grammar({
     // repository spells the keyword - a rule that matches nothing is
     // invisible to a check that parses everything.
 
-    // `(trait (Name tv) (supertraits) (effects) where (methods))`
-    //
-    // This used to describe a different language: methods were each
-    // parenthesised and `where` introduced a *default body* inside one.
-    // The compiler's parser reads a flat `name :: type` sequence inside a
-    // single `where ( ... )` group, with optional supertrait and effect
-    // groups before it. The grammar accepted no real trait at all, and
-    // nothing noticed because no `.ax` file in the repository declares
-    // one - the same corpus-shaped blind spot that hid the formatter's
-    // trait bugs.
-    trait_declaration: $ => seq(
-      '(', optional(field('visibility', 'pub')), 'trait',
-      '(', field('name', $.identifier), optional(field('type_parameter', $.identifier)), ')',
-      repeat(field('group', $.paren_group)),
-      optional(seq('where', '(', repeat(field('member', $.trait_method)), ')')),
-      ')',
-    ),
-
-    // A trait method: `name :: type [= default] [(effects)]`, with no
-    // parentheses of its own.
-    trait_method: $ => seq(
-      field('name', $.identifier),
-      '::',
-      field('type', $._type),
-      optional(seq('=', field('default', $._expression))),
-      optional(field('effects', $.paren_group)),
-    ),
-
-    // A parenthesised list of identifiers or types: a supertrait list or
-    // an effect list. The compiler's parser distinguishes the two only by
-    // position, and both are spelled the same way, so the grammar - which
-    // exists for highlighting and structural selection - does not try to
-    // tell them apart either.
-    paren_group: $ => seq('(', repeat(choice($.builtin_effect, $._type)), ')'),
-
     effect_clause: $ => seq('(', 'effect', repeat($.effect), ')'),
-
-    impl_declaration: $ => seq(
-      '(', optional(field('visibility', 'pub')), 'impl',
-      '(', field('trait', $.identifier), field('type', $._type), ')',
-      optional(field('effects', $.paren_group)),
-      optional(seq('where', '(', repeat(field('member', $.impl_method)), ')')),
-      ')',
-    ),
-
-    impl_method: $ => seq(
-      '(',
-      field('name', $.identifier),
-      repeat(field('body', $._expression)),
-      ')',
-    ),
 
     // `(import Mod.Sub)` or `(import Mod.Sub (a b))`
     import: $ => seq(
@@ -667,7 +615,15 @@ module.exports = grammar({
       ),
     ),
 
-    removed_keyword: _ => 'union',
+    // `trait` and `impl` joined this rail on 2026-09-04. They had live
+    // declaration rules here with ZERO corpus coverage for the whole
+    // time they were dead in the language - both have been `AX2004`
+    // since 0.6.0 - so this grammar was still telling an editor they
+    // formed valid declarations while `web/src/lib/highlight.ts`
+    // already listed them as removed. Two highlighters disagreeing
+    // about the language is the defect; the compiler reports `AX2004`,
+    // so `@error` is what both should say.
+    removed_keyword: _ => choice('union', 'trait', 'impl'),
     _removed_foreign: _ => 'foreign',
 
     // -----------------------------------------------------------------

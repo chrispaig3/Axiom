@@ -615,7 +615,7 @@ website sample that imported it.
      release is cut: `scripts/check-gate-lib.sh` reads this file starting at
      `## Unreleased` and takes the two sections below it, so removing the
      heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
-     state \"sixty-three gates\" anywhere" - the count as it stands today.
+     state \"seventy gates\" anywhere" - the count as it stands today.
      Measured on the 0.7.0 tag, which is how this comment came to be here. -->
 
 ### A mid-level IR, and the first thing that lowers through it
@@ -682,7 +682,7 @@ a red that is an answer.
 `scripts/check-gate-lib.sh`'s guard over its own `word_for` table had
 fallen four arms behind the table it guards, so the range the count had
 most recently moved through was the range the guard could not see. It
-now runs to the table's end. sixty-three gates call `gate_build_axc`.
+now runs to the table's end. seventy gates call `gate_build_axc`.
 ### `.axir`: the compiler's dataflow summary, written down and read back
 
 `FnEnt` word 8 has been an interprocedural dataflow summary since stage
@@ -753,7 +753,7 @@ fact that `rgnEnsureFacts` runs only on demand — and removing the flag
 guard alone leaves the gate green, which the gate's header records so
 the next person ablating it does not conclude the check is vacuous.
 
-Two new gates, sixty-three gates now call `gate_build_axc`:
+Two new gates, seventy gates now call `gate_build_axc`:
 
 - **`scripts/check-mir-roundtrip.sh`** — emit, read back, emit again,
   byte-identical over the stdlib corpus and `self_host/main.ax` (4,862

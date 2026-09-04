@@ -1,0 +1,42 @@
+; CONTROL for `crash.ax`: the same program with the scrutinee BOUND
+; before the match.
+;
+; `(let ((r (step n))) (match r ...))` rather than `(match (step n) ...)`.
+; Nothing else differs - same reference payload, same depth, same tail
+; recursion - and this one runs in constant stack and exits 0.
+;
+; It must stay green. If it ever crashes too, the defect is not the one
+; MM-EXEC-6b describes and `crash.ax` has stopped being evidence for it.
+(import Str)
+
+(import IO)
+
+(:: step (-> Int (Option String)))
+
+(fn (step n)
+  (if (== n 0)
+    None
+    (Some "x")
+  )
+)
+
+(:: run (-> Int Int Int))
+
+(fn (run n acc)
+  (let ((r (step n))) (match r
+    ((Some s) (run (- n 1) (+ acc (strLen s))))
+    ((None) acc))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let ((v (run 20000 0)))
+      (println "{v}")
+    )
+    0
+  }
+)

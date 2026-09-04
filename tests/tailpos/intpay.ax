@@ -1,0 +1,42 @@
+; CONTROL for `crash.ax`: the same program with an `Int` payload.
+;
+; `(Option Int)` rather than `(Option String)`, so the pair the callee
+; returns carries no reference. Scrutinee is still a direct call, depth
+; is still 20,000, and this one runs in constant stack and exits 0.
+;
+; It must stay green. Together with `boxed.ax` it says the defect needs
+; BOTH a reference payload and a direct-call scrutinee - either control
+; alone is enough to avoid it.
+(import Str)
+
+(import IO)
+
+(:: step (-> Int (Option Int)))
+
+(fn (step n)
+  (if (== n 0)
+    None
+    (Some 1)
+  )
+)
+
+(:: run (-> Int Int Int))
+
+(fn (run n acc)
+  (match (step n)
+    ((Some s) (run (- n 1) (+ acc s)))
+    ((None) acc)
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let ((v (run 20000 0)))
+      (println "{v}")
+    )
+    0
+  }
+)
