@@ -89,9 +89,9 @@
 #      expects to be handed, and `mir.ax` answers "", which is what
 #      makes the lowering refuse rather than emit a wrong opcode.
 #
-#   8. THE ABLATIONS, both in a shadow tree with the driver rebuilt
-#      from it, and both chosen so that they are ORTHOGONAL - each
-#      must turn its own checks red and leave the other's green,
+#   8. THE ABLATIONS, each in a shadow tree with the driver rebuilt
+#      from it, and each chosen so that they are ORTHOGONAL - every
+#      one must turn its own checks red and leave the others' green,
 #      because two ablations that fire the same check are one
 #      ablation written twice.
 #
@@ -107,6 +107,16 @@
 #      shouted about everything would pass the first half and fail
 #      the second. Which fixtures are which is read off the goldens
 #      rather than listed here.
+#
+#      ABLATION 3 makes an `if` answer the THEN arm's register
+#      instead of the join block's parameter. Every block keeps its
+#      terminator and every register keeps its single definition, so
+#      ablations 1 and 2's checks say nothing; what is wrong is that
+#      the definition no longer DOMINATES the use. Without it the
+#      verifier's dominance rule - the only part of it that costs
+#      anything to compute - could never fail, and every complaint
+#      under this ablation must be that rule rather than a side
+#      effect of it.
 #
 # AXIOM_BLESS=1 rewrites the §2 goldens and nothing else. It cannot
 # write `self_host/mir.ax`, the fixtures, `codegen.ax`'s operator
@@ -399,11 +409,20 @@ if which == "1":
     # meaning - `sub`, `sdiv`, `srem` and every comparison invert.
     pat = re.compile(r"(MO_BIN\s+\(mlcFresh lc\)\s+)\(vecGet out 0\)(\s+)\(vecGet out 1\)")
     rep = r"\g<1>(vecGet out 1)\g<2>(vecGet out 0)"
-else:
+elif which == "2":
     # Every unconditional branch dropped. The branchless fixture is
     # untouched; every other block loses its terminator.
     pat = re.compile(r"\(if\s+(\(>\s+\(vecLen lc\.cur\.term\)\s+0\))(\s+0\s+\{\s+\(vecPush lc\.cur\.term n\))")
     rep = r"(if (|| \g<1> (== n.op MT_BR))\g<2>"
+else:
+    # An `if` answers the THEN arm's register instead of the join
+    # block's parameter. Every block still has its terminator and
+    # every register is still defined exactly once, so ablations 1
+    # and 2's checks say nothing; the only thing wrong with the
+    # result is that the definition sits in a block which does not
+    # DOMINATE the use.
+    pat = re.compile(r"\(set lc\.cur bj\)(\s+)pj")
+    rep = r"(set lc.cur bj)\g<1>r1"
 hits = len(pat.findall(s))
 if hits != 1:
     sys.stderr.write("seam %s appears %d times, expected 1\n" % (which, hits))
@@ -519,6 +538,53 @@ else
   else
     bad "ABLATION 2: $n_named of $n_spoke complaints named the missing terminator"
     sed 's/^/     /' "$work/abl2.020-if.verify" 2>/dev/null | head -6
+  fi
+fi
+
+# --- ABLATION 3: the join's parameter replaced by one arm's register ---
+# WITHOUT THIS, THE DOMINANCE CHECK CANNOT FAIL. Ablations 1 and 2
+# reach the operand order and the terminator count; neither produces
+# an IR whose definitions are all present and all single-assigned and
+# still out of reach of their uses. That is the shape block
+# parameters exist to make impossible to write by accident - and a
+# rule that only ever answers "fine" is not a rule.
+if ! ablate 3; then
+  bad "ABLATION 3 could not be built"
+  sed 's/^/     /' "$work/abl3/build.log" 2>/dev/null | head -10
+else
+  a3="$work/abl3/mirtool"
+  n_spoke3=0
+  n_lines3=0
+  n_domlines=0
+  wrong3=""
+  for f in "${fixtures[@]}"; do
+    n="$(basename "$f" .ax)"
+    if grep -q 'condbr' "tests/mir/$n.mir"; then expect=speak; else expect=silent; fi
+    "$a3" verify "$f" > "$work/abl3.$n.verify" 2>&1
+    if [[ -s "$work/abl3.$n.verify" ]]; then
+      n_spoke3=$((n_spoke3 + 1))
+      n_lines3=$((n_lines3 + $(wc -l < "$work/abl3.$n.verify" | tr -d ' ')))
+      n_domlines=$((n_domlines + $(grep -c 'does not dominate the use' "$work/abl3.$n.verify")))
+      [[ "$expect" == "silent" ]] && wrong3="$wrong3 $n(spoke)"
+    else
+      [[ "$expect" == "speak" ]] && wrong3="$wrong3 $n(silent)"
+    fi
+  done
+  if [[ -z "$wrong3" && $n_spoke3 -gt 0 ]]; then
+    ok "ABLATION 3: §3 speaks about every branching fixture and is silent about the rest"
+  else
+    bad "ABLATION 3: §3 answered wrongly for:$wrong3"
+    sed 's/^/     /' "$work/abl3.020-if.verify" 2>/dev/null | head -6
+  fi
+  # Every complaint must be the DOMINANCE one. If the terminator or
+  # single-assignment rules fired here too, this ablation and
+  # ablation 2 would be reporting the same thing and only one of them
+  # would be evidence.
+  if (( n_domlines == n_lines3 && n_lines3 > 0 )); then
+    ok "ABLATION 3: all $n_lines3 complaints are the dominance rule, not a side effect"
+  else
+    bad "ABLATION 3: $n_domlines of $n_lines3 complaints named dominance"
+    sed 's/^/     /' "$work/abl3.020-if.verify" 2>/dev/null | head -6
   fi
 fi
 

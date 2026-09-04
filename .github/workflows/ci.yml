@@ -861,11 +861,14 @@ jobs:
       # be byte-identical - plus a floor on how much of `self_host/`
       # and `stdlib/` lowers end to end (2,000 of 4,796 functions
       # today), so a rule that narrowed its subset to keep the
-      # differential green is what goes red. Two orthogonal ablations:
-      # swapping a binary operator's operands must break the goldens
-      # and the differential while the verifier stays SILENT, and
+      # differential green is what goes red. Three orthogonal
+      # ablations: swapping a binary operator's operands must break the
+      # goldens and the differential while the verifier stays SILENT;
       # dropping every `br` must make the verifier speak about exactly
-      # the fixtures whose goldens carry a `condbr`.
+      # the fixtures whose goldens carry a `condbr`; and making an `if`
+      # answer its then-arm's register instead of the join's parameter
+      # must fire the DOMINANCE rule and nothing else, which is the only
+      # thing that stops that rule being a check that cannot fail.
       - name: The mid-level IR lowers, prints, verifies and evaluates to what the compiler answers
         run: ./scripts/check-mir.sh
 
