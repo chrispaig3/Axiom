@@ -32,6 +32,17 @@
 # parallel build; nesting that inside this one oversubscribes the
 # machine and slows BOTH.
 #
+# `check-stack-bound` is in the list for a DIFFERENT reason, and it is
+# worth stating because the usual one does not apply: it reads no clock
+# and compares no ratio. What it does is bisect `ulimit -s` on a
+# fixture, reading the exit status - 0, or death by SIGSEGV. Stack depth
+# is deterministic and load-independent, so the measurement itself is
+# not at risk. The bisection's ASSUMPTION is: it reads every non-zero
+# status as "ran out of stack", and under memory pressure from fifteen
+# concurrent compilers a run could fail for some other reason at a limit
+# above the true floor, moving the reported floor up. That is a
+# load-sensitive failure even though the quantity is not.
+#
 # The list was WRONG ONCE and the way it was wrong is worth recording:
 # `check-type-namespace` asserts that naming the last type in a table
 # costs the same as naming the first, and it was left in the parallel
@@ -90,7 +101,7 @@ NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a ba
 # willingness to drain them while fifteen compilers are running, and a
 # short read is indistinguishable at the assertion from a server that
 # lost data.
-SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net)\.sh$'
+SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net)\.sh$'
 
 # THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
 # 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s

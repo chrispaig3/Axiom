@@ -638,6 +638,26 @@ jobs:
       - name: Checking the compiler fits in a small stack
         run: ./scripts/check-stack-depth.sh
 
+      # The STATIC half of the same question, and the one an embedded
+      # target actually needs: "this binary needs at most N bytes",
+      # computed from the call graph rather than bisected, because you
+      # cannot bisect a microcontroller. A program under
+      # `restrict(no-recursion)` has already had its graph proved
+      # acyclic, and an acyclic weighted graph has a longest path. The
+      # gate checks the arithmetic against a measurement (a 400-frame
+      # chain computes 204,864 B against a 193 KiB bisected floor, and
+      # 800 more frames cost 400 KiB by both accounts), cross-checks
+      # its portable prologue parse against `llc --stack-usage-file`
+      # over all 3,767 functions of the compiler, and requires the
+      # compiler ITSELF to be refused with a named cycle rather than
+      # handed a number. Hello world needs 192 bytes.
+      #
+      # `--stack-usage-file` is LLVM 19+, so the cross-check SKIPS
+      # loudly on the apt llvm-18 legs and runs on the Homebrew llvm
+      # macOS leg. Everything else runs everywhere.
+      - name: A no-recursion program's stack need is computed, and checked against a measurement
+        run: ./scripts/check-stack-bound.sh
+
       # A tail call runs in constant stack at `--opt 0`: a self call in
       # every tail position, and a mutual call whose prototypes match,
       # which `emitPlainCall` marks `musttail` - LLVM's guaranteed tail

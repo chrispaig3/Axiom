@@ -63,8 +63,16 @@
 # rather than by its input. This gate measures the compiler's need
 # dynamically because the compiler is written in the recursive shape
 # above and claims no such restriction; a region that does claim one
-# is refused at `check` time with the cycle rendered, and needs no
-# measuring.
+# is refused at `check` time with the cycle rendered.
+#
+# That last clause used to end "and needs no measuring", which is now
+# half true and was always the less useful half. Such a region needs no
+# BISECTION, because its need can be COMPUTED: `scripts/check-stack-bound.sh`
+# sums frame sizes along the longest path of the acyclic call graph and
+# reports "this binary needs at most N bytes". The two gates are a pair
+# and do not overlap - this one measures what recursion costs a program
+# that has it, that one computes what a program without it needs, and
+# each covers exactly the case the other cannot.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
