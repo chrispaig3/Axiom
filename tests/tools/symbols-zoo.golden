@@ -285,6 +285,7 @@ S Holder tests/fmt/syntax-zoo.ax:260:9-15 "struct Holder" @39a2b36e5f606cfe #fie
 S RecTwin tests/fmt/syntax-zoo.ax:401:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:251:11-21 "Box Int" @ce5c1ba8305ca704
+M format stdlib/Str.ax:772:13-19 "macro format" @f0b2b594fd323246
 M try! stdlib/Err.ax:499:13-17 "macro try!" @33e26f813784f1f9
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
 M defRecTwin tests/fmt/syntax-zoo.ax:393:8-18 "macro defRecTwin" @175bc52ff43ee048

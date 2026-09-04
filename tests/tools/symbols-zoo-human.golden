@@ -285,6 +285,7 @@ Struct   Holder               struct Holder                            [tests/fm
 Struct   RecTwin              struct RecTwin                           [tests/fmt/syntax-zoo.ax:401:13-20]
 Alias    Count                Int                                      [tests/fmt/syntax-zoo.ax:26:11-16]
 Alias    BoxedCount           Box Int                                  [tests/fmt/syntax-zoo.ax:251:11-21]
+Macro    format               macro format                             [stdlib/Str.ax:772:13-19]
 Macro    try!                 macro try!                               [stdlib/Err.ax:499:13-17]
 Macro    twice                macro twice                              [tests/fmt/syntax-zoo.ax:93:9-14]
 Macro    defRecTwin           macro defRecTwin                         [tests/fmt/syntax-zoo.ax:393:8-18]
