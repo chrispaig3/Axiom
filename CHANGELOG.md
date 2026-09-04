@@ -19,6 +19,58 @@ its changelog too.
 ## 0.7.5 — 2026-09-04
 
 
+### The arena asked for a megabyte, and only ever asked `mmap` for it
+
+`docs/embedded-proposal.md` 4.1 and 4.2, the two rows its section 4
+headed *(blocking)* and its section 8 tracked as *proposed*. The
+emitted allocator carried `1048576` as a
+literal in `emitAllocator`, and `mmap` was the only way a chunk could
+arrive; on a part with 256 KiB of SRAM the first allocation asks a
+kernel that is not there for a megabyte it does not have.
+
+The chunk size is now `targetArenaChunkBytes`, in `codegen.ax`'s target
+table beside the syscall numbers, with a derived `targetArenaGrainBytes`
+because the 64 KiB round-up for an oversized request is not independent
+of the chunk. The source of pages is now a strategy:
+`targetArenaStaticBytes` non-zero means one statically reserved region
+that `emitArenaCarve` bumps a cursor through, and `emitRuntimeMap`
+branches on it at emission time, so a program contains exactly one of
+the two doors. Exhaustion answers 0, which the allocator's existing
+`%failed_low` test already treats as a failed `mmap`, so it reaches
+`__axiom_out_of_memory` and exits 70 with no new failure path — though
+the trap's sentence now names the strategy that ran out rather than
+blaming `mmap` on a target that has none.
+
+Every supported target answers 1 MiB and `mmap`, and emits what it
+emitted before. Measured against a compiler built from the tree as it
+stood before the change: seven targets by three probes, twenty-one
+`emit-llvm` outputs, twenty-one byte-identical. The minimal program is
+the same size either side of it (17,480 bytes to one path, 17,472 to
+another — a Mach-O carries paths the linker chose, which is why the
+gate budgets the figure rather than pinning it), with 0 undefined
+symbols and exactly 3 distinct syscalls both times.
+
+`scripts/check-embedded.sh` is what holds it, and it does not settle
+for asserting that the literals are gone — that would be a check about
+an absence. It builds a second compiler from a copy of `self_host/`
+with two rows of the target table changed, which is the edit a
+bare-metal port makes: one non-host target gets a 4 KiB chunk and must
+move exactly the lines the constant reaches, the host gets a 256 KiB
+static arena so the result can be LINKED AND RUN, and the targets
+neither row names must be byte-identical. The static build allocates
+52,800 bytes across fifteen 4 KiB chunks and prints what the `mmap`
+build prints; asked for 1,056,000 it exits 70 while the `mmap` build of
+the same source exits 0. Six ablations, each required to turn a named
+assertion red. With it, sixty-six gates call `gate_build_axc`.
+
+The proposal named the wrong file for the constants -
+`Host.<target>.ax` answers which target the compiler BINARY was built
+for, not which one a program is being compiled for, so a cross-compile
+would have read the host's megabyte - and that correction, the trap
+sentence, and the fact that a statically-carved arena has no thread
+lowering (`--threads` on one is refused as AX4006) are written up in
+the document beside the items they belong to.
+
 ### The seed's corruption check no longer walks past a deleted row
 
 `bootstrap/SHA256SUMS` is what a fresh clone with no Axiom toolchain

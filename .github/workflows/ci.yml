@@ -233,7 +233,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # sixty-five of the gates below build the compiler under test from
+    # sixty-six of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -672,6 +672,21 @@ jobs:
       # macOS leg. Everything else runs everywhere.
       - name: A no-recursion program's stack need is computed, and checked against a measurement
         run: ./scripts/check-stack-bound.sh
+
+      # The other two blocking rows of docs/embedded-proposal.md. The
+      # arena's chunk size is a per-target constant and `mmap` is one of
+      # two backing strategies, chosen at emission time - so a program
+      # built for a target with no MMU carries a statically reserved
+      # region and no `mmap`, and one built for any supported target
+      # carries exactly the bytes it always did. The second half is what
+      # makes this more than an absence check: a SECOND compiler is
+      # built from a copy of `self_host/` with two rows of the target
+      # table changed, and the target given a 256 KiB static arena has
+      # to build a program that RUNS - same answer as the `mmap` build,
+      # and status 70 when it outgrows the region against a control that
+      # exits 0. Costs one extra compiler build.
+      - name: The arena's chunk size is a target constant and mmap is one of two strategies
+        run: ./scripts/check-embedded.sh
 
       # A tail call runs in constant stack at `--opt 0`: a self call in
       # every tail position, and a mutual call whose prototypes match,

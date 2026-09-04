@@ -1138,8 +1138,16 @@ holds only addresses of blocks the program has released.
 bytes and every returned address is 16-byte aligned
 (`%sz = and (add %size, 15), -16`).
 
-**MM-ALLOC-4 (H).** A chunk is 1 MiB, or, when one request needs more,
-the request plus a 16-byte header rounded up to 64 KiB. There is no
+**MM-ALLOC-4 (H).** A chunk is `targetArenaChunkBytes`, or, when one
+request needs more, the request plus a 16-byte header rounded up to
+`targetArenaGrainBytes`. **Every supported target answers 1 MiB and
+64 KiB**, which is what this rule said outright until
+`docs/embedded-proposal.md` 4.1 made both per-target rows of
+`codegen.ax`'s table — read at emission time, so a program's chunk size
+is a constant in its text exactly as before, and no supported target's
+emitted bytes moved. The grain is derived rather than free: it is the
+chunk where the chunk is smaller than 64 KiB, so a 4 KiB-chunk part
+cannot round a 5 KiB request up to sixteen chunks' worth. There is no
 growth policy: the chunk size never adapts. Each chunk begins with a
 two-word header — its total size and one link — so the **active** chunks
 form a list, newest first, and the address handed out from a fresh chunk
@@ -1152,6 +1160,25 @@ reaches `bump_end` is served from the current chunk.
 `mmap` (`PROT_READ|PROT_WRITE`, `MAP_PRIVATE|MAP_ANON`, no address hint,
 no guard pages) and are **never unmapped**. `munmap` appears nowhere in
 the emitted runtime; the only reuse is the free list.
+
+**MM-ALLOC-4c (H).** That is one of **two** backing strategies, and
+which one a program carries is decided at emission time by
+`targetArenaStaticBytes` — zero, on every supported target, meaning the
+`mmap` above (`VirtualAlloc` on Windows). Non-zero means a single
+region of that many bytes, reserved once at link time, out of which a
+cursor carves chunks in ten branchless instructions; the region's base
+is a zero-initialised global the linker places, or an absolute address
+the target names (`targetArenaStaticBase`), and it must be 16-byte
+aligned for `MM-ALLOC-3` to hold of every chunk carved from it. The
+cursor never rewinds — a reset moves chunks to the free list, it does
+not give bytes back to the region — so a carve is always memory nothing
+has been handed before, which is what keeps `MM-ALLOC-6`'s zeroing
+promise true of a `.bss` region exactly as it was of a fresh mapping.
+Exhaustion answers 0, which the existing `%failed_low` test already
+treats as a refused `mmap`, so it reaches `__axiom_out_of_memory` and
+exits **70** unchanged; only the trap's sentence differs, naming the
+region rather than `mmap`. `docs/embedded-proposal.md` 4.2 and
+`scripts/check-embedded.sh`.
 
 **MM-ALLOC-4b (H).** The free list is **first fit on the whole
 mapping**: a chunk is taken if its total size is at least the requested
