@@ -97,7 +97,7 @@
 ; ------------------------------------------------------------------
 ; Map
 ; ------------------------------------------------------------------
-(pub :: scInsert (-> Int Int Int Int))
+(pub :: scInsert (-> Map Int Int Map))
 
 (pub fn (scInsert m lo hi)
   (if (>= lo hi)
@@ -109,7 +109,7 @@
   )
 )
 
-(pub :: scMapIntact (-> Int Int Int Int Int))
+(pub :: scMapIntact (-> Map Int Int Int Int))
 
 (pub fn (scMapIntact m lo hi acc)
   (if (>= lo hi)
@@ -128,7 +128,7 @@
 ; Absent keys must stay absent at scale: a table that has grown 14 times
 ; has 14 chances to leave a stale slot answering a key nobody inserted.
 ; The probe uses keys well outside the inserted range.
-(pub :: scMapAbsent (-> Int Int Int Int Int))
+(pub :: scMapAbsent (-> Map Int Int Int Int))
 
 (pub fn (scMapAbsent m lo hi acc)
   (if (>= lo hi)
@@ -146,7 +146,7 @@
 
 ; Remove every other key, then confirm the survivors survived. This is
 ; the tombstone path at a size where a probe run can be long.
-(pub :: scRemoveEven (-> Int Int Int Int))
+(pub :: scRemoveEven (-> Map Int Int Map))
 
 (pub fn (scRemoveEven m lo hi)
   (if (>= lo hi)
@@ -158,7 +158,7 @@
   )
 )
 
-(pub :: scOddsIntact (-> Int Int Int Int Int))
+(pub :: scOddsIntact (-> Map Int Int Int Int))
 
 (pub fn (scOddsIntact m lo hi acc)
   (if (>= lo hi)
@@ -174,7 +174,7 @@
   )
 )
 
-(pub :: scEvensGone (-> Int Int Int Int Int))
+(pub :: scEvensGone (-> Map Int Int Int Int))
 
 (pub fn (scEvensGone m lo hi acc)
   (if (>= lo hi)

@@ -45,7 +45,7 @@
 (import Vec)
 
 ; Walk with the cursor, adding keys or values, and answer the total.
-(:: walkSum (-> Int Int Int Int))
+(:: walkSum (-> Map Int Int Int))
 
 (fn (walkSum m i keys)
   (match (mapLiveFrom m i)
@@ -63,7 +63,7 @@
 
 ; Does every (key, value) pair from the two vectors agree with what the
 ; map answers for that key? 1 if so.
-(:: zipOk (-> Int (Vec Int) (Vec Int) Int Int))
+(:: zipOk (-> Map (Vec Int) (Vec Int) Int Int))
 
 (fn (zipOk m ks vs j)
   (if (>= j (vecLen ks))
@@ -87,12 +87,23 @@
   )
 )
 
-(:: fill (-> Int Int Int Int))
+; The insert is a STATEMENT, not the recursive call's argument. Since
+; 2026-09-03 `mapInsert` answers 0 rather than the handle - a mutator
+; that answered `Map` would emit an unpaired retain per call and make
+; `mapFree` a no-op, which `stdlib/Map.ax` explains at `mapInsert` and
+; `scripts/check-container-reclaim.sh` is what measures. The map is
+; mutated in place, so `m` is still the table to recurse on. This file
+; and the `mapRemove` at case 5 below were the only two places in the
+; tree that chained on a mutator's result.
+(:: fill (-> Map Int Int Map))
 
 (fn (fill m i n)
   (if (>= i n)
     m
-    (fill (mapInsert m (* i 10) (* i 100)) (+ i 1) n)
+    {
+      (mapInsert m (* i 10) (* i 100))
+      (fill m (+ i 1) n)
+    }
   )
 )
 
@@ -126,7 +137,10 @@
           (println (== (vecLen (mapKeys m)) (mapLen m)))
           (println (== (vecLen (mapValues m)) (mapLen m)))
           ; --- 5. delete: the tombstone is skipped ---
-          (let ((m2 (mapRemove m 20)))
+          ; `mapRemove` answers 0, so the removal is its own statement
+          ; and `m2` names the same table it mutated. See `fill` above.
+          (mapRemove m 20)
+          (let ((m2 m))
             {
               (println (hasKey (mapKeys m2) 20 0))
               (println (hasKey (mapKeys m2) 30 0))

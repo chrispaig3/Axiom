@@ -7,7 +7,7 @@
 ; 1..10 read back through `mapSumVals` is 55.
 (import Map)
 
-(:: fill (-> Int Int Int))
+(:: fill (-> Map Int Map))
 
 (fn (fill m i)
   (if (> i 10)

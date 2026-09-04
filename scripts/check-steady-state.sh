@@ -113,6 +113,11 @@ emit_probe() {
   local probe="$1" variant="$2" n="$3" out="$4"
   case "$probe" in
     cache)
+      # Both arms of the `if` answer `Int`, not the handle: since
+      # 2026-09-03 `mapRemove` answers 0 the way `mapFree` does, and
+      # `m` is a `Map`. The ablation is unchanged in substance - the
+      # hoarding spelling still occupies the same statement position
+      # with the same shape and does not evict.
       local evict='(mapRemove m (- i windowSize))'
       [[ "$variant" == hoarding ]] && evict='(+ 0 0)'
       cat > "$out" <<AX
@@ -125,13 +130,13 @@ emit_probe() {
 (:: windowSize Int)
 (fn (windowSize) 256)
 
-(:: churn (-> Int Int Int Int))
+(:: churn (-> Map Int Int Int))
 (fn (churn m i n)
   (if (>= i n)
     (mapLen m)
     {
       (mapInsert m i (strDup (fmtInt i)))
-      (if (>= i windowSize) $evict m)
+      (if (>= i windowSize) $evict 0)
       (churn m (+ i 1) n)
     }))
 
@@ -153,7 +158,7 @@ AX
 (:: keyCount Int)
 (fn (keyCount) 64)
 
-(:: churn (-> Int Int Int Int))
+(:: churn (-> Map Int Int Int))
 (fn (churn m i n)
   (if (>= i n)
     (mapLen m)

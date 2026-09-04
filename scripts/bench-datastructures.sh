@@ -103,10 +103,10 @@ cat > "$work/b_vec.ax" <<AX
 (import Vec)
 (pub :: bN Int)
 (pub fn (bN) $N)
-(pub :: push (-> Int Int Int Int))
+(pub :: push (-> (Vec Int) Int Int (Vec Int)))
 (pub fn (push v lo hi)
   (if (>= lo hi) v { (vecPush v lo) (push v (+ lo 1) hi) }))
-(pub :: sum (-> Int Int Int Int Int))
+(pub :: sum (-> (Vec Int) Int Int Int Int))
 (pub fn (sum v lo hi acc)
   (if (>= lo hi) acc (sum v (+ lo 1) hi (+ acc (vecGet v lo)))))
 (pub :: main Int)
@@ -121,10 +121,10 @@ cat > "$work/b_map.ax" <<AX
 (import Map)
 (pub :: bN Int)
 (pub fn (bN) $N)
-(pub :: ins (-> Int Int Int Int))
+(pub :: ins (-> Map Int Int Map))
 (pub fn (ins m lo hi)
   (if (>= lo hi) m { (mapInsert m lo (* lo 3)) (ins m (+ lo 1) hi) }))
-(pub :: look (-> Int Int Int Int Int))
+(pub :: look (-> Map Int Int Int Int))
 (pub fn (look m lo hi acc)
   (if (>= lo hi) acc (look m (+ lo 1) hi (+ acc (mapGet m lo 0)))))
 (pub :: main Int)
@@ -141,11 +141,11 @@ cat > "$work/b_intern.ax" <<AX
 (import Fmt)
 (pub :: bN Int)
 (pub fn (bN) $N)
-; `nm` answers a String. It was declared `(-> Int Int)` and had been
+; \`nm\` answers a String. It was declared \`(-> Int Int)\` and had been
 ; since it was written: the String/Int fiat made the two
 ; interchangeable, and deleting the fiat (2026-08-15) left this probe
-; type-erroring with nothing running it - `bench-` scripts are not
-; `check-` gates. Found by the printing sweep, which had to touch this
+; type-erroring with nothing running it - \`bench-\` scripts are not
+; \`check-\` gates. Found by the printing sweep, which had to touch this
 ; file anyway.
 (pub :: nm (-> Int String))
 (pub fn (nm i) (strConcat "sym" (fmtInt i)))

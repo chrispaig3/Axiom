@@ -20,11 +20,17 @@
 ; `honest` is the control: the same lookup with an `Int` default, which
 ; is what every other call site in this repository already writes, and
 ; it must draw nothing.
+;
+; The handle parameter is spelled `Map`, not `Int`, since 2026-09-03:
+; `mapGet`'s first argument is a nominal type now, so `Int` here would
+; add three AX3004s of its own and bury the one this case is about.
+; tests/diagnostics/483-map-handle-not-int.ax is where that rule is
+; tested on purpose.
 (import Map)
 
 (import Str)
 
-(:: mixed (-> Int Int))
+(:: mixed (-> Map Int))
 
 (fn (mixed n)
   {
@@ -35,7 +41,7 @@
   }
 )
 
-(:: honest (-> Int Int))
+(:: honest (-> Map Int))
 
 (fn (honest n)
   {

@@ -1,0 +1,65 @@
+; A `Map` handle is a `Map`, and an `Int` is not one.
+;
+; `Int` is this language's universal heap handle and 498-param-through-int.ax
+; defends it: `mkSpan` declares `Int` and answers a `Span`,
+; `Job.jobPoolNew` answers a `JobPool`, and a 2026-08-10 attempt at a
+; general rule against that flagged 21 of 271 files, every one
+; deliberate. That convention is not being retired here.
+;
+; What it stops buying, and this is the argument for the exception, is
+; anything at all once TWO different modules' handles are the same
+; declared type. `Map` and `Intern` both answer a header address through
+; `Int`, so until 2026-09-03 `(mapLen internNew)` was a well-typed
+; program: `check` said OK, and `mapLen`'s first act at run time was to
+; read word 0 of an intern table and call it a length. `(mapGet 12345 1 0)`
+; was well-typed too. The convention cannot distinguish a map from an
+; intern table from an integer, because under it they are one type.
+; 498's case is a MONOMORPHIC handle whose only producer and only
+; consumers are in one module; this one is not.
+;
+; `stdlib/Map.ax` therefore declares `(struct Map ...)` over the header
+; `mapAllocTable` already built, and spells the handle position `Map` in
+; 36 declarations. The two calls below are the bug class, now caught.
+;
+; The third is the reason that struct is NOT `pub`. A `pub struct`
+; exports its constructor, and `(Map 0 8 0 0 0 0 0)` from out here
+; builds a seven-word block whose shape word is 16 - bitmap 0 - so the
+; three array words sit outside the block's reference map where the
+; collector cannot see them, and `mapLen` answers 0 without complaint.
+; Measured 2026-09-03. Private makes the call AX3001 while leaving the
+; TYPE name usable in another module's signature, which is all a caller
+; needs - `good` below is the control and must draw nothing.
+; THE ABLATION, run rather than assumed (2026-09-03). Against a stdlib
+; carrying the `Map` struct but with `mapLen` and `mapGet` still
+; declared `(-> Int Int)` and `(-> Int Int Int Int)`, this same file
+; reports AX3001 for the constructor and an AX3004 on `good` - and
+; NOTHING on `(mapLen it)` or `(mapGet 12345 1 0)`. The two calls this
+; case exists for are well-typed again, so the golden's first two lines
+; vanish and the gate is red. Against the pre-change stdlib, with no
+; struct at all, it is AX3002 + AX3001 - red for a different reason.
+; Neither ablation can reproduce this golden, and neither can a
+; re-bless: the second one's output does not contain the first two
+; lines at all.
+(import Map)
+
+(import Intern)
+
+; The control: a real map, used as one. It must stay accepted, or this
+; case is testing that `Map` is unusable rather than that `Int` is not
+; a `Map`.
+(:: good (-> Map Int))
+
+(fn (good m) (mapGet m 1 0))
+
+(:: main Int)
+
+(fn (main)
+  (let ((it internNew) (real mapNew))
+    {
+      (mapLen it)
+      (mapGet 12345 1 0)
+      (mapLen (Map 0 8 0 0 0 0 0))
+      (good real)
+    }
+  )
+)

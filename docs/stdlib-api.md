@@ -415,29 +415,29 @@ See [reference.md](reference.md) for the language, and
 | `mapHashPrime` | value | `Int` |  | 2^31 - 1, a Mersenne prime. No longer used by `mapHash` itself; kept because `Intern`'s polynomial string hash reduces modulo it, and a prime modulus is what makes that polynomial hash sound. |
 | `mapHash` | value | `(-> Int Int)` |  | Hash `key` to a value in [0, 2^63). |
 | `mapSlotOf` | value | `(-> Int Int Int)` |  | The slot `key` probes first, in [0, cap). |
-| `mapNew` | value | `Int` | `Alloc,Mut` | An empty `Map` with `mapDefaultCap` slots. |
-| `mapNewRefVals` | value | `Int` | `Alloc,Mut` | An empty `Map` whose VALUES it owns a share of: the value array carries the array form, so `mapFree` releases every value in it. Keys stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s key parameter is `Int`, not a type variable. |
-| `mapWithCapacity` | value | `(-> Int Int)` | `Alloc,Mut` | An empty `Map` sized so that `want` entries fit without rehashing. |
-| `mapWithCapacityRefVals` | value | `(-> Int Int)` | `Alloc,Mut` | `mapWithCapacity`'s owning twin. See `mapNewRefVals`. |
+| `mapNew` | value | `Map` | `Alloc,Mut` | An empty `Map` with `mapDefaultCap` slots. |
+| `mapNewRefVals` | value | `Map` | `Alloc,Mut` | An empty `Map` whose VALUES it owns a share of: the value array carries the array form, so `mapFree` releases every value in it. Keys stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s key parameter is `Int`, not a type variable. |
+| `mapWithCapacity` | value | `(-> Int Map)` | `Alloc,Mut` | An empty `Map` sized so that `want` entries fit without rehashing. |
+| `mapWithCapacityRefVals` | value | `(-> Int Map)` | `Alloc,Mut` | `mapWithCapacity`'s owning twin. See `mapNewRefVals`. |
 | `mapRoundUpPow2` | value | `(-> Int Int)` |  | `n` rounded up to a power of two, at least `mapDefaultCap`. |
-| `mapFree` | value | `(-> Int Int)` |  | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. |
-| `mapLen` | value | `(-> Int Int)` |  |  |
-| `mapCap` | value | `(-> Int Int)` |  |  |
-| `mapUsed` | value | `(-> Int Int)` |  | Slots that are live or tombstoned. Exposed because it is the number that explains a rehash, and a test that could not see it would have to infer growth from timing. |
-| `mapOwnsVals` | value | `(-> Int Bool)` |  | Whether this table owns a share of every value it holds - the `mapNewRefVals` half. Word 6 of the header, and not a test of the value array's shape word: see `mapAllocTable`. |
-| `mapKeyAt` | value | `(-> Int Int Int)` |  | Read the key, or the value, out of slot `i`. |
-| `mapValAt` | value | `(-> Int Int Int)` |  | The value in slot `i`. See `mapKeyAt` above for the bounds rule and why `mapStateAt` is not exported beside these two. |
+| `mapFree` | value | `(-> Map Int)` |  | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. |
+| `mapLen` | value | `(-> Map Int)` |  |  |
+| `mapCap` | value | `(-> Map Int)` |  |  |
+| `mapUsed` | value | `(-> Map Int)` |  | Slots that are live or tombstoned. Exposed because it is the number that explains a rehash, and a test that could not see it would have to infer growth from timing. |
+| `mapOwnsVals` | value | `(-> Map Bool)` |  | Whether this table owns a share of every value it holds - the `mapNewRefVals` half. Word 6 of the header, and not a test of the value array's shape word: see `mapAllocTable`. |
+| `mapKeyAt` | value | `(-> Map Int Int)` |  | Read the key, or the value, out of slot `i`. |
+| `mapValAt` | value | `(-> Map Int Int)` |  | The value in slot `i`. See `mapKeyAt` above for the bounds rule and why `mapStateAt` is not exported beside these two. |
 | `mapNextSlot` | value | `(-> Int Int Int)` |  | The next slot after `i`. |
-| `mapHas` | value | `(-> Int Int Bool)` |  |  |
-| `mapGet` | value | `(-> Int Int Int Int)` |  | The value for `key`, or `dflt` if `key` is absent. |
-| `mapGetStr` | value | `(-> Int Int String String)` |  | The value for `key` read as a `String`, or `dflt` if `key` is absent. |
-| `mapInsert` | value | `(-> Int Int a Int)` | `Alloc,Mut` | Insert or overwrite, growing first if the load factor demands it. Returns the handle - the same one, since the header is mutated in place; see `Vec`'s module comment for why it is returned anyway. |
-| `mapRemove` | value | `(-> Int Int Int)` | `Mut` | Delete `key`. Returns the handle. |
-| `mapLiveFrom` | value | `(-> Int Int (Option Int))` | `Alloc` | The first live slot at or after `i`, or `None` when the table has no live slot from there on. `(mapLiveFrom m 0)` starts an iteration; `(mapLiveFrom m (+ prev 1))` continues one. |
-| `mapKeys` | value | `(-> Int (Vec Int))` | `Alloc,Mut` | Every live key, and every live value, in one shared slot order: the `j`th key and the `j`th value came out of the same slot, so the two vectors zip. Both are freshly allocated and the caller owns them. |
-| `mapValues` | value | `(-> Int (Vec Int))` | `Alloc,Mut` | Every live value, in the same slot order `mapKeys` uses, so the two vectors zip element for element. |
-| `mapSumVals` | value | `(-> Int Int)` |  | The sum of every live value. |
-| `mapSumKeys` | value | `(-> Int Int)` |  | The sum of every live key. Together with `mapSumVals` and `mapLen` this pins down a small map's contents well enough to test with. |
+| `mapHas` | value | `(-> Map Int Bool)` |  |  |
+| `mapGet` | value | `(-> Map Int Int Int)` |  | The value for `key`, or `dflt` if `key` is absent. |
+| `mapGetStr` | value | `(-> Map Int String String)` |  | The value for `key` read as a `String`, or `dflt` if `key` is absent. |
+| `mapInsert` | value | `(-> Map Int a Int)` | `Alloc,Mut` | Insert or overwrite, growing first if the load factor demands it. |
+| `mapRemove` | value | `(-> Map Int Int)` | `Mut` | Delete `key`. Answers 0; see `mapInsert` for why no mutator here answers the handle. |
+| `mapLiveFrom` | value | `(-> Map Int (Option Int))` | `Alloc` | The first live slot at or after `i`, or `None` when the table has no live slot from there on. `(mapLiveFrom m 0)` starts an iteration; `(mapLiveFrom m (+ prev 1))` continues one. |
+| `mapKeys` | value | `(-> Map (Vec Int))` | `Alloc,Mut` | Every live key, and every live value, in one shared slot order: the `j`th key and the `j`th value came out of the same slot, so the two vectors zip. Both are freshly allocated and the caller owns them. |
+| `mapValues` | value | `(-> Map (Vec Int))` | `Alloc,Mut` | Every live value, in the same slot order `mapKeys` uses, so the two vectors zip element for element. |
+| `mapSumVals` | value | `(-> Map Int)` |  | The sum of every live value. |
+| `mapSumKeys` | value | `(-> Map Int)` |  | The sum of every live key. Together with `mapSumVals` and `mapLen` this pins down a small map's contents well enough to test with. |
 
 ## `Mem`
 
