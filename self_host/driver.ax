@@ -51,6 +51,12 @@
 
 (import codegen)
 
+; `effectiveLinkArgs` reads `axiom.pkg`'s `crate` lines. It arrived
+; here transitively through `codegen` already; naming it is what stops
+; a future tidy-up of `codegen`'s imports from breaking this file for
+; a reason nobody would look for here.
+(import pkg)
+
 (import build)
 
 (import diag)
@@ -1108,10 +1114,20 @@
 ; search directory holds and no explicit flag already names. The
 ; block's library string was dead data until 2026-08-22: every build
 ; repeated it as `--link-lib` and named the target directory too.
-(pub :: effectiveLinkArgs (-> String (Vec Int) (Vec Int)))
+;
+; `entryDir` IS THE SECOND PARAMETER since 2026-09-03, and it is here
+; for one reason: `axiom.pkg`'s `crate` lines. Every other source of a
+; search directory is a flag or an environment variable, both of which
+; this function could read for itself; a manifest is found by walking
+; up from the file being compiled, so the file has to be handed in.
+; Measured before it was: with the same tree and the same archive on
+; disk, `AXIOM_PATH=vendor/greeter/axiom` linked and ran at exit 0
+; while `depend vendor/greeter/axiom` exited 4 with `AX4004` - the
+; shell could describe the project and the project could not.
+(pub :: effectiveLinkArgs (-> String String (Vec Int) (Vec Int)))
 
 ;@axiom:effect(io)
-(pub fn (effectiveLinkArgs ir explicit)
+(pub fn (effectiveLinkArgs ir entryDir explicit)
   (let (
     (v vecNew)
     (dirs vecNew)
@@ -1146,27 +1162,13 @@
       (addSearchDir v dirs (sysEnv "AXIOM_LINK_SEARCH"))
       (addAxiomPathDirs v dirs (sysEnv "AXIOM_PATH"))
       ; a crate's own `target/release`, or its workspace's one or two
-      ; levels up (`rust/examples/demo` builds into `rust/target`)
-      (let (
-        (crates crateDirsOf)
-        (mut c 0)
-      )
-        (while (< c (vecLen crates))
-          {
-            (let ((cd 
-              (pathWithSlash
-                (cast String (vecGet crates c))
-              )
-            ))
-              {
-                (addOneDir v dirs (cat2 cd "target/release"))
-                (addOneDir v dirs (cat2 cd "../target/release"))
-                (addOneDir v dirs (cat2 cd "../../target/release"))
-              }
-            )
-            (set c (+ c 1))
-          })
-      )
+      ; levels up (`rust/examples/demo` builds into `rust/target`) -
+      ; for every `--crate DIR` the command line names, and then for
+      ; every `crate DIR` the manifest declares. Both lists, one rule;
+      ; `addOneDir` drops a directory that is already on the line and
+      ; one that does not exist, so the two overlapping is free.
+      (addCrateDirs v dirs crateDirsOf)
+      (addCrateDirs v dirs (pkgCrateDirs entryDir))
       (let (
         (wanted (externLibsOf ir))
         (mut j 0)
@@ -1195,6 +1197,41 @@
           })
       )
       v
+    }
+  )
+)
+
+; `crateTargetDirs` for each crate directory in `crates`, added the
+; way every other search directory here is. `crateTargetDirs` is
+; `prepareCrate`'s - the same three suffixes it looks for the archive
+; in - rather than a second copy, because a driver that BUILDS into a
+; directory it does not then SEARCH is the shape of an AX4004 nobody
+; can explain.
+(pub :: addCrateDirs (-> (Vec Int) (Vec Int) (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (addCrateDirs v dirs crates)
+  (let ((mut c 0))
+    {
+      (while (< c (vecLen crates))
+        {
+          (addTargetDirs v dirs (crateTargetDirs (pathWithSlash (vecGetStr crates c))) 0)
+          (set c (+ c 1))
+        })
+      0
+    }
+  )
+)
+
+(pub :: addTargetDirs (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
+
+;@axiom:effect(io)
+(pub fn (addTargetDirs v dirs td i)
+  (if (>= i (vecLen td))
+    0
+    {
+      (addOneDir v dirs (vecGetStr td i))
+      (addTargetDirs v dirs td (+ i 1))
     }
   )
 )

@@ -51,11 +51,51 @@
 ; `axiom.pkg:LINE`, before a byte is compiled - and the key/value split
 ; is any run of whitespace rather than one space.
 ;
+; `crate` NAMES A NATIVE DEPENDENCY, since 2026-09-03. `depend` names
+; a directory of `.ax` and nothing else, so a package whose whole
+; reason to exist is a Rust archive could not be declared: the shell
+; could say it - `AXIOM_PATH=vendor/greeter/axiom axiom build app.ax`
+; linked and ran - and the manifest could not. Measured on 0.7.3, one
+; source tree, one `libaxiom_greeter.a` already on disk, two ways of
+; declaring it: through `$AXIOM_PATH`, exit 0 and the program's answer;
+; through `depend vendor/greeter/axiom`, exit 4 with
+; `error[AX4004]: no archive is linked`. That is the exact inversion of
+; what a manifest is for - the environment could describe the project
+; and the project could not.
+;
+;     crate    vendor/axiom-greeter
+;
+; names a CRATE DIRECTORY: a `Cargo.toml` beside an `axiom/` holding
+; the generated binding module. It joins the module search path in
+; `depend`'s slot, as `DIR/axiom/`, and its `target/release` - and its
+; workspace's, one and two levels up - joins the link search path.
+;
+; A MANIFEST `crate` NEVER RUNS CARGO, and that is the decision this
+; key is built around rather than an omission. `--crate DIR` on the
+; command line does: measured on 0.7.3 against a crate with no
+; `target/`, `axiom build app.ax --crate mycrate` printed
+; `axiom: building crate `axiom-greeter` with cargo (no archive
+; found)`, cargo ran, and `mycrate/target/` appeared. A COMMAND LINE
+; is a person asking; a manifest is a checked-in file that arrives with
+; a clone. `docs/reference.md` says the compiler executes no code from
+; a source file, and a key that let a cloned repository spawn another
+; project's build system would make that sentence false for the one
+; file whose whole job is to be trusted. So an unbuilt archive stays
+; `AX4004`, whose help already names `--link-lib`, `--link-search` and
+; the `target/release` it looked in; the user runs `cargo build
+; --release` (or one `axiom build --crate DIR`) once, and the manifest
+; is enough from then on.
+;
 ; WHAT THIS IS NOT, said out loud so nobody has to discover it: there
 ; is no registry, no lockfile, no version constraint and no fetching.
-; A dependency is a path on this machine. Every one of those is a
-; policy decision that wants a maintainer to make it, and shipping a
-; half-made one is worse than shipping the mechanism it would rest on.
+; A dependency is a path on this machine - a `crate` too. Every one of
+; those is a policy decision that wants a maintainer to make it, and
+; shipping a half-made one is worse than shipping the mechanism it
+; would rest on. A lockfile in particular is not a step toward a
+; fetcher: with every dependency a path the user already controls, a
+; digest over it closes no surface and changes on every edit of their
+; own vendored code. It becomes meaningful when code starts arriving
+; from elsewhere, and not before.
 ;
 ; TWO DEPENDENCIES MAY NOT PROVIDE ONE MODULE. That is the property
 ; that makes this more than `$AXIOM_PATH`, and `pkgVerify` refuses it
@@ -64,6 +104,30 @@
 ; is in the project's configuration, and reporting it only for the
 ; imports that happen to be ambiguous would let a program build today
 ; and stop building when somebody adds an import.
+;
+; ...AND THE PROPERTY WAS TOP-LEVEL ONLY until 2026-09-03. `depend a`
+; and `depend b` each holding `Sub/Widget.ax` - the file
+; `(import Sub.Widget)` resolves to - built and exited with `a`'s
+; answer, silently, because `pkgFirstShared` did one `sysReadDir` and
+; never descended. The gate could not see it either: its fixture
+; helper only ever wrote top-level modules. `pkgModules` now walks a
+; dependency three levels deep, the same depth the resolver's own
+; nested lookup is documented at, and the refusal names the module by
+; the dotted name an `import` would spell.
+;
+; A DEPENDENCY MAY NOT PROVIDE A STANDARD-LIBRARY MODULE. Same fault,
+; same silence, one directory further down the ladder: `depend` sits
+; ABOVE the standard library in the search order, so a dependency
+; carrying a `Fmt.ax` replaced the real one for the whole program.
+; Measured on 0.7.3 - a vendored copy of `stdlib/Fmt.ax` with `fmtInt`
+; rewritten to answer `"HIJACKED"` made the program print HIJACKED at
+; exit 0, no diagnostic. That is a supply-chain surface wearing a
+; search path, and it is refused now. The refusal lives in
+; `codegen.ax`, beside the search order it is about, because this file
+; cannot see one: `codegen` imports `pkg`, not the other way round.
+; The ENTRY FILE'S own directory is untouched and still shadows a
+; library module, because that is documented, intended, and is a file
+; the author wrote rather than one that arrived with a dependency.
 (import Str)
 
 (import Vec)
@@ -241,13 +305,13 @@
   )
 )
 
-; The three keys a manifest may write. A closed set on purpose: the
+; The four keys a manifest may write. A closed set on purpose: the
 ; format has no version field of its own, so a key it does not know is
 ; a typo rather than a message from the future.
 (pub :: pkgKnownKey (-> String Bool))
 
 (pub fn (pkgKnownKey k)
-  (|| (strEq k "name") (|| (strEq k "version") (strEq k "depend")))
+  (|| (strEq k "name") (|| (strEq k "version") (|| (strEq k "depend") (strEq k "crate"))))
 )
 
 (pub :: pkgUncomment (-> String String))
@@ -297,30 +361,115 @@
 (pub :: pkgDependDirs (-> String (Vec Int)))
 
 ;@axiom:effect(io)
-(pub fn (pkgDependDirs entryDir)
+(pub fn (pkgDependDirs entryDir) (pkgDirsFor entryDir "depend"))
+
+; The CRATE directories the manifest declares, same shape and same
+; resolution rule. A crate directory is not a directory of modules: it
+; holds a `Cargo.toml` and an `axiom/` with the generated binding
+; module in it, so `pkgCrateAxiomDirs` is what joins the module search
+; path and the directory itself is what the link search is built from.
+;
+; Nothing here spawns cargo, and `pkgVerify` refuses a crate whose
+; `axiom/` is not there rather than generating one - see this file's
+; header for why a checked-in line may not run another project's build
+; system.
+(pub :: pkgCrateDirs (-> String (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (pkgCrateDirs entryDir) (pkgDirsFor entryDir "crate"))
+
+; `DIR/axiom/` for each declared crate, in file order: the one
+; directory of a crate that holds `.ax`.
+(pub :: pkgCrateAxiomDirs (-> String (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (pkgCrateAxiomDirs entryDir) (pkgAxiomSub (pkgCrateDirs entryDir)))
+
+; The shared body of the two above: every value of `key`, resolved
+; against the manifest's directory, each with a trailing slash.
+(pub :: pkgDirsFor (-> String String (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (pkgDirsFor entryDir key)
+  (let ((mf (pkgFindManifest entryDir)))
+    (if (== (strLen mf) 0)
+      vecNew
+      (pkgDirsIn (sysReadFile (strData mf)) (pathDir mf) key)
+    )
+  )
+)
+
+; Every value of `key` in an ALREADY-READ manifest, resolved against
+; `base`. Split from the function above so that `pkgSearchDirs` can ask
+; for two keys over one read - see its comment for why that matters.
+(pub :: pkgDirsIn (-> String String String (Vec Int)))
+
+(pub fn (pkgDirsIn text base key)
+  (let ((raw (pkgValues text key)))
+    (let (
+      (out vecNew)
+      (n (vecLen raw))
+      (mut i 0)
+    )
+      {
+        (while (< i n)
+          {
+            (vecPush
+              out              (cast Int (pathWithSlash (pkgResolve base (vecGetStr raw i))))
+            )
+            (set i (+ i 1))
+          })
+        out
+      }
+    )
+  )
+)
+
+; `DIR/axiom/` for each directory in `dirs`.
+(pub :: pkgAxiomSub (-> (Vec Int) (Vec Int)))
+
+(pub fn (pkgAxiomSub dirs)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen dirs))
+        {
+          (vecPush
+            out            (cast Int (strConcat (vecGetStr dirs i) "axiom/"))
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; EVERY module search directory the manifest contributes, in order:
+; each `depend`, then each `crate`'s `axiom/`.
+;
+; ONE manifest walk and ONE read for both keys, and that is the whole
+; reason this exists rather than `moduleSearchDirs` calling
+; `pkgDependDirs` and `pkgCrateAxiomDirs` in turn. `moduleSearchDirs`
+; runs PER MODULE LOOKUP, and each of those two would repeat
+; `pkgFindManifest`'s walk - up to eight `sysFileExists` on a tree with
+; no manifest at all - so the obvious spelling would have doubled a
+; cost this file bounds rather than pays. Measured after the fact is
+; too late for a cost that is paid by every project in the world that
+; does not use the feature.
+(pub :: pkgSearchDirs (-> String (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (pkgSearchDirs entryDir)
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       vecNew
       (let (
+        (text (sysReadFile (strData mf)))
         (base (pathDir mf))
-        (raw (pkgValues (sysReadFile (strData mf)) "depend"))
       )
-        (let (
-          (out vecNew)
-          (n (vecLen raw))
-          (mut i 0)
-        )
-          {
-            (while (< i n)
-              {
-                (vecPush
-                  out                  (cast Int (pathWithSlash (pkgResolve base (vecGetStr raw i))))
-                )
-                (set i (+ i 1))
-              })
-            out
-          }
-        )
+        (pkgConcatDirs (pkgDirsIn text base "depend") (pkgAxiomSub (pkgDirsIn text base "crate")))
       )
     )
   )
@@ -421,11 +570,12 @@
 ; Four refusals, all of them the same shape - the file, the line, and
 ; what the line would have had to be:
 ;
-;   1. A key that is not `name`, `version` or `depend`.
+;   1. A key that is not `name`, `version`, `depend` or `crate`.
 ;   2. A key with no value.
 ;   3. A second `name` or `version`. The first wins in `pkgValue`, so
 ;      the second is a line the file contains and the compiler ignores.
-;      `depend` is exempt: repeating it is how you declare two.
+;      `depend` and `crate` are exempt: repeating either is how you
+;      declare two.
 ;   4. A `name` that is not a file name, since it is spent as one.
 (pub :: pkgCheckLines (-> String String Int))
 
@@ -448,7 +598,7 @@
                 (let ((v (pkgTrim (strSlice t (strLen k) (- (strLen t) (strLen k))))))
                   (if (pkgKnownKey k)
                     (if (== (strLen v) 0)
-                      (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`" k "` has no value\n") (pkg3 "       `depend` takes a directory of modules; `name` and `version`\n" "       take a word. The key and its value are separated by any run of\n" "       spaces or tabs.\n")))
+                      (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`" k "` has no value\n") (pkg3 "       `depend` takes a directory of modules and `crate` a crate\n" "       directory; `name` and `version` take a word. The key and its value\n" "       are separated by any run of spaces or tabs.\n")))
                       (if (strEq k "name")
                         {
                           (if (> sawName 0)
@@ -475,7 +625,7 @@
                         )
                       )
                     )
-                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version` and `depend`, and `#`\n" "       starts a comment. An unknown key used to be ignored, which made\n" "       a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n")))
+                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version`, `depend` and `crate`,\n" "       and `#` starts a comment. An unknown key used to be ignored, which\n" "       made a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n")))
                   )
                 )
               )
@@ -505,10 +655,17 @@
 ;   1. A `depend` directory that is not a directory. Silence here means
 ;      every module it was meant to provide reports as missing, one at
 ;      a time, naming the module and never the manifest.
-;   2. Two `depend` directories providing a module of the same name.
-;      Whichever came first would win, and the other package's modules
-;      would compile against declarations from a package they have
-;      never heard of.
+;   2. A `crate` directory that is not a directory, or holds no
+;      `Cargo.toml`, or holds no `axiom/`. The first is `depend`'s
+;      refusal again; the second is what makes `crate` MEAN crate
+;      rather than be a second spelling of `depend`; the third is the
+;      one a user actually hits, because `DIR/axiom/` is written by
+;      `axiom-bindgen` and a fresh clone has not run it. All three are
+;      refused rather than repaired: see the header.
+;   3. Two dependencies providing a module of the same name - two
+;      `depend`s, two crates, or one of each. Whichever came first
+;      would win, and the other package's modules would compile
+;      against declarations from a package they have never heard of.
 ;
 ; Answers 0, so a caller can bind it. Every failure exits.
 (pub :: pkgVerify (-> String Int))
@@ -533,12 +690,76 @@
                 )
                 (set i (+ i 1))
               })
-            (pkgCheckOverlap dirs mf 0)
+            (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
+            ; The pairwise check runs over the depend directories AND
+            ; every crate's `axiom/` together, because they land in one
+            ; search path and a clash between two of them is the same
+            ; wrong answer whichever key declared them.
+            (pkgCheckOverlap (pkgConcatDirs dirs (pkgCrateAxiomDirs entryDir)) mf 0)
           }
         )
       )
       )
     )
+  )
+)
+
+; `a` then `b`, in order, in a NEW Vec - the caller is still holding
+; both of them, and `pkgCrateAxiomDirs`' answer is also what
+; `moduleSearchDirs` pushes.
+(pub :: pkgConcatDirs (-> (Vec Int) (Vec Int) (Vec Int)))
+
+(pub fn (pkgConcatDirs a b)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen a))
+        {
+          (vecPush
+            out            (cast Int (vecGetStr a i))
+          )
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i (vecLen b))
+        {
+          (vecPush
+            out            (cast Int (vecGetStr b i))
+          )
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; Every declared crate directory, refused for the three things it can
+; fail to be. The messages name the DIRECTORY and what was looked for
+; inside it, because "crate directory" is a shape the reader has to be
+; told, not one they can infer from a path.
+(pub :: pkgCheckCrates (-> (Vec Int) String Int Int))
+
+;@axiom:effect(io)
+(pub fn (pkgCheckCrates dirs mf i)
+  (if (>= i (vecLen dirs))
+    0
+    {
+      (let ((d (vecGetStr dirs i)))
+        (if (sysIsDir (strCStr d))
+          (if (sysFileExists (strCStr (strConcat d "Cargo.toml")))
+            (if (sysIsDir (strCStr (strConcat d "axiom/")))
+              0
+              (pkgDie (pkg4 (pkg3 "error: " mf " names a crate with no generated module directory:\n") (pkg3 "       " (strConcat d "axiom/") "\n") "       A crate's binding module is written to `DIR/axiom/` by\n       `axiom-bindgen`, and a manifest `crate` does not run it: run\n" "       `axiom build --crate DIR` (or `axiom-bindgen`) once, or commit the\n       generated module, and this line is enough from then on.\n"))
+            )
+            (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory with no Cargo.toml:\n") (pkg3 "       " (strConcat d "Cargo.toml") "\n") "       `crate` names a CARGO CRATE - a `Cargo.toml` beside an `axiom/`\n" "       holding its generated module. A plain directory of `.ax` modules\n       is `depend`, not `crate`.\n"))
+          )
+          (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory that is not there:\n") (pkg3 "       " d "\n") "       `crate` names a DIRECTORY holding a `Cargo.toml` and an `axiom/`,\n" "       resolved against the manifest's own directory.\n"))
+        )
+      )
+      (pkgCheckCrates dirs mf (+ i 1))
+    }
   )
 )
 
@@ -568,7 +789,7 @@
       (let ((clash (pkgFirstShared (vecGetStr dirs i) (vecGetStr dirs j))))
         (if (== (strLen clash) 0)
           0
-          (pkgDie (pkg4 (pkg3 "error: two dependencies in " mf " provide the module `") (pkg3 (pathStem clash) "`:\n" "") (pkg3 "       " (strConcat (vecGetStr dirs i) clash) "\n") (pkg4 "       " (strConcat (vecGetStr dirs j) clash) "\n" "       One of them would win by declaration order and the other's\n       modules would compile against declarations they never named.\n")))
+          (pkgDie (pkg4 (pkg3 "error: two dependencies in " mf " provide the module `") (pkg3 (pkgModuleName clash) "`:\n" "") (pkg3 "       " (strConcat (vecGetStr dirs i) clash) "\n") (pkg4 "       " (strConcat (vecGetStr dirs j) clash) "\n" "       One of them would win by declaration order and the other's\n       modules would compile against declarations they never named.\n")))
         )
       )
       (pkgCheckPair dirs mf i (+ j 1))
@@ -576,24 +797,28 @@
   )
 )
 
-; The first `.ax` file both directories hold, or "".
+; The first module file both directories hold, as a path relative to
+; each, or "".
+;
+; THIS USED TO BE ONE `sysReadDir`. `depend a` and `depend b` each
+; holding `Sub/Widget.ax` - what `(import Sub.Widget)` resolves to -
+; passed this check and the program exited with `a`'s answer, silently,
+; which is the exact failure the whole file exists to refuse, one
+; directory down. `pkgModules` descends.
 (pub :: pkgFirstShared (-> String String String))
 
 ;@axiom:effect(io)
 (pub fn (pkgFirstShared a b)
-  (let (
-    (entries (sysReadDir (strCStr a)))
-    (n (vecLen (sysReadDir (strCStr a))))
-  )
+  (let ((mods (pkgModules a)))
     (let (
       (mut i 0)
       (mut hit "")
     )
       {
-        (while (< i (vecLen entries))
+        (while (< i (vecLen mods))
           {
-            (let ((name (vecGetStr entries i)))
-              (if (&& (== (strLen hit) 0) (&& (strEq (pathExt name) ".ax") (sysFileExists (strCStr (strConcat b name)))))
+            (let ((name (vecGetStr mods i)))
+              (if (&& (== (strLen hit) 0) (sysFileExists (strCStr (strConcat b name))))
                 {
                   (set hit name)
                   0
@@ -605,6 +830,99 @@
           })
         hit
       }
+    )
+  )
+)
+
+; Every `.ax` file under `dir`, as a path relative to it - `Widget.ax`,
+; `Sub/Widget.ax`.
+;
+; THREE LEVELS DEEP, stated rather than derived, the way
+; `pkgFindManifestFrom` states its eight. It is the depth the LSP's
+; import resolver is already documented at (`docs/lsp.md`), and a
+; module nested deeper than `A.B.C` is one nobody in this repository
+; writes. The walk runs once inside `pkgVerify`, per declared
+; dependency, and never per module lookup.
+(pub :: pkgModules (-> String (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (pkgModules dir)
+  (let ((out vecNew))
+    {
+      (pkgWalkModules out dir "" 0)
+      out
+    }
+  )
+)
+
+(pub :: pkgWalkModules (-> (Vec Int) String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (pkgWalkModules out root rel depth)
+  (if (> depth 2)
+    0
+    (pkgWalkEntries out root rel (sysReadDir (strCStr (strConcat root rel))) 0 depth)
+  )
+)
+
+(pub :: pkgWalkEntries (-> (Vec Int) String String (Vec Int) Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (pkgWalkEntries out root rel entries i depth)
+  (if (>= i (vecLen entries))
+    0
+    {
+      ; `sysReadDir` answers `.` and `..` with everything else - it is
+      ; the raw call's answer on purpose, so an empty Vec can mean
+      ; failure and nothing else - and descending into either is how a
+      ; three-level bound becomes an infinite walk.
+      (let ((name (vecGetStr entries i)))
+        (if (|| (strEq name ".") (strEq name ".."))
+          0
+          (let ((r (strConcat rel name)))
+            (if (sysIsDir (strCStr (strConcat root r)))
+              (pkgWalkModules out root (strConcat r "/") (+ depth 1))
+              (if (strEq (pathExt name) ".ax")
+                {
+                  (vecPush
+                    out                    (cast Int r)
+                  )
+                  0
+                }
+                0
+              )
+            )
+          )
+        )
+      )
+      (pkgWalkEntries out root rel entries (+ i 1) depth)
+    }
+  )
+)
+
+; `Sub/Widget.ax` -> `Sub.Widget`: the name an `import` spells, which
+; is what a reader has to type to reproduce the clash. `pathStem` was
+; here before nesting existed and answered `Widget` for both, so the
+; message named a module no `import` in the project mentions.
+(pub :: pkgModuleName (-> String String))
+
+(pub fn (pkgModuleName rel)
+  (pkgDotSlashes
+    (if (strEq (pathExt rel) ".ax")
+      (strSlice rel 0 (- (strLen rel) 3))
+      rel
+    )    0
+  )
+)
+
+(pub :: pkgDotSlashes (-> String Int String))
+
+(pub fn (pkgDotSlashes s i)
+  (if (>= i (strLen s))
+    s
+    (if (== (strByte s i) 47)
+      (pkgDotSlashes (pkg3 (strSlice s 0 i) "." (strSlice s (+ i 1) (- (strLen s) (+ i 1)))) (+ i 1))
+      (pkgDotSlashes s (+ i 1))
     )
   )
 )

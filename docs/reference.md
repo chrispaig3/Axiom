@@ -23,7 +23,7 @@ A friendly, comprehensive guide to the Axiom programming language — a function
 15. [Effects](#effects) — `effect`, `handle`, and inference
 16. [Capability Records](#capability-records) — what replaced traits
 17. [Modules and Imports](#modules-and-imports)
-18. [Packages](#packages) — `axiom.pkg` and `depend`
+18. [Packages](#packages) — `axiom.pkg`, `depend` and `crate`
 19. [Macros](#macros)
 20. [Printing and Formatting](#printing-and-formatting)
 21. [Memory Primitives](#memory-primitives)
@@ -2525,9 +2525,9 @@ Both halves matter, and until 2026-08-10 there was only one: a private declarati
 
 Stated exactly, because a shorter version of this sentence was wrong for
 a year. The library is found automatically: `AXIOM_STDLIB` overrides its
-location, `axiom.pkg`'s `depend` lines add a project's own dependencies
-(see [Packages](#packages)), and `AXIOM_PATH` — colon-separated — adds
-further module search directories.
+location, `axiom.pkg`'s `depend` and `crate` lines add a project's own
+dependencies (see [Packages](#packages)), and `AXIOM_PATH` —
+colon-separated — adds further module search directories.
 
 Resolution is a ladder of SUFFIXES over a list of DIRECTORIES, and the
 suffix is the outer loop:
@@ -2536,14 +2536,22 @@ suffix is the outer loop:
 for suffix in .<os>-<arch>.ax, .<os>.ax, .ax:
     for dir in  the entry file's own directory
                 each `depend` in axiom.pkg, in file order
+                each `crate` in axiom.pkg's axiom/ directory, in file order
                 each $AXIOM_PATH entry, in order
                 each --crate DIR's axiom/ directory
                 $AXIOM_STDLIB, or the stdlib beside the binary:
         if <dir><module><suffix> is a readable file, that is the module
 ```
 
+The manifest's two keys sit together, above `$AXIOM_PATH`, for one
+reason: the manifest travels with the source and the variable travels
+with the shell. The command-line `--crate` stays below it, because a
+flag someone typed is not something the project said.
+
 So a project *does* shadow a standard-library module with its own file
-of the same name — but only at the same suffix. A more target-specific
+of the same name — but only at the same suffix, and only from the entry
+file's own directory: a `depend` or `crate` that would displace a
+library module is refused, see [Packages](#packages). A more target-specific
 file anywhere on the path beats a less specific one nearer the entry
 file: measured 2026-08-25, a project's own `Sys/Platform.ax` loses to
 the standard library's `Sys/Platform.darwin.ax`, which is the mechanism
@@ -2566,6 +2574,7 @@ version  0.1.0
 
 depend   vendor/axiom-json
 depend   ../shared/modules
+crate    vendor/axiom-greeter
 ```
 
 `depend` names a **directory of modules**, resolved against the
@@ -2575,6 +2584,48 @@ module search path after the entry file's directory and before
 above gives it. The manifest travels with the source and the variable
 travels with the shell, so when both can answer, the declared dependency
 wins. A key and its value are separated by any run of spaces or tabs.
+
+**`crate` names a native dependency** (2026-09-03). `depend` names a
+directory of `.ax` and nothing else, so a package whose reason to exist
+is a Rust archive could not be declared at all: the shell could say it
+and the manifest could not. Measured on 0.7.3 — one tree, one
+`libaxiom_greeter.a` already on disk — `AXIOM_PATH=vendor/greeter/axiom
+axiom build app.ax` exited 0 and ran, while `depend
+vendor/greeter/axiom` exited 4 with `error[AX4004]: no archive is
+linked`.
+
+A `crate` names a **crate directory**: a `Cargo.toml` beside an
+`axiom/` holding the generated binding module. `DIR/axiom/` joins the
+module search path in `depend`'s slot, and `DIR/target/release` —
+together with a workspace's, one and two levels up — joins the link
+search path, which is what `--crate DIR` already fed. So the archive is
+found and linked with no flag at all:
+
+```
+$ cat axiom.pkg
+name  myapp
+crate vendor/axiom-greeter
+$ axiom build app.ax
+Build successful: myapp
+```
+
+Three things are refused at the manifest, before a byte is compiled: a
+crate directory that is not there, one with no `Cargo.toml` (which is
+what makes `crate` mean *crate* rather than a second spelling of
+`depend`), and one with no `axiom/`.
+
+**A manifest `crate` never runs cargo.** `--crate DIR` on the command
+line does — it regenerates a stale binding module and builds a missing
+archive ([ffi.md §12](ffi.md)) — and the manifest deliberately does
+not. A command line is a person asking; `axiom.pkg` is a checked-in
+file that arrives with a clone, and "the compiler executes no code from
+a source file" ([Macros](#macros)) would stop being true of the one
+file whose whole job is to be trusted. Run `cargo build --release`, or
+one `axiom build --crate DIR`, once; the manifest carries it from then
+on, and until then an unbuilt archive is `AX4004`, whose help already
+says exactly that. `scripts/check-packages.sh` pins the pair: the
+manifest build must leave `DIR/target` absent, and the same directory
+passed as `--crate` must create it.
 
 **`name` is the executable's default name** (2026-08-31). `axiom build`
 with neither `--output` nor `-o` used to write the literal `output`,
@@ -2603,9 +2654,9 @@ how you declare two dependencies, so that one is allowed).
 ```
 $ axiom check app.ax ; echo $?
 error: ./axiom.pkg:2: unknown key `dependd`
-       The manifest's keys are `name`, `version` and `depend`, and `#`
-       starts a comment. An unknown key used to be ignored, which made
-       a misspelled `depend` report as every module it would have
+       The manifest's keys are `name`, `version`, `depend` and `crate`,
+       and `#` starts a comment. An unknown key used to be ignored, which
+       made a misspelled `depend` report as every module it would have
        provided going missing - one at a time, naming this file never.
 3
 ```
@@ -2636,15 +2687,41 @@ value-namespace twin of the type collision `AX3044` closed on
 2026-08-24 ([Types resolve by module](#how-imports-work)), with the same
 failure mode: a wrong answer at exit 0.
 
+The rule covers `crate` too — the fault is in the search path, not in
+which key put a directory on it — and, since 2026-09-03, **nested**
+modules. Two dependencies each holding `Sub/Widget.ax`, the file
+`(import Sub.Widget)` resolves to, used to build and exit with the
+first one's answer: the check did one directory listing and never
+descended, and the gate's own fixtures only ever wrote top-level
+modules. It walks three levels now, and names the module the way an
+`import` spells it, `Sub.Widget`.
+
+**A dependency may not provide a standard-library module** either
+(2026-09-03). `depend` and `crate` sit *above* the library in the
+search order, so a dependency carrying a `Fmt.ax` replaced the real one
+for the whole program — every module that imports `Fmt`, not only the
+one that wanted the dependency. Measured on 0.7.3: a vendored copy of
+`stdlib/Fmt.ax` whose `fmtInt` answered `"HIJACKED"` made the program
+print HIJACKED, at exit 0, with no diagnostic anywhere. That is now
+refused at the manifest, naming both files. The entry file's own
+directory is untouched and still shadows a library module — that is a
+file you wrote, and [the search order](#the-search-order-stated-exactly)
+above documents it.
+
 **What this is not**, said out loud so nobody has to discover it: there
 is no registry, no lockfile, no version constraint and no fetching. A
-dependency is a path on this machine. Each of those is a policy decision
-that wants a maintainer to make it, and a half-made one is worse than
-the mechanism it would rest on ([compatibility.md](compatibility.md) §4
-records it among the things not promised). `scripts/check-packages.sh`
-is the gate — 26 checks, whose negative probe removes the manifest and
-requires the same program to stop resolving, so nothing else can be what
-found the module.
+dependency is a path on this machine, a `crate` included. Each of those
+is a policy decision that wants a maintainer to make it, and a half-made
+one is worse than the mechanism it would rest on
+([compatibility.md](compatibility.md) §4 records it among the things not
+promised). A lockfile in particular is not a step toward a fetcher:
+while every dependency is a path the user already controls, a digest
+over one closes no surface and changes on every edit of their own
+vendored code. And the compiler **will not run another project's build
+system** unless the command line asks it to.
+`scripts/check-packages.sh` is the gate — 42 checks, whose negative
+probe removes the manifest and requires the same program to stop
+resolving, so nothing else can be what found the module.
 
 ---
 

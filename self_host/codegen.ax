@@ -5023,13 +5023,41 @@
       ; Costs one `sysFileExists` per directory level, per lookup, to a
       ; tree with no manifest. That is the same shape as the `sysEnv`
       ; call below it, and `pkg.ax` bounds the walk at eight levels.
-      (pushDependDirs v (pkgDependDirs entryDir) 0)
+      ;
+      ; ...and its `crate` directories, in the SAME slot and for the
+      ; same reason - a crate is a dependency that happens to carry an
+      ; archive, and the module it contributes is the one in
+      ; `DIR/axiom/`. `pkgSearchDirs` answers both from ONE manifest
+      ; walk, because this function runs per module lookup and asking
+      ; twice would double the cost the paragraph above bounds. The
+      ; command-line `--crate` below keeps its place after
+      ; `$AXIOM_PATH`: the manifest travels with the source, and a flag
+      ; someone typed is not a thing the project said.
+      (pushDirs v (pkgSearchDirs entryDir) 0)
       (pushPathList v (sysEnv "AXIOM_PATH"))
       ; `--crate DIR`: the crate's generated binding module lives in
       ; `DIR/axiom/`, and the driver searches `DIR/target/release` for
       ; its archive - one flag where `AXIOM_PATH`, `--link-search` and
       ; `--link-lib` were three
       (pushCrateDirs v 1)
+      (pushDirs v stdlibSearchDirs 0)
+      v
+    }
+  )
+)
+
+; The tail of the search order: the standard library, wherever it is.
+;
+; SPLIT OUT so that `pkgCheckStdlibShadow` can ask "does the library
+; provide this module?" with the very list the resolver would have
+; searched, rather than a second copy of it that drifts. A refusal
+; about a search order has to be built from the search order.
+(pub :: stdlibSearchDirs (Vec Int))
+
+;@axiom:effect(io)
+(pub fn (stdlibSearchDirs)
+  (let ((v vecNew))
+    {
       (let ((sl (sysEnv "AXIOM_STDLIB")))
         (if (> (strLen sl) 0)
           (vecPush
@@ -5045,6 +5073,73 @@
         v        (cast Int "stdlib/")
       )
       v
+    }
+  )
+)
+
+; A DEPENDENCY MAY NOT PROVIDE A STANDARD-LIBRARY MODULE.
+;
+; `depend` and `crate` sit ABOVE the library in the order above, so a
+; dependency carrying a `Fmt.ax` replaced the real one for the whole
+; program - every module that imported `Fmt`, not only the one that
+; asked for the dependency. Measured on 0.7.3: a vendored copy of
+; `stdlib/Fmt.ax` whose `fmtInt` answered `"HIJACKED"` made the program
+; print HIJACKED, at exit 0, with no diagnostic anywhere. That is the
+; same wrong-answer-at-exit-0 shape `pkgVerify`'s two-dependency
+; refusal closes, and it is also the only place in this compiler where
+; a file that arrived with somebody else's package silently displaces
+; one this repository ships.
+;
+; THE ENTRY FILE'S OWN DIRECTORY IS NOT TOUCHED. `docs/reference.md`
+; documents a project shadowing a library module with its own file, and
+; `check-packages.sh` pins it; a refusal that caught both would be a
+; refusal that broke a feature. The rule is about who WROTE the file:
+; the author's own directory, yes; a directory a manifest line pulled
+; in, no.
+;
+; Answers 0, so a caller can bind it. Every failure exits 3, the same
+; way and for the same reason as every other manifest refusal.
+(pub :: pkgCheckStdlibShadow (-> String Int))
+
+;@axiom:effect(io)
+(pub fn (pkgCheckStdlibShadow entryDir)
+  (let ((mf (pkgFindManifest entryDir)))
+    (if (== (strLen mf) 0)
+      0
+      (shadowCheckDirs (pkgConcatDirs (pkgDependDirs entryDir) (pkgCrateAxiomDirs entryDir)) mf 0)
+    )
+  )
+)
+
+(pub :: shadowCheckDirs (-> (Vec Int) String Int Int))
+
+;@axiom:effect(io)
+(pub fn (shadowCheckDirs dirs mf i)
+  (if (>= i (vecLen dirs))
+    0
+    {
+      (shadowCheckOne (vecGetStr dirs i) (pkgModules (vecGetStr dirs i)) mf 0)
+      (shadowCheckDirs dirs mf (+ i 1))
+    }
+  )
+)
+
+(pub :: shadowCheckOne (-> String (Vec Int) String Int Int))
+
+;@axiom:effect(io)
+(pub fn (shadowCheckOne dir mods mf i)
+  (if (>= i (vecLen mods))
+    0
+    {
+      (let ((rel (vecGetStr mods i)))
+        (let ((lib (searchDirsFor stdlibSearchDirs rel 0)))
+          (if (== (strLen lib) 0)
+            0
+            (pkgDie (pkg4 (pkg3 "error: a dependency in " mf " provides the standard library's module `") (pkg3 (pkgModuleName rel) "`:\n" "") (pkg3 "       " (strConcat dir rel) "\n") (pkg4 (pkg3 "       " lib "   (the standard library's)\n") "       The dependency's copy sits ABOVE the library in the search order,\n       so it would replace it for the WHOLE program - every module that\n" "       imports it, not only the one that wanted the dependency. Rename\n       the module, or drop the dependency. A module in the ENTRY FILE's\n" "       own directory still shadows a library one; that is a file you\n       wrote, and it is unchanged.\n")))
+          )
+        )
+      )
+      (shadowCheckOne dir mods mf (+ i 1))
     }
   )
 )
@@ -5168,16 +5263,21 @@
   )
 )
 
-(pub :: pushDependDirs (-> (Vec Int) (Vec Int) Int Int))
+; Append one already-built list of search directories to another. It
+; was `pushDependDirs` while `depend` was the only caller; there are
+; three now - `depend`, the manifest's crates, and the standard-library
+; tail - and a name that says which one it was for is a name that lies
+; to two of them.
+(pub :: pushDirs (-> (Vec Int) (Vec Int) Int Int))
 
-(pub fn (pushDependDirs v dirs i)
+(pub fn (pushDirs v dirs i)
   (if (>= i (vecLen dirs))
     0
     {
       (vecPush
         v        (cast Int (vecGetStr dirs i))
       )
-      (pushDependDirs v dirs (+ i 1))
+      (pushDirs v dirs (+ i 1))
     }
   )
 )
