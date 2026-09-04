@@ -16687,17 +16687,37 @@
 ; the other two unconditional helpers so that a 0 there is the pruner
 ; rather than this function having quietly become conditional.
 ;
-; STATUS 76, AND IT WAS DESIGNED AS 75. `MM-EXEC-16` reserves 70 (out
-; of memory), 71 (unhandled effect) and 72 (division by zero); 73 is
-; the FFI boundary's (`docs/ffi.md` 5.1), 74 is a `__syscallN` on a
-; target with no syscall ABI (`emitWinRuntime`), and 75 is an arena
-; reset handed an invalid mark (`emitBadMarkTrap`, MM-ALLOC-16a). That
-; last one and this one were written on two branches on the same day
-; and both took 75; this is the one that moved, because it had not
-; shipped. A contract failure is a sixth, and distinct on purpose:
-; `docs/ffi.md` 5.1 took 73 precisely because a Rust panic and an
-; Axiom division were indistinguishable to a supervisor at 72, and two
-; broken invariants sharing one status would be that defect again.
+; STATUS 77, AND IT HAS NOW MOVED TWICE - THE SECOND TIME ONTO AN
+; OCCUPIED NUMBER. `MM-EXEC-16` reserves 70 (out of memory), 71
+; (unhandled effect) and 72 (division by zero); 73 is the FFI
+; boundary's (`docs/ffi.md` 5.1), 74 is a `__syscallN` on a target with
+; no syscall ABI (`emitWinRuntime`), 75 is an arena reset handed an
+; invalid mark (`emitBadMarkTrap`, MM-ALLOC-16a) and 76 is a reset past
+; a live handle (MM-ALLOC-16b).
+;
+; This trap was designed as 75, moved to 76 in `4bcd7eb` when a merge
+; found MM-ALLOC-16a already spending 75, and moved again to 77 in the
+; merge `3f2f39a` - as a CONFLICT RESOLUTION, onto the number `91f33f7`
+; had given `emitIndexTrap` on trunk in the meantime. The comment that
+; stood here said `STATUS 76` and was two moves out of date.
+;
+; SO 77 IS SHARED WITH THE INDEX TRAP, and that is a defect rather than
+; a decision. The argument this paragraph used to make against it still
+; holds and now indicts it: `docs/ffi.md` 5.1 took 73 precisely because
+; a Rust panic and an Axiom division were indistinguishable to a
+; supervisor at 72, and two broken invariants sharing one status is
+; that defect again. Nothing caught the collision because every party
+; is internally consistent - `scripts/check-contracts.sh` asserts 77,
+; `tests/stdlib/464-index-trap.exit` asserts 77, and no gate compares
+; one trap's status to another's.
+;
+; The number is NOT changed here, because moving a shipped exit status
+; is a compatibility decision and not a comment fix. The two candidates
+; are recorded in `docs/subtypes-design.md`: move this trap to 80, or
+; accept the collision and say so in `MM-EXEC-16`'s table. What is
+; fixed is that this comment, `explain.ax`'s AX3050 page and the AX3050
+; help text no longer say 76 - a number that means MM-ALLOC-16b - and
+; no longer claim a status of their own that they do not have.
 ;
 ; The message arrives as a `Str` HANDLE, whose word 0 is the length and
 ; whose word 1 is the byte pointer (`emitStrEqHelper` reads the same

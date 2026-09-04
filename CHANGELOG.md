@@ -148,6 +148,82 @@ lists of file names and needs no compiler.
 ## 0.7.5 — 2026-09-04
 
 
+### A design note's cost argument was measured at the one optimisation level where its loop does not exist
+
+`docs/subtypes-design.md` recommends against range-constrained subtypes
+for three reasons, and the second is cost: a `pre` standing in for the
+range check made a self-recursive loop **+37% slower, arms never
+interleaving**. The note then says that at `--opt 2` that loop is
+constant-folded away entirely, both binaries answer in 0.00s, and the
+figure is therefore "not a claim about a release build" — so the
+condition it sets for revisiting ("a value analysis") was left open on a
+measurement that could not reach it.
+
+Re-measured on a loop LLVM cannot close-form — body changed to
+`(% (* acc 31) 1000003)`, trip count from `sysArgc` so it is not a
+constant, 10^8 iterations, arms alternated, `user` seconds:
+
+```
+--opt 2   bare 0.61 0.61 0.67   checked 0.61 0.63 0.61
+--opt 0   bare 1.14 1.07 1.08   checked 1.11 1.10 1.11
+```
+
+**The arms interleave at both levels.** The caveat is written into the
+note rather than left out of it: this body does a multiply and a
+remainder where the original does an `add`, so the check is a smaller
+fraction of it and the original +37% is not refuted. The narrower claim
+is the one the condition asked for — the release-build cost is not
+measurable, and the value analysis that discharges the check is the
+BACKEND's, not something this compiler has to grow. One of the three
+reasons is now met; the other two stand and the recommendation is
+unchanged. **Still not built.**
+
+The note's census was stale in the same edit: `(cast Int` 441 → **780**,
+all casts 651 → **1,015**, against 4,197 `fn` declarations. Both halves
+grew by about half, so the ratio and the argument survive — but the
+absolute count is what that section leans on. The four paired
+signature counts above it were not re-run and are now marked with their
+date rather than carried as current.
+
+### A violated contract and an out-of-range index exit with the same status, and three documents disagree about which
+
+Found while checking a number before reusing it. `docs/memory-model.md`'s
+`MM-EXEC-16` table assigns **76** to an arena reset past a live handle
+(`MM-ALLOC-16b`) and **77** to `__indexTrap`. The contract trap is
+documented at 76 in six places and emits **77**:
+
+```
+$ axiom run c76.ax    # a violated ;@axiom:pre    -> 77
+$ axiom run idx.ax    # (__indexTrap)             -> 77
+```
+
+So the documented number belongs to the arena and the emitted one
+belongs to the index trap. `grep -n 'emitRuntimeExit cg "7'
+self_host/codegen.ax` is the census: the contract trap is the only row
+in the emitter whose documented status and actual status disagree.
+
+It got there by two merges. Designed on 75; moved to 76 in `4bcd7eb`
+when a merge found `MM-ALLOC-16a` already spending 75; moved again to 77
+in `3f2f39a`, as a conflict resolution, onto the number `91f33f7` had
+given `__indexTrap` on trunk in between. `codegen.ax`'s header comment
+still reads `; STATUS 76, AND IT WAS DESIGNED AS 75`, two moves out of
+date, above a paragraph arguing that "two broken invariants sharing one
+status would be that defect again".
+
+Nothing caught it because every party is internally consistent:
+`check-contracts.sh` asserts 77 and is green,
+`tests/stdlib/464-index-trap.exit` asserts 77 and is green, and **no
+gate compares one trap's status to another's**. `docs/error-model.md`
+and `docs/memory-model.md` state the two owners of 77 in two tables,
+neither of which reads the other.
+
+Recorded in `docs/subtypes-design.md` and **not fixed here**, because
+the fix is a decision about a shipped exit status rather than a
+correction: move the contract trap to 80, or accept the collision and
+say so in both tables. Rewriting the prose from 76 to 77 — the obvious
+reading, and the one this started as — would have written the collision
+into the documents whose purpose is that it cannot happen.
+
 ### The seed's corruption check no longer walks past a deleted row
 
 `bootstrap/SHA256SUMS` is what a fresh clone with no Axiom toolchain

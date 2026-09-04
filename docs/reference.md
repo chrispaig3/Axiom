@@ -1996,10 +1996,12 @@ for the same reason.
 ```
 
 `(half 0)` writes ``axiom: precondition failed in `half`: (> n 0)`` on
-fd 2, prints the backtrace, and exits **76** - a status of its own
-beside `MM-EXEC-16`'s 70/71/72, the FFI boundary's 73, 74's absent
-syscall ABI and 75's invalid arena mark, so a supervisor reading a
-status can tell a broken invariant from a broken machine. There is no flag to turn the checks
+fd 2, prints the backtrace, and exits **77**, beside `MM-EXEC-16`'s
+70/71/72, the FFI boundary's 73, 74's absent syscall ABI, 75's invalid
+arena mark and 76's reset past a live handle. **77 is shared with the
+out-of-range index trap** — a supervisor tells those two apart by the
+sentence on fd 2 and not by the status, which is a defect recorded in
+`docs/subtypes-design.md`. There is no flag to turn the checks
 off: a check that is off by default is a comment by default.
 
 | | |

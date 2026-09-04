@@ -703,7 +703,7 @@ program, for the reason `403-recover-div.ax` gives for its own — with
 `__axiom_recover` unreferenced the mechanism is dead code and the armed
 test folds to false — and it is section 1 of
 `scripts/check-contracts.sh`: the arming call answers `recovered 77` on
-stdout, the second violation outside every extent exits 76 with the
+stdout, the second violation outside every extent exits 77 with the
 sentence on fd 2.
 
 **The table gains no row from status 75.** An
@@ -975,7 +975,7 @@ in this tree at all - `grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|i
 because the sentence making the claim matches the pattern it quotes. So
 the claim is enforced at RUN TIME: `expLowerContracts` compiles the
 check into the body, and a failure writes ``axiom: precondition failed
-in `half`: (> n 0)`` on fd 2 and exits 76.
+in `half`: (> n 0)`` on fd 2 and exits 77.
 
 `AX3050` is then everything about the contract that IS static, and it
 is four questions under one code:
