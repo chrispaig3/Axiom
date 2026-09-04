@@ -71,6 +71,17 @@ rather than the tree against itself:
   slug rule. Both of the dead links above would have failed it.
 - **A social card.** `og:image` was the 900x316 logo; it is a 1200x630
   card now, with the headline and the three proof figures.
+- **The hero is one centred column, and the primary action is above
+  the fold.** On a 1366x600 laptop viewport the split layout put the
+  buttons under the fold - headline, lede, the install line, and only
+  then "Get started". The copy is centred over one sentence of lede
+  with both actions directly under it and the install line beneath
+  them; the program moves below the proof strip, where it can be as
+  tall as it is. Measured in a 1366x600 frame: headline, lede, both
+  buttons and the install line visible, the proof strip's rule
+  showing. With it: a nav call to action, a closing band that restates
+  the install command, display type at 64px and a 1.04 line height,
+  every button at least 44px tall, and section rhythm from 5rem.
 - The `define`-spelled sample in the diagnostics showcase (and the same
   block in `docs/diagnostics.md`) is written with `fn` like everything
   else on the page; the AXDL line is byte-identical either way, and its

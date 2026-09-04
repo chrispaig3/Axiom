@@ -1,0 +1,230 @@
+/* ---------------------------------------------------------------- *
+ * The design pass of 2026-09-04
+ *
+ * Loaded last so it wins the cascade. What it changes, and the rule
+ * each change follows:
+ *
+ *   - the hero is one centred column with the program below it, so the
+ *     headline, one sentence and both actions fit a 1366x600 laptop
+ *     viewport with the proof strip's edge showing (above-the-fold);
+ *   - display type is larger and tighter (a 1.05 line height, -0.035em
+ *     tracking), body measure stays at 60-70 characters;
+ *   - every button is at least 44px tall, the hero's 48 (tap targets);
+ *   - section rhythm starts at 5rem and grows to 8rem (whitespace);
+ *   - one accent for actions; the violet keeps its one job.
+ * ---------------------------------------------------------------- */
+
+h1 {
+  font-size: clamp(2.5rem, 1.2rem + 3.4vw, 4rem);
+  line-height: 1.04;
+  letter-spacing: -0.036em;
+}
+
+h2 {
+  font-size: clamp(1.75rem, 1.15rem + 1.9vw, 2.75rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.section {
+  padding-block: clamp(var(--s-9), 7vw, var(--s-10));
+}
+
+/* ---- buttons: 44px floor, a large size for the hero ------------- */
+
+.btn {
+  min-height: 44px;
+  padding: 10px 18px;
+}
+
+.btn--lg {
+  min-height: 48px;
+  padding: 12px 22px;
+  font-size: var(--t-1);
+}
+
+.btn--sm {
+  min-height: 34px;
+  padding: 6px 14px;
+  font-size: var(--t--1);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.nav-cta {
+  margin-left: var(--s-2);
+}
+
+@media (max-width: 900px) {
+  .nav-cta {
+    display: none;
+  }
+}
+
+/* ---- hero: centred, program below --------------------------------- */
+
+.hero {
+  padding-block: clamp(2.5rem, 4vw, 4rem) clamp(var(--s-8), 6vw, var(--s-10));
+}
+
+.hero::before {
+  mask-image: radial-gradient(70% 70% at 50% 0%, #000 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(70% 70% at 50% 0%, #000 0%, transparent 70%);
+}
+
+.hero__lead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 58rem;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.hero__lead h1 {
+  max-width: none;
+}
+
+.hero__kicker {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-4);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.hero__kicker span,
+.hero__kicker a {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
+.hero__kicker a {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+.hero__lede {
+  max-width: 70ch;
+  margin-top: var(--s-4);
+  font-size: clamp(var(--t-1), 0.95rem + 0.4vw, 1.2rem);
+  line-height: 1.5;
+}
+
+.hero__actions {
+  justify-content: center;
+  margin-top: var(--s-5);
+}
+
+.hero__install {
+  width: 100%;
+  max-width: 44rem;
+}
+
+.hero__install .command {
+  margin-top: var(--s-4);
+}
+
+/* The proof strip is the trust bar between the copy and the product. */
+.proof {
+  max-width: 64rem;
+  margin: clamp(var(--s-7), 6vw, var(--s-8)) auto 0;
+  padding-top: var(--s-6);
+  text-align: center;
+}
+
+.proof li {
+  justify-items: center;
+}
+
+.proof b {
+  font-size: var(--t-4);
+}
+
+.proof span {
+  max-width: 34ch;
+  font-size: var(--t--1);
+}
+
+/* The program: as wide as the copy, as tall as it is. */
+.hero__panel {
+  max-width: 58rem;
+  margin: clamp(var(--s-7), 6vw, var(--s-8)) auto 0;
+}
+
+@media (max-width: 720px) {
+  .hero__lead {
+    align-items: stretch;
+    text-align: left;
+  }
+
+  .hero__kicker,
+  .hero__actions {
+    justify-content: flex-start;
+  }
+
+  .proof {
+    text-align: left;
+  }
+
+  .proof li {
+    justify-items: start;
+  }
+
+  .proof span {
+    max-width: none;
+  }
+}
+
+/* ---- the closing call to action ----------------------------------- */
+
+.cta {
+  padding-block: clamp(var(--s-9), 7vw, var(--s-10));
+  border-top: 1px solid var(--border);
+  background:
+    radial-gradient(60% 80% at 50% 100%, var(--accent-soft), transparent 70%),
+    var(--bg);
+}
+
+.cta__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 44rem;
+  text-align: center;
+}
+
+.cta__inner > p {
+  max-width: 56ch;
+  margin-top: var(--s-4);
+  font-size: var(--t-1);
+}
+
+.cta__inner .command {
+  width: 100%;
+  margin-top: var(--s-6);
+}
+
+.cta__inner .hero__actions {
+  margin-top: var(--s-5);
+}
+
+@media (max-width: 720px) {
+  .cta__inner {
+    align-items: stretch;
+    text-align: left;
+  }
+
+  .cta__inner .hero__actions {
+    justify-content: flex-start;
+  }
+}

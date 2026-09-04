@@ -83,6 +83,9 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
           >
             <GitHub />
           </a>
+          <a className="btn btn--primary btn--sm nav-cta" href="#start">
+            Install
+          </a>
           <button
             type="button"
             className="icon-btn icon-btn--menu"

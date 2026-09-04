@@ -8,6 +8,7 @@ import { Audience } from './sections/Audience.tsx'
 import { Agents } from './sections/Agents.tsx'
 import { Editors } from './sections/Editors.tsx'
 import { Start } from './sections/Start.tsx'
+import { Closing } from './sections/Closing.tsx'
 import { Footer } from './sections/Footer.tsx'
 import { useTheme } from './lib/theme.ts'
 
@@ -33,6 +34,7 @@ export default function App() {
         <Agents />
         <Editors />
         <Start />
+        <Closing />
       </main>
       <Footer />
     </>
