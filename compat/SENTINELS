@@ -76,6 +76,34 @@
 # `effect` declarations. About 21% of the public surface is in a form
 # `(pub :: ` at column 0 does not match. This is a FLOOR.
 #
+# THAT LIST WENT STALE AND NOTHING WAS WATCHING IT, corrected
+# 2026-09-04. Three of the six names are no longer sentinels of any
+# kind: `vecGet`, `vecPop` and `vecLast` answer `(__indexTrap)` - a
+# call that does not return, status 77 - and `stdlib/Vec.ax`'s own
+# comment records why ("it used to answer 0, and 0 IS A VALUE A CALLER
+# MAY have stored"). Of the three that remain, `strByte`'s 0 is
+# deliberate and documented at the declaration - a lexer's lookahead
+# wants one past the end to read as end-of-input, and NUL already is
+# that - which leaves `jsonGet` and `jsonArrGet` as the whole of the
+# literal-`0` debt this census cannot see. `jsonGet`'s own comment
+# names the cost: `jsonTag` reports 0 as `JNULL`, so an ABSENT member
+# and one explicitly set to null are the same answer, and `lsp.ax`
+# tests against 0 directly to tell a request from a notification.
+# Thirty call sites, twenty-nine of them in `lsp.ax`.
+#
+# AND THE CENSUS CANNOT SIMPLY GROW A `0` ARM, measured before it was
+# proposed. Applying this file's own rules with `(- 0 n)` replaced by a
+# bare `0` in return position yields SIXTY-NINE candidates across
+# `stdlib/`, and almost every one is the library's idiomatic UNIT
+# answer rather than a sentinel: `vecFree`, `ledReset`, `assertEq`,
+# `termFlush`, twenty-four in `Tui/Edit.ax` alone. `-1` carries signal
+# because no lookup legitimately answers a negative; `0` carries none,
+# because half this library answers `0` for "done". A `0`-sentinel
+# census would have to read the doc-comment, which is the metric the
+# 2026-08-30 rewrite replaced for rewarding silence. The floor stays a
+# floor, and the two rows above are what somebody has to decide by
+# hand.
+#
 # PORTED 2026-08-31: `Agent/Tags.ax`'s two (`axsymHexVal`, `axsymPctAt`)
 # and `Path.ax`'s two (`pathLastSlash`, `pathExtIndex`) now answer
 # `Option Int`. Both modules drop out of this table entirely - the

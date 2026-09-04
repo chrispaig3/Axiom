@@ -735,6 +735,34 @@ forced someone to fill in. And `driver.ax`'s directory walk called
 `strFindByte` a second time to re-find a `.` its own guard had just
 proved was at `strLen - 3`; that is the index now.
 
+### The census's own floor named three functions that stopped being sentinels
+
+`compat/SENTINELS` states what it cannot see, which is the right habit
+and was not being re-read. Its floor names the literal-`0` sentinel as
+"`vecGet`, `vecPop`, `vecLast`, `strByte`, `jsonGet`, `jsonArrGet`", and
+three of those six answer `(__indexTrap)` now — a call that does not
+return, status 77 — with `stdlib/Vec.ax`'s own comment recording why.
+`strByte`'s `0` is deliberate and documented at its declaration: a
+lexer's lookahead wants one past the end to read as end-of-input, and
+NUL already is that. So the literal-`0` debt the census cannot see is
+**`jsonGet` and `jsonArrGet`**, and `jsonGet`'s comment names its cost —
+`jsonTag` reports 0 as `JNULL`, so an absent member and one explicitly
+set to null are the same answer, and `self_host/lsp.ax` tests against 0
+directly to tell a request from a notification. Thirty call sites,
+twenty-nine of them in `lsp.ax`.
+
+**And the census cannot simply grow a `0` arm**, measured before
+proposing it. Applying the existing rules with `(- 0 n)` replaced by a
+bare `0` in return position yields **69 candidates** across `stdlib/`,
+almost every one the library's idiomatic unit answer rather than a
+sentinel — `vecFree`, `ledReset`, `assertEq`, `termFlush`, twenty-four
+in `Tui/Edit.ax` alone. `-1` carries signal because no lookup
+legitimately answers a negative; `0` carries none, because half the
+library answers `0` for "done". A `0`-sentinel census would have to read
+the doc-comment, which is the metric the 2026-08-30 rewrite replaced for
+rewarding silence. The floor stays a floor, and the note now says which
+two rows are actually under it.
+
 ### ERR-ADOPT-1's own size and order were wrong, and both are re-derived
 
 `docs/error-model.md` §1.2 sized the migration with
