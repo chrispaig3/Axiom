@@ -1,0 +1,44 @@
+; A call with two and three arguments, in an order that matters.
+;
+; Every other fixture calls a one-argument function, so nothing in
+; this suite pinned the ORDER of a call's arguments: a lowering that
+; reversed `MO_CALL`'s argument list, or an evaluator that bound the
+; callee's parameters backwards, would print the same twenty lines
+; through both sides of the differential and match its golden. Both
+; helpers below are written so that any permutation of their
+; arguments changes the answer - `probeSub` is not commutative, and
+; `probeMix` weights its three by powers of ten.
+;
+(import IO)
+
+(:: probeSub (-> Int Int Int))
+
+(fn (probeSub a b) (- (* a 100) b))
+
+(:: probeMix (-> Int Int Int Int))
+
+(fn (probeMix a b c) (+ (* a 100) (+ (* b 10) c)))
+
+(:: probe (-> Int Int))
+
+(fn (probe n) (+ (probeSub n (+ n 1)) (probeMix n (+ n 1) (+ n 2))))
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

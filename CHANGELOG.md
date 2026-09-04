@@ -388,17 +388,23 @@ matrix.
 **The gate is a differential, not a golden.** A printer pinned only by
 checked-in goldens states the FORM of the IR and nothing about its
 meaning, and `AXIOM_BLESS=1` rewrites those goldens. So each of the
-eight fixtures under `tests/mir/` is compiled and run by the real
+nine fixtures under `tests/mir/` is compiled and run by the real
 compiler, then lowered and run by the evaluator, and the two stdouts
-must be byte-identical. Two ablations, chosen to fire DIFFERENT checks
-because two that fire the same one are one ablation written twice:
-swapping a binary operator's operands leaves the IR well formed, so the
-goldens and the differential must go red while the verifier stays
-SILENT; dropping every `br` terminator must make the verifier speak
-about exactly the fixtures whose goldens carry a `condbr`, and stay
-silent about the ones that do not. Every fixture is written so the
-first ablation answers a wrong NUMBER rather than diverging — a red
-that is a SIGSEGV says less than a red that is an answer.
+must be byte-identical. Three ablations, chosen to fire DIFFERENT
+checks because two that fire the same one are one ablation written
+twice: swapping a binary operator's operands leaves the IR well formed,
+so the goldens and the differential must go red while the verifier
+stays SILENT; dropping every `br` terminator must make the verifier
+speak about exactly the fixtures whose goldens carry a `condbr`, and
+stay silent about the ones that do not; and making an `if` answer its
+then-arm's register instead of the join block's parameter leaves every
+terminator and every single definition in place, so the DOMINANCE rule
+is the only thing that can fire, and every complaint under it must be
+that rule. Without that third one the dominance check — the only part
+of the verifier that costs anything to compute — could not fail at
+all. Every fixture is written so the first ablation answers a wrong
+NUMBER rather than diverging — a red that is a SIGSEGV says less than
+a red that is an answer.
 
 `scripts/check-gate-lib.sh`'s guard over its own `word_for` table had
 fallen four arms behind the table it guards, so the range the count had

@@ -10,8 +10,8 @@
 # §4 compares the compiler against.
 #
 # THE HOLLOW VERSION OF THIS GATE, which is what every assertion
-# below is shaped against: compile eight fixtures, print their IR,
-# compare against eight checked-in goldens, exit 0. That version
+# below is shaped against: compile the fixtures, print their IR,
+# compare against the checked-in goldens, exit 0. That version
 # passes with a lowering that means nothing at all - the goldens are
 # whatever the lowering last printed, and `AXIOM_BLESS=1` here
 # rewrites them. A printer gate pins the FORM of the IR and says
@@ -23,8 +23,9 @@
 #   EVALUATOR runs the lowered IR of the same file, and the two
 #   stdouts must be byte-identical.
 #
-# The reference there is 97,000 lines of compiler this change did not
-# touch. A lowering rule that quietly means something other than the
+# The reference there is the 97,680 lines of compiler this change did
+# not touch - `cat self_host/*.ax | wc -l` less `mir.ax` and
+# `mireval.ax`, which nothing in that compiler imports. A lowering rule that quietly means something other than the
 # source it came from fails §4 with §2's goldens freshly blessed and
 # every other check green - and that is drilled rather than asserted:
 # ABLATION 1 below is exactly such a rule.
@@ -55,9 +56,15 @@
 #
 #   5. POSITIVE CONTROLS, so §4 cannot pass on two empty files.
 #      Every fixture must print exactly 20 non-empty lines, and the
-#      eight outputs must be eight DISTINCT files - eight fixtures
-#      that all print the same twenty lines would satisfy §4 against
-#      a lowering that ignored its input.
+#      outputs must be as many DISTINCT files as there are fixtures
+#      - a suite that all printed the same twenty lines would
+#      satisfy §4 against a lowering that ignored its input.
+#      One fixture, `090-callargs`, is there for a hole the other
+#      eight left: every one of them calls a ONE-argument function,
+#      so a lowering that reversed a call's argument list, or an
+#      evaluator that bound the callee's parameters backwards,
+#      would print the same lines on both sides of §4 and match
+#      its golden.
 #
 #   6. THE COMPILER EMITS FROM THE IR. This section used to assert
 #      the opposite - that nothing imported `mir`, so `emit-llvm`
@@ -304,7 +311,7 @@ else
   bad "these fixtures printed an empty line:$blank"
 fi
 
-# Eight fixtures that all print the same twenty lines would satisfy
+# Fixtures that all print the same twenty lines would satisfy
 # §4 against a lowering that ignored its input entirely.
 n_distinct="$(for f in "${fixtures[@]}"; do
     n="$(basename "$f" .ax)"
@@ -571,11 +578,20 @@ if which == "1":
     # meaning - `sub`, `sdiv`, `srem` and every comparison invert.
     pat = re.compile(r"(MO_BIN\s+\(mlcFresh lc\)\s+)\(vecGet out 0\)(\s+)\(vecGet out 1\)")
     rep = r"\g<1>(vecGet out 1)\g<2>(vecGet out 0)"
-else:
+elif which == "2":
     # Every unconditional branch dropped. The branchless fixture is
     # untouched; every other block loses its terminator.
     pat = re.compile(r"\(if\s+(\(>\s+\(vecLen lc\.cur\.term\)\s+0\))(\s+0\s+\{\s+\(vecPush lc\.cur\.term n\))")
     rep = r"(if (|| \g<1> (== n.op MT_BR))\g<2>"
+else:
+    # An `if` answers the THEN arm's register instead of the join
+    # block's parameter. Every block still has its terminator and
+    # every register is still defined exactly once, so ablations 1
+    # and 2's checks say nothing; the only thing wrong with the
+    # result is that the definition sits in a block which does not
+    # DOMINATE the use.
+    pat = re.compile(r"\(set lc\.cur bj\)(\s+)pj")
+    rep = r"(set lc.cur bj)\g<1>r1"
 hits = len(pat.findall(s))
 if hits != 1:
     sys.stderr.write("seam %s appears %d times, expected 1\n" % (which, hits))

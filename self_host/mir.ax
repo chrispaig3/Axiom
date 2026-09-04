@@ -53,13 +53,23 @@
 ; of the eleven arithmetic and comparison operators or of a
 ; TOP-LEVEL function. Anything else - a string, a match, a lambda, a
 ; field access, an application whose head is a local - makes it
-; REFUSE the whole function. It never answers a partial one. Measured
-; over `self_host/*.ax stdlib/*.ax stdlib/*/*.ax`, that subset lowers
-; 1,969 of 4,720 top-level functions end to end, including 395 of 653
-; in `codegen.ax` and 611 of 908 in `typecheck.ax`; `check-mir.sh`
-; keeps a floor under that number and prints it, so the day a
-; lowering rule narrows itself to keep a differential green, the
-; count says so.
+; REFUSE the whole function. It never answers a partial one.
+;
+; HOW MUCH THAT IS, measured with `tests/mir/mirtool.ax count` over
+; `self_host/*.ax stdlib/*.ax stdlib/*/*.ax` and NOT taken from
+; anywhere else: 2,000 of 4,796 top-level functions lower end to end,
+; among them 229 of 653 in `codegen.ax`, 340 of 908 in
+; `typecheck.ax`, 105 of 316 in `parser.ax` and 104 of 278 in
+; `expand.ax`. `check-mir.sh` recomputes the total every run, prints
+; it, and holds a floor under it, so the day a lowering rule narrows
+; itself to keep the differential green the count says so. The
+; per-module numbers here are not gated and are a reader's
+; orientation only - the command above is how to re-derive them.
+;
+; That count is over the PARSED tree, not the expanded one, for the
+; reason `mirtool`'s header gives: resolving each of those modules'
+; import graphs would mean compiling the compiler once per module.
+; The fixtures under `tests/mir/` do go through the whole frontend.
 ;
 ; WHY THE OPERATOR TABLE IS DUPLICATED. `codegen.ax` already has
 ; `binopToLLVM` and `cmpToLLVM`, and `mBinOp` below is those two
