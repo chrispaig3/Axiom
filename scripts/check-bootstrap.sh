@@ -201,19 +201,22 @@ target="$os-$arch"
 seed_ll="bootstrap/axiom-$target.ll"
 [[ -f "$seed_ll" ]] || fail "no seed for this host at $seed_ll"
 
-[[ -f bootstrap/SHA256SUMS ]] \
-  || fail "bootstrap/SHA256SUMS is missing: an unverifiable seed is not a seed"
-if command -v sha256sum >/dev/null; then
-  sumcheck() { sha256sum -c SHA256SUMS; }
-else
-  sumcheck() { shasum -a 256 -c SHA256SUMS; }
-fi
-(cd bootstrap && sumcheck) >"$work/sums.log" 2>&1 \
-  || { sed 's/^/    /' "$work/sums.log" >&2; fail "a bootstrap seed does not match its recorded hash"; }
-# All four seeds are checked, not just this host's: the sums file names
-# them all, and a corrupt seed for another target is a fact about this
-# checkout worth hearing here rather than on someone else's machine.
-echo "ok   the seeds match bootstrap/SHA256SUMS ($seed_ll is this host's)"
+# The same verifier `bootstrap-from-seed.sh` runs, from the same file,
+# so this is not a second opinion about that path but a run of it.
+source "$repo_root/scripts/lib/seed-sums.sh"
+seed_sums_verify bootstrap \
+  || fail "bootstrap/SHA256SUMS does not account for the seeds in bootstrap/"
+# EVERY seed present is checked, not just this host's, and the sums file
+# is required to name them all rather than assumed to. That comment used
+# to read "All four seeds are checked" over six, and it stated as a fact
+# - "the sums file names them all" - precisely the thing nothing here
+# checked: `shasum -c` is silent about a file it was given no row for,
+# so a deleted row made a seed's bytes unchecked and this line still
+# printed. `seed_sums_verify` compares the rows against the directory in
+# both directions first. A corrupt seed for another target is still a
+# fact about this checkout worth hearing here rather than on someone
+# else's machine.
+echo "ok   the seeds match bootstrap/SHA256SUMS, which names every seed present ($seed_ll is this host's)"
 
 # `llc` carries an explicit relocation model, which axiom-cli documents
 # as required of every `llc` invocation in the project including these.

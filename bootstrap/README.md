@@ -13,6 +13,7 @@ axiom-freebsd-aarch64.ll
 SHA256SUMS                what each of them should hash to
 STAMP                     the hash of the source they were generated from
 CHAIN                     every seed ever committed, and what reproduces it
+THREATS.md                what the seed is defended against, and what it is not
 lineage/                  the commit list and the one patch a CHAIN row names
 ```
 
@@ -91,6 +92,24 @@ in TIME, not a gap in provenance.
 file committed together move together. It exists so that a damaged
 seed is reported here, by name, instead of as a link error three steps
 downstream.
+
+Until 2026-09-03 it was a corruption check with a hole in it, and the
+hole was on the one path that has no CI and no compiler. `shasum -a 256
+-c` verifies the rows it is handed and says nothing about a file it was
+handed no row for, so deleting a row and replacing the file it named
+exits 0 — measured, three files, two `OK`s and `rc=0`. The rows and the
+`.ll` files are now compared as sets, both directions, before any hash
+is verified, by one function (`seed_sums_verify`, in
+`scripts/lib/seed-sums.sh`) that both `bootstrap-from-seed.sh` and
+`check-bootstrap.sh` call, and `scripts/check-seed-supply-chain.sh`
+runs that exact attack against a copy of these seeds on every CI run.
+
+**`THREATS.md`**, beside this file, is the table version of the rest of
+this section: one row per adversary capability, what is defended, by
+which gate and which assertion inside it, and what is left. More of its
+rows say "not defended" than "defended", which is the point — a `yes`
+row that no gate backs is refused by
+`scripts/check-seed-supply-chain.sh` before it can be committed.
 
 **The trust check is `scripts/check-seed-provenance.sh`**, added
 2026-08-25. It regenerates all six of these files from the source at

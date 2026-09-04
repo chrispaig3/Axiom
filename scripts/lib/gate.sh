@@ -410,8 +410,20 @@ gate_prose_docs_abs() {
 # reads, and it was the ONE prose file in the tree that no sweep
 # opened - while opening with the claim that every claim in it carries
 # the gate that establishes it.
+#
+# `bootstrap/README.md` and `bootstrap/THREATS.md` are here because they
+# are the tree's TRUST story, and until 2026-09-03 they were the part of
+# it that no sweep opened - 14 KB of prose making provenance claims,
+# every one of them a comment. The gates under them
+# (`check-seed-provenance.sh`, `check-seed-lineage.sh`,
+# `check-seed-supply-chain.sh`) are strong; the prose describing them was
+# ungated, which is the exact shape of the defect this repository names
+# most often. `check-seed-supply-chain.sh` holds THREATS.md's rows to
+# real gates; this holds both files' links, fixture paths and numerals.
 gate_prose_docs() {
   cat <<'DOCS'
+bootstrap/README.md
+bootstrap/THREATS.md
 README.md
 CONTRIBUTING.md
 CHANGELOG.md
