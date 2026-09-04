@@ -161,7 +161,7 @@ Concretely, this:
 
 ```lisp
 (:: main Int)
-(define main (+ (foo 1 2) 0))
+(fn (main) (+ (foo 1 2) 0))
 ```
 
 reports exactly **one** diagnostic - `foo` is undefined. The poisoned

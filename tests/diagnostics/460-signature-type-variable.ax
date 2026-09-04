@@ -21,12 +21,12 @@
 ;   promised  declares that it answers the caller's first type and
 ;             answers the second one instead.
 ;
-; A CALL SITE passing anything at all is still accepted, deliberately:
-; instantiation mints a fresh placeholder per variable and does not
-; SOLVE it, so `(f 1 (Pt 3 4))` on `(-> a a Int)` goes unreported.
-; Under-report, never mis-report - the same trade recorded for effect
-; operations before they carried their arrow. The programs that must
-; keep working are `tests/selfhost/972-polymorphic-signature.ax`.
+; A CALL SITE is checked too, since `pinArg` (2026-08-21): the first
+; argument PINS each variable, so `(f 1 (Pt 3 4))` on `(-> a a Int)` is
+; AX3004 at the second argument - `expected Int, found Pt` - which is
+; `tests/diagnostics/998-placeholder-pinned.ax`'s subject. Before that,
+; instantiation minted a placeholder and never solved it. The programs
+; that must keep working are `tests/selfhost/972-polymorphic-signature.ax`.
 (struct Pt
   (x : Int)
   (y : Int))
