@@ -202,8 +202,11 @@ Said out loud rather than left unstated:
   identical on all three CI legs. The *values* behind those names are
   a target's, not a promise.
 - **A registry, a lockfile, or version constraints.** A dependency is
-  a path on this machine (`self_host/pkg.ax` states this deliberately).
-  Nothing here changes that.
+  a path on this machine (`self_host/pkg.ax` states this deliberately),
+  and `crate` — a native dependency, since 0.7.4 — is a path on this
+  machine too. Nothing here changes that. A lockfile is not a step
+  toward a fetcher either: over a path the user already controls a
+  digest closes no surface and churns on every edit of their own code.
 - **Windows.** Explicitly out until a customer needs it.
 
 ---

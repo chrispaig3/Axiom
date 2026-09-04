@@ -356,6 +356,13 @@
     (dfmt diagFormatArg)
     (_crates prepareCrates)
     (_pkg (pkgVerify (pathDir fileName)))
+    ; ...and then that no dependency the manifest pulled in provides a
+    ; module the STANDARD LIBRARY provides. Separate from `pkgVerify`
+    ; because it needs the library's search directories, which only
+    ; `codegen` knows - and running here, in the same `let`, keeps it
+    ; before any module is read, which is the property every refusal
+    ; in this group shares.
+    (_shadow (pkgCheckStdlibShadow (pathDir fileName)))
   )
     (if (!= rerr 0)
       {
@@ -638,7 +645,7 @@
                                           )
                                           (if (== needMain 1)
                                             (let ((grc (groundExternsSpanned
-                                              ir                                              allDecls                                              units                                              dfmt                                              (effectiveLinkArgs ir linkArgsOf)
+                                              ir                                              allDecls                                              units                                              dfmt                                              (effectiveLinkArgs ir (pathDir fileName) linkArgsOf)
                                             )))
                                               (if (!= grc 0)
                                                 {
@@ -1040,7 +1047,7 @@
                       (let ((base (cat2 "axiom_test_output." (decStr sysGetPid))))
                         (let ((exe (cat2 "./" base)))
                           (let ((rc (buildToExecutable
-                            ir                            base                            optLevelArg                            0                            (effectiveLinkArgs ir linkArgsOf)
+                            ir                            base                            optLevelArg                            0                            (effectiveLinkArgs ir (pathDir file) linkArgsOf)
                           )))
                             {
                               (unwrapOr (sysUnlink (strCStr gen)) 0)
@@ -1344,7 +1351,7 @@
                         ir                        outp                        optLevelArg                        (if (hasFlagAnywhere cmd "--emit-llvm")
                           1
                           0
-                        )                        (effectiveLinkArgs ir linkArgsOf)
+                        )                        (effectiveLinkArgs ir (pathDir inp) linkArgsOf)
                       )
                     ))
                       (if (!= rc 0)
@@ -1668,7 +1675,7 @@
                               (let ((base (cat2 "axiom_temp_output." (decStr sysGetPid))))
                                 (let ((exe (cat2 "./" base)))
                                   (let ((rc (buildToExecutable
-                                    ir                                    base                                    optLevelArg                                    0                                    (effectiveLinkArgs ir linkArgsOf)
+                                    ir                                    base                                    optLevelArg                                    0                                    (effectiveLinkArgs ir (pathDir f) linkArgsOf)
                                   )))
                                     (if (!= rc 0)
                                       (die "" rc)

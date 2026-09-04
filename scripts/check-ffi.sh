@@ -291,6 +291,63 @@ BYTES
 done
 
 # ---------------------------------------------------------------
+# A PROJECT CAN DECLARE ITS NATIVE DEPENDENCY, not only pass it as a
+# flag. `axiom.pkg`'s `crate DIR` (2026-09-03) puts `DIR/axiom/` on the
+# module search path and `DIR`'s three `target/release` directories on
+# the link search path - the same two lists `--crate DIR` feeds.
+#
+# WHY IT IS HERE AND NOT ONLY IN check-packages.sh. That gate is
+# cargo-free by design and proves the module half with a fake crate.
+# This is the half that needs a real `libaxiom_demo.a`: the archive is
+# found and linked with NO command-line flag at all, which is the
+# property a third-party native package rests on. Measured on 0.7.3
+# before the key existed: the same tree, the same archive, declared
+# through `$AXIOM_PATH` exited 0 and declared in `axiom.pkg` exited 4
+# with AX4004.
+#
+# It reuses the archive the tiers above already built, so it costs one
+# `axiom build` rather than a cargo run.
+mkdir -p "$work/pkgcrate"
+cp tests/ffi/demo/010-add.ax "$work/pkgcrate/app.ax"
+cat > "$work/pkgcrate/axiom.pkg" <<EOF
+name  pkgcrate
+crate $repo_root/rust/examples/demo
+EOF
+if ( cd "$work/pkgcrate" && "$axiom" build app.ax --output prog ) \
+     > "$work/pkgcrate.log" 2>&1; then
+  got_out="$( cd "$work/pkgcrate" && ./prog 2>&1 )" || true
+  if [[ "$got_out" == "42" ]]; then
+    echo "ok   a manifest \`crate\` links the archive with no flags, and the program answers 42"
+  else
+    echo "FAIL a manifest-declared crate built but answered '$got_out', expected 42"
+    status=1
+  fi
+else
+  echo "FAIL a manifest \`crate\` did not link the demo archive"
+  sed 's/^/    /' "$work/pkgcrate.log" | head -8
+  status=1
+fi
+
+# THE NEGATIVE PROBE, and it is what makes the check above mean
+# anything: with the manifest moved aside and nothing else changed, the
+# identical command must fail with AX4004. Without it the section would
+# pass on a stray `$AXIOM_PATH` or a `-L` from somewhere else being
+# what found the archive.
+mv "$work/pkgcrate/axiom.pkg" "$work/pkgcrate/axiom.pkg.off"
+rm -f "$work/pkgcrate/prog"
+if ( cd "$work/pkgcrate" && "$axiom" build app.ax --output prog ) \
+     > "$work/pkgcrate-off.log" 2>&1; then
+  echo "FAIL the program still linked with no manifest - \`crate\` is not what found the archive"
+  status=1
+elif grep -q 'AX4004' "$work/pkgcrate-off.log"; then
+  echo "ok   negative probe: without the manifest the same build is AX4004"
+else
+  echo "FAIL without the manifest the build failed, but not with AX4004"
+  sed 's/^/    /' "$work/pkgcrate-off.log" | head -6
+  status=1
+fi
+
+# ---------------------------------------------------------------
 # The generated bindings are checked in, and are REGENERATED here and
 # compared. `axiom-bindgen` reads the Rust source and the proc macro
 # reads the same annotations; two independent passes over one input can

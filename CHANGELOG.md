@@ -16,6 +16,101 @@ its changelog too.
 
 ## Unreleased
 
+### `axiom.pkg` can declare a native dependency: the `crate` key
+
+`depend` names a directory of `.ax` and nothing else, so a package
+whose reason to exist is a Rust archive could not be declared. Measured
+on 0.7.3 — one source tree, one `libaxiom_greeter.a` already on disk,
+two ways of saying so:
+
+```
+$ AXIOM_PATH=vendor/greeter/axiom axiom build app.ax --output viaEnv
+Build successful: viaEnv                                    # ./viaEnv -> 42
+$ # ...and with `depend vendor/greeter/axiom` in axiom.pkg instead:
+$ axiom build app.ax --output viaPkg
+error[AX4004]: no archive is linked, and `axffi_triple` needs one   # exit 4
+```
+
+The environment could describe the project and the project could not,
+which is the inversion of what a manifest is for. `crate DIR` names a
+crate directory — a `Cargo.toml` beside an `axiom/` holding the
+generated binding module — and feeds the two lists `--crate DIR`
+already feeds: `DIR/axiom/` joins the module search path in `depend`'s
+slot, and `DIR/target/release` (plus a workspace's, one and two levels
+up) joins the link search path. Three shapes are refused at the
+manifest before a byte is compiled: a directory that is not there, one
+with no `Cargo.toml`, and one with no `axiom/`.
+
+**A manifest `crate` never runs cargo**, and that is the decision the
+key is built around. `--crate DIR` on the command line does — measured
+on 0.7.3, against a crate with no `target/`, it printed `axiom:
+building crate ... with cargo (no archive found)`, cargo ran, and
+`DIR/target/` appeared. A command line is a person asking; `axiom.pkg`
+is a checked-in file that arrives with a clone, and letting one spawn
+another project's build system would make "the compiler executes no
+code from a source file" false for the file most worth trusting. Build
+the crate once and the manifest carries it from then on; until then the
+build is `AX4004`, whose help already says what to run.
+
+Gate: `scripts/check-packages.sh`, which grew from 26 checks to 42 —
+the module half with a fake crate and no cargo at all, plus the
+load-bearing pair: after a manifest build `DIR/target` must not exist,
+and the identical directory passed as `--crate` must create it (guarded
+by `command -v cargo`, and the skip is printed). `scripts/check-ffi.sh`
+owns the archive half: a project whose only declaration is `crate
+<repo>/rust/examples/demo` links and runs with no flags, and with the
+manifest moved aside the same command is `AX4004`.
+
+### A dependency may no longer provide a standard-library module
+
+`depend` and `crate` sit *above* the standard library in the module
+search order, so a dependency carrying a `Fmt.ax` replaced the real one
+for the **whole program** — every module that imports `Fmt`, not only
+the one that wanted the dependency. Measured on 0.7.3: a vendored copy
+of `stdlib/Fmt.ax` whose `fmtInt` answered `"HIJACKED"` made the
+program print HIJACKED, at exit 0, with no diagnostic anywhere. A
+package manager that ships that is a supply-chain surface wearing a
+search path.
+
+It is refused now, at the manifest, naming the dependency's file and
+the library's. The entry file's own directory is untouched and still
+shadows a library module — that is documented behaviour, it is a file
+the author wrote rather than one that arrived with a dependency, and
+`check-packages.sh` ablates the refusal against exactly that case.
+
+### Two dependencies may not provide one NESTED module either
+
+The headline property was top-level only. Two `depend` directories each
+holding `Sub/Widget.ax` — the file `(import Sub.Widget)` resolves to —
+built and exited with the first one's answer, silently: the check did
+one directory listing and never descended. The gate could not see it
+either, because its fixture helper only ever wrote top-level modules,
+which is this repository's own "a check that cannot fail" law catching
+the check that was meant to enforce it. The walk goes three levels deep
+now — the depth the resolver's nested lookup is already documented at —
+and the refusal names the module the way an `import` spells it,
+`Sub.Widget`.
+
+### Compatibility
+
+- **Behaviour change.** A project that vendors a patched
+  standard-library module through `depend` (or through a `crate`'s
+  `axiom/`) now fails at `axiom check` with a manifest-level refusal at
+  exit 3, where it used to build. No such project exists in this
+  repository (`find . -name axiom.pkg -not -path './.git/*'` returns
+  nothing), and the supported route — the entry file's own directory —
+  is unchanged and gated. Rename the module, or move it beside the
+  entry file.
+- **Behaviour change.** Two dependencies providing one *nested* module
+  now fail at exit 3 where they used to build first-wins. That was
+  always the stated rule; only the check was shallow.
+- `crate` is a new manifest key, so a manifest that used it before was
+  refused as an unknown key and no tree can have depended on it.
+- `effectiveLinkArgs` in `self_host/driver.ax` takes the entry file's
+  directory as a new second parameter. Not a declared break:
+  `compat/0.5.0.axsym`'s baseline is stdlib-only (`grep -c
+  'moduleSearchDirs\|compileFile' compat/0.5.0.axsym` → 0).
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a

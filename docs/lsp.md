@@ -86,9 +86,9 @@ What the lifecycle does, and what it does not:
   diagnostics are held to, by severity, code, an anchor string and the
   message line, with positions recomputed in Python from the bytes.
 - **Imports resolve as `axiom check` resolves them** from the file the
-  URI names: the entry file's directory, an `axiom.pkg`'s `depend`
-  directories, then `$AXIOM_PATH`. If `axiom check f.ax` finds the
-  standard library from the shell your editor launches, the server
+  URI names: the entry file's directory, an `axiom.pkg`'s `depend` and
+  `crate` directories, then `$AXIOM_PATH`. If `axiom check f.ax` finds
+  the standard library from the shell your editor launches, the server
   finds it too; a half-typed `(import Fo` is answered as "this
   document alone", never as an error and never by a dead server
   (`lspPreflight` in `self_host/lsp.ax` walks the imports non-fatally
@@ -728,14 +728,14 @@ so a code that gains a fix in `typecheck.ax` gains a quickfix without
 a line changing in `lsp.ax`; and two the server writes itself. *Import
 `name` from `Mod`*, on an AX3001 whose reference is a bare name: every
 module the resolver could reach — the entry file's directory,
-`axiom.pkg`'s `depend` directories, `AXIOM_PATH`, `AXIOM_STDLIB`, each
-walked three levels deep for a nested `Sys.Platform` — is a candidate
-under the name `moduleSrcPath` would resolve it by, so a `Str.ax`
-beside the entry file shadows the stdlib's exactly as it does for the
-compiler; a file is parsed only when its bytes spell the name as a
-whole word, and one action is offered per module that declares it
-`pub`. The edit adds the name to an existing `(import Mod (...))`
-list, else writes `(import Mod (name))` on its own line after the last
+`axiom.pkg`'s `depend` and `crate` directories, `AXIOM_PATH`,
+`AXIOM_STDLIB`, each walked three levels deep for a nested
+`Sys.Platform` — is a candidate under the name `moduleSrcPath` would
+resolve it by, so a `Str.ax` beside the entry file shadows the stdlib's
+exactly as it does for the compiler; a file is parsed only when its
+bytes spell the name as a whole word, and one action is offered per
+module that declares it `pub`. The edit adds the name to an existing
+`(import Mod (...))` list, else writes `(import Mod (name))` on its own line after the last
 import, else as the first line. A qualified `Mod::name` gets no
 action: it names its module already. *Make `name` public in `Mod`*, on
 AX3023: a `WorkspaceEdit` keyed by the **declaring file's** URI that

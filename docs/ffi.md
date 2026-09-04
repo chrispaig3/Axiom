@@ -1002,7 +1002,11 @@ order, each directory once, existing directories only:
    `DIR/../../target/release` for each `--crate DIR` (a crate inside a
    workspace builds into the workspace's `target`; `rust/examples/demo`
    builds into `rust/target`);
-5. then `-l<lib>` for every `extern` block's library string whose
+5. the same three for each `crate DIR` in the project's `axiom.pkg`,
+   in file order — so a project can DECLARE its native dependency
+   rather than pass it on every command line
+   ([reference.md, Packages](reference.md#packages));
+6. then `-l<lib>` for every `extern` block's library string whose
    `lib<lib>.a` some directory above holds and no explicit `-l` already
    names.
 
@@ -1010,9 +1014,13 @@ The library string travels from the emitter to the driver as a comment
 line in the IR (`; axiom-extern-lib axiom_demo`) beside the declares.
 `--crate DIR` (repeatable; `build`, `run`, `check`) additionally puts
 `DIR/axiom/` on the module search path, so `(import Demo)` finds the
-generated module. `--link-lib`/`--link-search` remain as overrides.
+generated module. An `axiom.pkg` line `crate DIR` puts the same
+directory on the same path, one slot higher — above `$AXIOM_PATH`,
+where the manifest's `depend` lines already sit.
+`--link-lib`/`--link-search` remain as overrides.
 
-**The crate builds itself.** `prepareCrates` runs before the entry is
+**The crate builds itself — from the COMMAND LINE, and only from
+there.** `prepareCrates` runs before the entry is
 read: for each `--crate DIR`, when `DIR/axiom/*.ax` is missing or older
 than the newest file under `DIR/src` and `axiom-bindgen` is on `PATH`,
 the driver regenerates the module (`--src DIR/src --lib <stem>
@@ -1028,6 +1036,19 @@ do not. `cargo install --path rust/axiom-bindgen` puts `axiom-bindgen`
 on `PATH`. Measured on the demo crate: 4 s from a clean `target/`, 0.7 s
 when nothing has changed (the checks are file-time comparisons and one
 `axiom-bindgen --check --quiet`, whose exit status is the answer).
+
+**A manifest `crate` does none of that.** It contributes the two search
+paths and nothing else: no cargo, no `axiom-bindgen`, no write anywhere
+under `DIR`. A command line is a person asking; `axiom.pkg` is a
+checked-in file that arrives with a clone, and letting one spawn
+another project's build system would make "the compiler executes no
+code from a source file" false for the file most worth trusting. Build
+the crate once — `cargo build --release`, or one `axiom build --crate
+DIR` — and the manifest carries it from then on; until then the build
+is `AX4004`, whose help names `--link-lib`, `--link-search` and the
+`target/release` it looked in. `scripts/check-packages.sh` pins both
+halves: after a manifest build `DIR/target` must not exist, and the
+same directory passed as `--crate` must create it.
 
 **Grounding.** Before a byte is written or a tool spawned,
 `groundExternsSpanned` reads every archive on the line and checks that
