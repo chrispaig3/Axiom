@@ -165,9 +165,11 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-03, `axiom fmt --check` over every one of the 613 `.ax` files
-in the repository answers `is already formatted` for 483 of them and
-`needs formatting` for 125. Two of the 125 are deliberate and are named
+2026-09-03, `axiom fmt --check` over every one of the 614 `.ax` files
+in the repository answers `is already formatted` for 484 of them and
+`needs formatting` for 130. (Re-measured the same day: the pair used to
+read 483 and 125, which did not add up to its own stated total — the
+sweep is 484 + 130 = 614.) Two of the 125 are deliberate and are named
 below; the other 123 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
