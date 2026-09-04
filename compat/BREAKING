@@ -568,3 +568,29 @@
 # docs/memory-model.md MM-LIFE-2h and
 # tests/stdlib/406-array-form-large-block.ax.
 0.7.5  F  memMarkArray  (-> Int Int) -> (-> Int Int Int): the array form carries its own length
+
+# 0.7.5 - ERR-ADOPT-1, the last absence row a measurement could move.
+# `strFindByte` answers `(Option Int)` instead of an index-or-`-1`.
+#
+# CHANGED rather than WIDENED, measured with `symbols` before and after
+# on the same compiler: `#effects=` is EMPTY both times and
+# `#restrict=` is `no-io,no-alloc,no-foreign` both times, and the nid
+# @38cfa6a2400e724f is unchanged. Only the type moved
+# `(String -> (Int -> (Int -> Int)))` ->
+# `(String -> (Int -> (Int -> Option Int)))`.
+#
+# THE REFUSAL RECORDED AGAINST IT WAS ABOUT THE BODY. `compat/SENTINELS`
+# and `docs/error-model.md` both said a self tail call is the one shape
+# the register pair does not take, so a port would keep the boxed body
+# and draw AX3049 against this function's own `no-alloc` claim. That is
+# true of the emitter and it is not a property of the function: written
+# as a `while` loop it checks clean under the same three restrictions,
+# probed both ways on a copy of the tree. `strFind`, in the same file,
+# was already a loop and already answered `(Option Int)`.
+#
+# The port is `s/(< x 0)/((None) .../` at 71 call expressions over 18
+# files - always a `match` where the call is, never a bound `Option`,
+# so nothing is boxed at a caller. Two sites keep an Int index on
+# purpose and say so: `restrictCollect` and `checkOneAxtag` hand it to
+# `axtagListValue`, whose own signature takes -1 for "no value".
+0.7.5  F  strFindByte  index-or--1 -> (Option Int): absence is a tag, not a sign

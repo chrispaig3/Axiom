@@ -3478,15 +3478,23 @@ indexing is O(n) in the byte length - UTF-8 is variable-width and
 nothing builds an index - so walk a string with `utf8Next` rather than
 by rising character index, or the loop is quadratic.
 
-Decoding answers `-1` rather than a guess when there is no character
+Decoding answers `None` rather than a guess when there is no character
 to read: past the end, on a sequence cut short by the end of the
-string, or on a byte that begins no sequence at all. `-1` and not `0`
-because `0` is a real character, and a sentinel rather than an
-`Option` because every `data` value heap-boxes - the same argument
-`strFindByte`, `vecGet` and `mapGet` already make. Inventing a value
+string, or on a byte that begins no sequence at all. Inventing a value
 would be worse than refusing one: read as bytes-with-zeros, the first
 byte of `世` decodes to U+4000, an ordinary CJK character, and the
 tail byte of `é` to `©`.
+
+**It answered `-1` until 0.7.5, and the reason it stopped is worth
+carrying.** The paragraph here used to say "a sentinel rather than an
+`Option` because every `data` value heap-boxes - the same argument
+`strFindByte`, `vecGet` and `mapGet` already make". Every clause of
+that is now false: a function whose every tail is `None` or `(Some e)`
+is two registers and no block (`docs/unboxed-sums-design.md` §5b), so
+`utf8DecodeAt`, `utf8CharAt` and `strFindByte` all answer `(Option Int)`
+while keeping `restrict(no-alloc)`; `vecGet` traps on an index it
+cannot serve rather than answering 0; and `mapGet` never had a
+sentinel - its absent answer is a default the caller supplies.
 
 Iteration is never blocked by bad input, though: `utf8SeqLen` answers
 1 for a byte it does not understand, so `utf8Next` always advances and

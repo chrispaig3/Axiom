@@ -489,6 +489,52 @@
 # counted and still does not. The `Sys.ax` and `Sys/Platform.darwin.ax`
 # rows leave the table because a module with no sentinel has no row.
 
-stdlib/Str.ax 0 1
+# PORTED 2026-09-04, ERR-ADOPT-1: `stdlib/Str.ax` 1 -> 0 absence, and
+# the module leaves this table. `strFindByte` answers `(Option Int)`.
+#
+# THE REFUSAL THAT HELD IT WAS ABOUT THE BODY, NOT THE FUNCTION, and
+# nobody had probed it. `docs/error-model.md` and the note above record
+# it as "`strFindByte` tail-calls itself, and a self tail call is the
+# one shape the pair does not take yet, so a port today would keep the
+# boxed body and refuse its own claim". The first clause is true of the
+# emitter - `wantsTCO` is a refusal in the pair's eligibility test - and
+# the conclusion does not follow, because a body is a thing an author
+# chooses. Measured on a copy of the tree, both directions:
+#
+#   the recursive spelling, declared (Option Int):
+#     E AX3049 `strFindByte` claims `restrict(no-alloc)` and the body
+#              performs Alloc
+#   the same function as a `while` loop over `hit` and `i`:
+#     OK
+#
+# `strFind`, three hundred lines below it in the SAME FILE, was already
+# written as a loop for an unrelated reason and has answered
+# `(Option Int)` all along. The two were never compared.
+#
+# THE BLAST RADIUS WAS 71 CALL EXPRESSIONS OVER 18 FILES - 73 after the
+# port, which adds two arms to `tests/stdlib/030-str.ax` and drops the
+# self-call. Every one was a `(< x 0)` or `(>= x 0)` test, or a printed
+# index in that fixture - `self_host/driver.ax` 14,
+# `stdlib/Http.ax` 10, `self_host/lsp.ax` 10, `stdlib/Agent/Tags.ax` 7,
+# `self_host/parser.ax` 7, `self_host/typecheck.ax` 6, and the rest in
+# ones and threes. Each is a `match` at the point of production, so the
+# `Option` is consumed in two registers and no caller builds the block
+# that `tests/diagnostics/384-restrict-no-alloc-ctor.ax` calls `held`.
+# Two call sites keep an Int `op` deliberately and say so at the site:
+# `restrictCollect` and `checkOneAxtag` hand the open-paren index to
+# `axtagListValue`, whose own signature takes -1 for "no value".
+#
+# CHANGED, not WIDENED, in `compat/BREAKING`: `#effects=` is EMPTY
+# before the port and empty after, and `#restrict=` is
+# `no-io,no-alloc,no-foreign` both times. The loop's `mut`/`set` do not
+# enter the row - `strFind` beside it reads the same way.
+#
+# WHAT IS LEFT IS TWO, and it is one refusal stated twice: `keyStrEnd`
+# answers three outcomes (an end index, "incomplete", "too long", and
+# `keyScanStr` reads all three) and `keyInFill` three more (a count,
+# end of input, a full buffer that is still a prefix). Three outcomes
+# are not `Option`'s shape; they want a `data` of their own, which the
+# register pair refuses by name until a third sum type is admitted.
+
 stdlib/Tui/Keys.ax 0 1
 stdlib/Tui/Term.ax 0 1

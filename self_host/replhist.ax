@@ -290,21 +290,19 @@
   )
     {
       (while (<= start n)
-        (let ((nl (strFindByte e 10 start)))
-          (let ((end (if (< nl 0)
-            n
-            nl
-          )))
-            {
-              (if (== first 1)
-                (set first 0)
-                { (vecPush parts "\t") 0 }
-              )
-              (vecPush parts (strSlice e start (- end start)))
-              (vecPush parts "\n")
-              (set start (+ end 1))
-            }
-          )
+        (let ((end (match (strFindByte e 10 start)
+          ((None) n)
+          ((Some nl) nl)
+        )))
+          {
+            (if (== first 1)
+              (set first 0)
+              { (vecPush parts "\t") 0 }
+            )
+            (vecPush parts (strSlice e start (- end start)))
+            (vecPush parts "\n")
+            (set start (+ end 1))
+          }
         ))
       (catStrs parts)
     }
@@ -402,11 +400,10 @@
   )
     {
       (while (< start n)
-        (let ((nl (strFindByte text 10 start)))
-          (let ((end (if (< nl 0)
-            n
-            nl
-          )))
+        (let ((end (match (strFindByte text 10 start)
+          ((None) n)
+          ((Some nl) nl)
+        )))
             {
               (let ((line (strSlice text start (- end start))))
                 (if (== (strLen line) 0)
@@ -451,7 +448,7 @@
               (set start (+ end 1))
             }
           )
-        ))
+        )
       (if (== have 1)
         (histPushDedup out cur)
         0
@@ -477,11 +474,10 @@
   )
     {
       (while (<= start n)
-        (let ((nl (strFindByte e 10 start)))
-          (let ((end (if (< nl 0)
-            n
-            nl
-          )))
+        (let ((end (match (strFindByte e 10 start)
+          ((None) n)
+          ((Some nl) nl)
+        )))
             {
               (if (== first 1)
                 (set first 0)
@@ -491,7 +487,7 @@
               (set start (+ end 1))
             }
           )
-        ))
+        )
       (catStrs parts)
     }
   )
