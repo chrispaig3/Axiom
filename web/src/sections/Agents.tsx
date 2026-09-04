@@ -11,13 +11,12 @@ import {
 import { BLOB, DOCS, stat } from '../data/site.ts'
 import { Code } from '../components/Code.tsx'
 import { RenderTabs } from '../components/Terminal.tsx'
-import { Reveal } from '../components/Reveal.tsx'
 
 export function Agents() {
   return (
     <section className="section" id="agents" aria-labelledby="agents-h">
       <div className="container">
-        <Reveal className="lede-block">
+        <div className="lede-block">
           <span className="index index--violet">06</span>
           <h2 id="agents-h">
             Two audiences. One set of facts.
@@ -28,10 +27,10 @@ export function Agents() {
             know. So the report you read and the line your tooling parses can
             never disagree about what went wrong.
           </p>
-        </Reveal>
+        </div>
 
         <div className="duo">
-          <Reveal className="duo__panel">
+          <div className="duo__panel">
             <h3>Why did this fail?</h3>
             <Code code={SET_SOURCE} name="count.ax" badge="refused" />
             <RenderTabs
@@ -50,9 +49,9 @@ export function Agents() {
                 </>
               }
             />
-          </Reveal>
+          </div>
 
-          <Reveal className="duo__panel" delay={60}>
+          <div className="duo__panel">
             <h3>What does this file already provide?</h3>
             <p className="duo__lede">
               The other question a tool asks is not about failure at all.{' '}
@@ -63,6 +62,7 @@ export function Agents() {
             </p>
             <RenderTabs
               label="Symbol renderings"
+              wrap={false}
               items={[
                 { id: 'table', tab: 'table', kind: 'plain', text: AXSYM_TABLE },
                 { id: 'axsym', tab: 'AXSYM', kind: 'axsym', text: AXSYM_AI },
@@ -76,29 +76,31 @@ export function Agents() {
                 </>
               }
             />
-          </Reveal>
+          </div>
         </div>
 
-        <Reveal className="fixline" delay={40}>
+        <div className="fixline">
           <div className="fixline__text">
-            <h3>Every fact, in 193 bytes — and the fix comes with it</h3>
+            <h3>
+              Every fact, in {new TextEncoder().encode(FIX_AXDL).length} bytes —
+              and the fix comes with it
+            </h3>
             <p>
               The exact span, the kind of error, the primary label, the message,
               and a replacement a tool applies as a byte-range substitution
               instead of parsing English.
             </p>
             <p className="micro">
-              Both blocks are real compiler output, re-rendered and diffed
-              against the live compiler by{' '}
+              Both blocks are real compiler output. This line is the golden of{' '}
               <a
-                href={`${BLOB}/scripts/check-doc-drift.sh`}
+                href={`${BLOB}/tests/diagnostics/150-undefined-suggestion.axdl`}
                 target="_blank"
                 rel="noreferrer noopener"
               >
-                check-doc-drift.sh
-              </a>{' '}
-              on every run — documentation showing output nobody could reproduce
-              would fail the build.{' '}
+                one diagnostics fixture
+              </a>
+              , re-rendered against the live compiler on every run — output
+              nobody could reproduce would fail the build.{' '}
               <a
                 href={`${DOCS}/diagnostics.md`}
                 target="_blank"
@@ -106,7 +108,8 @@ export function Agents() {
               >
                 diagnostics.md
               </a>{' '}
-              has the grammar and all {stat('codes')} codes.
+              has the grammar; <code>axiom explain --list</code> names all{' '}
+              {stat('codes')} codes.
             </p>
           </div>
           <div className="stack">
@@ -119,7 +122,7 @@ export function Agents() {
               ]}
             />
           </div>
-        </Reveal>
+        </div>
       </div>
     </section>
   )

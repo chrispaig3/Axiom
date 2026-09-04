@@ -15,7 +15,7 @@
  * Run with:  node scripts/smoke.mjs
  */
 import { build } from 'esbuild'
-import { writeFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -146,6 +146,70 @@ if (heroSample && samples) {
     // Not an error on its own — the line is token-split — but the digits
     // must be in their own span, which the previous check establishes.
   }
+}
+
+// --- 6. links into the repository resolve -----------------------------
+// Two links on this page pointed at things that had moved or been
+// deleted (README#implementation-status after the status table moved
+// to docs/status.md on 2026-09-03; stdlib/Job.ax after 0.7.5 deleted
+// it) and nothing noticed, because a link is a claim with no check on
+// it. Now every `blob/trunk/<path>` link must name a file in the tree,
+// and a `#fragment` on a markdown target must match one of that file's
+// headings under GitHub's slug rules.
+const repoRoot = new URL('../../', import.meta.url).pathname
+// GitHub's rule: lowercase, drop everything but letters, digits, spaces,
+// hyphens and underscores, then EACH space becomes a hyphen - so a
+// heading with an em dash between two spaces slugs to a double hyphen.
+const slug = (h) =>
+  h
+    .toLowerCase()
+    .replace(/[`*~]/g, '')
+    .replace(/[^\p{L}\p{N} _-]/gu, '')
+    .trim()
+    .replace(/ /g, '-')
+const headingsOf = (file) => {
+  const seen = new Map()
+  const out = new Set()
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const m = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line)
+    if (!m) continue
+    const base = slug(m[1])
+    const n = seen.get(base) ?? 0
+    seen.set(base, n + 1)
+    out.add(n === 0 ? base : `${base}-${n}`)
+  }
+  return out
+}
+let linksChecked = 0
+let linksBroken = 0
+for (const href of new Set(
+  [...html.matchAll(/href="(https:\/\/github\.com\/chrispaig3\/Axiom[^"]*)"/g)].map(
+    (m) => m[1],
+  ),
+)) {
+  const m = /^https:\/\/github\.com\/chrispaig3\/Axiom(?:\/blob\/trunk\/([^#]+))?(?:#(.+))?$/.exec(
+    href,
+  )
+  if (!m) continue
+  const path = m[1] ? decodeURIComponent(m[1]) : 'README.md'
+  const frag = m[2]
+  if (!m[1] && !frag) continue
+  linksChecked++
+  const file = join(repoRoot, path)
+  if (!existsSync(file)) {
+    fail(`link to ${path} names a path that is not in the tree (${href})`)
+    linksBroken++
+    continue
+  }
+  if (frag && path.endsWith('.md') && !headingsOf(file).has(frag)) {
+    fail(`link to ${path}#${frag} names a heading that file does not have`)
+    linksBroken++
+  }
+}
+if (linksChecked < 8) {
+  fail(`only ${linksChecked} repository link(s) were checked; the page carries many more than that`)
+} else if (!linksBroken) {
+  console.log(`ok   ${linksChecked} links into the repository resolve to a file and a heading`)
 }
 
 // --- 4. external links ------------------------------------------------

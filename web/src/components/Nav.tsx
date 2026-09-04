@@ -1,6 +1,7 @@
+import { useEffect, useId, useState } from 'react'
 import { asset } from '../lib/asset.ts'
 import { REPO, VERSION } from '../data/site.ts'
-import { GitHub, Moon, Sun } from './Icons.tsx'
+import { GitHub, Menu, Moon, Sun, X } from './Icons.tsx'
 
 const LINKS = [
   { href: '#code', label: 'The language' },
@@ -11,8 +12,23 @@ const LINKS = [
 ]
 
 export function Nav({ onToggle }: { onToggle: () => void }) {
+  // The section links are a row on a wide screen and a disclosure on a
+  // narrow one. Until 2026-09-04 they were simply `display: none` below
+  // 900px, so a phone had no way to reach a section but scrolling.
+  const [open, setOpen] = useState(false)
+  const menuId = useId()
+
+  useEffect(() => {
+    if (!open) return
+    const close = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [open])
+
   return (
-    <header className="site-nav">
+    <header className="site-nav" data-open={open}>
       <div className="container site-nav__inner">
         <a className="brand" href="#top">
           <img
@@ -27,9 +43,9 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
           <span className="brand__version">{VERSION}</span>
         </a>
 
-        <nav className="nav-links" aria-label="Sections">
+        <nav className="nav-links" id={menuId} aria-label="Sections">
           {LINKS.map((l) => (
-            <a key={l.href} href={l.href}>
+            <a key={l.href} href={l.href} onClick={() => setOpen(false)}>
               {l.label}
             </a>
           ))}
@@ -67,6 +83,16 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
           >
             <GitHub />
           </a>
+          <button
+            type="button"
+            className="icon-btn icon-btn--menu"
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            aria-controls={menuId}
+            aria-label={open ? 'Close the section menu' : 'Open the section menu'}
+          >
+            {open ? <X /> : <Menu />}
+          </button>
         </div>
       </div>
     </header>

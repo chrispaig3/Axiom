@@ -311,10 +311,10 @@ Source:
 
 ```lisp
 (:: helper (-> Int Int))
-(define (helper x) (+ x 1))
+(fn (helper x) (+ x 1))
 
 (:: main Int)
-(define main
+(fn (main)
   (helpr 5))
 ```
 
@@ -336,7 +336,7 @@ diagnostic is also available as one JSON object per line (not a JSON
 array, so output can be streamed):
 
 ```json
-{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":84,"char_end":89},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"],"expansion":[]}
+{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":78,"char_end":83},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"],"expansion":[]}
 ```
 
 `expansion` is the array form of AXDL's `&` field, one object per
@@ -466,6 +466,7 @@ Fn       add                  (Int -> (Int -> Int))                    [main.ax:
 Data     Option               data Option                              [builtin]
 Ctor     Some                 (a -> Option a)                          [builtin]
 Ctor     None                 Option a                                 [builtin]
+Data     Vec                  data Vec                                 [builtin]
 Data     Maybe                data Maybe                               [main.ax:1:7-12]
 Ctor     Nothing              Maybe a                                  [main.ax:2:4-11]
 Ctor     Just                 (a -> Maybe a)                           [main.ax:3:4-8]
@@ -480,6 +481,7 @@ F add main.ax:9:5-8 "(Int -> (Int -> Int))" @27bcb2cac184465e
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
+D Vec - "data Vec"
 D Maybe main.ax:1:7-12 "data Maybe" @247d1682b2330461 #ctors=Nothing,Just
 C Nothing main.ax:2:4-11 "Maybe a" #of=Maybe
 C Just main.ax:3:4-8 "(a -> Maybe a)" #of=Maybe

@@ -2,7 +2,6 @@ import { Fragment } from 'react'
 import { SAMPLES } from '../data/samples.ts'
 import { TabbedCode, type TabbedItem } from '../components/Code.tsx'
 import { ArrowUpRight } from '../components/Icons.tsx'
-import { Reveal } from '../components/Reveal.tsx'
 
 /** Render the backtick spans in a note without pulling in a markdown parser. */
 function note(text: string) {
@@ -46,19 +45,20 @@ export function Showcase() {
   return (
     <section className="section section--alt" id="code" aria-labelledby="code-h">
       <div className="container">
-        <Reveal className="lede-block">
+        <div className="lede-block">
           <span className="index">02</span>
           <h2 id="code-h">What it actually looks like.</h2>
           <p>
-            Three complete programs, run to produce the output shown under them,
-            and two excerpts of code that does a real job in the repository — one
-            from the prelude, one from the compiler's own lexer.
+            Six complete programs, each one compiled and run to produce the
+            output shown under it. They walk from the thing every language has
+            — types and matching — to the things only this one does: checked
+            effects, a region per row, and a join across processes.
           </p>
-        </Reveal>
+        </div>
 
-        <Reveal>
+        <div>
           <TabbedCode items={items} label="Axiom programs" />
-        </Reveal>
+        </div>
       </div>
     </section>
   )

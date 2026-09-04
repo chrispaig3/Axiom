@@ -14,7 +14,14 @@ export function Hero() {
               headline was the one element on the page that answered to no
               rule the rest of it follows. */}
           <p className="hero__kicker">
-            Axiom <span>v{VERSION}</span>
+            Axiom{' '}
+            <a
+              href={`${REPO}/releases/tag/v${VERSION}`}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              v{VERSION}
+            </a>
           </p>
 
           <h1>

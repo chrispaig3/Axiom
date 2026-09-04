@@ -3,7 +3,6 @@ import { DOC_LINKS, REPO } from '../data/site.ts'
 import { Code } from '../components/Code.tsx'
 import { Command } from '../components/Command.tsx'
 import { ArrowUpRight } from '../components/Icons.tsx'
-import { Reveal } from '../components/Reveal.tsx'
 
 /**
  * Verified against a compiler built from this tree:
@@ -33,7 +32,7 @@ export function Start() {
   return (
     <section className="section section--alt" id="start" aria-labelledby="start-h">
       <div className="container">
-        <Reveal className="lede-block">
+        <div className="lede-block">
           <span className="index">07</span>
           <h2 id="start-h">Two prerequisites, then one command.</h2>
           <p>
@@ -41,23 +40,23 @@ export function Start() {
             link. That is the whole list — Axiom's compiler is written in Axiom,
             so there is no other toolchain to install first. The installer is at
             the top of this page; if you would rather build from source, that
-            works on every target and is what a contributor uses.
+            is what a contributor does.
           </p>
-        </Reveal>
+        </div>
 
         <div className="start">
-          <Reveal className="start__col">
+          <div className="start__col">
             <h3>Build from source</h3>
             <p>
               <code>bootstrap/</code> holds the compiler's own LLVM IR, one file
-              per target, committed — so this needs nothing but the two
-              prerequisites above.
+              per host it can build on, committed — so this needs nothing but
+              the two prerequisites above.
             </p>
             <Command command="git clone https://github.com/chrispaig3/Axiom && cd Axiom" />
             <Command command="./scripts/bootstrap-from-seed.sh --install .axiom-bin" />
-          </Reveal>
+          </div>
 
-          <Reveal className="start__col" delay={60}>
+          <div className="start__col">
             <h3>Write something</h3>
             <p>
               <code>IO</code> is Axiom's own standard library, so the compiled
@@ -65,9 +64,9 @@ export function Start() {
               <code>;@axiom:effect(io)</code> line is checked, not decorative.
             </p>
             <Code code={HELLO} name="hello.ax" badge="Hello, Axiom!" />
-          </Reveal>
+          </div>
 
-          <Reveal className="start__col" delay={120}>
+          <div className="start__col">
             <h3>The commands you will use</h3>
             <dl className="cli">
               {CLI.map(([cmd, desc]) => (
@@ -79,10 +78,10 @@ export function Start() {
                 </Fragment>
               ))}
             </dl>
-          </Reveal>
+          </div>
         </div>
 
-        <Reveal className="doclinks">
+        <div className="doclinks">
           <h3>Then read the reference.</h3>
           <ul>
             {DOC_LINKS.map((d) => (
@@ -103,7 +102,7 @@ export function Start() {
             </a>
             .
           </p>
-        </Reveal>
+        </div>
       </div>
     </section>
   )

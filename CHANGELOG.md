@@ -16,6 +16,69 @@ its changelog too.
 
 ## Unreleased
 
+### The website said things the tree no longer did, and hid the rest until you scrolled
+
+Every section of the page rendered at `opacity: 0` until an intersection
+observer saw it arrive, so a reader who jumped - a page-down, a fast
+flick, a nav link, a screenshot - landed on a blank screen at almost
+every offset (measured with programmatic scrolling into a 390px frame:
+empty at 2,000, 3,000, 5,000, 6,000 and 7,000 pixels). The transition
+is gone: content is present at first paint, `Reveal.tsx` and
+`useReveal.ts` are deleted, and there is no `noscript` fallback because
+there is nothing left to fall back from.
+
+What else moved, each one found by reading the page against the tree
+rather than the tree against itself:
+
+- **A section menu below 900px.** The five section links were
+  `display: none` on a phone, with no replacement. The nav gains a
+  disclosure button (`aria-expanded`, `aria-controls`, Escape closes).
+- **Long programs open folded.** A 57-line sample was one scroll of
+  source; `TabbedCode` folds anything past 34 lines behind
+  "Show all N lines", with the whole program still in the DOM.
+- **The symbol table kept its columns.** `RenderTabs` wrapped every
+  rendering, so the aligned AXSYM table broke mid-row; the table kinds
+  now scroll sideways instead (`wrap={false}`).
+- **Stale copy, sixteen sentences.** The showcase described "three
+  programs and two excerpts" over six programs; the status-table link
+  pointed at a README heading that moved to `docs/status.md` on
+  2026-09-03; the concurrency paragraph linked `stdlib/Job.ax`, deleted
+  in 0.7.5, and said the compiler "does not yet check what a binding
+  captures" when `AX3064` refuses one under either lowering; the LSP
+  answered "twenty-four" requests where the server dispatches
+  twenty-three; the footer said the page was highlighted "by the
+  language's own tree-sitter queries" when `web/src/lib/highlight.ts`
+  is a hand-written highlighter that follows them; the bootstrap
+  drawing skipped stage1; "one seed file per target" counted six seeds
+  that are not the six supported targets; `--target` "cross-compiles
+  from any host" when only the IR crosses and the link needs the
+  target's linker; and the AXSYM sample on the page and in
+  `docs/diagnostics.md` lacked the `D Vec` row the 0.7.5 compiler
+  prints. Every one is reworded to what the tree shows.
+- **The benchmark table was re-measured, by a script this time.**
+  `web/bench/run-bench.sh` produces every cell of the table the way
+  `bench.ts` says it was produced - interleaved, best of 20 for the run
+  row and 15 for the compile row. Until now no script did that, and the
+  figures had been measured under 0.6.3 and re-labelled through two
+  bumps; the binary had grown 35,384 -> 35,560 B and "within six
+  percent of C" had become false. Run time is still within a
+  millisecond across all three arms.
+- **Two claims a checker now holds.** `check-claims.mjs` derives the
+  LSP request count from `self_host/lsp.ax` on every build (`FACTS` in
+  `site.ts`, beside `STATS`), and `smoke.mjs` resolves every link into
+  the repository - the path must exist, and a `#fragment` on a
+  markdown target must be one of that file's headings under GitHub's
+  slug rule. Both of the dead links above would have failed it.
+- **A social card.** `og:image` was the 900x316 logo; it is a 1200x630
+  card now, with the headline and the three proof figures.
+- The `define`-spelled sample in the diagnostics showcase (and the same
+  block in `docs/diagnostics.md`) is written with `fn` like everything
+  else on the page; the AXDL line is byte-identical either way, and its
+  byte count on the page is computed from the line rather than typed.
+
+`npm run build`, `node scripts/smoke.mjs`, `check-doc-drift.sh` and
+`check-version.sh` are green on the result.
+
 ## 0.7.5 — 2026-09-04
 
 

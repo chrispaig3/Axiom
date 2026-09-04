@@ -204,11 +204,15 @@ export function RenderTabs({
   label,
   name,
   caption,
+  wrap = true,
 }: {
   items: RenderItem[]
   label: string
   name?: string
   caption?: ReactNode
+  /** `false` keeps every line on one line and scrolls sideways instead —
+      for the aligned table, whose columns are the point. */
+  wrap?: boolean
 }) {
   const [active, setActive] = useState(0)
   const uid = useId()
@@ -227,7 +231,7 @@ export function RenderTabs({
   const render = LINE_FN[current.kind]
 
   return (
-    <div className="code code--wrap code--tight">
+    <div className={wrap ? 'code code--wrap code--tight' : 'code code--tight'}>
       <div className="code__bar">
         {name && <span className="code__name">{name}</span>}
         <div

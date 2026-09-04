@@ -1,5 +1,4 @@
-import { REPO } from '../data/site.ts'
-import { Reveal } from '../components/Reveal.tsx'
+import { DOCS } from '../data/site.ts'
 import type { ReactNode } from 'react'
 
 /**
@@ -87,7 +86,7 @@ export function Compare() {
   return (
     <section className="section" id="compare" aria-labelledby="compare-h">
       <div className="container">
-        <Reveal className="lede-block">
+        <div className="lede-block">
           <span className="index">04</span>
           <h2 id="compare-h">
             Four decisions that set it apart.
@@ -97,9 +96,9 @@ export function Compare() {
             cell here is held by something in the repository; the other columns
             are restricted to facts nobody disputes.
           </p>
-        </Reveal>
+        </div>
 
-        <Reveal className="matrix">
+        <div className="matrix">
           {ROWS.map((r) => (
             <article className="matrix__row" key={r.k}>
               <h3 className="matrix__k">{r.k}</h3>
@@ -120,23 +119,23 @@ export function Compare() {
               </ul>
             </article>
           ))}
-        </Reveal>
+        </div>
 
-        <Reveal className="closing" delay={60}>
+        <div className="closing">
           <p>
             Axiom is <code>0.x</code>. The feature-by-feature status table — what
             is complete, what is partial, what was removed, each with the test
             that holds it — is{' '}
             <a
-              href={`${REPO}#implementation-status`}
+              href={`${DOCS}/status.md#implementation-status`}
               target="_blank"
               rel="noreferrer noopener"
             >
-              in the README
+              in docs/status.md
             </a>
             , and nothing on this page is a promise that table does not make.
           </p>
-        </Reveal>
+        </div>
       </div>
     </section>
   )

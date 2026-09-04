@@ -72,6 +72,34 @@ const CLAIMS = [
     derive: () => sh("ls scripts/ | grep -c '^check-.*\\.sh$'"),
     format: (n) => String(Number(n)),
   },
+  // After STATS in site.ts come the FACTS: figures the prose repeats
+  // that the ticker does not show. Same order here as there.
+  {
+    key: 'lspRequests',
+    what: 'LSP requests the server answers',
+    prose: /answers\s+(\d[\d,]*)\s+requests\b/g,
+    // Every JSON-RPC method the server names, minus the four that are
+    // notifications rather than requests (three from the client, one
+    // the server sends). `axiom/expandMacro`, the one request that is
+    // this server's own, counts. The page said "twenty-four" until
+    // 2026-09-04, spelled out where no checker could read it; the
+    // server answered twenty-three.
+    derive: () => {
+      const all = sh(
+        "grep -o '\"\\(textDocument\\|workspace\\|callHierarchy\\|completionItem\\|axiom\\)/[A-Za-z/]*\"' self_host/lsp.ax | sort -u",
+      )
+        .split('\n')
+        .filter(Boolean)
+      const notifications = new Set([
+        '"textDocument/didOpen"',
+        '"textDocument/didChange"',
+        '"textDocument/didClose"',
+        '"textDocument/publishDiagnostics"',
+      ])
+      return String(all.filter((m) => !notifications.has(m)).length)
+    },
+    format: (n) => String(Number(n)),
+  },
 ]
 
 // The site's figures, in the order STATS declares them.
@@ -129,7 +157,7 @@ const rendered = (src) =>
   src
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
-    .replace(/\{stat\('([a-z]+)'\)\}/g, (_, k) => {
+    .replace(/\{stat\('([a-zA-Z]+)'\)\}/g, (_, k) => {
       const i = CLAIMS.findIndex((c) => c.key === k)
       return i < 0 ? '?' : CLAIMS[i].format(CLAIMS[i].derive())
     })
@@ -156,13 +184,13 @@ for (const file of sections) {
 }
 
 // A floor, for the reason every floor in this repository exists: a
-// regex that has quietly stopped matching reports success. Three
+// regex that has quietly stopped matching reports success. Four
 // sentences carry a figure today (hero lines, explain codes, agents
-// codes) plus the tree-sitter .ax count = 4.
-if (prose_seen < 4) {
+// codes, the LSP request count) plus the tree-sitter .ax count = 5.
+if (prose_seen < 5) {
   fail(
     `the prose sweep matched ${prose_seen} sentence(s) across ` +
-      `${sections.length} section(s); the floor is 4 — the patterns no ` +
+      `${sections.length} section(s); the floor is 5 — the patterns no ` +
       'longer find the sentences they were written for',
   )
 } else {

@@ -503,7 +503,7 @@
   background: var(--surface-2);
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
@@ -698,7 +698,7 @@
   border-top: 1px dashed var(--border);
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -753,7 +753,7 @@
   margin-top: var(--s-1);
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
 
@@ -938,29 +938,6 @@
 .site-footer nav a:hover {
   color: var(--accent);
   text-decoration: underline;
-}
-
-/* ---------------------------------------------------------------- *
- * Entrance motion
- * ---------------------------------------------------------------- */
-
-.reveal {
-  opacity: 0;
-  transform: translateY(10px);
-  transition: opacity 460ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 460ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.reveal[data-shown='true'] {
-  opacity: 1;
-  transform: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .reveal {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 /* ---------------------------------------------------------------- *
@@ -1363,7 +1340,7 @@
 .ticker__e {
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   opacity: 0.8;
   overflow-wrap: anywhere;
 }
@@ -1541,7 +1518,7 @@
 .matrix__others span {
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   opacity: 0.75;
 }
 
@@ -1598,4 +1575,94 @@
   color: var(--text-3);
   font-size: var(--t--2);
   line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------- *
+ * The section menu on a narrow screen
+ *
+ * The links are a row beside the brand while they fit, and a disclosure
+ * under the bar when they do not. `data-open` is stamped by React on
+ * the header; the button carries `aria-expanded` and `aria-controls`.
+ * ---------------------------------------------------------------- */
+
+.icon-btn--menu {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .icon-btn--menu {
+    display: inline-flex;
+  }
+
+  .nav-links {
+    position: absolute;
+    top: var(--nav-h);
+    left: 0;
+    right: 0;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: var(--s-3) var(--s-4) var(--s-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+  }
+
+  .site-nav[data-open='true'] .nav-links {
+    display: flex;
+  }
+
+  .nav-links a {
+    padding: 10px 12px;
+    font-size: var(--t-0);
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * A folded program
+ *
+ * The first screenful of a long sample, a fade, and one button. The
+ * fold is a `max-height`, so the whole program stays in the DOM for a
+ * reader who searches, copies, or has no JavaScript.
+ * ---------------------------------------------------------------- */
+
+.code__body--folded {
+  position: relative;
+  max-height: 34rem;
+  overflow-y: hidden;
+}
+
+.code__body--folded::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 5rem;
+  background: linear-gradient(to bottom, transparent, var(--surface-code));
+  pointer-events: none;
+}
+
+.code__fold {
+  display: flex;
+  justify-content: center;
+  padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.code__fold-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.code__fold-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }

@@ -45,7 +45,7 @@
 export const BENCH_ENV = {
   machine: 'Apple M1, macOS 26.6.2, darwin-aarch64',
   axiom: 'Axiom 0.7.5',
-  rust: 'rustc 1.97.1',
+  rust: 'rustc 1.98.1',
   c: 'clang 23.1.0',
   answer: '428343467',
 }
@@ -64,26 +64,26 @@ export const BENCH: BenchRow[] = [
   {
     metric: 'Run time',
     how: '3,000,000 Collatz sequences · best of 20, interleaved',
-    axiom: '0.428 s',
-    rust: '0.429 s',
-    c: '0.429 s',
+    axiom: '0.446 s',
+    rust: '0.447 s',
+    c: '0.446 s',
     note: 'Within one millisecond across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
   },
   {
     metric: 'Compile to a native binary',
     how: 'one file, cold · best of 15, interleaved',
-    axiom: '0.115 s',
-    rust: '0.088 s',
-    c: '0.115 s',
-    note: 'Axiom is the slowest of the three, by twenty-seven milliseconds against rustc — 1.31x — and level with clang at 1.00x. Published because it is what was measured. It is NOT chained to the passes before it: those timed sources that were never committed, so their seconds are not comparable with these.',
+    axiom: '0.140 s',
+    rust: '0.111 s',
+    c: '0.132 s',
+    note: 'Axiom is the slowest of the three, by twenty-nine milliseconds against rustc — 1.26x — and eight behind clang at 1.06x. Published because it is what was measured, by the script beside the sources.',
   },
   {
     metric: 'Binary size',
     how: 'the executable on disk',
-    axiom: '35,384 B',
-    rust: '466,024 B',
+    axiom: '35,560 B',
+    rust: '469,592 B',
     c: '33,432 B',
-    note: 'Thirteen times smaller than the Rust binary, and within six percent of C — with no C runtime inside it at all.',
+    note: 'Thirteen times smaller than the Rust binary, and within seven percent of C — with no C runtime inside it at all.',
   },
   {
     metric: 'Undefined symbols',
@@ -96,11 +96,33 @@ export const BENCH: BenchRow[] = [
 ]
 
 /*
- * RE-MEASURED 2026-09-01 for this release, against the compiler this
- * page ships with and from the three sources now committed beside it.
- * Interleaved, best of 15 for the compile row and best of 20 for the
- * run row, on an Apple M1. Two prior passes on the same machine agreed
- * with this one to within a millisecond on every arm.
+ * RE-MEASURED 2026-09-04 by `web/bench/run-bench.sh`, against the
+ * compiler this page ships with. Interleaved, best of 15 for the
+ * compile row and best of 20 for the run row, on an Apple M1.
+ *
+ * WHY A SCRIPT, AND WHY NOW. The 2026-09-01 pass below was measured
+ * under 0.6.3 and then carried through two version bumps with only its
+ * label changed - the table wore this release's version over figures
+ * no binary of this release had produced. The binary had in fact grown,
+ * 35,384 -> 35,560 B,
+ * across the tail-call, SIMD and region work of the 0.7 series, and the
+ * "within six percent of C" sentence was false by then (6.4%). A number
+ * that no command produces is a number nobody re-runs; the script is
+ * the command, and it prints every cell of this table.
+ *
+ * Read the ratios, not the seconds. The compile row moved for all three
+ * arms at once between the two passes (0.115/0.088/0.115 -> 0.140/0.111/
+ * 0.132), which is the machine, not the compilers; the ratio against
+ * rustc went 1.31x -> 1.26x and against clang 1.00x -> 1.06x. The run
+ * row is within a millisecond across all three in both passes.
+ *
+ * THE 2026-09-01 PASS, kept for the reasoning it recorded:
+ *
+ * Re-measured for that release, against the compiler it shipped with
+ * and from the three sources committed beside it. Interleaved, best of
+ * 15 for the compile row and best of 20 for the run row, on an Apple
+ * M1. Two prior passes on the same machine agreed with it to within a
+ * millisecond on every arm.
  *
  * WHAT ESTABLISHES THAT THIS IS THE SAME WORKLOAD, rather than a new
  * one wearing the old table's heading. The reconstructed Rust and C

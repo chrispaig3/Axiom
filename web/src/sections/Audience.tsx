@@ -1,6 +1,5 @@
 import { BLOB, DOCS } from '../data/site.ts'
 import { ArrowRight } from '../components/Icons.tsx'
-import { Reveal } from '../components/Reveal.tsx'
 import type { ReactNode } from 'react'
 
 interface Column {
@@ -27,9 +26,9 @@ const COLUMNS: Column[] = [
     ),
     points: [
       <>
-        <b>Six targets, one flag.</b> <code>--target</code> cross-compiles from
-        any host: the target picks the syscall ABI, not the machine you are
-        sitting at.
+        <b>Six targets, one flag.</b> <code>--target</code> picks the syscall
+        ABI and emits code for any of the six from any host; only the final
+        link needs that target's linker.
       </>,
       <>
         <b>Arenas where peak memory matters.</b> Reclamation is explicit and
@@ -60,8 +59,8 @@ const COLUMNS: Column[] = [
         not declare it is an error, not a lint you can turn off.
       </>,
       <>
-        <b>No load-time surface.</b> Nothing is resolved when the program
-        starts, so there is no dynamic linker to influence.
+        <b>No load-time surface.</b> <code>nm -u</code> is empty, so there
+        is no symbol for a dynamic linker to bind, and nothing to redirect.
       </>,
       <>
         <b>Exploits first, codes second.</b> A traversable module path and an
@@ -89,9 +88,9 @@ const COLUMNS: Column[] = [
         byte-range substitution rather than by parsing English.
       </>,
       <>
-        <b>Addresses that survive an edit.</b> Every declaration carries a
-        content-derived id that does not move when the file is reordered or
-        reformatted.
+        <b>Addresses that survive an edit.</b> Every function, type and
+        struct carries a content-derived id that does not move when the file
+        is reordered or reformatted.
       </>,
       <>
         <b>One syntactic form.</b> No operator precedence, no parsing edge
@@ -106,18 +105,18 @@ export function Audience() {
   return (
     <section className="section section--alt" id="for" aria-labelledby="for-h">
       <div className="container">
-        <Reveal className="lede-block">
+        <div className="lede-block">
           <span className="index">05</span>
           <h2 id="for-h">Three kinds of work it was built for.</h2>
           <p>
             Axiom is small on purpose, and the places that pays off are the ones
             where a runtime you did not write is a liability.
           </p>
-        </Reveal>
+        </div>
 
         <div className="cols">
-          {COLUMNS.map((c, i) => (
-            <Reveal className="cols__col" key={c.k} delay={i * 50}>
+          {COLUMNS.map((c) => (
+            <div className="cols__col" key={c.k}>
               <span className="cols__kicker">{c.kicker}</span>
               <h3>{c.head}</h3>
               <p>{c.body}</p>
@@ -135,33 +134,38 @@ export function Audience() {
                 {c.link.label}
                 <ArrowRight size={13} />
               </a>
-            </Reveal>
+            </div>
           ))}
         </div>
 
-        <Reveal className="closing" delay={80}>
+        <div className="closing">
           <p>
             One thing Axiom is <em>not</em> built for, said here rather than
             discovered later: concurrency is one narrow form and no runtime.{' '}
-            <code>(parallel p ((a e1) (b e2)) body)</code> runs its bindings
-            beside the caller and joins them in argument order — as child
-            processes by default, whose isolation is true by construction, or
-            as threads under <code>--threads</code>. Only a machine word
-            crosses a join; a binding that answers a <code>String</code> is a
-            type error at the binding. There is no async, no scheduler, no
-            task system, and under threads the compiler does not yet check
-            what a binding captures — which is why processes are the default.{' '}
             <a
-              href={`${BLOB}/stdlib/Job.ax`}
+              href={`${DOCS}/reference.md#parallel--bindings-that-run-beside-the-caller`}
               target="_blank"
               rel="noreferrer noopener"
             >
-              <code>stdlib/Job.ax</code>
+              <code>parallel</code>
             </a>{' '}
-            is a bounded pool of child <em>programs</em>, and it is the rest of
+            runs its bindings beside the caller and joins them in the order
+            written — as child processes by default, whose isolation is true
+            by construction, or as threads under <code>--threads</code>. Only
+            a machine word crosses a join, and a binding that captures a
+            reference the parent holds is refused under either lowering. There
+            is no async, no scheduler and no task system;{' '}
+            <a
+              href={`${BLOB}/stdlib/Par.ax`}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              <code>stdlib/Par.ax</code>
+            </a>{' '}
+            is a bounded pool over the same primitives, and it is the rest of
             the story.
           </p>
-        </Reveal>
+        </div>
       </div>
     </section>
   )

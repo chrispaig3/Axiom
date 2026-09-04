@@ -1,13 +1,12 @@
 import { BENCH, BENCH_CMDS, BENCH_ENV } from '../data/bench.ts'
 import { BLOB } from '../data/site.ts'
 import { Code } from '../components/Code.tsx'
-import { Reveal } from '../components/Reveal.tsx'
 
 export function Benchmark() {
   return (
     <section className="section" id="speed" aria-labelledby="speed-h">
       <div className="container">
-        <Reveal className="lede-block">
+        <div className="lede-block">
           <span className="index">03</span>
           <h2 id="speed-h">
             Same loop. Same machine. Same speed.
@@ -18,9 +17,9 @@ export function Benchmark() {
             branches, that means the machine code is the machine code — and the
             measurement says so.
           </p>
-        </Reveal>
+        </div>
 
-        <Reveal className="bench">
+        <div className="bench">
           <div className="bench__table" tabIndex={0} role="group" aria-label="Benchmark results, scrollable">
           <table>
             <caption className="visually-hidden">
@@ -61,9 +60,9 @@ export function Benchmark() {
               </li>
             ))}
           </ol>
-        </Reveal>
+        </div>
 
-        <Reveal className="bench__method" delay={60}>
+        <div className="bench__method">
           <div>
             <h3>How it was measured</h3>
             <p>
@@ -89,10 +88,8 @@ export function Benchmark() {
               <a href={`${BLOB}/web/bench`}>
                 <code>web/bench/</code>
               </a>{' '}
-              — so this table can be re-run rather than taken on trust. They
-              were added on 2026-09-01: until then the commands below named
-              sources that were nowhere in the tree, which is the one claim on
-              this page that could not be checked.
+              — and <code>run-bench.sh</code> beside them produces every cell
+              of this table, so it can be re-run rather than taken on trust.
             </p>
             <p className="micro">
               {BENCH_ENV.machine} · {BENCH_ENV.axiom} · {BENCH_ENV.rust} ·{' '}
@@ -100,8 +97,11 @@ export function Benchmark() {
               for either was on the machine, and this project does not publish a
               number it has not measured. One micro-benchmark is one
               micro-benchmark — it says nothing about allocation-heavy work,
-              where the repository's own figures are less flattering and are
-              published anyway.
+              which{' '}
+              <a href={`${BLOB}/scripts/bench-datastructures.sh`}>
+                <code>scripts/bench-datastructures.sh</code>
+              </a>{' '}
+              measures separately, and less flatteringly.
             </p>
           </div>
           <Code
@@ -110,7 +110,7 @@ export function Benchmark() {
             axiom={false}
             wrap
           />
-        </Reveal>
+        </div>
       </div>
     </section>
   )

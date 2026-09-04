@@ -33,19 +33,34 @@ export const STATS: Stat[] = [
     key: 'axfiles',
     n: '634',
     label: '.ax files in the tree, every one parsed by the grammar gate',
-    evidence: "find . -name '*.ax' | wc -l",
+    evidence: "git ls-files '*.ax' | wc -l",
   },
   {
     key: 'codes',
     n: '78',
-    label: 'diagnostic codes, each with an explanation and a fixture',
+    label: 'diagnostic codes, each with a written explanation',
     evidence: 'axiom explain --list',
   },
   {
     key: 'gates',
     n: '78',
-    label: 'gate scripts that must pass before anything lands',
+    label: 'gate scripts in the battery that runs before a push',
     evidence: "ls scripts/check-*.sh | wc -l",
+  },
+]
+
+/**
+ * Figures the prose states that are not on the ticker. Same rule, same
+ * checker: `check-claims.mjs` derives each one from the tree on every
+ * build, in the order this file declares them after STATS.
+ */
+export const FACTS: Stat[] = [
+  {
+    key: 'lspRequests',
+    n: '23',
+    label: 'LSP requests the server answers',
+    evidence:
+      "every JSON-RPC method self_host/lsp.ax names, minus the four notifications",
   },
 ]
 
@@ -66,8 +81,8 @@ export const STATS: Stat[] = [
  * naming it. There is one copy again.
  */
 export function stat(key: string): string {
-  const found = STATS.find((s) => s.key === key)
-  if (!found) throw new Error(`site.ts: no STATS entry keyed '${key}'`)
+  const found = STATS.find((s) => s.key === key) ?? FACTS.find((s) => s.key === key)
+  if (!found) throw new Error(`site.ts: no STATS or FACTS entry keyed '${key}'`)
   return found.n
 }
 
@@ -86,7 +101,7 @@ export const DOC_LINKS: DocLink[] = [
   },
   {
     name: 'diagnostics.md',
-    desc: 'Every diagnostic code, and the agent-facing output formats in full.',
+    desc: 'The code ranges, the stable slugs, and the agent-facing output formats in full.',
     href: `${DOCS}/diagnostics.md`,
   },
   {

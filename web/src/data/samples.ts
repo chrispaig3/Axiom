@@ -204,7 +204,7 @@ export const SAMPLES: Sample[] = [
     tab: 'audit.ax',
     title: "Capturing the log for tests",
     note: "The same function prints in production and hands the test its output as data. One `handle` apart, no mocking framework.",
-    result: "skipped: n/a\n42\nok\n",
+    result: "skipped: n/a\n42\nok",
     docs: { label: "Effects", href: `${REF}#effects` },
     code: `(import IO)
 
@@ -269,7 +269,7 @@ export const SAMPLES: Sample[] = [
     tab: 'inbox.ax',
     title: "Top words in a support inbox",
     note: "Count into a `Map`, take its keys, sort them by what they point at.",
-    result: "   4  mobile\n   3  checkout\n   3  payment\n   3  safari\n   2  error\n",
+    result: "   4  mobile\n   3  checkout\n   3  payment\n   3  safari\n   2  error",
     docs: { label: "Standard Library", href: `${REF}#standard-library` },
     code: `; Split on 32 (' ') for pieces, then each piece on 46 ('.'), so "Safari." counts as safari.
 (import IO)
@@ -439,19 +439,19 @@ export const SET_AXDL =
 
 /** docs/diagnostics.md — a typo on line 6, and the fix that travels with it. */
 export const FIX_SOURCE = `(:: helper (-> Int Int))
-(define (helper x) (+ x 1))
+(fn (helper x) (+ x 1))
 
 (:: main Int)
-(define main
+(fn (main)
   (helpr 5))`
 
-/** docs/diagnostics.md. Exactly 193 bytes. */
+/** docs/diagnostics.md — the same line the compiler prints today; its byte count is computed where it is quoted. */
 export const FIX_AXDL =
   'E AX3001 main.ax:6:4-9 undefined-variable "undefined variable `helpr`" #"no binding named `helpr` in scope" ?6:4-9:"a similarly named binding `helper` is in scope; did you mean this?"~>"helper"'
 
 /** docs/diagnostics.md — the same diagnostic as JSON Lines. */
 export const FIX_JSON =
-  '{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":84,"char_end":89},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"],"expansion":[]}'
+  '{"severity":"error","code":"AX3001","slug":"undefined-variable","message":"undefined variable `helpr`","file":"main.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":9},"char_start":78,"char_end":83},"label":"no binding named `helpr` in scope","related":[],"notes":[],"help":["a similarly named binding `helper` is in scope; did you mean this?"],"expansion":[]}'
 
 /** docs/diagnostics.md — the file AXSYM is demonstrated on. */
 export const AXSYM_SOURCE = `(data Maybe (a)
@@ -471,6 +471,7 @@ export const AXSYM_TABLE = `Fn       add                  (Int -> (Int -> Int)) 
 Data     Option               data Option                              [builtin]
 Ctor     Some                 (a -> Option a)                          [builtin]
 Ctor     None                 Option a                                 [builtin]
+Data     Vec                  data Vec                                 [builtin]
 Data     Maybe                data Maybe                               [main.ax:1:7-12]
 Ctor     Nothing              Maybe a                                  [main.ax:2:4-11]
 Ctor     Just                 (a -> Maybe a)                           [main.ax:3:4-8]
@@ -481,6 +482,7 @@ export const AXSYM_AI = `F add main.ax:9:5-8 "(Int -> (Int -> Int))" @27bcb2cac1
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
+D Vec - "data Vec"
 D Maybe main.ax:1:7-12 "data Maybe" @247d1682b2330461 #ctors=Nothing,Just
 C Nothing main.ax:2:4-11 "Maybe a" #of=Maybe
 C Just main.ax:3:4-8 "(a -> Maybe a)" #of=Maybe

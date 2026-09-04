@@ -206,6 +206,11 @@ export interface TabbedItem {
   caption?: ReactNode
 }
 
+/** Programs longer than this open folded, so the page is not one scroll
+    of source between two headings. The fold is announced and one
+    control opens it; the whole program is in the DOM either way. */
+const FOLD_AT = 34
+
 export function TabbedCode({
   items,
   label,
@@ -214,9 +219,13 @@ export function TabbedCode({
   label: string
 }) {
   const [active, setActive] = useState(0)
+  const [expanded, setExpanded] = useState(false)
   const uid = useId()
   const current = items[active] ?? items[0]
   if (!current) return null
+
+  const lineCount = current.code.split('\n').length
+  const folded = lineCount > FOLD_AT && !expanded
 
   function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
@@ -224,6 +233,7 @@ export function TabbedCode({
     const delta = e.key === 'ArrowRight' ? 1 : -1
     const next = (active + delta + items.length) % items.length
     setActive(next)
+    setExpanded(false)
     document.getElementById(`${uid}-tab-${next}`)?.focus()
   }
 
@@ -246,7 +256,10 @@ export function TabbedCode({
               aria-selected={i === active}
               aria-controls={`${uid}-panel-${i}`}
               tabIndex={i === active ? 0 : -1}
-              onClick={() => setActive(i)}
+              onClick={() => {
+                setActive(i)
+                setExpanded(false)
+              }}
             >
               {item.tab}
             </button>
@@ -255,7 +268,11 @@ export function TabbedCode({
       </div>
 
       <div
-        className="code__body code__body--numbered"
+        className={
+          folded
+            ? 'code__body code__body--numbered code__body--folded'
+            : 'code__body code__body--numbered'
+        }
         id={`${uid}-panel-${active}`}
         role="tabpanel"
         aria-labelledby={`${uid}-tab-${active}`}
@@ -265,6 +282,20 @@ export function TabbedCode({
           <NumberedCode code={current.code} />
         </pre>
       </div>
+
+      {lineCount > FOLD_AT && (
+        <div className="code__fold">
+          <button
+            type="button"
+            className="code__fold-btn"
+            onClick={() => setExpanded((e) => !e)}
+            aria-expanded={!folded}
+            aria-controls={`${uid}-panel-${active}`}
+          >
+            {folded ? `Show all ${lineCount} lines` : 'Fold the program'}
+          </button>
+        </div>
+      )}
 
       {current.output && (
         <RunOutput

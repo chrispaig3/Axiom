@@ -15,7 +15,8 @@ export function Footer() {
         <p>
           Axiom {VERSION} · MIT · © 2026 Chris Paige
           <br />
-          Highlighted on this page by the language's own tree-sitter queries.
+          Code on this page is coloured by a highlighter that follows the
+          language's own tree-sitter queries, capture for capture.
         </p>
         <nav aria-label="Elsewhere">
           {LINKS.map(([label, href]) => (

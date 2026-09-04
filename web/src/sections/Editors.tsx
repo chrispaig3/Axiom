@@ -65,9 +65,9 @@ export function Editors() {
               <code>axiom lsp</code>
             </dt>
             <dd>
-              Written in Axiom like the rest of the compiler, and answers
-              twenty-four requests — including a distinction most languages do
-              not have: a function is written twice, so{' '}
+              Written in Axiom like the rest of the compiler, and answers{' '}
+              {stat('lspRequests')} requests — including a distinction most
+              languages do not have: a function is written twice, so{' '}
               <em>declaration</em> lands on the signature and{' '}
               <em>definition</em> on the body.
             </dd>
@@ -95,7 +95,8 @@ export function Editors() {
             <a href={`${DOCS}/lsp.md`} target="_blank" rel="noreferrer noopener">
               docs/lsp.md
             </a>{' '}
-            has a configuration per editor. The server and the grammar are
+            has a configuration for Neovim, Helix, Emacs and VS Code; Zed
+            needs only the grammar. The server and the grammar are
             independent: the server colours nothing, so a buffer with it
             attached and no grammar installed is plain text.
           </p>

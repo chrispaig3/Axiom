@@ -159,13 +159,20 @@
   text-transform: uppercase;
 }
 
-.hero__kicker span {
+.hero__kicker a {
   padding: 2px 8px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   color: var(--text-3);
   letter-spacing: 0.04em;
   text-transform: none;
+  text-decoration: none;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.hero__kicker a:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .hero__out-label {
