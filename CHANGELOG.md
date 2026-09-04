@@ -57,6 +57,42 @@ no import over the gate's existing `plain.ax` control.
 `jobRunAll` was `Job`'s only public name, so the break is one line in
 `compat/BREAKING`.
 
+### The `.ax` census reads the index, so the local battery stops flaking
+
+`scripts/check-doc-drift.sh` counted `.ax` files with
+`glob("**/*.ax", recursive=True)` and runs in `run-gates.sh`'s PARALLEL
+phase, six gates at a time — so it counted whatever was momentarily in
+the tree. Measured **616 in-battery against 613 alone**, while CI stayed
+green because `ci.yml` runs it as its own sequential step.
+
+The culprit gate was hunted and does not exist: all 54 gates of the
+parallel phase were run under a 0.1 s watcher and **not one** created a
+`.ax` inside the tree. The mechanism that WAS reproduced is an untracked
+`.ax` sitting in the working tree — an editor's, a scratch file's, a
+concurrent agent's.
+
+So the measurement is made independent of concurrency rather than
+serialised: `scripts/lib/ax-census.py` asks `git ls-files`, which reads
+the INDEX. On a clean tree the two answers are identical (613 and 613,
+with an empty `diff` of the sorted lists), so the substitution changes
+the answer in no case except the one it exists for. A `git` that will
+not answer is a loud FAILURE, never a silent fallback to the glob, and
+untracked strays are NAMED rather than dropped.
+
+`scripts/check-tree-sitter.sh` had the same defect one line worse — it
+`find`s every `.ax` and PARSES it, so a stray or vanishing file there is
+a parse failure or a missing-file error blamed on the grammar. Same
+substitution, and it drops both `-not -path` exclusions the `find`
+needed, because neither `target/` nor `.claude/` is in the index.
+
+New section 9 of `check-doc-drift.sh` is the ablation, and it runs the
+SHIPPED program against a synthetic repository rather than a copy of it:
+two `.ax` added to the index and one left untracked, where the census
+must answer 2 and a glob answers 3; the stray must be named; `git add`
+the third and the census must answer 3, so it is not a constant; and
+outside a repository it must FAIL rather than fall back.
+
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a

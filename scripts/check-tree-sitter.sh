@@ -142,28 +142,64 @@ echo "--- every .ax file in the repository parses without error ---"
 # Built with a read loop rather than `mapfile`, which is bash 4 and absent
 # from the bash 3.2 that ships with macOS - where half this project's
 # development happens.
+# THE TRACKED SET, NOT THE DIRECTORY. This was `find . -name '*.ax'`
+# with two `-not -path` exclusions, and every exclusion it needed was a
+# symptom of the same defect: `find` answers "what is under this
+# directory", which is not what "every .ax file in the repository"
+# means. The exclusions were `./target/*`, a build directory, and
+# `./.claude/*` - agent worktrees, each a full stale checkout,
+# gitignored and so invisible to `.gitignore` but not to `find`.
+# Measured 2026-08-25: 5,809 files swept against 506 in the tree, and a
+# correct grammar change went red against a months-old copy of the
+# corpus.
+#
+# The index needs neither exclusion - both are ignored, so neither is in
+# it - and it fixes a second, nastier symptom this gate shares with
+# check-doc-drift.sh's .ax census: this gate also runs in
+# run-gates.sh's parallel phase, and a stray or vanishing .ax here is
+# not a wrong count but a PARSE FAILURE or a missing-file error, blamed
+# on the grammar.
+#
+# A version-control query that will not answer is fatal rather than a
+# fallback to `find`, for the reason scripts/lib/ax-census.py gives at
+# length: a silent fallback restores the race in the configuration
+# nobody tests. The floor below is what catches an empty or garbled
+# answer.
+#
+# THE COMMENT LIVES OUT HERE AND NOT INSIDE THE `< <( ... )`, and that
+# is not style. An apostrophe in a comment inside a process
+# substitution makes bash 3.2 give up with
+# "bad substitution: no closing `)' in <(" - measured 2026-09-03, and
+# the gate then printed its own source as the file list, swept nothing,
+# skipped its remaining three sections and STILL EXITED 0. `bash -n`
+# does not see it, because it is an expansion failure and not a syntax
+# error. Nothing but running the gate finds that, which is why the
+# floor below now asks for a number rather than for non-emptiness.
+#
+# Paths are made relative to the grammar directory because the CLI
+# resolves a file's language from the grammar directory it is run in.
+# Built with a read loop rather than `mapfile`, which is bash 4 and
+# absent from the bash 3.2 that ships with macOS - where half this
+# project's development happens.
 sources=()
 while IFS= read -r path; do
   sources+=("$path")
-done < <(
-  # `-not -path './.claude/*'`: agent worktrees live there, each a full
-  # stale checkout of this repository, gitignored and therefore
-  # invisible to `.gitignore` but not to `find`. Measured 2026-08-25 -
-  # 5,809 files swept against 506 in the tree - and a correct grammar
-  # change went red against a months-old copy of the corpus.
-  cd "$repo_root" && find . -name '*.ax' -not -path './target/*' \
-    -not -path './.claude/*' \
-    | sed 's|^\./|../|' | sort
-)
+done < <(cd "$repo_root" && git ls-files -- '*.ax' | sed 's|^|../|' | sort)
 
-if [[ "${#sources[@]}" -eq 0 ]]; then
-  echo "error: no .ax files found; the check would pass vacuously" >&2
+# A FLOOR, not a non-emptiness test. `-eq 0` was the guard here, and it
+# is satisfied by garbage: when the substitution above broke, `sources`
+# held 30 lines of this script's own comment and the guard was happy.
+# The tree has 613 `.ax` files today; 400 is a floor that a real
+# deletion campaign would have to cross deliberately and that no
+# malfunction of the enumeration can drift under.
+if [[ "${#sources[@]}" -lt 400 ]]; then
+  echo "error: the .ax sweep found only ${#sources[@]} file(s); the floor is 400." >&2
+  echo "       Either the enumeration broke or the tree did - the check would" >&2
+  echo "       otherwise pass over almost nothing." >&2
+  printf '       first: %s\n' "${sources[0]:-<none>}" >&2
   exit 1
 fi
 
-# `parse --quiet --stat` prints one line per failure and a summary. Its exit
-# status is nonzero when any parse produced an ERROR node, which is the
-# condition this gate is about.
 if ! "$ts" parse --quiet --stat "${sources[@]}"; then
   echo
   echo "the grammar does not accept every .ax file in the repository" >&2

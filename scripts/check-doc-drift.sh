@@ -346,7 +346,34 @@ def claim(label, pattern, actual):
               f"documents) - reword the gate with the sentence")
         bad += 1
 
-ax_files = len([p for p in glob.glob("**/*.ax", recursive=True)])
+# THE `.ax` CENSUS IS THE TRACKED SET, NOT THE WORKING TREE. This was
+# `glob("**/*.ax", recursive=True)` and it was RACY: this gate runs in
+# `run-gates.sh`'s parallel phase, so it counted whatever a sibling
+# gate - or a concurrent agent, or an editor - had in the tree at that
+# instant. Measured 2026-09-03: 616 in the battery against 613 alone.
+# `scripts/lib/ax-census.py` carries the whole argument and the numbers;
+# it lives in its own file so that section 9's ablation can run THE
+# SHIPPED PROGRAM against a synthetic repository rather than a copy of
+# it.
+#
+# A census that cannot be taken is a FAILURE and not a fallback: a
+# silent return to the glob would reintroduce the race in the one
+# configuration nobody tests, and read as success. `ax_files` is left
+# at -1 in that case, which fails every claim about it loudly.
+_c = subprocess.run([sys.executable, "scripts/lib/ax-census.py"],
+                    capture_output=True, text=True)
+if _c.returncode != 0:
+    print(f"FAIL counts: {_c.stderr.strip()[:300]}")
+    bad += 1
+    ax_files = -1
+else:
+    _lines = _c.stdout.splitlines()
+    ax_files = int(_lines[0])
+    for _extra in _lines[1:]:
+        # `strays: a.ax b.ax` - untracked files the census did not count.
+        # Printed rather than hidden, so the choice is visible to a
+        # contributor whose new fixture is not `git add`ed yet.
+        print(f"note counts: {_extra}")
 corpus_cases = sum(
     sum(1 for line in open(p, encoding="utf-8") if line.startswith("==="))
     for p in glob.glob("tree-sitter-axiom/test/corpus/*.txt")) // 2
@@ -1283,6 +1310,86 @@ sys.exit(1 if bad else 0)
 RULEIDS
 then failed=$((failed+1)); fi
 
+# ---------------------------------------------------------------
+# 9. THE `.ax` CENSUS IS INDEPENDENT OF WHAT ELSE IS IN THE DIRECTORY.
+#
+# Section 2 above counts `.ax` files with `scripts/lib/ax-census.py`,
+# which asks `git ls-files` rather than globbing the tree. Without this
+# section that substitution is a CHECK THAT CANNOT FAIL: on a clean
+# checkout the two answers are identical - measured 2026-09-03, both
+# 613, with an empty `diff` of the sorted lists - so nothing above would
+# notice if it silently went back to the glob.
+#
+# What is asserted is the INDEPENDENCE itself, in a synthetic
+# repository built here, where the difference between the two answers
+# can be made to exist on purpose:
+#
+#   a. two `.ax` files added to the index and one left untracked - the
+#      census must answer 2 where a glob answers 3;
+#   b. and it must NAME the stray, because a count that quietly ignores
+#      a file is how a contributor loses an afternoon;
+#   c. `git add` the third - the census must answer 3, so it is
+#      measuring something and is not a constant;
+#   d. run it where there is no repository at all - it must FAIL, not
+#      fall back to the glob. That is the arm that keeps the fallback
+#      from ever being added back "just in case".
+#
+# It runs entirely inside `$work` and touches this checkout not at all.
+# ---------------------------------------------------------------
+echo
+echo "== census: the .ax count reads the index, not the directory =="
+census="$repo_root/scripts/lib/ax-census.py"
+fake="$work/census-fake"
+rm -rf "$fake"; mkdir -p "$fake/sub"
+git -C "$fake" init -q
+git -C "$fake" config user.email "gate@example.invalid"
+git -C "$fake" config user.name "gate"
+printf '(:: main Int)\n' > "$fake/a.ax"
+printf '(:: main Int)\n' > "$fake/sub/b.ax"
+git -C "$fake" add a.ax sub/b.ax
+printf '(:: main Int)\n' > "$fake/stray.ax"
+
+glob_n="$(cd "$fake" && python3 -c "import glob;print(len(glob.glob('**/*.ax',recursive=True)))")"
+out_a="$(python3 "$census" "$fake")"
+n_a="$(printf '%s\n' "$out_a" | head -1)"
+if [[ "$n_a" == 2 && "$glob_n" == 3 ]]; then
+  echo "ok   census: 2 tracked where the glob sees 3 - the untracked file is not counted"
+else
+  echo "FAIL census: census answered $n_a and the glob $glob_n; expected 2 and 3"
+  failed=$((failed+1))
+fi
+if printf '%s\n' "$out_a" | grep -q '^strays: .*stray\.ax'; then
+  echo "ok   census: and it names the stray it did not count"
+else
+  echo "FAIL census: the stray was dropped silently - no 'strays:' line naming stray.ax"
+  printf '%s\n' "$out_a" | sed 's/^/     /'
+  failed=$((failed+1))
+fi
+git -C "$fake" add stray.ax
+n_b="$(python3 "$census" "$fake" | head -1)"
+if [[ "$n_b" == 3 ]]; then
+  echo "ok   census: 3 once the third is tracked - it measures, it is not a constant"
+else
+  echo "FAIL census: after tracking the third file the count is $n_b, expected 3"
+  failed=$((failed+1))
+fi
+nogit="$work/census-nogit"
+rm -rf "$nogit"; mkdir -p "$nogit"
+printf '(:: main Int)\n' > "$nogit/c.ax"
+# No `set -e` dance around this: the script runs under `set -uo pipefail`
+# and NOT `-e`, so a bare `rc=$?` reads the status. A `set -e` added here
+# to be safe would arm it for every line below, which is the stray-`set
+# -e` shape this repository has already been bitten by once.
+err_out="$(GIT_CEILING_DIRECTORIES="$work" python3 "$census" "$nogit" 2>&1 >/dev/null)"
+rc=$?
+if [[ "$rc" != 0 ]] && printf '%s' "$err_out" | grep -q 'needs a git checkout'; then
+  echo "ok   census: outside a repository it FAILS (exit $rc) rather than falling back to the glob"
+else
+  echo "FAIL census: with no repository it exited $rc - a silent glob fallback is the race, restored"
+  printf '%s\n' "$err_out" | sed 's/^/     /'
+  failed=$((failed+1))
+fi
+
 echo
 if (( failed )); then
   echo "check-doc-drift: $failed section(s) failed"
@@ -1290,4 +1397,6 @@ if (( failed )); then
 fi
 echo "check-doc-drift: registry, counts, status rows, fixture paths, case"
 echo "                 numbering, the diagnostic showcase, the target list and the"
-echo "                 rule-identifier namespace all agree with the tree"
+echo "                 rule-identifier namespace all agree with the tree - and the"
+echo "                 .ax census reads the index, so it does not depend on what"
+echo "                 else is in the directory while it runs"
