@@ -1425,6 +1425,32 @@ if not (SHAPE_A[0]["byte"] < NAV_MAIN.index("(pub struct Box") < SHAPE_A[1]["byt
         < INT_IN_SIG["byte"] < NAV_MAIN.index("\n", _radius_sig)):
     sys.exit("FAIL: NavMain.ax no longer spells `Shape` in the four positions - data, "
              "struct field, alias, signature - the type-position checks are written for")
+# THE CONSTRUCTOR CHECKS' OWN FLOOR. `Shape` and `Circle` are declared
+# on ONE line, and every constructor assertion below rests on that: a
+# server that answered the `data`'s name span instead of the
+# constructor's would land on the same line, one column range away, and
+# an equality against a whole-identifier position is the only thing
+# that can tell the two apart. If the corpus ever splits them, that
+# ablation stops being reachable and these checks weaken without
+# failing - which is the shape this gate refuses everywhere else.
+if SHAPE_A[0]["line"] != CIRCLE_A[0]["line"]:
+    sys.exit("FAIL: NavMain.ax no longer declares `Shape` and its constructors on "
+             "one line - a wrong answer of the `data`'s span would then differ in "
+             "LINE from the right one, and the constructor checks below could not "
+             "tell an off-by-a-declaration answer from a correct one")
+if not (SHAPE_A[0]["byte"] < CIRCLE_A[0]["byte"]
+        < NAV_MAIN.index("\n", SHAPE_A[0]["byte"])):
+    sys.exit("FAIL: NavMain.ax's first `Circle` is not the one inside "
+             "`(pub data Shape ...)` - every constructor position below is written "
+             "for that occurrence being the declaration")
+# The form a constructor hover must quote: the WHOLE `data`, because
+# that is where a reader finds the constructor's siblings and its field
+# types. Cut from the document, like every other hover text here.
+SHAPE_DATA_TEXT = between(NAV_MAIN, "(pub data Shape", "\n\n; A struct")
+SHAPE_DOC = "A shape with two constructors, one of them carrying a field."
+if "(Circle Int)" not in SHAPE_DATA_TEXT or SHAPE_DOC not in NAV_MAIN:
+    sys.exit(f"FAIL: the derived `data Shape` form {SHAPE_DATA_TEXT!r} or its "
+             f"paragraph is not in NavMain.ax - the constructor hovers rest on both")
 KW_MATCH = ident_at(NAV_MAIN, "match", 1)
 KW_LET = ident_at(NAV_MAIN, "let", 1)
 LITERAL = locate(NAV_MAIN, "((Dot) 0)", 1)
@@ -1500,6 +1526,20 @@ nav_session2 = b"".join(frame(m) for m in [
     refs(35, A_URI, SHAPE_A[3], True), hilite(36, A_URI, SHAPE_A[0]),
     prep(37, A_URI, INT_IN_SIG), ren(38, A_URI, SHAPE_A[1], "Blob"),
     ren(39, A_URI, SHAPE_A[0], "Int"),
+    # constructors: definition, declaration, typeDefinition and hover,
+    # in this document and across the import. 40-42, 46 and 48 are the
+    # local half; 43-45 and 47 the imported one, so a build that
+    # answered only for the open document fails on those alone.
+    nav_req(40, "textDocument/definition", A_URI, CIRCLE_A[1]),
+    nav_req(41, "textDocument/definition", A_URI, CIRCLE_A[2]),
+    nav_req(42, "textDocument/declaration", A_URI, CIRCLE_A[1]),
+    nav_req(43, "textDocument/definition", B_URI, CIRCLE_B[0]),
+    nav_req(44, "textDocument/declaration", B_URI, CIRCLE_B[0]),
+    nav_req(45, "textDocument/typeDefinition", B_URI, CIRCLE_B[0]),
+    nav_req(46, "textDocument/hover", A_URI, CIRCLE_A[1]),
+    nav_req(47, "textDocument/hover", B_URI, CIRCLE_B[0]),
+    nav_req(48, "textDocument/definition", A_URI, CIRCLE_A[0]),
+    nav_req(49, "textDocument/definition", C_URI, CIRCLE_A[1]),
     {"jsonrpc": "2.0", "id": 34, "method": "shutdown", "params": None},
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
@@ -1792,6 +1832,77 @@ else:
           f"shadowing `let`, hover `pw : {PARAM_TYPE}` from the signature and "
           f"{LET_TEXT!r} cut from the document; null on a broken document)")
     passed += 4
+# ---------------------------------------------------------------------
+# CONSTRUCTOR NAVIGATION, over the session above. Its own block, so a
+# failure names the constructor rather than the whole of SECTION NAV.
+#
+# Every expected answer is a whole-identifier position in NavMain.ax:
+# `definition` and `declaration` land on the constructor's own name
+# inside the `data`, from a pattern head, from an expression, from the
+# declaration itself, and from the OTHER document that imports it;
+# `typeDefinition` lands on `Shape` instead, and is asked at the same
+# character as `definition` so the two cannot be one answer wearing two
+# names. `hover` quotes the whole `data` form cut from the document,
+# carries the paragraph above it, says which constructor, and - across
+# the import - names the module; its range is the WORD, in whichever
+# document the cursor is in.
+CIRCLE_DECL = loc(A_URI, CIRCLE_A[0])
+cwhy = ""
+if nwhy:
+    cwhy = "the session above failed first"
+elif rcaps.get("typeDefinitionProvider") is not True:
+    cwhy = f"typeDefinitionProvider is not advertised: capabilities were {sorted(rcaps)}"
+elif nav_landed(40, A_URI, CIRCLE_A[0]):
+    cwhy = "definition on `Circle` as a pattern head: " + nav_landed(40, A_URI, CIRCLE_A[0])
+elif nav_landed(41, A_URI, CIRCLE_A[0]):
+    cwhy = "definition on `Circle` applied to an argument: " + nav_landed(41, A_URI, CIRCLE_A[0])
+elif nav_landed(42, A_URI, CIRCLE_A[0]):
+    cwhy = "declaration on `Circle`: " + nav_landed(42, A_URI, CIRCLE_A[0])
+elif rresp.get(42, {}).get("result") != rresp.get(40, {}).get("result"):
+    cwhy = ("declaration and definition disagree on `Circle`, which is written once: "
+            f"{rresp.get(42, {}).get('result')!r} against {rresp.get(40, {}).get('result')!r}")
+elif nav_landed(43, A_URI, CIRCLE_A[0]):
+    cwhy = ("definition on the imported `Circle`, from NavUser.ax: "
+            + nav_landed(43, A_URI, CIRCLE_A[0]))
+elif nav_landed(44, A_URI, CIRCLE_A[0]):
+    cwhy = ("declaration on the imported `Circle`, from NavUser.ax: "
+            + nav_landed(44, A_URI, CIRCLE_A[0]))
+elif nav_landed(45, A_URI, SHAPE_A[0]):
+    cwhy = ("typeDefinition on the imported `Circle`, which is `Shape`: "
+            + nav_landed(45, A_URI, SHAPE_A[0]))
+elif rresp.get(45, {}).get("result") == rresp.get(43, {}).get("result"):
+    cwhy = ("typeDefinition and definition answered the same range on the imported "
+            f"`Circle` ({rresp.get(45, {}).get('result')!r}) - the definition is the "
+            f"constructor and the type is the `data` that declares it, and they are "
+            f"one line apart by construction here")
+elif nav_hover(46, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`", SHAPE_DOC],
+               CIRCLE_A[1]):
+    cwhy = ("hover on `Circle`: "
+            + nav_hover(46, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`",
+                             SHAPE_DOC], CIRCLE_A[1]))
+elif nav_hover(47, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`",
+                    "from `NavMain`", SHAPE_DOC], CIRCLE_B[0]):
+    cwhy = ("hover on the imported `Circle`, from NavUser.ax: "
+            + nav_hover(47, [SHAPE_DATA_TEXT, "constructor `Circle` of `Shape`",
+                             "from `NavMain`", SHAPE_DOC], CIRCLE_B[0]))
+elif nav_landed(48, A_URI, CIRCLE_A[0]):
+    cwhy = ("definition on the constructor's own declaration: "
+            + nav_landed(48, A_URI, CIRCLE_A[0]))
+elif want_null(49, "definition on `Circle` in the document that does not parse"):
+    cwhy = want_null(49, "definition on `Circle` in the document that does not parse")
+
+if cwhy:
+    print(f"FAIL nav-constructors: {cwhy}")
+    failed += 1
+else:
+    print(f"ok   constructors (definition and declaration on `Circle` from a pattern "
+          f"head, an application, its own declaration and the importing document, all "
+          f"landing on the constructor's name inside `(pub data Shape ...)` and not on "
+          f"`Shape`; typeDefinition at the same character landing on `Shape` instead; "
+          f"hover quoting the {len(SHAPE_DATA_TEXT)}-byte form cut from NavMain.ax with "
+          f"its paragraph, naming the constructor, and naming `NavMain` across the "
+          f"import; null on a document that does not parse)")
+    passed += 1
 shutil.rmtree(NAVREF_DIR, ignore_errors=True)
 
 # ---------------------------------------------------------------------

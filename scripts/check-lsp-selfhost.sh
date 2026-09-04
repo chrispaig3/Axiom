@@ -304,6 +304,74 @@
 #   This is the one ablation that produces a plausible answer rather
 #   than a wrong one, which is why it has a check of its own.
 #
+# CONSTRUCTORS, seven more ablations, 2026-09-03. A constructor was a
+# name five requests could see and three could not: `completion`
+# offered it, `references` found it, `signatureHelp` rendered it,
+# `workspace/symbol` listed it at its own span and `typeDefinition`
+# jumped to its `data`, while `definition`, `declaration` and `hover`
+# answered null on the same character - 116 such occurrences over four
+# real files, measured 2026-09-03.
+#
+# THESE SEVEN TOUCH NO GOLDEN, and that is worth saying rather than
+# leaving to be noticed: the constructor block's requests are written
+# INTO drive.py's navigation session, not read from tests/lsp/, so
+# there is no *.golden a bless could satisfy and none of these runs
+# rewrote one. Each patches self_host/lsp.ax in a scratch copy, builds
+# a server with scripts/build-shared-axc.sh, and runs drive.py against
+# the UNBLESSED goldens. Every one exits 1 with "33 passed, 1 failed"
+# and exactly one FAIL line, which is also the proof that the change
+# moved nothing else.
+#
+#   NO LOCAL STEP. `lspCtorDefinition`'s call site is removed from
+#   `lspDefinition`, so it falls straight through to the imported
+#   lookup - the state this server was in until today. Exit 1:
+#     "FAIL nav-constructors: definition on `Circle` as a pattern
+#      head: request 40 answered null"
+#
+#   THE `data`'S SPAN, NOT THE CONSTRUCTOR'S. `lspCtorDefinition`
+#   answers `(nodeSpan dat)` where it answered `(nodeSpan c)`. This is
+#   the one that says the fix landed on the right WORD rather than
+#   merely inside the right declaration, and NavMain.ax declares
+#   `Shape` and `Circle` on one line on purpose so a wrong answer
+#   differs only in column. drive.py refuses to run if that line is
+#   ever split. Exit 1:
+#     "request 40 answered ... character 10 ... to ... 15 ..., want
+#      ... character 23 ... to ... 29 ..."
+#   - `Shape` where `Circle` was asked for.
+#
+#   NO IMPORTED HALF, `definition` alone. The `data` an import brought
+#   in is skipped in `lspDefinitionImported`. Exit 1 on the OTHER
+#   document alone, with every local assertion still green:
+#     "definition on the imported `Circle`, from NavUser.ax: request
+#      43 answered null"
+#
+#   NO NOTE. `lspCtorNote` answers "". The fence is untouched and the
+#   paragraph still there, so the hover is a plausible answer rather
+#   than an empty one - it quotes `(pub data Shape ...)` and never
+#   says which of its two constructors the cursor is on. Exit 1:
+#     "hover on `Circle`: request 46 did not carry 'constructor
+#      `Circle` of `Shape`'; it answered '```axiom\n(pub data Shape
+#      (Dot) (Circle Int))\n```\n\nA shape with two constructors...'"
+#
+# The last three exist because "the imported half" is four halves, and
+# a gate must be shown to catch each ALONE or the weaker assertion is
+# carried by the stronger. Each drops ONE request's imported step:
+#
+#   HOVER.          "hover on the imported `Circle`, from NavUser.ax:
+#                    request 47 answered null"
+#   TYPEDEFINITION. "typeDefinition on the imported `Circle`, which is
+#                    `Shape`: request 45 answered null"
+#   DECLARATION.    "declaration on the imported `Circle`, from
+#                    NavUser.ax: request 44 answered null"
+#
+# WHAT NO ABLATION ABOVE PRODUCES, and is asserted structurally
+# instead: `declaration` answering something OTHER than `definition`
+# on a constructor (they are compared to each other, since a
+# constructor is written once), and `typeDefinition` answering the
+# SAME range as `definition` (they are compared for inequality, since
+# one is the constructor and the other is the `data`). An
+# implementation that aliased either pair fails without any patch.
+#
 # AND ONE THE GATE CAUGHT WITHOUT BEING ASKED, recorded because it is
 # the sweep's whole purpose: adding `declarationProvider` to
 # `lspCapabilities` before adding it to the sweep's table below failed
