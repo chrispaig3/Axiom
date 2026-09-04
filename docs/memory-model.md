@@ -3013,15 +3013,21 @@ vacates.
 **The bit is written by the container and read only by the runtime.**
 There is no `memIsArray`, and its absence is a measured result rather
 than an omission. Bit 15 is unambiguous only against an allocator that
-clamps the count at 16,383 words, and the committed seed clamps at
-32,767 — where the bit used to be the count's top — so under the seed's
-runtime every block of 16,384 words or more reads back as an array of
-handles. `tests/stdlib/200-scale.ax` builds a `Map` of 262,144 slots,
-whose value array passes that line, and `mapRemove` believed the bit and
-released a raw integer: **SIGSEGV**, in a program correct under the
-compiler this tree builds and wrong under the one that builds this tree.
-`stage1` runs on the seed's runtime, so the bootstrap ladder is exactly
-where it lands. Each container therefore carries a flag word of its own
+clamps the count at 16,383 words, and the seed that made this a crash
+clamped at 32,767 — where the bit used to be the count's top — so under
+*that* seed's runtime every block of 16,384 words or more read back as
+an array of handles. `tests/stdlib/200-scale.ax` builds a `Map` of
+262,144 slots, whose value array passes that line, and `mapRemove`
+believed the bit and released a raw integer: **SIGSEGV**, in a program
+correct under the compiler this tree builds and wrong under the one that
+builds this tree. `stage1` runs on the seed's runtime, so the bootstrap
+ladder is exactly where it lands. (Checked 2026-09-03: the committed
+seeds at `09f3eb4` clamp at 16,383 and carry
+`%aform = and i64 %shw, 32768`, so today's seed agrees with today's
+compiler. The rule outlives that particular seed — a reader would be
+sound only by accident of what is in `bootstrap/`, and `stdlib/Mem.ax`
+cannot see what that is.) Each container therefore carries a flag word
+of its own
 — `Vec` word 3, `Map` word 6 — written by the same code that reads it,
 with no encoding to disagree about. That is why a `Map` header is eight
 words for the six it holds.
@@ -3177,8 +3183,11 @@ every classifiable neighbour's bit kept. `@axiom_release`'s dead path walks the 
 itself per set bit (its own guards cover immediates, statics, and
 zero counts), then files the block. The allocator and the arena keep
 helper stamp the LEAF of their dynamic size with a shared clamp: a
-payload past 32767 words stores count 0, the unknown-size sentinel
-release refuses to file.
+payload past 16383 words stores count 0, the unknown-size sentinel
+release refuses to file. (16,383 and not the 32,767 this said until
+2026-09-03: the ceiling moved down a bit when the array form took bit
+15 on 2026-08-24, and `bootstrap/axiom-*.ll` and `codegen.ax` have both
+carried `icmp ugt i64 %wcnt, 16383` since.)
 
 *The evidence half holds since 2026-08-15*
 (`tests/stdlib/354-arc-evidence.ax`, 255): a function whose

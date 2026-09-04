@@ -13095,10 +13095,17 @@
               ; unsound rather than merely incomplete: a lambda
               ; captures everything in scope, so a closure escaping
               ; the loop would otherwise hold a parameter the next
-              ; boundary releases. The share is unbalanced - a
-              ; closure record still carries no map - so it leaks,
-              ; which is the safe direction and no worse than the
-              ; unretained store it replaces.
+              ; boundary releases. The share is BALANCED, by the map
+              ; three lines above: `lamShapeBits` sets bit 16+1+i for
+              ; exactly the captures `retainParamCaps` retains, so the
+              ; record's death gives each of them back. (This comment
+              ; used to say the share was unbalanced and leaked "in
+              ; the safe direction". It said so from before the map
+              ; existed. Probed 2026-09-03: `emit-llvm` of a lambda
+              ; capturing one `String` parameter emits
+              ; `store i64 131076` for the record's shape word -
+              ; 0x20004, two payload words and bit 17, the map naming
+              ; word 1.)
               ;
               ; Captures that are `let` bindings stay unretained on
               ; purpose: nothing releases a binding, so nothing can
@@ -17557,9 +17564,9 @@
 ;     (`pendingOwned`, field 42, paid after the body);
 ;   * the prototypes are identical - every parameter is `i64` and both
 ;     return `i64`, so identical means the same COUNT, evidence word
-;     included: `pairSlot 4` for the caller, `args + takesEv` for the
+;     included: `pairSlot 6` for the caller, `args + takesEv` for the
 ;     callee - and the caller is a plain `fn`, not a lambda or a thunk
-;     (slot 4 is 0 there);
+;     (slot 6 is 0 there, set by `emitLamDef`);
 ;   * no argument is an owned temporary the caller would release after
 ;     the call (`ownedArgReleases`, the same predicate
 ;     `releaseOwnedArgs` spends).
@@ -21205,9 +21212,19 @@
 ; THE BODY IS EMITTED IN NON-TAIL POSITION, on purpose. The reset
 ; must run after it, so a self call inside a region is a call and not
 ; the jump `emitExprTail` would make of it. A body that terminated its
-; own block (word 31: a trap, an abort) gets no reset after the
-; terminator - an instruction after one is not LLVM, and the process
-; is ending anyway.
+; own block gets no reset after the terminator, because an instruction
+; after one is not LLVM.
+;
+; WORD 31 IS NOT WHAT THIS USED TO SAY IT WAS. It read "word 31: a
+; trap, an abort", and no trap and no abort sets it: the exhaustive
+; list, re-grepped 2026-09-03, is `emitTailJump` (a self tail jump),
+; `emitIfTail` when both arms terminated, the `musttail` leaf,
+; `emitPairFwd`, and `emitPairRet` twice - six sites, all in this file,
+; all reachable only under `emitExprTail`. Which makes this guard
+; unreachable from a non-tail body exactly as the two in `emitArms`
+; and `emitPairArms` are, and worth keeping for the same reason: the
+; invariant lives in other functions and can move without warning
+; here.
 ;
 ; THE VALUE IS THE BODY'S REGISTER, UNCHANGED. The checker refuses a
 ; body whose type is not a scalar (AX3059, `checkRegion`), so the word

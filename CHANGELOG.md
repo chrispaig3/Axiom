@@ -77,6 +77,20 @@ across `tests/stdlib/`, `examples/`, `self_host/` and `stdlib/` emit
 byte-identical IR with and without it, `self_host/main.ax` (8,776,218
 bytes) included.
 
+### Five comments that were false
+
+Verified by probe, not by reading. `codegen.ax` said a closure record
+"carries no map — so it leaks"; it has carried one since `lamShapeBits`
+landed, and `emit-llvm` of a lambda capturing a `String` parameter emits
+`store i64 131076` — bit 17, the map naming payload word 1. `mustTailOK`
+was documented against `pairSlot 4`; it reads `pairSlot 6` (4 and 5 are
+`cgThreads` and `parUsed`). `emitRegion` described word 31 as "a trap,
+an abort"; no trap and no abort sets it. And `stdlib/Mem.ax` and
+`docs/memory-model.md` both said the committed seed clamps at 32,767 —
+the seeds at `09f3eb4` clamp at 16,383 and carry
+`%aform = and i64 %shw, 32768`, so that particular hazard is retired
+(the rule it justified is not, and the container flag words stay).
+
 ## 0.7.3 — 2026-09-03
 
 <!-- Empty by design until the next change lands. The heading STAYS when a
