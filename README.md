@@ -6,7 +6,7 @@
 
 <img width="1500" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
 
-Algebraic data types, exhaustive matching and an effect system the compiler checks, lowered through LLVM to a native executable with no VM, no collector and no libc inside it.
+> Algebraic data types, exhaustive matching and an effect system the compiler checks, lowered through LLVM to a native executable with no VM, no collector and no libc inside it.
 
 The compiler is written in Axiom: 102,352 lines of it, which rebuild
 themselves from a committed LLVM seed until two successive compilers are
