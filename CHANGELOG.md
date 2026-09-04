@@ -27,13 +27,23 @@ arithmetic in its own header, and `server.ax` answers `200` on every route,
 load-bearing artefact of a gate.
 
 What no gate was looking at was the file **list**. A 156 KB arm64 Mach-O —
-`examples/web/axiom_temp_output.92420`, the scratch executable `axiom run`
-writes into the working directory and unlinks only when the child returns —
-was committed in `d1e4a71` and lived in the tree with every gate green,
-because every gate reads file *contents* and a file nothing imports has no
-contents anyone reads. It is deleted; `.gitignore` now names the pattern,
-which it never did; and `scripts/check-web.sh` — the only thing CI points at
-`examples/` — now sweeps the directory.
+`examples/web/axiom_temp_output.92420` — was committed in `d1e4a71` and lived
+in the tree with every gate green, because every gate reads file *contents*
+and a file nothing imports has no contents anyone reads.
+
+**The leak was reproduced rather than reasoned about**, and the reproduction
+corrected the story. `axiom run` builds into the working directory and the
+`sysUnlink` that removes the scratch executable is reached only after the
+child *returns*; a `run` of `server.ax` interrupted with SIGTERM leaves
+`axiom_temp_output.<pid>`, mode 755, an arm64 Mach-O — the same shape as the
+committed one. Only the executable survives: `buildToExecutable` removes its
+own `.ll`, `.o` and `.opt.ll`. The flagship example is the one program here
+that does not return on its own, which is precisely why the artefact landed
+in *its* directory.
+
+The binary is deleted; `.gitignore` now names the pattern, which it never
+did; and `scripts/check-web.sh` — the only thing CI points at `examples/` —
+now sweeps the directory.
 
 Two arms with an ablation each, because two arms sharing one ablation is one
 arm and a decoration: an **extension** arm (a tracked file must be `.ax`,

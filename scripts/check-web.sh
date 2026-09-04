@@ -119,13 +119,18 @@ command -v python3 >/dev/null 2>&1 || {
 # asserted here rather than in a gate of its own.
 #
 # `axiom run` builds into the WORKING DIRECTORY - self_host/main.ax
-# names the scratch executable `axiom_temp_output.<pid>` and derives
-# `<base>.ll`, `<base>.o` and `<base>.opt.ll` beside it - and unlinks
-# only the executable, only when the child returns. A hard kill leaves
-# all four where the operator stood. One of them,
-# `examples/web/axiom_temp_output.92420`, a 156 KB arm64 Mach-O, was
-# committed in d1e4a71 and sat in the tree until 2026-09-03 with
-# every gate green, because no gate read the file LIST - they all read
+# names the scratch executable `axiom_temp_output.<pid>` - and the
+# `sysUnlink` that removes it is reached only after the child RETURNS.
+# Reproduced 2026-09-03 against THIS example, which is the one program
+# here that does not return on its own: `axiom run
+# examples/web/server.ax 8961 1 1` from a scratch directory answers
+# 200 on `/` and both static files off the default root, and a SIGTERM
+# to the runner leaves `axiom_temp_output.99072`, mode 755, a
+# 113,880-byte arm64 Mach-O. Only the executable - `buildToExecutable`
+# removes its own `.ll`, `.o` and `.opt.ll`. That is the same shape as
+# `examples/web/axiom_temp_output.92420`, a 156 KB arm64 Mach-O
+# committed in d1e4a71, which sat in the tree until 2026-09-03 with
+# every gate green - because no gate read the file LIST. They all read
 # file CONTENTS, and a file nothing imports has no contents anyone
 # reads. .gitignore now names the pattern; this is what notices a
 # build artefact committed past it, by any name.
