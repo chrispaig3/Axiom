@@ -413,7 +413,7 @@ check_lineage_selfread() { # <script>
   # level down.
   local pats
   pats="$(sed -n "${gline}p" "$f")"
-  for want in 'axiom-bin' 'AXIOM_AXC' 'gate_build_axc'; do
+  for want in '$axiom' 'axiom-bin' 'AXIOM_AXC' 'gate_build_axc'; do
     case "$pats" in
       *"$want"*) ;;
       *) fail "$f's self-read no longer looks for $want" ;;
@@ -456,6 +456,27 @@ else
   probe_mode=0
   if (( probe_failed )); then ok "probe: a lineage gate that keeps the marker but stops reading itself is refused ($probe_first)"
   else fail "probe: a copy of $lineage with the self-read deleted was accepted"; fi
+fi
+
+# (4c) The narrowest of the three, and the one the other two would miss:
+# the marker is there, the self-read is there, and it has simply stopped
+# looking for one of the four names. `AXIOM_AXC` is the one dropped here
+# because it is the variable `run-gates.sh` exports to share a compiler
+# across the battery - a lineage gate blind to it would let the shared
+# Axiom binary onto the compared path with every line of the guard still
+# in place.
+#
+#   FAIL: <copy>'s self-read no longer looks for AXIOM_AXC
+p12="$work/lineage.narrowed.sh"
+sed 's/|AXIOM_AXC//' "$lineage" > "$p12"
+if cmp -s "$p12" "$lineage"; then
+  fail "probe 4c narrowed no pattern in the copy"
+else
+  probe_mode=1; probe_failed=0; probe_first=""
+  check_lineage_selfread "$p12"
+  probe_mode=0
+  if (( probe_failed )); then ok "probe: a self-read that stopped looking for one name is refused ($probe_first)"
+  else fail "probe: a copy of $lineage whose guard dropped AXIOM_AXC was accepted"; fi
 fi
 
 # ---------------------------------------------------------------------
