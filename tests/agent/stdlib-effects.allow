@@ -116,13 +116,6 @@ jcFail Json.ax Mut
 jcNew Json.ax Alloc,Mut
 jcSetPos Json.ax Mut
 jcSkipWs Json.ax Mut
-jobArgvVector Job.ax Alloc,Mut
-jobPoolNew Job.ax Alloc,Mut
-jobReapOldest Job.ax Alloc,IO,Mut
-jobRunAll Job.ax Alloc,IO,Mut
-jobSubmit Job.ax Alloc,IO,Mut
-jobSubmitArgv Job.ax Alloc,IO,Mut
-jobWaitAll Job.ax Alloc,IO,Mut
 jpArray Json.ax Alloc,Mut
 jpEscape Json.ax Alloc,Mut
 jpHex4 Json.ax Alloc,Mut
@@ -274,6 +267,11 @@ netSocketTcp6 Sys.ax Alloc,IO
 okOr Err.ax Alloc
 optMap Err.ax Alloc
 optOr Err.ax Alloc
+parArgvVector Par.ax Alloc,Mut
+parMapWords Par.ax Alloc,IO,Mut
+parRunAll Par.ax Alloc,IO,Mut
+parRunOne Par.ax Alloc,IO,Mut
+parRunWord Par.ax Alloc,IO,Mut
 pathBase Path.ax Alloc,Mut
 pathDir Path.ax Alloc,Mut
 pathExt Path.ax Alloc,Mut

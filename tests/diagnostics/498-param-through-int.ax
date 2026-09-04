@@ -2,8 +2,7 @@
 ;
 ; `Int` is this language's universal heap handle and the whole tree
 ; relies on it: `mkSpan` declares `Int` and answers a `Span`,
-; `format.mkFPr` declares `Int` and answers an `FPr`. `tyReprClash`
-; therefore names
+; `format.mkFPr` answers an `FPr`, a struct. `tyReprClash` then names
 ; only `Bool` and `Float` as representation clashes - a 2026-08-10
 ; attempt at the general rule reported 21 of 271 files, every one a
 ; handle returned through `Int` on purpose.
