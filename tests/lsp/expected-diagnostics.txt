@@ -69,3 +69,4 @@
 080-many-diagnostics.ax    W         AX3039  2@pure                        AXTAG key typo on `%N`: unrecognised key `pur`; did you mean `%N`?
 080-many-diagnostics.ax    E         AX3001  missingOne                    undefined variable `%N`
 080-many-diagnostics.ax    E         AX3001  missingTwo                    undefined variable `%N`
+090-related-spans.ax       E         AX3006  4@main                        duplicate definition `%N`

@@ -102,6 +102,20 @@
 #       message quotes in backticks, read back out of the source at
 #       exactly those UTF-16 units - the shape of
 #       tests/tools/verify-axsym.py.
+#     * THE EDITOR IS NOT SHOWN LESS THAN THE TERMINAL, added
+#       2026-09-03. For every fixture, `$axiom check --diagnostic-format
+#       json` is run beside the server and the two are compared: the
+#       same diagnostics in the same order, every caret LABEL carried
+#       into the published message, and every SECONDARY span published
+#       as `relatedInformation` at the UTF-16 position drive.py converts
+#       from the terminal's character offset. Nothing here is written
+#       down, so nothing here can be blessed - and the assertion is
+#       containment rather than equality, so the editor's side cannot
+#       satisfy it by also saying nothing. Two floors over the whole
+#       corpus keep it from going vacuous from below: at least 5 label(s)
+#       and at least 1 related location, or drive.py exits without a
+#       verdict. tests/lsp/090-related-spans.ax is the fixture that
+#       supplies the second, and it is the only one that does.
 #
 # The one thing the deleted differential had that this does not is
 # stage0's opinion about WHICH diagnostics a file deserves; the manifest
@@ -372,6 +386,56 @@
 # one is the constructor and the other is the `data`). An
 # implementation that aliased either pair fails without any patch.
 #
+# DIAGNOSTIC FIDELITY, four more ablations, 2026-09-03. `lspDiagJson`
+# published range/severity/code/source/message and dropped the two
+# fields the terminal shows at the caret: the primary LABEL (215 of the
+# 422 diagnostics in tests/diagnostics carry one) and the SECONDARY
+# spans (32 do). `axiom check` on a duplicate `main` names and points at
+# the first definition; VS Code said "duplicate definition `main`" and
+# pointed at nothing.
+#
+# Each of these patches self_host/lsp.ax in a scratch copy, builds a
+# server, re-blesses all 9 goldens FROM THAT BUILD into a scratch copy
+# of tests/lsp/ so the golden half is green by construction, and runs
+# drive.py clean against it. All four exit 1.
+#
+#   NO RELATED. `lspDiagRelated`'s result is replaced by an empty
+#   array, which is a legal LSP answer and the state this server was in
+#   until today. 9 goldens rewritten, "35 passed, 1 failed":
+#     "FAIL diagnostic-fidelity: 090-related-spans.ax: AX3006 published
+#      0 related location(s) and the terminal derives 1"
+#
+#   THE PRIMARY SPAN. The related range becomes `(diagSpan d)` - the
+#   right COUNT at the wrong PLACE, which is the answer a client would
+#   render as a link back to the squiggle you are already on. This is
+#   the one that makes the ablation above non-carryable. Exit 1:
+#     "published 1 related location(s) and the terminal derives 1: ...
+#      line 14 ... against ... line 10 ..."
+#
+#   NO LABEL. The label is dropped from `lspDiagText` again. Exit 1 on
+#   the FIRST fixture that has one, not on the fixture written for
+#   this:
+#     "020-undefined.ax: AX3001 - the terminal prints the label 'no
+#      binding named `nosuch` in scope' at the caret and the editor's
+#      message does not carry it"
+#
+#   NO NULL GUARD, and this one is not hypothetical - it is what the
+#   change did on its first build. A diagnostic with no label carries 0
+#   rather than an empty String (render.ax's own header records the
+#   same trap, found there 2026-08-16), so reading `strLen` off it
+#   takes the server down. Exit 1 with only 7 of 9 goldens written:
+#     "FAIL 070-warning-only: server exited -11"
+#     "FAIL 080-many-diagnostics: server exited -11"
+#   Both fixtures carry an AX3039 with no label. The gate found this
+#   before any of it was committed.
+#
+# AND THE FLOOR ITSELF, checked the way the manifest floors are: run
+# against a tests/lsp/ with 090-related-spans.ax removed (and the
+# fixture floor lowered to 8, so the earlier refusal does not mask it),
+# drive.py exits without a verdict - "no fixture in tests/lsp produces
+# a diagnostic with a secondary span, so the relatedInformation
+# comparison below would be two empty lists on every fixture".
+#
 # AND ONE THE GATE CAUGHT WITHOUT BEING ASKED, recorded because it is
 # the sweep's whole purpose: adding `declarationProvider` to
 # `lspCapabilities` before adding it to the sweep's table below failed
@@ -417,7 +481,7 @@ fixtures=$(find tests/lsp \( -name '*.ax' -o -name '*.axbad' \) | wc -l | tr -d 
 # A sweep that quietly shrinks is the failure mode this floor exists
 # for: a glob that stops matching removes fixtures while the gate goes
 # on reporting the silence it was looking for.
-floor=8
+floor=9
 if [[ "$fixtures" -lt "$floor" ]]; then
   echo "FAIL: only $fixtures LSP fixtures found, expected at least $floor" >&2
   echo "      (a gate that reads fewer files than it should reports success it has not earned)" >&2

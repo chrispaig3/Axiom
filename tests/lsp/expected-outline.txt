@@ -56,3 +56,5 @@
 080-many-diagnostics.ax    Function  2@pure
 080-many-diagnostics.ax    Function  2@alpha
 080-many-diagnostics.ax    Function  2@beta
+090-related-spans.ax       Function  2@main
+090-related-spans.ax       Function  4@main

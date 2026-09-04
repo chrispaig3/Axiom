@@ -99,7 +99,7 @@ DOC_URI = "file:///DOC.ax"
 MANIFEST = os.path.join(fixdir, "expected-diagnostics.txt")
 OUTLINE = os.path.join(fixdir, "expected-outline.txt")
 
-FIXTURE_FLOOR = 8
+FIXTURE_FLOOR = 9
 MANIFEST_FLOOR = 6
 OUTLINE_FLOOR = 10
 
@@ -4335,6 +4335,168 @@ else:
           f"{rss[BIG_N]} KiB at {BIG_N}, grew {rss[BIG_N] - rss[SMALL]} KiB, "
           f"under {SLOPE_CEILING_KIB} slope and {ABSOLUTE_CEILING_KIB} absolute "
           f"on {sys.platform}, every edit checked)")
+    passed += 1
+
+# =====================================================================
+# DIAGNOSTIC FIDELITY: the editor must not be shown less than the
+# terminal.
+#
+# `axiom check --diagnostic-format json` and the language server are two
+# renderings of ONE diagnostic. Until 2026-09-03 they disagreed about
+# two of its fields. Over the 422 diagnostics in tests/diagnostics/*.json,
+# 215 carry a `label` - what the terminal prints at the caret - and 32
+# carry `related`, a second span with its own message; `lspDiagJson`
+# published neither. `axiom check` on a duplicate `main` points at the
+# first definition and names it; VS Code said "duplicate definition
+# `main`" and pointed at nothing.
+#
+# So this block is a DIFFERENTIAL, and the reason it is a legitimate one
+# where the deleted stage0 comparison was not: the two sides are
+# different code (render.ax's JSON writer against lsp.ax's publisher),
+# and the assertion is not "they are equal" but "the editor's side
+# contains the terminal's" - a strictly weaker side cannot satisfy it by
+# agreeing to say nothing.
+#
+# It can still be made vacuous from BELOW - if the checker stopped
+# producing labels and secondaries, both surfaces would fall silent
+# together and every comparison would be two empty lists. That is what
+# the two floors are for. They are computed over the WHOLE corpus, not
+# over the selection, so `drive.py DIR 010` cannot switch them off, and
+# they exit rather than count a failure: a corpus that cannot exercise
+# this comparison is not a run whose verdict means anything. Unlike the
+# manifest floors they are measured here rather than before the first
+# server starts, because they need the checker's own answer for each
+# fixture - the whole point is that nothing writes those down.
+#
+# WHAT IS COMPARED, per fixture:
+#   * the same diagnostics in the same order, by code. A server that
+#     drops one, or reorders them, fails here as well as against the
+#     manifest - and this one notices a drop even for a fixture whose
+#     manifest row count happened to match.
+#   * every non-empty `label` appears in the published message. The
+#     manifest pins the message's FIRST line; the label sits below it,
+#     where no row can see it.
+#   * `relatedInformation` equals the terminal's `related`, position by
+#     position: the uri is the fixture's own, the range is the
+#     terminal's CHARACTER offsets converted here to UTF-16 code units
+#     (the same `u16` conversion the anchors use, applied to a number
+#     the server never sees), and the message is the secondary's own
+#     label. "It published something" cannot pass for "it published the
+#     right place".
+# =====================================================================
+def term_diags(path):
+    """What `axiom check --diagnostic-format json` says about `path`.
+    One JSON object per line, on stderr - the driver writes diagnostics
+    there and keeps stdout for output."""
+    r = subprocess.run([stage1, "check", "--diagnostic-format", "json", path],
+                       capture_output=True, cwd=fixdir)
+    out = []
+    for line in (r.stdout + r.stderr).decode("utf-8", "replace").splitlines():
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                out.append(json.loads(line))
+            except ValueError:
+                pass
+    return out
+
+
+def char_pos(src_text, k):
+    """A 0-based CHARACTER offset, as the position LSP asks for. The
+    terminal's `char_start`/`char_end` are character offsets; every
+    column the server publishes is a UTF-16 code-unit count."""
+    ln, text, col = line_of(src_text, k)
+    return {"line": ln, "character": u16(text[:col])}
+
+
+# The floors, over the WHOLE corpus, before any server starts.
+corpus_labels, corpus_related = 0, 0
+for fx in all_fixtures:
+    for d in term_diags(os.path.join(fixdir, fx)):
+        if d.get("label"):
+            corpus_labels += 1
+        corpus_related += len(d.get("related") or [])
+if corpus_labels < 5:
+    sys.exit(f"FAIL: only {corpus_labels} diagnostic(s) in the whole tests/lsp "
+             f"corpus carry a `label`, under a floor of 5 - a comparison over "
+             f"that few asserts nearly nothing, and one over none would be two "
+             f"empty strings agreeing")
+if corpus_related < 1:
+    sys.exit("FAIL: no fixture in tests/lsp produces a diagnostic with a "
+             "secondary span, so the relatedInformation comparison below "
+             "would be two empty lists on every fixture. "
+             "090-related-spans.ax exists to be that fixture: restore it, or "
+             "add another whose checker output carries `related`.")
+
+dwhy = ""
+dlabels = drelated = 0
+for fx in fixtures:
+    path = os.path.join(fixdir, fx)
+    text = open(path, encoding="utf-8").read()
+    uri = "file://" + os.path.abspath(path)
+    term = term_diags(path)
+    msgs, tail = unframe(subprocess.run(
+        [stage1, "lsp"], cwd=fixdir, capture_output=True,
+        input=b"".join(frame(m) for m in [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+             "params": {"textDocument": {"uri": uri, "languageId": "axiom",
+                                         "version": 1, "text": text}}},
+            {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+            {"jsonrpc": "2.0", "method": "exit", "params": None},
+        ])).stdout)
+    pub = None
+    for m in msgs:
+        if m.get("method") == "textDocument/publishDiagnostics":
+            pub = m["params"]["diagnostics"]
+    if pub is None:
+        dwhy = f"{fx}: the server published no diagnostics array at all"
+        break
+    if [d.get("code") for d in term] != [d.get("code") for d in pub]:
+        dwhy = (f"{fx}: the terminal reports {[d.get('code') for d in term]} and "
+                f"the editor is published {[d.get('code') for d in pub]}")
+        break
+    for t, e in zip(term, pub):
+        label = t.get("label") or ""
+        if label:
+            dlabels += 1
+            if label not in (e.get("message") or ""):
+                dwhy = (f"{fx}: {t.get('code')} - the terminal prints the label "
+                        f"{label!r} at the caret and the editor's message does "
+                        f"not carry it: {e.get('message')!r}")
+                break
+        want = [{"location": {"uri": uri,
+                              "range": {"start": char_pos(text, r["span"]["char_start"]),
+                                        "end": char_pos(text, r["span"]["char_end"])}},
+                 "message": r.get("label") or ""}
+                for r in (t.get("related") or [])]
+        drelated += len(want)
+        got = e.get("relatedInformation") or []
+        if got != want:
+            dwhy = (f"{fx}: {t.get('code')} published {len(got)} related "
+                    f"location(s) and the terminal derives {len(want)}: "
+                    f"{got!r:.300} against {want!r:.300}")
+            break
+    if dwhy:
+        break
+
+if dwhy:
+    print(f"FAIL diagnostic-fidelity: {dwhy}")
+    failed += 1
+elif dlabels < 1 or drelated < 1:
+    # A filtered run may legitimately select a fixture with neither; say
+    # so rather than reporting a comparison that did not happen.
+    print(f"ok   fidelity   ({len(fixtures)} fixture(s) compared against "
+          f"`axiom check --diagnostic-format json`: {dlabels} label(s) and "
+          f"{drelated} related location(s) in this selection; the corpus "
+          f"carries {corpus_labels} and {corpus_related})")
+    passed += 1
+else:
+    print(f"ok   fidelity   (every diagnostic of every fixture published in the "
+          f"terminal's own order, {dlabels} caret label(s) carried into the "
+          f"editor's message and {drelated} secondary span(s) published as "
+          f"relatedInformation at UTF-16 positions converted here from the "
+          f"terminal's character offsets)")
     passed += 1
 
 # ---------------------------------------------------------------------

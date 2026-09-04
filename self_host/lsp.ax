@@ -285,10 +285,30 @@
 ; One Axiom diagnostic as an LSP `Diagnostic`.
 ;
 ; The notes and help texts are appended to the message rather than
-; dropped: LSP has no field for either, `relatedInformation` wants a
-; location a help does not carry, and a help is often the whole value of
-; an Axiom diagnostic - `AX3001`'s "did you mean" is the reason the
-; fix-help form exists at all.
+; dropped: LSP has no field for either, and a help is often the whole
+; value of an Axiom diagnostic - `AX3001`'s "did you mean" is the reason
+; the fix-help form exists at all.
+;
+; A SECONDARY SPAN DOES carry a location, and that is what
+; `relatedInformation` is for. Until 2026-09-03 this function dropped
+; both halves of what the terminal shows at the caret: the primary
+; LABEL, which 215 of the corpus's 422 diagnostics carry, and the
+; SECONDARY spans, which 32 do. `axiom check` on a duplicate `main`
+; points at the first definition; VS Code said "duplicate definition
+; `main`" and pointed at nothing. The editor now sees what the terminal
+; sees - that is the whole of the change, and tests/lsp/drive.py holds
+; it as a differential between the two surfaces rather than as a list
+; written down twice.
+;
+; WHICH FILE A SECONDARY SPAN INDEXES is the one thing this rests on,
+; and it is the OPEN DOCUMENT: `struct DLabel` carries a span and a
+; message and no unit, the publish loop already reports only
+; diagnostics whose unit is 0, and both emitters that produce a
+; secondary take their two spans from one unit - `checkDuplicates`
+; examines the entry file's declarations alone (its own header says
+; so), and `emitAX3012` goes through `emitDiag`, which stamps the unit
+; the spans came from. So one uri and one line index serve every
+; secondary, and there is no unit table to consult.
 ;
 ; Read through diag.ax's accessors. This function used to carry a second
 ; copy of the twelve-word field list as a comment and index it by hand,
@@ -305,6 +325,35 @@
   )
     {
       (vecPush parts (diagMsg d))
+      ; THE LABEL IS WHAT THE CARET SAYS, and it goes directly under
+      ; the message because that is where the terminal puts it. It is
+      ; often not a restatement: `AX3012`'s is "`x` is a parameter",
+      ; `AX3048`'s names the `;@axiom:deprecated(...)` that was
+      ; declared, and `AX2004`'s carries the whole reason a construct
+      ; was removed. The message's FIRST line is unchanged by this,
+      ; which is what tests/lsp/expected-diagnostics.txt pins.
+      ; A DIAGNOSTIC WITH NO LABEL CARRIES 0, NOT "" - the trap
+      ; render.ax's own header records, where walking one read
+      ; `strLen` off a null handle and took the renderer down with
+      ; SIGSEGV. `renderDiagJson` tests for it at the same read; so
+      ; does this. Found again here the same way, by the gate: 070 and
+      ; 080 both carry an AX3039 with no label, and the server exited
+      ; -11 on both.
+      (let ((lab
+        (if (== (cast Int (diagLabel d)) 0)
+          ""
+          (diagLabel d)
+        )
+      ))
+        (if (== (strLen lab) 0)
+          0
+          {
+            (vecPush parts "\n\n")
+            (vecPush parts lab)
+            0
+          }
+        )
+      )
       (while (< i (diagNoteCount d))
         {
           (vecPush parts "\n\nnote: ")
@@ -337,9 +386,40 @@
 ; Takes the line index rather than building one: its caller at the
 ; publish loop reports every diagnostic in the file, and building the
 ; index per diagnostic would keep the whole cost it exists to remove.
-(pub :: lspDiagJson (-> Int String (Vec Int) Int))
+(pub :: lspDiagJson (-> Int String (Vec Int) String Int))
 
-(pub fn (lspDiagJson d src ix) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (diagSpan d))) "severity" (jsonNum (lspSeverity (diagSev d)))) "code" (jsonStr (diagCode d))) "source" (jsonStr "axiom")) "message" (jsonStr (lspDiagText d))))
+(pub fn (lspDiagJson d src ix uri)
+  (let ((base (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix (diagSpan d))) "severity" (jsonNum (lspSeverity (diagSev d)))) "code" (jsonStr (diagCode d))) "source" (jsonStr "axiom")) "message" (jsonStr (lspDiagText d)))))
+    ; The key is OMITTED rather than sent empty when there is nothing
+    ; to relate. An empty array is legal and would have rewritten every
+    ; golden in tests/lsp/ for no information; a client reads the
+    ; absent key and the empty array the same way.
+    (if (== (diagSecCount d) 0)
+      base
+      (jsonObjPut base "relatedInformation" (lspDiagRelated d src ix uri))
+    )
+  )
+)
+
+; The secondary spans, as `DiagnosticRelatedInformation[]`. One uri and
+; one line index for all of them, for the reason the header gives.
+(pub :: lspDiagRelated (-> Int String (Vec Int) String Int))
+
+(pub fn (lspDiagRelated d src ix uri)
+  (let (
+    (out jsonArr)
+    (mut i 0)
+  )
+    {
+      (while (< i (diagSecCount d))
+        {
+          (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "location" (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix (diagSecSpan d i)))) "message" (jsonStr (diagSecMsg d i))))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
 
 ; A one-diagnostic array, for the failures that happen before the
 ; checker runs and therefore have no span to report. `lspRange` already
@@ -468,7 +548,7 @@
               (if (== lexD 0)
                 (parseErrDiag toks pr src)
                 lexD
-              )              src              (lspLineIndex src)
+              )              src              (lspLineIndex src)              (lspPathToUri path)
             )
           )
           (let (
@@ -535,6 +615,10 @@
                         (let (
                           (out jsonArr)
                           (ix (lspLineIndex src))
+                          ; Once, not per diagnostic: `lspPathToUri`
+                          ; is IO, and a related location names the
+                          ; document being published.
+                          (uri (lspPathToUri path))
                           (mut i 0)
                         )
                           {
@@ -542,7 +626,7 @@
                               (let ((d (vecGet ds i)))
                                 {
                                   (if (== (diagUnit d) 0)
-                                    (jsonArrPush out (lspDiagJson d src ix))
+                                    (jsonArrPush out (lspDiagJson d src ix uri))
                                     0
                                   )
                                   (set i (+ i 1))
@@ -8504,7 +8588,7 @@
 ; binds its "apply preferred fix" key to exactly this flag.
 (pub :: lspQuickfixJson (-> Int Int Int String String (Vec Int) Int))
 
-(pub fn (lspQuickfixJson d i fsp src uri ix) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (diagHelpMsg d i))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix))) "isPreferred" (jsonBool 1)) "edit" (lspEditJson uri (lspRangeIx src ix fsp) (diagHelpFixText d i))))
+(pub fn (lspQuickfixJson d i fsp src uri ix) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (diagHelpMsg d i))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "isPreferred" (jsonBool 1)) "edit" (lspEditJson uri (lspRangeIx src ix fsp) (diagHelpFixText d i))))
 
 ; A `WorkspaceEdit` of one `TextEdit` in one document.
 (pub :: lspEditJson (-> String Int String Int))
@@ -8783,9 +8867,9 @@
 )
 
 ; A CodeAction carrying one diagnostic and one WorkspaceEdit.
-(pub :: lspFixActionJson (-> String String Int String (Vec Int) Int Int))
+(pub :: lspFixActionJson (-> String String Int String String (Vec Int) Int Int))
 
-(pub fn (lspFixActionJson title kind d src ix edit) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr title)) "kind" (jsonStr kind)) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix))) "edit" edit))
+(pub fn (lspFixActionJson title kind d src uri ix edit) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr title)) "kind" (jsonStr kind)) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "edit" edit))
 
 ; One zero-width TextEdit at byte `at` of the text `ix` indexes.
 (pub :: lspFixTextEdit (-> String (Vec Int) Int String Int))
@@ -8850,7 +8934,7 @@
           0
           {
             (vecPush seen key)
-            (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src ix edit))
+            (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src uri ix edit))
             0
           }
         )
@@ -9343,7 +9427,7 @@
                     0
                     {
                       (vecPush seen key)
-                      (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src ix edit))
+                      (jsonArrPush out (lspFixActionJson (lspFixImportTitle mod name) "quickfix" d src uri ix edit))
                       0
                     }
                   )
@@ -9365,7 +9449,7 @@
                       )
                     )
                     (vecPush seen key)
-                    (jsonArrPush out (lspFixActionJson (strConcat (strConcat (strConcat "Make `" name) "` public in `") (strConcat mod "`")) "quickfix" d src ix (jsonObjPut jsonObj "changes" (jsonObjPut jsonObj (lspPathToUri hpath) edits))))
+                    (jsonArrPush out (lspFixActionJson (strConcat (strConcat (strConcat "Make `" name) "` public in `") (strConcat mod "`")) "quickfix" d src uri ix (jsonObjPut jsonObj "changes" (jsonObjPut jsonObj (lspPathToUri hpath) edits))))
                     0
                   }
                 )

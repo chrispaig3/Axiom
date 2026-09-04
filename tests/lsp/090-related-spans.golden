@@ -1,0 +1,13 @@
+Content-Length: 912
+
+{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true,"definitionProvider":true,"hoverProvider":true,"completionProvider":{"resolveProvider":false,"triggerCharacters":["("]},"referencesProvider":true,"documentHighlightProvider":true,"renameProvider":{"prepareProvider":true},"declarationProvider":true,"callHierarchyProvider":true,"signatureHelpProvider":{"triggerCharacters":["("," "],"retriggerCharacters":[" "]},"inlayHintProvider":true,"foldingRangeProvider":true,"selectionRangeProvider":true,"documentLinkProvider":{"resolveProvider":false},"workspaceSymbolProvider":true,"documentFormattingProvider":true,"codeActionProvider":{"codeActionKinds":["quickfix","refactor.rewrite","refactor.extract"]},"typeDefinitionProvider":true,"codeLensProvider":{"resolveProvider":false},"experimental":{"expandMacro":true}},"serverInfo":{"name":"axiom","version":"0.7.3"}}}Content-Length: 538
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[{"range":{"start":{"line":14,"character":5},"end":{"line":14,"character":9}},"severity":1,"code":"AX3006","source":"axiom","message":"duplicate definition `main`\n\n`main` redefined here\n\nhelp: rename one of the definitions, or remove the duplicate","relatedInformation":[{"location":{"uri":"file:///DOC.ax","range":{"start":{"line":10,"character":5},"end":{"line":10,"character":9}}},"message":"`main` first defined here"}]}]}}Content-Length: 409
+
+{"jsonrpc":"2.0","id":2,"result":[{"name":"main","kind":12,"range":{"start":{"line":10,"character":5},"end":{"line":10,"character":9}},"selectionRange":{"start":{"line":10,"character":5},"end":{"line":10,"character":9}}},{"name":"main","kind":12,"range":{"start":{"line":14,"character":5},"end":{"line":14,"character":9}},"selectionRange":{"start":{"line":14,"character":5},"end":{"line":14,"character":9}}}]}Content-Length: 38
+
+{"jsonrpc":"2.0","id":3,"result":null}Content-Length: 111
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///DOC.ax","diagnostics":[]}}Content-Length: 38
+
+{"jsonrpc":"2.0","id":4,"result":null}
