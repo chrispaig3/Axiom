@@ -367,7 +367,14 @@
   (let ((fd (sysOpenRaw path oRdonly)))
     (if (sysFailed fd)
       ""
-      (let ((s (sysReadAll fd (strAlloc 65536) 0 65536)))
+      ; The loop is `sysReadAllFd`'s, which answers `Err` for a read that
+      ; failed part-way; this function's contract is "" for ANY error,
+      ; so the fold is here and the loop stays honest for the callers
+      ; that want the errno.
+      (let ((s (match (sysReadAllFd fd)
+        ((Ok got) got)
+        ((Err _) "")
+      )))
         {
           (sysCloseFd fd)
           s
@@ -379,41 +386,53 @@
 
 ; Read `fd` to EOF into `buf`, doubling the buffer whenever it fills.
 ; `used` bytes hold data; `cap` is the buffer's capacity. A short read
-; is retried rather than treated as EOF - only 0 (or an error) ends the
-; loop - so a pipe delivers its whole stream too. The final byte after
+; is retried rather than treated as EOF - only 0 ends the loop with
+; `Ok` - so a pipe delivers its whole stream too. The final byte after
 ; `used` is NUL because `strAlloc` reserves len+1 zeroed bytes and
 ; every growth copies into a fresh zeroed buffer.
-(:: sysReadAll (-> Int String Int Int String))
+;
+; A `read` that FAILS ends the loop with `Err`, and what had arrived
+; before it is dropped rather than answered as a shorter stream. Until
+; 2026-09-04 an error and EOF were one `n <= 0` test, so a descriptor
+; that could not be read answered the same "" as an empty one; the
+; `sysReadFd` this matches has carried the errno since 2026-09-03 and
+; nothing above it was reading it. `sysReadFile` still folds the
+; `Err` to "", because that is its contract; `sysReadAllFd` below
+; hands it up.
+(:: sysReadAll (-> Int String Int Int (Result String Error)))
 
 ;@axiom:effect(io)
 (fn (sysReadAll fd buf used cap)
   (let ((n (match (sysReadFd fd (+ (strData buf) used) (- cap used)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
-    (if (<= n 0)
-      (if (== used 0)
-        ""
-        ; The retain is the same rule `strSlice` follows and for
-        ; the same reason: this is a SECOND header naming `buf`'s
-        ; owner, so it must take a second share (memory-model.md
-        ; MM-VAL-7). Without it two headers claim one count, and
-        ; the day something releases a `Str` header - MM-LIFE-2e's
-        ; extension work - the first release frees a buffer the
-        ; other header still points into. It was inert when it was
-        ; written, which is the only reason it read as correct.
-        (let ((own (strOwner buf)))
-          {
-            (__retain own)
-            (strWrapOwned (strData buf) used own)
-          }
-        )
-      )
-      (let ((used2 (+ used n)))
-        (if (< used2 cap)
-          (sysReadAll fd buf used2 cap)
-          (let ((big (strAlloc (* cap 2))))
+    (if (< n 0)
+      (Err (mkError (- 0 n) "sysReadAllFd"))
+      (if (== n 0)
+        (if (== used 0)
+          (Ok "")
+          ; The retain is the same rule `strSlice` follows and for
+          ; the same reason: this is a SECOND header naming `buf`'s
+          ; owner, so it must take a second share (memory-model.md
+          ; MM-VAL-7). Without it two headers claim one count, and
+          ; the day something releases a `Str` header - MM-LIFE-2e's
+          ; extension work - the first release frees a buffer the
+          ; other header still points into. It was inert when it was
+          ; written, which is the only reason it read as correct.
+          (let ((own (strOwner buf)))
             {
-              (memCopy (strData big) (strData buf) used2)
-              (sysReadAll fd big used2 (* cap 2))
+              (__retain own)
+              (Ok (strWrapOwned (strData buf) used own))
             }
+          )
+        )
+        (let ((used2 (+ used n)))
+          (if (< used2 cap)
+            (sysReadAll fd buf used2 cap)
+            (let ((big (strAlloc (* cap 2))))
+              {
+                (memCopy (strData big) (strData buf) used2)
+                (sysReadAll fd big used2 (* cap 2))
+              }
+            )
           )
         )
       )
@@ -3071,3 +3090,151 @@
 (pub :: sysTermCols (-> Int Int))
 
 (pub fn (sysTermCols buf) (+ (memGetByte buf 2) (<< (memGetByte buf 3) 8)))
+
+; ------------------------------------------------------------------
+; Reading a descriptor: the whole of it, or one line of it.
+;
+; `sysReadFd` is one `read(2)`, and until 2026-09-04 it was the whole
+; of what a program could do with a descriptor it did not open: the
+; only readers above it were `sysReadFile` (a path, to EOF), the
+; buffered record readers in `Rpc` and `Http`, and the REPL's private
+; line reader. Nothing in the library read standard input, and nothing
+; in the tree noticed, because nothing in the tree reads standard
+; input - the corpus is the compiler's own needs, and the compiler
+; takes its input by path.
+;
+; Both readers here take the DESCRIPTOR, as `sysWriteAllFd` does, so
+; `(sysReadLineFd stdin)` and a descriptor from `sysOpenPath` or a
+; socket are the same call. `IO.readLine` and `IO.readAll` are the
+; caller-facing twins, on the rule `writeStr`/`sysWriteAllFd` set: the
+; loop is stated once, here, and `IO` names it and puts the descriptor
+; into the failure's message.
+;
+; THE ANSWER IS `Result`, AND END OF INPUT IS INSIDE THE `Ok`.
+; `sysReadFd` has answered `(Result Int Error)` since 2026-09-03, so
+; the errno is in hand at the one place a read can fail; folding it
+; into "nothing was read" would make a closed or unreadable descriptor
+; - EBADF on a number nothing opened, EISDIR on a directory redirected
+; in - look exactly like an empty input. That is `readFile`'s
+; four-ways-"" for a stream, with no `readErrno` to ask afterwards
+; because the bytes are gone. So failure is `Err`
+; (docs/error-model.md ERR-REC-3: `Result` is for failure) and end of
+; input is `Ok None` / `Ok ""`, which is absence. The nested shape is
+; the one docs/ffi.md §5.3 already names for a call with three
+; statuses.
+;
+; ONE BYTE PER `read(2)` IN THE LINE READER, DELIBERATELY. A line
+; reader that pulls a block and keeps the remainder has to keep it
+; SOMEWHERE, and there is no sound place for it: a global buffer is
+; copied by `parallel`'s process lowering, so after a fork the parent
+; and the child would each replay the same unread bytes - and under
+; `--threads` the same global is shared with no lock; a buffer in the
+; descriptor cannot exist, because the kernel's offset is the only
+; state a descriptor has, and it is shared with every process holding
+; the same open file - a child that `sysSpawn` hands fd 0 to must find
+; the next unread byte there, not a block's worth further on. The
+; readers that DO buffer (`Rpc`, `Http`) keep the state in a record the
+; caller owns and passes back, which is sound and is their whole
+; reason for existing as records. A line reader over a bare `Int` has
+; no such place, so it reads exactly as many bytes as it answers.
+;
+; MEASURED, 2026-09-04, 10,000,000 bytes on a pipe (a 44-byte line
+; repeated, 227,273 lines), one process each, `--opt 1`:
+;
+;   sysReadAllFd            0.11-0.14 s over three runs, 0.03 s
+;                           of it in this process (one 64 KiB
+;                           `read` per chunk, 160 calls)
+;   sysReadLineFd loop      11.1-11.3 s over three runs: 2.3 s
+;                           user, 10.4 s system - 10,000,001
+;                           `read` calls at about 1 us each
+;
+; About ninety times slower, and the split says where: the time is
+; the kernel's, once per byte. The machine was loaded (load average
+; 10.8) so the absolute numbers are an upper bound; the ratio is
+; the fact.
+;
+; That is the cost of the line reader on BULK input: one syscall per
+; byte. It is the right shape for what a line reader is for - a prompt
+; answered by a person, a handful of lines of configuration, a
+; protocol that hands the descriptor on after the header - and the
+; wrong tool for a megabyte, which wants `sysReadAllFd` and
+; `strSplit`, or `Rpc`'s reader shape. `sysReadAllFd` reads 64 KiB
+; chunks because it consumes everything anyway: an over-read is not
+; observable when nothing is left to observe it.
+; ------------------------------------------------------------------
+; Read `fd` to end of input: `Ok` the whole stream, `Ok ""` when
+; nothing arrived, or `Err` carrying the errno of the `read` that
+; failed.
+;
+; Starts at 64 KiB and doubles, so an input of any size arrives whole
+; and the copying is linear; `sysReadFile` is this over a descriptor
+; it opened itself.
+(pub :: sysReadAllFd (-> Int (Result String Error)))
+
+;@axiom:effect(io)
+(pub fn (sysReadAllFd fd) (sysReadAll fd (strAlloc 65536) 0 65536))
+
+; One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at
+; end of input when nothing was read, or `Err` carrying the errno.
+;
+; A final line with no newline is still a line - `Some` of it, and
+; the next call answers `None`. An empty line is `Some ""`, which is
+; not `None`: the newline was read, so something was there.
+;
+; The buffer starts at 128 bytes and doubles, owned by this call and
+; shared into the answer by `strSlice` (MM-VAL-7's second share), and
+; the newline is overwritten with NUL so the line is `strCStr`-safe. A
+; `while` and not a self call: the loop runs once per BYTE, and a self
+; call under a `let` is not tail position, so a long line would be a
+; long stack.
+(pub :: sysReadLineFd (-> Int (Result (Option String) Error)))
+
+;@axiom:effect(io)
+(pub fn (sysReadLineFd fd)
+  (let (
+    (mut buf (strAlloc 128))
+    (mut cap 128)
+    (mut used 0)
+    ; the last `read`'s answer: 1 a byte, 0 end of input, -errno
+    (mut n 1)
+    (mut done 0)
+  )
+    {
+      (while (== done 0)
+        {
+          (set n (match (sysReadFd fd (+ (strData buf) used) 1) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
+          (if (<= n 0)
+            (set done 1)
+            (if (== (memGetByte (strData buf) used) 10)
+              {
+                (memPutByte (strData buf) used 0)
+                (set done 1)
+              }
+              {
+                (set used (+ used 1))
+                ; `strAlloc cap` holds cap+1 bytes, and index `cap` is
+                ; the terminator's, so the next byte needs `used < cap`.
+                (if (>= used cap)
+                  (let ((big (strAlloc (* cap 2))))
+                    {
+                      (memCopy (strData big) (strData buf) used)
+                      (set buf big)
+                      (set cap (* cap 2))
+                    }
+                  )
+                  0
+                )
+              }
+            )
+          )
+        })
+      (if (< n 0)
+        (Err (mkError (- 0 n) "sysReadLineFd"))
+        (if (&& (== n 0) (== used 0))
+          (Ok None)
+          (Ok (Some (strSlice buf 0 used)))
+        )
+      )
+    }
+  )
+)

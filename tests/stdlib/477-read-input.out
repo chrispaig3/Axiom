@@ -1,0 +1,27 @@
+5
+[alpha]
+0
+[]
+11
+[gamma delta]
+5
+[omega]
+-1
+none
+-1
+none
+0
+[]
+10
+[first line]
+300
+true
+27
+[second
+last without newline]
+-1
+none
+-9
+err: readLine: fd 999: errno 9
+-9
+err: readAll: fd 999: errno 9

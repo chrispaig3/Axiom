@@ -1,0 +1,168 @@
+; `readLine` and `readAll`: over standard input, over a descriptor the
+; program opened itself, and over one nothing opened.
+;
+; Standard input is `477-read-input.in`. The runners hand a case its
+; `.in` as fd 0 when the file exists and `/dev/null` when it does not
+; (`478-read-input-empty.ax` is the other half of that rule). The file
+; holds four lines: the second is empty and the last has NO newline.
+;
+; What each term establishes, in the order it prints:
+;
+;   1. Four `readLine`s answer the four lines without their newlines -
+;      `alpha`; the empty line as `Some ""` and not `None`; `gamma
+;      delta` with its interior space; and `omega`, although no
+;      newline ended it. Then `None` at end of input, and `None` again:
+;      an exhausted descriptor stays exhausted.
+;   2. `readAll` on that exhausted descriptor answers `Ok ""`. The
+;      stream ended, which is not a failure.
+;   3. A descriptor this program opened. One `readLine` takes the first
+;      line; the next takes a 300-byte line, which crosses the reader's
+;      128-byte buffer twice and comes back byte-identical; then
+;      `readAll` takes EVERYTHING after it, which is the proof that the
+;      line reader did not over-read - a block reader would have
+;      swallowed `second` into a buffer the `readAll` never sees. That
+;      file's tail has no newline either, and the `readLine` after the
+;      `readAll` is `None`.
+;   4. A descriptor nothing opened, 999: both readers answer `Err` with
+;      errno 9 (EBADF), naming the operation and the descriptor. Until
+;      2026-09-04 the loop these share folded a failed `read` into
+;      "nothing was read", which is the `None` this term refuses.
+;
+; Every `shape` is a number - the line's length, -1 for `None`, the
+; negated errno for `Err` - so the golden's numbers are claims the
+; verifier derives from this file rather than from the golden.
+(import IO)
+
+(import Err)
+
+(import Str)
+
+(import Sys)
+
+; The line's length, -1 for `None`, and -errno for `Err`.
+(:: shape (-> (Result (Option String) Error) Int))
+
+(fn (shape r)
+  (match r
+    ((Ok (Some s)) (strLen s))
+    ((Ok (None)) (- 0 1))
+    ((Err e) (- 0 (errCode e)))
+  )
+)
+
+; The line in brackets, so an empty one and a trailing space show.
+(:: text (-> (Result (Option String) Error) String))
+
+(fn (text r)
+  (match r
+    ((Ok (Some s)) (strConcat (strConcat "[" s) "]"))
+    ((Ok (None)) "none")
+    ((Err e) (strConcat "err: " (errMessage e)))
+  )
+)
+
+; The line itself, or "" - for a comparison rather than a print.
+(:: lineOf (-> (Result (Option String) Error) String))
+
+(fn (lineOf r)
+  (match r
+    ((Ok (Some s)) s)
+    ((Ok (None)) "")
+    ((Err _) "")
+  )
+)
+
+(:: step (-> (Result (Option String) Error) Int))
+
+;@axiom:effect(io)
+(fn (step r)
+  {
+    (println (shape r))
+    (println (text r))
+    0
+  }
+)
+
+(:: shapeAll (-> (Result String Error) Int))
+
+(fn (shapeAll r)
+  (match r
+    ((Ok s) (strLen s))
+    ((Err e) (- 0 (errCode e)))
+  )
+)
+
+(:: textAll (-> (Result String Error) String))
+
+(fn (textAll r)
+  (match r
+    ((Ok s) (strConcat (strConcat "[" s) "]"))
+    ((Err e) (strConcat "err: " (errMessage e)))
+  )
+)
+
+(:: stepAll (-> (Result String Error) Int))
+
+;@axiom:effect(io)
+(fn (stepAll r)
+  {
+    (println (shapeAll r))
+    (println (textAll r))
+    0
+  }
+)
+
+; A hundred bytes, so three of them cross 128 and 256.
+(:: hundred String)
+
+(fn (hundred) "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789")
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (long (strConcat hundred (strConcat hundred hundred)))
+    (path "477-input.txt")
+  )
+    {
+      ; --- 1. standard input, line by line, to the end and past it ---
+      (step (readLine stdin))  ; 5
+      (step (readLine stdin))  ; 0
+      (step (readLine stdin))  ; 11
+      (step (readLine stdin))  ; 5
+      (step (readLine stdin))  ; -1
+      (step (readLine stdin))  ; -1
+
+      ; --- 2. readAll on the exhausted descriptor ---
+      (stepAll (readAll stdin))  ; 0
+
+      ; --- 3. a descriptor this program opened ---
+      (writeFile path (strConcat "first line\n" (strConcat long "\nsecond\nlast without newline")))
+      (match (sysOpenPath (strCStr path) oRdonly)
+        ((Ok fd)
+          {
+            (step (readLine fd))  ; 10
+            (let ((r (readLine fd)))
+              {
+                (println (shape r))  ; 300
+                (println (strEq (lineOf r) long))
+              }
+            )
+            (stepAll (readAll fd))  ; 27
+            (step (readLine fd))  ; -1
+            (sysCloseFd fd)
+            0
+          }
+        )
+        ((Err _) (println "open failed"))
+      )
+      (removeFile path)
+
+      ; --- 4. a descriptor nothing opened ---
+      (step (readLine 999))  ; -9
+      (stepAll (readAll 999))  ; -9
+      0
+    }
+  )
+)

@@ -1,0 +1,54 @@
+; End of input at the first byte.
+;
+; This case has NO `.in` file beside it, so the runners hand it
+; `/dev/null` as fd 0 - explicitly, since 2026-09-04; before that fd 0
+; was whatever the runner inherited, which no case read because no
+; case could. Both readers answer their empty case rather than an
+; error, and keep answering it: `readLine` is `None` (-1 below),
+; `readAll` is `""` (0), and `readLine` is `None` again. The other half
+; of the `.in` rule, and the readers on real input, is
+; `477-read-input.ax`.
+;
+; The absent file is described rather than named on purpose:
+; `check-doc-drift.sh` requires every bare `NNN-name.ext` written
+; anywhere in the tree to resolve under `tests/`, and this one is
+; the one fixture name that must NOT.
+(import IO)
+
+(import Err)
+
+(import Str)
+
+(import Sys)
+
+; The line's length, -1 for `None`, and -errno for `Err`.
+(:: shape (-> (Result (Option String) Error) Int))
+
+(fn (shape r)
+  (match r
+    ((Ok (Some s)) (strLen s))
+    ((Ok (None)) (- 0 1))
+    ((Err e) (- 0 (errCode e)))
+  )
+)
+
+(:: shapeAll (-> (Result String Error) Int))
+
+(fn (shapeAll r)
+  (match r
+    ((Ok s) (strLen s))
+    ((Err e) (- 0 (errCode e)))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (shape (readLine stdin)))  ; -1
+    (println (shapeAll (readAll stdin)))  ; 0
+    (println (shape (readLine stdin)))  ; -1
+    0
+  }
+)

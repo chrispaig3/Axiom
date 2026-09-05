@@ -165,7 +165,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 636 `.ax` files
+2026-09-04, `axiom fmt --check` over every one of the 638 `.ax` files
 in the repository answers `is already formatted` for 411 of them and
 `needs formatting` for 225. Two of the 225 are deliberate and are named
 below; the other 223 were committed unformatted, and that same sweep is
@@ -307,7 +307,7 @@ be a framework a reader had to learn before reading a single gate.
 |---|---|
 | `check-tree-sitter.sh` | the checked-in grammar parses every `.ax` file in the repository, and the documentation's Axiom blocks balance their delimiters (compiling them is `check-tools-selfhost.sh`). It needs the tree-sitter CLI (`npm install --prefix tree-sitter-axiom tree-sitter-cli`) and **fails** without it rather than skipping — a gate that exits 0 when its checker is absent reports success without checking anything. Set `AXIOM_TREE_SITTER_OPTIONAL=1` to skip it deliberately (`tree-sitter-axiom/README.md`) |
 | `check-ci-coverage.sh` | the sentence above this table: every `scripts/check-*.sh` in the tree is named on a `run:` line in `.github/workflows/ci.yml`, and every gate a step names exists. Both directions have failed here - seven gates were run by no step on 2026-09-04, all seven passing, and `720a0d5` left a step pointing at a script it had deleted, which failed that job on every run. It reads `run:` lines and not the file, because gates are named in this workflow's COMMENTS constantly: a whole-file grep answers one more gate than the steps do, and the extra is the deleted one. Runs no compiler. Three ablations, all required: a step deleted, a step naming a script that is not there, and the uncovered gate named only in a comment |
-| `run-stdlib-tests.sh` | every case in `tests/stdlib` compiles, runs, prints its `.out` and exits as its `.exit` says |
+| `run-stdlib-tests.sh` | every case in `tests/stdlib` compiles, runs with its `.in` as standard input (`/dev/null` when it has none), prints its `.out` and exits as its `.exit` says |
 | `check-freestanding.sh` | generated code needs no C library; and on windows-x86_64, where the runtime must import kernel32, every symbol the IR declares is on `scripts/platform-allow.windows.txt`, a reviewed list that may not carry a libc name |
 | `check-platform-constants.sh` | the syscall numbers the backend emits and the ones `stdlib/Sys/Platform.*.ax` declares are the same numbers on the six POSIX targets, and on windows-x86_64 the same kernel32 entry points; and on every target the two halves agree on whether a syscall ABI exists at all - they disagreed silently once |
 | `check-terminal-restore.sh` | a program that puts a terminal into raw mode puts it back BYTE FOR BYTE - asserted on a pty the gate allocates itself, never on the caller's terminal, by two independent witnesses: the library's own `memCmp` over all 72/36/44 bytes, and `tcgetattr` from outside the process. The round trip is asserted together with its own precondition, that raw mode CHANGED something first, because a `sysTermRaw` that does nothing round-trips perfectly. ISIG is checked to follow the caller's argument both ways, and a pipe and a bad descriptor must answer ENOTTY and EBADF. Four ablations, all required: restore a mutated copy, stub raw mode to a no-op, invert the ISIG argument, swallow the errno |
@@ -315,7 +315,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-windows-hello.sh` | `--emit` on any host, `--run` on a Windows runner: a hello world assembled, linked with `lld-link` against `llvm-dlltool`-generated import libraries, its imports held to the allowlist, and EXECUTED against its golden; the leaky `MessageBoxA` probe must be refused. `--link` does everything but execute, for a host that cannot |
 | `check-self-host.sh` | every case in `tests/selfhost` compiles, assembles, runs and exits as the fixture says — the only gate that drives the compiler end to end |
 | `check-driver.sh` | `axiom build`: the command-line surface, and that a failing `llc` fails the build while a missing `opt` does not |
-| `check-stdlib-selfhost.sh` | both corpora compiled *and run* through the identical `llc`/`cc` pipeline at `-O0` and `-O2` |
+| `check-stdlib-selfhost.sh` | both corpora compiled *and run* through the identical `llc`/`cc` pipeline at `-O0` and `-O2`, each case fed its `.in` or `/dev/null` exactly as `run-stdlib-tests.sh` feeds it; a `.in` that cannot be read, or one beside no case, fails before any compiler is built |
 | `check-diverging-tyvar.sh` | `AX3040` is an error, and the analysis that made that possible tells a function that never returns from one that fabricates a value. Eight diverging spellings must be accepted, three fabricating ones refused, and the accepted program with ONE WORD changed - the `(exit 70)` a cast wraps becoming the literal `70` - must be refused |
 | `check-vec-field-shape.sh` | A `Vec` field maps exactly as the `Int` it replaces. `fldClass`'s third answer is UNCLASSIFIABLE, which forces the whole block to the LEAF shape - so a record holding a `Vec` lost the reference map for its OTHER fields and read shape word 8 where an `Int` in that slot reads 262152. Four rows, two of which must read a different number, so the equality cannot pass vacuously |
 | `check-region-scope.sh` | `(region r body)` is a checked scope (S2 of `docs/memory-model-v2-design.md`): a no-region program emits no region cell; 4,000 regions of 64 KiB against the same body without the word is a peak-RSS ratio; `631`/`630` draw exactly their rows; and an ablation — `rgTyScalar` answering 1 — rebuilds the compiler and shows the refused store reading the next allocation's bytes |
@@ -641,6 +641,18 @@ primitives. When adding a new stdlib function:
    are gated: a golden pins every byte a program wrote, and an
    assertion names the one fact that was wrong. See
    [Testing](README.md#testing).
+
+   A case is `NNN-name.ax` beside a required `NNN-name.out`. Three
+   more files are optional and both runners read them the same way:
+   `NNN-name.exit`, the expected status (0 without it);
+   `NNN-name.err`, the expected stderr, compared exactly up to a
+   backtrace marker; and `NNN-name.in`, the program's STANDARD INPUT
+   — without it the program reads `/dev/null`, explicitly, never the
+   terminal the runner was started from. A `.in` that exists but
+   cannot be read fails the case rather than standing `/dev/null` in
+   for it, and a `.in` beside no `.ax` fails the corpus check.
+   `477-read-input.ax` and `478-read-input-empty.ax` are the two
+   halves of that rule.
 7. **Update the module table** in `README.md` and `docs/reference.md`.
 
 ### The doc-comment convention

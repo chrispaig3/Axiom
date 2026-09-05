@@ -16,6 +16,112 @@ its changelog too.
 
 ## Unreleased
 
+### `IO` could write to a descriptor and could not read one
+
+`IO` wrote to any descriptor and read a file by name, and had no way
+to read FROM a descriptor: `(readLine stdin)` was not a call the
+library had, and neither was anything that answered the rest of an
+input. Nothing noticed, for the reason this repository keeps
+re-learning — the corpus is the compiler's own needs, and the compiler
+takes its input by path. The one line reader in the tree was the
+REPL's private `replReadLine`, one `read(2)` and one one-byte `Str`
+allocation per byte; a private `IO.readAll` that restated
+`Sys.sysReadAll`'s doubling refill was deleted as unreachable on
+2026-08-22 (`949d145`), reachable by nothing because nothing read a
+stream. And the two fixture runners handed every case whatever fd 0
+they had inherited — a terminal, when run by hand — which no case
+noticed either, because no case could read it.
+
+Four names, split the way `writeStr`/`sysWriteAllFd` are split. The
+loops are in `Sys`, once: `sysReadLineFd :: (-> Int (Result (Option
+String) Error))` and `sysReadAllFd :: (-> Int (Result String Error))`.
+`IO.readLine` and `IO.readAll` are the caller-facing twins with the
+same signatures, and what they add is the descriptor in the failure's
+message, as `ioResult` adds the path: `readLine: fd 999: errno 9`.
+They take the descriptor as `writeStr` takes it, so `(readLine
+stdin)`, `(readLine fd)` for one `sysOpenPath` answered, and a socket
+are one call. The private loop under `sysReadFile` answers `Result`
+now too, and `sysReadFile` folds the `Err` to `""` — its contract —
+where before a `read` that failed part-way answered the bytes so far
+as though the file had ended there.
+
+**End of input is inside the `Ok`, and failure is `Err`.** The task as
+set asked for `(Option String)` with `None` at end of input, and for a
+read error on a bad descriptor not to be a silent `None`. Those two
+cannot both hold in one `Option`: `sysReadFd` has carried the errno
+since 2026-09-03, and folding it into "nothing was read" would make
+EBADF on a number nothing opened, or EISDIR on a directory redirected
+in, indistinguishable from an empty input — `readFile`'s
+four-ways-`""` for a stream, with no `readErrno` to ask afterwards
+because the bytes are gone. `docs/error-model.md` ERR-REC-3 puts
+failure in `Result` and absence in `Option`, ERR-REC-1 says recovery
+is a value at a `match`, and `docs/ffi.md` §5.3 already names `(Result
+(Option T) E)` as the shape of a call with three statuses. So that is
+the shape: `(Ok (Some line))`, `(Ok None)`, `(Ok "")`, `(Err e)`. A
+line reader that trapped instead would have been the first library
+function to die of an I/O error, and ERR-REC-2 would then owe it a
+value-returning twin — which is this function.
+
+**One `read(2)` per byte in the line reader, measured and kept.** A
+reader that pulls a block and keeps the remainder has to keep it
+somewhere, and there is no sound place: a global buffer is copied by
+`parallel`'s process lowering, so after a fork the parent and the
+child would each replay the same unread bytes, and under `--threads`
+the same global is shared with no lock; the descriptor itself holds
+only the kernel's offset, shared with every process that has the same
+open file, so a child that `sysSpawn` hands fd 0 must find the next
+unread byte there and not a block further on. `Rpc` and `Http` buffer
+soundly by keeping the state in a record the caller owns; a reader
+over a bare `Int` has no such place. Measured on 10,000,000 bytes
+through a pipe (a 44-byte line repeated, 227,273 lines), `--opt 1`:
+`readAll` 0.11–0.14 s over three runs, and the `readLine` loop
+11.1–11.3 s — 2.3 s user, 10.4 s system, one `read(2)` per byte at
+about 1 µs each, roughly ninety times slower (measured under a load
+average of 10.8, so the absolute numbers are an upper bound and the
+ratio is the fact). That is the price of a
+line reader on bulk input, and it is stated in `stdlib/Sys.ax` beside
+what to use instead — `readAll` and `strSplit`, or `Rpc`'s reader
+shape. `readAll` reads 64 KiB chunks because it consumes everything
+anyway: an over-read is not observable when nothing is left to observe
+it. The line reader is a `while` and not a self call, because a self
+call under a `let` is not tail position and the loop runs once per
+byte.
+
+**A stdin convention for fixtures.** `tests/stdlib/NNN-name.in`, when
+present, is the case's fd 0 in both `run-stdlib-tests.sh` and
+`check-stdlib-selfhost.sh`; without it the case reads `/dev/null`,
+explicitly, where before both runners passed on whatever fd 0 they
+were started with. A `.in` that exists but cannot be read fails the
+case rather than standing `/dev/null` in for it, and a `.in` beside no
+`.ax` fails the corpus check before any compiler is built.
+`check-doc-drift.sh`'s two fixture-name sweeps know the extension now,
+so a comment naming a deleted `.in` is drift like any other.
+CONTRIBUTING.md's fixture rules state all four optional files
+together.
+
+Pinned by `tests/stdlib/477-read-input.ax`, fed
+`477-read-input.in` — four lines, the second empty, the last without a
+newline; `None` twice; `readAll` `""` on the exhausted descriptor; a
+file the case opens itself, from which one `readLine`, a 300-byte
+line across two buffer doublings, then `readAll` takes byte for byte
+everything after it, which is the proof the line reader did not
+over-read; and descriptor 999, on which both readers answer `Err`
+with errno 9 and the message names the operation and the descriptor —
+and by `478-read-input-empty.ax`, with no `.in`, where both readers
+answer their empty case at the first byte and keep answering it. The
+verifier derives 13 and 3 claims from the two sources. Ablated: with
+`477-read-input.in` removed from a copy of the tree,
+`run-stdlib-tests.sh 477` reports %ABL_DEL%; with the wrong `.in` fed
+(the file's four lines replaced by one), %ABL_WRONG%.
+
+`check-compat` reports the four names ADDED and nothing WIDENED —
+`docs/compatibility.md` allows a new public name silently, and
+`sysReadFile`'s type and effect row are unchanged. No AXSYM golden
+moved: the additions are at the end of `IO.ax` and `Sys.ax`, and the
+one edit above a pinned line (`sysReadFile`'s fold) sits below both
+`Sys.ax:175` and `:222`. `docs/stdlib-api.md` and
+`tests/agent/stdlib-effects.allow` are re-derived by their gates.
+
 ## 0.7.5 — 2026-09-04
 
 ### A restriction violation named its call path in prose and nowhere a tool could read it

@@ -552,3 +552,68 @@
     }
   )
 )
+
+; ------------------------------------------------------------------
+; Reading input.
+;
+; `IO` could write to a descriptor and read a file by name, and until
+; 2026-09-04 could not read from a descriptor at all - `(readLine
+; stdin)` was not a call this library had, and a program that wanted a
+; line typed at it re-derived the REPL's private byte loop. The two
+; readers below are the `Sys` twins named for the caller, on the rule
+; `writeStr`/`sysWriteAllFd` and `readFile`/`sysReadFile` already
+; follow: the loop, the buffering decision and its measurement live
+; once in `Sys.sysReadLineFd`/`Sys.sysReadAllFd`, and this layer adds
+; the descriptor to the failure's message, as `ioResult` adds the
+; path.
+;
+; They take the descriptor the way `writeStr` does - `(readLine
+; stdin)`, `(readLine fd)` for one `sysOpenPath` answered - and they
+; answer `Result` with end of input inside the `Ok`, for the reason
+; `Sys` states at length: a read that FAILS is not an input that
+; ENDED, and a stream cannot be asked `readErrno` afterwards.
+; ------------------------------------------------------------------
+; One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)`
+; at end of input when nothing was read; `(Err e)` whose code is the
+; errno, its message `readLine: fd 0: errno 9`.
+;
+; A final line with no newline is still a line, and an empty line is
+; `(Some "")`. One `read(2)` per byte, so the descriptor is left at
+; exactly the next unread byte - a child handed it, or a `readAll`
+; after it, starts where this stopped. See `Sys.sysReadLineFd` for the
+; cost of that on bulk input and what to use instead.
+(pub :: readLine (-> Int (Result (Option String) Error)))
+
+;@axiom:effect(io)
+(pub fn (readLine fd)
+  (match (sysReadLineFd fd)
+    ((Ok line) (Ok line))
+    ((Err e) (Err (ioFdError (errCode e) "readLine" fd)))
+  )
+)
+
+; Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when
+; nothing arrived, or `(Err e)` whose code is the errno.
+;
+; On an exhausted descriptor this is `(Ok "")`, which is not a
+; failure: the stream ended, as it was going to.
+(pub :: readAll (-> Int (Result String Error)))
+
+;@axiom:effect(io)
+(pub fn (readAll fd)
+  (match (sysReadAllFd fd)
+    ((Ok s) (Ok s))
+    ((Err e) (Err (ioFdError (errCode e) "readAll" fd)))
+  )
+)
+
+; `ioResult`'s message with the descriptor where the path would be:
+; `readLine: fd 0: errno 9`. The code is carried through unchanged.
+(:: ioFdError (-> Int String Int Error))
+
+(fn (ioFdError code op fd)
+  (mkError
+    code
+    (strConcat (strConcat (strConcat op ": fd ") (fmtInt fd)) (strConcat ": errno " (fmtInt code)))
+  )
+)

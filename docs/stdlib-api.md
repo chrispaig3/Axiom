@@ -325,7 +325,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `IO`
 
-`stdlib/IO.ax` — 24 public names
+`stdlib/IO.ax` — 26 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -353,6 +353,8 @@ See [reference.md](reference.md) for the language, and
 | `exit` | value | `(-> Int Int)` | `IO` |  |
 | `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut` | Print `s` to standard error and exit with `code`. Never returns. |
 | `todo` | value | `(-> String a)` | `Alloc,IO,Mut` | Exit 70 with `todo: <what>` on standard error; types as any result and never returns. |
+| `readLine` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: fd 0: errno 9`. |
+| `readAll` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
 
 ## `Intern`
 
@@ -549,7 +551,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 84 public names
+`stdlib/Sys.ax` — 86 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -637,6 +639,8 @@ See [reference.md](reference.md) for the language, and
 | `sysTermSize` | value | `(-> Int Int Int)` | `IO` | Read `fd`'s window size into `buf` (`sysTermSizeBytes` bytes): 0, or a negative result. `sysTermRows` and `sysTermCols` read the answer back out. |
 | `sysTermRows` | value | `(-> Int Int)` |  | Rows out of a buffer `sysTermSize` filled. `ws_row` is an `unsigned short` at offset 0 on every target, little-endian. |
 | `sysTermCols` | value | `(-> Int Int)` |  | Columns: `ws_col`, the second `unsigned short`. |
+| `sysReadAllFd` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Read `fd` to end of input: `Ok` the whole stream, `Ok ""` when nothing arrived, or `Err` carrying the errno of the `read` that failed. |
+| `sysReadLineFd` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at end of input when nothing was read, or `Err` carrying the errno. |
 
 ## `Sys.Platform`
 
