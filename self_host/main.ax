@@ -626,7 +626,7 @@
                                         (let ((v vecNew))
                                           {
                                             (vecPush v (mkDiag
-                                              SEV_ERROR                                              "AX4001"                                              "missing-main"                                              0                                              "no `main` function found"                                              0                                              0                                              "add `(:: main Int)` and `(define main ...)` as the program entry point"
+                                              SEV_ERROR                                              "AX4001"                                              "missing-main"                                              0                                              "no `main` function found"                                              0                                              0                                              "add `(:: main Int)` and `(fn (main) ...)` as the program entry point"
                                             ))
                                             v
                                           }

@@ -278,8 +278,8 @@ which was the retired Rust compiler's lexer rule, and refused
 
 | Keyword | Purpose |
 |---|---|
-| `define` | Define a function (classic style) |
-| `fn` | Define a function (modern style, alias for `define`) |
+| `fn` | Define a function. This is the language's spelling |
+| `define` | **Legacy.** The old spelling of `fn`: accepted so that old source still parses and read as `fn`, rewritten to `fn` by `axiom fmt`, and written by nothing in the tree |
 | `lambda` | Anonymous function |
 | `let` | Local variable binding |
 | `mut` | Marks a `let` binding assignable |
@@ -550,7 +550,7 @@ The compiler validates that the body actually performs the declared effects.
 
 Functions are the heart of Axiom. Every function has an optional type signature and a definition.
 
-### Modern `fn` Style
+### The `fn` form
 
 ```scheme
 (:: add (-> Int Int Int))
@@ -558,7 +558,7 @@ Functions are the heart of Axiom. Every function has an optional type signature 
   (+ x y))
 ```
 
-### Classic `define` Style
+### `define` is legacy
 
 ```scheme
 (:: add (-> Int Int Int))
@@ -566,7 +566,13 @@ Functions are the heart of Axiom. Every function has an optional type signature 
   (+ x y))
 ```
 
-Both styles are identical. `fn` is the modern alias for `define`.
+`define` is the old spelling of `fn`, and `fn` is the language's. The
+parser still accepts `define` so that old source parses, and reads it
+as `fn`; it is not a second style and not a choice. `axiom fmt`
+rewrites it to `fn` — `tests/fmt/parity/182-define-rewrites.axp` pins
+`(define legacy 7)` becoming `(fn (legacy) 7)` — and nothing under
+`self_host/`, `stdlib/` or `examples/` writes it. Write `fn`; when you
+meet `define` in old code, format the file.
 
 ### Multi-Parameter Functions
 
@@ -654,7 +660,7 @@ adder factory; and it stores in a **struct field** typed
 (fn (add x y) (+ x y))
 
 (:: addFive (-> Int Int))
-(define addFive (add 5))
+(fn (addFive) (add 5))
 
 (:: main Int)
 (fn main (addFive 1))
@@ -3684,7 +3690,7 @@ Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))
 OK: add defined
-(define (add x y) (+ x y))
+(fn (add x y) (+ x y))
 OK: add defined
 (add 3 4)
 type : Int
