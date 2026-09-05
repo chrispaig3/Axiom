@@ -8,7 +8,7 @@
 
 > Algebraic data types, exhaustive matching and an effect system the compiler checks, lowered through LLVM to a native executable with no VM, no collector and no libc inside it.
 
-The compiler is written in Axiom: 104,910 lines of it, which rebuild
+The compiler is written in Axiom: 105,282 lines of it, which rebuild
 themselves from a committed LLVM seed until two successive compilers are
 **byte-identical**. And because the syntax is uniform S-expressions with a
 machine-readable diagnostic surface (`AXSYM`, `AXDL`, content-derived `NID`s,

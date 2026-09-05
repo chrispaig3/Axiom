@@ -5969,11 +5969,13 @@
 
 ; Renamable: a local with an anchor, or a name this document declares.
 ; NOT renamable, and null is the answer: a name declared in another
-; module, even an open one - renaming across files this server did not
-; open would leave a broken workspace, and a standard-library name
-; must never be renamed from a client; a builtin; an effect; a keyword
-; or `_`, which are never occurrences; and a parameter whose span
-; could not be recovered.
+; module, even an open one - the edit must start where the name is
+; declared, and a standard-library name must never be renamed from a
+; client; a builtin; an effect; a keyword or `_`, which are never
+; occurrences; and a parameter whose span could not be recovered. The
+; edit itself reaches every importing document under the entry
+; directory tree, open or closed; the declaration site is what stays
+; put.
 (pub :: lspNavRenamable (-> Int Bool))
 
 (pub fn (lspNavRenamable o)
@@ -6209,12 +6211,249 @@
 
 (pub fn (lspNavForeignSel texts pair bare) (lspNavSameKey (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)) (strConcat "?" bare) 1))
 
+; ------------------------------------------------------------------
+; The closed project files: every `.ax` file under the requesting
+; document's own directory tree that no open document spells.
+;
+; References and rename used to reach only open documents, so a name
+; used in a file the editor had not opened was invisible to both.
+; The scope is deliberately the entry file's directory tree and not
+; the world: the standard library is a dependency, not the project,
+; and rust-analyzer draws the same line at the workspace edge. Three
+; bounds keep a pathological tree from stalling an on-demand request:
+; directories deeper than 8 are not descended, dot-files and
+; dot-directories are never entered, and past 1000 files the walk
+; stops adding (completion's `LSP_COMPL_MAX` is the precedent for a
+; cap that truncates rather than stalls). All three requests that
+; read this are asked on demand - never per keystroke and never per
+; cursor move - which is what pays for a walk, a read and a parse per
+; file. The returned paths are sorted byte-wise, so closed locations
+; follow the open ones in an order no filesystem gets to vote on.
+; ------------------------------------------------------------------
+; Insertion sort, in place, by unsigned byte order (`strCmp`): the
+; walker answers readdir order, which is a property of the machine
+; rather than of the tree, and two runs of one request must not
+; disagree about it.
+(pub :: lspSortPaths (-> (Vec String) Int))
+
+(pub fn (lspSortPaths v)
+  (let ((mut i 1))
+    {
+      (while (< i (vecLen v))
+        (let ((x (vecGetStr v i)))
+          (let ((mut j i))
+            {
+              (while (&& (> j 0) (< (strCmp x (vecGetStr v (- j 1))) 0))
+                {
+                  (vecSet v j (vecGetStr v (- j 1)))
+                  (set j (- j 1))
+                })
+              (if (!= j i)
+                {
+                  (vecSet v j x)
+                  0
+                }
+                0
+              )
+              (set i (+ i 1))
+            }
+          )
+        ))
+      0
+    }
+  )
+)
+
+; Every `.ax` file under `entryDir`, sorted. `entryDir` arrives with
+; its slash (or empty, which lists the working directory), the way
+; `pathDir` spells it and `lspFixScanDir` reads it.
+(pub :: lspProjAxFiles (-> String (Vec String)))
+
+;@axiom:effect(io)
+(pub fn (lspProjAxFiles entryDir)
+  (let ((out vecNew))
+    {
+      (lspProjAxWalk entryDir "" 0 out)
+      (lspSortPaths out)
+      out
+    }
+  )
+)
+
+(pub :: lspProjAxWalk (-> String String Int (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspProjAxWalk dir rel depth out)
+  (if (|| (> depth 8) (>= (vecLen out) 1000))
+    0
+    (let ((names (sysReadDir (strCStr (if (== (strLen dir) 0)
+      (strConcat "./" rel)
+      (strConcat dir rel)
+    )))))
+      (let (
+        (n (vecLen names))
+        (mut i 0)
+      )
+        {
+          (while (if (< i n)
+            (< (vecLen out) 1000)
+            false
+          )
+            (let ((nm (vecGetStr names i)))
+              {
+                (if (|| (== (strLen nm) 0) (== (strByte nm 0) 46))
+                  0
+                  (let ((full (strConcat dir (strConcat rel nm))))
+                    (if (lspFixEndsWith nm ".ax")
+                      {
+                        (vecPush out full)
+                        0
+                      }
+                      (if (&& (< depth 8) (sysIsDir (strCStr full)))
+                        (lspProjAxWalk dir (strConcat rel (strConcat nm "/")) (+ depth 1) out)
+                        0
+                      )
+                    )
+                  )
+                )
+                (set i (+ i 1))
+              }
+            ))
+          0
+        }
+      )
+    )
+  )
+)
+
+; The open documents' paths, decoded: what the closed-file searches
+; compare against. A URI the client spelled unusually still decodes
+; to the path it names, so no spelling of an open file is ever
+; treated as closed.
+(pub :: lspOpenPaths (-> (Vec String) (Vec String)))
+
+(pub fn (lspOpenPaths uris)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen uris))
+        {
+          (vecPush out (lspUriToPath (vecGetStr uris i)))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; The closed files that import the requesting document: (path, text,
+; declarations) triples for every parsed `.ax` file under its
+; directory tree that is not open and one of whose `(import M)` lines
+; resolves - by `moduleSrcPath`, the compiler's own search - to the
+; requesting path. The precision is the open-importer search's
+; (`lspNavImportsPath`): a file that merely spells the namedifferently
+; - its own declaration of the same spelling, an unresolvable name -
+; never qualifies, which is the whole of "the same binding, not the
+; same spelling" across the workspace edge.
+(pub :: lspNavClosedFiles (-> String (Vec String) (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (lspNavClosedFiles uri uris)
+  (let ((mypath (lspUriToPath uri)))
+    ; A URI with no absolute path behind it (an `untitled:` buffer, a
+    ; relative spelling) names no directory tree to walk: the search
+    ; is empty rather than rooted at the server's working directory,
+    ; which would turn one odd document into a scan of wherever the
+    ; editor was launched from.
+    (if (lspNavNot (pathIsAbsolute mypath))
+      vecNew
+      (let (
+        (target (lspNavAbs mypath))
+        (tcode (checkedTargetCode hostTarget))
+        (openPaths (lspOpenPaths uris))
+        (files (lspProjAxFiles (pathDir mypath)))
+        (out vecNew)
+        (mut i 0)
+      )
+        {
+          (while (< i (vecLen files))
+            (let ((f (vecGetStr files i)))
+              {
+                (if (lspSeenHas openPaths f)
+                  0
+                  (let ((text (sysReadFile (strCStr f))))
+                    (if (== (strLen text) 0)
+                      0
+                      (let ((decls (lspNavParse text)))
+                        (if (== (cast Int decls) 0)
+                          0
+                          (if (lspNavImportsPath decls tcode (pathDir f) target)
+                            (let ((b (memAlloc 24)))
+                              {
+                                (memSetWord b 0 f)
+                                (memSetWord b 1 text)
+                                (memSetWord b 2 decls)
+                                (vecPush out b)
+                                0
+                              }
+                            )
+                            0
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+                (set i (+ i 1))
+              }
+            ))
+          out
+        }
+      )
+    )
+  )
+)
+
+; The closed importers' occurrences of an imported name: the same
+; `?bare` key the open-importer search reads, placed with each
+; file's own bytes, after the open locations.
+(pub :: lspNavClosedLocations (-> Int String String Int (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspNavClosedLocations out uri bare incl uris)
+  (let (
+    (files (lspNavClosedFiles uri uris))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen files))
+        (let ((b (vecGet files i)))
+          (let (
+            (fpath (memGetWordStr b 0))
+            (ftext (memGetWordStr b 1))
+          )
+            (let ((occs (lspNavOccurrences ftext (memGetWordVec b 2))))
+              {
+                (lspNavLocations out (lspPathToUri fpath) ftext (lspLineIndex ftext) (lspNavSameKey occs (strConcat "?" bare) incl))
+                (set i (+ i 1))
+              }
+            )
+          )
+        ))
+      0
+    }
+  )
+)
+
 ; The reverse direction: the cursor is on a name this document
 ; imports. The module that declares it is found the way `definition`
-; finds it - preflight, then the resolver, then `lspFindImported` - and
-; if THAT file is open in the store, its URI is answered, so its own
-; occurrences can be listed. "" when the name is not an import, or
-; the declaring file is not open.
+; finds it - preflight, then the resolver, then `lspFindImported` -
+; and that file is read wherever it lives: the store when it is
+; open, the disk when it is not, so its own occurrences can be
+; listed either way. "" when the name is not an import, or the
+; declaring file can be read nowhere.
 (pub :: lspNavHomeUri (-> String String (Vec Int) String (Vec String) String))
 
 ;@axiom:effect(io)
@@ -6249,9 +6488,11 @@
 
 ; ------------------------------------------------------------------
 ; `textDocument/references`: every occurrence of the name under the
-; cursor, as Locations - this document's first, then each importing
-; document's, each in offset order. Null when nothing is under the
-; cursor, which is what a keyword, a literal and a comment are.
+; cursor, as Locations - this document's first, then each open
+; importing document's, each in offset order, then each closed
+; importing document's under the entry directory tree, sorted by
+; path. Null when nothing is under the cursor, which is what a
+; keyword, a literal and a comment are.
 ; ------------------------------------------------------------------
 (pub :: lspReferences (-> String String Int (Vec String) (Vec a) Int))
 
@@ -6275,7 +6516,11 @@
               {
                 (lspNavLocations out uri src ix (lspNavSameKey occs key incl))
                 (if (lspNavIsTop key)
-                  (lspNavForeignLocations out uri (lspNavBareOfKey key) uris texts)
+                  {
+                    (lspNavForeignLocations out uri (lspNavBareOfKey key) uris texts)
+                    (lspNavClosedLocations out uri (lspNavBareOfKey key) incl uris)
+                    0
+                  }
                   (if (== (strByte key 0) 63)
                     (lspNavHomeLocations out (lspUriToPath uri) src decls (memGetWordStr o 0) incl uris texts)
                     0
@@ -6325,10 +6570,27 @@
     (if (== (strLen huri) 0)
       0
       (let ((htext (docText uris texts huri)))
-        (let ((hdecls (lspNavParse htext)))
-          (if (== (cast Int hdecls) 0)
-            0
-            (lspNavLocations out huri htext (lspLineIndex htext) (lspNavSameKey (lspNavOccurrences htext hdecls) bare incl))
+        ; Open reads the buffer; closed reads the disk, which is the
+        ; truth for a file with no buffer. An unreadable file reads
+        ; as "" and parses to nothing, the same answer unparseable
+        ; text has always given.
+        (if (> (strLen htext) 0)
+          (let ((hdecls (lspNavParse htext)))
+            (if (== (cast Int hdecls) 0)
+              0
+              (lspNavLocations out huri htext (lspLineIndex htext) (lspNavSameKey (lspNavOccurrences htext hdecls) bare incl))
+            )
+          )
+          (let ((dtext (sysReadFile (strCStr (lspUriToPath huri)))))
+            (if (== (strLen dtext) 0)
+              0
+              (let ((hdecls (lspNavParse dtext)))
+                (if (== (cast Int hdecls) 0)
+                  0
+                  (lspNavLocations out huri dtext (lspLineIndex dtext) (lspNavSameKey (lspNavOccurrences dtext hdecls) bare incl))
+                )
+              )
+            )
           )
         )
       )
@@ -6476,35 +6738,76 @@
       (mut clash false)
     )
       {
-        (while (&& (< i (vecLen imps)) (lspNavNot clash))
-          (let ((pair (vecGet imps i)))
-            (let (
-              (otext (vecGetStr texts (memGetWord pair 0)))
-              (ouri (vecGetStr uris (memGetWord pair 0)))
-              (oocc (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)))
-            )
-              {
-                (if (lspNavNamed oocc newName)
-                  {
-                    (set clash true)
-                    0
-                  }
-                  (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
-                    (if (> (vecLen sel) 0)
-                      (jsonObjPut changes ouri (lspNavEdits otext (lspLineIndex otext) sel newName))
+          (while (&& (< i (vecLen imps)) (lspNavNot clash))
+            (let ((pair (vecGet imps i)))
+              (let (
+                (otext (vecGetStr texts (memGetWord pair 0)))
+                (ouri (vecGetStr uris (memGetWord pair 0)))
+                (oocc (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)))
+              )
+                {
+                  (if (lspNavNamed oocc newName)
+                    {
+                      (set clash true)
                       0
+                    }
+                    (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
+                      (if (> (vecLen sel) 0)
+                        (jsonObjPut changes ouri (lspNavEdits otext (lspLineIndex otext) sel newName))
+                        0
+                      )
                     )
                   )
-                )
-                (set i (+ i 1))
+                  (set i (+ i 1))
+                }
+              )
+            ))
+          ; Closed importers under the entry directory tree join the
+          ; same edit, and trip the same collision: a file that merely
+          ; spells the new name without importing this document is no
+          ; importer's business, open or closed. Skipped outright when
+          ; an open document already clashed.
+          (if clash
+            0
+            (let (
+              (closed (lspNavClosedFiles uri uris))
+              (mut k 0)
+            )
+              {
+                (while (&& (< k (vecLen closed)) (lspNavNot clash))
+                  (let ((b (vecGet closed k)))
+                    (let (
+                      (fpath (memGetWordStr b 0))
+                      (ftext (memGetWordStr b 1))
+                    )
+                      (let ((oocc (lspNavOccurrences ftext (memGetWordVec b 2))))
+                        {
+                          (if (lspNavNamed oocc newName)
+                            {
+                              (set clash true)
+                              0
+                            }
+                            (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
+                              (if (> (vecLen sel) 0)
+                                (jsonObjPut changes (lspPathToUri fpath) (lspNavEdits ftext (lspLineIndex ftext) sel newName))
+                                0
+                              )
+                            )
+                          )
+                          (set k (+ k 1))
+                        }
+                      )
+                    )
+                  ))
+                0
               }
             )
-          ))
-        (if clash
-          jsonNull
-          (lspNavWorkspaceEdit changes)
-        )
-      }
+          )
+          (if clash
+            jsonNull
+            (lspNavWorkspaceEdit changes)
+          )
+        }
     )
   )
 )
@@ -9320,19 +9623,12 @@
 ; ------------------------------------------------------------------
 ; `workspace/symbol`: every declaration the open documents can see -
 ; their own, and every module each imports - whose bare name holds
-; the query, case-folded.
-;
-; The workspace this server knows is the document store: the editor
-; sends it the files that are open and nothing else, and the imports
-; of those files are what a reader of them can reach. Each open
-; document is parsed and its imports resolved as `lspComplImported`
-; resolves them; an imported declaration is placed in ITS file
-; through the unit table, with the module as `containerName`. The
-; kinds are the outline's, plus EnumMember for a constructor, which
-; the outline omits and a search wants. The list stops at
-; `LSP_COMPL_MAX`, for the reason completion's does: a search result
-; is not a directory listing. A declaration reached twice - a module
-; two open documents both import - is listed once, by URI and offset.
+; the query, case-folded, plus every declaration of every closed
+; `.ax` file under those documents' directory trees. The closed walk
+; runs through the same offer the open documents do, over one shared
+; `seen` set, so a declaration reached twice - a module two open
+; documents both import, or one file found both as an import and on
+; disk - is listed once, by URI and offset.
 ; ------------------------------------------------------------------
 (pub :: lspWorkspaceSymbols (-> (Vec String) (Vec a) Int Int))
 
@@ -9371,7 +9667,83 @@
             (set j (+ j 1))
           }
         ))
+      (lspWsClosedSymbols out seen query uris)
       out
+    }
+  )
+)
+
+; The closed project files, each through the same local offer as an
+; open document: its own declarations and constructors, never its
+; imports (those arrive through whoever imports them, and `seen`
+; collapses the two views into one listing). One walk per distinct
+; entry directory over all open documents; files no open document
+; spells - untitled buffers, relative paths - name no tree and are
+; skipped rather than rooted at the working directory.
+(pub :: lspWsClosedSymbols (-> Int (Vec String) String (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspWsClosedSymbols out seen query uris)
+  (let (
+    (openPaths (lspOpenPaths uris))
+    (dirs vecNew)
+    (mut j 0)
+  )
+    {
+      (while (< j (vecLen uris))
+        {
+          (let ((d (pathDir (lspUriToPath (vecGetStr uris j)))))
+            {
+              (if (|| (== (strLen d) 0) (|| (lspNavNot (pathIsAbsolute d)) (lspSeenHas dirs d)))
+                0
+                {
+                  (vecPush dirs d)
+                  0
+                }
+              )
+              (set j (+ j 1))
+            }
+          )
+        })
+      (set j 0)
+      (while (if (< j (vecLen dirs))
+        (< (jsonArrLen out) LSP_COMPL_MAX)
+        false
+      )
+        (let (
+          (files (lspProjAxFiles (vecGetStr dirs j)))
+          (mut i 0)
+        )
+          {
+            (while (if (< i (vecLen files))
+              (< (jsonArrLen out) LSP_COMPL_MAX)
+              false
+            )
+              (let ((f (vecGetStr files i)))
+                {
+                  (if (lspSeenHas openPaths f)
+                    0
+                    (let ((text (sysReadFile (strCStr f))))
+                      (if (== (strLen text) 0)
+                        0
+                        (let ((decls (lspNavParse text)))
+                          (if (== (cast Int decls) 0)
+                            0
+                            (lspViewSymsLocal out seen query (lspPathToUri f) text decls)
+                          )
+                        )
+                      )
+                    )
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            0
+          }
+        )
+        (set j (+ j 1))
+      )
+      0
     }
   )
 )

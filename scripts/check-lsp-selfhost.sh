@@ -33,18 +33,21 @@
 # computed from the two documents' own bytes, so no re-bless of any
 # golden can satisfy it.
 #
-# Beside those run two multi-file blocks, also written into drive.py:
+# Beside those run three multi-file blocks, also written into drive.py:
 # SECTION DEP TESTS, where a dirty dependency's errors publish under
 # the dependency's own URI with its secondary linked beside them, an
 # opened-then-dirtied buffer keeps its own array through an importer's
 # recheck, and closes, dropped imports and broken imports retract
-# exactly what no open document covers; and SECTION WS TESTS, where a
+# exactly what no open document covers; SECTION WS TESTS, where a
 # bare `initialize` earns no registration, a capable one earns one
 # `client/registerCapability` with four registrations whose reply
 # earns no reply, and watched changes, creations, deletions and a
-# rename converge every open importer with no keystroke. Both compare
-# whole publish sequences for equality, so a publish too many, too
-# few, or under the wrong URI fails.
+# rename converge every open importer with no keystroke; and a closed
+# block inside SECTION NAV TESTS where references and rename reach
+# two closed importers sorted by path while a stranger's own same
+# spelling is nowhere. All compare whole publish sequences or edit
+# maps for equality, so a publish too many, too few, or under the
+# wrong URI fails.
 #
 # HOVER AND COMPLETION were widened on 2026-08-26 and the block grew
 # with them. Hover used to answer for macros alone; it now answers for

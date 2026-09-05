@@ -89,9 +89,15 @@ What the lifecycle does, and what it does not:
   label carried into the message, every secondary published at the
   UTF-16 position converted in Python from the terminal's character
   offset — and refuses to run if the corpus stops producing either.
-  Only THIS document's diagnostics are published: a diagnostic the checker
-  raised inside an imported module is not attributed to the file that
-  imports it — open that module and it is published there. `didClose`
+  Every resolved dependency publishes under its own URI beside the
+  entry: a diagnostic the checker raised inside an imported module is
+  published against that module's file, including an empty array,
+  which is how a dependency fixed elsewhere goes quiet here. A
+  dependency that is OPEN is skipped - its bytes on disk may lag its
+  buffer, and positions read off the wrong text are worse than a
+  publish its own rechecks already send. An import-set move retracts
+  what it orphaned, minus what any remaining open document still
+  resolves and minus what is itself open. `didClose`
   publishes an empty list, which is how a server retracts squiggles.
   The same array is available on demand as `textDocument/diagnostic`,
   which answers `{kind: "full", items}` — the pull twin of this push,
@@ -605,9 +611,13 @@ read from the bytes, since type nodes carry no span, and resolved
 against the type table alone, so a `fn` spelled like a `data` is not
 the same name. `references` reaches every OTHER
 open document whose imports resolve to this file, each under its own
-URI, and honours `includeDeclaration`; it does not open files the
-editor has not, so a reference in a closed module is not listed.
-`documentHighlight` is the same set within one document, with the
+URI, and honours `includeDeclaration`; then every CLOSED document
+under the entry file's directory tree whose imports resolve to this
+file, sorted by path - a reference in a closed module IS listed, as
+long as the module is the project's rather than the library's. A
+file that merely spells the name is not the same binding: the walk
+resolves each occurrence to its key, and only the key asked for is
+listed. `documentHighlight` is the same set within one document, with the
 binder as the `Write` kind and reads as `Read`. A form the parser
 DESUGARS contributes only what the user wrote: a binder whose name
 holds `$` — `for$v`, `for$i`, unwritable by AX1001 — is never
@@ -630,9 +640,9 @@ of the code.
 **`textDocument/prepareRename` and `textDocument/rename`.**
 `prepareRename` answers the word's range for a name this server will
 rename, and `null` for one it will not: a name declared in another
-module, even an open one — renaming across files the server did not
-open would leave a broken workspace, and a standard-library name must
-never be renamed from a client — a builtin, an effect, a keyword,
+module, even an open one — the edit must start where the name is
+declared, and a standard-library name must never be renamed from a
+client — a builtin, an effect, a keyword,
 `_`, and a parameter whose position could not be recovered from the
 header's bytes. `rename` refuses, with `null`, a new name the lexer
 would not read as one identifier, a keyword, the old name itself, and
@@ -640,11 +650,15 @@ a collision: for a local, a name already bound in an enclosing or the
 same scope or one the renamed binding would capture (a second walk
 with a probe decides this, inside the scope stack); for a declaration,
 a name this document or any importing document already spells
-anywhere, because a rename that makes a call resolve somewhere else
+anywhere - open or closed under the entry directory tree - because a
+rename that makes a call resolve somewhere else
 is a change of meaning disguised as a change of spelling. The edit
-covers every open importing document. The gate APPLIES a cross-file
-rename in Python, writes both files, reopens them and requires the
-checker to publish nothing for the pair.
+covers every importing document, open or closed: a file that imports
+the renamed module without spelling the new name anywhere gets the
+edit, and one that merely spells it without importing it is none of
+the rename's business. The gate APPLIES a cross-file
+rename in Python, writes every file, reopens them and requires the
+checker to publish nothing for the set.
 
 **`textDocument/typeDefinition`.** From a signed function's result,
 a header parameter or a constructor to the `data`, `struct` or `type`
@@ -806,10 +820,14 @@ parent, and the source at `selectionRange` spelling the symbol's name.
 **`workspace/symbol`.** Every declaration the OPEN documents can see
 — their own and every module each imports — whose bare name holds the
 query, case-folded, with constructors as `EnumMember` and the module
-as `containerName` for an imported one; a declaration reached twice
-through two open documents is listed once. The workspace this server
-knows is the document store: it does not walk a directory, so a module
-nothing open imports is not searched. The list stops at
+as `containerName` for an imported one; then every declaration of
+every closed `.ax` file under those documents' directory trees, which
+is where a module nothing open imports is searched after all. A
+declaration reached twice - through two open documents, or once as an
+import and once on disk - is listed once, by URI and offset. The walk
+skips dot-files, descends at most eight directories and stops adding
+past a thousand files: a search result is not a directory listing,
+and neither is the walk behind it. The list stops at
 `LSP_COMPL_MAX`.
 
 ### Changing and running
@@ -820,7 +838,8 @@ same document state publishes under its URI — same diagnostics in the
 same order, labels and `relatedInformation` included. No `resultId`
 is sent, so there is no `unchanged` answer: a client that wants the
 current list asks again. `interFileDependencies` is false, because
-only this document's diagnostics are reported (see the lifecycle
+the pull answers this document alone even though the push publishes
+its dependencies beside it (see the lifecycle
 above); `workspaceDiagnostics` is false, because there is no
 `workspace/diagnostic` yet. This request runs the pipeline (see
 [The cost rule](#the-cost-rule)). The gate holds pull equal to push
@@ -1017,6 +1036,12 @@ bracket scan that folding and selection share, the bucket index that
 parameter hints and signature help share — and its answer is derived
 from what the file SAYS, which is why a name a macro would generate is
 absent from completion, from the outline and from navigation.
+`references`, `rename` and `workspace/symbol` additionally walk the
+entry directory tree for closed files - a read, a parse and a walk
+per file, bounded by depth and count - which is affordable because
+all three are asked on demand: a caller asks for references when the
+cursor rests, renames hardly at all, and searches symbols with a
+dedicated gesture.
 
 Four things run the pipeline, each because the pipeline's output is
 the answer: `didOpen` and `didChange`, which publish diagnostics,

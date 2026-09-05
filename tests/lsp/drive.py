@@ -2613,6 +2613,233 @@ else:
     passed += 2
 shutil.rmtree(CH_DIR, ignore_errors=True)
 
+# ---------------------------------------------------------------------
+# Closed files: references and rename across the workspace edge.
+#
+# The three documents above this one are all open in their sessions,
+# so nothing below could tell an open importer from a closed one.
+# Here only the entry is opened: two importers and a stranger stay on
+# disk, and every answer must sort the two kinds. The stranger
+# declares its OWN `foo` and never imports the entry, so the import
+# filter - not the spelling - is what excludes it; without that
+# filter its two occurrences carry the same top key and would match.
+#
+# The corpus is counted like every other: each name exactly as often
+# as the assertions assume, or a position lands on the wrong
+# occurrence for the wrong reason.
+# ---------------------------------------------------------------------
+CWDIR = tempfile.mkdtemp(prefix="axiom-closed-")
+CW_MAIN = """(pub :: foo (-> Int Int))
+
+(pub fn (foo n) (+ n 1))
+
+(:: main Int)
+
+(fn (main) (foo 1))
+"""
+CW_USER = """(import CwMain)
+
+(:: use Int)
+
+(fn (use) (foo 2))
+"""
+CW_USER2 = """(import CwMain)
+
+(:: run Int)
+
+(fn (run) (foo 3))
+"""
+CW_STRANGER = """(:: strangename Int)
+
+(fn (strangename) 4)
+
+(:: foo Int)
+
+(fn (foo) 5)
+"""
+for _name, _text in (("CwMain.ax", CW_MAIN), ("CwUser.ax", CW_USER),
+                     ("CwUser2.ax", CW_USER2),
+                     ("CwStranger.ax", CW_STRANGER)):
+    open(os.path.join(CWDIR, _name), "w", encoding="utf-8").write(_text)
+CW_URI = "file://" + os.path.join(CWDIR, "CwMain.ax")
+CW_USER_URI = "file://" + os.path.join(CWDIR, "CwUser.ax")
+CW_USER2_URI = "file://" + os.path.join(CWDIR, "CwUser2.ax")
+CW_COUNTS = {"foo": (3, 1, 1, 2), "bar": (0, 0, 0, 0),
+             "use": (0, 2, 0, 0), "strangename": (0, 0, 0, 2)}
+for _n, _cs in CW_COUNTS.items():
+    for _text, _c in zip((CW_MAIN, CW_USER, CW_USER2, CW_STRANGER), _cs):
+        if ident_count(_text, _n) != _c:
+            sys.exit(f"FAIL: a closed-corpus document spells `{_n}` "
+                     f"{ident_count(_text, _n)} time(s) as an identifier, "
+                     f"this file assumes {_c}")
+CW_FOO = idents(CW_MAIN, "foo", 3)      # signature, fn, the call in main
+CW_FOO_U = idents(CW_USER, "foo", 1)
+CW_FOO_U2 = idents(CW_USER2, "foo", 1)
+
+
+def cw_open(uri, text):
+    return {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "axiom",
+                                        "version": 1, "text": text}}}
+
+
+def cw_req(rid, method, uri, at, extra=None):
+    p = {"textDocument": {"uri": uri},
+         "position": {"line": at["line"], "character": at["start"]}}
+    if extra:
+        p.update(extra)
+    return {"jsonrpc": "2.0", "id": rid, "method": method, "params": p}
+
+
+cw_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    cw_open(CW_URI, CW_MAIN),
+    cw_req(2, "textDocument/references", CW_URI, CW_FOO[1],
+           {"context": {"includeDeclaration": True}}),
+    cw_req(3, "textDocument/references", CW_URI, CW_FOO[1],
+           {"context": {"includeDeclaration": False}}),
+    cw_req(4, "textDocument/rename", CW_URI, CW_FOO[1],
+           {"newName": "bar"}),
+    cw_req(5, "textDocument/rename", CW_URI, CW_FOO[1],
+           {"newName": "use"}),
+    cw_req(6, "textDocument/rename", CW_URI, CW_FOO[1],
+           {"newName": "strangename"}),
+    {"jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+cp_ = subprocess.run([stage1, "lsp"], input=cw_session, capture_output=True,
+                     cwd=CWDIR)
+cmsgs, ctail = unframe(cp_.stdout)
+cresp = {m["id"]: m for m in cmsgs if "id" in m}
+
+
+def cw_locs(rid):
+    r = cresp.get(rid, {}).get("result")
+    if not isinstance(r, list):
+        return r
+    return [(x.get("uri"), x.get("range")) for x in r]
+
+
+def cw_want_locs(rid, want):
+    g = cw_locs(rid)
+    if g != want:
+        return f"request {rid} answered {g!r}, want {want!r}"
+    return ""
+
+
+def cw_edits(rid):
+    r = cresp.get(rid, {}).get("result")
+    if not isinstance(r, dict) or not isinstance(r.get("changes"), dict):
+        return r
+    return {u: [(e.get("range"), e.get("newText")) for e in es]
+            for u, es in r["changes"].items()}
+
+
+def cw_null(rid, what):
+    r = cresp.get(rid, {}).get("result", "unanswered")
+    if r is not None:
+        return f"{what} (request {rid}) answered {r!r:.160}, want null"
+    return ""
+
+
+cwhy = ""
+if cp_.returncode != 0:
+    cwhy = f"the server exited {cp_.returncode}: {cp_.stderr[:200]!r}"
+elif cp_.stderr:
+    cwhy = f"stderr not empty: {cp_.stderr[:200]!r}"
+elif ctail:
+    cwhy = f"{len(ctail)} trailing bytes after the last frame"
+elif 7 not in cresp:
+    cwhy = "the session never answered shutdown - a request killed the server"
+# Same document in offset order, then the closed importers sorted by
+# path; the stranger's own `foo` is the same spelling of a different
+# binding and is nowhere.
+elif cw_want_locs(2, [loc(CW_URI, a) for a in CW_FOO]
+                  + [loc(CW_USER_URI, CW_FOO_U[0]),
+                     loc(CW_USER2_URI, CW_FOO_U2[0])]):
+    cwhy = "closed references: " + cw_want_locs(
+        2, [loc(CW_URI, a) for a in CW_FOO]
+        + [loc(CW_USER_URI, CW_FOO_U[0]), loc(CW_USER2_URI, CW_FOO_U2[0])])
+elif cw_want_locs(3, [loc(CW_URI, CW_FOO[2]),
+                       loc(CW_USER_URI, CW_FOO_U[0]),
+                       loc(CW_USER2_URI, CW_FOO_U2[0])]):
+    cwhy = "closed references without declaration: " + cw_want_locs(
+        3, [loc(CW_URI, CW_FOO[2]), loc(CW_USER_URI, CW_FOO_U[0]),
+            loc(CW_USER2_URI, CW_FOO_U2[0])])
+elif cw_edits(4) != {CW_URI: [(rng(a), "bar") for a in CW_FOO],
+                      CW_USER_URI: [(rng(CW_FOO_U[0]), "bar")],
+                      CW_USER2_URI: [(rng(CW_FOO_U2[0]), "bar")]}:
+    cwhy = (f"rename to `bar` answered {cw_edits(4)!r:.300}, want edits in "
+            f"the entry and both closed importers and none in the stranger")
+elif cw_null(5, "rename to `use`, which the closed importer declares"):
+    # `use` is declared by the closed importer: a collision there
+    # refuses the whole rename, exactly like an open one.
+    cwhy = cw_null(5, "rename to `use`, which the closed importer declares")
+if not cwhy:
+    # `strangename` lives only in the stranger, which imports nothing:
+    # outside every collision scope, so the rename succeeds past it.
+    e6 = cw_edits(6)
+    if not isinstance(e6, dict) or set(e6) != {CW_URI, CW_USER_URI,
+                                               CW_USER2_URI}:
+        cwhy = (f"rename past the stranger answered "
+                f"{json.dumps(cresp.get(6, {}).get('result'))[:300]!r}, want "
+                f"edits in exactly the entry and its importers")
+if cwhy:
+    print(f"FAIL closed-refs: {cwhy}")
+    failed += 1
+else:
+    # Apply the `bar` edits on disk, reopen, and require clean: a
+    # missed occurrence would be AX3001 at the old spelling, and a
+    # wrong one would not parse.
+    renamed = {}
+    for u, text in ((CW_URI, CW_MAIN), (CW_USER_URI, CW_USER),
+                    (CW_USER2_URI, CW_USER2)):
+        edits = list(cresp[4]["result"]["changes"][u])
+        renamed[u] = apply_edits(text, edits)
+        if renamed[u] is None:
+            cwhy = f"the edits for {os.path.basename(u)} overlap"
+            break
+if not cwhy:
+    for u, text in renamed.items():
+        open(os.path.join(CWDIR, os.path.basename(u)), "w",
+             encoding="utf-8").write(text)
+    r2 = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        cw_open(CW_URI, renamed[CW_URI]),
+        cw_open(CW_USER_URI, renamed[CW_USER_URI]),
+        cw_open(CW_USER2_URI, renamed[CW_USER2_URI]),
+        {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]), capture_output=True, cwd=CWDIR)
+    m2, t2 = unframe(r2.stdout)
+    pubs2 = {m["params"]["uri"]: m["params"]["diagnostics"] for m in m2
+             if m.get("method") == "textDocument/publishDiagnostics"}
+    if r2.returncode != 0 or t2:
+        cwhy = (f"the session over the renamed documents exited "
+                f"{r2.returncode} with {len(t2)} trailing bytes")
+    elif any(ident_count(t, "foo") for t in renamed.values()):
+        cwhy = "the renamed documents still spell `foo` as an identifier"
+    elif ident_count(renamed[CW_URI], "bar") != 3 \
+            or ident_count(renamed[CW_USER_URI], "bar") != 1 \
+            or ident_count(renamed[CW_USER2_URI], "bar") != 1:
+        cwhy = "the renamed documents do not spell `bar` everywhere `foo` was"
+    elif any(pubs2.get(u) for u in renamed):
+        cwhy = ("the renamed documents no longer check clean: "
+                f"{[(os.path.basename(u), [(d['code'], first_line(d['message'])) for d in ds]) for u, ds in pubs2.items() if ds]!r:.400}")
+if cwhy:
+    print(f"FAIL closed-rename: {cwhy}")
+    failed += 1
+else:
+    print(f"ok   refs-closed (the entry's three occurrences in offset order, "
+          f"then two closed importers sorted by path; the stranger's own "
+          f"`foo` nowhere - same spelling, different binding)")
+    print(f"ok   rename-closed (`foo` -> `bar` as edits in the entry and "
+          f"both closed importers applied here and checked clean; refused "
+          f"for `use` declared by a closed importer; allowed past "
+          f"`strangename` living only in the stranger)")
+    passed += 2
+shutil.rmtree(CWDIR, ignore_errors=True)
+
 # =====================================================================
 # END SECTION NAV TESTS
 # =====================================================================
@@ -2646,8 +2873,15 @@ VIEWOTHER = """(pub :: seven Int)
 
 (pub fn (seven) 7)
 """
+# Imported by nothing: reachable only through the closed-file walk,
+# which is what makes it a test of that walk rather than of imports.
+VIEWEXTRA = """(pub :: extra Int)
+
+(pub fn (extra) 9)
+"""
 open(os.path.join(VIEWDIR, "ViewHelper.ax"), "w", encoding="utf-8").write(VIEWHELPER)
 open(os.path.join(VIEWDIR, "ViewOther.ax"), "w", encoding="utf-8").write(VIEWOTHER)
+open(os.path.join(VIEWDIR, "ViewExtra.ax"), "w", encoding="utf-8").write(VIEWEXTRA)
 # A dotted module path, so the link's range has a `.` to extend over -
 # the parser's span names the first segment alone.
 VIEWDEEP = """(pub :: deep Int)
@@ -2693,6 +2927,7 @@ view_uri = "file://" + os.path.join(VIEWDIR, "view-generated.ax")
 vhelper_uri = "file://" + os.path.join(VIEWDIR, "ViewHelper.ax")
 vother_uri = "file://" + os.path.join(VIEWDIR, "ViewOther.ax")
 vdeep_uri = "file://" + os.path.join(VIEWDIR, "Nested", "Deep.ax")
+vextra_uri = "file://" + os.path.join(VIEWDIR, "ViewExtra.ax")
 # A document mid-form, and one with nothing to fold or hint.
 VIEW_BROKEN = VIEW + "\n("
 VIEW_FLAT = "(:: one Int)\n(fn (one) 1)\n"
@@ -2874,6 +3109,7 @@ LINKS_WANT = [(rng(locate(VIEW, "ViewHelper", 1)), vhelper_uri),
 
 TWICE_DECL = locate(VIEWHELPER, "twice", 2)   # the `fn`'s name; 1 is the `::`
 SEVEN_DECL = locate(VIEWOTHER, "seven", 2)
+EXTRA_DECL = locate(VIEWEXTRA, "extra", 2)
 DEEP_DECL = locate(VIEWDEEP, "deep", 2)
 ADD_DECL = locate(VIEW, "add", 2)             # `(fn (add`; 1 is `(:: add`
 SHAPE_DECL = locate(VIEW, "Shape", 1)
@@ -3205,6 +3441,8 @@ elif sym_is(51, "Circle", 22, view_uri, CIRCLE_DECL):
     vwhy = "workspace/symbol '': " + sym_is(51, "Circle", 22, view_uri, CIRCLE_DECL)
 elif sym_is(51, "seven", 12, vother_uri, SEVEN_DECL, "ViewOther"):
     vwhy = "workspace/symbol '': " + sym_is(51, "seven", 12, vother_uri, SEVEN_DECL, "ViewOther")
+elif sym_is(51, "extra", 12, vextra_uri, EXTRA_DECL):
+    vwhy = "workspace/symbol '': " + sym_is(51, "extra", 12, vextra_uri, EXTRA_DECL)
 elif sym_is(51, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper"):
     vwhy = "workspace/symbol '': " + sym_is(51, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper")
 elif sym_is(51, "deep", 12, vdeep_uri, DEEP_DECL, "Nested.Deep"):
@@ -3235,8 +3473,9 @@ else:
     print(f"ok   links      ({len(LINKS_WANT)} module names, one dotted, to their files' URIs; "
           f"[] on a document that does not parse)")
     print(f"ok   workspace  (`twice` found by {TWICE_QUERY!r} in ViewHelper.ax with "
-          f"its container, 6 declarations of 3 kinds in 4 files placed by an "
-          f"empty query, [] for a query nothing matches)")
+          f"its container, {len(vres(51) or [])} declarations of 3 kinds in 5 files placed by an "
+          f"empty query with `extra` reached only through the closed walk, "
+          f"[] for a query nothing matches)")
     print(f"ok   completion (`x` with detail 'x : Int' from the signature, "
           f"`Nested.Deep` whole from its dotted prefix, both isIncomplete)")
     passed += 7
