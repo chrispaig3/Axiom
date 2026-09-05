@@ -64,13 +64,15 @@
 #       4.1 exists to remove.
 #   A3  THE MEASURED BASELINE, RECOMPUTED. The minimal program imports
 #       nothing but the platform's own startup set, makes EXACTLY THREE
-#       distinct syscalls, and its size is inside the flash budget for
-#       its object format. Those are section 2's figures and the port is
-#       priced on them. The import set and the band are per FORMAT, not
-#       per host: section 2 measured a Mach-O, and the identical program
-#       as an ELF carries crt1's six imports and 71,168 bytes. Asserting
-#       Mach-O's zero and Mach-O's 24 KiB on both is a check only the
-#       machine that wrote it can pass - see the paragraphs at A3.
+#       distinct syscalls, and on the format the proposal measured - a
+#       Mach-O - its size is inside the proposal's flash budget. Those
+#       are section 2's figures and the port is priced on them. The
+#       import set is per FORMAT (a Mach-O imports nothing, an ELF
+#       carries crt1's startup hooks), and the file size is per LINKER:
+#       the identical program is 16,416 bytes from gcc and ld.bfd and
+#       71,168 from clang and lld, so on ELF and PE it is printed and
+#       not gated - see the paragraphs at A3 for both lessons, each of
+#       which was a red leg first.
 #   A4  4.1 - ONE TARGET MOVES AND THE REST DO NOT. Every line that
 #       differs is one of the pairs the constant reaches, and the
 #       untouched targets are byte-identical.
@@ -480,15 +482,22 @@ else
   # program is 24 KiB, and the floor stops a failed link from reading as
   # a win.
   #
-  # AND THE BAND IS PER FORMAT, for the same reason the import set is.
-  # 24 KiB is the Mach-O measurement; the identical program is 71,168
-  # bytes as an ELF, because `cc` links crt1, the ELF program headers
-  # and the `.eh_frame`/`.note` sections a Mach-O keeps elsewhere. That
-  # is not the runtime growing, and one band across both formats can
-  # only be satisfied by whichever host wrote it. The proposal's 24 KiB
-  # is a claim about the FREESTANDING build - the statically-arena'd
-  # target A5 and A6 exercise, which links no crt at all - so it stays
-  # exactly where it was measured and ELF gets its own, measured here.
+  # AND THE BAND IS THE PROPOSAL'S, WHICH MEASURED A MACH-O - so it is
+  # asserted on that format and on no other. A hosted executable's file
+  # size is the LINKER's page policy, not the runtime's: the identical
+  # program, from byte-identical IR, is 71,168 bytes linked by clang and
+  # lld on the aarch64 Ubuntu 24.04 image `run-gates-linux.sh` runs
+  # (lld pads to a 64 KiB max-page-size) and 16,416 bytes linked by gcc
+  # and ld.bfd on GitHub's x86_64 runner. Measured 2026-09-04, and
+  # measured because this arm's second draft gave ELF a band of its own
+  # (32..96 KiB) derived from the first number, and the x86_64 leg went
+  # red on the second - the same mistake as asserting Mach-O's band on
+  # ELF, one level up. Two supported linkers that disagree by 4.3x on
+  # the same input are not measuring the runtime, so on ELF and PE the
+  # size is printed above and gated nowhere. The proposal's 24 KiB is a
+  # claim about the FREESTANDING build that links no crt (A5 and A6
+  # exercise it), and about the Mach-O it was measured on, and that is
+  # where it stays.
   #
   # THE FORMAT IS READ BY `object_format`, `lib/imports.sh`'s one
   # reader, and not by this gate. The first draft of this arm read the
@@ -505,17 +514,16 @@ else
   # repository keeps.
   fmt="$(object_format "$work/min")" || fmt="unreadable"
   case "$fmt" in
-    elf)   lo=32768; hi=98304 ;;   # ELF + crt1: measured 71,168
-    macho) lo=8192;  hi=24576 ;;   # Mach-O, and the proposal's budget
-    *)     lo=0;     hi=0     ;;   # a format A3 has no band for: fails below
+    macho)
+      if (( size > 24576 || size < 8192 )); then
+        bad "the minimal program is $size bytes; the proposal's Mach-O budget is 8,192..24,576"
+        ok=0
+      fi ;;
+    elf|pe) ;;   # the linker's number: printed above, gated nowhere
+    *)
+      bad "the minimal program is not a PE, ELF or Mach-O object ($fmt)"
+      ok=0 ;;
   esac
-  if (( hi == 0 )); then
-    bad "the minimal program is a $fmt object, and A3 has no size band for that format"
-    ok=0
-  elif (( size > hi || size < lo )); then
-    bad "the minimal program is $size bytes; the budget for this format ($fmt) is $lo..$hi"
-    ok=0
-  fi
   (( ok )) && note "$size bytes, $undef import(s) and none outside the platform's startup set, exactly 3 distinct syscalls"
 fi
 
@@ -639,7 +647,13 @@ sll="$work/v.min.$host_target.ll"
 hll="$work/min.$host_target.ll"
 sn=$(syscall_nums "$sll" | grep -c . || true)
 hn=$(syscall_nums "$hll" | grep -c . || true)
-gone="$(comm -23 <(syscall_nums "$hll") <(syscall_nums "$sll") | tr '\n' ' ')"
+# `comm` wants both inputs in ITS collation, and `syscall_nums` sorts
+# numerically for the reader: on darwin the three numbers happen to be
+# in lexical order too, on Linux `1 9 231` is not, and the x86_64 leg
+# printed "comm: file 1 is not in sorted order" - a warning today, and
+# `comm` is documented to answer wrongly rather than fail when it is
+# ignored. Re-sort both sides under the one collation `comm` runs in.
+gone="$(LC_ALL=C comm -23 <(syscall_nums "$hll" | LC_ALL=C sort) <(syscall_nums "$sll" | LC_ALL=C sort) | tr '\n' ' ')"
 prob=0
 grep -q '^@__axiom_arena = internal global \[262144 x i8\] zeroinitializer, align 16$' "$sll" \
   || { bad "the static build reserves no region"; prob=1; }
