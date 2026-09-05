@@ -451,7 +451,7 @@
 ; intact.
 (pub :: saAxStructural (-> Int Bool))
 
-(pub fn (saAxStructural b) (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (== b 127))))))
+(pub fn (saAxStructural b) (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (|| (== b 61) (== b 127)))))))
 
 ; Named apart from render.ax's `jsonHexDigit` and codegen's `hexDigit`
 ; because imports join one flat top-level namespace.
@@ -534,7 +534,26 @@
 ; a bare or empty-parens tag is its key alone - the value runs from
 ; the first `(` to the LAST `)`, exactly stage0's parse. Both halves
 ; go through `saAxSafe`; the `=` between them is the compiler's, not
-; the author's, and is the only structural byte the token can carry.
+; the author's.
+;
+; `=` IS A STRUCTURAL BYTE, and until 2026-09-04 it was not. The
+; sentence above used to end "and is the only structural byte the
+; token can carry", which was false in both directions. A PARENLESS
+; tag has no halves to join, so its whole content is the key - and
+; `;@axiom:restrict=no-io` therefore rendered `#restrict=no-io`, byte
+; for byte what a VERIFIED `restrict(no-io)` renders, on a body the
+; compiler had refused to make that claim about. Measured: the same
+; function drew `AX3049` under `restrict(no-io)` and exited 0 under
+; `restrict=no-io`, with the two AXSYM rows identical in that key. And
+; a value could carry one too: `;@axiom:pre(== n 0)` rendered
+; `#pre===%20n%200`, where the space was escaped and the two `=` were
+; not.
+;
+; Escaping it makes the separator the compiler writes the only
+; unescaped `=` on the line, which is what the sentence claimed all
+; along. It does not close the whole hole - a key is still forgeable
+; through the PARENTHESISED form - and `axtagReservedKey`
+; (self_host/typecheck.ax) is that half.
 (pub :: saAxMeta (-> String String))
 
 (pub fn (saAxMeta content)
@@ -678,7 +697,12 @@
 ; cannot have been written.
 (pub :: smGenerated (-> String Bool))
 
-(pub fn (smGenerated name) (>= (strFindByte name 35 0) 0))
+(pub fn (smGenerated name)
+  (match (strFindByte name 35 0)
+    ((None) false)
+    ((Some _) true)
+  )
+)
 
 (pub :: smCollect (-> Int Int (Vec Int) Int))
 

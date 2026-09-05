@@ -206,9 +206,9 @@
 (pub :: axsymUnpct (-> String String))
 
 (pub fn (axsymUnpct s)
-  (if (< (strFindByte s axsymPercent 0) 0)
-    s
-    (axsymUnpctFrom s 0 "")
+  (match (strFindByte s axsymPercent 0)
+    ((None) s)
+    ((Some _) (axsymUnpctFrom s 0 ""))
   )
 )
 
@@ -231,11 +231,9 @@
 (pub :: axsymMeta (-> String Meta))
 
 (pub fn (axsymMeta tok)
-  (let ((cut (strFindByte tok axsymEquals 0)))
-    (if (< cut 0)
-      (Meta (axsymUnpct tok) "")
-      (Meta (axsymUnpct (strSlice tok 0 cut)) (axsymUnpct (strSlice tok (+ cut 1) (- (strLen tok) (+ cut 1)))))
-    )
+  (match (strFindByte tok axsymEquals 0)
+    ((None) (Meta (axsymUnpct tok) ""))
+    ((Some cut) (Meta (axsymUnpct (strSlice tok 0 cut)) (axsymUnpct (strSlice tok (+ cut 1) (- (strLen tok) (+ cut 1))))))
   )
 )
 
@@ -291,16 +289,13 @@
     (if (axsymIsKind (strByte ln 0))
       (if (!= (strByte ln 1) axsymSpace)
         None
-        (let ((q1 (strFindByte ln axsymQuote 0)))
-          (if (< q1 0)
-            None
-            (let ((q2 (strFindByte ln axsymQuote (+ q1 1))))
-              (if (< q2 0)
-                None
-                (axsymBuild ln q1 q2)
-              )
-            )
-          )
+        (match (strFindByte ln axsymQuote 0)
+          ((None) None)
+          ((Some q1)
+            (match (strFindByte ln axsymQuote (+ q1 1))
+              ((None) None)
+              ((Some q2) (axsymBuild ln q1 q2))
+            ))
         )
       )
       None
@@ -315,15 +310,14 @@
 
 (pub fn (axsymBuild ln q1 q2)
   (let ((head (axsymTrimEnd (strSlice ln 2 (- q1 2)))))
-    (let ((cut (strFindByte head axsymSpace 0)))
-      (if (< cut 0)
-        None
+    (match (strFindByte head axsymSpace 0)
+      ((None) None)
+      ((Some cut)
         (let ((rest (strSlice ln (+ q2 1) (- (strLen ln) (+ q2 1)))))
           (Some (Sym
             (strByte ln 0)            (strSlice head 0 cut)            (axsymTrimEnd (strSlice head (+ cut 1) (- (strLen head) (+ cut 1))))            (strSlice ln (+ q1 1) (- q2 (+ q1 1)))            (axsymNid rest)            (axsymMetaScan rest 0 (- 0 1) vecNew)
           ))
-        )
-      )
+        ))
     )
   )
 )
@@ -334,16 +328,13 @@
 (pub :: axsymNid (-> String String))
 
 (pub fn (axsymNid rest)
-  (let ((at (strFindByte rest axsymAt 0)))
-    (if (< at 0)
-      ""
-      (let ((sp (strFindByte rest axsymSpace (+ at 1))))
-        (if (< sp 0)
-          (strSlice rest (+ at 1) (- (strLen rest) (+ at 1)))
-          (strSlice rest (+ at 1) (- sp (+ at 1)))
-        )
-      )
-    )
+  (match (strFindByte rest axsymAt 0)
+    ((None) "")
+    ((Some at)
+      (match (strFindByte rest axsymSpace (+ at 1))
+        ((None) (strSlice rest (+ at 1) (- (strLen rest) (+ at 1))))
+        ((Some sp) (strSlice rest (+ at 1) (- sp (+ at 1))))
+      ))
   )
 )
 

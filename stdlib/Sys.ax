@@ -1327,7 +1327,10 @@
 
 ;@axiom:effect(io)
 (pub fn (sysRunPath name argv envp)
-  (if (>= (strFindByte name 47 0) 0)
+  (if (match (strFindByte name 47 0)
+      ((None) false)
+      ((Some _) true)
+    )
     (sysRun (strCStr (strDup name)) argv envp)
     (let ((path (sysEnv "PATH")))
       (if (== (strLen path) 0)
@@ -1374,14 +1377,13 @@
     ; spelling for one, and it is unambiguous: a name with
     ; a slash in it. `sysRunPath` hands `./llc` straight to
     ; `sysRun` and never comes here.
-    (let ((colon (strFindByte path 58 from)))
-      (let ((end 
-        (if (< colon 0)
-          (strLen path)
-          colon
-        )
-      ))
-        (let ((dir (strSlice path from (- end from))))
+    (let ((end
+      (match (strFindByte path 58 from)
+        ((None) (strLen path))
+        ((Some colon) colon)
+      )
+    ))
+      (let ((dir (strSlice path from (- end from))))
           (if (== (strLen dir) 0)
             (sysRunSearch
               name              argv              envp              path              (+ end 1)
@@ -1426,7 +1428,6 @@
           )
         )
       )
-    )
   )
 )
 

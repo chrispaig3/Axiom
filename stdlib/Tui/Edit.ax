@@ -483,7 +483,16 @@
     true
     (if (|| (strIsAlpha cp) (|| (strIsDigit cp) (== cp 95)))
       true
-      (>= (strFindByte ed.wordChars cp 0) 0)
+      ; `match` rather than `isSome`: this file claims `no-alloc` and
+      ; does not import `Err`. An `Option` matched where it is produced
+      ; is two registers; one handed to a function is a block built at
+      ; the call (docs/unboxed-sums-design.md section 5b), which is the
+      ; allocation `tests/diagnostics/384-restrict-no-alloc-ctor.ax`
+      ; calls `held`.
+      (match (strFindByte ed.wordChars cp 0)
+        ((None) false)
+        ((Some _) true)
+      )
     )
   )
 )

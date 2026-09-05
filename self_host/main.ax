@@ -626,7 +626,7 @@
                                         (let ((v vecNew))
                                           {
                                             (vecPush v (mkDiag
-                                              SEV_ERROR                                              "AX4001"                                              "missing-main"                                              0                                              "no `main` function found"                                              0                                              0                                              "add `(:: main Int)` and `(define main ...)` as the program entry point"
+                                              SEV_ERROR                                              "AX4001"                                              "missing-main"                                              0                                              "no `main` function found"                                              0                                              0                                              "add `(:: main Int)` and `(fn (main) ...)` as the program entry point"
                                             ))
                                             v
                                           }
@@ -784,7 +784,7 @@
         )
       )
       (if (== (strLen first) 0)
-        rejectTypoedSubcommand
+        rejectUnknownCommand
         0
       )
       (if (> (strLen first) 0)
@@ -837,9 +837,13 @@
 ;
 ; The two readings are genuinely ambiguous, because the legacy spelling
 ; makes ANY first positional a filename. The tie is broken by asking
-; the filesystem: a first operand that cannot be read AND is within one
-; edit of a subcommand is a typo, not a file. A name that is neither
-; keeps the old answer, which for the legacy grammar is the right one.
+; the filesystem and then the spelling (`rejectUnknownCommand`, below;
+; the rule is `spelledLikePath` in driver.ax): a first operand that
+; opens is a file, one that does not and is spelled as a path is a
+; file that failed to read, and one that is neither is an unknown
+; command. This paragraph said "within one edit of a subcommand" for
+; as long as the threshold was two, and the distance is no longer the
+; deciding question at all.
 ; ------------------------------------------------------------------
 ; `axiom test`
 ; ------------------------------------------------------------------
@@ -1236,10 +1240,20 @@
   )
 )
 
-(pub :: rejectTypoedSubcommand Int)
+; A first operand that is no subcommand, opens as nothing, and is not
+; spelled as a path is an unknown command: exit 2, named, with the
+; nearest command suggested when one is within two edits. The rule
+; that separates the word from the path is `spelledLikePath` in
+; driver.ax, where the reasoning is.
+;
+; Until 2026-09-04 only the suggestion half existed - a word was
+; refused only when a command name was near it - so `axiom frobnicate`
+; was read as the legacy FILE and answered a read failure at exit 1,
+; against the exit-code table `--help` prints.
+(pub :: rejectUnknownCommand Int)
 
 ;@axiom:effect(io)
-(pub fn (rejectTypoedSubcommand)
+(pub fn (rejectUnknownCommand)
   (let ((i (positionalIndex 1)))
     (if (< i 0)
       0
@@ -1252,10 +1266,15 @@
         ; typo either; `compileFile` reports it with its errno.
         (if (sysFileExists (strData w))
           0
-          (let ((near (nearestSubcommand w)))
-            (if (== (strLen near) 0)
-              0
-              (usageError (cat2 (cat3 "error: unrecognised subcommand `" w "`\n") (cat3 "       did you mean `" near "`?\n")))
+          (if (spelledLikePath w)
+            0
+            (let ((near (nearestSubcommand w)))
+              (usageError
+                (if (== (strLen near) 0)
+                  (cat3 "error: unknown command `" w "`\n")
+                  (cat2 (cat3 "error: unknown command `" w "`\n") (cat3 "       did you mean `" near "`?\n"))
+                )
+              )
             )
           )
         )

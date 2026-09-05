@@ -611,16 +611,15 @@
 (pub :: expMangledIs (-> String String Int))
 
 (pub fn (expMangledIs s name)
-  (let ((i (strFindByte s 36 0)))
-    (if (< i 0)
-      0
+  (match (strFindByte s 36 0)
+    ((None) 0)
+    ((Some i)
       (if (!= (- (strLen s) (+ i 1)) (strLen name))
         0
         (expTailEq
           s          (+ i 1)          name          0          (strLen name)
         )
-      )
-    )
+      ))
   )
 )
 
@@ -7778,7 +7777,7 @@
 ; it, and one that did silenced its own contract: measured, `(fn (f n)
 ; { (__contract true "...") n })` under `;@axiom:pre((> n 0))` called
 ; as `(f 0)` checked `OK` and exited **0**, where the same file without
-; the first statement exits 76. The `post` arm was the same shape. A
+; the first statement exits 77. The `post` arm was the same shape. A
 ; contract that a program can turn off by writing one expression is a
 ; check that cannot fail, which is the defect this whole feature
 ; exists to prevent.
