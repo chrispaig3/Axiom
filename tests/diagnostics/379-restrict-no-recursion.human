@@ -3,6 +3,8 @@
 [1;34m   |[0m
 [1;34m42 |[0m (fn (viaCap n)
 [1;34m   |[0m      [1;31m^^^^^^[0m
+[1;34m42 |[0m (fn (viaCap n)
+[1;34m   |[0m      [1;36m------ viaCap[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
@@ -12,6 +14,8 @@
 [1;34m   |[0m
 [1;34m51 |[0m (fn (countdown n)
 [1;34m   |[0m      [1;31m^^^^^^^^^[0m
+[1;34m51 |[0m (fn (countdown n)
+[1;34m   |[0m      [1;36m--------- countdown[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
@@ -21,6 +25,14 @@
 [1;34m   |[0m
 [1;34m61 |[0m (fn (ping n)
 [1;34m   |[0m      [1;31m^^^^[0m
+[1;34m61 |[0m (fn (ping n)
+[1;34m   |[0m      [1;36m---- ping[0m
+[1;34m...[0m
+[1;34m70 |[0m (fn (pong n) (pang n))
+[1;34m   |[0m      [1;36m---- pong[0m
+[1;34m...[0m
+[1;34m74 |[0m (fn (pang n) (ping n))
+[1;34m   |[0m      [1;36m---- pang[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
@@ -28,6 +40,11 @@
 [1;31merror[AX3049][0m[1m: `entry` claims `restrict(no-recursion)` and the call graph closes a cycle at `countdown`: entry -> countdown -> countdown[0m
   [1;34m--> [0m379-restrict-no-recursion.ax:79:6
 [1;34m   |[0m
+[1;34m51 |[0m (fn (countdown n)
+[1;34m   |[0m      [1;36m--------- countdown[0m
+[1;34m51 |[0m (fn (countdown n)
+[1;34m   |[0m      [1;36m--------- countdown[0m
+[1;34m...[0m
 [1;34m79 |[0m (fn (entry n) (countdown n))
 [1;34m   |[0m      [1;31m^^^^^[0m
 [1;34m   |[0m

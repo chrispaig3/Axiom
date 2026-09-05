@@ -10,6 +10,9 @@
 [1;31merror[AX3049][0m[1m: `deepCaller` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepCaller -> unwrap[0m
   [1;34m--> [0m378-restrict-no-cast-deep.ax:37:6
 [1;34m   |[0m
+[1;34m28 |[0m (fn (unwrap m) (cast Int m))
+[1;34m   |[0m      [1;36m------ unwrap[0m
+[1;34m...[0m
 [1;34m37 |[0m (fn (deepCaller m) (unwrap m))
 [1;34m   |[0m      [1;31m^^^^^^^^^^[0m
 [1;34m   |[0m
@@ -19,6 +22,12 @@
 [1;31merror[AX3049][0m[1m: `deepFar` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepFar -> viaUnwrap -> unwrap[0m
   [1;34m--> [0m378-restrict-no-cast-deep.ax:42:6
 [1;34m   |[0m
+[1;34m28 |[0m (fn (unwrap m) (cast Int m))
+[1;34m   |[0m      [1;36m------ unwrap[0m
+[1;34m...[0m
+[1;34m32 |[0m (fn (viaUnwrap m) (unwrap m))
+[1;34m   |[0m      [1;36m--------- viaUnwrap[0m
+[1;34m...[0m
 [1;34m42 |[0m (fn (deepFar m) (viaUnwrap m))
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
@@ -37,6 +46,9 @@
 [1;31merror[AX3049][0m[1m: `deepLocal` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepLocal -> unwrap[0m
   [1;34m--> [0m378-restrict-no-cast-deep.ax:47:6
 [1;34m   |[0m
+[1;34m28 |[0m (fn (unwrap m) (cast Int m))
+[1;34m   |[0m      [1;36m------ unwrap[0m
+[1;34m...[0m
 [1;34m47 |[0m (fn (deepLocal m) (+ (cast Int m) (unwrap m)))
 [1;34m   |[0m      [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
@@ -46,6 +58,9 @@
 [1;31merror[AX3049][0m[1m: `deepRefuted` claims `restrict(no-cast:deep)` and the closure reaches a cast in the body of `unwrap`: deepRefuted -> unwrap[0m
   [1;34m--> [0m378-restrict-no-cast-deep.ax:74:6
 [1;34m   |[0m
+[1;34m28 |[0m (fn (unwrap m) (cast Int m))
+[1;34m   |[0m      [1;36m------ unwrap[0m
+[1;34m...[0m
 [1;34m74 |[0m (fn (deepRefuted b m) (+ ((b.f) 1) (unwrap m)))
 [1;34m   |[0m      [1;31m^^^^^^^^^^^[0m
 [1;34m   |[0m

@@ -2,8 +2,10 @@
 
 **Status.** The format, its reader, and the AXSYM projection shipped in
 0.7.3, gated by `scripts/check-mir-roundtrip.sh` and
-`scripts/check-mir-projection.sh`. The AXDL half is **designed and not
-built**, and §5 says exactly what blocks it. The block-and-instruction
+`scripts/check-mir-projection.sh`. The AXDL half **shipped in 0.7.5**,
+gated by `scripts/check-diagnostics.sh` and the span verifier it runs;
+§5 is the record of what it is and what it does not reach. The
+block-and-instruction
 half of the grammar was **specified and read, and written by nothing**
 until 2026-09-04, because there was no mid-level IR in the tree for it
 to describe. There is one now — `self_host/mir.ax` — and
@@ -248,73 +250,116 @@ over `self_host/main.ax` reports **0** truncated rows out of 4,114, with
 4,023 carrying a summary, 1,157 an escaping parameter and 1,854 the
 per-row `#mir-incomplete`.
 
-## 5. The AXDL half: designed, and blocked
+## 5. The AXDL half: shipped 2026-09-04
 
-An `AX3049` message today names the call path in prose, inside the
-quoted message, and carries **no** related location at all:
+An `AX3049` message used to name the call path in prose, inside the
+quoted message, and carry **no** related location at all:
 
 ```text
 E AX3049 f.ax:9:5-16 restrict-violated "`parseConfig` performs IO through parseConfig -> readSection -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3" …
 ```
 
 Measured 2026-09-03: `grep -h AX3049 tests/diagnostics/*.axdl | grep -c
-' \^'` is **0**, and the JSON sibling shows `"related":[]` beside that
-same message — `render.ax`'s `jsonRelatedArray` is wired and merely
-empty. 16 of the 201 `.axdl` goldens carry a resolved `->` chain in a
-message; the codes inside them are 26 `AX3049`, 15 `AX3051`, 10
-`AX3037`, 9 `AX3004`, 6 `AX3053`, 3 `AX3057`, 2 `AX3038` and one each of
-`AX3039`, `AX3011` and `AX3010`. An agent reading any of them has to
-re-resolve every hop itself.
+' \^'` was **0**, and the JSON sibling showed `"related":[]` beside that
+same message — `render.ax`'s `jsonRelatedArray` was wired and merely
+empty. 16 of the 204 `.axdl` goldens carried a resolved `->` chain in a
+message. An agent reading any of them had to re-resolve every hop
+itself.
 
-Populating the `Diag`'s `secs` vector would make all three renderers
-emit the path at once — AXDL's `^` field, the human renderer's `-`
-underline, and the JSON `related` array — with no change to any
-renderer. **It is blocked on one struct.**
+It was **blocked on one struct.** `DLabel` was `(span, msg)`, with no
+`unit`, so a related location could only point into the diagnostic's
+*own* source file — and four of the six hops above are in `stdlib/`, so
+cross-unit is the common case here, not the corner. The decision it was
+waiting on was a change to AXDL's grammar, which is a stable format.
 
-`DLabel` is `(span, msg)`. It has no `unit`, so a related location can
-only point into the diagnostic's *own* source file. `DFrame`, the
-expansion-backtrace element, does carry one, and `diag.ax`'s comment on
-it says why: the file is spelled out "because, uniquely among the line's
-fields, this one points into a DIFFERENT source than the diagnostic's
-own unit". Four of the six hops in the example above are in `stdlib/`,
-so cross-unit is the common case here, not the corner.
+**What shipped.** The four steps, in order, and the measurement each
+one is held to.
 
-The design, for when it is unblocked:
+1. `DLabel` gained a `unit` slot, sentinel `-1` for "the diagnostic's
+   own" — `-1` and not `0`, because `0` is a real unit index (the entry
+   file) and a secondary genuinely in unit 0 has to stay
+   distinguishable from one that never named a unit. `diagSecUnit`
+   reads it; `diagAddSecondaryIn` writes it; `diagAddSecondary` keeps
+   its arity and writes the sentinel, so the two fixtures that call it
+   (`tests/selfhost/640-axdl-render.ax`, `645-axdl-repetition.ax`) did
+   not move and neither did any golden that already carried a `^`.
+2. Three spellings, not two. `^LOC:"msg"` is the one the grammar always
+   had; `^FILE:LOC:"msg"` is the cross-unit one, exactly the shape `&`
+   had already demonstrated; and `^-:"msg"` is a related location with
+   **no** location, `-` being what the primary `FILE:LOC` field already
+   says for a spanless diagnostic. The third is the one the design
+   above did not have, and it is what makes the whole thing checkable:
+   a hop that is a builtin or an `extern` item has no declaration in
+   any unit, and *dropping* it is precisely the "field list that looks
+   complete when it is not" this document warned against. No new line
+   kind — the trap below is intact.
+3. `AX3049`, `AX3051` and `AX3057` populate `secs` from the very vector
+   the prose was rendered from. `witnessTextOf` and `witnessSecPath`
+   take the path rather than walking for one, so the message and the
+   fields cannot come to disagree about which hops there are.
+4. The gate. `verify-axdl-spans.py` — which `check-diagnostics.sh` runs
+   on the check path *and before returning from a bless* — parses the
+   two new spellings and makes the hop-for-hop equality: the k-th `^`
+   field's label is the (k+1)-th hop of the chain, spelled the same
+   way, and there are exactly as many fields as hops after the first.
 
-1. Widen `DLabel` with a `unit` slot.
-2. Render `^file:LOC:"msg"` when the unit differs from the diagnostic's
-   own and the bare `^LOC:"msg"` when it does not — exactly the shape
-   `&` already has, so the grammar gains a variant it has already
-   demonstrated rather than a new sigil.
-3. Populate `secs` at the `AX3049`/`AX3051` emit sites from the same
-   walk that builds the prose chain.
-4. Extend `check-diagnostics.sh`: for every golden whose message carries
-   a `->` chain, each name in that chain must have a matching `^` field
-   on the same line. Ablation: drop one hop from `secs` while leaving
-   the prose intact; the counts disagree and the gate reddens.
+**The rule, stated, because it is the part that could have been
+vacuous.** One field per hop *after the first*: the first hop is the
+declaration the diagnostic is already reported at, and its span is the
+primary field. A hop with no declaration gets a field with `-` where
+its location would be. Both halves are needed for the count to be
+exact — without the second, "one per hop" would be satisfied by a
+shorter chain and the comparison would pass, silently, over a field
+list that is not the whole chain.
 
-**Why none of it was written.** AXDL and AXSYM are stable formats and
-step 2 is a change to AXDL's grammar, which is deferred pending a
-decision. The fallback that needs no decision — emit `^` only for the
-hops in the diagnostic's own unit and leave the rest as prose — is
-*worse than doing nothing*, because it makes the field list look
-complete when it is not, which is the failure mode this whole document
-is about.
+Measured on the corpus after the change: 22 lines carry a chain, 51
+hops are checked against a `^` field, 13 of them have no declaration to
+point at and 22 are in another unit. Four floors under those four
+numbers refuse a corpus that stops exercising any of them; a fifth,
+in `check-diagnostics.sh` itself, reads the population off the
+checked-in goldens with `grep`, because the equality says nothing at
+all when it holds over zero lines.
 
-**What is not blocked, and shipped instead.** The `.axir` file carries
-the file of every function in its header tuple. An agent holding an
-`AX3049` message and the `.axir` file for the same program can resolve
-every hop in the chain by name without a grammar change, because a hop
-is a function and every function has a record. That is the join the
-AXDL half would make one line shorter, not a capability it would add.
+**Ablation, run 2026-09-04.** In a copied tree, `restrictPathSecs` was
+started at hop 2 instead of hop 1 — one hop dropped from `secs`, the
+prose untouched — and the corpus re-blessed from the resulting
+compiler. The bless is **refused**: 22 goldens report the disagreement
+by name (`the message names 4 hop(s) after the first [...] and the line
+carries 3`), and two of the floors fail as well. A wrong chain cannot
+be blessed into the corpus.
 
-**One trap for whoever does write it.** `check-diagnostics.sh` line 161
-is `axdl_only() { grep -E '^[EWNH] ' || true; }`, and the same regex
-appears in `check-frontend-parity.sh` and three places in
-`check-render-selfhost.sh`. The corpus uses only `E` (382 lines) and `W`
-(40); `N` and `H` are reserved and unused. A new AXDL line kind outside
-that set would be dropped in silence by five gates — a gate that reports
-less than it knows. Do not add a line kind; the fields above are enough.
+**Where it does not reach.** A cross-unit related location cannot be
+drawn in the human snippet — that snippet is quoted out of one source,
+and another file's line number would put a caret under the wrong text —
+so it renders as a note carrying its own file and position, which is
+the degradation an expansion frame with no reachable unit already
+takes. The LSP publishes neither the cross-unit nor the location-less
+kind: the server holds one document and no unit table, so a hop it
+cannot place is dropped rather than aimed at the open file's uri.
+
+Two consequences worth writing down. A golden now cites `stdlib/IO.ax`
+by line, so an edit that moves a line in `stdlib/` reddens
+`check-diagnostics.sh` — with a diff a reader can see and a one-command
+re-bless. And the file names have to be *repository* paths: both corpus
+gates now export a RELATIVE `AXIOM_STDLIB`, because the absolute one
+`gate_init` sets would put `/Users/somebody/checkout/stdlib/IO.ax` in a
+checked-in file. `verify-axdl-spans.py` refuses an absolute path
+outright, so that cannot go wrong quietly.
+
+**What is still only in the `.axir` file.** The `.axir` record carries
+the file of every function in its header tuple, so an agent holding an
+`AX3049` and the record file could already resolve every hop by name.
+That join is now one line shorter, which is what this half was ever
+going to be.
+
+**The trap this half was written around, and it is still live.**
+`check-diagnostics.sh` line 161 is `axdl_only() { grep -E '^[EWNH] ' ||
+true; }`, and the same regex appears in `check-frontend-parity.sh` and
+three places in `check-render-selfhost.sh`. The corpus uses only `E`
+(382 lines) and `W` (40); `N` and `H` are reserved and unused. A new
+AXDL line kind outside that set would be dropped in silence by five
+gates — a gate that reports less than it knows. Nothing here added
+one: three field spellings, one of them new, and no line kind.
 
 ## 6. What is gated
 
@@ -334,6 +379,12 @@ less than it knows. Do not add a line kind; the fields above are enough.
 | the body is written under `--mir` and nowhere else, and `--mir` is additive on the byte level | `scripts/check-mir-roundtrip.sh` |
 | a floor under how many records carry a body, and an opcode census derived from `mBinOp` and `axirTermLine` rather than listed | `scripts/check-mir-roundtrip.sh` |
 | `mir` is imported by `axir.ax` alone, and `mireval` by nothing in the compiler | `scripts/check-mir.sh` §6 |
+
+| a diagnostic's call chain is in its `^` fields and not only in its prose: one field per hop after the first, labelled with the hop's resolved name, in order | `tests/diagnostics/verify-axdl-spans.py`, run by `scripts/check-diagnostics.sh` on the check path AND before a bless returns |
+| a hop with no declaration is still a field - `^-:"name"` - so the list is the whole chain | the same equality, plus a floor on how many location-less fields the corpus carries |
+| the cross-unit spelling is still produced, and its spans are true of `stdlib/`'s own bytes | the same verifier: every `^FILE:LOC` claim is recomputed from that file, and an absolute path is refused outright |
+| the corpus has not stopped carrying chains, which would make the equality hold over nothing | `scripts/check-diagnostics.sh` — the population is read off the checked-in goldens by `grep` and floored |
+| the human and JSON surfaces say the same thing about every related location, including the two that cannot be drawn in a snippet | `scripts/check-render-selfhost.sh` — one dash row per same-file field as an equality, and the note text derived from the AXDL field |
 
 **Formerly not gated by the emitted corpus, and now gated by it:** the
 `blk`/`op`/`term` half of the grammar rested on the hand-written

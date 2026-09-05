@@ -1,0 +1,106 @@
+; `restrict(no-wrap)` refuses the three operators that WRAP, and two
+; things wearing those spellings do not. This fixture is the pair of
+; exemptions and, beside each, the case that proves the exemption is
+; narrow - `383-restrict-no-wrap.ax` holds the rule itself.
+;
+;   `counts`      a range `for` under the claim        -> silent: the
+;                                                         counter bump
+;                                                         is the
+;                                                         parser's, and
+;                                                         the guard
+;                                                         bounds it
+;   `iterates`    a container `for` under the claim    -> silent: the
+;                                                         same desugar
+;   `floats`      `+`, `-` and `*` on `Float`          -> silent: those
+;                                                         lower to
+;                                                         `fadd`/`fsub`/
+;                                                         `fmul`, which
+;                                                         cannot wrap
+;   `handRolled`  the loop written out by hand         -> AX3049 at the
+;                                                         `+`: the
+;                                                         author wrote
+;                                                         this one
+;   `loopBody`    a `for` whose BODY multiplies        -> AX3049 at the
+;                                                         `*`: only the
+;                                                         bump is
+;                                                         exempt, not
+;                                                         the loop
+;   `mixed`       a `Float` `+` inside an `Int` `+`    -> ONE AX3049,
+;                                                         at the outer
+;                                                         operator only
+;
+; Before 2026-09-04 the first three were refused. `counts` and
+; `iterates` drew "`+` in the body of ..." underlining the word `for` -
+; an operator the source does not contain, with no fix available, since
+; a loop counter cannot be a `Result`; `floats` was told to call
+; `addChecked`, which is `(-> Int Int (Result Int Error))` and does not
+; typecheck against a `Float`. See `docs/checked-arithmetic-design.md`.
+(import Err)
+
+(import Vec)
+
+;@axiom:restrict(no-wrap)
+(:: counts (-> Int Int))
+
+(fn (counts n)
+  (let ((mut acc 0))
+    {
+      (for i 0 n
+        (set acc (unwrapOr (addChecked acc i) 0)))
+      acc
+    }
+  )
+)
+
+;@axiom:restrict(no-wrap)
+(:: iterates (-> (Vec Int) Int))
+
+(fn (iterates xs)
+  (let ((mut acc 0))
+    {
+      (for x xs
+        (set acc (unwrapOr (addChecked acc x) 0)))
+      acc
+    }
+  )
+)
+
+;@axiom:restrict(no-wrap)
+(:: floats (-> Float Float Float))
+
+(fn (floats a b) (* (+ a b) (- a b)))
+
+;@axiom:restrict(no-wrap)
+(:: handRolled (-> Int Int))
+
+(fn (handRolled n)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        (set i (+ i 1)))
+      i
+    }
+  )
+)
+
+;@axiom:restrict(no-wrap)
+(:: loopBody (-> Int Int))
+
+(fn (loopBody n)
+  (let ((mut acc 1))
+    {
+      (for i 1 n
+        (set acc (* acc i)))
+      acc
+    }
+  )
+)
+
+;@axiom:restrict(no-wrap)
+(:: mixed (-> Float Int Int))
+
+(fn (mixed f n) (+ (__floatToInt (+ f 1.5)) n))
+
+(:: main Int)
+
+(fn (main) (+ (counts 3) (+ (iterates (vecPush vecNew 4)) (+ (__floatToInt (floats 2.0 1.0)) (+ (handRolled 2) (+ (loopBody 3) (mixed 1.5 1)))))))

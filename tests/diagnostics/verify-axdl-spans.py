@@ -20,7 +20,11 @@ reads without deriving a claim from - `#"label"` (the primary label) and
 `!"note"` - and one that DOES carry a claim since 2026-08-14:
 `&file:L:C-C:"name"`, an expansion-backtrace frame, whose span points at
 the named macro's declaration in the named file (the bare `&"name"` form
-still parses and claims nothing). Every one of
+still parses and claims nothing). A `^` field has had three spellings
+since 2026-09-04: the bare `^L:C-C:"msg"` above, `^file:L:C-C:"msg"`
+for a related location in ANOTHER file - checked against that file, the
+way a frame is - and `^-:"msg"` for one with no location at all, which
+claims nothing and is read anyway. Every one of
 the *positions* above is a claim about a file this repository
 also contains. `tests/diagnostics/010-duplicate-fn.ax` really does or
 does not have a line 3 whose characters 6 through 9 spell `main`. That
@@ -71,6 +75,17 @@ Decoding UTF-8 here rather than indexing bytes is what makes those two
 files pass - and a verifier that indexed bytes would report them as the
 only failures in the corpus, which is worth knowing if this ever fires.
 
+AND ONE EQUALITY THAT IS NOT ABOUT POSITIONS. A message carrying a call
+chain - `AX3049`'s `a -> b -> IO$writeStr -> __syscall3`, and the two
+codes beside it - must carry one `^` field per hop after the first,
+labelled with that hop's own spelling, in order. The first hop is the
+declaration the diagnostic is already reported at, so its span is the
+primary field; a hop with no declaration still gets a field, with `-`
+where its location would be. Both halves are what make the count exact
+rather than a check that cannot fail. Ablated 2026-09-04 by dropping
+one hop from the compiler's `secs` while leaving the prose intact: 22
+goldens report it and the bless is refused.
+
 Usage:  verify-axdl-spans.py <diagnostics-dir> [<golden.axdl> ...]
         with no goldens named, every `*.axdl` in the directory is read.
 Exit 0 if every claim holds; 1 otherwise, listing the failures.
@@ -87,6 +102,20 @@ SPAN = re.compile(r'^(\S+):(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?$')
 # A secondary span on a `^note` or `?help`: same file, no path repeated.
 SECONDARY = re.compile(r'(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?:')
 FRAME = re.compile(r'([^\s:"]+):(\d+):(\d+)(?:-(?:(\d+):)?(\d+))?:')
+# A `^` field with NO location: `^-:"msg"`. The related location
+# exists as a fact - it is one hop of a call chain the message names -
+# and has no position, because the thing it names has no declaration.
+# `-` is the spelling the PRIMARY field already uses for that, and the
+# two are read the same way here: the field is checked to be a
+# well-formed string and contributes no span claim.
+NOLOC = re.compile(r'-:')
+# A CALL CHAIN in a message, and the codes whose messages carry one.
+# The codes are named rather than the shape sniffed for, because
+# `type mismatch: expected (Int -> Int)` is the same shape and is a
+# TYPE - AX3004 carries eleven of those in this corpus and not one
+# call chain.
+CHAIN_CODES = ('AX3049', 'AX3051', 'AX3057')
+CHAIN = re.compile(r"[A-Za-z_][A-Za-z0-9_$']*(?: -> [A-Za-z_][A-Za-z0-9_$']*)+")
 BACKTICKED = re.compile(r'`([^`]*)`')
 # Per AX1001's own help text: letters, digits, `_`, and `'`.
 IDENT_CH = re.compile(r"[^\W]|'", re.UNICODE)
@@ -124,6 +153,24 @@ MIN_GOLDENS = 120
 MIN_CLAIMS = 400
 MIN_ANCHORED = 310
 MIN_CODES = 40
+
+# The call-chain floors, and there are three of them because the check
+# above has three ways to go quiet. MIN_CHAINS: the corpus stops
+# carrying restriction violations with a resolved path. MIN_CHAIN_NOLOC:
+# the compiler stops emitting the location-less field for a hop with no
+# declaration, at which point "one field per hop" would be satisfied by
+# a shorter chain and the comparison would still pass, silently, on a
+# field list that is not the whole chain. MIN_CHAIN_XUNIT: the
+# cross-unit spelling stops being produced - the one the AXDL grammar
+# gained for this - which would leave every hop in the fixture's own
+# file and the widening untested. Derived 2026-09-04 against what the
+# corpus produces: 22 chains, 51 hops, 13 location-less and 22
+# cross-unit. The margin is a couple of chains, deliberately, for the
+# reason the four floors above record.
+MIN_CHAINS = 20
+MIN_CHAIN_HOPS = 46
+MIN_CHAIN_NOLOC = 11
+MIN_CHAIN_XUNIT = 19
 
 
 def read_string(text, i):
@@ -167,7 +214,7 @@ def read_string(text, i):
 
 
 def parse(line):
-    """An AXDL line -> (code, path, message, [(l1, c1, l2, c2, kind), ...]).
+    """An AXDL line -> (code, path, message, spans, sec_labels, sec_kinds).
 
     Parsed structurally rather than scanned for span-shaped substrings,
     so that a `?3:4-5:` appearing INSIDE a message cannot be mistaken for
@@ -184,6 +231,8 @@ def parse(line):
     path, l1, c1, l2, c2 = sm.groups()
     spans = [(int(l1), int(c1), int(l2) if l2 else None,
               int(c2) if c2 else None, 'primary', None, None)]
+    sec_labels = []
+    sec_kinds = []
     message, i = read_string(line, m.end())
     while i < len(line):
         if line[i] == ' ':
@@ -226,17 +275,49 @@ def parse(line):
                     continue
             _text, i = read_string(line, i)
             continue
+        kind = 'note' if mark == '^' else 'help'
         sec = SECONDARY.match(line, i)
+        fpath = None
+        fanchor = None
+        seckind = 'here'
         if sec:
             sl1, sc1, sl2, sc2 = sec.groups()
-            spans.append((int(sl1), int(sc1), int(sl2) if sl2 else None,
-                          int(sc2) if sc2 else None,
-                          'note' if mark == '^' else 'help', None, None))
             i = sec.end()
-        _text, i = read_string(line, i)
+        elif mark == '^' and NOLOC.match(line, i):
+            # `^-:"msg"`. No claim, and the field is still read below,
+            # because an unread field is a field whose quoting nobody
+            # is checking.
+            sl1 = None
+            seckind = 'noloc'
+            i += 2
+        elif mark == '^' and FRAME.match(line, i):
+            # `^file:LOC:"msg"`. Uniquely among `^` fields - and for
+            # the same reason `&` spells its file - this one points
+            # into a DIFFERENT source than the diagnostic's own, so
+            # the claim is checked against THAT file. Nothing but a
+            # call-graph hop produces it, and a hop's label is the
+            # name its span covers, which is why this one field's text
+            # is allowed to anchor the span the way a frame's is.
+            fm = FRAME.match(line, i)
+            fpath, sl1, sc1, sl2, sc2 = fm.groups()
+            seckind = 'xunit'
+            i = fm.end()
+        else:
+            sl1 = None
+        if sl1 is not None:
+            spans.append((int(sl1), int(sc1), int(sl2) if sl2 else None,
+                          int(sc2) if sc2 else None, kind, fpath, None))
+        text, i = read_string(line, i)
+        if mark == '^':
+            sec_labels.append(text)
+            sec_kinds.append(seckind)
+            if fpath is not None:
+                fanchor = text.rsplit('$', 1)[-1]
+                l1_, c1_, l2_, c2_, k_, fp_, _ = spans[-1]
+                spans[-1] = (l1_, c1_, l2_, c2_, k_, fp_, fanchor)
         if line[i:i + 2] == '~>':          # a machine-applicable fix
             _fix, i = read_string(line, i + 2)
-    return code, path, message, spans
+    return code, path, message, spans, sec_labels, sec_kinds
 
 
 def is_ident_ch(ch):
@@ -255,9 +336,32 @@ class Fixtures(object):
             return self.cache[named]
         stem = named[:-3] if named.endswith('.ax') else named
         text = None
+        # The fourth candidate is the REPOSITORY, not this directory: a
+        # `^file:LOC:` field naming a call-graph hop points wherever
+        # that hop is declared, and four of the six hops in a typical
+        # `AX3049` are in `stdlib/`. The claim is still a fact about a
+        # file this repository contains, which is the whole property
+        # this verifier has; it is simply not a fixture. Only a name
+        # carrying a directory reaches it, so no case name can be
+        # answered from outside `tests/diagnostics/`.
+        repo = os.path.join(self.root, os.pardir, os.pardir)
+        # ABSOLUTE, OR CLIMBING OUT: not a path this repository
+        # contains, and `os.path.join` would silently honour both. A
+        # golden naming `/Users/somebody/stdlib/IO.ax` is a golden that
+        # only reproduces on one machine, and this is where that is
+        # refused rather than blessed - the corpus is generated with a
+        # RELATIVE stdlib root for exactly this reason, and if that ever
+        # stops being true the failure has to be here and not in
+        # somebody else's checkout.
+        if named.startswith('/') or '..' in named.split('/'):
+            self.cache[named] = None
+            return None
         for cand in (os.path.join(self.root, stem + '.ax'),
                      os.path.join(self.root, stem + '.axbad'),
-                     os.path.join(self.root, 'mods', stem + '.ax')):
+                     os.path.join(self.root, 'mods', stem + '.ax'),
+                     os.path.join(repo, named) if '/' in named else ''):
+            if not cand:
+                continue
             if os.path.exists(cand):
                 with open(cand, encoding='utf-8') as fh:
                     text = fh.read()
@@ -287,6 +391,10 @@ def main(argv):
     codes = set()
     read = 0
     lines_seen = 0
+    chains = 0          # messages carrying a `->` call chain
+    chain_hops = 0      # `^` fields checked against a hop of one
+    chain_noloc = 0     # ... of which carry `-` for "no declaration"
+    chain_xunit = 0     # ... and which name another unit's file
 
     for golden in goldens:
         read += 1
@@ -297,11 +405,58 @@ def main(argv):
                     continue
                 lines_seen += 1
                 try:
-                    code, path, message, spans = parse(text)
+                    (code, path, message, spans, sec_labels,
+                     sec_kinds) = parse(text)
                 except ValueError as exc:
                     failures.append('%s:%d: %s: %s' % (golden, lineno, exc, text[:70]))
                     continue
                 codes.add(code)
+
+                # ------------------------------------------------
+                # THE CALL CHAIN, against the `^` fields beside it.
+                #
+                # An `AX3049` names its path in the message -
+                # `a -> b -> IO$writeStr -> __syscall3` - and since
+                # 2026-09-04 also as one related location per hop. The
+                # two are built from ONE vector in `typecheck.ax`, and
+                # this is where that is held to: the k-th `^` field's
+                # label must be the (k+1)-th hop, spelled the same
+                # way, and there must be exactly as many fields as
+                # there are hops after the first.
+                #
+                # THE RULE IS EXACT, and the two awkward cases are why
+                # it can be. The FIRST hop is the declaration the
+                # diagnostic is already reported at, so its span is
+                # the primary field and it gets no `^`. A hop with no
+                # DECLARATION - a builtin, an `extern` item - still
+                # gets a field, with `-` where its location would be;
+                # dropping those instead would make this a count that
+                # cannot fail, because the corpus could then lose any
+                # hop the compiler happens not to resolve and nothing
+                # here would know the difference.
+                # ------------------------------------------------
+                if code in CHAIN_CODES:
+                    cm = CHAIN.search(message)
+                    if cm:
+                        chains += 1
+                        hops = cm.group(0).split(' -> ')
+                        want = hops[1:]
+                        chain_hops += len(want)
+                        chain_noloc += sec_kinds.count('noloc')
+                        chain_xunit += sec_kinds.count('xunit')
+                        if sec_labels != want:
+                            failures.append(
+                                '%s:%d: the message names %d hop(s) after the '
+                                'first %r and the line carries %d `^` field(s) '
+                                '%r - one per hop, in order, is the rule'
+                                % (golden, lineno, len(want), want,
+                                   len(sec_labels), sec_labels))
+                    elif sec_labels:
+                        failures.append(
+                            '%s:%d: %s carries %d `^` field(s) and its message '
+                            'names no call chain'
+                            % (golden, lineno, code, len(sec_labels)))
+
                 src = fixtures.lines(path)
                 if src is None:
                     failures.append(
@@ -381,6 +536,10 @@ def main(argv):
           '%d wrong'
           % (read, lines_seen, claims, anchored, boundary_checked, len(codes),
              len(failures)))
+    print('%d call chain(s) in a message, %d hop(s) checked against the `^` '
+          'fields beside them (%d with no declaration to point at, %d in '
+          'another unit)'
+          % (chains, chain_hops, chain_noloc, chain_xunit))
 
     bad = len(failures) > 0
     if read < MIN_GOLDENS:
@@ -397,6 +556,15 @@ def main(argv):
               'this is what a systematic column error looks like'
               % (anchored, claims, MIN_ANCHORED), file=sys.stderr)
         bad = True
+    for got, want, what in ((chains, MIN_CHAINS, 'message(s) carrying a call chain'),
+                            (chain_hops, MIN_CHAIN_HOPS, 'hop(s) checked against a `^` field'),
+                            (chain_noloc, MIN_CHAIN_NOLOC, 'hop(s) with no declaration to point at'),
+                            (chain_xunit, MIN_CHAIN_XUNIT, 'hop(s) in another unit')):
+        if got < want:
+            print('FAIL: only %d %s; the floor is %d - the chain is back in '
+                  'the message and nowhere else' % (got, what, want),
+                  file=sys.stderr)
+            bad = True
     if len(codes) < MIN_CODES:
         print('FAIL: the goldens carry only %d distinct diagnostic codes; the '
               'floor is %d - a corpus that says one thing proves one thing'

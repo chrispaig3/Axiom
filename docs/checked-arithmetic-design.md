@@ -1,5 +1,16 @@
 # Checked arithmetic — Phase 1 design
 
+**Status: phase 1 BUILT `b7a8e1b` (2026-08-31), CORRECTED 2026-09-04.**
+This note was written as a design pass and committed in the same commit
+as its own implementation, so the sections below still read in the
+future tense; they are kept as written, and everything that happened
+since is in "What phase 1 turned out to be" at the end. Read that
+section first if you are here to find out what exists. In short:
+Shape B (`no-wrap`) shipped on 2026-08-31; on 2026-09-04 it was found
+to refuse two operators that cannot wrap, and that is fixed. The
+deferred items are decided rather than open — see "What is NOT built,
+and why".
+
 Ada round 1 shipped restriction profiles (`no-io`, `no-alloc`,
 `no-cast`, `no-cast:deep`, `no-recursion`, `no-foreign`;
 `05fb064`/`4a55781`/`7540524`). Three items stayed unstarted:
@@ -246,3 +257,125 @@ prove, not a new mechanism:
   (scope `isWrapOp` to answer 0 unconditionally, so `no-wrap` can
   never fire), confirmed red, restored, confirmed green — reported
   in the implementation follow-up.
+
+## What phase 1 turned out to be (2026-09-04)
+
+Phase 1 as this note defines it — Shape B, the closed-list name
+`no-wrap` — was **built on 2026-08-31 in `b7a8e1b`**, in the same
+commit that added this file. `checkOneRestrict` gained its arm,
+`isWrapOp`/`wrapScanInto` and the rest went in as described,
+`tests/diagnostics/383-restrict-no-wrap.ax` and
+`scripts/check-restrictions.sh`'s `plant no-wrap` pin it, and no
+diagnostic code was minted. The "Gate plan" section above is a
+description of what shipped, not of what was planned. Nothing in the
+mechanism needed correcting.
+
+**The design was wrong about one thing, and the compiler proves it: a
+lexical check matches a SPELLING, and two things wearing those
+spellings cannot wrap.** Both were refused, and neither refusal had a
+fix the author could take.
+
+*The `for` keyword.* `for` landed on 2026-09-03, three days after
+`no-wrap`, and it is desugared **in the parser** (`forWhileBody`) into
+`(set for$i (+ for$i 1))` beneath a `(< for$i for$n)` guard, with every
+generated node carrying the *keyword's* span. Measured against `5d61c6a`
+before the fix, a nine-line program whose only arithmetic is a `for`
+loop:
+
+```
+E AX3049 p1-for.ax:9:8-11 restriction-violated "`+` in the body of
+`countUp`, which claims `restrict(no-wrap)`"
+```
+
+Columns 8-11 of line 9 spell `for`. The diagnostic names an operator
+the source does not contain, underlines a keyword, and prescribes
+`addChecked` — a loop counter cannot be a `Result`. `restrict(no-wrap)`
+and the language's own loop keyword were mutually exclusive, and
+nothing said so.
+
+Skipping it is **sound and not merely convenient**: the body runs only
+while `for$i < for$n`, both `Int`, so `for$i + 1` is at most `INT_MAX`
+and the increment cannot overflow. The shape is the parser's alone —
+`$` is `AX1001 unexpected character` inside an identifier (measured),
+so `for$i` is a name no author can write — and `isForBump` matches the
+whole shape (target, head, both operands) so that a desugar which
+drifts stops matching and the fixture goes red rather than quiet. A
+loop written out by hand is still refused, and so is arithmetic in a
+loop's body.
+
+*`Float` operands.* `(+ a b)` on two `Float`s lowers to `fadd`
+(`fbinopToLLVM`, `self_host/codegen.ax`; `emitBinop2` picks it from the
+operands' float flags), and `fadd`/`fsub`/`fmul` have no wraparound to
+refuse. This note's own premise — "`+`, `-` and `*` lower to plain
+`add`/`sub`/`mul`" — is false for them. Worse, the fix the diagnostic
+named does not typecheck against a `Float`: `addChecked` is
+`(-> Int Int (Result Int Error))`. `restrict(no-wrap)` was unsatisfiable
+for any body doing float arithmetic.
+
+The operand types exist in exactly one place, `checkNumeric`, and the
+checker keeps no per-node types, so the float-typed operator heads are
+recorded there (`TC` word 37, `tcFloatOpAdd`) and read once by
+`restrictEmitWraps`. The ordering that makes this work is already
+written down in `tcWalkDecls`: *"The body first, then its tags"* — a
+body is checked before its own `restrict` claim is read. A `Float` `+`
+nested inside an `Int` `+` still reports the outer operator.
+
+Both fixes are **checks, not transformations**: no `emitExpr` case
+moved and no emitted byte changes, which is the invariant
+`check-restrictions.sh` section 1 exists to prove and which it
+re-proves over the corpus on every run.
+
+Gated by: `tests/diagnostics/394-restrict-no-wrap-exempt.ax` (the two
+exemptions, each beside the case that keeps it narrow — a hand-rolled
+loop counter, arithmetic in a loop's body, a `Float` `+` inside an
+`Int` one); `tests/selfhost/465-restrict-no-wrap-runs.ax`, which
+**runs** a restricted `for` loop and float arithmetic and must exit 60;
+and `check-restrictions.sh` section 6, whose negative probe builds a
+compiler with each exemption's predicate scoped to a constant and
+requires *both* declarations to draw AX3049 again.
+
+## What the design's other blockers measured, re-run 2026-09-04
+
+Two of the three stated blockers still stand against the tree, checked
+rather than assumed:
+
+- `grep -c 'with\.overflow\|\bnsw\b\|\bnuw\b' self_host/codegen.ax` is
+  still **0**. Shape A's premise holds.
+- `restrict(no-wrap, no-alloc)` on `(unwrapOr (addChecked a b) 0)` is
+  still refused, with the path:
+  `` `addSafe` claims `restrict(no-alloc)` and the body performs Alloc:
+  addSafe -> Err$addChecked -> Err$mkError ``. `;@axiom:pure` beside
+  `no-wrap` is still `AX3010`, "`pure` claim contradicted: body
+  performs Alloc". The pair really is unsatisfiable, and it is in the
+  diagnostic's help.
+
+The corpus counts have moved and are re-derived: `(+ ` is **2705** in
+`self_host/` and `stdlib/` (was 2417), `(- ` **1018** (was 836), `(* `
+**141** (was 127). The conclusion is unchanged — `no-wrap` is a narrow,
+deliberately opt-in claim about a region, not a mode anything acquires
+by accident.
+
+## What is NOT built, and why — decided, not open
+
+- **Shape A, a codegen trap** (`llvm.sadd.with.overflow`). Not built,
+  and not a follow-up of *this* feature. The reason is the one above:
+  a restriction changes no emitted byte, and `check-restrictions.sh`
+  section 1 spends its largest section proving that over the corpus. An
+  opt-in trapping arithmetic mode is a different feature with a
+  different invariant and its own gate; it does not extend `no-wrap`
+  and must not be spelled as a `restrict(...)` name.
+- **`/` and `%`.** Not in `no-wrap`, deliberately. They trap on a zero
+  divisor today (`axiom: division by zero`, exit 72), so the hazard
+  they carry is `INT_MIN / -1` alone (`MM-VAL-3b`) — a different claim
+  from "no silent wraparound", and one that wants its own name.
+- **`<<` and `>>`.** Undefined on an out-of-range shift amount with no
+  runtime check. Sharper than `+`/`-`/`*` in one way and unrelated in
+  another; `divChecked`, `remChecked`, `shlChecked` and `shrChecked`
+  already exist in `stdlib/Err.ax` to answer a future `no-untrapped`
+  or similarly-named restriction. The closed list has room. This is a
+  named follow-up, not a gap in phase 1.
+- **`remChecked`/`shrChecked` have no fixture.** Still true: neither
+  has a case in `tests/stdlib/312-checked-arithmetic.ax`, which is
+  where the other five are pinned at `--opt` 0/1/2/3. Still
+  `docs/error-model.md` `ERR-REC-2`'s "H, partly gated", still not
+  closed here.

@@ -141,6 +141,18 @@ ln -s "$repo_root/self_host" "$work/self_host"
 # the exact vacuous success the rest of this script exists to refuse.
 ln -s "$repo_root/tests" "$work/tests"
 
+# A RELATIVE stdlib root, overriding the absolute one `gate_init`
+# exports. The corpus is the compiler's OUTPUT, checked in, and an AXDL
+# line spells the path of every file it names - including, since
+# `AX3049` started resolving its call chain, `stdlib/IO.ax` for a hop
+# that lives there. Resolved through `$AXIOM_STDLIB` as an absolute
+# path, that field reads `/Users/somebody/checkout/stdlib/IO.ax` and
+# the golden reproduces on exactly one machine. `stdlib` relative
+# resolves through the symlink above - the same file, named the way the
+# repository names it. `verify-axdl-spans.py` refuses an absolute path
+# outright, so this cannot go wrong quietly.
+export AXIOM_STDLIB="stdlib"
+
 # Helper MODULES for cases that need more than one file. They live in a
 # subdirectory so the per-case glob below cannot mistake one for a case
 # needing a golden, and they are copied flat because a module name is
@@ -300,6 +312,42 @@ echo "--- every golden's spans, against the fixtures' own bytes ---"
 if ! python3 tests/diagnostics/verify-axdl-spans.py tests/diagnostics; then
   echo "FAIL: a golden claims a span its fixture does not have"
   failed=$((failed + 1))
+fi
+
+# ---------------------------------------------------------------
+# THE CALL CHAIN IS IN THE FIELDS AND NOT ONLY IN THE PROSE.
+#
+# `AX3049` has named its path since the graph walk landed, and named it
+# inside the quoted message, where only a reader could use it: measured
+# 2026-09-03, `grep -h AX3049 tests/diagnostics/*.axdl | grep -c ' ^'`
+# was 0 across the whole corpus. It is now one `^` field per hop, and
+# the HOP-FOR-HOP equality - the k-th field's label is the (k+1)-th hop,
+# spelled the same way - is made by `verify-axdl-spans.py` above, which
+# is where the AXDL parser lives and which a bless cannot satisfy.
+#
+# What is made HERE is the population count, in the crudest way there
+# is, because the two failures are different. The equality catches a
+# chain and a field list that disagree. It says nothing at all if the
+# corpus stops carrying chains, or if the compiler stops emitting the
+# fields and every golden is re-blessed without them: the comparison
+# then holds vacuously over zero lines. So the counts are read off the
+# checked-in goldens by grep and floored.
+# ---------------------------------------------------------------
+echo
+echo "--- the call chains, and the related locations beside them ---"
+chain_lines="$(grep -hE '^[EW] (AX3049|AX3051|AX3057) ' tests/diagnostics/*.axdl \
+                 | grep -c ' -> ' || true)"
+chain_fields="$(grep -hE '^[EW] (AX3049|AX3051|AX3057) ' tests/diagnostics/*.axdl \
+                 | grep ' -> ' | grep -o ' \^' | grep -c . || true)"
+if (( chain_lines < 20 )); then
+  echo "FAIL: only $chain_lines golden line(s) carry a resolved \`->\` chain (floor 20)"
+  failed=$((failed + 1))
+elif (( chain_fields < 46 )); then
+  echo "FAIL: those $chain_lines chain line(s) carry only $chain_fields \`^\` field(s) (floor 46) - the path is back in the message and nowhere else"
+  failed=$((failed + 1))
+else
+  echo "ok   $chain_lines chain line(s), $chain_fields related location(s) beside them"
+  passed=$((passed + 1))
 fi
 
 # The compiler's own source must produce no diagnostics at all. This is

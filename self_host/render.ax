@@ -854,9 +854,19 @@
 
 ; The primary span underlined with `^` and carrying the diagnostic's own
 ; label, then every related span with `-` and its note.
-(pub :: snipRowsOf (-> Int Int (Vec a)))
+;
+; ONLY the related spans this snippet can draw. A snippet is quoted out
+; of ONE source - `src` and `ix` are the diagnostic's own unit's - so a
+; related location in another unit cannot be underlined here at all:
+; its line number indexes a different file, and drawing it against this
+; one would quote the wrong text under a caret that looks right. Those
+; become note lines instead (`secNoteText`), which is the same
+; degradation an expansion frame with no reachable unit already takes.
+; A related location with no span at all has nothing to underline
+; anywhere and becomes a note too.
+(pub :: snipRowsOf (-> Int Int (Vec Int) (Vec Int) (Vec a)))
 
-(pub fn (snipRowsOf d span)
+(pub fn (snipRowsOf d span units ixs)
   ; The primary underline takes the diagnostic's own severity
   ; colour; a related one is always secondary.
   (let (
@@ -869,13 +879,62 @@
       )
       (while (< i (diagSecCount d))
         {
-          (vecPush
-            rows            (cast Int (SnipRow (diagSecSpan d i) 45 (ctlEsc (diagSecMsg d i)) SGR_SEC))
+          (if (== (secDrawable d i units ixs) 1)
+            {
+              (vecPush
+                rows                (cast Int (SnipRow (diagSecSpan d i) 45 (ctlEsc (diagSecMsg d i)) SGR_SEC))
+              )
+              0
+            }
+            0
           )
           (set i (+ i 1))
         })
       (sortRows rows)
     }
+  )
+)
+
+; Can related location `i` be underlined in the PRIMARY snippet? It
+; needs a span, and it needs to index the source that snippet is
+; quoted from.
+(pub :: secDrawable (-> Int Int (Vec Int) (Vec Int) Int))
+
+; `ixs` is unread, and deliberately: drawability is decided by
+; `diagSecOwn` and not by `diagSecCross`, because "another unit I
+; cannot resolve" is still another unit. Folding the two would draw
+; that span against this snippet's source, which is the wrong file.
+(pub fn (secDrawable d i units ixs)
+  (if (== (diagSecSpan d i) 0)
+    0
+    (diagSecOwn d i)
+  )
+)
+
+; The one note line a related location renders as when the snippet
+; cannot draw it. Cross-unit, its own file and position are spelled in
+; the parenthetical - the same text `fmtSpanIx` puts on the AXDL line,
+; so this stays a concatenation and not a second opinion, and
+; `check-render-selfhost.sh` derives it from the `^` field. With no
+; span the parenthetical says THAT, rather than being left off: a bare
+; `note: __syscall3` reads like a truncated line, and the reason there
+; is no position is the information.
+(pub :: secNoteText (-> Int Int (Vec Int) (Vec Int) String))
+
+(pub fn (secNoteText d i units ixs)
+  (if (== (diagSecCross d i units ixs) 1)
+    (let ((u (vecGet units (diagSecUnit d i))))
+      (strConcat
+        (strConcat (strConcat (diagSecMsg d i) " (") (memGetWordStr u 0))        (strConcat (strConcat ":" (fmtSpanIx (memGetWordStr u 1) (vecGet ixs (diagSecUnit d i)) (diagSecSpan d i))) ")")
+      )
+    )
+    (if (== (diagSecSpan d i) 0)
+      (strConcat (diagSecMsg d i) " (no declaration to point at)")
+      ; Another unit, and no table to name it with. There is a
+      ; position; this renderer cannot say where, and says nothing
+      ; rather than something false.
+      (diagSecMsg d i)
+    )
   )
 )
 
@@ -1117,10 +1176,10 @@
       (span (clampToSource src span))
       (spanless (== span 0))
     )
-      (let ((rows 
+      (let ((rows
         (if spanless
           vecNew
-          (snipRowsOf d span)
+          (snipRowsOf d span units ixs)
         )
       ))
         (let ((gw 
@@ -1155,6 +1214,18 @@
                   (while (< i (diagNoteCount d))
                     {
                       (vecPush acc (noteLine gw (diagNote d i)))
+                      (set i (+ i 1))
+                    })
+                  ; A related location the snippet could not draw -
+                  ; another unit's, or none at all - as a note. The
+                  ; snippet has already drawn every other one.
+                  (set i 0)
+                  (while (< i (diagSecCount d))
+                    {
+                      (if (== (secDrawable d i units ixs) 1)
+                        0
+                        { (vecPush acc (noteLine gw (secNoteText d i units ixs))) 0 }
+                      )
                       (set i (+ i 1))
                     })
                   (set i 0)
@@ -1539,9 +1610,16 @@
   )
 )
 
-(pub :: jsonRelatedArray (-> Int String Int String))
+; One object per related location. `{"span":...,"label":...}` when it
+; points into the diagnostic's own unit, which is every one this array
+; used to hold; plus a `"file"` beside the span - and the span read
+; against THAT unit's source - when it points into another, the shape
+; `expansion` already uses; and the label alone, with no span key at
+; all, when the location is absent. A consumer reads the three the way
+; it reads a spanless diagnostic: the pair is there or it is not.
+(pub :: jsonRelatedArray (-> Int String Int (Vec Int) (Vec Int) String))
 
-(pub fn (jsonRelatedArray d src ix)
+(pub fn (jsonRelatedArray d src ix units ixs)
   (let (
     (parts vecNew)
     (mut i 0)
@@ -1554,9 +1632,30 @@
             (vecPush parts ",")
             (cast (Vec String) 0)
           )
-          (vecPush parts "{\"span\":")
-          (vecPush parts (jsonSpan src ix (diagSecSpan d i)))
-          (vecPush parts ",\"label\":\"")
+          (vecPush parts "{")
+          ; The span pair is omitted for the same two cases the AXDL
+          ; `^-` covers: no location, and a location in a unit this
+          ; renderer has no table to name.
+          (if (|| (== (diagSecSpan d i) 0) (&& (== (diagSecOwn d i) 0) (== (diagSecCross d i units ixs) 0)))
+            (cast (Vec String) 0)
+            (if (== (diagSecOwn d i) 1)
+              {
+                { (vecPush parts "\"span\":") 0 }
+                (vecPush parts (jsonSpan src ix (diagSecSpan d i)))
+                (vecPush parts ",")
+              }
+              (let ((u (vecGet units (diagSecUnit d i))))
+                {
+                  { (vecPush parts "\"span\":") 0 }
+                  (vecPush parts (jsonSpan (memGetWordStr u 1) (vecGet ixs (diagSecUnit d i)) (diagSecSpan d i)))
+                  (vecPush parts ",\"file\":\"")
+                  (vecPush parts (jsonEsc (memGetWordStr u 0)))
+                  (vecPush parts "\",")
+                }
+              )
+            )
+          )
+          (vecPush parts "\"label\":\"")
           (vecPush
             parts            (jsonEsc
               (if (==
@@ -1600,7 +1699,7 @@
               ""
               (strConcat (strConcat (strConcat (strConcat "\"span\":" (jsonSpan src ix span)) ",\"label\":\"") (jsonEsc label)) "\",")
             )
-          )          (strConcat (strConcat "\"related\":" (jsonRelatedArray d src ix)) ",")
+          )          (strConcat (strConcat "\"related\":" (jsonRelatedArray d src ix units ixs)) ",")
         )        (strConcat (strConcat "\"notes\":" (jsonNoteArray d)) ",")
       )      (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}")
     )
