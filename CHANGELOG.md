@@ -221,7 +221,7 @@ its own case and stays green on the other two.
 
 **The census moved, and the prose says why.** `CONTRIBUTING.md` said,
 measured 2026-09-03, that `fmt --check` answered formatted for 483 of
-the tree's 634 `.ax` files and unformatted for 125. Over today's tree the
+the tree's 636 `.ax` files and unformatted for 125. Over today's tree the
 old printer answers 498 and 136; the corrected one answers **411 and
 223**, and the 89 files that changed sides did not drift - the normal
 form did. The 2,687 committed run-of-spaces lines are not repaired
