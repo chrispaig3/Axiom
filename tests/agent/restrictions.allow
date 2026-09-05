@@ -83,6 +83,7 @@ diagAddFixHelp self_host/diag.ax no-io,no-foreign ok
 diagAddHelp self_host/diag.ax no-io,no-foreign ok
 diagAddNote self_host/diag.ax no-io,no-foreign ok
 diagAddSecondary self_host/diag.ax no-io,no-foreign ok
+diagAddSecondaryIn self_host/diag.ax no-io,no-foreign ok
 diagAddTrace self_host/diag.ax no-io,no-foreign ok
 diagCode self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagCountAt self_host/diag.ax no-io,no-alloc,no-foreign ok
@@ -96,8 +97,11 @@ diagMsg self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagNote self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagNoteCount self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagSecCount self_host/diag.ax no-io,no-alloc,no-foreign ok
+diagSecCross self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagSecMsg self_host/diag.ax no-io,no-alloc,no-foreign ok
+diagSecOwn self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagSecSpan self_host/diag.ax no-io,no-alloc,no-foreign ok
+diagSecUnit self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagSetLabel self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagSetUnit self_host/diag.ax no-io,no-alloc,no-foreign ok
 diagSev self_host/diag.ax no-io,no-alloc,no-foreign ok
