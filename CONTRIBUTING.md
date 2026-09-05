@@ -165,18 +165,26 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 636 `.ax` files
-in the repository answers `is already formatted` for 411 of them and
-`needs formatting` for 225. Two of the 225 are deliberate and are named
-below; the other 223 were committed unformatted, and that same sweep is
+2026-09-04, `axiom fmt --check` over every one of the 632 `.ax` files
+in the repository answers `is already formatted` for 410 of them and
+`needs formatting` for 222. Two of the 222 are deliberate and are named
+below; the other 220 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
 more than 60 files stop being covered by `tests/fmt/corpus-fmt.golden`.
 
-Over the same tree the previous printer answered 498 and 136, and the
-89 files that stopped being formatted did not drift: the NORMAL FORM
-moved. On 2026-09-04 the formatter stopped printing a broken
+The 632 was 636 earlier the same day, and the split moved with it
+rather than beside it: `stdlib/Html.ax`, its two fixtures and the web
+example were deleted, and of those four files three needed formatting
+and the fourth — one of the two `Html` fixtures — did not, which is
+411/225 becoming 410/222 exactly. A total that moves while the two
+numbers under it do not is the drift this paragraph is about, so it is
+re-derived here rather than adjusted.
+
+Over that tree, at its then 636 files, the previous printer answered
+498 and 136, and the 89 files that stopped being formatted did not
+drift: the NORMAL FORM moved. On 2026-09-04 the formatter stopped printing a broken
 application's arguments on one line separated by its indent width, and
 every file carrying that shape — the formatter wrote it, and the tree
 committed it, in 2,687 lines across 133 files — is unformatted under
@@ -335,7 +343,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-render-selfhost.sh` | the human and JSON renderers, cross-checked against the AXDL goldens and against the palette `self_host/style.ax` declares |
 | `check-repl-selfhost.sh` | the REPL, piped session by piped session - including `150-axtag-shape`, which defines an IO-performing function at the PROMPT (impossible before 2026-08-31, because every `;@axiom:` line was discarded with the comment it looks like), redefines a tagged function ABOVE it so the stale claim would land on that IO function if the drop did not take the tag lines with it, and is then refused for a `restrict(no-io)` typed at the prompt |
 | `check-lsp-selfhost.sh` | the language server: its framed session bytes, every published position converted into LSP's 0-based UTF-16, every request's answer derived from documents the driver writes itself, and a sweep of every advertised request at every kind of position over a real module, a truncated one and an empty one |
-| `check-stdlib-api.sh` | `docs/stdlib-api.md` is generated - by `examples/axdoc/axdoc.ax`, an Axiom program - and this regenerates it and requires byte-identity, plus that every `(pub` name a `grep` finds in `stdlib/` appears in it exactly once, that the `Sys/Platform.*.ax` files declare the same names, and a documentation-coverage ratchet. Its negative probe adds a public name to a COPY of the library and requires the regenerated document to carry it |
+| `check-stdlib-api.sh` | `docs/stdlib-api.md` is generated - by `examples/axdoc/axdoc.ax`, an Axiom program - and this regenerates it and requires byte-identity, plus that every `(pub` name a `grep` finds in `stdlib/` appears in it exactly once, that the `Sys/Platform.*.ax` files declare the same names, and a documentation-coverage ratchet. It also holds the two PROSE module lists — `docs/reference.md`'s *Modules at a Glance* table and `docs/status.md`'s Standard library row — to that same list, names and spelled-out count together, because a count beside a list is a second copy of the fact: the status row said "Twenty" over twenty-three modules, having kept `Show` for two releases after `stdlib/Show.ax` was deleted and never named the three `Tui` modules. Its negative probes add a public name to a COPY of the library and require the regenerated document to carry it, and drop one module from a copy of each document and require each list to go red |
 | `check-doc-drift.sh` | this file and its ten siblings against the tree: every stated count recomputed, and every fixture a doc or a comment names must exist |
 | `check-agent-policy.sh` | the standard library performs exactly the effects it declares, and the set of declarations performing any is the one in `tests/agent/stdlib-effects.allow` — `docs/agent-harness.md` §3.4's policy, as a gate over AXSYM rather than a compiler mode, on `check-ffi.sh`'s allowlist model |
 | `check-frontend-parity.sh` | the frontend's five consumers agree — on the value, not only on the verdict |
@@ -347,14 +355,14 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the sixty-six gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim sixty-six gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the sixty-five gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim sixty-five gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-install.sh` | the script `README.md` tells a stranger to pipe into bash. A release built from this tree is served over the loopback and installed; a tampered archive, one with no checksum and one with no `stdlib/` must each be refused. Its own probe deletes `install.sh`'s checksum comparison in a copy and requires the tampered case to stop being refused |
 | `check-release-targets.sh` | what a release BUILDS and what `install.sh` REFUSES are one fact split across two files on opposite sides of the project. A target in both uploads an archive the installer will not fetch; a target in neither gives the user a bare `curl` 404. Also holds the two axes apart: nothing is shipped that README does not call supported, and nothing is supported-but-unshipped without a CI leg or a README paragraph saying why (`darwin-x86_64`) |
 | `check-version.sh` | every place the project states its own version says what `VERSION` says, counted per site, and the built compiler prints it too |
 | `check-build-id.sh` | a shipped binary names the TREE it was built from, not only the version it promises: an unstamped build says `unstamped` and not a plausible value, the id is a function of the source (one changed byte moves it), and the id `build-stamped.sh` computes is the one `axiom version` reports |
 | `check-net.sh` | a request handler bracketed as an arena scope holds worker RSS flat across ten thousand connections, against a floor of 50x over the same binary unscoped |
-| `check-web.sh` | the same claim of a server that does a web server's work: `examples/web`, on `Html` and `Http`, answers every page and file byte for byte against responses the script writes by hand - the `<script>` a peer sent escaped in text and in an attribute, a PNG with NUL bytes whole, a traversal refused before the filesystem - and holds worker RSS flat across ten thousand page requests against a floor of 20x over the same binary unscoped. Four ablations, all required: a flipped byte in an expected page, the escaper bypassed, the path check compiled out, the arena switched off. It also sweeps `examples/` itself, being the only thing CI points there: every tracked file is a source or a static asset and none is executable (a 156 KB Mach-O sat there from `d1e4a71` with every gate green), and every program is named in `examples/README.md` with `README.md` linking to it. Five more ablations: a planted artefact, an `.ax` tracked 100755, an empty file list, a program the table does not name, a row naming a program that is gone |
+| `check-examples.sh` | sweeps `examples/` itself: every tracked file is a source or a static asset and none is executable (a 156 KB Mach-O sat there from `d1e4a71` with every gate green, because every gate read file contents and none read the file list), and every program is named in `examples/README.md` with `README.md` linking to it. Five ablations, all required: a planted artefact, an `.ax` tracked 100755, an empty file list, a program the table does not name, a row naming a program that is gone. It was the examples half of `check-web.sh`, whose other half built the templated server in `examples/web` on `Html` and `Http`, served every page byte for byte and held its memory flat across ten thousand requests; that example and `Html` were deleted on 2026-09-04 and the sweep kept its gate. It runs no Axiom program and builds no compiler |
 | `check-agent-calls.sh` | `symbols --calls`: no callee's effect escapes its caller, every inferred effect row carries a call edge, and every `IO` reaches a syscall or an `extern` |
 | `check-mir-roundtrip.sh` | the `.axir` record file survives its own reader: emit, read back, emit again, byte-identical over the stdlib corpus and `self_host/main.ax` (4,862 records). A golden is deliberately NOT used - `check-tools-selfhost.sh`'s header records the run where both AXSYM goldens were re-blessed clean against a compiler emitting a shifted column. The reader is proved to DECOMPOSE rather than pass lines through: a file spelled with doubled spaces must come back normalised, and the normal form must be a fixed point - the assertion that stops the round trip being vacuous, and the one a passthrough reader fails while passing every other check here. The grammar is closed, so each `tests/axir/*.bad` fixture must be refused with a message; and the magic first line, not the file name, selects the reader in both directions. Three ablations, all required: the writer dropping the nid, the reader keeping raw lines, an arm deleted from the kind table |
 | `check-mir-projection.sh` | `symbols --mir`: every `#mir-*` key is re-derivable from the raw region words of the `.axir` record whose whole header tuple matches that row - the record carries the checker's words undecoded and the gate decodes them itself, so it compares two independent derivations rather than one number twice. Every row has a record, in order, on the tuple, because the nid is not unique across modules (4,068 nids, 4,066 distinct). Without `--mir` no row carries the key, and with it the stream with every `#mir-*` token deleted is byte-identical to the default one. And the sentinel is held to the boundary it reports: `#mir-truncated` present at call-chain depth 41, absent at depth 5, which is the only assertion in the tree that watches `rgnRounds`' 40-round cap. Four ablations, all required; the silence one needs BOTH guards removed, because the facts fixpoint runs on demand and a program that asks for nothing has nothing to print |
@@ -615,7 +623,7 @@ primitives. When adding a new stdlib function:
 
 1. **Add it to the appropriate module** in `stdlib/` — `Pre`, `Mem`,
    `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`,
-   `Rpc`, `Utf8`, `Show`, `Err`, `Par`, `Html`, `Http`, `Ffi`.
+   `Rpc`, `Utf8`, `Err`, `Par`, `Http`, `Ffi`.
 2. **Use `::` for the type signature** and `fn` for the definition, with
    `pub` on both if the function is part of the module's surface.
 3. **If the function performs I/O**, annotate it with

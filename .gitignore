@@ -79,6 +79,7 @@ web/.tok-bundle.mjs
 # committed in d1e4a71, which lived in the tree until 2026-09-03 with
 # every gate green because nothing was looking at the file list.
 #
-# This line stops the next one; `scripts/check-web.sh`'s hygiene sweep
+# This line stops the next one; `scripts/check-examples.sh`'s hygiene
+# sweep (`check-web.sh`'s until the web example was deleted, 2026-09-04)
 # is what notices one committed past it, under any name.
 axiom_temp_output.*

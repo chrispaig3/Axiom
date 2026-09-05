@@ -594,3 +594,141 @@
 # purpose and say so: `restrictCollect` and `checkOneAxtag` hand it to
 # `axtagListValue`, whose own signature takes -1 for "no value".
 0.7.5  F  strFindByte  index-or--1 -> (Option Int): absence is a tag, not a sign
+
+# 0.7.6 - `stdlib/Html.ax` is deleted, and the rows below are its whole
+# public surface as `compat/0.5.0.axsym` recorded it: the `HtmlBuf`
+# struct, seventeen builder and escaper functions, and one hundred
+# element and attribute macros. The module was a DSL the compiler did
+# not use and no other module imported; its one program, the templated
+# server under `examples/web`, went with it. `CHANGELOG.md`'s Unreleased
+# entry says why and what a program that imported it should do - in
+# one line: the module still compiles unchanged as a file beside your
+# entry file, and `git show 8f9c6c8:stdlib/Html.ax` is the last copy.
+#
+# NOT HERE, because they were already declared: `for`, `forInt`,
+# `hVecLen`, `hVecStr` and `hVecWord` left at 0.6.4, above.
+#
+# `HtmlBuf` IS here, and it would have passed without a row: the permit
+# matches a break by kind and name against any newer version, so the
+# 0.6.4 row that retyped its `pieces` field would have covered its
+# removal in silence. A ledger whose last word on a struct is "one field
+# retyped" when the struct no longer exists is a ledger that misreads,
+# so the removal is written down.
+0.7.6  S  HtmlBuf     REMOVED with stdlib/Html.ax
+0.7.6  F  hAttr       REMOVED with stdlib/Html.ax
+0.7.6  F  hClose      REMOVED with stdlib/Html.ax
+0.7.6  F  hCss        REMOVED with stdlib/Html.ax
+0.7.6  F  hEscAttr    REMOVED with stdlib/Html.ax
+0.7.6  F  hEscTagEnd  REMOVED with stdlib/Html.ax
+0.7.6  F  hEscText    REMOVED with stdlib/Html.ax
+0.7.6  F  hFinish     REMOVED with stdlib/Html.ax
+0.7.6  F  hFlag       REMOVED with stdlib/Html.ax
+0.7.6  F  hJs         REMOVED with stdlib/Html.ax
+0.7.6  F  hLen        REMOVED with stdlib/Html.ax
+0.7.6  F  hNew        REMOVED with stdlib/Html.ax
+0.7.6  F  hOpen       REMOVED with stdlib/Html.ax
+0.7.6  F  hOpenEnd    REMOVED with stdlib/Html.ax
+0.7.6  F  hOpenSolo   REMOVED with stdlib/Html.ax
+0.7.6  F  hPut        REMOVED with stdlib/Html.ax
+0.7.6  F  hRaw        REMOVED with stdlib/Html.ax
+0.7.6  F  hText       REMOVED with stdlib/Html.ax
+0.7.6  M  action      REMOVED with stdlib/Html.ax
+0.7.6  M  alt         REMOVED with stdlib/Html.ax
+0.7.6  M  anchor      REMOVED with stdlib/Html.ax
+0.7.6  M  anchorA     REMOVED with stdlib/Html.ax
+0.7.6  M  article     REMOVED with stdlib/Html.ax
+0.7.6  M  articleA    REMOVED with stdlib/Html.ax
+0.7.6  M  attr        REMOVED with stdlib/Html.ax
+0.7.6  M  body        REMOVED with stdlib/Html.ax
+0.7.6  M  bodyA       REMOVED with stdlib/Html.ax
+0.7.6  M  br          REMOVED with stdlib/Html.ax
+0.7.6  M  button      REMOVED with stdlib/Html.ax
+0.7.6  M  buttonA     REMOVED with stdlib/Html.ax
+0.7.6  M  charset     REMOVED with stdlib/Html.ax
+0.7.6  M  class       REMOVED with stdlib/Html.ax
+0.7.6  M  code        REMOVED with stdlib/Html.ax
+0.7.6  M  codeA       REMOVED with stdlib/Html.ax
+0.7.6  M  content     REMOVED with stdlib/Html.ax
+0.7.6  M  div         REMOVED with stdlib/Html.ax
+0.7.6  M  divA        REMOVED with stdlib/Html.ax
+0.7.6  M  el          REMOVED with stdlib/Html.ax
+0.7.6  M  elA         REMOVED with stdlib/Html.ax
+0.7.6  M  elVoid      REMOVED with stdlib/Html.ax
+0.7.6  M  elVoidA     REMOVED with stdlib/Html.ax
+0.7.6  M  em          REMOVED with stdlib/Html.ax
+0.7.6  M  emA         REMOVED with stdlib/Html.ax
+0.7.6  M  flag        REMOVED with stdlib/Html.ax
+0.7.6  M  footer      REMOVED with stdlib/Html.ax
+0.7.6  M  footerA     REMOVED with stdlib/Html.ax
+0.7.6  M  form        REMOVED with stdlib/Html.ax
+0.7.6  M  formA       REMOVED with stdlib/Html.ax
+0.7.6  M  h1          REMOVED with stdlib/Html.ax
+0.7.6  M  h1A         REMOVED with stdlib/Html.ax
+0.7.6  M  h2          REMOVED with stdlib/Html.ax
+0.7.6  M  h2A         REMOVED with stdlib/Html.ax
+0.7.6  M  h3          REMOVED with stdlib/Html.ax
+0.7.6  M  h3A         REMOVED with stdlib/Html.ax
+0.7.6  M  head        REMOVED with stdlib/Html.ax
+0.7.6  M  headA       REMOVED with stdlib/Html.ax
+0.7.6  M  header      REMOVED with stdlib/Html.ax
+0.7.6  M  headerA     REMOVED with stdlib/Html.ax
+0.7.6  M  height      REMOVED with stdlib/Html.ax
+0.7.6  M  hr          REMOVED with stdlib/Html.ax
+0.7.6  M  href        REMOVED with stdlib/Html.ax
+0.7.6  M  html        REMOVED with stdlib/Html.ax
+0.7.6  M  htmlA       REMOVED with stdlib/Html.ax
+0.7.6  M  id          REMOVED with stdlib/Html.ax
+0.7.6  M  img         REMOVED with stdlib/Html.ax
+0.7.6  M  input       REMOVED with stdlib/Html.ax
+0.7.6  M  label       REMOVED with stdlib/Html.ax
+0.7.6  M  labelA      REMOVED with stdlib/Html.ax
+0.7.6  M  lang        REMOVED with stdlib/Html.ax
+0.7.6  M  li          REMOVED with stdlib/Html.ax
+0.7.6  M  liA         REMOVED with stdlib/Html.ax
+0.7.6  M  link        REMOVED with stdlib/Html.ax
+0.7.6  M  meta        REMOVED with stdlib/Html.ax
+0.7.6  M  method      REMOVED with stdlib/Html.ax
+0.7.6  M  name        REMOVED with stdlib/Html.ax
+0.7.6  M  nav         REMOVED with stdlib/Html.ax
+0.7.6  M  navA        REMOVED with stdlib/Html.ax
+0.7.6  M  ol          REMOVED with stdlib/Html.ax
+0.7.6  M  olA         REMOVED with stdlib/Html.ax
+0.7.6  M  option      REMOVED with stdlib/Html.ax
+0.7.6  M  optionA     REMOVED with stdlib/Html.ax
+0.7.6  M  p           REMOVED with stdlib/Html.ax
+0.7.6  M  pA          REMOVED with stdlib/Html.ax
+0.7.6  M  placeholder REMOVED with stdlib/Html.ax
+0.7.6  M  pre         REMOVED with stdlib/Html.ax
+0.7.6  M  preA        REMOVED with stdlib/Html.ax
+0.7.6  M  raw         REMOVED with stdlib/Html.ax
+0.7.6  M  rel         REMOVED with stdlib/Html.ax
+0.7.6  M  script      REMOVED with stdlib/Html.ax
+0.7.6  M  scriptA     REMOVED with stdlib/Html.ax
+0.7.6  M  section     REMOVED with stdlib/Html.ax
+0.7.6  M  sectionA    REMOVED with stdlib/Html.ax
+0.7.6  M  select      REMOVED with stdlib/Html.ax
+0.7.6  M  selectA     REMOVED with stdlib/Html.ax
+0.7.6  M  span        REMOVED with stdlib/Html.ax
+0.7.6  M  spanA       REMOVED with stdlib/Html.ax
+0.7.6  M  src         REMOVED with stdlib/Html.ax
+0.7.6  M  strong      REMOVED with stdlib/Html.ax
+0.7.6  M  strongA     REMOVED with stdlib/Html.ax
+0.7.6  M  style       REMOVED with stdlib/Html.ax
+0.7.6  M  table       REMOVED with stdlib/Html.ax
+0.7.6  M  tableA      REMOVED with stdlib/Html.ax
+0.7.6  M  target      REMOVED with stdlib/Html.ax
+0.7.6  M  td          REMOVED with stdlib/Html.ax
+0.7.6  M  tdA         REMOVED with stdlib/Html.ax
+0.7.6  M  text        REMOVED with stdlib/Html.ax
+0.7.6  M  textarea    REMOVED with stdlib/Html.ax
+0.7.6  M  textareaA   REMOVED with stdlib/Html.ax
+0.7.6  M  th          REMOVED with stdlib/Html.ax
+0.7.6  M  thA         REMOVED with stdlib/Html.ax
+0.7.6  M  title       REMOVED with stdlib/Html.ax
+0.7.6  M  titleA      REMOVED with stdlib/Html.ax
+0.7.6  M  tr          REMOVED with stdlib/Html.ax
+0.7.6  M  trA         REMOVED with stdlib/Html.ax
+0.7.6  M  ul          REMOVED with stdlib/Html.ax
+0.7.6  M  ulA         REMOVED with stdlib/Html.ax
+0.7.6  M  value       REMOVED with stdlib/Html.ax
+0.7.6  M  width       REMOVED with stdlib/Html.ax

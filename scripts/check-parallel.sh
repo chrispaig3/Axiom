@@ -526,9 +526,10 @@ echo "== 6e. the ablations: each of section 6's claims, deliberately broken =="
 # Every edit lands in a COPY of `stdlib/`, the way `check-compat.sh`
 # plants its negative probes, and this checkout is never touched. Each
 # ablation ASSERTS THAT ITS EDIT LANDED (`cmp -s` before and after)
-# before believing the result - `check-web.sh`'s rule, and the reason is
-# that a `sed` that matched nothing produces a green "ablation failed to
-# fail" that reads exactly like a passing gate.
+# before believing the result - the rule `check-web.sh` carried until
+# it was retired (2026-09-04) and `check-compat.sh`'s `probe` still
+# does, and the reason is that a `sed` that matched nothing produces a
+# green "ablation failed to fail" that reads exactly like a passing gate.
 abl_run() {  # <tag> <sed-program> <what-must-change> -> 0 when the ablation is red
   local tag="$1" prog="$2" what="$3"
   local copy="$work/abl-$tag"

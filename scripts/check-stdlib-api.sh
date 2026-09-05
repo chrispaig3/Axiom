@@ -65,7 +65,6 @@ stdlib/Err.ax
 stdlib/Fallible.ax
 stdlib/Ffi.ax
 stdlib/Fmt.ax
-stdlib/Html.ax
 stdlib/Http.ax
 stdlib/IO.ax
 stdlib/Intern.ax
@@ -110,6 +109,156 @@ else
   bad "the module list has drifted"
   [[ -n "$listed_missing" ]] && echo "     named here, not in the tree:$listed_missing"
   [[ -n "$tree_unlisted" ]]  && echo "     in the tree, not named here:$tree_unlisted"
+fi
+
+# --------------------------------------------------------------------
+# THE TWO PROSE MODULE LISTS, HELD TO THE LIST ABOVE.
+#
+# `docs/reference.md` ("Modules at a Glance") and `docs/status.md` (the
+# Standard library row) each name every module, in prose, and until
+# 2026-09-04 nothing read either. Both had rotted, and in the quiet
+# direction: `stdlib/Show.ax` was deleted at 0.7.4 - `compat/BREAKING`
+# has the row - and `Show` stayed in the status row for two releases
+# after; the three `Tui` modules had never been named there at all. So
+# that row said "Twenty" over a library of twenty-three, and the only
+# reason anyone counted was `Html` leaving.
+#
+# THE SPELLED COUNT IS CHECKED WITH THE LIST, because a number beside
+# a list is a second copy of the same fact and the two rot apart: the
+# status row's twenty MATCHED its own twenty names while three modules
+# were missing from both. So the count is derived from `mod_list` and
+# the word is derived from the count, and the word table answers for
+# itself at every arm first - `check-gate-lib.sh`'s rule, for the same
+# reason: it is data that looks like prose.
+#
+# `Sys/Platform.darwin` is dropped here and only here. It is a module
+# list entry because the document carries one platform file; it is not
+# a MODULE a program imports, and neither prose list names it.
+# --------------------------------------------------------------------
+mod_names="$(printf '%s\n' "$mod_list" \
+             | sed -e 's,^stdlib/,,' -e 's,\.ax$,,' -e 's,/,.,g' \
+             | grep -v '^Sys\.Platform\.' | LC_ALL=C sort)"
+printf '%s\n' "$mod_names" > "$work/mod.names"
+n_mods="$(printf '%s\n' "$mod_names" | grep -c . || true)"
+
+mod_word() {
+  case "$1" in
+    20) echo "Twenty" ;;        21) echo "Twenty-one" ;;
+    22) echo "Twenty-two" ;;    23) echo "Twenty-three" ;;
+    24) echo "Twenty-four" ;;   25) echo "Twenty-five" ;;
+    26) echo "Twenty-six" ;;    27) echo "Twenty-seven" ;;
+    28) echo "Twenty-eight" ;;  29) echo "Twenty-nine" ;;
+    30) echo "Thirty" ;;        *)  echo "" ;;
+  esac
+}
+
+# The table answers for itself, at every arm, before it is used.
+checks=$((checks + 1))
+word_arms=0
+word_bad=""
+for pair in "20 Twenty" "21 Twenty-one" "22 Twenty-two" "23 Twenty-three" \
+            "24 Twenty-four" "25 Twenty-five" "26 Twenty-six" \
+            "27 Twenty-seven" "28 Twenty-eight" "29 Twenty-nine" \
+            "30 Thirty"; do
+  set -- $pair
+  word_arms=$((word_arms + 1))
+  [[ "$(mod_word "$1")" == "$2" ]] || word_bad="$word_bad $1"
+done
+if [[ -z "$word_bad" ]]; then
+  ok "mod_word answers its own $word_arms arms"
+else
+  bad "mod_word misanswers:$word_bad"
+fi
+
+# The names each document lists. Both extractors are anchored on the
+# sentence's own shape, so a rewrite that moves the list prints NO
+# names and the comparison below goes red naming every module - which
+# is the direction this should be wrong in.
+ref_modules()    { awk '/^### Modules at a Glance/ { inside = 1; next }
+                        /^### / { inside = 0 }
+                        inside && /^\| `/ { print }' "$1" \
+                   | sed -n 's/^| `\([^`]*\)`.*/\1/p' | LC_ALL=C sort || true; }
+status_modules() { sed -n 's/^| Standard library |[^|]*| [A-Za-z-]* modules — //p' "$1" \
+                   | sed 's/ — .*$//' | grep -o '`[A-Za-z0-9.]*`' | tr -d '`' \
+                   | LC_ALL=C sort || true; }
+ref_word()       { sed -n 's/^\([A-Za-z-]\{1,\}\) modules, all of them Axiom source.*/\1/p' "$1" || true; }
+status_word()    { sed -n 's/^| Standard library |[^|]*| \([A-Za-z-]\{1,\}\) modules — .*/\1/p' "$1" || true; }
+
+# <what> <sorted-expected-file> <sorted-actual-file> -> 0 when equal
+compare_modules() {
+  local what="$1" missing extra
+  missing="$(LC_ALL=C comm -23 "$2" "$3" | tr '\n' ' ')"
+  extra="$(LC_ALL=C comm -13 "$2" "$3" | tr '\n' ' ')"
+  if [[ -z "$missing$extra" ]]; then return 0; fi
+  if [[ -n "$missing" ]]; then echo "     $what does not name:$missing"; fi
+  if [[ -n "$extra" ]];   then echo "     $what names, and stdlib/ does not have:$extra"; fi
+  return 1
+}
+
+ref_modules    "$repo_root/docs/reference.md" > "$work/ref.names"
+status_modules "$repo_root/docs/status.md"    > "$work/status.names"
+checks=$((checks + 1))
+if compare_modules "docs/reference.md's Modules at a Glance" \
+                   "$work/mod.names" "$work/ref.names"; then
+  ok "docs/reference.md names the same $n_mods modules"
+else
+  bad "docs/reference.md's module table has drifted from stdlib/"
+fi
+checks=$((checks + 1))
+if compare_modules "docs/status.md's Standard library row" \
+                   "$work/mod.names" "$work/status.names"; then
+  ok "docs/status.md names the same $n_mods modules"
+else
+  bad "docs/status.md's Standard library row has drifted from stdlib/"
+fi
+
+checks=$((checks + 1))
+want_word="$(mod_word "$n_mods")"
+got_ref="$(ref_word "$repo_root/docs/reference.md")"
+got_status="$(status_word "$repo_root/docs/status.md")"
+if [[ -z "$want_word" ]]; then
+  bad "$n_mods modules, and this check has no word for it - add it to mod_word above"
+elif [[ "$got_ref" == "$want_word" && "$got_status" == "$want_word" ]]; then
+  ok "both documents spell the count \"$want_word\""
+else
+  bad "the spelled count has drifted from the $n_mods modules in the tree"
+  echo "     docs/reference.md says \"$got_ref\", docs/status.md says \"$got_status\", both should say \"$want_word\""
+fi
+
+# THE ABLATIONS. Each edit is asserted to have LANDED before its result
+# is believed, because a `sed` that matched nothing produces a green
+# "the ablation failed to fail" that reads exactly like a passing arm.
+abl_doc() {  # <tag> <source-doc> <sed-program> <extractor> -> 0 when red
+  local tag="$1" src="$2" prog="$3" extract="$4"
+  local copy="$work/abl-$tag.md"
+  sed "$prog" "$src" > "$copy"
+  if cmp -s "$src" "$copy"; then
+    echo "     ablation $tag: the edit matched nothing, so it tests nothing"
+    return 1
+  fi
+  "$extract" "$copy" > "$work/abl-$tag.names"
+  if compare_modules "abl-$tag" "$work/mod.names" "$work/abl-$tag.names" >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+checks=$((checks + 1))
+if abl_doc reference "$repo_root/docs/reference.md" '/^| `Utf8` /d' ref_modules; then
+  ok "negative probe: a module dropped from docs/reference.md's table is refused"
+else
+  bad "negative probe: docs/reference.md's table can lose a module and stay green"
+fi
+checks=$((checks + 1))
+if abl_doc status "$repo_root/docs/status.md" 's/, `Tui.Term`//' status_modules; then
+  ok "negative probe: a module dropped from docs/status.md's row is refused"
+else
+  bad "negative probe: docs/status.md's row can lose a module and stay green"
+fi
+checks=$((checks + 1))
+if [[ "$(mod_word $((n_mods + 1)))" != "$want_word" ]]; then
+  ok "negative probe: the spelled count is a function of the count, not a constant"
+else
+  bad "negative probe: mod_word answers the same word for $n_mods and $((n_mods + 1))"
 fi
 
 # --------------------------------------------------------------------
@@ -209,8 +358,13 @@ fi
 #   is anti-vacuity insurance against the `sed` above silently
 #   ceasing to match, and insurance sized to a library 45% smaller
 #   than the one it covers has stopped being that.
-if (( n_names >= 700 )); then
-  ok "the name sweep found $n_names names (floor 700, measured 749 on 2026-09-03)"
+#   2026-09-04: 634, over the 24 modules listed here, after
+#   `stdlib/Html.ax` and its 118 public names were deleted. The floor
+#   moved 700 -> 595 with it - the same slack, about 6% under the
+#   measurement - because a floor of 700 over a library of 634 names is
+#   not a floor, it is a red gate for a deletion that was meant.
+if (( n_names >= 595 )); then
+  ok "the name sweep found $n_names names (floor 595, measured 634 on 2026-09-04)"
 else
   bad "the name sweep found only $n_names names - the pattern has stopped matching"
 fi
@@ -259,14 +413,19 @@ echo "== documentation coverage =="
 # to the measured value, which is what "set AT the measured value" in
 # the paragraph above asks for on every legitimate change and did not
 # get on the last five.
+#
+# RE-DERIVED 2026-09-04: 445 of 634. `stdlib/Html.ax` was deleted, and
+# every one of its 118 rows carried a summary, so the documented count
+# fell by exactly 118 and the undocumented count by nothing - which is
+# the accounting this line asks for. Set AT the measured value.
 rows="$(grep -c '^| `' "$repo_root/$doc" || true)"
 blank="$(grep -c '^| `.*| *|$' "$repo_root/$doc" || true)"
 documented=$((rows - blank))
 echo "     $documented of $rows rows carry a summary"
-if (( documented >= 560 )); then
-  ok "documentation coverage is $documented of $rows (ratchet 560, set 2026-09-03)"
+if (( documented >= 445 )); then
+  ok "documentation coverage is $documented of $rows (ratchet 445, set 2026-09-04)"
 else
-  bad "documentation coverage fell to $documented, below the ratchet of 560"
+  bad "documentation coverage fell to $documented, below the ratchet of 445"
   echo "     A public name with no comment block above it is a blank Summary"
   echo "     cell. Document it, or lower this number here with the date and"
   echo "     the accounting for why it moved."

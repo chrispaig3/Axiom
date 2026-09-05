@@ -4,9 +4,10 @@
 container until a container has an element type. `Vec` does not: it is
 an `Int` handle, and an element is read through `vecGetStr` or
 `vecGetWord` depending on what it holds. That is why `stdlib/Html.ax`
-carries **two** loop macros for one idea, and why a keyword written
-today would be as type-specific as those macros — the problem would
-move from the macro layer into the code generator, not go away.
+(the HTML DSL, deleted on 2026-09-04) carried **two** loop macros for
+one idea, and why a keyword written before the port would have been as
+type-specific as those macros — the problem would have moved from the
+macro layer into the code generator, not gone away.
 
 The asymmetry is already in the signatures:
 
@@ -265,9 +266,10 @@ can only move code that has a `Vec`-typed field, and nothing in the
 tree had one yet.
 
 **That last clause expired with the port, which is what makes this
-section a prerequisite rather than a curiosity.** `HtmlBuf`,
-`HttpReq`, `HttpRouter` and `Sym` now declare `Vec`-typed fields — the
-four `S` rows in `compat/BREAKING`'s 0.6.4 block — so `fldClass` is
+section a prerequisite rather than a curiosity.** `HttpReq`,
+`HttpRouter` and `Sym` declare `Vec`-typed fields, and `HtmlBuf` did
+until `Html.ax` was deleted on 2026-09-04 — the four `S` rows in
+`compat/BREAKING`'s 0.6.4 block — so `fldClass` is
 load-bearing for real records today. Had the port landed first, each
 of them would have lost the reference map for its OTHER fields, which
 is the defect §4b was written to describe.
