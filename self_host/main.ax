@@ -662,7 +662,7 @@
                                                 SEV_ERROR                                                "AX4006"                                                "threads-unsupported"                                                0                                                (cat3 (if (== (declsNamePrim allDecls "__thread_spawn" 0) 1)
                                                   "`__thread_spawn` is named"
                                                   "`--threads` asks for the thread lowering"
-                                                ) ", and " (cat2 (targetSpelling tcode) " has no thread runtime"))                                                0                                                0                                                "threads exist on darwin and linux, where a thread is the platform's `pthread_create` and the runtime's globals go thread-local; freebsd is unmeasured and windows has no `fork` either. Drop `--threads` to lower `parallel` to processes, or build for a target that has threads"
+                                                ) ", and " (cat2 (targetSpelling tcode) " has no thread runtime"))                                                0                                                0                                                "threads exist on darwin and linux, where a thread is the platform's `pthread_create` and the runtime's globals go thread-local; freebsd links no `libthr` here and windows has no `fork` either. Drop `--threads` to lower `parallel` to processes - which freebsd runs and CI executes there - or build for a target that has threads"
                                               ))
                                               v
                                             }
@@ -675,7 +675,35 @@
                                             ""
                                           }
                                         )
-                                      (let ((ir (emitResolved allDecls bares fulls tcode)))
+                                      ; A spawn on a target with NEITHER lowering -
+                                      ; windows-x86_64, no `fork` and no pthread - is a
+                                      ; WARNING and not a refusal, AX4007. The module still
+                                      ; emits, with every spawn and join lowered to
+                                      ; `@__axiom_par_unsupported`; what changes is WHEN the
+                                      ; program is told. Before this, the only notice was
+                                      ; status 79 at the first spawn at run time, on the
+                                      ; DEFAULT lowering - and a program whose `parallel` sits
+                                      ; on a path it never takes builds and runs there, which
+                                      ; is why an error would be wrong. `parSpawnUnsupported`
+                                      ; is codegen's own predicate, asked here for AX4006's
+                                      ; reason: the emitter cannot report a diagnostic and the
+                                      ; driver can.
+                                      (let ((ir
+                                        {
+                                          (if (parSpawnUnsupported allDecls tcode)
+                                            (writeStderrStr (renderDiagsFormat dfmt (let ((wv vecNew))
+                                              {
+                                                (vecPush wv (mkDiag
+                                                  SEV_WARNING                                                  "AX4007"                                                  "parallel-unsupported"                                                  0                                                  (cat2 (targetSpelling tcode) " has neither `parallel` lowering: no `fork` and no pthread")                                                  0                                                  0                                                  "the program still builds, with every spawn and join lowered to a trap that prints `axiom: parallel is not available on this target` and exits 79 - so this matters only if the program actually reaches one. Build for a target that can spawn, or keep the `parallel` off the path this target takes"
+                                                ))
+                                                wv
+                                              }
+                                            ) units))
+                                            0
+                                          )
+                                          (emitResolved allDecls bares fulls tcode)
+                                        }
+                                      ))
                                         {
                                           (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))
                                             (let ((bp (flagValue "--emit-rust-binding" 1)))

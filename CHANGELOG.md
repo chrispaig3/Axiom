@@ -628,6 +628,101 @@ again — an exemption that fires nowhere is a check that cannot fail.
 `b7a8e1b`, what it got wrong, and that Shape A, `/`, `%`, `<<` and
 `>>` are decided rather than open.
 
+### One of `parallel`'s two stated gaps was not a gap, and the gate could not see three that were
+
+`docs/status.md`'s Concurrency row named two holes: freebsd was
+"unmeasured", and windows had neither lowering. The first was **false**,
+and it had been false since 2026-08-30. `Tests (freebsd-x86_64)` boots
+FreeBSD 14.4 in a VM and runs `scripts/run-stdlib-tests.sh`, whose loop
+is `for case_file in tests/stdlib/*.ax` with no skip list — so
+`470-parallel`, `471-parallel-trap` and `476-par-pool` **execute** there,
+on a real kernel, every run. Trunk at run `33914283389`, job
+`101157875183`, 2026-09-04: `ok 470-parallel`, `ok 471-parallel-trap`,
+`ok 476-par-pool`, `109 passed, 0 failed`. That is exactly what README's
+*Targets* section means by supported. What is genuinely unavailable on
+freebsd is the *thread* lowering, and it is refused rather than untried
+(`AX4006`, already gated). The claim now says which half is which, and
+`check-parallel.sh` section 7 holds the leg that makes it true — the
+job existing, being blocking, and still running the runner — because a
+fact that lives in a CI file is a fact one deleted line can turn back
+into prose.
+
+**windows now says so at build time, as a warning.** It has no `fork`
+and no pthread, so both primitives lower to a trap that prints
+`axiom: parallel is not available on this target` and exits 79 — at run
+time, on the lowering a program gets without asking for it. `AX4007`
+moves that to the build. It is deliberately **not** an error: the module
+must still emit (`check-freestanding.sh`'s windows sweep and
+`check-cross-targets.sh` both compile these fixtures for windows), and a
+program whose `parallel` sits on a path it never takes builds and runs
+there today — an error would break it for a failure it would never
+suffer. The warning follows the *program*, not the target: a windows
+build that names no spawn says nothing.
+
+Then three properties nothing was asserting, each measured before it was
+gated:
+
+- **No test in this repository had ever allocated in a second thread.**
+  The eight runtime globals go `thread_local(localexec)` under
+  `--threads` so that each thread's first `axiom_alloc` maps a chunk of
+  its own, and `check-thread-local.sh` inspected the storage class while
+  `check-parallel.sh` inspected the module — but every executed
+  `parallel` binding in the tree was arithmetic. Section 8 now runs four
+  bindings that allocate (three 20,000-element `Vec`s and a 16 KB
+  `String` built eight bytes at a time) and requires the thread
+  lowering's bytes to be the process lowering's. It holds. The negative
+  probe was run and is *recorded rather than asserted*: with
+  `cgMutGlobal` forced to `"internal global"` for both branches and a
+  compiler rebuilt from it, the same program answered correctly in four
+  runs of five and died with `SIGSEGV` in the fifth — a race, and a gate
+  whose negative probe fires one time in five reports a false green four
+  times in five.
+
+- **The two lowerings agree on one failing binding and not on two.**
+  With two bindings trapping on different statuses, processes answer the
+  binding written *first*, ten runs out of ten in each order (the joins
+  run in argument order and the first re-raises); threads answer
+  whichever binding failed first — 72 in six runs of ten and 77 in the
+  other four, same binary, same machine — and the two backtraces
+  interleave on fd 2 mid-line. **Not fixed, and the measurement is why:**
+  making threads agree means a trapping thread must not end the process
+  but record its status and `pthread_exit`, which changes what a trap in
+  an unjoined thread means, entangles the recovery point, and needs the
+  trap's own write serialised — a redesign of the trap path for a
+  divergence that appears only when two bindings fail at once, under an
+  opt-in lowering, in a program that is already ending. Section 9 pins
+  the process lowering's statuses exactly and requires the thread
+  lowering's to be one of the two traps, which is all a gate can assert
+  about a race.
+
+- **A thread's backtrace named two frames of libSystem with this
+  program's symbols.** `@__axiom_backtrace` stops its walk at `main`,
+  because above `main` are the C runtime's frames and this module's
+  symbol table cannot name them. A pthread stack has no `main` on it, so
+  that guard could never fire for a trap inside a `parallel` binding
+  built `--threads`, and the walk ran off the top: `471-parallel-trap`
+  printed `at __axiom_par_entry` and then `at __axiom_out_of_memory`
+  twice, which is `emitBtName`'s "confidently wrong" — the one output its
+  own header says a backtrace must never produce. `emitBtWalk` now stops
+  at `@__axiom_par_entry` as well, emitted only under `cgThreads`
+  because that is the only module the symbol exists in, so a program
+  that spawns no thread is byte-identical. The trace is three frames and
+  ends where the stack does. Section 10 ablates a compiler with the stop
+  deleted and gets five frames back.
+
+`targetHasSpawn` is one name for a fact that had three copies of
+`targetUsesSyscallAsm` standing in for it, and `AX4006`'s help text no
+longer says freebsd is unmeasured. `scripts/check-parallel.sh` goes from
+30 checks to 44 and stays in `run-gates.sh`'s parallel set: section 8 is
+deterministic, section 9 asserts only membership for the racing half,
+and section 10 removes frames rather than timing a window — the header
+says so, in those words.
+
+Gates: `check-parallel.sh` (44 checks, four new sections and one new
+ablation), `check-thread-local.sh`, `check-tools-selfhost.sh` (the
+`explain` golden carries `AX4007`), `check-doc-drift.sh` (constructed
+and explained sets equal), `check-self-host.sh`,
+`check-stdlib-selfhost.sh`, `run-stdlib-tests.sh`, `check-bootstrap.sh`.
 
 ### The seed's corruption check no longer walks past a deleted row
 

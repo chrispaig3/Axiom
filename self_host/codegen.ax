@@ -5735,6 +5735,16 @@
 ; Which targets can create a thread through the platform's pthread, and
 ; which can fork. `targetCode`'s numbering: darwin 0/1, linux 2/3,
 ; freebsd 4/5, windows 6.
+;
+; darwin and linux have a pthread AND the local-exec TLS a C runtime
+; sets up for each new thread, and both are MEASURED - `Tests
+; (darwin-aarch64)`, `Tests (linux-x86_64)` and `Tests (linux-aarch64)`
+; all run `scripts/check-parallel.sh`, which executes both lowerings.
+; freebsd links no `libthr` here, so its thread lowering is REFUSED
+; rather than untried (AX4006); its PROCESS lowering is measured, and
+; measured by execution on a real kernel - `Tests (freebsd-x86_64)`
+; boots FreeBSD 14.4 and runs `run-stdlib-tests.sh`, whose 109 cases
+; include `470-parallel`, `471-parallel-trap` and `476-par-pool`.
 (pub :: targetHasThreads (-> Int Int))
 
 (pub fn (targetHasThreads t)
@@ -5756,6 +5766,22 @@
     )
   )
 )
+
+; Which targets can spawn AT ALL, which is the question `targetHasThreads`
+; does not answer. The process lowering IS the syscall template - `fork`,
+; `mmap` and `wait4` through `targetSyscallAsm` - so "can this target
+; fork?" is exactly "does this target have a syscall ABI", and the one
+; that does not is windows-x86_64.
+;
+; It is its own name rather than three copies of `targetUsesSyscallAsm`
+; because the QUESTION here is about `parallel` and the answer merely
+; happens to be the syscall ABI's: a windows spawn is missing because
+; there is no `fork`, not because there is no `__syscallN`. One
+; definition, so a target that grew a fork by another route would move
+; both the lowering and the diagnostic together.
+(pub :: targetHasSpawn (-> Int Int))
+
+(pub fn (targetHasSpawn t) (targetUsesSyscallAsm t))
 
 (pub :: targetSpelling (-> Int String))
 
@@ -6089,6 +6115,33 @@
   )
 )
 
+; A program that names a spawn, on a target with NEITHER lowering -
+; windows-x86_64, which has no `fork` and no pthread. This is the
+; build-time WARNING `main.ax` reports as AX4007, and warning rather
+; than refusal is the whole of the decision:
+;
+;   * the module still EMITS, with every spawn and join lowered to
+;     `@__axiom_par_unsupported` (`emitPrimParSpawn`). That is what
+;     keeps `check-freestanding.sh`'s windows sweep and
+;     `check-cross-targets.sh` able to compile the fixtures at all,
+;     and it is the design `emitPrimPar`'s header states;
+;   * a program whose `parallel` sits on a path it never takes builds
+;     AND RUNS on windows today, and an error would break it for a
+;     failure it would never have suffered;
+;   * but "you will die at your first spawn, with status 79" is known
+;     at BUILD time, and saying it then rather than at the first spawn
+;     is free. AX4006 already moves the thread lowering's refusal to
+;     build time; this moves the process lowering's SURPRISE there,
+;     without moving the refusal with it.
+(pub :: parSpawnUnsupported (-> (Vec Int) Int Bool))
+
+(pub fn (parSpawnUnsupported decls t)
+  (if (== (targetHasSpawn t) 1)
+    false
+    (== (parAnyNamed decls) 1)
+  )
+)
+
 ; The scan, once, before the allocator: slots 4 and 5 beside the pair
 ; state (`newCG` says why not two words of the record).
 (pub :: parScan (-> Int (Vec Int) Int))
@@ -6156,7 +6209,7 @@
             (r (regStr (allocReg cgA)))
           )
             {
-              (if (== (targetUsesSyscallAsm (memGetWord cgA 26)) 1)
+              (if (== (targetHasSpawn (memGetWord cgA 26)) 1)
                 (emitLine cgA (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "spawn" cgA) "(i64 ") f (cat3 ", i64 " a ")")))
                 (emitLine cgA (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()"))
               )
@@ -6181,7 +6234,7 @@
       (r (regStr (allocReg cgH)))
     )
       {
-        (if (== (targetUsesSyscallAsm (memGetWord cgH 26)) 1)
+        (if (== (targetHasSpawn (memGetWord cgH 26)) 1)
           (emitLine cgH (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "join" cgH) "(i64 ") h ")"))
           (emitLine cgH (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()"))
         )
@@ -6207,7 +6260,7 @@
 (pub fn (emitParRuntime cg)
   (if (== (pairSlot cg 5) 0)
     cg
-    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
+    (if (== (targetHasSpawn (memGetWord cg 26)) 1)
       {
         (emitParTrap cg)
         (emitParCommon cg)
@@ -10636,7 +10689,41 @@
     (emitLine cg "  %ismain0 = xor i1 %ismain, true")
     (emitLine cg "  %d1 = add i64 %d, 1")
     (emitLine cg "  %up = icmp ugt i64 %nx, %fp")
-    (emitLine cg "  %go = and i1 %up, %ismain0")
+    ; AND STOP AT THE THREAD'S ENTRY, which is the same rule on a stack
+    ; that has no `main` on it at all. A trap inside a `parallel`
+    ; binding under `--threads` runs on a pthread stack whose oldest
+    ; frame of OURS is `@__axiom_par_entry`; above it are libSystem's
+    ; `_pthread_start` frames, which this module's table cannot name -
+    ; so the `main` guard, the one thing that stops the walk, can never
+    ; fire and the walk names libc addresses with our symbols. Measured
+    ; on `tests/stdlib/471-parallel-trap.ax` built `--threads`,
+    ; 2026-09-04, before this line existed:
+    ;
+    ;     at __axiom_index_out_of_range
+    ;     at _lam_0
+    ;     at __axiom_par_entry
+    ;     at __axiom_out_of_memory      <- libSystem, named as ours
+    ;     at __axiom_out_of_memory      <- libSystem, named as ours
+    ;
+    ; Two frames that are not on the stack, printed with the same
+    ; confidence as the three that are - the one output `emitBtName`'s
+    ; header says a backtrace must never produce.
+    ;
+    ; EMITTED ONLY UNDER `cgThreads`, because `@__axiom_par_entry` is:
+    ; a module with no thread runtime has no such symbol to take the
+    ; address of, and every program that spawns no thread must stay
+    ; byte-identical (`scripts/check-thread-local.sh`'s OFF path,
+    ; `scripts/check-parallel.sh` arm 3).
+    (if (cgThreads cg)
+      {
+        (emitLine cg "  %pe = ptrtoint ptr @__axiom_par_entry to i64")
+        (emitLine cg "  %isentry = icmp eq i64 %at, %pe")
+        (emitLine cg "  %isentry0 = xor i1 %isentry, true")
+        (emitLine cg "  %inside = and i1 %ismain0, %isentry0")
+        (emitLine cg "  %go = and i1 %up, %inside")
+      }
+      (emitLine cg "  %go = and i1 %up, %ismain0")
+    )
     (emitLine cg "  br i1 %go, label %loop, label %done")
     (emitLine cg "done:")
     (emitLine cg "  ret void")
