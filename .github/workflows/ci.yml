@@ -426,7 +426,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # sixty-six of the gates below build the compiler under test from
+    # sixty-five of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -651,25 +651,20 @@ jobs:
       # allocator still reclaims.
       - name: Server memory holds across ten thousand connections
         run: ./scripts/check-net.sh
-      # The same question of a server that does a web server's work:
-      # examples/web parses each request off the socket, renders a page
-      # through the Html DSL and writes it back, and its handler must be
-      # an arena scope too. Every page is compared byte for byte against
-      # a response the script writes by hand, the escaped `<script>`
-      # among them, and each assertion has an ablation that goes red -
-      # the escaper bypassed, the path check compiled out, the arena
-      # switched off. Twenty thousand rendered requests is under a
-      # minute, and the memory criterion is a RATIO between two runs of
-      # the same binary, so it is not sensitive to how fast the runner
-      # is. This is also the only thing that runs examples/web at all,
-      # which is why it also sweeps the examples/ DIRECTORY: every
-      # tracked file a source or a static asset, none executable, every
-      # program named in examples/README.md and README.md linking there.
-      # A 156 KB Mach-O sat in examples/web from d1e4a71 until
-      # 2026-09-03 with every gate green, because every gate read file
-      # contents and none read the file list.
-      - name: A templated server serves its pages and holds its memory
-        run: ./scripts/check-web.sh
+      # The examples/ DIRECTORY is swept: every tracked file a source or
+      # a static asset, none executable, every program named in
+      # examples/README.md and README.md linking there. A 156 KB Mach-O
+      # sat in examples/web from d1e4a71 until 2026-09-03 with every
+      # gate green, because every gate read file contents and none read
+      # the file list. This was the examples half of check-web.sh, whose
+      # other half served the templated web example in examples/web -
+      # every page byte for byte, the escaper bypassed, the path check
+      # compiled out, the arena switched off - and measured its memory
+      # the way check-net.sh above does; that example and the Html DSL
+      # it rendered through were deleted on 2026-09-04, and the sweep
+      # kept its gate. It runs no Axiom program and builds no compiler.
+      - name: examples/ holds sources, and every program in it is documented
+        run: ./scripts/check-examples.sh
 
       # A terminal put into raw mode must come back byte for byte. It
       # runs on every leg because the numbers it exercises are

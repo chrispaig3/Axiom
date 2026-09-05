@@ -587,7 +587,8 @@ holds `$` — `for$v`, `for$i`, unwritable by AX1001 — is never
 recorded, and a reference is recorded only where the document's bytes
 at its span spell its bare name, which drops the loop's `Vec$vecGet`
 read and the `<`/`+` it emits on the keyword while keeping a user's
-`Vec::vecLen` and a template's `Html$hAttr`. So `documentHighlight`
+`Vec::vecLen` and a template's `IO$writeStr` (what `println`'s
+`writeStr` is rewritten to). So `documentHighlight`
 and `prepareRename` at the word `for` answer `null`, as at `while`;
 before that rule, `prepareRename` there answered the placeholder
 `for$v` with the keyword's own range, and highlight listed ten

@@ -38,7 +38,8 @@
 ;      `AX3025 its type is a type variable` about a type that was not a
 ;      variable any more.
 ;   8. The same over a container of Ints - one keyword, both element
-;      types, where `stdlib/Html.ax` needed `for` and `forInt`.
+;      types, where the HTML DSL (`stdlib/Html.ax`, deleted 2026-09-04)
+;      needed `for` and `forInt`.
 ;   9. An empty container runs zero times.
 ;  10. Nesting: 3 x 4 = 12, with each loop's counter its own.
 ;  11. `for` is an ordinary identifier everywhere except the head of a

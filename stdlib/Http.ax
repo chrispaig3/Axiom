@@ -6,7 +6,8 @@
 ; closes the socket. That is the whole of this module's concurrency
 ; model and it is a decision rather than an omission - see KEEP-ALIVE
 ; below. A server built on it is the shape tests/net/echo-server.ax
-; and examples/web/server.ax have: accept, `netSetBlocking`, mark the
+; has, and the shape examples/web/server.ax had until that example
+; was deleted on 2026-09-04: accept, `netSetBlocking`, mark the
 ; arena, `httpServeOne`, close, reset (docs/memory-model.md
 ; MM-ALLOC-22).
 ;
@@ -27,7 +28,9 @@
 ; `__axiom_arena_mark`'s cell between the accept and the close, one
 ; process over the loopback (2026-08-29). The head is 70 bytes as
 ; python's http.client sends it, or 764 bytes as Chrome sends it with
-; three cookies; the page is examples/web's index, 606 bytes:
+; three cookies; the page is examples/web's index, 606 bytes (that
+; example and the `Html` module it rendered through were deleted on
+; 2026-09-04; the table stands as the measurement it was):
 ;
 ;     httpRead alone, initial buffer    70-byte head   764-byte head
 ;         8192                               9,600          12,432
@@ -109,8 +112,12 @@
 ; on the same connection would read from reclaimed memory - the hazard
 ; `Rpc.rdReseat` and `__axiom_arena_reset_keeping` exist to answer,
 ; and answering it here is a second feature with its own memory arm,
-; not a flag. `scripts/check-web.sh` measures one connection per
-; request, which is the thing it can see. And closing makes every
+; not a flag. `scripts/check-web.sh` measured one connection per
+; request, which was the thing it could see, until the example it
+; drove was deleted (2026-09-04); `scripts/check-net.sh` measures the
+; same one-connection-per-request shape over tests/net/echo-server.ax,
+; and `tests/stdlib/430`-`432` are what exercise this module now. And
+; closing makes every
 ; response self-terminating for a client that ignores
 ; `Content-Length`. RFC 9112 9.6 lets a server close after any
 ; response, so answering a keep-alive request with `close` conforms.
@@ -118,7 +125,8 @@
 ; reader re-seated after the reset (`consumed`/`filled` are kept
 ; relative for it), `__axiom_arena_reset_keeping` for the bytes of the
 ; next request already read, a per-connection loop, and a keep-alive
-; arm in `check-web.sh` whose ablation must grow.
+; arm, with an ablation that must grow, in a gate that drives this
+; module end to end - `check-web.sh` was that gate until 2026-09-04.
 ;
 ; A SPELLING RULE THIS FILE FOLLOWS, learned while writing it: a
 ; `set` is not a value. Its type is the field's or the binding's own,

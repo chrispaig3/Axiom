@@ -3659,8 +3659,8 @@
 ; a reference the parser made up does not - `Vec$vecLen` and `for$v`
 ; sit on `for`, or on the container expression `(for x XS body)` reads
 ; its length from. A macro template's free identifier rewritten to
-; `Html$hAttr` (MAC-HYG-7) keeps its own span, which spells `hAttr`,
-; so it stays.
+; `IO$writeStr` (MAC-HYG-7, `println`'s `writeStr`) keeps its own span,
+; which spells `writeStr`, so it stays.
 (pub :: lspNavSpells (-> String Int String Bool))
 
 (pub fn (lspNavSpells src sp name)

@@ -2612,21 +2612,22 @@ nicety: without an expansion backtrace, the author of `(machine Door
 ...)` reads a diagnostic about a constructor they never wrote, in a
 `match` they never wrote, at a line that contains neither.
 
-### 10.6 A DSL that ships: `stdlib/Html.ax`
+### 10.6 A DSL that shipped, and what it established: `stdlib/Html.ax`
 
-The HTML templating layer is the first DSL in the standard library
-written in this macro system, and its module header is the proof of
-which rule each part rests on. It is pinned by
-`tests/stdlib/420-html-render.ax` (rendering, escaping in both
-contexts, iteration, hygiene, a component, a whole document) and
-`421-html-script.ax` (`</script>` neutralised at run time), each
-compared against bytes written by hand. What it exercises, rule by
-rule:
+The HTML templating layer was the first DSL in the standard library
+written in this macro system — 938 lines, 118 public names, a hundred
+of them element and attribute macros — and it was deleted on
+2026-09-04: the compiler did not use it, no other module imported it,
+and its one program was `examples/web/server.ax`, which went with it
+(`CHANGELOG.md`, *Unreleased*). Its module header was the proof of
+which rule each part rested on, and what it established about THIS
+document's rules is still true of them; it is kept here, in the past
+tense, so it is not rediscovered:
 
-- **`MAC-EXP-7`** is the reason an element is a macro and not a
-  function: `(div b { children })` must write `<div>` BEFORE its
-  children run, and only substitution-as-syntax evaluates an argument
-  where its parameter stands. Children are a `{ ... }` block, which
+- **`MAC-EXP-7`** was the reason an element was a macro and not a
+  function: `(div b { children })` had to write `<div>` BEFORE its
+  children ran, and only substitution-as-syntax evaluates an argument
+  where its parameter stands. Children were a `{ ... }` block, which
   `MAC-CAP-1` admits as a template form and the parser admits as an
   argument, so a fixed-arity macro takes any number of them.
 - **`MAC-HYG-10`** is what MADE `(for it items body)` writable while
@@ -2634,35 +2635,35 @@ rule:
   position and kept the caller's spelling, while the template's `i`
   and `n` were renamed (`MAC-HYG-3`). Since 2026-09-03 `for` is a
   language KEYWORD (`docs/reference.md`, "`for` — the counted loop
-  and the container loop") and the module's two loop macros are
-  deleted; the keyword needs neither rule, because its binders are
-  `for$i`, `for$n` and `for$v`, and `$` is `AX1001` inside an
-  identifier, so nothing a caller writes can collide with them. 420's
-  hygiene check — a `for` surrounded by a caller's own `i` and `n` —
-  still holds, and now holds for that reason. `MAC-HYG-10` itself is
-  unchanged and `Err.ax`'s `try!` still depends on it.
+  and the container loop") whose binders are `for$i`, `for$n` and
+  `for$v`; `$` is `AX1001` inside an identifier, so nothing a caller
+  writes can collide with them, and `tests/stdlib/466-for-loop.ax`
+  term 6 is the hygiene check. `MAC-HYG-10` itself is unchanged and
+  `Err.ax`'s `try!` still depends on it.
 - **`MAC-HYG-6`/`MAC-HYG-7`** resolve every helper a template names at
-  the definition site, and the module keeps a rule because of it:
-  every such helper is declared in `Html.ax` — and declared `pub`,
-  which was measured rather than assumed. `MAC-LANG-10` judges a
-  template's private *macro* at the definition site, but a private
-  *function* named by a template is refused at the invocation with
-  `AX3023` `private-name`; the visibility of a free identifier is
-  judged where the macro is used. Not yet a numbered rule, recorded
-  here so it is not rediscovered.
-- **`MAC-SAFE-1`** is applied in `el`/`elA`: the builder and the tag
-  are each mentioned twice, so both are bound first.
-- **`MAC-LANG-13`** decides that escaping is a run-time function
-  (`hEscText`, `hEscAttr`) and that `</` inside `script`/`style` is
+  the definition site, and the module kept a rule because of it: every
+  such helper was declared in `Html.ax` — and declared `pub`, which was
+  measured rather than assumed. `MAC-LANG-10` judges a template's
+  private *macro* at the definition site, but a private *function*
+  named by a template is refused at the invocation with `AX3023`
+  `private-name`; the visibility of a free identifier is judged where
+  the macro is used. Not yet a numbered rule, and with the module gone
+  no library template exercises it, so it is recorded here rather
+  than left to be found again.
+- **`MAC-SAFE-1`** was applied in `el`/`elA`: the builder and the tag
+  were each mentioned twice, so both were bound first.
+- **`MAC-LANG-13`** decided that escaping was a run-time function
+  (`hEscText`, `hEscAttr`) and that `</` inside `script`/`style` was
   rewritten at run time rather than refused at `check`.
-- The limits it works around, each named in the header: no variadic
-  expression macro (`MAC-LANG-14`'s decision, so children are a
-  block), no macro generating a macro (`MAC-CAP-8`'s `AX3021`, so the
-  tag table is written out, two lines per tag), no `{}` (so `div` and
-  `divA` are two macros), no `:class` (the lexer), no dispatch on a
-  head's spelling (`MAC-LANG-17`, so one macro per attribute name plus
-  `attr`), and `MAC-EXP-14a`'s literal spans, of which the ~70 string
-  literals in its templates are the densest exposure in the tree.
+- The limits it worked around, each named in its header, are still the
+  system's limits: no variadic expression macro (`MAC-LANG-14`'s
+  decision, so children were a block), no macro generating a macro
+  (`MAC-CAP-8`'s `AX3021`, so the tag table was written out, two lines
+  per tag), no `{}` (so `div` and `divA` were two macros), no `:class`
+  (the lexer), no dispatch on a head's spelling (`MAC-LANG-17`, so one
+  macro per attribute name plus `attr`), and `MAC-EXP-14a`'s literal
+  spans, of which the ~70 string literals in its templates were the
+  densest exposure in the tree.
 - **One measured refusal worth knowing before naming a macro**: a bare
   identifier that names a macro is a zero-argument invocation
   (`MAC-LANG-3`), and the expander reads TYPE positions too — a macro

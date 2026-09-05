@@ -878,7 +878,8 @@ whose `hi` is at or below `lo` runs zero times, backwards included
 `body` once per element of the `(Vec a)` `xs`, with `x` bound to the
 element at whatever type `a` is — a `(Vec String)` prints directly and
 so does a `(Vec Int)` (terms 7 and 8), which is the one case the two
-loop macros `stdlib/Html.ax` used to carry could not share. Both shapes
+loop macros the HTML DSL (`stdlib/Html.ax`, itself deleted on
+2026-09-04) used to carry could not share. Both shapes
 evaluate to `0`, as `while` does, and nesting is an ordinary nesting of
 scopes (term 10, 3 × 4 = 12 with each counter its own).
 
@@ -914,8 +915,7 @@ by hand, emit byte-identical IR, 1,196 lines against 1,196.
 `for$lo`, `for$n`, `for$i` and `for$v`, and `$` is `AX1001 unexpected
 character` inside an identifier, so no program can write them and none
 can be captured by them: a caller's own `i`, `n` and `v` bound around a
-loop read as the caller's after it (466 term 6, and the hygiene check
-in `tests/stdlib/420-html-render.ax`). The element read is the
+loop read as the caller's after it (466 term 6). The element read is the
 *qualified* `Vec::vecGet` and the length `Vec::vecLen`, so a program
 declaring its own `vecLen` cannot capture them — term 12 declares one
 that answers 99 and the loop still runs twice, and
@@ -3337,7 +3337,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 
 ### Modules at a Glance
 
-Twenty-four modules, all of them Axiom source under `stdlib/`. A name a
+Twenty-three modules, all of them Axiom source under `stdlib/`. A name a
 module does not mark `pub` is not part of its surface — reaching one is
 `AX3023` — so `grep '^(pub' stdlib/M.ax` is always the authoritative
 answer to what a module exports. The table below says what each module
@@ -3368,7 +3368,6 @@ requires the result to be byte-identical.
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them — written for JSON-RPC |
 | `Rpc` | the LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled` |
 | `Par` | `parMapWords` — a bounded pool of concurrent tasks over `__proc_spawn`/`__proc_join`, joined in submit order; `parRunAll` is that pool over external commands, and `parRunOne`/`parArgvVector` the pieces underneath. Replaced `Job` at 0.7.4 |
-| `Html` | the templating DSL, written in the macro system: the element macros `div`/`divA` and the rest of the tag table, the void elements `br`/`hr`/`img`/`input`/`link`/`meta`, `el`/`elA`/`elVoid`/`elVoidA` for any tag, `text`, `raw`, `for`/`forInt`, `style`/`script`/`scriptA`, the attribute macros (`class`, `id`, `href`, `src`, `name`, `value`, …) and `attr`/`flag`; underneath, the builder `hNew`/`hPut`/`hLen`/`hFinish` and the escapers `hEscText`/`hEscAttr`/`hEscTagEnd` |
 | `Http` | the request parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`), the `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`, the writer `httpRespond`/`httpRespondRaw`/`httpFail` with `httpStatusText` and `httpContentType`, the router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells, `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the ceilings `httpMaxHead`/`httpMaxBody` |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs — what `axiom test` discovers and isolates ([error-model.md](error-model.md) ERR-REC-6) |
 | `Agent.Tags` | `axsymParse`, `axsymLine`, and the accessors over one parsed line: `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag`. Reads the AXSYM stream rather than the compiler's internals ([agent-harness.md](agent-harness.md) §3.2) |

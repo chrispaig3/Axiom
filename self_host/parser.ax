@@ -4608,9 +4608,9 @@
 ; same trick `Mod$name` already uses for a qualified reference. Nesting
 ; is safe with fixed names because an inner `for`'s bindings are
 ; visible only inside the inner body, where nothing refers to the
-; outer's. `tests/stdlib/466-for-loop.ax` term 6 and
-; `tests/stdlib/420-html-render.ax:246` are the live tests: both bind a
-; caller's own `i`, `n` and `v` around a loop and print them after.
+; outer's. `tests/stdlib/466-for-loop.ax` term 6 is the live test: it
+; binds a caller's own `i`, `n` and `v` around a loop and prints them
+; after (the `Html` fixture that held the same check left with it).
 ;
 ; THE ELEMENT READ IS QUALIFIED, NOT BARE. `Vec$vecLen`/`Vec$vecGet` is
 ; the mangled spelling `mangledFromChain` gives `Vec::vecLen`, and it is
