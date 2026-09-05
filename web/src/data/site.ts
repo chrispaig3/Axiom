@@ -25,7 +25,7 @@ export interface Stat {
 export const STATS: Stat[] = [
   {
     key: 'lines',
-    n: '103,476',
+    n: '103,594',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
@@ -37,7 +37,7 @@ export const STATS: Stat[] = [
   },
   {
     key: 'codes',
-    n: '79',
+    n: '80',
     label: 'diagnostic codes, each with a written explanation',
     evidence: 'axiom explain --list',
   },
