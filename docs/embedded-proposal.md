@@ -58,6 +58,19 @@ Everything else in those 570 lines is arithmetic on memory the program
 already has. There is no dynamic loader, no relocation processing at
 startup, no C runtime init, no atexit table, no locale, no `errno`.
 
+**Two of those rows are per-platform, and one of them is per-linker.**
+17,472 bytes is a Mach-O. The identical program, from byte-identical
+IR, is 16,416 bytes from gcc and ld.bfd on linux-x86_64 and 71,168 from
+clang and lld on linux-aarch64 — a 4.3x spread between two supported
+ELF linkers, which is page policy and `crt1`, not code. Undefined
+symbols are per format for the same reason: zero on a Mach-O, five or
+six startup hooks on an ELF. So `check-embedded.sh` A3 asserts the
+flash band only on the format section 5 prices it on, prints the size
+on ELF and PE, and asserts on every host the two figures that are the
+RUNTIME's rather than the toolchain's — no import outside the
+platform's own startup set, and exactly three distinct syscalls. Both
+halves of that were a red CI leg first, on 2026-09-04.
+
 ## 3. What Axiom already has that an embedded target wants
 
 * **A per-target syscall ABI, chosen at compile time.**
@@ -284,7 +297,7 @@ derived from section 2's measurements rather than from a target:
 
 | | proposed | basis |
 |---|---|---|
-| flash, runtime + minimal program | ≤ 24 KiB | 17,472 measured on aarch64; ARM Thumb-2 is typically smaller |
+| flash, runtime + minimal program | ≤ 24 KiB | 17,472 measured as a Mach-O — see §2, a hosted ELF's size is its linker's; ARM Thumb-2 is typically smaller |
 | flash, with the freestanding stdlib subset | ≤ 64 KiB | 34,856 measured with all of `IO` linked |
 | SRAM, arena | 32 KiB, statically reserved | 8 × the proposed 4 KiB chunk |
 | SRAM, stack | 8 KiB | hello world's own need is **192 bytes** computed (`check-stack-bound.sh`); the 8 KiB is headroom for a deeper program, and any `no-recursion` program's need is now a number rather than an estimate |
