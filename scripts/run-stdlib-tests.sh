@@ -3,8 +3,15 @@
 # tests/stdlib.
 #
 # Each case is `NAME.ax` with an expected stdout in `NAME.out`, an
-# optional expected exit status in `NAME.exit` (default 0), and an
-# optional expected STDERR in `NAME.err`. Stderr is discarded unless
+# optional expected exit status in `NAME.exit` (default 0), an optional
+# expected STDERR in `NAME.err`, and an optional STANDARD INPUT in
+# `NAME.in`, handed to the program as fd 0; a case with no `.in` reads
+# `/dev/null`. Explicitly `/dev/null`, since 2026-09-04: before that fd
+# 0 was whatever this script inherited - a terminal, when run by hand -
+# and no case noticed, because no case could read it: `IO` had no
+# reader. A case that reads its input now says so with a file beside
+# it, and one that does not gets end of input at once rather than a
+# terminal to hang on. Stderr is discarded unless
 # that third file exists, because almost every case writes none and a
 # runner that compared it everywhere would turn a stray warning into
 # fifty failures. Where the file IS present the comparison is exact -
@@ -114,11 +121,24 @@ for case_file in tests/stdlib/*.ax; do
 
   expected_err="tests/stdlib/$name.err"
 
+  # A `.in` that exists and cannot be read is a failure, not `/dev/null`:
+  # the case was written against an input, and running it against
+  # nothing would compare the wrong program with the golden.
+  stdin_src=/dev/null
+  if [[ -e "tests/stdlib/$name.in" ]]; then
+    if [[ ! -r "tests/stdlib/$name.in" ]]; then
+      echo "FAIL $name (tests/stdlib/$name.in exists but cannot be read)"
+      failed=$((failed + 1))
+      continue
+    fi
+    stdin_src="$repo_root/tests/stdlib/$name.in"
+  fi
+
   set +e
   if [[ -f "$expected_err" ]]; then
-    actual_out="$(cd "$case_dir" && "./$name" 2>"$case_dir/$name.stderr")"
+    actual_out="$(cd "$case_dir" && "./$name" <"$stdin_src" 2>"$case_dir/$name.stderr")"
   else
-    actual_out="$(cd "$case_dir" && "./$name" 2>/dev/null)"
+    actual_out="$(cd "$case_dir" && "./$name" <"$stdin_src" 2>/dev/null)"
   fi
   actual_exit=$?
   set -e

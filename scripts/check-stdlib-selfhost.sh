@@ -23,7 +23,10 @@
 # WHAT IT PINS NOW
 #
 #   1. GOLDENS. `tests/stdlib/NAME.out` byte for byte, and `NAME.exit`
-#      (default 0), for every case, at `llc -O0` AND `llc -O2`. These are
+#      (default 0), for every case, at `llc -O0` AND `llc -O2` - with
+#      `NAME.in` as the program's fd 0 when that file exists and
+#      `/dev/null` when it does not, the same rule `run-stdlib-tests.sh`
+#      applies and for the reason its header gives. These are
 #      the same goldens `run-stdlib-tests.sh` has always used, and the
 #      differential's own premise was that they were trustworthy. Their
 #      provenance is that they were written by the Rust compiler before
@@ -264,6 +267,27 @@ for case_file in $corpus/*.ax; do
       header_fails=$((header_fails + 1))
     fi
   fi
+  # A `.in` the case was written against must be readable here, before
+  # any compiler is built: running the case against `/dev/null` instead
+  # would compare a different program with the golden and report it as
+  # the compiler's answer.
+  if [[ -e "$corpus/$name.in" && ! -r "$corpus/$name.in" ]]; then
+    echo "FAIL $name: $corpus/$name.in exists but cannot be read"
+    failed=$((failed + 1))
+  fi
+done
+
+# The other direction: an input nothing reads. A `.in` beside no `.ax`
+# is a case that was renamed or deleted and left its input behind, and
+# the sweep above cannot see it because it walks the sources.
+inputs=0
+for in_file in $corpus/*.in; do
+  [[ -e "$in_file" ]] || continue
+  inputs=$((inputs + 1))
+  if [[ ! -f "${in_file%.in}.ax" ]]; then
+    echo "FAIL $(basename "$in_file"): an input with no $(basename "${in_file%.in}").ax to read it"
+    failed=$((failed + 1))
+  fi
 done
 
 if [[ "$cases" -lt 35 ]]; then
@@ -288,7 +312,7 @@ if [[ "$distinct_exits" -lt 3 ]]; then
   echo "FAIL: the $cases cases expect only $distinct_exits distinct exit statuses (expected 3) - a status left the corpus"
   failed=$((failed + 1))
 fi
-echo "ok   $cases cases, $distinct_goldens distinct goldens, $distinct_exits distinct expected exit statuses"
+echo "ok   $cases cases, $distinct_goldens distinct goldens, $distinct_exits distinct expected exit statuses, $inputs with a .in"
 # Named rather than left silent: the header check above prints only on
 # failure, and a sweep whose passing output is nothing is a sweep no
 # reader can tell ran. The count is the evidence that it did.
@@ -385,7 +409,11 @@ for case_file in $corpus/*.ax; do
     # leftover from a previous run would make a failure look like a pass.
     rundir="$work/run/$name$opt"
     mkdir -p "$rundir"
-    (cd "$rundir" && "$work/ir/$name$opt.bin" >stdout.txt 2>stderr.txt); got_exit=$?
+    # fd 0 is the case's `.in`, or `/dev/null` - never what this gate
+    # inherited. The readability check ran in the corpus section.
+    stdin_src=/dev/null
+    [[ -e "$corpus/$name.in" ]] && stdin_src="$repo_root/$corpus/$name.in"
+    (cd "$rundir" && "$work/ir/$name$opt.bin" <"$stdin_src" >stdout.txt 2>stderr.txt); got_exit=$?
     runs=$((runs + 1))
 
     if [[ -s "$golden" && ! -s "$rundir/stdout.txt" ]]; then

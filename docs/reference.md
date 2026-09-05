@@ -3361,9 +3361,9 @@ requires the result to be byte-identical.
 | `Err` | `Result` (`Ok`/`Err`), the `Error` record, `isOk`/`isErr`, `okOr`, `unwrapOr`, `mapOk`/`mapErr`, `andThen`, `try!`, `toOption`, `withContext`, and the checked arithmetic `divChecked`, `remChecked`, `shlChecked`, `shrChecked` ([error-model.md](error-model.md) is the specification) |
 | `Fallible` | `fallibleMalformed` — the operation a batch loop's callee performs on a malformed record — and the handlers that answer it without unwinding: `fallibleSkip`, `fallibleDefault`, `fallibleCounting`; the skip sentinel `fallibleSkipped`/`fallibleIsSkipped`; the `FallibleTally` a counting handler writes, `fallibleTally`/`fallibleCount` ([error-model.md](error-model.md) ERR-REC-7) |
 | `Intern` | `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
-| `Sys` | the syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
+| `Sys` | the syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysReadAllFd`, `sysReadLineFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
 | `Path` | `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex` — decisions about bytes, no syscalls |
-| `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr` (bytes, no newline, no rendering), the raw-address variants `printlnLit`/`readFileLit`, `exit`, `die`, `todo` (a hole that types as any result and never returns, printing `todo: <what>` and exiting 70 — it is what `AX3005`'s machine-applicable fix writes into each missing arm); and the filesystem (below) |
+| `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr` (bytes, no newline, no rendering), `readLine` and `readAll` (a descriptor's next line, or the rest of it — `(readLine stdin)` is how a program reads what was typed or piped at it), the raw-address variants `printlnLit`/`readFileLit`, `exit`, `die`, `todo` (a hole that types as any result and never returns, printing `todo: <what>` and exiting 70 — it is what `AX3005`'s machine-applicable fix writes into each missing arm); and the filesystem (below) |
 | `Ffi` | `ffiHandleNew`/`ffiHandlePtr`/`ffiHandleClose`, the out-cell (`ffiCellNew`, `ffiCellWord`, `ffiCellFree`) and the `Vec` conversions a generated binding needs ([ffi.md](ffi.md)) |
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them — written for JSON-RPC |
 | `Rpc` | the LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled` |
@@ -3386,6 +3386,8 @@ is the one to reach for.
 | Question | `IO` (takes a `Str`) | `Sys` (takes a `char*`) |
 |---|---|---|
 | read a whole file | `readFile` | `sysReadFile` |
+| read one line of a descriptor | `readLine` | `sysReadLineFd` |
+| read a descriptor to end of input | `readAll` | `sysReadAllFd` |
 | write one, truncating | `writeFile` | `sysWriteFile` |
 | add to the end of one | `appendFile` | `sysAppendFile` |
 | duplicate one | `copyFile` | — |
@@ -3402,6 +3404,16 @@ is the one to reach for.
 | where am I? | `cwd` | `sysGetCwd` |
 
 Every call answers a value or a negative errno; nothing throws.
+
+The two descriptor readers take an `Int` in both layers — `stdin`, or
+what `sysOpenPath` answered — and what `IO` adds there is the
+descriptor in the error's message. Both answer `Result`, with end of
+input inside the `Ok` (`(Ok None)` for a line, `(Ok "")` for the
+rest), because a read that fails is not an input that ended and a
+stream cannot be asked `readErrno` afterwards. `readLine` performs one
+`read(2)` per byte so that it never takes a byte it does not answer;
+`stdlib/Sys.ax` records the measured cost and what to use for bulk
+input instead.
 
 Three things are worth knowing before using them.
 

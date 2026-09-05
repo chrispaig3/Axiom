@@ -109,6 +109,7 @@ internPlace Intern.ax Mut
 internRehash Intern.ax Alloc,Mut
 internReplaceFrom Intern.ax Mut
 internWithCapacity Intern.ax Alloc,Mut
+ioFdError IO.ax Alloc,Mut
 ioPath IO.ax Alloc,Mut
 ioResult IO.ax Alloc,Mut
 isDir IO.ax Alloc,IO,Mut
@@ -287,9 +288,11 @@ rdCompact Rpc.ax Alloc,Mut
 rdFill Rpc.ax Alloc,IO,Mut
 rdNew Rpc.ax Alloc,Mut
 rdReseat Rpc.ax Alloc,Mut
+readAll IO.ax Alloc,IO,Mut
 readErrno IO.ax Alloc,IO,Mut
 readFile IO.ax Alloc,IO,Mut
 readFileLit IO.ax Alloc,IO,Mut
+readLine IO.ax Alloc,IO,Mut
 remChecked Err.ax Alloc
 removeDir IO.ax Alloc,IO,Mut
 removeFile IO.ax Alloc,IO,Mut
@@ -348,12 +351,14 @@ sysOpenPathMode Sys.ax IO
 sysOpenRaw Sys.ax IO
 sysRandomBytes Sys.ax Alloc,IO
 sysReadAll Sys.ax Alloc,IO,Mut
+sysReadAllFd Sys.ax Alloc,IO,Mut
 sysReadDir Sys.ax Alloc,IO,Mut
 sysReadDirDecode Sys.ax Alloc,Mut
 sysReadDirLoop Sys.ax Alloc,IO,Mut
 sysReadErrno Sys.ax Alloc,IO,Mut
 sysReadFd Sys.ax Alloc,IO
 sysReadFile Sys.ax Alloc,IO,Mut
+sysReadLineFd Sys.ax Alloc,IO,Mut
 sysRename Sys.ax Alloc,IO
 sysResult Sys.ax Alloc
 sysRmdir Sys.ax Alloc,IO

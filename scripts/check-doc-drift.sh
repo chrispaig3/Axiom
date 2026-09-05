@@ -545,7 +545,7 @@ for root, dirs, files in os.walk("."):
             text = open(path, encoding="utf-8", errors="ignore").read()
         except OSError:
             continue
-        for p in re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json)(?![\w])",
+        for p in re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json|in)(?![\w])",
                             text):
             # Every naming file, not the first: a deleted fixture is
             # named by as many comments as explained it, and a report
@@ -592,7 +592,7 @@ tests_index = set()
 for root, dirs, files in os.walk("tests"):
     tests_index.update(files)
 bare_pat = re.compile(
-    r"(?<![\w/.-])(\d{3}-[\w-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json))(?![\w])")
+    r"(?<![\w/.-])(\d{3}-[\w-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json|in))(?![\w])")
 bare_named = {}
 for root, dirs, files in os.walk("."):
     dirs[:] = [d for d in dirs
