@@ -75,6 +75,7 @@
   [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
+  [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1909,10 +1910,13 @@ failure writes
 
     axiom: precondition failed in `half`: (> n 0)
 
-on fd 2, prints the backtrace, and exits 76 - a status of its own,
-beside 70 out of memory, 71 unhandled effect, 72 division by zero, 73
-the FFI boundary, 74 no syscall ABI and 75 an invalid arena mark, so a supervisor reading a
-status can tell a broken invariant from a broken machine. There is no
+on fd 2, prints the backtrace, and exits 77, beside 70 out of memory,
+71 unhandled effect, 72 division by zero, 73 the FFI boundary, 74 no
+syscall ABI, 75 an invalid arena mark and 76 an arena reset past a
+live handle. 77 is SHARED with the out-of-range index trap: a
+supervisor tells those two apart by the sentence on fd 2 and not by
+the status, which is a defect and is recorded in
+docs/subtypes-design.md rather than left to be rediscovered. There is no
 flag: a check that is off by default is a comment by default.
 
 WHAT THIS CODE REFUSES is everything about the contract that IS
@@ -2378,6 +2382,43 @@ on `--threads`: the process lowering is merely permitted to be laxer
 than the rule. `__proc_spawn` names that lowering by itself - a
 separate address space, so no count is shared - and is exempt.
 
+### explain AX3065
+AX3065 - an AXTAG key the compiler derives and writes itself
+
+The AXTAG key namespace is OPEN: a key the compiler does not know is
+metadata, it is recorded, and nothing checks it. AX3039 says so, and
+this does not narrow it. What it refuses is the one part of that
+namespace that was never the author's - the keys `axiom symbols`
+WRITES, from the checker's own answers:
+
+    effects  effect-params  effects-incomplete  effects-overapprox
+    effects-possible  ctors  of  fields  tyvars  methods  generated
+    calls  mir-params  mir-escapes  mir-result-fresh
+    mir-result-from  mir-incomplete  mir-truncated
+
+A reader of that stream cannot tell an author's copy of one from the
+compiler's. Before this refusal, `;@axiom:effects(Pure)` on a body
+with effects, and `;@axiom:mir-result-fresh(1)` on any body at all,
+rendered rows byte-identical to derived ones - the second silently,
+because it is not one slip from a key the compiler checks and the
+near-miss rule was all that had ever looked at a key.
+
+The ordering rule does not cover it. Compiler keys are pushed after
+the author's so a reader taking the LAST `#key` gets the compiler's -
+but only where the compiler emits that key on that row. It emits no
+`#effects=` for a body with no effects and no `#mir-*` for a program
+that names no region, which is exactly where a forged guarantee is
+worth forging.
+
+An ERROR, like AX3052 and AX3054 and unlike AX3039, for AX3052's
+reason: accepting it would let a tag read like a guarantee and buy
+silence. `pure`, `effect(...)`, `restrict(...)`, `pre(...)`,
+`post(...)`, `unhandled(trap)` and `raw` are yours to write - they
+are CHECKED, which is the difference.
+
+Namespace it - `;@axiom:my:effects(...)`, which a `:` exempts - or
+drop it.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2734,6 +2775,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
+  [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

@@ -90,6 +90,63 @@ rather than the tree against itself:
 `npm run build`, `node scripts/smoke.mjs`, `check-doc-drift.sh` and
 `check-version.sh` are green on the result.
 
+### Seven gates were run by nothing, and all seven passed
+
+`CONTRIBUTING.md` introduces its table of gates with the sentence
+"`.github/workflows/ci.yml` runs all of these". Measured 2026-09-04, it
+ran 71 of the 78: `check-dead-code.sh`, `check-mir-projection.sh`,
+`check-mir-roundtrip.sh`, `check-repl-highlight.sh`,
+`check-repl-history.sh`, `check-repl-tui.sh` and `check-replcomp.sh`
+were named by no step in the file.
+
+Every one of them passes — run here in the order above, 34s, 18s, 56s,
+7s, 4s, 36s and one more, all exit 0. That is the finding rather than a
+consolation: **a gate no job runs is indistinguishable from a gate that
+passes**, and CI is the only thing that runs any of them on Linux. This
+file's own risk note and two comments in `ci.yml` already say so in the
+words of the last two people who found it — "a gate no job runs is a
+script", "a tool with no CI gate is silently broken, as `fmt` was" —
+which is three occurrences of one defect and no check for it.
+
+The local battery cannot drift this way, and the difference is the
+whole fix. `run-gates.sh` GLOBS `scripts/check-*.sh`, so a gate is in it
+the moment it is written; `ci.yml` names its gates one at a time,
+because it also decides which job and which platform each belongs to.
+That is the right design for the workflow and it is why the list has to
+be checked rather than trusted.
+
+`scripts/check-ci-coverage.sh` checks it, in both directions: every gate
+on disk is named on a `run:` line, and every gate a step names exists.
+The second direction is not hypothetical — `720a0d5` deleted
+`check-game-of-life.sh` and the sample it ran and left the step invoking
+it, so every run of that job failed on a missing file.
+
+**It reads `run:` lines, not the file, and that is load-bearing.**
+`ci.yml` is 1,300 lines of mostly prose, and gates are named in its
+comments constantly. A whole-file grep answers 72 where the steps answer
+71, and the one it invents is `check-game-of-life.sh` — named today only
+by the comment recording its deletion. A gate built on a whole-file grep
+would have called that broken step covered. Ablating the comment-strip
+proves both halves at once: the deleted script is reported as missing,
+and the "named only in a comment" ablation stops being refused.
+
+Three ablations run on every invocation, each required to go red: a step
+deleted, a step naming a script that is not in the tree, and an
+uncovered gate named only in a comment. The exclusion table is empty and
+is written for the empty set — `compat/UNCOVERED` reaching zero once
+killed a gate two seconds in, which is the failure a success condition
+of "nothing left" invites.
+
+The eight steps are placed beside their siblings rather than in a block:
+`check-dead-code.sh` next to `check-freestanding.sh`, both being claims
+about a linked binary's symbol table; the two `.axir` gates next to
+`check-mir.sh`; the four REPL gates next to `check-repl-selfhost.sh`,
+which pins the piped sessions the terminal ones cannot reach. The
+coverage gate itself runs in the cheap grammar job, because it reads two
+lists of file names and needs no compiler.
+
+## 0.7.5 — 2026-09-04
+
 ### Two front-door claims were stale, and twenty `explain` pages were a sentence each
 
 Every one of these was confirmed by a probe before it was changed, and
@@ -150,8 +207,81 @@ every number that stays is derived.
 `check-release-targets.sh`, `check-version.sh` and
 `node web/scripts/check-claims.mjs` are green on the result.
 
-## 0.7.5 — 2026-09-04
+### A design note's cost argument was measured at the one optimisation level where its loop does not exist
 
+`docs/subtypes-design.md` recommends against range-constrained subtypes
+for three reasons, and the second is cost: a `pre` standing in for the
+range check made a self-recursive loop **+37% slower, arms never
+interleaving**. The note then says that at `--opt 2` that loop is
+constant-folded away entirely, both binaries answer in 0.00s, and the
+figure is therefore "not a claim about a release build" — so the
+condition it sets for revisiting ("a value analysis") was left open on a
+measurement that could not reach it.
+
+Re-measured on a loop LLVM cannot close-form — body changed to
+`(% (* acc 31) 1000003)`, trip count from `sysArgc` so it is not a
+constant, 10^8 iterations, arms alternated, `user` seconds:
+
+```
+--opt 2   bare 0.61 0.61 0.67   checked 0.61 0.63 0.61
+--opt 0   bare 1.14 1.07 1.08   checked 1.11 1.10 1.11
+```
+
+**The arms interleave at both levels.** The caveat is written into the
+note rather than left out of it: this body does a multiply and a
+remainder where the original does an `add`, so the check is a smaller
+fraction of it and the original +37% is not refuted. The narrower claim
+is the one the condition asked for — the release-build cost is not
+measurable, and the value analysis that discharges the check is the
+BACKEND's, not something this compiler has to grow. One of the three
+reasons is now met; the other two stand and the recommendation is
+unchanged. **Still not built.**
+
+The note's census was stale in the same edit: `(cast Int` 441 → **780**,
+all casts 651 → **1,015**, against 4,197 `fn` declarations. Both halves
+grew by about half, so the ratio and the argument survive — but the
+absolute count is what that section leans on. The four paired
+signature counts above it were not re-run and are now marked with their
+date rather than carried as current.
+
+### A violated contract and an out-of-range index exit with the same status, and three documents disagree about which
+
+Found while checking a number before reusing it. `docs/memory-model.md`'s
+`MM-EXEC-16` table assigns **76** to an arena reset past a live handle
+(`MM-ALLOC-16b`) and **77** to `__indexTrap`. The contract trap is
+documented at 76 in six places and emits **77**:
+
+```
+$ axiom run c76.ax    # a violated ;@axiom:pre    -> 77
+$ axiom run idx.ax    # (__indexTrap)             -> 77
+```
+
+So the documented number belongs to the arena and the emitted one
+belongs to the index trap. `grep -n 'emitRuntimeExit cg "7'
+self_host/codegen.ax` is the census: the contract trap is the only row
+in the emitter whose documented status and actual status disagree.
+
+It got there by two merges. Designed on 75; moved to 76 in `4bcd7eb`
+when a merge found `MM-ALLOC-16a` already spending 75; moved again to 77
+in `3f2f39a`, as a conflict resolution, onto the number `91f33f7` had
+given `__indexTrap` on trunk in between. `codegen.ax`'s header comment
+still reads `; STATUS 76, AND IT WAS DESIGNED AS 75`, two moves out of
+date, above a paragraph arguing that "two broken invariants sharing one
+status would be that defect again".
+
+Nothing caught it because every party is internally consistent:
+`check-contracts.sh` asserts 77 and is green,
+`tests/stdlib/464-index-trap.exit` asserts 77 and is green, and **no
+gate compares one trap's status to another's**. `docs/error-model.md`
+and `docs/memory-model.md` state the two owners of 77 in two tables,
+neither of which reads the other.
+
+Recorded in `docs/subtypes-design.md` and **not fixed here**, because
+the fix is a decision about a shipped exit status rather than a
+correction: move the contract trap to 80, or accept the collision and
+say so in both tables. Rewriting the prose from 76 to 77 — the obvious
+reading, and the one this started as — would have written the collision
+into the documents whose purpose is that it cannot happen.
 
 ### The seed's corruption check no longer walks past a deleted row
 

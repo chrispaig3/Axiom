@@ -14,6 +14,13 @@ conclusion is a **recommendation not to build it as a type**. Every
 number below carries the command that produced it, over the merged tree
 at `HEAD`.
 
+**Status: designed 2026-08-31, re-measured 2026-09-04, still not
+built.** The re-measurement moved one of the three conditions below
+(the cost argument — see "Re-measured 2026-09-04" under Question 3),
+refreshed a stale census, and found a defect in the CONTRACTS feature
+this note leans on (see the last section). The recommendation is
+unchanged, now resting on two conditions instead of three.
+
 ## What the feature would be
 
 A named type whose values are a subset of another type's, with the
@@ -53,8 +60,12 @@ that is not a literal. So a constrained subtype is checked the way a
 contract is: a compare, a branch, and a trap.
 
 **Which means the feature is already half-built.** `__contract` is the
-primitive, `@__axiom_contract_fail` is the trap, 76 is the status, and
+primitive, `@__axiom_contract_fail` is the trap, and
 `expLowerContracts` is the pass that writes the check into the body.
+This note originally said "76 is the status", and that was wrong twice
+over — see "The status this note got wrong" below, which is a defect in
+the contracts feature rather than in this one, found while
+re-measuring for the 2026-09-04 revision.
 A subtype adds no new enforcement mechanism at all. What it adds is a
 different *attachment point* for the same check — and that is where the
 cost is, and where the argument against it is.
@@ -85,6 +96,13 @@ $ grep -ohE '\((<|<=|>|>=) [a-zA-Z_][a-zA-Z0-9_]* 0\)' self_host/*.ax stdlib/*.a
 $ grep -ohE '\((<|>=) [a-zA-Z0-9_]+ \((vecLen|strLen) [a-zA-Z0-9_]+\)\)' self_host/*.ax stdlib/*.ax | wc -l
 780
 ```
+
+**Re-run 2026-09-04: 538 and 887.** The tree grew; the shape of the
+answer did not, and the case FOR the feature is if anything slightly
+stronger than when it was written. The four counts above this pair —
+3,691 / 6,720 / 1,305 / 1,179 — pair a `::` with its `fn` header and
+were NOT re-run, so they are as of 2026-08-31 and are marked here
+rather than silently carried as current.
 
 So the population is real: about a fifth of this compiler's `Int`
 parameters are numbers with a range, and roughly 1,300 hand-written
@@ -139,6 +157,50 @@ constant-folded away entirely and both binaries answer in 0.00s, so the
 figure above is the cost of the check where the check runs, not a claim
 about a release build.
 
+### Re-measured 2026-09-04, on a loop that does NOT fold
+
+The paragraph above declines to say anything about a release build,
+and that gap is the whole of condition 1 below. It is closable without
+writing any analysis, because the measurement it needs is of a loop
+LLVM cannot close-form. Same shape, same `pre` standing in for the
+range check a subtype would insert, body changed to a multiply and a
+remainder so that scalar evolution has nothing to solve, and the trip
+count taken from `sysArgc` so it is not a constant:
+
+```scheme
+(fn (loop n acc) (if (== n 0) acc (loop (- n 1) (% (* acc 31) 1000003))))
+```
+
+10^8 iterations, the two binaries run alternately, `user` seconds:
+
+```
+--opt 2   bare     0.61  0.61  0.67
+          checked  0.61  0.63  0.61
+--opt 0   bare     1.14  1.07  1.08
+          checked  1.11  1.10  1.11
+```
+
+**At `--opt 2` the arms interleave, and at `--opt 0` they interleave
+too.** The check is one `icmp` and one `br` against a value the
+surrounding loop already constrains, and neither the backend nor the
+branch predictor charges for it here.
+
+**The caveat, stated rather than buried, because it is what keeps this
+from being a refutation.** This body does a multiply and a remainder
+per iteration where the original does an add, so the check is a much
+smaller fraction of it. The honest claim is NOT "the +37% was wrong" —
+on a body that is one `add`, a compare and a branch really is a third
+of the work, and that measurement stands. The claim is narrower and it
+is the one condition 1 asks for: **the release-build cost the original
+measurement declined to state is not measurable**, and the value
+analysis that discharges the check is the BACKEND's, not something this
+compiler has to grow. A subtype on a hot index loop costs what a `pre`
+costs, and at `--opt 2` that is nothing this instrument can see.
+
+That moves condition 1 from "unmet" to "met by LLVM, for the loop
+shape". It does not move conditions 2 and 3, and the recommendation
+below still stands on those two.
+
 What can be said without it: unlike a contract, a subtype cannot be
 opted out of per declaration. The whole point of the constraint is that
 it travels with the type, so every caller of every function taking an
@@ -154,6 +216,13 @@ $ grep -oh '(cast Int' self_host/*.ax stdlib/*.ax | wc -l
 $ grep -oh '(cast [A-Za-z]' self_host/*.ax stdlib/*.ax | wc -l
 651
 ```
+
+**Re-run 2026-09-04: 780 and 1,015, against 4,197 `fn` declarations**
+(`grep -cE '^\(pub fn \(|^\(fn \('`, three spellings of the count
+agreeing). Both numerator and denominator grew by roughly half, so the
+ratio is unchanged and so is the argument — but the absolute number is
+the one this section leans on, and it is now 1,015 places a constraint
+could be laundered rather than 651.
 
 651 casts against 3,691 `fn` declarations. `(cast Index x)` would have
 to be a checked conversion for the subtype to mean anything, and
@@ -212,6 +281,15 @@ condition and not a mood:
    whose source range is provably inside the target's is free, and the
    loop cost above collapses to the entry check. The measurement above
    is `0, 0, 0`; when it is not, this note should be re-run.
+
+   **MET 2026-09-04, and not by this compiler.** The re-measurement
+   under Question 3 shows the per-iteration check costing nothing
+   measurable at `--opt 2` on a loop that does not fold — so the
+   analysis that discharges it is LLVM's, and the frontend interval
+   domain this condition asks for is not on the critical path for the
+   COST argument. It would still be needed to refuse a conversion
+   statically, which is a different and smaller claim. This condition
+   is therefore no longer part of the case against building.
 2. **A `cast` that cannot launder a constraint** — either `no-cast` on
    the constrained module, which exists and is checked, or typed
    accessors in place of the 441 `(cast Int ...)` sites, which is the
@@ -223,3 +301,63 @@ None of the three is a small piece of work, and none of them is on the
 release path. This note exists so that the item stops being carried as
 "unstarted" and starts being carried as "designed, and deliberately not
 built, for three reasons that are each a measurement".
+
+**Two of the three still stand after the 2026-09-04 re-measurement, and
+that is enough. Still not built.**
+
+## The status this note got wrong, and what that turned out to be
+
+This note said "76 is the status" of a contract failure, taking it from
+`docs/contracts-design.md`. Checking it before reusing it found that
+the number is wrong, that the correct number is also wrong, and that
+the second of those is a live defect in the contracts feature rather
+than a transcription slip here.
+
+```
+$ axiom run c76.ax                 # a violated ;@axiom:pre
+axiom: precondition failed in `half`: (> n 0)
+$ echo $?
+77
+$ axiom run idx.ax                 # (__indexTrap)
+axiom: vector index out of range
+$ echo $?
+77
+```
+
+**Two unrelated traps, one status.** `docs/memory-model.md`'s
+`MM-EXEC-16` table gives 77 to `__indexTrap` (an index out of range,
+`docs/generics-design.md` §4, pinned by
+`tests/stdlib/464-index-trap.exit`) and 76 to `MM-ALLOC-16b` (an arena
+reset past a live handle). The contract trap is documented at 76 —
+which belongs to the arena — and emits 77 — which belongs to the index
+trap. It is the only trap in the emitter whose documented status and
+its actual one disagree; the census is
+`grep -n 'emitRuntimeExit cg "7' self_host/codegen.ax`, and every other
+row matches its table entry.
+
+The history is the reason it is worth writing down rather than
+correcting quietly. The contract trap was designed on 75, moved to 76
+in `4bcd7eb` when a merge found `MM-ALLOC-16a` already spending 75, and
+moved again to 77 in the merge `3f2f39a` — as a conflict resolution,
+onto a number `91f33f7` had given `__indexTrap` on trunk in the
+meantime. Its own header comment in `codegen.ax` still reads
+`; STATUS 76, AND IT WAS DESIGNED AS 75`, two moves out of date, and
+the paragraph under it argues that "two broken invariants sharing one
+status would be that defect again" — which is now what it does.
+
+Nothing caught it because every party is internally consistent:
+`scripts/check-contracts.sh` asserts 77 and is green,
+`tests/stdlib/464-index-trap.exit` asserts 77 and is green, and no gate
+compares one trap's status to another's. `docs/error-model.md:686` says
+a violated contract answers 77 while `docs/memory-model.md:698` says 77
+is the index trap, in two tables neither of which reads the other.
+
+**This is not this note's defect to fix**, and it is recorded here
+rather than acted on because the fix is a decision about a shipped exit
+status: either the contract trap moves to 80 (the first free number,
+and the reading this note would argue for, since `__indexTrap` held 77
+on trunk first and the contract trap's own number is twice a merge
+artefact), or the collision is accepted and both tables are made to say
+so. Correcting the prose from 76 to 77 without that decision would
+write the collision INTO the documents whose purpose is that it cannot
+happen.

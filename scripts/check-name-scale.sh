@@ -86,22 +86,89 @@
 # and the number the enterprise plan asked for. It is not shaved to the
 # current reading, which is how a floor expires.
 #
-# BOUND for arm 1 is still 1.20. Its own negative, from the day it was
-# written (built from HEAD~ and HEAD by the same parent, N=4000):
-# un-indexed private 1.26s public 0.60s ratio 2.10 FAILS; indexed 0.37s
-# against 0.60s ratio 0.62 passes. The indexed ratio was below one
-# because a private declaration took one `mangleHasIn` scan and a
-# public one two; with the scan gone the two sides read within 5% of
-# each other (1.04 at N=8000, 1.03 at N=16000), so the bound now sits
-# above the reading by a smaller margin than it did - which is why the
-# arm is taken at 2N, the larger and steadier of the two sizes.
+# BOUND for arm 1 WAS 1.20, and on 2026-09-04 it was measuring the
+# runner rather than the property. Two darwin CI legs went red on it
+# inside four hours - 1.26 both times - on a tree whose only change was
+# website copy, and the same tree read 1.19 an hour later. The
+# distribution says why: across ten runs the darwin-aarch64 leg reads
+# 0.96 to 1.26, mean 1.120, sd 0.080, so mu+2sd is 1.280 and the
+# ceiling was 1.20. The ratio also tracks the runner's ABSOLUTE speed
+# (Pearson r = 0.883, slow runs give high ratios), which is the
+# definition of measuring the machine. The two Linux legs read
+# 1.01-1.04 and this development machine reads 1.02-1.11, so 1.20 was
+# calibrated on hardware that is not the hardware it has to pass on.
+#
+# THE SIGNAL IS 80x, AND THE BOUND WAS SITTING IN THE NOISE. What this
+# arm exists to catch is not a 26% drift. Measured 2026-09-04 on
+# darwin-aarch64 with the ablation this script now carries - the
+# visibility index forced off, `fnEntVisibleExact` answering from
+# `findFnEntVisibleExact` - at 2N=16000:
+#
+#     indexed    private  0.356s   public 0.345s   ratio  1.03
+#     ablated    private 30.859s   public 0.385s   ratio 80.16
+#
+# So BOUND is 2.00: eleven standard deviations above the darwin mean
+# and 0.74 above the worst reading ever recorded there, which is what
+# keeps it green on a slow runner; and forty times below the defect,
+# which is what keeps it a gate. It still refuses any DOUBLING of what
+# a private name costs, so the regression it was written for cannot
+# creep past it - the old bound bought no sensitivity the new one
+# lacks, it bought false reds.
+#
+# The bound was NOT raised until the arm had a negative. Raising a
+# bound on an arm nothing ablates is how a check becomes one that
+# cannot fail, and this arm had no ablation at all - see below.
+#
+# The reading the old header recorded (un-indexed private 1.26s public
+# 0.60s ratio 2.10 at N=4000, from the day the arm was written) is kept
+# because it explains the shape: the indexed ratio was BELOW one then,
+# a private declaration taking one `mangleHasIn` scan where a public
+# one took two. With that scan gone the two sides read within 5% of
+# each other (1.04 at N=8000, 1.03 at N=16000). That 2.10 was measured
+# against HEAD~ - a compiler predating both indexes - so it understates
+# this arm's own defect by 38x, and it is not what the bound is set
+# from.
+#
+# INTERLEAVING WAS CONSIDERED AND NOT DONE. `measure_pair` takes every
+# private rep and then every public rep, so the header's argument that
+# a ratio "charges the machine to both sides, where it cancels" holds
+# only if both blocks see the same load - and `web/bench/run-bench.sh`
+# interleaves for exactly that reason. With the bound in the gap
+# instead of in the noise the correction buys nothing measurable: the
+# worst interference ever observed moved the ratio by 0.14 and the
+# bound now clears the worst reading by 0.74. It is left alone rather
+# than changed alongside the bound, because two changes at once would
+# leave neither one's effect readable.
 #
 # THE NEGATIVE IS IN THE SCRIPT, which is this repository's rule for a
 # new test, and it ablates the CAUSE: a scratch copy of self_host/ has
 # `mangleIdxHas` put back to the scan, the same parent builds a compiler
 # from it, and the doubling arm must FAIL on that compiler - and fail on
 # the RATIO, not on the floor, because an arm that fails for a reason
-# other than the one it asserts has proved nothing. It is taken at
+# other than the one it asserts has proved nothing.
+#
+# THERE ARE TWO NEGATIVES, AND FOR EIGHT DAYS THERE WAS ONE. The
+# paragraph above is arm 2's. Arm 1 - the arm this gate is NAMED for,
+# and the only one that has ever gone red - had none, and the gap was
+# invisible because a script that carries an ablation reads as a script
+# whose arms are ablated. `mangleIdxHas` is arm 2's cause, not arm 1's:
+# measured on the ablated compiler this script already built, arm 1
+# reads 0.70 and PASSES. So the one number arm 1 rested on was
+# unverified by the gate's own rule, and the gate could not have failed
+# on the defect it names.
+#
+# Arm 1's cause is the VISIBILITY index. `fnEntVisibleExact`
+# (self_host/typecheck.ax) branches on `memGetWord tc 20`: zero means
+# no index and the lookup falls to `findFnEntVisibleExact`, a scan of
+# every entry filtered by `privBlocks`. Forcing that branch is the
+# whole ablation - one function, no type changes, nothing else moved -
+# and it is deliberately NOT the `mangleIdxHas` tree, because an
+# ablation carrying two defects proves neither arm.
+#
+# The suffix index (`memGetWord tc 26`) is left alone by this ablation
+# for the same reason. A sampling profile put `findFnEntVisibleExactFrom`
+# at 54% of `check self_host/main.ax` on its own, so the exact pass is
+# where the arm's subject lives and one seam is enough to prove it. It is taken at
 # NEG_N=2000: the un-indexed compiler costs 3.3s a run at N=8000 and
 # 11.8s at 16000, which would triple this gate to prove a shape that
 # N=2000 already shows at 3.41x (public) and 3.24x (private) - and the
@@ -135,10 +202,16 @@ gate_init
 gate_build_axc axc
 
 N="${N:-8000}"
-BOUND="${BOUND:-1.20}"
+BOUND="${BOUND:-2.00}"
 DBL_BOUND="${DBL_BOUND:-2.80}"
 REPS="${REPS:-3}"
 NEG_N=2000
+# Arm 1's ablation is measured at ONE size rather than a doubling - the
+# arm is a same-size ratio - and at 8000 rather than 16000 because the
+# un-indexed compiler is quadratic on the private side: 30.9s at 16000
+# against 7.7s at 8000, for a verdict that does not change. One rep,
+# not REPS: a 40x separation does not need a best-of.
+NEG1_N=8000
 FLOOR="0.10"
 
 if (( N < 8000 )); then
@@ -383,6 +456,86 @@ case $? in
     echo "      nothing. Raise NEG_N in this script." >&2
     failed=1 ;;
 esac
+
+# --------------------------------------------------------------------
+# Arm 1's negative: the visibility index forced off, in a SECOND
+# scratch copy, must fail arm 1.
+# --------------------------------------------------------------------
+# A separate tree from the `mangleIdxHas` one on purpose. Arm 1 and
+# arm 2 have different causes, and one compiler carrying both defects
+# would let either arm's red stand in for the other's - which is the
+# thing an ablation exists to rule out.
+abl1="$work/tree1"
+mkdir -p "$abl1"
+cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl1/" || {
+  echo "FAIL: could not copy the tree to ablate for arm 1" >&2; exit 1; }
+
+# Anchored on the whole function. `fnEntVisibleExact` is one of two
+# lookups with this exact two-branch shape - `fnEntVisibleSuffix` reads
+# slot 26 the same way - so a substitution anchored on the `if` alone
+# would edit whichever came first.
+if ! python3 - "$abl1/self_host/typecheck.ax" <<'PY_ABL'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = '''(pub fn (fnEntVisibleExact tc privs name curMod)
+  (if (== (memGetWord tc 20) 0)
+    (findFnEntVisibleExact privs (tcFnsVec tc) name curMod)
+    (fnIdxGetVisible (memGetWordVec tc 20) privs name curMod)
+  )
+)'''
+new = '''(pub fn (fnEntVisibleExact tc privs name curMod)
+  (findFnEntVisibleExact privs (tcFnsVec tc) name curMod)
+)'''
+n = s.count(old)
+if n != 1:
+    sys.exit("the fnEntVisibleExact ablation matched %d times, wanted 1" % n)
+open(p, "w").write(s.replace(old, new))
+PY_ABL
+then
+  echo "FAIL: could not ablate \`fnEntVisibleExact\` - its shape has moved, so" >&2
+  echo "      arm 1 has no negative and its bound rests on nothing." >&2
+  echo "      Re-anchor the ablation." >&2
+  exit 1
+fi
+
+echo "-- rebuilding the compiler with the visibility scan put back --"
+if ! AXIOM_STDLIB="$abl1/stdlib" "$axiom" build --input "$abl1/self_host/main.ax" \
+       --output "$work/axc-noidx" >"$work/noidx.build.log" 2>&1; then
+  echo "FAIL: the arm-1 ablated compiler did not build" >&2
+  sed 's/^/    /' "$work/noidx.build.log" | head -20 >&2
+  exit 1
+fi
+
+# One rep, at one size. The separation is 40x; a best-of-three would
+# spend a minute of un-indexed private checks to sharpen a number that
+# does not need sharpening.
+mk_pair "$NEG1_N"
+saved_reps="$REPS"; REPS=1
+measure_pair "$work/axc-noidx" "$NEG1_N"; ap="$TP"; aq="$TQ"
+REPS="$saved_reps"
+
+read -r aratio aunder <<<"$(python3 -c "
+p, q = $ap, $aq
+print('%.2f' % (p / q), 1 if (p < $FLOOR or q < $FLOOR) else 0)")"
+
+printf 'check-name-scale: ablated N=%s  private %.2fs  public %.2fs  ratio %s (bound %s)\n' \
+  "$NEG1_N" "$ap" "$aq" "$aratio" "$BOUND"
+
+if (( aunder )); then
+  echo "FAIL: the arm-1 ablated compiler's public side is under ${FLOOR}s at" >&2
+  echo "      NEG1_N=$NEG1_N, so its ratio is against a timer-resolution" >&2
+  echo "      number and the negative proves nothing. Raise NEG1_N." >&2
+  failed=1
+elif (( $(python3 -c "print(1 if $aratio >= $BOUND else 0)") )); then
+  echo "check-name-scale: the ablated compiler fails arm 1, so the arm is load-bearing"
+else
+  echo "FAIL: forcing the visibility scan back did NOT fail arm 1 (ratio" >&2
+  echo "      $aratio, bound $BOUND), so this arm cannot fail on the defect it" >&2
+  echo "      exists for. Either the arm's subject stopped reaching" >&2
+  echo "      \`fnEntVisibleExact\` or BOUND has drifted above the scan's cost." >&2
+  failed=1
+fi
 
 if (( failed )); then
   exit 1
