@@ -296,11 +296,14 @@ of `self_host/` with ITS fix alone reverted: every ablation goes red on
 its own case and stays green on the other two.
 
 **The census moved, and the prose says why.** `CONTRIBUTING.md` said,
-measured 2026-09-03, that `fmt --check` answered formatted for 483 of
-the tree's 634 `.ax` files and unformatted for 125. Over today's tree the
-old printer answers 498 and 136; the corrected one answers **411 and
-223**, and the 89 files that changed sides did not drift - the normal
-form did. The 2,687 committed run-of-spaces lines are not repaired
+measured 2026-09-03, that `fmt --check` answered formatted for 483 and
+unformatted for 125 - the tree's size is deliberately not restated here,
+because a count quoted as history is indistinguishable to
+`check-doc-drift.sh` from a count claimed as current, and it went stale
+inside this very section when two fixtures landed later in the same
+release. Over today's tree the old printer answers 498 and 136; the
+corrected one answers **411 and 225**, and the files that changed sides
+did not drift - the normal form did. The 2,687 committed run-of-spaces lines are not repaired
 here, because a whitespace diff of that size is one nobody reads; the
 two sites named when this was scoped (`self_host/typecheck.ax:9036`,
 `self_host/render.ax:616`) are collapsed on their own lines,
