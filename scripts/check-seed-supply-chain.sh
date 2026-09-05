@@ -370,16 +370,35 @@ else fail "probe: a THREATS.md with every row deleted was accepted"; fi
 
 # A gate named in a 'yes' row that EXISTS but that CI does not run is
 # the third shape, and the one that would let a row be true on a
-# maintainer's machine and false on every push. The probe points a cell
-# at `scripts/check-dead-code.sh`, a real gate that `ci.yml` genuinely
-# does not run (measured 2026-09-03: five of the 73 gates are local-only,
-# four of them REPL gates that need a pty) - so the refusal below comes
-# from the ci.yml arm and not from the file-exists arm above it.
-p7="$work/THREATS.unwired.md"
-sed 's|scripts/check-seed-provenance\.sh|scripts/check-dead-code.sh|' "$threats" > "$p7"
+# maintainer's machine and false on every push.
+#
+# THIS PROBE USED TO DOCTOR THE ROW, and it can no longer be written
+# that way. It pointed a cell at `scripts/check-dead-code.sh` - "a real
+# gate that ci.yml genuinely does not run (measured 2026-09-03: five of
+# the 73 gates are local-only)" - and that stopped being true the day
+# `check-ci-coverage.sh` landed, which wired all seven unrun gates in
+# and now REQUIRES every `scripts/check-*.sh` to be named on a `run:`
+# line. So there is no longer any gate that exists, is shaped like a
+# gate, and is unwired: the subject this probe needs cannot exist while
+# that gate holds. Repointing the row at a non-gate script does not
+# rescue it either - the refusal then comes from the "names no
+# scripts/check-*.sh" arm above, so the probe passes while proving
+# nothing about the arm it is here for.
+#
+# So the probe doctors the WORKFLOW instead of the row, which is the
+# thing actually under test: a real, wired gate is removed from a copy
+# of `ci.yml`, and the unchanged THREATS.md must then be refused for
+# naming it. That exercises exactly the `$ci` lookup and nothing else.
+p7="$work/ci.unwired.yml"
+grep -v 'scripts/check-seed-provenance\.sh' "$ci" > "$p7"
+if grep -q 'scripts/check-seed-provenance\.sh' "$p7"; then
+  fail "probe: could not build a ci.yml without check-seed-provenance.sh"
+fi
+ci_real="$ci"; ci="$p7"
 probe_mode=1; probe_failed=0; probe_first=""
-check_threats "$p7"
+check_threats "$threats"
 probe_mode=0
+ci="$ci_real"
 if (( probe_failed )); then ok "probe: a row naming a gate ci.yml does not run is refused ($probe_first)"
 else fail "probe: a row naming an unwired gate was accepted"; fi
 
