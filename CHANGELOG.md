@@ -18,6 +18,82 @@ its changelog too.
 
 ## 0.7.5 — 2026-09-04
 
+### A restriction violation named its call path in prose and nowhere a tool could read it
+
+`AX3049` has printed the chain from the claim to the violation since
+the graph walk landed — `parseConfig -> readSection -> IO$writeStr ->
+Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3` — inside the quoted
+message, where only a human could use it. Measured 2026-09-03:
+`grep -h AX3049 tests/diagnostics/*.axdl | grep -c ' ^'` was **0**
+across 204 goldens, and the JSON sibling carried `"related":[]` beside
+that same message. `render.ax`'s `jsonRelatedArray` was wired and
+merely empty. An agent reading one of these had to re-resolve every hop
+itself.
+
+It was blocked on one struct. `DLabel` was `(span, msg)` with no
+`unit`, so a related location could only point into the diagnostic's
+own file — and four of the six hops above are in `stdlib/`, so
+cross-unit is the common case here, not the corner.
+
+`DLabel` now carries a unit, sentinel `-1` for "the diagnostic's own"
+(`-1` and not `0`, because `0` is the entry file's real index). `^`
+gained two spellings beside the one it had: `^FILE:LOC:"msg"` for
+another unit, exactly the shape `&` had already demonstrated, and
+`^-:"msg"` for a related location with **no** location, `-` being what
+the primary field already says for a spanless diagnostic. No new AXDL
+line kind — `axdl_only()` is `grep -E '^[EWNH] '` in five gates, and a
+sixth kind would have been dropped by all of them in silence.
+
+The rule is exact, and the second half is what makes it so: one field
+per hop **after the first** — the first hop is the declaration the
+diagnostic is already reported at — and a hop with no declaration (a
+builtin, an `extern` item) gets a field *with no location* rather than
+being dropped. Dropping it is the one thing that would leave a field
+list looking like the whole chain while being short.
+
+The corpus gained 51 `^` fields across 22 lines in 10 goldens, and
+nothing else moved: every one of the 22 diffs is an insertion of
+fields, with no span rewritten. 13 of the new fields are location-less
+and 22 point into `stdlib/`. All three surfaces carry the chain now —
+AXDL's `^`, the human renderer's dash row for a same-file hop and a
+`= note: IO$writeStr (stdlib/IO.ax:48:10-18)` for one it cannot draw,
+and the JSON `related` array with a `"file"` beside the span. The LSP
+publishes only the hops it can place: it holds one document and no unit
+table, and a location aimed at the wrong file is worse than none.
+
+Gated by an equality a re-bless cannot satisfy.
+`tests/diagnostics/verify-axdl-spans.py` — which `check-diagnostics.sh`
+runs on the check path *and before returning from a bless* — reads the
+chain out of the message and requires the k-th `^` field's label to be
+the (k+1)-th hop, spelled the same way, with exactly as many fields as
+hops after the first. Every `^FILE:LOC` span is recomputed from that
+file's own bytes, and an absolute path is refused outright, because a
+golden naming `/Users/somebody/checkout/stdlib/IO.ax` reproduces on one
+machine; both corpus gates now export a relative `AXIOM_STDLIB` for the
+same reason. Four floors under the measured population (22 chains, 51
+hops, 13 location-less, 22 cross-unit) refuse a corpus that stops
+exercising any of them, and `check-diagnostics.sh` reads the population
+off the checked-in goldens with `grep` as well, because an equality
+says nothing when it holds over zero lines.
+
+Ablated to prove it: in a copied tree, `restrictPathSecs` was started
+at hop 2 instead of hop 1 — one hop dropped from `secs`, the prose
+untouched — and the corpus re-blessed from that compiler. The bless is
+refused, 22 goldens name the disagreement (`the message names 4 hop(s)
+after the first [...] and the line carries 3`), and two floors fail
+besides.
+
+`check-render-selfhost.sh` was reading the first `^` off each line with
+a `grep | head -1` — exactly right while the record held at most one
+related span, and about to stop checking the rest in silence. It now
+pairs every field with its LOC structurally and makes the dash-row
+count an equality against the number of same-file fields.
+
+`docs/diagnostics.md` has the grammar and the rule;
+`docs/mir-design.md` §5 stops saying "designed, and blocked" and
+records what shipped, what it does not reach, and the gate that holds
+each claim.
+
 ### The website said things the tree no longer did, and hid the rest until you scrolled
 
 Every section of the page rendered at `opacity: 0` until an intersection
@@ -1402,14 +1478,16 @@ is a format rather than a spelling of one lowering, and a reader that
 accepted only today's output would refuse tomorrow's.
 `tests/axir/lowered.axir` is the emitted shape verbatim.
 
-The AXDL half of the projection is designed and **not built**.
+The AXDL half of the projection is designed and **not built** here.
 `docs/mir-design.md` §5 has the measurement (no `AX3049` line in the
 201-golden corpus carries a `^` field, while 16 goldens carry a resolved
 `->` chain inside the quoted message), the four steps, and the one thing
 that blocks it: `DLabel` is `(span, msg)` with no `unit`, so a related
 location cannot point into another source file, and four of the six hops
 in a typical `AX3049` path are in `stdlib/`. Widening it is a change to
-a stable format and is not made here.
+a stable format and is not made here. (It was made later the same
+release; see "A restriction violation named its call path in prose and
+nowhere a tool could read it" above.)
 
 ### `Show.ax` is gone: `format` is exported by `Str.ax`
 

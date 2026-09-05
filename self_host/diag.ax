@@ -137,9 +137,28 @@
   (trace : Int))
 
 ; A related location and the note that goes with it.
+;
+; `unit` is the SENTINEL -1 for "the diagnostic's own unit", which is
+; what every caller that goes through `diagAddSecondary` writes and
+; what the bare `^LOC:"msg"` field renders from. A non-negative value
+; is an index into the unit table and renders `^file:LOC:"msg"` when
+; it differs from the diagnostic's own - the same shape `DFrame` has
+; had since 2026-08-14, and for the same reason: it is a location in a
+; DIFFERENT source than the one every other field on the line indexes.
+; The sentinel is -1 and not 0 because 0 is a real unit index (the
+; entry file), so a secondary genuinely in unit 0 and a secondary that
+; never named a unit have to stay distinguishable.
+;
+; `span` 0 means the location is ABSENT rather than elsewhere, and
+; renders `^-:"msg"` - `-` being the spelling the primary field
+; already uses for a diagnostic with no span. A call-graph hop that is
+; a builtin or an `extern` item has no declaration to point at, and
+; leaving it out of the field list instead would make the list look
+; complete when it is not.
 (pub struct DLabel
   (span : Int)
-  (msg : String))
+  (msg : String)
+  (unit : Int))
 
 ; One help. `fixSpan` non-zero makes it MACHINE-APPLICABLE: it names a
 ; span and the text to put there, and renders `?LOC:"msg"~>"repl"`
@@ -278,6 +297,55 @@
 
 (pub fn (diagSecMsg d i) (memGetWordStr (vecGet (memGetWordVec d 7) i) 1))
 
+; The unit the secondary's span indexes, or -1 for the diagnostic's
+; own - see `struct DLabel`. Every renderer asks `diagSecCross`
+; below rather than comparing this by hand, because "is it elsewhere"
+; also depends on whether there is a unit table to resolve it against.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: diagSecUnit (-> Int Int Int))
+
+(pub fn (diagSecUnit d i) (memGetWord (vecGet (memGetWordVec d 7) i) 2))
+
+; Does secondary `i` index the diagnostic's OWN unit? The sentinel
+; says so by construction, and an explicit unit says so when it is the
+; same one. Asked by a consumer that holds one source and no unit
+; table - the LSP - for which "I cannot resolve it" and "it is here"
+; are different answers; `diagSecCross` below folds them together on
+; purpose, because a renderer with no table has no other file to name.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: diagSecOwn (-> Int Int Int))
+
+(pub fn (diagSecOwn d i)
+  (let ((su (diagSecUnit d i)))
+    (if (< su 0)
+      1
+      (if (== su (diagUnit d))
+        1
+        0
+      )
+    )
+  )
+)
+
+; Does secondary `i` point into a DIFFERENT source than the
+; diagnostic's own, resolvably? The guard is `DFrame`'s, field for
+; field: a sentinel unit, the diagnostic's own unit, no unit table, no
+; index table, or an index the table is too short for all mean "render
+; the bare form", because in each of those cases there is no other
+; file this renderer could name.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: diagSecCross (-> Int Int (Vec Int) (Vec Int) Int))
+
+(pub fn (diagSecCross d i units ixs)
+  (if (== (diagSecOwn d i) 1)
+    0
+    (if (|| (== (cast Int units) 0) (|| (== (cast Int ixs) 0) (>= (diagSecUnit d i) (vecLen units))))
+      0
+      1
+    )
+  )
+)
+
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagNoteCount (-> Int Int))
 
@@ -337,7 +405,28 @@
 (pub fn (diagAddSecondary d span msg)
   {
     (vecPush
-      (diagVecAt d 7)      (cast Int (DLabel span msg))
+      (diagVecAt d 7)      (cast Int (DLabel span msg (- 0 1)))
+    )
+    d
+  }
+)
+
+; The same, for a location in ANOTHER unit: `unit` is an index into
+; the unit table the renderers are handed, and `span` indexes THAT
+; unit's source rather than the diagnostic's. A `span` of 0 says the
+; hop has no location at all, and `unit` is then read by nobody.
+;
+; Separate from `diagAddSecondary` rather than defaulted onto it
+; because the caller that knows a unit is a different caller: this one
+; is walking a call graph across modules, and every existing producer
+; of a secondary has both spans in one file by construction.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: diagAddSecondaryIn (-> Int Int String Int Int))
+
+(pub fn (diagAddSecondaryIn d span msg unit)
+  {
+    (vecPush
+      (diagVecAt d 7)      (cast Int (DLabel span msg unit))
     )
     d
   }
@@ -1124,11 +1213,43 @@
       )
       ; Then, in stage0's emission order: related spans, notes, helps,
       ; expansion frames. Each repeats.
+      ; A related location has three spellings, and which one it takes
+      ; is a fact about WHERE it points rather than a choice:
+      ;   `^LOC:"msg"`       - the diagnostic's own unit, the form the
+      ;                        grammar has always had;
+      ;   `^file:LOC:"msg"`  - another unit, its file spelled out for
+      ;                        the reason `&` spells its own;
+      ;   `^-:"msg"`         - no location at all, `-` being what the
+      ;                        primary field already says for that.
+      ; The third exists so that a list of related locations can be
+      ; COMPLETE: `AX3049`'s hops include builtins and `extern` items,
+      ; which have no declaration, and a field list that quietly
+      ; omitted them would read as the whole chain.
       (let ((mut i 0))
         (while (< i (diagSecCount d))
           {
             (vecPush parts " ^")
-            (vecPush parts (fmtSpanIx src ix (diagSecSpan d i)))
+            ; `-` covers one more case than "no span": a secondary that
+            ; belongs to another unit which THIS renderer has no table
+            ; to name (the single-unit `renderDiag` path). Its span
+            ; indexes a source that is not `src`, so printing it as a
+            ; bare LOC would be a position in the wrong file - a field
+            ; that looks right and is not, which is worse than the one
+            ; that says it has nothing.
+            (if (|| (== (diagSecSpan d i) 0) (&& (== (diagSecOwn d i) 0) (== (diagSecCross d i units ixs) 0)))
+              { (vecPush parts "-") 0 }
+              (if (== (diagSecCross d i units ixs) 0)
+                { (vecPush parts (fmtSpanIx src ix (diagSecSpan d i))) 0 }
+                (let ((u (vecGet units (diagSecUnit d i))))
+                  {
+                    { (vecPush parts (memGetWordStr u 0)) 0 }
+                    (vecPush parts ":")
+                    (vecPush parts (fmtSpanIx (memGetWordStr u 1) (vecGet ixs (diagSecUnit d i)) (diagSecSpan d i)))
+                    0
+                  }
+                )
+              )
+            )
             (vecPush parts ":")
             (vecPush parts (quoteStr (diagSecMsg d i)))
             (set i (+ i 1))

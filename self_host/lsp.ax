@@ -301,14 +301,25 @@
 ; written down twice.
 ;
 ; WHICH FILE A SECONDARY SPAN INDEXES is the one thing this rests on,
-; and it is the OPEN DOCUMENT: `struct DLabel` carries a span and a
-; message and no unit, the publish loop already reports only
-; diagnostics whose unit is 0, and both emitters that produce a
-; secondary take their two spans from one unit - `checkDuplicates`
-; examines the entry file's declarations alone (its own header says
-; so), and `emitAX3012` goes through `emitDiag`, which stamps the unit
-; the spans came from. So one uri and one line index serve every
-; secondary, and there is no unit table to consult.
+; and it is the OPEN DOCUMENT - for the secondaries this server
+; publishes. `struct DLabel` used to carry a span and a message and no
+; unit, so that was true of every secondary there was; since
+; `AX3049`'s call-graph hops it is not. The publish loop reports only
+; diagnostics whose unit is 0, and the emitters that produce a
+; SAME-FILE secondary take their two spans from one unit -
+; `checkDuplicates` examines the entry file's declarations alone (its
+; own header says so), and `emitAX3012` goes through `emitDiag`, which
+; stamps the unit the spans came from. So one uri and one line index
+; still serve every secondary this server can place.
+;
+; A secondary that names ANOTHER unit, or no location at all, is
+; SKIPPED here rather than published against this document's uri. The
+; server holds one source and no unit table, so it cannot turn that
+; unit index into a path, and `lspRangeIx` against the open document
+; would put the hop's line number on the wrong file - a location that
+; looks right and opens the wrong place, which is worse than the
+; absence. The chain is in the message either way; `axiom check`'s
+; AXDL and JSON surfaces carry the resolved locations.
 ;
 ; Read through diag.ax's accessors. This function used to carry a second
 ; copy of the twelve-word field list as a comment and index it by hand,
@@ -394,7 +405,7 @@
     ; to relate. An empty array is legal and would have rewritten every
     ; golden in tests/lsp/ for no information; a client reads the
     ; absent key and the empty array the same way.
-    (if (== (diagSecCount d) 0)
+    (if (== (lspSecPublishable d 0 0) 0)
       base
       (jsonObjPut base "relatedInformation" (lspDiagRelated d src ix uri))
     )
@@ -413,11 +424,41 @@
     {
       (while (< i (diagSecCount d))
         {
-          (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "location" (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix (diagSecSpan d i)))) "message" (jsonStr (diagSecMsg d i))))
+          (if (== (lspSecHere d i) 1)
+            { (jsonArrPush out (jsonObjPut (jsonObjPut jsonObj "location" (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix (diagSecSpan d i)))) "message" (jsonStr (diagSecMsg d i)))) 0 }
+            0
+          )
           (set i (+ i 1))
         })
       out
     }
+  )
+)
+
+; Is secondary `i` one this server can place - a real span, in the
+; document it is publishing against? See the header above for why the
+; other two kinds are dropped rather than aimed at this uri.
+(pub :: lspSecHere (-> Int Int Int))
+
+(pub fn (lspSecHere d i)
+  (if (== (diagSecSpan d i) 0)
+    0
+    (diagSecOwn d i)
+  )
+)
+
+; How many of them there are, counted from `i` with `n` accumulated -
+; the key is omitted when this is 0, and a diagnostic whose secondaries
+; are ALL elsewhere must omit it too rather than publish an empty
+; array, which is the distinction `diagSecCount` alone stopped making.
+(pub :: lspSecPublishable (-> Int Int Int Int))
+
+(pub fn (lspSecPublishable d i n)
+  (if (>= i (diagSecCount d))
+    n
+    (lspSecPublishable
+      d      (+ i 1)      (+ n (lspSecHere d i))
+    )
   )
 )
 

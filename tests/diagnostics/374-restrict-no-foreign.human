@@ -4,15 +4,20 @@
 [1;34m23 |[0m (fn (bridges n) (add n 1))
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1mnote: [0madd (no declaration to point at)
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `viaHelper` claims `restrict(no-foreign)` and the body reaches the `extern` item `add`: viaHelper -> wrap -> add[0m
   [1;34m--> [0m374-restrict-no-foreign.ax:34:6
 [1;34m   |[0m
+[1;34m28 |[0m (fn (wrap n) (add n 2))
+[1;34m   |[0m      [1;36m---- wrap[0m
+[1;34m...[0m
 [1;34m34 |[0m (fn (viaHelper n) (wrap n))
 [1;34m   |[0m      [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
+  [1;34m = [0m[1mnote: [0madd (no declaration to point at)
   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
