@@ -945,6 +945,22 @@ if len(KEYWORDS) < 15:
              f"{PARSER_AX} ({KEYWORDS}) - the pattern has stopped matching, "
              f"and an equality against a list this short asserts nothing")
 
+# The builtin names, in the order `lspComplBuiltins` in self_host/lsp.ax
+# offers them: the primitive types, the prelude's spanless Option/Vec,
+# then the eighteen operators. A builtin the compiler learns and the
+# server forgets fails the broken-document equality below, the same way
+# a forgotten keyword does - this list is checked against the server's
+# answer, not derived from it, so drift in either direction is visible.
+BUILTINS = ["Any", "Bool", "Char", "Float", "Int", "String", "Unit",
+            "Void", "Option", "Vec",
+            "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>",
+            "==", "!=", "<", ">", "<=", ">=", "&&", "||"]
+BUILTIN_KINDS = {7, 13, 24}
+if len(BUILTINS) != 28:
+    sys.exit(f"FAIL: expected 28 builtin names (10 types + 18 operators), "
+             f"have {len(BUILTINS)} - the list above has drifted from "
+             f"`lspComplBuiltins`")
+
 # The imported module lives in a directory of its own rather than in
 # `tests/lsp/`, because a `.ax` file there joins the diagnostics sweep
 # and needs a golden and a manifest row of its own - and this file is
@@ -981,7 +997,7 @@ NAV = """(import NavHelper)
 (fn (helper) 3)
 
 (:: main Int)
-(fn (main) (+ (+ (tagColour) helper) (bump 1)))
+(fn (main) (let ((locv 2)) (+ (+ (tagColour) helper) (bump locv))))
 """
 # A declaration taller than a tooltip. `lspClampLines` cuts a hover's
 # fence at 40 lines and says so in the fence's own comment syntax, and
@@ -1002,6 +1018,14 @@ BIG_DECL = locate(NAV, "Big", 1)            # `(data Big ...)`, taller than the 
 IMP_USE = locate(NAV, "bump", 1)            # the imported call
 BUMP_DECL = locate(NAVHELPER, "bump", 2)    # its `fn` name, in the OTHER file
 NOTHING = locate(NAV, "syntax/join", 1)     # a name no declaration in scope has
+# The `let`-bound `locv` in `main`: binder and use, for the locals
+# completion. `locv` is spelled nowhere else, so a filtered menu on it
+# holds exactly the parameter as a Variable (6).
+LOCV_BIND = locate(NAV, "locv", 1)
+LOCV_USE = locate(NAV, "locv", 2)
+# The first `+` in `main`, for the builtin hover: `(+ a b)` with its
+# type and the operator line.
+BUMP_PLUS_AT = locate(NAV, "+", 1)
 
 def between(src, opener, closer):
     """The source text of one form, sliced out of the document that
@@ -1105,8 +1129,12 @@ nav_session = b"".join(frame(m) for m in [
     # bytes, and every label must start with it.
     compl(15, FN_USE["line"], FN_USE["start"] + PREFIX_AT),
     # On the first byte of a name, so the prefix is empty and the whole
-    # menu - keywords, this document, the imported module - is offered.
+    # menu - keywords, builtins, this document, the imported module - is offered.
     compl(16, NAV_USE["line"], NAV_USE["start"]),
+    # One past the `locv` use in `(bump locv)`: the prefix is `locv`,
+    # spelled nowhere else, so the menu holds the `let` binder alone.
+    compl(19, LOCV_USE["line"], LOCV_USE["end"]),
+    hov(20, BUMP_PLUS_AT),
     {"jsonrpc": "2.0", "method": "textDocument/didChange",
      "params": {"textDocument": {"uri": nav_uri, "version": 2},
                 "contentChanges": [{"text": BROKEN}]}},
@@ -1186,6 +1214,7 @@ compl_caps = caps.get("completionProvider")
 _, its15 = items(15)
 _, its16 = items(16)
 r17, its17 = items(17)
+_, its19 = items(19)
 if np_.returncode != 0:
     nwhy = f"the server exited {np_.returncode}"
 elif ntail:
@@ -1249,6 +1278,8 @@ elif f"(B{BIG_N - 1})" in nresp[18]["result"]["contents"]["value"]:
 elif nresp[18]["result"]["contents"]["value"].count("\n") > HOVER_CLAMP + 6:
     nwhy = (f"the clamped hover still ran to "
             f"{nresp[18]['result']['contents']['value'].count(chr(10))} lines")
+elif hover_says(20, ["(+ a b)", "(-> Int Int Int)", "builtin operator"], BUMP_PLUS_AT):
+    nwhy = "builtin hover: " + hover_says(20, ["(+ a b)", "(-> Int Int Int)", "builtin operator"], BUMP_PLUS_AT)
 elif [i for i in its15 if not str(i.get("label", "")).startswith(PREFIX)]:
     nwhy = (f"completion filtered on {PREFIX!r} still offered "
             f"{[i['label'] for i in its15 if not str(i.get('label','')).startswith(PREFIX)][:6]}")
@@ -1268,18 +1299,36 @@ elif offers(16, "deriveTag", 3):
     nwhy = "empty-prefix completion: " + offers(16, "deriveTag", 3)
 elif offers(16, "bump", 3, "NavHelper"):
     nwhy = "empty-prefix completion: " + offers(16, "bump", 3, "NavHelper")
+elif offers(16, "x", 5):
+    nwhy = "empty-prefix completion: " + offers(16, "x", 5)
+elif offers(16, "Int", 7, "builtin type"):
+    nwhy = "empty-prefix completion: " + offers(16, "Int", 7, "builtin type")
+elif offers(16, "+", 24, "builtin"):
+    nwhy = "empty-prefix completion: " + offers(16, "+", 24, "builtin")
 elif "tagColour" in [i.get("label") for i in its16]:
     nwhy = ("completion offered `tagColour`, which only exists after macro "
             "expansion - these requests read the raw parse tree (MAC-TOOL-3)")
-# The document no longer parses, so nothing but keywords CAN be offered,
-# and the menu is exactly the set derived from parser.ax.
-elif [i.get("label") for i in its17] != KEYWORDS:
+# One past the `locv` use: every label starts with `locv`, the `let`
+# binder is offered as a Variable (6), and the list is incomplete.
+elif [i for i in its19 if not str(i.get("label", "")).startswith("locv")]:
+    nwhy = (f"locals completion filtered on 'locv' still offered "
+            f"{[i['label'] for i in its19 if not str(i.get('label','')).startswith('locv')][:6]}")
+elif not [i for i in its19 if i.get("label") == "locv" and i.get("kind") == 6]:
+    nwhy = (f"locals completion did not offer the `let` binder `locv` as kind 6; "
+            f"it offered {[(i.get('label'), i.get('kind')) for i in its19][:12]}")
+elif (nresp.get(19, {}).get("result") or {}).get("isIncomplete") is not True:
+    nwhy = "locals completion answered isIncomplete false"
+# The document no longer parses, so nothing but keywords and builtins
+# CAN be offered, and the menu is exactly those two sets: the keywords
+# derived from parser.ax, then the builtins `lspComplBuiltins` offers.
+elif [i.get("label") for i in its17] != KEYWORDS + BUILTINS:
     nwhy = (f"a document that does not parse offered "
             f"{[i.get('label') for i in its17]},\n          want the "
-            f"{len(KEYWORDS)} head keywords parser.ax dispatches on: {KEYWORDS}")
-elif {i.get("kind") for i in its17} != {14}:
-    nwhy = (f"keywords were offered as kinds {sorted({i.get('kind') for i in its17})}, "
-            f"want 14 (CompletionItemKind.Keyword) alone")
+            f"{len(KEYWORDS)} head keywords parser.ax dispatches on plus the "
+            f"{len(BUILTINS)} builtins: {KEYWORDS + BUILTINS}")
+elif {i.get("kind") for i in its17} != ({14} | BUILTIN_KINDS):
+    nwhy = (f"keywords and builtins were offered as kinds {sorted({i.get('kind') for i in its17})}, "
+            f"want 14 (Keyword) plus {sorted(BUILTIN_KINDS)} (Class/Enum/Operator)")
 elif r17.get("isIncomplete") is not True:
     nwhy = "the unparseable document's completion answered isIncomplete false"
 
@@ -1293,13 +1342,16 @@ else:
     print(f"ok   hover      (a macro, a `fn` as its signature, a `data`, a "
           f"`struct`, and `bump` quoted out of NavHelper.ax with its module "
           f"and its paragraph; 5 form texts and 4 paragraphs cut from the "
-          f"documents, ranges on the WORD not the declaration; null for a "
+          f"documents, ranges on the WORD not the declaration; `(+ a b)` for "
+          f"the builtin operator; null for a "
           f"name nothing declares; a {BIG_N + 2}-line `data` cut at "
           f"{HOVER_CLAMP})")
     print(f"ok   completion ({len(its15)} item(s) all starting {PREFIX!r} with "
           f"`helper` : {HELPER_TYPE!r}, {len(its16)} at an empty prefix "
-          f"carrying this document's 4 kinds and NavHelper's `bump`, and "
-          f"exactly the {len(KEYWORDS)} keywords derived from parser.ax on a "
+          f"carrying this document's kinds, its fields, builtins and NavHelper's `bump`, "
+          f"{len(its19)} on `locv` with the `let` binder, and "
+          f"exactly the {len(KEYWORDS)} keywords plus {len(BUILTINS)} builtins "
+          f"derived from parser.ax and `lspComplBuiltins` on a "
           f"document that does not parse)")
     passed += 3
 shutil.rmtree(NAVDIR, ignore_errors=True)
@@ -2850,6 +2902,7 @@ view_session = b"".join(frame(m) for m in [
     vsig(41, "(let ((total", "(let "),    # a keyword head
     vsig(42, "(Circle 7)", "(Circle "),   # a constructor
     vsig(43, CALL_IMP, "(twice"),         # touching an imported head
+    vsig(60, "(+ total same)", "(+ "),    # a builtin operator
     vhints(44, 0, VIEW_LINES),
     vhints(45, HDR_ADD_LINE, HDR_ADD_LINE + 1),
     vreq(46, "textDocument/foldingRange", {}),
@@ -3017,6 +3070,9 @@ elif sig_says(42, ["(Circle " + " ".join(CIRCLE_FIELDS) + ")"], 0, CIRCLE_FIELDS
 elif sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHelper"], 0, TWICE_PARAMS, TWICE_DOC):
     vwhy = "signature help on an imported fn: " + \
         sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHelper"], 0, TWICE_PARAMS, TWICE_DOC)
+elif sig_says(60, ["(+ a b)", "(-> Int Int Int)"], 0, ["a", "b"], "builtin operator"):
+    vwhy = "signature help on a builtin operator: " + \
+        sig_says(60, ["(+ a b)", "(-> Int Int Int)"], 0, ["a", "b"], "builtin operator")
 elif vres(52) is not None:
     vwhy = f"signature help on a document that does not parse answered {vres(52)!r}, want null"
 elif vres(58) is not None:
@@ -3103,7 +3159,8 @@ if vwhy:
 else:
     print(f"ok   signature-help (activeParameter 1 on `{CALL_LIT}`, labels "
           f"slicing to {ADD_PARAMS} with {ADD_TYPE!r} cut from the document, a "
-          f"constructor, `twice` from ViewHelper with its paragraph; null on a "
+          f"constructor, `twice` from ViewHelper with its paragraph, `(+ a b)` "
+          f"for the builtin operator; null on a "
           f"keyword head, on a head that is a local, inside a fn header, and on a "
           f"document that does not parse)")
     print(f"ok   inlay-hints (exactly the {len(HINTS_WANT)} derived hints: types "
@@ -3519,6 +3576,7 @@ fix_session = b"".join(frame(m) for m in [
     fixreq(12, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_DECL)})),
     fixreq(13, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(MAIN_DECL)})),
     fixreq(25, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(EQ_USE)})),
+    fixreq(26, "textDocument/diagnostic", fixdoc(fix_uri)),
     {"jsonrpc": "2.0", "method": "textDocument/didOpen",
      "params": {"textDocument": {"uri": fmt_uri, "languageId": "axiom",
                                  "version": 1, "text": FMT}}},
@@ -3531,6 +3589,7 @@ fix_session = b"".join(frame(m) for m in [
     fixreq(22, "textDocument/typeDefinition", fixdoc(fix_uri, {"position": at(MK_USE)})),
     fixreq(23, "textDocument/codeLens", fixdoc(fix_uri)),
     fixreq(24, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_USE)})),
+    fixreq(27, "textDocument/diagnostic", fixdoc(fix_uri)),
     fixreq(30, "shutdown", None),
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
@@ -3603,6 +3662,9 @@ run_lens = lens_named(10, "axiom.run")
 exp_lens = lens_named(10, "axiom.expandMacro")
 r11 = fres(11) or {}
 r25 = fres(25) or {}
+fix_pubs = [m["params"]["diagnostics"] for m in fmsgs
+            if m.get("method") == "textDocument/publishDiagnostics"
+            and m.get("params", {}).get("uri") == fix_uri]
 fwhy = ""
 if fp.returncode != 0:
     fwhy = f"the server exited {fp.returncode}: {fp.stderr[:200]!r}"
@@ -3616,6 +3678,8 @@ elif fcaps.get("typeDefinitionProvider") is not True:
     fwhy = f"typeDefinitionProvider is not advertised: {sorted(fcaps)}"
 elif fcaps.get("codeLensProvider") != {"resolveProvider": False}:
     fwhy = f"codeLensProvider is {fcaps.get('codeLensProvider')!r}"
+elif fcaps.get("diagnosticProvider") != {"interFileDependencies": False, "workspaceDiagnostics": False}:
+    fwhy = f"diagnosticProvider is {fcaps.get('diagnosticProvider')!r}, want no inter-file deps and no workspace pull"
 elif (fcaps.get("experimental") or {}).get("expandMacro") is not True:
     fwhy = f"experimental.expandMacro is not advertised: {fcaps.get('experimental')!r}"
 # --- formatting ---------------------------------------------------------
@@ -3684,6 +3748,23 @@ elif exp_lens is None or exp_lens.get("range") != rng(DERIVE_DECL):
     fwhy = f"the Expand lens is {exp_lens!r:.200}, want it over the macro's name at {rng(DERIVE_DECL)}"
 elif exp_lens["command"].get("arguments") != [fix_uri, at(DERIVE_DECL)]:
     fwhy = f"the Expand lens carries {exp_lens['command'].get('arguments')!r}"
+# --- pull diagnostics ----------------------------------------------------
+# The pull is the push in another shape: `kind: "full"` with exactly the
+# items the server published for the same document state - the fixed
+# document's two diagnostics, then the broken one's single parse error.
+# Comparing the two surfaces rather than writing either down is what
+# stops a bless from satisfying it.
+elif len(fix_pubs) < 2:
+    fwhy = (f"the session published {len(fix_pubs)} diagnostics array(s) for "
+            f"the fixed uri, want didOpen's and the broken one's")
+elif (fres(26) or {}).get("kind") != "full" or (fres(26) or {}).get("items") != fix_pubs[0]:
+    fwhy = (f"pull diagnostics on the fixed document answered "
+            f"{json.dumps(fres(26))[:300]}, want kind full with the "
+            f"{len(fix_pubs[0])} pushed items")
+elif (fres(27) or {}).get("kind") != "full" or (fres(27) or {}).get("items") != fix_pubs[-1]:
+    fwhy = (f"pull diagnostics on the unparseable document answered "
+            f"{json.dumps(fres(27))[:300]}, want kind full with the "
+            f"{len(fix_pubs[-1])} pushed item(s)")
 # --- expand macro --------------------------------------------------------
 elif r11.get("name") != MACRO_NAME:
     fwhy = f"expandMacro on the invocation answered {fres(11)!r:.300}, want name {MACRO_NAME!r}"
@@ -3817,7 +3898,10 @@ else:
           f"outline of exactly that name; `{EQ_MACRO}` rendering `(fn ({EQ_GEN_NAME} "
           f"a b)` with its binders as identifiers, re-parsing clean; null on `main` "
           f"and when the document does not parse)")
-    passed += 5
+    print(f"ok   pull-diagnostics (kind full with the {len(fix_pubs[0])} pushed items "
+          f"on the fixed document and the {len(fix_pubs[-1])} pushed item(s) on the "
+          f"unparseable one - the pull is the push in another shape)")
+    passed += 6
 shutil.rmtree(FIXDIR, ignore_errors=True)
 
 # ---------------------------------------------------------------------

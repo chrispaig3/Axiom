@@ -93,6 +93,10 @@ What the lifecycle does, and what it does not:
   raised inside an imported module is not attributed to the file that
   imports it — open that module and it is published there. `didClose`
   publishes an empty list, which is how a server retracts squiggles.
+  The same array is available on demand as `textDocument/diagnostic`,
+  which answers `{kind: "full", items}` — the pull twin of this push,
+  held as an equality between the two surfaces (see
+  [Changing and running](#changing-and-running)).
   `tests/lsp/expected-diagnostics.txt` is the manifest every fixture's
   diagnostics are held to, by severity, code, an anchor string and the
   message line, with positions recomputed in Python from the bytes.
@@ -104,7 +108,8 @@ What the lifecycle does, and what it does not:
   document alone", never as an error and never by a dead server
   (`lspPreflight` in `self_host/lsp.ax` walks the imports non-fatally
   before anything resolves).
-- **Positions are UTF-16 code units**, the protocol's default.
+- **Positions are UTF-16 code units**, the protocol's default,
+  advertised as `positionEncoding: "utf-16"`.
   `tests/lsp/030-utf16-columns.ax` is the fixture that pins it.
 - **A request the server does not know is answered with `-32601`**
   (`method not found: <name>`), a notification it does not know is
@@ -139,8 +144,8 @@ The server is found through the editor's `PATH`, so `axiom` must be on
 it — or write the absolute path where the configurations below say
 `"axiom"`. Source files end in `.ax`; the server does not read the
 `languageId` a client sends, so name the filetype whatever your editor
-wants, and the configurations below call it `axiom`. The two code-lens
-commands `axiom.run` and `axiom.expandMacro` are the client's to
+wants, and the configurations below call it `axiom`. The three code-lens
+commands `axiom.run`, `axiom.test` and `axiom.expandMacro` are the client's to
 define (see [Changing and running](#changing-and-running)); each
 configuration below defines them where the editor can.
 
@@ -175,10 +180,15 @@ vim.lsp.enable("axiom")
 --   end,
 -- })
 
--- The two commands the code lenses name. The server never runs them.
+-- The three commands the code lenses name. The server never runs them.
 vim.lsp.commands["axiom.run"] = function(command)
   vim.cmd.split()
   vim.cmd.terminal("axiom run " .. vim.fn.shellescape(command.arguments[1]))
+end
+vim.lsp.commands["axiom.test"] = function(command)
+  vim.cmd.split()
+  vim.cmd.terminal("axiom test " .. vim.fn.shellescape(command.arguments[1])
+    .. " --filter " .. vim.fn.shellescape(command.arguments[2]))
 end
 vim.lsp.commands["axiom.expandMacro"] = function(command)
   local uri, position = command.arguments[1], command.arguments[2]
@@ -390,6 +400,7 @@ contributes a TextMate grammar, which this repository does not ship.
     "languages": [{ "id": "axiom", "aliases": ["Axiom"], "extensions": [".ax"] }],
     "commands": [
       { "command": "axiom.run", "title": "Axiom: Run" },
+      { "command": "axiom.test", "title": "Axiom: Test" },
       { "command": "axiom.expandMacro", "title": "Axiom: Expand Macro" }
     ]
   },
@@ -411,6 +422,11 @@ function activate(context) {
       const t = vscode.window.createTerminal("axiom run");
       t.show();
       t.sendText("axiom run " + JSON.stringify(path));
+    }),
+    vscode.commands.registerCommand("axiom.test", (path, name) => {
+      const t = vscode.window.createTerminal("axiom test");
+      t.show();
+      t.sendText("axiom test " + JSON.stringify(path) + " --filter " + JSON.stringify(name));
     }),
     vscode.commands.registerCommand("axiom.expandMacro", async (uri, position) => {
       const r = await client.sendRequest("axiom/expandMacro", { textDocument: { uri }, position });
@@ -662,27 +678,38 @@ x : Int
 parameter of `bump`
 ```
 
-with the type cut from the signature's arrow. The `range` is the word
+with the type cut from the signature's arrow. A builtin type answers
+its own name with one line saying what it is (`Int` answers
+`64-bit signed integer`), and a builtin operator answers its call
+shape with the type `symbols --builtins` prints
+(`(+ a b) : (-> Int Int Int)` with `builtin operator` below the
+fence). The `range` is the word
 under the cursor, not the declaration, which for an imported name is
-in a different file. `null` for a builtin, a keyword or a name nothing
+in a different file. `null` for a keyword or a name nothing
 declares. The gate cuts every quoted form and every paragraph out of
 the document itself — a second implementation, in Python, of
-`lspFormText` and `lspDocComment` — and compares.
+`lspFormText` and `lspDocComment` — and compares, and asks one builtin
+hover by name.
 
 **`textDocument/completion`.** In this order: the head keywords the
 parser dispatches on (extracted from the `kwEq` call sites of
 `self_host/parser.ax` by the gate, so the copy in `lsp.ax` is a
-checked claim), this document's declarations and the constructors its
-`data` forms name, and every imported module's declarations under
-their bare names — a local name shadowing an imported one and both
-shadowing a keyword. The list is filtered on the prefix under the
+checked claim), the builtin types and operators (`lspComplBuiltins`,
+held by the same broken-document equality — a builtin the compiler
+learns and the server forgets is a red gate), this document's
+declarations, the constructors its `data` forms name and the fields
+its `struct` forms declare, the locals in scope at the cursor (`let`
+names, parameters, pattern variables as `Variable`), and every
+imported module's declarations under their bare names — a local name
+shadowing an imported one and both shadowing a keyword. The list is filtered on the prefix under the
 cursor, capped at `LSP_COMPL_MAX`, and sent `isIncomplete: true`,
 which tells the client to ask again on the next keystroke; `(` is the
 trigger character. A document that does not parse still completes
-keywords — the normal case, since a file is unparseable exactly while
+keywords and builtins — the normal case, since a file is unparseable exactly while
 a form is half written. It does not offer a name a macro would
 generate: `(deriveTag Colour)` does not put `tagColour` in the menu,
-and the gate asserts that absence.
+and the gate asserts that absence, alongside one field, one builtin of
+each kind, and one local.
 
 **`textDocument/signatureHelp`.** The call the cursor is inside — a
 `fn` of this document, one of its constructors, or an imported `fn`
@@ -690,7 +717,10 @@ with its module named — as `(bump x) : (-> Int Int)`, the type cut
 from the `::` beside the `fn`, each parameter as the UTF-16 offset
 pair that slices the label to its name, the paragraph above the
 declaration as `documentation`, and `activeParameter` counted from
-the bytes. `(` and space trigger it, space retriggers. A local
+the bytes. `(` and space trigger it, space retriggers. A builtin
+operator answers its call shape — `(+ a b) : (-> Int Int Int)` with
+`builtin operator` as documentation — so `(+ 1 ` still guides the
+second argument with nothing declared. A local
 shadowing a top-level `fn` of the same name is asked first, so
 `(fn (t7 f) (f 1 2))` beside a top-level `f` answers nothing for
 `f`; a `fn` header does not answer its own signature; outside any
@@ -762,6 +792,20 @@ nothing open imports is not searched. The list stops at
 `LSP_COMPL_MAX`.
 
 ### Changing and running
+
+**`textDocument/diagnostic`.** The push diagnostics on demand: `{kind:
+"full", items}` where `items` is exactly the array a `didOpen` of the
+same document state publishes under its URI — same diagnostics in the
+same order, labels and `relatedInformation` included. No `resultId`
+is sent, so there is no `unchanged` answer: a client that wants the
+current list asks again. `interFileDependencies` is false, because
+only this document's diagnostics are reported (see the lifecycle
+above); `workspaceDiagnostics` is false, because there is no
+`workspace/diagnostic` yet. This request runs the pipeline (see
+[The cost rule](#the-cost-rule)). The gate holds pull equal to push
+on a fixed document and again on the same document broken mid-form,
+so neither surface can drift from the other and no golden can satisfy
+it.
 
 **`textDocument/formatting`.** One `TextEdit` over the whole document
 holding the output of the same `fmtFormat` that `axiom fmt` runs;
@@ -843,10 +887,14 @@ original, on a document whose extracted call performs a side effect
 exactly once.
 
 **`textDocument/codeLens`.** A `▶ Run` lens over `(fn (main) ...)`
-when `main` takes no parameters — that is what `axiom run` runs — and
+when `main` takes no parameters — that is what `axiom run` runs — a
+`▶ Test` lens over every nullary `fn` whose name starts with `test`
+— that is what `axiom test` runs, with the test name as the
+`--filter` — and
 an `Expand macro` lens over every `pub macro`. A lens carries a command
 NAME and its arguments, and the server runs nothing: `axiom.run`
-carries the document's filesystem path, `axiom.expandMacro` the
+carries the document's filesystem path, `axiom.test` the path and the
+test name, `axiom.expandMacro` the
 document's URI and the macro declaration's position, and the editor
 does the rest, as rust-analyzer's `Run` lens works. On the document
 above:
@@ -949,14 +997,16 @@ parameter hints and signature help share — and its answer is derived
 from what the file SAYS, which is why a name a macro would generate is
 absent from completion, from the outline and from navigation.
 
-Three things run the pipeline, each because the pipeline's output is
+Four things run the pipeline, each because the pipeline's output is
 the answer: `didOpen` and `didChange`, which publish diagnostics,
 because a diagnostic about generated code is exactly what expansion
-is for; `codeAction`, because a quickfix is a checker diagnostic's own
-fix and the assist writes what the checker inferred; and
-`axiom/expandMacro`, because rendering what a macro generated is the
-question being asked. None of the three is sent per keystroke — a
-client asks for code actions when the cursor rests and for an
+is for; `textDocument/diagnostic`, because the pull is the push in
+another shape; `codeAction`, because a quickfix is a checker
+diagnostic's own fix and the assist writes what the checker inferred;
+and `axiom/expandMacro`, because rendering what a macro generated is
+the question being asked. None of the four is sent per keystroke — a
+client asks for code actions when the cursor rests, pulls diagnostics
+on its own schedule and asks for an
 expansion on demand — and each costs about one `didOpen` of the same
 document, which the editor paid on the last keystroke anyway.
 

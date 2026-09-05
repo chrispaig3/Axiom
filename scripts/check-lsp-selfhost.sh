@@ -875,6 +875,7 @@ def build(cap, name, uri, text, p, rid):
        "codeActionProvider":("textDocument/codeAction",{**td,"range":{"start":p,"end":p},"context":{"diagnostics":[]}}),
        "typeDefinitionProvider":("textDocument/typeDefinition",{**td,"position":p}),
        "codeLensProvider":("textDocument/codeLens",td),
+       "diagnosticProvider":("textDocument/diagnostic",td),
       }
     if name=="renameProvider":
         return [("textDocument/prepareRename",{**td,"position":p}),
@@ -895,7 +896,7 @@ def build(cap, name, uri, text, p, rid):
         if isinstance(cap,dict) and cap.get("expandMacro"):
             return [("axiom/expandMacro",{**td,"position":p})]
         return []
-    if name=="textDocumentSync": return []
+    if name in ("textDocumentSync", "positionEncoding"): return []
     if name not in m: return None
     return [m[name]]
 def caps_of():

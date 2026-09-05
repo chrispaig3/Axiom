@@ -1402,7 +1402,17 @@
                       ; what the rest of this function's header says.
                       (let ((dat (lspFindCtorData decls w (- (vecLen decls) 1))))
                         (if (== (lspCtorNodeOf dat w) 0)
-                          (lspHoverImported (lspUriToPath uri) src decls w range)
+                          (let ((imp (lspHoverImported (lspUriToPath uri) src decls w range)))
+                            (if (jsonIsNull imp)
+                              (let ((b (lspHoverBuiltin w range)))
+                                (if (== b 0)
+                                  jsonNull
+                                  b
+                                )
+                              )
+                              imp
+                            )
+                          )
                           (lspHoverAtNote src decls dat range "" (lspCtorNote dat w))
                         )
                       )
@@ -1532,6 +1542,31 @@
                 )
               )
             )
+          )
+        )
+      )
+    )
+  )
+)
+
+; What a builtin is, for the names no declaration declares. A builtin
+; type hovers as its own name with one line saying what it is; an
+; operator as its call shape with the type `symbols --builtins` prints,
+; in the parser's spelling. 0 when `w` names neither - a keyword, or a
+; name nothing declares, which answer `null` as before. Pure: the table
+; is closed and costs no import walk, so this runs after the imported
+; lookup misses rather than before anything resolves.
+(pub :: lspHoverBuiltin (-> String Int Int))
+
+(pub fn (lspHoverBuiltin w range)
+  (let ((tdoc (lspBuiltinTypeDoc w)))
+    (if (!= (strLen tdoc) 0)
+      (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr (strConcat (strConcat "```axiom\n" (strConcat w "\n```\n\n")) tdoc)))) "range" range)
+      (let ((ty (lspBuiltinOpType w)))
+        (if (== (strLen ty) 0)
+          0
+          (let ((code (strConcat (strConcat (strConcat (strConcat "(" w) " a b)") " : ") ty)))
+            (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr (strConcat (strConcat "```axiom\n" (strConcat code "\n```\n\n")) "builtin operator")))) "range" range)
           )
         )
       )
@@ -2331,15 +2366,18 @@
     (out jsonArr)
     (seen vecNew)
   )
-    (let ((prefix (lspPrefixAt src (lspOffsetOf src ix (jsonGet params "position")))))
+    (let ((off (lspOffsetOf src ix (jsonGet params "position"))))
+    (let ((prefix (lspPrefixAt src off)))
       (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
         {
           (lspComplKeywords out seen prefix)
+          (lspComplBuiltins out seen prefix)
           (if (== (memGetWord pr 0) 0)
             0
             (let ((decls (memGetWordVec pr 1)))
               {
                 (lspComplLocal out seen src decls prefix)
+                (lspComplLocals out seen src decls prefix off)
                 (lspComplImported out seen (lspUriToPath uri) src decls prefix)
               }
             )
@@ -2347,6 +2385,7 @@
           (lspComplList out)
         }
       )
+    )
     )
   )
 )
@@ -2370,11 +2409,115 @@
   )
 )
 
+; The names no declaration declares: the primitive types, the prelude's
+; spanless `Option`/`Vec`, and the eighteen builtin operators. Offered
+; even when the document does not parse - like the keywords, a file is
+; unparseable exactly while a name is half written. Kinds follow the
+; outline's: Class (7) for a primitive type, Enum (13) for the prelude's
+; data, Operator (24) for an operator. `tests/lsp/drive.py` carries the
+; same list for its broken-document equality, so a builtin the compiler
+; learns and this forgets is a red gate rather than a menu quietly
+; behind the language.
+(pub :: lspComplBuiltins (-> Int (Vec String) String Int))
+
+(pub fn (lspComplBuiltins out seen prefix)
+  {
+    (lspComplOffer out seen "Any" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Bool" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Char" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Float" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Int" 7 "builtin type" prefix)
+    (lspComplOffer out seen "String" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Unit" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Void" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Option" 13 "builtin type" prefix)
+    (lspComplOffer out seen "Vec" 13 "builtin type" prefix)
+    (lspComplOffer out seen "+" 24 "builtin" prefix)
+    (lspComplOffer out seen "-" 24 "builtin" prefix)
+    (lspComplOffer out seen "*" 24 "builtin" prefix)
+    (lspComplOffer out seen "/" 24 "builtin" prefix)
+    (lspComplOffer out seen "%" 24 "builtin" prefix)
+    (lspComplOffer out seen "&" 24 "builtin" prefix)
+    (lspComplOffer out seen "|" 24 "builtin" prefix)
+    (lspComplOffer out seen "^" 24 "builtin" prefix)
+    (lspComplOffer out seen "<<" 24 "builtin" prefix)
+    (lspComplOffer out seen ">>" 24 "builtin" prefix)
+    (lspComplOffer out seen "==" 24 "builtin" prefix)
+    (lspComplOffer out seen "!=" 24 "builtin" prefix)
+    (lspComplOffer out seen "<" 24 "builtin" prefix)
+    (lspComplOffer out seen ">" 24 "builtin" prefix)
+    (lspComplOffer out seen "<=" 24 "builtin" prefix)
+    (lspComplOffer out seen ">=" 24 "builtin" prefix)
+    (lspComplOffer out seen "&&" 24 "builtin" prefix)
+    (lspComplOffer out seen "||" 24 "builtin" prefix)
+    0
+  }
+)
+
+; The builtin operator's type in the parser's spelling, or "" when `w`
+; is not one. Ten arithmetic and bitwise operators answer Int, six
+; comparisons answer Bool over Ints, two logical operators answer Bool
+; over Bools - the same arrows `axiom symbols --builtins` prints, in
+; the spelling a `::` accepts.
+(pub :: lspBuiltinOpType (-> String String))
+
+(pub fn (lspBuiltinOpType w)
+  (let ((mut t ""))
+    {
+      (if (strEq w "+") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "-") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "*") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "/") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "%") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "&") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "|") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "^") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "<<") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w ">>") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "==") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "!=") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "<") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w ">") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "<=") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w ">=") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "&&") { (set t "(-> Bool Bool Bool)") 0 } 0)
+      (if (strEq w "||") { (set t "(-> Bool Bool Bool)") 0 } 0)
+      t
+    }
+  )
+)
+
+; One line on what the builtin type is, or "" when `w` names none.
+; Kept to a line each: a tooltip is not the reference, and the types
+; table in `docs/status.md` is where the full story lives.
+(pub :: lspBuiltinTypeDoc (-> String String))
+
+(pub fn (lspBuiltinTypeDoc w)
+  (let ((mut d ""))
+    {
+      (if (strEq w "Int") { (set d "64-bit signed integer") 0 } 0)
+      (if (strEq w "Float") { (set d "64-bit IEEE-754 double") 0 } 0)
+      (if (strEq w "Bool") { (set d "Boolean: `true` or `false`") 0 } 0)
+      (if (strEq w "Char") { (set d "A Unicode code point") 0 } 0)
+      (if (strEq w "String") { (set d "A `Str` handle") 0 } 0)
+      (if (strEq w "Unit") { (set d "Unit: `()`") 0 } 0)
+      (if (strEq w "Void") { (set d "Void: no value") 0 } 0)
+      (if (strEq w "Any") { (set d "Generic pointer: one word") 0 } 0)
+      (if (strEq w "Option") { (set d "Prelude data: `Some` or `None`") 0 } 0)
+      (if (strEq w "Vec") { (set d "Prelude data: a growable vector") 0 } 0)
+      d
+    }
+  )
+)
+
 ; This document's own names. The same set the outline publishes - so a
 ; name an editor can list, jump to and hover is a name it can also
 ; complete - plus the constructors, which the outline leaves out
 ; because they are not declarations and completion wants because they
-; are names.
+; are names, plus every struct's fields for the same reason: a field
+; is not a declaration either and `(Point x y)` is reached for by
+; name. Constructors complete as EnumMember (20), fields as Field
+; (5), matching the kinds `workspace/symbol` lists them under.
 (pub :: lspComplLocal (-> Int (Vec String) String (Vec Int) String Int))
 
 (pub fn (lspComplLocal out seen src decls prefix)
@@ -2396,7 +2539,10 @@
                 )
                 (if (== (nodeTag d) TAG_D_DATA)
                   (lspComplCtors out seen (nodeBVec d) prefix)
-                  0
+                  (if (== (nodeTag d) TAG_D_STRUCT)
+                    (lspComplFields out seen (nodeBVec d) prefix)
+                    0
+                  )
                 )
               }
               0
@@ -2447,6 +2593,124 @@
   )
 )
 
+; A struct's fields, by the same rule as its constructors above: not
+; declarations, but names a reference spells - `(Point x y)` and
+; `(.x p)` both reach for them. Offered as Field (5) rather than
+; EnumMember (20), which is the kind the outline nests them under.
+(pub :: lspComplFields (-> Int (Vec String) (Vec Int) String Int))
+
+(pub fn (lspComplFields out seen fields prefix)
+  (let (
+    (n (vecLen fields))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (lspComplOffer out seen (nodeAName (vecGet fields i)) 5 "" prefix)
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; The locals in scope at the cursor, as Variable (6): `let` names, `fn`
+; and `lambda` parameters, pattern variables - every binder the
+; scope-aware walk records, filtered to the top-level declaration the
+; cursor sits in and to binders written before it. A `let` that shadows
+; a parameter offers one item, not two, because `seen` dedups; a binder
+; with no anchor (`~` key, `syntax/join` name, `_`) was never emitted
+; by the walk and is not offered. Reads the raw tree and expands
+; nothing, like every other per-keystroke request.
+(pub :: lspComplLocals (-> Int (Vec String) String (Vec Int) String Int Int))
+
+(pub fn (lspComplLocals out seen src decls prefix off)
+  (let ((owner (lspComplOwnerAt src decls off)))
+    (if (== (strLen owner) 0)
+      0
+      (let ((occs (lspNavOccurrences src decls)))
+        (let (
+          (n (vecLen occs))
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              (let ((o (vecGet occs i)))
+                {
+                  (if (&& (== (memGetWord o 2) NAV_BINDER) (lspNavIsLocal (memGetWordStr o 3)))
+                    (let ((sp (memGetWord o 1)))
+                      (if (&& (!= sp 0) (&& (< (spanStart sp) off) (strEq (memGetWordStr o 5) owner)))
+                        (lspComplOffer out seen (memGetWordStr o 0) 6 "" prefix)
+                        0
+                      )
+                    )
+                    0
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            0
+          }
+        )
+      )
+    )
+  )
+)
+
+; The top-level declaration whose extent holds `off`: its name's start
+; to the next spanned declaration's start, or EOF. "" when none does -
+; between declarations, where no local is in scope.
+(pub :: lspComplOwnerAt (-> String (Vec Int) Int String))
+
+(pub fn (lspComplOwnerAt src decls off)
+  (let (
+    (n (vecLen decls))
+    (len (strLen src))
+    (mut i 0)
+    (mut owner "")
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (!= (nodeSpan d) 0)
+              (let (
+                (lo (spanStart (nodeSpan d)))
+                (mut j (+ i 1))
+                (mut hi len)
+              )
+                {
+                  (while (if (< j n)
+                    (== hi len)
+                    false
+                  )
+                    {
+                      (if (!= (nodeSpan (vecGet decls j)) 0)
+                        (set hi (spanStart (nodeSpan (vecGet decls j))))
+                        0
+                      )
+                      (set j (+ j 1))
+                    })
+                  (if (&& (<= lo off) (< off hi))
+                    {
+                      (set owner (nodeAName d))
+                      0
+                    }
+                    0
+                  )
+                }
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      owner
+    }
+  )
+)
+
 ; Everything the imports bring in, by the bare name a reference spells.
 ;
 ; The resolver is given what `lspCheckDoc` and `lspDefinitionImported`
@@ -2481,7 +2745,10 @@
                       )
                       (if (== (nodeTag d) TAG_D_DATA)
                         (lspComplCtors out seen (nodeBVec d) prefix)
-                        0
+                        (if (== (nodeTag d) TAG_D_STRUCT)
+                          (lspComplFields out seen (nodeBVec d) prefix)
+                          0
+                        )
                       )
                     }
                     0
@@ -2821,7 +3088,7 @@
 ; nothing calls.
 (pub :: lspCapabilities Int)
 
-(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.7.5"))))
+(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "positionEncoding" (jsonStr "utf-16")) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.7.5"))))
 
 ; `definitionProvider` and `hoverProvider` joined on 2026-08-15
 ; with the macro navigation they describe (MAC-TOOL-2). Both are
@@ -2877,8 +3144,8 @@
 ; else: NAVIGATION (references, rename, highlights, the local-binding
 ; half of definition), VIEWS (signature help, inlay hints, folding,
 ; selection ranges, document links, workspace symbols), FIXES
-; (formatting, code actions, macro expansion, code lenses, type
-; definition, diagnostics for imported modules) and HIGHLIGHTING
+; (pull diagnostics, formatting, code actions, macro expansion, code
+; lenses, type definition, diagnostics for imported modules) and HIGHLIGHTING
 ; (semantic tokens). Each section answers
 ; three questions in the same shape - does it handle `method`, what
 ; does it reply, and what does it advertise - and `lspExtHandles` /
@@ -6635,7 +6902,12 @@
                     )
                   ))
                     (if (== found 0)
-                      jsonNull
+                      (let ((b (lspViewSigBuiltin head)))
+                        (if (== b 0)
+                          jsonNull
+                          (lspViewSigHelp b (lspViewActiveArg src o (lspOffsetOf src ix (jsonGet params "position"))))
+                        )
+                      )
                       (lspViewSigHelp found (lspViewActiveArg src o (lspOffsetOf src ix (jsonGet params "position"))))
                     )
                   )
@@ -6954,6 +7226,40 @@
       (set label (strConcat label ")"))
       (lspViewSigInfo label starts ends "")
     }
+  )
+)
+
+; A builtin operator: `(+ a b) : (-> Int Int Int)`, with `a` and `b`
+; as the two parameters so the client bolds the argument being written.
+; 0 when `head` names none - a keyword, a local, or a name nothing
+; declares, which answer `null` as before. Pure: the table is
+; `lspBuiltinOpType`'s closed set, so this runs after the imported
+; lookup misses rather than before anything resolves.
+(pub :: lspViewSigBuiltin (-> String Int))
+
+(pub fn (lspViewSigBuiltin head)
+  (let ((ty (lspBuiltinOpType head)))
+    (if (== (strLen ty) 0)
+      0
+      (let (
+        (label (strConcat (strConcat (strConcat "(" head) " a b) : ") ty))
+        (starts vecNew)
+        (ends vecNew)
+      )
+        (let (
+          (a0 (+ (strLen head) 2))
+          (b0 (+ (strLen head) 4))
+        )
+          {
+            (vecPush starts a0)
+            (vecPush ends (+ a0 1))
+            (vecPush starts b0)
+            (vecPush ends (+ b0 1))
+            (lspViewSigInfo label starts ends "builtin operator")
+          }
+        )
+      )
+    )
   )
 )
 
@@ -8415,8 +8721,8 @@
 ; ==================================================================
 
 ; ==================================================================
-; SECTION FIX: formatting, code actions, macro expansion, code
-; lenses, type definition, diagnostics for imported modules
+; SECTION FIX: pull diagnostics, formatting, code actions, macro
+; expansion, code lenses, type definition, diagnostics for imported modules
 ; ==================================================================
 ; The requests that CHANGE or RUN code from the editor: the formatter
 ; as one whole-document edit, the compiler's machine-applicable fixes
@@ -8445,7 +8751,7 @@
 ;
 (pub :: lspFixHandles (-> String Bool))
 
-(pub fn (lspFixHandles method) (|| (strEq method "textDocument/formatting") (|| (strEq method "textDocument/codeAction") (|| (strEq method "textDocument/typeDefinition") (|| (strEq method "textDocument/codeLens") (strEq method "axiom/expandMacro"))))))
+(pub fn (lspFixHandles method) (|| (strEq method "textDocument/diagnostic") (|| (strEq method "textDocument/formatting") (|| (strEq method "textDocument/codeAction") (|| (strEq method "textDocument/typeDefinition") (|| (strEq method "textDocument/codeLens") (strEq method "axiom/expandMacro")))))))
 
 (pub :: lspFixDispatch (-> String Int Int (Vec String) (Vec a) Int))
 
@@ -8453,15 +8759,18 @@
 (pub fn (lspFixDispatch method id params uris texts)
   (let ((uri (lspParamsUri params)))
     (let ((src (docText uris texts uri)))
-      (if (strEq method "textDocument/formatting")
-        (lspReply id (lspFormatting src))
-        (if (strEq method "textDocument/codeAction")
-          (lspReply id (lspCodeAction src uri params))
-          (if (strEq method "textDocument/typeDefinition")
-            (lspReply id (lspTypeDefinition src uri params))
-            (if (strEq method "textDocument/codeLens")
-              (lspReply id (lspCodeLens src uri))
-              (lspReply id (lspExpandMacro src uri params))
+      (if (strEq method "textDocument/diagnostic")
+        (lspReply id (lspDiagnostic src uri))
+        (if (strEq method "textDocument/formatting")
+          (lspReply id (lspFormatting src))
+          (if (strEq method "textDocument/codeAction")
+            (lspReply id (lspCodeAction src uri params))
+            (if (strEq method "textDocument/typeDefinition")
+              (lspReply id (lspTypeDefinition src uri params))
+              (if (strEq method "textDocument/codeLens")
+                (lspReply id (lspCodeLens src uri))
+                (lspReply id (lspExpandMacro src uri params))
+              )
             )
           )
         )
@@ -8473,12 +8782,35 @@
 ; `codeActionProvider` is an object rather than a boolean so a client
 ; can see which kinds are on offer before it asks; `codeLensProvider`
 ; says every lens is complete as sent, for the reason
-; `completionProvider` says the same of its items; `expandMacro` rides
+; `completionProvider` says the same of its items; `diagnosticProvider`
+; says pull reports this document alone (`interFileDependencies:
+; false`, for the reason `lspCheckDoc` publishes only unit 0) and that
+; there is no workspace pull yet (`workspaceDiagnostics: false`);
+; `expandMacro` rides
 ; under `experimental` because it is not a protocol method, which is
 ; where rust-analyzer advertises its own.
 (pub :: lspFixCaps (-> Int Int))
 
-(pub fn (lspFixCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "documentFormattingProvider" (jsonBool 1)) "codeActionProvider" (jsonObjPut jsonObj "codeActionKinds" (jsonArrPush (jsonArrPush (jsonArrPush jsonArr (jsonStr "quickfix")) (jsonStr "refactor.rewrite")) (jsonStr "refactor.extract")))) "typeDefinitionProvider" (jsonBool 1)) "codeLensProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "experimental" (jsonObjPut jsonObj "expandMacro" (jsonBool 1))))
+(pub fn (lspFixCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "documentFormattingProvider" (jsonBool 1)) "codeActionProvider" (jsonObjPut jsonObj "codeActionKinds" (jsonArrPush (jsonArrPush (jsonArrPush jsonArr (jsonStr "quickfix")) (jsonStr "refactor.rewrite")) (jsonStr "refactor.extract")))) "typeDefinitionProvider" (jsonBool 1)) "codeLensProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "diagnosticProvider" (jsonObjPut (jsonObjPut jsonObj "interFileDependencies" (jsonBool 0)) "workspaceDiagnostics" (jsonBool 0))) "experimental" (jsonObjPut jsonObj "expandMacro" (jsonBool 1))))
+
+; ------------------------------------------------------------------
+; `textDocument/diagnostic`: the same diagnostics the server pushes,
+; on demand.
+;
+; Pull is `lspCheckDoc`'s answer inside a full report: `kind: "full"`
+; with this document's own items, the same array a `didOpen` publishes
+; under its URI. No `resultId` is sent, so there is nothing to diff
+; against and no `unchanged` answer: a client that wants the current
+; list asks again, and the answer costs one `didOpen` of the same
+; document, which the editor paid on the last keystroke anyway. Runs
+; the pipeline, like the push it mirrors - the fourth such request
+; beside `didOpen`/`didChange`, `codeAction` and `axiom/expandMacro`
+; (see [The cost rule] in docs/lsp.md).
+; ------------------------------------------------------------------
+(pub :: lspDiagnostic (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspDiagnostic src uri) (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "full")) "items" (lspCheckDoc (lspUriToPath uri) src)))
 
 ; ------------------------------------------------------------------
 ; `textDocument/formatting`: the formatter's output as ONE edit over
@@ -10592,21 +10924,23 @@
 )
 
 ; ------------------------------------------------------------------
-; `textDocument/codeLens`: a `▶ Run` over `main`, and `Expand macro`
-; over every `pub macro`.
+; `textDocument/codeLens`: a `▶ Run` over `main`, a `▶ Test` over every
+; nullary `test*` fn, and `Expand macro` over every `pub macro`.
 ;
 ; THE COMMANDS ARE THE CLIENT'S. A lens carries a command NAME and its
 ; arguments, and the server never runs one: a VS Code extension binds
-; `axiom.run` to `axiom run <path>` in a terminal and
+; `axiom.run` to `axiom run <path>` in a terminal,
+; `axiom.test` to `axiom test <path> --filter <name>`, and
 ; `axiom.expandMacro` to an `axiom/expandMacro` request at the
 ; position given, which is exactly how rust-analyzer's `Run` lens
 ; works - the server says where, the editor does it. `Run` is offered
-; for `(fn (main) ...)` alone, because that is what `axiom run` runs.
-; The macro lens names the DECLARATION's position, and
-; `lspExpandMacro` reads that position as "everything this macro
-; generated in this document"; on an invocation it answers that
-; invocation's own products. Raw tree, no expansion, no IO: the path
-; is decoded from the URI the request named.
+; for `(fn (main) ...)` alone, because that is what `axiom run` runs;
+; `Test` for a nullary `fn` whose name starts with `test`, because that
+; is what `axiom test` runs. The macro lens names the DECLARATION's
+; position, and `lspExpandMacro` reads that position as "everything
+; this macro generated in this document"; on an invocation it answers
+; that invocation's own products. Raw tree, no expansion, no IO: the
+; path is decoded from the URI the request named.
 ; ------------------------------------------------------------------
 (pub :: lspCodeLens (-> String String Int))
 
@@ -10629,9 +10963,12 @@
                   0
                   (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) "main") (== (vecLen (nodeBVec d)) 0)))
                     (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "▶ Run" "axiom.run" (jsonArrPush jsonArr (jsonStr (lspUriToPath uri)))))
-                    (if (&& (== (nodeTag d) TAG_D_MACRO) (== (nodeVis d) 1))
-                      (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "Expand macro" "axiom.expandMacro" (jsonArrPush (jsonArrPush jsonArr (jsonStr uri)) (lspPosIx src ix (spanStart (nodeSpan d))))))
-                      0
+                    (if (&& (== (nodeTag d) TAG_D_FN) (&& (strStartsWith (nodeAName d) "test") (== (vecLen (nodeBVec d)) 0)))
+                      (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "▶ Test" "axiom.test" (jsonArrPush (jsonArrPush jsonArr (jsonStr (lspUriToPath uri))) (jsonStr (nodeAName d)))))
+                      (if (&& (== (nodeTag d) TAG_D_MACRO) (== (nodeVis d) 1))
+                        (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "Expand macro" "axiom.expandMacro" (jsonArrPush (jsonArrPush jsonArr (jsonStr uri)) (lspPosIx src ix (spanStart (nodeSpan d))))))
+                        0
+                      )
                     )
                   )
                 )
