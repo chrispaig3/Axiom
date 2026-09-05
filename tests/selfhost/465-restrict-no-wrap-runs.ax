@@ -1,0 +1,45 @@
+; expect 60
+; `restrict(no-wrap)` over a body that LOOPS and a body that does float
+; arithmetic, run rather than only checked. Both were refused before
+; 2026-09-04 and neither had a fix to offer: the `for` keyword desugars
+; to `(set for$i (+ for$i 1))` carrying the keyword's own span, so the
+; diagnostic named a `+` the source does not contain and underlined the
+; word `for`; and `+`/`-`/`*` on `Float` lower to `fadd`/`fsub`/`fmul`,
+; which do not wrap, while the fix the diagnostic named - `addChecked`,
+; `(-> Int Int (Result Int Error))` - does not typecheck against one.
+;
+; A RUN and not a check, because the exemptions are a checker change on
+; nodes the emitter also reads: 1..10 summed through `addChecked` is
+; 55, and `(1.5 + 1.0) * 2.0` truncates to 5.
+;
+; THE TAG IS ON THE `fn` AND NOT THE `::`, deliberately.
+; `check-restrictions.sh` section 1 rewrites every blank line above a
+; column-0 `fn` in this directory into `;@axiom:restrict(no-foreign)`
+; and requires the AXSYM rows to match afterwards but for one
+; `#restrict=` field. A tag on the signature leaves that blank line in
+; place, so the sweep adds a SECOND field and the comparison sees a row
+; that moved; a tag on the `fn` occupies the line the sweep would have
+; used, and the row is the same either way.
+(import Err)
+
+(:: sumTo (-> Int Int))
+
+;@axiom:restrict(no-wrap)
+(fn (sumTo n)
+  (let ((mut acc 0))
+    {
+      (for i 1 n
+        (set acc (unwrapOr (addChecked acc i) 0)))
+      acc
+    }
+  )
+)
+
+(:: scaled (-> Float Float))
+
+;@axiom:restrict(no-wrap)
+(fn (scaled x) (* (+ x 1.0) 2.0))
+
+(:: main Int)
+
+(fn (main) (+ (sumTo 11) (__floatToInt (scaled 1.5))))

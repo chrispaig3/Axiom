@@ -2339,7 +2339,27 @@
   ; Word 36: the register-pair call sites of the declaration being
   ; checked (`tcSiteIn`/`tcSiteAdd`); word 28 is S3's `rgnFactsDone`,
   ; which the pair work also wanted, so this one was appended.
-  (pairSites : Int))
+  (pairSites : Int)
+  ; Word 37: the head node of every `+`, `-` or `*` application whose
+  ; operands `checkNumeric` typed FLOAT. Appended, for the reason
+  ; every field before it was.
+  ;
+  ; It exists for `restrict(no-wrap)` and nothing else. That check is
+  ; lexical - it matches the operator's SPELLING - and on `Float`
+  ; operands the three spellings lower to `fadd`/`fsub`/`fmul`
+  ; (`fbinopToLLVM`), which have no wraparound to refuse: refusing one
+  ; reported a violation that could not happen and prescribed
+  ; `addChecked`, which is `(-> Int Int (Result Int Error))` and does
+  ; not typecheck against a `Float`. The operand types are known in
+  ; exactly one place, `checkNumeric`, and are not kept on the nodes,
+  ; so the sites are recorded as the checker meets them.
+  ;
+  ; A whole-program list rather than a per-declaration one because a
+  ; node handle is unique: membership is exact, and `tcWalkDecls`
+  ; checks a body BEFORE it reads that declaration's tags, so every
+  ; site a restricted body contains is already in here when
+  ; `restrictEmitWraps` asks.
+  (floatOps : (Vec Int)))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -2935,7 +2955,7 @@
       (let ((tc 
         (cast Int (TC
           fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          vecNew
-         0))
+         0         vecNew))
       ))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
@@ -11240,6 +11260,18 @@
                   (emitMismatch tc "Float" (tyRender rt) (spanOf r))
                   0
                 )
+                ; The one thing `restrict(no-wrap)` needs and cannot
+                ; find out for itself: this `+`/`-`/`*` is a FLOAT
+                ; operation, so it lowers to `fadd`/`fsub`/`fmul` and
+                ; has no wraparound to refuse. Recorded only when
+                ; BOTH operands are Float or compatible with it -
+                ; that is exactly the pair of tests above, so a
+                ; mixed-operand expression, which is a type error
+                ; here, is not also excused there.
+                (if (&& (== (isWrapOp op) 1) (&& (|| (== (tyIsFloatTy lt) 1) (== (tyCompat lt mkFloatTy) 1)) (|| (== (tyIsFloatTy rt) 1) (== (tyCompat rt mkFloatTy) 1))))
+                  (tcFloatOpAdd tc head)
+                  0
+                )
                 (if (== (isNumCmpOp op) 1)
                   mkBoolTy
                   mkFloatTy
@@ -12374,6 +12406,26 @@
     )
   )
 )
+
+; Word 37, the float-operator record: `tcFloatOpAdd` from
+; `checkNumeric` as the operands are typed, `tcFloatOpIn` from
+; `restrictEmitWraps` when it is deciding whether a `+` it found by
+; spelling is one that can wrap. The KEY is the application's head
+; node, which `checkApp` binds once per operator application
+; (`spineHead e`) and `restrictEmitWraps` reads the same way, so the
+; two agree on identity without either holding a type.
+(pub :: tcFloatOpAdd (-> Int Int Int))
+
+(pub fn (tcFloatOpAdd tc h)
+  {
+    (vecPush (memGetWordVec tc 37) h)
+    0
+  }
+)
+
+(pub :: tcFloatOpIn (-> Int Int Int))
+
+(pub fn (tcFloatOpIn tc h) (tcNodeIn (memGetWordVec tc 37) h))
 
 ; `pairMatchOK`: the scrutinee is a saturated direct call to a pair
 ; function that no local shadows, and every arm is a shape the
@@ -18067,13 +18119,23 @@
 ;                one                                           opt-in
 ;   no-recursion no cycle in the call graph reachable from     transitive
 ;                this declaration
-;   no-wrap      no `+`, `-` or `*` head in THIS body           local
+;   no-wrap      no INTEGER `+`, `-` or `*` head in THIS body   local
 ;
 ; `no-wrap` is `docs/checked-arithmetic-design.md`'s slice of the
 ; Ada-hardening work: `+`/`-`/`*` lower to plain `add`/`sub`/`mul`
 ; with no `nsw` (silent wraparound on overflow), and `stdlib/Err.ax`'s
 ; `addChecked`/`subChecked`/`mulChecked` are the alternative this
 ; restriction forces a claiming body to use instead.
+;
+; INTEGER, and that word is the 2026-09-04 correction. The check
+; matches the operator's SPELLING, and two things wearing those
+; spellings cannot wrap: the same three on `Float` operands, which
+; lower to `fadd`/`fsub`/`fmul` (`restrictEmitWraps`, over the sites
+; `checkNumeric` recorded in word 37), and the `for` keyword's own
+; counter increment, which the parser generates and the loop guard
+; bounds (`isForBump`). Refusing either reported a violation the
+; program could not commit; the `for` one additionally underlined the
+; word `for` while naming a `+` the source did not contain.
 ;
 ; `no-recursion` is a cycle, which is global by definition: a
 ; depth-first walk over the same graph (`graphCycle`), rendered from
@@ -19349,14 +19411,90 @@
     0
     (let ((w (vecGet wraps i)))
       {
-        (emitRestrictWrap
-          tc          d          r          (nodeSpan w)          (nodeAName (spineHead w))
+        ; THE SPELLING IS NOT THE OPERATION. `wrapScanInto` matches
+        ; `+`, `-` and `*` by name, and on `Float` operands those
+        ; three lower to `fadd`/`fsub`/`fmul`, which do not wrap -
+        ; `checkNumeric` recorded which heads those were while it had
+        ; the operand types (word 37), and this is the only reader.
+        ; Refusing one was a violation the program could not commit,
+        ; carrying a fix (`addChecked`, `(-> Int Int (Result Int
+        ; Error))`) that does not typecheck against a `Float`.
+        (if (== (tcFloatOpIn tc (spineHead w)) 1)
+          0
+          (emitRestrictWrap
+            tc            d            r            (nodeSpan w)            (nodeAName (spineHead w))
+          )
         )
         (restrictEmitWraps
           tc          d          r          wraps          (+ i 1)
         )
       }
     )
+  )
+)
+
+; The `for` keyword's own counter bump, and nothing else.
+;
+; `for` is DESUGARED IN THE PARSER (`forWhileBody`) into
+; `(set for$i (+ for$i 1))` beneath a `(< for$i for$n)` guard, and
+; every generated node carries the KEYWORD's span. Under `no-wrap`
+; that produced `` `+` in the body of `f` `` underlining the word
+; `for` - an operator the body does not contain, at a span that spells
+; something else, with no fix available: a loop counter cannot be a
+; `Result`. The keyword landed 2026-09-03, three days after `no-wrap`,
+; and `docs/checked-arithmetic-design.md`'s phase 1 could not have
+; seen it.
+;
+; Skipping it is SOUND and not merely convenient: the body is entered
+; only while `for$i < for$n` and both are `Int`, so `for$i + 1` is at
+; most `INT_MAX` and the increment cannot overflow. The claim
+; `no-wrap` makes is kept.
+;
+; The shape is the parser's alone. `$` is `AX1001 unexpected
+; character` inside an identifier (measured), so `for$i` is a name no
+; author can write and no author's `(set i (+ i 1))` can be mistaken
+; for - a hand-rolled `while` counter is still refused, which is what
+; `394-restrict-no-wrap-exempt.ax`'s `handRolled` pins. Matched
+; whole - target, head, both operands - so that a desugar which drifts
+; stops matching and the fixture goes red rather than quiet.
+(pub :: isForBump (-> Int Int))
+
+(pub fn (isForBump e)
+  (if (strEq (nodeAName e) "for$i")
+    (let ((v (nodeB e)))
+      (if (!= (nodeTag v) TAG_E_APP)
+        0
+        (let ((h (spineHead v)))
+          (if (!= (nodeTag h) TAG_E_VAR)
+            0
+            (if (strEq (nodeAName h) "+")
+              (let ((as (spineArgVec v vecNew)))
+                (if (!= (vecLen as) 2)
+                  0
+                  (let (
+                    (lhs (vecGet as 0))
+                    (rhs (vecGet as 1))
+                  )
+                    (if (!= (nodeTag lhs) TAG_E_VAR)
+                      0
+                      (if (strEq (nodeAName lhs) "for$i")
+                        (if (|| (!= (nodeTag rhs) TAG_E_INT) (!= (nodeA rhs) 1))
+                          0
+                          1
+                        )
+                        0
+                      )
+                    )
+                  )
+                )
+              )
+              0
+            )
+          )
+        )
+      )
+    )
+    0
   )
 )
 
@@ -19419,7 +19557,19 @@
                             }
                           )
                           (if (== tag TAG_E_SET)
-                            (wrapScanIn (nodeB e) acc)
+                            ; The one arm that does not walk what it
+                            ; is given: `isForBump` is the `for`
+                            ; keyword's own counter increment, which
+                            ; the author did not write and which
+                            ; cannot overflow. Everything else the
+                            ; loop contains - the guard, the user's
+                            ; binder, the body - is reached through
+                            ; the `while` arm above and is refused
+                            ; normally.
+                            (if (== (isForBump e) 1)
+                              0
+                              (wrapScanIn (nodeB e) acc)
+                            )
                             (if (== tag TAG_E_FIELD)
                               (wrapScanIn (nodeA e) acc)
                               (if (== tag TAG_E_STRUCTCON)
@@ -19624,7 +19774,7 @@
   (if (== span 0)
     0
     (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3049"      "restriction-violated"      span      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")      0      0      "`no-wrap` is LOCAL, like `no-cast`: `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag"
+      SEV_ERROR      "AX3049"      "restriction-violated"      span      (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "`" op) "` in the body of `") (bareOf (nodeAName d))) "`, which claims `restrict(") r) ")`")      0      0      "`no-wrap` is LOCAL, like `no-cast`: on `Int` operands `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no overflow check, so a silent wraparound is an act this body performs by writing the raw operator, not a fact the effect row or call graph carries - it is refused where it is written, and a callee's arithmetic is the callee's claim to make. `stdlib/Err.ax` has the checked alternative for each: `addChecked`, `subChecked`, `mulChecked`, every one `(-> Int Int (Result Int Error))`. Calling one pulls `Alloc` into this body's effect row (constructing the `Result` allocates), so `no-wrap` cannot be satisfied together with `no-alloc` or `pure` by a body that needs arithmetic - write the checked call and match its `Err`, accept the row, or delete the tag. TWO OPERATORS ARE NOT REFUSED, because neither can wrap: the same three spellings on `Float` operands, which lower to `fadd`/`fsub`/`fmul`, and the `for` keyword's own counter increment, which the parser writes and whose loop guard bounds it"
     ))
   )
 )

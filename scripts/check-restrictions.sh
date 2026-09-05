@@ -7,7 +7,7 @@
 # The restriction tag turns analysis the checker already performs - the
 # effect row, the call graph, the body's own expression tree - into a
 # refusal (`docs/reference.md`, AXTAG Keys; `typecheck.ax`,
-# `checkRestricts`). Four sections, each with the negative probe that
+# `checkRestricts`). Six sections, each with the negative probe that
 # proves the section can go red, because `CONTRIBUTING.md`'s rule is
 # that a gate can only see what it actually looks at:
 #
@@ -35,8 +35,8 @@
 #      comparison to notice.
 #
 #   2. THE FIXTURES ANSWER, AND THE CONTROLS ARE SILENT. Each of
-#      `tests/diagnostics/371`-`379`, `383` and `393` must draw the
-#      restriction code
+#      `tests/diagnostics/371`-`379`, `383`, `393` and `394` must draw
+#      the restriction code
 #      its header promises, and no diagnostic of any code may name a
 #      control declaration - `pureMath`, `delegates`, `native`,
 #      `measures` and the rest are the controls that keep each rule
@@ -82,6 +82,19 @@
 #      set to differ; a second check asks the file whether it is in C
 #      collation order, for the locale reason `check-agent-policy.sh`
 #      records.
+#
+#   6. NO-WRAP'S TWO EXEMPTIONS ARE NARROW. `no-wrap` matches an
+#      operator's SPELLING, and two things wearing those spellings
+#      cannot wrap: the three on `Float` operands, which lower to
+#      `fadd`/`fsub`/`fmul`, and the `for` keyword's own counter bump,
+#      which the parser writes beneath a guard that bounds it. Both
+#      were refused until 2026-09-04 - the `for` one naming a `+` the
+#      source does not contain, at a span covering the word `for` -
+#      and neither refusal had a fix that could be taken. A program
+#      using both must check OK; the probe builds a compiler with each
+#      exemption's predicate scoped to a constant and requires BOTH
+#      declarations to draw AX3049 again, which is what says each arm
+#      does its own work rather than one covering for the other.
 
 set -euo pipefail
 
@@ -307,6 +320,7 @@ fixture_expectations() {
 379-restrict-no-recursion AX3049 4 deep looped d1 d2 d3 d4
 383-restrict-no-wrap     AX3049 3 delegates compares honest
 393-restrict-strict      AX3057 3 provable strictOnly lexStrict
+394-restrict-no-wrap-exempt AX3049 3 counts iterates floats
 EXP
 }
 
@@ -517,14 +531,25 @@ derive_manifest() {
     while read -r name rs; do
       [[ -z "$name" ]] && continue
       # The declaration a restriction diagnostic names: the first
-      # backticked name, except the cast form, which leads with
-      # `cast` and names the declaration second.
+      # backticked name, except the LOCAL forms, which lead with the
+      # offending token and name the declaration second - "`cast` in
+      # the body of `f`" and, since `no-wrap`, "`+` in the body of
+      # `f`".
+      #
+      # The pattern is `[^`]+` and not `cast` because the narrower one
+      # was already wrong: every `no-wrap` violation in the tree was
+      # attributed to a declaration called `+`, `-` or `*`, which
+      # matches nothing, so the manifest recorded `ok` for `wraps` and
+      # `nested` in `383-restrict-no-wrap.ax` - two declarations this
+      # compiler REFUSES. A derived file reporting less than the
+      # compiler knows is the defect section 5 exists to catch in
+      # others, and it was in section 5.
       local v=""
       local named
       named="$(awk -v n="$name" '
         ($2 == "AX3049" || $2 == "AX3051" || $2 == "AX3052" || $2 == "AX3057") {
           m = $0; sub(/^[^"]*"/, "", m)
-          if (m ~ /^`cast` in the body of `/) { sub(/^`cast` in the body of `/, "", m) } else { sub(/^`/, "", m) }
+          if (m ~ /^`[^`]+` in the body of `/) { sub(/^`[^`]+` in the body of `/, "", m) } else { sub(/^`/, "", m) }
           sub(/`.*/, "", m)
           if (m == n) print $2 }' "$work/manifest/err" | LC_ALL=C sort -u | tr '\n' ' ')"
       [[ "$named" == *AX3049* ]] && v="${v}violated,"
@@ -611,6 +636,109 @@ else
   else
     bad "negative probe: the added declaration appears with the wrong row: $(grep probeRestricted "$work/manifest/derived.probe" || echo '(absent)')"
   fi
+fi
+
+echo
+echo "== 6. no-wrap's two exemptions are narrow, and each is load-bearing =="
+# `no-wrap` matches a SPELLING, and two things wearing those spellings
+# cannot wrap: the three operators on `Float` operands, which lower to
+# `fadd`/`fsub`/`fmul`, and the `for` keyword's own counter bump, which
+# the parser writes beneath a `(< for$i for$n)` guard that bounds it
+# below `INT_MAX`. Both were refused until 2026-09-04, each with a fix
+# that could not be taken: a loop counter cannot be a `Result`, and
+# `addChecked` is `(-> Int Int (Result Int Error))`, which does not
+# typecheck against a `Float`. The `for` one additionally named a `+`
+# the source does not contain, at a span covering the word `for`.
+#
+# An exemption is a SILENCE, and a silence is only a claim when
+# something can make it speak - so this section is two halves. The
+# program below must check OK here; and against a compiler whose two
+# exemption arms have been scoped to constants it must draw AX3049 on
+# BOTH declarations, which is what says each arm is separately doing
+# work rather than one covering for the other.
+#
+# `tests/diagnostics/394-restrict-no-wrap-exempt.ax` holds the same
+# pair beside the cases that keep them narrow - a hand-written loop
+# counter, arithmetic in a loop's body, and a `Float` `+` nested inside
+# an `Int` one - and section 2 asserts the three that must still fire.
+mkdir -p "$work/exempt"
+cat > "$work/exempt/exempt.ax" <<'EXEMPT'
+(import Err)
+
+(import Vec)
+
+;@axiom:restrict(no-wrap)
+(:: loops (-> (Vec Int) Int))
+
+(fn (loops xs)
+  (let ((mut acc 0))
+    {
+      (for i 0 3
+        (set acc (unwrapOr (addChecked acc i) 0)))
+      (for x xs
+        (set acc (unwrapOr (addChecked acc x) 0)))
+      acc
+    }
+  )
+)
+
+;@axiom:restrict(no-wrap)
+(:: floaty (-> Float Float Float))
+
+(fn (floaty a b) (* (+ a b) (- a b)))
+
+(:: main Int)
+
+(fn (main) (+ (loops (vecPush vecNew 4)) (__floatToInt (floaty 2.0 1.0))))
+EXEMPT
+
+( cd "$work/exempt" && "$axc" --diagnostic-format=ai check exempt.ax ) > "$work/exempt/out" 2> "$work/exempt/err" || true
+if [[ "$(restriction_lines "$work/exempt/err" | wc -l | tr -d ' ')" == 0 && "$(cat "$work/exempt/out")" == "OK" ]]; then
+  ok "a \`for\` of either shape and \`Float\` arithmetic satisfy no-wrap: no restriction diagnostic, checks OK"
+else
+  bad "the exempt program drew a restriction diagnostic, or did not check OK"
+  cut -c1-140 "$work/exempt/err" | head -5 | sed 's/^/     /'
+fi
+
+# The negative: both arms scoped to a constant, so neither exemption
+# can fire. Built from a copy; the tree is untouched.
+mkdir -p "$work/exabl"
+cp -R "$repo_root/self_host" "$work/exabl/self_host"
+python3 - "$work/exabl/self_host/typecheck.ax" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+# Each arm's PREDICATE becomes a constant that is never 1, so its
+# `then` - the skip - is unreachable and every `+`, `-` and `*` the
+# scan found is reported again. The count is asserted so the ablation
+# cannot silently become two arms, or none.
+arms = ['                            (if (== (isForBump e) 1)\n',
+        '        (if (== (tcFloatOpIn tc (spineHead w)) 1)\n']
+for a in arms:
+    assert s.count(a) == 1, (a.strip(), s.count(a))
+    indent = a[:len(a) - len(a.lstrip())]
+    s = s.replace(a, indent + '(if (== 2 1)\n', 1)
+open(p, 'w').write(s)
+PY
+if grep -q '(if (== 2 1)' "$work/exabl/self_host/typecheck.ax"; then
+  if "$axiom" build --input "$work/exabl/self_host/main.ax" --output "$work/exabl/axc" > "$work/exabl/build.log" 2>&1; then
+    ( cd "$work/exempt" && "$work/exabl/axc" --diagnostic-format=ai check exempt.ax ) > /dev/null 2> "$work/exempt/abl.err" || true
+    restriction_lines "$work/exempt/abl.err" > "$work/exempt/abl.hits"
+    got_for=0; got_flt=0
+    grep -q '`loops`' "$work/exempt/abl.hits" && got_for=1
+    grep -q '`floaty`' "$work/exempt/abl.hits" && got_flt=1
+    if (( got_for == 1 && got_flt == 1 )); then
+      ok "negative probe: with both exemption arms scoped to a constant, \`loops\` and \`floaty\` each draw AX3049 again ($(wc -l < "$work/exempt/abl.hits" | tr -d ' ') rows)"
+    else
+      bad "negative probe: the ablated compiler reported for=$got_for float=$got_flt - an exemption that fires nowhere is a check that cannot fail"
+      cut -c1-140 "$work/exempt/abl.hits" | sed 's/^/     /'
+    fi
+  else
+    bad "negative probe: the exemption-ablated compiler did not build"
+    head -5 "$work/exabl/build.log" | sed 's/^/     /'
+  fi
+else
+  bad "the exemption ablation rewrote nothing - the arms it targets are no longer in typecheck.ax"
 fi
 
 echo
