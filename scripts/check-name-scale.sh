@@ -169,10 +169,29 @@
 # for the same reason. A sampling profile put `findFnEntVisibleExactFrom`
 # at 54% of `check self_host/main.ax` on its own, so the exact pass is
 # where the arm's subject lives and one seam is enough to prove it. It is taken at
-# NEG_N=2000: the un-indexed compiler costs 3.3s a run at N=8000 and
-# 11.8s at 16000, which would triple this gate to prove a shape that
-# N=2000 already shows at 3.41x (public) and 3.24x (private) - and the
-# table above shows at every size. Run inside a pristine df60fdb tree,
+# NEG_N=4000: the un-indexed compiler costs 3.3s a run at N=8000 and
+# 11.8s at 16000, which would triple this gate to prove a shape a small
+# size already shows - 3.41x (public) and 3.24x (private) at 2000, and
+# the table above shows it at every size.
+#
+# NEG_N WAS 2000, AND THE FLOOR IS WHY IT IS NOT. `doubling_verdict`
+# refuses to answer when either small-side time is under FLOOR, which
+# is the same rule the live arm's N obeys, and the ablation's small
+# side is the fastest number this gate takes: the ABLATED compiler,
+# but at a quarter of the live arm's size. On the machine this was
+# written on that is 0.47s, nowhere near the floor. On GitHub's x86_64
+# runner, measured 2026-09-05, it is 0.10s - AT the floor - so the
+# gate refused its own negative and the leg went red with the compiler
+# entirely correct: the live arm passed in the same run at ratio 1.05,
+# doubling 2.06x and 2.12x. The verdict it refused was right (3.18x
+# private, 4.05x public, both over DBL_BOUND); what had stopped being
+# a measurement was the pair underneath it. Same lesson as the live
+# arm's, one arm over - raise the size, never the floor - and it is
+# the third time this repository has learned that wiring a gate into
+# CI is what first runs its negative probe on hardware the author
+# never had. At NEG_N=4000 that runner's small side is 0.31s, three
+# times the floor, and the ablated compiler being quadratic means the
+# doubling separation grows with the size rather than shrinking. Run inside a pristine df60fdb tree,
 # this script's own doubling arm reads 3.25x / 3.58x at 8000->16000
 # and exits 1, which is the pre-change failure a new gate owes.
 #
@@ -205,7 +224,7 @@ N="${N:-8000}"
 BOUND="${BOUND:-2.00}"
 DBL_BOUND="${DBL_BOUND:-2.80}"
 REPS="${REPS:-3}"
-NEG_N=2000
+NEG_N=4000
 # Arm 1's ablation is measured at ONE size rather than a doubling - the
 # arm is a same-size ratio - and at 8000 rather than 16000 because the
 # un-indexed compiler is quadratic on the private side: 30.9s at 16000
