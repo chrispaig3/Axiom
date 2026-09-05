@@ -62,10 +62,15 @@
 #       `codegen.ax` exactly once, in the table. A second spelling is a
 #       target that cannot move its own chunk size, which is the defect
 #       4.1 exists to remove.
-#   A3  THE MEASURED BASELINE, RECOMPUTED. The minimal program links
-#       with ZERO undefined symbols and makes EXACTLY THREE distinct
-#       syscalls, and its size is inside the proposal's flash budget.
-#       Those are section 2's figures and the port is priced on them.
+#   A3  THE MEASURED BASELINE, RECOMPUTED. The minimal program imports
+#       nothing but the platform's own startup set, makes EXACTLY THREE
+#       distinct syscalls, and its size is inside the flash budget for
+#       its object format. Those are section 2's figures and the port is
+#       priced on them. The import set and the band are per FORMAT, not
+#       per host: section 2 measured a Mach-O, and the identical program
+#       as an ELF carries crt1's six imports and 71,168 bytes. Asserting
+#       Mach-O's zero and Mach-O's 24 KiB on both is a check only the
+#       machine that wrote it can pass - see the paragraphs at A3.
 #   A4  4.1 - ONE TARGET MOVES AND THE REST DO NOT. Every line that
 #       differs is one of the pairs the constant reaches, and the
 #       untouched targets are byte-identical.
@@ -117,6 +122,33 @@
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+# `imports_of` - the undefined-symbol reader that dispatches on the
+# object's own magic (MZ, ELF, Mach-O) rather than on the host. A3 uses
+# it; see the paragraph there for why the host is the wrong thing to
+# dispatch on.
+source "$(dirname "${BASH_SOURCE[0]}")/lib/imports.sh"
+
+# WHAT THE PLATFORM'S OWN STARTUP PUTS IN AN EXECUTABLE, and nothing
+# else may appear beside it in A3.
+#
+# Enumerated rather than counted, because "six imports" is satisfied by
+# any six and this must fail when the runtime pulls in a seventh - or
+# when one of these six is replaced by `malloc`. It is the same shape
+# `scripts/platform-allow.windows.txt` takes for the same reason
+# (`docs/memory-model.md` MM-FFI-5: enumerate what is permitted, do not
+# forbid a list of names somebody has to keep up to date).
+#
+# The four `_ITM_*`/`__gmon_start__`/`__cxa_finalize` entries are weak
+# crt hooks glibc's crt1 references and no allocator can reach; the two
+# real ones are `__libc_start_main`, which calls `main`, and `abort`,
+# which crt1 references from its own stack-guard path. None is a libc
+# function the compiler could emit a call to - `check-freestanding.sh`
+# holds that line separately, over the IR, where a call would appear
+# before the linker ever ran.
+#
+# On Mach-O this list matches nothing and A3's count stays 0.
+crt_startup='_ITM_deregisterTMCloneTable|_ITM_registerTMCloneTable|__gmon_start__'
+crt_startup="$crt_startup"'|__cxa_finalize|__libc_start_main|abort'
 
 # --ablations re-enters this script once per drill, before gate_init, so
 # the drills do not share a work directory with each other.
@@ -392,18 +424,45 @@ if ! "$axc" build --input "$work/min.ax" --output "$work/min" --opt 2 > "$work/b
   sed 's/^/    /' "$work/build.log" | head -10
 else
   size=$(wc -c < "$work/min" | tr -d ' ')
-  # `nm -u` on Mach-O, `nm -D --undefined-only` on ELF - the same split
-  # check-freestanding.sh makes, for the same reason.
-  case "$host_os" in
-    darwin) undef=$(nm -u "$work/min" 2>/dev/null | grep -c . || true) ;;
-    *)      undef=$(nm -D --undefined-only "$work/min" 2>/dev/null | grep -c . || true) ;;
-  esac
+  # THE CLAIM IS "NOTHING BUT THE PLATFORM'S OWN STARTUP", NOT "ZERO",
+  # and until 2026-09-04 this arm said zero. Zero is a DARWIN fact: a
+  # Mach-O executable that calls no libc function imports no symbol at
+  # all, so `nm -u` is empty and the number read like a property of the
+  # runtime. It is a property of the object format. On Linux the same
+  # program imports SIX symbols by construction - four weak crt hooks
+  # (`_ITM_deregisterTMCloneTable`, `_ITM_registerTMCloneTable`,
+  # `__gmon_start__`, `__cxa_finalize`) and two real ones
+  # (`__libc_start_main`, `abort`) - because `cc` links crt1, and both
+  # Linux legs went red for a program behaving exactly as intended.
+  #
+  # This is the SECOND time that exact sentence has been written in this
+  # repository. `check-thread-local.sh` asserted `nm -u` was empty for a
+  # program that spawns no thread, failed on the same six symbols, and
+  # its header now records the lesson; `scripts/run-gates-linux.sh`
+  # exists because of it. This gate was written on a Mac and encoded the
+  # same assumption anyway, which is what that script is for and why it
+  # is run before a push rather than after.
+  #
+  # So the assertion is the one the proposal is actually about: the
+  # minimal program imports NO LIBC FUNCTION and nothing the platform's
+  # own startup did not put there. `imports_of` is
+  # `check-freestanding.sh`'s reader, shared through `lib/imports.sh`;
+  # it dispatches on the object's own magic rather than on the host, and
+  # strips ELF's `@GLIBC_2.34` versions and Mach-O's leading underscore
+  # - the one edit each convention requires. On Darwin the permitted set
+  # matches nothing, the count stays 0, and this arm asserts exactly
+  # what it asserted before.
+  imports_of "$work/min" | LC_ALL=C sort > "$work/min.imports"
+  undef=$(grep -c . "$work/min.imports" || true)
+  stray="$(grep -vE "^($crt_startup)$" "$work/min.imports" || true)"
+  n_stray=$(printf '%s' "$stray" | grep -c . || true)
   scn="$(syscall_nums "$work/min.$host_target.ll" | tr '\n' ' ')"
   nsc=$(syscall_nums "$work/min.$host_target.ll" | grep -c . || true)
-  echo "     size $size bytes, $undef undefined symbol(s), syscalls: $scn"
+  echo "     size $size bytes, $undef import(s) ($n_stray outside the platform's startup set), syscalls: $scn"
   ok=1
-  if [[ "$undef" != "0" ]]; then
-    bad "the minimal program imports $undef symbol(s); the measured baseline is 0"
+  if (( n_stray != 0 )); then
+    bad "the minimal program imports $n_stray symbol(s) that are not the platform's own startup:"
+    printf '%s\n' "$stray" | sed 's/^/       /'
     ok=0
   fi
   if [[ "$nsc" != "3" ]]; then
@@ -420,11 +479,44 @@ else
   # landed. The proposal's flash budget for the runtime plus a minimal
   # program is 24 KiB, and the floor stops a failed link from reading as
   # a win.
-  if (( size > 24576 || size < 8192 )); then
-    bad "the minimal program is $size bytes; the budget is 8,192..24,576"
+  #
+  # AND THE BAND IS PER FORMAT, for the same reason the import set is.
+  # 24 KiB is the Mach-O measurement; the identical program is 71,168
+  # bytes as an ELF, because `cc` links crt1, the ELF program headers
+  # and the `.eh_frame`/`.note` sections a Mach-O keeps elsewhere. That
+  # is not the runtime growing, and one band across both formats can
+  # only be satisfied by whichever host wrote it. The proposal's 24 KiB
+  # is a claim about the FREESTANDING build - the statically-arena'd
+  # target A5 and A6 exercise, which links no crt at all - so it stays
+  # exactly where it was measured and ELF gets its own, measured here.
+  #
+  # THE FORMAT IS READ BY `object_format`, `lib/imports.sh`'s one
+  # reader, and not by this gate. The first draft of this arm read the
+  # magic itself - `head -c4 | tr -d '\0'`, then `ELF*)` - and the ELF
+  # magic is `\x7fELF`: the DEL byte is not a NUL, `tr` kept it, and
+  # the arm never matched. Every Linux build fell to the Mach-O band
+  # and a 71,168-byte ELF read as over 24 KiB, which is exactly the
+  # failure the arm was written to remove, one line below the sentence
+  # explaining it. The podman battery (`scripts/run-gates-linux.sh`)
+  # caught it before a push did, on 2026-09-04; the darwin run of the
+  # same draft printed `tr: Illegal byte sequence` on the Mach-O magic
+  # under a UTF-8 locale and passed anyway. Bytes are not text, and a
+  # reader that turns them into hex first is the only one this
+  # repository keeps.
+  fmt="$(object_format "$work/min")" || fmt="unreadable"
+  case "$fmt" in
+    elf)   lo=32768; hi=98304 ;;   # ELF + crt1: measured 71,168
+    macho) lo=8192;  hi=24576 ;;   # Mach-O, and the proposal's budget
+    *)     lo=0;     hi=0     ;;   # a format A3 has no band for: fails below
+  esac
+  if (( hi == 0 )); then
+    bad "the minimal program is a $fmt object, and A3 has no size band for that format"
+    ok=0
+  elif (( size > hi || size < lo )); then
+    bad "the minimal program is $size bytes; the budget for this format ($fmt) is $lo..$hi"
     ok=0
   fi
-  (( ok )) && note "$size bytes, 0 undefined symbols, exactly 3 distinct syscalls"
+  (( ok )) && note "$size bytes, $undef import(s) and none outside the platform's startup set, exactly 3 distinct syscalls"
 fi
 
 # ---------------------------------------------------------------------

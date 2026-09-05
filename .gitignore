@@ -26,6 +26,12 @@ tree-sitter-axiom/*.dll
 # `scripts/bootstrap-from-seed.sh --install`. Built, not committed -
 # `bootstrap/` is the committed artifact.
 .axiom-bin/
+# The compiler `scripts/run-gates.sh` builds ONCE and every gate in a
+# battery copies (`scripts/build-shared-axc.sh` writes the pair, `ci.yml`
+# exports it as `AXIOM_AXC`). It sat untracked and unignored until
+# 2026-09-04 - one `git add -A` after a battery away from a 2.4 MB
+# binary in the history, which is how `.axiom-audit/` got there once.
+.axiom-shared/
 
 # Worktrees created by tooling.
 .claude/worktrees/

@@ -30,15 +30,41 @@
 # usefully, and the `Symbol:` lines under each `Import {` block are the
 # names the loader will resolve, per DLL.
 # ---------------------------------------------------------------------
-imports_of() {
+
+# The object's format, decided by its own magic and nothing else: `pe`,
+# `elf` or `macho` on stdout, or a loud refusal and status 1 for a file
+# that is none of the three.
+#
+# ONE READER, IN HEX. `imports_of` dispatches through this, and so must
+# any gate that wants a per-format answer, because the second reader
+# was already wrong: `check-embedded.sh`'s size band read the magic
+# with `head -c4 | tr -d '\0'` and matched `ELF*`, and the ELF magic is
+# `\x7fELF` - the DEL byte in front is not a NUL, `tr` kept it, and the
+# arm could never match. So the Mach-O band judged every Linux build,
+# a 71,168-byte ELF read as over a 24 KiB budget, and the Linux battery
+# went red on 2026-09-04 for a program behaving exactly as intended.
+# `od` turns the four bytes into text that cannot be mistaken for a
+# name, which is why the dispatch below was right from the start and
+# the copy was not.
+object_format() {
   local magic
   magic="$(head -c 4 "$1" | od -An -tx1 | tr -d ' \n')"
   case "$magic" in
-    4d5a*)    llvm-readobj --coff-imports "$1" 2>/dev/null | awk '/^ *Symbol: / {print $2}' | LC_ALL=C sort -u || true ;;
-    7f454c46) nm -D --undefined-only "$1" 2>/dev/null | awk '{print $NF}' | sed 's/@.*//' || true ;;
+    4d5a*)    echo pe ;;
+    7f454c46) echo elf ;;
     cffaedfe|feedfacf|cefaedfe|feedface|cafebabe|bebafeca)
-              nm -u "$1" 2>/dev/null | sed 's/^_//' || true ;;
-    *)        echo "imports_of: $1 is not a PE, ELF or Mach-O object (magic $magic)" >&2; return 1 ;;
+              echo macho ;;
+    *)        echo "object_format: $1 is not a PE, ELF or Mach-O object (magic $magic)" >&2; return 1 ;;
+  esac
+}
+
+imports_of() {
+  local fmt
+  fmt="$(object_format "$1")" || return 1
+  case "$fmt" in
+    pe)    llvm-readobj --coff-imports "$1" 2>/dev/null | awk '/^ *Symbol: / {print $2}' | LC_ALL=C sort -u || true ;;
+    elf)   nm -D --undefined-only "$1" 2>/dev/null | awk '{print $NF}' | sed 's/@.*//' || true ;;
+    macho) nm -u "$1" 2>/dev/null | sed 's/^_//' || true ;;
   esac
 }
 
