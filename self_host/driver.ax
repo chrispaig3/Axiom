@@ -2831,7 +2831,7 @@
 ; extensionless file is still read as a file.
 (pub :: spelledLikePath (-> String Bool))
 
-(pub fn (spelledLikePath w) (|| (strEq w "-") (|| (>= (strFindByte w 47 0) 0) (>= (strFindByte w 46 0) 0))))
+(pub fn (spelledLikePath w) (|| (strEq w "-") (|| (match (strFindByte w 47 0) ((None) false) ((Some _) true)) (match (strFindByte w 46 0) ((None) false) ((Some _) true)))))
 
 ; Is `want` present as a FLAG - anywhere in argv, not as another flag's
 ; value, and not after `--`?

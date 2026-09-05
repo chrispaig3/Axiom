@@ -736,9 +736,11 @@
 (pub :: helpLineFix (-> Int String String String))
 
 (pub fn (helpLineFix gw text repl)
-  (if (< (strFindByte repl 10 0) 0)
-    (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX (strConcat " ~> " (ctlEsc repl)))))
-    (strConcat (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX " ~>"))) (fixBlock (+ gw 9) repl))
+  ; `strFindByte` answers `(Option Int)` since the ERR-ADOPT slice, so
+  ; "carries no newline" is `None` rather than a negative index.
+  (match (strFindByte repl 10 0)
+    ((None) (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX (strConcat " ~> " (ctlEsc repl))))))
+    ((Some _) (strConcat (helpLine gw (strConcat (ctlEsc text) (paint SGR_FIX " ~>"))) (fixBlock (+ gw 9) repl)))
   )
 )
 
