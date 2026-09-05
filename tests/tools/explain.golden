@@ -1421,16 +1421,28 @@ back as a `String` are the same one-word act. Under `restrict(no-cast)`
 a type's guarantee is true; without it, it is true of programs that
 did not write `cast`.
 
-`no-wrap` is LEXICAL for the same reason `no-cast` is: `+`, `-` and
-`*` lower to plain `add`/`sub`/`mul` with no `nsw`, so overflow wraps
-silently, and that is an act this body performs by writing the raw
-operator rather than a fact the effect row carries. `stdlib/Err.ax`
-has the checked alternative for each - `addChecked`, `subChecked`,
-`mulChecked`, every one `(-> Int Int (Result Int Error))` - and
-calling one pulls `Alloc` into this body's row, because constructing
-the `Result` allocates. `no-wrap` and `no-alloc`, or `no-wrap` and
-`pure`, are therefore not satisfiable together by a body that needs
-arithmetic; that is the price of the guarantee, not a bug in it.
+`no-wrap` is LEXICAL for the same reason `no-cast` is: on `Int`
+operands `+`, `-` and `*` lower to plain `add`/`sub`/`mul` with no
+`nsw`, so overflow wraps silently, and that is an act this body
+performs by writing the raw operator rather than a fact the effect row
+carries. `stdlib/Err.ax` has the checked alternative for each -
+`addChecked`, `subChecked`, `mulChecked`, every one
+`(-> Int Int (Result Int Error))` - and calling one pulls `Alloc` into
+this body's row, because constructing the `Result` allocates.
+`no-wrap` and `no-alloc`, or `no-wrap` and `pure`, are therefore not
+satisfiable together by a body that needs arithmetic; that is the
+price of the guarantee, not a bug in it.
+
+BEING LEXICAL, IT MATCHES A SPELLING, AND TWO THINGS WEARING THOSE
+SPELLINGS CANNOT WRAP. Neither is refused. The three operators on
+`Float` operands lower to `fadd`/`fsub`/`fmul`, which have no
+wraparound - and the fix this diagnostic names does not typecheck
+against a `Float` anyway. The `for` keyword desugars in the parser to
+`(set for$i (+ for$i 1))` under a `(< for$i for$n)` guard, carrying
+the keyword's own span: that `+` is not in the body's bytes, the guard
+bounds it below `INT_MAX`, and a loop counter cannot be a `Result`. A
+loop written out by hand is still refused, because the author wrote
+that operator.
 
 This is an ERROR with no warning stage, for the argument that made
 AX3010 one: a restriction is a claim the author WROTE, and a build

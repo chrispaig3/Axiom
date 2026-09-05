@@ -1849,7 +1849,7 @@ restrictions are checked:
 | `no-cast:deep` | no `cast` head in this body or in any function it reaches | transitive, opt-in |
 | `no-recursion` | no cycle in the call graph reachable from this declaration | transitive |
 | `strict` | a MODIFIER: an unsettleable claim in this set is `AX3057` (error), not `AX3051` (warning) | — |
-| `no-wrap` | no `+`, `-` or `*` head in this body | LOCAL |
+| `no-wrap` | no *integer* `+`, `-` or `*` head in this body | LOCAL |
 | `no-escape` | nothing this body allocates flows into any of its parameters, read off the region facts ([Region Annotations](#region-annotations)); refuted through a named callee (`vecPush` grows its argument), unverifiable over a call the walk cannot resolve | transitive |
 
 Every transitive violation names its path. The checker walks the call
@@ -1893,8 +1893,8 @@ transitive reading is the separate, opt-in spelling `no-cast:deep`:
 this body's casts at their spans, and the nearest reachable function
 whose body casts, once, at the declaration, with the path. `sizeof`
 and `alignof` are not casts here: they read a layout and reinterpret
-nothing. `no-wrap` is lexical for the same reason: `+`, `-` and `*`
-lower to plain `add`/`sub`/`mul` with no `nsw` (measured:
+nothing. `no-wrap` is lexical for the same reason: on `Int` operands `+`, `-`
+and `*` lower to plain `add`/`sub`/`mul` with no `nsw` (measured:
 `self_host/codegen.ax` emits no `with.overflow` intrinsic and no
 `nsw`/`nuw` flag anywhere), so a silent wraparound is an act the body
 performs by writing the operator, reported at the operator itself.
@@ -1904,6 +1904,27 @@ body that switches to one pulls `Alloc` into its own effect row
 (constructing the `Result` allocates), which is why `no-wrap` cannot
 be satisfied together with `no-alloc` or `pure` by a body that needs
 arithmetic - `docs/checked-arithmetic-design.md` is the design note.
+
+Being lexical, it matches a *spelling*, and two things wearing those
+spellings cannot wrap. Neither is refused, and
+`tests/diagnostics/394-restrict-no-wrap-exempt.ax` is the pair, each
+beside the case that keeps the exemption narrow:
+
+- the three operators on `Float` operands, which lower to
+  `fadd`/`fsub`/`fmul`. There is no wraparound to refuse, and
+  `addChecked` is `(-> Int Int (Result Int Error))`, so the fix the
+  diagnostic named did not typecheck against one either. A `Float` `+`
+  nested inside an `Int` `+` still reports the outer operator.
+- the `for` keyword's own counter increment. `for` desugars in the
+  parser to `(set for$i (+ for$i 1))` beneath a `(< for$i for$n)`
+  guard, and every generated node carries the *keyword's* span - so
+  the diagnostic named a `+` the source does not contain and
+  underlined the word `for`, with no fix available, since a loop
+  counter cannot be a `Result`. The guard is what makes skipping it
+  sound rather than convenient: the body runs only while
+  `for$i < for$n`, so the increment cannot pass `INT_MAX`. A loop
+  written out by hand is still refused - the author wrote that
+  operator - and so is arithmetic in the loop's *body*.
 
 A violation is `AX3049`, an **error** with no warning stage, for the
 argument that made `AX3010` one: the tag is a claim the author wrote,

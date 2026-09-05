@@ -68,6 +68,7 @@ control tests/diagnostics/376-restrict-unknown-name.ax no-io ok
 count tests/stdlib/468-region-signatures.ax no-escape ok
 countErrorDiags self_host/diag.ax no-io,no-alloc,no-foreign ok
 countdown tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
+counts tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
 cstrLen stdlib/Str.ax no-io,no-alloc,no-foreign ok
 decStr self_host/diag.ax no-io,no-foreign ok
 deep tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
@@ -116,6 +117,7 @@ emitToken self_host/lexer.ax no-io,no-foreign ok
 entry tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 findNewline self_host/lexer.ax no-io,no-alloc,no-foreign ok
+floats tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
 fmtDigits stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 fmtFloat stdlib/Fmt.ax no-io,no-foreign ok
 fmtFloatAbs stdlib/Fmt.ax no-io,no-foreign ok
@@ -137,6 +139,7 @@ fmtPadZerosLeft stdlib/Fmt.ax no-io,no-foreign ok
 fmtSpan self_host/diag.ax no-io,no-foreign ok
 fmtSpanIx self_host/diag.ax no-io,no-foreign ok
 fmtSpanParts self_host/diag.ax no-io,no-foreign ok
+handRolled tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 hardAlloc tests/diagnostics/393-restrict-strict.ax no-alloc,strict unproven
 hardIo tests/diagnostics/393-restrict-strict.ax no-io,strict unproven
@@ -204,6 +207,7 @@ isEscapeChar self_host/lexer.ax no-io,no-alloc,no-foreign ok
 isIdentChar self_host/lexer.ax no-io,no-alloc,no-foreign ok
 isIdentStart self_host/lexer.ax no-io,no-alloc,no-foreign ok
 isSpace self_host/lexer.ax no-io,no-alloc,no-foreign ok
+iterates tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
 ixLineK self_host/diag.ax no-io,no-alloc,no-foreign ok
 keyCsiEnd stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
 keyCsiMax stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
@@ -296,6 +300,7 @@ lineStartOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartScan self_host/diag.ax no-io,no-alloc,no-foreign ok
 local tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 lookup tests/stdlib/468-region-signatures.ax no-escape ok
+loopBody tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 looped tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 loud tests/diagnostics/392-macro-template-first-tag.ax no-io violated
 measures tests/diagnostics/373-restrict-no-cast.ax no-cast ok
@@ -316,6 +321,7 @@ memSet stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memSetFrom stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 memSetWord stdlib/Mem.ax no-io,no-alloc,no-foreign ok
 mixed tests/diagnostics/376-restrict-unknown-name.ax no-io,no-foo unknown
+mixed tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 mk tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
 mkDiag self_host/diag.ax no-io,no-foreign ok
 mkDiagBase self_host/diag.ax no-io,no-foreign ok
@@ -330,7 +336,7 @@ mkToken self_host/core.ax no-io,no-foreign ok
 named tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
-nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
+nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated
 none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 orderDiags self_host/diag.ax no-io,no-foreign ok
 ownForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
@@ -363,6 +369,7 @@ replHlMatch self_host/replhl.ax no-io,no-foreign ok
 replHlPaint self_host/replhl.ax no-io,no-foreign ok
 restrictedTwice tests/fmt/syntax-zoo.ax no-io,no-cast ok
 restrictedTwice tests/fmt/syntax-zoo.expected.ax no-io,no-cast ok
+scaled tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 scanAxtags self_host/lexer.ax no-io,no-foreign ok
 scanStringEnd self_host/lexer.ax no-io,no-alloc,no-foreign ok
 sevSigil self_host/diag.ax no-io,no-alloc,no-foreign ok
@@ -423,6 +430,7 @@ strVecIdx self_host/core.ax no-io,no-alloc,no-foreign ok
 strWrap stdlib/Str.ax no-io,no-foreign ok
 strWrapOwned stdlib/Str.ax no-io,no-foreign ok
 strictOnly tests/diagnostics/393-restrict-strict.ax strict ok
+sumTo tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 sums tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 tag tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 termBufBytes stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
@@ -505,4 +513,4 @@ viaIo tests/diagnostics/391-restrict-effect-transparent.ax no-io unverifiable
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaRec tests/diagnostics/391-restrict-effect-transparent.ax no-recursion unverifiable
 visLen self_host/style.ax no-io,no-alloc,no-foreign ok
-wraps tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
+wraps tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated

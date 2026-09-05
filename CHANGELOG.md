@@ -93,6 +93,69 @@ rather than the tree against itself:
 ## 0.7.5 — 2026-09-04
 
 
+### `restrict(no-wrap)` refused two operators that cannot wrap
+
+`no-wrap` is lexical, like `no-cast`: it matches the spelling of `+`,
+`-` and `*`, because on `Int` operands those lower to plain
+`add`/`sub`/`mul` with no `nsw` and wrap in silence. A spelling is not
+an operation, and two things wearing those spellings have no
+wraparound to refuse. Both were refused anyway, and neither refusal
+offered a fix that could be taken.
+
+The first is the `for` keyword, which landed three days after
+`no-wrap` and is desugared **in the parser** into
+`(set for$i (+ for$i 1))` beneath a `(< for$i for$n)` guard, every
+generated node carrying the *keyword's* span. So a nine-line program
+whose only arithmetic is a loop drew
+`` `+` in the body of `countUp`, which claims `restrict(no-wrap)` ``
+at `9:8-11` — three columns that spell `for`. The diagnostic named an
+operator the source does not contain, underlined a keyword, and
+prescribed `addChecked`; a loop counter cannot be a `Result`.
+`restrict(no-wrap)` and the language's own loop keyword were mutually
+exclusive and nothing said so.
+
+Skipping that increment is sound rather than convenient: the body runs
+only while `for$i < for$n`, both `Int`, so `for$i + 1` is at most
+`INT_MAX`. `isForBump` matches the whole shape — target, head, both
+operands — so a desugar that drifts stops matching and the fixture
+goes red instead of quiet, and `$` is `AX1001` inside an identifier,
+so `for$i` is a name no author can write and no hand-rolled counter
+can be mistaken for. A loop written out by hand is still refused, and
+so is arithmetic in a loop's body.
+
+The second is `Float`. `(+ a b)` on two floats is `fadd`
+(`fbinopToLLVM`; `emitBinop2` picks it from the operands' float
+flags), and `fadd`/`fsub`/`fmul` do not wrap — while the fix the
+diagnostic named, `addChecked`, is `(-> Int Int (Result Int Error))`
+and does not typecheck against a `Float` either. The claim was
+unsatisfiable for any body doing float arithmetic. The operand types
+exist in one place, `checkNumeric`, and the checker keeps no per-node
+types, so the float-typed operator heads are recorded there (`TC`
+gains word 37) and read once by `restrictEmitWraps`. The ordering that
+makes this work was already written down in `tcWalkDecls`: *the body
+first, then its tags*. A `Float` `+` nested inside an `Int` `+` still
+reports the outer operator.
+
+Neither fix moves an emitted byte — they are checks, which is the
+invariant `check-restrictions.sh` section 1 re-proves over the corpus
+on every run. No diagnostic code was spent; AX3049's help text and its
+`explain` page now state both exemptions rather than leaving them to
+be discovered.
+
+`tests/diagnostics/394-restrict-no-wrap-exempt.ax` holds the two
+exemptions beside the three cases that keep them narrow — a
+hand-rolled loop counter, a `*` in a loop's body, a `Float` `+` inside
+an `Int` one — and `tests/selfhost/465-restrict-no-wrap-runs.ax` runs
+a restricted `for` loop and float arithmetic for exit 60 rather than
+only checking them. `check-restrictions.sh` gains section 6, whose
+negative probe builds a compiler with each exemption's predicate
+scoped to a constant and requires *both* declarations to draw AX3049
+again — an exemption that fires nowhere is a check that cannot fail.
+`docs/checked-arithmetic-design.md` records that phase 1 shipped in
+`b7a8e1b`, what it got wrong, and that Shape A, `/`, `%`, `<<` and
+`>>` are decided rather than open.
+
+
 ### The seed's corruption check no longer walks past a deleted row
 
 `bootstrap/SHA256SUMS` is what a fresh clone with no Axiom toolchain
