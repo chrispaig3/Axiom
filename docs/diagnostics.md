@@ -243,7 +243,11 @@ an LLM agent burns reading compiler output. The design rationale:
 
 ```
 <SEV> <CODE> <FILE>:<LOC> <SLUG> "<MESSAGE>" [#"<label>"]
-     [^<LOC>:"<related>"]* [!"<note>"]* [?<field>]* [&"<frame>"]*
+     [^<relfield>]* [!"<note>"]* [?<field>]* [&"<frame>"]*
+
+<relfield> ::= <LOC>:"<related>"           in the diagnostic's own file
+             | <FILE>:<LOC>:"<related>"    in another file
+             | -:"<related>"               nowhere
 ```
 
 | Field | Meaning |
@@ -255,6 +259,8 @@ an LLM agent burns reading compiler output. The design rationale:
 | `"MESSAGE"` | Quoted human message (still present - codes alone don't carry the specific name/type involved) |
 | `#"label"` | The primary span's own label, the sentence the human renderer prints after the carets. Absent when it would only repeat the message. |
 | `^LOC:"msg"` | A secondary/related span, e.g. the other side of a type mismatch |
+| `^FILE:LOC:"msg"` | The same, in a DIFFERENT file - the file spelled out for the reason `&` spells its own. `AX3049`'s call chain is the producer: four of the six hops in a typical `no-io` violation are in `stdlib/` |
+| `^-:"msg"` | The same, with no location at all. `-` is the spelling the primary `FILE:LOC` field already uses for a spanless diagnostic. A call-graph hop that is a builtin or an `extern` item has no declaration to point at, and it gets a field anyway, because a field list that quietly dropped it would read as the whole chain |
 | `!"note"` | An additional note: a fact about why the program is wrong, as against a help, which is an action that would make it right |
 | `?"msg"` or `?LOC:"msg"~>"replacement"` | A help suggestion; the `~>` form is machine-applicable |
 | `&"name"` or `&FILE:LOC:"name"` | One frame of the expansion backtrace, outermost first: the macro's name, and - in the located form - the span of its DECLARATION. Uniquely among the line's fields, that `FILE` is not the diagnostic's own: the span indexes the macro's file, which is why the file is spelled out where `^` and `?` leave it implied |
@@ -278,6 +284,47 @@ nested two, and `tests/diagnostics/595-macro-imported-ambiguous.ax`
 pins an `AX3014` reported at an invocation that mentions neither the
 name nor the modules, where the frame is the whole of what makes the
 line actionable.
+
+`^` gained its two located spellings on 2026-09-04, and `AX3049` is
+what they were added for. A restriction violation has named its call
+path since the graph walk landed - `parseConfig -> readSection ->
+IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3` -
+and named it in PROSE, inside the quoted message: measured 2026-09-03,
+`grep -h AX3049 tests/diagnostics/*.axdl | grep -c ' ^'` was **0**
+across the corpus, and the JSON sibling carried `"related":[]` beside
+that same message. An agent reading one had to re-resolve every hop
+itself.
+
+The rule, and it is exact:
+
+* **One `^` field per hop, after the first.** The first hop is the
+  declaration the diagnostic is already reported at, so its span is
+  the primary `FILE:LOC` and a field for it would underline the same
+  characters twice.
+* **A hop with no declaration still gets a field**, `^-:"name"`. A
+  builtin (`__syscall3`), an `extern` item and an effect operation
+  have no declaration node in any unit. Leaving them out is the one
+  thing that would make the list *look* complete while being short,
+  which is the failure this whole field exists to answer.
+* **The label is the hop's resolved name**, the same spelling
+  `graphRender` puts in the message and `symbols --calls` puts in its
+  rows. Three places, one spelling, so a gate that knows neither the
+  compiler nor the renderer can compare the chain with the fields hop
+  for hop - `tests/diagnostics/verify-axdl-spans.py` does exactly
+  that, and `scripts/check-diagnostics.sh` floors the population so
+  the comparison cannot go quiet by holding over zero lines.
+
+A cross-unit related location CANNOT be drawn in the human snippet -
+that snippet is quoted out of one source, and a line number from
+another file would put a caret under the wrong text - so it renders
+as a note carrying its own file and position, `= note: IO$writeStr
+(stdlib/IO.ax:48:10-18)`, which is the degradation an expansion frame
+with no reachable unit already takes. One with no location renders
+`= note: __syscall3 (no declaration to point at)`. In JSON, a related
+entry gains a `"file"` beside its span for the first and carries a
+`"label"` with no `"span"` key for the second. The LSP publishes
+neither: the server holds one document and no unit table, so a hop it
+cannot place is dropped rather than aimed at the open file's uri.
 
 `tests/selfhost/645-axdl-repetition.ax` is still the case that pins the
 GRAMMAR: it builds one diagnostic carrying two of every repeating

@@ -18410,7 +18410,7 @@
             (if (== (vecLen eps) 0)
               0
               (emitRestrictUnverifiable
-                tc                d                r                (strConcat (strConcat "the body CALLS its own parameter " (restrictEparamNames d eps 0 "")) ", so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call")
+                tc                d                r                (strConcat (strConcat "the body CALLS its own parameter " (restrictEparamNames d eps 0 "")) ", so what it performs is decided by the argument each caller passes - the effect row is complete about this body and says nothing about that call")                (cast (Vec Int) 0)
               )
             )
           )
@@ -18531,11 +18531,18 @@
 
 (pub fn (restrictEffect tc d r eff e)
   (if (== (effDefinite eff (builtinEff e)) 1)
-    (emitRestrictViolated tc d r (strConcat (strConcat "the body performs " e) (witnessText tc d e)))
+    ; The path is walked ONCE and handed to both halves - the prose
+    ; and the related locations - so the two cannot come to disagree
+    ; about which hops there are.
+    (let ((path (graphWitness tc (restrictOwnEnt tc d) e)))
+      (emitRestrictViolated
+        tc        d        r        (strConcat (strConcat "the body performs " e) (witnessTextOf tc path e))        (witnessSecPath tc path e)
+      )
+    )
     (if (== (effPossible eff (builtinEff e)) 1)
-      (emitRestrictUnverifiable tc d r (strConcat (strConcat "`" e) "` reaches the effect row only as a possible effect - the body names a function without calling it, or calls a trait method with more than one implementation - so its presence is not evidence the body performs it"))
+      (emitRestrictUnverifiable tc d r (strConcat (strConcat "`" e) "` reaches the effect row only as a possible effect - the body names a function without calling it, or calls a trait method with more than one implementation - so its presence is not evidence the body performs it") (cast (Vec Int) 0))
       (if (== (effPartial eff) 1)
-        (emitRestrictUnverifiable tc d r (strConcat (strConcat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence"))
+        (emitRestrictUnverifiable tc d r (strConcat (strConcat "the body calls a value the compiler could not resolve, so the effect row is a lower bound and the absence of `" e) "` from it is not evidence") (cast (Vec Int) 0))
         0
       )
     )
@@ -18566,12 +18573,12 @@
     (if (!= (cast Int path) 0)
       (let ((hit (vecGet path (- (vecLen path) 1))))
         (if (== (effPossible eff (builtinEff "IO")) 1)
-          (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat (strConcat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) ""))
-          (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)))
+          (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat (strConcat "the call graph reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) "") path)
+          (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the body reaches the `extern` item `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)) path)
         )
       )
       (if (== (effPartial eff) 1)
-        (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, and the call graph has no edge for it")
+        (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, and the call graph has no edge for it" (cast (Vec Int) 0))
         0
       )
     )
@@ -18590,12 +18597,12 @@
     (if (!= (cast Int path) 0)
       (let ((again (vecGet path (- (vecLen path) 1))))
         (if (== (effAnyPossibleOnly eff) 1)
-          (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)))
-          (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "`: ") (graphRender path)))
+          (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) path)
+          (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the call graph closes a cycle at `" (bareOf (memGetWordStr again 0))) "`: ") (graphRender path)) path)
         )
       )
       (if (== (effPartial eff) 1)
-        (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, and that call may close a cycle the graph does not show")
+        (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, and that call may close a cycle the graph does not show" (cast (Vec Int) 0))
         0
       )
     )
@@ -18739,20 +18746,43 @@
 ; that sends the reader hunting for an `alloc` form the body does not
 ; contain. A message that lists every source but the one in front of
 ; the reader is the same defect as one that lists none.
-(pub :: witnessText (-> Int Int String String))
+; TAKES THE PATH rather than walking for one, so that the related
+; locations beside the message are built from the very vector the
+; prose was rendered from. It used to call `graphWitness` itself and
+; throw the vector away, which is exactly why the `->` chain lived
+; only inside the quoted string.
+(pub :: witnessTextOf (-> Int (Vec Int) String String))
 
-(pub fn (witnessText tc d e)
-  (let ((path (graphWitness tc (restrictOwnEnt tc d) e)))
-    (if (== (cast Int path) 0)
-      " (the walk found no path to a source of it)"
-      (let ((last (vecGet path (- (vecLen path) 1))))
-        (if (== (graphSeeds tc last e 1) 1)
-          (strConcat ": " (graphRender path))
-          (if (== (vecLen path) 1)
-            " in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)"
-            (strConcat (strConcat (strConcat ": " (graphRender path)) ", in ") (strConcat (strConcat "`" (bareOf (memGetWordStr last 0))) "`'s own body"))
-          )
+(pub fn (witnessTextOf tc path e)
+  (if (== (cast Int path) 0)
+    " (the walk found no path to a source of it)"
+    (let ((last (vecGet path (- (vecLen path) 1))))
+      (if (== (graphSeeds tc last e 1) 1)
+        (strConcat ": " (graphRender path))
+        (if (== (vecLen path) 1)
+          " in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)"
+          (strConcat (strConcat (strConcat ": " (graphRender path)) ", in ") (strConcat (strConcat "`" (bareOf (memGetWordStr last 0))) "`'s own body"))
         )
+      )
+    )
+  )
+)
+
+; The path the RELATED LOCATIONS are built from - which is the path
+; the prose rendered, and 0 in the one arm above that renders no chain
+; at all. The two are decided by the same three tests, in the same
+; order, because a `^` field for a hop the message never named would
+; be a location with nothing to explain it.
+(pub :: witnessSecPath (-> Int (Vec Int) String (Vec Int)))
+
+(pub fn (witnessSecPath tc path e)
+  (if (== (cast Int path) 0)
+    (cast (Vec Int) 0)
+    (if (== (graphSeeds tc (vecGet path (- (vecLen path) 1)) e 1) 1)
+      path
+      (if (== (vecLen path) 1)
+        (cast (Vec Int) 0)
+        path
       )
     )
   )
@@ -19107,12 +19137,12 @@
         (if (!= (cast Int path) 0)
           (let ((hit (vecGet path (- (vecLen path) 1))))
             (if (== (effAnyPossibleOnly eff) 1)
-              (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)))
-              (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in the body of `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)))
+              (emitRestrictUnverifiable tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in `" (bareOf (memGetWordStr hit 0))) "` through a function the body names without calling, so the edge is not evidence of a call: ") (graphRender path)) path)
+              (emitRestrictViolated tc d r (strConcat (strConcat (strConcat "the closure reaches a cast in the body of `" (bareOf (memGetWordStr hit 0))) "`: ") (graphRender path)) path)
             )
           )
           (if (&& (== (vecLen local) 0) (== (effPartial eff) 1))
-            (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, so its closure cannot be enumerated")
+            (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve, so its closure cannot be enumerated" (cast (Vec Int) 0))
             0
           )
         )
@@ -19470,17 +19500,100 @@
   )
 )
 
+; ------------------------------------------------------------------
+; THE CALL CHAIN AS RELATED LOCATIONS.
+;
+; `AX3049`'s message has named its path since the graph walk landed -
+; `parseConfig -> readSection -> IO$writeStr -> ...` - and named it in
+; PROSE, inside the quoted string, where nothing but a reader could
+; use it. These three functions turn the same vector into the
+; diagnostic's `secs`, which is what makes all three surfaces carry it
+; at once: AXDL's `^` field, the human renderer's note or underline,
+; and the JSON `related` array.
+;
+; ONE FIELD PER HOP AFTER THE FIRST, and no exceptions - that is the
+; rule `scripts/check-diagnostics.sh` checks the corpus against, and
+; it is exact only because the two awkward cases below are spelled
+; rather than skipped:
+;
+;   * The FIRST hop is this declaration. Its span is already the
+;     diagnostic's primary span, so a field for it would be a second
+;     underline in the same place.
+;   * A hop with NO DECLARATION - a builtin like `__syscall3`, an
+;     `extern` item, an effect operation - gets a field with no
+;     location, `^-:"name"`. It is a hop, it is in the message, and
+;     omitting it would leave a field list that looks like the whole
+;     chain and is not. That failure mode is the one this whole
+;     change exists to answer, so it is not repeated one level down.
+; ------------------------------------------------------------------
+(pub :: restrictPathSecs (-> Int (Vec Int) Int Int Int))
+
+(pub fn (restrictPathSecs tc path i dg)
+  (if (== (cast Int path) 0)
+    dg
+    (if (>= i (vecLen path))
+      dg
+      {
+        (restrictHopSec tc dg (vecGet path i))
+        (restrictPathSecs tc path (+ i 1) dg)
+      }
+    )
+  )
+)
+
+; One hop's related location. The message is the hop's RESOLVED name,
+; the spelling `graphRender` puts in the chain and `symbols --calls`
+; puts in its rows - three places, one spelling, so the field and the
+; prose can be compared hop for hop by a gate that knows neither.
+(pub :: restrictHopSec (-> Int Int Int Int))
+
+(pub fn (restrictHopSec tc dg ent)
+  (let ((dd (restrictHopDecl tc ent)))
+    (if (== dd 0)
+      (diagAddSecondaryIn dg 0 (memGetWordStr ent 0) 0)
+      (diagAddSecondaryIn
+        dg        (nodeSpan dd)        (memGetWordStr ent 0)        (unitIndexFor (memGetWordVec tc 13) (nodeModule dd))
+      )
+    )
+  )
+)
+
+; The declaration behind an entry, or 0. `graphDeclCasts` asks the
+; same question the same way and for the same reason - a builtin
+; (word 3) and an effect operation (word 4) have no declaration node,
+; and neither does an `extern` item, which is why the name lookup can
+; still come back empty after both guards pass. Word 10 is `allDecls`,
+; every unit's declarations, so a hop in `stdlib/` is found here as
+; readily as one in the entry file; word 13 is the unit table the
+; caller turns `nodeModule` into an index against.
+(pub :: restrictHopDecl (-> Int Int Int))
+
+(pub fn (restrictHopDecl tc ent)
+  (if (!= (memGetWord ent 3) 0)
+    0
+    (if (!= (memGetWord ent 4) 0)
+      0
+      (declByName (memGetWordVec tc 10) (memGetWordStr ent 0) 0)
+    )
+  )
+)
+
 ; AX3049 at the DECLARATION, for the transitive three: the violation
 ; may be anywhere below this body, and the declaration is where the
 ; claim was written.
-(pub :: emitRestrictViolated (-> Int Int String String Int))
+; `path` is the call chain the message names, or 0 when it names none.
+; Every hop after the FIRST becomes a related location - the first is
+; this declaration, whose span is already the diagnostic's primary
+; one, so a `^` field for it would underline the caret a second time
+; and say nothing. `restrictPathSecs` is where that rule lives.
+(pub :: emitRestrictViolated (-> Int Int String String (Vec Int) Int))
 
-(pub fn (emitRestrictViolated tc d r why)
+(pub fn (emitRestrictViolated tc d r why path)
   (if (== (nodeSpan d) 0)
     0
-    (emitDiag tc (mkDiag
+    (emitDiag tc (restrictPathSecs tc path 1 (mkDiag
       SEV_ERROR      "AX3049"      "restriction-violated"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))      0      0      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked"
-    ))
+    )))
   )
 )
 
@@ -19514,9 +19627,9 @@
 
 ; AX3051: unverifiable, a warning - the claim is neither refuted nor
 ; acquitted, and the reason is the analysis's rather than the body's.
-(pub :: emitRestrictUnverifiable (-> Int Int String String Int))
+(pub :: emitRestrictUnverifiable (-> Int Int String String (Vec Int) Int))
 
-(pub fn (emitRestrictUnverifiable tc d r why)
+(pub fn (emitRestrictUnverifiable tc d r why path)
   (if (== (nodeSpan d) 0)
     0
     ; UNDER `strict`, AN UNPROVEN CLAIM IS A FAILED ONE. The default
@@ -19528,12 +19641,12 @@
     ; could not tell" is not the guarantee that was asked for, and a
     ; guarantee that might not hold is worth less than no claim at all.
     (if (== (memGetWord tc 32) 1)
-      (emitDiag tc (mkDiag
+      (emitDiag tc (restrictPathSecs tc path 1 (mkDiag
         SEV_ERROR        "AX3057"        "restriction-unproven"        (nodeSpan d)        (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ", strict)` and the claim cannot be PROVEN: " why))        0        0        "`strict` asks for a guarantee and not a best effort: where the walk cannot settle the claim, it is refused rather than warned. The four readings are AX3051's - an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller, and a region fixpoint that hit its round limit. Name the function at the call site, stop calling the parameter, shorten the chain, or drop `strict` to keep the claim as a checked best effort (AX3051)"
-      ))
-      (emitDiag tc (mkDiag
+      )))
+      (emitDiag tc (restrictPathSecs tc path 1 (mkDiag
       SEV_WARNING      "AX3051"      "restriction-unverifiable"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and the claim cannot be checked: " why))      0      0      "a limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast` and `no-wrap` are checked regardless, because both are lexical and need no call resolved"
-      ))
+      )))
     )
   )
 )
@@ -23361,16 +23474,16 @@
                   tc                  d                  r                  (strConcat (strConcat (strConcat "the body stores a value it allocates into its parameter `" (rgnCalleeParamName tc (nodeAName d) i)) "`") (if (== (strLen (vecGetStr (memGetWordVec f 6) i)) 0)
                     " in its own body"
                     (strConcat (strConcat " through `" (bareOf (vecGetStr (memGetWordVec f 6) i))) "`")
-                  ))
+                  ))                  (cast (Vec Int) 0)
                 )
                 (if (!= (memGetWord f 5) 0)
-                  (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve - a parameter, a closure or a field - so where its allocations flow is not something the walk can settle")
+                  (emitRestrictUnverifiable tc d r "the body calls a value the compiler could not resolve - a parameter, a closure or a field - so where its allocations flow is not something the walk can settle" (cast (Vec Int) 0))
                   ; No culprit and no unresolved call - but that is only
                   ; proof if the facts SETTLED. If the fixpoint hit its
                   ; round cap the facts are a lower bound, not an answer,
                   ; and the claim is unproven rather than proven.
                   (if (!= (memGetWord tc 33) 0)
-                    (emitRestrictUnverifiable tc d r "the region fixpoint reached its round limit before the facts settled, so this claim is unproven rather than proven - the call chain below this declaration is deeper than the walk resolves. `strict` already means an unproven claim is refused; without it this is a warning")
+                    (emitRestrictUnverifiable tc d r "the region fixpoint reached its round limit before the facts settled, so this claim is unproven rather than proven - the call chain below this declaration is deeper than the walk resolves. `strict` already means an unproven claim is refused; without it this is a warning" (cast (Vec Int) 0))
                     0
                   )
                 )

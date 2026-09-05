@@ -35,6 +35,12 @@ WHAT IS DERIVED, per diagnostic:
     `!`, `help` from `?`, `expansion` from `&` - one object per frame,
     `{"macro": name}` plus `file`/`line`/`col` when the AXDL field
     carries the macro declaration's location (`&file:L:C-C:"name"`).
+  * a `related` entry has the three shapes its `^` field has:
+    `{"span", "label"}` in the diagnostic's own file, the same plus
+    `"file"` - and the span read against THAT file's bytes - for
+    `^file:L:C-C:"msg"`, and `{"label"}` alone for `^-:"msg"`, which
+    names a location that does not exist. The pair is present or it is
+    not, which is how a spanless diagnostic already reads.
 
 The comparison is on the whole decoded object, so a key the renderer
 invented and a key it dropped are both failures; a derivation that
@@ -144,13 +150,28 @@ def parse_full(line):
         if mark not in '^?':
             raise ValueError('unexpected %r after the message' % line[i - 1:][:20])
         sp = None
+        fpath = None
         sec = axdl.SECONDARY.match(line, i)
         if sec:
             sp = norm_span(*sec.groups())
             i = sec.end()
+        elif mark == '^' and axdl.NOLOC.match(line, i):
+            # `^-:"msg"` - a related location with no location. The
+            # JSON carries the label and no `span` key, the way a
+            # spanless diagnostic carries neither `span` nor `label`.
+            i += 2
+        elif mark == '^' and axdl.FRAME.match(line, i):
+            # `^file:LOC:"msg"` - another unit's. `file` beside the
+            # span, and the span read against THAT file, which is the
+            # shape `expansion` already has.
+            fm = axdl.FRAME.match(line, i)
+            gs = fm.groups()
+            fpath = gs[0]
+            sp = norm_span(*gs[1:])
+            i = fm.end()
         text, i = axdl.read_string(line, i)
         if mark == '^':
-            out['related'].append((sp, text))
+            out['related'].append((sp, fpath, text))
         else:
             fix = None
             if line[i:i + 2] == '~>':
@@ -179,7 +200,19 @@ def span_obj(lines, sp):
             'char_end': char_off(lines, el, ec)}
 
 
-def derive(f, lines):
+def related_obj(fixtures, lines, sp, fpath, text):
+    """One `related` entry: three shapes, decided by where it points."""
+    if sp is None:
+        return {'label': text}
+    if fpath is None:
+        return {'span': span_obj(lines, sp), 'label': text}
+    other = fixtures.lines(fpath)
+    if other is None:
+        raise ValueError('related names %s, which is no file here' % fpath)
+    return {'span': span_obj(other, sp), 'file': fpath, 'label': text}
+
+
+def derive(f, fixtures, lines):
     """The JSON object the renderer must have produced for this AXDL line."""
     want = {
         'severity': 'error' if f['sev'] == 'E' else 'warning',
@@ -187,8 +220,8 @@ def derive(f, lines):
         'slug': f['slug'],
         'message': f['message'],
         'file': f['file'],
-        'related': [{'span': span_obj(lines, sp), 'label': text}
-                    for sp, text in f['related']],
+        'related': [related_obj(fixtures, lines, sp, fpath, text)
+                    for sp, fpath, text in f['related']],
         'notes': list(f['notes']),
         'help': [text for _sp, text, _fix in f['helps']],
         'expansion': list(f['frames']),
@@ -265,7 +298,7 @@ def main(argv):
                                 % (where, f['file']))
                 continue
             try:
-                want = derive(f, lines)
+                want = derive(f, fixtures, lines)
             except ValueError as e:
                 failures.append('%s: cannot derive (%s)' % (where, e))
                 continue

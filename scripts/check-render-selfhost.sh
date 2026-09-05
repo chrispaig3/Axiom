@@ -250,6 +250,18 @@ bless="${AXIOM_BLESS:-0}"
 ln -s "$repo_root/stdlib" "$work/stdlib"
 ln -s "$repo_root/self_host" "$work/self_host"
 ln -s "$repo_root/tests" "$work/tests"
+
+# A RELATIVE stdlib root, overriding the absolute one `gate_init`
+# exports. The corpus is the compiler's OUTPUT, checked in, and an AXDL
+# line spells the path of every file it names - including, since
+# `AX3049` started resolving its call chain, `stdlib/IO.ax` for a hop
+# that lives there. Resolved through `$AXIOM_STDLIB` as an absolute
+# path, that field reads `/Users/somebody/checkout/stdlib/IO.ax` and
+# the golden reproduces on exactly one machine. `stdlib` relative
+# resolves through the symlink above - the same file, named the way the
+# repository names it. `verify-axdl-spans.py` refuses an absolute path
+# outright, so this cannot go wrong quietly.
+export AXIOM_STDLIB="stdlib"
 cp "$repo_root"/tests/diagnostics/mods/*.ax "$work/" 2>/dev/null || true
 
 # The renderer under test is the one built FROM SOURCE by `$axiom`, not
@@ -432,7 +444,15 @@ strip_ansi() {
 axdl_fields() {
   local line="$1" esc s pre i seen=0
   local help_re='[?]([0-9]+:[0-9]+(-[0-9]+)?:)?$'
-  local rel_re='\^[0-9]+:[0-9]+(-[0-9]+)?:$'
+  local rel_re='\^([0-9]+:[0-9]+(-[0-9]+)?):$'
+  # The two related-location spellings that are NOT the diagnostic's
+  # own file. `^-:` carries no location at all - a call-graph hop that
+  # is a builtin or an `extern` item, which has no declaration to point
+  # at - and `^file:LOC:` carries another unit's, the shape `&` already
+  # had. Neither can be drawn in this diagnostic's snippet, so both
+  # render as note lines; see the `relloc`/`relnoloc` arms below.
+  local rel_noloc_re='\^-:$'
+  local rel_loc_re='\^([^[:space:]]+):([0-9]+:[0-9]+(-([0-9]+:)?[0-9]+)?):$'
   local label_re='#$'
   local note_re='!$'
   local trace_re='&$'
@@ -469,7 +489,15 @@ axdl_fields() {
     elif [[ "$pre" =~ $help_re ]]; then
       printf 'help\t%s\n' "$s"
     elif [[ "$pre" =~ $rel_re ]]; then
-      printf 'rel\t%s\n' "$s"
+      # The LOC beside the text. A diagnostic may carry SEVERAL related
+      # locations - `AX3049` carries one per call-graph hop - so they
+      # are paired here, structurally, rather than by a second scan of
+      # the raw line that could only ever find the first one.
+      printf 'rel\t%s\t%s\n' "${BASH_REMATCH[1]}" "$s"
+    elif [[ "$pre" =~ $rel_noloc_re ]]; then
+      printf 'relnoloc\t%s\n' "$s"
+    elif [[ "$pre" =~ $rel_loc_re ]]; then
+      printf 'relloc\t%s\t%s\n' "${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" "$s"
     elif (( seen == 0 )); then
       printf 'msg\t%s\n' "$s"
       seen=1
@@ -639,23 +667,37 @@ axdl_facts() {
 
   for (( k = 0; k < ndiag; k++ )); do
     local sev code locspan slug f rest L C crest tail C2 run bs be
-    local want_sev primary relmsg kind text src nlines plabel
-    local -a helps helpfix notes
+    local want_sev primary kind text src nlines plabel
+    local -a helps helpfix notes rels
     read -r sev code locspan slug _ <<< "${DL[$k]}"
     bs="${BS[$k]}"
     be="${BE[$k]}"
 
     primary=""
-    relmsg=""
     plabel=""
     helps=()
     helpfix=()
     notes=()
+    rels=()
     tracelocs=()
     while IFS=$'\t' read -r kind text; do
       case "$kind" in
         msg)   primary="$text" ;;
-        rel)   relmsg="$text" ;;
+        # A related location in the diagnostic's OWN file: a dash row
+        # in its snippet, one per field, asserted below.
+        rel)   rels[${#rels[@]}]="$text" ;;
+        # And the two that are not. A snippet is quoted out of ONE
+        # source, so a related location in another unit cannot be
+        # underlined in it at all, and one with no location has nothing
+        # to underline anywhere; both degrade to a note, which is what
+        # an expansion frame with no reachable unit already does.
+        # `secNoteText` in render.ax is the other half of this
+        # sentence, and the parenthetical repeats `fmtSpanIx`'s exact
+        # text so this stays a concatenation and not a re-parse.
+        relloc)
+          notes[${#notes[@]}]="${text#*$'\t'} (${text%%$'\t'*})" ;;
+        relnoloc)
+          notes[${#notes[@]}]="$text (no declaration to point at)" ;;
         label) plabel="$text" ;;
         help)  helps[${#helps[@]}]="$text"; helpfix[${#helpfix[@]}]="" ;;
         note)  notes[${#notes[@]}]="$text" ;;
@@ -800,41 +842,45 @@ axdl_facts() {
       rc=1
     fi
 
-    # The related span's line must appear in the gutter too, with a dash
-    # row of the span's width carrying the note verbatim after it.
-    local rel RL rrest RC RC2 rrun
-    rel="$(printf '%s\n' "${DL[$k]}" | grep -oE ' \^[0-9]+:[0-9]+(-[0-9]+)?:' | head -1 | sed 's/^ \^//; s/:$//')"
-    if [[ -n "$rel" ]]; then
+    # Every related span in the diagnostic's OWN file must appear in
+    # the gutter, with a dash row of the span's width carrying its note
+    # verbatim after it. ONE PER FIELD: this used to read the first
+    # `^` off the raw line with a `grep | head -1`, which was exactly
+    # right while the record held at most one related span and would
+    # have stopped checking the rest, in silence, the moment `AX3049`
+    # started carrying a field per call-graph hop.
+    local rj rel relmsg RL rrest RC RC2 rrun want_dash
+    for (( rj = 0; rj < ${#rels[@]}; rj++ )); do
+      rel="${rels[rj]%%$'\t'*}"
+      relmsg="${rels[rj]#*$'\t'}"
       RL="${rel%%:*}"
       rrest="${rel#*:}"
       RC="${rrest%%-*}"
       if [[ "$rrest" == *-* ]]; then RC2="${rrest#*-}"; else RC2=$((RC + 1)); fi
       rrun=$((RC2 - RC)); [[ "$rrun" -lt 1 ]] && rrun=1
-      facts=$((facts + 2)); f_gutter=$((f_gutter + 1)); f_dash=$((f_dash + 1))
+      facts=$((facts + 3)); f_gutter=$((f_gutter + 1)); f_dash=$((f_dash + 1)); f_msg=$((f_msg + 1))
       if ! block_re "$bs" "$be" "^ *${RL} \\| "; then
         echo "FAIL $label (block $((k + 1)): related line $RL not in the snippet gutter)"
         rc=1
       fi
-      local want_dash
       want_dash="$(printf '%*s' "$RC" '')$(printf '%*s' "$rrun" '' | tr ' ' '-')"
       [[ -n "$relmsg" ]] && want_dash="$want_dash $relmsg"
       if ! block_bar_eq "$bs" "$be" "$want_dash"; then
         echo "FAIL $label (block $((k + 1)): no dash row at col $RC width $rrun followed by \`$relmsg\`)"
         rc=1
       fi
-    elif [[ -n "$relmsg" ]]; then
-      echo "FAIL $label (block $((k + 1)): AXDL carries a related note with no span this gate can read)"
-      rc=1
-    fi
-    # And no dash row the AXDL never asked for. A block whose AXDL line
-    # has no `^` span must draw none at all, which is the assertion the
-    # 71 related-less blocks make and the 15 others make as "exactly 1".
+    done
+    # And no dash row the AXDL never asked for, nor one fewer. A block
+    # whose AXDL line has no same-file `^` span must draw none at all,
+    # which is the assertion the related-less blocks make; one carrying
+    # several must draw exactly that many, which is what stops a
+    # renderer quietly dropping a hop from a chain whose prose it has
+    # already printed.
     ndash="$(block_count_re "$bs" "$be" '^ *\| *-+( .*)?$')"
     facts=$((facts + 1)); f_dash=$((f_dash + 1))
-    if [[ -n "$rel" ]]; then
-      [[ "$ndash" == 1 ]] || { echo "FAIL $label (block $((k + 1)) draws $ndash dash rows; the AXDL gives it one related span)"; rc=1; }
-    else
-      [[ "$ndash" == 0 ]] || { echo "FAIL $label (block $((k + 1)) draws $ndash dash rows; the AXDL gives it no related span)"; rc=1; }
+    if [[ "$ndash" != "${#rels[@]}" ]]; then
+      echo "FAIL $label (block $((k + 1)) draws $ndash dash rows; the AXDL gives it ${#rels[@]} same-file related span(s))"
+      rc=1
     fi
 
     # MAC-DIAG-5: a frame carrying a location opens its macro's own
@@ -918,7 +964,6 @@ axdl_facts() {
         rc=1
       fi
     done
-    [[ -n "$relmsg" ]] && { facts=$((facts + 1)); f_msg=$((f_msg + 1)); }
   done
 
   # The trailer, as an equality on the golden's last line. A count that
