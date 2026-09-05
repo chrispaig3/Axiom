@@ -317,11 +317,9 @@
 (pub :: pkgUncomment (-> String String))
 
 (pub fn (pkgUncomment line)
-  (let ((at (strFindByte line 35 0)))
-    (if (< at 0)
-      line
-      (strSlice line 0 at)
-    )
+  (match (strFindByte line 35 0)
+    ((None) line)
+    ((Some at) (strSlice line 0 at))
   )
 )
 

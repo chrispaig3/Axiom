@@ -66,20 +66,20 @@ F strEq stdlib/Str.ax:251:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec 
 F strSlice stdlib/Str.ax:276:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effects=Alloc,Mut
 F strDup stdlib/Str.ax:314:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effects=Alloc,Mut
 F strConcat stdlib/Str.ax:328:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strFindByte stdlib/Str.ax:350:9-20 "(String -> (Int -> (Int -> Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign
-F strStartsWith stdlib/Str.ax:363:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign
-F strIsDigit stdlib/Str.ax:396:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign
-F strIsAlpha stdlib/Str.ax:406:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign
-F strIsSpace stdlib/Str.ax:425:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
-F strHexVal stdlib/Str.ax:455:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign
-F strIsHexDigit stdlib/Str.ax:471:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign
-F strSplit stdlib/Str.ax:497:9-17 "(String -> (Int -> Vec Int))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strSplitFrom stdlib/Str.ax:509:9-21 "(String -> (Int -> (Int -> (Vec Int -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strFromByte stdlib/Str.ax:536:9-20 "(Int -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strLower stdlib/Str.ax:565:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strFind stdlib/Str.ax:620:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign
-F strTrim stdlib/Str.ax:651:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut
-F strParseInt stdlib/Str.ax:683:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign
+F strFindByte stdlib/Str.ax:377:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign
+F strStartsWith stdlib/Str.ax:400:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign
+F strIsDigit stdlib/Str.ax:433:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign
+F strIsAlpha stdlib/Str.ax:443:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign
+F strIsSpace stdlib/Str.ax:462:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
+F strHexVal stdlib/Str.ax:492:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign
+F strIsHexDigit stdlib/Str.ax:508:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign
+F strSplit stdlib/Str.ax:534:9-17 "(String -> (Int -> Vec Int))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strSplitFrom stdlib/Str.ax:546:9-21 "(String -> (Int -> (Int -> (Vec Int -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strFromByte stdlib/Str.ax:571:9-20 "(Int -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strLower stdlib/Str.ax:600:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strFind stdlib/Str.ax:655:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign
+F strTrim stdlib/Str.ax:686:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut
+F strParseInt stdlib/Str.ax:718:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign
 F errDivideByZero stdlib/Err.ax:47:9-24 "Int" @029f54fed7ccc8c4
 F errOverflow stdlib/Err.ax:51:9-20 "Int" @d27666f207e5c0cc
 F errShiftTooWide stdlib/Err.ax:55:9-24 "Int" @6a505014b69f075b
@@ -285,7 +285,7 @@ S Holder tests/fmt/syntax-zoo.ax:260:9-15 "struct Holder" @39a2b36e5f606cfe #fie
 S RecTwin tests/fmt/syntax-zoo.ax:401:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:251:11-21 "Box Int" @ce5c1ba8305ca704
-M format stdlib/Str.ax:772:13-19 "macro format" @f0b2b594fd323246
+M format stdlib/Str.ax:807:13-19 "macro format" @f0b2b594fd323246
 M try! stdlib/Err.ax:499:13-17 "macro try!" @33e26f813784f1f9
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
 M defRecTwin tests/fmt/syntax-zoo.ax:393:8-18 "macro defRecTwin" @175bc52ff43ee048

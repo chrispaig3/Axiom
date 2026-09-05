@@ -51,7 +51,13 @@
 #      then exactly `run` carets after the bar, and the related row
 #      RC spaces then exactly `rrun` dashes then the related note; and
 #      each help must EQUAL `= help: <text>` after undoing AXDL's `\\`
-#      and `\"` escaping. Widths and columns are computed from the
+#      and `\"` escaping - with its replacement after ` ~> ` when the
+#      help carries a fix, or, when that replacement has a line break
+#      in it, on lines of its own under a help line that ends at `~>`,
+#      each line indented to the help text's column and otherwise
+#      verbatim (the form render.ax's `helpLineFix` states; the two
+#      bytes `\n` on such a help line fail by name, and drill (k)
+#      plants them). Widths and columns are computed from the
 #      span - for a span that crosses lines, from the FIXTURE's line
 #      length, because the renderer underlines to end of line and the
 #      AXDL does not say how long that line is. The block must draw
@@ -436,13 +442,25 @@ strip_ansi() {
 # surface prints them raw. Comparing the two without undoing that would
 # make every message containing a backslash unassertable - which is most
 # of the lexer corpus, where the diagnostic IS about an escape sequence.
-# Two rules suffice because AXDL emits exactly two: `\\` and `\"`. Both
-# are swapped for sentinels before the split, which is also what keeps
-# `\\"` (an escaped backslash then a delimiter) from being read as `\`
-# followed by an escaped quote, and leaves the remaining `"` all
-# structural - so the odd fields of a `"`-split are exactly the strings.
+# Two rules suffice for the SPLIT: `\\` and `\"` are swapped for
+# sentinels before it, which is also what keeps `\\"` (an escaped
+# backslash then a delimiter) from being read as `\` followed by an
+# escaped quote, and leaves the remaining `"` all structural - so the
+# odd fields of a `"`-split are exactly the strings.
+#
+# AXDL also escapes the control bytes - `\n`, `\t`, `\r`, `\u{..}` -
+# and those are deliberately NOT undone in a message, a label, a note
+# or a help: the human surface passes each of those through `ctlEsc`
+# and prints the same two characters, so the comparison is the
+# identity. The one place the human surface prints a control byte raw
+# is a line break in a `~>` replacement, which it renders as the block
+# of lines it is; that `\n` is marked here (\003, see below) and undone
+# by the consumer. This paragraph used to say AXDL "emits exactly two"
+# escapes, and the derivation built on that sentence matched ten
+# goldens carrying a literal `\n` where a person was meant to read a
+# line break.
 axdl_fields() {
-  local line="$1" esc s pre i seen=0
+  local line="$1" esc s fixs pre i seen=0
   local help_re='[?]([0-9]+:[0-9]+(-[0-9]+)?:)?$'
   local rel_re='\^([0-9]+:[0-9]+(-[0-9]+)?):$'
   # The two related-location spellings that are NOT the diagnostic's
@@ -469,15 +487,23 @@ axdl_fields() {
   while (( i < ${#parts[@]} )); do
     pre="${parts[i-1]}"
     s="${parts[i]}"
+    # A real line break in a `~>` replacement, marked while `\\` is
+    # still a sentinel so that an escaped backslash followed by an `n`
+    # is not taken for one. It stays a byte rather than becoming a
+    # newline because this function speaks one field per LINE; the
+    # consumer splits on it.
+    fixs="${s//\\n/$'\003'}"
     s="${s//$'\002'/\"}"
     s="${s//$'\001'/\\}"
+    fixs="${fixs//$'\002'/\"}"
+    fixs="${fixs//$'\001'/\\}"
     # The replacement half of a machine-applicable fix. It used to be
     # DROPPED here, on the reasoning that machine-applied text is not
     # something the human surface must print - true until the human
     # surface started printing it. Named rather than discarded so the
     # help-line equality can be extended to cover it.
     if [[ "$pre" == *'~>' ]]; then
-      printf 'fix\t%s\n' "$s"
+      printf 'fix\t%s\n' "$fixs"
     elif [[ "$pre" =~ $label_re ]]; then
       printf 'label\t%s\n' "$s"
     elif [[ "$pre" =~ $note_re ]]; then
@@ -547,6 +573,46 @@ block_trim_eq() {
     [[ "$t" == "$want" ]] && return 0
   done
   return 1
+}
+
+# The index of the first line of block [s,e] whose trimmed form BEGINS
+# with WANT, or -1. For the one equality that has to say WHICH line
+# fell short of it: a fix's help line is found by its opening and then
+# held to end at `~>`, so a tail after that is reported as the tail it
+# is rather than as a help line nobody printed.
+block_find_prefix() {
+  local s="$1" e="$2" want="$3" i t
+  for (( i = s; i <= e; i++ )); do
+    t="${GL[$i]}"
+    t="${t#"${t%%[![:space:]]*}"}"
+    [[ "$t" == "$want"* ]] && { printf '%s' "$i"; return 0; }
+  done
+  printf '%s' -1
+  return 0
+}
+
+# The lines a replacement with a line break in it prints, into `FL`:
+# every \003-separated segment, minus an empty first one (the leading
+# break is the one after `~>`) and an empty last one (the trailing
+# break is the last line's own terminator). An empty segment BETWEEN
+# two others stays, and prints as its indentation alone.
+fix_lines() {
+  local t="$1" n lo hi q
+  local -a S
+  S=()
+  while [[ "$t" == *$'\003'* ]]; do
+    S[${#S[@]}]="${t%%$'\003'*}"
+    t="${t#*$'\003'}"
+  done
+  S[${#S[@]}]="$t"
+  n=${#S[@]}; lo=0; hi=$n
+  [[ -z "${S[0]}" ]] && lo=1
+  (( hi > lo )) && [[ -z "${S[$((hi - 1))]}" ]] && hi=$((hi - 1))
+  FL=()
+  for (( q = lo; q < hi; q++ )); do
+    FL[${#FL[@]}]="${S[q]}"
+  done
+  return 0
 }
 
 # Some line of block [s,e] is a gutter bar - leading spaces, then `|` -
@@ -711,11 +777,9 @@ axdl_facts() {
         trace) notes[${#notes[@]}]="in this expansion of \`$text\`" ;;
         traceloc)
           tracelocs[${#tracelocs[@]}]="$text" ;;
-        # The replacement half of a fix attaches to the help it follows.
-        # Parsed and paired here, but NOT yet folded into the help-line
-        # equality below: the renderer does not print it yet, and a gate
-        # that demanded output the compiler was never asked for would
-        # fail the corpus rather than describe it.
+        # The replacement half of a fix attaches to the help it follows,
+        # and the help-line equality below asserts it - inline, or as
+        # the block a line break (\003 here) makes it.
         fix)   (( ${#helps[@]} > 0 )) && helpfix[$(( ${#helps[@]} - 1 ))]="$text" ;;
         *)
           echo "FAIL $label (AXDL string in a field this gate does not know how to assert: $text)"
@@ -951,17 +1015,80 @@ axdl_facts() {
     # renderer's opinion - and the field used to be DROPPED by the
     # parser above, which is why the human surface could have printed
     # anything there.
-    local hj want_help
+    #
+    # A replacement with a line break in it is the case this derivation
+    # got wrong for as long as it existed. AXDL escapes the break as
+    # `\n`, `axdl_fields` left that escape in place, the renderer
+    # printed the same two bytes, and so `= help: ... ~> \n      ((B)
+    # ...)` was derived AND matched: ten goldens carried a `\n` a person
+    # was meant to read as a line break, and this gate was green on all
+    # of them. The break is undone now (the \003 from `axdl_fields`),
+    # and such a replacement is required in the form render.ax's
+    # `helpLineFix` states: the help line ends at `~>`, the
+    # replacement's lines follow one per line, each indented to the
+    # help text's own column - the help line's leading whitespace plus
+    # the eight columns of `= help: ` - and otherwise verbatim, an
+    # empty first or last segment printing nothing, and the line after
+    # them is the next `= ` line or the end of the block. The two bytes
+    # `\n` on such a help line are failed BY NAME rather than as a
+    # mismatch, because that is the defect this exists to refuse and
+    # drill (k) at the foot plants it.
+    local hj want_help fixtext hi hline htrim ind fj nfl want_line after
     for (( hj = 0; hj < ${#helps[@]}; hj++ )); do
       want_help="= help: ${helps[hj]}"
       facts=$((facts + 1)); f_msg=$((f_msg + 1))
-      if [[ -n "${helpfix[hj]:-}" ]]; then
-        want_help="$want_help ~> ${helpfix[hj]}"
+      fixtext="${helpfix[hj]:-}"
+      if [[ -n "$fixtext" ]]; then
         facts=$((facts + 1)); f_fix=$((f_fix + 1))
+        if [[ "$fixtext" == *$'\003'* ]]; then
+          want_help="$want_help ~>"
+        else
+          want_help="$want_help ~> $fixtext"
+        fi
       fi
-      if ! block_trim_eq "$bs" "$be" "$want_help"; then
-        echo "FAIL $label (block $((k + 1)) has no help line reading exactly \`$want_help\`)"
+      if [[ "$fixtext" != *$'\003'* ]]; then
+        if ! block_trim_eq "$bs" "$be" "$want_help"; then
+          echo "FAIL $label (block $((k + 1)) has no help line reading exactly \`$want_help\`)"
+          rc=1
+        fi
+        continue
+      fi
+      hi="$(block_find_prefix "$bs" "$be" "$want_help")"
+      if (( hi < 0 )); then
+        echo "FAIL $label (block $((k + 1)) has no help line opening \`$want_help\`)"
         rc=1
+        continue
+      fi
+      hline="${GL[$hi]}"
+      htrim="${hline#"${hline%%[![:space:]]*}"}"
+      if [[ "$htrim" != "$want_help" ]]; then
+        if [[ "$htrim" == *'\n'* ]]; then
+          echo "FAIL $label (block $((k + 1)) renders a fix's line break as the two bytes \`\\n\`: \`$htrim\`)"
+        else
+          echo "FAIL $label (block $((k + 1)) help line \`$htrim\` does not end at \`~>\`; a replacement with a line break in it follows on lines of its own)"
+        fi
+        rc=1
+        continue
+      fi
+      ind=$(( ${#hline} - ${#htrim} + 8 ))
+      fix_lines "$fixtext"
+      nfl=${#FL[@]}
+      for (( fj = 0; fj < nfl; fj++ )); do
+        want_line="$(printf '%*s' "$ind" '')${FL[fj]}"
+        facts=$((facts + 1)); f_fix=$((f_fix + 1))
+        if (( hi + 1 + fj > be )) || [[ "${GL[$((hi + 1 + fj))]}" != "$want_line" ]]; then
+          echo "FAIL $label (block $((k + 1)), line $((fj + 1)) of the fix reads \`${GL[$((hi + 1 + fj))]:-<end of block>}\`; the replacement's is \`$want_line\`)"
+          rc=1
+        fi
+      done
+      facts=$((facts + 1)); f_fix=$((f_fix + 1))
+      if (( hi + 1 + nfl <= be )); then
+        after="${GL[$((hi + 1 + nfl))]}"
+        after="${after#"${after%%[![:space:]]*}"}"
+        if [[ "$after" != "= "* ]]; then
+          echo "FAIL $label (block $((k + 1)): a line follows the fix's $nfl line(s) that is neither a help nor a note: \`$after\`)"
+          rc=1
+        fi
       fi
     done
   done
@@ -1423,8 +1550,13 @@ floor_fail() {
 
 # The machine-applicable replacements. stage0 stored these and printed
 # none of them: ariadne read only a help's message, so `~>` reached AXDL
-# and no human ever saw it.
-[[ "$f_fix"   -lt 10 ]] && floor_fail "fix-replacement equality"         "$f_fix"     10
+# and no human ever saw it. One per fix, plus one per line and one for
+# the line after when the fix is a block - 69 over the corpus on
+# 2026-09-04, against the 30 it would be if every fix printed inline.
+# The floor sits above that 30 on purpose: a renderer that went back to
+# one line per fix would still make an assertion per fix and pass a
+# floor set below it.
+[[ "$f_fix"   -lt 60 ]] && floor_fail "fix-replacement equality"         "$f_fix"     60
 
 # The status derivation has to DISTINGUISH something. A corpus in which
 # every case wants the same status is satisfied by a `check` that always
@@ -1742,6 +1874,59 @@ else
         failed=$((failed + 1))
       elif ! grep -q "^FAIL $drill_name.*'span'" <<< "$jout"; then
         echo "FAIL drill(json): a JSON span whose char_start contradicts the fixture was accepted"
+        failed=$((failed + 1))
+      fi
+    fi
+  fi
+
+  # (k) a fix's line break, folded back into the two bytes `\n`. This
+  # is what ten goldens carried until 2026-09-04, and the OLD derivation
+  # matched it rather than saw it: `axdl_fields` left AXDL's `\n`
+  # escaped, the renderer printed the same two bytes, and the equality
+  # held. The corruption rejoins the first block-form fix onto its help
+  # line with `\n` between the lines and the alignment indent removed -
+  # the shape the old renderer printed - and the check must refuse it
+  # BY NAME, not merely refuse it, because "no help line opening ..." is
+  # also what a block parser that stopped matching would say.
+  fold_axdl=""
+  for cand in tests/diagnostics/*.axdl; do
+    if grep -qE '~>"[^"]*\\n' "$cand" && [[ -f "${cand%.axdl}.human" ]]; then
+      fold_axdl="$cand"; break
+    fi
+  done
+  if [[ -z "$fold_axdl" ]]; then
+    echo "FAIL drill(fold): no case has a fix with a line break in it - the block form is pinned by nothing"
+    failed=$((failed + 1))
+  else
+    fold_plain="$work/fold.plain"
+    strip_ansi < "${fold_axdl%.axdl}.human" > "$fold_plain"
+    awk 'BEGIN { d = 0; held = "" }
+      {
+        if (held != "") {
+          t = $0; sub(/^[[:space:]]+/, "", t)
+          if (t != "" && substr(t, 1, 2) != "= ") { held = held "\\n" substr($0, ind + 1); next }
+          print held; held = ""; d = 1
+        }
+        if (!d && $0 ~ /^[[:space:]]*= help: .* ~>$/) {
+          match($0, /^[[:space:]]*/); ind = RLENGTH + 8
+          held = $0 " "
+          next
+        }
+        print
+      }
+      END { if (held != "") print held }' "$fold_plain" > "$work/foldbad.human"
+    fold_out=""
+    if cmp -s "$fold_plain" "$work/foldbad.human"; then
+      echo "FAIL drill(fold): the corruption changed nothing - no help line ends at \`~>\` in $(basename "$fold_axdl" .axdl)"
+      failed=$((failed + 1))
+    elif ! grep -q '~> \\n' "$work/foldbad.human"; then
+      echo "FAIL drill(fold): the folded copy carries no \`~> \\n\` - the drill did not plant what it meant to"
+      failed=$((failed + 1))
+    else
+      fold_out="$(axdl_facts "$fold_axdl" "$work/foldbad.human" "drill" 2>&1 || true)"
+      if ! grep -q 'two bytes' <<< "$fold_out"; then
+        echo "FAIL drill(fold): a fix whose line break is rendered as the two bytes \`\\n\` was not refused by name"
+        printf '%s\n' "$fold_out" | head -3 | sed 's/^/    /'
         failed=$((failed + 1))
       fi
     fi

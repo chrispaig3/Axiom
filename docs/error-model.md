@@ -86,7 +86,7 @@ expression position and `AX3003` in pattern position. That asymmetry is
 `ERR-TYPE-2` holding rather than a gap, and it is the one difference a
 reader of §2 has to carry: `Option` needs no import and `Result` does.
 
-### 1.2 Failure is a sentinel, in 61 places
+### 1.2 Failure was a sentinel, in 64 places by a proxy that has since inverted
 
 The standard library signals failure by returning a value from the
 success type's own range:
@@ -112,6 +112,80 @@ platform shim is in it because
 `Platform.darwin.ax` is where the carry-flag protocol is normalised,
 which is the one place the convention is *implemented* rather than
 forwarded.
+
+**RECOMPUTED 2026-09-04, AND THE PROXY HAS INVERTED.** The same command
+reads **120 over 17 files** today, while the population it stands for
+has fallen from 38 public declarations to 2. Per file:
+
+| file | hits | in comments | in code |
+|---|---|---|---|
+| `stdlib/Sys.ax` | 57 | 52 | 5 |
+| `stdlib/IO.ax` | 17 | 16 | 1 |
+| `stdlib/Http.ax` | 6 | 1 | 5 |
+| `stdlib/Map.ax` | 6 | 2 | 4 |
+| `stdlib/Sys/Platform.freebsd.ax` | 5 | 4 | 1 |
+| `stdlib/Sys/Platform.darwin.ax` | 4 | 3 | 1 |
+| `stdlib/Sys/Platform.windows.ax` | 4 | 4 | 0 |
+| `Intern`, `Path`, `Rpc`, `Str` | 3 each | 1, 1, 0, 2 | 2, 2, 3, 1 |
+| `Fallible`, `Json`, `Par` | 2 each | 2, 1, 2 | 0, 1, 0 |
+| `Vec`, `Platform.linux-aarch64`, `Platform.linux-x86_64` | 1 each | 1 | 0 |
+| **total** | **120** | **94** | **26** |
+
+**Ninety-four of the hundred and twenty are comment lines**, and they
+are there because this migration wrote them. `stdlib/Sys.ax` alone
+carries 52 in prose against 5 in code, and each of the 52 explains what
+an errno used to mean at a call that no longer returns one. *The proxy
+rises when the migration succeeds.* That is the same defect
+`compat/SENTINELS`' header records for the metric this one was supposed
+to be safer than — the old census "rewarded silence" by counting a
+doc-comment, this one rewards prose by counting any line that mentions
+`errno` — and both are one mistake: a population sized by matching TEXT
+instead of by reading declarations.
+
+**And the 26 code hits are not 26 sentinels.** Classified 2026-09-04,
+every one:
+
+- **nine** initialise a loop accumulator, `(mut found (- 0 1))` and its
+  spellings — never an answer. `Str.strFind` is one of them and it
+  already answers `(Option Int)`; the other eight are
+  `httpHeadEnd`, `httpHeaderIndex`, `httpRead`, `routeFind`,
+  `routeFindStatic`, `rdFindHeaderEnd`, `rdContentLength` and
+  `rpcRead`;
+- **four** are private helpers below a public wrapper that answers
+  `Option` already, keeping the `-1` on the recursion by the rule §10
+  states for `internFindFrom`: `internFindFrom` (twice),
+  `pathLastSlashFrom` and `pathLastDotFrom`;
+- **four** are `Map.ax`'s private probe walk — `mapFindSlot`,
+  `mapFindLoop` twice, `mapInsertNoGrow` — under `mapGet`, whose
+  absent-key answer is a CALLER-SUPPLIED default and therefore not a
+  sentinel at all;
+- **three** are `stdlib/Sys.ax` passing -1 as an ARGUMENT or setting a
+  local: `netAddrText`'s zero-run seed, `netSignalOpenRaw`'s syscall
+  slot, and `sysRandomBytes`' `(set rc (- 0 1))`;
+- **two** are `(^ x (- 0 1))`, a bitwise NOT written as XOR with all
+  ones, in `netSetBlocking` and `termFlagClear`;
+- **two** are `(pub fn (pollReadFilter) (- 0 1))` on Darwin and
+  FreeBSD, which is `EVFILT_READ`'s numeric value — a kernel constant
+  that happens to be -1;
+- **one** is `Json.ax`'s private `jcPeek`;
+- **one** is `IO.ax` rendering an errno INTO a message, in the
+  `ioResult` this migration wrote.
+
+Not one of the twenty-six is a public declaration answering a sentinel.
+The two that ARE — `keyStrEnd` and `keyInFill`, §10.1's remaining
+column — are invisible to this command for a third reason: they live in
+`stdlib/Tui/`, and the glob is `stdlib/*.ax` and `stdlib/Sys/*.ax`.
+Counted directly they hold 6 and 7 hits. So the proxy over-counts by
+prose in seventeen files and under-counts the only two rows that are
+still debt, which is as complete a failure as a metric can have.
+
+So the proxy is retired as a sizing metric and kept here as the record
+of one. What sizes the migration is `compat/SENTINELS`, which counts
+public DECLARATIONS by what their bodies answer, is recomputed on every
+run of `scripts/check-compat.sh` (`tests/compat/verify-compat.py`'s
+`sentinel_census`), and must agree with the committed file row for row.
+Its reading on 2026-09-04 is **0 failure and 2 absence**; §10.1 names
+both survivors and what refuses each.
 
 A sentinel is not merely inelegant: it is a value of the success type,
 so nothing in the type system distinguishes "the file is 4 bytes long"
@@ -703,7 +777,7 @@ program, for the reason `403-recover-div.ax` gives for its own — with
 `__axiom_recover` unreferenced the mechanism is dead code and the armed
 test folds to false — and it is section 1 of
 `scripts/check-contracts.sh`: the arming call answers `recovered 77` on
-stdout, the second violation outside every extent exits 76 with the
+stdout, the second violation outside every extent exits 77 with the
 sentence on fd 2.
 
 **The table gains no row from status 75.** An
@@ -975,7 +1049,7 @@ in this tree at all - `grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|i
 because the sentence making the claim matches the pattern it quotes. So
 the claim is enforced at RUN TIME: `expLowerContracts` compiles the
 check into the body, and a failure writes ``axiom: precondition failed
-in `half`: (> n 0)`` on fd 2 and exits 76.
+in `half`: (> n 0)`` on fd 2 and exits 77.
 
 `AX3050` is then everything about the contract that IS static, and it
 is four questions under one code:
@@ -1693,7 +1767,8 @@ changes what "finishing the migration" means.
 | `stdlib/`, by the census that reads bodies | **9** | **29** |
 | `self_host/`, slice 4's 25 | 21 | 1 |
 | `stdlib/`, after slices 1–4 and the 2026-09-03 type correction | 7 | 9 |
-| `stdlib/`, today — after the box moved to the caller (`docs/unboxed-sums-design.md` §5b) and the two ports it permitted | **3** | **0** |
+| `stdlib/`, after the box moved to the caller (`docs/unboxed-sums-design.md` §5b) and the two ports it permitted | 3 | 0 |
+| `stdlib/`, today — after `strFindByte` was rewritten as a loop (§10.2) | **2** | **0** |
 
 **THE ROW ABOVE IT WAS WRONG IN BOTH COLUMNS, AND THIS SECTION DREW THE
 WRONG CONCLUSION FROM IT.** Audited 2026-08-30. The census those numbers
@@ -1838,19 +1913,22 @@ as a two-register pair and a caller that needs a block builds it at
 the call, where the checker charges it (`docs/unboxed-sums-design.md`
 §5b). Two things followed.
 
-*The absence column: 7 → 3.* `strHexVal`, `utf8DecodeAt`, `utf8CharAt`
+*The absence column: 7 → 3, and 3 → 2 the following day.* `strHexVal`, `utf8DecodeAt`, `utf8CharAt`
 and `netPollSignalAt` answer `(Option Int)`, and the three
 `restrict(no-alloc)` claims among them STAND, checked against the
 emitted IR by `scripts/check-unboxed-sums.sh` rather than withdrawn.
-`netPollSignalAt`'s row stays `IO` alone. What is left: `strFindByte`
+`netPollSignalAt`'s row stays `IO` alone. What was left: `strFindByte`
 tail-calls itself, and a self tail call is the one shape the pair does
 not take yet (a loop header and a pair return are not reconciled) — a
-port today would keep the boxed body and refuse its own claim;
-`keyStrEnd` answers three outcomes (an end index, "incomplete", "too
-long", and `keyScanStr` reads all three), as does `keyInFill` (a
-count, end-of-input, a full buffer that is still a prefix), and three
-outcomes are not `Option`'s shape — they want a `data` of their own,
-which the pair refuses by name until a third sum type is admitted.
+port today would keep the boxed body and refuse its own claim (**that
+sentence is about the BODY and not the function; rewritten as a loop
+it keeps the claim, measured 2026-09-04 — see the floor paragraph
+below**); `keyStrEnd` answers three outcomes (an end index,
+"incomplete", "too long", and `keyScanStr` reads all three), as does
+`keyInFill` (a count, end-of-input, a full buffer that is still a
+prefix), and three outcomes are not `Option`'s shape — they want a
+`data` of their own, which the pair refuses by name until a third sum
+type is admitted.
 
 *The failure column: 9 → 0, and the question is answered.* The nine
 waited on whether `println`'s effect row may widen. Measured
@@ -1879,9 +1957,118 @@ implementation) builds the same `Error` on its own failure path, so
 the row widens through the seam whichever way the wrapper is written.
 Every widened row is declared in `compat/BREAKING` under 0.6.4.
 
-**The floor is 3 and it is a floor, not a backlog:** one refusal in
-the emitter (a self tail call) and one in the design (a third sum
-type), both named above.
+**THE FLOOR WAS 3 AND ONE OF THE THREE WAS NOT A REFUSAL. Measured
+2026-09-04; the floor is 2.** `strFindByte` was held out because it
+"tail-calls itself, and a self tail call is the one shape the pair
+does not take yet" — which is true of the emitter (`wantsTCO` is a
+refusal in the pair's eligibility test, `self_host/codegen.ax`) and is
+NOT a fact about the function. It is a fact about the BODY, and the
+body can be written the other way. Both halves were probed on a copy
+of the tree rather than argued:
+
+```
+; the recursive spelling, declared (Option Int)
+E AX3049 stdlib/Str.ax:352 `strFindByte` claims `restrict(no-alloc)`
+         and the body performs Alloc
+
+; the same function as a `while` loop over `hit` and `i`
+OK
+```
+
+`Str.strFind`, three hundred lines below it in the same file, was
+already a loop for an unrelated reason and has answered `(Option Int)`
+since before this rule was written; nobody compared them. So
+`strFindByte` answers `(Option Int)` and keeps
+`restrict(no-io,no-alloc,no-foreign)` — **71 call expressions over 18
+files** (73 after the port, which adds two arms to
+`tests/stdlib/030-str.ax` and drops the self-call), every one of them a
+`(< x 0)` or `(>= x 0)` test or a printed index, and every one now a
+`match` at the point of production so the pair is consumed in two
+registers and no caller builds the block `384-restrict-no-alloc-ctor`
+calls `held`.
+
+**Two defects the port surfaced, both of the class §10 slice 3 already
+names — a `-1` reaching arithmetic that nothing refused.**
+`Http.httpParseHead` bound `eol` to `(strFindByte buf 13 base)` and
+then computed `(strSlice buf base (- eol base))`: with no CR in the
+head that is a slice of NEGATIVE length, held off only by the reader's
+framing, which is a caller's property. `Http.httpParseHeaders` had the
+same shape on `le`. Both are 400 refusals now, in the `None` arm the
+type forced someone to write. And `driver.ax`'s directory walk called
+`strFindByte` a second time to re-find a `.` its own guard had just
+located at `strLen - 3`; that call is the index now.
+
+**The floor is 2 and it is a floor, not a backlog:** `keyStrEnd` and
+`keyInFill` each answer three outcomes — an index, "incomplete", "too
+long" for the first; a count, end of input, a full buffer that is still
+a prefix for the second — and three outcomes are not `Option`'s shape.
+They want a `data` of their own, which the register pair refuses by
+name until a third sum type is admitted. That is one refusal in the
+design, stated twice.
+
+
+### 10.2 The order was backwards and the sizes counted prose, re-derived 2026-09-04
+
+The numbered list in §10 is the plan. This is what happened, in the
+order it happened, and the two are not the same list.
+
+| stated | landed | slice | when |
+|---|---|---|---|
+| 1 | **1st** | `stdlib/Err.ax` | 2026-08-16 |
+| 3 | **2nd** | `stdlib/IO.ax`, then `stdlib/Sys.ax`'s filesystem and process halves | 2026-08-26 |
+| 4 | **3rd** | `self_host/` — one function, `runTool` | 2026-08-26 |
+| 2 (part) | **4th** | `stdlib/Path.ax`'s two, and `stdlib/Agent/Tags.ax`'s two, which the list never named | 2026-08-31 |
+| 3 | 5th–8th | `Sys.ax` socket-configuration, "did it work", descriptor-answering, `sysGetCwd` | 2026-08-31 … 09-01 |
+| — | 9th | `stdlib/Intern.ax`'s `internFind` — a module the list never named | 2026-09-01 |
+| 2 (rest) | **10th** | `stdlib/Str.ax`'s `strHexVal`, `stdlib/Utf8.ax`'s two, `Sys.ax`'s `netPollSignalAt` | 2026-09-03 |
+| 3 | 11th | `sysWriteFd`, `sysReadFd` and seven more — the failure column reaches 0 | 2026-09-03 |
+| 2 (last) | **12th** | `stdlib/Str.ax`'s `strFindByte` | 2026-09-04 |
+
+**Slice 2 was called "the rehearsal" and it finished LAST, over four
+separate commits nine days apart.** Slice 3 was called the hard one —
+"the `-errno` convention" — and it went second, in one day, because
+`self_host/` called none of it (§10 slice 3 records that finding). The
+list was ordered by how complicated the CONVENTION looked: `-1` is
+simpler than `-errno`, so the `-1` modules were LISTED first. That is not what
+the work costs. What it costs is two things the list did not ask about:
+
+1. **Does the module carry a `restrict` claim the port would have to
+   withdraw?** `Str.ax` and `Utf8.ax` are the most restricted modules
+   in the tree; `Sys.ax` declares `effect(io)` seventy times and
+   restricts nothing. So slice 2 was blocked from 2026-08-31 to
+   2026-09-03 by `AX3049` on `(Some v)` and slice 3 was never blocked
+   at all — the exact reverse of the order.
+2. **Does the answer get BOUND, or only tested?** A call whose whole
+   answer is "did it work" is one expression at each site; a call that
+   answers a descriptor or an index retypes every binding downstream
+   of it. That is why the descriptor slice cost nine fixtures and the
+   "did it work" slice cost almost nothing, and both are inside the
+   one numbered entry.
+
+**The sizes were the `grep` proxy's, and it counts comment lines.**
+Slice 2 is stated as "11 sites" — `Utf8.ax` 6, `Path.ax` 3, `Str.ax` 2
+from §1.2's table. Recounted 2026-09-04 against `9f99ccd`, the tree as
+it stood when that table was written, the twelve hits in those three
+files (the table's 11 is one low on `Str.ax`) are:
+
+| module | hits | comments | code | public functions |
+|---|---|---|---|---|
+| `Utf8.ax` | 6 | 2 | 4 | **2** — `utf8DecodeAt` (three of the four), `utf8CharAt` |
+| `Str.ax` | 3 | 1 | 2 | **2** — `strFindByte`, `strHexVal` |
+| `Path.ax` | 3 | 0 | 3 | **2** — `pathLastSlash`, `pathExtIndex` (the third hit is `pathLastDotFrom`, their private helper) |
+
+**Six public functions, not eleven sites** — the proxy doubled the
+number, three hits by counting prose and three by counting one
+function's three `(- 0 1)` branches as three items and a private
+recursion as a fourth. And it missed `stdlib/Agent/Tags.ax`'s two
+entirely, which landed in the same slice and are not in §1.2's table at
+all.
+
+The rule this leaves: **size a migration by counting DECLARATIONS and
+order it by what refuses each one, not by how the convention reads.**
+`compat/SENTINELS` does the first and is gated; §10.1's rightmost
+column does the second and is not, which is why every row there names
+its refusal rather than its difficulty.
 
 **ERR-ADOPT-2 (P). Every slice keeps `stage2 == stage3`.** No slice
 touches the seed until one has to, and the one that does — a built-in

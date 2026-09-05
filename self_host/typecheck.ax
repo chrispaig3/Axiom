@@ -6887,11 +6887,9 @@
 
 (pub fn (axtagKeyOf t)
   (let ((txt (memGetWordStr t 1)))
-    (let ((op (strFindByte txt 40 0)))
-      (if (< op 0)
-        txt
-        (strSlice txt 0 op)
-      )
+    (match (strFindByte txt 40 0)
+      ((None) txt)
+      ((Some op) (strSlice txt 0 op))
     )
   )
 )
@@ -6908,16 +6906,15 @@
 
 (pub fn (axtagTextValue t)
   (let ((txt (memGetWordStr t 1)))
-    (let ((op (strFindByte txt 40 0)))
-      (if (< op 0)
-        ""
+    (match (strFindByte txt 40 0)
+      ((None) "")
+      ((Some op)
         (let ((cl (axtagCloseAt txt)))
           (if (|| (>= cl (strLen txt)) (<= cl op))
             ""
             (strSlice txt (+ op 1) (- cl (+ op 1)))
           )
-        )
-      )
+        ))
     )
   )
 )
@@ -9033,7 +9030,7 @@
             (diagSetLabel
               (if (== (memGetWord best 0) 0)
                 (mkDiag
-                  SEV_ERROR                  "AX3001"                  "undefined-variable"                  span                  msg                  0                  0                  "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
+                  SEV_ERROR "AX3001" "undefined-variable" span msg 0 0 "variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"
                 )
                 (mkDiagFix
                   SEV_ERROR                  "AX3001"                  "undefined-variable"                  span                  msg                  0                  0                  (strConcat (strConcat "a similarly named binding `" (memGetWordStr best 0)) "` is in scope; did you mean this?")                  span                  (memGetWord best 0)
@@ -18221,7 +18218,14 @@
     (if (>= i (vecLen tags))
       0
       (let ((content (memGetWordStr (vecGet tags i) 1)))
-        (let ((op (strFindByte content 40 0)))
+        ; `op` STAYS AN INT HERE. It is handed on to `axtagListValue`,
+        ; whose own signature takes the open-paren index with -1 for
+        ; "no value" and documents it four lines above itself. The
+        ; match is at the point of production, so the `Option` is
+        ; consumed in registers and nothing is boxed; what survives is
+        ; a private convention between two functions in this file, not
+        ; a public sentinel contract.
+        (let ((op (match (strFindByte content 40 0) ((None) (- 0 1)) ((Some k) k))))
           {
             (if (strEq
               (if (< op 0)
@@ -19897,7 +19901,7 @@
   (if (== span 0)
     0
     (emitDiag tc (mkDiag
-      SEV_ERROR      "AX3050"      "contract-malformed"      span      (strConcat (strConcat (strConcat "`" (contractLead t)) "` ") why)      0      0      "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 76. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
+      SEV_ERROR      "AX3050"      "contract-malformed"      span      (strConcat (strConcat (strConcat "`" (contractLead t)) "` ") why)      0      0      "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 77. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
     ))
   )
 )
@@ -19914,7 +19918,7 @@
         SEV_ERROR        "AX3050"        "contract-malformed"        (nodeSpan e)        (if (strEq (contractKeyOf t) "pre")
           "`result` names nothing in a `pre`: a precondition is checked BEFORE the body runs, so there is no result yet"
           "`result` names nothing here: this declaration has no `::` signature, so it declares no result type for `result` to have"
-        )        0        0        "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 76. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
+        )        0        0        "a `;@axiom:pre(...)` or `;@axiom:post(...)` is a claim the COMPILER cannot decide - there is no value analysis here - so it is compiled into the body and checked at run time, on every call, and a failure writes `axiom: precondition failed in `f`: ...` on fd 2 and exits 77. That is why the expression has to parse, has to be `Bool`, and has to PERFORM nothing: a contract that allocates or writes changes the program by being stated. Comparison, indexing, `strEq`, `strLen`, `vecLen` and `vecGet` are allocation-free and are what a predicate is written from; `strConcat`, `fmtInt` and `vecNew` are not. `result` names the declared result of a `post` and nothing anywhere else"
       ))
     )
   )
@@ -19958,17 +19962,17 @@
   (if (>= i (vecLen tags))
     0
     (let ((content (memGetWordStr (vecGet tags i) 1)))
-      (let ((op (strFindByte content 40 0)))
-        (let ((key (if (< op 0)
-          content
-          (strSlice content 0 op)
+      {
+        (let ((key (match (strFindByte content 40 0)
+          ((None) content)
+          ((Some op) (strSlice content 0 op))
         )))
           (if (|| (strEq key "pure") (strEq key "effect"))
             1
             (axtagsClaimAt tags (+ i 1))
           )
         )
-      )
+      }
     )
   )
 )
@@ -20304,7 +20308,10 @@
 (pub :: checkOneAxtag (-> Int Int String (Vec a) (Vec Int) Int))
 
 (pub fn (checkOneAxtag tc d content eff eparams)
-  (let ((op (strFindByte content 40 0)))
+  ; Same as `restrictCollect`: `op` is read twice in one `let` group
+  ; and once as an offset into `content`, so it stays an Int and the
+  ; match sits where the call is.
+  (let ((op (match (strFindByte content 40 0) ((None) (- 0 1)) ((Some k) k))))
     (let (
       (key (if (< op 0)
         content
@@ -20350,12 +20357,20 @@
 (pub :: axtagKeyTypo (-> Int Int String Int))
 
 (pub fn (axtagKeyTypo tc d key)
-  (if (|| (== (strLen key) 0) (>= (strFindByte key 58 0) 0))
+  (if (|| (== (strLen key) 0) (match (strFindByte key 58 0) ((None) false) ((Some _) true)))
     0
-    (let ((want (axtagNearMiss key)))
-      (if (== (strLen want) 0)
-        0
-        (emitAxtagKeyTypo tc d key want)
+    ; RESERVED BEFORE NEAR-MISS, and the order is the point. `effects`
+    ; is one edit from `effect`, so the near-miss arm would have
+    ; reported it as a typo - a WARNING, and about the wrong thing.
+    ; It is not a misspelling of an author's key; it is the compiler's
+    ; key, spelled correctly.
+    (if (== (axtagReservedKey key) 1)
+      (emitAxtagKeyReserved tc d key)
+      (let ((want (axtagNearMiss key)))
+        (if (== (strLen want) 0)
+          0
+          (emitAxtagKeyTypo tc d key want)
+        )
       )
     )
   )
@@ -20675,6 +20690,127 @@
 ; `AX3053` declines to report. A tag on a declaration no walk visits is
 ; a tag nothing can typo-check, so `checkEffectDeclAxtags` walks them -
 ; see its own note.
+; The keys the COMPILER derives and writes into AXSYM. An AXTAG may
+; not spell one, and that is not a narrowing of the open namespace -
+; it is the line the openness always had.
+;
+; `checkOneAxtag`'s note says an unknown key "is metadata, it is
+; recorded, and nothing checks it", and AX3039's page says a key of
+; your own should be namespaced "so it cannot be mistaken for a
+; claim". Both are about keys the compiler has nothing to say about.
+; These are the opposite: `symbols.ax` writes them itself, from the
+; checker's own answers, and a reader of the stream cannot tell an
+; author's copy from the compiler's.
+;
+; MEASURED, 2026-09-04, before this existed. A file carrying
+;
+;     ;@axiom:effects(Pure)
+;     ;@axiom:mir-result-fresh(1)
+;
+; on a body compiled clean, and `symbols` wrote
+;
+;     F liar ... #effects=Pure #mir-result-fresh=1
+;
+; The `effects` line drew AX3039 - as a TYPO of `effect`, which is the
+; wrong reason and a warning. `mir-result-fresh` drew nothing at all,
+; because it is not one slip from any key the compiler checks, and the
+; near-miss rule is the only thing that had ever looked at a key.
+;
+; THE ORDERING RULE DOES NOT COVER THIS, and `smTagMetas`'s note
+; overstates it. Compiler keys are pushed after the author's so
+; `symTagFrom` answers the last one - which holds only where the
+; compiler emits that key on that row. It emits no `#effects=` for a
+; body with no effects and no `#mir-*` at all for a program that names
+; no region, so on exactly the rows where a forged guarantee is worth
+; forging there is no later key to win. The ordering is a second line
+; of defence; this is the first.
+;
+; AN ERROR, like AX3052 and AX3054 and unlike AX3039. The argument is
+; AX3052's verbatim: accepting it would let a tag read like a
+; guarantee and buy silence. `restrict`, `pure`, `effect`, `pre`,
+; `post`, `unhandled` and `raw` are the author's to write and are not
+; here - they are CHECKED, which is the difference.
+(pub :: axtagReservedKey (-> String Int))
+
+(pub fn (axtagReservedKey key)
+  (if (strEq key "effects")
+    1
+    (if (strEq key "effect-params")
+      1
+      (if (strEq key "effects-incomplete")
+        1
+        (if (strEq key "effects-overapprox")
+          1
+          (if (strEq key "effects-possible")
+            1
+            (if (strEq key "ctors")
+              1
+              (if (strEq key "of")
+                1
+                (if (strEq key "fields")
+                  1
+                  (if (strEq key "tyvars")
+                    1
+                    (if (strEq key "methods")
+                      1
+                      (if (strEq key "generated")
+                        1
+                        (if (strEq key "calls")
+                          1
+                          (axtagReservedMir key)
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Split out rather than continued inline: the `#mir-*` set is one
+; workstream's and moves with it, and a reader adding a seventh key
+; there should not have to count sixteen closing parens to find where
+; it goes.
+(pub :: axtagReservedMir (-> String Int))
+
+(pub fn (axtagReservedMir key)
+  (if (strEq key "mir-params")
+    1
+    (if (strEq key "mir-escapes")
+      1
+      (if (strEq key "mir-result-fresh")
+        1
+        (if (strEq key "mir-result-from")
+          1
+          (if (strEq key "mir-incomplete")
+            1
+            (if (strEq key "mir-truncated")
+              1
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: emitAxtagKeyReserved (-> Int Int String Int))
+
+(pub fn (emitAxtagKeyReserved tc d key)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (mkDiag
+      SEV_ERROR      "AX3065"      "axtag-key-reserved"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat "AXTAG key `" key) "` on `") (bareOf (nodeAName d))) "` is a key the compiler derives and writes itself")      0      0      "the AXTAG namespace is open, but not for the keys `axiom symbols` writes from the checker's own answers: a reader of that stream cannot tell an author's copy from the compiler's. Namespace it - `;@axiom:my:effects(...)` - or drop it"
+    ))
+  )
+)
+
 (pub :: axtagKnownKey (-> String Int))
 
 (pub fn (axtagKnownKey key)

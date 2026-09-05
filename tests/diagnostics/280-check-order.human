@@ -21,8 +21,10 @@
 [1;34m12 |[0m     (match (A 1)
 [1;34m   |[0m             [1;31m^ this `match` does not cover: B[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~> \n      ((B) (todo "B"))[0m
-  [1;34m = [0m[1;32mhelp: [0mimport `todo` from IO[1;35m ~> (import IO (todo))\n[0m
+  [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~>[0m
+           [1;35m      ((B) (todo "B"))[0m
+  [1;34m = [0m[1;32mhelp: [0mimport `todo` from IO[1;35m ~>[0m
+           [1;35m(import IO (todo))[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 compilation failed due to 3 previous errors

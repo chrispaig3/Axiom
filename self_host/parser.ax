@@ -2811,11 +2811,9 @@
 (pub :: sizedTyNextWord (-> String Int Int))
 
 (pub fn (sizedTyNextWord words i)
-  (let ((sp (strFindByte words 32 i)))
-    (if (< sp 0)
-      (strLen words)
-      (+ sp 1)
-    )
+  (match (strFindByte words 32 i)
+    ((None) (strLen words))
+    ((Some sp) (+ sp 1))
   )
 )
 
@@ -3292,7 +3290,7 @@
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0)
       nr
-      (if (>= (strFindByte (memGetWordStr nr 1) 47 0) 0)
+      (if (match (strFindByte (memGetWordStr nr 1) 47 0) ((None) false) ((Some _) true))
         (pErrModSeg pos (memGetWordStr nr 1))
         (parseModPathRest tokens (memGetWord nr 2) (memGetWordStr nr 1))
       )
@@ -3310,7 +3308,7 @@
         ; The dotted tail is checked too, not only the head: `Sys./etc/x`
         ; is one `.` away from the head case and reaches the same
         ; `strConcat`.
-        (if (>= (strFindByte (memGetWordStr nr 1) 47 0) 0)
+        (if (match (strFindByte (memGetWordStr nr 1) 47 0) ((None) false) ((Some _) true))
           (pErrModSeg (advance pos) (memGetWordStr nr 1))
           (parseModPathRest tokens (memGetWord nr 2) (strConcat (strConcat acc ".") (memGetWordStr nr 1)))
         )
@@ -6364,19 +6362,17 @@
 
 (pub fn (contractKeyOf t)
   (let ((txt (memGetWordStr t 1)))
-    (let ((op (strFindByte txt 40 0)))
-      (let ((k 
-        (if (< op 0)
-          txt
-          (strSlice txt 0 op)
-        )
-      ))
-        (if (strEq k "pre")
-          "pre"
-          (if (strEq k "post")
-            "post"
-            ""
-          )
+    (let ((k
+      (match (strFindByte txt 40 0)
+        ((None) txt)
+        ((Some op) (strSlice txt 0 op))
+      )
+    ))
+      (if (strEq k "pre")
+        "pre"
+        (if (strEq k "post")
+          "post"
+          ""
         )
       )
     )
@@ -6389,16 +6385,15 @@
 
 (pub fn (contractTextOf t)
   (let ((txt (memGetWordStr t 1)))
-    (let ((op (strFindByte txt 40 0)))
-      (if (< op 0)
-        ""
+    (match (strFindByte txt 40 0)
+      ((None) "")
+      ((Some op)
         (let ((cl (ctCloseAt txt)))
           (if (|| (>= cl (strLen txt)) (<= cl op))
             ""
             (strSlice txt (+ op 1) (- cl (+ op 1)))
           )
-        )
-      )
+        ))
     )
   )
 )
@@ -6408,11 +6403,9 @@
 
 (pub fn (contractBaseOf t)
   (let ((txt (memGetWordStr t 1)))
-    (let ((op (strFindByte txt 40 0)))
-      (if (< op 0)
-        (memGetWord t 0)
-        (+ (memGetWord t 0) (+ 9 op))
-      )
+    (match (strFindByte txt 40 0)
+      ((None) (memGetWord t 0))
+      ((Some op) (+ (memGetWord t 0) (+ 9 op)))
     )
   )
 )

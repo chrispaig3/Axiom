@@ -345,17 +345,54 @@
 ; ------------------------------------------------------------------
 ; Searching
 ; ------------------------------------------------------------------
-; Index of the first `byte` at or after `from`, or -1.
+; Index of the first `byte` at or after `from`, or `None`.
+;
+; A LOOP RATHER THAN A SELF TAIL CALL, and that is the whole reason
+; this function could take an `Option` while KEEPING the `no-alloc`
+; claim above it. A function whose every tail is `None` or `(Some e)`
+; is emitted as a two-register pair with no block behind it
+; (docs/unboxed-sums-design.md section 5b) - but `tailCallsSelf` is a
+; refusal in that eligibility test (`self_host/codegen.ax`, the
+; `wantsTCO` arm), so the recursive spelling this function carried
+; until 0.7.5 would have kept the BOXED body and drawn `AX3049`
+; against its own claim. `docs/error-model.md` recorded that as a
+; property of the emitter and a reason the port could not happen; it
+; is a property of the BODY. Measured 2026-09-04 on a copy of the
+; tree: the recursive spelling declared `(Option Int)` draws
+;
+;   E AX3049 ... `strFindByte` claims `restrict(no-alloc)` and the
+;                body performs Alloc
+;
+; and this spelling checks clean under the same three restrictions.
+; `strFind`, three hundred lines below, was already written as a loop
+; for an unrelated reason and has answered `(Option Int)` all along.
+;
+; `hit` is a separate flag rather than a negative `found`, so that a
+; NEGATIVE `from` behaves exactly as the recursion did: `strByte`
+; answers 0 below index 0, so `(strFindByte s 0 -3)` used to answer
+; -3, and a `found` initialised to -1 would have folded that into
+; `None`. Nothing in the tree calls it that way; the point is that
+; this is a retype and not a behaviour change.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
-(pub :: strFindByte (-> String Int Int Int))
+(pub :: strFindByte (-> String Int Int (Option Int)))
 
 (pub fn (strFindByte s byte from)
-  (if (>= from (strLen s))
-    (- 0 1)
-    (if (== (strByte s from) byte)
-      from
-      (strFindByte s byte (+ from 1))
-    )
+  (let (
+    (len (strLen s))
+    (mut i from)
+    (mut hit 0)
+  )
+    {
+      (while (&& (== hit 0) (< i len))
+        (if (== (strByte s i) byte)
+          (set hit 1)
+          (set i (+ i 1))
+        ))
+      (if (== hit 0)
+        None
+        (Some i)
+      )
+    }
   )
 )
 
@@ -509,23 +546,21 @@
 (pub :: strSplitFrom (-> String Int Int (Vec Int) Int))
 
 (pub fn (strSplitFrom s byte from out)
-  (let ((cut (strFindByte s byte from)))
-    (let ((end 
-      (if (< cut 0)
-        (strLen s)
-        cut
-      )
-    ))
+  (match (strFindByte s byte from)
+    ((None)
       {
         (vecPush
-          out          (cast Int (strSlice s from (- end from)))
+          out          (cast Int (strSlice s from (- (strLen s) from)))
         )
-        (if (< cut 0)
-          0
-          (strSplitFrom s byte (+ end 1) out)
+        0
+      })
+    ((Some cut)
+      {
+        (vecPush
+          out          (cast Int (strSlice s from (- cut from)))
         )
-      }
-    )
+        (strSplitFrom s byte (+ cut 1) out)
+      })
   )
 )
 

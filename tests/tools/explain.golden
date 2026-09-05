@@ -1,7 +1,7 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
 # 2026-08-08; AX3018 and above (macros, visibility, limits, traits, effects, the
-# FFI boundary, type soundness) postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. AX3010 was REWRITTEN on 2026-08-25 when it was PROMOTED from a warning to an ERROR: its captured text described a mismatch an agent could correct at leisure, and it now refuses the build. Those two are the only codes in the AX1001-AX5001 range that are no longer the 2026-08-08 bytes.
+# FFI boundary, type soundness) postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. AX3010 was REWRITTEN on 2026-08-25 when it was PROMOTED from a warning to an ERROR: its captured text described a mismatch an agent could correct at leisure, and it now refuses the build. On 2026-09-04 twenty more were EXPANDED - AX1002-AX1005, AX2001-AX2003, AX3001-AX3009, AX3011 and AX4001-AX4003, every one under sixty words against a median of 166 - each to what the code means, why the compiler fires it, a program that draws it (run through the tree's compiler with --diagnostic-format=ai before it was written in), the fix, and the neighbouring codes; AX1002's captured text had also said a string ends at the end of its line, and the lexer reads to the next quote or the end of the file. Those twenty-two are the codes in the AX1001-AX5001 range that are no longer the 2026-08-08 bytes.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
   [93mAX1001[0m  unexpected character  (unexpected-char)
@@ -75,6 +75,7 @@
   [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
+  [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -97,47 +98,195 @@ another language, or an unsupported Unicode character.
 ### explain AX1002
 AX1002 - unterminated string literal
 
-A `"` was opened but never closed before the end of input (or end of
-line). Add a matching closing `"`, or escape an embedded `"` as `\"`.
+A `"` opened a string and no `"` closed it. The lexer does not stop
+at the end of the line - a string may span lines - so it keeps
+reading to the next quote or to the end of the file, and the span it
+reports runs from the opening quote to wherever that was. The line
+named is the one the string STARTS on, which may be far from where
+the program stopped making sense:
+
+    (:: greeting String)
+
+    (fn (greeting) "hello)
+
+The usual causes are a quote that was never typed, and a `\"`
+written where a plain closing `"` was meant: the escape keeps the
+string open and swallows the quote that would have closed it, so a
+string that looks closed on its line is drawn as this code with a
+span reaching the end of the file.
+
+Close the string. To put a quote inside one, escape it as `\"`; to
+put a backslash before the closing quote, write `\\`.
+
+AX1005 is the neighbour: an escape the lexer does not know, inside a
+string that IS closed. AX1003 is the same failure for a character
+literal, and AX2002 is what an unbalanced form draws once every
+string in the file is closed.
 
 ### explain AX1003
 AX1003 - unterminated character literal
 
-A `'` character literal must contain exactly one character (or escape)
-followed by a closing `'`, e.g. `'a'` or `'\n'`.
+A `'` at the start of a token opens a character literal, and a
+character literal is exactly one character - or one escape - between
+two quotes: `'a'`, `'e'`, `'\n'`. The lexer read the opening quote
+and did not find the closing one where the rule puts it:
+
+    (:: main Int)
+
+    (fn (main) (let ((c 'ab)) 0))
+
+Two characters between the quotes, a quote with nothing after it, and
+a quote followed by the end of the line all land here; the span is
+the opening quote and what the lexer read after it.
+
+A `'` INSIDE a name is not a literal at all. `foo'` and `x''` are
+ordinary identifiers, because `'` is an identifier character in every
+position but the first (AX1001 lists the alphabet), so a name meant
+to begin with a prime is drawn as this code too.
+
+Write one character, or one of the seven escapes `\n \t \r \\ \"
+\' \0` - any other escape is AX1005. A `Char` is a Unicode code
+point, so `'e'` with an accent is one character. Several characters
+want a `"..."` string, and a string left open is AX1002.
 
 ### explain AX1004
 AX1004 - invalid number literal
 
-The digits form a number literal that doesn't fit the expected numeric
-format (e.g. it overflows i64/f64, or has a malformed exponent).
+The token is shaped like a number and is not one the compiler can
+hold. `Int` is a 64-bit signed integer and `Float` a 64-bit IEEE
+value, so a literal outside those ranges, or a float whose exponent
+is malformed, has no value to become:
+
+    (:: main Int)
+
+    (fn (main) 99999999999999999999999)
+
+The message quotes the literal and the help names the two ways it
+fails: overflow of i64 or f64, or a bad exponent. A literal that
+reads as neither an `Int` nor a `Float` is this code; a literal that
+reads fine but sits where another type was expected is AX3004.
+
+Write a value the type can hold - the largest `Int` is
+9223372036854775807. Anything wider needs a representation the
+program builds for itself; `u64` written as a TYPE does not buy a
+wider integer, it draws AX3047.
 
 ### explain AX1005
 AX1005 - invalid escape sequence
 
-Only `\n`, `\t`, `\r`, `\\`, `\"`, `\'` and `\0` are recognized escape
-sequences inside string and character literals.
+Inside a string or character literal a backslash starts an escape,
+and the lexer knows exactly seven: `\n`, `\t`, `\r`, `\\`, `\"`,
+`\'` and `\0`. A backslash followed by anything else is this code,
+reported on the two characters of the escape:
+
+    (:: path String)
+
+    (fn (path) "C:\qwerty")
+
+There is no hexadecimal, Unicode or octal escape. Source is UTF-8 and
+a `Char` is a code point, so a character outside ASCII is written as
+itself rather than escaped.
+
+Double the backslash to keep it - `"C:\\qwerty"` - or remove it.
+
+The neighbours are the other two lexer codes for literals: AX1002
+for a string with no closing quote, which is what a `\"` written in
+place of the closing `"` produces, and AX1003 for a character literal
+that does not close.
 
 ### explain AX2001
 AX2001 - unexpected token
 
-The parser expected one kind of token (based on the surrounding
-grammar) but found something else. This is usually a missing/extra
-parenthesis, a misspelled keyword, or a declaration in the wrong
-position.
+The parser knew what the grammar allows next and found something
+else. The message states both halves - `expected identifier, found
+`)`` - and the span is the token that was found, so the form to read
+is the one that token closes or opens:
+
+    (:: main Int)
+
+    (fn (main) 0)
+
+    (fn)
+
+The shapes that draw it in the diagnostics corpus: a keyword with
+nothing after it, as above; an empty `()` or `{}` where an expression
+was due; a `set` with no target; a signature whose arrow has no
+parameter type (`(-> Int)`), or a type trailing the result; a `for`
+with more than one body or a `parallel` binding marked `mut`; an
+`extern` item with no `:: type`, or with a clause the block does not
+take; and a file whose top level opens with something other than `(`.
+Several of those messages say what the right shape is in the
+expectation itself, so read it in full.
+
+Give the parser the token it names, or close the form it is inside.
+
+The neighbours: the file ending while a form is still open is
+AX2002; a form that is well delimited and still breaks a rule with no
+expectation to name is AX2003; a keyword from an earlier version of
+the language - `begin`, `union` - is AX2004, deliberately, so that
+old source gets an explanation rather than an unexpected token; and a
+form nested past the parser's limit is AX2005.
 
 ### explain AX2002
 AX2002 - unexpected end of file
 
-The file ended while a form was still open, most commonly an
-unbalanced `(`, `[` or `{`. Count opening vs. closing delimiters
-working backward from the end of the file.
+The file ended with a form still open. The span is the end of the
+file, because that is where the parser learned it, and the fault is
+wherever the delimiter count stopped balancing:
+
+    (:: main Int)
+
+    (fn (main)
+      (+ 1 2)
+
+Count `(`, `[` and `{` against `)`, `]` and `}` working backward from
+the end: the first form whose count comes up short is the one missing
+its close. An editor that shows matching delimiters finds it in one
+keystroke.
+
+Two things hide the real culprit. A string opened and never closed
+swallows everything to the next quote or the end of the file, and is
+AX1002 first. A `#|` block comment with no `|#` swallows the rest of
+the file with no diagnostic of its own, so what is left draws
+whatever it draws - a signature whose `fn` was inside the comment is
+AX3015.
+
+Close the form. If the file was cut short by a tool - a truncated
+paste, a partial write - the fix is the tool's.
+
+AX2001 is the neighbour: a delimiter that arrives, but is the wrong
+one.
 
 ### explain AX2003
 AX2003 - syntax error
 
-A syntax rule was violated in a way that doesn't fit a more specific
-diagnostic code; see the message for details.
+The parser refused a token and had nothing more specific to say
+about it. AX2001 is the same refusal with an EXPECTATION attached -
+`expected identifier` - and this code is what the refusal becomes
+when the grammar at that point has no single expected token to name.
+There is one construction site for it in the parser, and the
+diagnostics corpus draws it with one shape, a `type` alias written
+without its `=`:
+
+    (type Count Int)
+
+    (:: main Int)
+
+    (fn (main) 42)
+
+The alias form is `(type Count = Int)`. The span is the keyword the
+form opened with, which is the parser's way of saying that the whole
+form is what it could not read.
+
+Compare the form against the reference for the keyword it starts
+with; each shape has one spelling. If a form you believe is valid
+lands here, the defect is in the parser's expectation text rather
+than in your program, and is worth reporting with the form.
+
+The neighbours are AX2001 (the parser can say what it wanted), AX2002
+(it wanted anything and found the end of the file), and AX3008, this
+code's twin one stage later - a rule the CHECKER enforces with no
+code of its own.
 
 ### explain AX2004
 AX2004 - removed language construct
@@ -259,60 +408,326 @@ turned into a filename.
 ### explain AX3001
 AX3001 - undefined variable
 
-No binding with this name is in scope: not a local `let`/`lambda`
-parameter, not a top-level `define`/`fn`, and not a data constructor.
-Check for typos, missing imports, or a definition that appears later
-in the file (Axiom does not forward-reference local bindings).
+No binding with this name is in scope. A name in expression position
+resolves to one of: a `let` binding or a `lambda`/`fn` parameter
+enclosing the use, a top-level `fn` in this module, a `pub` name of
+an imported module, or a constructor of a `data` type. This name is
+none of them at this point in the program:
+
+    (:: helper Int)
+
+    (fn (helper) 1)
+
+    (:: main Int)
+
+    (fn (main) (+ helpr 1))
+
+When a name one edit away IS in scope, the diagnostic names it and
+carries a machine-applicable fix - `~>"helper"` on the AXDL line -
+which an editor or an agent applies without reading the prose. The
+suggestion is offered for bindings and constructors alike.
+
+`let` is sequential: a binding is visible in the bindings and body
+after it and never before, so Axiom does not forward-reference local
+bindings. Top-level `fn`s see each other in any order.
+
+Fix the spelling, bind the name, or import the module that exports
+it. A capitalised name in expression position that no `data` declares
+is this code too; the same name in a PATTERN is AX3003.
+
+Three neighbours look like this one and are not. AX3023 is a name
+that EXISTS in an imported module and is not exported - not written
+`pub`, or left out of an `(import M (a b))` list. AX3014 is a name
+that exists in TWO imported modules with nothing to choose between
+them. AX3015 is a signature with no definition behind it: the name
+resolves, and there is nothing to run.
 
 ### explain AX3002
 AX3002 - undefined type
 
-This type name does not refer to any built-in type, `data`, `struct`,
-or `type` alias visible in this module.
+A name in TYPE position - a signature, a field's type, a `cast`
+target, the head of a `(struct Name ...)` construction - names no
+built-in type, no `data`, no `struct` and no `type` alias visible in
+this module:
+
+    (:: origin (-> Int Piont))
+
+    (fn (origin n) n)
+
+    (:: main Int)
+
+    (fn (main) 0)
+
+The built-ins are `Int`, `Float`, `Bool`, `Char`, `String` and
+`Unit`, with `Vec`, `Option` and the arrow `(-> a b)` over them.
+Everything else is declared by a `data`, a `struct` or a `type`
+alias, in this module or in one it imports.
+
+Only a name beginning with a capital letter is looked up. A lowercase
+name in type position is a TYPE VARIABLE and binds fresh, so `int`
+does not draw this code - it draws AX3047, which exists because a
+variable that accepts anything is the opposite of what that spelling
+looks like.
+
+Declare the type, import the module that declares it, or fix the
+spelling. Two codes are near: AX3044 is a type name declared in MORE
+than one imported module, and AX3003 is a type's name written where
+a CONSTRUCTOR belongs - `(Color)` in a pattern where `(Red)` was
+meant.
 
 ### explain AX3003
 AX3003 - undefined constructor
 
-This name was used as a data constructor (applied like `(Foo x y)` or
-matched in a pattern) but no `data` declaration defines a constructor
-with this name.
+A pattern names a constructor - `(Grean n)`, `(Purple)` - and no
+`data` declaration visible here defines one by that name:
+
+    (data Color
+      (Red)
+      (Green Int))
+
+    (:: main Int)
+
+    (fn (main)
+      (match Red
+        ((Grean n) n)
+        (_ 0)))
+
+When a constructor one edit away is visible, the diagnostic names it
+and carries the fix - `~>"Green"` - so the misspelling is corrected
+by whatever reads the line.
+
+This code is drawn in PATTERN position. The same unknown name in
+expression position is AX3001, an undefined variable, because an
+expression resolves through the value namespace and a constructor is
+one kind of value in it; the pattern compiler asks the narrower
+question and answers with the narrower code. A type's own name in a
+pattern - `(Color)` for a `data Color` - is this code as well, since
+a type is not one of its constructors.
+
+Fix the spelling, declare the constructor on its `data` type, or
+import the module that declares it. A name that IS a constructor but
+is written with the wrong number of fields is AX3009; a constructor
+of a different type than the scrutinee is AX3004; and a `match` that
+spells every constructor correctly and still misses one is AX3005.
 
 ### explain AX3004
 AX3004 - type mismatch
 
-An expression's inferred type doesn't match the type required by its
-context (a function parameter, `if` branch, `let` binding, etc.).
+An expression has one type and the place it sits demands another.
+The message states both - `expected Int, found Bool` - and the span
+is the expression that has the FOUND type, so the fix is either to
+change that expression or to change what its context asks of it.
+
+The shape worth knowing about is a signature's type variable used
+twice:
+
+    (:: same (-> a a Int))
+
+    (fn (same x y) 0)
+
+    (:: main Int)
+
+    (fn (main) (same 1 true))
+
+A type variable is instantiated once per call, so the first argument
+PINS `a` to `Int` and the second is checked against that: the report
+is `expected Int, found Bool` at `true`, not a report about `a`. A
+caller may choose any one type for `a`; it may not choose two.
+
+The other shapes it is drawn for most, each pinned in the diagnostics
+corpus: an `if` whose condition is not `Bool` (`(if 1 2 3)`); an
+argument against its parameter (`(twice true)` on `(-> Int Int)`); a
+body against its declared result (`(:: name String)` over `42`); a
+value stored in a struct field of another type (`(Point 1 true)`); a
+`String` where an `Int` is due, which are both one machine word and
+are distinct types all the same; and a pattern whose constructor
+belongs to a different `data` type than the scrutinee.
+
+There is no second report for an expression that already drew a
+diagnostic: its type is poisoned, and a poisoned type matches
+anything, so one misspelled name does not become three type errors.
+
+Read the expected type and decide which side is wrong. When the
+context is a signature you wrote, the signature is often the side
+that is wrong - the body knows what it computes.
+
+The neighbours: AX3007 and AX3008 for a struct's fields; AX3009 for a
+constructor's arity; AX3040 for a signature whose type variable
+appears only in the result, which is not a mismatch but a type the
+callee cannot have produced; AX3047 for `u64` and its relatives in
+type position; and AX3036 for a type that cannot cross an `extern`
+boundary.
 
 ### explain AX3005
 AX3005 - non-exhaustive pattern match
 
-A `match` expression does not cover every possible constructor/value of
-the scrutinee's type. Add the missing arms or a wildcard `_` arm.
+A `match` must have an arm for every value its scrutinee can take,
+and this one does not. The message lists what is missing - `missing
+Rect, Dot` - and the span is the scrutinee:
+
+    (data Shape
+      (Circle Int)
+      (Rect Int Int)
+      (Dot))
+
+    (:: area (-> Shape Int))
+
+    (fn (area s)
+      (match s
+        ((Circle r) (* r r))))
+
+    (:: main Int)
+
+    (fn (main) (area Dot))
+
+The diagnostic carries two machine-applicable fixes. The first
+appends one arm per missing constructor, each answering
+`(todo "Name")`:
+
+    ~>"\n    ((Rect _ _) (todo \"Rect\"))\n    ((Dot) (todo \"Dot\"))"
+
+and the second inserts `(import IO (todo))` at the top of the file
+when `todo` is not already in scope. Applied together they compile
+and run, and the first unwritten arm that is reached writes
+`todo: Rect` to standard error and exits 70 - the program says where
+its own work stopped instead of computing on a value it never
+considered.
+
+Write the arms, or a final `_` arm when the remaining cases really do
+share one answer. A `Bool` scrutinee needs both `true` and `false` or
+a wildcard. A `match` whose arms are all literals (`(1 11) (2 22)`)
+draws this code in a second wording - `this match can fall through`
+- because no literal covers its type, and before it did a value no
+arm matched answered 0 silently. Nested patterns are checked as deep
+as they are written, so an arm for `(Some (Circle r))` leaves
+`(Some (Rect _ _))` uncovered.
+
+The neighbours: AX3009 for an arm whose constructor has the wrong
+number of fields, AX3003 for one no `data` declares, and AX3004 for
+an arm whose constructor belongs to another type.
 
 ### explain AX3006
 AX3006 - duplicate definition
 
-The same name is defined more than once at the same scope. Rename one
-of the definitions or remove the duplicate.
+One name, two definitions, one scope. The report lands on the second
+definition and its secondary span - `^` on the AXDL line - points at
+the first, so both are named however far apart they are:
+
+    (:: main Int)
+
+    (fn (main) 0)
+
+    (fn (main) 1)
+
+Functions, `struct` and `data` types, the operations of an `effect`,
+the members of a `namespace` and macros all live where a second
+declaration of a name is refused rather than allowed to shadow: the
+program would otherwise mean whichever one the compiler read last. A
+`pub` signature delivered by an import collides with a local
+definition of the same name in the same way, an `extern` item
+collides with a `fn`, and a macro that shadows a function is refused
+too.
+
+Rename one, or delete the one that is a copy.
+
+Two neighbours are about one name in two PLACES rather than two
+definitions in one: AX3014 is a name defined by two imported modules
+that the entry file must qualify, and AX3044 the same for a type
+name. AX3026 is a definition whose name the emitted runtime already
+owns - a collision with something not written in Axiom.
 
 ### explain AX3007
 AX3007 - field not found
 
-The named field does not exist on the given `struct` type. Check the
-field name for typos or that you're accessing the right type.
+`p.z` reads a field of `p`, and `p`'s type has no field of that name:
+
+    (struct Point
+      (x : Int)
+      (y : Int))
+
+    (:: main Int)
+
+    (fn (main)
+      (let ((p (Point 1 2)))
+        p.z))
+
+The span is the field name after the dot, and the message names the
+type the compiler resolved for the value - which is the thing to
+check when the name is spelled right, because a value of a different
+struct than the one you meant has different fields.
+
+Fix the name, or the value. Two codes sit beside this one: AX3008
+for a `struct` built with the wrong number of fields, and for a
+field read on a `data` type that has a nullary constructor beside a
+fielded one (the value may be a bare tag with no fields to read, so
+the read is refused in favour of a `match`); and AX3012 for a `set`
+into a field the declaration does not mark `mut`.
 
 ### explain AX3008
 AX3008 - semantic error
 
-A semantic rule was violated in a way that doesn't fit a more specific
-diagnostic code; see the message for details.
+A rule the checker enforces was broken in a way that has no code of
+its own; the message carries the rule. The diagnostics corpus draws
+it for four shapes, and a program is most likely to meet the first:
+
+    (struct Point
+      (x : Int)
+      (y : Int))
+
+    (:: main Int)
+
+    (fn (main) { (Point 1) 0 })
+
+The four: a `struct` built with the wrong number of fields (`expects
+2 field(s), found 1`), the shape above; a `lambda` with no
+parameters, which can never be called, because `(f)` and `f` are the
+same expression; `sizeof` or `alignof` given more than the one type
+each takes; and a field read `.v` on a `data` type with a nullary
+constructor beside a fielded one, because the value may be an
+immediate tag with no fields to read - match on it instead, and read
+the field in the arm that has it.
+
+Each message states its rule; read that rather than the code. AX2003
+is this code's twin one stage earlier, the parser's rule with no
+number of its own. The specific codes nearby: AX3007 for a field
+that does not exist, AX3009 for a `data` constructor's arity (a
+`struct`'s arity is here, a constructor's is there), and AX3004 for
+a type that does not fit.
 
 ### explain AX3009
 AX3009 - constructor arity mismatch
 
-A data constructor was applied (or matched in a pattern) with the wrong
-number of arguments. Check the constructor's `data` declaration for how
-many fields it actually has.
+A `data` constructor was written with a different number of fields
+than its declaration gives it. In a pattern, both too few and too
+many are this code; in an expression, too few is this code and too
+many is AX3004, because `(Green 1)` is already a `Color` and applying
+a `Color` to a further argument is a mismatch against a function
+type:
+
+    (data Color
+      (Red)
+      (Green Int))
+
+    (:: main Int)
+
+    (fn (main)
+      (match Red
+        ((Green) 1)
+        (_ 0)))
+
+The message states both counts - `expects 1 argument(s), found 0` -
+and the span is the constructor.
+
+Check the `data` declaration and write one pattern variable or `_`
+per field. A nullary constructor is matched as `(Red)`, WITH its
+parentheses: a bare name in arm position is a variable pattern that
+binds the scrutinee and matches everything, so `(Red 1)` written
+where `((Red) 1)` was meant is not this code - it is accepted, it
+matches a `Green` too, and every arm after it is dead.
+
+The neighbours: AX3003 for a constructor no `data` declares, AX3005
+for a `match` whose arms are all well-formed and still miss a case,
+and AX3008 for a `struct` built with the wrong field count.
 
 ### explain AX3010
 AX3010 - agent metadata mismatch
@@ -336,14 +751,42 @@ not resolve - is AX3037, which is a warning. See `explain AX3037`.
 ### explain AX3011
 AX3011 - effect mismatch
 
-The body of a `handle` expression performs effects that its
-handled-effects list does not name. List every effect the body
-can perform, or move the unhandled operation outside the
-`handle`.
+The body of a `handle` performs an effect that its handled-effects
+list does not name. `(handle BODY (E1 E2) HANDLER)` promises to
+intercept `E1` and `E2`; an operation of any other effect inside
+BODY escapes the handler, and the list is then a false statement
+about what the expression handles:
 
-(Effects do not appear in function signatures; a function's
-effect claims are made with `;@axiom:effect(...)` tags and
-validated as AX3010.)
+    (effect Ask
+      (ask :: (-> Int Int)))
+
+    (:: answer (-> Int Int))
+
+    (fn (answer n)
+      (handle (ask n) (IO) (lambda (v) 0)))
+
+    (:: main Int)
+
+    (fn (main) (answer 1))
+
+The message names the effect that escaped - `unhandled effect
+`Ask`` - at the operation. The built-in effects count: a body that
+reaches a syscall under `(Alloc)` is refused for `IO` exactly as a
+custom operation is for its effect, and a nested `handle` discharges
+only what its own list names.
+
+Name every effect the body performs, or move the escaping operation
+outside the `handle`.
+
+Effects are NOT part of a function's signature. What a function
+performs is inferred from its body and checked against its
+`;@axiom:effect(...)` tag - AX3010 when the tag is wrong, AX3042
+when IO is performed under no tag at all. The neighbours of this
+code are the other handle-shaped ones: AX3016 for a list naming an
+effect that does not exist, AX3017 for a handler shape the compiler
+does not support, and AX3053 - a warning - for an operation that
+reaches `main` with no handler installed anywhere, which the program
+above also draws, since nothing in it handles `Ask`.
 
 ### explain AX3012
 AX3012 - cannot assign to an immutable binding
@@ -1467,10 +1910,13 @@ failure writes
 
     axiom: precondition failed in `half`: (> n 0)
 
-on fd 2, prints the backtrace, and exits 76 - a status of its own,
-beside 70 out of memory, 71 unhandled effect, 72 division by zero, 73
-the FFI boundary, 74 no syscall ABI and 75 an invalid arena mark, so a supervisor reading a
-status can tell a broken invariant from a broken machine. There is no
+on fd 2, prints the backtrace, and exits 77, beside 70 out of memory,
+71 unhandled effect, 72 division by zero, 73 the FFI boundary, 74 no
+syscall ABI, 75 an invalid arena mark and 76 an arena reset past a
+live handle. 77 is SHARED with the out-of-range index trap: a
+supervisor tells those two apart by the sentence on fd 2 and not by
+the status, which is a defect and is recorded in
+docs/subtypes-design.md rather than left to be rediscovered. There is no
 flag: a check that is off by default is a comment by default.
 
 WHAT THIS CODE REFUSES is everything about the contract that IS
@@ -1936,29 +2382,125 @@ on `--threads`: the process lowering is merely permitted to be laxer
 than the rule. `__proc_spawn` names that lowering by itself - a
 separate address space, so no count is shared - and is exempt.
 
+### explain AX3065
+AX3065 - an AXTAG key the compiler derives and writes itself
+
+The AXTAG key namespace is OPEN: a key the compiler does not know is
+metadata, it is recorded, and nothing checks it. AX3039 says so, and
+this does not narrow it. What it refuses is the one part of that
+namespace that was never the author's - the keys `axiom symbols`
+WRITES, from the checker's own answers:
+
+    effects  effect-params  effects-incomplete  effects-overapprox
+    effects-possible  ctors  of  fields  tyvars  methods  generated
+    calls  mir-params  mir-escapes  mir-result-fresh
+    mir-result-from  mir-incomplete  mir-truncated
+
+A reader of that stream cannot tell an author's copy of one from the
+compiler's. Before this refusal, `;@axiom:effects(Pure)` on a body
+with effects, and `;@axiom:mir-result-fresh(1)` on any body at all,
+rendered rows byte-identical to derived ones - the second silently,
+because it is not one slip from a key the compiler checks and the
+near-miss rule was all that had ever looked at a key.
+
+The ordering rule does not cover it. Compiler keys are pushed after
+the author's so a reader taking the LAST `#key` gets the compiler's -
+but only where the compiler emits that key on that row. It emits no
+`#effects=` for a body with no effects and no `#mir-*` for a program
+that names no region, which is exactly where a forged guarantee is
+worth forging.
+
+An ERROR, like AX3052 and AX3054 and unlike AX3039, for AX3052's
+reason: accepting it would let a tag read like a guarantee and buy
+silence. `pure`, `effect(...)`, `restrict(...)`, `pre(...)`,
+`post(...)`, `unhandled(trap)` and `raw` are yours to write - they
+are CHECKED, which is the difference.
+
+Namespace it - `;@axiom:my:effects(...)`, which a `:` exempts - or
+drop it.
+
 ### explain AX4001
 AX4001 - no `main` function
 
-An executable Axiom program needs exactly one top-level function named
-`main` to serve as the entry point. Add `(:: main Int)` and
-`(define main ...)`, or use `axiom check`/`emit-llvm` if you only want
-to analyze a library-style module.
+`axiom build` and `axiom run` produce an executable, and an
+executable starts somewhere: a top-level function named `main`,
+declared `(:: main Int)`, whose answer is the process's exit status.
+This module has none:
+
+    (:: helper Int)
+
+    (fn (helper) 1)
+
+The diagnostic has no span, because the fault is an absence.
+
+`axiom check` and `axiom emit-llvm` accept the same module without
+complaint - a library has no entry point and is well-formed to every
+tool that does not need one - and so does a build under
+`--emit-staticlib`, which archives a module for a foreign host to
+call.
+
+Add the pair:
+
+    (:: main Int)
+
+    (fn (main) 0)
+
+or run the tool you meant. A `main` that is present and misspelled
+(`Main`, `mian`) is this code too, and one defined twice is AX3006.
 
 ### explain AX4002
 AX4002 - code generation failed
 
-The IR-to-LLVM lowering stage hit a case it doesn't yet support or an
-internal invariant was violated. This generally indicates a compiler
-limitation rather than a mistake in your source; please file a bug
-with a minimal reproduction.
+The checker accepted the program and the LLVM emitter could not
+lower it: a shape reached code generation that the check which
+should have refused it did not run on, or an invariant of the
+emitter failed. The help says so in as many words - `this is a
+compiler bug: the check that should have refused this program did
+not run` - and that is the reading to take. Nothing you wrote is
+wrong in the language's terms; the compiler has a gap, and this code
+is the gap announcing itself rather than emitting IR that would fail
+later in `llc` or at run time.
+
+There is no program in this text that draws it, deliberately: any
+program that did would be a defect to fix, not an example to keep,
+and the diagnostics corpus contains none.
+
+Report it with the smallest program that reproduces it. Until it is
+fixed, write the same computation another way; the message names
+the construct the emitter stopped on.
+
+The neighbours are the other build-stage codes: AX4003 for a
+toolchain command (`llc`, `cc`) that failed after the IR was
+emitted, AX4004 and AX4005 for an `extern` whose symbol or shape the
+linked archive does not supply, and AX4006 for a thread lowering the
+target does not have.
 
 ### explain AX4003
 AX4003 - external toolchain command failed
 
-Axiom shells out to `llc` and `cc` to turn LLVM IR into a native
-executable. This error means one of those external commands could not
-be run or exited unsuccessfully; check that LLVM (`llc`) and a C
-compiler (`cc`) are installed and on your `PATH`.
+Axiom emits LLVM IR itself and then hands it to two external
+programs: `llc`, which turns the IR into an object file, and `cc`,
+which links the object into the executable. This code means one of
+them could not be run or exited unsuccessfully. The message names
+which - `could not run `llc`` - and the build exits with status 4,
+which `axiom build` reserves for a failed tool so that it is
+distinguishable from a program the compiler refused (status 1) or
+could not parse (status 2).
+
+It is a fact about the machine, not the program: a hello world draws
+it on a host with no `llc` on `PATH`. `opt`, the mid-level optimiser,
+is the one tool that is optional - a missing `opt` is a warning and
+the build continues without it.
+
+Install LLVM and put `llc` on `PATH`, or a C compiler for `cc`. To
+see what was handed over, `--emit-llvm` keeps the `.ll` file so the
+step can be run by hand; `scripts/check-driver.sh` is the gate that
+holds a failing `llc` to this code and a missing `opt` to a warning.
+
+AX4002 is the stage BEFORE this one, the emitter failing to produce
+IR at all. AX4004 is the one link failure the compiler answers
+itself, before `cc` runs: an `extern` naming a symbol no linked
+archive defines.
 
 ### explain AX4004
 AX4004 - an `extern` names a symbol no archive defines
@@ -2046,26 +2588,113 @@ the entry file, from every file in the program alike.
 ### explain ax3001 (exit 0)
 AX3001 - undefined variable
 
-No binding with this name is in scope: not a local `let`/`lambda`
-parameter, not a top-level `define`/`fn`, and not a data constructor.
-Check for typos, missing imports, or a definition that appears later
-in the file (Axiom does not forward-reference local bindings).
+No binding with this name is in scope. A name in expression position
+resolves to one of: a `let` binding or a `lambda`/`fn` parameter
+enclosing the use, a top-level `fn` in this module, a `pub` name of
+an imported module, or a constructor of a `data` type. This name is
+none of them at this point in the program:
+
+    (:: helper Int)
+
+    (fn (helper) 1)
+
+    (:: main Int)
+
+    (fn (main) (+ helpr 1))
+
+When a name one edit away IS in scope, the diagnostic names it and
+carries a machine-applicable fix - `~>"helper"` on the AXDL line -
+which an editor or an agent applies without reading the prose. The
+suggestion is offered for bindings and constructors alike.
+
+`let` is sequential: a binding is visible in the bindings and body
+after it and never before, so Axiom does not forward-reference local
+bindings. Top-level `fn`s see each other in any order.
+
+Fix the spelling, bind the name, or import the module that exports
+it. A capitalised name in expression position that no `data` declares
+is this code too; the same name in a PATTERN is AX3003.
+
+Three neighbours look like this one and are not. AX3023 is a name
+that EXISTS in an imported module and is not exported - not written
+`pub`, or left out of an `(import M (a b))` list. AX3014 is a name
+that exists in TWO imported modules with nothing to choose between
+them. AX3015 is a signature with no definition behind it: the name
+resolves, and there is nothing to run.
 
 ### explain 3001 (exit 0)
 AX3001 - undefined variable
 
-No binding with this name is in scope: not a local `let`/`lambda`
-parameter, not a top-level `define`/`fn`, and not a data constructor.
-Check for typos, missing imports, or a definition that appears later
-in the file (Axiom does not forward-reference local bindings).
+No binding with this name is in scope. A name in expression position
+resolves to one of: a `let` binding or a `lambda`/`fn` parameter
+enclosing the use, a top-level `fn` in this module, a `pub` name of
+an imported module, or a constructor of a `data` type. This name is
+none of them at this point in the program:
+
+    (:: helper Int)
+
+    (fn (helper) 1)
+
+    (:: main Int)
+
+    (fn (main) (+ helpr 1))
+
+When a name one edit away IS in scope, the diagnostic names it and
+carries a machine-applicable fix - `~>"helper"` on the AXDL line -
+which an editor or an agent applies without reading the prose. The
+suggestion is offered for bindings and constructors alike.
+
+`let` is sequential: a binding is visible in the bindings and body
+after it and never before, so Axiom does not forward-reference local
+bindings. Top-level `fn`s see each other in any order.
+
+Fix the spelling, bind the name, or import the module that exports
+it. A capitalised name in expression position that no `data` declares
+is this code too; the same name in a PATTERN is AX3003.
+
+Three neighbours look like this one and are not. AX3023 is a name
+that EXISTS in an imported module and is not exported - not written
+`pub`, or left out of an `(import M (a b))` list. AX3014 is a name
+that exists in TWO imported modules with nothing to choose between
+them. AX3015 is a signature with no definition behind it: the name
+resolves, and there is nothing to run.
 
 ### explain AX-3001 (exit 0)
 AX3001 - undefined variable
 
-No binding with this name is in scope: not a local `let`/`lambda`
-parameter, not a top-level `define`/`fn`, and not a data constructor.
-Check for typos, missing imports, or a definition that appears later
-in the file (Axiom does not forward-reference local bindings).
+No binding with this name is in scope. A name in expression position
+resolves to one of: a `let` binding or a `lambda`/`fn` parameter
+enclosing the use, a top-level `fn` in this module, a `pub` name of
+an imported module, or a constructor of a `data` type. This name is
+none of them at this point in the program:
+
+    (:: helper Int)
+
+    (fn (helper) 1)
+
+    (:: main Int)
+
+    (fn (main) (+ helpr 1))
+
+When a name one edit away IS in scope, the diagnostic names it and
+carries a machine-applicable fix - `~>"helper"` on the AXDL line -
+which an editor or an agent applies without reading the prose. The
+suggestion is offered for bindings and constructors alike.
+
+`let` is sequential: a binding is visible in the bindings and body
+after it and never before, so Axiom does not forward-reference local
+bindings. Top-level `fn`s see each other in any order.
+
+Fix the spelling, bind the name, or import the module that exports
+it. A capitalised name in expression position that no `data` declares
+is this code too; the same name in a PATTERN is AX3003.
+
+Three neighbours look like this one and are not. AX3023 is a name
+that EXISTS in an imported module and is not exported - not written
+`pub`, or left out of an `(import M (a b))` list. AX3014 is a name
+that exists in TWO imported modules with nothing to choose between
+them. AX3015 is a signature with no definition behind it: the name
+resolves, and there is nothing to run.
 
 ### explain AX9999 (exit 1)
 error: unknown diagnostic code 'AX9999'
@@ -2146,6 +2775,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3062[0m  a closure escaping the region of something it captures  (region-capture)
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
+  [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
