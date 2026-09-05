@@ -978,7 +978,30 @@ the same fixture both ways and requires the same bytes on stdout and
 the same exit status, including from a binding that traps: under
 processes the child dies and the join re-raises its status; under
 threads the trap already ends the whole process
-(`tests/stdlib/471-parallel-trap.ax`, status 77 out of both).
+(`tests/stdlib/471-parallel-trap.ax`, status 77 out of both). Section 8
+of that gate runs four bindings that *allocate* — three 20,000-element
+`Vec`s and a 16 KB `String` built eight bytes at a time — and requires
+the thread lowering's bytes to be the process lowering's, which is the
+executed form of "one arena per thread": every `parallel` binding this
+repository ran before 2026-09-04 was arithmetic, so nothing had ever
+called `axiom_alloc` from a second thread.
+
+**Where the two lowerings stop agreeing: two bindings that both fail.**
+With one trapping binding they answer the same status. With two, they
+do not, and the difference is not a bug in either — it is what the two
+lowerings *are*. Under processes the joins run in argument order, the
+first join re-raises its child's status, and nothing after it runs, so
+the status is the **binding written first**, always (10 runs per order,
+2026-09-04). Under threads a trap is `exit_group` from the thread that
+took it, there is no join to reach, and the status is **whichever
+binding failed first** — 72 in 6 runs of 10 and 77 in the other 4, from
+the same binary on the same machine. The two backtraces interleave on
+fd 2 as well. If a program can have two bindings fail at once and cares
+which status it exits with, that program wants the default lowering,
+which is the deterministic one. `scripts/check-parallel.sh` section 9
+pins the process lowering's statuses exactly and requires the thread
+lowering's to be one of the two traps, which is all a gate can assert
+about a race.
 
 **What a binding may answer is a word.** The desugaring wraps each
 expression in a `(-> Int Int)` thunk and the join answers `Int`, so a
@@ -1025,10 +1048,29 @@ lambda. It is reachable only from a hand-written `__par_spawn` or
 
 **Where it is not available.** `--threads` on freebsd-* or
 windows-x86_64, and `__thread_spawn` there, are refused at build time
-(`AX4006`). On windows-x86_64 there is no `fork` either, so a program
-using `parallel` builds and dies at its first spawn with
-`axiom: parallel is not available on this target` (status 79); a spawn
+(`AX4006`). freebsd's *process* lowering is available and measured, and
+measured by execution rather than by assembling: the
+`Tests (freebsd-x86_64)` leg boots FreeBSD 14.4 in a VM and runs the
+stdlib corpus there, `470-parallel`, `471-parallel-trap` and
+`476-par-pool` among its 109 cases.
+
+On windows-x86_64 there is no `fork` either, so neither lowering
+exists. A build for it **warns** `AX4007` — a warning, not a refusal:
+the module still emits, with every spawn and join lowered to a trap, so
+a program whose `parallel` sits on a path it never takes still builds
+and still runs there. What the warning buys is being told at build time
+instead of at the first spawn, where the program prints
+`axiom: parallel is not available on this target` and exits 79. A spawn
 the kernel refuses is status 78 on every target.
+
+**A trap inside a binding, and its backtrace.** The walk stops at
+`main`, because above `main` are the C runtime's frames and this
+module's symbol table cannot name them. A thread's stack has no `main`
+on it, so under `--threads` the walk used to run past
+`@__axiom_par_entry` and print two frames of the platform's thread
+runtime under this program's own symbols; it stops at that entry now
+(`scripts/check-parallel.sh` section 10, which ablates a compiler to
+show the frames come back without it).
 
 The form is desugared by the parser into `let`s over three pairs of
 primitives — `__par_spawn`/`__par_join`, which follow `--threads`, and
@@ -4040,7 +4082,7 @@ What puts a name on that list is stated once, in README's *Targets* section: a C
 
 Being on this list does **not** mean a release carries a prebuilt archive for it. Supported and shipped are separate questions, and since 2026-08-30 `linux-x86_64` answers them differently: its CI leg runs the whole gate battery on every change, and `release.yml` builds only `linux-aarch64` and `darwin-aarch64`. On a host with no archive `scripts/install.sh` says so and points at `scripts/bootstrap-from-seed.sh` instead of failing on a download, and `scripts/check-release-targets.sh` holds the release matrix and that refusal list to each other.
 
-`freebsd-x86_64` joined the list on 2026-08-30, when its leg had been seen green on 13 of the previous 15 runs and its `continue-on-error` was removed: `Tests (freebsd-x86_64)` boots FreeBSD 14.4 in a VM and runs the bootstrap and the syscall-table gates there, and it is blocking. `freebsd-aarch64` did NOT join and is the one FreeBSD target that is not supported — it has the same seed and the same syscall table but no leg, because an aarch64 guest is TCG-emulated on every runner GitHub offers (measured at a 300-minute budget and dropped). Neither FreeBSD target ships an archive: a `freebsd-x86_64` host gets the build-from-source paragraph `linux-x86_64` gets, a `freebsd-aarch64` host the not-supported one. FreeBSD 12 is the floor the syscall numbers need; the triple pins 14.
+`freebsd-x86_64` joined the list on 2026-08-30, when its leg had been seen green on 13 of the previous 15 runs and its `continue-on-error` was removed: `Tests (freebsd-x86_64)` boots FreeBSD 14.4 in a VM and runs the bootstrap, the whole stdlib corpus and the syscall-table gates there, and it is blocking. The corpus is the half that is easy to under-read: 109 cases execute on that kernel, `470-parallel`, `471-parallel-trap` and `476-par-pool` among them, which is what makes `parallel`'s process lowering *measured* on FreeBSD rather than merely assembled (`scripts/check-parallel.sh` section 7 holds the leg to it). `freebsd-aarch64` did NOT join and is the one FreeBSD target that is not supported — it has the same seed and the same syscall table but no leg, because an aarch64 guest is TCG-emulated on every runner GitHub offers (measured at a 300-minute budget and dropped). Neither FreeBSD target ships an archive: a `freebsd-x86_64` host gets the build-from-source paragraph `linux-x86_64` gets, a `freebsd-aarch64` host the not-supported one. FreeBSD 12 is the floor the syscall numbers need; the triple pins 14.
 
 `windows-x86_64` joined the list on 2026-08-30: `Tests (windows-x86_64)` links and EXECUTES a hello world on `windows-latest` from modules the Linux `cross` job emitted, its imports held to an allowlist, and the leg is blocking. The scope of that word is one program — the FreeBSD leg runs the whole stdlib corpus, this one runs `hello.exe` — and README's *Targets* section states the difference rather than letting `supported` cover both silently. **Supported as a target is not supported as a host:** the compiler does not run on Windows, and `scripts/install.sh` refuses a Windows host outright. It is the one target without a syscall ABI, so the emitted runtime and `stdlib/Sys/Platform.windows.ax` reach kernel32 by call (`Sys.Platform.usesSyscallAbi` is 0 there, and `Sys.ax` calls the platform module's own `platformWriteFd`/`platformReadFd`/`platformExitWith` instead of `__syscallN`), the program enters at `mainCRTStartup` with no C runtime, and a `__syscallN` the program reaches anyway exits 74 after `axiom: no syscall ABI on this target`.
 

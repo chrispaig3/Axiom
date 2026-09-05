@@ -81,6 +81,7 @@
   [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
   [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
   [93mAX4006[0m  a thread lowering the target does not have  (threads-unsupported)
+  [93mAX4007[0m  a `parallel` lowering the target has neither of  (parallel-unsupported)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 ### explain AX1001
 AX1001 - unexpected character
@@ -2023,15 +2024,43 @@ heads, the recovery point and one evidence slot per effect - become
 thread-local the moment a program has a second thread (MM-PAR-6).
 
 darwin and linux have both, and are measured. freebsd links no
-`libthr` here and is unmeasured; windows has no `fork` either, so
-neither lowering exists there and `parallel` compiles to a trap
-that says so (status 79).
+`libthr` here, so the THREAD lowering is refused there - its
+process lowering is measured, and measured by execution: the
+`Tests (freebsd-x86_64)` leg boots FreeBSD 14.4 and runs the
+stdlib corpus, `470-parallel`, `471-parallel-trap` and
+`476-par-pool` among it. windows has no `fork` either, so neither
+lowering exists there, `parallel` compiles to a trap that says so
+(status 79), and a build for it warns AX4007.
 
 Drop `--threads` to lower `parallel` to processes - the default,
 and the lowering whose isolation MM-PAR-3 makes true by
 construction - or build for a target that has threads. A program
 that names `__thread_spawn` itself has asked for a thread and gets
 no process fallback: `__proc_spawn` is the spelling for one.
+
+### explain AX4007
+AX4007 - a `parallel` lowering the target has neither of
+
+A WARNING, not a refusal. `(parallel ...)` has two lowerings -
+processes by default (`fork`, one shared page per binding,
+`wait4`) and the platform's pthread under `--threads` - and
+windows-x86_64 has neither: no `fork`, no pthread. AX4006 already
+refuses `--threads` there at build time. This is the other half,
+about the DEFAULT lowering, and it does not refuse.
+
+The module still emits: every spawn and every join is lowered to
+`@__axiom_par_unsupported`, which prints `axiom: parallel is not
+available on this target` and exits 79. That is deliberate - it is
+what lets every cross-target sweep compile the same fixtures for
+every target - and it means a program whose `parallel` sits on a
+path it never takes BUILDS AND RUNS on windows. An error would
+break such a program for a failure it would never suffer.
+
+What this warning changes is when you are told: at build time
+rather than at the first spawn. The program is unchanged.
+
+Build for a target that can spawn - darwin, linux or freebsd all
+fork - or keep the `parallel` off the path this target takes.
 
 ### explain AX5001
 AX5001 - cannot resolve import
@@ -2152,6 +2181,7 @@ run `axiom explain --list` to see all known codes
   [93mAX4004[0m  an `extern` names a symbol no archive defines  (ungrounded-symbol)
   [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
   [93mAX4006[0m  a thread lowering the target does not have  (threads-unsupported)
+  [93mAX4007[0m  a `parallel` lowering the target has neither of  (parallel-unsupported)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 
 Usage: axiom explain <CODE>
