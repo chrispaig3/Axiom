@@ -1020,9 +1020,12 @@ BUMP_DECL = locate(NAVHELPER, "bump", 2)    # its `fn` name, in the OTHER file
 NOTHING = locate(NAV, "syntax/join", 1)     # a name no declaration in scope has
 # The `let`-bound `locv` in `main`: binder and use, for the locals
 # completion. `locv` is spelled nowhere else, so a filtered menu on it
-# holds exactly the parameter as a Variable (6).
+# holds exactly the binder as a Variable (6).
 LOCV_BIND = locate(NAV, "locv", 1)
 LOCV_USE = locate(NAV, "locv", 2)
+# The module name in `(import NavHelper)`, for the module completion:
+# `NavH` is spelled by nothing else, so the menu holds the module.
+IMP_MOD = locate(NAV, "NavHelper", 1)
 # The first `+` in `main`, for the builtin hover: `(+ a b)` with its
 # type and the operator line.
 BUMP_PLUS_AT = locate(NAV, "+", 1)
@@ -1134,6 +1137,9 @@ nav_session = b"".join(frame(m) for m in [
     # One past the `locv` use in `(bump locv)`: the prefix is `locv`,
     # spelled nowhere else, so the menu holds the `let` binder alone.
     compl(19, LOCV_USE["line"], LOCV_USE["end"]),
+    # Four characters into the import's module: the prefix is `NavH`,
+    # spelled by nothing else, so the menu holds the module.
+    compl(21, IMP_MOD["line"], IMP_MOD["start"] + len("NavH")),
     hov(20, BUMP_PLUS_AT),
     {"jsonrpc": "2.0", "method": "textDocument/didChange",
      "params": {"textDocument": {"uri": nav_uri, "version": 2},
@@ -1215,6 +1221,7 @@ _, its15 = items(15)
 _, its16 = items(16)
 r17, its17 = items(17)
 _, its19 = items(19)
+_, its21 = items(21)
 if np_.returncode != 0:
     nwhy = f"the server exited {np_.returncode}"
 elif ntail:
@@ -1318,6 +1325,17 @@ elif not [i for i in its19 if i.get("label") == "locv" and i.get("kind") == 6]:
             f"it offered {[(i.get('label'), i.get('kind')) for i in its19][:12]}")
 elif (nresp.get(19, {}).get("result") or {}).get("isIncomplete") is not True:
     nwhy = "locals completion answered isIncomplete false"
+# Four characters into the import's module: every label starts with
+# `NavH`, the module is offered as a Module (9), and the list is
+# incomplete. `NavHelper` is the one module this directory holds on
+# disk, so nothing else can honestly appear.
+elif [i for i in its21 if not str(i.get("label", "")).startswith("NavH")]:
+    nwhy = (f"module completion filtered on 'NavH' still offered "
+            f"{[i['label'] for i in its21 if not str(i.get('label','')).startswith('NavH')][:6]}")
+elif offers(21, "NavHelper", 9, "module"):
+    nwhy = "module completion: " + offers(21, "NavHelper", 9, "module")
+elif (nresp.get(21, {}).get("result") or {}).get("isIncomplete") is not True:
+    nwhy = "module completion answered isIncomplete false"
 # The document no longer parses, so nothing but keywords and builtins
 # CAN be offered, and the menu is exactly those two sets: the keywords
 # derived from parser.ax, then the builtins `lspComplBuiltins` offers.
@@ -1349,7 +1367,8 @@ else:
     print(f"ok   completion ({len(its15)} item(s) all starting {PREFIX!r} with "
           f"`helper` : {HELPER_TYPE!r}, {len(its16)} at an empty prefix "
           f"carrying this document's kinds, its fields, builtins and NavHelper's `bump`, "
-          f"{len(its19)} on `locv` with the `let` binder, and "
+          f"{len(its19)} on `locv` with the `let` binder, {len(its21)} on `NavH` "
+          f"with the `NavHelper` module, and "
           f"exactly the {len(KEYWORDS)} keywords plus {len(BUILTINS)} builtins "
           f"derived from parser.ax and `lspComplBuiltins` on a "
           f"document that does not parse)")
@@ -2876,6 +2895,11 @@ def vsig(rid, anchor, sub):
     return vreq(rid, "textDocument/signatureHelp", {"position": vat(VIEW, anchor, 1, sub)})
 
 
+def vcompl(rid, line, char):
+    return vreq(rid, "textDocument/completion",
+                {"position": {"line": line, "character": char}})
+
+
 def vhints(rid, start_line, end_line):
     return vreq(rid, "textDocument/inlayHint",
                 {"range": {"start": {"line": start_line, "character": 0},
@@ -2892,6 +2916,13 @@ def vchange(text, version):
             "params": {"textDocument": {"uri": view_uri, "version": version},
                        "contentChanges": [{"text": text}]}}
 
+# One past the `x` in `(+ x y)`, the body of `(fn (add x y) ...)`: the
+# prefix is `x`, spelled by the parameter alone, which is offered with
+# its type from the signature. And nine characters into
+# `(import Nested.Deep)`: the dotted prefix is `Nested.De`, which the
+# ordinary prefix would cut at the dot.
+ADD_X_POS = vat(VIEW, "(+ x y)", 1, "(+ x")
+DOT_MOD_POS = vat(VIEW, "Nested.Deep", 1, "Nested.De")
 VIEW_LINES = VIEW.count("\n") + 1
 view_session = b"".join(frame(m) for m in [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
@@ -2903,6 +2934,8 @@ view_session = b"".join(frame(m) for m in [
     vsig(42, "(Circle 7)", "(Circle "),   # a constructor
     vsig(43, CALL_IMP, "(twice"),         # touching an imported head
     vsig(60, "(+ total same)", "(+ "),    # a builtin operator
+    vcompl(62, ADD_X_POS["line"], ADD_X_POS["character"]),
+    vcompl(63, DOT_MOD_POS["line"], DOT_MOD_POS["character"]),
     vhints(44, 0, VIEW_LINES),
     vhints(45, HDR_ADD_LINE, HDR_ADD_LINE + 1),
     vreq(46, "textDocument/foldingRange", {}),
@@ -2934,6 +2967,10 @@ vcaps = (vresp.get(1, {}).get("result") or {}).get("capabilities") or {}
 
 def vres(rid):
     return vresp.get(rid, {}).get("result")
+
+
+def vitems(rid):
+    return (vres(rid) or {}).get("items") or []
 
 
 def sig_says(rid, label_parts, active, param_names, doc=None):
@@ -3073,6 +3110,28 @@ elif sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHe
 elif sig_says(60, ["(+ a b)", "(-> Int Int Int)"], 0, ["a", "b"], "builtin operator"):
     vwhy = "signature help on a builtin operator: " + \
         sig_says(60, ["(+ a b)", "(-> Int Int Int)"], 0, ["a", "b"], "builtin operator")
+# --- completion: a parameter with its type, a dotted module ---------
+# One past the `x` in `(+ x y)`: every label starts with `x`, and the
+# parameter is offered with `x : Int` cut from the signature above it -
+# the same text hover shows. Nine characters into the dotted import:
+# every label starts with `Nested.De`, and the module is offered whole.
+elif [i for i in vitems(62) if not str(i.get("label", "")).startswith("x")]:
+    vwhy = (f"parameter completion filtered on 'x' still offered "
+            f"{[i['label'] for i in vitems(62) if not str(i.get('label','')).startswith('x')][:6]}")
+elif not [i for i in vitems(62)
+          if i.get("label") == "x" and i.get("kind") == 6 and i.get("detail") == "x : Int"]:
+    vwhy = (f"parameter completion did not offer `x` with detail 'x : Int'; "
+            f"it offered {[(i.get('label'), i.get('kind'), i.get('detail')) for i in vitems(62)][:12]}")
+elif [i for i in vitems(63) if not str(i.get("label", "")).startswith("Nested.De")]:
+    vwhy = (f"module completion filtered on 'Nested.De' still offered "
+            f"{[i['label'] for i in vitems(63) if not str(i.get('label','')).startswith('Nested.De')][:6]}")
+elif not [i for i in vitems(63)
+          if i.get("label") == "Nested.Deep" and i.get("kind") == 9 and i.get("detail") == "module"]:
+    vwhy = (f"module completion did not offer `Nested.Deep` as a module; "
+            f"it offered {[(i.get('label'), i.get('kind')) for i in vitems(63)][:12]}")
+elif (vres(62) or {}).get("isIncomplete") is not True \
+        or (vres(63) or {}).get("isIncomplete") is not True:
+    vwhy = "a filtered completion answered isIncomplete false"
 elif vres(52) is not None:
     vwhy = f"signature help on a document that does not parse answered {vres(52)!r}, want null"
 elif vres(58) is not None:
@@ -3178,7 +3237,9 @@ else:
     print(f"ok   workspace  (`twice` found by {TWICE_QUERY!r} in ViewHelper.ax with "
           f"its container, 6 declarations of 3 kinds in 4 files placed by an "
           f"empty query, [] for a query nothing matches)")
-    passed += 6
+    print(f"ok   completion (`x` with detail 'x : Int' from the signature, "
+          f"`Nested.Deep` whole from its dotted prefix, both isIncomplete)")
+    passed += 7
 shutil.rmtree(VIEWDIR, ignore_errors=True)
 
 # =====================================================================
@@ -4314,6 +4375,733 @@ else:
     passed += 3
 shutil.rmtree(CADIR, ignore_errors=True)
 shutil.rmtree(CADIR2, ignore_errors=True)
+
+# ---------------------------------------------------------------------
+# The AX3005 fill-arms quickfix: the missing arms, written.
+#
+# Nothing in self_host/lsp.ax names this assist: `lspQuickfixesOf`
+# offers every help carrying a fix span, and typecheck.ax's AX3005
+# carries one (see "AX3005's fix: the missing arms, written" there) -
+# one arm per missing constructor, in declaration order, each
+# `((Ctor _ ...) (todo "Ctor"))`. This block pins that the fix arrives
+# as a preferred quickfix, lands where the document says, and checks
+# clean once applied together with the `todo` import it names.
+#
+# Everything structural is derived from the document's own bytes: the
+# constructor set from the `data` line, the armed set from the arm
+# heads, the missing set as the difference, each arm's underscores
+# from its field count, and the indent from the written arm's line.
+# ---------------------------------------------------------------------
+ARMDIR = tempfile.mkdtemp(prefix="axiom-arms-")
+ARM = """(data Shape (Dot) (Circle Int))
+
+(:: area (-> Shape Int))
+(fn (area s) (match s ((Dot) 0)))
+
+(:: main Int)
+(fn (main) (area (Circle 1)))
+"""
+arm_path = os.path.join(ARMDIR, "arms.ax")
+open(arm_path, "w", encoding="utf-8").write(ARM)
+arm_uri = "file://" + arm_path
+ARM_LINES = ARM.split("\n")
+ARM_WHOLE = {"start": {"line": 0, "character": 0},
+             "end": {"line": len(ARM_LINES) - 1,
+                     "character": u16(ARM_LINES[-1])}}
+# The constructors, in declaration order, with their field counts; the
+# armed heads; the missing set, which is what the fix must write.
+ARM_CTORS = [(m.group(1), len((m.group(2) or "").split()))
+             for m in re.finditer(r"\(([A-Z]\w*)((?:\s+[^\s()]+)*)\)",
+                                  ARM.split("\n")[0])]
+ARMED = set(re.findall(r"\(\((\w+)\)", ARM))
+ARM_MISSING = [c for c, _ in ARM_CTORS if c not in ARMED]
+ARM_WANT_ARMS = ["((" + c + "".join(" _" for _ in range(n)) + ") "
+                 + "(todo \"" + c + "\"))" for c, n in ARM_CTORS
+                 if c in ARM_MISSING]
+# The indent is the written arm's column within its line, which is
+# where the missing arms go.
+ARM_ASTART = ARM.index("((Dot) 0)")
+_, ARM_ALTEXT, ARM_ALCOL = line_of(ARM, ARM_ASTART)
+ARM_INDENT = u16(ARM_ALTEXT[:ARM_ALCOL])
+ARM_WANT_TEXT = "".join("\n" + " " * ARM_INDENT + a for a in ARM_WANT_ARMS)
+# The zero-width range just past the written arm, where the missing
+# ones are inserted.
+ARM_AT = ARM.index("((Dot) 0)") + len("((Dot) 0)")
+ARM_LN, ARM_LTEXT, ARM_COL = line_of(ARM, ARM_AT)
+ARM_POS = {"line": ARM_LN, "character": u16(ARM_LTEXT[:ARM_COL])}
+if not ARM_MISSING or not ARM_WANT_ARMS or not ARMED:
+    sys.exit("FAIL: the arms document no longer declares, arms and misses "
+             "a constructor - every assertion below rests on that shape")
+arm_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": arm_uri, "languageId": "axiom",
+                                 "version": 1, "text": ARM}}},
+    {"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+     "params": {"textDocument": {"uri": arm_uri}, "range": ARM_WHOLE,
+                "context": {"diagnostics": []}}},
+    {"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+ap = subprocess.run([stage1, "lsp"], input=arm_session, capture_output=True,
+                    cwd=ARMDIR)
+amsgs, atail = unframe(ap.stdout)
+aresp = {m["id"]: m for m in amsgs if "id" in m}
+apubs = [m["params"]["diagnostics"] for m in amsgs
+         if m.get("method") == "textDocument/publishDiagnostics"]
+arms_fix = todo_fix = None
+for a in (aresp.get(2, {}).get("result") or []):
+    codes = [d.get("code") for d in a.get("diagnostics") or []]
+    if a.get("kind") == "quickfix" and codes == ["AX3005"]:
+        if a.get("title", "").startswith("add the missing arms"):
+            arms_fix = a
+        elif a.get("title", "").startswith("import `todo`"):
+            todo_fix = a
+awhy = ""
+if ap.returncode != 0:
+    awhy = f"the server exited {ap.returncode}: {ap.stderr[:200]!r}"
+elif ap.stderr:
+    awhy = f"stderr not empty: {ap.stderr[:200]!r}"
+elif atail:
+    awhy = f"{len(atail)} trailing bytes after the last frame"
+elif [d.get("code") for ds in apubs for d in ds] != ["AX3005"]:
+    awhy = ("the arms document did not publish exactly one AX3005: "
+            f"{[[d.get('code') for d in ds] for ds in apubs]!r}")
+elif arms_fix is None:
+    awhy = ("no quickfix carrying the AX3005 diagnostic: "
+            f"{json.dumps(aresp.get(2, {}).get('result'))[:300]}")
+elif arms_fix.get("isPreferred") is not True:
+    awhy = "the fill-arms quickfix is not isPreferred"
+elif todo_fix is None:
+    awhy = "no quickfix importing `todo` for the arms it writes"
+else:
+    edits = ((arms_fix.get("edit") or {}).get("changes") or {}).get(arm_uri) or []
+    if len(edits) != 1 or edits[0].get("newText") != ARM_WANT_TEXT:
+        awhy = (f"the fill-arms edit writes "
+                f"{[e.get('newText') for e in edits]!r}, want {ARM_WANT_TEXT!r}")
+    elif edits[0].get("range") != {"start": ARM_POS, "end": ARM_POS}:
+        awhy = (f"the fill-arms edit lands at {edits[0].get('range')}, want "
+                f"the zero-width range just past the written arm")
+ARM_FIXED = None
+if not awhy:
+    tedits = ((todo_fix.get("edit") or {}).get("changes") or {}).get(arm_uri) or []
+    ARM_FIXED = ARM
+    for e in edits + tedits:
+        ARM_FIXED = apply_edits(ARM_FIXED, [e])
+    if ARM_FIXED == ARM:
+        awhy = "applying the two edits changed nothing"
+# A `todo` never returns, which the effect walk reads as IO: the fixed
+# document reports AX3042 twice, and AX3042 carries its own fix (the
+# `;@axiom:effect(io)` tag). Apply those two and the document is clean -
+# three compiler fixes chained through the same request.
+ARM_FIXED2 = None
+if not awhy:
+    # The range is derived from the FIXED text: the arms and the import
+    # moved every line the stale whole-document range was measured on,
+    # and a range ending above a diagnostic does not meet it.
+    ARM_FIXED_LINES = ARM_FIXED.split("\n")
+    ARM_FIXED_WHOLE = {"start": {"line": 0, "character": 0},
+                       "end": {"line": len(ARM_FIXED_LINES) - 1,
+                               "character": u16(ARM_FIXED_LINES[-1])}}
+    aq = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": arm_uri, "languageId": "axiom",
+                                     "version": 1, "text": ARM_FIXED}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+         "params": {"textDocument": {"uri": arm_uri}, "range": ARM_FIXED_WHOLE,
+                    "context": {"diagnostics": []}}},
+        {"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]), capture_output=True, cwd=ARMDIR)
+    aqmsgs, aqtail = unframe(aq.stdout)
+    aqresp = {m["id"]: m for m in aqmsgs if "id" in m}
+    aqpubs = [m["params"]["diagnostics"] for m in aqmsgs
+              if m.get("method") == "textDocument/publishDiagnostics"]
+    tag_fixes = [a for a in (aqresp.get(2, {}).get("result") or [])
+                 if a.get("kind") == "quickfix"
+                 and [d.get("code") for d in a.get("diagnostics") or []] == ["AX3042"]]
+    if aq.returncode != 0 or aqtail:
+        awhy = (f"the session over the armed document exited {aq.returncode} "
+                f"with {len(aqtail)} trailing bytes")
+    elif sorted(d.get("code") for ds in aqpubs for d in ds) != ["AX3042", "AX3042"]:
+        awhy = ("the armed document does not report exactly two AX3042: "
+                f"{[[d.get('code') for d in ds] for ds in aqpubs]!r}")
+    elif len(tag_fixes) != 2:
+        awhy = (f"the armed document carries {len(tag_fixes)} AX3042 "
+                f"quickfixes, want one per function")
+    else:
+        ARM_FIXED2 = ARM_FIXED
+        for a in tag_fixes:
+            for e in ((a.get("edit") or {}).get("changes") or {}).get(arm_uri) or []:
+                ARM_FIXED2 = apply_edits(ARM_FIXED2, [e])
+        if ARM_FIXED2 == ARM_FIXED:
+            awhy = "applying the two tag edits changed nothing"
+if not awhy:
+    ar = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": arm_uri, "languageId": "axiom",
+                                     "version": 1, "text": ARM_FIXED2}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]), capture_output=True, cwd=ARMDIR)
+    armsgs, artail = unframe(ar.stdout)
+    arpubs = [m["params"]["diagnostics"] for m in armsgs
+              if m.get("method") == "textDocument/publishDiagnostics"]
+    if ar.returncode != 0 or artail:
+        awhy = (f"the session over the tagged document exited {ar.returncode} "
+                f"with {len(artail)} trailing bytes")
+    elif [d for ds in arpubs for d in ds]:
+        awhy = ("the document with applied arms no longer checks clean: "
+                f"{[[(d['code'], first_line(d['message'])) for d in ds] for ds in arpubs if ds]!r:.300}")
+if awhy:
+    print(f"FAIL fill-arms: {awhy}")
+    failed += 1
+else:
+    print(f"ok   fill-arms  (AX3005 publishes once, the preferred quickfix writes "
+          f"{ARM_WANT_ARMS[0]!r} at the written arm's indent, the `todo` import "
+          f"arrives beside it, the two AX3042 tag fixes land next, and the "
+          f"twice-fixed document checks clean)")
+    passed += 1
+shutil.rmtree(ARMDIR, ignore_errors=True)
+
+# =====================================================================
+# SECTION DEP TESTS: diagnostics for imported files, under their own
+# URIs, and their retraction.
+#
+# Only this document's diagnostics used to be published: an error the
+# checker raised inside an imported module was dropped, and a file
+# with a broken dependency looked clean until opened. Now a recheck
+# publishes every resolved dependency under that file's own URI -
+# including an empty array, which is how a dependency fixed elsewhere
+# goes quiet - while a dependency that is OPEN is skipped, because its
+# bytes on disk may lag its buffer and positions read off the wrong
+# text are worse than a publish its own rechecks already send. An
+# import-set move retracts what it orphaned, minus what any remaining
+# open document still resolves and minus what is itself open.
+#
+# Two sessions over one directory. Every position is derived from the
+# two documents' bytes; every array below is compared for EQUALITY, so
+# a publish too many, too few, or under the wrong URI fails.
+# =====================================================================
+DEPDIR = tempfile.mkdtemp(prefix="axiom-dep-")
+HELPER = """; A helper with two errors of its own.
+(pub :: bump (-> Int Int))
+
+(pub fn (bump x)
+  (let ((y 1))
+    {
+      (set y x)
+      (+ y "s")
+    }))
+"""
+MAIN1 = """(import DepHelper)
+
+(:: main Int)
+(fn (main) (bump 1))
+"""
+MAIN_NOIMPORT = """(:: main Int)
+(fn (main) 0)
+"""
+MAIN_BROKEN_IMPORT = """(import Nope)
+
+(:: main Int)
+(fn (main) 0)
+"""
+open(os.path.join(DEPDIR, "DepHelper.ax"), "w", encoding="utf-8").write(HELPER)
+open(os.path.join(DEPDIR, "DepMain.ax"), "w", encoding="utf-8").write(MAIN1)
+dep_main_uri = "file://" + os.path.join(DEPDIR, "DepMain.ax")
+dep_helper_uri = "file://" + os.path.join(DEPDIR, "DepHelper.ax")
+# The `y` binder, its `set` write, and the `"s"` literal the checker
+# refuses: binder, primary and message-derived positions, in order.
+DEP_BIND = ident_at(HELPER, "y", 1)
+DEP_SET = ident_at(HELPER, "y", 2)
+DEP_LIT = locate(HELPER, '"s"', 1)
+DEP_LIT_RNG = {"start": {"line": DEP_LIT["line"], "character": DEP_LIT["start"]},
+               "end": {"line": DEP_LIT["line"], "character": DEP_LIT["end"]}}
+# The buffer that fixes the mismatch but keeps the assignment: the
+# disk still carries both errors afterwards.
+HELPER_FIXEDBUF = HELPER.replace('(+ y "s")', '(+ y 1)')
+if HELPER_FIXEDBUF == HELPER or ident_count(HELPER_FIXEDBUF, "y") != 3:
+    sys.exit("FAIL: the fixed helper buffer is not the helper with its "
+             "mismatch repaired - the open-skip check below rests on it")
+
+
+def dep_open(uri, text):
+    return {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "axiom",
+                                        "version": 1, "text": text}}}
+
+
+def dep_change(uri, text, version):
+    return {"jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {"textDocument": {"uri": uri, "version": version},
+                       "contentChanges": [{"text": text}]}}
+
+
+def dep_pubs(msgs, uri):
+    return [m["params"]["diagnostics"] for m in msgs
+            if m.get("method") == "textDocument/publishDiagnostics"
+            and m.get("params", {}).get("uri") == uri]
+
+
+dep_session_a = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    dep_open(dep_main_uri, MAIN1),
+    dep_open(dep_helper_uri, HELPER),
+    dep_change(dep_helper_uri, HELPER_FIXEDBUF, 2),
+    dep_change(dep_main_uri, MAIN1, 2),
+    dep_change(dep_main_uri, MAIN_NOIMPORT, 3),
+    dep_change(dep_main_uri, MAIN_BROKEN_IMPORT, 4),
+    {"jsonrpc": "2.0", "id": 40, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+dap = subprocess.run([stage1, "lsp"], input=dep_session_a, capture_output=True,
+                     cwd=DEPDIR)
+damsgs, datail = unframe(dap.stdout)
+amain = dep_pubs(damsgs, dep_main_uri)
+ahelper = dep_pubs(damsgs, dep_helper_uri)
+dwhy = ""
+if dap.returncode != 0:
+    dwhy = f"the server exited {dap.returncode}: {dap.stderr[:200]!r}"
+elif dap.stderr:
+    dwhy = f"stderr not empty: {dap.stderr[:200]!r}"
+elif datail:
+    dwhy = f"{len(datail)} trailing bytes after the last frame"
+elif 40 not in {m["id"] for m in damsgs if "id" in m}:
+    dwhy = "the session never answered shutdown - a request killed the server"
+elif [[d.get("code") for d in ds] for ds in amain] != [[], [], [], ["AX5001"]]:
+    dwhy = ("the entry published "
+            f"{[[d.get('code') for d in ds] for ds in amain]!r}, want three "
+            f"empty arrays and then its own AX5001 - its own diagnostics, "
+            f"never another file's")
+elif len(ahelper) < 1 or [d.get("code") for d in ahelper[0]] != ["AX3012", "AX3004"]:
+    dwhy = ("opening the importer did not publish the dependency's two "
+            f"errors under its own URI: "
+            f"{[[d.get('code') for d in ds] for ds in ahelper]!r}")
+else:
+    first = ahelper[0][0]
+    if first.get("range") != rng(DEP_SET):
+        dwhy = (f"the dependency's AX3012 lands at {first.get('range')}, want "
+                f"the `set` write at {rng(DEP_SET)}")
+    elif (first.get("relatedInformation") or []) != [
+            {"location": {"uri": dep_helper_uri, "range": rng(DEP_BIND)},
+             "message": "`y` is bound here"}]:
+        dwhy = ("the dependency's secondary is not the binder under the "
+                f"dependency's own URI: {first.get('relatedInformation')!r}")
+    elif ahelper[0][1].get("range") != DEP_LIT_RNG:
+        dwhy = ("the dependency's AX3004 lands at "
+                f"{ahelper[0][1].get('range')}, want the literal at {DEP_LIT_RNG}")
+if not dwhy:
+    if len(ahelper) < 2 or ahelper[1] != ahelper[0]:
+        dwhy = ("opening the dependency did not publish exactly what the "
+                f"importer saw: {[[d.get('code') for d in ds] for ds in ahelper]!r}")
+if not dwhy:
+    if len(ahelper) < 3 or [d.get("code") for d in ahelper[2]] != ["AX3012"]:
+        dwhy = ("the dirtied buffer did not publish its own single AX3012: "
+                f"{[[d.get('code') for d in ds] for ds in ahelper]!r}")
+    elif len(ahelper) != 3:
+        dwhy = ("rechecking the importer published for its open dependency "
+                f"{len(ahelper) - 3} more time(s) - an open file's buffer is "
+                f"not its bytes on disk, and positions read off the wrong "
+                f"text are worse than no publish")
+if not dwhy:
+    if len(ahelper) != 3:
+        dwhy = ("dropping the import republished for the open dependency - "
+                f"an open document publishes for itself and is never "
+                f"blanked from another document's lifecycle")
+    elif [d.get("code") for ds in [amain[-1]] for d in ds] != ["AX5001"]:
+        dwhy = ("the unresolvable import did not publish AX5001 on the entry: "
+                f"{[[d.get('code') for d in ds] for ds in amain]!r}")
+if dwhy:
+    print(f"FAIL dep-publish: {dwhy}")
+    failed += 1
+else:
+    print(f"ok   dep-publish (the importer's recheck publishes the closed "
+          f"dependency's AX3012 with its binder linked under the "
+          f"dependency's own URI and AX3004 on the literal; opening the "
+          f"dependency publishes exactly the same array; a dirtied buffer "
+          f"keeps its own single AX3012 through the importer's recheck; "
+          f"dropping the import and breaking it leave the open file "
+          f"untouched while the entry reports AX5001)")
+    passed += 1
+# ---------------------------------------------------------------------
+# Retraction, where nothing is open to be clobbered: a second importer
+# covers the dependency across the first one's close, the last close
+# retracts it, and breaking the import retracts it too.
+# ---------------------------------------------------------------------
+MAIN2 = """(import DepHelper)
+
+(:: main Int)
+(fn (main) (bump 2))
+"""
+MAIN3 = """(import DepHelper)
+
+(:: main Int)
+(fn (main) (bump 3))
+"""
+MAIN2_BROKEN = """(import Nope)
+
+(:: main Int)
+(fn (main) 0)
+"""
+open(os.path.join(DEPDIR, "DepMain2.ax"), "w", encoding="utf-8").write(MAIN2)
+open(os.path.join(DEPDIR, "DepMain3.ax"), "w", encoding="utf-8").write(MAIN3)
+dep_main2_uri = "file://" + os.path.join(DEPDIR, "DepMain2.ax")
+dep_main3_uri = "file://" + os.path.join(DEPDIR, "DepMain3.ax")
+dep_session_b = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    dep_open(dep_main2_uri, MAIN2),
+    dep_open(dep_main3_uri, MAIN3),
+    {"jsonrpc": "2.0", "method": "textDocument/didClose",
+     "params": {"textDocument": {"uri": dep_main2_uri}}},
+    {"jsonrpc": "2.0", "method": "textDocument/didClose",
+     "params": {"textDocument": {"uri": dep_main3_uri}}},
+    dep_open(dep_main2_uri, MAIN2),
+    dep_change(dep_main2_uri, MAIN2_BROKEN, 2),
+    {"jsonrpc": "2.0", "id": 41, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+dbp = subprocess.run([stage1, "lsp"], input=dep_session_b, capture_output=True,
+                     cwd=DEPDIR)
+dbmsgs, dbtail = unframe(dbp.stdout)
+bhelper = dep_pubs(dbmsgs, dep_helper_uri)
+bmain2 = dep_pubs(dbmsgs, dep_main2_uri)
+bmain3 = dep_pubs(dbmsgs, dep_main3_uri)
+bwhy = ""
+if dbp.returncode != 0:
+    bwhy = f"the server exited {dbp.returncode}: {dbp.stderr[:200]!r}"
+elif dbp.stderr:
+    bwhy = f"stderr not empty: {dbp.stderr[:200]!r}"
+elif dbtail:
+    bwhy = f"{len(dbtail)} trailing bytes after the last frame"
+elif 41 not in {m["id"] for m in dbmsgs if "id" in m}:
+    bwhy = "the session never answered shutdown - a request killed the server"
+# The whole helper sequence, in order: twice published (once per
+# importer, identical), retracted on the last close, published again
+# on reopen, retracted again on the broken import. Anything missing,
+# extra or reordered fails here.
+elif len(bhelper) != 5:
+    bwhy = ("the dependency saw "
+            f"{[[d.get('code') for d in ds] for ds in bhelper]!r}, want two "
+            f"publishes, a retraction, a publish and a retraction")
+elif bhelper[0] != bhelper[1] or bhelper[0] != bhelper[3]:
+    bwhy = "the three dependency publishes are not identical arrays"
+elif [d.get("code") for d in bhelper[0]] != ["AX3012", "AX3004"]:
+    bwhy = ("the dependency publish is not its two errors: "
+            f"{[[d.get('code') for d in ds] for ds in bhelper]!r}")
+elif bhelper[2] != [] or bhelper[4] != []:
+    bwhy = "a retraction did not publish an empty array"
+elif [[d.get("code") for d in ds] for ds in bmain2] != [[], [], [], ["AX5001"]]:
+    bwhy = ("the reopened entry did not publish empty, empty, empty and "
+            f"AX5001 in order: "
+            f"{[[d.get('code') for d in ds] for ds in bmain2]!r}")
+elif [[d.get("code") for d in ds] for ds in bmain3] != [[], []]:
+    bwhy = ("the surviving entry did not publish empty and retract on "
+            f"close: {[[d.get('code') for d in ds] for ds in bmain3]!r}")
+if bwhy:
+    print(f"FAIL dep-retract: {bwhy}")
+    failed += 1
+else:
+    print(f"ok   dep-retract (two importers publish the same array; the first "
+          f"close retracts only its own entry while the survivor covers the "
+          f"dependency; the last close retracts it; reopening with a broken "
+          f"import reports AX5001 and retracts again)")
+    passed += 1
+shutil.rmtree(DEPDIR, ignore_errors=True)
+
+# ---------------------------------------------------------------------
+# SECTION WS TESTS: the filesystem as the editor reports it.
+#
+# Watched files and file operations are not capabilities, so the
+# server ASKS with one `client/registerCapability` right after
+# `initialize` - and only for what the client's own params offer. A
+# bare `{}` registers nothing, and the goldens (whose `initialize`
+# carries no workspace capabilities) pin the byte stream with no
+# registration in it. The reply carries no method and earns no reply:
+# answering it would reply to a response.
+#
+# The five notifications share one rule: recheck every open document
+# except the mentioned ones that are open (a buffer is the truth
+# about its contents), retract what a deletion or a rename's old name
+# orphaned when it is closed, and do nothing at all when no named
+# file ends `.ax`. Disk writes interleave with server reads below, so
+# unlike every other block this one speaks to a live process instead
+# of a one-shot pipe.
+# ---------------------------------------------------------------------
+WDIR = tempfile.mkdtemp(prefix="axiom-ws-")
+W_HELPER_DIRTY = HELPER
+W_HELPER_CLEAN = """(pub :: bump (-> Int Int))
+
+(pub fn (bump x) (+ x 1))
+"""
+W_MAIN = MAIN1
+W_EXTRA = """(pub :: seven Int)
+
+(pub fn (seven) 7)
+"""
+open(os.path.join(WDIR, "DepHelper.ax"), "w", encoding="utf-8").write(W_HELPER_DIRTY)
+open(os.path.join(WDIR, "DepMain.ax"), "w", encoding="utf-8").write(W_MAIN)
+w_main_uri = "file://" + os.path.join(WDIR, "DepMain.ax")
+w_helper_uri = "file://" + os.path.join(WDIR, "DepHelper.ax")
+w_extra_uri = "file://" + os.path.join(WDIR, "Extra.ax")
+w_notes_uri = "file://" + os.path.join(WDIR, "notes.txt")
+w_helper2_uri = "file://" + os.path.join(WDIR, "DepHelper2.ax")
+WS_CAPS = {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": True},
+                         "fileOperations": {"dynamicRegistration": True}}}
+# A bare initialize earns no registration: the client offered no
+# dynamic registration to accept.
+bare_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+     "params": {"processId": None, "rootUri": None, "capabilities": {}}},
+    {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+bp = subprocess.run([stage1, "lsp"], input=bare_session, capture_output=True,
+                    cwd=WDIR)
+bmsgs, btail = unframe(bp.stdout)
+wwhy = ""
+if bp.returncode != 0:
+    wwhy = f"the bare session exited {bp.returncode}: {bp.stderr[:200]!r}"
+elif btail:
+    wwhy = f"{len(btail)} trailing bytes after the last frame"
+elif [m for m in bmsgs if m.get("method") == "client/registerCapability"]:
+    wwhy = ("a client that offered no dynamic registration was still "
+            "asked for the filesystem")
+if wwhy:
+    print(f"FAIL ws-register: {wwhy}")
+    failed += 1
+else:
+    print(f"ok   ws-register (one client/registerCapability with four "
+          f"registrations iff the client offered dynamic registration; "
+          f"silence otherwise)")
+    passed += 1
+
+
+def wl_start():
+    """A live server and a one-message reader over its stdout."""
+    import select
+    proc = subprocess.Popen([stage1, "lsp"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            cwd=WDIR)
+    buf = bytearray()
+
+    def wread(timeout=20):
+        while True:
+            j = bytes(buf).find(b"\r\n\r\n")
+            if j >= 0:
+                hdr = bytes(buf[:j]).decode("utf-8", "replace")
+                cl = [l for l in hdr.split("\r\n")
+                      if l.lower().startswith("content-length")]
+                if not cl:
+                    return ("unframed", bytes(buf))
+                n = int(cl[0].split(":")[1])
+                need = j + 4 + n
+                while len(buf) < need:
+                    r, _, _ = select.select([proc.stdout.fileno()], [], [],
+                                            timeout)
+                    if not r:
+                        return None
+                    chunk = os.read(proc.stdout.fileno(), 65536)
+                    if not chunk:
+                        return None
+                    buf.extend(chunk)
+                body = bytes(buf[j + 4:need])
+                del buf[:need]
+                return json.loads(body)
+            r, _, _ = select.select([proc.stdout.fileno()], [], [], timeout)
+            if not r:
+                return None
+            chunk = os.read(proc.stdout.fileno(), 65536)
+            if not chunk:
+                return None
+            buf.extend(chunk)
+    return proc, wread
+
+
+def wl_pubs(wread, n, what):
+    """The next `n` publishes, or the reason fewer arrived."""
+    pubs = []
+    for _ in range(n):
+        m = wread()
+        if not isinstance(m, dict) or \
+                m.get("method") != "textDocument/publishDiagnostics":
+            return None, (f"{what}: expected a publish, got "
+                          f"{json.dumps(m)[:160]!r}")
+        pubs.append(m)
+    return pubs, ""
+
+
+wproc, wread = wl_start()
+werr = ""
+
+
+def wstop():
+    wsend = lambda m: (wproc.stdin.write(frame(m)), wproc.stdin.flush())
+    wsend({"jsonrpc": "2.0", "id": 90, "method": "shutdown", "params": None})
+    m = wread()
+    if not isinstance(m, dict) or m.get("id") != 90:
+        return f"shutdown answered {json.dumps(m)[:160]!r}"
+    wsend({"jsonrpc": "2.0", "method": "exit", "params": None})
+    try:
+        rc = wproc.wait(timeout=20)
+    except Exception:
+        wproc.kill()
+        return "the server did not exit after `exit`"
+    if rc != 0:
+        return f"the server exited {rc}"
+    if wproc.stderr.read():
+        return f"stderr not empty: {wproc.stderr.read()[:200]!r}"
+    return ""
+
+
+def wsend(m):
+    wproc.stdin.write(frame(m))
+    wproc.stdin.flush()
+
+
+def wcodes(pubs, uri):
+    for p in pubs:
+        if p["params"]["uri"] == uri:
+            return [d.get("code") for d in p["params"]["diagnostics"]]
+    return None
+
+
+if not wwhy:
+    wsend({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+           "params": {"processId": None, "rootUri": None,
+                      "capabilities": WS_CAPS}})
+    m = wread()
+    if not isinstance(m, dict) or m.get("id") != 1:
+        wwhy = f"initialize answered {json.dumps(m)[:200]!r}"
+    else:
+        m = wread()
+        regs = (m or {}).get("params", {}).get("registrations") or []
+        got = [(r.get("id"), r.get("method")) for r in regs
+               if isinstance(r, dict)]
+        want_methods = ["workspace/didChangeWatchedFiles",
+                        "workspace/didCreateFiles",
+                        "workspace/didRenameFiles",
+                        "workspace/didDeleteFiles"]
+        if not isinstance(m, dict) or \
+                m.get("method") != "client/registerCapability" or \
+                m.get("id") != "axiom-reg-1":
+            wwhy = (f"the registration request is {json.dumps(m)[:300]!r}, "
+                    f"want one client/registerCapability as axiom-reg-1")
+        elif [g[1] for g in got] != want_methods:
+            wwhy = f"registered {got!r}, want {want_methods!r}"
+        elif [g[0] for g in got] != want_methods:
+            wwhy = "a registration id is not its own method"
+        else:
+            for r, meth in zip(regs, want_methods):
+                opts = r.get("registerOptions") or {}
+                if meth == "workspace/didChangeWatchedFiles":
+                    globs = [(w or {}).get("globPattern")
+                             for w in opts.get("watchers") or []]
+                else:
+                    globs = [((f or {}).get("pattern") or {}).get("glob")
+                             for f in opts.get("filters") or []]
+                if globs != ["**/*.ax"]:
+                    wwhy = (f"{meth} watches {globs!r}, want ['**/*.ax']")
+                    break
+if not wwhy:
+    # The reply carries no method and must earn no reply: three
+    # seconds of server silence, not an error frame.
+    wsend({"jsonrpc": "2.0", "id": "axiom-reg-1", "result": None})
+    m = wread(timeout=3)
+    if m is not None:
+        wwhy = (f"answering the registration earned {json.dumps(m)[:200]!r}, "
+                f"want nothing - a response is never answered")
+if not wwhy:
+    wsend({"jsonrpc": "2.0", "method": "textDocument/didOpen",
+           "params": {"textDocument": {"uri": w_main_uri,
+                                       "languageId": "axiom", "version": 1,
+                                       "text": W_MAIN}}})
+    pubs, wwhy = wl_pubs(wread, 2, "open")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = ("open published "
+                f"{[(p['params']['uri'], [d.get('code') for d in p['params']['diagnostics']]) for p in pubs]!r}")
+if not wwhy:
+    # A watched change with nothing changed on disk: the recheck
+    # republishes the same arrays.
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_helper_uri, "type": 2}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched change")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = "a no-op watched change did not republish the same arrays"
+if not wwhy:
+    open(os.path.join(WDIR, "DepHelper.ax"), "w",
+         encoding="utf-8").write(W_HELPER_CLEAN)
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_helper_uri, "type": 2}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched fix")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != []):
+        wwhy = ("the watched fix did not converge without an importer "
+                f"keystroke: "
+                f"{[(p['params']['uri'], [d.get('code') for d in p['params']['diagnostics']]) for p in pubs]!r}")
+if not wwhy:
+    os.remove(os.path.join(WDIR, "DepHelper.ax"))
+    wsend({"jsonrpc": "2.0", "method": "workspace/didDeleteFiles",
+           "params": {"files": [{"uri": w_helper_uri}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched delete")
+    if not wwhy and (wcodes(pubs, w_main_uri) != ["AX5001"]
+                     or wcodes(pubs, w_helper_uri) != []):
+        wwhy = "a watched deletion did not converge the importer to AX5001"
+if not wwhy:
+    open(os.path.join(WDIR, "DepHelper.ax"), "w",
+         encoding="utf-8").write(W_HELPER_DIRTY)
+    wsend({"jsonrpc": "2.0", "method": "workspace/didCreateFiles",
+           "params": {"files": [{"uri": w_helper_uri}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched create")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = "a watched creation did not resolve the pending import"
+if not wwhy:
+    open(os.path.join(WDIR, "Extra.ax"), "w", encoding="utf-8").write(W_EXTRA)
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_extra_uri, "type": 1}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched create-typed change")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = "an unrelated watched creation disturbed the publishes"
+if not wwhy:
+    open(os.path.join(WDIR, "notes.txt"), "w", encoding="utf-8").write("hi\n")
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_notes_uri, "type": 2}]}})
+    m = wread(timeout=3)
+    if m is not None:
+        wwhy = (f"an event naming no .ax file earned {json.dumps(m)[:200]!r}, "
+                f"want nothing at all")
+if not wwhy:
+    os.rename(os.path.join(WDIR, "DepHelper.ax"),
+              os.path.join(WDIR, "DepHelper2.ax"))
+    wsend({"jsonrpc": "2.0", "method": "workspace/didRenameFiles",
+           "params": {"files": [{"oldUri": w_helper_uri,
+                                 "newUri": w_helper2_uri}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched rename")
+    if not wwhy and (wcodes(pubs, w_main_uri) != ["AX5001"]
+                     or wcodes(pubs, w_helper_uri) != []):
+        wwhy = "a watched rename did not converge the importer and retract"
+if not wwhy:
+    wwhy = wstop()
+if wwhy:
+    print(f"FAIL ws-recheck: {wwhy}")
+    failed += 1
+    try:
+        wproc.kill()
+    except Exception:
+        pass
+else:
+    print(f"ok   ws-recheck (watched changes, creations, deletions and a "
+          f"rename converge every open importer with no keystroke; a file "
+          f"with no .ax name earns nothing; the registration reply earns "
+          f"no reply)")
+    passed += 1
+shutil.rmtree(WDIR, ignore_errors=True)
 # =====================================================================
 # END SECTION FIX TESTS
 # =====================================================================

@@ -78,12 +78,14 @@ const CLAIMS = [
     key: 'lspRequests',
     what: 'LSP requests the server answers',
     prose: /answers\s+(\d[\d,]*)\s+requests\b/g,
-    // Every JSON-RPC method the server names, minus the four that are
-    // notifications rather than requests (three from the client, one
+    // Every JSON-RPC method the server names, minus the eight that are
+    // notifications rather than requests (seven from the client, one
     // the server sends). `axiom/expandMacro`, the one request that is
     // this server's own, counts. The page said "twenty-four" until
     // 2026-09-04, spelled out where no checker could read it; the
-    // server answered twenty-three.
+    // server answered twenty-three. `client/registerCapability` is
+    // outbound and matches no alternate above, so it never enters
+    // the count from either side.
     derive: () => {
       const all = sh(
         "grep -o '\"\\(textDocument\\|workspace\\|callHierarchy\\|completionItem\\|axiom\\)/[A-Za-z/]*\"' self_host/lsp.ax | sort -u",
@@ -95,6 +97,10 @@ const CLAIMS = [
         '"textDocument/didChange"',
         '"textDocument/didClose"',
         '"textDocument/publishDiagnostics"',
+        '"workspace/didChangeWatchedFiles"',
+        '"workspace/didCreateFiles"',
+        '"workspace/didRenameFiles"',
+        '"workspace/didDeleteFiles"',
       ])
       return String(all.filter((m) => !notifications.has(m)).length)
     },

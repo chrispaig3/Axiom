@@ -120,6 +120,17 @@ What the lifecycle does, and what it does not:
   message, keeping the document store and the reader's unconsumed
   bytes; `drive.py`'s editing session, which edits one document many
   times and requires the process not to grow, is the check.
+- **The filesystem reports in.** When the client's `initialize` offers
+  dynamic registration, the server answers with one
+  `client/registerCapability` - watched `.ax` files plus file
+  creation, renames and deletions - and a bare `{}` is never asked.
+  A watched change, creation, deletion or rename rechecks every open
+  document except the mentioned ones that are open (a buffer is the
+  truth about its contents), and retracts what a deletion or a
+  rename's old name orphaned when it is closed. Creations resolve
+  pending `AX5001`s; deletions converge importers to `AX5001`. Events
+  naming no `.ax` file do nothing. A message with no method is a
+  response to that one outbound request and earns no reply.
 
 ## Editor setup
 
@@ -701,7 +712,16 @@ declarations, the constructors its `data` forms name and the fields
 its `struct` forms declare, the locals in scope at the cursor (`let`
 names, parameters, pattern variables as `Variable`), and every
 imported module's declarations under their bare names — a local name
-shadowing an imported one and both shadowing a keyword. The list is filtered on the prefix under the
+shadowing an imported one and both shadowing a keyword. Where an import's module goes — the innermost
+enclosing form opens with `import`, so a name list nested inside
+completes values as everywhere else — every reachable module is
+offered as `Module`, by its dotted name: `(import Nested.De|)`
+completes `Nested.Deep`, where the ordinary prefix stops at the dot.
+The walk lists directories and probes the resolver per file, reading
+nothing, so modules complete mid-edit in a document that does not
+parse; a candidate counts only when the resolver would pick that file,
+which is the shadowing rule, and the document itself is never offered.
+The list is filtered on the prefix under the
 cursor, capped at `LSP_COMPL_MAX`, and sent `isIncomplete: true`,
 which tells the client to ask again on the next keystroke; `(` is the
 trigger character. A document that does not parse still completes
@@ -709,7 +729,8 @@ keywords and builtins — the normal case, since a file is unparseable exactly w
 a form is half written. It does not offer a name a macro would
 generate: `(deriveTag Colour)` does not put `tagColour` in the menu,
 and the gate asserts that absence, alongside one field, one builtin of
-each kind, and one local.
+each kind, and one local. A parameter shows its type from the
+signature (`x : Int`), the same text hover shows.
 
 **`textDocument/signatureHelp`.** The call the cursor is inside — a
 `fn` of this document, one of its constructors, or an imported `fn`
@@ -1008,7 +1029,10 @@ the question being asked. None of the four is sent per keystroke — a
 client asks for code actions when the cursor rests, pulls diagnostics
 on its own schedule and asks for an
 expansion on demand — and each costs about one `didOpen` of the same
-document, which the editor paid on the last keystroke anyway.
+document, which the editor paid on the last keystroke anyway. A
+watched-file event rechecks every open document the same way, which
+is one `didOpen` per tab on rare disk traffic rather than per
+keystroke, and is why no ratio below covers it.
 
 The gate that holds it is `scripts/check-lsp-selfhost.sh`, and it
 holds a RATIO rather than a stopwatch, so a slow runner cannot fail it

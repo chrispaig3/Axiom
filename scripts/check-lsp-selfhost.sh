@@ -33,6 +33,19 @@
 # computed from the two documents' own bytes, so no re-bless of any
 # golden can satisfy it.
 #
+# Beside those run two multi-file blocks, also written into drive.py:
+# SECTION DEP TESTS, where a dirty dependency's errors publish under
+# the dependency's own URI with its secondary linked beside them, an
+# opened-then-dirtied buffer keeps its own array through an importer's
+# recheck, and closes, dropped imports and broken imports retract
+# exactly what no open document covers; and SECTION WS TESTS, where a
+# bare `initialize` earns no registration, a capable one earns one
+# `client/registerCapability` with four registrations whose reply
+# earns no reply, and watched changes, creations, deletions and a
+# rename converge every open importer with no keystroke. Both compare
+# whole publish sequences for equality, so a publish too many, too
+# few, or under the wrong URI fails.
+#
 # HOVER AND COMPLETION were widened on 2026-08-26 and the block grew
 # with them. Hover used to answer for macros alone; it now answers for
 # every declaration kind the outline lists, quotes a `fn` as its
@@ -69,7 +82,11 @@
 # run under twelve advertised providers, and it FAILS on a capability
 # key it does not know how to build a request for, so a feature added
 # to lsp.ax and not to the sweep's table is a red gate rather than an
-# untested promise.
+# untested promise. Dynamic registration is invisible to it by design:
+# the sweep's `initialize` offers no workspace capabilities, so no
+# `client/registerCapability` is sent and the byte stream stays
+# golden-stable; the handshake and the five workspace notifications
+# are driven in drive.py instead, against a live process.
 #
 #   GOLDEN-ONLY, and therefore exactly as strong as whichever compiler
 #   last blessed it: the framed byte stream - framing, field order,
