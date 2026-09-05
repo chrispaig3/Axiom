@@ -567,6 +567,88 @@
 
 ;@axiom:effect(io)
 (pub fn (lspCheckDoc path src)
+  (let ((g (lspCheckPipeline path src)))
+    (if (!= (memGetWord g 0) 0)
+      (memGetWord g 0)
+      (lspDiagsForUnit (memGetWordVec g 1) 0 src path)
+    )
+  )
+)
+
+; One unit's diagnostics as an LSP array.
+;
+; Factored out of `lspCheckDoc` so the grouped publish path renders
+; every unit through the same loop: the entry's array here and a
+; dependency's array there are built by one function, and the pull
+; response (`lspDiagnostic`) is `lspCheckDoc`, so push and pull cannot
+; disagree about one document's diagnostics either.
+(pub :: lspDiagsForUnit (-> (Vec Int) Int String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspDiagsForUnit ds unit src path)
+  (let (
+    (out jsonArr)
+    (ix (lspLineIndex src))
+    ; Once, not per diagnostic: `lspPathToUri`
+    ; is IO, and a related location names the
+    ; document being published.
+    (uri (lspPathToUri path))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen ds))
+        (let ((d (vecGet ds i)))
+          {
+            (if (== (diagUnit d) unit)
+              (jsonArrPush out (lspDiagJson d src ix uri))
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; One four-word block for what the pipeline answers, so the three
+; exits below build the same shape: word 0 a rendered entry array
+; when the check never ran, else 0; words 1..3 the ordered
+; diagnostics, the units and the declarations then, else 0.
+(pub :: lspPipeBlock (-> Int Int Int Int Int))
+
+(pub fn (lspPipeBlock a b c d)
+  (let ((r (memAlloc 32)))
+    {
+      (memSetWord r 0 a)
+      (memSetWord r 1 b)
+      (memSetWord r 2 c)
+      (memSetWord r 3 d)
+      r
+    }
+  )
+)
+
+; The whole check as values: the entry file's diagnostics, every
+; diagnostic the checker raised, the unit table they index, and the
+; entry file's own declarations for the import-set question.
+;
+; Word 0 is a rendered entry array when the check never ran - a
+; lexical error, a parse error, an import that does not resolve - and
+; 0 once it did; word 1 the ordered diagnostics then and 0 before;
+; word 2 the units then and 0 before; word 3 the declarations whenever
+; the text parsed - including the missing-import exit, whose import
+; set is known although nothing resolved - and 0 when it did not.
+; Callers that only need this document (`lspCheckDoc`, the pull) read
+; word 0 or filter word 1 to unit 0; the publish path groups every
+; unit.
+;
+; Stated once so the two projections cannot drift: the push for a
+; document and the pull of it run this and nothing else.
+(pub :: lspCheckPipeline (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspCheckPipeline path src)
   ; A lexical error is reported before a parse one, as it is in the
   ; compiler: an editor should point at the bad escape rather than at
   ; whatever the parser tripped over afterwards.
@@ -584,13 +666,15 @@
           ; spanless note at the top of the file. That was this port's
           ; first consumer: before it, every typo anywhere in a file
           ; reported identically, at line 1.
-          (jsonArrPush
-            jsonArr            (lspDiagJson
-              (if (== lexD 0)
-                (parseErrDiag toks pr src)
-                lexD
-              )              src              (lspLineIndex src)              (lspPathToUri path)
-            )
+          (lspPipeBlock
+            (jsonArrPush
+              jsonArr              (lspDiagJson
+                (if (== lexD 0)
+                  (parseErrDiag toks pr src)
+                  lexD
+                )                src                (lspLineIndex src)                (lspPathToUri path)
+              )
+            )            0            0            0
           )
           (let (
             (decls (memGetWordVec pr 1))
@@ -598,8 +682,11 @@
             (entryDir (pathDir path))
           )
             (let ((missing (lspPreflight decls tcode entryDir vecNew)))
+              ; The declarations travel too: the text parsed, so the
+              ; import set is known even though nothing resolved - a
+              ; half-typed import still retracts what it orphaned.
               (if (> (strLen missing) 0)
-                (lspOneDiag src "AX5001" (strConcat (strConcat "cannot resolve import `" missing) "`"))
+                (lspPipeBlock (lspOneDiag src "AX5001" (strConcat (strConcat "cannot resolve import `" missing) "`")) 0 0 (cast Int decls))
                 ; Same order as `compileFile`: expansion, then the
                 ; checker. An editor that reported a different set
                 ; of diagnostics from `axiom check` on the same file
@@ -653,29 +740,7 @@
                           )
                         )
                       ))
-                        (let (
-                          (out jsonArr)
-                          (ix (lspLineIndex src))
-                          ; Once, not per diagnostic: `lspPathToUri`
-                          ; is IO, and a related location names the
-                          ; document being published.
-                          (uri (lspPathToUri path))
-                          (mut i 0)
-                        )
-                          {
-                            (while (< i (vecLen ds))
-                              (let ((d (vecGet ds i)))
-                                {
-                                  (if (== (diagUnit d) 0)
-                                    (jsonArrPush out (lspDiagJson d src ix uri))
-                                    0
-                                  )
-                                  (set i (+ i 1))
-                                }
-                              ))
-                            out
-                          }
-                        )
+                        (lspPipeBlock 0 (cast Int ds) (cast Int units) (cast Int decls))
                       )
                     )
                   )
@@ -1402,7 +1467,17 @@
                       ; what the rest of this function's header says.
                       (let ((dat (lspFindCtorData decls w (- (vecLen decls) 1))))
                         (if (== (lspCtorNodeOf dat w) 0)
-                          (lspHoverImported (lspUriToPath uri) src decls w range)
+                          (let ((imp (lspHoverImported (lspUriToPath uri) src decls w range)))
+                            (if (jsonIsNull imp)
+                              (let ((b (lspHoverBuiltin w range)))
+                                (if (== b 0)
+                                  jsonNull
+                                  b
+                                )
+                              )
+                              imp
+                            )
+                          )
                           (lspHoverAtNote src decls dat range "" (lspCtorNote dat w))
                         )
                       )
@@ -1532,6 +1607,31 @@
                 )
               )
             )
+          )
+        )
+      )
+    )
+  )
+)
+
+; What a builtin is, for the names no declaration declares. A builtin
+; type hovers as its own name with one line saying what it is; an
+; operator as its call shape with the type `symbols --builtins` prints,
+; in the parser's spelling. 0 when `w` names neither - a keyword, or a
+; name nothing declares, which answer `null` as before. Pure: the table
+; is closed and costs no import walk, so this runs after the imported
+; lookup misses rather than before anything resolves.
+(pub :: lspHoverBuiltin (-> String Int Int))
+
+(pub fn (lspHoverBuiltin w range)
+  (let ((tdoc (lspBuiltinTypeDoc w)))
+    (if (!= (strLen tdoc) 0)
+      (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr (strConcat (strConcat "```axiom\n" (strConcat w "\n```\n\n")) tdoc)))) "range" range)
+      (let ((ty (lspBuiltinOpType w)))
+        (if (== (strLen ty) 0)
+          0
+          (let ((code (strConcat (strConcat (strConcat (strConcat "(" w) " a b)") " : ") ty)))
+            (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr (strConcat (strConcat "```axiom\n" (strConcat code "\n```\n\n")) "builtin operator")))) "range" range)
           )
         )
       )
@@ -2331,15 +2431,25 @@
     (out jsonArr)
     (seen vecNew)
   )
-    (let ((prefix (lspPrefixAt src (lspOffsetOf src ix (jsonGet params "position")))))
+    (let ((off (lspOffsetOf src ix (jsonGet params "position"))))
+    (let ((prefix (lspPrefixAt src off)))
       (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
         {
           (lspComplKeywords out seen prefix)
+          (lspComplBuiltins out seen prefix)
+          ; Module names need no parse - only the document's path and the
+          ; bytes around the cursor - so they are offered in an import
+          ; even mid-edit, when the tree below has nothing to walk.
+          (if (lspComplInImport src off)
+            (lspComplModules out seen (lspUriToPath uri) (lspComplModPrefix src off))
+            0
+          )
           (if (== (memGetWord pr 0) 0)
             0
             (let ((decls (memGetWordVec pr 1)))
               {
                 (lspComplLocal out seen src decls prefix)
+                (lspComplLocals out seen src decls prefix off)
                 (lspComplImported out seen (lspUriToPath uri) src decls prefix)
               }
             )
@@ -2347,6 +2457,7 @@
           (lspComplList out)
         }
       )
+    )
     )
   )
 )
@@ -2370,11 +2481,281 @@
   )
 )
 
+; The names no declaration declares: the primitive types, the prelude's
+; spanless `Option`/`Vec`, and the eighteen builtin operators. Offered
+; even when the document does not parse - like the keywords, a file is
+; unparseable exactly while a name is half written. Kinds follow the
+; outline's: Class (7) for a primitive type, Enum (13) for the prelude's
+; data, Operator (24) for an operator. `tests/lsp/drive.py` carries the
+; same list for its broken-document equality, so a builtin the compiler
+; learns and this forgets is a red gate rather than a menu quietly
+; behind the language.
+(pub :: lspComplBuiltins (-> Int (Vec String) String Int))
+
+(pub fn (lspComplBuiltins out seen prefix)
+  {
+    (lspComplOffer out seen "Any" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Bool" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Char" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Float" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Int" 7 "builtin type" prefix)
+    (lspComplOffer out seen "String" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Unit" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Void" 7 "builtin type" prefix)
+    (lspComplOffer out seen "Option" 13 "builtin type" prefix)
+    (lspComplOffer out seen "Vec" 13 "builtin type" prefix)
+    (lspComplOffer out seen "+" 24 "builtin" prefix)
+    (lspComplOffer out seen "-" 24 "builtin" prefix)
+    (lspComplOffer out seen "*" 24 "builtin" prefix)
+    (lspComplOffer out seen "/" 24 "builtin" prefix)
+    (lspComplOffer out seen "%" 24 "builtin" prefix)
+    (lspComplOffer out seen "&" 24 "builtin" prefix)
+    (lspComplOffer out seen "|" 24 "builtin" prefix)
+    (lspComplOffer out seen "^" 24 "builtin" prefix)
+    (lspComplOffer out seen "<<" 24 "builtin" prefix)
+    (lspComplOffer out seen ">>" 24 "builtin" prefix)
+    (lspComplOffer out seen "==" 24 "builtin" prefix)
+    (lspComplOffer out seen "!=" 24 "builtin" prefix)
+    (lspComplOffer out seen "<" 24 "builtin" prefix)
+    (lspComplOffer out seen ">" 24 "builtin" prefix)
+    (lspComplOffer out seen "<=" 24 "builtin" prefix)
+    (lspComplOffer out seen ">=" 24 "builtin" prefix)
+    (lspComplOffer out seen "&&" 24 "builtin" prefix)
+    (lspComplOffer out seen "||" 24 "builtin" prefix)
+    0
+  }
+)
+
+; The builtin operator's type in the parser's spelling, or "" when `w`
+; is not one. Ten arithmetic and bitwise operators answer Int, six
+; comparisons answer Bool over Ints, two logical operators answer Bool
+; over Bools - the same arrows `axiom symbols --builtins` prints, in
+; the spelling a `::` accepts.
+(pub :: lspBuiltinOpType (-> String String))
+
+(pub fn (lspBuiltinOpType w)
+  (let ((mut t ""))
+    {
+      (if (strEq w "+") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "-") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "*") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "/") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "%") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "&") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "|") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "^") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "<<") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w ">>") { (set t "(-> Int Int Int)") 0 } 0)
+      (if (strEq w "==") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "!=") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "<") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w ">") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "<=") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w ">=") { (set t "(-> Int Int Bool)") 0 } 0)
+      (if (strEq w "&&") { (set t "(-> Bool Bool Bool)") 0 } 0)
+      (if (strEq w "||") { (set t "(-> Bool Bool Bool)") 0 } 0)
+      t
+    }
+  )
+)
+
+; One line on what the builtin type is, or "" when `w` names none.
+; Kept to a line each: a tooltip is not the reference, and the types
+; table in `docs/status.md` is where the full story lives.
+(pub :: lspBuiltinTypeDoc (-> String String))
+
+(pub fn (lspBuiltinTypeDoc w)
+  (let ((mut d ""))
+    {
+      (if (strEq w "Int") { (set d "64-bit signed integer") 0 } 0)
+      (if (strEq w "Float") { (set d "64-bit IEEE-754 double") 0 } 0)
+      (if (strEq w "Bool") { (set d "Boolean: `true` or `false`") 0 } 0)
+      (if (strEq w "Char") { (set d "A Unicode code point") 0 } 0)
+      (if (strEq w "String") { (set d "A `Str` handle") 0 } 0)
+      (if (strEq w "Unit") { (set d "Unit: `()`") 0 } 0)
+      (if (strEq w "Void") { (set d "Void: no value") 0 } 0)
+      (if (strEq w "Any") { (set d "Generic pointer: one word") 0 } 0)
+      (if (strEq w "Option") { (set d "Prelude data: `Some` or `None`") 0 } 0)
+      (if (strEq w "Vec") { (set d "Prelude data: a growable vector") 0 } 0)
+      d
+    }
+  )
+)
+
+; Whether the cursor at `off` sits where an import's MODULE goes: the
+; innermost enclosing form opens with `import`. A name list nested
+; inside - `(import Mod (foo|))` - opens with the list's own head, so
+; positions there complete values as everywhere else. A byte scan over
+; the raw text, so this answers mid-edit with no parse and no imports
+; resolved.
+(pub :: lspComplInImport (-> String Int Bool))
+
+(pub fn (lspComplInImport src off)
+  (let ((o (lspViewCallAt src off)))
+    (if (< o 0)
+      false
+      (strEq (lspViewHeadAt src o) "import")
+    )
+  )
+)
+
+; The dotted module prefix being typed at `off`: identifiers and dots
+; walked back from the cursor, so `(import Nested.De|` completes
+; `Nested.Deep` while the ordinary prefix stops at the dot. A leading
+; or doubled dot matches nothing, which is the honest answer for a
+; path the resolver would refuse.
+(pub :: lspComplModPrefix (-> String Int String))
+
+(pub fn (lspComplModPrefix src off)
+  (let ((n (strLen src)))
+    (let ((e (if (> off n)
+      n
+      off
+    )))
+      (let ((mut s e))
+        {
+          (while (if (> s 0)
+            (let ((b (strByte src (- s 1))))
+              (|| (isIdentChar b) (== b 46))
+            )
+            false
+          )
+            (set s (- s 1)))
+          (strSlice src s (- e s))
+        }
+      )
+    )
+  )
+)
+
+; Every reachable module whose dotted name holds `prefix`, as Module
+; (9): the menu for a name being typed where an import's module goes.
+; Asked through `lspComplOffer`, so the cap, the prefix and the
+; shadowing order - keywords, builtins, then modules, first spelling
+; wins - all behave as everywhere else.
+(pub :: lspComplModules (-> Int (Vec String) String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspComplModules out seen path prefix)
+  (let ((mods (lspComplModSearch path)))
+    (let (
+      (n (vecLen mods))
+      (mut i 0)
+    )
+      {
+        (while (< i n)
+          {
+            (lspComplOffer out seen (vecGetStr mods i) 9 "module" prefix)
+            (set i (+ i 1))
+          })
+        0
+      }
+    )
+  )
+)
+
+; All modules the resolver could reach from the entry file `path`,
+; without reading a single file: the directory walk of `lspFixScanDir`
+; with the name filter taken out. A candidate counts only when the
+; resolver would pick THIS file for the name (`moduleSrcPath`), which
+; is the ladder's shadowing rule, and never twice (`seen`). The
+; document itself is not a module it can import. Pure directory listing
+; plus one resolver probe per `.ax` file - no reads, no parses - so
+; this runs wherever a module name is being typed.
+(pub :: lspComplModSearch (-> String (Vec String)))
+
+;@axiom:effect(io)
+(pub fn (lspComplModSearch path)
+  (let (
+    (tcode (checkedTargetCode hostTarget))
+    (entryDir (pathDir path))
+    (found vecNew)
+    (seen vecNew)
+  )
+    (let (
+      (dirs (moduleSearchDirs entryDir))
+      (mut i 0)
+    )
+      {
+        (while (< i (vecLen dirs))
+          {
+            (lspComplModScan (vecGetStr dirs i) "" "" 0 path tcode entryDir found seen)
+            (set i (+ i 1))
+          })
+        found
+      }
+    )
+  )
+)
+
+; One directory, `rel` below the search root `dir`: every `.ax` entry
+; whose stem the target's suffix ladder accepts is a candidate module
+; `modPrefix` + its stem; every other entry that is a directory with a
+; module-segment name is walked, three levels deep at most. Dot-files
+; and dot-directories are skipped. The shape is `lspFixScanDir`'s, minus
+; the file reads: nothing here needs a name the file declares.
+(pub :: lspComplModScan (-> String String String Int String Int String (Vec String) (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspComplModScan dir rel modPrefix depth path tcode entryDir found seen)
+  (let ((names (sysReadDir (strCStr (if (== (strLen dir) 0)
+    (strConcat "./" rel)
+    (strConcat dir rel)
+  )))))
+    (let (
+      (n (vecLen names))
+      (mut i 0)
+    )
+      {
+        (while (< i n)
+          (let ((nm (vecGetStr names i)))
+            {
+              (if (|| (== (strLen nm) 0) (== (strByte nm 0) 46))
+                0
+                (let ((full (strConcat dir (strConcat rel nm))))
+                  (if (lspFixEndsWith nm ".ax")
+                    (let ((stem (lspFixStemOf nm tcode)))
+                      (if (== (strLen stem) 0)
+                        0
+                        (let ((mod (strConcat modPrefix stem)))
+                          (if (|| (strEq full path) (>= (strVecIdx seen mod) 0))
+                            0
+                            (if (strEq (moduleSrcPath mod tcode entryDir) full)
+                              {
+                                (vecPush seen mod)
+                                (vecPush found mod)
+                                0
+                              }
+                              0
+                            )
+                          )
+                        )
+                      )
+                    )
+                    (if (&& (< depth 3) (&& (lspFixIsSegment nm) (sysIsDir (strCStr full))))
+                      (lspComplModScan dir (strConcat rel (strConcat nm "/")) (strConcat modPrefix (strConcat nm ".")) (+ depth 1) path tcode entryDir found seen)
+                      0
+                    )
+                  )
+                )
+              )
+              (set i (+ i 1))
+            }
+          ))
+        0
+      }
+    )
+  )
+)
+
 ; This document's own names. The same set the outline publishes - so a
 ; name an editor can list, jump to and hover is a name it can also
 ; complete - plus the constructors, which the outline leaves out
 ; because they are not declarations and completion wants because they
-; are names.
+; are names, plus every struct's fields for the same reason: a field
+; is not a declaration either and `(Point x y)` is reached for by
+; name. Constructors complete as EnumMember (20), fields as Field
+; (5), matching the kinds `workspace/symbol` lists them under.
 (pub :: lspComplLocal (-> Int (Vec String) String (Vec Int) String Int))
 
 (pub fn (lspComplLocal out seen src decls prefix)
@@ -2396,7 +2777,10 @@
                 )
                 (if (== (nodeTag d) TAG_D_DATA)
                   (lspComplCtors out seen (nodeBVec d) prefix)
-                  0
+                  (if (== (nodeTag d) TAG_D_STRUCT)
+                    (lspComplFields out seen (nodeBVec d) prefix)
+                    0
+                  )
                 )
               }
               0
@@ -2447,6 +2831,139 @@
   )
 )
 
+; A struct's fields, by the same rule as its constructors above: not
+; declarations, but names a reference spells - `(Point x y)` and
+; `(.x p)` both reach for them. Offered as Field (5) rather than
+; EnumMember (20), which is the kind the outline nests them under.
+(pub :: lspComplFields (-> Int (Vec String) (Vec Int) String Int))
+
+(pub fn (lspComplFields out seen fields prefix)
+  (let (
+    (n (vecLen fields))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (lspComplOffer out seen (nodeAName (vecGet fields i)) 5 "" prefix)
+          (set i (+ i 1))
+        })
+      0
+    }
+  )
+)
+
+; The locals in scope at the cursor, as Variable (6): `let` names, `fn`
+; and `lambda` parameters, pattern variables - every binder the
+; scope-aware walk records, filtered to the top-level declaration the
+; cursor sits in and to binders written before it. A `let` that shadows
+; a parameter offers one item, not two, because `seen` dedups; a binder
+; with no anchor (`~` key, `syntax/join` name, `_`) was never emitted
+; by the walk and is not offered. A parameter shows its type from the
+; owning signature (`x : Int`), the same text hover shows; anything
+; else shows no detail. Reads the raw tree and expands
+; nothing, like every other per-keystroke request.
+(pub :: lspComplLocals (-> Int (Vec String) String (Vec Int) String Int Int))
+
+(pub fn (lspComplLocals out seen src decls prefix off)
+  (let ((owner (lspComplOwnerAt src decls off)))
+    (if (== (strLen owner) 0)
+      0
+      (let ((occs (lspNavOccurrences src decls)))
+        (let (
+          (n (vecLen occs))
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              (let ((o (vecGet occs i)))
+                {
+                  (if (&& (== (memGetWord o 2) NAV_BINDER) (lspNavIsLocal (memGetWordStr o 3)))
+                    (let ((sp (memGetWord o 1)))
+                      (if (&& (!= sp 0) (&& (< (spanStart sp) off) (strEq (memGetWordStr o 5) owner)))
+                        (lspComplOffer out seen (memGetWordStr o 0) 6 (lspComplLocalDetail decls o) prefix)
+                        0
+                      )
+                    )
+                    0
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            0
+          }
+        )
+      )
+    )
+  )
+)
+
+; The detail for one binder occurrence: a `fn` parameter's `name : T`
+; from the owning signature, when it has one - the same text
+; `lspNavParamCode` builds for hover - and "" for every other binder,
+; which has no type written anywhere to show.
+(pub :: lspComplLocalDetail (-> (Vec Int) Int String))
+
+(pub fn (lspComplLocalDetail decls o)
+  (if (== (memGetWord o 4) NAV_B_PARAM)
+    (lspNavParamCode decls (memGetWordStr o 5) (memGetWordStr o 0) (memGetWord o 6))
+    ""
+  )
+)
+
+; The top-level declaration whose extent holds `off`: its name's start
+; to the next spanned declaration's start, or EOF. "" when none does -
+; between declarations, where no local is in scope.
+(pub :: lspComplOwnerAt (-> String (Vec Int) Int String))
+
+(pub fn (lspComplOwnerAt src decls off)
+  (let (
+    (n (vecLen decls))
+    (len (strLen src))
+    (mut i 0)
+    (mut owner "")
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet decls i)))
+          {
+            (if (!= (nodeSpan d) 0)
+              (let (
+                (lo (spanStart (nodeSpan d)))
+                (mut j (+ i 1))
+                (mut hi len)
+              )
+                {
+                  (while (if (< j n)
+                    (== hi len)
+                    false
+                  )
+                    {
+                      (if (!= (nodeSpan (vecGet decls j)) 0)
+                        (set hi (spanStart (nodeSpan (vecGet decls j))))
+                        0
+                      )
+                      (set j (+ j 1))
+                    })
+                  (if (&& (<= lo off) (< off hi))
+                    {
+                      (set owner (nodeAName d))
+                      0
+                    }
+                    0
+                  )
+                }
+              )
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      owner
+    }
+  )
+)
+
 ; Everything the imports bring in, by the bare name a reference spells.
 ;
 ; The resolver is given what `lspCheckDoc` and `lspDefinitionImported`
@@ -2481,7 +2998,10 @@
                       )
                       (if (== (nodeTag d) TAG_D_DATA)
                         (lspComplCtors out seen (nodeBVec d) prefix)
-                        0
+                        (if (== (nodeTag d) TAG_D_STRUCT)
+                          (lspComplFields out seen (nodeBVec d) prefix)
+                          0
+                        )
                       )
                     }
                     0
@@ -2803,6 +3323,299 @@
 ;@axiom:effect(io)
 (pub fn (lspNotify method params) (lspSend (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0")) "method" (jsonStr method)) "params" params)))
 
+; A request TO the client. The server sends exactly one in a session
+; (dynamic registration, below), so its id is the constant
+; `axiom-reg-1` rather than a counter: one `initialize` per process
+; means one registration per session, and a second use of the id
+; cannot happen. Responses to it carry no method and are dropped
+; unread at the dispatch - registration needs no answer.
+(pub :: lspRequestOut (-> String String Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspRequestOut id method params) (lspSend (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "jsonrpc" (jsonStr "2.0")) "id" (jsonStr id)) "method" (jsonStr method)) "params" params)))
+
+; ------------------------------------------------------------------
+; Dynamic registration: asking the client to report the filesystem.
+;
+; Watched files and file operations are not capabilities - the
+; protocol offers no static provider for either - so a server that
+; wants them asks with `client/registerCapability`, once, right after
+; it answers `initialize`, and only for what the client's own
+; `initialize` params say it can do
+; (`workspace.didChangeWatchedFiles.dynamicRegistration`,
+; `workspace.fileOperations.dynamicRegistration`). A client that
+; advertises neither is never asked: an unanswerable request is
+; worse than an unasked one, and the per-fixture goldens - whose
+; `initialize` carries no workspace capabilities - pin the byte
+; stream with no registration in it.
+;
+; The registration id doubles as the method name. Both must be unique
+; strings and both are conventionally related; using one spelling for
+; both is the smallest unique set. `drive.py` answers id
+; `axiom-reg-1` and asserts the four registrations; the coupling is
+; stated here so a rename renames both.
+; ------------------------------------------------------------------
+; Whether the client's workspace capabilities offer dynamic
+; registration under `key`. Every access defaults through absence -
+; `jsonGet` answers 0 for a member that is not there and every getter
+; answers false-or-empty for a mistyped value - so a client that
+; sends a bare `{}` registers nothing and no shape of params can
+; crash the read.
+(pub :: lspDynReg (-> Int String Int))
+
+(pub fn (lspDynReg ws key) (jsonBoolVal (jsonGet (jsonGet ws key) "dynamicRegistration")))
+
+; One registration entry: the method as its own id, beside its
+; options.
+(pub :: lspRegEntry (-> String Int Int))
+
+(pub fn (lspRegEntry method opts) (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "id" (jsonStr method)) "method" (jsonStr method)) "registerOptions" opts))
+
+; The file-operation filter both directions share: `.ax` files under
+; `file:` URIs. Anything else the editor does is not this server's
+; to recheck, and the watched handler says so out loud.
+(pub :: lspFileOpOpts Int)
+
+(pub fn (lspFileOpOpts) (jsonObjPut jsonObj "filters" (jsonArrPush jsonArr (jsonObjPut (jsonObjPut jsonObj "scheme" (jsonStr "file")) "pattern" (jsonObjPut jsonObj "glob" (jsonStr "**/*.ax"))))))
+
+(pub :: lspInitRegister (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspInitRegister params)
+  (let ((ws (jsonGet (jsonGet params "capabilities") "workspace")))
+    (let ((regs jsonArr))
+      {
+        (if (!= (lspDynReg ws "didChangeWatchedFiles") 0)
+          {
+            (jsonArrPush regs (lspRegEntry "workspace/didChangeWatchedFiles" (jsonObjPut jsonObj "watchers" (jsonArrPush jsonArr (jsonObjPut jsonObj "globPattern" (jsonStr "**/*.ax"))))))
+            0
+          }
+          0
+        )
+        (if (!= (lspDynReg ws "fileOperations") 0)
+          {
+            (jsonArrPush regs (lspRegEntry "workspace/didCreateFiles" (lspFileOpOpts)))
+            (jsonArrPush regs (lspRegEntry "workspace/didRenameFiles" (lspFileOpOpts)))
+            (jsonArrPush regs (lspRegEntry "workspace/didDeleteFiles" (lspFileOpOpts)))
+            0
+          }
+          0
+        )
+        (if (== (jsonArrLen regs) 0)
+          0
+          (lspRequestOut "axiom-reg-1" "client/registerCapability" (jsonObjPut jsonObj "registrations" regs))
+        )
+      }
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; Workspace events: the filesystem as the editor reports it.
+;
+; Five notifications, one rule. A watched change, a creation, a
+; rename or a deletion names files; the server rechecks every open
+; document except the ones it names that are open - an open buffer is
+; the truth about its contents and no disk event overrules it - and
+; retracts what a deletion or a rename's old name orphaned, never an
+; open document (see the no-clobber rule on retraction). Creations
+; resolve pending AX5001s through the rechecks; deletions converge
+; importers to AX5001 the same way. Events naming no `.ax` file do
+; nothing at all: a save elsewhere is not this server's to recheck.
+;
+; These run outside every ratio the cost rule holds: they answer disk
+; traffic, which is rare next to keystrokes, and each costs one
+; `didOpen` per open document. Handled whenever received, asked for
+; only when the client offered dynamic registration (above) - a
+; capability nothing sweeps would be a promise nothing tests, and the
+; sweep derives its table from static capabilities alone.
+; ------------------------------------------------------------------
+(pub :: lspWsHandles (-> String Bool))
+
+(pub fn (lspWsHandles method) (|| (strEq method "workspace/didChangeWatchedFiles") (|| (strEq method "workspace/didCreateFiles") (|| (strEq method "workspace/didRenameFiles") (strEq method "workspace/didDeleteFiles")))))
+
+(pub :: lspWsDispatch (-> String Int (Vec String) (Vec a) Int))
+
+;@axiom:effect(io)
+(pub fn (lspWsDispatch method params uris texts)
+  (let (
+    (mentioned vecNew)
+    (gone vecNew)
+  )
+    {
+      ; Sort one event into the two sets the rule reads. Unknown
+      ; shapes contribute nothing: a change with no URI or no type
+      ; reads as a nameless change, which rechecks nothing and
+      ; retracts nothing.
+      (if (strEq method "workspace/didChangeWatchedFiles")
+        (let (
+          (cs (jsonGet params "changes"))
+          (mut i 0)
+        )
+          {
+            (while (< i (jsonArrLen cs))
+              (let ((c (jsonArrGet cs i)))
+                (let ((u (jsonGetStr c "uri")))
+                  {
+                    (if (> (strLen u) 0)
+                      {
+                        (vecPush mentioned u)
+                        (if (== (jsonInt (jsonGet c "type")) 3)
+                          {
+                            (vecPush gone u)
+                            0
+                          }
+                          0
+                        )
+                        0
+                      }
+                      0
+                    )
+                    (set i (+ i 1))
+                  }
+                )
+              ))
+            0
+          }
+        )
+        (if (strEq method "workspace/didRenameFiles")
+          (let (
+            (fs (jsonGet params "files"))
+            (mut i 0)
+          )
+            {
+              (while (< i (jsonArrLen fs))
+                (let ((f (jsonArrGet fs i)))
+                  (let (
+                    (o (jsonGetStr f "oldUri"))
+                    (n (jsonGetStr f "newUri"))
+                  )
+                    {
+                      (if (> (strLen o) 0)
+                        {
+                          (vecPush mentioned o)
+                          (vecPush gone o)
+                          0
+                        }
+                        0
+                      )
+                      (if (> (strLen n) 0)
+                        {
+                          (vecPush mentioned n)
+                          0
+                        }
+                        0
+                      )
+                      (set i (+ i 1))
+                    }
+                  )
+                ))
+              0
+            }
+          )
+          (let (
+            (fs (jsonGet params "files"))
+            (mut i 0)
+          )
+            {
+              ; Creation and deletion share the shape (`files` of
+              ; `uri`); only deletion orphans, so only it fills
+              ; `gone`. A bare create rechecks and resolves.
+              (while (< i (jsonArrLen fs))
+                (let ((u (jsonGetStr (jsonArrGet fs i) "uri")))
+                  {
+                    (if (> (strLen u) 0)
+                      {
+                        (vecPush mentioned u)
+                        (if (strEq method "workspace/didDeleteFiles")
+                          {
+                            (vecPush gone u)
+                            0
+                          }
+                          0
+                        )
+                        0
+                      }
+                      0
+                    )
+                    (set i (+ i 1))
+                  }
+                ))
+              0
+            }
+          )
+        )
+      )
+      (lspWsRecheck uris texts mentioned gone)
+    }
+  )
+)
+
+; The uniform rule. Nothing happens when no mentioned URI ends `.ax`.
+; Otherwise every open, non-blank document the event does not name is
+; rechecked - with its own current import set on both sides of the
+; retraction question, so no retraction phase runs - and every gone
+; `.ax` URI that is closed is retracted. A mentioned OPEN document is
+; skipped outright: its buffer is the truth about its contents and no
+; disk event overrules it.
+(pub :: lspWsRecheck (-> (Vec String) (Vec a) (Vec String) (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspWsRecheck uris texts mentioned gone)
+  (let (
+    (mut i 0)
+    (mut scoped false)
+  )
+    {
+      (while (< i (vecLen mentioned))
+        {
+          (if (lspFixEndsWith (vecGetStr mentioned i) ".ax")
+            {
+              (set scoped true)
+              (set i (vecLen mentioned))
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      (if (lspNavNot scoped)
+        0
+        {
+          (set i 0)
+          (while (< i (vecLen uris))
+            (let ((u (vecGetStr uris i)))
+              (let ((t (vecGetStr texts i)))
+                {
+                  ; Blank is a closed document with nothing to check;
+                  ; mentioned is an open buffer no disk event overrules.
+                  (if (|| (== (strLen t) 0) (lspSeenHas mentioned u))
+                    0
+                    (lspRecheckFull uris texts u t (lspImportModsOf t))
+                  )
+                  (set i (+ i 1))
+                }
+              )
+            ))
+          (set i 0)
+          (while (< i (vecLen gone))
+            (let ((u (vecGetStr gone i)))
+              {
+                ; Closed only: an open tab owns its own squiggles (see
+                ; the no-clobber rule on `lspRetractOrphaned`).
+                (if (&& (lspFixEndsWith u ".ax") (< (docFind uris u) 0))
+                  (lspPublish u jsonArr)
+                  0
+                )
+                (set i (+ i 1))
+              }
+            ))
+          0
+        }
+      )
+    }
+  )
+)
+
 (pub :: lspPublish (-> String Int Int))
 
 ;@axiom:effect(io)
@@ -2821,7 +3634,7 @@
 ; nothing calls.
 (pub :: lspCapabilities Int)
 
-(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.7.5"))))
+(pub fn (lspCapabilities) (jsonObjPut (jsonObjPut jsonObj "capabilities" (lspFixCaps (lspViewCaps (lspNavCaps (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "textDocumentSync" (jsonNum 1)) "positionEncoding" (jsonStr "utf-16")) "documentSymbolProvider" (jsonBool 1)) "definitionProvider" (jsonBool 1)) "hoverProvider" (jsonBool 1)) "completionProvider" lspCompletionOptions))))) "serverInfo" (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.7.5"))))
 
 ; `definitionProvider` and `hoverProvider` joined on 2026-08-15
 ; with the macro navigation they describe (MAC-TOOL-2). Both are
@@ -2845,11 +3658,391 @@
 
 (pub fn (lspCompletionOptions) (jsonObjPut (jsonObjPut jsonObj "resolveProvider" (jsonBool 0)) "triggerCharacters" (jsonArrPush jsonArr (jsonStr "("))))
 
-; Check the document behind `uri` and publish the result.
-(pub :: lspRecheck (-> (Vec String) (Vec String) String Int))
+; Check the document behind `uri` and publish the result: its own
+; diagnostics under its URI, and every resolved dependency's under
+; that file's own URI - including an empty array, which is how a
+; dependency fixed elsewhere goes quiet here. A dependency that is
+; OPEN is skipped: its text on disk may lag its buffer, and positions
+; read off the wrong bytes are worse than a publish its own rechecks
+; already send. Then, when the import set moved, retract what it
+; orphaned (see `lspRecheckFull`).
+;
+; Only diagnostics whose unit the checker attributed are published
+; anywhere: a diagnostic about a file nothing resolved is still
+; dropped, as it was when unit 0 was the only publish.
+(pub :: lspRecheckFull (-> (Vec String) (Vec a) String String Int Int))
 
 ;@axiom:effect(io)
-(pub fn (lspRecheck uris texts uri) (lspPublish uri (lspCheckDoc (lspUriToPath uri) (docText uris texts uri))))
+(pub fn (lspRecheckFull uris texts uri oldText oldMods)
+  (let ((src (docText uris texts uri)))
+    (let ((g (lspCheckGrouped uris texts uri src)))
+      (let ((pairs (memGetWordVec g 0)))
+        {
+          (lspPublishAll pairs)
+          (lspRetractOrphaned uris texts uri oldText oldMods pairs (memGetWord g 1))
+          0
+        }
+      )
+    )
+  )
+)
+
+; Publish every (uri, diagnostics) pair of a grouped check, the entry
+; first - the order `lspCheckGrouped` keeps - so a consumer reading
+; only the first publish sees what it saw before dependencies
+; published.
+(pub :: lspPublishAll (-> (Vec Int) Int))
+
+;@axiom:effect(io)
+(pub fn (lspPublishAll pairs)
+  (let (
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen pairs))
+        (let ((b (vecGet pairs i)))
+          {
+            (lspPublish (memGetWordStr b 0) (memGetWord b 1))
+            (set i (+ i 1))
+          }
+        ))
+      0
+    }
+  )
+)
+
+; Retract what an import-set move orphaned: dependency URIs the old
+; text resolved that the new check does not publish, minus what any
+; other open document still resolves, minus what is OPEN: an open
+; document publishes for itself, and blanking its tab from another
+; document's lifecycle would wipe squiggles its own buffer still
+; earns. Skipped when either set is unknown - a fresh open (0) or an
+; unparseable side (0) - because a retraction written without knowing
+; both closures would blank files this document may still import.
+; Unparseable-then-parseable converges the other way: the new check
+; publishes every dependency it resolved.
+(pub :: lspRetractOrphaned (-> (Vec String) (Vec a) String String Int (Vec Int) Int Int))
+
+;@axiom:effect(io)
+(pub fn (lspRetractOrphaned uris texts uri oldText oldMods pairs newMods)
+  (if (|| (== oldMods 0) (== newMods 0))
+    0
+    (if (lspSameModSets (cast (Vec String) oldMods) (cast (Vec String) newMods))
+      0
+      (let (
+        (oldDeps (lspDepUris (lspUriToPath uri) oldText))
+        (covered (lspOthersDeps uris texts uri))
+        (mut i 0)
+      )
+        {
+          (while (< i (vecLen oldDeps))
+            (let ((u (vecGetStr oldDeps i)))
+              {
+                (if (&& (lspPairsMissingUri pairs u) (&& (lspVecMissingStr covered u) (< (docFind uris u) 0)))
+                  (lspPublish u jsonArr)
+                  0
+                )
+                (set i (+ i 1))
+              }
+            ))
+          0
+        }
+      )
+    )
+  )
+)
+
+; Whether no element of `v` spells `s`: `lspSeenHas` answers the
+; positive, and retraction needs the negative. `v` holds plain
+; strings for a covered-set, and pair blocks for a publish list, so
+; the two shapes ask separately.
+(pub :: lspVecMissingStr (-> (Vec String) String Bool))
+
+(pub fn (lspVecMissingStr v s) (lspNavNot (lspSeenHas v s)))
+
+(pub :: lspPairsMissingUri (-> (Vec Int) String Bool))
+
+(pub fn (lspPairsMissingUri pairs u)
+  (let (
+    (mut i 1)
+    (mut found false)
+  )
+    {
+      (while (< i (vecLen pairs))
+        {
+          (if (strEq (memGetWordStr (vecGet pairs i) 0) u)
+            {
+              (set found true)
+              (set i (vecLen pairs))
+            }
+            0
+          )
+          (set i (+ i 1))
+        })
+      (lspNavNot found)
+    }
+  )
+)
+
+; The grouped check: the entry's array first, then one (uri,
+; diagnostics) pair per resolved dependency in unit order - empty
+; arrays included, which is how a dependency fixed elsewhere goes
+; quiet here - and the entry's import set, or 0 when the text never
+; parsed and no set is known. A dependency that is OPEN is skipped:
+; its bytes on disk may lag its buffer, and positions read off the
+; wrong text are worse than a publish its own rechecks already send.
+(pub :: lspCheckGrouped (-> (Vec String) (Vec a) String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspCheckGrouped uris texts uri src)
+  (let ((path (lspUriToPath uri)))
+    (let ((g (lspCheckPipeline path src)))
+      (if (!= (memGetWord g 0) 0)
+        (lspGroupBlock
+          (let ((pairs vecNew))
+            {
+              (vecPush pairs (lspGroupPair uri (memGetWord g 0)))
+              pairs
+            }
+          )
+          (let ((decls (memGetWord g 3)))
+            (if (== decls 0)
+              0
+              (cast Int (lspImportMods (memGetWordVec g 3)))
+            )
+          )
+        )
+        (let (
+          (ds (memGetWordVec g 1))
+          (units (memGetWordVec g 2))
+          (decls (memGetWordVec g 3))
+          (pairs vecNew)
+          (mut u 0)
+        )
+          {
+            (vecPush pairs (lspGroupPair uri (lspDiagsForUnit ds 0 src path)))
+            (set u 1)
+            (while (< u (vecLen units))
+              (let ((unit (vecGet units u)))
+                (let ((uuri (lspPathToUri (memGetWordStr unit 0))))
+                  {
+                    ; Open skips, closed publishes - even empty, so a
+                    ; fix that landed on disk clears on the next
+                    ; keystroke in any importer.
+                    (if (< (docFind uris uuri) 0)
+                      {
+                        (vecPush pairs (lspGroupPair uuri (lspDiagsForUnit ds u (memGetWordStr unit 1) (memGetWordStr unit 0))))
+                        0
+                      }
+                      0
+                    )
+                    (set u (+ u 1))
+                  }
+                )
+              ))
+            (lspGroupBlock pairs (cast Int (lspImportMods decls)))
+          }
+        )
+      )
+    )
+  )
+)
+
+; One (uri, diagnostics) pair, and one grouped answer: the pairs with
+; the entry first, beside the import set (or 0 when unknown).
+(pub :: lspGroupPair (-> String Int Int))
+
+(pub fn (lspGroupPair uri diags)
+  (let ((b (memAlloc 16)))
+    {
+      (memSetWord b 0 uri)
+      (memSetWord b 1 diags)
+      b
+    }
+  )
+)
+
+(pub :: lspGroupBlock (-> (Vec Int) Int Int))
+
+(pub fn (lspGroupBlock pairs mods)
+  (let ((b (memAlloc 16)))
+    {
+      (memSetWord b 0 pairs)
+      (memSetWord b 1 mods)
+      b
+    }
+  )
+)
+
+; The module names one declaration list imports, in order, for the
+; import-set comparison retraction is gated on. Only the module -
+; never the name list - because the dependency closure follows the
+; modules alone.
+(pub :: lspImportMods (-> (Vec Int) (Vec String)))
+
+(pub fn (lspImportMods decls)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen decls))
+        (let ((d (vecGet decls i)))
+          {
+            (if (== (nodeTag d) TAG_D_IMPORT)
+              {
+                (vecPush out (memGetWordStr d 1))
+                0
+              }
+              0
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
+
+; The import set of a whole text, or 0 when it never parsed: the
+; early-exit shape retraction reads as "unknown", never as "no
+; imports", because an empty set would claim the document imports
+; nothing and retract everything.
+(pub :: lspImportModsOf (-> String Int))
+
+(pub fn (lspImportModsOf src)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      0
+      (cast Int (lspImportMods (memGetWordVec pr 1)))
+    )
+  )
+)
+
+; Whether two import sets name the same modules. Lengths first, then
+; mutual membership: duplicates do not change a dependency closure,
+; so multiplicity is ignored on purpose.
+(pub :: lspSameModSets (-> (Vec String) (Vec String) Bool))
+
+(pub fn (lspSameModSets a b)
+  (if (!= (vecLen a) (vecLen b))
+    false
+    (let (
+      (mut i 0)
+      (mut same true)
+    )
+      {
+        (while (< i (vecLen a))
+          {
+            (if (lspSeenHas b (vecGetStr a i))
+              0
+              {
+                (set same false)
+                0
+              }
+            )
+            (set i (+ i 1))
+          })
+        (set i 0)
+        (while (< i (vecLen b))
+          {
+            (if (lspSeenHas a (vecGetStr b i))
+              0
+              {
+                (set same false)
+                0
+              }
+            )
+            (set i (+ i 1))
+          })
+        same
+      }
+    )
+  )
+)
+
+; Every dependency URI one text resolves, transitively, entry
+; excluded - or empty when it does not parse or an import does not
+; resolve. The same preamble the check runs (`lspResolveFor`), asked
+; for the unit table alone. Runs only where retraction is decided:
+; closes, and the rare keystroke that moves the import set.
+(pub :: lspDepUris (-> String String (Vec String)))
+
+;@axiom:effect(io)
+(pub fn (lspDepUris path src)
+  (let ((out vecNew))
+    (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+      (if (== (memGetWord pr 0) 0)
+        out
+        (let ((decls (memGetWordVec pr 1)))
+          (let ((r (lspResolveFor path src decls)))
+            (if (== r 0)
+              out
+              (let (
+                (units (memGetWordVec r 1))
+                (mut u 1)
+              )
+                {
+                  (while (< u (vecLen units))
+                    {
+                      (vecPush out (lspPathToUri (memGetWordStr (vecGet units u) 0)))
+                      (set u (+ u 1))
+                    })
+                  out
+                }
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The union of every other open document's dependency URIs: what stays
+; covered when one document stops resolving a file. Blank texts
+; resolve to nothing and are skipped rather than probed.
+(pub :: lspOthersDeps (-> (Vec String) (Vec a) String (Vec String)))
+
+;@axiom:effect(io)
+(pub fn (lspOthersDeps uris texts skip)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen uris))
+        (let ((u (vecGetStr uris i)))
+          {
+            (if (|| (strEq u skip) (== (strLen (vecGetStr texts i)) 0))
+              0
+              (let (
+                (ds (lspDepUris (lspUriToPath u) (vecGetStr texts i)))
+                (mut j 0)
+              )
+                {
+                  (while (< j (vecLen ds))
+                    {
+                      (if (lspSeenHas out (vecGetStr ds j))
+                        0
+                        {
+                          (vecPush out (vecGetStr ds j))
+                          0
+                        }
+                      )
+                      (set j (+ j 1))
+                    })
+                  0
+                }
+              )
+            )
+            (set i (+ i 1))
+          }
+        ))
+      out
+    }
+  )
+)
 
 ; The URI a `textDocument`-shaped params object names.
 (pub :: lspParamsUri (-> Int String))
@@ -2877,8 +4070,8 @@
 ; else: NAVIGATION (references, rename, highlights, the local-binding
 ; half of definition), VIEWS (signature help, inlay hints, folding,
 ; selection ranges, document links, workspace symbols), FIXES
-; (formatting, code actions, macro expansion, code lenses, type
-; definition, diagnostics for imported modules) and HIGHLIGHTING
+; (pull diagnostics, formatting, code actions, macro expansion, code
+; lenses, type definition, diagnostics for imported modules) and HIGHLIGHTING
 ; (semantic tokens). Each section answers
 ; three questions in the same shape - does it handle `method`, what
 ; does it reply, and what does it advertise - and `lspExtHandles` /
@@ -4776,11 +5969,13 @@
 
 ; Renamable: a local with an anchor, or a name this document declares.
 ; NOT renamable, and null is the answer: a name declared in another
-; module, even an open one - renaming across files this server did not
-; open would leave a broken workspace, and a standard-library name
-; must never be renamed from a client; a builtin; an effect; a keyword
-; or `_`, which are never occurrences; and a parameter whose span
-; could not be recovered.
+; module, even an open one - the edit must start where the name is
+; declared, and a standard-library name must never be renamed from a
+; client; a builtin; an effect; a keyword or `_`, which are never
+; occurrences; and a parameter whose span could not be recovered. The
+; edit itself reaches every importing document under the entry
+; directory tree, open or closed; the declaration site is what stays
+; put.
 (pub :: lspNavRenamable (-> Int Bool))
 
 (pub fn (lspNavRenamable o)
@@ -5016,12 +6211,249 @@
 
 (pub fn (lspNavForeignSel texts pair bare) (lspNavSameKey (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)) (strConcat "?" bare) 1))
 
+; ------------------------------------------------------------------
+; The closed project files: every `.ax` file under the requesting
+; document's own directory tree that no open document spells.
+;
+; References and rename used to reach only open documents, so a name
+; used in a file the editor had not opened was invisible to both.
+; The scope is deliberately the entry file's directory tree and not
+; the world: the standard library is a dependency, not the project,
+; and rust-analyzer draws the same line at the workspace edge. Three
+; bounds keep a pathological tree from stalling an on-demand request:
+; directories deeper than 8 are not descended, dot-files and
+; dot-directories are never entered, and past 1000 files the walk
+; stops adding (completion's `LSP_COMPL_MAX` is the precedent for a
+; cap that truncates rather than stalls). All three requests that
+; read this are asked on demand - never per keystroke and never per
+; cursor move - which is what pays for a walk, a read and a parse per
+; file. The returned paths are sorted byte-wise, so closed locations
+; follow the open ones in an order no filesystem gets to vote on.
+; ------------------------------------------------------------------
+; Insertion sort, in place, by unsigned byte order (`strCmp`): the
+; walker answers readdir order, which is a property of the machine
+; rather than of the tree, and two runs of one request must not
+; disagree about it.
+(pub :: lspSortPaths (-> (Vec String) Int))
+
+(pub fn (lspSortPaths v)
+  (let ((mut i 1))
+    {
+      (while (< i (vecLen v))
+        (let ((x (vecGetStr v i)))
+          (let ((mut j i))
+            {
+              (while (&& (> j 0) (< (strCmp x (vecGetStr v (- j 1))) 0))
+                {
+                  (vecSet v j (vecGetStr v (- j 1)))
+                  (set j (- j 1))
+                })
+              (if (!= j i)
+                {
+                  (vecSet v j x)
+                  0
+                }
+                0
+              )
+              (set i (+ i 1))
+            }
+          )
+        ))
+      0
+    }
+  )
+)
+
+; Every `.ax` file under `entryDir`, sorted. `entryDir` arrives with
+; its slash (or empty, which lists the working directory), the way
+; `pathDir` spells it and `lspFixScanDir` reads it.
+(pub :: lspProjAxFiles (-> String (Vec String)))
+
+;@axiom:effect(io)
+(pub fn (lspProjAxFiles entryDir)
+  (let ((out vecNew))
+    {
+      (lspProjAxWalk entryDir "" 0 out)
+      (lspSortPaths out)
+      out
+    }
+  )
+)
+
+(pub :: lspProjAxWalk (-> String String Int (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspProjAxWalk dir rel depth out)
+  (if (|| (> depth 8) (>= (vecLen out) 1000))
+    0
+    (let ((names (sysReadDir (strCStr (if (== (strLen dir) 0)
+      (strConcat "./" rel)
+      (strConcat dir rel)
+    )))))
+      (let (
+        (n (vecLen names))
+        (mut i 0)
+      )
+        {
+          (while (if (< i n)
+            (< (vecLen out) 1000)
+            false
+          )
+            (let ((nm (vecGetStr names i)))
+              {
+                (if (|| (== (strLen nm) 0) (== (strByte nm 0) 46))
+                  0
+                  (let ((full (strConcat dir (strConcat rel nm))))
+                    (if (lspFixEndsWith nm ".ax")
+                      {
+                        (vecPush out full)
+                        0
+                      }
+                      (if (&& (< depth 8) (sysIsDir (strCStr full)))
+                        (lspProjAxWalk dir (strConcat rel (strConcat nm "/")) (+ depth 1) out)
+                        0
+                      )
+                    )
+                  )
+                )
+                (set i (+ i 1))
+              }
+            ))
+          0
+        }
+      )
+    )
+  )
+)
+
+; The open documents' paths, decoded: what the closed-file searches
+; compare against. A URI the client spelled unusually still decodes
+; to the path it names, so no spelling of an open file is ever
+; treated as closed.
+(pub :: lspOpenPaths (-> (Vec String) (Vec String)))
+
+(pub fn (lspOpenPaths uris)
+  (let (
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen uris))
+        {
+          (vecPush out (lspUriToPath (vecGetStr uris i)))
+          (set i (+ i 1))
+        })
+      out
+    }
+  )
+)
+
+; The closed files that import the requesting document: (path, text,
+; declarations) triples for every parsed `.ax` file under its
+; directory tree that is not open and one of whose `(import M)` lines
+; resolves - by `moduleSrcPath`, the compiler's own search - to the
+; requesting path. The precision is the open-importer search's
+; (`lspNavImportsPath`): a file that merely spells the namedifferently
+; - its own declaration of the same spelling, an unresolvable name -
+; never qualifies, which is the whole of "the same binding, not the
+; same spelling" across the workspace edge.
+(pub :: lspNavClosedFiles (-> String (Vec String) (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (lspNavClosedFiles uri uris)
+  (let ((mypath (lspUriToPath uri)))
+    ; A URI with no absolute path behind it (an `untitled:` buffer, a
+    ; relative spelling) names no directory tree to walk: the search
+    ; is empty rather than rooted at the server's working directory,
+    ; which would turn one odd document into a scan of wherever the
+    ; editor was launched from.
+    (if (lspNavNot (pathIsAbsolute mypath))
+      vecNew
+      (let (
+        (target (lspNavAbs mypath))
+        (tcode (checkedTargetCode hostTarget))
+        (openPaths (lspOpenPaths uris))
+        (files (lspProjAxFiles (pathDir mypath)))
+        (out vecNew)
+        (mut i 0)
+      )
+        {
+          (while (< i (vecLen files))
+            (let ((f (vecGetStr files i)))
+              {
+                (if (lspSeenHas openPaths f)
+                  0
+                  (let ((text (sysReadFile (strCStr f))))
+                    (if (== (strLen text) 0)
+                      0
+                      (let ((decls (lspNavParse text)))
+                        (if (== (cast Int decls) 0)
+                          0
+                          (if (lspNavImportsPath decls tcode (pathDir f) target)
+                            (let ((b (memAlloc 24)))
+                              {
+                                (memSetWord b 0 f)
+                                (memSetWord b 1 text)
+                                (memSetWord b 2 decls)
+                                (vecPush out b)
+                                0
+                              }
+                            )
+                            0
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+                (set i (+ i 1))
+              }
+            ))
+          out
+        }
+      )
+    )
+  )
+)
+
+; The closed importers' occurrences of an imported name: the same
+; `?bare` key the open-importer search reads, placed with each
+; file's own bytes, after the open locations.
+(pub :: lspNavClosedLocations (-> Int String String Int (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspNavClosedLocations out uri bare incl uris)
+  (let (
+    (files (lspNavClosedFiles uri uris))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen files))
+        (let ((b (vecGet files i)))
+          (let (
+            (fpath (memGetWordStr b 0))
+            (ftext (memGetWordStr b 1))
+          )
+            (let ((occs (lspNavOccurrences ftext (memGetWordVec b 2))))
+              {
+                (lspNavLocations out (lspPathToUri fpath) ftext (lspLineIndex ftext) (lspNavSameKey occs (strConcat "?" bare) incl))
+                (set i (+ i 1))
+              }
+            )
+          )
+        ))
+      0
+    }
+  )
+)
+
 ; The reverse direction: the cursor is on a name this document
 ; imports. The module that declares it is found the way `definition`
-; finds it - preflight, then the resolver, then `lspFindImported` - and
-; if THAT file is open in the store, its URI is answered, so its own
-; occurrences can be listed. "" when the name is not an import, or
-; the declaring file is not open.
+; finds it - preflight, then the resolver, then `lspFindImported` -
+; and that file is read wherever it lives: the store when it is
+; open, the disk when it is not, so its own occurrences can be
+; listed either way. "" when the name is not an import, or the
+; declaring file can be read nowhere.
 (pub :: lspNavHomeUri (-> String String (Vec Int) String (Vec String) String))
 
 ;@axiom:effect(io)
@@ -5056,9 +6488,11 @@
 
 ; ------------------------------------------------------------------
 ; `textDocument/references`: every occurrence of the name under the
-; cursor, as Locations - this document's first, then each importing
-; document's, each in offset order. Null when nothing is under the
-; cursor, which is what a keyword, a literal and a comment are.
+; cursor, as Locations - this document's first, then each open
+; importing document's, each in offset order, then each closed
+; importing document's under the entry directory tree, sorted by
+; path. Null when nothing is under the cursor, which is what a
+; keyword, a literal and a comment are.
 ; ------------------------------------------------------------------
 (pub :: lspReferences (-> String String Int (Vec String) (Vec a) Int))
 
@@ -5082,7 +6516,11 @@
               {
                 (lspNavLocations out uri src ix (lspNavSameKey occs key incl))
                 (if (lspNavIsTop key)
-                  (lspNavForeignLocations out uri (lspNavBareOfKey key) uris texts)
+                  {
+                    (lspNavForeignLocations out uri (lspNavBareOfKey key) uris texts)
+                    (lspNavClosedLocations out uri (lspNavBareOfKey key) incl uris)
+                    0
+                  }
                   (if (== (strByte key 0) 63)
                     (lspNavHomeLocations out (lspUriToPath uri) src decls (memGetWordStr o 0) incl uris texts)
                     0
@@ -5132,10 +6570,27 @@
     (if (== (strLen huri) 0)
       0
       (let ((htext (docText uris texts huri)))
-        (let ((hdecls (lspNavParse htext)))
-          (if (== (cast Int hdecls) 0)
-            0
-            (lspNavLocations out huri htext (lspLineIndex htext) (lspNavSameKey (lspNavOccurrences htext hdecls) bare incl))
+        ; Open reads the buffer; closed reads the disk, which is the
+        ; truth for a file with no buffer. An unreadable file reads
+        ; as "" and parses to nothing, the same answer unparseable
+        ; text has always given.
+        (if (> (strLen htext) 0)
+          (let ((hdecls (lspNavParse htext)))
+            (if (== (cast Int hdecls) 0)
+              0
+              (lspNavLocations out huri htext (lspLineIndex htext) (lspNavSameKey (lspNavOccurrences htext hdecls) bare incl))
+            )
+          )
+          (let ((dtext (sysReadFile (strCStr (lspUriToPath huri)))))
+            (if (== (strLen dtext) 0)
+              0
+              (let ((hdecls (lspNavParse dtext)))
+                (if (== (cast Int hdecls) 0)
+                  0
+                  (lspNavLocations out huri dtext (lspLineIndex dtext) (lspNavSameKey (lspNavOccurrences dtext hdecls) bare incl))
+                )
+              )
+            )
           )
         )
       )
@@ -5283,35 +6738,76 @@
       (mut clash false)
     )
       {
-        (while (&& (< i (vecLen imps)) (lspNavNot clash))
-          (let ((pair (vecGet imps i)))
-            (let (
-              (otext (vecGetStr texts (memGetWord pair 0)))
-              (ouri (vecGetStr uris (memGetWord pair 0)))
-              (oocc (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)))
-            )
-              {
-                (if (lspNavNamed oocc newName)
-                  {
-                    (set clash true)
-                    0
-                  }
-                  (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
-                    (if (> (vecLen sel) 0)
-                      (jsonObjPut changes ouri (lspNavEdits otext (lspLineIndex otext) sel newName))
+          (while (&& (< i (vecLen imps)) (lspNavNot clash))
+            (let ((pair (vecGet imps i)))
+              (let (
+                (otext (vecGetStr texts (memGetWord pair 0)))
+                (ouri (vecGetStr uris (memGetWord pair 0)))
+                (oocc (lspNavOccurrences (vecGetStr texts (memGetWord pair 0)) (memGetWordVec pair 1)))
+              )
+                {
+                  (if (lspNavNamed oocc newName)
+                    {
+                      (set clash true)
                       0
+                    }
+                    (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
+                      (if (> (vecLen sel) 0)
+                        (jsonObjPut changes ouri (lspNavEdits otext (lspLineIndex otext) sel newName))
+                        0
+                      )
                     )
                   )
-                )
-                (set i (+ i 1))
+                  (set i (+ i 1))
+                }
+              )
+            ))
+          ; Closed importers under the entry directory tree join the
+          ; same edit, and trip the same collision: a file that merely
+          ; spells the new name without importing this document is no
+          ; importer's business, open or closed. Skipped outright when
+          ; an open document already clashed.
+          (if clash
+            0
+            (let (
+              (closed (lspNavClosedFiles uri uris))
+              (mut k 0)
+            )
+              {
+                (while (&& (< k (vecLen closed)) (lspNavNot clash))
+                  (let ((b (vecGet closed k)))
+                    (let (
+                      (fpath (memGetWordStr b 0))
+                      (ftext (memGetWordStr b 1))
+                    )
+                      (let ((oocc (lspNavOccurrences ftext (memGetWordVec b 2))))
+                        {
+                          (if (lspNavNamed oocc newName)
+                            {
+                              (set clash true)
+                              0
+                            }
+                            (let ((sel (lspNavSameKey oocc (strConcat "?" bare) 1)))
+                              (if (> (vecLen sel) 0)
+                                (jsonObjPut changes (lspPathToUri fpath) (lspNavEdits ftext (lspLineIndex ftext) sel newName))
+                                0
+                              )
+                            )
+                          )
+                          (set k (+ k 1))
+                        }
+                      )
+                    )
+                  ))
+                0
               }
             )
-          ))
-        (if clash
-          jsonNull
-          (lspNavWorkspaceEdit changes)
-        )
-      }
+          )
+          (if clash
+            jsonNull
+            (lspNavWorkspaceEdit changes)
+          )
+        }
     )
   )
 )
@@ -6635,7 +8131,12 @@
                     )
                   ))
                     (if (== found 0)
-                      jsonNull
+                      (let ((b (lspViewSigBuiltin head)))
+                        (if (== b 0)
+                          jsonNull
+                          (lspViewSigHelp b (lspViewActiveArg src o (lspOffsetOf src ix (jsonGet params "position"))))
+                        )
+                      )
                       (lspViewSigHelp found (lspViewActiveArg src o (lspOffsetOf src ix (jsonGet params "position"))))
                     )
                   )
@@ -6954,6 +8455,40 @@
       (set label (strConcat label ")"))
       (lspViewSigInfo label starts ends "")
     }
+  )
+)
+
+; A builtin operator: `(+ a b) : (-> Int Int Int)`, with `a` and `b`
+; as the two parameters so the client bolds the argument being written.
+; 0 when `head` names none - a keyword, a local, or a name nothing
+; declares, which answer `null` as before. Pure: the table is
+; `lspBuiltinOpType`'s closed set, so this runs after the imported
+; lookup misses rather than before anything resolves.
+(pub :: lspViewSigBuiltin (-> String Int))
+
+(pub fn (lspViewSigBuiltin head)
+  (let ((ty (lspBuiltinOpType head)))
+    (if (== (strLen ty) 0)
+      0
+      (let (
+        (label (strConcat (strConcat (strConcat "(" head) " a b) : ") ty))
+        (starts vecNew)
+        (ends vecNew)
+      )
+        (let (
+          (a0 (+ (strLen head) 2))
+          (b0 (+ (strLen head) 4))
+        )
+          {
+            (vecPush starts a0)
+            (vecPush ends (+ a0 1))
+            (vecPush starts b0)
+            (vecPush ends (+ b0 1))
+            (lspViewSigInfo label starts ends "builtin operator")
+          }
+        )
+      )
+    )
   )
 )
 
@@ -8088,19 +9623,12 @@
 ; ------------------------------------------------------------------
 ; `workspace/symbol`: every declaration the open documents can see -
 ; their own, and every module each imports - whose bare name holds
-; the query, case-folded.
-;
-; The workspace this server knows is the document store: the editor
-; sends it the files that are open and nothing else, and the imports
-; of those files are what a reader of them can reach. Each open
-; document is parsed and its imports resolved as `lspComplImported`
-; resolves them; an imported declaration is placed in ITS file
-; through the unit table, with the module as `containerName`. The
-; kinds are the outline's, plus EnumMember for a constructor, which
-; the outline omits and a search wants. The list stops at
-; `LSP_COMPL_MAX`, for the reason completion's does: a search result
-; is not a directory listing. A declaration reached twice - a module
-; two open documents both import - is listed once, by URI and offset.
+; the query, case-folded, plus every declaration of every closed
+; `.ax` file under those documents' directory trees. The closed walk
+; runs through the same offer the open documents do, over one shared
+; `seen` set, so a declaration reached twice - a module two open
+; documents both import, or one file found both as an import and on
+; disk - is listed once, by URI and offset.
 ; ------------------------------------------------------------------
 (pub :: lspWorkspaceSymbols (-> (Vec String) (Vec a) Int Int))
 
@@ -8139,7 +9667,83 @@
             (set j (+ j 1))
           }
         ))
+      (lspWsClosedSymbols out seen query uris)
       out
+    }
+  )
+)
+
+; The closed project files, each through the same local offer as an
+; open document: its own declarations and constructors, never its
+; imports (those arrive through whoever imports them, and `seen`
+; collapses the two views into one listing). One walk per distinct
+; entry directory over all open documents; files no open document
+; spells - untitled buffers, relative paths - name no tree and are
+; skipped rather than rooted at the working directory.
+(pub :: lspWsClosedSymbols (-> Int (Vec String) String (Vec String) Int))
+
+;@axiom:effect(io)
+(pub fn (lspWsClosedSymbols out seen query uris)
+  (let (
+    (openPaths (lspOpenPaths uris))
+    (dirs vecNew)
+    (mut j 0)
+  )
+    {
+      (while (< j (vecLen uris))
+        {
+          (let ((d (pathDir (lspUriToPath (vecGetStr uris j)))))
+            {
+              (if (|| (== (strLen d) 0) (|| (lspNavNot (pathIsAbsolute d)) (lspSeenHas dirs d)))
+                0
+                {
+                  (vecPush dirs d)
+                  0
+                }
+              )
+              (set j (+ j 1))
+            }
+          )
+        })
+      (set j 0)
+      (while (if (< j (vecLen dirs))
+        (< (jsonArrLen out) LSP_COMPL_MAX)
+        false
+      )
+        (let (
+          (files (lspProjAxFiles (vecGetStr dirs j)))
+          (mut i 0)
+        )
+          {
+            (while (if (< i (vecLen files))
+              (< (jsonArrLen out) LSP_COMPL_MAX)
+              false
+            )
+              (let ((f (vecGetStr files i)))
+                {
+                  (if (lspSeenHas openPaths f)
+                    0
+                    (let ((text (sysReadFile (strCStr f))))
+                      (if (== (strLen text) 0)
+                        0
+                        (let ((decls (lspNavParse text)))
+                          (if (== (cast Int decls) 0)
+                            0
+                            (lspViewSymsLocal out seen query (lspPathToUri f) text decls)
+                          )
+                        )
+                      )
+                    )
+                  )
+                  (set i (+ i 1))
+                }
+              ))
+            0
+          }
+        )
+        (set j (+ j 1))
+      )
+      0
     }
   )
 )
@@ -8415,8 +10019,8 @@
 ; ==================================================================
 
 ; ==================================================================
-; SECTION FIX: formatting, code actions, macro expansion, code
-; lenses, type definition, diagnostics for imported modules
+; SECTION FIX: pull diagnostics, formatting, code actions, macro
+; expansion, code lenses, type definition, diagnostics for imported modules
 ; ==================================================================
 ; The requests that CHANGE or RUN code from the editor: the formatter
 ; as one whole-document edit, the compiler's machine-applicable fixes
@@ -8445,7 +10049,7 @@
 ;
 (pub :: lspFixHandles (-> String Bool))
 
-(pub fn (lspFixHandles method) (|| (strEq method "textDocument/formatting") (|| (strEq method "textDocument/codeAction") (|| (strEq method "textDocument/typeDefinition") (|| (strEq method "textDocument/codeLens") (strEq method "axiom/expandMacro"))))))
+(pub fn (lspFixHandles method) (|| (strEq method "textDocument/diagnostic") (|| (strEq method "textDocument/formatting") (|| (strEq method "textDocument/codeAction") (|| (strEq method "textDocument/typeDefinition") (|| (strEq method "textDocument/codeLens") (strEq method "axiom/expandMacro")))))))
 
 (pub :: lspFixDispatch (-> String Int Int (Vec String) (Vec a) Int))
 
@@ -8453,15 +10057,18 @@
 (pub fn (lspFixDispatch method id params uris texts)
   (let ((uri (lspParamsUri params)))
     (let ((src (docText uris texts uri)))
-      (if (strEq method "textDocument/formatting")
-        (lspReply id (lspFormatting src))
-        (if (strEq method "textDocument/codeAction")
-          (lspReply id (lspCodeAction src uri params))
-          (if (strEq method "textDocument/typeDefinition")
-            (lspReply id (lspTypeDefinition src uri params))
-            (if (strEq method "textDocument/codeLens")
-              (lspReply id (lspCodeLens src uri))
-              (lspReply id (lspExpandMacro src uri params))
+      (if (strEq method "textDocument/diagnostic")
+        (lspReply id (lspDiagnostic src uri))
+        (if (strEq method "textDocument/formatting")
+          (lspReply id (lspFormatting src))
+          (if (strEq method "textDocument/codeAction")
+            (lspReply id (lspCodeAction src uri params))
+            (if (strEq method "textDocument/typeDefinition")
+              (lspReply id (lspTypeDefinition src uri params))
+              (if (strEq method "textDocument/codeLens")
+                (lspReply id (lspCodeLens src uri))
+                (lspReply id (lspExpandMacro src uri params))
+              )
             )
           )
         )
@@ -8473,12 +10080,35 @@
 ; `codeActionProvider` is an object rather than a boolean so a client
 ; can see which kinds are on offer before it asks; `codeLensProvider`
 ; says every lens is complete as sent, for the reason
-; `completionProvider` says the same of its items; `expandMacro` rides
+; `completionProvider` says the same of its items; `diagnosticProvider`
+; says pull reports this document alone (`interFileDependencies:
+; false`, for the reason `lspCheckDoc` publishes only unit 0) and that
+; there is no workspace pull yet (`workspaceDiagnostics: false`);
+; `expandMacro` rides
 ; under `experimental` because it is not a protocol method, which is
 ; where rust-analyzer advertises its own.
 (pub :: lspFixCaps (-> Int Int))
 
-(pub fn (lspFixCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "documentFormattingProvider" (jsonBool 1)) "codeActionProvider" (jsonObjPut jsonObj "codeActionKinds" (jsonArrPush (jsonArrPush (jsonArrPush jsonArr (jsonStr "quickfix")) (jsonStr "refactor.rewrite")) (jsonStr "refactor.extract")))) "typeDefinitionProvider" (jsonBool 1)) "codeLensProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "experimental" (jsonObjPut jsonObj "expandMacro" (jsonBool 1))))
+(pub fn (lspFixCaps caps) (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "documentFormattingProvider" (jsonBool 1)) "codeActionProvider" (jsonObjPut jsonObj "codeActionKinds" (jsonArrPush (jsonArrPush (jsonArrPush jsonArr (jsonStr "quickfix")) (jsonStr "refactor.rewrite")) (jsonStr "refactor.extract")))) "typeDefinitionProvider" (jsonBool 1)) "codeLensProvider" (jsonObjPut jsonObj "resolveProvider" (jsonBool 0))) "diagnosticProvider" (jsonObjPut (jsonObjPut jsonObj "interFileDependencies" (jsonBool 0)) "workspaceDiagnostics" (jsonBool 0))) "experimental" (jsonObjPut jsonObj "expandMacro" (jsonBool 1))))
+
+; ------------------------------------------------------------------
+; `textDocument/diagnostic`: the same diagnostics the server pushes,
+; on demand.
+;
+; Pull is `lspCheckDoc`'s answer inside a full report: `kind: "full"`
+; with this document's own items, the same array a `didOpen` publishes
+; under its URI. No `resultId` is sent, so there is nothing to diff
+; against and no `unchanged` answer: a client that wants the current
+; list asks again, and the answer costs one `didOpen` of the same
+; document, which the editor paid on the last keystroke anyway. Runs
+; the pipeline, like the push it mirrors - the fourth such request
+; beside `didOpen`/`didChange`, `codeAction` and `axiom/expandMacro`
+; (see [The cost rule] in docs/lsp.md).
+; ------------------------------------------------------------------
+(pub :: lspDiagnostic (-> String String Int))
+
+;@axiom:effect(io)
+(pub fn (lspDiagnostic src uri) (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "full")) "items" (lspCheckDoc (lspUriToPath uri) src)))
 
 ; ------------------------------------------------------------------
 ; `textDocument/formatting`: the formatter's output as ONE edit over
@@ -10592,21 +12222,23 @@
 )
 
 ; ------------------------------------------------------------------
-; `textDocument/codeLens`: a `▶ Run` over `main`, and `Expand macro`
-; over every `pub macro`.
+; `textDocument/codeLens`: a `▶ Run` over `main`, a `▶ Test` over every
+; nullary `test*` fn, and `Expand macro` over every `pub macro`.
 ;
 ; THE COMMANDS ARE THE CLIENT'S. A lens carries a command NAME and its
 ; arguments, and the server never runs one: a VS Code extension binds
-; `axiom.run` to `axiom run <path>` in a terminal and
+; `axiom.run` to `axiom run <path>` in a terminal,
+; `axiom.test` to `axiom test <path> --filter <name>`, and
 ; `axiom.expandMacro` to an `axiom/expandMacro` request at the
 ; position given, which is exactly how rust-analyzer's `Run` lens
 ; works - the server says where, the editor does it. `Run` is offered
-; for `(fn (main) ...)` alone, because that is what `axiom run` runs.
-; The macro lens names the DECLARATION's position, and
-; `lspExpandMacro` reads that position as "everything this macro
-; generated in this document"; on an invocation it answers that
-; invocation's own products. Raw tree, no expansion, no IO: the path
-; is decoded from the URI the request named.
+; for `(fn (main) ...)` alone, because that is what `axiom run` runs;
+; `Test` for a nullary `fn` whose name starts with `test`, because that
+; is what `axiom test` runs. The macro lens names the DECLARATION's
+; position, and `lspExpandMacro` reads that position as "everything
+; this macro generated in this document"; on an invocation it answers
+; that invocation's own products. Raw tree, no expansion, no IO: the
+; path is decoded from the URI the request named.
 ; ------------------------------------------------------------------
 (pub :: lspCodeLens (-> String String Int))
 
@@ -10629,9 +12261,12 @@
                   0
                   (if (&& (== (nodeTag d) TAG_D_FN) (&& (strEq (nodeAName d) "main") (== (vecLen (nodeBVec d)) 0)))
                     (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "▶ Run" "axiom.run" (jsonArrPush jsonArr (jsonStr (lspUriToPath uri)))))
-                    (if (&& (== (nodeTag d) TAG_D_MACRO) (== (nodeVis d) 1))
-                      (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "Expand macro" "axiom.expandMacro" (jsonArrPush (jsonArrPush jsonArr (jsonStr uri)) (lspPosIx src ix (spanStart (nodeSpan d))))))
-                      0
+                    (if (&& (== (nodeTag d) TAG_D_FN) (&& (strStartsWith (nodeAName d) "test") (== (vecLen (nodeBVec d)) 0)))
+                      (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "▶ Test" "axiom.test" (jsonArrPush (jsonArrPush jsonArr (jsonStr (lspUriToPath uri))) (jsonStr (nodeAName d)))))
+                      (if (&& (== (nodeTag d) TAG_D_MACRO) (== (nodeVis d) 1))
+                        (jsonArrPush out (lspLensJson (lspRangeIx src ix (nodeSpan d)) "Expand macro" "axiom.expandMacro" (jsonArrPush (jsonArrPush jsonArr (jsonStr uri)) (lspPosIx src ix (spanStart (nodeSpan d))))))
+                        0
+                      )
                     )
                   )
                 )
@@ -12259,7 +13894,13 @@
                     (params (jsonGet msg "params"))
                   )
                     (if (strEq method "initialize")
-                      (lspReply id lspCapabilities)
+                      {
+                        (lspReply id lspCapabilities)
+                        ; ...then ask for the filesystem, but only for
+                        ; what this client offered (see `lspInitRegister`).
+                        (lspInitRegister params)
+                        0
+                      }
                       (if (strEq method "initialized")
                         0
                         (if (strEq method "shutdown")
@@ -12273,15 +13914,19 @@
                               (let ((uri (lspParamsUri params)))
                                 {
                                   (docPut uris texts uri (jsonGetStr (jsonGet params "textDocument") "text"))
-                                  (lspRecheck uris texts uri)
+                                  (lspRecheckFull uris texts uri "" 0)
                                 }
                               )
                               (if (strEq method "textDocument/didChange")
                                 (let ((uri (lspParamsUri params)))
-                                  {
-                                    (docPut uris texts uri (lspChangeText params))
-                                    (lspRecheck uris texts uri)
-                                  }
+                                  (let ((oldText (docText uris texts uri)))
+                                    (let ((oldMods (lspImportModsOf oldText)))
+                                      {
+                                        (docPut uris texts uri (lspChangeText params))
+                                        (lspRecheckFull uris texts uri oldText oldMods)
+                                      }
+                                    )
+                                  )
                                 )
                                 (if (strEq method "textDocument/documentSymbol")
                                   (lspReply id (lspDocumentSymbols (docText uris texts (lspParamsUri params))))
@@ -12293,14 +13938,40 @@
                                         (lspReply id (lspCompletion (docText uris texts (lspParamsUri params)) (lspParamsUri params) params))
                                       (if (strEq method "textDocument/didClose")
                                         (let ((uri (lspParamsUri params)))
-                                          {
-                                            (docPut uris texts uri "")
-                                            ; An empty list is how a server retracts
-                                            ; the squiggles for a file the editor has
-                                            ; closed; saying nothing leaves them on
-                                            ; screen forever.
-                                            (lspPublish uri jsonArr)
-                                          }
+                                          (let ((oldDeps (lspDepUris (lspUriToPath uri) (docText uris texts uri))))
+                                            {
+                                              (docPut uris texts uri "")
+                                              ; An empty list is how a server retracts
+                                              ; the squiggles for a file the editor has
+                                              ; closed; saying nothing leaves them on
+                                              ; screen forever. Dependencies this
+                                              ; document published are retracted too,
+                                              ; minus what any remaining open
+                                              ; document still resolves and minus
+                                              ; what is itself open - closes are
+                                              ; rare, so coverage is recomputed
+                                              ; rather than remembered.
+                                              (lspPublish uri jsonArr)
+                                              (let (
+                                                (covered (lspOthersDeps uris texts uri))
+                                                (mut i 0)
+                                              )
+                                                {
+                                                  (while (< i (vecLen oldDeps))
+                                                    (let ((u (vecGetStr oldDeps i)))
+                                                      {
+                                                        (if (&& (lspVecMissingStr covered u) (< (docFind uris u) 0))
+                                                          (lspPublish u jsonArr)
+                                                          0
+                                                        )
+                                                        (set i (+ i 1))
+                                                      }
+                                                    ))
+                                                  0
+                                                }
+                                              )
+                                            }
+                                          )
                                         )
                                         ; Everything the three extension sections
                                         ; answer - navigation, views, fixes - is
@@ -12309,11 +13980,28 @@
                                         ; original questions.
                                         (if (lspExtHandles method)
                                           (lspExtDispatch method id params uris texts)
-                                          ; Anything else: a request must be answered,
-                                          ; a notification must not be.
-                                          (if (== id 0)
-                                            0
-                                            (lspError id (- 0 32601) (strConcat "method not found: " method))
+                                          ; Workspace events come from outside
+                                          ; the editor's buffers and are
+                                          ; answered with rechecks, never with
+                                          ; replies (see `lspWsDispatch`).
+                                          (if (lspWsHandles method)
+                                            (lspWsDispatch method params uris texts)
+                                            ; Anything else: a request must be answered,
+                                            ; a notification must not be. A message
+                                            ; with no method is a RESPONSE to a
+                                            ; request this server sent
+                                            ; (registration, which needs no
+                                            ; answer): dropping it is the
+                                            ; protocol, and answering it with
+                                            ; the error below would reply to a
+                                            ; response.
+                                            (if (== id 0)
+                                              0
+                                              (if (== (strLen method) 0)
+                                                0
+                                                (lspError id (- 0 32601) (strConcat "method not found: " method))
+                                              )
+                                            )
                                           )
                                         )
                                       ))

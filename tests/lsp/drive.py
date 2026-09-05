@@ -945,6 +945,22 @@ if len(KEYWORDS) < 15:
              f"{PARSER_AX} ({KEYWORDS}) - the pattern has stopped matching, "
              f"and an equality against a list this short asserts nothing")
 
+# The builtin names, in the order `lspComplBuiltins` in self_host/lsp.ax
+# offers them: the primitive types, the prelude's spanless Option/Vec,
+# then the eighteen operators. A builtin the compiler learns and the
+# server forgets fails the broken-document equality below, the same way
+# a forgotten keyword does - this list is checked against the server's
+# answer, not derived from it, so drift in either direction is visible.
+BUILTINS = ["Any", "Bool", "Char", "Float", "Int", "String", "Unit",
+            "Void", "Option", "Vec",
+            "+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>",
+            "==", "!=", "<", ">", "<=", ">=", "&&", "||"]
+BUILTIN_KINDS = {7, 13, 24}
+if len(BUILTINS) != 28:
+    sys.exit(f"FAIL: expected 28 builtin names (10 types + 18 operators), "
+             f"have {len(BUILTINS)} - the list above has drifted from "
+             f"`lspComplBuiltins`")
+
 # The imported module lives in a directory of its own rather than in
 # `tests/lsp/`, because a `.ax` file there joins the diagnostics sweep
 # and needs a golden and a manifest row of its own - and this file is
@@ -981,7 +997,7 @@ NAV = """(import NavHelper)
 (fn (helper) 3)
 
 (:: main Int)
-(fn (main) (+ (+ (tagColour) helper) (bump 1)))
+(fn (main) (let ((locv 2)) (+ (+ (tagColour) helper) (bump locv))))
 """
 # A declaration taller than a tooltip. `lspClampLines` cuts a hover's
 # fence at 40 lines and says so in the fence's own comment syntax, and
@@ -1002,6 +1018,17 @@ BIG_DECL = locate(NAV, "Big", 1)            # `(data Big ...)`, taller than the 
 IMP_USE = locate(NAV, "bump", 1)            # the imported call
 BUMP_DECL = locate(NAVHELPER, "bump", 2)    # its `fn` name, in the OTHER file
 NOTHING = locate(NAV, "syntax/join", 1)     # a name no declaration in scope has
+# The `let`-bound `locv` in `main`: binder and use, for the locals
+# completion. `locv` is spelled nowhere else, so a filtered menu on it
+# holds exactly the binder as a Variable (6).
+LOCV_BIND = locate(NAV, "locv", 1)
+LOCV_USE = locate(NAV, "locv", 2)
+# The module name in `(import NavHelper)`, for the module completion:
+# `NavH` is spelled by nothing else, so the menu holds the module.
+IMP_MOD = locate(NAV, "NavHelper", 1)
+# The first `+` in `main`, for the builtin hover: `(+ a b)` with its
+# type and the operator line.
+BUMP_PLUS_AT = locate(NAV, "+", 1)
 
 def between(src, opener, closer):
     """The source text of one form, sliced out of the document that
@@ -1105,8 +1132,15 @@ nav_session = b"".join(frame(m) for m in [
     # bytes, and every label must start with it.
     compl(15, FN_USE["line"], FN_USE["start"] + PREFIX_AT),
     # On the first byte of a name, so the prefix is empty and the whole
-    # menu - keywords, this document, the imported module - is offered.
+    # menu - keywords, builtins, this document, the imported module - is offered.
     compl(16, NAV_USE["line"], NAV_USE["start"]),
+    # One past the `locv` use in `(bump locv)`: the prefix is `locv`,
+    # spelled nowhere else, so the menu holds the `let` binder alone.
+    compl(19, LOCV_USE["line"], LOCV_USE["end"]),
+    # Four characters into the import's module: the prefix is `NavH`,
+    # spelled by nothing else, so the menu holds the module.
+    compl(21, IMP_MOD["line"], IMP_MOD["start"] + len("NavH")),
+    hov(20, BUMP_PLUS_AT),
     {"jsonrpc": "2.0", "method": "textDocument/didChange",
      "params": {"textDocument": {"uri": nav_uri, "version": 2},
                 "contentChanges": [{"text": BROKEN}]}},
@@ -1186,6 +1220,8 @@ compl_caps = caps.get("completionProvider")
 _, its15 = items(15)
 _, its16 = items(16)
 r17, its17 = items(17)
+_, its19 = items(19)
+_, its21 = items(21)
 if np_.returncode != 0:
     nwhy = f"the server exited {np_.returncode}"
 elif ntail:
@@ -1249,6 +1285,8 @@ elif f"(B{BIG_N - 1})" in nresp[18]["result"]["contents"]["value"]:
 elif nresp[18]["result"]["contents"]["value"].count("\n") > HOVER_CLAMP + 6:
     nwhy = (f"the clamped hover still ran to "
             f"{nresp[18]['result']['contents']['value'].count(chr(10))} lines")
+elif hover_says(20, ["(+ a b)", "(-> Int Int Int)", "builtin operator"], BUMP_PLUS_AT):
+    nwhy = "builtin hover: " + hover_says(20, ["(+ a b)", "(-> Int Int Int)", "builtin operator"], BUMP_PLUS_AT)
 elif [i for i in its15 if not str(i.get("label", "")).startswith(PREFIX)]:
     nwhy = (f"completion filtered on {PREFIX!r} still offered "
             f"{[i['label'] for i in its15 if not str(i.get('label','')).startswith(PREFIX)][:6]}")
@@ -1268,18 +1306,47 @@ elif offers(16, "deriveTag", 3):
     nwhy = "empty-prefix completion: " + offers(16, "deriveTag", 3)
 elif offers(16, "bump", 3, "NavHelper"):
     nwhy = "empty-prefix completion: " + offers(16, "bump", 3, "NavHelper")
+elif offers(16, "x", 5):
+    nwhy = "empty-prefix completion: " + offers(16, "x", 5)
+elif offers(16, "Int", 7, "builtin type"):
+    nwhy = "empty-prefix completion: " + offers(16, "Int", 7, "builtin type")
+elif offers(16, "+", 24, "builtin"):
+    nwhy = "empty-prefix completion: " + offers(16, "+", 24, "builtin")
 elif "tagColour" in [i.get("label") for i in its16]:
     nwhy = ("completion offered `tagColour`, which only exists after macro "
             "expansion - these requests read the raw parse tree (MAC-TOOL-3)")
-# The document no longer parses, so nothing but keywords CAN be offered,
-# and the menu is exactly the set derived from parser.ax.
-elif [i.get("label") for i in its17] != KEYWORDS:
+# One past the `locv` use: every label starts with `locv`, the `let`
+# binder is offered as a Variable (6), and the list is incomplete.
+elif [i for i in its19 if not str(i.get("label", "")).startswith("locv")]:
+    nwhy = (f"locals completion filtered on 'locv' still offered "
+            f"{[i['label'] for i in its19 if not str(i.get('label','')).startswith('locv')][:6]}")
+elif not [i for i in its19 if i.get("label") == "locv" and i.get("kind") == 6]:
+    nwhy = (f"locals completion did not offer the `let` binder `locv` as kind 6; "
+            f"it offered {[(i.get('label'), i.get('kind')) for i in its19][:12]}")
+elif (nresp.get(19, {}).get("result") or {}).get("isIncomplete") is not True:
+    nwhy = "locals completion answered isIncomplete false"
+# Four characters into the import's module: every label starts with
+# `NavH`, the module is offered as a Module (9), and the list is
+# incomplete. `NavHelper` is the one module this directory holds on
+# disk, so nothing else can honestly appear.
+elif [i for i in its21 if not str(i.get("label", "")).startswith("NavH")]:
+    nwhy = (f"module completion filtered on 'NavH' still offered "
+            f"{[i['label'] for i in its21 if not str(i.get('label','')).startswith('NavH')][:6]}")
+elif offers(21, "NavHelper", 9, "module"):
+    nwhy = "module completion: " + offers(21, "NavHelper", 9, "module")
+elif (nresp.get(21, {}).get("result") or {}).get("isIncomplete") is not True:
+    nwhy = "module completion answered isIncomplete false"
+# The document no longer parses, so nothing but keywords and builtins
+# CAN be offered, and the menu is exactly those two sets: the keywords
+# derived from parser.ax, then the builtins `lspComplBuiltins` offers.
+elif [i.get("label") for i in its17] != KEYWORDS + BUILTINS:
     nwhy = (f"a document that does not parse offered "
             f"{[i.get('label') for i in its17]},\n          want the "
-            f"{len(KEYWORDS)} head keywords parser.ax dispatches on: {KEYWORDS}")
-elif {i.get("kind") for i in its17} != {14}:
-    nwhy = (f"keywords were offered as kinds {sorted({i.get('kind') for i in its17})}, "
-            f"want 14 (CompletionItemKind.Keyword) alone")
+            f"{len(KEYWORDS)} head keywords parser.ax dispatches on plus the "
+            f"{len(BUILTINS)} builtins: {KEYWORDS + BUILTINS}")
+elif {i.get("kind") for i in its17} != ({14} | BUILTIN_KINDS):
+    nwhy = (f"keywords and builtins were offered as kinds {sorted({i.get('kind') for i in its17})}, "
+            f"want 14 (Keyword) plus {sorted(BUILTIN_KINDS)} (Class/Enum/Operator)")
 elif r17.get("isIncomplete") is not True:
     nwhy = "the unparseable document's completion answered isIncomplete false"
 
@@ -1293,13 +1360,17 @@ else:
     print(f"ok   hover      (a macro, a `fn` as its signature, a `data`, a "
           f"`struct`, and `bump` quoted out of NavHelper.ax with its module "
           f"and its paragraph; 5 form texts and 4 paragraphs cut from the "
-          f"documents, ranges on the WORD not the declaration; null for a "
+          f"documents, ranges on the WORD not the declaration; `(+ a b)` for "
+          f"the builtin operator; null for a "
           f"name nothing declares; a {BIG_N + 2}-line `data` cut at "
           f"{HOVER_CLAMP})")
     print(f"ok   completion ({len(its15)} item(s) all starting {PREFIX!r} with "
           f"`helper` : {HELPER_TYPE!r}, {len(its16)} at an empty prefix "
-          f"carrying this document's 4 kinds and NavHelper's `bump`, and "
-          f"exactly the {len(KEYWORDS)} keywords derived from parser.ax on a "
+          f"carrying this document's kinds, its fields, builtins and NavHelper's `bump`, "
+          f"{len(its19)} on `locv` with the `let` binder, {len(its21)} on `NavH` "
+          f"with the `NavHelper` module, and "
+          f"exactly the {len(KEYWORDS)} keywords plus {len(BUILTINS)} builtins "
+          f"derived from parser.ax and `lspComplBuiltins` on a "
           f"document that does not parse)")
     passed += 3
 shutil.rmtree(NAVDIR, ignore_errors=True)
@@ -2542,6 +2613,233 @@ else:
     passed += 2
 shutil.rmtree(CH_DIR, ignore_errors=True)
 
+# ---------------------------------------------------------------------
+# Closed files: references and rename across the workspace edge.
+#
+# The three documents above this one are all open in their sessions,
+# so nothing below could tell an open importer from a closed one.
+# Here only the entry is opened: two importers and a stranger stay on
+# disk, and every answer must sort the two kinds. The stranger
+# declares its OWN `foo` and never imports the entry, so the import
+# filter - not the spelling - is what excludes it; without that
+# filter its two occurrences carry the same top key and would match.
+#
+# The corpus is counted like every other: each name exactly as often
+# as the assertions assume, or a position lands on the wrong
+# occurrence for the wrong reason.
+# ---------------------------------------------------------------------
+CWDIR = tempfile.mkdtemp(prefix="axiom-closed-")
+CW_MAIN = """(pub :: foo (-> Int Int))
+
+(pub fn (foo n) (+ n 1))
+
+(:: main Int)
+
+(fn (main) (foo 1))
+"""
+CW_USER = """(import CwMain)
+
+(:: use Int)
+
+(fn (use) (foo 2))
+"""
+CW_USER2 = """(import CwMain)
+
+(:: run Int)
+
+(fn (run) (foo 3))
+"""
+CW_STRANGER = """(:: strangename Int)
+
+(fn (strangename) 4)
+
+(:: foo Int)
+
+(fn (foo) 5)
+"""
+for _name, _text in (("CwMain.ax", CW_MAIN), ("CwUser.ax", CW_USER),
+                     ("CwUser2.ax", CW_USER2),
+                     ("CwStranger.ax", CW_STRANGER)):
+    open(os.path.join(CWDIR, _name), "w", encoding="utf-8").write(_text)
+CW_URI = "file://" + os.path.join(CWDIR, "CwMain.ax")
+CW_USER_URI = "file://" + os.path.join(CWDIR, "CwUser.ax")
+CW_USER2_URI = "file://" + os.path.join(CWDIR, "CwUser2.ax")
+CW_COUNTS = {"foo": (3, 1, 1, 2), "bar": (0, 0, 0, 0),
+             "use": (0, 2, 0, 0), "strangename": (0, 0, 0, 2)}
+for _n, _cs in CW_COUNTS.items():
+    for _text, _c in zip((CW_MAIN, CW_USER, CW_USER2, CW_STRANGER), _cs):
+        if ident_count(_text, _n) != _c:
+            sys.exit(f"FAIL: a closed-corpus document spells `{_n}` "
+                     f"{ident_count(_text, _n)} time(s) as an identifier, "
+                     f"this file assumes {_c}")
+CW_FOO = idents(CW_MAIN, "foo", 3)      # signature, fn, the call in main
+CW_FOO_U = idents(CW_USER, "foo", 1)
+CW_FOO_U2 = idents(CW_USER2, "foo", 1)
+
+
+def cw_open(uri, text):
+    return {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "axiom",
+                                        "version": 1, "text": text}}}
+
+
+def cw_req(rid, method, uri, at, extra=None):
+    p = {"textDocument": {"uri": uri},
+         "position": {"line": at["line"], "character": at["start"]}}
+    if extra:
+        p.update(extra)
+    return {"jsonrpc": "2.0", "id": rid, "method": method, "params": p}
+
+
+cw_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    cw_open(CW_URI, CW_MAIN),
+    cw_req(2, "textDocument/references", CW_URI, CW_FOO[1],
+           {"context": {"includeDeclaration": True}}),
+    cw_req(3, "textDocument/references", CW_URI, CW_FOO[1],
+           {"context": {"includeDeclaration": False}}),
+    cw_req(4, "textDocument/rename", CW_URI, CW_FOO[1],
+           {"newName": "bar"}),
+    cw_req(5, "textDocument/rename", CW_URI, CW_FOO[1],
+           {"newName": "use"}),
+    cw_req(6, "textDocument/rename", CW_URI, CW_FOO[1],
+           {"newName": "strangename"}),
+    {"jsonrpc": "2.0", "id": 7, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+cp_ = subprocess.run([stage1, "lsp"], input=cw_session, capture_output=True,
+                     cwd=CWDIR)
+cmsgs, ctail = unframe(cp_.stdout)
+cresp = {m["id"]: m for m in cmsgs if "id" in m}
+
+
+def cw_locs(rid):
+    r = cresp.get(rid, {}).get("result")
+    if not isinstance(r, list):
+        return r
+    return [(x.get("uri"), x.get("range")) for x in r]
+
+
+def cw_want_locs(rid, want):
+    g = cw_locs(rid)
+    if g != want:
+        return f"request {rid} answered {g!r}, want {want!r}"
+    return ""
+
+
+def cw_edits(rid):
+    r = cresp.get(rid, {}).get("result")
+    if not isinstance(r, dict) or not isinstance(r.get("changes"), dict):
+        return r
+    return {u: [(e.get("range"), e.get("newText")) for e in es]
+            for u, es in r["changes"].items()}
+
+
+def cw_null(rid, what):
+    r = cresp.get(rid, {}).get("result", "unanswered")
+    if r is not None:
+        return f"{what} (request {rid}) answered {r!r:.160}, want null"
+    return ""
+
+
+cwhy = ""
+if cp_.returncode != 0:
+    cwhy = f"the server exited {cp_.returncode}: {cp_.stderr[:200]!r}"
+elif cp_.stderr:
+    cwhy = f"stderr not empty: {cp_.stderr[:200]!r}"
+elif ctail:
+    cwhy = f"{len(ctail)} trailing bytes after the last frame"
+elif 7 not in cresp:
+    cwhy = "the session never answered shutdown - a request killed the server"
+# Same document in offset order, then the closed importers sorted by
+# path; the stranger's own `foo` is the same spelling of a different
+# binding and is nowhere.
+elif cw_want_locs(2, [loc(CW_URI, a) for a in CW_FOO]
+                  + [loc(CW_USER_URI, CW_FOO_U[0]),
+                     loc(CW_USER2_URI, CW_FOO_U2[0])]):
+    cwhy = "closed references: " + cw_want_locs(
+        2, [loc(CW_URI, a) for a in CW_FOO]
+        + [loc(CW_USER_URI, CW_FOO_U[0]), loc(CW_USER2_URI, CW_FOO_U2[0])])
+elif cw_want_locs(3, [loc(CW_URI, CW_FOO[2]),
+                       loc(CW_USER_URI, CW_FOO_U[0]),
+                       loc(CW_USER2_URI, CW_FOO_U2[0])]):
+    cwhy = "closed references without declaration: " + cw_want_locs(
+        3, [loc(CW_URI, CW_FOO[2]), loc(CW_USER_URI, CW_FOO_U[0]),
+            loc(CW_USER2_URI, CW_FOO_U2[0])])
+elif cw_edits(4) != {CW_URI: [(rng(a), "bar") for a in CW_FOO],
+                      CW_USER_URI: [(rng(CW_FOO_U[0]), "bar")],
+                      CW_USER2_URI: [(rng(CW_FOO_U2[0]), "bar")]}:
+    cwhy = (f"rename to `bar` answered {cw_edits(4)!r:.300}, want edits in "
+            f"the entry and both closed importers and none in the stranger")
+elif cw_null(5, "rename to `use`, which the closed importer declares"):
+    # `use` is declared by the closed importer: a collision there
+    # refuses the whole rename, exactly like an open one.
+    cwhy = cw_null(5, "rename to `use`, which the closed importer declares")
+if not cwhy:
+    # `strangename` lives only in the stranger, which imports nothing:
+    # outside every collision scope, so the rename succeeds past it.
+    e6 = cw_edits(6)
+    if not isinstance(e6, dict) or set(e6) != {CW_URI, CW_USER_URI,
+                                               CW_USER2_URI}:
+        cwhy = (f"rename past the stranger answered "
+                f"{json.dumps(cresp.get(6, {}).get('result'))[:300]!r}, want "
+                f"edits in exactly the entry and its importers")
+if cwhy:
+    print(f"FAIL closed-refs: {cwhy}")
+    failed += 1
+else:
+    # Apply the `bar` edits on disk, reopen, and require clean: a
+    # missed occurrence would be AX3001 at the old spelling, and a
+    # wrong one would not parse.
+    renamed = {}
+    for u, text in ((CW_URI, CW_MAIN), (CW_USER_URI, CW_USER),
+                    (CW_USER2_URI, CW_USER2)):
+        edits = list(cresp[4]["result"]["changes"][u])
+        renamed[u] = apply_edits(text, edits)
+        if renamed[u] is None:
+            cwhy = f"the edits for {os.path.basename(u)} overlap"
+            break
+if not cwhy:
+    for u, text in renamed.items():
+        open(os.path.join(CWDIR, os.path.basename(u)), "w",
+             encoding="utf-8").write(text)
+    r2 = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        cw_open(CW_URI, renamed[CW_URI]),
+        cw_open(CW_USER_URI, renamed[CW_USER_URI]),
+        cw_open(CW_USER2_URI, renamed[CW_USER2_URI]),
+        {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]), capture_output=True, cwd=CWDIR)
+    m2, t2 = unframe(r2.stdout)
+    pubs2 = {m["params"]["uri"]: m["params"]["diagnostics"] for m in m2
+             if m.get("method") == "textDocument/publishDiagnostics"}
+    if r2.returncode != 0 or t2:
+        cwhy = (f"the session over the renamed documents exited "
+                f"{r2.returncode} with {len(t2)} trailing bytes")
+    elif any(ident_count(t, "foo") for t in renamed.values()):
+        cwhy = "the renamed documents still spell `foo` as an identifier"
+    elif ident_count(renamed[CW_URI], "bar") != 3 \
+            or ident_count(renamed[CW_USER_URI], "bar") != 1 \
+            or ident_count(renamed[CW_USER2_URI], "bar") != 1:
+        cwhy = "the renamed documents do not spell `bar` everywhere `foo` was"
+    elif any(pubs2.get(u) for u in renamed):
+        cwhy = ("the renamed documents no longer check clean: "
+                f"{[(os.path.basename(u), [(d['code'], first_line(d['message'])) for d in ds]) for u, ds in pubs2.items() if ds]!r:.400}")
+if cwhy:
+    print(f"FAIL closed-rename: {cwhy}")
+    failed += 1
+else:
+    print(f"ok   refs-closed (the entry's three occurrences in offset order, "
+          f"then two closed importers sorted by path; the stranger's own "
+          f"`foo` nowhere - same spelling, different binding)")
+    print(f"ok   rename-closed (`foo` -> `bar` as edits in the entry and "
+          f"both closed importers applied here and checked clean; refused "
+          f"for `use` declared by a closed importer; allowed past "
+          f"`strangename` living only in the stranger)")
+    passed += 2
+shutil.rmtree(CWDIR, ignore_errors=True)
+
 # =====================================================================
 # END SECTION NAV TESTS
 # =====================================================================
@@ -2575,8 +2873,15 @@ VIEWOTHER = """(pub :: seven Int)
 
 (pub fn (seven) 7)
 """
+# Imported by nothing: reachable only through the closed-file walk,
+# which is what makes it a test of that walk rather than of imports.
+VIEWEXTRA = """(pub :: extra Int)
+
+(pub fn (extra) 9)
+"""
 open(os.path.join(VIEWDIR, "ViewHelper.ax"), "w", encoding="utf-8").write(VIEWHELPER)
 open(os.path.join(VIEWDIR, "ViewOther.ax"), "w", encoding="utf-8").write(VIEWOTHER)
+open(os.path.join(VIEWDIR, "ViewExtra.ax"), "w", encoding="utf-8").write(VIEWEXTRA)
 # A dotted module path, so the link's range has a `.` to extend over -
 # the parser's span names the first segment alone.
 VIEWDEEP = """(pub :: deep Int)
@@ -2622,6 +2927,7 @@ view_uri = "file://" + os.path.join(VIEWDIR, "view-generated.ax")
 vhelper_uri = "file://" + os.path.join(VIEWDIR, "ViewHelper.ax")
 vother_uri = "file://" + os.path.join(VIEWDIR, "ViewOther.ax")
 vdeep_uri = "file://" + os.path.join(VIEWDIR, "Nested", "Deep.ax")
+vextra_uri = "file://" + os.path.join(VIEWDIR, "ViewExtra.ax")
 # A document mid-form, and one with nothing to fold or hint.
 VIEW_BROKEN = VIEW + "\n("
 VIEW_FLAT = "(:: one Int)\n(fn (one) 1)\n"
@@ -2803,6 +3109,7 @@ LINKS_WANT = [(rng(locate(VIEW, "ViewHelper", 1)), vhelper_uri),
 
 TWICE_DECL = locate(VIEWHELPER, "twice", 2)   # the `fn`'s name; 1 is the `::`
 SEVEN_DECL = locate(VIEWOTHER, "seven", 2)
+EXTRA_DECL = locate(VIEWEXTRA, "extra", 2)
 DEEP_DECL = locate(VIEWDEEP, "deep", 2)
 ADD_DECL = locate(VIEW, "add", 2)             # `(fn (add`; 1 is `(:: add`
 SHAPE_DECL = locate(VIEW, "Shape", 1)
@@ -2824,6 +3131,11 @@ def vsig(rid, anchor, sub):
     return vreq(rid, "textDocument/signatureHelp", {"position": vat(VIEW, anchor, 1, sub)})
 
 
+def vcompl(rid, line, char):
+    return vreq(rid, "textDocument/completion",
+                {"position": {"line": line, "character": char}})
+
+
 def vhints(rid, start_line, end_line):
     return vreq(rid, "textDocument/inlayHint",
                 {"range": {"start": {"line": start_line, "character": 0},
@@ -2840,6 +3152,13 @@ def vchange(text, version):
             "params": {"textDocument": {"uri": view_uri, "version": version},
                        "contentChanges": [{"text": text}]}}
 
+# One past the `x` in `(+ x y)`, the body of `(fn (add x y) ...)`: the
+# prefix is `x`, spelled by the parameter alone, which is offered with
+# its type from the signature. And nine characters into
+# `(import Nested.Deep)`: the dotted prefix is `Nested.De`, which the
+# ordinary prefix would cut at the dot.
+ADD_X_POS = vat(VIEW, "(+ x y)", 1, "(+ x")
+DOT_MOD_POS = vat(VIEW, "Nested.Deep", 1, "Nested.De")
 VIEW_LINES = VIEW.count("\n") + 1
 view_session = b"".join(frame(m) for m in [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
@@ -2850,6 +3169,9 @@ view_session = b"".join(frame(m) for m in [
     vsig(41, "(let ((total", "(let "),    # a keyword head
     vsig(42, "(Circle 7)", "(Circle "),   # a constructor
     vsig(43, CALL_IMP, "(twice"),         # touching an imported head
+    vsig(60, "(+ total same)", "(+ "),    # a builtin operator
+    vcompl(62, ADD_X_POS["line"], ADD_X_POS["character"]),
+    vcompl(63, DOT_MOD_POS["line"], DOT_MOD_POS["character"]),
     vhints(44, 0, VIEW_LINES),
     vhints(45, HDR_ADD_LINE, HDR_ADD_LINE + 1),
     vreq(46, "textDocument/foldingRange", {}),
@@ -2881,6 +3203,10 @@ vcaps = (vresp.get(1, {}).get("result") or {}).get("capabilities") or {}
 
 def vres(rid):
     return vresp.get(rid, {}).get("result")
+
+
+def vitems(rid):
+    return (vres(rid) or {}).get("items") or []
 
 
 def sig_says(rid, label_parts, active, param_names, doc=None):
@@ -3017,6 +3343,31 @@ elif sig_says(42, ["(Circle " + " ".join(CIRCLE_FIELDS) + ")"], 0, CIRCLE_FIELDS
 elif sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHelper"], 0, TWICE_PARAMS, TWICE_DOC):
     vwhy = "signature help on an imported fn: " + \
         sig_says(43, ["(twice " + " ".join(TWICE_PARAMS) + ")", TWICE_TYPE, "ViewHelper"], 0, TWICE_PARAMS, TWICE_DOC)
+elif sig_says(60, ["(+ a b)", "(-> Int Int Int)"], 0, ["a", "b"], "builtin operator"):
+    vwhy = "signature help on a builtin operator: " + \
+        sig_says(60, ["(+ a b)", "(-> Int Int Int)"], 0, ["a", "b"], "builtin operator")
+# --- completion: a parameter with its type, a dotted module ---------
+# One past the `x` in `(+ x y)`: every label starts with `x`, and the
+# parameter is offered with `x : Int` cut from the signature above it -
+# the same text hover shows. Nine characters into the dotted import:
+# every label starts with `Nested.De`, and the module is offered whole.
+elif [i for i in vitems(62) if not str(i.get("label", "")).startswith("x")]:
+    vwhy = (f"parameter completion filtered on 'x' still offered "
+            f"{[i['label'] for i in vitems(62) if not str(i.get('label','')).startswith('x')][:6]}")
+elif not [i for i in vitems(62)
+          if i.get("label") == "x" and i.get("kind") == 6 and i.get("detail") == "x : Int"]:
+    vwhy = (f"parameter completion did not offer `x` with detail 'x : Int'; "
+            f"it offered {[(i.get('label'), i.get('kind'), i.get('detail')) for i in vitems(62)][:12]}")
+elif [i for i in vitems(63) if not str(i.get("label", "")).startswith("Nested.De")]:
+    vwhy = (f"module completion filtered on 'Nested.De' still offered "
+            f"{[i['label'] for i in vitems(63) if not str(i.get('label','')).startswith('Nested.De')][:6]}")
+elif not [i for i in vitems(63)
+          if i.get("label") == "Nested.Deep" and i.get("kind") == 9 and i.get("detail") == "module"]:
+    vwhy = (f"module completion did not offer `Nested.Deep` as a module; "
+            f"it offered {[(i.get('label'), i.get('kind')) for i in vitems(63)][:12]}")
+elif (vres(62) or {}).get("isIncomplete") is not True \
+        or (vres(63) or {}).get("isIncomplete") is not True:
+    vwhy = "a filtered completion answered isIncomplete false"
 elif vres(52) is not None:
     vwhy = f"signature help on a document that does not parse answered {vres(52)!r}, want null"
 elif vres(58) is not None:
@@ -3090,6 +3441,8 @@ elif sym_is(51, "Circle", 22, view_uri, CIRCLE_DECL):
     vwhy = "workspace/symbol '': " + sym_is(51, "Circle", 22, view_uri, CIRCLE_DECL)
 elif sym_is(51, "seven", 12, vother_uri, SEVEN_DECL, "ViewOther"):
     vwhy = "workspace/symbol '': " + sym_is(51, "seven", 12, vother_uri, SEVEN_DECL, "ViewOther")
+elif sym_is(51, "extra", 12, vextra_uri, EXTRA_DECL):
+    vwhy = "workspace/symbol '': " + sym_is(51, "extra", 12, vextra_uri, EXTRA_DECL)
 elif sym_is(51, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper"):
     vwhy = "workspace/symbol '': " + sym_is(51, "twice", 12, vhelper_uri, TWICE_DECL, "ViewHelper")
 elif sym_is(51, "deep", 12, vdeep_uri, DEEP_DECL, "Nested.Deep"):
@@ -3103,7 +3456,8 @@ if vwhy:
 else:
     print(f"ok   signature-help (activeParameter 1 on `{CALL_LIT}`, labels "
           f"slicing to {ADD_PARAMS} with {ADD_TYPE!r} cut from the document, a "
-          f"constructor, `twice` from ViewHelper with its paragraph; null on a "
+          f"constructor, `twice` from ViewHelper with its paragraph, `(+ a b)` "
+          f"for the builtin operator; null on a "
           f"keyword head, on a head that is a local, inside a fn header, and on a "
           f"document that does not parse)")
     print(f"ok   inlay-hints (exactly the {len(HINTS_WANT)} derived hints: types "
@@ -3119,9 +3473,12 @@ else:
     print(f"ok   links      ({len(LINKS_WANT)} module names, one dotted, to their files' URIs; "
           f"[] on a document that does not parse)")
     print(f"ok   workspace  (`twice` found by {TWICE_QUERY!r} in ViewHelper.ax with "
-          f"its container, 6 declarations of 3 kinds in 4 files placed by an "
-          f"empty query, [] for a query nothing matches)")
-    passed += 6
+          f"its container, {len(vres(51) or [])} declarations of 3 kinds in 5 files placed by an "
+          f"empty query with `extra` reached only through the closed walk, "
+          f"[] for a query nothing matches)")
+    print(f"ok   completion (`x` with detail 'x : Int' from the signature, "
+          f"`Nested.Deep` whole from its dotted prefix, both isIncomplete)")
+    passed += 7
 shutil.rmtree(VIEWDIR, ignore_errors=True)
 
 # =====================================================================
@@ -3519,6 +3876,7 @@ fix_session = b"".join(frame(m) for m in [
     fixreq(12, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_DECL)})),
     fixreq(13, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(MAIN_DECL)})),
     fixreq(25, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(EQ_USE)})),
+    fixreq(26, "textDocument/diagnostic", fixdoc(fix_uri)),
     {"jsonrpc": "2.0", "method": "textDocument/didOpen",
      "params": {"textDocument": {"uri": fmt_uri, "languageId": "axiom",
                                  "version": 1, "text": FMT}}},
@@ -3531,6 +3889,7 @@ fix_session = b"".join(frame(m) for m in [
     fixreq(22, "textDocument/typeDefinition", fixdoc(fix_uri, {"position": at(MK_USE)})),
     fixreq(23, "textDocument/codeLens", fixdoc(fix_uri)),
     fixreq(24, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_USE)})),
+    fixreq(27, "textDocument/diagnostic", fixdoc(fix_uri)),
     fixreq(30, "shutdown", None),
     {"jsonrpc": "2.0", "method": "exit", "params": None},
 ])
@@ -3603,6 +3962,9 @@ run_lens = lens_named(10, "axiom.run")
 exp_lens = lens_named(10, "axiom.expandMacro")
 r11 = fres(11) or {}
 r25 = fres(25) or {}
+fix_pubs = [m["params"]["diagnostics"] for m in fmsgs
+            if m.get("method") == "textDocument/publishDiagnostics"
+            and m.get("params", {}).get("uri") == fix_uri]
 fwhy = ""
 if fp.returncode != 0:
     fwhy = f"the server exited {fp.returncode}: {fp.stderr[:200]!r}"
@@ -3616,6 +3978,8 @@ elif fcaps.get("typeDefinitionProvider") is not True:
     fwhy = f"typeDefinitionProvider is not advertised: {sorted(fcaps)}"
 elif fcaps.get("codeLensProvider") != {"resolveProvider": False}:
     fwhy = f"codeLensProvider is {fcaps.get('codeLensProvider')!r}"
+elif fcaps.get("diagnosticProvider") != {"interFileDependencies": False, "workspaceDiagnostics": False}:
+    fwhy = f"diagnosticProvider is {fcaps.get('diagnosticProvider')!r}, want no inter-file deps and no workspace pull"
 elif (fcaps.get("experimental") or {}).get("expandMacro") is not True:
     fwhy = f"experimental.expandMacro is not advertised: {fcaps.get('experimental')!r}"
 # --- formatting ---------------------------------------------------------
@@ -3684,6 +4048,23 @@ elif exp_lens is None or exp_lens.get("range") != rng(DERIVE_DECL):
     fwhy = f"the Expand lens is {exp_lens!r:.200}, want it over the macro's name at {rng(DERIVE_DECL)}"
 elif exp_lens["command"].get("arguments") != [fix_uri, at(DERIVE_DECL)]:
     fwhy = f"the Expand lens carries {exp_lens['command'].get('arguments')!r}"
+# --- pull diagnostics ----------------------------------------------------
+# The pull is the push in another shape: `kind: "full"` with exactly the
+# items the server published for the same document state - the fixed
+# document's two diagnostics, then the broken one's single parse error.
+# Comparing the two surfaces rather than writing either down is what
+# stops a bless from satisfying it.
+elif len(fix_pubs) < 2:
+    fwhy = (f"the session published {len(fix_pubs)} diagnostics array(s) for "
+            f"the fixed uri, want didOpen's and the broken one's")
+elif (fres(26) or {}).get("kind") != "full" or (fres(26) or {}).get("items") != fix_pubs[0]:
+    fwhy = (f"pull diagnostics on the fixed document answered "
+            f"{json.dumps(fres(26))[:300]}, want kind full with the "
+            f"{len(fix_pubs[0])} pushed items")
+elif (fres(27) or {}).get("kind") != "full" or (fres(27) or {}).get("items") != fix_pubs[-1]:
+    fwhy = (f"pull diagnostics on the unparseable document answered "
+            f"{json.dumps(fres(27))[:300]}, want kind full with the "
+            f"{len(fix_pubs[-1])} pushed item(s)")
 # --- expand macro --------------------------------------------------------
 elif r11.get("name") != MACRO_NAME:
     fwhy = f"expandMacro on the invocation answered {fres(11)!r:.300}, want name {MACRO_NAME!r}"
@@ -3817,7 +4198,10 @@ else:
           f"outline of exactly that name; `{EQ_MACRO}` rendering `(fn ({EQ_GEN_NAME} "
           f"a b)` with its binders as identifiers, re-parsing clean; null on `main` "
           f"and when the document does not parse)")
-    passed += 5
+    print(f"ok   pull-diagnostics (kind full with the {len(fix_pubs[0])} pushed items "
+          f"on the fixed document and the {len(fix_pubs[-1])} pushed item(s) on the "
+          f"unparseable one - the pull is the push in another shape)")
+    passed += 6
 shutil.rmtree(FIXDIR, ignore_errors=True)
 
 # ---------------------------------------------------------------------
@@ -4230,6 +4614,733 @@ else:
     passed += 3
 shutil.rmtree(CADIR, ignore_errors=True)
 shutil.rmtree(CADIR2, ignore_errors=True)
+
+# ---------------------------------------------------------------------
+# The AX3005 fill-arms quickfix: the missing arms, written.
+#
+# Nothing in self_host/lsp.ax names this assist: `lspQuickfixesOf`
+# offers every help carrying a fix span, and typecheck.ax's AX3005
+# carries one (see "AX3005's fix: the missing arms, written" there) -
+# one arm per missing constructor, in declaration order, each
+# `((Ctor _ ...) (todo "Ctor"))`. This block pins that the fix arrives
+# as a preferred quickfix, lands where the document says, and checks
+# clean once applied together with the `todo` import it names.
+#
+# Everything structural is derived from the document's own bytes: the
+# constructor set from the `data` line, the armed set from the arm
+# heads, the missing set as the difference, each arm's underscores
+# from its field count, and the indent from the written arm's line.
+# ---------------------------------------------------------------------
+ARMDIR = tempfile.mkdtemp(prefix="axiom-arms-")
+ARM = """(data Shape (Dot) (Circle Int))
+
+(:: area (-> Shape Int))
+(fn (area s) (match s ((Dot) 0)))
+
+(:: main Int)
+(fn (main) (area (Circle 1)))
+"""
+arm_path = os.path.join(ARMDIR, "arms.ax")
+open(arm_path, "w", encoding="utf-8").write(ARM)
+arm_uri = "file://" + arm_path
+ARM_LINES = ARM.split("\n")
+ARM_WHOLE = {"start": {"line": 0, "character": 0},
+             "end": {"line": len(ARM_LINES) - 1,
+                     "character": u16(ARM_LINES[-1])}}
+# The constructors, in declaration order, with their field counts; the
+# armed heads; the missing set, which is what the fix must write.
+ARM_CTORS = [(m.group(1), len((m.group(2) or "").split()))
+             for m in re.finditer(r"\(([A-Z]\w*)((?:\s+[^\s()]+)*)\)",
+                                  ARM.split("\n")[0])]
+ARMED = set(re.findall(r"\(\((\w+)\)", ARM))
+ARM_MISSING = [c for c, _ in ARM_CTORS if c not in ARMED]
+ARM_WANT_ARMS = ["((" + c + "".join(" _" for _ in range(n)) + ") "
+                 + "(todo \"" + c + "\"))" for c, n in ARM_CTORS
+                 if c in ARM_MISSING]
+# The indent is the written arm's column within its line, which is
+# where the missing arms go.
+ARM_ASTART = ARM.index("((Dot) 0)")
+_, ARM_ALTEXT, ARM_ALCOL = line_of(ARM, ARM_ASTART)
+ARM_INDENT = u16(ARM_ALTEXT[:ARM_ALCOL])
+ARM_WANT_TEXT = "".join("\n" + " " * ARM_INDENT + a for a in ARM_WANT_ARMS)
+# The zero-width range just past the written arm, where the missing
+# ones are inserted.
+ARM_AT = ARM.index("((Dot) 0)") + len("((Dot) 0)")
+ARM_LN, ARM_LTEXT, ARM_COL = line_of(ARM, ARM_AT)
+ARM_POS = {"line": ARM_LN, "character": u16(ARM_LTEXT[:ARM_COL])}
+if not ARM_MISSING or not ARM_WANT_ARMS or not ARMED:
+    sys.exit("FAIL: the arms document no longer declares, arms and misses "
+             "a constructor - every assertion below rests on that shape")
+arm_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+     "params": {"textDocument": {"uri": arm_uri, "languageId": "axiom",
+                                 "version": 1, "text": ARM}}},
+    {"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+     "params": {"textDocument": {"uri": arm_uri}, "range": ARM_WHOLE,
+                "context": {"diagnostics": []}}},
+    {"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+ap = subprocess.run([stage1, "lsp"], input=arm_session, capture_output=True,
+                    cwd=ARMDIR)
+amsgs, atail = unframe(ap.stdout)
+aresp = {m["id"]: m for m in amsgs if "id" in m}
+apubs = [m["params"]["diagnostics"] for m in amsgs
+         if m.get("method") == "textDocument/publishDiagnostics"]
+arms_fix = todo_fix = None
+for a in (aresp.get(2, {}).get("result") or []):
+    codes = [d.get("code") for d in a.get("diagnostics") or []]
+    if a.get("kind") == "quickfix" and codes == ["AX3005"]:
+        if a.get("title", "").startswith("add the missing arms"):
+            arms_fix = a
+        elif a.get("title", "").startswith("import `todo`"):
+            todo_fix = a
+awhy = ""
+if ap.returncode != 0:
+    awhy = f"the server exited {ap.returncode}: {ap.stderr[:200]!r}"
+elif ap.stderr:
+    awhy = f"stderr not empty: {ap.stderr[:200]!r}"
+elif atail:
+    awhy = f"{len(atail)} trailing bytes after the last frame"
+elif [d.get("code") for ds in apubs for d in ds] != ["AX3005"]:
+    awhy = ("the arms document did not publish exactly one AX3005: "
+            f"{[[d.get('code') for d in ds] for ds in apubs]!r}")
+elif arms_fix is None:
+    awhy = ("no quickfix carrying the AX3005 diagnostic: "
+            f"{json.dumps(aresp.get(2, {}).get('result'))[:300]}")
+elif arms_fix.get("isPreferred") is not True:
+    awhy = "the fill-arms quickfix is not isPreferred"
+elif todo_fix is None:
+    awhy = "no quickfix importing `todo` for the arms it writes"
+else:
+    edits = ((arms_fix.get("edit") or {}).get("changes") or {}).get(arm_uri) or []
+    if len(edits) != 1 or edits[0].get("newText") != ARM_WANT_TEXT:
+        awhy = (f"the fill-arms edit writes "
+                f"{[e.get('newText') for e in edits]!r}, want {ARM_WANT_TEXT!r}")
+    elif edits[0].get("range") != {"start": ARM_POS, "end": ARM_POS}:
+        awhy = (f"the fill-arms edit lands at {edits[0].get('range')}, want "
+                f"the zero-width range just past the written arm")
+ARM_FIXED = None
+if not awhy:
+    tedits = ((todo_fix.get("edit") or {}).get("changes") or {}).get(arm_uri) or []
+    ARM_FIXED = ARM
+    for e in edits + tedits:
+        ARM_FIXED = apply_edits(ARM_FIXED, [e])
+    if ARM_FIXED == ARM:
+        awhy = "applying the two edits changed nothing"
+# A `todo` never returns, which the effect walk reads as IO: the fixed
+# document reports AX3042 twice, and AX3042 carries its own fix (the
+# `;@axiom:effect(io)` tag). Apply those two and the document is clean -
+# three compiler fixes chained through the same request.
+ARM_FIXED2 = None
+if not awhy:
+    # The range is derived from the FIXED text: the arms and the import
+    # moved every line the stale whole-document range was measured on,
+    # and a range ending above a diagnostic does not meet it.
+    ARM_FIXED_LINES = ARM_FIXED.split("\n")
+    ARM_FIXED_WHOLE = {"start": {"line": 0, "character": 0},
+                       "end": {"line": len(ARM_FIXED_LINES) - 1,
+                               "character": u16(ARM_FIXED_LINES[-1])}}
+    aq = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": arm_uri, "languageId": "axiom",
+                                     "version": 1, "text": ARM_FIXED}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction",
+         "params": {"textDocument": {"uri": arm_uri}, "range": ARM_FIXED_WHOLE,
+                    "context": {"diagnostics": []}}},
+        {"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]), capture_output=True, cwd=ARMDIR)
+    aqmsgs, aqtail = unframe(aq.stdout)
+    aqresp = {m["id"]: m for m in aqmsgs if "id" in m}
+    aqpubs = [m["params"]["diagnostics"] for m in aqmsgs
+              if m.get("method") == "textDocument/publishDiagnostics"]
+    tag_fixes = [a for a in (aqresp.get(2, {}).get("result") or [])
+                 if a.get("kind") == "quickfix"
+                 and [d.get("code") for d in a.get("diagnostics") or []] == ["AX3042"]]
+    if aq.returncode != 0 or aqtail:
+        awhy = (f"the session over the armed document exited {aq.returncode} "
+                f"with {len(aqtail)} trailing bytes")
+    elif sorted(d.get("code") for ds in aqpubs for d in ds) != ["AX3042", "AX3042"]:
+        awhy = ("the armed document does not report exactly two AX3042: "
+                f"{[[d.get('code') for d in ds] for ds in aqpubs]!r}")
+    elif len(tag_fixes) != 2:
+        awhy = (f"the armed document carries {len(tag_fixes)} AX3042 "
+                f"quickfixes, want one per function")
+    else:
+        ARM_FIXED2 = ARM_FIXED
+        for a in tag_fixes:
+            for e in ((a.get("edit") or {}).get("changes") or {}).get(arm_uri) or []:
+                ARM_FIXED2 = apply_edits(ARM_FIXED2, [e])
+        if ARM_FIXED2 == ARM_FIXED:
+            awhy = "applying the two tag edits changed nothing"
+if not awhy:
+    ar = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": arm_uri, "languageId": "axiom",
+                                     "version": 1, "text": ARM_FIXED2}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ]), capture_output=True, cwd=ARMDIR)
+    armsgs, artail = unframe(ar.stdout)
+    arpubs = [m["params"]["diagnostics"] for m in armsgs
+              if m.get("method") == "textDocument/publishDiagnostics"]
+    if ar.returncode != 0 or artail:
+        awhy = (f"the session over the tagged document exited {ar.returncode} "
+                f"with {len(artail)} trailing bytes")
+    elif [d for ds in arpubs for d in ds]:
+        awhy = ("the document with applied arms no longer checks clean: "
+                f"{[[(d['code'], first_line(d['message'])) for d in ds] for ds in arpubs if ds]!r:.300}")
+if awhy:
+    print(f"FAIL fill-arms: {awhy}")
+    failed += 1
+else:
+    print(f"ok   fill-arms  (AX3005 publishes once, the preferred quickfix writes "
+          f"{ARM_WANT_ARMS[0]!r} at the written arm's indent, the `todo` import "
+          f"arrives beside it, the two AX3042 tag fixes land next, and the "
+          f"twice-fixed document checks clean)")
+    passed += 1
+shutil.rmtree(ARMDIR, ignore_errors=True)
+
+# =====================================================================
+# SECTION DEP TESTS: diagnostics for imported files, under their own
+# URIs, and their retraction.
+#
+# Only this document's diagnostics used to be published: an error the
+# checker raised inside an imported module was dropped, and a file
+# with a broken dependency looked clean until opened. Now a recheck
+# publishes every resolved dependency under that file's own URI -
+# including an empty array, which is how a dependency fixed elsewhere
+# goes quiet - while a dependency that is OPEN is skipped, because its
+# bytes on disk may lag its buffer and positions read off the wrong
+# text are worse than a publish its own rechecks already send. An
+# import-set move retracts what it orphaned, minus what any remaining
+# open document still resolves and minus what is itself open.
+#
+# Two sessions over one directory. Every position is derived from the
+# two documents' bytes; every array below is compared for EQUALITY, so
+# a publish too many, too few, or under the wrong URI fails.
+# =====================================================================
+DEPDIR = tempfile.mkdtemp(prefix="axiom-dep-")
+HELPER = """; A helper with two errors of its own.
+(pub :: bump (-> Int Int))
+
+(pub fn (bump x)
+  (let ((y 1))
+    {
+      (set y x)
+      (+ y "s")
+    }))
+"""
+MAIN1 = """(import DepHelper)
+
+(:: main Int)
+(fn (main) (bump 1))
+"""
+MAIN_NOIMPORT = """(:: main Int)
+(fn (main) 0)
+"""
+MAIN_BROKEN_IMPORT = """(import Nope)
+
+(:: main Int)
+(fn (main) 0)
+"""
+open(os.path.join(DEPDIR, "DepHelper.ax"), "w", encoding="utf-8").write(HELPER)
+open(os.path.join(DEPDIR, "DepMain.ax"), "w", encoding="utf-8").write(MAIN1)
+dep_main_uri = "file://" + os.path.join(DEPDIR, "DepMain.ax")
+dep_helper_uri = "file://" + os.path.join(DEPDIR, "DepHelper.ax")
+# The `y` binder, its `set` write, and the `"s"` literal the checker
+# refuses: binder, primary and message-derived positions, in order.
+DEP_BIND = ident_at(HELPER, "y", 1)
+DEP_SET = ident_at(HELPER, "y", 2)
+DEP_LIT = locate(HELPER, '"s"', 1)
+DEP_LIT_RNG = {"start": {"line": DEP_LIT["line"], "character": DEP_LIT["start"]},
+               "end": {"line": DEP_LIT["line"], "character": DEP_LIT["end"]}}
+# The buffer that fixes the mismatch but keeps the assignment: the
+# disk still carries both errors afterwards.
+HELPER_FIXEDBUF = HELPER.replace('(+ y "s")', '(+ y 1)')
+if HELPER_FIXEDBUF == HELPER or ident_count(HELPER_FIXEDBUF, "y") != 3:
+    sys.exit("FAIL: the fixed helper buffer is not the helper with its "
+             "mismatch repaired - the open-skip check below rests on it")
+
+
+def dep_open(uri, text):
+    return {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "axiom",
+                                        "version": 1, "text": text}}}
+
+
+def dep_change(uri, text, version):
+    return {"jsonrpc": "2.0", "method": "textDocument/didChange",
+            "params": {"textDocument": {"uri": uri, "version": version},
+                       "contentChanges": [{"text": text}]}}
+
+
+def dep_pubs(msgs, uri):
+    return [m["params"]["diagnostics"] for m in msgs
+            if m.get("method") == "textDocument/publishDiagnostics"
+            and m.get("params", {}).get("uri") == uri]
+
+
+dep_session_a = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    dep_open(dep_main_uri, MAIN1),
+    dep_open(dep_helper_uri, HELPER),
+    dep_change(dep_helper_uri, HELPER_FIXEDBUF, 2),
+    dep_change(dep_main_uri, MAIN1, 2),
+    dep_change(dep_main_uri, MAIN_NOIMPORT, 3),
+    dep_change(dep_main_uri, MAIN_BROKEN_IMPORT, 4),
+    {"jsonrpc": "2.0", "id": 40, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+dap = subprocess.run([stage1, "lsp"], input=dep_session_a, capture_output=True,
+                     cwd=DEPDIR)
+damsgs, datail = unframe(dap.stdout)
+amain = dep_pubs(damsgs, dep_main_uri)
+ahelper = dep_pubs(damsgs, dep_helper_uri)
+dwhy = ""
+if dap.returncode != 0:
+    dwhy = f"the server exited {dap.returncode}: {dap.stderr[:200]!r}"
+elif dap.stderr:
+    dwhy = f"stderr not empty: {dap.stderr[:200]!r}"
+elif datail:
+    dwhy = f"{len(datail)} trailing bytes after the last frame"
+elif 40 not in {m["id"] for m in damsgs if "id" in m}:
+    dwhy = "the session never answered shutdown - a request killed the server"
+elif [[d.get("code") for d in ds] for ds in amain] != [[], [], [], ["AX5001"]]:
+    dwhy = ("the entry published "
+            f"{[[d.get('code') for d in ds] for ds in amain]!r}, want three "
+            f"empty arrays and then its own AX5001 - its own diagnostics, "
+            f"never another file's")
+elif len(ahelper) < 1 or [d.get("code") for d in ahelper[0]] != ["AX3012", "AX3004"]:
+    dwhy = ("opening the importer did not publish the dependency's two "
+            f"errors under its own URI: "
+            f"{[[d.get('code') for d in ds] for ds in ahelper]!r}")
+else:
+    first = ahelper[0][0]
+    if first.get("range") != rng(DEP_SET):
+        dwhy = (f"the dependency's AX3012 lands at {first.get('range')}, want "
+                f"the `set` write at {rng(DEP_SET)}")
+    elif (first.get("relatedInformation") or []) != [
+            {"location": {"uri": dep_helper_uri, "range": rng(DEP_BIND)},
+             "message": "`y` is bound here"}]:
+        dwhy = ("the dependency's secondary is not the binder under the "
+                f"dependency's own URI: {first.get('relatedInformation')!r}")
+    elif ahelper[0][1].get("range") != DEP_LIT_RNG:
+        dwhy = ("the dependency's AX3004 lands at "
+                f"{ahelper[0][1].get('range')}, want the literal at {DEP_LIT_RNG}")
+if not dwhy:
+    if len(ahelper) < 2 or ahelper[1] != ahelper[0]:
+        dwhy = ("opening the dependency did not publish exactly what the "
+                f"importer saw: {[[d.get('code') for d in ds] for ds in ahelper]!r}")
+if not dwhy:
+    if len(ahelper) < 3 or [d.get("code") for d in ahelper[2]] != ["AX3012"]:
+        dwhy = ("the dirtied buffer did not publish its own single AX3012: "
+                f"{[[d.get('code') for d in ds] for ds in ahelper]!r}")
+    elif len(ahelper) != 3:
+        dwhy = ("rechecking the importer published for its open dependency "
+                f"{len(ahelper) - 3} more time(s) - an open file's buffer is "
+                f"not its bytes on disk, and positions read off the wrong "
+                f"text are worse than no publish")
+if not dwhy:
+    if len(ahelper) != 3:
+        dwhy = ("dropping the import republished for the open dependency - "
+                f"an open document publishes for itself and is never "
+                f"blanked from another document's lifecycle")
+    elif [d.get("code") for ds in [amain[-1]] for d in ds] != ["AX5001"]:
+        dwhy = ("the unresolvable import did not publish AX5001 on the entry: "
+                f"{[[d.get('code') for d in ds] for ds in amain]!r}")
+if dwhy:
+    print(f"FAIL dep-publish: {dwhy}")
+    failed += 1
+else:
+    print(f"ok   dep-publish (the importer's recheck publishes the closed "
+          f"dependency's AX3012 with its binder linked under the "
+          f"dependency's own URI and AX3004 on the literal; opening the "
+          f"dependency publishes exactly the same array; a dirtied buffer "
+          f"keeps its own single AX3012 through the importer's recheck; "
+          f"dropping the import and breaking it leave the open file "
+          f"untouched while the entry reports AX5001)")
+    passed += 1
+# ---------------------------------------------------------------------
+# Retraction, where nothing is open to be clobbered: a second importer
+# covers the dependency across the first one's close, the last close
+# retracts it, and breaking the import retracts it too.
+# ---------------------------------------------------------------------
+MAIN2 = """(import DepHelper)
+
+(:: main Int)
+(fn (main) (bump 2))
+"""
+MAIN3 = """(import DepHelper)
+
+(:: main Int)
+(fn (main) (bump 3))
+"""
+MAIN2_BROKEN = """(import Nope)
+
+(:: main Int)
+(fn (main) 0)
+"""
+open(os.path.join(DEPDIR, "DepMain2.ax"), "w", encoding="utf-8").write(MAIN2)
+open(os.path.join(DEPDIR, "DepMain3.ax"), "w", encoding="utf-8").write(MAIN3)
+dep_main2_uri = "file://" + os.path.join(DEPDIR, "DepMain2.ax")
+dep_main3_uri = "file://" + os.path.join(DEPDIR, "DepMain3.ax")
+dep_session_b = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    dep_open(dep_main2_uri, MAIN2),
+    dep_open(dep_main3_uri, MAIN3),
+    {"jsonrpc": "2.0", "method": "textDocument/didClose",
+     "params": {"textDocument": {"uri": dep_main2_uri}}},
+    {"jsonrpc": "2.0", "method": "textDocument/didClose",
+     "params": {"textDocument": {"uri": dep_main3_uri}}},
+    dep_open(dep_main2_uri, MAIN2),
+    dep_change(dep_main2_uri, MAIN2_BROKEN, 2),
+    {"jsonrpc": "2.0", "id": 41, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+dbp = subprocess.run([stage1, "lsp"], input=dep_session_b, capture_output=True,
+                     cwd=DEPDIR)
+dbmsgs, dbtail = unframe(dbp.stdout)
+bhelper = dep_pubs(dbmsgs, dep_helper_uri)
+bmain2 = dep_pubs(dbmsgs, dep_main2_uri)
+bmain3 = dep_pubs(dbmsgs, dep_main3_uri)
+bwhy = ""
+if dbp.returncode != 0:
+    bwhy = f"the server exited {dbp.returncode}: {dbp.stderr[:200]!r}"
+elif dbp.stderr:
+    bwhy = f"stderr not empty: {dbp.stderr[:200]!r}"
+elif dbtail:
+    bwhy = f"{len(dbtail)} trailing bytes after the last frame"
+elif 41 not in {m["id"] for m in dbmsgs if "id" in m}:
+    bwhy = "the session never answered shutdown - a request killed the server"
+# The whole helper sequence, in order: twice published (once per
+# importer, identical), retracted on the last close, published again
+# on reopen, retracted again on the broken import. Anything missing,
+# extra or reordered fails here.
+elif len(bhelper) != 5:
+    bwhy = ("the dependency saw "
+            f"{[[d.get('code') for d in ds] for ds in bhelper]!r}, want two "
+            f"publishes, a retraction, a publish and a retraction")
+elif bhelper[0] != bhelper[1] or bhelper[0] != bhelper[3]:
+    bwhy = "the three dependency publishes are not identical arrays"
+elif [d.get("code") for d in bhelper[0]] != ["AX3012", "AX3004"]:
+    bwhy = ("the dependency publish is not its two errors: "
+            f"{[[d.get('code') for d in ds] for ds in bhelper]!r}")
+elif bhelper[2] != [] or bhelper[4] != []:
+    bwhy = "a retraction did not publish an empty array"
+elif [[d.get("code") for d in ds] for ds in bmain2] != [[], [], [], ["AX5001"]]:
+    bwhy = ("the reopened entry did not publish empty, empty, empty and "
+            f"AX5001 in order: "
+            f"{[[d.get('code') for d in ds] for ds in bmain2]!r}")
+elif [[d.get("code") for d in ds] for ds in bmain3] != [[], []]:
+    bwhy = ("the surviving entry did not publish empty and retract on "
+            f"close: {[[d.get('code') for d in ds] for ds in bmain3]!r}")
+if bwhy:
+    print(f"FAIL dep-retract: {bwhy}")
+    failed += 1
+else:
+    print(f"ok   dep-retract (two importers publish the same array; the first "
+          f"close retracts only its own entry while the survivor covers the "
+          f"dependency; the last close retracts it; reopening with a broken "
+          f"import reports AX5001 and retracts again)")
+    passed += 1
+shutil.rmtree(DEPDIR, ignore_errors=True)
+
+# ---------------------------------------------------------------------
+# SECTION WS TESTS: the filesystem as the editor reports it.
+#
+# Watched files and file operations are not capabilities, so the
+# server ASKS with one `client/registerCapability` right after
+# `initialize` - and only for what the client's own params offer. A
+# bare `{}` registers nothing, and the goldens (whose `initialize`
+# carries no workspace capabilities) pin the byte stream with no
+# registration in it. The reply carries no method and earns no reply:
+# answering it would reply to a response.
+#
+# The five notifications share one rule: recheck every open document
+# except the mentioned ones that are open (a buffer is the truth
+# about its contents), retract what a deletion or a rename's old name
+# orphaned when it is closed, and do nothing at all when no named
+# file ends `.ax`. Disk writes interleave with server reads below, so
+# unlike every other block this one speaks to a live process instead
+# of a one-shot pipe.
+# ---------------------------------------------------------------------
+WDIR = tempfile.mkdtemp(prefix="axiom-ws-")
+W_HELPER_DIRTY = HELPER
+W_HELPER_CLEAN = """(pub :: bump (-> Int Int))
+
+(pub fn (bump x) (+ x 1))
+"""
+W_MAIN = MAIN1
+W_EXTRA = """(pub :: seven Int)
+
+(pub fn (seven) 7)
+"""
+open(os.path.join(WDIR, "DepHelper.ax"), "w", encoding="utf-8").write(W_HELPER_DIRTY)
+open(os.path.join(WDIR, "DepMain.ax"), "w", encoding="utf-8").write(W_MAIN)
+w_main_uri = "file://" + os.path.join(WDIR, "DepMain.ax")
+w_helper_uri = "file://" + os.path.join(WDIR, "DepHelper.ax")
+w_extra_uri = "file://" + os.path.join(WDIR, "Extra.ax")
+w_notes_uri = "file://" + os.path.join(WDIR, "notes.txt")
+w_helper2_uri = "file://" + os.path.join(WDIR, "DepHelper2.ax")
+WS_CAPS = {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": True},
+                         "fileOperations": {"dynamicRegistration": True}}}
+# A bare initialize earns no registration: the client offered no
+# dynamic registration to accept.
+bare_session = b"".join(frame(m) for m in [
+    {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+     "params": {"processId": None, "rootUri": None, "capabilities": {}}},
+    {"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
+    {"jsonrpc": "2.0", "method": "exit", "params": None},
+])
+bp = subprocess.run([stage1, "lsp"], input=bare_session, capture_output=True,
+                    cwd=WDIR)
+bmsgs, btail = unframe(bp.stdout)
+wwhy = ""
+if bp.returncode != 0:
+    wwhy = f"the bare session exited {bp.returncode}: {bp.stderr[:200]!r}"
+elif btail:
+    wwhy = f"{len(btail)} trailing bytes after the last frame"
+elif [m for m in bmsgs if m.get("method") == "client/registerCapability"]:
+    wwhy = ("a client that offered no dynamic registration was still "
+            "asked for the filesystem")
+if wwhy:
+    print(f"FAIL ws-register: {wwhy}")
+    failed += 1
+else:
+    print(f"ok   ws-register (one client/registerCapability with four "
+          f"registrations iff the client offered dynamic registration; "
+          f"silence otherwise)")
+    passed += 1
+
+
+def wl_start():
+    """A live server and a one-message reader over its stdout."""
+    import select
+    proc = subprocess.Popen([stage1, "lsp"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            cwd=WDIR)
+    buf = bytearray()
+
+    def wread(timeout=20):
+        while True:
+            j = bytes(buf).find(b"\r\n\r\n")
+            if j >= 0:
+                hdr = bytes(buf[:j]).decode("utf-8", "replace")
+                cl = [l for l in hdr.split("\r\n")
+                      if l.lower().startswith("content-length")]
+                if not cl:
+                    return ("unframed", bytes(buf))
+                n = int(cl[0].split(":")[1])
+                need = j + 4 + n
+                while len(buf) < need:
+                    r, _, _ = select.select([proc.stdout.fileno()], [], [],
+                                            timeout)
+                    if not r:
+                        return None
+                    chunk = os.read(proc.stdout.fileno(), 65536)
+                    if not chunk:
+                        return None
+                    buf.extend(chunk)
+                body = bytes(buf[j + 4:need])
+                del buf[:need]
+                return json.loads(body)
+            r, _, _ = select.select([proc.stdout.fileno()], [], [], timeout)
+            if not r:
+                return None
+            chunk = os.read(proc.stdout.fileno(), 65536)
+            if not chunk:
+                return None
+            buf.extend(chunk)
+    return proc, wread
+
+
+def wl_pubs(wread, n, what):
+    """The next `n` publishes, or the reason fewer arrived."""
+    pubs = []
+    for _ in range(n):
+        m = wread()
+        if not isinstance(m, dict) or \
+                m.get("method") != "textDocument/publishDiagnostics":
+            return None, (f"{what}: expected a publish, got "
+                          f"{json.dumps(m)[:160]!r}")
+        pubs.append(m)
+    return pubs, ""
+
+
+wproc, wread = wl_start()
+werr = ""
+
+
+def wstop():
+    wsend = lambda m: (wproc.stdin.write(frame(m)), wproc.stdin.flush())
+    wsend({"jsonrpc": "2.0", "id": 90, "method": "shutdown", "params": None})
+    m = wread()
+    if not isinstance(m, dict) or m.get("id") != 90:
+        return f"shutdown answered {json.dumps(m)[:160]!r}"
+    wsend({"jsonrpc": "2.0", "method": "exit", "params": None})
+    try:
+        rc = wproc.wait(timeout=20)
+    except Exception:
+        wproc.kill()
+        return "the server did not exit after `exit`"
+    if rc != 0:
+        return f"the server exited {rc}"
+    if wproc.stderr.read():
+        return f"stderr not empty: {wproc.stderr.read()[:200]!r}"
+    return ""
+
+
+def wsend(m):
+    wproc.stdin.write(frame(m))
+    wproc.stdin.flush()
+
+
+def wcodes(pubs, uri):
+    for p in pubs:
+        if p["params"]["uri"] == uri:
+            return [d.get("code") for d in p["params"]["diagnostics"]]
+    return None
+
+
+if not wwhy:
+    wsend({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+           "params": {"processId": None, "rootUri": None,
+                      "capabilities": WS_CAPS}})
+    m = wread()
+    if not isinstance(m, dict) or m.get("id") != 1:
+        wwhy = f"initialize answered {json.dumps(m)[:200]!r}"
+    else:
+        m = wread()
+        regs = (m or {}).get("params", {}).get("registrations") or []
+        got = [(r.get("id"), r.get("method")) for r in regs
+               if isinstance(r, dict)]
+        want_methods = ["workspace/didChangeWatchedFiles",
+                        "workspace/didCreateFiles",
+                        "workspace/didRenameFiles",
+                        "workspace/didDeleteFiles"]
+        if not isinstance(m, dict) or \
+                m.get("method") != "client/registerCapability" or \
+                m.get("id") != "axiom-reg-1":
+            wwhy = (f"the registration request is {json.dumps(m)[:300]!r}, "
+                    f"want one client/registerCapability as axiom-reg-1")
+        elif [g[1] for g in got] != want_methods:
+            wwhy = f"registered {got!r}, want {want_methods!r}"
+        elif [g[0] for g in got] != want_methods:
+            wwhy = "a registration id is not its own method"
+        else:
+            for r, meth in zip(regs, want_methods):
+                opts = r.get("registerOptions") or {}
+                if meth == "workspace/didChangeWatchedFiles":
+                    globs = [(w or {}).get("globPattern")
+                             for w in opts.get("watchers") or []]
+                else:
+                    globs = [((f or {}).get("pattern") or {}).get("glob")
+                             for f in opts.get("filters") or []]
+                if globs != ["**/*.ax"]:
+                    wwhy = (f"{meth} watches {globs!r}, want ['**/*.ax']")
+                    break
+if not wwhy:
+    # The reply carries no method and must earn no reply: three
+    # seconds of server silence, not an error frame.
+    wsend({"jsonrpc": "2.0", "id": "axiom-reg-1", "result": None})
+    m = wread(timeout=3)
+    if m is not None:
+        wwhy = (f"answering the registration earned {json.dumps(m)[:200]!r}, "
+                f"want nothing - a response is never answered")
+if not wwhy:
+    wsend({"jsonrpc": "2.0", "method": "textDocument/didOpen",
+           "params": {"textDocument": {"uri": w_main_uri,
+                                       "languageId": "axiom", "version": 1,
+                                       "text": W_MAIN}}})
+    pubs, wwhy = wl_pubs(wread, 2, "open")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = ("open published "
+                f"{[(p['params']['uri'], [d.get('code') for d in p['params']['diagnostics']]) for p in pubs]!r}")
+if not wwhy:
+    # A watched change with nothing changed on disk: the recheck
+    # republishes the same arrays.
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_helper_uri, "type": 2}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched change")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = "a no-op watched change did not republish the same arrays"
+if not wwhy:
+    open(os.path.join(WDIR, "DepHelper.ax"), "w",
+         encoding="utf-8").write(W_HELPER_CLEAN)
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_helper_uri, "type": 2}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched fix")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != []):
+        wwhy = ("the watched fix did not converge without an importer "
+                f"keystroke: "
+                f"{[(p['params']['uri'], [d.get('code') for d in p['params']['diagnostics']]) for p in pubs]!r}")
+if not wwhy:
+    os.remove(os.path.join(WDIR, "DepHelper.ax"))
+    wsend({"jsonrpc": "2.0", "method": "workspace/didDeleteFiles",
+           "params": {"files": [{"uri": w_helper_uri}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched delete")
+    if not wwhy and (wcodes(pubs, w_main_uri) != ["AX5001"]
+                     or wcodes(pubs, w_helper_uri) != []):
+        wwhy = "a watched deletion did not converge the importer to AX5001"
+if not wwhy:
+    open(os.path.join(WDIR, "DepHelper.ax"), "w",
+         encoding="utf-8").write(W_HELPER_DIRTY)
+    wsend({"jsonrpc": "2.0", "method": "workspace/didCreateFiles",
+           "params": {"files": [{"uri": w_helper_uri}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched create")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = "a watched creation did not resolve the pending import"
+if not wwhy:
+    open(os.path.join(WDIR, "Extra.ax"), "w", encoding="utf-8").write(W_EXTRA)
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_extra_uri, "type": 1}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched create-typed change")
+    if not wwhy and (wcodes(pubs, w_main_uri) != []
+                     or wcodes(pubs, w_helper_uri) != ["AX3012", "AX3004"]):
+        wwhy = "an unrelated watched creation disturbed the publishes"
+if not wwhy:
+    open(os.path.join(WDIR, "notes.txt"), "w", encoding="utf-8").write("hi\n")
+    wsend({"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles",
+           "params": {"changes": [{"uri": w_notes_uri, "type": 2}]}})
+    m = wread(timeout=3)
+    if m is not None:
+        wwhy = (f"an event naming no .ax file earned {json.dumps(m)[:200]!r}, "
+                f"want nothing at all")
+if not wwhy:
+    os.rename(os.path.join(WDIR, "DepHelper.ax"),
+              os.path.join(WDIR, "DepHelper2.ax"))
+    wsend({"jsonrpc": "2.0", "method": "workspace/didRenameFiles",
+           "params": {"files": [{"oldUri": w_helper_uri,
+                                 "newUri": w_helper2_uri}]}})
+    pubs, wwhy = wl_pubs(wread, 2, "watched rename")
+    if not wwhy and (wcodes(pubs, w_main_uri) != ["AX5001"]
+                     or wcodes(pubs, w_helper_uri) != []):
+        wwhy = "a watched rename did not converge the importer and retract"
+if not wwhy:
+    wwhy = wstop()
+if wwhy:
+    print(f"FAIL ws-recheck: {wwhy}")
+    failed += 1
+    try:
+        wproc.kill()
+    except Exception:
+        pass
+else:
+    print(f"ok   ws-recheck (watched changes, creations, deletions and a "
+          f"rename converge every open importer with no keystroke; a file "
+          f"with no .ax name earns nothing; the registration reply earns "
+          f"no reply)")
+    passed += 1
+shutil.rmtree(WDIR, ignore_errors=True)
 # =====================================================================
 # END SECTION FIX TESTS
 # =====================================================================

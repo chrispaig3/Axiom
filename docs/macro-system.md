@@ -2227,15 +2227,17 @@ move — `documentSymbol`, `definition`, `hover`, `completion`, and since
 `rename`, `signatureHelp`, `inlayHint`, `foldingRange`,
 `selectionRange`, `documentLink`, `workspace/symbol`, `formatting`,
 `typeDefinition` and `codeLens` — reads the RAW parse tree and the
-document's bytes and expands nothing. Three things run the pipeline,
+document's bytes and expands nothing. Four things run the pipeline,
 each because expansion IS the answer: `didOpen` and `didChange`, which
 publish diagnostics, because a diagnostic about generated code is
-exactly what expansion is for; `codeAction`, because a quickfix is a
-checker diagnostic's own fix and the assist writes what the checker
+exactly what expansion is for; `textDocument/diagnostic`, because the
+pull is the push in another shape; `codeAction`, because a quickfix is
+a checker diagnostic's own fix and the assist writes what the checker
 inferred; and `axiom/expandMacro`, because rendering what a macro
-generated is the question being asked. None of the three is sent per
-keystroke — a client asks for code actions when the cursor rests and
-for an expansion on demand — and each costs about one `didOpen` of the
+generated is the question being asked. None of the four is sent per
+keystroke — a client asks for code actions when the cursor rests, pulls
+diagnostics on its own schedule and asks for an expansion on demand —
+and each costs about one `didOpen` of the
 same document, which the editor paid on the last keystroke anyway.
 The visible consequence is that completion does not offer a name a
 macro would generate: `(deriveTag Colour)` does not put `tagColour` in
