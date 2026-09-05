@@ -211,21 +211,19 @@ cat > "$work/reconcile.ax" <<'AXEOF'
   )
     {
       (while (< i n)
-        (let ((e (strFindByte src 10 i)))
-          (let ((stop (if (< e 0)
-            n
-            e
+        (let ((stop (match (strFindByte src 10 i)
+            ((None) n)
+            ((Some e) e)
           )))
-            {
-              (let ((line (strSlice src i (- stop i))))
-                {
-                  (set bad (sweepLine line 0 bad))
-                  (set cmp (+ cmp (+ (strLen line) 1)))
-                }
-              )
-              (set i (+ stop 1))
-            }
-          )
+          {
+            (let ((line (strSlice src i (- stop i))))
+              {
+                (set bad (sweepLine line 0 bad))
+                (set cmp (+ cmp (+ (strLen line) 1)))
+              }
+            )
+            (set i (+ stop 1))
+          }
         ))
       (writeStr 1 (strConcat "swept " (strConcat (fmtI cmp) (strConcat " mid-edit buffers of " (strConcat path (strConcat ", " (strConcat (fmtI bad) " failures\n")))))))
       (if (> bad 0)
