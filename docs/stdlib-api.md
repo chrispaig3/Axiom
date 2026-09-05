@@ -531,7 +531,7 @@ See [reference.md](reference.md) for the language, and
 | `strSlice` | value | `(-> String Int Int String)` | `Alloc,Mut` | The `count` bytes of `s` starting at `start`, sharing `s`'s storage. |
 | `strDup` | value | `(-> String String)` | `Alloc,Mut` | An owned, NUL-terminated copy of `s`. |
 | `strConcat` | value | `(-> String String String)` | `Alloc,Mut` |  |
-| `strFindByte` | value | `(-> String Int Int Int)` |  | Index of the first `byte` at or after `from`, or -1. |
+| `strFindByte` | value | `(-> String Int Int (Option Int))` |  | Index of the first `byte` at or after `from`, or `None`. |
 | `strStartsWith` | value | `(-> String String Bool)` |  |  |
 | `strIsDigit` | value | `(-> Int Bool)` |  |  |
 | `strIsAlpha` | value | `(-> Int Bool)` |  |  |

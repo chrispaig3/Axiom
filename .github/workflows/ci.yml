@@ -97,11 +97,124 @@ jobs:
   # compiler at all - the tree-sitter grammar must still parse every
   # `.ax` file in the repository. A grammar that has drifted from the
   # parser is the failure this catches before anything expensive runs.
+  # WHAT THIS CHANGE COSTS A DOCUMENTATION COMMIT, AND WHY IT EXISTS.
+  # `paths-ignore` above skips a run only when EVERY changed file
+  # matches it, which is the correct rule and is why it did nothing on
+  # the two website commits that provoked this job: each also touched
+  # `CHANGELOG.md`, and one touched `docs/`. Two README-only pushes on
+  # 2026-09-04 each spent about two hours of runner time across five
+  # legs to re-prove a compiler nobody had changed.
+  #
+  # The obvious fix - add `CHANGELOG.md` and `docs/**` to
+  # `paths-ignore` - is wrong, and measurably so. Both are gate INPUTS:
+  # `check-doc-drift.sh` re-renders this repository's `doc-gate:render`
+  # blocks with the compiler and resolves every `tests/` path named in
+  # `CHANGELOG.md`, and `check-gate-lib.sh` reads both. Ignoring them
+  # would make those gates structurally silent, which is the same
+  # failure as the `main`/`trunk` trigger that left a week of work with
+  # CI quiet.
+  #
+  # So the split is by SCOPE rather than by suppression. This job asks
+  # one question - did this change touch anything outside the
+  # documentation surface? - and the answer gates `grammar`, which
+  # every expensive job already needs. A documentation change still
+  # runs the gates that read documentation; it stops running five
+  # platform legs, the FFI matrix, the bootstrap ladder and the seed
+  # jobs.
+  #
+  # IT FAILS THE SAFE WAY, and that is the whole care here. `docs_only`
+  # is true only when EVERY changed path matches the list below, so a
+  # path the list does not name makes it FALSE and the full battery
+  # runs. The list is therefore not a second description of what the
+  # compiler is made of - the failure mode a `paths:` allowlist has -
+  # because being absent from it costs runner time rather than
+  # coverage. Anything that cannot be enumerated (a force push, a first
+  # push, an API that will not answer) is also false.
+  scope:
+    name: What this change touches
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.q.outputs.docs_only }}
+    steps:
+      - id: q
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+
+          # The changed-file list, from the API rather than a checkout:
+          # answering this question with `git diff` needs the history
+          # that `fetch-depth: 0` buys, which on this repository is
+          # slower than the job it is deciding whether to skip.
+          if [[ -n "${PR:-}" ]]; then
+            files="$(gh api --paginate "repos/$REPO/pulls/$PR/files" \
+                       --jq '.[].filename' 2>/dev/null)" || files=""
+          elif [[ -n "${BEFORE:-}" && "$BEFORE" != "0000000000000000000000000000000000000000" ]]; then
+            files="$(gh api "repos/$REPO/compare/$BEFORE...$SHA" \
+                       --jq '.files[].filename' 2>/dev/null)" || files=""
+          else
+            files=""
+          fi
+
+          if [[ -z "$files" ]]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "could not enumerate the changed files, so the full battery runs."
+            echo "That is this job's safe direction: an unknown change is a code change."
+            exit 0
+          fi
+
+          echo "changed files:"
+          printf '%s\n' "$files" | sed 's/^/    /'
+
+          # THE DOCUMENTATION SURFACE, spelled out. A path here is one
+          # that cannot change what the compiler does. `web/**` is
+          # already excluded by `paths-ignore` and is listed anyway,
+          # because this job must reach the right answer for a commit
+          # that touches `web/` AND `CHANGELOG.md` - which is exactly
+          # the commit that provoked it.
+          #
+          # `docs/**` is here and `scripts/**` is NOT: a gate script is
+          # the compiler's test surface, and a change to one must run
+          # it. `tests/**` is not here for the same reason.
+          outside=0
+          while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            case "$f" in
+              web/*|docs/*|assets/*|examples/README.md) ;;
+              CHANGELOG.md|README.md|CONTRIBUTING.md|SECURITY.md|LICENSE) ;;
+              .github/workflows/pages.yml) ;;
+              *) outside=1; echo "outside the documentation surface: $f" ;;
+            esac
+          done <<< "$files"
+
+          if (( outside )); then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "-> the full battery runs."
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "-> documentation only; the platform legs are skipped and the"
+            echo "   documentation gates run in the \`docs\` job."
+          fi
+
   grammar:
     name: Tree-sitter grammar
     # Not on the nightly or the button: those are `seed-lineage-full`'s,
     # and skipping this job skips the nine that need it.
-    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+    #
+    # AND NOT ON A DOCUMENTATION-ONLY CHANGE, which is the same lever
+    # used for the same reason: every expensive job needs this one, so
+    # one `if:` here skips all of them. `scope` decides, and it decides
+    # false whenever it cannot be sure - see its header.
+    needs: scope
+    if: >-
+      github.event_name != 'schedule'
+      && github.event_name != 'workflow_dispatch'
+      && needs.scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -219,6 +332,86 @@ jobs:
       - name: Every .ax file parses under the checked-in grammar
         run: ./scripts/check-tree-sitter.sh
 
+      # THIS FILE IS MAINTAINED BY HAND AND DRIFTS, so something has to
+      # hold it to the tree. `run-gates.sh` globs `scripts/check-*.sh`
+      # and therefore cannot drift; this file names its gates one at a
+      # time, because it also decides which job and which platform each
+      # one belongs to - and on 2026-09-04 seven of the 78 gate scripts
+      # turned out to be named by no step at all. All seven passed,
+      # which is the point: a gate no job runs is indistinguishable
+      # from a gate that passes, and this file already says so twice in
+      # the words of the last two people who found it.
+      #
+      # It runs here, in the cheap job, because it reads two lists of
+      # file names and needs no compiler.
+      - name: Every gate in the tree is run by a step in this file
+        run: ./scripts/check-ci-coverage.sh
+
+  # THE OTHER HALF OF `scope`, AND THE REASON IT IS NOT A SUPPRESSION.
+  # Skipping the platform legs on a documentation change is only
+  # defensible if the claims a documentation change CAN break are still
+  # checked. They are, here, on one runner: this job is what the five
+  # legs were running that a `CHANGELOG.md` edit could actually falsify.
+  #
+  # It is the mirror image of `scope`'s rule. `scope` names the paths
+  # that cannot change what the compiler does; this job runs the gates
+  # that read those paths. A gate belongs here when its subject is a
+  # document - `check-doc-drift.sh` re-renders every `doc-gate:render`
+  # block with the compiler and resolves every `tests/` path named in
+  # `CHANGELOG.md`; `check-version.sh` reads the nineteen version
+  # sites, five of which are documents; `check-stdlib-api.sh` rebuilds
+  # `docs/stdlib-api.md` with `axdoc` and diffs it; `check-tree-sitter.sh`
+  # parses the `.ax` blocks the documents carry.
+  #
+  # It builds the compiler, because most of those gates need one. That
+  # is about eight minutes against the two hours of runner time the
+  # matrix spends, which is the whole point of the split.
+  docs:
+    name: Documentation gates
+    needs: scope
+    if: >-
+      github.event_name != 'schedule'
+      && github.event_name != 'workflow_dispatch'
+      && needs.scope.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    env:
+      AXIOM_AXC: ${{ github.workspace }}/.axiom-shared/axc
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/provision
+
+      - name: Build the compiler under test once
+        run: ./scripts/build-shared-axc.sh "$AXIOM_AXC"
+
+      # The prose documents against the tree they describe.
+      - name: The documents state what the tree does
+        run: ./scripts/check-doc-drift.sh
+
+      # Every site states the same version - README.md, SECURITY.md and
+      # docs/ are five of the nineteen.
+      - name: Every site states the same version
+        run: ./scripts/check-version.sh
+
+      # `docs/stdlib-api.md` is `axdoc`'s output, so it is a golden
+      # rather than a document, and an edit to it by hand is a drift
+      # this catches.
+      - name: The stdlib API reference is what the library says
+        run: ./scripts/check-stdlib-api.sh
+
+      # The documents carry `.ax` blocks, and the grammar must parse
+      # them. `grammar` is skipped on this path, so this is the one
+      # place that still asks.
+      - name: Every .ax file parses under the checked-in grammar
+        run: ./scripts/check-tree-sitter.sh
+
+      # README.md carries the supported-target list and the rule that
+      # defines "supported"; `install.sh`'s refusals are held to it.
+      - name: The release matrix and the installer's refusals agree
+        run: ./scripts/check-release-targets.sh
+
+      - name: The installer installs, and refuses what it should
+        run: ./scripts/check-install.sh
+
   test:
     name: Tests (${{ matrix.name }})
     needs: grammar
@@ -233,7 +426,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # sixty-five of the gates below build the compiler under test from
+    # sixty-six of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -502,6 +695,20 @@ jobs:
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
 
+      # The other claim about the linked binary's symbol table, and it
+      # belongs beside the one above because both are answered by `nm`
+      # on a real executable rather than by reading IR. A hello world
+      # must contain only what it can reach: every `define` the emitter
+      # writes is reachable from `main` by a walk the gate implements
+      # itself, `nm` on the LINKED binary names nothing that walk could
+      # not reach, and an address-taken callback - a bare reference
+      # through a thunk, a comparator through a lifted lambda -
+      # survives the pass and still answers. Turning the pass off in a
+      # shadow tree must name 361 of 397 symbols, which is the
+      # ablation.
+      - name: A program contains only what it uses
+        run: ./scripts/check-dead-code.sh
+
       # It runs in the matrix rather than on a single host because it
       # compiles, assembles and *runs* the output of the self-hosted
       # compiler, and both the syscall numbers and the object format are
@@ -672,6 +879,21 @@ jobs:
       # macOS leg. Everything else runs everywhere.
       - name: A no-recursion program's stack need is computed, and checked against a measurement
         run: ./scripts/check-stack-bound.sh
+
+      # The other two blocking rows of docs/embedded-proposal.md. The
+      # arena's chunk size is a per-target constant and `mmap` is one of
+      # two backing strategies, chosen at emission time - so a program
+      # built for a target with no MMU carries a statically reserved
+      # region and no `mmap`, and one built for any supported target
+      # carries exactly the bytes it always did. The second half is what
+      # makes this more than an absence check: a SECOND compiler is
+      # built from a copy of `self_host/` with two rows of the target
+      # table changed, and the target given a 256 KiB static arena has
+      # to build a program that RUNS - same answer as the `mmap` build,
+      # and status 70 when it outgrows the region against a control that
+      # exits 0. Costs one extra compiler build.
+      - name: The arena's chunk size is a target constant and mmap is one of two strategies
+        run: ./scripts/check-embedded.sh
 
       # A tail call runs in constant stack at `--opt 0`: a self call in
       # every tail position, and a mutual call whose prototypes match,
@@ -929,6 +1151,30 @@ jobs:
       - name: The mid-level IR lowers, prints, verifies and evaluates to what the compiler answers
         run: ./scripts/check-mir.sh
 
+      # The record file that carries that IR out of the compiler, and
+      # the two claims about it that the gate above does not make.
+      #
+      # Round trip: emit, read back, emit again, byte-identical over
+      # the stdlib corpus and `self_host/main.ax` - 4,862 records. A
+      # golden is deliberately NOT used here, and
+      # `check-tools-selfhost.sh`'s header records why: both AXSYM
+      # goldens were once re-blessed clean against a compiler emitting
+      # a shifted column. The reader is proved to DECOMPOSE rather than
+      # pass lines through, which is the assertion a passthrough reader
+      # fails while passing every other check in the file.
+      - name: The .axir record file survives its own reader
+        run: ./scripts/check-mir-roundtrip.sh
+
+      # And the projection: every `#mir-*` key `symbols --mir` prints
+      # is re-derivable from the raw region words of the record whose
+      # whole header tuple matches that row, so the gate compares two
+      # independent derivations rather than one number twice. It also
+      # holds the truncation sentinel to the boundary it reports -
+      # present at call-chain depth 41, absent at 5 - which is the only
+      # assertion in the tree watching `rgnRounds`' 40-round cap.
+      - name: Every published dataflow key is the record's own words
+        run: ./scripts/check-mir-projection.sh
+
       # And what a reset COSTS, which is the roadmap's P8 and the one
       # thing no gate here measured: every timing gate asserts a ratio,
       # deliberately, so a slow runner cannot fail it - which left rate
@@ -1054,6 +1300,39 @@ jobs:
       # stderr required empty and the exit code pinned.
       - name: REPL sessions against their goldens
         run: ./scripts/check-repl-selfhost.sh
+
+      # The three surfaces the piped-session gate above cannot reach,
+      # because each of them only exists in front of a TERMINAL.
+      #
+      # A real pty: arrows, control keys, Alt- prefixes and multi-byte
+      # characters decoded; Ctrl-C a key rather than a signal; the
+      # terminal restored byte-exact on both exit paths; and the
+      # wrapped screen matched against an independent model at the
+      # deferred-wrap boundary and away from it.
+      - name: The REPL on a real terminal
+        run: ./scripts/check-repl-tui.sh
+
+      # History, and it is the one gate here whose assertion is a FLOOR
+      # rather than a total: its D3 arm forks six REPLs that each append
+      # 200 entries and compact a shared file, and the design carries a
+      # documented one-syscall window - an append landing between the
+      # size re-check and the rename is lost - so it requires 995 of
+      # 1200. That window widens under load, which is why
+      # `run-gates.sh` serialises it locally. A CI job runs its steps
+      # one at a time, so it has the machine here.
+      - name: REPL history, across concurrent sessions
+        run: ./scripts/check-repl-history.sh
+
+      # Completion, and the highlighter. The highlighter is the second
+      # implementation of a rule the tree-sitter queries already carry,
+      # which is the shape this repository has been bitten by before -
+      # the formatter is a second implementation of the grammar - so it
+      # is pinned rather than trusted.
+      - name: REPL completion
+        run: ./scripts/check-replcomp.sh
+
+      - name: REPL highlighting
+        run: ./scripts/check-repl-highlight.sh
 
       # The language server. The first tool surface that is NOT a port
       # of a stage0 tool - there is no `axiom lsp` in the Rust compiler

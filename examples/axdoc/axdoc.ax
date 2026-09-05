@@ -450,11 +450,9 @@
 (:: upToDot (-> String String))
 
 (fn (upToDot s)
-  (let ((at (strFindByte s 46 0)))
-    (if (< at 0)
-      s
-      (strSlice s 0 at)
-    )
+  (match (strFindByte s 46 0)
+    ((None) s)
+    ((Some at) (strSlice s 0 at))
   )
 )
 

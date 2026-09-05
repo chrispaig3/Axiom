@@ -1987,12 +1987,18 @@
       )
       (if (== (fnKind n) FN_PREFIX)
         false
-        ; `EQualified` is NOT in stage0's `is_simple_expr` list - probed:
-        ; `(Q::Inner::only 1)` breaks across four lines under stage0's fmt
-        ; while `(p.x 1)` stays on one. Field access is simple, qualified
-        ; access is not.
+        ; A qualified name is a name. `EQualified` was NOT in stage0's
+        ; `is_simple_expr` list - probed then: `(Q::Inner::only 1)`
+        ; broke across four lines under stage0's fmt while `(p.x 1)`
+        ; stayed on one - and this printer transliterated the omission,
+        ; so `(println (Vec::vecLen v))` exploded to five lines while
+        ; `(println (vecLen v))` stayed on one, for no reason the
+        ; language has. `fpQualLeft` refuses anything but an
+        ; ident-rooted chain, so the only shape that reaches the printer
+        ; is atoms joined by `::`, which is as simple as the atoms.
+        ; Parity case 222 pins it.
         (if (== (fnKind n) FN_QUAL)
-          false
+          true
           (if (== (fnKind n) FN_BRACK)
             (allSimple src n 0)
             (if (isKeywordHead (fnHeadText src n))
@@ -3639,40 +3645,35 @@
                     (fpExpr p func)
                     (fpP p "\n")
                     (foPushIndent o)
-                    ; No newline between the arguments, so a broken
-                    ; application prints its indent width as an
-                    ; INTER-ARGUMENT SEPARATOR: `(divA\n  b    (class b
-                    ; "card")    {`. This is a bug and it is known to
-                    ; be one. It was kept for byte-identity with
-                    ; stage0's broken-application branch, which omitted
-                    ; the newline; that rationale EXPIRED when stage0
-                    ; was deleted, and `check-fmt-selfhost.sh`'s header
-                    ; says so in its own words - the differential was
-                    ; rewritten into goldens rather than repointed,
-                    ; because "a differential does not FAIL when its
-                    ; reference disappears". Nothing byte-identical to
-                    ; stage0 is preserved here any more; three
-                    ; re-blessable goldens are all that pin the shape.
+                    ; One argument per line. Until 2026-09-04 there was
+                    ; no newline between them, so a broken application
+                    ; printed its indent width as an INTER-ARGUMENT
+                    ; SEPARATOR - `(divA\n  b    (class b "card")    {`
+                    ; - and the tree is full of that shape, because the
+                    ; formatter wrote it and people committed it. It
+                    ; was kept for byte-identity with stage0's
+                    ; broken-application branch, which omitted the
+                    ; newline; that rationale expired when stage0 was
+                    ; deleted, and nothing byte-identical to stage0 is
+                    ; preserved here any more.
                     ;
-                    ; Measured 2026-09-03: emitting `\n` before the
-                    ; indent for every argument after the first moves
-                    ; 159 of 613 `.ax` files in the tree, refuses none,
-                    ; stays idempotent, and takes the flagship example
-                    ; `examples/web/server.ax` from 27 padded lines to
-                    ; 0. It is not applied here because it also moves
-                    ; `tests/fmt/corpus-fmt.golden`, `parity.golden`,
-                    ; `syntax-zoo.expected.ax`, AND the SECOND printer
-                    ; that mimics this layout in Rust -
-                    ; `rust/axiom-bindgen/src/sexp.rs`, whose header
-                    ; names this quirk and whose output
-                    ; (`rust/examples/*/axiom/*.ax`) is diffed against
-                    ; a fresh generation by `check-ffi.sh`. Fixing one
-                    ; printer and not the other silently breaks the
-                    ; invariant that a generated binding is already in
-                    ; the formatter's normal form - which today is
-                    ; true, and is gated by nothing.
+                    ; The fix is one line, and the reason it waited a
+                    ; day is that it moves FOUR things at once: the
+                    ; three re-blessable goldens (`corpus-fmt.golden`,
+                    ; `parity.golden`, `syntax-zoo.expected.ax`) and the
+                    ; SECOND printer that mimics this layout in Rust -
+                    ; `rust/axiom-bindgen/src/sexp.rs`, whose output
+                    ; (`rust/examples/*/axiom/*.ax`) `check-fmt.sh` 1b
+                    ; requires to be a fixed point of this formatter.
+                    ; Change one printer, change the other; parity case
+                    ; 220 pins the shape here, `sexp.rs`'s unit test
+                    ; pins it there.
                     (while (< j (vecLen elems))
                       {
+                        (if (> j 1)
+                          (fpP p "\n")
+                          p
+                        )
                         (foEmitIndent o)
                         (fpExpr p (vecGet elems j))
                         (set j (+ j 1))
@@ -4581,6 +4582,24 @@
           (fnStart n)
           (if (== k FN_PREFIX)
             (fpAnchor src (fnKid n 0))
+            ; A block that PRINTS as a block - two or more statements,
+            ; so `fpBeginVec` writes the braces - anchors at its own
+            ; `{`, not at its first statement. The recursion below is
+            ; stage0's `EBegin` span, and it hoisted every comment
+            ; written as the first line inside a `{ }` out past the
+            ; brace and past the enclosing `let`: the fn body's flush
+            ; runs before the `let`'s anchor, the `let`'s anchor is its
+            ; body's, the body's was its first statement's, and the
+            ; comment sits before that. `fpBeginVec` flushes before
+            ; every statement it prints, so with the anchor at the `{`
+            ; the comment lands where it was written, at the block's
+            ; indent, and stays there on the second pass. A singleton
+            ; block prints as its inner expression with no brace to
+            ; keep the comment inside, so it still recurses; so does a
+            ; `[ ]` list, whose printer flushes nothing per element.
+            ; Parity case 221 pins it.
+            (if (&& (== k FN_BRACE) (>= (fnLen n) 2))
+              (fnStart n)
             (if (|| (== k FN_BRACK) (== k FN_BRACE))
               (if (> (fnLen n) 0)
                 (fpAnchor src (fnKid n 0))
@@ -4629,6 +4648,7 @@
                   )
                 )
               )
+            )
             )
           )
         )

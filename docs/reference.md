@@ -278,8 +278,8 @@ which was the retired Rust compiler's lexer rule, and refused
 
 | Keyword | Purpose |
 |---|---|
-| `define` | Define a function (classic style) |
-| `fn` | Define a function (modern style, alias for `define`) |
+| `fn` | Define a function. This is the language's spelling |
+| `define` | **Legacy.** The old spelling of `fn`: accepted so that old source still parses and read as `fn`, rewritten to `fn` by `axiom fmt`, and written by nothing in the tree |
 | `lambda` | Anonymous function |
 | `let` | Local variable binding |
 | `mut` | Marks a `let` binding assignable |
@@ -550,7 +550,7 @@ The compiler validates that the body actually performs the declared effects.
 
 Functions are the heart of Axiom. Every function has an optional type signature and a definition.
 
-### Modern `fn` Style
+### The `fn` form
 
 ```scheme
 (:: add (-> Int Int Int))
@@ -558,7 +558,7 @@ Functions are the heart of Axiom. Every function has an optional type signature 
   (+ x y))
 ```
 
-### Classic `define` Style
+### `define` is legacy
 
 ```scheme
 (:: add (-> Int Int Int))
@@ -566,7 +566,13 @@ Functions are the heart of Axiom. Every function has an optional type signature 
   (+ x y))
 ```
 
-Both styles are identical. `fn` is the modern alias for `define`.
+`define` is the old spelling of `fn`, and `fn` is the language's. The
+parser still accepts `define` so that old source parses, and reads it
+as `fn`; it is not a second style and not a choice. `axiom fmt`
+rewrites it to `fn` — `tests/fmt/parity/182-define-rewrites.axp` pins
+`(define legacy 7)` becoming `(fn (legacy) 7)` — and nothing under
+`self_host/`, `stdlib/` or `examples/` writes it. Write `fn`; when you
+meet `define` in old code, format the file.
 
 ### Multi-Parameter Functions
 
@@ -654,7 +660,7 @@ adder factory; and it stores in a **struct field** typed
 (fn (add x y) (+ x y))
 
 (:: addFive (-> Int Int))
-(define addFive (add 5))
+(fn (addFive) (add 5))
 
 (:: main Int)
 (fn main (addFive 1))
@@ -2038,10 +2044,12 @@ for the same reason.
 ```
 
 `(half 0)` writes ``axiom: precondition failed in `half`: (> n 0)`` on
-fd 2, prints the backtrace, and exits **76** - a status of its own
-beside `MM-EXEC-16`'s 70/71/72, the FFI boundary's 73, 74's absent
-syscall ABI and 75's invalid arena mark, so a supervisor reading a
-status can tell a broken invariant from a broken machine. There is no flag to turn the checks
+fd 2, prints the backtrace, and exits **77**, beside `MM-EXEC-16`'s
+70/71/72, the FFI boundary's 73, 74's absent syscall ABI, 75's invalid
+arena mark and 76's reset past a live handle. **77 is shared with the
+out-of-range index trap** — a supervisor tells those two apart by the
+sentence on fd 2 and not by the status, which is a defect recorded in
+`docs/subtypes-design.md`. There is no flag to turn the checks
 off: a check that is off by default is a comment by default.
 
 | | |
@@ -3520,15 +3528,23 @@ indexing is O(n) in the byte length - UTF-8 is variable-width and
 nothing builds an index - so walk a string with `utf8Next` rather than
 by rising character index, or the loop is quadratic.
 
-Decoding answers `-1` rather than a guess when there is no character
+Decoding answers `None` rather than a guess when there is no character
 to read: past the end, on a sequence cut short by the end of the
-string, or on a byte that begins no sequence at all. `-1` and not `0`
-because `0` is a real character, and a sentinel rather than an
-`Option` because every `data` value heap-boxes - the same argument
-`strFindByte`, `vecGet` and `mapGet` already make. Inventing a value
+string, or on a byte that begins no sequence at all. Inventing a value
 would be worse than refusing one: read as bytes-with-zeros, the first
 byte of `世` decodes to U+4000, an ordinary CJK character, and the
 tail byte of `é` to `©`.
+
+**It answered `-1` until 0.7.5, and the reason it stopped is worth
+carrying.** The paragraph here used to say "a sentinel rather than an
+`Option` because every `data` value heap-boxes - the same argument
+`strFindByte`, `vecGet` and `mapGet` already make". Every clause of
+that is now false: a function whose every tail is `None` or `(Some e)`
+is two registers and no block (`docs/unboxed-sums-design.md` §5b), so
+`utf8DecodeAt`, `utf8CharAt` and `strFindByte` all answer `(Option Int)`
+while keeping `restrict(no-alloc)`; `vecGet` traps on an index it
+cannot serve rather than answering 0; and `mapGet` never had a
+sentinel - its absent answer is a default the caller supplies.
 
 Iteration is never blocked by bad input, though: `utf8SeqLen` answers
 1 for a byte it does not understand, so `utf8Next` always advances and
@@ -3716,7 +3732,7 @@ Type :help for commands, :quit to exit
 
 (:: add (-> Int Int Int))
 OK: add defined
-(define (add x y) (+ x y))
+(fn (add x y) (+ x y))
 OK: add defined
 (add 3 4)
 type : Int

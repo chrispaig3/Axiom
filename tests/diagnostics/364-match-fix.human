@@ -4,7 +4,9 @@
 [1;34m26 |[0m   (match s
 [1;34m   |[0m          [1;31m^ this `match` does not cover: Rect, Dot[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~> \n    ((Rect _ _) (todo "Rect"))\n    ((Dot) (todo "Dot"))[0m
+  [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~>[0m
+           [1;35m    ((Rect _ _) (todo "Rect"))[0m
+           [1;35m    ((Dot) (todo "Dot"))[0m
   [1;34m = [0m[1;32mhelp: [0madd `todo` to the names imported from IO[1;35m ~>  todo[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 

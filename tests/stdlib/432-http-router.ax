@@ -80,11 +80,13 @@
 (:: gist (-> String String))
 
 (fn (gist resp)
-  (let ((eol (strFindByte resp 13 0)))
-    (match (strFind resp "\r\n\r\n" 0)
-      ((None) resp)
-      ((Some blank) (strConcat (strSlice resp 0 eol) (strConcat " | " (strSlice resp (+ blank 4) (- (strLen resp) (+ blank 4))))))
-    )
+  (match (strFindByte resp 13 0)
+    ((None) resp)
+    ((Some eol)
+      (match (strFind resp "\r\n\r\n" 0)
+        ((None) resp)
+        ((Some blank) (strConcat (strSlice resp 0 eol) (strConcat " | " (strSlice resp (+ blank 4) (- (strLen resp) (+ blank 4))))))
+      ))
   )
 )
 

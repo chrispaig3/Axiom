@@ -235,9 +235,12 @@
 (fn (misc r)
   (+
     (+
-      r.n      (cast Int r.ratio)
-    )    (+
-      (sizeof Int)      (alignof Int)
+      r.n
+      (cast Int r.ratio)
+    )
+    (+
+      (sizeof Int)
+      (alignof Int)
     )
   )
 )
@@ -266,11 +269,7 @@
 ; --- qualified names ------------------------------------------------
 (:: qualified (-> Int Int))
 
-(fn (qualified x)
-  (Mem::memAlloc
-    x
-  )
-)
+(fn (qualified x) (Mem::memAlloc x))
 
 ; --- trailing comment on a declaration ------------------------------
 (:: last (-> Int Int))
@@ -367,7 +366,8 @@
     (p (alloc (Box Int) 2))
   )
     (+
-      (sizeof (Box Int))      (alignof (Box Int))
+      (sizeof (Box Int))
+      (alignof (Box Int))
     )
   )
 )

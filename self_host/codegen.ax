@@ -5748,9 +5748,22 @@
 (pub :: targetHasThreads (-> Int Int))
 
 (pub fn (targetHasThreads t)
-  (if (<= t 3)
-    1
+  ; A STATICALLY-CARVED ARENA HAS ONE CURSOR AND NO SECOND REGION.
+  ; Under `--threads` the runtime's mutable globals become
+  ; `thread_local` (`cgMutGlobal`), so every thread would start its own
+  ; bump pointer from a cursor initialised to the same base and carve
+  ; the same bytes twice; leaving the cursor shared instead makes it a
+  ; data race on the one word the whole heap is built from. Neither is
+  ; a lowering worth emitting, and docs/embedded-proposal.md 7 puts
+  ; threads out of scope for bare metal for the same reason. So a
+  ; static target answers "no threads" here and `main.ax` refuses
+  ; `--threads` on it as AX4006, which already means exactly this.
+  (if (> (targetArenaStaticBytes t) 0)
     0
+    (if (<= t 3)
+      1
+      0
+    )
   )
 )
 
@@ -7599,6 +7612,120 @@
   )
 )
 
+; ------------------------------------------------------------------
+; THE ARENA'S SIZE AND ITS SOURCE OF PAGES, per target.
+; docs/embedded-proposal.md 4.1 and 4.2.
+;
+; Until 2026-09-04 the chunk size was the literal `1048576` written
+; twice into `emitAllocator`'s `refill:` block, and `mmap` was the only
+; way a chunk could ever arrive. Both are assumptions about a hosted
+; operating system, and both are wrong on a part with 256 KiB of SRAM
+; and no MMU: the FIRST allocation asks the kernel for a megabyte, and
+; there is no kernel.
+;
+; WHY THESE LIVE HERE AND NOT IN `Host.<target>.ax`, which is where
+; the proposal put them. `Host.<target>.ax` answers `hostTarget` - the
+; target this COMPILER BINARY was itself compiled for, selected by
+; module resolution when the compiler is built, and used only as the
+; default when no `--target` is given. It is not the target a program
+; is being compiled FOR. Putting `arenaChunkBytes` there would give a
+; darwin-hosted compiler cross-compiling to a bare-metal part darwin's
+; megabyte, silently, which is the exact failure 4.1 exists to remove.
+; The syscall numbers are keyed by the target CODE for the same reason
+; ("the way the syscall numbers already are" is what 4.1 asked for, and
+; this is where they are).
+;
+; Every supported target answers 1 MiB, and the emitted bytes are
+; therefore what they have always been - asserted per target by
+; `scripts/check-embedded.sh`, which also drills the other direction:
+; give ONE target a different chunk and the only lines of its IR that
+; move are the four in `refill:` and the one in the keep helper that
+; carry the value, while the targets it did not name do not move a
+; byte.
+;
+; A bare-metal target's row is `(if (== t <its code>) 4096 1048576)`.
+; That edit is the whole of 4.1, and it is literally the edit the gate
+; makes.
+(pub :: targetArenaChunkBytes (-> Int Int))
+
+(pub fn (targetArenaChunkBytes t) 1048576)
+
+; What a request LARGER than one chunk is rounded up to. The refill
+; path serves an oversized request with a chunk of its own, rounded to
+; this; 64 KiB is what every hosted target has always used and is a
+; page multiple everywhere.
+;
+; It is DERIVED rather than a second row, because the two are not
+; independent: a 4 KiB-chunk target that rounded a 5 KiB request to
+; 64 KiB would ask for sixteen chunks' worth to serve one, and against
+; a 32 KiB static region that is an out-of-memory trap for a request
+; the arena has room for. So the grain is the chunk where the chunk is
+; the smaller. Both are powers of two, which is what the `and` mask
+; below needs.
+(pub :: targetArenaGrainBytes (-> Int Int))
+
+(pub fn (targetArenaGrainBytes t)
+  (if (< (targetArenaChunkBytes t) 65536)
+    (targetArenaChunkBytes t)
+    65536
+  )
+)
+
+; 4.2, THE SECOND BACKING STRATEGY. Zero means `mmap` (or, on Windows,
+; `VirtualAlloc`): the arena asks the operating system for each chunk,
+; which is what every supported target does and will keep doing.
+; Non-zero is the STATIC strategy - a single region of exactly this
+; many bytes, reserved once at link time, out of which `emitRuntimeMap`
+; carves chunks with a cursor. There is no third state and no runtime
+; test: `emitRuntimeMap` reads this at EMISSION time, so the emitted
+; program contains exactly one of the two and the other costs it
+; nothing, not even a branch.
+;
+; The failure path is unchanged and that is the point of the shape.
+; `emitArenaCarve` answers 0 when the region is exhausted, which is
+; below the `%failed_low = icmp ult i64 %addr, 4096` that already
+; catches a failed `mmap`, so exhaustion reaches `__axiom_out_of_memory`
+; and traps with status 70 exactly as it does on a host.
+;
+; ONE OTHER SITE MAPS, AND IT IS DELIBERATELY NOT CONVERTED. The
+; concurrency lowering asks for a 4 KiB MAP_SHARED page per binding
+; (`parSys`, above `emitParSpawn`), which is how a forked child hands
+; its result back. A statically reserved region cannot stand in for it:
+; the whole property wanted there is that the page survives `fork` and
+; is visible in BOTH processes, and a `.bss` array is copied. So a
+; program that spells `parallel` still names `mmap` on a static target.
+; That is not a hole this item can close - it is
+; docs/embedded-proposal.md section 7's "threads are out of scope",
+; which a bare-metal port will have to answer for processes as well,
+; the way windows-x86_64 already does by compiling both primitives to a
+; trap. `targetHasThreads` below refuses the THREAD half here because
+; that half is about the allocator's globals and is this item's
+; business; the process half is not.
+(pub :: targetArenaStaticBytes (-> Int Int))
+
+(pub fn (targetArenaStaticBytes t) 0)
+
+; Where that region begins, and it means two different things by
+; design. ZERO: the emitter reserves the region as a zero-initialised
+; global and the LINKER chooses the address - which is what a part with
+; a normal `.bss` wants, and what makes the region's base "fixed at
+; link time" without a linker script naming an address. NON-ZERO: an
+; absolute address, for a board whose SRAM window the target knows
+; (`0x20000000` on a Cortex-M, say) and which no `.bss` covers. Read
+; only where `targetArenaStaticBytes` is non-zero.
+;
+; AN ABSOLUTE BASE MUST ITSELF BE 16-BYTE ALIGNED, and nothing can
+; check that for the target author: the reserved-global case gets
+; `align 16` from the emitter and the linker honours it, while an
+; address a board hands over is whatever the board says. Every chunk
+; carved out of the region inherits the base's alignment, and
+; MM-ALLOC-3 is what spends it - so an odd base is a misaligned heap,
+; not a misaligned first block. Stated here because it is the one thing
+; about this row a reader cannot derive from the emitted text.
+(pub :: targetArenaStaticBase (-> Int Int))
+
+(pub fn (targetArenaStaticBase t) 0)
+
 ; Platform module suffixes, most specific first: `.{os}-{arch}.ax`,
 ; then `.{os}.ax`, then `.ax` - the same order stage0 searches.
 (pub :: targetOsArchSuffix (-> Int String))
@@ -7685,13 +7812,100 @@
 ; `emitExternDeclares` gives: without it `opt` may reason about a
 ; declared name as a libc function it knows.
 ; ------------------------------------------------------------------
+; THE STATIC STRATEGY'S SOURCE OF PAGES (4.2), and the whole of it.
+; Ten instructions, no branch and no call: a cursor through one
+; reserved region, bumped by whatever `emitRuntimeMap`'s caller asked
+; for. It is straight-line on purpose - the two call sites read `%addr`
+; and then branch on `%failed_low`/`%failed_neg` themselves, so a door
+; that introduced a basic block would rewrite control flow that
+; MM-ALLOC-14's overlap rules and the reset protocol both stand on.
+;
+; ANSWERS 0 ON EXHAUSTION, which is what makes the failure path free:
+; 0 is below 4096, `%failed_low` catches it, and the caller reaches
+; `__axiom_out_of_memory` and exits 70 - the same trap, with the same
+; status, that a refused `mmap` reaches on a host.
+;
+; The wrap test is not decoration. `%ar_next` is `cursor + size` in
+; 64-bit wrapping arithmetic, and a request near 2^64 would land BELOW
+; the cursor and compare `ule` against the end - handing back a pointer
+; inside the region for an allocation that does not fit in the address
+; space. The kernel refuses that request on a hosted target; here
+; nothing would.
+;
+; The registers are `%ar_`-prefixed because this is inlined into two
+; different functions - `@axiom_alloc` and the arena-keep helper - each
+; of which already names a `%cur`, a `%next` and an `%end` of its own.
+(pub :: emitArenaCarve (-> Int String Int))
+
+(pub fn (emitArenaCarve cg sizeExpr)
+  {
+    (emitLine cg "  %ar_cur = load i64, ptr @__axiom_arena_cursor")
+    (emitLine cg (cat3 "  %ar_next = add i64 %ar_cur, " sizeExpr ""))
+    (emitLine cg "  %ar_end = load i64, ptr @__axiom_arena_end")
+    (emitLine cg "  %ar_room = icmp ule i64 %ar_next, %ar_end")
+    (emitLine cg "  %ar_wrap = icmp ult i64 %ar_next, %ar_cur")
+    (emitLine cg "  %ar_ok = xor i1 %ar_wrap, true")
+    (emitLine cg "  %ar_fit = and i1 %ar_room, %ar_ok")
+    (emitLine cg "  %ar_keep = select i1 %ar_fit, i64 %ar_next, i64 %ar_cur")
+    (emitLine cg "  store i64 %ar_keep, ptr @__axiom_arena_cursor")
+    (emitLine cg "  %addr = select i1 %ar_fit, i64 %ar_cur, i64 0")
+  }
+)
+
+; The region itself, emitted once by `emitAllocator` and only on a
+; static target. `internal`, so it is the program's own bytes and no
+; linker script has to know its name; `align 16`, because MM-ALLOC-3's
+; alignment is the arena's promise and every chunk carved out of this
+; inherits the base's.
+;
+; NOT `cgMutGlobal`: the cursor is deliberately not thread-local. A
+; static target answers 0 to `targetHasThreads`, so `--threads` on one
+; is refused as AX4006 before any of this is written - see the comment
+; there.
+;
+; A fresh carve is memory NOTHING HAS EVER BEEN HANDED, which is the
+; invariant `mapped:` spends when it sets `%virgin_high` and the reason
+; MM-ALLOC-6's zeroing promise survives the change: `.bss` arrives
+; zeroed exactly as `mmap`'s pages do, the cursor never rewinds (a
+; reset moves chunks to `@__axiom_free`, it does not give bytes back to
+; the region), so no byte is carved twice.
+(pub :: emitArenaRegion (-> Int Int))
+
+(pub fn (emitArenaRegion cg)
+  (let ((n (targetArenaStaticBytes (memGetWord cg 26))) (b (targetArenaStaticBase (memGetWord cg 26))))
+    {
+      (if (== b 0)
+        {
+          (emitLine cg (cat3 "@__axiom_arena = internal global [" (fmtInt n) " x i8] zeroinitializer, align 16"))
+          (emitLine cg "@__axiom_arena_cursor = internal global i64 ptrtoint (ptr @__axiom_arena to i64)")
+          ; A one-past-the-end `getelementptr` constant, and not
+          ; `add (i64 ptrtoint ..., i64 N)`: LLVM removed the
+          ; arithmetic constant expressions and kept this one.
+          (emitLine cg (cat3 (cat3 "@__axiom_arena_end = internal constant i64 ptrtoint (ptr getelementptr inbounds ([" (fmtInt n) " x i8], ptr @__axiom_arena, i64 0, i64 ") (fmtInt n) ") to i64)"))
+        }
+        {
+          (emitLine cg (cat3 "@__axiom_arena_cursor = internal global i64 " (fmtInt b) ""))
+          (emitLine cg (cat3 "@__axiom_arena_end = internal constant i64 " (fmtInt (+ b n)) ""))
+        }
+      )
+      (emitLine cg "")
+    }
+  )
+)
+
 (pub :: emitRuntimeMap (-> Int String Int))
 
 (pub fn (emitRuntimeMap cg sizeExpr)
+  ; 4.2's ONE branch, taken at emission time. A program built for a
+  ; static target contains the carve and no `mmap`; a program built for
+  ; any supported target contains what it always did.
+  (if (> (targetArenaStaticBytes (memGetWord cg 26)) 0)
+    (emitArenaCarve cg sizeExpr)
   (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
     (emitLine cg (strConcat (cat4 "  %addr = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetMmapNum (memGetWord cg 26)))) (cat4 (cat3 ", i64 0, i64 " sizeExpr ", i64 3, i64 ") (fmtInt (targetMapFlags (memGetWord cg 26))) ", i64 -1, i64 0)" "")))
     ; MEM_COMMIT|MEM_RESERVE = 0x3000 = 12288, PAGE_READWRITE = 4.
     (emitLine cg (cat3 "  %addr = call i64 @VirtualAlloc(i64 0, i64 " sizeExpr ", i64 12288, i64 4)"))
+  )
   )
 )
 
@@ -8449,6 +8663,13 @@
         (emitWinEntry cg)
       )
     )
+    ; 4.2's region, before the bump pointer that will point into it.
+    ; Nothing is emitted here on a target whose arena comes from the
+    ; kernel, which is every supported one.
+    (if (> (targetArenaStaticBytes (memGetWord cg 26)) 0)
+      (emitArenaRegion cg)
+      0
+    )
     (emitLine cg (cat3 "@__axiom_bump = " (cgMutGlobal cg) " i64 0"))
     (emitLine cg (cat3 "@__axiom_bump_end = " (cgMutGlobal cg) " i64 0"))
     ; Every mapped chunk carries a two-word header - its total size and
@@ -8542,10 +8763,13 @@
     (emitLine cg "  br label %handout")
     (emitLine cg "refill:")
     (emitLine cg "  %need = add i64 %sz, 16")
-    (emitLine cg "  %big = icmp ugt i64 %need, 1048576")
-    (emitLine cg "  %rounded0 = add i64 %need, 65535")
-    (emitLine cg "  %rounded = and i64 %rounded0, -65536")
-    (emitLine cg "  %chunk = select i1 %big, i64 %rounded, i64 1048576")
+    ; 4.1. Four literals, one target constant and its grain. Every
+    ; supported target answers 1 MiB and 64 KiB, so these four lines
+    ; are byte for byte what they were.
+    (emitLine cg (cat3 "  %big = icmp ugt i64 %need, " (fmtInt (targetArenaChunkBytes (memGetWord cg 26))) ""))
+    (emitLine cg (cat3 "  %rounded0 = add i64 %need, " (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) ""))
+    (emitLine cg (cat3 "  %rounded = and i64 %rounded0, " (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) ""))
+    (emitLine cg (cat3 "  %chunk = select i1 %big, i64 %rounded, i64 " (fmtInt (targetArenaChunkBytes (memGetWord cg 26))) ""))
     ; First fit over the chunks a reset has freed. The list is short -
     ; it holds only what outlived a mark - and a chunk on it is a whole
     ; mapping, so reuse is what keeps a resetting loop's RSS flat
@@ -9282,22 +9506,44 @@
   )
 )
 
+; THE SENTENCE MUST BE TRUE OF THE STRATEGY THAT FAILED. `mmap failed`
+; is what a hosted target's arena does when the kernel refuses it, and
+; it is a false statement on a target that has no `mmap` - 4.2's static
+; arena fails by running out of a region that was reserved at link
+; time, which is a different thing for its reader to go and look at.
+; The status does not move (70, MM-ALLOC-7) and neither does the shape;
+; only the sentence, and only where the strategy differs.
+;
+; The length is COUNTED rather than typed, because it is written twice -
+; the array's declared length and the `write`'s - and llc believes the
+; declaration. `+ 1` is the trailing newline, which is one byte and two
+; characters of source. A hosted target still gets `[35 x i8]` and a
+; write of 35, byte for byte.
 (pub :: emitOomTrap (-> Int Int))
 
 (pub fn (emitOomTrap cg)
-  {
-    (emitLine cg "@__axiom_oom_msg = private unnamed_addr constant [35 x i8] c\"axiom: out of memory (mmap failed)\\0A\"")
-    (emitLine cg (cat3 "define internal i64 @__axiom_out_of_memory() " trapFnAttrs " {"))
-    (emitLine cg "entry:")
-    (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
-    (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
-    (emitRuntimeWrite cg "%oomp" "35")
-    (emitLine cg "  call void @__axiom_backtrace()")
-    (emitRuntimeExit cg "70")
-    (emitLine cg "  unreachable")
-    (emitLine cg "}")
-    cg
-  }
+  (let (
+    (msg (if (> (targetArenaStaticBytes (memGetWord cg 26)) 0)
+      "axiom: out of memory (arena exhausted)"
+      "axiom: out of memory (mmap failed)"
+    ))
+  )
+    (let ((n (fmtInt (+ (strLen msg) 1))))
+      {
+        (emitLine cg (cat4 "@__axiom_oom_msg = private unnamed_addr constant [" n " x i8] c\"" (cat2 msg "\\0A\"")))
+        (emitLine cg (cat3 "define internal i64 @__axiom_out_of_memory() " trapFnAttrs " {"))
+        (emitLine cg "entry:")
+        (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
+        (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
+        (emitRuntimeWrite cg "%oomp" n)
+        (emitLine cg "  call void @__axiom_backtrace()")
+        (emitRuntimeExit cg "70")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        cg
+      }
+    )
+  )
 )
 
 ; An index out of range: status 77, `docs/generics-design.md` section 4.
@@ -10728,8 +10974,12 @@
     (emitLine cg "  br label %copy")
     (emitLine cg "fresh:")
     (emitLine cg "  %need = add i64 %sz, 16")
-    (emitLine cg "  %rounded0 = add i64 %need, 65535")
-    (emitLine cg "  %want = and i64 %rounded0, -65536")
+    ; The same grain `refill:` rounds to, for the same reason: this is
+    ; the arena's SECOND allocation path, and a 4 KiB-chunk target that
+    ; rounded a kept block up to 64 KiB here would exhaust a small
+    ; static region on a keep that fits.
+    (emitLine cg (cat3 "  %rounded0 = add i64 %need, " (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) ""))
+    (emitLine cg (cat3 "  %want = and i64 %rounded0, " (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) ""))
     (emitRuntimeMap cg "%want")
     (emitLine cg "  %failed_low = icmp ult i64 %addr, 4096")
     (emitLine cg "  %failed_neg = icmp ugt i64 %addr, -4096")
@@ -16774,17 +17024,37 @@
 ; the other two unconditional helpers so that a 0 there is the pruner
 ; rather than this function having quietly become conditional.
 ;
-; STATUS 76, AND IT WAS DESIGNED AS 75. `MM-EXEC-16` reserves 70 (out
-; of memory), 71 (unhandled effect) and 72 (division by zero); 73 is
-; the FFI boundary's (`docs/ffi.md` 5.1), 74 is a `__syscallN` on a
-; target with no syscall ABI (`emitWinRuntime`), and 75 is an arena
-; reset handed an invalid mark (`emitBadMarkTrap`, MM-ALLOC-16a). That
-; last one and this one were written on two branches on the same day
-; and both took 75; this is the one that moved, because it had not
-; shipped. A contract failure is a sixth, and distinct on purpose:
-; `docs/ffi.md` 5.1 took 73 precisely because a Rust panic and an
-; Axiom division were indistinguishable to a supervisor at 72, and two
-; broken invariants sharing one status would be that defect again.
+; STATUS 77, AND IT HAS NOW MOVED TWICE - THE SECOND TIME ONTO AN
+; OCCUPIED NUMBER. `MM-EXEC-16` reserves 70 (out of memory), 71
+; (unhandled effect) and 72 (division by zero); 73 is the FFI
+; boundary's (`docs/ffi.md` 5.1), 74 is a `__syscallN` on a target with
+; no syscall ABI (`emitWinRuntime`), 75 is an arena reset handed an
+; invalid mark (`emitBadMarkTrap`, MM-ALLOC-16a) and 76 is a reset past
+; a live handle (MM-ALLOC-16b).
+;
+; This trap was designed as 75, moved to 76 in `4bcd7eb` when a merge
+; found MM-ALLOC-16a already spending 75, and moved again to 77 in the
+; merge `3f2f39a` - as a CONFLICT RESOLUTION, onto the number `91f33f7`
+; had given `emitIndexTrap` on trunk in the meantime. The comment that
+; stood here said `STATUS 76` and was two moves out of date.
+;
+; SO 77 IS SHARED WITH THE INDEX TRAP, and that is a defect rather than
+; a decision. The argument this paragraph used to make against it still
+; holds and now indicts it: `docs/ffi.md` 5.1 took 73 precisely because
+; a Rust panic and an Axiom division were indistinguishable to a
+; supervisor at 72, and two broken invariants sharing one status is
+; that defect again. Nothing caught the collision because every party
+; is internally consistent - `scripts/check-contracts.sh` asserts 77,
+; `tests/stdlib/464-index-trap.exit` asserts 77, and no gate compares
+; one trap's status to another's.
+;
+; The number is NOT changed here, because moving a shipped exit status
+; is a compatibility decision and not a comment fix. The two candidates
+; are recorded in `docs/subtypes-design.md`: move this trap to 80, or
+; accept the collision and say so in `MM-EXEC-16`'s table. What is
+; fixed is that this comment, `explain.ax`'s AX3050 page and the AX3050
+; help text no longer say 76 - a number that means MM-ALLOC-16b - and
+; no longer claim a status of their own that they do not have.
 ;
 ; The message arrives as a `Str` HANDLE, whose word 0 is the length and
 ; whose word 1 is the byte pointer (`emitStrEqHelper` reads the same

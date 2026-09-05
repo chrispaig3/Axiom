@@ -1,10 +1,14 @@
 # Embedded Axiom — a proposal
 
 <!-- STATUS, at the top where a reader stops: this document is a
-     PROPOSAL. Nothing in section 4 or later is built. Sections 2 and 3
-     are MEASUREMENTS taken on 2026-09-03 against the tree at that
-     commit, with the command beside each, and they are the reason the
-     proposal is worth writing.
+     PROPOSAL, and three of its numbered items are now built. 4.6
+     shipped in 0.7.5; 4.1 and 4.2 ship here. Each is struck in section
+     8's table and rewritten in place to say what landed and what the
+     proposal got wrong about it. 4.3, 4.4, 4.5 and the section 6
+     reference port are still proposals, and nothing in them exists.
+     Sections 2 and 3 are MEASUREMENTS taken on 2026-09-03 against the
+     tree at that commit, with the command beside each, and they are
+     the reason the proposal is worth writing.
 
      `docs/generics-design.md` is the template for this banner. When a
      numbered item here ships, strike it in section 8's table and say
@@ -41,7 +45,7 @@ shown. Re-run them rather than quoting them.
 | emitted IR, minimal program | 570 lines | `wc -l min.ll` |
 | stack floor, hello world, whole process | runs in **32 KiB**, fails at 16 | `ulimit -s`, bisected |
 | stack, hello world, the Axiom program itself | **192 bytes** | `scripts/check-stack-bound.sh`, computed |
-| arena chunk | **1 MiB**, fixed | `MM-ALLOC-4`; the literal is `self_host/codegen.ax:8342` |
+| arena chunk | **1 MiB**, per target | `MM-ALLOC-4`; `targetArenaChunkBytes`, pinned per target by `check-embedded.sh` (it was a literal in `emitAllocator` until 4.1) |
 
 **The three syscalls are the whole of it, and that is the finding.** A
 minimal Axiom program makes exactly three kinds of kernel call:
@@ -81,31 +85,96 @@ startup, no C runtime init, no atexit table, no locale, no `errno`.
 
 ## 4. What has to change — proposed, ranked by what blocks what
 
-### 4.1 The 1 MiB chunk must become a target constant *(blocking)*
+### 4.1 The 1 MiB chunk must become a target constant *(done — `check-embedded.sh`)*
 
-`self_host/codegen.ax:8342` emits `icmp ugt i64 %need, 1048576` and
-`:8345` selects `i64 1048576` as the chunk size. On a part with 256 KiB
-of SRAM the first allocation fails. This is one literal and it should be
-a value the target module supplies, the way the syscall numbers already
-are — `Host.<target>.ax` gains `arenaChunkBytes`, and the emitter reads
-it. **Proposed default for an MCU target: 4 KiB**, with the whole arena
-statically reserved (see 4.2).
+It is `targetArenaChunkBytes`, in `self_host/codegen.ax`'s target table
+beside `targetMmapNum` and the rest of the per-target numbers. Every
+supported target answers 1 MiB, so every supported target emits the
+allocator it always emitted — measured rather than argued: the seven
+targets' `emit-llvm` output for three probes is byte-identical across
+the change, and `check-embedded.sh`'s A1 pins the four lines per target
+so that it stays so.
+
+**This proposal named the wrong file, and following it would have
+shipped the bug it exists to remove.** `Host.<target>.ax` answers
+`hostTarget` — the target the compiler BINARY was itself compiled for,
+selected by module resolution when the compiler is built, and read only
+as the default when no `--target` is given. It is not the target a
+program is being compiled *for*. `arenaChunkBytes` there would give a
+darwin-hosted compiler cross-compiling to a bare-metal part darwin's
+megabyte, silently. The constants are keyed by the target CODE instead,
+which is what "the way the syscall numbers already are" actually means.
+
+**A second constant came with it**, because the two are not
+independent. `refill:` rounds a request LARGER than one chunk up to a
+64 KiB grain, and a 4 KiB-chunk target that rounded a 5 KiB request to
+64 KiB would ask for sixteen chunks' worth to serve one — against the
+32 KiB static region section 5 budgets, that is an out-of-memory trap
+for a request the arena has room for. `targetArenaGrainBytes` is
+therefore the chunk where the chunk is the smaller, 64 KiB otherwise,
+so no supported target moves. It has two emission sites, not one:
+`emitArenaKeepHelper` is the arena's SECOND allocation path and rounds
+the same way, and `check-embedded.sh` covers both.
 
 The chunk-list walk, the mark/reset protocol and MM-ALLOC-14's overlap
-rules are all size-independent; nothing else in the allocator changes.
+rules are all size-independent, as this said; nothing else in the
+allocator changed.
 
-### 4.2 `mmap` must become an optional strategy *(blocking)*
+### 4.2 `mmap` must become an optional strategy *(done — `check-embedded.sh`)*
 
-A microcontroller has no `mmap` and often no MMU. The allocator needs a
-second backing strategy: a single statically-reserved region, its base
-and length fixed at link time, with the chunk list living inside it.
-`__axiom_out_of_memory` already exists as the failure path and already
-traps with a message and status 70, so the failure semantics need no new
-design — only a new source of pages.
+`targetArenaStaticBytes` is 0 on every supported target, and 0 means
+`mmap` (or `VirtualAlloc`). Non-zero is a single region of that many
+bytes, and `emitRuntimeMap` — the one door every chunk in the program
+arrives through — branches on it at EMISSION time, so an emitted
+program contains exactly one of the two and the other costs it nothing,
+not even a branch. `targetArenaStaticBase` says where the region is:
+zero means the emitter reserves it as a zero-initialised global and the
+LINKER fixes the address, which is what a part with a normal `.bss`
+wants; non-zero is an absolute SRAM window the board knows and no
+`.bss` covers.
 
-Proposed shape: `Host.<target>.ax` declares either `arenaMmap` or
-`arenaStatic base len`, and `emitAllocator` branches on it once, at
-emission time, so the emitted program contains exactly one of the two.
+The static door is ten instructions with no branch and no call
+(`emitArenaCarve`), because its two call sites read `%addr` and test it
+themselves — a door that introduced a basic block would rewrite control
+flow that the reset protocol and MM-ALLOC-14 both stand on. It ANSWERS
+0 when the region is exhausted, which is below the `%failed_low` test
+that already catches a refused `mmap`, so exhaustion reaches
+`__axiom_out_of_memory` and exits 70 through the existing path: the
+failure semantics needed no new design, exactly as this said.
+
+**It runs, which is the half an emission check cannot establish.** With
+the host target given a 256 KiB region and a 4 KiB chunk, a program
+that allocates 52,800 bytes across fifteen chunks prints what the
+`mmap` build of the same source prints, and a program that asks for
+1,056,000 bytes exits 70 while the `mmap` build of THAT source exits 0
+— so the 70 is the region's verdict and not the program's size. The
+minimal program's three syscalls become two, and the one that leaves is
+`mmap`.
+
+**One other site still maps, and it is not this item's to close.** The
+concurrency lowering asks for a 4 KiB `MAP_SHARED` page per binding —
+how a forked child hands its result back. A statically reserved region
+cannot stand in for it: the property wanted there is that the page
+survives `fork` and is visible in *both* processes, and a `.bss` array
+is copied. So a program that spells `parallel` still names `mmap` on a
+static target. That is section 7's "threads are out of scope" arriving
+for processes as well, and a bare-metal port answers it the way
+windows-x86_64 already does — both primitives compile to a trap that
+says so. It is named here rather than left for someone to find in the
+IR.
+
+**Two things this needed that it did not say.** *The trap's sentence
+was false.* `__axiom_out_of_memory` printed `axiom: out of memory (mmap
+failed)` on a target with no `mmap`; it now names the strategy that ran
+out, with the status unmoved and a hosted target's bytes unmoved.
+*Threads.* Under `--threads` the runtime's mutable globals become
+`thread_local`, so every thread would start its bump pointer from a
+cursor initialised to the same base and carve the same bytes twice,
+while sharing the cursor instead makes it a data race on the one word
+the whole heap is built from. A static target therefore answers no to
+`targetHasThreads`, and `--threads` on one is refused as `AX4006`,
+which already means precisely that. Section 7 puts threads out of scope
+for bare metal; this is what that costs in code.
 
 ### 4.3 The trap path must be able to reach something other than fd 2
 
@@ -241,8 +310,14 @@ argument this repository already makes about what "supported" means
 
 The deliverable is four files and a gate:
 
-1. `self_host/Host.baremetal-aarch64.ax` — the triple, `arenaStatic`,
-   and `trapWrite` over the PL011 UART at `0x09000000`.
+1. A row in `self_host/codegen.ax`'s target table — the name in
+   `targetCode`, the triple, `targetArenaStaticBytes` and
+   `targetArenaChunkBytes` (4.1 and 4.2, which exist), and `trapWrite`
+   over the PL011 UART at `0x09000000` (4.3, which does not). Plus
+   `self_host/Host.baremetal-aarch64.ax`, which is one line and answers
+   only `hostTarget` — needed so that a compiler compiled FOR the part
+   resolves the module at all, and carrying none of the values above,
+   for the reason 4.1 records.
 2. `stdlib/Sys/Platform.baremetal-aarch64.ax` — no filesystem, no
    process control; the descriptor calls answer `Err` rather than
    trapping, which the ERR-ADOPT work has already made expressible.
@@ -254,13 +329,19 @@ The deliverable is four files and a gate:
    `check-doc-drift.sh` resolves every fixture path and every bare
    `NNN-name.ext` a document mentions, and it refused two spellings of
    this line before this one: a document may not name a file that does
-   not exist. That is the gate working, and it is why section 8's rows
-   say *proposed* rather than showing paths.)
-5. `scripts/check-embedded.sh` — builds it, runs it under
-   `qemu-system-aarch64 -nographic -machine virt`, and asserts the exact
-   bytes on the UART and the exit status. With an ablation: raise the
-   arena chunk above the reserved region and the gate must go red with
-   status 70.
+   not exist. That is the gate working, and it is why section 8's
+   *proposed* rows name a gate rather than a path.)
+5. `scripts/check-embedded.sh` — which now EXISTS, for 4.1 and 4.2,
+   and does none of the QEMU half. What it establishes today is that
+   the two values a port must set are per-target values, that setting
+   them changes the emitted program in the ways they claim, and that a
+   program built with them set runs and traps correctly on the host.
+   What the port adds to it is the device: build the four files above,
+   run under `qemu-system-aarch64 -nographic -machine virt`, and assert
+   the exact bytes on the UART and the exit status. The ablation this
+   line asked for is already there and already runs on every gate
+   invocation rather than being a drill — a program too large for the
+   reserved region must exit 70, against a control that exits 0.
 
 ## 7. Out of scope, deliberately
 
@@ -283,8 +364,8 @@ A row is done when the gate named beside it is green in CI.
 
 | # | item | gate | status |
 |---|---|---|---|
-| 4.1 | arena chunk is a target constant | `check-embedded.sh` (ablation) | proposed |
-| 4.2 | static arena strategy | `check-embedded.sh` | proposed |
+| 4.1 | arena chunk is a target constant | `check-embedded.sh` (ablation) | **done** |
+| 4.2 | static arena strategy | `check-embedded.sh` | **done** |
 | 4.3 | `trapWrite` seam, statuses unchanged | existing `.exit` fixtures | proposed |
 | 4.4 | freestanding stdlib subset | new variant of `check-freestanding.sh` | proposed |
 | 4.5 | ISR entry form | `check-restrictions.sh` extension | proposed |
@@ -297,3 +378,15 @@ only one that changes what the language can *promise*, and it is the
 promise an embedded user actually needs. It is also the only one that
 needed no compiler source change at all — which was not the expectation,
 and is written up in 4.6.
+
+**4.1 and 4.2 went together**, and the ranking was right that they are
+mechanical: between them they are two rows of a target table, ten
+instructions of emitted IR and a derived grain constant. What was NOT
+mechanical is the part a document cannot rank — 4.1 named the wrong
+file to put the constant in, 4.2's static arena needed the
+out-of-memory sentence to stop being a false statement, and neither
+noticed that a statically-carved arena has no thread lowering. All
+three are written up above. The gate that closes them builds a second
+compiler from a copy of `self_host/` with those two rows changed, which
+is exactly the edit section 6's port will make, and requires that the
+targets neither row names emit byte-identical IR.

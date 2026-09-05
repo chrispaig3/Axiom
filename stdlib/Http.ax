@@ -510,37 +510,36 @@
   )
     {
       (while (&& (== found 0) (< at len))
-        (let ((amp (strFindByte q 38 at)))
-          (let ((end 
-            (if (< amp 0)
-              len
-              amp
+        (let ((end
+          (match (strFindByte q 38 at)
+            ((None) len)
+            ((Some amp) amp)
+          )
+        ))
+          (let ((keyEnd
+            (match (strFindByte q 61 at)
+              ((None) end)
+              ((Some eq) (if (> eq end)
+                end
+                eq
+              ))
             )
           ))
-            (let ((eq (strFindByte q 61 at)))
-              (let ((keyEnd 
-                (if (|| (< eq 0) (> eq end))
-                  end
-                  eq
-                )
-              ))
+            {
+              (if (strEq (httpDecode (strSlice q at (- keyEnd at)) true) name)
                 {
-                  (if (strEq (httpDecode (strSlice q at (- keyEnd at)) true) name)
-                    {
-                      (set found 1)
-                      (set answer (if (< keyEnd end)
-                        (httpDecode (strSlice q (+ keyEnd 1) (- end (+ keyEnd 1))) true)
-                        ""
-                      ))
-                      0
-                    }
-                    0
-                  )
-                  (set at (+ end 1))
+                  (set found 1)
+                  (set answer (if (< keyEnd end)
+                    (httpDecode (strSlice q (+ keyEnd 1) (- end (+ keyEnd 1))) true)
+                    ""
+                  ))
                   0
                 }
+                0
               )
-            )
+              (set at (+ end 1))
+              0
+            }
           )
         ))
       answer
@@ -569,34 +568,57 @@
   )
     {
       (while (&& (== (strLen problem) 0) (< at stop))
-        (let ((le (strFindByte buf 13 at)))
-          (let ((hl (strSlice buf at (- le at))))
-            (let ((colon (strFindByte hl 58 0)))
-              {
-                (if (< colon 1)
+        ; The `None` arm is NEW BEHAVIOUR AND IT IS THE POINT. `le` was
+        ; a `-1` here when the head held no CR, and `(strSlice buf at
+        ; (- le at))` then asked for a NEGATIVE length. Nothing refused
+        ; it; the reader's framing is what kept it from happening. The
+        ; type asks the question the sentinel let the code skip, and
+        ; the answer is the same refusal the colon arm already gives.
+        ; Neither arm advances `at`, and neither needs to: a non-empty
+        ; `problem` is the loop's own exit condition.
+        (match (strFindByte buf 13 at)
+          ((None)
+            {
+              (set problem "header line without a CR terminator")
+              0
+            })
+          ((Some le)
+            (let ((hl (strSlice buf at (- le at))))
+              (match (strFindByte hl 58 0)
+                ((None)
                   {
                     (set problem "header line without a name and a colon")
                     0
-                  }
-                  (let ((nm (strSlice hl 0 colon)))
-                    (if (>= (strFindByte nm 32 0) 0)
+                  })
+                ((Some colon)
+                  {
+                    (if (< colon 1)
                       {
-                        (set problem "whitespace in a header name")
+                        (set problem "header line without a name and a colon")
                         0
                       }
-                      {
-                        (vecPush names (strLower (strDup nm)))
-                        (vecPush vals (strDup (strTrim (strSlice hl (+ colon 1) (- (strLen hl) (+ colon 1))))))
-                        0
-                      }
+                      (let ((nm (strSlice hl 0 colon)))
+                        (if (match (strFindByte nm 32 0)
+                            ((None) false)
+                            ((Some _) true)
+                          )
+                          {
+                            (set problem "whitespace in a header name")
+                            0
+                          }
+                          {
+                            (vecPush names (strLower (strDup nm)))
+                            (vecPush vals (strDup (strTrim (strSlice hl (+ colon 1) (- (strLen hl) (+ colon 1))))))
+                            0
+                          }
+                        )
+                      )
                     )
-                  )
-                )
-                (set at (+ le 2))
-                0
-              }
-            )
-          )
+                    (set at (+ le 2))
+                    0
+                  })
+              )
+            ))
         ))
       problem
     }
@@ -616,61 +638,73 @@
   )
     (if (httpBareLf buf base (+ base hdr))
       (httpRefuse 400 "bare LF line ending in the request head")
-      (let ((eol (strFindByte buf 13 base)))
-        (let ((line (strSlice buf base (- eol base))))
-          (let ((sp1 (strFindByte line 32 0)))
-            (let ((sp2 
-              (if (< sp1 0)
-                (- 0 1)
-                (strFindByte line 32 (+ sp1 1))
-              )
-            ))
-              (if (|| (< sp1 1) (|| (< sp2 (+ sp1 2)) (|| (>= (strFindByte line 32 (+ sp2 1)) 0) (>= (+ sp2 1) (strLen line)))))
-                (httpRefuse 400 "request line is not METHOD TARGET VERSION")
-                (let (
-                  (method (strDup (strSlice line 0 sp1)))
-                  (target (strSlice line (+ sp1 1) (- sp2 (+ sp1 1))))
-                  (version (strDup (strSlice line (+ sp2 1) (- (strLen line) (+ sp2 1)))))
-                )
-                  (if (httpNot (|| (strEq version "HTTP/1.1") (strEq version "HTTP/1.0")))
-                    (httpRefuse 505 "only HTTP/1.0 and HTTP/1.1 are served")
-                    (let ((qm (strFindByte target 63 0)))
+      ; A request line with no CR is a REFUSAL now, not a negative
+      ; slice length. `eol` was `-1` here and `(strSlice buf base
+      ; (- eol base))` asked for a length below zero; the reader's
+      ; framing is what kept that from being reached, which is a
+      ; caller's property and not this function's.
+      (match (strFindByte buf 13 base)
+        ((None) (httpRefuse 400 "request line without a CR terminator"))
+        ((Some eol)
+          (let ((line (strSlice buf base (- eol base))))
+            (match (strFindByte line 32 0)
+              ((None) (httpRefuse 400 "request line is not METHOD TARGET VERSION"))
+              ((Some sp1)
+                (match (strFindByte line 32 (+ sp1 1))
+                  ((None) (httpRefuse 400 "request line is not METHOD TARGET VERSION"))
+                  ((Some sp2)
+                    (if (|| (< sp1 1) (|| (< sp2 (+ sp1 2)) (|| (match (strFindByte line 32 (+ sp2 1)) ((None) false) ((Some _) true)) (>= (+ sp2 1) (strLen line)))))
+                      (httpRefuse 400 "request line is not METHOD TARGET VERSION")
                       (let (
-                        (path (httpDecode
-                          (strDup
-                            (if (< qm 0)
-                              target
-                              (strSlice target 0 qm)
-                            )
-                          )                          false
-                        ))
-                        (query (strDup
-                          (if (< qm 0)
-                            ""
-                            (strSlice target (+ qm 1) (- (strLen target) (+ qm 1)))
-                          )
-                        ))
-                        (names vecNew)
-                        (vals vecNew)
+                        (method (strDup (strSlice line 0 sp1)))
+                        (target (strSlice line (+ sp1 1) (- sp2 (+ sp1 1))))
+                        (version (strDup (strSlice line (+ sp2 1) (- (strLen line) (+ sp2 1)))))
                       )
-                        (let ((problem (httpParseHeaders
-                          r                          hdr                          (+ eol 2)                          names                          vals
-                        )))
-                          (if (> (strLen problem) 0)
-                            (httpRefuse 400 problem)
-                            (Ok (HttpReq
-                              method                              path                              query                              version                              names                              vals                              ""
-                            ))
+                        (if (httpNot (|| (strEq version "HTTP/1.1") (strEq version "HTTP/1.0")))
+                          (httpRefuse 505 "only HTTP/1.0 and HTTP/1.1 are served")
+                          ; NO `?` PUTS THE CUT AT THE END of the target
+                          ; rather than at -1, so the path is the whole
+                          ; target and the query slice comes out empty by
+                          ; the same arithmetic that already served `a?`.
+                          ; That is what a fallback has to be to be safe:
+                          ; a real position, not a marker.
+                          (let ((qm
+                            (match (strFindByte target 63 0)
+                              ((None) (strLen target))
+                              ((Some k) k)
+                            )
+                          ))
+                            (let (
+                              (path (httpDecode
+                                (strDup (strSlice target 0 qm))                                false
+                              ))
+                              (query (strDup
+                                (if (>= (+ qm 1) (strLen target))
+                                  ""
+                                  (strSlice target (+ qm 1) (- (strLen target) (+ qm 1)))
+                                )
+                              ))
+                              (names vecNew)
+                              (vals vecNew)
+                            )
+                              (let ((problem (httpParseHeaders
+                                r                          hdr                          (+ eol 2)                          names                          vals
+                              )))
+                                (if (> (strLen problem) 0)
+                                  (httpRefuse 400 problem)
+                                  (Ok (HttpReq
+                                    method                              path                              query                              version                              names                              vals                              ""
+                                  ))
+                                )
+                              )
+                            )
                           )
                         )
                       )
-                    )
-                  )
-                )
-              )
+                    ))
+                ))
             )
-          )
-        )
+          ))
       )
     )
   )

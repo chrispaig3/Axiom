@@ -16,6 +16,8 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.5 — 2026-09-04
+
 ### The website said things the tree no longer did, and hid the rest until you scrolled
 
 Every section of the page rendered at `opacity: 0` until an intersection
@@ -90,8 +92,400 @@ rather than the tree against itself:
 `npm run build`, `node scripts/smoke.mjs`, `check-doc-drift.sh` and
 `check-version.sh` are green on the result.
 
-## 0.7.5 — 2026-09-04
+### Seven gates were run by nothing, and all seven passed
 
+`CONTRIBUTING.md` introduces its table of gates with the sentence
+"`.github/workflows/ci.yml` runs all of these". Measured 2026-09-04, it
+ran 71 of the 78: `check-dead-code.sh`, `check-mir-projection.sh`,
+`check-mir-roundtrip.sh`, `check-repl-highlight.sh`,
+`check-repl-history.sh`, `check-repl-tui.sh` and `check-replcomp.sh`
+were named by no step in the file.
+
+Every one of them passes — run here in the order above, 34s, 18s, 56s,
+7s, 4s, 36s and one more, all exit 0. That is the finding rather than a
+consolation: **a gate no job runs is indistinguishable from a gate that
+passes**, and CI is the only thing that runs any of them on Linux. This
+file's own risk note and two comments in `ci.yml` already say so in the
+words of the last two people who found it — "a gate no job runs is a
+script", "a tool with no CI gate is silently broken, as `fmt` was" —
+which is three occurrences of one defect and no check for it.
+
+The local battery cannot drift this way, and the difference is the
+whole fix. `run-gates.sh` GLOBS `scripts/check-*.sh`, so a gate is in it
+the moment it is written; `ci.yml` names its gates one at a time,
+because it also decides which job and which platform each belongs to.
+That is the right design for the workflow and it is why the list has to
+be checked rather than trusted.
+
+`scripts/check-ci-coverage.sh` checks it, in both directions: every gate
+on disk is named on a `run:` line, and every gate a step names exists.
+The second direction is not hypothetical — `720a0d5` deleted
+`check-game-of-life.sh` and the sample it ran and left the step invoking
+it, so every run of that job failed on a missing file.
+
+**It reads `run:` lines, not the file, and that is load-bearing.**
+`ci.yml` is 1,300 lines of mostly prose, and gates are named in its
+comments constantly. A whole-file grep answers 72 where the steps answer
+71, and the one it invents is `check-game-of-life.sh` — named today only
+by the comment recording its deletion. A gate built on a whole-file grep
+would have called that broken step covered. Ablating the comment-strip
+proves both halves at once: the deleted script is reported as missing,
+and the "named only in a comment" ablation stops being refused.
+
+Three ablations run on every invocation, each required to go red: a step
+deleted, a step naming a script that is not in the tree, and an
+uncovered gate named only in a comment. The exclusion table is empty and
+is written for the empty set — `compat/UNCOVERED` reaching zero once
+killed a gate two seconds in, which is the failure a success condition
+of "nothing left" invites.
+
+The eight steps are placed beside their siblings rather than in a block:
+`check-dead-code.sh` next to `check-freestanding.sh`, both being claims
+about a linked binary's symbol table; the two `.axir` gates next to
+`check-mir.sh`; the four REPL gates next to `check-repl-selfhost.sh`,
+which pins the piped sessions the terminal ones cannot reach. The
+coverage gate itself runs in the cheap grammar job, because it reads two
+lists of file names and needs no compiler.
+
+### Three layout defects in `axiom fmt`, and the second printer that shared one of them
+
+`axiom fmt` had three defects a reader met in the first file they
+formatted, and every one of them was recorded as correct by a golden
+that compares the formatter with its own previous output.
+
+- **A broken application printed its indent as an inter-argument
+  separator.** `fpApp`'s multi-line branch emitted an indent per
+  argument with no newline between them, so `(g a b c d e)` came out as
+  `(g\n  a  b  c  d  e\n)` and a fourteen-operand call was one line.
+  The comment beside it called this a bug, justified it as
+  byte-identity with `stage0`, and recorded on 2026-09-03 that the
+  rationale had expired; the fix waited a day because it moves four
+  things at once (below). The tree committed the artefact: **2,687
+  lines in 133 files** carry a run of three or more spaces between two
+  tokens on a code line - `self_host/` 2,208, `tests/` 357, `stdlib/`
+  93, `examples/` 29 - and the OLD printer's own output over the same
+  tree carries 3,349 such lines in 158 files. The corrected printer's
+  output carries **zero**.
+- **A comment written as the first line inside a `{ }` block was
+  hoisted out past the brace and above the enclosing `let`.**
+  `fpAnchor` transliterates stage0's `Expr::span()`, which recurses to
+  a leaf: a `let`'s span is its body's, and a block's was its first
+  statement's, so the enclosing flush ran against a position the
+  comment sat in front of. A block that prints as a block - two or more
+  statements - now anchors at its own `{`, and `fpBeginVec` places the
+  comment at the block's indent, where the second pass leaves it. A
+  singleton block and a `[ ]` list still recurse, because neither has a
+  brace to keep a comment inside.
+- **An application headed by a qualified name exploded one element per
+  line.** `isSimpleForm` transliterated stage0's omission of
+  `EQualified` from `is_simple_expr`, so `(println (Vec::vecLen v))`
+  was five lines while `(println (vecLen v))` was one. A qualified name
+  is a name; `fpQualLeft` already refuses anything but an ident-rooted
+  chain.
+
+Measured over copies of all 634 tracked `.ax` files: the corrected
+printer refuses none, is a fixed point on the second pass for all 634,
+and changes the formatted bytes of **177** (159 of 613 was the
+2026-09-03 measurement of the first fix alone, over a smaller tree).
+Two files that were unformatted under the old printer are formatted
+under the new one without a byte changing - `tests/repl/history/read.ax`
+and `tests/selfhost/979-repl-history.ax` - which is the second defect
+seen from the other side: the source was right and the printer was
+moving it.
+
+**Two printers, one layout.** `rust/axiom-bindgen/src/sexp.rs` restates
+the formatter's rules in Rust, and `check-fmt.sh` 1b requires its output
+to be a fixed point of `axiom fmt`; a compiler carrying the first fix
+alone turned that section red on `Demo.ax`, which is why the section
+that added the fixed-point check left the formatter alone.
+Both printers move here: `sexp.rs` prints one argument per line and its
+unit test pins the shape; `rust/examples/demo/axiom/Demo.ax` is
+regenerated (five applications, eleven lines - `Hash.ax` has no broken
+application and is byte-identical); the `nested` snapshot fixture and
+the hand-written assertions in `tests/snapshot.rs` follow. `cargo test
+-p axiom-bindgen` is 9 of 9 with the corrected formatter as `$AXIOM`.
+
+**Three goldens re-blessed, each diff read.**
+`tests/fmt/syntax-zoo.expected.ax` moves by nine lines, exactly the
+three shapes above (two broken `+` forms and `(Mem::memAlloc x)`).
+`tests/fmt/parity.golden` gains cases **220-222**, one per defect, and
+no older case's bytes moved - none of the 54 carried a five-operand
+application, a comment-first block or a qualified head, which is why
+the bank never saw any of this. `tests/fmt/corpus-fmt.golden` is
+regenerated per its header at 627 entries from 627: of the 621 source
+hashes in both tables, **168** map to new formatted bytes and 453 to
+the same ones; the other six are re-keyings of edited files. Each new
+parity case was then run against a compiler built from a scratch copy
+of `self_host/` with ITS fix alone reverted: every ablation goes red on
+its own case and stays green on the other two.
+
+**The census moved, and the prose says why.** `CONTRIBUTING.md` said,
+measured 2026-09-03, that `fmt --check` answered formatted for 483 of
+the tree's 634 `.ax` files and unformatted for 125. Over today's tree the
+old printer answers 498 and 136; the corrected one answers **411 and
+223**, and the 89 files that changed sides did not drift - the normal
+form did. The 2,687 committed run-of-spaces lines are not repaired
+here, because a whitespace diff of that size is one nobody reads; the
+two sites named when this was scoped (`self_host/typecheck.ax:9036`,
+`self_host/render.ax:616`) are collapsed on their own lines,
+line-count-neutral, so no AXSYM golden that pins a line number moves.
+`README.md` restates the compiler's line count, **+20 lines** to
+102,372: the comment that replaces the expired-rationale note in
+`format.ax`. `web/src/data/site.ts` states the same figure and is not
+touched here.
+
+Gates: `check-fmt-selfhost.sh` (zoo, parity, corpus, preservation,
+re-read and rebuild), `check-fmt.sh` (every file formats; the bindings
+are fixed points, with their per-file ablation), `check-ffi.sh` (a
+fresh generation equals the committed bindings), `check-tools-selfhost.sh`
+and `check-lsp-selfhost.sh` (the LSP's `textDocument/formatting` runs
+the same `fmtFormat`), `check-render-selfhost.sh` and
+`check-diagnostics.sh` for the two touched compiler sources, and
+`check-doc-drift.sh` for the counts.
+### The arena asked for a megabyte, and only ever asked `mmap` for it
+
+`docs/embedded-proposal.md` 4.1 and 4.2, the two rows its section 4
+headed *(blocking)* and its section 8 tracked as *proposed*. The
+emitted allocator carried `1048576` as a
+literal in `emitAllocator`, and `mmap` was the only way a chunk could
+arrive; on a part with 256 KiB of SRAM the first allocation asks a
+kernel that is not there for a megabyte it does not have.
+
+The chunk size is now `targetArenaChunkBytes`, in `codegen.ax`'s target
+table beside the syscall numbers, with a derived `targetArenaGrainBytes`
+because the 64 KiB round-up for an oversized request is not independent
+of the chunk. The source of pages is now a strategy:
+`targetArenaStaticBytes` non-zero means one statically reserved region
+that `emitArenaCarve` bumps a cursor through, and `emitRuntimeMap`
+branches on it at emission time, so a program contains exactly one of
+the two doors. Exhaustion answers 0, which the allocator's existing
+`%failed_low` test already treats as a failed `mmap`, so it reaches
+`__axiom_out_of_memory` and exits 70 with no new failure path — though
+the trap's sentence now names the strategy that ran out rather than
+blaming `mmap` on a target that has none.
+
+Every supported target answers 1 MiB and `mmap`, and emits what it
+emitted before. Measured against a compiler built from the tree as it
+stood before the change: seven targets by three probes, twenty-one
+`emit-llvm` outputs, twenty-one byte-identical. The minimal program is
+the same size either side of it (17,480 bytes to one path, 17,472 to
+another — a Mach-O carries paths the linker chose, which is why the
+gate budgets the figure rather than pinning it), with 0 undefined
+symbols and exactly 3 distinct syscalls both times.
+
+`scripts/check-embedded.sh` is what holds it, and it does not settle
+for asserting that the literals are gone — that would be a check about
+an absence. It builds a second compiler from a copy of `self_host/`
+with two rows of the target table changed, which is the edit a
+bare-metal port makes: one non-host target gets a 4 KiB chunk and must
+move exactly the lines the constant reaches, the host gets a 256 KiB
+static arena so the result can be LINKED AND RUN, and the targets
+neither row names must be byte-identical. The static build allocates
+52,800 bytes across fifteen 4 KiB chunks and prints what the `mmap`
+build prints; asked for 1,056,000 it exits 70 while the `mmap` build of
+the same source exits 0. Six ablations, each required to turn a named
+assertion red. With it, sixty-six gates call `gate_build_axc`.
+
+The proposal named the wrong file for the constants -
+`Host.<target>.ax` answers which target the compiler BINARY was built
+for, not which one a program is being compiled for, so a cross-compile
+would have read the host's megabyte - and that correction, the trap
+sentence, and the fact that a statically-carved arena has no thread
+lowering (`--threads` on one is refused as AX4006) are written up in
+the document beside the items they belong to.
+### Two front-door claims were stale, and twenty `explain` pages were a sentence each
+
+Every one of these was confirmed by a probe before it was changed, and
+every number that stays is derived.
+
+- **`docs/status.md` said two arguments that disagree with each other
+  are "not yet reported".** They have been since `pinArg` landed on
+  2026-08-21: `(same 1 "x")` on `(-> a a Bool)` is `AX3004 expected
+  Int, found String` at the second argument, and
+  `tests/diagnostics/998-placeholder-pinned.ax` had pinned exactly that
+  for two weeks while the table beside it said the opposite. The cell
+  now says what the compiler does and names that fixture;
+  `460-signature-type-variable.ax`'s header, which recorded the
+  under-report as deliberate, is corrected in the same number of lines
+  so its goldens' spans hold.
+- **`define` was documented as a coequal "classic style".** Measured:
+  zero uses under `self_host/`, `stdlib/` and `examples/`; the only
+  fixtures that spell it are the formatter's, and
+  `tests/fmt/parity/182-define-rewrites.axp` says `axiom fmt` REWRITES
+  `(define legacy 7)` to `(fn (legacy) 7)` - run, not read. The keyword
+  table, the "Classic `define` Style" section, the `status.md` row and
+  the `define`-spelled samples in `docs/reference.md` and
+  `docs/diagnostics.md` now say it plainly: `fn` is the language's
+  spelling, and `define` is LEGACY - accepted so that old source still
+  parses, read as `fn`, rewritten by the formatter, written by nothing
+  in the tree. The docs had the relationship backwards, `fn` "the
+  modern alias for `define`". The parser still accepts it (`kwDefine`,
+  with its reason beside it), and `AX4001`'s help suggests
+  `(fn (main) ...)`. What still spells it: `AX3001`'s help text in
+  `typecheck.ax` ("via `define`/`fn`"), pinned in the diagnostics
+  goldens (seven fixtures, three goldens each) and quoted in
+  `docs/diagnostics.md`, left for its own change.
+- **Twenty `axiom explain` pages were under sixty words** - AX1002-
+  AX1005, AX2001-AX2003, AX3001-AX3009, AX3011, AX4001-AX4003 - against
+  a median of 166 across the 78 codes listed that morning; AX3002 was
+  23. Each is rewritten to the shape the long pages have: what the code
+  means, why the compiler fires it, a minimal program, the fix - naming the `~>`
+  machine-applicable fix where the code carries one (AX3001, AX3003,
+  AX3005) - and the neighbouring codes a reader might have wanted
+  (AX3001 against AX3023 and AX3014; AX3003 against AX3001, which is
+  the same unknown name in expression position; AX3009's too-many-
+  arguments twin in AX3004; AX3011 against AX3010, AX3042 and AX3053).
+  Every program a page quotes was run through the tree's compiler with
+  `--diagnostic-format=ai` and draws the code its page says. The two
+  the corpus cannot draw say so: AX4002 quotes its own help ("this is
+  a compiler bug") and carries no example on purpose; AX4003 is a hello
+  world on a host with no `llc`, exit 4. Some of the old text was
+  wrong rather than short - AX1002 said a string is closed "before the
+  end of input (or end of line)" when the lexer reads to the next
+  quote or the end of the file, and a string may span lines; AX3009 did
+  not say that a bare constructor name in arm position is a variable
+  pattern that matches everything. `tests/tools/explain.golden` is
+  regenerated by the gate's own loop, and its header now lists which
+  codes are no longer the 2026-08-08 bytes.
+
+`check-doc-drift.sh`, `check-tools-selfhost.sh`, `check-diagnostics.sh`,
+`check-render-selfhost.sh`, `check-gate-lib.sh`,
+`check-release-targets.sh`, `check-version.sh` and
+`node web/scripts/check-claims.mjs` are green on the result.
+
+### A design note's cost argument was measured at the one optimisation level where its loop does not exist
+
+`docs/subtypes-design.md` recommends against range-constrained subtypes
+for three reasons, and the second is cost: a `pre` standing in for the
+range check made a self-recursive loop **+37% slower, arms never
+interleaving**. The note then says that at `--opt 2` that loop is
+constant-folded away entirely, both binaries answer in 0.00s, and the
+figure is therefore "not a claim about a release build" — so the
+condition it sets for revisiting ("a value analysis") was left open on a
+measurement that could not reach it.
+
+Re-measured on a loop LLVM cannot close-form — body changed to
+`(% (* acc 31) 1000003)`, trip count from `sysArgc` so it is not a
+constant, 10^8 iterations, arms alternated, `user` seconds:
+
+```
+--opt 2   bare 0.61 0.61 0.67   checked 0.61 0.63 0.61
+--opt 0   bare 1.14 1.07 1.08   checked 1.11 1.10 1.11
+```
+
+**The arms interleave at both levels.** The caveat is written into the
+note rather than left out of it: this body does a multiply and a
+remainder where the original does an `add`, so the check is a smaller
+fraction of it and the original +37% is not refuted. The narrower claim
+is the one the condition asked for — the release-build cost is not
+measurable, and the value analysis that discharges the check is the
+BACKEND's, not something this compiler has to grow. One of the three
+reasons is now met; the other two stand and the recommendation is
+unchanged. **Still not built.**
+
+The note's census was stale in the same edit: `(cast Int` 441 → **780**,
+all casts 651 → **1,015**, against 4,197 `fn` declarations. Both halves
+grew by about half, so the ratio and the argument survive — but the
+absolute count is what that section leans on. The four paired
+signature counts above it were not re-run and are now marked with their
+date rather than carried as current.
+
+### A violated contract and an out-of-range index exit with the same status, and three documents disagree about which
+
+Found while checking a number before reusing it. `docs/memory-model.md`'s
+`MM-EXEC-16` table assigns **76** to an arena reset past a live handle
+(`MM-ALLOC-16b`) and **77** to `__indexTrap`. The contract trap is
+documented at 76 in six places and emits **77**:
+
+```
+$ axiom run c76.ax    # a violated ;@axiom:pre    -> 77
+$ axiom run idx.ax    # (__indexTrap)             -> 77
+```
+
+So the documented number belongs to the arena and the emitted one
+belongs to the index trap. `grep -n 'emitRuntimeExit cg "7'
+self_host/codegen.ax` is the census: the contract trap is the only row
+in the emitter whose documented status and actual status disagree.
+
+It got there by two merges. Designed on 75; moved to 76 in `4bcd7eb`
+when a merge found `MM-ALLOC-16a` already spending 75; moved again to 77
+in `3f2f39a`, as a conflict resolution, onto the number `91f33f7` had
+given `__indexTrap` on trunk in between. `codegen.ax`'s header comment
+still reads `; STATUS 76, AND IT WAS DESIGNED AS 75`, two moves out of
+date, above a paragraph arguing that "two broken invariants sharing one
+status would be that defect again".
+
+Nothing caught it because every party is internally consistent:
+`check-contracts.sh` asserts 77 and is green,
+`tests/stdlib/464-index-trap.exit` asserts 77 and is green, and **no
+gate compares one trap's status to another's**. `docs/error-model.md`
+and `docs/memory-model.md` state the two owners of 77 in two tables,
+neither of which reads the other.
+
+Recorded in `docs/subtypes-design.md` and **not fixed here**, because
+the fix is a decision about a shipped exit status rather than a
+correction: move the contract trap to 80, or accept the collision and
+say so in both tables. Rewriting the prose from 76 to 77 — the obvious
+reading, and the one this started as — would have written the collision
+into the documents whose purpose is that it cannot happen.
+### A fix printed `\n`, `axiom frobnicate` was a file, and `--help` contradicted README on targets
+
+Three things at the front door, each confirmed by probe against 0.7.5,
+none caught by a gate, and each green for a reason worth writing down.
+
+**A multi-line fix rendered its line break as the two bytes `\n`.**
+`helpLineFix` in `self_host/render.ax` passed the replacement through
+`ctlEsc` like every other string that enters a line - right on the
+AXDL line, which is escaped so that one diagnostic stays one line, and
+wrong on the surface that is for a person, where AX3005 read
+`~> \n      ((B) (todo "B"))` and AX3042 read `~> ;@axiom:effect(io)\n`.
+Ten goldens carried it, and `check-render-selfhost.sh` was green on
+every one because its help-line derivation read the AXDL's `~>` field
+with the `\n` still escaped: it derived the defect and matched it. A
+replacement with a line break now ends the help line at `~>` and
+follows on lines of its own, one per line, each indented to the help
+text's column and otherwise verbatim - the block of source it is, its
+own indentation kept - and the break that begins or ends it prints no
+blank line. The gate undoes that one escape before deriving, requires
+the block form line by line, fails the two bytes by name, and drill
+(k) folds a real golden back into the old shape on every run and
+requires that refusal. Ablated by restoring the escape in a copy of the
+tree: 10 of 139 cases fail, every one naming the two bytes, and the
+drill's own baseline reports itself broken. Only the ten `.human`
+goldens moved; all 204 `.axdl` and `.json` goldens are byte-identical
+before and after the bless.
+
+**`axiom frobnicate` was read as a file.** The only thing that refused
+a first operand was the typo suggestion, which asked whether a command
+name lay within two edits of it - so `buidl` was refused and
+`frobnicate` fell through to the legacy `FILE [TARGET]` reading at
+exit 1 with `Failed to read file 'frobnicate': No such file or
+directory`, while the EXIT CODES block of `--help` promised 2 for "an
+unknown command or flag". The rule is now the spelling
+(`spelledLikePath`, `self_host/driver.ax`): a first operand that names
+nothing that opens is a path if it carries a `/` or a `.`, and
+otherwise an unknown command - exit 2, named, with `did you mean` when
+a command is within two edits. Any dot rather than a `.ax` suffix, so
+that `hello.aax` is a misspelled file and not a misspelled command.
+The message is `unknown command`, the words the exit-code table uses,
+for the near-miss too. `check-driver.sh` holds both directions:
+`frobnicate` and `frobnicate hello.ax` at 2 by name with no suggestion;
+`nosuch.ax`, `./frobnicate` and `hello.aax` at 1 as read failures
+naming the path; an existing extensionless file still read as a file;
+`buidl hello.ax` still suggesting `build`. Ablated by restoring the
+near-a-command-only refusal in a copy of the tree: the two
+unknown-command cases fail (117 passed, 2 failed) and every path case,
+the suggestion and the legacy spelling stay green.
+
+**`--help`'s `--target` line said three targets were "not yet
+supported".** README's Targets section, the one place the rule lives,
+says six are supported and that `freebsd-aarch64` alone is assembled
+and relocation-checked but executed by no runner; `--help` called the
+last three of seven unsupported, two of which had joined the list on
+2026-08-30. The line now lists the six supported targets first, then
+`freebsd-aarch64`, and says of it what README says. There was one copy
+of the sentence. `check-doc-drift.sh`, `check-release-targets.sh` and
+`check-driver.sh` all read that line and are green.
 
 ### One of `parallel`'s two stated gaps was not a gap, and the gate could not see three that were
 
@@ -778,6 +1172,125 @@ does move is every list that named the module: `MODULES` in
 `docs/reference.md`'s module table — twenty-five rows to twenty-four —
 three inventories in `CONTRIBUTING.md`, `docs/status.md`, and one
 website sample that imported it.
+
+### `strFindByte` answers `Option`, and the refusal that held it out was about the body
+
+`docs/error-model.md` ERR-ADOPT-1 recorded three absence sentinels as a
+floor rather than a backlog, and named a refusal for each. One of the
+three was not a refusal. `strFindByte` was held out because it
+"tail-calls itself, and a self tail call is the one shape the register
+pair does not take yet, so a port would keep the boxed body and refuse
+its own `restrict(no-alloc)` claim". The first half is a true statement
+about the emitter — `wantsTCO` is a refusal in the pair's eligibility
+test. The conclusion does not follow, because a body is a thing an
+author chooses. Probed both ways on a copy of the tree, 2026-09-04:
+
+    ; the recursive spelling, declared (Option Int)
+    E AX3049 stdlib/Str.ax:352 `strFindByte` claims `restrict(no-alloc)`
+             and the body performs Alloc
+
+    ; the same function as a `while` loop over `hit` and `i`
+    OK
+
+`strFind`, three hundred lines below it in the same file, was already
+written as a loop for an unrelated reason and has answered
+`(Option Int)` all along. Nobody had compared the two.
+
+So `strFindByte` answers `(Option Int)` and keeps
+`restrict(no-io,no-alloc,no-foreign)`. `symbols` before and after:
+`#effects=` empty both times, `#restrict=` unchanged, nid
+`@38cfa6a2400e724f` unchanged, only the type moved — a CHANGED row in
+`compat/BREAKING`, not a WIDENED one. **71 call expressions over 18
+files** (73 after the port, which adds two arms to
+`tests/stdlib/030-str.ax` and drops the self-call), every one of them a
+`(< x 0)` or `(>= x 0)` test or a printed index, and every one is now a
+`match` where the call is, so the pair is consumed in two
+registers and no caller builds the block
+`tests/diagnostics/384-restrict-no-alloc-ctor.ax` calls `held`. Two
+sites keep an integer index deliberately and say so at the site:
+`restrictCollect` and `checkOneAxtag` hand it to `axtagListValue`, whose
+own signature takes -1 for "no value". `compat/SENTINELS` goes
+**0 failure + 3 absence** to **0 + 2**, and the two that remain are one
+refusal stated twice — `keyStrEnd` and `keyInFill` each answer three
+outcomes, and three outcomes are not `Option`'s shape.
+
+**Two latent defects the type surfaced, both the shape §10 already
+names.** `Http.httpParseHead` bound `eol` to a `strFindByte` and then
+computed `(strSlice buf base (- eol base))`: a head with no CR made that
+a slice of NEGATIVE length, and nothing refused it — the reader's
+framing was what kept it from being reached, which is a caller's
+property and not the parser's. `httpParseHeaders` had the same shape on
+`le`. Both are 400 refusals now, written in the `None` arm the type
+forced someone to fill in. And `driver.ax`'s directory walk called
+`strFindByte` a second time to re-find a `.` its own guard had just
+proved was at `strLen - 3`; that is the index now.
+
+### The census's own floor named three functions that stopped being sentinels
+
+`compat/SENTINELS` states what it cannot see, which is the right habit
+and was not being re-read. Its floor names the literal-`0` sentinel as
+"`vecGet`, `vecPop`, `vecLast`, `strByte`, `jsonGet`, `jsonArrGet`", and
+three of those six answer `(__indexTrap)` now — a call that does not
+return, status 77 — with `stdlib/Vec.ax`'s own comment recording why.
+`strByte`'s `0` is deliberate and documented at its declaration: a
+lexer's lookahead wants one past the end to read as end-of-input, and
+NUL already is that. So the literal-`0` debt the census cannot see is
+**`jsonGet` and `jsonArrGet`**, and `jsonGet`'s comment names its cost —
+`jsonTag` reports 0 as `JNULL`, so an absent member and one explicitly
+set to null are the same answer, and `self_host/lsp.ax` tests against 0
+directly to tell a request from a notification. Thirty call sites,
+twenty-nine of them in `lsp.ax`.
+
+**And the census cannot simply grow a `0` arm**, measured before
+proposing it. Applying the existing rules with `(- 0 n)` replaced by a
+bare `0` in return position yields **69 candidates** across `stdlib/`,
+almost every one the library's idiomatic unit answer rather than a
+sentinel — `vecFree`, `ledReset`, `assertEq`, `termFlush`, twenty-four
+in `Tui/Edit.ax` alone. `-1` carries signal because no lookup
+legitimately answers a negative; `0` carries none, because half the
+library answers `0` for "done". A `0`-sentinel census would have to read
+the doc-comment, which is the metric the 2026-08-30 rewrite replaced for
+rewarding silence. The floor stays a floor, and the note now says which
+two rows are actually under it.
+
+### ERR-ADOPT-1's own size and order were wrong, and both are re-derived
+
+`docs/error-model.md` §1.2 sized the migration with
+`grep -cE "errno|sentinel|\(- 0 1\)"` over `stdlib/`, at 64 sites over
+12 files, and told the reader to recompute rather than quote it.
+Recomputed 2026-09-04 it reads **120 over 17 files** — while the
+population it stands for has fallen from 38 public declarations to 2.
+
+**94 of the 120 are comment lines.** `stdlib/Sys.ax` alone carries 52 in
+prose against 5 in code, and each of the 52 was written by a slice of
+this migration explaining what an errno used to mean at a call that no
+longer returns one. The proxy rises when the migration succeeds. Of the
+26 code hits, not one is a public declaration answering a sentinel: nine
+initialise a loop accumulator, four are private helpers under a public
+wrapper that already answers `Option`, four are `Map.ax`'s probe walk
+under a `mapGet` whose absent answer is a caller-supplied default, three
+pass -1 as an argument, two are a bitwise NOT written as XOR, two are
+`EVFILT_READ`'s value, one is `Json.ax`'s `jcPeek`, and one is `IO.ax`
+rendering an errno into a message this migration wrote. The two rows
+that ARE still debt are invisible to it: they live in `stdlib/Tui/`, and
+the glob is `stdlib/*.ax` and `stdlib/Sys/*.ax`. The proxy is retired as
+a sizing metric; `compat/SENTINELS` is what sizes the work, and it is
+gated.
+
+**And the slice order was backwards.** §10 lists five slices; the tree
+ran them 1, 3, 4, 2(part), 3, 3, 3, 3, —, 2(rest), 3, 2(last). Slice 2
+was called "the rehearsal" and finished LAST, over four commits nine
+days apart; slice 3 was called the hard one and went second, in a day,
+because `self_host/` called none of it. The list was ordered by how
+complicated the convention read — `-1` looks simpler than `-errno` — and
+that is not what the work costs. What it costs is whether the module
+carries a `restrict` claim the port must withdraw (`Str.ax` and
+`Utf8.ax` are the most restricted in the tree; `Sys.ax` restricts
+nothing and declares `effect(io)` seventy times) and whether the answer
+gets BOUND or only tested. Slice 2's stated "11 sites" is **6 public
+functions**: recounted against `9f99ccd`, the tree as it stood when that
+table was written, three of the twelve hits in those files are prose and
+one function contributed three of the rest. New §10.2 carries the table.
 
 ## 0.7.4 — 2026-09-03
 

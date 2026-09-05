@@ -1953,11 +1953,9 @@
 (pub :: lspFirstLine (-> String String))
 
 (pub fn (lspFirstLine s)
-  (let ((nl (strFindByte s 10 0)))
-    (if (< nl 0)
-      s
-      (strSlice s 0 nl)
-    )
+  (match (strFindByte s 10 0)
+    ((None) s)
+    ((Some nl) (strSlice s 0 nl))
   )
 )
 
@@ -3596,7 +3594,7 @@
 (pub :: lspNavEmitBinder (-> Int String Int String Int Int Int))
 
 (pub fn (lspNavEmitBinder nv name span key bkind idx)
-  (if (|| (== span 0) (|| (strEq name "_") (>= (strFindByte name 36 0) 0)))
+  (if (|| (== span 0) (|| (strEq name "_") (match (strFindByte name 36 0) ((None) false) ((Some _) true))))
     0
     (lspNavEmit nv name span NAV_BINDER key bkind idx)
   )
@@ -4298,7 +4296,7 @@
 (pub fn (lspNavRef nv name span role)
   (if (strEq name "_")
     0
-    (if (== (strFindByte name 36 0) (- 0 1))
+    (if (match (strFindByte name 36 0) ((None) true) ((Some _) false))
       ; The bytes decide here too. `parseForExpr` builds `(< for$i
       ; for$n)` and `(+ for$i 1)` with the KEYWORD's span on `<` and
       ; `+`, so that a type error in a bound reports at the loop;
@@ -4729,11 +4727,9 @@
 (pub :: lspNavBareOfKey (-> String String))
 
 (pub fn (lspNavBareOfKey key)
-  (let ((h (strFindByte key 35 0)))
-    (if (< h 0)
-      key
-      (strSlice key (+ h 1) (- (strLen key) (+ h 1)))
-    )
+  (match (strFindByte key 35 0)
+    ((None) key)
+    ((Some h) (strSlice key (+ h 1) (- (strLen key) (+ h 1))))
   )
 )
 
@@ -5779,7 +5775,7 @@
     (if (== (strByte key 0) 63)
       true
       (if (lspNavIsTop key)
-        (< (strFindByte key 35 0) 0)
+        (match (strFindByte key 35 0) ((None) true) ((Some _) false))
         false
       )
     )
@@ -9094,13 +9090,14 @@
       (if (== (vecLen (nodeBVec imp)) 0)
         0
         (let ((o (lspFormStart src (spanStart (nodeSpan imp)))))
-          (let (
-            (e (lspFormEnd src o))
-            (lo (strFindByte src 40 (+ o 1)))
-          )
-            (if (|| (< lo 0) (>= lo e))
-              0
-              (lspFixInsert uri src ix (- (lspFormEnd src lo) 1) (strConcat " " name))
+          (let ((e (lspFormEnd src o)))
+            (match (strFindByte src 40 (+ o 1))
+              ((None) 0)
+              ((Some lo)
+                (if (>= lo e)
+                  0
+                  (lspFixInsert uri src ix (- (lspFormEnd src lo) 1) (strConcat " " name))
+                ))
             )
           )
         )
@@ -9319,20 +9316,22 @@
         false
         (&& (> k 0) (<= (+ i k) n))
       )
-        (let ((j (strFindByte text (strByte name 0) i)))
-          (if (|| (< j 0) (> (+ j k) n))
-            (set i n)
-            {
-              (if (&& (lspFixBytesEq text j name k) (lspFixWordEdges text j k))
-                {
-                  (set found true)
+        (match (strFindByte text (strByte name 0) i)
+          ((None) (set i n))
+          ((Some j)
+            (if (> (+ j k) n)
+              (set i n)
+              {
+                (if (&& (lspFixBytesEq text j name k) (lspFixWordEdges text j k))
+                  {
+                    (set found true)
+                    0
+                  }
                   0
-                }
-                0
-              )
-              (set i (+ j 1))
-            }
-          )
+                )
+                (set i (+ j 1))
+              }
+            ))
         ))
       found
     }
@@ -9477,12 +9476,12 @@
         (< i n)
         false
       )
-        (let ((a (strFindByte msg 96 i)))
-          (if (< a 0)
-            (set go 0)
-            (let ((b (strFindByte msg 96 (+ a 1))))
-              (if (< b 0)
-                (set go 0)
+        (match (strFindByte msg 96 i)
+          ((None) (set go 0))
+          ((Some a)
+            (match (strFindByte msg 96 (+ a 1))
+              ((None) (set go 0))
+              ((Some b)
                 {
                   (if (== count k)
                     {
@@ -9493,10 +9492,8 @@
                   )
                   (set count (+ count 1))
                   (set i (+ b 1))
-                }
-              )
-            )
-          )
+                })
+            ))
         ))
       out
     }
@@ -10954,7 +10951,12 @@
 
 (pub :: lspHasNl (-> String Bool))
 
-(pub fn (lspHasNl s) (>= (strFindByte s 10 0) 0))
+(pub fn (lspHasNl s)
+  (match (strFindByte s 10 0)
+    ((None) false)
+    ((Some _) true)
+  )
+)
 
 ; `(head a b)` inline, or one child per line at `ind + 2` when any
 ; child already spans lines. `parts` holds the head first. Children
