@@ -61,7 +61,7 @@
 #                 tests/fmt/syntax-zoo.expected.ax, and leaves that
 #                 golden alone when re-run on it.
 #
-#   memory        one self-compile's peak RSS, under a ceiling (340
+#   memory        one self-compile's peak RSS, under a ceiling (608
 #                 MiB today; every move of it is dated and measured
 #                 at the constant itself) and over an 8 MiB floor,
 #                 with the IR it produced compared against the IR
@@ -759,7 +759,35 @@ floor=8192       # 8 MiB
 # this landed: the ceiling is left where it is because nothing here
 # regressed, and the next slice onto this trunk should expect to be the
 # one that has to move it and say why.
-ceiling=524288   # 512 MiB, over a measured 454
+# 512 -> 608 MiB on 2026-09-06, at the language-server slices, and the
+# margin was gone before they arrived: CI's ubuntu-x86_64 leg reports
+# 512 MiB against the 512 ceiling on the commit before the last - 0%
+# of headroom, eaten a slice at a time by commits that each passed,
+# the invisible-margin failure the 540 -> 420 entry describes. Priced
+# the way the entries above price a move, except the absolutes below
+# are measured under emulation (linux-x86_64 on an arm64 host; the
+# reference leg has no other host to stand on here) on the current
+# tree: two ladders from the ubuntu-24.04 gate image, trunk-at-merge-base and branch, each
+# seed -> s1 -> driver-built s2, then s2 emitting main.ax under
+# /usr/bin/time -v, in KiB:
+#
+#   trunk's compiler on trunk's source        537,640
+#   the NEW compiler on trunk's source        537,868   +0.04%
+#   the NEW compiler on the NEW source        546,152   +1.60%
+#
+# The compiler CHANGE costs 0.04% on identical input - and the two IRs
+# are byte-identical, so the machinery costs nothing twice over. The
+# branch touches no codegen-pipeline file (self_host/lsp.ax,
+# tests/lsp/drive.py, docs and comments only), which is why. The
+# 1.60% is 1,688 more source lines, 4.91 KiB per line against the
+# 4.7-4.98 the entries above measured: the linear shape held, and the
+# failure text's accumulator was looked for and is not there. 608
+# leaves 14.0% over the measured 533.4, inside the 12-15% band -
+# against emulated absolutes, which read high next to CI's 512 for
+# the same tree (the emulator's own pages ride along), so the real
+# margin is wider and the next native-x86_64 measurement may tighten
+# this with cause.
+ceiling=622592   # 608 MiB, over a measured 533.4 (emulated x86_64)
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi
