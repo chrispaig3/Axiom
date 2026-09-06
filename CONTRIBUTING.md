@@ -165,15 +165,14 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 634 `.ax` files
-in the repository answers `is already formatted` for 411 of them and
+2026-09-04, `axiom fmt --check` over every one of the 642 `.ax` files
+in the repository answers `is already formatted` for 419 of them and
 `needs formatting` for 223. Two of the 223 are deliberate and are named
 below; the other 221 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
 more than 60 files stop being covered by `tests/fmt/corpus-fmt.golden`.
-
 The 634 was 636 earlier the same day, and the split moved with it
 rather than beside it, twice. Two fixtures for the new descriptor
 readers arrived — `477-read-input.ax` needs formatting and
@@ -181,7 +180,9 @@ readers arrived — `477-read-input.ax` needs formatting and
 then `stdlib/Html.ax`, its two fixtures and the web example were
 deleted, and of those four files three needed formatting and the
 fourth — one of the two `Html` fixtures — did not, taking it to
-634/411/223. Each of those six files was measured on its own with
+634/411/223. Then the eight `tests/ddc/` fixtures for the diverse
+double-compile gate arrived, each measured formatted on its own with
+`axiom fmt --check`, taking it to 642/419/223. Each of those fourteen files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.

@@ -1,0 +1,16 @@
+; expect 42
+(:: main Int)
+
+(fn (main)
+  (let (
+    (a 1)
+    (b 2)
+  )
+    (let (
+      (a (+ a b))
+      (c (* a 14))
+    )
+      c
+    )
+  )
+)

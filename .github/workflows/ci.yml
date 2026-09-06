@@ -1369,6 +1369,20 @@ jobs:
       - name: Frontend parity across its five consumers
         run: ./scripts/check-frontend-parity.sh
 
+      # Diverse double-compile of the subset corpus: the seed-built
+      # compiler and an independent Python interpreter execute the same
+      # eight programs and must agree with each other and with the
+      # `; expect N` each states. Every other gate asks the
+      # seed-descended compiler to grade its own work; a defect in the
+      # seed reproduces through stage2 == stage3 untouched. The gate
+      # plants exactly that class - one flipped comparison in emitted
+      # IR - and requires the independent comparison to fail where the
+      # fixpoint cannot. The interpreter covers the subset only and
+      # shares a maintainer with the compiler; both limits are stated
+      # in the gate's header and in bootstrap/THREATS.md row 12.
+      - name: Diverse double-compile of the subset corpus
+        run: ./scripts/check-ddc.sh
+
       # The P2 memory-model exit criterion: one Life board advanced
       # 2000 generations stays under 4 MiB when the loop carries the
       # explicit mark/copy/reset contract, grows linearly when it

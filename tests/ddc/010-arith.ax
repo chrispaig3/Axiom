@@ -1,0 +1,4 @@
+; expect 42
+(:: main Int)
+
+(fn (main) (+ (% 100 60) (- 5 3)))

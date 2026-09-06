@@ -11,7 +11,7 @@ gate and the assertion inside it —
 `scripts/check-seed-supply-chain.sh` refuses this file if a `yes` row
 names a script that does not exist or that `.github/workflows/ci.yml`
 does not run, so a row cannot promise a check that nobody performs.
-Everything else is a `no` row. This table has 11 rows, 6 defended, and
+Everything else is a `no` row. This table has 12 rows, 7 defended, and
 the 5 that are not are not an oversight: they are the trust base and the
 things a gate cannot reach, and a truthful "not defended" is worth more
 here than a "defended" the tree cannot back. Row 3 says yes in a sense
@@ -39,12 +39,13 @@ claim nobody checked.
 | 9 | A compromised git host that rewrites history — replacing `bb730db`, a `CHAIN` row's commit, or a seed's blob | no | — | Every gate here reads history through `git` and believes it. A clone that already has the objects would see the rewrite; a fresh clone would not. Defending it needs an out-of-band record of the commit ids, which this repository does not have |
 | 10 | A seed committed for a target that no list knows about, or a target dropped from one list and not another | yes | `scripts/check-seed-supply-chain.sh` §1: the six-target set is compared across five sites — `seed_targets` in `scripts/lib/seed-sums.sh`, the `.ll` files on disk, the rows of `SHA256SUMS`, the file box in `bootstrap/README.md`, and `scripts/check-seed-provenance.sh`'s regeneration list | Names only. A target present in all five with a tampered seed is rows 1–4's business, not this one |
 | 11 | A refactor that quietly puts a seed-descended Axiom binary on the lineage gate's compared path, making the diverse double-compile compare a compiler against itself | yes | `scripts/check-seed-lineage.sh` reads its own text: nothing below `# === the compared path begins here ===` may name `$axiom`, `.axiom-bin`, `AXIOM_AXC` or `gate_build_axc`. `scripts/check-seed-supply-chain.sh` §4 requires the marker and that self-read to still be there, in that order | Textual. A binary reached under a name none of those four patterns match would pass |
+| 12 | A Thompson attack carried by the CURRENT seed's codegen, which the fixpoint reproduces untouched | yes | `scripts/check-ddc.sh`: eight subset programs in `tests/ddc/` executed by the seed-built compiler and by an independent Python interpreter (`scripts/lib/ddc-interp.py`, a different language, logic derived from the reference rather than ported from the compiler) must agree with each other and with the `; expect N` each states; one flipped `icmp sgt` in emitted IR is planted on every run and must fail the comparison where the fixpoint cannot | Subset only: integers, comparisons, `if`/`let`/calls/recursion. The interpreter shares a maintainer with the compiler, so the social half of "diverse" is still open (row 4's residual stands). Path A still trusts `llc` and `cc` (rows 5–7) |
 
 ## What a `yes` row costs to keep
 
-Rows 1, 2, 3, 4, 10 and 11 are the ones a change can break. The gates that
+Rows 1, 2, 3, 4, 10, 11 and 12 are the ones a change can break. The gates that
 hold them are `check-bootstrap.sh`, `check-seed-provenance.sh`,
-`check-seed-lineage.sh` and `check-seed-supply-chain.sh`, and each
+`check-seed-lineage.sh`, `check-seed-supply-chain.sh` and `check-ddc.sh`, and each
 carries negative probes that must go red — a gate that only ever passes
 is this repository's most common defect, and a *trust* gate that only
 ever passes is the worst instance of it.

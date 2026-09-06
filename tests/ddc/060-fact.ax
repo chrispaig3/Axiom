@@ -1,0 +1,13 @@
+; expect 120
+(:: fact (-> Int Int))
+
+(fn (fact n)
+  (if (<= n 1)
+    1
+    (* n (fact (- n 1)))
+  )
+)
+
+(:: main Int)
+
+(fn (main) (fact 5))

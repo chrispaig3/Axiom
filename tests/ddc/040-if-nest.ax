@@ -1,0 +1,23 @@
+; expect 49
+(:: pick (-> Int Int))
+
+(fn (pick n)
+  (if (> n 10)
+    (if (< n 100)
+      42
+      7
+    )
+    7
+  )
+)
+
+(:: main Int)
+
+(fn (main)
+  (let (
+    (a (pick 20))
+    (b (pick 5))
+  )
+    (+ a b)
+  )
+)
