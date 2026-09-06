@@ -59,9 +59,9 @@ row naming a program that is gone, README's link removed — each red).
 Its floors are re-derived at the population, three files and two
 programs, and the `.js`/`.css` allowance went with the only files that
 used it. It runs no Axiom program and builds no compiler, so it is no
-longer among the gates that call `gate_build_axc`: **sixty-five gates**
+longer among the gates that call `gate_build_axc`: **sixty-six gates**
 call it, and the six sites that state that count moved together. The
-battery still has eighty gates.
+battery still has eighty-one gates.
 
 What is still measured, and what is not. MM-ALLOC-22 — the request
 handler as an arena scope — is measured by `check-net.sh` over
