@@ -22,10 +22,18 @@ The supported release is **0.7.5**. Security fixes are made against the
 newest release and shipped as a new patch; earlier releases receive
 nothing, and there is no long-term-support branch.
 
+Support window: the 0.7 line is supported until 0.8.0 lands, and then
+it receives nothing further — not even security fixes. There is one
+supported minor at a time, always the newest. Cutting a minor moves
+this paragraph by hand; it is a policy re-affirmation, not a rewrite
+a script can do, and `scripts/check-version.sh` fails until it does.
+
 That line is not prose. `scripts/check-version.sh` holds it to
 `VERSION` along with the eighteen other places the tree states a
 version, so a release that forgets to move it fails before the tag is
-cut.
+cut. The support window above it is held the same way: the gate
+derives this minor and the next from `VERSION` and requires both named
+here, so a minor cut that leaves the old window behind fails too.
 
 ## What is in scope
 
