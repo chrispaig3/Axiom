@@ -405,10 +405,10 @@ else fail "probe: a row naming an unwired gate was accepted"; fi
 # And the document's count of itself. A copy whose opening paragraph
 # claims one more defended row than the table carries:
 #
-#     FAIL: <copy> parses to 11 rows, 6 of them defended, and does not
+#     FAIL: <copy> parses to 12 rows, 7 of them defended, and does not
 #           say so
 p13="$work/THREATS.miscounted.md"
-sed 's/This table has 11 rows, 6 defended,/This table has 11 rows, 7 defended,/' "$threats" > "$p13"
+sed 's/This table has 12 rows, 7 defended,/This table has 12 rows, 8 defended,/' "$threats" > "$p13"
 if cmp -s "$p13" "$threats"; then
   fail "probe 3d changed no count in the copy - the sentence this section pins has been reworded"
 else
@@ -416,7 +416,7 @@ else
   check_threats "$p13"
   probe_mode=0
   if (( probe_failed )); then ok "probe: a THREATS.md miscounting its own table is refused ($probe_first)"
-  else fail "probe: a THREATS.md claiming 7 defended rows over 6 was accepted"; fi
+  else fail "probe: a THREATS.md claiming 8 defended rows over 7 was accepted"; fi
 fi
 
 # ---------------------------------------------------------------------

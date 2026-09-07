@@ -1,0 +1,13 @@
+; expect 144
+(:: fib (-> Int Int))
+
+(fn (fib n)
+  (if (<= n 1)
+    n
+    (+ (fib (- n 1)) (fib (- n 2)))
+  )
+)
+
+(:: main Int)
+
+(fn (main) (fib 12))
