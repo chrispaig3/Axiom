@@ -5398,7 +5398,7 @@
     ; Exit 3 is this compiler's import-failure code - except under
     ; `symbols`, where stage0 folds EVERY failure into exit 1 and the
     ; parity gate compares statuses. The subcommand is re-derived from
-    ; argv here because driver.ax owns `subcommandName` and importing
+    ; argv here because driver.ax owns `argvSubcommand` and importing
     ; it from codegen would be a cycle: the first argument not opening
     ; with `-` is the subcommand, the same rule the driver applies.
     (sysExitWith
@@ -6636,6 +6636,168 @@
       (if (strStartsWith a "-")
         (firstOperandArg (+ i 1))
         a
+      )
+    )
+  )
+)
+
+; Flags that take a value, mirrored from `flagArity` in driver.ax.
+; `entryInputPath` below must skip their values when hunting the input
+; file; driver cannot be imported here (it imports this module), so the
+; list lives twice and `check-driver.sh` holds the two to each other -
+; a value flag added to one and not the other misreads the command
+; line here while validating it there.
+(pub :: valueFlag (-> String Bool))
+
+(pub fn (valueFlag a)
+  (|| (strEq a "--input") (|| (strEq a "--output") (|| (strEq a "-o") (|| (strEq a "--target") (|| (strEq a "--opt") (|| (strEq a "--heap-ceiling") (|| (strEq a "--link-lib") (|| (strEq a "--link-search") (|| (strEq a "--crate") (|| (strEq a "--emit-rust-binding") (|| (strEq a "--filter") (strEq a "--diagnostic-format"))))))))))))
+)
+
+; The input file as argv spelled it. `dieImport` above records why
+; argv is re-derived here rather than imported; the rule below is the
+; one `main.ax` resolves it with (`inputOperand` for every subcommand
+; but `run`, `runInputOperand` there), so both answers agree on every
+; invocation the validator accepts. "" when no file is named (the
+; REPL, `test` on a directory) - resolution treats "" as "no entry
+; text", and frames from such runs stay bare rather than pointing
+; nowhere.
+(pub :: entryInputPath String)
+
+;@axiom:effect(io)
+(pub fn (entryInputPath)
+  (if (strEq (cgSubcommandAt) "run")
+    (let ((p (cgPositionalAt)))
+      (if (> (strLen p) 0)
+        p
+        (cgFlagInputValue)
+      )
+    )
+    (let ((v (cgFlagInputValue)))
+      (if (> (strLen v) 0)
+        v
+        (cgPositionalAt)
+      )
+    )
+  )
+)
+
+; The subcommand this invocation names, mirrored from `isSubcommand`
+; in driver.ax and held to it by `check-driver.sh`: the first argv
+; word that is one, or "" - `subcommandIndex`'s rule, which consults
+; argv[1] directly first for the same `--version` reason its comment
+; gives.
+(pub :: cgSubcommand (-> String Bool))
+
+(pub fn (cgSubcommand a)
+  (|| (strEq a "build") (|| (strEq a "lsp") (|| (strEq a "check") (|| (strEq a "run") (|| (strEq a "test") (|| (strEq a "emit-llvm") (|| (strEq a "fmt") (|| (strEq a "explain") (|| (strEq a "symbols") (|| (strEq a "repl") (|| (strEq a "version") (|| (strEq a "--version") (|| (strEq a "-V") (|| (strEq a "help") (|| (strEq a "--help") (strEq a "-h"))))))))))))))))
+)
+
+(pub :: cgSubcommandIndex Int)
+
+;@axiom:effect(io)
+(pub fn (cgSubcommandIndex)
+  (let ((a1
+    (if (> sysArgc 1)
+      (sysArg 1)
+      ""
+    )
+  ))
+    (if (cgSubcommand a1)
+      1
+      (cgPositionalIndex 1)
+    )
+  )
+)
+
+(pub :: cgSubcommandAt String)
+
+;@axiom:effect(io)
+(pub fn (cgSubcommandAt)
+  (let ((i (cgSubcommandIndex)))
+    (if (< i 0)
+      ""
+      (sysArg i)
+    )
+  )
+)
+
+(pub :: cgPositionalIndex (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (cgPositionalIndex from)
+  (if (>= from sysArgc)
+    (- 0 1)
+    (let ((a (sysArg from)))
+      (if (strEq a "--")
+        (if (< (+ from 1) sysArgc)
+          (+ from 1)
+          (- 0 1)
+        )
+        (if (strStartsWith a "-")
+          (if (cgFlagHasValuePart a)
+            (cgPositionalIndex (+ from 1))
+            (if (valueFlag a)
+              (cgPositionalIndex (+ from 2))
+              (cgPositionalIndex (+ from 1))
+            )
+          )
+          from
+        )
+      )
+    )
+  )
+)
+
+(pub :: cgOperandStart Int)
+
+;@axiom:effect(io)
+(pub fn (cgOperandStart) (+ (cgSubcommandIndex) 1))
+
+(pub :: cgPositionalAt String)
+
+;@axiom:effect(io)
+(pub fn (cgPositionalAt)
+  (let ((i (cgPositionalIndex (cgOperandStart))))
+    (if (< i 0)
+      ""
+      (sysArg i)
+    )
+  )
+)
+
+(pub :: cgFlagHasValuePart (-> String Bool))
+
+(pub fn (cgFlagHasValuePart a)
+  (match (strFindByte a 61 0)
+    ((None) false)
+    ((Some _) true)
+  )
+)
+
+; `--input`, either spelling. `flagValue` lives in driver.ax, which
+; cannot be imported here, so the one flag this needs is read
+; directly; anything more general would re-derive that whole walker.
+(pub :: cgFlagInputValue String)
+
+;@axiom:effect(io)
+(pub fn (cgFlagInputValue) (cgFlagInputScan 1))
+
+(pub :: cgFlagInputScan (-> Int String))
+
+;@axiom:effect(io)
+(pub fn (cgFlagInputScan i)
+  (if (>= i sysArgc)
+    ""
+    (let ((a (sysArg i)))
+      (if (&& (>= (strLen a) 8) (strEq (strSlice a 0 8) "--input="))
+        (strSlice a 8 (- (strLen a) 8))
+        (if (strEq a "--input")
+          (if (< (+ i 1) sysArgc)
+            (sysArg (+ i 1))
+            ""
+          )
+          (cgFlagInputScan (+ i 1))
+        )
       )
     )
   )
@@ -10644,13 +10806,456 @@
   )
 )
 
-; One `write(2, ptr, len)` through the same door the three traps use.
+; Line attribution: from `; @@line` markers to the table the walker reads.
+;
+; The markers went out beside the calls (`emitCallMark`, or first in
+; an already-isolated trap block); each pairs with the label on the
+; line above it, in the function whose `define` most recently opened.
+; This pass runs at module end over the RENDERED buffer - after
+; `pruneDeadDefs`, so a stripped function takes its markers with it -
+; resolves every marker against its file's text, and emits filename
+; globals plus one flat `[5N x i64]` table of
+; (block-address, file-pointer, file-length, line, column), with its
+; row count beside it the way `@__axiom_symtab_n` sits beside the
+; symbol table. The walker extends `bt_name` below to consult it.
+;
+; Everything the scan accumulates lives in locals threaded through
+; the recursion or in vectors mutated in place - no new cg word (the
+; record is at AX3029 already) and no global. What is read from disk
+; is read here and only here: one read per distinct module, never per
+; call site, and a file that cannot be read degrades its rows to bare
+; frames rather than inventing lines for them.
+;
+; Returns the row count: `emitBacktrace` passes it to the walker's
+; baked loop bound beside the symbol count.
+(pub :: emitLineTable (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitLineTable cg)
+  (let ((lines (memGetWordVec cg 0)))
+    (let ((marks (scanLineMarks lines 0 "" "" vecNew)))
+      (let ((rows (vecNew)) (files (vecNew)) (addrFns (vecNew)) (addrLbls (vecNew)))
+        (let ((n (resolveLineRows marks rows files addrFns addrLbls cg)))
+          {
+            (emitLineTableGlobals rows files addrFns addrLbls n cg)
+            n
+          }
+        )
+      )
+    )
+  )
+)
+
+; Every byte as `\XX`, so a path with a backslash or a quote cannot
+; close the constant early. String literals do this per byte already;
+; filenames take the same road rather than a second quoting rule.
+(pub :: llvmBytes (-> String Int String String))
+
+(pub fn (llvmBytes s i acc)
+  (if (>= i (strLen s))
+    acc
+    (llvmBytes s (+ i 1) (cat3 acc "\\" (hex2 (strByte s i))))
+  )
+)
+
+; `; @@line <module> <spanstart>`, or `; @@line <spanstart>` for the
+; entry file. A marker whose preceding line is not a label, or that
+; appears before any `define`, is a broken invariant of the emitters
+; above - not data to skip over. Skipping it would leave its block's
+; return addresses resolving to a NEIGHBOURING block's line, which is
+; exactly the confident misattribution this table exists to remove;
+; the build fails here instead, naming the compiler bug.
+(pub :: scanLineMarks (-> (Vec Int) Int String String (Vec Int) (Vec Int)))
+
+;@axiom:effect(io)
+(pub fn (scanLineMarks lines i curfn lastlabel marks)
+  (if (>= i (vecLen lines))
+    marks
+    (let ((ln (vecGetStr lines i)))
+      (if (strStartsWith ln "; @@line ")
+        (if (== (strLen lastlabel) 0)
+          {
+            (dieCodegenDiag "line marker with no label above it: " ln)
+            marks
+          }
+          (scanLineMarks lines (+ i 1) curfn lastlabel (pushLineMark marks lastlabel curfn ln))
+        )
+        (if (strStartsWith ln "define ")
+          (scanLineMarks lines (+ i 1) (defineFnName ln) "" marks)
+          (if (isIRLabel ln)
+            (scanLineMarks lines (+ i 1) curfn (labelName ln) marks)
+            (scanLineMarks lines (+ i 1) curfn "" marks)
+          )
+        )
+      )
+    )
+  )
+)
+
+; A blank line ends a label's reach: without this a marker two blocks
+; down would pair with a label it has nothing to do with, and the
+; strict arm above would never fire. Labels and markers are always
+; adjacent by construction; anything else in between voids the pairing
+; rather than bridging it.
+(pub :: isIRLabel (-> String Bool))
+
+(pub fn (isIRLabel ln)
+  (if (< (strLen ln) 2)
+    false
+    (if (!= (strByte ln (- (strLen ln) 1)) 58)
+      false
+      (let ((c (strByte ln 0)))
+        (if (|| (== c 32) (|| (== c 9) (== c 59)))
+          false
+          true
+        )
+      )
+    )
+  )
+)
+
+(pub :: labelName (-> String String))
+
+(pub fn (labelName ln) (strSlice ln 0 (- (strLen ln) 1)))
+
+(pub :: defineFnName (-> String String))
+
+(pub fn (defineFnName ln)
+  (match (strFindByte ln 64 0)
+    ((None) "")
+    ((Some at)
+      (match (strFindByte ln 40 (+ at 1))
+        ((None) "")
+        ((Some paren) (strSlice ln (+ at 1) (- paren (+ at 1))))
+      )
+    )
+  )
+)
+
+; One marker row: label, function, module ("" for entry), span start.
+(pub :: pushLineMark (-> (Vec Int) String String String (Vec Int)))
+
+(pub fn (pushLineMark marks label func ln)
+  (let ((rest (strSlice ln 9 (- (strLen ln) 9))))
+    (let ((v vecNew))
+      {
+        (vecPush v (cast Int label))
+        (vecPush v (cast Int func))
+        (match (strFindByte rest 32 0)
+          ((None)
+            {
+              (vecPush v (cast Int ""))
+              (vecPush v (strToInt rest))
+            }
+          )
+          ((Some e)
+            {
+              (vecPush v (cast Int (strSlice rest 0 e)))
+              (vecPush v (strToInt (strSlice rest (+ e 1) (- (strLen rest) (+ e 1)))))
+            }
+          )
+        )
+        (vecPush marks (cast Int v))
+        marks
+      }
+    )
+  )
+)
 ; A helper because the walker makes six of these calls and the template
 ; string is the one thing in the emitter that must not be retyped by
 ; hand - `targetSyscallAsm`'s own comment records a clobber list that
 ; was one register short and cost an infinite loop. The door itself is
 ; `emitRuntimeWrite`, since 2026-08-29 the one place that knows how a
 ; target writes to fd 2.
+; Resolve every marker against its file's text and accumulate one
+; row string per resolvable marker into `rows`, returning the count.
+; Texts are read once per distinct module no matter how many markers
+; name it, and each text's line starts are indexed once: resolving
+; per marker re-read and re-scanned whole files, which put a second
+; per call site on a 700 KiB module - measured, the shape that took
+; self-host emission from two seconds to eight.
+(pub :: resolveLineRows (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int))
+
+;@axiom:effect(io)
+(pub fn (resolveLineRows marks rows files addrFns addrLbls cg)
+  (resolveMods marks (collectMods marks 0 vecNew) 0 rows files addrFns addrLbls cg)
+)
+
+; Distinct modules in first-sight order.
+(pub :: collectMods (-> (Vec Int) Int (Vec Int) (Vec Int)))
+
+(pub fn (collectMods marks i mods)
+  (if (>= i (vecLen marks))
+    mods
+    (let ((modname (vecGetStr (cast (Vec Int) (vecGet marks i)) 2)))
+      (if (>= (findString mods modname 0) 0)
+        (collectMods marks (+ i 1) mods)
+        {
+          (vecPush mods (cast Int modname))
+          (collectMods marks (+ i 1) mods)
+        }
+      )
+    )
+  )
+)
+
+(pub :: resolveMods (-> (Vec Int) (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int))
+
+;@axiom:effect(io)
+(pub fn (resolveMods marks mods j rows files addrFns addrLbls cg)
+  (if (>= j (vecLen mods))
+    (vecLen rows)
+    (let ((modname (vecGetStr mods j)))
+      (let ((text (markText modname cg)))
+        (if (== (strLen text) 0)
+          (resolveMods marks mods (+ j 1) rows files addrFns addrLbls cg)
+          (let ((path (markPath modname cg)))
+            (let ((ix (srcLineIndex text)))
+              {
+                (resolveModMarks marks 0 modname text path ix rows files addrFns addrLbls)
+                (resolveMods marks mods (+ j 1) rows files addrFns addrLbls cg)
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: resolveModMarks (-> (Vec Int) Int String String String Int (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int))
+
+(pub fn (resolveModMarks marks i modname text path ix rows files addrFns addrLbls)
+  (if (>= i (vecLen marks))
+    0
+    (let ((m (cast (Vec Int) (vecGet marks i))))
+      (if (strEq modname (vecGetStr m 2))
+        (let ((off (vecGet m 3)))
+          (if (>= off (strLen text))
+            (resolveModMarks marks (+ i 1) modname text path ix rows files addrFns addrLbls)
+            (let ((fi (fileIndex files path 0)))
+              {
+                (vecPush rows (cast Int (lineRowStr fi path (lineOfIx ix off) (colOfIx text ix off))))
+                (vecPush addrFns (cast Int (vecGetStr m 1)))
+                (vecPush addrLbls (cast Int (vecGetStr m 0)))
+                (resolveModMarks marks (+ i 1) modname text path ix rows files addrFns addrLbls)
+              }
+            )
+          )
+        )
+        (resolveModMarks marks (+ i 1) modname text path ix rows files addrFns addrLbls)
+      )
+    )
+  )
+)
+
+; The display path of a marker's module: the entry input's basename,
+; or the resolved module path's basename. Basename, never the full
+; path: argv spells absolute workdirs, and those must not leak into
+; binaries (or traces) - the name only locates the file for a human
+; holding the source, and the line and column do the pointing. The
+; text is still read through the full path, so the name and the
+; lines cannot disagree about which file they mean.
+(pub :: markPath (-> String Int String))
+
+;@axiom:effect(io)
+(pub fn (markPath modname cg)
+  (if (== (strLen modname) 0)
+    (baseName (entryInputPath))
+    (baseName (moduleSrcPath modname (memGetWord cg 26) (pathDir (entryInputPath))))
+  )
+)
+
+; Everything after the last `/`, or the whole string when there is
+; none. Recursion per slash; paths are shallow, strings are short.
+(pub :: baseName (-> String String))
+
+(pub fn (baseName p)
+  (match (strFindByte p 47 0)
+    ((None) p)
+    ((Some i) (baseName (strSlice p (+ i 1) (- (strLen p) (+ i 1))))))
+)
+
+; The text behind a marker: the entry input, or the module search's
+; winner. "" when neither can be read.
+(pub :: markText (-> String Int String))
+
+;@axiom:effect(io)
+(pub fn (markText modname cg)
+  (if (== (strLen modname) 0)
+    (let ((p (entryInputPath)))
+      (if (== (strLen p) 0)
+        ""
+        (sysReadFile (strCStr p))
+      )
+    )
+    (readModuleSrcOr modname (memGetWord cg 26) (pathDir (entryInputPath)) "")
+  )
+)
+
+; First-sight index of a path in `files`, appending. Linear, like
+; `findString` beside it: tables here are tens of rows, and an index
+; structure would out-cost what it indexes.
+(pub :: fileIndex (-> (Vec Int) String Int Int))
+
+(pub fn (fileIndex files path i)
+  (if (>= i (vecLen files))
+    (let ((n (vecLen files)))
+      {
+        (vecPush files (cast Int path))
+        n
+      }
+    )
+    (if (strEq (vecGetStr files i) path)
+      i
+      (fileIndex files path (+ i 1))
+    )
+  )
+)
+
+(pub :: lineRowStr (-> Int String Int Int String))
+
+(pub fn (lineRowStr fi path line col)
+  (let ((a (cat2 "  i64 ptrtoint (ptr @__axiom_filen_" (fmtInt fi))))
+    (let ((b (cat2 a " to i64), i64 ")))
+      (let ((c (cat2 b (fmtInt (strLen path)))))
+        (let ((d (cat2 c ", i64 ")))
+          (let ((e (cat2 d (fmtInt line))))
+            (let ((f (cat2 e ", i64 ")))
+              (cat2 f (fmtInt col))
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Filename globals, the meta table, the address array, the count,
+; and the initialiser that resolves the addresses at startup. The
+; addresses cannot live in the table as link-time constants: an
+; intra-function address has no relocation kind that survives into
+; linked data on every target (measured: all zeros in the linked
+; binary on darwin-aarch64), while the same `blockaddress` as a code
+; operand assembles to PC-relative arithmetic everywhere. So the
+; table holds what links (file, line, column) and `@__axiom_lineinit`
+; fills what only runs (addresses), called once at the top of the
+; backtrace - idempotent stores, so a second trap mid-trace cannot
+; corrupt them, and fork inherits them filled. With no rows the
+; arrays are the same one-element placeholders the symbol table
+; uses, and the initialiser is a bare `ret`.
+(pub :: emitLineTableGlobals (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
+
+(pub fn (emitLineTableGlobals rows files addrFns addrLbls n cg)
+  {
+    (emitFilenGlobals files 0 cg)
+    (if (== n 0)
+      {
+        (emitLine cg "@__axiom_linetab = internal constant [4 x i64] zeroinitializer")
+        (emitLine cg "@__axiom_lineaddrs = internal global [1 x i64] zeroinitializer")
+        (emitLine cg "@__axiom_linetab_n = internal constant i64 0")
+        (emitLineInit addrFns addrLbls 0 n cg)
+        cg
+      }
+      {
+        (emitLine cg (cat3 "@__axiom_linetab = internal constant [" (fmtInt (* 4 n)) " x i64] ["))
+        (emitLineRows rows 0 n cg)
+        (emitLine cg "]")
+        (emitLine cg (cat3 "@__axiom_lineaddrs = internal global [" (fmtInt n) " x i64] zeroinitializer"))
+        (emitLine cg (cat3 "@__axiom_linetab_n = internal constant i64 " (fmtInt n) ""))
+        (emitLineInit addrFns addrLbls 0 n cg)
+        cg
+      }
+    )
+  }
+)
+
+; One store per row: the link-time address of the row's block into
+; the row's slot. Straight-line stores, no loop (a loop would need
+; its bound and step in registers the emitter would then have to
+; keep alive across nothing - unrolled text is what this emitter
+; does everywhere else).
+(pub :: emitLineInit (-> (Vec Int) (Vec Int) Int Int Int Int))
+
+(pub fn (emitLineInit addrFns addrLbls i n cg)
+  {
+    (if (== i 0)
+      {
+        (emitLine cg "define internal i64 @__axiom_lineinit() #0 {")
+        cg
+      }
+      cg
+    )
+    (if (>= i n)
+      {
+        (emitLine cg "  ret i64 0")
+        (emitLine cg "}")
+        (emitLine cg "")
+        cg
+      }
+      {
+        (emitLine cg (lineInitStore (vecGetStr addrFns i) (vecGetStr addrLbls i) i n))
+        (emitLineInit addrFns addrLbls (+ i 1) n cg)
+      }
+    )
+  }
+)
+
+(pub :: lineInitStore (-> String String Int Int String))
+
+(pub fn (lineInitStore func lbl i n)
+  (let ((a (cat2 "  store i64 ptrtoint (ptr blockaddress(@" func)))
+    (let ((b (cat2 a ", %")))
+      (let ((c (cat2 b lbl)))
+        (let ((d (cat2 c ") to i64), ptr getelementptr ([")))
+          (let ((e (cat2 d (fmtInt n))))
+            (let ((f (cat2 e " x i64], ptr @__axiom_lineaddrs, i64 0, i64 ")))
+              (let ((g (cat2 f (fmtInt i))))
+                (cat2 g ")")
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: emitFilenGlobals (-> (Vec Int) Int Int Int))
+
+(pub fn (emitFilenGlobals files i cg)
+  (if (>= i (vecLen files))
+    cg
+    (let ((p (vecGetStr files i)))
+      (let ((head (cat2 "@__axiom_filen_" (fmtInt i))))
+        (let ((sized (cat2 head (cat2 " = private unnamed_addr constant [" (fmtInt (strLen p))))))
+          (let ((open (cat2 sized " x i8] c\"")))
+            (let ((body (cat2 open (llvmBytes p 0 ""))))
+              {
+                (emitLine cg (cat2 body "\""))
+                (emitFilenGlobals files (+ i 1) cg)
+              }
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: emitLineRows (-> (Vec Int) Int Int Int Int))
+
+(pub fn (emitLineRows rows i n cg)
+  (if (>= i n)
+    cg
+    {
+      (emitLine cg (cat2 (vecGetStr rows i) (if (< (+ i 1) n) "," "")))
+      (emitLineRows rows (+ i 1) n cg)
+    }
+  )
+)
+
+; One `write(2, ptr, len)` through the same door the three traps use.
 (pub :: emitBtWrite (-> Int String String Int))
 
 (pub fn (emitBtWrite cg ptrExpr lenExpr) (emitRuntimeWrite cg ptrExpr lenExpr))
@@ -10667,9 +11272,9 @@
 ; module's functions - a libc start frame above `main` - resolve to
 ; whichever of ours happens to precede them, so the walker stops at
 ; `main` rather than trusting the answer past it.
-(pub :: emitBtName (-> Int Int Int))
+(pub :: emitBtName (-> Int Int Int Int))
 
-(pub fn (emitBtName cg n)
+(pub fn (emitBtName cg n ln)
   (let ((sz 
     (fmtInt
       (if (== n 0)
@@ -10678,6 +11283,8 @@
       )
     )
   ))
+    (let ((lsz (fmtInt (if (== ln 0) 4 (* 4 ln)))))
+    (let ((asz (fmtInt (if (== ln 0) 1 ln))))
     {
       (emitLine cg "define internal i64 @__axiom_bt_name(i64 %ra) #0 {")
       (emitLine cg "entry:")
@@ -10724,12 +11331,147 @@
       (emitLine cg "  %i1 = add i64 %i, 1")
       (emitLine cg "  br label %scan")
       (emitLine cg "emit:")
+      ; Above-range stop intentionally absent: the table holds starts,
+      ; not extents, so "past every start" also matches an address
+      ; inside the last-laid-out function - and stopping there emptied
+      ; real traces (measured: three silent frames for a trap in its
+      ; last function). Foreign tails are still bounded by the `main`
+      ; and thread-entry stops below, and by the walk's own guards; a
+      ; sibling-jump edge at `--opt 1` and above can append one bare
+      ; runtime frame past the highest genuine one, which the gate
+      ; records rather than forbids. What this table never does is
+      ; print a wrong line: rows resolve only inside their own
+      ; function, and a frame with no row prints its bare name.
+      (emitLine cg "  br label %hdr")
+      (emitLine cg "hdr:")
       (emitLine cg "  %atp = ptrtoint ptr @__axiom_bt_at to i64")
       (emitBtWrite cg "%atp" "5")
       (emitLine cg "  %found = icmp ne i64 %bn, 0")
       (emitLine cg "  br i1 %found, label %named, label %unknown")
       (emitLine cg "named:")
       (emitBtWrite cg "%bn" "%bl")
+      ; A located frame names its line: the linetab row with the
+      ; greatest address the function starts at or before and the
+      ; return address minus one reaches past - the same greatest-
+      ; below rule as the symbol lookup, bounded below by the
+      ; function the first scan named so rows of other functions can
+      ; never win. Rows are 5 words: address, file pointer, file
+      ; length, line, column. No row qualifies for a runtime-helper
+      ; frame, an inlined-away call, or a `main` wrapper - those print
+      ; the bare name, exactly as before.
+      (emitLine cg "  br label %loc")
+      (emitLine cg "loc:")
+      (emitLine cg "  br label %lscan")
+      (emitLine cg "lscan:")
+      (emitLine cg "  %li = phi i64 [ 0, %loc ], [ %li1, %lnext ]")
+      (emitLine cg "  %lba = phi i64 [ 0, %loc ], [ %lba1, %lnext ]")
+      (emitLine cg "  %lfp = phi i64 [ 0, %loc ], [ %lfp1, %lnext ]")
+      (emitLine cg "  %lfl = phi i64 [ 0, %loc ], [ %lfl1, %lnext ]")
+      (emitLine cg "  %lln = phi i64 [ 0, %loc ], [ %lln1, %lnext ]")
+      (emitLine cg "  %lco = phi i64 [ 0, %loc ], [ %lco1, %lnext ]")
+      (emitLine cg "  %lok = phi i64 [ 0, %loc ], [ %lok1, %lnext ]")
+      (emitLine cg (cat3 "  %lfin = icmp uge i64 %li, " (fmtInt ln) ""))
+      (emitLine cg "  br i1 %lfin, label %locdone, label %lrow")
+      (emitLine cg "lrow:")
+      (emitLine cg (cat3 "  %lap = getelementptr [" asz " x i64], ptr @__axiom_lineaddrs, i64 0, i64 %li"))
+      (emitLine cg "  %lra = load i64, ptr %lap")
+      (emitLine cg "  %li4 = mul i64 %li, 4")
+      (emitLine cg (cat3 "  %lpf = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %li4"))
+      (emitLine cg "  %lfpv = load i64, ptr %lpf")
+      (emitLine cg "  %lj1 = add i64 %li4, 1")
+      (emitLine cg (cat3 "  %lflp = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj1"))
+      (emitLine cg "  %lflv = load i64, ptr %lflp")
+      (emitLine cg "  %lj2 = add i64 %li4, 2")
+      (emitLine cg (cat3 "  %llnp = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj2"))
+      (emitLine cg "  %llnv = load i64, ptr %llnp")
+      (emitLine cg "  %lj3 = add i64 %li4, 3")
+      (emitLine cg (cat3 "  %lcop = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj3"))
+      (emitLine cg "  %lcov = load i64, ptr %lcop")
+      (emitLine cg "  %infn = icmp uge i64 %lra, %ba")
+      (emitLine cg "  %inpc = icmp ule i64 %lra, %pc")
+      (emitLine cg "  %inr = and i1 %infn, %inpc")
+      (emitLine cg "  %better = icmp ugt i64 %lra, %lba")
+      (emitLine cg "  %ltake = and i1 %inr, %better")
+      (emitLine cg "  br label %lnext")
+      (emitLine cg "lnext:")
+      (emitLine cg "  %lba1 = select i1 %ltake, i64 %lra, i64 %lba")
+      (emitLine cg "  %lfp1 = select i1 %ltake, i64 %lfpv, i64 %lfp")
+      (emitLine cg "  %lfl1 = select i1 %ltake, i64 %lflv, i64 %lfl")
+      (emitLine cg "  %lln1 = select i1 %ltake, i64 %llnv, i64 %lln")
+      (emitLine cg "  %lco1 = select i1 %ltake, i64 %lcov, i64 %lco")
+      (emitLine cg "  %lok1 = select i1 %ltake, i64 1, i64 %lok")
+      (emitLine cg "  %li1 = add i64 %li, 1")
+      (emitLine cg "  br label %lscan")
+      (emitLine cg "locdone:")
+      (emitLine cg "  %lgo = icmp ne i64 %lok, 0")
+      (emitLine cg "  br i1 %lgo, label %locprint, label %eol")
+      (emitLine cg "locprint:")
+      (emitLine cg "  %spp = ptrtoint ptr @__axiom_bt_sp to i64")
+      (emitBtWrite cg "%spp" "1")
+      (emitBtWrite cg "%lfp" "%lfl")
+      (emitLine cg "  %cop1 = ptrtoint ptr @__axiom_bt_colon to i64")
+      (emitBtWrite cg "%cop1" "1")
+      ; Decimal, twice, through one 24-byte scratch buffer: the first
+      ; digit is unconditional so 0 prints "0", then each quotient
+      ; prepends while non-zero. Inlined per value rather than called -
+      ; a helper would be a new `define`, and the symbol-table
+      ; completeness check counts those.
+      (emitLine cg "  %ldp0 = ptrtoint ptr @__axiom_decbuf to i64")
+      (emitLine cg "  %ldend = add i64 %ldp0, 24")
+      (emitLine cg "  %lddq0 = udiv i64 %lln, 10")
+      (emitLine cg "  %ldrem0 = urem i64 %lln, 10")
+      (emitLine cg "  %lddig0 = add i64 %ldrem0, 48")
+      (emitLine cg "  %ldd80 = trunc i64 %lddig0 to i8")
+      (emitLine cg "  %ldp1 = sub i64 %ldend, 1")
+      (emitLine cg "  %ldpp1 = inttoptr i64 %ldp1 to ptr")
+      (emitLine cg "  store i8 %ldd80, ptr %ldpp1")
+      (emitLine cg "  br label %ldloop")
+      (emitLine cg "ldloop:")
+      (emitLine cg "  %ldvv = phi i64 [ %lddq0, %locprint ], [ %lddq, %ldmore ]")
+      (emitLine cg "  %ldpp = phi i64 [ %ldp1, %locprint ], [ %ldp2, %ldmore ]")
+      (emitLine cg "  %ldgo = icmp ne i64 %ldvv, 0")
+      (emitLine cg "  br i1 %ldgo, label %ldmore, label %lddone")
+      (emitLine cg "ldmore:")
+      (emitLine cg "  %lddq = udiv i64 %ldvv, 10")
+      (emitLine cg "  %ldrem = urem i64 %ldvv, 10")
+      (emitLine cg "  %lddig = add i64 %ldrem, 48")
+      (emitLine cg "  %ldd82 = trunc i64 %lddig to i8")
+      (emitLine cg "  %ldp2 = sub i64 %ldpp, 1")
+      (emitLine cg "  %ldpp2 = inttoptr i64 %ldp2 to ptr")
+      (emitLine cg "  store i8 %ldd82, ptr %ldpp2")
+      (emitLine cg "  br label %ldloop")
+      (emitLine cg "lddone:")
+      (emitLine cg "  %ldlen = sub i64 %ldend, %ldpp")
+      (emitBtWrite cg "%ldpp" "%ldlen")
+      (emitLine cg "  br label %locprint2")
+      (emitLine cg "locprint2:")
+      (emitLine cg "  %cop2 = ptrtoint ptr @__axiom_bt_colon to i64")
+      (emitBtWrite cg "%cop2" "1")
+      (emitLine cg "  %cddq0 = udiv i64 %lco, 10")
+      (emitLine cg "  %cdrem0 = urem i64 %lco, 10")
+      (emitLine cg "  %cddig0 = add i64 %cdrem0, 48")
+      (emitLine cg "  %cdd80 = trunc i64 %cddig0 to i8")
+      (emitLine cg "  %cdp1 = sub i64 %ldend, 1")
+      (emitLine cg "  %cdpp1 = inttoptr i64 %cdp1 to ptr")
+      (emitLine cg "  store i8 %cdd80, ptr %cdpp1")
+      (emitLine cg "  br label %cdloop")
+      (emitLine cg "cdloop:")
+      (emitLine cg "  %cdvv = phi i64 [ %cddq0, %locprint2 ], [ %cddq, %cdmore ]")
+      (emitLine cg "  %cdpp = phi i64 [ %cdp1, %locprint2 ], [ %cdp2, %cdmore ]")
+      (emitLine cg "  %cdgo = icmp ne i64 %cdvv, 0")
+      (emitLine cg "  br i1 %cdgo, label %cdmore, label %cddone")
+      (emitLine cg "cdmore:")
+      (emitLine cg "  %cddq = udiv i64 %cdvv, 10")
+      (emitLine cg "  %cdrem = urem i64 %cdvv, 10")
+      (emitLine cg "  %cddig = add i64 %cdrem, 48")
+      (emitLine cg "  %cdd82 = trunc i64 %cddig to i8")
+      (emitLine cg "  %cdp2 = sub i64 %cdpp, 1")
+      (emitLine cg "  %cdpp2 = inttoptr i64 %cdp2 to ptr")
+      (emitLine cg "  store i8 %cdd82, ptr %cdpp2")
+      (emitLine cg "  br label %cdloop")
+      (emitLine cg "cddone:")
+      (emitLine cg "  %cdlen = sub i64 %ldend, %cdpp")
+      (emitBtWrite cg "%cdpp" "%cdlen")
       (emitLine cg "  br label %eol")
       ; An address no entry precedes. It cannot happen for a frame of
       ; this module's own code, and printing a plausible wrong name
@@ -10747,7 +11489,9 @@
       (emitLine cg "")
       cg
     }
+    )
   )
+)
 )
 
 ; The walk.
@@ -10768,6 +11512,10 @@
   {
     (emitLine cg "define internal void @__axiom_backtrace() #0 {")
     (emitLine cg "entry:")
+    ; Resolve the line addresses before walking: the table holds what
+    ; links, and this fills what only runs. Idempotent stores, so a
+    ; re-entrant trap cannot corrupt them, and fork inherits them.
+    (emitLine cg "  %li0 = call i64 @__axiom_lineinit()")
     (emitLine cg "  %hp = ptrtoint ptr @__axiom_bt_hdr to i64")
     (emitBtWrite cg "%hp" "42")
     (emitLine cg (cat3 "  %fpi = call i64 asm sideeffect " (targetFrameAsm (memGetWord cg 26)) "()"))
@@ -10870,13 +11618,29 @@
 ; architecture and declares nothing.
 (pub :: emitBacktrace (-> Int (Vec Int) Int))
 
+;@axiom:effect(io)
 (pub fn (emitBacktrace cg names)
   {
     (emitSymbolTable cg names)
+    (emitBacktraceTables cg names (vecLen names))
+  }
+)
+
+; The tables' remainder, split out so the skeleton above stays
+; readable: constants, the walker with both counts, and the walk.
+(pub :: emitBacktraceTables (-> Int (Vec Int) Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitBacktraceTables cg names n)
+  (let ((ln (emitLineTable cg)))
+    {
     (emitLine cg "@__axiom_bt_hdr = private unnamed_addr constant [42 x i8] c\"axiom: backtrace (most recent call first)\\0A\"")
     (emitLine cg "@__axiom_bt_at = private unnamed_addr constant [5 x i8] c\"  at \"")
+    (emitLine cg "@__axiom_bt_sp = private unnamed_addr constant [1 x i8] c\" \"")
+    (emitLine cg "@__axiom_bt_colon = private unnamed_addr constant [1 x i8] c\":\"")
     (emitLine cg "@__axiom_bt_nl = private unnamed_addr constant [1 x i8] c\"\\0A\"")
     (emitLine cg "@__axiom_bt_unk = private unnamed_addr constant [9 x i8] c\"<unknown>\"")
+    (emitLine cg "@__axiom_decbuf = internal global [24 x i8] zeroinitializer")
     ; `-1` when there is no `main` - an archive built with
     ; `--emit-staticlib` has none, and `emitAllocator` skips the
     ; wrapper for exactly that case. No function can be at address -1,
@@ -10891,10 +11655,11 @@
       )
     )
     (emitLine cg "")
-    (emitBtName cg (vecLen names))
+    (emitBtName cg n ln)
     (emitBtWalk cg)
     cg
-  }
+    }
+    )
 )
 
 ;@axiom:effect(io)
@@ -15627,10 +16392,10 @@
 ; Arguments are evaluated BEFORE the slot is read, which is stage0's
 ; order and matters at exactly one observable point: an argument that
 ; prints must print even when the dispatch below traps.
-(pub :: emitEffectOp (-> Int (Vec Int) Int Int))
+(pub :: emitEffectOp (-> Int (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitEffectOp ent args cg)
+(pub fn (emitEffectOp ent args cg snode)
   ; Emission only, as in `emitHandle`: the registry is keyed on the
   ; unquoted name.
   (let (
@@ -15655,6 +16420,7 @@
             (_2 (emitLine cgA (cat4 (cat2 "  " cmpR) " = icmp eq i64 " rec ", 0")))
             (_3 (emitLine cgA (cat4 (cat3 "  br i1 " cmpR ", label %") trapB (cat2 ", label %" goB) "")))
             (_4 (emitLabel cgA trapB))
+            (_4b (emitLineMark snode cgA))
             (_5 (emitLine cgA "  call i64 @__axiom_unhandled_effect()"))
             (_6 (emitLine cgA "  unreachable"))
             (_7 (emitLabel cgA goB))
@@ -15664,7 +16430,7 @@
                 (let ((cgP (loadWordAt cgL rec 1)))
                   (let ((prev (strDup (memGetWordStr cgP 2))))
                     (let ((_8 (emitLine cgP (cat4 "  store i64 " prev ", ptr @" slot))))
-                      (let ((cgR (emitApplyRegs regs cgP handler 0)))
+                      (let ((cgR (emitApplyRegs regs cgP handler 0 snode)))
                         (let ((res (strDup (memGetWordStr cgR 2))))
                           {
                             (emitLine cgR (cat4 "  store i64 " rec ", ptr @" slot))
@@ -15708,10 +16474,10 @@
 ; value absorbs exactly one, so a two-argument operation takes a
 ; curried handler chain and applying both at once would answer with
 ; the inner closure's address.
-(pub :: emitApplyRegs (-> (Vec a) Int String Int Int))
+(pub :: emitApplyRegs (-> (Vec a) Int String Int Int Int))
 
-(pub fn (emitApplyRegs regs cg rec i)
-  (emitApplyRegsOwned regs cg rec i 0)
+(pub fn (emitApplyRegs regs cg rec i snode)
+  (emitApplyRegsOwned regs cg rec i 0 snode)
 )
 
 ; The walk, carrying whether THIS walk produced `rec`. `recOwned` is 0
@@ -15728,9 +16494,9 @@
 ; the block files. Unreleased it was 31-32 bytes per two-argument
 ; operation, which is the whole of `Fallible.ax`'s "two arguments
 ; (message, fallback) 32 bytes per operation" row.
-(pub :: emitApplyRegsOwned (-> (Vec a) Int String Int Int Int))
+(pub :: emitApplyRegsOwned (-> (Vec a) Int String Int Int Int Int))
 
-(pub fn (emitApplyRegsOwned regs cg rec i recOwned)
+(pub fn (emitApplyRegsOwned regs cg rec i recOwned snode)
   (if (>= i (vecLen regs))
     {
       (memSetWord cg 2 rec)
@@ -15741,14 +16507,14 @@
     ; runtime load out of the effect's evidence slot, so there is no
     ; application node whose class the checker could have recorded.
     ; Under-retaining leaks; the alternative would be to guess.
-    (let ((cgR (applyOneArg cg rec (vecGetStr regs i) (constStr 0))))
+    (let ((cgR (applyOneArg cg rec (vecGetStr regs i) (constStr 0) snode)))
       (let ((cgD 
         (if (== recOwned 1)
           (emitReleaseOf cgR rec)
           cgR
         )
       ))
-        (emitApplyRegsOwned regs cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1)
+        (emitApplyRegsOwned regs cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1 snode)
       )
     )
   )
@@ -16305,6 +17071,12 @@
                       (let ((rn (allocReg cg)))
                         (let ((r (regStr rn)))
                           {
+                            ; A bare nullary call is still a call, and a
+                            ; frame for it still needs its line: the
+                            ; reference node carries the span, so it
+                            ; marks like every other call site. `node`
+                            ; here is the snode `emitCallMark` wants.
+                            (emitCallMark node cg rn)
                             (emitLine cg (cat4 (cat2 "  " r) " = call i64 @" (llvmSym (strDup full)) "()"))
                             (memSetWord cg 2 r)
                             (memSetWord cg 14 (fnRetIsFloat cg full))
@@ -16476,14 +17248,21 @@
   {
     (memSetWord cg 5 vecNew)
     (memSetWord cg 45 vecNew)
-    (walkAppChain node cg)
+    (walkAppChain node cg node)
   }
 )
 
-(pub :: walkAppChain (-> Int Int Int))
+; `snode` is the OUTERMOST application node of the spine being
+; lowered - the source location of the call. It is snapshotted at
+; entry and threaded unchanged through the recursion below (which
+; walks INWARD to the head) and onward to every call the spine
+; emits, where it becomes the line marker. Passed as a parameter
+; rather than read from a stash for the reason the stamp comment
+; below gives: anything re-entrant clobbers shared state.
+(pub :: walkAppChain (-> Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (walkAppChain node cg)
+(pub fn (walkAppChain node cg snode)
   (let (
     (fnNode (nodeA node))
     (argNode (nodeB node))
@@ -16502,9 +17281,9 @@
         ; declaration being emitted, and threaded as a parameter - a
         ; CG-stash read later would be clobbered by any nested
         ; polymorphic call in an argument (MM-LIFE-2d)
-        (dispatchCall (nodeAName fnNode) (evStampOk cg (memGetWord fnNode 6)) cg (nodeDefScope fnNode))
+        (dispatchCall (nodeAName fnNode) (evStampOk cg (memGetWord fnNode 6)) cg (nodeDefScope fnNode) snode)
         (if (== (nodeTag fnNode) TAG_E_APP)
-          (walkAppChain fnNode cg)
+          (walkAppChain fnNode cg snode)
           ; A head that is neither a name nor another application - a
           ; lambda, an `if`, a `match`, a block. This branch used to
           ; write the constant 0 and return, which does not emit a
@@ -16533,7 +17312,7 @@
             {
               (memSetWord cg 30 0)
               (let ((cgH (emitExpr fnNode cg)))
-                (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs)
+                (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs snode)
               )
             }
           )
@@ -16551,10 +17330,10 @@
 ; the one reference that never passes through `emitVar`, and the two
 ; resolvers disagreeing is a checker typing one binding while the
 ; emitter reads another.
-(pub :: dispatchCall (-> String Int Int Int Int))
+(pub :: dispatchCall (-> String Int Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (dispatchCall fnName stamp cg defscope)
+(pub fn (dispatchCall fnName stamp cg defscope snode)
   ; Read and clear in one step: tail position belongs to this
   ; call alone, and the arguments emitted below must not inherit
   ; it - a self call in argument position is an ordinary call.
@@ -16618,7 +17397,7 @@
                 ; the surplus applies one argument at a time from
                 ; position 2 - each application may yield another
                 ; closure, which is exactly the curried case.
-                (emitApplyChain args cgc (strDup (memGetWordStr cgc 2)) 2 evs)
+                (emitApplyChain args cgc (strDup (memGetWordStr cgc 2)) 2 evs snode)
                 cgc
               )
             }
@@ -16652,7 +17431,7 @@
               ; a closure record - so the call goes indirect through its code
               ; pointer. Checked before the constructor table: locals shadow.
               (if (&& (!= defscope 1) (isLocalValue cg fnName))
-                (emitIndirectCall fnName args cg)
+                (emitIndirectCall fnName args cg snode)
                 ; An effect operation is dispatch, not a call: there is no symbol
                 ; to reach, only the handler the innermost `handle` installed.
                 ; Checked AFTER the local test, because a local shadowing an
@@ -16660,7 +17439,7 @@
                 ; and a generator that disagreed would dispatch a name the checker
                 ; had already bound to a lambda.
                 (if (!= (lookupEffFor cg (memGetWordVec cg 33) fnName) 0)
-                  (emitEffectOp (lookupEffFor cg (memGetWordVec cg 33) fnName) args cg)
+                  (emitEffectOp (lookupEffFor cg (memGetWordVec cg 33) fnName) args cg snode)
                   (let (
                     (types (memGetWordVec cg 3))
                     (entry (lookupType types fnName))
@@ -16674,7 +17453,7 @@
                       ; correct answer is a value.
                       (if (&& (!= isTail 0) (&& (!= (memGetWord cg 27) 0) (&& (strEq fnName (memGetWordStr cg 27)) (== (vecLen args) (vecLen (memGetWordVec cg 28))))))
                         (emitTailJump args stamp cg)
-                        (emitOverApplied fnName args stamp (armMustTail cg isTail fnName args) evs)
+                        (emitOverApplied fnName args stamp (armMustTail cg isTail fnName args) evs snode)
                       )
                       (zeroFloat (emitConstructor args entry stamp cg))
                     )
@@ -16711,10 +17490,10 @@
 ; closure's address, the same bug stage0's local-head path had. The
 ; result's float-ness is unknown (no signature to ask), so it reads
 ; as integer.
-(pub :: emitIndirectCall (-> String (Vec Int) Int Int))
+(pub :: emitIndirectCall (-> String (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitIndirectCall fnName args cg)
+(pub fn (emitIndirectCall fnName args cg snode)
   ; THE SNAPSHOT IS TAKEN HERE, before the head is lowered and before
   ; any argument is emitted. Both of those re-enter `emitApp`, which
   ; resets `argEv`; a read after them is a read of somebody else's
@@ -16723,7 +17502,7 @@
   ; one.
   (let ((evs (spineEvs cg)))
     (let ((cgH (emitVar (mkEVar fnName) cg)))
-      (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs)
+      (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs snode)
     )
   )
 )
@@ -16736,11 +17515,11 @@
 ; arguments applied through a closure, which is the one place the
 ; class is the only thing that can tell the callee whether the word it
 ; was handed is a reference.
-(pub :: emitApplyChain (-> (Vec Int) Int String Int (Vec Int) Int))
+(pub :: emitApplyChain (-> (Vec Int) Int String Int (Vec Int) Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitApplyChain args cg rec i evs)
-  (emitApplyChainOwned args cg rec i 0 evs)
+(pub fn (emitApplyChain args cg rec i evs snode)
+  (emitApplyChainOwned args cg rec i 0 evs snode)
 )
 
 ; The evidence classes for a spine, SNAPSHOTTED before the walk begins
@@ -16779,10 +17558,10 @@
 ; (`emitApp`'s two-argument operator path, and the partial-application
 ; path that drops the arity prefix) still hand in a record they did
 ; not make, so they start at 0 like everyone else.
-(pub :: emitApplyChainOwned (-> (Vec Int) Int String Int Int (Vec Int) Int))
+(pub :: emitApplyChainOwned (-> (Vec Int) Int String Int Int (Vec Int) Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitApplyChainOwned args cg rec i recOwned evs)
+(pub fn (emitApplyChainOwned args cg rec i recOwned evs snode)
   (if (>= i (vecLen args))
     {
       (memSetWord cg 2 rec)
@@ -16792,14 +17571,14 @@
     (let ((ev (evOperandAt evs i)))
     (let ((cgA (emitExpr (vecGet args i) cg)))
       (let ((a (strDup (memGetWordStr cgA 2))))
-        (let ((cgR (applyOneArg cgA rec a ev)))
+        (let ((cgR (applyOneArg cgA rec a ev snode)))
           (let ((cgD 
             (if (== recOwned 1)
               (emitReleaseOf cgR rec)
               cgR
             )
           ))
-            (emitApplyChainOwned args cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1 evs)
+            (emitApplyChainOwned args cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1 evs snode)
           )
         )
       )
@@ -16816,9 +17595,9 @@
 ; before applying it, `emitApplyRegs` takes registers already
 ; evaluated, which is what an effect operation needs so that an
 ; argument's side effects happen before a missing handler traps.
-(pub :: applyOneArg (-> Int String String String Int))
+(pub :: applyOneArg (-> Int String String String Int Int))
 
-(pub fn (applyOneArg cg rec a ev)
+(pub fn (applyOneArg cg rec a ev snode)
   (let ((cgL (loadWordAt cg rec 0)))
     (let (
       (cp (strDup (memGetWordStr cgL 2)))
@@ -16831,6 +17610,7 @@
       )
         {
           (emitLine cgL (cat4 (cat2 "  " fp) " = inttoptr i64 " cp " to ptr"))
+          (emitCallMark snode cgL rn)
           (emitLine cgL (strConcat (cat4 (cat3 (cat2 "  " r) " = call i64 " fp) "(i64 " (strDup rec) (cat2 ", i64 " a)) (cat3 (cat2 ", i64 " ev) ")" "")))
           (memSetWord cgL 2 r)
           cgL
@@ -17453,7 +18233,7 @@
               (emitRetainOf cgT f)
             )
           ))
-            (let ((cgA (applyOneArg cgO f (constStr 0) (constStr 0))))
+            (let ((cgA (applyOneArg cgO f (constStr 0) (constStr 0) 0)))
               (let (
                 (r (strDup (memGetWordStr cgA 2)))
                 (_20 (emitReleaseOf cgA (strDup f)))
@@ -18056,24 +18836,24 @@
 ; Both are asked through `buildNameIndexes` (`…Cg`), because both are
 ; asked for every call this emitter writes, and both used to walk the
 ; whole merged declaration list to answer.
-(pub :: emitOverApplied (-> String (Vec Int) Int Int (Vec Int) Int))
+(pub :: emitOverApplied (-> String (Vec Int) Int Int (Vec Int) Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitOverApplied fnName args stamp cg evs)
+(pub fn (emitOverApplied fnName args stamp cg evs snode)
   (if (isDefinedFnCg cg fnName)
     (let ((ar (fnArityOfCg cg fnName)))
       (if (|| (<= (vecLen args) ar) (== ar 0))
-        (emitCall fnName args stamp cg)
-        (let ((cgD (emitCall fnName (takeVec args ar) stamp cg)))
+        (emitCall fnName args stamp cg snode)
+        (let ((cgD (emitCall fnName (takeVec args ar) stamp cg snode)))
           ; The surplus is applied through a closure, so it needs the
           ; classes `walkAppChain` recorded - dropped by the same
           ; arity the arguments were, because the two vectors are one
           ; reversal of the same spine and must stay aligned.
-          (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar))
+          (emitApplyChain (dropVec args ar) cgD (strDup (memGetWordStr cgD 2)) 0 (dropVec evs ar) snode)
         )
       )
     )
-    (emitCall fnName args stamp cg)
+    (emitCall fnName args stamp cg snode)
   )
 )
 
@@ -18104,12 +18884,12 @@
 )
 
 ; Emit regular call: check binops/comparisons first.
-(pub :: emitCall (-> String (Vec Int) Int Int Int))
+(pub :: emitCall (-> String (Vec Int) Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitCall fnName args stamp cg)
+(pub fn (emitCall fnName args stamp cg snode)
   (if (&& (== (vecLen args) 2) (isBinop fnName))
-    (emitBinop2 fnName args cg)
+    (emitBinop2 fnName args cg snode)
     (if (&& (== (vecLen args) 2) (isCmpOp fnName))
       (emitCmp2 fnName args cg)
       ; `(- x)` used to be rewritten to `0 - x` here, which is what stage0
@@ -18119,7 +18899,7 @@
       ; argument, and reported AX3013 partial-application on a program
       ; stage0 compiles: the form was handled at the end of the pipeline and
       ; absent at the front, so nothing that reached here ever got here.
-      (emitPlainCall fnName args stamp cg)
+      (emitPlainCall fnName args stamp cg snode)
     )
   )
 )
@@ -18130,10 +18910,10 @@
 ; once. Either operand being a float makes the operation a float
 ; operation; a program mixing the two would be a type error under
 ; stage0, and this compiler compiles what it is given.
-(pub :: emitBinop2 (-> String (Vec Int) Int Int))
+(pub :: emitBinop2 (-> String (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitBinop2 fnName args cg)
+(pub fn (emitBinop2 fnName args cg snode)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let (
       (a (strDup (memGetWordStr cg1 2)))
@@ -18146,7 +18926,7 @@
         )
           (if (|| (== af 1) (== bf 1))
             (emitFBinop fnName a b cg2)
-            (emitIBinop fnName a b cg2)
+            (emitIBinop fnName a b cg2 snode)
           )
         )
       )
@@ -18163,12 +18943,12 @@
 ; Guarded now: a compare and a branch to a shared trap that names the
 ; fault on fd 2 and exits 72. One predictable branch, paid only by
 ; `/` and `%`.
-(pub :: emitIBinop (-> String String String Int Int))
+(pub :: emitIBinop (-> String String String Int Int Int))
 
-(pub fn (emitIBinop fnName a b cg)
+(pub fn (emitIBinop fnName a b cg snode)
   (let ((cgG 
     (if (isDivOp fnName)
-      (emitDivGuard b cg)
+      (emitDivGuard b cg snode)
       cg
     )
   ))
@@ -18191,9 +18971,9 @@
 
 ; `if divisor == 0 then trap`. The trap block ends `unreachable`, so
 ; nothing downstream has to know it is there.
-(pub :: emitDivGuard (-> String Int Int))
+(pub :: emitDivGuard (-> String Int Int Int))
 
-(pub fn (emitDivGuard b cg)
+(pub fn (emitDivGuard b cg snode)
   (let ((cn (allocReg cg)))
     (let (
       (zn (allocReg cg))
@@ -18208,6 +18988,7 @@
           (emitLine cg (cat4 (cat2 "  " c) " = icmp eq i64 " b ", 0"))
           (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") zb (cat2 ", label %" kb) ""))
           (emitLabel cg zb)
+          (emitLineMark snode cg)
           (emitLine cg "  call i64 @__axiom_div_by_zero()")
           (emitLine cg "  unreachable")
           (emitLabel cg kb)
@@ -18325,10 +19106,10 @@
   )
 )
 
-(pub :: emitPlainCall (-> String (Vec Int) Int Int Int))
+(pub :: emitPlainCall (-> String (Vec Int) Int Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitPlainCall fnName args stamp cg)
+(pub fn (emitPlainCall fnName args stamp cg snode)
   ; The callee's defining module may have renamed it - a bare
   ; reference reaches whatever symbol the map says (entry file
   ; first, then first import). Operators and primitives never
@@ -18390,6 +19171,7 @@
                         (pr (regStr (allocReg cgE)))
                       )
                         {
+                          (emitCallMark snode cgE rn)
                           (emitLine
                             cgE                            (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair")) "(i64 " (cat3 argStrT evStr ")"))
                           )
@@ -18419,6 +19201,7 @@
                         ; clause): the callee's body allocates nothing on
                         ; any path, so its `no-alloc` claim is its own.
                         {
+                          (emitCallMark snode cgE rn)
                           (emitLine
                             cgE                            (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair")) "(i64 " (cat3 argStrT evStr ")"))
                           )
@@ -18444,11 +19227,12 @@
                         }
                         (let ((callInst (cat3 (cat3 (cat2 "  " r) " = call i64 @" (llvmSym (strDup full))) "(i64 " (cat3 argStrT evStr ")"))))
                           {
+                            (emitCallMark snode cgE rn)
                             (emitLine cgE callInst)
                             ; the temporaries this call consumed, released now that
                             ; the callee has taken whatever share it keeps
                             (releaseOwnedArgs
-                              cgE                              fnName                              args                              argRegs                              0
+                              cgE                              fnName                            args                            argRegs                            0
                             )
                             (memSetWord cgE 2 r)
                             (memSetWord cgE 14 (fnRetIsFloat cgE full))
@@ -22385,6 +23169,78 @@
     (memSetWord cg 11 (strDup name))
     cg
   }
+)
+
+; A call's line marker and the address anchor that makes it
+; resolvable. `emitCallMark snode cg regnum` opens a label for the
+; call about to be emitted, then records the call's source location
+; as a comment the module-end scan harvests: `; @@line <module>
+; <spanstart>`, or `; @@line <spanstart>` for the entry file, whose
+; module word is 0. The register number is fresh by construction
+; (`allocReg` never reuses one inside a function), so the label is
+; unique without a counter - and the marker is always the line after
+; its label, which is the invariant the scan asserts.
+;
+; The label goes BEFORE the call (not after it): a return address
+; points past the call, so only an address at or before the call can
+; resolve to it - a fallthrough label past the call would sit above
+; every such address and match nothing. The closing branch is an
+; unconditional `br` to the new label: a basic block must end in a
+; terminator, so a bare label mid-sequence is ill-formed IR and `llc`
+; rejects it. Straight-line code keeps its order and its values - one
+; predictable branch per call, folded away above `--opt 0 - and the
+; marker is always the line after its label, which is the invariant
+; the scan asserts.
+;
+; `snode` 0 - a call with no source node behind it - emits nothing
+; at all: runtime-helper bodies and prim emitters keep their exact
+; bytes, and a frame with no marker resolves the way it always did.
+; Spanless nodes (span 0) are likewise silent, which is the
+; compiler's standing rule for spanlessness: a node with no span
+; suppresses its diagnostic rather than pointing it somewhere wrong.
+; musttail calls never reach here at all - the callee reuses the
+; frame, so no return address exists to resolve, and a label between
+; the call and its `ret` would void the `musttail` marker LLVM
+; requires adjacent.
+(pub :: emitCallMark (-> Int Int Int Int))
+
+(pub fn (emitCallMark snode cg regnum)
+  (if (== snode 0)
+    cg
+    (let ((lbl (cat2 ".LL" (fmtInt regnum))))
+      {
+        (emitLine cg (cat2 "  br label %" lbl))
+        (emitLabel cg lbl)
+        (emitLineMark snode cg)
+      }
+    )
+  )
+)
+
+; The marker alone, for blocks the emitter already isolates: trap
+; guards (`divzero_`, the unhandled-effect trap) end their block with
+; the call, so the marker opens nothing and pairs with that block's
+; own label.
+(pub :: emitLineMark (-> Int Int Int))
+
+(pub fn (emitLineMark snode cg)
+  (if (== snode 0)
+    cg
+    (let ((sp (nodeSpan snode)))
+      ; A null span word suppresses, which is the compiler's standing
+      ; rule for spanlessness; offset 0 itself is a real location (the
+      ; file's first byte) and must NOT suppress with it.
+      (if (== sp 0)
+        cg
+        (let ((mod (nodeModule snode)))
+          (if (== mod 0)
+            (emitLine cg (cat2 "; @@line " (fmtInt (spanStart sp))))
+            (emitLine cg (cat4 (cat2 "; @@line " (nodeModuleName snode)) " " (fmtInt (spanStart sp)) ""))
+          )
+        )
+      )
+    )
+  )
 )
 
 (pub :: emitBegin (-> Int Int Int))

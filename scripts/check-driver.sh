@@ -658,6 +658,114 @@ done
 [[ -z "$missing" ]] && ok "every accepted flag and command appears in --help" \
   || bad "undocumented in --help:$missing"
 
+# The two argv vocabularies the backtrace line attribution keeps in
+# codegen must match the one the driver validates. `entryInputPath`
+# re-derives the input file from argv - skipping value flags and the
+# subcommand - and driver.ax owns both lists; importing it from
+# codegen would be a cycle, so codegen carries `valueFlag` and
+# `cgSubcommand` as copies. A value flag added to one and not the
+# other misreads the command line here while validating it there:
+# the entry text resolves to the wrong file (or none), and frames
+# degrade to bare or, worse, to another file's lines.
+#
+# Compared as NORMALISED CHAINS, not word sets: order is part of the
+# copy (both were written in the same order), and a set comparison
+# would pass a reordering that already drifted. The extractor reads
+# each definition by paren balance - a line range would bleed a
+# multi-line body into its neighbours and read nothing of a one-line
+# one (measured while writing this: 27 words against 12). `flagArity`
+# answers two questions and only the first is mirrored, so its range
+# ends at the `1` that arm answers with.
+argv_chain() { # <file> <fn> [end-re] -> the defn, whitespace-stripped
+  python3 - "$1" "$2" "${3:-}" <<'PY'
+import re, sys
+src = open(sys.argv[1], encoding="utf-8").read()
+name, endre = sys.argv[2], sys.argv[3]
+m = re.search(r"\(pub fn \(" + re.escape(name) + r"[ )]", src)
+if not m:
+    print("NO DEFN " + name)
+    sys.exit(0)
+i, d, instr, esc = m.start(), 0, False, False
+buf = []
+n = len(src)
+while i < n:
+    ch = src[i]
+    if instr:
+        if esc: esc = False
+        elif ch == "\\": esc = True
+        elif ch == '"': instr = False
+        buf.append(ch)
+    else:
+        if ch == '"': instr = True; buf.append(ch)
+        elif ch == ";":
+            while i < n and src[i] != "\n": i += 1
+            continue
+        else:
+            if ch == "(": d += 1
+            elif ch == ")":
+                d -= 1
+                if d == 0:
+                    buf.append(ch)
+                    break
+            buf.append(ch)
+    i += 1
+text = "".join(buf)
+if endre:
+    text = text.split(endre)[0]
+# Drop `(pub fn (args)` so bodies compare, not signatures: `(pub`,
+# the `fn` keyword, one balanced parameter list (atomic in all four
+# mirrored functions), and the final close. Anything else shaped
+# fails loudly below instead of comparing the wrong slice.
+assert text.startswith("(pub"), text[:40]
+t = text[4:].lstrip()
+assert t.startswith("fn") and t[2:3] in (" ", "(", "\n", "\t"), t[:40]
+t = t[2:].lstrip()
+assert t[0] == "(", t[:40]
+d, j = 0, 0
+while True:
+    if t[j] == "(": d += 1
+    elif t[j] == ")":
+        d -= 1
+        if d == 0: break
+    j += 1
+body = t[j + 1:]
+assert body.endswith(")"), body[-40:]
+print(re.sub(r"\s+", "", body[:-1]))
+PY
+}
+if [[ "$(argv_chain self_host/driver.ax flagArity '
+    1')" != "$(argv_chain self_host/codegen.ax valueFlag)" ]]; then
+  bad "valueFlag in codegen.ax differs from flagArity's arity-1 arm in driver.ax:"
+  diff <(argv_chain self_host/driver.ax flagArity '
+    1') <(argv_chain self_host/codegen.ax valueFlag) | sed 's/^/     /' | head -n 6
+else
+  ok "codegen's valueFlag mirrors driver's value flags exactly"
+fi
+if [[ "$(argv_chain self_host/driver.ax isSubcommand)" != "$(argv_chain self_host/codegen.ax cgSubcommand)" ]]; then
+  bad "cgSubcommand in codegen.ax differs from isSubcommand in driver.ax:"
+  diff <(argv_chain self_host/driver.ax isSubcommand) <(argv_chain self_host/codegen.ax cgSubcommand) | sed 's/^/     /' | head -n 6
+else
+  ok "codegen's cgSubcommand mirrors driver's subcommands exactly"
+fi
+# The ablations: each list with one member renamed must be refused.
+# Renamed rather than deleted, so the extractor still reads the same
+# function body - deleting the whole one-line body would test the
+# range arithmetic instead of the comparison.
+cp self_host/driver.ax "$work/driver-abl.ax"
+sed 's/"--heap-ceiling"/"--no-such-flag"/' "$work/driver-abl.ax" > "$work/driver-abl2.ax"
+if [[ "$(argv_chain "$work/driver-abl2.ax" flagArity '
+    1')" != "$(argv_chain self_host/codegen.ax valueFlag)" ]]; then
+  ok "ablation: a value flag renamed on the driver's side is refused"
+else
+  bad "ablation: driver.ax with --heap-ceiling renamed still matched codegen's list"
+fi
+cp self_host/codegen.ax "$work/codegen-abl.ax"
+sed 's/(strEq a "lsp")/(strEq a "xyzzy")/' "$work/codegen-abl.ax" > "$work/codegen-abl2.ax"
+if [[ "$(argv_chain self_host/driver.ax isSubcommand)" != "$(argv_chain "$work/codegen-abl2.ax" 'cgSubcommand')" ]]; then
+  ok "ablation: a subcommand renamed on codegen's side is refused"
+else
+  bad "ablation: codegen.ax with lsp renamed still matched the driver's list"
+fi
 # `-o` is the short form of `--output` under `build` too. Only
 # `emit-llvm` read it, so `axiom build -o prog f.ax` consumed `prog` as
 # a flag value and wrote the default `output` - while the usage text
