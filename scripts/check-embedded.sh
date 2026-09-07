@@ -88,6 +88,16 @@
 #       not exits 70 with the arena's sentence, while the `mmap` build
 #       of THAT source exits 0 - so the 70 is the region's verdict and
 #       not the program's size.
+#   A7  THE CEILING FLAG: the same verdicts without a variant compiler.
+#       `--heap-ceiling N` on a SUPPORTED target carves N bytes from a
+#       `.bss` region instead of the kernel's pages - the 4.2 strategy
+#       selected per build rather than per target. The fitting program
+#       answers as the `mmap` build does, the overflowing one exits 70
+#       with the arena's sentence against a control that exits 0, the
+#       emitted IR carries the region at the asked size with the chunk
+#       capped by it and no `mmap`, and the flag's own refusals
+#       (non-numeric, zero, missing value, `--threads` on a spawning
+#       program) each go red when broken.
 #
 # ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
 # directory, breaks ONE thing in `codegen.ax` there, builds every
@@ -95,7 +105,7 @@
 # The patch is applied by exact string match by
 # `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
 # there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all six and requires each to go red.
+# gate can pass. `--ablations` runs all seven and requires each to go red.
 #
 #   chunk     every target answers 4 KiB                   -> A1
 #   literal   `refill:` goes back to the hardcoded 1 MiB   -> A2, A4
@@ -104,6 +114,8 @@
 #   cursor    the carve never advances its cursor          -> A6
 #   oomsig    the carve never answers 0, so exhaustion is
 #             never seen                                   -> A6
+#   ceiling   the flag is never read, so a ceiling build is a
+#             mmap build in disguise                      -> A7
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
 # discovered: section 6's QEMU reference port. There is no bare-metal
@@ -117,7 +129,7 @@
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
-#   scripts/check-embedded.sh --ablations  # the six drills, each red
+#   scripts/check-embedded.sh --ablations  # the seven drills, each red
 #   AXIOM_ABLATE=literal scripts/check-embedded.sh
 # ---------------------------------------------------------------------
 
@@ -158,7 +170,7 @@ if [[ "${1:-}" == "--ablations" ]]; then
   self="${BASH_SOURCE[0]}"
   red=0
   ran=0
-  for ab in chunk literal grain strategy cursor oomsig; do
+  for ab in chunk literal grain strategy cursor oomsig ceiling; do
     ran=$((ran + 1))
     echo "== ablation: $ab =="
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
@@ -327,8 +339,9 @@ AX
 # sum of 1..2000 is 2,001,000.
 sed 's/(chain 100 0)/(chain 2000 0)/' "$work/fit.ax" > "$work/oom.ax"
 
-emit() {  # emit <compiler> <target> <source> <out>
-  "$1" --target="$2" emit-llvm "$3" -o "$4" > "$work/emit.log" 2>&1
+emit() {  # emit <compiler> <target> <source> <out> [extra flags...]
+  local comp="$1" targ="$2" src="$3" out="$4"; shift 4
+  "$comp" --target="$targ" "$@" emit-llvm "$src" -o "$out" > "$work/emit.log" 2>&1
 }
 
 # The distinct syscall numbers an emitted program uses. The number is
@@ -692,13 +705,14 @@ grep -q 'out of memory (mmap failed)' "$hll" \
 echo "== A6. 4.2: and it runs =="
 # ---------------------------------------------------------------------
 checks=$((checks + 1))
-run_probe() {  # run_probe <compiler> <source> <tag> -> "<status> <stdout>"
+run_probe() {  # run_probe <compiler> <source> <tag> [extra flags...] -> "<status> <stdout>"
+  local comp="$1" src="$2" tag="$3"; shift 3
   local st out
-  if ! "$1" build --input "$2" --output "$work/$3" --opt 1 > "$work/$3.build.log" 2>&1; then
+  if ! "$comp" build --input "$src" --output "$work/$tag" "$@" --opt 1 > "$work/$tag.build.log" 2>&1; then
     echo "BUILDFAIL"
     return
   fi
-  out="$("$work/$3" 2> "$work/$3.err")"
+  out="$("$work/$tag" 2> "$work/$tag.err")"
   st=$?
   echo "$st $out"
 }
@@ -728,6 +742,116 @@ if ! grep -q 'out of memory (arena exhausted)' "$work/oom.static.err" 2>/dev/nul
   prob=1
 fi
 (( prob )) || note "the static arena answers 5050 as mmap does, and exits 70 when it runs out"
+
+# ---------------------------------------------------------------------
+echo "== A7. --heap-ceiling: the bounded mode on a supported target =="
+# ---------------------------------------------------------------------
+# The same two programs A6 runs, but the region comes from a FLAG on
+# the tree's own compiler rather than from a variant target table: no
+# second compiler is built here at all. 262144 is the same 256 KiB A6
+# uses, so the verdicts must match it exactly - and the `=` spelling
+# carries the overflow leg, so both spellings the reader accepts are
+# exercised rather than one.
+checks=$((checks + 1))
+ceil_fit="$(run_probe "$axc" "$work/fit.ax" fit.ceil --heap-ceiling 262144)"
+ceil_oom="$(run_probe "$axc" "$work/oom.ax" oom.ceil --heap-ceiling=262144)"
+ctl_oom="$(run_probe "$axc" "$work/oom.ax" oom.ctl)"
+echo "     fits under ceiling: [$ceil_fit]"
+echo "     overflows under ceiling: [$ceil_oom]  control, no flag: [$ctl_oom]"
+prob=0
+[[ "$ceil_fit" == "0 5050" ]] \
+  || { bad "the ceiling build of the fitting program answered [$ceil_fit], not [0 5050]"; prob=1; }
+[[ "$ctl_oom" == "0 2001000" ]] \
+  || { bad "the control build of the larger program answered [$ctl_oom], not [0 2001000]"; prob=1; }
+case "$ceil_oom" in
+  "70"|"70 ") ;;
+  *) bad "the ceiling build of the larger program answered [$ceil_oom]; a bounded heap
+     must trap with status 70 (MM-ALLOC-7) rather than growing past it"; prob=1 ;;
+esac
+if ! grep -q 'out of memory (arena exhausted)' "$work/oom.ceil.err" 2>/dev/null; then
+  bad "the ceiling build's trap printed no sentence naming the arena:
+     $(head -1 "$work/oom.ceil.err" 2>/dev/null)"
+  prob=1
+fi
+(( prob )) || note "under a ceiling the fitting program answers 5050 and the larger exits 70"
+
+# The IR behind those verdicts: the asked region, the chunk capped by
+# it (262144, not the table's 1048576 and not the variant's 4096 -
+# this is what distinguishes the flag path from both), no `mmap`, and
+# the renamed trap. Against the no-flag control, which must show the
+# opposite of every one.
+checks=$((checks + 1))
+if ! emit "$axc" "$host_target" "$work/fit.ax" "$work/ceil.fit.ll" --heap-ceiling 262144; then
+  bad "emit-llvm failed under --heap-ceiling"
+  sed 's/^/    /' "$work/emit.log" | head -6
+else
+  prob=0
+  grep -q '^@__axiom_arena = internal global \[262144 x i8\] zeroinitializer, align 16$' "$work/ceil.fit.ll" \
+    || { bad "the ceiling build reserves no 262144-byte region"; prob=1; }
+  grep -q '  %chunk = select i1 %big, i64 %rounded, i64 262144$' "$work/ceil.fit.ll" \
+    || { bad "the ceiling build's growth unit is not capped by the region"; prob=1; }
+  if grep -qE 'mmap|VirtualAlloc' "$work/ceil.fit.ll"; then
+    bad "the ceiling build still asks the kernel for pages"; prob=1
+  fi
+  grep -q 'out of memory (arena exhausted)' "$work/ceil.fit.ll" \
+    || { bad "the ceiling build's trap still blames mmap"; prob=1; }
+  if grep -q '^@__axiom_arena = ' "$work/min.$host_target.ll"; then
+    bad "the CONTROL emits a region - the strategy is not off by default here either"
+    prob=1
+  fi
+  (( prob )) || note "262144-byte region, capped growth, no mmap, renamed trap - and none of it in the control"
+fi
+
+# The flag's own refusals. Each is a wrong command line, so each must
+# exit 2 naming the flag - and each is planted here rather than
+# described, because a refusal that is never refused is the defect.
+checks=$((checks + 1))
+prob=0
+refuse() { # refuse <label> <args...>: exit 2 naming --heap-ceiling
+  local label="$1"; shift
+  local err; err="$("$axc" build --input "$work/min.ax" --output "$work/refused" "$@" 2>&1)"; local rc=$?
+  if (( rc != 2 )) || ! grep -q -- '--heap-ceiling' <<<"$err"; then
+    bad "[$label] exited $rc, not 2 naming the flag: $(head -1 <<<"$err")"
+    prob=1
+  fi
+}
+refuse "non-numeric" --heap-ceiling banana
+refuse "zero" --heap-ceiling 0
+refuse "missing value" --heap-ceiling
+if (( prob == 0 )); then
+  # The refusal names the flag in every case, which is what makes each
+  # of the three a pointed refusal rather than a bare status.
+  note "non-numeric, zero and missing values each exit 2 naming the flag"
+fi
+
+# `--threads` on a spawning program under a ceiling is AX4006 at BUILD
+# time: one cursor cannot serve two bump pointers, and the refusal is
+# the existing diagnostic rather than a new one. As a DIFFERENTIAL:
+# the same program with `--threads` and no ceiling must build here, so
+# the refusal below is the ceiling's doing and not the target's. Where
+# the plain threads build already fails (a host with no thread
+# runtime), the property is untestable and the leg says so instead of
+# passing over a refusal it did not cause.
+checks=$((checks + 1))
+cat > "$work/par7.ax" <<'AX'
+(:: main Int)
+;@axiom:effect(io)
+(fn (main) (parallel p ((a 40) (b 2)) (+ a b)))
+AX
+if "$axc" build --input "$work/par7.ax" --output "$work/par7.plain" --threads \
+    > "$work/par7.plain.log" 2>&1; then
+  if "$axc" build --input "$work/par7.ax" --output "$work/par7" --heap-ceiling 262144 --threads \
+      > "$work/par7.log" 2>&1; then
+    bad "a spawning program built --threads under a ceiling, which has one cursor for two bump pointers"
+  elif grep -q 'AX4006' "$work/par7.log"; then
+    note "threads under a ceiling are refused as AX4006 before anything emits"
+  else
+    bad "the threads-under-ceiling build failed, but not as AX4006:"
+    head -3 "$work/par7.log" | sed 's/^/       /'
+  fi
+else
+  note "no thread runtime on $host_target: the threads leg is untestable here, and says so"
+fi
 
 echo
 if (( failed > 0 )); then
