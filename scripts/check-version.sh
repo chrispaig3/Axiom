@@ -192,6 +192,75 @@ done <<< "$SITES"
 echo "     $probed extractor/site pairs observed red"
 
 echo
+echo "== the support window names this minor and the next =="
+# Newest-release-only, formalised as a per-minor window (item 02's
+# bus-factor work): each minor line is supported until the next minor
+# lands, one supported minor at a time, no LTS. `SECURITY.md` states
+# it; this section holds it. The minor and the next minor are DERIVED
+# from `VERSION` here, so a minor cut that leaves the old window behind
+# fails - and moving the paragraph is deliberately a hand edit, not a
+# `bump-version.sh` rewrite: re-affirming the policy is the point, and
+# a script cannot do it. Patch bumps need no touch: the minor and the
+# next do not move under them.
+major="${want%%.*}"; minor_n="${want#*.}"; minor_n="${minor_n%%.*}"
+minor="$major.$minor_n"; next="$major.$((10#$minor_n + 1)).0"
+check_window() { # <file> -> 0 when its window paragraph holds
+  local f="$1" para
+  # Lines are joined before the search: the phrases are claims about
+  # words, and a reflow must not read as a policy change (nor a policy
+  # change hide as a reflow - the mutants below move words, not lines).
+  para="$(sed -n '/^Support window:/,/^$/p' "$f" | tr '\n' ' ')"
+  [[ -n "$para" ]] || return 1
+  grep -qF "the $minor line" <<<"$para" || return 1
+  grep -qF "until $next" <<<"$para" || return 1
+  grep -qF "one supported minor at a time" <<<"$para" || return 1
+  return 0
+}
+if check_window SECURITY.md; then
+  echo "ok   SECURITY.md windows the $minor line until $next, newest-only"
+else
+  echo "FAIL SECURITY.md's support window does not name the $minor line until $next"
+  failed=$((failed + 1))
+fi
+# One mutant per arm, plus the paragraph deleted entirely: each must go
+# red, or the arm above is a check that cannot fail.
+win_probed=0
+win_probe() { # <label> <mutant>
+  if check_window "$2"; then
+    echo "FAIL negative window $1: the mutant was accepted"
+    failed=$((failed + 1))
+  else
+    echo "ok   window $1 refused"
+    win_probed=$((win_probed + 1))
+  fi
+}
+win_mutant() { # <label> <out> <sed-expr>...: mutate, refuse an unchanged
+  # mutant, then probe. The guard is load-bearing, not hygiene: a
+  # reflow of SECURITY.md can move the words a `-e` anchors on, and a
+  # mutation that changes no byte is a probe that passes while proving
+  # nothing - measured while writing this, on the wrapped "one
+  # supported minor" sentence.
+  local label="$1" out="$2"; shift 2
+  sed "$@" SECURITY.md > "$out"
+  if cmp -s "$out" SECURITY.md; then
+    echo "FAIL negative window $label: the mutation changed no byte - re-anchor it"
+    failed=$((failed + 1)); return
+  fi
+  win_probe "$label" "$out"
+}
+win_mutant "a window naming another minor" "$work/win-minor.ax" -e "s/the $minor line/the 9.9 line/"
+win_mutant "a window ending at another release" "$work/win-next.ax" -e "s/until $next/until 9.9.0/"
+win_mutant "a window promising several minors" "$work/win-single.ax" -e "s/There is one$/There are several/" -e "s/supported minor at a time/supported minors at once/"
+sed -e '/^Support window:/,/^$/d' SECURITY.md > "$work/win-gone.ax"
+if cmp -s "$work/win-gone.ax" SECURITY.md; then
+  echo "FAIL negative window a policy with no window at all: the deletion removed nothing"
+  failed=$((failed + 1))
+else
+  win_probe "a policy with no window at all" "$work/win-gone.ax"
+fi
+echo "     $win_probed window mutants observed red"
+
+echo
 if (( failed > 0 )); then
   echo "check-version: $failed site(s) disagree with VERSION"
   exit 1
