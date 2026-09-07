@@ -10881,7 +10881,7 @@
           (scanLineMarks lines (+ i 1) curfn lastlabel (pushLineMark marks lastlabel curfn ln))
         )
         (if (strStartsWith ln "define ")
-          (scanLineMarks lines (+ i 1) (defineFnName ln) "" marks)
+          (scanLineMarks lines (+ i 1) (defineFnSpell ln) "" marks)
           (if (isIRLabel ln)
             (scanLineMarks lines (+ i 1) curfn (labelName ln) marks)
             (scanLineMarks lines (+ i 1) curfn "" marks)
@@ -10927,6 +10927,30 @@
       (match (strFindByte ln 40 (+ at 1))
         ((None) "")
         ((Some paren) (strSlice ln (+ at 1) (- paren (+ at 1))))
+      )
+    )
+  )
+)
+
+; The LLVM spelling of a `define`'s symbol - `@name` for plain names,
+; `@"name"` for names that need quoting (a `#` or other non-plain byte
+; in the typecheck-generated `show#...`). `blockaddress` accepts the
+; bare spelling as its first operand, and a plain `@name` next to a
+; `@"name"` in the same module is the one mismatch that made
+; `blockaddress(Vec$vecNew, ...)` fail to parse under `opt`.
+; `symtabEndOf` reads the closing paren of a plain name and the closing
+; quote of a quoted one, and is reused - the two emitters have to agree.
+(pub :: defineFnSpell (-> String String))
+
+(pub fn (defineFnSpell ln)
+  (match (strFindByte ln 64 0)
+    ((None) "")
+    ((Some at)
+      (let ((end (symtabEndOf ln (+ at 1) (strLen ln))))
+        (if (< end 0)
+          ""
+          (strSlice ln at (- end at))
+        )
       )
     )
   )
@@ -11204,7 +11228,7 @@
 (pub :: lineInitStore (-> String String Int Int String))
 
 (pub fn (lineInitStore func lbl i n)
-  (let ((a (cat2 "  store i64 ptrtoint (ptr blockaddress(@" func)))
+  (let ((a (cat2 "  store i64 ptrtoint (ptr blockaddress(" func)))
     (let ((b (cat2 a ", %")))
       (let ((c (cat2 b lbl)))
         (let ((d (cat2 c ") to i64), ptr getelementptr ([")))
