@@ -44,6 +44,18 @@ path — see `bootstrap/README.md` for why the seed is allowed to lag the
 source and what stops it drifting. (`rust/` is a cargo workspace, but it
 is the FFI's Rust side; no part of building the compiler reads it.)
 
+After the clone, nothing leaves the machine and nobody else has to act:
+the script reads the checkout and the host's `llc` and `cc` and nothing
+else — no network, no maintainer-published artifact, no CI. Measured
+2026-09-07: the bootstrap ran to a verified compiler inside a container
+with networking disabled. (`scripts/install.sh` is the other path, and
+it is different on purpose: it downloads a prebuilt release archive, so
+it needs the maintainer to have cut one.) `scripts/check-offline-bootstrap.sh`
+holds the closure to that claim: the bootstrap may source exactly
+`scripts/lib/seed-sums.sh` and invoke no network tool, so a new
+dependency fails CI on every operating system rather than stranding a
+stranger.
+
 Every gate provisions the same way when `$AXIOM` is unset, so you can
 also just run one and let it build what it needs — that is `gate_init`
 in `scripts/lib/gate.sh`.

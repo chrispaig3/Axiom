@@ -61,7 +61,7 @@ programs, and the `.js`/`.css` allowance went with the only files that
 used it. It runs no Axiom program and builds no compiler, so it is no
 longer among the gates that call `gate_build_axc`: **sixty-six gates**
 call it, and the six sites that state that count moved together. The
-battery still has eighty-one gates.
+battery still has eighty-two gates.
 
 What is still measured, and what is not. MM-ALLOC-22 — the request
 handler as an arena scope — is measured by `check-net.sh` over

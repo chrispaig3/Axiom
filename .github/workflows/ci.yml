@@ -493,6 +493,17 @@ jobs:
       - name: The seed's supply chain is one fact, and its sums are not vacuous
         run: ./scripts/check-seed-supply-chain.sh
 
+      # The bus-factor mitigation: after the clone, the checkout plus
+      # the host's `llc` and `cc` are sufficient, with no maintainer on
+      # the other end. This holds the bootstrap closure to that - the
+      # script may source exactly `scripts/lib/seed-sums.sh` and invoke
+      # no network tool - so a new dependency fails here on every OS
+      # rather than stranding a stranger. No compiler, no toolchain, a
+      # second of shell; the network-disabled build it records was
+      # measured by hand in podman, not in this step.
+      - name: The bootstrap needs no maintainer to run
+        run: ./scripts/check-offline-bootstrap.sh
+
       # These cases were also run by the deleted Rust test suite, as
       # `stdlib_golden`. This script is now their only runner, which is
       # the reason it was kept alive alongside that suite for so long.
