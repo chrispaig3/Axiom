@@ -50,12 +50,14 @@ ABLATIONS = {
     ),
     # `refill:` goes back to what it was before 4.1: the literal, twice,
     # written into the emitted text. The table still exists and still
-    # answers; nothing reads it.
+    # answers; nothing reads it. The anchor is the four lines as they
+    # stand - the two chunk lines read the EFFECTIVE chunk since the
+    # ceiling flag landed, and re-anchoring here is part of that move.
     "literal": (
-        """    (emitLine cg (cat3 "  %big = icmp ugt i64 %need, " (fmtInt (targetArenaChunkBytes (memGetWord cg 26))) ""))
+        """    (emitLine cg (cat3 "  %big = icmp ugt i64 %need, " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))
     (emitLine cg (cat3 "  %rounded0 = add i64 %need, " (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) ""))
     (emitLine cg (cat3 "  %rounded = and i64 %rounded0, " (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) ""))
-    (emitLine cg (cat3 "  %chunk = select i1 %big, i64 %rounded, i64 " (fmtInt (targetArenaChunkBytes (memGetWord cg 26))) ""))""",
+    (emitLine cg (cat3 "  %chunk = select i1 %big, i64 %rounded, i64 " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))""",
         """    (emitLine cg "  %big = icmp ugt i64 %need, 1048576")
     (emitLine cg "  %rounded0 = add i64 %need, 65535")
     (emitLine cg "  %rounded = and i64 %rounded0, -65536")
@@ -75,12 +77,18 @@ ABLATIONS = {
         "A4 - the grain moving with the chunk",
     ),
     # `emitRuntimeMap` forgets the strategy: a static target still asks
-    # for pages the way a hosted one does.
+    # for pages the way a hosted one does. The comparison is neutered
+    # with a huge constant rather than replaced by `false`: the effect
+    # walk prunes a literal-`false` branch, which would leave
+    # `emitRuntimeMap` performing no IO against its `effect(io)` tag
+    # and fail the BUILD on AX3010 - red for the wrong reason, hiding
+    # whether A5 can fail. An opaque comparison keeps the call (and the
+    # tag) while taking the branch nowhere any region reaches.
     "strategy": (
-        """  (if (> (targetArenaStaticBytes (memGetWord cg 26)) 0)
+        """  (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
     (emitArenaCarve cg sizeExpr)
   (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
-        """  (if false
+        """  (if (> (arenaStaticBytes (memGetWord cg 26)) 999999999999)
     (emitArenaCarve cg sizeExpr)
   (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
         "A5 - the emitted program containing one strategy and not the other",
@@ -98,6 +106,17 @@ ABLATIONS = {
         """    (emitLine cg "  %addr = select i1 %ar_fit, i64 %ar_cur, i64 0")""",
         """    (emitLine cg "  %addr = select i1 %ar_fit, i64 %ar_cur, i64 %ar_cur")""",
         "A6 - exhaustion reaching __axiom_out_of_memory",
+    ),
+    # The flag is never read, so a ceiling build is a mmap build in
+    # disguise: the region, the capped growth and the 70 all vanish.
+    # The replacement still scans argv (for a flag that is never
+    # passed), because a body that reads nothing while keeping its
+    # `effect(io)` tag would fail the build on AX3010 instead - red
+    # for the wrong reason, hiding whether A7 can fail.
+    "ceiling": (
+        """(pub fn (heapCeilingBytes) (ceilingScan 1))""",
+        """(pub fn (heapCeilingBytes) (if (argHas "--never-a-flag" 1) 1 0))""",
+        "A7 - the flag reaching the emitter at all",
     ),
 }
 

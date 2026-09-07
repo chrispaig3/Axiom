@@ -5747,6 +5747,7 @@
 ; include `470-parallel`, `471-parallel-trap` and `476-par-pool`.
 (pub :: targetHasThreads (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (targetHasThreads t)
   ; A STATICALLY-CARVED ARENA HAS ONE CURSOR AND NO SECOND REGION.
   ; Under `--threads` the runtime's mutable globals become
@@ -5757,8 +5758,8 @@
   ; a lowering worth emitting, and docs/embedded-proposal.md 7 puts
   ; threads out of scope for bare metal for the same reason. So a
   ; static target answers "no threads" here and `main.ax` refuses
-  ; `--threads` on it as AX4006, which already means exactly this.
-  (if (> (targetArenaStaticBytes t) 0)
+  ;   `--threads` on it as AX4006, which already means exactly this.
+  (if (> (arenaStaticBytes t) 0)
     0
     (if (<= t 3)
       1
@@ -6512,6 +6513,72 @@
     (if (strEq (sysArg i) flag)
       true
       (argHas flag (+ i 1))
+    )
+  )
+)
+
+; The build's heap ceiling in bytes. `--heap-ceiling N` carves the heap
+; from a static region of N bytes instead of the kernel's pages, reusing
+; the embedded track's second strategy (4.2) on a hosted target. Zero -
+; absent, or unparsable - means the target table decides, which is
+; `mmap` on every supported target.
+;
+; Both spellings are read, because the validator accepts both and
+; honouring one while validating the other would be a flag that
+; silently does nothing. The validator (`checkFlagValue` in driver.ax)
+; refuses anything but digits before any subcommand acts, so the strict
+; parse below is defence in depth for the paths that reach the emitter
+; another way.
+(pub :: heapCeilingBytes Int)
+
+;@axiom:effect(io)
+(pub fn (heapCeilingBytes) (ceilingScan 1))
+
+(pub :: ceilingScan (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (ceilingScan i)
+  (if (>= i sysArgc)
+    0
+    (let ((a (sysArg i)))
+      (if (strEq a "--heap-ceiling")
+        (if (< (+ i 1) sysArgc)
+          (parseCeiling (sysArg (+ i 1)))
+          0
+        )
+        (if (&& (>= (strLen a) 15) (strEq (strSlice a 0 15) "--heap-ceiling="))
+          (parseCeiling (strSlice a 15 (- (strLen a) 15)))
+          (ceilingScan (+ i 1))
+        )
+      )
+    )
+  )
+)
+
+; Strict decimal parse with saturation: empty and non-digit answers 0,
+; and anything past 18 digits answers 2^62 rather than wrapping the
+; word. `strToInt` will not do: it takes a leading `-`, skips `_`, and
+; stops at the first non-digit, so three spellings of one flag would
+; parse three ways.
+(pub :: parseCeiling (-> String Int))
+
+(pub fn (parseCeiling s)
+  (if (> (strLen s) 18)
+    4611686018427387904
+    (parseCeilingAcc s 0 0)
+  )
+)
+
+(pub :: parseCeilingAcc (-> String Int Int Int))
+
+(pub fn (parseCeilingAcc s i acc)
+  (if (>= i (strLen s))
+    acc
+    (let ((ch (strByte s i)))
+      (if (&& (>= ch 48) (<= ch 57))
+        (parseCeilingAcc s (+ i 1) (+ (* acc 10) (- ch 48)))
+        0
+      )
     )
   )
 )
@@ -7726,6 +7793,49 @@
 
 (pub fn (targetArenaStaticBase t) 0)
 
+; The EFFECTIVE static-arena size: the build's ceiling when one was
+; given, else the target table's row. One reader, so the table keeps
+; the single spelling of the default (4.1's rule, held by A2) and the
+; flag keeps the single spelling of the override. Every site that used
+; to ask the table asks here instead - including `targetHasThreads`,
+; which is what refuses `--threads` on a ceiling build as AX4006 with
+; no new diagnostic: a carved region has one cursor wherever it lives.
+(pub :: arenaStaticBytes (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (arenaStaticBytes t)
+  (let ((c (heapCeilingBytes)))
+    (if (> c 0)
+      c
+      (targetArenaStaticBytes t)
+    )
+  )
+)
+
+; The EFFECTIVE chunk: under a ceiling it is capped by the region,
+; because a growth unit larger than the region can never fit - the
+; first carve would trap a program that fits. The cap keeps the
+; accounting exact: below one chunk the first carve takes the whole
+; region and every later request bumps inside it or traps past it;
+; at or above it the chunks are the table's and each is checked in
+; turn. The grain is deliberately NOT capped: it only rounds a request
+; that already exceeds the chunk, and such a request exceeds a small
+; ceiling on its own, so capping it would change nothing it decides.
+(pub :: arenaChunkBytes (-> Int Int))
+
+;@axiom:effect(io)
+(pub fn (arenaChunkBytes t)
+  (let ((c (heapCeilingBytes)))
+    (if (> c 0)
+      (if (< c (targetArenaChunkBytes t))
+        c
+        (targetArenaChunkBytes t)
+      )
+      (targetArenaChunkBytes t)
+    )
+  )
+)
+
 ; Platform module suffixes, most specific first: `.{os}-{arch}.ax`,
 ; then `.{os}.ax`, then `.ax` - the same order stage0 searches.
 (pub :: targetOsArchSuffix (-> Int String))
@@ -7871,8 +7981,9 @@
 ; the region), so no byte is carved twice.
 (pub :: emitArenaRegion (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitArenaRegion cg)
-  (let ((n (targetArenaStaticBytes (memGetWord cg 26))) (b (targetArenaStaticBase (memGetWord cg 26))))
+  (let ((n (arenaStaticBytes (memGetWord cg 26))) (b (targetArenaStaticBase (memGetWord cg 26))))
     {
       (if (== b 0)
         {
@@ -7895,11 +8006,12 @@
 
 (pub :: emitRuntimeMap (-> Int String Int))
 
+;@axiom:effect(io)
 (pub fn (emitRuntimeMap cg sizeExpr)
   ; 4.2's ONE branch, taken at emission time. A program built for a
   ; static target contains the carve and no `mmap`; a program built for
   ; any supported target contains what it always did.
-  (if (> (targetArenaStaticBytes (memGetWord cg 26)) 0)
+  (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
     (emitArenaCarve cg sizeExpr)
   (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
     (emitLine cg (strConcat (cat4 "  %addr = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetMmapNum (memGetWord cg 26)))) (cat4 (cat3 ", i64 0, i64 " sizeExpr ", i64 3, i64 ") (fmtInt (targetMapFlags (memGetWord cg 26))) ", i64 -1, i64 0)" "")))
@@ -8666,7 +8778,7 @@
     ; 4.2's region, before the bump pointer that will point into it.
     ; Nothing is emitted here on a target whose arena comes from the
     ; kernel, which is every supported one.
-    (if (> (targetArenaStaticBytes (memGetWord cg 26)) 0)
+    (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
       (emitArenaRegion cg)
       0
     )
@@ -8765,11 +8877,13 @@
     (emitLine cg "  %need = add i64 %sz, 16")
     ; 4.1. Four literals, one target constant and its grain. Every
     ; supported target answers 1 MiB and 64 KiB, so these four lines
-    ; are byte for byte what they were.
-    (emitLine cg (cat3 "  %big = icmp ugt i64 %need, " (fmtInt (targetArenaChunkBytes (memGetWord cg 26))) ""))
+    ; are byte for byte what they were. The two chunk lines read the
+    ; EFFECTIVE chunk: under `--heap-ceiling` it is capped by the
+    ; region, so the growth unit always fits what it grows in.
+    (emitLine cg (cat3 "  %big = icmp ugt i64 %need, " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))
     (emitLine cg (cat3 "  %rounded0 = add i64 %need, " (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) ""))
     (emitLine cg (cat3 "  %rounded = and i64 %rounded0, " (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) ""))
-    (emitLine cg (cat3 "  %chunk = select i1 %big, i64 %rounded, i64 " (fmtInt (targetArenaChunkBytes (memGetWord cg 26))) ""))
+    (emitLine cg (cat3 "  %chunk = select i1 %big, i64 %rounded, i64 " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))
     ; First fit over the chunks a reset has freed. The list is short -
     ; it holds only what outlived a mark - and a chunk on it is a whole
     ; mapping, so reuse is what keeps a resetting loop's RSS flat
@@ -9521,9 +9635,10 @@
 ; write of 35, byte for byte.
 (pub :: emitOomTrap (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitOomTrap cg)
   (let (
-    (msg (if (> (targetArenaStaticBytes (memGetWord cg 26)) 0)
+    (msg (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
       "axiom: out of memory (arena exhausted)"
       "axiom: out of memory (mmap failed)"
     ))
@@ -10782,6 +10897,7 @@
   }
 )
 
+;@axiom:effect(io)
 (pub fn (emitArenaHelpers cg)
   {
     (emitLine cg "define internal i64 @__axiom_arena_mark_fn() #0 {")
@@ -10950,6 +11066,7 @@
 ; ------------------------------------------------------------------
 (pub :: emitArenaKeepHelper (-> Int Int))
 
+;@axiom:effect(io)
 (pub fn (emitArenaKeepHelper cg)
   {
     (emitLine cg (cat2 "define internal i64 @__axiom_arena_reset_keeping_fn" "(i64 %cell, i64 %src, i64 %bytes) #0 {"))

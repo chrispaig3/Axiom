@@ -290,6 +290,35 @@ text scanner written in Axiom — a second grammar for a foreign language
 fixtures. The analysis is proved first; promoting it into the compiler
 is a separate change.
 
+### 4.7 Bounded heaps on hosted targets *(done — `check-embedded.sh` A7)*
+
+4.2 put the second strategy behind a target-table row, and every
+supported target answers zero to it. `--heap-ceiling N` selects it per
+build instead of per target: the heap is carved from a `.bss` region
+of exactly N bytes, with the growth unit capped by the region (a unit
+larger than the region could never fit — the first carve would trap a
+program that fits, which is what the flag's first version did,
+measured). The grain is deliberately not capped: it only rounds a
+request that already exceeds the growth unit, and such a request
+exceeds a small ceiling on its own, so capping it would change nothing
+it decides. Exhaustion is MM-ALLOC-7's status 70 with the arena's
+sentence, the same verdict a static bare-metal target gives; a program
+that fits answers byte for byte what the `mmap` build answers. A
+spawning program under `--threads` is refused as AX4006 at build time
+by the existing diagnostic — one cursor cannot serve two bump
+pointers, and `targetHasThreads` already answers 0 wherever the region
+is carved, so no new code refuses anything. Non-numeric, zero and
+missing values exit 2 before any subcommand acts. A7 gates it the way
+A6 gates the variant: the same fitting program answers 5050, the same
+overflowing one exits 70 against a control that exits 0, the IR
+carries the asked region with the capped growth and no `mmap`, and the
+`ceiling` ablation (the flag unread) goes red.
+
+What this is not: an allocator change (the carve is 4.2's, byte for
+byte), a bare-metal target (section 6 still has none), or a promise
+about fragmentation — a bump allocator reuses nothing until a reset,
+so the ceiling bounds total allocation, not live data.
+
 ## 5. Memory and stack budgets
 
 Proposed budgets for a Cortex-M4-class part (192 KiB SRAM, 1 MiB flash),
@@ -383,6 +412,7 @@ A row is done when the gate named beside it is green in CI.
 | 4.4 | freestanding stdlib subset | new variant of `check-freestanding.sh` | proposed |
 | 4.5 | ISR entry form | `check-restrictions.sh` extension | proposed |
 | 4.6 | static stack bound from the call graph | `check-stack-bound.sh` | **done** |
+| 4.7 | bounded heaps on hosted targets | `check-embedded.sh` (A7, `ceiling` ablation) | **done** |
 | 6 | the QEMU reference port | `check-embedded.sh` | proposed |
 
 **4.6 was done first**, for the reason it was ranked first: every other

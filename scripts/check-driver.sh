@@ -648,7 +648,7 @@ done
 # accepted but documented nowhere.
 "$s1" --help >full-help.txt 2>&1
 missing=""
-for f in --input --output -o --target --opt --emit-llvm --check --builtins \
+for f in --input --output -o --target --opt --heap-ceiling --emit-llvm --check --builtins \
          --list --no-banner --filter --diagnostic-format --help --version; do
   grep -q -- "$f" full-help.txt || missing="$missing $f"
 done
