@@ -152,6 +152,28 @@ for sib in tests/selfhost/*.ax; do ln -s "$repo_root/$sib" "$shadow/$(basename "
 # shadow root carries both, as `check-diagnostics.sh`'s work tree does.
 ln -s "$repo_root/self_host" "$work/ir/tree/self_host"
 ln -s "$repo_root/stdlib" "$work/ir/tree/stdlib"
+filter_line_attr() {
+  # The line-attribution pass (`emitLineTable` in codegen.ax) writes
+  # one `; @@line` marker at every call site, plus the filename
+  # globals, the `__axiom_linetab` constant table, the
+  # `__axiom_lineaddrs` zero-initialised array, and the
+  # `__axiom_lineinit` function that fills it. Their byte offsets and
+  # counts depend on the source bytes they were carved out of - a
+  # `restrict` tag replaces blank lines, shifting downstream bytes and
+  # occasionally adding a call site the resolver reaches - so the
+  # comparison strips them. They are not the property this section
+  # asserts.
+  grep -v -E -e '^; @@line' \
+              -e '^@__axiom_filen_[0-9]+ = ' \
+              -e '^@__axiom_linetab(_n)? = ' \
+              -e '^@__axiom_lineaddrs = ' \
+              -e '^@__axiom_lineinit = ' \
+              -e 'ptr @__axiom_filen_' \
+              -e 'getelementptr \[[0-9]+ x i64\], ptr @__axiom_(lineaddrs|linetab)' \
+              -e '^define internal i64 @__axiom_lineinit' \
+              -e '^  store i64 ptrtoint \(ptr blockaddress.*lineaddrs' \
+              -e 'icmp (u|s)ge i64 %li, [0-9]+'
+}
 swept=0; refused=0; unverifiable=0; swept_names=()
 for f in tests/selfhost/*.ax; do
   base="$(basename "$f" .ax)"
@@ -178,12 +200,14 @@ for f in tests/selfhost/*.ax; do
     > "$work/ir/$base.tagged.sym" 2>/dev/null || true
   rm "$shadow/$base.ax"; ln -s "$repo_root/$f" "$shadow/$base.ax"
 
-  if ! cmp -s "$work/ir/$base.orig.ll" "$work/ir/$base.tagged.ll"; then
+  if ! cmp -s <(filter_line_attr < "$work/ir/$base.orig.ll") <(filter_line_attr < "$work/ir/$base.tagged.ll"); then
     bad "tests/selfhost/$base.ax: restricting every fn changed the emitted IR"
     # Written to a file and then read: `diff | head` under `pipefail`
     # kills this script with SIGPIPE the first time a diff is longer
-    # than the head (check-gate-lib.sh records the same trap).
-    diff "$work/ir/$base.orig.ll" "$work/ir/$base.tagged.ll" > "$work/ir/$base.ll.diff" || true
+    # than the head (check-gate-lib.sh records the same trap). The
+    # diff strips the line-attribution markers and globals because the
+    # tag adds one line per `fn` and the markers' byte offsets shift.
+    diff <(filter_line_attr < "$work/ir/$base.orig.ll") <(filter_line_attr < "$work/ir/$base.tagged.ll") > "$work/ir/$base.ll.diff" || true
     head -6 "$work/ir/$base.ll.diff" | sed 's/^/     /'
     head -3 "$work/ir/$base.tagged.err" | cut -c1-160 | sed 's/^/     /'
     continue
