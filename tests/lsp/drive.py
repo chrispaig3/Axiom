@@ -1348,7 +1348,7 @@ NAV_MAIN = """(import RefHelper)
 ; it too: two of the type positions a rename of it has to reach.
 (pub struct Box (top : Shape) (n : Int))
 
-(pub type Shapes = [Shape])
+(pub type Shapes = (Vec Shape))
 
 ; Two parameters; the second is shadowed by a `let` whose value
 ; still reads the parameter, because a `let` is not recursive.
