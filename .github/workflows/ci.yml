@@ -218,117 +218,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '22'
+      # The CLI the grammar gate shells out to (npm wrapper as locked,
+      # native binary against a recorded hash). The `docs` job uses this
+      # same action before its own tree-sitter step: it runs that gate
+      # on the documentation-only path where this job is skipped, and a
+      # gate whose CLI was never installed fails rather than skips.
+      - uses: ./.github/actions/tree-sitter
 
       # The grammar has to accept every `.ax` file in the repository.
       # Nothing here compiles anything: the check parses checked-in
       # sources, so only the tree-sitter CLI is needed.
-      #
-      # This was `npm install --prefix tree-sitter-axiom --no-save
-      # tree-sitter-cli`, and it was three missing pins in one line, in
-      # the job that gates every other job, on every pull request.
-      # Measured 2026-08-23: no version on the command line, so npm
-      # resolved the `latest` dist-tag and installed 0.26.13 rather than
-      # the ^0.26.12 the manifest asked for; `--no-save` plus a
-      # `.gitignore` entry for the lockfile meant nothing was pinned by
-      # hash on any run; and the install script it then ran fetched
-      # tree-sitter-macos-arm64.gz from a GitHub release and unpacked a
-      # 20 MB executable that the next step runs.
-      #
-      # `npm ci` installs exactly what package-lock.json says, verifies
-      # every tarball against the lockfile's integrity hash, and REFUSES
-      # if the lockfile and the manifest disagree - which is what makes
-      # it the right verb in CI and `npm install` the wrong one, because
-      # `install` silently rewrites the lockfile to whatever it resolved.
-      - name: Install the CLI's npm wrapper, exactly as locked
-        run: npm ci --prefix tree-sitter-axiom --ignore-scripts
-
-      # `--ignore-scripts` above suppresses the download, so the wrapper
-      # `npm ci` just installed - node_modules/.bin/tree-sitter, which is
-      # a four-line cli.js that spawns `./tree-sitter` beside itself -
-      # has nothing to spawn. This step puts the binary there, which is
-      # the same path install.js would have written, so
-      # scripts/check-tree-sitter.sh finds it by its existing
-      # project-local lookup and needs no change.
-      #
-      # WHY BOTH HALVES ARE NEEDED. The lockfile pins the npm tarball,
-      # but that tarball is 21 KB of JavaScript - `npm view
-      # tree-sitter-cli@0.26.12 dist.unpackedSize` is 21855 - and the
-      # binary is not in it and has no npm integrity hash anywhere.
-      # There are no per-platform binary packages to depend on either
-      # (`optionalDependencies` is null). So the executable that does
-      # all the work is the one thing npm cannot pin, and a GitHub
-      # release asset is mutable: it can be deleted and re-uploaded at
-      # the same URL by anyone holding that repository. Hence a checked-in
-      # SHA256, verified BEFORE the bytes are decompressed or made
-      # executable, in the shape scripts/bootstrap-from-seed.sh already
-      # uses for bootstrap/SHA256SUMS.
-      #
-      # The version is read from the package npm just installed - the
-      # same expression install.js uses - so the binary can never be a
-      # different version from the wrapper. Bumping the CLI therefore
-      # fails HERE, on an unrecorded hash, until the table below is
-      # updated too. That is the intended way to find out.
-      - name: Install the tree-sitter binary it execs, against a recorded hash
-        run: |
-          set -euo pipefail
-          cli=tree-sitter-axiom/node_modules/tree-sitter-cli
-          version="$(node -p "require('./$cli/package.json').version")"
-
-          case "$(uname -s)/$(uname -m)" in
-            Linux/x86_64)  asset=tree-sitter-linux-x64.gz   ;;
-            Linux/aarch64) asset=tree-sitter-linux-arm64.gz ;;
-            Darwin/arm64)  asset=tree-sitter-macos-arm64.gz ;;
-            Darwin/x86_64) asset=tree-sitter-macos-x64.gz   ;;
-            *) echo "no recorded hash for $(uname -s)/$(uname -m)" >&2; exit 1 ;;
-          esac
-
-          work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
-
-          # sha256(1) of the release assets as served, for v0.26.12.
-          # All four are recorded, not just the linux-x64 this job runs
-          # on, so moving the job to another runner is an edit to
-          # `runs-on` and not to the trust story - the same reason
-          # bootstrap/SHA256SUMS carries six seeds to run one.
-          cat > "$work/RECORDED" <<'SUMS'
-          d00ac0daefc4bf8c4b57842a5c0509927232faad1d83157b64fbad4e2e8d9a8b  tree-sitter-linux-x64.gz
-          cfbf3d9aad8e326878ab1846885a9c2b782a0333273591616f34bf556d525586  tree-sitter-linux-arm64.gz
-          a7ddeff2507391ebdfd0b8fa0dfe91babed291ea00d86426cb0e6cfade891697  tree-sitter-macos-arm64.gz
-          6827b218bce4d5403cb76ae3c269bc836d3124b75bb3477197ee9a8c8f6e79dc  tree-sitter-macos-x64.gz
-          SUMS
-
-          # Only the line for this platform, so a missing entry is an
-          # error rather than a check that passes over nothing. `-c`
-          # with a file naming three absent assets succeeds on GNU
-          # coreutils with --ignore-missing and fails without it; a
-          # one-line file needs neither and behaves the same under
-          # BSD/perl shasum, which has no such flag.
-          grep "  $asset\$" "$work/RECORDED" > "$work/SHA256SUMS" \
-            || { echo "no recorded hash for $asset at v$version" >&2; exit 1; }
-
-          curl --fail --silent --show-error --location \
-               --proto '=https' --tlsv1.2 \
-               -o "$work/$asset" \
-               "https://github.com/tree-sitter/tree-sitter/releases/download/v$version/$asset"
-
-          # Same fallback as scripts/bootstrap-from-seed.sh: sha256sum
-          # is coreutils and absent from macOS, shasum is perl and
-          # present on both.
-          if command -v sha256sum > /dev/null; then
-            sumcheck() { sha256sum -c SHA256SUMS; }
-          else
-            sumcheck() { shasum -a 256 -c SHA256SUMS; }
-          fi
-          ( cd "$work" && sumcheck ) \
-            || { echo "the tree-sitter $version binary does not match its recorded hash" >&2; exit 1; }
-
-          gunzip -c "$work/$asset" > "$cli/tree-sitter"
-          chmod +x "$cli/tree-sitter"
-          "$cli/tree-sitter" --version
-
       - name: Every .ax file parses under the checked-in grammar
         run: ./scripts/check-tree-sitter.sh
 
@@ -400,7 +299,10 @@ jobs:
 
       # The documents carry `.ax` blocks, and the grammar must parse
       # them. `grammar` is skipped on this path, so this is the one
-      # place that still asks.
+      # place that still asks - and the CLI it shells out to is
+      # installed here rather than inherited, because nothing earlier
+      # in this job provides it.
+      - uses: ./.github/actions/tree-sitter
       - name: Every .ax file parses under the checked-in grammar
         run: ./scripts/check-tree-sitter.sh
 

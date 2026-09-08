@@ -175,8 +175,8 @@ s = open(p).read()
 # so a third use of `recOwned` added later is not silently ablated
 # instead of - or as well as - these two.
 pairs = [
-    ("""(pub fn (emitApplyRegsOwned regs cg rec i recOwned)""", "emitApplyRegsOwned"),
-    ("""(pub fn (emitApplyChainOwned args cg rec i recOwned evs)""", "emitApplyChainOwned"),
+    ("""(pub fn (emitApplyRegsOwned regs cg rec i recOwned snode)""", "emitApplyRegsOwned"),
+    ("""(pub fn (emitApplyChainOwned args cg rec i recOwned evs snode)""", "emitApplyChainOwned"),
 ]
 for head, name in pairs:
     if s.count(head) != 1:
@@ -289,8 +289,8 @@ fi
 # The emitter half: `emitApplyChain` passes `vecNew` again, which is
 # what it did until 2026-08-31, and takes BOTH of its callers with it.
 rc_a="$(ablate_and_run emitter self_host/codegen.ax \
-  '(emitApplyChainOwned args cg rec i 0 evs)' \
-  '(emitApplyChainOwned args cg rec i 0 vecNew)')" || rc_a=""
+  '(emitApplyChainOwned args cg rec i 0 evs snode)' \
+  '(emitApplyChainOwned args cg rec i 0 vecNew snode)')" || rc_a=""
 if [[ -z "$rc_a" ]]; then
   bad "could not ablate the emitter half - nothing was proven"
 elif [[ "$rc_a" == "$surplus_want" ]]; then

@@ -14,7 +14,8 @@ class of problem and the conditions that reach it is enough to start.
 mitigation, or "this is working as designed, here is why" — within 30.
 This project has **one maintainer**, which is stated here rather than
 implied: that is the honest bound on response time, and it is a risk a
-consumer should price in.
+consumer should price in. No successor or second reviewer is named yet;
+naming one is a human decision this file will record when it happens.
 
 ## What is supported
 
@@ -34,6 +35,11 @@ version, so a release that forgets to move it fails before the tag is
 cut. The support window above it is held the same way: the gate
 derives this minor and the next from `VERSION` and requires both named
 here, so a minor cut that leaves the old window behind fails too.
+
+Building from source needs no maintainer on the other end: after the
+clone, `scripts/bootstrap-from-seed.sh --install` plus the host's `llc`
+and `cc` are sufficient — see `CONTRIBUTING.md` and `bootstrap/README.md`.
+`scripts/check-offline-bootstrap.sh` holds that closure in CI.
 
 ## What is in scope
 

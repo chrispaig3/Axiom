@@ -298,6 +298,20 @@ if pipeline "self_host/main.ax" 0 "selfhost"; then
       fail "A3: $ndyn of $nrow frames are dynamic, so no static bound exists for them"
       awk -F'\t' '$3 != "static" && NF >= 3' "$work/selfhost.su" | head -5 | sed 's/^/    /' >&2
     fi
+
+    # A3b. The analyzer's blockaddress rule (line-table stores) must be
+    # exercised, not vacuously true: the analyzed IR has to contain a
+    # healthy population of them. If the emitter ever stops marking
+    # calls, this trips before the rule can silently atrophy. Floor 100
+    # is two orders under self_host's ~10k, so ordinary refactoring
+    # cannot brush it; only losing the markers can.
+    checks=$((checks + 1))
+    nba="$(grep -c 'blockaddress(@' "$work/selfhost.ll" || true)"
+    if (( nba >= 100 )); then
+      note "ok   A3b: $nba blockaddress stores in the analyzed IR - the line-table rule fired"
+    else
+      fail "A3b: only $nba blockaddress stores in the analyzed IR - the line-table rule ran vacuous"
+    fi
   else
     note "SKIP: A2 and A3 need \`llc --stack-usage-file\`, which this llc does not"
     note "      have (LLVM 18 has no such flag; LLVM 23 does). The prologue parse"
@@ -430,7 +444,7 @@ fi
 # a guard above declined silently, and the reason is in the log.
 # --------------------------------------------------------------------
 expected=10
-(( su_ok )) && expected=12
+(( su_ok )) && expected=13
 if (( checks < expected )); then
   echo "FAIL: only $checks of $expected assertions ran. Something above declined" >&2
   echo "      to run rather than failing - a fixture that would not build, or a" >&2
