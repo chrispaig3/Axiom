@@ -118,8 +118,8 @@ the round-cap fix first.
 
 Axiom is `0.x`. SemVer's own §4 says that anything MAY change at any
 time in `0.x`, and this project does not pretend otherwise: there is
-one maintainer, no LTS branch, and `SECURITY.md` supports exactly the
-newest release. So the version component is **not** what decides
+one maintainer, no LTS branch, and `SECURITY.md` supports one minor line
+at a time — the newest, until the next minor lands. So the version component is **not** what decides
 whether a break is allowed.
 
 **COMPAT-4 (H).** A breaking change is allowed at any bump, and only
