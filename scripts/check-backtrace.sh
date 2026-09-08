@@ -343,6 +343,8 @@ for opt in 0 1 2 3; do
     ok "--opt $opt: every name printed is a symbol nm finds in the binary"
   else
     bad "--opt $opt: names no symbol table has:$unknown"
+    echo "     trace at --opt $opt ($nframes frames):" | sed 's/^/     /'
+    printf '%s\n' "$frames" | sed 's/^/       at /' | head -15
   fi
 
   # First and last frames are the OPTIMISER's to decide above `--opt
