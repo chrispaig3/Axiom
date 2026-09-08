@@ -1,0 +1,8 @@
+; `(A B)` checked in signatures while no literal, no pattern and no
+; runtime representation existed behind it. Products are `struct`,
+; sums are `data`, so the keyword-headed group is refused with
+; migration advice rather than parsed into a shape no value inhabits.
+;
+; `.axbad` because the refusal is at parse time. `()` is untouched:
+; it is unit, and widely used.
+(:: takes (-> (Int Bool) Int))

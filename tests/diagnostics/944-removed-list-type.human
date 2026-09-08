@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `[T]` checked as a type no value could inhabit, and is now refused[0m
+ [1;34m--> [0m944-removed-list-type.ax:7:15
+[1;34m  |[0m
+[1;34m7 |[0m (:: takes (-> [Int] Int))
+[1;34m  |[0m               [1;31m^ `[T]` was refused rather than implemented: the form checked in signatures while no literal, no pattern and no runtime representation existed behind it - a reader met the syntax in the reference, wrote it, and got a parse error. Sequences are `(Vec T)`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mwrite `(Vec T)` for a sequence: `vecNew`, `vecGet`, `vecPush` and `(for x xs body)` are its surface
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `(A B)` checked as a type no value could inhabit, and is now refused[0m
+ [1;34m--> [0m946-removed-tuple-type.ax:8:16
+[1;34m  |[0m
+[1;34m8 |[0m (:: takes (-> (Int Bool) Int))
+[1;34m  |[0m                [1;31m^^^ `(A B)` was refused rather than implemented: the form checked in signatures while no literal, no pattern and no runtime representation existed behind it. Products are `struct`, sums are `data`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mwrite a `struct` for a product of named fields, or `data` for a tagged sum - both are inhabited, matched and reclaimed
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

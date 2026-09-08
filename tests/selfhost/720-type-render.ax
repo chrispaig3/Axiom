@@ -11,13 +11,16 @@
 ; The shapes chosen pin every rule that is easy to get wrong:
 ;   apply   arrows nest with parens on BOTH sides
 ;   pick    a TCon application inside an arrow takes NO parens
-;           (`Maybe Int`), a keyword-headed group is a TUPLE
-;           (`(Int, Bool)` - `Int` is a keyword token in stage0, so
-;           it cannot head an application), and `(* Any)` is a
+;           (`Maybe Int`), and `(* Any)` is a
 ;           pointer, rendered `*Any` with no space
 ;   unit    `()` is the empty tuple
 ;   main    a bare non-arrow signature
 ;   pf      `String`, the one builtin type name the four above omit
+;
+; A keyword-headed group like `(Int Bool)` is NOT among them: the
+; tuple type checked while no value could inhabit it, and is refused
+; (AX2004) - `tests/diagnostics/946-removed-tuple-type.axbad` pins
+; the refusal, so this fixture must not spell one.
 (import Str)
 
 (import Vec)
@@ -39,7 +42,7 @@
 (:: main Int)
 
 (fn (main)
-  (let ((src (strConcat (strConcat (strConcat "(:: apply (-> (-> Int Int) Int Int))\n" "(:: pick (-> (Maybe Int) (Int Bool) (* Any) Int))\n") (strConcat "(:: unit (-> () Int))\n" "(:: main Int)\n")) "(:: pf (-> String Int))\n")))
+  (let ((src (strConcat (strConcat (strConcat "(:: apply (-> (-> Int Int) Int Int))\n" "(:: pick (-> (Maybe Int) (* Any) Int))\n") (strConcat "(:: unit (-> () Int))\n" "(:: main Int)\n")) "(:: pf (-> String Int))\n")))
     (let ((pr (parseModule (lex src))))
       (if (== (memGetWord pr 0) 0)
         7
@@ -47,7 +50,7 @@
           (if (!= (vecLen decls) 5)
             8
             (if (strEq (renderSigAt decls 0) "((Int -> Int) -> (Int -> Int))")
-              (if (strEq (renderSigAt decls 1) "(Maybe Int -> ((Int, Bool) -> (*Any -> Int)))")
+              (if (strEq (renderSigAt decls 1) "(Maybe Int -> (*Any -> Int))")
                 (if (strEq (renderSigAt decls 2) "(() -> Int)")
                   (if (strEq (renderSigAt decls 3) "Int")
                     (if (strEq (renderSigAt decls 4) "(String -> Int)")

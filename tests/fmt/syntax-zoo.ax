@@ -276,16 +276,15 @@
 ; the application inside it is the bare position under test. They ride
 ; on an arrow's argument so that no definition is owed for them.
 ;
-; `(forall a T)` and the space-separated tuple `(A B)` are absent
-; deliberately. The formatter prints a `TForall`, but `parse_type` has
-; no `forall` branch, so `(forall a a)` is read as a three-element
-; *tuple* of type variables - `axiom check` renders the mismatch as
-; `expected (forall, a, a)`. And a tuple type is reachable, but the
-; editor grammar's `tuple_type` demands commas, which the parser
-; refuses ("expected type, found `,`"), so a real one cannot go in a
-; file `check-tree-sitter.sh` must accept.
-(:: interiors (-> (* (Box Int)) [(Box Int)] (Box Int) Int))
-(fn (interiors p l n) 0)
+; `(forall a T)`, the tuple `(A B)` and the list `[T]` are absent
+; deliberately. The formatter prints a `TForall`, but `parse_type`
+; has no `forall` branch, so `(forall a a)` falls into the refused
+; tuple position (AX2004) - and a real tuple or list interior cannot
+; go in a file the gates must accept, because the parser refuses
+; both (`tests/diagnostics/944-removed-list-type.axbad`,
+; `946-removed-tuple-type.axbad`).
+(:: interiors (-> (* (Box Int)) (Box Int) Int))
+(fn (interiors p n) 0)
 
 (:: typed_exprs (-> Int Int))
 (fn (typed_exprs n)
