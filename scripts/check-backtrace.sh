@@ -333,10 +333,20 @@ for opt in 0 1 2 3; do
   # `name:line` pair fails here on the name even where the line
   # happens to be right.
   symbol_names "$work/c$opt" | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
+  # `<unknown>` is the walker's honest answer for an address outside
+  # every table entry - a crt startup frame past `main` at --opt 1 and
+  # above, where sibling jumps elide the frames above the highest
+  # surviving one and the next fp points past the table (freebsd-x86_64
+  # prints one at --opt 1,2,3 with line attribution, 9 frames with the
+  # five user frames intact and located). It is not an invented name,
+  # and §7 still pins every user frame with its line - a user frame
+  # mis-resolved as unknown would fail there for a missing located row.
+  # What this checks is that no other printed name is invented.
   unknown=""
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
     name="${f%% *}"
+    [[ "$name" == "<unknown>" ]] && continue
     grep -qxF "$name" "$work/syms.txt" || unknown="$unknown $name"
   done <<< "$frames"
   if [[ -z "$unknown" ]]; then
