@@ -379,3 +379,19 @@ by accident.
   where the other five are pinned at `--opt` 0/1/2/3. Still
   `docs/error-model.md` `ERR-REC-2`'s "H, partly gated", still not
   closed here.
+
+## Decision D1 (2026-09-08, roadmap item 11): BUILT, Shape B
+
+Checked arithmetic is closed as designed: `no-wrap` (Shape B,
+restriction-as-check) plus the two exemptions, `ERR-REC-2` stays "H,
+partly gated" only over the `remChecked`/`shrChecked` fixture gap
+above. Shape A is rejected as a `restrict` spelling (it would emit
+bytes); `/,%,<<,>>` defer to a named `no-untrapped` follow-up. The
+numbers behind it, re-measured this date: `with.overflow|nsw|nuw`
+occurs 0 times in `self_host/codegen.ax`; `(+`/`(-`/`(*` occur
+2741/1044/147 times across `self_host/` and `stdlib/`; the
+`no-wrap`+`no-alloc` and `pure`+`no-wrap` refusals still fire
+(`tests/diagnostics/383-restrict-no-wrap.ax`,
+`394-restrict-no-wrap-exempt.ax`, `tests/selfhost/465-restrict-no-wrap-runs.ax`,
+`scripts/check-restrictions.sh` §6, `docs/reference.md` restrict
+table). Revisit only with a new measurement, not a new argument.

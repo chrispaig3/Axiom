@@ -757,7 +757,7 @@ instead of writing to fd 2 and exiting:
 | out of memory answers **70** | `axiom: out of memory (mmap failed)`, exit 70 |
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
-| a violated contract answers **77** | ``axiom: precondition failed in `half`: (> n 0)``, exit 77 |
+| a violated contract answers **80** | ``axiom: precondition failed in `half`: (> n 0)``, exit 80 |
 | a `parallel` spawn the kernel refused answers **78** | `axiom: parallel: could not spawn the binding`, exit 78 (2026-09-03; emitted, not yet executed) |
 | `parallel` on a target with no lowering answers **79** | `axiom: parallel is not available on this target`, exit 79 (windows-x86_64; emitted, not executed) |
 
@@ -776,8 +776,8 @@ recovery point asked to survive precisely this. Both halves are in one
 program, for the reason `403-recover-div.ax` gives for its own — with
 `__axiom_recover` unreferenced the mechanism is dead code and the armed
 test folds to false — and it is section 1 of
-`scripts/check-contracts.sh`: the arming call answers `recovered 77` on
-stdout, the second violation outside every extent exits 77 with the
+`scripts/check-contracts.sh`: the arming call answers `recovered 80` on
+stdout, the second violation outside every extent exits 80 with the
 sentence on fd 2.
 
 **The table gains no row from status 75.** An
@@ -1049,7 +1049,7 @@ in this tree at all - `grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|i
 because the sentence making the claim matches the pattern it quotes. So
 the claim is enforced at RUN TIME: `expLowerContracts` compiles the
 check into the body, and a failure writes ``axiom: precondition failed
-in `half`: (> n 0)`` on fd 2 and exits 77.
+in `half`: (> n 0)`` on fd 2 and exits 80.
 
 `AX3050` is then everything about the contract that IS static, and it
 is four questions under one code:
@@ -1298,6 +1298,7 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
+| `ERR-REC-8` | **R** | range-constrained subtypes refused as a type — decided 2026-09-08 (roadmap item 11, D2); the sanctioned vehicle is `;@axiom:pre(...)` (`scripts/check-contracts.sh`, 34 checks). `docs/subtypes-design.md` keeps the case for, the three reversal conditions (one met, two standing), and the re-measured counts |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
 | `ERR-DIAG-2`, `3` | P | — `AX3043`, `AX3045`, `AX3046` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |

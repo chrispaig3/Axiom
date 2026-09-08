@@ -2242,6 +2242,17 @@ macro would generate: `(deriveTag Colour)` does not put `tagColour` in
 the menu, because nothing has expanded it. `check-lsp-selfhost.sh`
 asserts that absence rather than leaving it to be noticed.
 
+*The demand behind this rule is measured, 2026-09-08.* Re-opening
+needs a number, not an anecdote: `scripts/check-macro-demand.sh` pins
+two. Population: 108 `#generated=` AXSYM rows over the corpus that can
+carry one (tests/selfhost's decl-macro family and one frontend case;
+none in stdlib or the compiler itself). Demand: 3 requests in
+tests/lsp/drive.py targeting a generated name - definition and hover
+go unanswered, references sees exactly the use site, on the generated
+`tagShape` call - each asserting the raw-tree shape inline. Either number moving fails the gate, and the
+failure is a conversation about whether this rule still holds, not a
+tuning of the pin.
+
 *The expansion request needed a printer, 2026-08-28.* Nothing in the
 compiler could turn a node back into source — `format.ax` prints from
 its own token forms, `symbols` renders types alone — so

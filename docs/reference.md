@@ -1694,13 +1694,17 @@ not appear in function types. Untagged functions ARE policed: silence
 is the claim "performs no IO", and a body performing IO under it is
 `AX3042`, an error. Only `IO` is REQUIRED - `Alloc` and `Mut` are
 ambient, inferred and reported but never demanded, and the line was
-measured rather than chosen, and re-measured 2026-08-31: of the 3,616
-declarations `symbols self_host/main.ax` lists for the compiler and its
-standard library, 2,290 perform something at all, and 1,721 of those
-perform exactly `Alloc,Mut` - which is every function that touches a
-`String` or a `Vec`. `Mut` alone is on 2,126 of the 2,290, so requiring
-it would be requiring a tag on 93% of everything that has an effect at
-all. `IO` is the one effect a caller cannot learn
+measured rather than chosen, and re-measured 2026-09-08
+(`scripts/check-effect-distribution.sh` pins the whole histogram in
+two views): of the 4,222 declarations `symbols --calls
+self_host/main.ax` lists for the compiler and its standard library,
+2,669 perform something at all, and 2,014 of those perform exactly
+`Alloc,Mut` - which is every function that touches a `String` or a
+`Vec`. `Mut` anywhere is on 2,497 of the 2,669, so requiring
+it would be requiring a tag on 94% of everything that has an effect at
+all. The stdlib view agrees: 406 of 817 perform, 174 of those exactly
+`Alloc,Mut`, with two singletons carrying custom effects (`Assert`,
+`Fallible`) and 3 rows marked `#effects-incomplete`. `IO` is the one effect a caller cannot learn
 without opening the callee. `Alloc` and `Mut` are still DECLARABLE, and
 checked when declared:
 `;@axiom:effect(mut)` over a body that writes a field is accepted, and
@@ -2065,12 +2069,13 @@ for the same reason.
 ```
 
 `(half 0)` writes ``axiom: precondition failed in `half`: (> n 0)`` on
-fd 2, prints the backtrace, and exits **77**, beside `MM-EXEC-16`'s
+fd 2, prints the backtrace, and exits **80**, beside `MM-EXEC-16`'s
 70/71/72, the FFI boundary's 73, 74's absent syscall ABI, 75's invalid
-arena mark and 76's reset past a live handle. **77 is shared with the
-out-of-range index trap** — a supervisor tells those two apart by the
-sentence on fd 2 and not by the status, which is a defect recorded in
-`docs/subtypes-design.md`. There is no flag to turn the checks
+arena mark, 76's reset past a live handle and 77's out-of-range index.
+**80 is the contract trap's own row since D3 (2026-09-08)** — before
+that it shared 77 with the index trap, which a supervisor could tell
+apart only by the sentence on fd 2 (`docs/subtypes-design.md` keeps
+the history). There is no flag to turn the checks
 off: a check that is off by default is a comment by default.
 
 | | |

@@ -3293,6 +3293,12 @@ PARAM_S = locate_in(FIX, "(area s)", "s")          # a parameter typed Shape
 CIRCLE_USE = locate_in(FIX, "(Circle n)", "Circle")  # a constructor of Shape
 DERIVE_DECL = locate(FIX, "deriveTag", 1)          # the macro's own name
 DERIVE_USE = locate(FIX, "deriveTag", 3)           # the invocation (2 is the rule head)
+# A use of a name only the expansion knows: `(deriveTag Shape)` above
+# generates `tagShape`, which `(main)` calls. Requests 26-28 target it
+# and pin the MAC-TOOL-3 shape - definition and hover go unanswered,
+# references sees the use and no declaration. scripts/check-macro-demand.sh
+# counts these three as the gated generated-name demand.
+TAGSHP_USE = locate(FIX, "tagShape", 1)            # the generated call
 MACRO_NAME = cut(FIX, "(pub macro ", "\n")
 INV_ARG = cut(FIX, "(" + MACRO_NAME + " ", ")\n\n; A capability")
 GEN_NAME = cut(FIX, "(syntax/join ", " T)") + INV_ARG   # what the join makes
@@ -3519,6 +3525,9 @@ fix_session = b"".join(frame(m) for m in [
     fixreq(12, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(DERIVE_DECL)})),
     fixreq(13, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(MAIN_DECL)})),
     fixreq(25, "axiom/expandMacro", fixdoc(fix_uri, {"position": at(EQ_USE)})),
+    fixreq(26, "textDocument/definition", fixdoc(fix_uri, {"position": at(TAGSHP_USE)})),
+    fixreq(27, "textDocument/hover", fixdoc(fix_uri, {"position": at(TAGSHP_USE)})),
+    fixreq(28, "textDocument/references", fixdoc(fix_uri, {"position": at(TAGSHP_USE), "context": {"includeDeclaration": True}})),
     {"jsonrpc": "2.0", "method": "textDocument/didOpen",
      "params": {"textDocument": {"uri": fmt_uri, "languageId": "axiom",
                                  "version": 1, "text": FMT}}},
@@ -3722,6 +3731,22 @@ elif fres(23) != []:
     fwhy = f"codeLens on an unparseable document answered {fres(23)!r:.200}, want []"
 elif fres(24) is not None:
     fwhy = f"expandMacro on an unparseable document answered {fres(24)!r:.200}, want null"
+# --- generated-name demand (MAC-TOOL-3) ------------------------------------
+# `tagShape` exists only after expansion, so the raw-tree requests go
+# unanswered. These three are the gated demand count: if expansion ever
+# answers them, the decision they pin is the thing to revisit, and
+# scripts/check-macro-demand.sh trips on the count moving.
+elif fres(26) is not None:
+    fwhy = f"definition on generated `tagShape` answered {fres(26)!r:.200}, want null (MAC-TOOL-3-demand)"
+elif fres(27) is not None:
+    fwhy = f"hover on generated `tagShape` answered {fres(27)!r:.200}, want null (MAC-TOOL-3-demand)"
+# References is the honest third: the raw-tree walk sees the USE (one
+# location, the call itself) and no declaration, because nothing
+# expanded. Pin exactly that shape - an answer that gains a second
+# location is expansion starting to resolve, and one that loses the
+# use is the walk going blind.
+elif (fres(28) or []) != [{"uri": fix_uri, "range": {"start": {"line": TAGSHP_USE["line"], "character": TAGSHP_USE["start"]}, "end": {"line": TAGSHP_USE["line"], "character": TAGSHP_USE["end"]}}}]:
+    fwhy = f"references on generated `tagShape` answered {fres(28)!r:.200}, want exactly the use site (MAC-TOOL-3-demand)"
 
 # The second session: the first one's answers, applied and opened.
 EXPANSION = r11.get("expansion", "") if not fwhy else ""

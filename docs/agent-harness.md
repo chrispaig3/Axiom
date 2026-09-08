@@ -423,7 +423,12 @@ marks the row `#effects-incomplete`. Measured 2026-08-31 on
 no `#calls=` key at all — and an AXTAG or `handle` claim over such a
 body is `AX3037`/`AX3038` rather than a refusal. So the graph states
 its own limit in the stream instead of reporting a set that looks
-complete. Until 0.6.0 the unresolvable head was a trait-method call:
+complete. And the policy CAN refuse an incomplete row: an unexempt
+`#effects-incomplete` in stdlib fails `check-agent-policy.sh` outright
+(the only exempted ones are the five higher-order rows named with
+reasons in that gate — `vecSortBy`/`vecSiftDownBy` and the three `Http`
+dispatch frames — and its `partial.ax` probe plants one to prove the
+refusal fires). A lower bound never passes as an upper one. Until 0.6.0 the unresolvable head was a trait-method call:
 `walkCallHead` unioned *every* implementation, and those edges named
 `Trait#Type#method`, for which `symbols` prints no row — the gap
 `check-agent-policy.sh` still describes in prose ("an impl METHOD BODY
@@ -730,8 +735,9 @@ decision that table records rather than a gap.
   that volunteered no tag was never asked what it performed; that one
   line WAS the opt-in. Silence is now the claim *"performs no IO"* and
   is checked like any other, so effects are enforced for every
-  function. Only `IO` is **required** — measured 2026-08-30, 1,664 of
-  the 2,095 effectful functions here perform exactly `Alloc,Mut`, so
+  function. Only `IO` is **required** — measured 2026-09-08 and pinned
+  by `scripts/check-effect-distribution.sh`, 174 of
+  the 406 effectful stdlib functions perform exactly `Alloc,Mut`, so
   requiring a declaration on those distinguishes nothing from nothing,
   and both stay ambient. (This said "only `IO` is declarable", which is
   a different and false claim: `;@axiom:effect(mut)` over a body that

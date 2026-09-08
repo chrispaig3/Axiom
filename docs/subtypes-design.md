@@ -104,6 +104,11 @@ stronger than when it was written. The four counts above this pair —
 were NOT re-run, so they are as of 2026-08-31 and are marked here
 rather than silently carried as current.
 
+**Re-run 2026-09-08: 509 and 897.** The first count fell while the
+tree grew — sites refactored faster than sites added — which is itself
+evidence for the recommendation below: hand-written range checks churn
+with the code around them, while the boundary they guard does not.
+
 So the population is real: about a fifth of this compiler's `Int`
 parameters are numbers with a range, and roughly 1,300 hand-written
 comparisons already assert those ranges one site at a time. That is the
@@ -224,6 +229,11 @@ ratio is unchanged and so is the argument — but the absolute number is
 the one this section leans on, and it is now 1,015 places a constraint
 could be laundered rather than 651.
 
+**Re-run 2026-09-08: 796 and 1,031, against 4,252 `fn`
+declarations.** Ratio still unchanged; the laundering surface grows
+with the tree, which is the argument for the conversion discipline
+being structural (typed accessors) rather than per-site.
+
 651 casts against 3,691 `fn` declarations. `(cast Index x)` would have
 to be a checked conversion for the subtype to mean anything, and
 `(cast Int i)` would have to lose the constraint — which is correct and
@@ -305,6 +315,21 @@ built, for three reasons that are each a measurement".
 **Two of the three still stand after the 2026-09-04 re-measurement, and
 that is enough. Still not built.**
 
+## Decision D2 (2026-09-08, roadmap item 11): REFUSED as a type
+
+Range-constrained subtypes are closed as **not built**, recorded as
+`docs/error-model.md` `ERR-REC-8` (R): the sanctioned vehicle for a
+ranged number is `;@axiom:pre(...)` at the boundary, which shipped
+2026-08-31 and is gated (`scripts/check-contracts.sh`, 34 checks,
+three ablations). The case FOR stands re-measured (509 hand-written
+zero-comparisons, 897 length-bound ones, 796 `(cast Int ...)` sites
+against 4,252 `fn` declarations), and so do two of the three reversal
+conditions (an unlaunderable `cast`, an integer type that is not the
+handle word); the value-analysis condition is met by LLVM's backend,
+not by a frontend domain, and buys cost but not static refusal. Reopen
+only by meeting the two standing conditions, re-measured, not by
+re-arguing the case for.
+
 ## The status this note got wrong, and what that turned out to be
 
 This note said "76 is the status" of a contract failure, taking it from
@@ -345,12 +370,12 @@ meantime. Its own header comment in `codegen.ax` still reads
 the paragraph under it argues that "two broken invariants sharing one
 status would be that defect again" — which is now what it does.
 
-Nothing caught it because every party is internally consistent:
-`scripts/check-contracts.sh` asserts 77 and is green,
+Nothing caught it because every party was internally consistent:
+`scripts/check-contracts.sh` asserted 77 and was green,
 `tests/stdlib/464-index-trap.exit` asserts 77 and is green, and no gate
-compares one trap's status to another's. `docs/error-model.md:686` says
-a violated contract answers 77 while `docs/memory-model.md:698` says 77
-is the index trap, in two tables neither of which reads the other.
+compared one trap's status to another's. `docs/error-model.md:686` said
+a violated contract answers 77 while `docs/memory-model.md:698` said 77
+was the index trap, in two tables neither of which read the other.
 
 **This is not this note's defect to fix**, and it is recorded here
 rather than acted on because the fix is a decision about a shipped exit
@@ -361,3 +386,13 @@ artefact), or the collision is accepted and both tables are made to say
 so. Correcting the prose from 76 to 77 without that decision would
 write the collision INTO the documents whose purpose is that it cannot
 happen.
+
+**DECIDED 2026-09-08 (roadmap item 11, D3): the contract trap moves to
+80.** The note's own reading wins: `__indexTrap` held 77 on trunk
+first, the contract trap's number was twice a merge artefact, and
+`docs/ffi.md` §5.1 took 73 for exactly this indistinguishability. The
+move is `emitContractTrap`'s abort code and exit (77→80),
+`MM-EXEC-16`'s new 80 row, and `scripts/check-contracts.sh` asserting
+80 at every `--opt` level; `tests/stdlib/464-index-trap.exit` still
+asserts 77, so the two traps are now told apart by status as well as
+sentence. History above is kept as it was.

@@ -1923,12 +1923,12 @@ failure writes
 
     axiom: precondition failed in `half`: (> n 0)
 
-on fd 2, prints the backtrace, and exits 77, beside 70 out of memory,
+on fd 2, prints the backtrace, and exits 80, beside 70 out of memory,
 71 unhandled effect, 72 division by zero, 73 the FFI boundary, 74 no
-syscall ABI, 75 an invalid arena mark and 76 an arena reset past a
-live handle. 77 is SHARED with the out-of-range index trap: a
-supervisor tells those two apart by the sentence on fd 2 and not by
-the status, which is a defect and is recorded in
+syscall ABI, 75 an invalid arena mark, 76 an arena reset past a
+live handle and 77 an out-of-range index. 80 has been the contract
+trap's own row since D3 (2026-09-08); before that it shared 77 with
+the index trap, which is recorded in
 docs/subtypes-design.md rather than left to be rediscovered. There is no
 flag: a check that is off by default is a comment by default.
 
