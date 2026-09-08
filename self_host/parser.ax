@@ -1141,22 +1141,29 @@
                 (diagSetLabel
                   (mkDiag
                     SEV_ERROR                    "AX2004"                    "removed-construct"                    (tokenSpan tok)                    (if (strEq exp "deriving")
-                      ; Three of the six get their own verb:
+                      ; Five of the eight get their own verb:
                       ; union/foreign (and region, until it returned)
                       ; once WORKED and were
                       ; removed, but `deriving` never derived anything,
-                      ; `linear` never counted a use and `consume` never
-                      ; reclaimed a byte. Saying "no longer part of
-                      ; Axiom" about those three would claim a history
+                      ; `linear` never counted a use, `consume` never
+                      ; reclaimed a byte, and the list and tuple types
+                      ; never inhabited a value. Saying "no longer part of
+                      ; Axiom" about those five would claim a history
                       ; they do not have, and the difference is the
                       ; whole reason a reader is being told anything.
                       "`deriving` parsed and derived nothing, and is now refused"
                       (if (strEq exp "linear")
                         "`linear` parsed and enforced nothing, and is now refused"
-                        (if (strEq exp "consume")
-                          "`consume` parsed and reclaimed nothing, and is now refused"
-                          (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
-                        )
+                       (if (strEq exp "consume")
+                         "`consume` parsed and reclaimed nothing, and is now refused"
+                         (if (strEq exp "list")
+                           "`[T]` checked as a type no value could inhabit, and is now refused"
+                           (if (strEq exp "tuple")
+                             "`(A B)` checked as a type no value could inhabit, and is now refused"
+                             (strConcat (strConcat "`" exp) "` is no longer part of Axiom")
+                           )
+                         )
+                       )
                       )
                     )                    0                    ""                    (removedHelp exp)
                   )                  (removedRationale exp)
@@ -1313,8 +1320,14 @@
         (if (strEq kw "trait")
           (strConcat (strConcat "`trait` was removed: an interface is a CAPABILITY RECORD now - a " "parameterised struct holding the functions, passed as a value. ") "`(struct ShowOf (a) (render : (-> a String)))`, and `(ShowOf fmtInt)` is the instance")
           (if (strEq kw "impl")
-            (strConcat (strConcat "`impl` was removed with `trait`: an instance is a VALUE now, not a " "declaration - bind one with `fn` and pass it where it is needed. ") "`show` needs none: the compiler renders every type from its static type")
-            (strConcat (strConcat "`" kw) "` was removed")
+            (strConcat (strConcat "`impl` was removed with `trait`: an instance is a VALUE now, not a " "declaration - bind one with `fn` and pass it where it is needed. ") "`show` needs none: the compiler renders every type from its static type without one")
+            (if (strEq kw "list")
+              (strConcat (strConcat "`[T]` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it - ") "a reader met the syntax in the reference, wrote it, and got a parse error. Sequences are `(Vec T)`")
+              (if (strEq kw "tuple")
+                (strConcat (strConcat "`(A B)` was refused rather than implemented: the form checked in " "signatures while no literal, no pattern and no runtime representation existed behind it. ") "Products are `struct`, sums are `data`")
+                (strConcat (strConcat "`" kw) "` was removed")
+              )
+            )
           )
         )
       )
@@ -1342,7 +1355,13 @@
           (strConcat (strConcat "declare a capability record instead: `(struct ShowOf (a) (render : " "(-> a String)))`, and bind an instance with `fn` - ") "`(fn (showInt) (ShowOf fmtInt))`. Call through the field: `((c.render) x)`")
           (if (strEq kw "impl")
             (strConcat (strConcat "bind the instance as a VALUE - `(fn (showColor) (ShowOf renderColor))` " "- and pass it where it is needed. If this was an `impl` of `Show`, ") "delete it: `show` and `{}` interpolation render every type from its static type without one")
-            "run `axiom explain AX2004`"
+            (if (strEq kw "list")
+              (strConcat "write `(Vec T)` for a sequence: `vecNew`, `vecGet`, `vecPush` and " "`(for x xs body)` are its surface")
+              (if (strEq kw "tuple")
+                (strConcat "write a `struct` for a product of named fields, or `data` for a " "tagged sum - both are inhabited, matched and reclaimed")
+                "run `axiom explain AX2004`"
+              )
+            )
           )
         )
       )
@@ -2881,19 +2900,14 @@
 (pub :: parseTypeAtom (-> (Vec Int) Int Int))
 
 (pub fn (parseTypeAtom tokens pos)
-  ; `[T]` is the list type. The brackets only just became tokens -
-  ; the lexer skipped them, so `[(Box Int)]` arrived as `(Box Int)`
-  ; and `symbols` rendered a list-typed signature without its list.
+  ; `[T]` is REFUSED, not parsed. The list type checked in signatures
+  ; while no literal, no pattern and no runtime representation existed
+  ; behind it: a reader met the syntax in the reference, wrote it, and
+  ; got a parse error. Sequences are `(Vec T)`, so the brackets carry
+  ; the explanation rather than a shape. `()` is untouched - it is the
+  ; empty tuple below, and unit is widely used.
   (if (peekIs tokens pos TK_LBRACKET)
-    (let ((r (parseType tokens (advance pos))))
-      (if (== (memGetWord r 0) 0)
-        r
-        (if (peekIs tokens (memGetWord r 2) TK_RBRACKET)
-          (pOk (mkNode TAG_T_LIST (memGetWord r 1) 0 0) (advance (memGetWord r 2)))
-          (pErr (memGetWord r 2))
-        )
-      )
-    )
+    (pErrRemoved pos "list")
     (if (peekIs tokens pos TK_IDENT)
       ; `* T` and `linear T` prefix the NEXT atom. `*Any` without the
       ; space lexes as one identifier here (stage1's `*` is an ident
@@ -3093,9 +3107,13 @@
                 ; annotation lands on IT. The atom is a fresh node
                 ; from `parseTypeAtom` - a keyword constructor, a
                 ; variable - so writing its word 7 aliases nothing.
+                ; Two or more atoms are REFUSED, not tupled: the tuple
+                ; type checked in signatures while no literal, no
+                ; pattern and no runtime representation existed behind
+                ; it. Products are `struct`, sums are `data`.
                 (if (== (vecLen tys) 1)
                   (pOk (tyWithRegion (vecGet tys 0) r) (memGetWord r 2))
-                  (pOk (tyWithRegion (mkTTup tys) r) (memGetWord r 2))
+                  (pErrRemoved pos "tuple")
                 )
               )
             )

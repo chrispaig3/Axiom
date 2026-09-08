@@ -366,6 +366,14 @@ not parse. Derive instances explicitly, where you want them:
 generates is checked, compiled, and dispatched like a written one
 (docs/macro-system.md MAC-CAP-9).
 
+`[T]` and `(A B)` are refused rather than removed: the list and tuple
+types checked in signatures while no literal, no pattern and no runtime
+representation existed behind either of them - a reader met the syntax
+in the reference, wrote it, and got a parse error. A checked type no
+value can inhabit is worse than one that does not parse. Sequences are
+`(Vec T)`: `vecNew`, `vecGet`, `vecPush` and `(for x xs body)` are its
+surface. Products are `struct`, sums are `data`.
+
 ### explain AX2005
 AX2005 - nesting too deep
 

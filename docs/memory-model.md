@@ -1016,7 +1016,7 @@ holding the handler closure and the previous evidence, saved and
 restored around the body.
 
 **MM-VAL-13 (R).** There are **no list or tuple values.** `[T]` and
-tuple types are type-level constructions only; `[` in expression
+`(A B)` are refused in type position (`AX2004`); `[` in expression
 position is `AX2001`. A sequence is a `data` type the program declares,
 or a `Vec`. This is why the macro expander needs no case for either
 (`macro-system.md` §11.3): a list-shaped *value* is always a constructor

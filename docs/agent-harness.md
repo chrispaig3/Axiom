@@ -181,9 +181,9 @@ accessors that are the only way to read a word.
 
 Note the shape: `(pub :: name Type)` and `(pub fn (name args) body)` are
 two separate declarations. The proposal's `(pub fn f :: (-> A B))` is a
-parse error, `AX2001`, at the `::`. There is also no `List`: `[T]` exists
-in type position and is uninhabited - there is no list literal - so every
-sequence is a `Vec` handle or a user-declared ADT.
+parse error, `AX2001`, at the `::`. There is also no `List`: `[T]` is
+refused in type position (`AX2004`) and there is no list literal - so
+every sequence is a `Vec` handle or a user-declared ADT.
 
 **This façade was unsafe to write until 2026-08-23.** A `type` alias in a
 struct field stayed nominal, so `(Decl 1 n s)` drew `AX3004` against its

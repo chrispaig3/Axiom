@@ -424,15 +424,17 @@ conversions are `__intToFloat`/`__floatToInt`.
 (-> Int Int)           ; Function: Int -> Int
 (-> Int Int Int)       ; Curried: Int -> Int -> Int
 (* Int)                ; Pointer to Int
-[Int]                  ; List of Int
-(Int String Bool)      ; 3-tuple
 ```
 
-`[Int]` and `(Int String Bool)` are **type syntax only**. There is no
-list or tuple literal, no list or tuple pattern, and no runtime
-representation: `[1 2 3]` is `AX2001 expected expression`, and `(1 2)`
-in expression position is read as an application of `1`. A signature
-may name these types; nothing can build a value of one.
+`[T]` and `(A B)` - the list and tuple types - are **refused** as
+`AX2004 removed-construct`, with migration advice naming the
+replacement. Both checked in signatures while no literal, no pattern
+and no runtime representation existed behind either: `[1 2 3]` is
+`AX2001 expected expression`, and `(1 2)` in expression position is
+read as an application of `1`. A checked type no value can inhabit is
+worse than one that does not parse. Sequences are `(Vec T)`;
+products are `struct`, sums are `data`. `()` is untouched: it is
+unit, and widely used.
 
 ### Type Casting
 
