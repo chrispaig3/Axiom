@@ -350,7 +350,7 @@ checks=$((checks + 1))
 abl="$work/abl"; rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
 printf '\n(pub :: censusProbe (-> Int Int))\n\n;@axiom:effect(io)\n(pub fn (censusProbe fd) (__syscall1 6 fd))\n' >> "$abl/Vec.ax"
 probe_out="$(python3 "$helper" sentinels "$axc" "$work" "$abl" 2>&1 || true)"
-if printf '%s\n' "$probe_out" | grep -q '^stdlib/Vec\.ax 1 0$'; then
+if grep -q '^stdlib/Vec\.ax 1 0$' <<<"$probe_out"; then
   ok "a planted raw-syscall return is counted as a failure sentinel"
 else
   bad "the census did not see a planted sentinel - the rule has stopped matching the tree"
@@ -380,10 +380,16 @@ PY
     return
   fi
   local out; out="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1 || true)"
-  if printf '%s\n' "$out" | grep -q '^FATAL'; then
+  # `grep -q` over a herestring, not `printf | grep -q`: under
+  # `set -o pipefail` a large `$out` makes `printf` die with SIGPIPE
+  # when `grep -q` exits on its first match, failing a probe whose
+  # expected row sits past the pipe buffer (darwin-aarch64, 2026-09-08:
+  # two probes reported their first five lines instead of the expected
+  # REMOVED/CHANGED). A herestring has no pipe and cannot misfire.
+  if grep -q '^FATAL' <<<"$out"; then
     bad "$name: the probe stopped the tree compiling, so it proves nothing about this gate"
     printf '%s\n' "$out" | sed 's/^/     /' | head -3
-  elif printf '%s\n' "$out" | grep -qE "^  $expect\$"; then
+  elif grep -qE "^  $expect\$" <<<"$out"; then
     ok "$name -> $expect"
   else
     bad "$name: expected '$expect', got:"
@@ -475,10 +481,10 @@ printf '\n(pub :: compatProbeAdded Int)\n\n(pub fn (compatProbeAdded) 7)\n' >> "
 # then read those as this probe failing. The subject is whether an
 # ADDITION is classified as breaking, and only the row says that.
 out="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1 || true)"
-if printf '%s\n' "$out" | grep -q '^FATAL'; then
+if grep -q '^FATAL' <<<"$out"; then
   bad "the addition probe stopped the tree compiling"
   printf '%s\n' "$out" | sed 's/^/     /' | head -3
-elif printf '%s\n' "$out" | grep -q '^  ADDED [FD] compatProbeAdded$'; then
+elif grep -q '^  ADDED [FD] compatProbeAdded$' <<<"$out"; then
   ok "a new public name is ADDED and not breaking"
 else
   bad "adding a public name was not reported ADDED - this gate is a freeze, not a contract"
@@ -577,8 +583,8 @@ else
   # the whole assertion. A "0 breaking" check would additionally
   # require the rest of the tree to be compatible, which is not this
   # probe's subject and is false in any release that ports an API.
-  if printf '%s\n' "$out_dep" | grep -q '^  RETIRED F unwrapOr$' \
-     && printf '%s\n' "$out_pln" | grep -q '^  REMOVED F unwrapOr$'; then
+  if grep -q '^  RETIRED F unwrapOr$' <<<"$out_dep" \
+     && grep -q '^  REMOVED F unwrapOr$' <<<"$out_pln"; then
     ok "a deprecated name is RETIRED, and the same name undeprecated is REMOVED"
   else
     bad "the deprecation notice does not change the verdict"
@@ -593,7 +599,7 @@ checks=$((checks + 1))
 rm -rf "$abl"; cp -r "$repo_root/stdlib" "$abl"
 printf '\n(pub :: broken (-> \n' >> "$abl/Vec.ax"
 out="$(python3 "$helper" compare "$axc" "$work" "$baseline" "$abl" 2>&1 || true)"
-if printf '%s\n' "$out" | grep -q '^FATAL'; then
+if grep -q '^FATAL' <<<"$out"; then
   ok "an uncompilable stdlib answers FATAL, not REMOVED"
 else
   bad "an uncompilable stdlib produced a compatibility verdict:"
