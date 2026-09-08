@@ -562,10 +562,15 @@ peak_rss_kb() {
 }
 
 cp "$repo_root/self_host/main.ax" "$work/in.ax"
-peak="$(cd "$work" && peak_rss_kb ./d2/axc in.ax)"
+peak="$(cd "$work" && peak_rss_kb ./d2/axc emit-llvm "$repo_root/self_host/main.ax")"
 if [[ -z "$peak" ]]; then
   fail "could not measure the self-compile's peak memory (no usable /usr/bin/time)"
 fi
+# The path the compiler embeds in its line-table filename globals comes
+# from the input it was given, and `d3/axc.ll` above was built with
+# `--input $repo_root/self_host/main.ax`. A copy under `$work` would
+# pass a different path and the two IRs would diverge on the filename
+# bytes alone - so the run measured here is given the same path.
 if ! cmp -s "$work/peak.ll" "$work/d3/axc.ll"; then
   fail "the measured self-compile did not emit the compiler - the number below would be of something else"
 fi
@@ -759,7 +764,40 @@ floor=8192       # 8 MiB
 # this landed: the ceiling is left where it is because nothing here
 # regressed, and the next slice onto this trunk should expect to be the
 # one that has to move it and say why.
-ceiling=524288   # 512 MiB, over a measured 454
+# 512 -> 608 MiB on 2026-09-07, at the line-attribution slice. The
+# slice adds the line markers, the line table, the filename globals,
+# and the source reads the resolver keeps live during emit; measured
+# on this gate's own path, three runs of stage2 on 2026-09-07 with the
+# stage3 binary at this commit:
+#
+#   run 1   562,392 KiB
+#   run 2   562,140 KiB
+#   run 3   562,332 KiB
+#
+# The three-way split the entries above run, on `emit-llvm
+# self_host/main.ax`, in KiB:
+#
+#   the OLD compiler on HEAD's source         521,128
+#   the NEW compiler on HEAD's source         562,140   +7.87%
+#   the OLD compiler on the NEW source        521,128   +0.00%
+#   the NEW compiler on the NEW source        562,140   +7.87%
+#
+# The compiler CHANGE - the 918 net insertions to `self_host/codegen.ax`
+# that add the markers, the table, the resolver and the path emitter
+# - costs +7.87% on identical input, against the +0.00% to +2.18% the
+# earlier entries reported. The cost per source line is no longer the
+# 4-5 KiB the linear shape kept flat across the last five moves: this
+# gate's input has not grown (the file is HEAD's, byte for byte), and
+# 41 MiB of fresh peak is added by the new code paths. The text the
+# resolver reads is held live for the run, and `pushLineMark` allocates
+# one four-element vector per source marker; the rest is the table and
+# the filenames. The failure text's accumulator was looked for and is
+# not there - the cost is real work that lives during emit.
+# 608 leaves 10.7% over the measured 549, the lowest margin this gate
+# has set; the slice is responsible for it, and the next reader who
+# finds the same margin should move the ceiling rather than assume the
+# linear shape is back.
+ceiling=622592   # 608 MiB, over a measured 549
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi

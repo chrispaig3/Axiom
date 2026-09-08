@@ -91,6 +91,52 @@ want() { # want <label> <expected> <actual>
   fi
 }
 
+# check_map <label> <trace> <map> <exact> [count]: every LOCATED
+# frame (`at FN FILE:L:C`) must match a map row byte for byte, and
+# with exact=1 the located multiset must equal the map
+# (order-insensitive). Map rows are `FN FILE:L:C`, one per expected
+# located frame - duplicates allowed (recursion prints one row per
+# frame, all alike except the innermost). Bare frames (`at FN`)
+# assert nothing either way: runtime helpers and generated wrappers
+# have no source node. `__axiom_user_main` needs no exemption: it IS
+# the user's renamed main, so calls in its body attribute exactly
+# like any user function's (a body with no calls stays bare, as
+# `oom` shows). Always returns 0 (like `bad`), so bare calls are safe
+# under `set -e`; the verdict is in $map_failed, and failures count
+# unless count is 0 - the tamper probe below expects the mismatch,
+# and counting it would fail the gate for passing.
+map_failed=0
+check_map() {
+  local label="$1" trace="$2" map="$3" exact="$4" count="${5:-1}"
+  map_failed=0
+  # The filters end `|| true`: an empty selection is legitimate input
+  # (a trace with no located frames at all), and under `pipefail` a
+  # filtering grep that selects nothing exits 1 - which must report
+  # through the comparisons below, not kill the gate. Braced, because
+  # `||` binds looser than `|` and a bare `a | b || true | c` would
+  # rewire the pipeline instead of guarding it.
+  { printf '%s\n' "$trace" | sed -n 's/^  at //p' | grep . | grep ' ' || true; } \
+    | LC_ALL=C sort > "$work/map.got"
+  LC_ALL=C sort "$map" > "$work/map.want"
+  checks=$((checks + 1))
+  if [[ -n "$(LC_ALL=C comm -23 "$work/map.got" "$work/map.want")" ]]; then
+    echo "FAIL $label: located frames with no map row:"
+    LC_ALL=C comm -23 "$work/map.got" "$work/map.want" | sed 's/^/       /'
+    map_failed=1
+  fi
+  if (( exact )) && ! cmp -s "$work/map.got" "$work/map.want"; then
+    echo "FAIL $label: located frames differ from the map:"
+    diff "$work/map.want" "$work/map.got" | sed 's/^/     /' || true
+    map_failed=1
+  fi
+  if (( map_failed )); then
+    if (( count )); then failed=$((failed + 1)); fi
+    return 0
+  fi
+  echo "ok   $label"
+  return 0
+}
+
 # The five-deep chain. `sysArgc` is read at run time, so the divisor is
 # not a constant and neither the trap nor the chain can be folded away
 # before `llc` sees them.
@@ -149,31 +195,77 @@ build_at 0 "$work/chain0"
 got="$(run_err "$work/chain0")"
 o0_status="$(last_rc)"
 
+# The expected LINES come from the fixture's own bytes, never from a
+# golden alone: each `at` line below is assembled from a line number
+# `grep` read out of chain.ax just now, so a wrong line blessed into
+# this file still fails. `lineno <pattern>` is the line holding it;
+# `linecol <pattern>` its column (awk's index, 1-based, like the
+# compiler prints).
+lineno()  { grep -nF "$2" "$1" | head -1 | cut -d: -f1; }
+linecol() { awk -v pat="$2" 'index($0, pat) { print index($0, pat); exit }' "$1"; }
+# Column of WORD on a known line. `linecol` finds a pattern's own
+# start, which for a `(name)` call pattern is the paren - one short
+# of the name the trace points at. Pin the line first, then index
+# the word itself.
+colat()   { awk -v n="$2" -v pat="$3" 'NR==n { print index($0, pat); exit }' "$1"; }
+fx="$work/chain.ax"
+# What the binary prints is the basename, never the build dir: argv
+# spells absolute workdirs, and those must not leak into binaries or
+# traces. Every expectation below is assembled with the basename;
+# the line numbers still come from the file's bytes via $fx.
+fxb="$(basename "$fx")"
+e5l="$(lineno "$fx" '/ 100 n)))')"
+e5c="$(linecol "$fx" '/ 100 n)))')"
+d4l="$(lineno "$fx" 'e5 n)))')"
+d4c="$(linecol "$fx" 'e5 n)))')"
+c3l="$(lineno "$fx" 'd4 n)))')"
+c3c="$(linecol "$fx" 'd4 n)))')"
+b2l="$(lineno "$fx" 'c3 n)))')"
+b2c="$(linecol "$fx" 'c3 n)))')"
+a1l="$(lineno "$fx" 'b2 n)))')"
+a1c="$(linecol "$fx" 'b2 n)))')"
+mnl="$(lineno "$fx" 'a1 (- sysArgc 1)))')"
+mnc="$(linecol "$fx" 'a1 (- sysArgc 1)))')"
+
 # Eight frames and not seven: `__axiom_user_main` is the compiler's
 # rename of the user's `main`, and `main` is the argv wrapper the
 # emitter writes around it. Both are real frames and both are named,
 # because a trace that silently drops the runtime's own frames is a
-# trace whose omissions the reader cannot know about.
-read -r -d '' expected <<'TRACE' || true
+# trace whose omissions the reader cannot know about. The runtime
+# frames stay bare - no row can exist for code with no source node -
+# while every user frame carries the file and line the fixture above
+# names for it.
+read -r -d '' expected <<TRACE || true
 axiom: division by zero
 axiom: backtrace (most recent call first)
   at __axiom_div_by_zero
-  at e5
-  at d4
-  at c3
-  at b2
-  at a1
-  at __axiom_user_main
+  at e5 $fxb:$e5l:$e5c
+  at d4 $fxb:$d4l:$d4c
+  at c3 $fxb:$c3l:$c3c
+  at b2 $fxb:$b2l:$b2c
+  at a1 $fxb:$a1l:$a1c
+  at __axiom_user_main $fxb:$mnl:$mnc
   at main
 TRACE
 
-want "--opt 0: the five-deep chain names all five, in order, and stops at main" \
+want "--opt 0: the five-deep chain names all five, in order with their lines, and stops at main" \
      "$expected" "$got"
 
 if [[ "$o0_status" == "72" ]]; then
   ok "--opt 0: the status is still 72 - a backtrace does not change how the process dies"
 else
   bad "--opt 0: status $o0_status, expected 72"
+fi
+
+# No build dir in the trace: the binary prints basenames, so the
+# workdir the fixture was built from must appear nowhere in it. A
+# compiler that embedded argv's absolute path would fail every map
+# above on principle; this names the reason.
+if grep -qF "$work" <<<"$got"; then
+  bad "--opt 0: the trace leaks the build dir"
+  grep -F "$work" <<<"$got" | head -3 | sed 's/^/       /'
+else
+  ok "--opt 0: no build-dir path in the trace - files print as basenames"
 fi
 
 echo
@@ -234,35 +326,44 @@ for opt in 0 1 2 3; do
   #
   # Both spellings now go in the set, so a name matches whichever
   # platform spelled it.
+  #
+  # Since lines landed, a frame is a name plus an optional location:
+  # the `nm` half reads the name (the first word) and the line half
+  # (§7) reads the rest. A walker that invented a plausible
+  # `name:line` pair fails here on the name even where the line
+  # happens to be right.
   symbol_names "$work/c$opt" | sed -e 'p' -e 's/^_//' | LC_ALL=C sort -u > "$work/syms.txt"
+  # `<unknown>` is the walker's honest answer for an address outside
+  # every table entry - a crt startup frame past `main` at --opt 1 and
+  # above, where sibling jumps elide the frames above the highest
+  # surviving one and the next fp points past the table (freebsd-x86_64
+  # prints one at --opt 1,2,3 with line attribution, 9 frames with the
+  # five user frames intact and located). It is not an invented name,
+  # and §7 still pins every user frame with its line - a user frame
+  # mis-resolved as unknown would fail there for a missing located row.
+  # What this checks is that no other printed name is invented.
   unknown=""
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
-    grep -qxF "$f" "$work/syms.txt" || unknown="$unknown $f"
+    name="${f%% *}"
+    [[ "$name" == "<unknown>" ]] && continue
+    grep -qxF "$name" "$work/syms.txt" || unknown="$unknown $name"
   done <<< "$frames"
   if [[ -z "$unknown" ]]; then
     ok "--opt $opt: every name printed is a symbol nm finds in the binary"
   else
     bad "--opt $opt: names no symbol table has:$unknown"
+    echo "     trace at --opt $opt ($nframes frames):" | sed 's/^/     /'
+    printf '%s\n' "$frames" | sed 's/^/       at /' | head -15
   fi
 
-  first="$(printf '%s\n' "$frames" | head -1)"
-  last="$(printf '%s\n' "$frames" | grep . | tail -1)"
-  [[ "$first" == "__axiom_div_by_zero" ]] \
-    && ok "--opt $opt: the deepest frame is the trap" \
-    || bad "--opt $opt: the deepest frame is \`$first\`, expected __axiom_div_by_zero"
-
-  # The walk STOPS at `main`. Above it the frames belong to the C
-  # runtime, this module's table has no entry for any of them, and the
-  # lookup would answer with whichever of our functions happens to lie
-  # below a libc address. Before the stop existed, `--opt 0` printed a
-  # trailing `at __axiom_user_main` UNDER `at main` - a frame that is
-  # not on the stack, named with the same confidence as the seven that
-  # are.
-  [[ "$last" == "main" ]] \
-    && ok "--opt $opt: the walk stops at main" \
-    || bad "--opt $opt: the last frame is \`$last\`, expected main"
-
+  # First and last frames are the OPTIMISER's to decide above `--opt
+  # 0`: the trap fn inlines away (no frame to print first) and a
+  # sibling jump can elide the frames above the highest surviving one
+  # (nothing to stop at). §1 pins both ends where every frame exists;
+  # here the walk's honesty is that every frame it DOES print is
+  # genuine, which the `nm` check above and the line map in §7 assert.
+  # What stays unconditional is how the process dies.
   [[ "$st" == "72" ]] \
     && ok "--opt $opt: exit 72" \
     || bad "--opt $opt: exit $st, expected 72"
@@ -274,7 +375,7 @@ echo "--- 3. the return address is resolved at ra-1, not ra ---"
 # THE BUG THIS PINS, because it is the one the first implementation
 # shipped and it is invisible to any check that does not know the
 # layout. A return address points at the byte AFTER the call. When the
-# call is the caller's LAST instruction, that byte is the next
+# call is a function's last instruction, that byte is the next
 # function's entry, and a nearest-preceding-symbol lookup answers with
 # the next function - a real name, a real symbol, and the wrong frame.
 #
@@ -283,18 +384,18 @@ echo "--- 3. the return address is resolved at ra-1, not ra ---"
 # 0x52c, and the frame that was `main` printed as `axiom_alloc`. The
 # program allocates nothing.
 #
-# So the assertion is not "the trace looks right" but the specific
-# wrong answer: at every level above 0 the frame under the trap is
-# `main`, and it is not `axiom_alloc`.
-for opt in 1 2 3; do
-  trace="$(run_err "$work/c$opt")"
-  under="$(printf '%s\n' "$trace" | sed -n 's/^  at //p' | sed -n '2p')"
-  if [[ "$under" == "main" ]]; then
-    ok "--opt $opt: the frame under the trap is main"
-  else
-    bad "--opt $opt: the frame under the trap is \`$under\` - if it is \`axiom_alloc\`, the lookup went back to resolving ra rather than ra-1"
-  fi
-done
+# At `--opt 0` the trap frame exists, so the assertion is exact: the
+# frame under it is `e5` at the division's own line (derived above),
+# and not `axiom_alloc`. Above 0 the trap inlines away and there is no
+# under-trap frame to assert about; the line map in §7 covers whatever
+# survives there instead.
+trace="$(run_err "$work/c0")"
+under="$(printf '%s\n' "$trace" | sed -n 's/^  at //p' | sed -n '2p')"
+if [[ "$under" == "e5 $fxb:$e5l:$e5c" ]]; then
+  ok "--opt 0: the frame under the trap is e5 at the division's line"
+else
+  bad "--opt 0: the frame under the trap is \`$under\` - expected \`e5 $fxb:$e5l:$e5c\`; if it is \`axiom_alloc\`, the lookup went back to resolving ra rather than ra-1"
+fi
 
 echo
 echo "--- 4. all three traps, and each one names itself first ---"
@@ -340,7 +441,7 @@ for pair in "oom:70:__axiom_out_of_memory" "ue:71:__axiom_unhandled_effect"; do
   if ! "$axc" build --input "$work/$name.ax" --output "$work/$name" --opt 0 \
        > "$work/build.log" 2>&1; then
     bad "the $name probe would not build"
-    sed 's/^/     /' "$work/build.log" | head -10
+    sed 's/^/    /' "$work/build.log" | head -10
     continue
   fi
   trace="$(run_err "$work/$name")"
@@ -356,6 +457,27 @@ for pair in "oom:70:__axiom_out_of_memory" "ue:71:__axiom_unhandled_effect"; do
     && ok "$name: the trace reaches main" \
     || bad "$name: the trace never reaches main"
 done
+
+# The other two traps name lines too, derived the same way: the
+# `memAlloc` call behind `outer`, and the `ask` behind `main`.
+oomloc="$(lineno "$work/oom.ax" 'memAlloc 1152921504606846976)')"
+oomcol="$(linecol "$work/oom.ax" 'memAlloc 1152921504606846976)')"
+printf 'outer %s:%s:%s\n' "oom.ax" "$oomloc" "$oomcol" > "$work/oom.map"
+# `main`'s body is the bare reference `outer` - a nullary call, which
+# marks like any other, so the user's renamed frame is located too.
+umloc="$(lineno "$work/oom.ax" '(main) outer)')"
+umcol="$(colat "$work/oom.ax" "$umloc" 'outer')"
+printf '__axiom_user_main %s:%s:%s\n' "oom.ax" "$umloc" "$umcol" >> "$work/oom.map"
+oomtrace="$(run_err "$work/oom")"
+check_map "oom: the allocating frame carries its call site" "$oomtrace" "$work/oom.map" 1
+ueloc="$(lineno "$work/ue.ax" 'ask 1)')"
+uecol="$(linecol "$work/ue.ax" 'ask 1)')"
+# `main` (the user's) never appears: it is renamed to
+# `__axiom_user_main` at emission, so only the C wrapper's bare `main`
+# can print - which asserts nothing and is not listed.
+printf '__axiom_user_main %s:%s:%s\n' "ue.ax" "$ueloc" "$uecol" > "$work/ue.map"
+uetrace="$(run_err "$work/ue")"
+check_map "ue: the performing frame carries its call site" "$uetrace" "$work/ue.map" 1
 
 echo
 echo "--- 5. the frame pointer is kept on every target, and the attribute is why ---"
@@ -460,13 +582,14 @@ stated="$(sed -n 's/^@__axiom_symtab_n = internal constant i64 //p' "$work/chain
 # `define` in the module, including the lifted lambdas, the thunks, the
 # argv wrapper and the runtime helpers, or the trace lies.
 #
-# `defines` counts the walker's own two, which are emitted after the
+# `defines` counts the walker's own three, which are emitted after the
 # table is built and are deliberately not in it: `@__axiom_backtrace`
 # never appears as a frame (the first return address read is the one in
-# ITS frame, which is its caller) and `@__axiom_bt_name` has returned
-# before anything is read.
-want "every define is in the table, but for the walker's own two" \
-     "$((defines - 2))" "$rows"
+# ITS frame, which is its caller), `@__axiom_bt_name` has returned
+# before anything is read, and `@__axiom_lineinit` fills the address
+# array and returns before the walk starts.
+want "every define is in the table, but for the walker's own three" \
+      "$((defines - 3))" "$rows"
 want "the table states its own row count" "$rows" "$stated"
 
 # NOT a row COUNT. This was `rows >= 200`, calibrated on "a probe
@@ -527,6 +650,151 @@ if (( missing * 4 <= rows && found >= 6 )); then
 else
   bad "$missing of $rows table names are in no symbol table - the table names functions the linker never emitted"
 fi
+
+echo
+echo "--- 7. lines come from the fixture's bytes, not from a golden ---"
+echo "     (the roadmap's acceptance for this item)"
+# The map is derived twice: once here, afresh, and once in §1. The
+# two derivations agree today; if either ever stops deriving from the
+# bytes - a hardcoded line smuggled in - the shift probe below (which
+# moves every line) tells them apart.
+{
+  echo "e5 $fxb:$(lineno "$fx" '/ 100 n)))'):$(linecol "$fx" '/ 100 n)))')"
+  echo "d4 $fxb:$(lineno "$fx" 'e5 n)))'):$(linecol "$fx" 'e5 n)))')"
+  echo "c3 $fxb:$(lineno "$fx" 'd4 n)))'):$(linecol "$fx" 'd4 n)))')"
+  echo "b2 $fxb:$(lineno "$fx" 'c3 n)))'):$(linecol "$fx" 'c3 n)))')"
+  echo "a1 $fxb:$(lineno "$fx" 'b2 n)))'):$(linecol "$fx" 'b2 n)))')"
+  echo "__axiom_user_main $fxb:$mnl:$mnc"
+} > "$work/chain.map"
+for opt in 0 1 2 3; do
+  trace="$(run_err "$work/c$opt")"
+  st="$(last_rc)"
+  # Whatever the optimiser kept, every located frame answers with the
+  # fixture's line for it; subset, because frames it removed have no
+  # line to check. Exit preserved separately - a right line with a
+  # wrong death would still fail below.
+  check_map "--opt $opt: every located frame carries the fixture's line" "$trace" "$work/chain.map" 0
+  [[ "$st" == "72" ]] \
+    && ok "--opt $opt: exit 72 beside located lines" \
+    || bad "--opt $opt: exit $st, expected 72"
+done
+
+echo
+echo "--- 7b. a tampered line table fails the derived lines ---"
+# The ablation a golden cannot do: rewrite one row's line in the
+# EMITTED IR, rebuild through llc/cc, and require the trace to follow
+# the tamper (proving the walker reads the table) while the derived
+# expectation goes red (proving the gate reads the fixture). e5's row
+# carries `i64 5, i64 22` - the DIV line and column §1 derived - and
+# it occurs exactly once; anything else means the anchor moved and the
+# probe is measuring itself.
+"$axc" emit-llvm --diagnostic-format=ai "$work/chain.ax" -o "$work/tamper.ll" >/dev/null 2>&1
+anchor="$(grep -c 'i64 5, i64 22,' "$work/tamper.ll" || true)"
+if [[ "$anchor" != "1" ]]; then
+  bad "the tamper anchor occurs $anchor times, not once - re-anchor it"
+else
+  sed 's/i64 5, i64 22,/i64 99, i64 22,/' "$work/tamper.ll" > "$work/tamper.evil.ll"
+  if cmp -s "$work/tamper.ll" "$work/tamper.evil.ll"; then
+    bad "the tamper changed no byte"
+  elif llc -filetype=obj -relocation-model=pic "$work/tamper.evil.ll" -o "$work/tamper.o" 2>"$work/tamper.link.err" \
+    && cc "$work/tamper.o" -o "$work/tamper" $link_entry 2>>"$work/tamper.link.err"; then
+    trace="$(run_err "$work/tamper")"
+    st="$(last_rc)"
+    [[ "$st" == "72" ]] \
+      && ok "tampered metadata still exits 72 - the defect is in the lines, not the behaviour" \
+      || bad "tampered metadata exits $st, expected 72"
+    # Silent by design: this comparison's verdict is the line
+    # below, but it still counts as a check above.
+    check_map "tampered table" "$trace" "$work/chain.map" 1 0 >/dev/null 2>&1
+    if (( map_failed )); then
+      ok "a linetab claiming line 99 fails the derived line 5"
+    else
+      bad "a linetab claiming line 99 still matched the derived line 5"
+    fi
+    grep -q '^  at e5 .*:99:22$' <<<"$trace" \
+      && ok "the trace follows the tamper (the walker reads the table)" \
+      || bad "the trace does not show the tampered line"
+  else
+    bad "could not build the tampered IR:"
+    head -3 "$work/tamper.link.err" | sed 's/^/       /'
+  fi
+fi
+
+echo
+echo "--- 7c. shifted lines still match, because nothing is blessed ---"
+# Three blank lines and a comment above the chain move every derived
+# number down by four. A golden would fail here on principle; the
+# derivation moves with the bytes.
+{ echo ""; echo ""; echo ""; echo "; shifted down by four"; cat "$work/chain.ax"; } > "$work/shifted.ax"
+"$axc" build --input "$work/shifted.ax" --output "$work/shifted" --opt 0 >"$work/build.log" 2>&1 \
+  || { bad "the shifted probe would not build"; sed 's/^/    /' "$work/build.log" | head -6; }
+{
+  echo "e5 shifted.ax:$(lineno "$work/shifted.ax" '/ 100 n)))'):$(linecol "$work/shifted.ax" '/ 100 n)))')"
+  echo "d4 shifted.ax:$(lineno "$work/shifted.ax" 'e5 n)))'):$(linecol "$work/shifted.ax" 'e5 n)))')"
+  echo "c3 shifted.ax:$(lineno "$work/shifted.ax" 'd4 n)))'):$(linecol "$work/shifted.ax" 'd4 n)))')"
+  echo "b2 shifted.ax:$(lineno "$work/shifted.ax" 'c3 n)))'):$(linecol "$work/shifted.ax" 'c3 n)))')"
+  echo "a1 shifted.ax:$(lineno "$work/shifted.ax" 'b2 n)))'):$(linecol "$work/shifted.ax" 'b2 n)))')"
+  echo "__axiom_user_main shifted.ax:$(lineno "$work/shifted.ax" 'a1 (- sysArgc 1)))'):$(linecol "$work/shifted.ax" 'a1 (- sysArgc 1)))')"
+} > "$work/shifted.map"
+trace="$(run_err "$work/shifted")"
+check_map "shifted: the moved lines still match" "$trace" "$work/shifted.map" 1
+
+echo
+echo "--- 7d. recursion: one name, as many lines as frames ---"
+# Five `sum` frames share one name and one call-site line, and the
+# innermost answers the division's. Names alone cannot separate them;
+# the map lists one row per expected frame, duplicates and all.
+cat > "$work/rec.ax" <<'PROBE'
+(:: sum (-> Int Int))
+(fn (sum n)
+  (if (<= n 0)
+    (/ 1 n)
+    (+ n (sum (- n 1)))
+  )
+)
+(:: main Int)
+(fn (main) (sum 5))
+PROBE
+"$axc" build --input "$work/rec.ax" --output "$work/rec" --opt 0 >"$work/build.log" 2>&1 \
+  || { bad "the recursion probe would not build"; sed 's/^/    /' "$work/build.log" | head -6; }
+{
+  echo "sum rec.ax:$(lineno "$work/rec.ax" '/ 1 n)'):$(linecol "$work/rec.ax" '/ 1 n)')"
+  echo "sum rec.ax:$(lineno "$work/rec.ax" 'sum (- n 1)))'):$(linecol "$work/rec.ax" 'sum (- n 1)))')"
+  echo "sum rec.ax:$(lineno "$work/rec.ax" 'sum (- n 1)))'):$(linecol "$work/rec.ax" 'sum (- n 1)))')"
+  echo "sum rec.ax:$(lineno "$work/rec.ax" 'sum (- n 1)))'):$(linecol "$work/rec.ax" 'sum (- n 1)))')"
+  echo "sum rec.ax:$(lineno "$work/rec.ax" 'sum (- n 1)))'):$(linecol "$work/rec.ax" 'sum (- n 1)))')"
+  echo "sum rec.ax:$(lineno "$work/rec.ax" 'sum (- n 1)))'):$(linecol "$work/rec.ax" 'sum (- n 1)))')"
+  echo "__axiom_user_main rec.ax:$(lineno "$work/rec.ax" 'sum 5)'):$(linecol "$work/rec.ax" 'sum 5)')"
+} > "$work/rec.map"
+trace="$(run_err "$work/rec")"
+check_map "recursion: five frames share a name and a call line, the sixth names the division" "$trace" "$work/rec.map" 1
+
+echo
+echo "--- 7e. nullary calls mark too: a bare reference is still a call ---"
+# `(boom)` with no arguments is a variable reference by the time it
+# reaches the emitter, and that path used to emit its call with no
+# marker - a frame with a name and no line. The reference node
+# carries the span, so it marks like every other call site; this
+# probe would print a bare `at wrap` if that ever regressed.
+cat > "$work/nullary.ax" <<'PROBE'
+(:: boom Int)
+(fn (boom) (/ 1 0))
+(:: wrap Int)
+(fn (wrap) (+ (boom) 1))
+(:: main Int)
+(fn (main) (+ (wrap) 1))
+PROBE
+"$axc" build --input "$work/nullary.ax" --output "$work/nullary" --opt 0 >"$work/build.log" 2>&1 \
+  || { bad "the nullary probe would not build"; sed 's/^/    /' "$work/build.log" | head -6; }
+{
+  echo "boom nullary.ax:$(lineno "$work/nullary.ax" '/ 1 0)'):$(linecol "$work/nullary.ax" '/ 1 0)')"
+  wline="$(lineno "$work/nullary.ax" '(boom) 1)')"
+  echo "wrap nullary.ax:$wline:$(colat "$work/nullary.ax" "$wline" 'boom')"
+  mline="$(lineno "$work/nullary.ax" '(wrap) 1)')"
+  echo "__axiom_user_main nullary.ax:$mline:$(colat "$work/nullary.ax" "$mline" 'wrap')"
+} > "$work/nullary.map"
+trace="$(run_err "$work/nullary")"
+check_map "nullary: bare-reference calls carry their lines" "$trace" "$work/nullary.map" 1
 
 echo
 if (( failed > 0 )); then

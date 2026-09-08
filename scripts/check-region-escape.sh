@@ -61,6 +61,31 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 fix="$repo_root/tests/diagnostics"
 mkdir -p "$work/run"
 
+filter_line_attr() {
+  # The line-attribution pass (`emitLineTable` in codegen.ax) writes
+  # one `; @@line` marker at every call site, plus the filename
+  # globals, the `__axiom_linetab` constant table, the
+  # `__axiom_lineaddrs` zero-initialised array, and the
+  # `__axiom_lineinit` function that fills it. Their byte offsets and
+  # counts depend on the source bytes they were carved out of -
+  # stripping a `@r` from the source shifts every byte offset after it
+  # and can move a call marker past a musttail site the resolver
+  # reaches, so the two IRs agree on every other byte but diverge on
+  # the markers' spanstart, line-table size, and backtrace-init's
+  # references to it. None of that is the property this section
+  # asserts; they are stripped from the comparison.
+  grep -v -E -e '^; @@line' \
+              -e '^@__axiom_filen_[0-9]+ = ' \
+              -e '^@__axiom_linetab(_n)? = ' \
+              -e '^@__axiom_lineaddrs = ' \
+              -e '^@__axiom_lineinit = ' \
+              -e 'ptr @__axiom_filen_' \
+              -e 'getelementptr \[[0-9]+ x i64\], ptr @__axiom_(lineaddrs|linetab)' \
+              -e '^define internal i64 @__axiom_lineinit' \
+              -e '^  store i64 ptrtoint \(ptr blockaddress.*lineaddrs' \
+              -e 'icmp (u|s)ge i64 %li, [0-9]+'
+}
+
 # ---------------------------------------------------------------
 # 1. byte-identity: the annotated program against its stripped twin
 # ---------------------------------------------------------------
@@ -76,15 +101,15 @@ if ! "$axc" emit-llvm "$work/run/ann.ax" > "$work/run/ann.ll" 2> "$work/run/ann.
   bad "the annotated fixture did not emit"; sed 's/^/     /' "$work/run/ann.err" | head -10
 elif ! "$axc" emit-llvm "$work/run/bare.ax" > "$work/run/bare.ll" 2> "$work/run/bare.err"; then
   bad "the stripped twin did not emit"; sed 's/^/     /' "$work/run/bare.err" | head -10
-elif ! cmp -s "$work/run/ann.ll" "$work/run/bare.ll"; then
+elif ! filter_line_attr < "$work/run/ann.ll" | cmp -s - <(filter_line_attr < "$work/run/bare.ll"); then
   bad "the annotated program and its stripped twin emit different IR"
-  diff "$work/run/ann.ll" "$work/run/bare.ll" | head -10 | sed 's/^/     /'
+  diff <(filter_line_attr < "$work/run/ann.ll") <(filter_line_attr < "$work/run/bare.ll") | head -10 | sed 's/^/     /'
 else
   lines="$(wc -l < "$work/run/ann.ll" | tr -d ' ')"
   if [[ "$lines" -lt 500 ]]; then
     bad "the fixture emitted only $lines lines - it no longer reaches the library, so identity says nothing"
   else
-    ok "468 with and without its annotations: byte-identical IR ($lines lines)"
+    ok "468 with and without its annotations: byte-identical IR up to the line markers ($lines lines)"
   fi
 fi
 # and it RUNS to its golden, which is what makes the identity worth having

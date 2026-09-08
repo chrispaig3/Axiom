@@ -223,6 +223,16 @@ ICALL = re.compile(r'\b(?:musttail|tail|notail)?\s*(?:call|invoke)\b[^\n]*?\s(%[
 # silently empty.
 PTRTOINT_INSTR = re.compile(r'(?<!\()\bptrtoint ptr @("[^"]+"|[\w.$]+) to i64')
 PTRTOINT_CONST = re.compile(r'\bptrtoint\s*\(\s*ptr @("[^"]+"|[\w.$]+) to i64\s*\)')
+# A block address taken for the backtrace line table:
+# `store i64 ptrtoint (ptr blockaddress(@fn, %LLn) to i64), ...`.
+# Consumed WITHOUT joining the taken set: the address is mid-function,
+# and nothing can be indirectly called through it - the walker only
+# compares return addresses against it. Treating it as address-taken
+# would make every function with a marked call an indirect target of
+# everything and leave no program boundable; leaving it unconsumed
+# trips the default-deny below, which is how this rule earned its
+# test (the line-table land broke A2 on every leg the day it landed).
+BLOCKADDR = re.compile(r'\bblockaddress\(@("[^"]+"|[\w.$]+),')
 ANY_AT = re.compile(r'@("[^"]+"|[\w.$]+)')
 # `%r = icmp ne i64 %frame, ptrtoint (ptr @main to i64)` - an address used
 # ONLY as the operand of an integer comparison.  This is how the runtime's
@@ -349,6 +359,9 @@ def classify_line(m, line, lineno, cur, curglobal):
         owner = curglobal if cur is None else None
         if ABLATE == "noindirect" or owner not in SYMTAB_GLOBALS:
             m.taken.add(name)
+
+    for raw in BLOCKADDR.findall(line):
+        consumed.append(raw.strip('"'))
 
     if cur is not None and ICALL.search(line):
         m.indirect[cur] += 1
