@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### Range-constrained subtypes are built — `(subtype Positive is Int range 1 .. 10)`
+
+`docs/subtypes-design.md` closed these as refused-as-a-type on
+2026-09-08 (roadmap item 11, D2); that decision is superseded by
+direction, and the note records the reversal rather than editing it
+away. A subtype is a distinct type over `Int`, checked at every
+narrowing conversion — explicit `cast`, call argument, declared
+return — by the contract trap (status 80), with widening free.
+Enforcement reuses the contract machinery, so no new runtime is
+added; a subtype renders and computes as its base.
+`tests/selfhost/134-subtype-checked.ax` (exit 63, satisfied
+conversions) and `135-subtype-violated.ax` (exit 80) pin both halves.
+
+**D3 fallout fixed on the way past.** The contract trap's move 77→80
+left `tests/selfhost/133-contract-violated.ax` expecting 77, which
+failed the self-host corpus on every leg that runs it. It expects 80
+now, and its comment records the move rather than the number it held.
+
 ### `stdlib/Html.ax` is deleted, and the web example with it — **breaking**
 
 `Html` was the HTML templating DSL: 938 lines and 118 public names — a
@@ -59,7 +77,7 @@ row naming a program that is gone, README's link removed — each red).
 Its floors are re-derived at the population, three files and two
 programs, and the `.js`/`.css` allowance went with the only files that
 used it. It runs no Axiom program and builds no compiler, so it is no
-longer among the gates that call `gate_build_axc`: **sixty-six gates**
+longer among the gates that call `gate_build_axc`: **sixty-eight gates**
 call it, and the six sites that state that count moved together. The
 battery still has eighty-two gates.
 
