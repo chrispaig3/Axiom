@@ -1,0 +1,88 @@
+; expect 63
+; Range-constrained subtypes, SATISFIED. Every conversion below holds,
+; so no check fires and the answer is ordinary arithmetic.
+;
+; The answer is a bitmask, one bit per fact, so a compiler that gets
+; one of them wrong names the fact (as `132-contract.ax` does for
+; contracts):
+;
+;    1  `(cast Positive 5)` converts into the subtype and answers 5
+;    2  a base value passed to a `(-> Positive Int)` parameter is
+;       checked on entry and answers normally
+;    4  a base value returned through `(-> Int Positive)` is checked
+;       at the return and answers normally
+;    8  widening needs no check: `(cast Int (cast Positive 6))` is 6
+;   16  a lower-only range (`range 0`) checks `>=` with no upper bound
+;   32  subtype operands compute as their base: adding two `Positive`
+;       values answers an `Int`
+;
+; The violated half is `135-subtype-violated.ax`, whose whole subject
+; is the status a failed check exits with (80, the contract trap:
+; a range check is enforced by the same compare-branch-trap the
+; `__contract` primitive lowers to, so no new runtime is added).
+; No `import`: the whole file is arithmetic and comparison.
+(subtype Positive is Int range 1 .. 10)
+
+(subtype NonNeg is Int range 0)
+
+(:: takePos (-> Positive Int))
+
+(fn (takePos x) x)
+
+(:: mkPos (-> Int Positive))
+
+(fn (mkPos n) n)
+
+(:: main Int)
+
+(fn (main)
+  (+
+    (if (==
+      (cast Positive 5)
+      5
+    )
+      1
+      0
+    )
+    (+
+      (if (== (takePos 7) 7)
+        2
+        0
+      )
+      (+
+        (if (== (mkPos 4) 4)
+          4
+          0
+        )
+        (+
+          (if (==
+            (cast Int (cast Positive 6))
+            6
+          )
+            8
+            0
+          )
+          (+
+            (if (==
+              (cast NonNeg 0)
+              0
+            )
+              16
+              0
+            )
+            (if (==
+              (+
+                (cast Positive 3)
+                (cast Positive 4)
+              )
+              7
+            )
+              32
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)

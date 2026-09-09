@@ -350,6 +350,22 @@
 
 (pub fn (TAG_E_REGION) 54)
 
+; A `subtype` declaration: `(subtype Name is Type range Expr .. Expr)`.
+; a = name, b = base TYPE node, c = Vec of bound EXPR nodes (1-2:
+; lower only, or lower and upper). 55 is the next free number.
+(pub :: TAG_D_SUBTYPE Int)
+
+(pub fn (TAG_D_SUBTYPE) 55)
+
+; A subtype conversion check node. a = value expression, b = bounds
+; Vec (1-2 EXPR nodes), c = message string. Created by the type
+; checker when a cast or argument requires a runtime range check.
+; Not parseable in source. The ty slot carries the target subtype.
+; 56 is the next free number.
+(pub :: TAG_E_SUBCHECK Int)
+
+(pub fn (TAG_E_SUBCHECK) 56)
+
 ; A `cond` form, kept structural rather than desugared at parse time:
 ; stage0's checker treats `cond` unlike nested `if` (clause bodies are
 ; never joined against each other; only a real `else` is compared, and
@@ -770,6 +786,13 @@
 
 (pub fn (mkEBegin xs) (mkNode TAG_E_BEGIN xs 0 0))
 
+; A subtype conversion check: value, bounds Vec (1-2 EXPR nodes),
+; message. The ty slot carries the target subtype; set by the caller
+; via `setNodeTy` (the checker), since this constructor leaves it 0.
+(pub :: mkESubcheck (-> Int (Vec Int) Int Int))
+
+(pub fn (mkESubcheck v b m) (mkNode TAG_E_SUBCHECK v b m))
+
 ; Span-carrying variants. A diagnostic about a declaration points at
 ; its *name*, so the name token's span is the one worth keeping - and
 ; the only one this slice's checks ever report. Everything else keeps
@@ -810,6 +833,14 @@
 
 (pub fn (mkDMacroAt n ps b sp) (mkNodeAt
   TAG_D_MACRO  n  ps  b  sp
+))
+
+; A subtype declaration: name, base TYPE node, bounds Vec of EXPR
+; nodes (1-2: lower only, or lower and upper), name span.
+(pub :: mkDSubtypeAt (-> String Int (Vec Int) Int Int))
+
+(pub fn (mkDSubtypeAt n base range sp) (mkNodeAt
+  TAG_D_SUBTYPE  n  base  range  sp
 ))
 
 (pub :: mkCtor (-> Int Int (Vec Int) Int))
@@ -2126,6 +2157,8 @@
                           (parseEffectDecl tokens (advance pos))
                           (if (kwEq name "type")
                             (parseAliasDecl tokens (advance pos) pos)
+                            (if (kwEq name "subtype")
+                              (parseSubtypeDecl tokens (advance pos) pos)
                             ; `syntax/for` in declaration position (MAC-CAP-5). The hook lives
                             ; HERE, ahead of the macrocall fallthrough, so one arm covers a
                             ; rule-form template (parseTplDecls delegates to this function), a
@@ -2162,6 +2195,7 @@
                                     (parseMacroCall tokens pos)
                                   )
                                 )
+                              )
                           )
                         )
                       )
@@ -2649,6 +2683,76 @@
       )
     )
     (pErr origPos)
+  )
+)
+
+; ------------------------------------------------------------------
+; `(subtype Name is Base range LO .. HI)` — Ada-style range-constrained
+; subtype. `Name` goes through `parseDeclName` so a macro template may
+; join it, exactly as `type`/`data` do. `is` and `range` are ordinary
+; IDENTs. `Base` is a TYPE via `parseType`; bounds are EXPRESSIONs via
+; `parseExpr` (usually Int literals). `..` lexes as two TK_DOT — the
+; lexer has no DOTDOT — so the upper bound is present exactly when two
+; consecutive DOTs follow the lower bound. A single bound means
+; lower-only (`>= lo`); two bounds mean closed-below, open-above
+; (`>= lo` and `< hi`). The bounds live as a Vec of expr nodes in the
+; declaration's c slot.
+; ------------------------------------------------------------------
+(pub :: parseSubtypeDecl (-> (Vec Int) Int Int Int))
+
+(pub fn (parseSubtypeDecl tokens pos origPos)
+  (let ((nr (parseDeclName tokens pos)))
+    (if (== (memGetWord nr 0) 0)
+      (pErr origPos)
+      (let ((name (memGetWordStr nr 1)) (p1 (memGetWord nr 2)))
+        (if (&& (peekIs tokens p1 TK_IDENT) (strEq (tokenLexeme (vecGet tokens p1)) "is"))
+          (let ((tr (parseType tokens (advance p1))))
+            (if (== (memGetWord tr 0) 0)
+              (pErr origPos)
+              (let ((base (memGetWord tr 1)) (p2 (memGetWord tr 2)))
+                (if (&& (peekIs tokens p2 TK_IDENT) (strEq (tokenLexeme (vecGet tokens p2)) "range"))
+                  (let ((lr (parseExpr tokens (advance p2))))
+                    (if (== (memGetWord lr 0) 0)
+                      (pErr origPos)
+                      (let ((lower (memGetWord lr 1)) (p3 (memGetWord lr 2)))
+                        (if (&& (peekIs tokens p3 TK_DOT) (peekIs tokens (advance p3) TK_DOT))
+                          (let ((ur (parseExpr tokens (advance (advance p3)))))
+                            (if (== (memGetWord ur 0) 0)
+                              (pErr origPos)
+                              (if (peekIs tokens (memGetWord ur 2) TK_RPAREN)
+                                (let ((bounds vecNew))
+                                  {
+                                    (vecPush bounds lower)
+                                    (vecPush bounds (memGetWord ur 1))
+                                    (pOk (mkDSubtypeAt name base bounds (tokenSpan (vecGet tokens pos))) (advance (memGetWord ur 2)))
+                                  }
+                                )
+                                (pErr origPos)
+                              )
+                            )
+                          )
+                          (if (peekIs tokens p3 TK_RPAREN)
+                            (let ((bounds vecNew))
+                              {
+                                (vecPush bounds lower)
+                                (pOk (mkDSubtypeAt name base bounds (tokenSpan (vecGet tokens pos))) (advance p3))
+                              }
+                            )
+                            (pErr origPos)
+                          )
+                        )
+                      )
+                    )
+                  )
+                  (pErr origPos)
+                )
+              )
+            )
+          )
+          (pErr origPos)
+        )
+      )
+    )
   )
 )
 

@@ -649,6 +649,244 @@
   )
 )
 
+; Subtype table lookup. A `subtype` declaration names a new type whose
+; values are a subset of its base type's, bounded by 1-2 Int expressions
+; in the declaration's c slot (a Vec of EXPR nodes, not types).
+; Does type `b` name a subtype whose base is compatible with `a`?
+; Answers 1 when `b` is a subtype declaration whose base type is
+; compatible with `a`. `tc` is explicit — `tyCompat` stays pure and
+; call sites that have `tc` ask this instead.
+(pub :: tySubtypeOf (-> Int Int Int Int))
+
+(pub fn (tySubtypeOf tc a b)
+  (if (!= (nodeTag b) TAG_T_CON)
+    0
+    (let ((base (tySubtypeBase tc b)))
+      (if (== base 0)
+        0
+        (if (== (tyCompat a base) 1)
+          1
+          0
+        )
+      )
+    )
+  )
+)
+
+; The subtype declaration node for a type node, or 0.
+(pub :: tySubtypeDecl (-> Int Int Int))
+
+(pub fn (tySubtypeDecl tc name)
+  (if (== (nodeTag name) TAG_T_CON)
+    (let ((n (nodeAName name)))
+      (tySubtypeDeclByName tc n 0 (vecLen (tcSubtypesVec tc)))
+    )
+    0
+  )
+)
+
+(pub :: tySubtypeDeclByName (-> Int String Int Int Int))
+
+(pub fn (tySubtypeDeclByName tc n i lim)
+  (if (>= i lim)
+    0
+    (let ((d (vecGet (tcSubtypesVec tc) i)))
+      (if (strEq (nodeAName d) n)
+        d
+        (tySubtypeDeclByName tc n (+ i 1) lim)
+      )
+    )
+  )
+)
+
+; Look up a type name in the subtype table and return its base type,
+; or 0 when the name is not a subtype.
+(pub :: tySubtypeBase (-> Int Int Int))
+
+(pub fn (tySubtypeBase tc name)
+  (let ((d (tySubtypeDecl tc name)))
+    (if (== d 0)
+      0
+      (nodeB d)
+    )
+  )
+)
+
+; 1 when the type node names a known subtype, else 0.
+(pub :: isSubtypeTy (-> Int Int Int))
+
+(pub fn (isSubtypeTy tc ty)
+  (if (!= (tySubtypeDecl tc ty) 0)
+    1
+    0
+  )
+)
+
+; Return the bounds Vec handle (as Int) for a subtype type node,
+; or 0 when the type is not a known subtype. The Vec holds 1-2 EXPR
+; nodes: (lower) or (lower upper).
+(pub :: tySubtypeBounds (-> Int Int Int))
+
+(pub fn (tySubtypeBounds tc name)
+  (let ((d (tySubtypeDecl tc name)))
+    (if (== d 0)
+      0
+      (nodeC d)
+    )
+  )
+)
+
+; Walk a (possibly-subtype) type to its non-subtype base for uses
+; that dispatch on the type's NAME (rendering, numeric ops): a
+; `Positive` behaves as the `Int` it constrains.
+(pub :: showBaseOf (-> Int Int Int))
+
+(pub fn (showBaseOf tc ty)
+  (if (== ty 0)
+    0
+    (let ((b (tySubtypeBase tc ty)))
+      (if (== b 0)
+        ty
+        (showBaseOf tc b)
+      )
+    )
+  )
+)
+
+; Argument compatibility with subtypes, where `tyCompat` stays pure.
+; Answers 0 = mismatch, 1 = compatible with no check, 2 = compatible
+; with a runtime range check (expected is a subtype and the actual
+; holds a value of its base).
+;
+;   same subtype -> 1 (no re-check; the value already proved its range)
+;   actual subtype, expected its base -> 1 (widening is always safe)
+;   expected subtype, actual its base -> 2 (narrowing checks the range)
+;   expected subtype, actual a DIFFERENT subtype of a compatible base
+;     -> 2 (ranges differ, so the value must prove the new one)
+;   otherwise -> 0
+(pub :: subtypeArgAction (-> Int Int Int Int))
+
+(pub fn (subtypeArgAction tc expected actual)
+  (if (|| (== expected 0) (== actual 0))
+    0
+    (if (|| (== (nodeTag expected) TAG_T_ERR) (== (nodeTag actual) TAG_T_ERR))
+      1
+      (let ((expDecl (tySubtypeDecl tc expected)))
+        (let ((actDecl (tySubtypeDecl tc actual)))
+          (if (!= expDecl 0)
+            (if (!= actDecl 0)
+              (if (strEq (nodeAName expDecl) (nodeAName actDecl))
+                1
+                (let ((expBase (nodeB expDecl)) (actBase (nodeB actDecl)))
+                  (if (== (tyCompat actBase expBase) 1)
+                    2
+                    (if (== (tyCompat actual expBase) 1)
+                      2
+                      0
+                    )
+                  )
+                )
+              )
+              (let ((expBase (nodeB expDecl)))
+                (if (== (tyCompat actual expBase) 1)
+                  2
+                  0
+                )
+              )
+            )
+            (if (!= actDecl 0)
+              (if (== (tyCompat (nodeB actDecl) expected) 1)
+                1
+                0
+              )
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; 1 when the two types are compatible once subtypes are allowed
+; (either direction, with or without a check). Used to suppress false
+; AX3004s at positions that cannot insert a check (struct fields,
+; returns, patterns); cast and call-arg sites use `subtypeArgAction`
+; and wrap instead.
+(pub :: subtypeCompatAllows (-> Int Int Int Int))
+
+(pub fn (subtypeCompatAllows tc expected actual)
+  (if (== (tyCompat expected actual) 1)
+    1
+    (if (!= (subtypeArgAction tc expected actual) 0)
+      1
+      (if (!= (subtypeArgAction tc actual expected) 0)
+        1
+        0
+      )
+    )
+  )
+)
+
+; Build a TAG_E_SUBCHECK node checking `value` against `targetTy`'s
+; range. `boundsH` is the bounds Vec handle from `tySubtypeBounds`
+; (shared, never mutated). The ty slot carries the target subtype.
+(pub :: mkSubtypeCheckNode (-> Int Int Int Int Int))
+
+(pub fn (mkSubtypeCheckNode value boundsH targetTy sp)
+  (let ((msg (mkNodeAt TAG_E_STR "\"axiom: subtype check failed\"" 0 0 sp)))
+    (setNodeTy (mkNodeAt TAG_E_SUBCHECK value (cast (Vec Int) boundsH) msg sp) targetTy)
+  )
+)
+
+; Check each bound expression of a SUBCHECK node's bounds Vec.
+; Bounds must be Int; a non-Int bound is AX3004 at the bound.
+(pub :: checkSubtypeBounds (-> Int (Vec Int) Int Int))
+
+(pub fn (checkSubtypeBounds tc bounds i)
+  (if (== (cast Int bounds) 0)
+    0
+    (if (>= i (vecLen bounds))
+      0
+      {
+        (let ((bty (checkExprH tc (vecGet bounds i) 0)))
+          (if (&& (!= (tyIsErr bty) 1) (&& (!= (tyIsSilentWild bty) 1) (== (tyCompat bty mkIntTy) 0)))
+            (emitMismatchTy tc mkIntTy bty (spanOf (vecGet bounds i)))
+            0
+          )
+        )
+        (checkSubtypeBounds tc bounds (+ i 1))
+      }
+    )
+  )
+)
+
+; A declared subtype result over a base-typed body is a CHECKED
+; conversion, like a cast: wrap the body so emission proves the
+; range, and answer the declared type for the return check below.
+; Widening (subtype body, base declared) needs no check. Answers the
+; type `checkDeclaredReturn` should compare.
+(pub :: maybeWrapSubtypeReturn (-> Int Int Int Int Int))
+
+(pub fn (maybeWrapSubtypeReturn tc d resTy bodyTy)
+  (if (|| (== resTy 0) (== (nodeC d) 0))
+    bodyTy
+    (if (!= (subtypeArgAction tc resTy bodyTy) 2)
+      bodyTy
+      (let ((bh (tySubtypeBounds tc resTy)))
+        (if (== bh 0)
+          bodyTy
+          {
+            (checkSubtypeBounds tc (cast (Vec Int) bh) 0)
+            (memSetWord d 3 (mkSubtypeCheckNode (nodeC d) bh resTy (spanOf (nodeC d))))
+            resTy
+          }
+        )
+      )
+    )
+  )
+)
+
 ; ------------------------------------------------------------------
 ; Three flavours of type variable, and only one of them is rigid.
 ;
@@ -1508,7 +1746,7 @@
 (pub fn (declNamespace tag)
   (if (|| (== tag TAG_D_FN) (|| (== tag TAG_D_MACRO) (== tag TAG_D_EXTERN)))
     NS_VALUE
-    (if (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_ALIAS)))
+    (if (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (|| (== tag TAG_D_ALIAS) (== tag TAG_D_SUBTYPE))))
       NS_TYPE
       NS_NONE
     )
@@ -2359,7 +2597,11 @@
   ; checks a body BEFORE it reads that declaration's tags, so every
   ; site a restricted body contains is already in here when
   ; `restrictEmitWraps` asks.
-  (floatOps : (Vec Int)))
+  (floatOps : (Vec Int))
+  ; Subtype declarations, collected for lookup by name. Each entry is
+  ; a TAG_D_SUBTYPE node carrying the subtype's name, base type, and
+  ; range constraint.
+  (subtypes : (Vec Int)))
 
 ; The module whose body is being checked, or 0 for the
 ; entry file. A bare reference inside it resolves to
@@ -2508,6 +2750,15 @@
 (pub :: tcAliasesVec (-> Int (Vec a)))
 
 (pub fn (tcAliasesVec tc) (cast (Vec a) (tcAliases tc)))
+
+(pub :: tcSubtypes (-> Int Int))
+
+(pub fn (tcSubtypes tc) (memGetWord tc 38))
+; The `Vec` view of the same word. The cast is at the return,
+; not the call sites - see `nodeCName`.
+(pub :: tcSubtypesVec (-> Int (Vec a)))
+
+(pub fn (tcSubtypesVec tc) (cast (Vec a) (tcSubtypes tc)))
 
 
 ; A fresh `_tN`. stage0 mints the name from the current counter and
@@ -2955,7 +3206,7 @@
       (let ((tc 
         (cast Int (TC
           fns          datas          vecNew          vecNew          vecNew          0          0          vecNew          vecNew          entryDecls          allDecls          vecNew          vecNew          units          0          vecNew          0          vecNew          vecNew          (collectPrivates allDecls vecNew 0)          0          0          0          0          0          0          0          0          0          0          0          0          0          0          0          vecNew
-         0         vecNew))
+         0         vecNew         vecNew))
       ))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
@@ -2977,6 +3228,7 @@
           ; fixes, one level up. Expanding before collection means there
           ; is no second reader to keep in step.
           (tcCollectAliasDecls tc allDecls 0)
+          (tcCollectSubtypeDecls tc allDecls 0)
           (tcExpandFieldAliases tc allDecls 0)
           (tcCollect tc allDecls 0)
           ; Type constructors named in signatures, once collection has
@@ -4701,6 +4953,13 @@
 
 (pub fn (TY_CTOR) 4)
 
+; A range-constrained subtype declaration node. Registered like an
+; alias so signatures may name it; the checker reads the base and
+; bounds from the declaration itself.
+(pub :: TY_SUBTYPE Int)
+
+(pub fn (TY_SUBTYPE) 5)
+
 ; `module` is the module that DECLARED it, 0 for the entry file and
 ; for builtins. `ent` is what the lookup answers - a `StructEnt`, a
 ; `DataEnt`, a `CtorEnt`, or an alias declaration node. `owner` is the
@@ -5667,6 +5926,31 @@
         )
       )
       (tcCollectAliasDecls tc decls (+ i 1))
+    }
+  )
+)
+
+; Collect TAG_D_SUBTYPE declarations into tcSubtypes for lookup by name.
+; Registered in the type index like aliases so signatures may name
+; them; the base/bounds stay on the declaration node itself.
+(pub :: tcCollectSubtypeDecls (-> Int (Vec Int) Int Int))
+
+(pub fn (tcCollectSubtypeDecls tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    {
+      (let ((d (vecGet decls i)))
+        (if (== (nodeTag d) TAG_D_SUBTYPE)
+          {
+            (vecPush (tcSubtypesVec tc) d)
+            (tyIdxPut
+              tc              (nodeAName d)              TY_SUBTYPE              (nodeModule d)              d              0
+            )
+          }
+          0
+        )
+      )
+      (tcCollectSubtypeDecls tc decls (+ i 1))
     }
   )
 )
@@ -8107,7 +8391,26 @@
                                               )
                                               (mkTPtr (nodeA e) 1)
                                             }
-                                            mkSilentWild
+                                            ; A subtype range check: a=value expr, b=bounds
+                                            ; Vec, c=message; the ty slot carries the
+                                            ; target subtype, which is the answer.
+                                            (if (== tag TAG_E_SUBCHECK)
+                                              {
+                                                (checkExprH tc (nodeA e) 0)
+                                                (checkSubtypeBounds tc (nodeBVec e) 0)
+                                                (if (!= (nodeC e) 0)
+                                                  (checkExprH tc (nodeC e) 0)
+                                                  0
+                                                )
+                                                (let ((tt (nodeTy e)))
+                                                  (if (!= tt 0)
+                                                    tt
+                                                    mkSilentWild
+                                                  )
+                                                )
+                                              }
+                                              mkSilentWild
+                                            )
                                           )
                                         )
                                       )
@@ -9679,7 +9982,24 @@
                           (if (== (nodeTag funcTy) TAG_T_ARR)
                             {
                               (if (== (tyCompat argTy (nodeA funcTy)) 0)
-                                (emitMismatchTy tc (nodeA funcTy) argTy (spanOf (nodeB e)))
+                                (let ((act (subtypeArgAction tc (nodeA funcTy) argTy)))
+                                  (if (== act 1)
+                                    0
+                                    (if (== act 2)
+                                      (let ((bh (tySubtypeBounds tc (nodeA funcTy))))
+                                        (if (== bh 0)
+                                          0
+                                          {
+                                            (checkSubtypeBounds tc (cast (Vec Int) bh) 0)
+                                            (memSetWord e 2 (mkSubtypeCheckNode (nodeB e) bh (nodeA funcTy) (spanOf (nodeB e))))
+                                            0
+                                          }
+                                        )
+                                      )
+                                      (emitMismatchTy tc (nodeA funcTy) argTy (spanOf (nodeB e)))
+                                    )
+                                  )
+                                )
                                 0
                               )
                               ; The rest of the arrow, with this parameter's
@@ -10114,7 +10434,11 @@
         ; poison: a diagnostic about this argument has already been
         ; reported (the cascade rule)
         0
-        (let ((ty (tyExpandAliases tc at 0)))
+        ; A subtype renders as its base: a `Positive` prints like the
+        ; `Int` it constrains, so `println` needs no per-subtype
+        ; renderer. Chained subtypes walk to the root (v1 declares
+        ; only `Int` bases, so one step in practice).
+        (let ((ty (showBaseOf tc (tyExpandAliases tc at 0))))
           (if (!= (nodeTag ty) TAG_T_CON)
             (if (== (nodeTag ty) TAG_T_VAR)
               (showUnknownDiag tc arg ty)
@@ -11278,11 +11602,11 @@
                 )
               }
               {
-                (if (== (tyCompat lt mkIntTy) 0)
+                (if (== (subtypeCompatAllows tc mkIntTy lt) 0)
                   (emitMismatch tc "Int" (tyRender lt) (spanOf l))
                   0
                 )
-                (if (== (tyCompat rt mkIntTy) 0)
+                (if (== (subtypeCompatAllows tc mkIntTy rt) 0)
                   (emitMismatch tc "Int" (tyRender rt) (spanOf r))
                   0
                 )
@@ -11379,7 +11703,48 @@
               ) "not a type"))
               (mkNode TAG_T_ERR 0 0 0)
             }
-            (exprToType (vecGet args 0))
+            (let ((targetTy (exprToType (vecGet args 0))))
+              (let ((subBase (if (&& (!= targetTy 0) (== (nodeTag targetTy) TAG_T_CON))
+                (tySubtypeBase tc targetTy)
+                0
+              )))
+                (if (== subBase 0)
+                  targetTy
+                  ; `(cast Subtype v)` is a CHECKED conversion: the value
+                  ; is evaluated once by SUBCHECK emission (value, bounds
+                  ; and message travel separately, so a side-effecting
+                  ; value is never emitted twice). `args` is
+                  ; innermost-first [type, value, ...surplus], where
+                  ; surplus is an application of the cast result.
+                  (if (< (vecLen args) 2)
+                    targetTy
+                    (let ((boundsH (tySubtypeBounds tc targetTy)))
+                      (if (== boundsH 0)
+                        targetTy
+                        (if (== (vecLen args) 2)
+                          {
+                            (memSetWord e 0 TAG_E_SUBCHECK)
+                            (memSetWord e 1 (vecGet args 1))
+                            (memSetWord e 2 boundsH)
+                            (memSetWord e 3 (mkNodeAt TAG_E_STR "\"axiom: subtype check failed\"" 0 0 (spanOf e)))
+                            (memSetWord e 6 targetTy)
+                            targetTy
+                          }
+                          ; Surplus application of a subtype conversion:
+                          ; wrap the VALUE in place and keep the spine.
+                          (let ((inner (castAppNodeAt e (- (vecLen args) 2))))
+                            {
+                              (memSetWord inner 2 (mkSubtypeCheckNode (vecGet args 1) boundsH targetTy (spanOf (vecGet args 1))))
+                              targetTy
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
           )
           mkSilentWild
         )
@@ -18028,7 +18393,33 @@
                   (tcCheckFn tc d)
                   (checkAxtags tc d)
                 }
-                0
+                ; A subtype declaration carries no body: validate the
+                ; base names a known type (v1: exactly `Int`) and the
+                ; bounds are Int expressions.
+                (if (== tag TAG_D_SUBTYPE)
+                  {
+                    (let ((bad (tyUnknownCon tc (nodeB d))))
+                      (if (!= bad 0)
+                        (if (== (nodeSpan d) 0)
+                          0
+                          (emitDiag tc (diagSetLabel (mkDiag
+                            SEV_ERROR            "AX3002"            "undefined-type"            (nodeSpan d)            (strConcat (strConcat "undefined type `" (tyUnknownConName tc (nodeB d))) "`")            0            0            "check for typos, or a missing `data`/`struct`/`type` declaration"
+                          ) (strConcat (strConcat "no type named `" (tyUnknownConName tc (nodeB d))) "` is visible here")))
+                        )
+                        (if (tyIsBareInt (nodeB d))
+                          0
+                          (if (== (nodeSpan d) 0)
+                            0
+                            (emitMismatchTy tc mkIntTy (nodeB d) (nodeSpan d))
+                          )
+                        )
+                      )
+                    )
+                    (checkSubtypeBounds tc (nodeCVec d) 0)
+                    0
+                  }
+                  0
+                )
               )
             )
           )
@@ -21495,7 +21886,7 @@
             )
           ))
             {
-              (checkDeclaredReturn tc d resTy bodyTy)
+              (checkDeclaredReturn tc d resTy (maybeWrapSubtypeReturn tc d resTy bodyTy))
               ; The contracts, while the frame is still standing: the
               ; parameters are bound above `base` and `scopeTrunc`
               ; below takes them away, so `checkAxtags` - which runs
@@ -21707,7 +22098,10 @@
                   (if (== (tyHasSrcVar want) 1)
                     0
                     (if (== (tyCompat want got) 0)
-                      (emitMismatchTy tc want got (spanOf (nodeC d)))
+                      (if (== (subtypeCompatAllows tc want got) 1)
+                        0
+                        (emitMismatchTy tc want got (spanOf (nodeC d)))
+                      )
                       0
                     )
                   )

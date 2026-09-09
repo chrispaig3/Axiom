@@ -2205,6 +2205,7 @@
       (vecPush v "region")
       (vecPush v "set")
       (vecPush v "struct")
+      (vecPush v "subtype")
       (vecPush v "syntax/for")
       (vecPush v "type")
       (vecPush v "while")

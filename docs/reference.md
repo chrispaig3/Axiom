@@ -294,6 +294,7 @@ which was the retired Rust compiler's lexer rule, and refused
 | `data` | Algebraic data type |
 | `struct` | Product type with named fields |
 | `type` | Type alias |
+| `subtype` | Range-constrained subtype of `Int` ([below](#range-constrained-subtypes)), since 2026-09-09 |
 | `trait` | **Reserved** — removed 2026-08-31, reports `AX2004`; an interface is a [capability record](#capability-records) |
 | `impl` | **Reserved** — removed 2026-08-31, reports `AX2004`; an instance is an ordinary value |
 | `import` | Import a module |
@@ -1683,6 +1684,33 @@ it was not given ([Partial Application](#partial-application)).
 
 A type alias gives a name to an existing type. It does not create a new type — `StringList` and `[String]` are interchangeable: the alias is expanded before checking in every position that names a type — a function signature, a struct field, and a `data` constructor's fields — and its float flags are rewritten with it, so the checker and the emitter cannot disagree about a `(type Real = Float)`. The two record positions were added on 2026-08-23: an alias there stayed nominal, so `(R 1 s)` drew `AX3004` against its own field, and behind that the emitter's `fldClass` could not classify the alias, forced the block to a leaf, and dropped the reference map that a `String` in the NEXT field needed — 80 bytes an iteration, on the field that was spelled correctly (`tests/stdlib/374-arc-alias-field.ax`). A PARAMETERISED alias — `(type Pair a = ...)` — needs substitution and is not expanded; it behaves nominally. `tests/selfhost/973-type-alias.ax`
 
+### Range-constrained subtypes
+
+```scheme
+(subtype Positive is Int range 1 .. 10)
+(subtype NonNeg is Int range 0)
+```
+
+A subtype names a subset of `Int`'s values. It is a distinct type, not
+an alias: a `Positive` is not an `Int` where the checker compares
+names, and the base is `Int` and only `Int`. The check is at the
+*conversion*, enforced at run time by the same compare-branch-trap a
+contract lowers to (status 80), because the compiler has no value
+analysis that could discharge it statically:
+
+- `(cast Positive v)` traps unless `1 <= v < 10`. A lower-only range
+  checks `>=` with no upper bound.
+- Passing a base value to a `(-> Positive Int)` parameter, or
+  returning one through `(-> Int Positive)`, checks at the boundary
+  the same way.
+- Widening needs no check: a `Positive` already proved its range, so
+  `(cast Int p)` and passing one where `Int` is declared are free.
+
+Subtype values compute as `Int` — arithmetic and `println` treat a
+`Positive` as the `Int` it constrains. `tests/selfhost/134-subtype-checked.ax`
+pins the satisfied conversions; `135-subtype-violated.ax` pins the
+status a failed one exits with.
+
 ---
 
 ## Effects
@@ -1696,13 +1724,17 @@ not appear in function types. Untagged functions ARE policed: silence
 is the claim "performs no IO", and a body performing IO under it is
 `AX3042`, an error. Only `IO` is REQUIRED - `Alloc` and `Mut` are
 ambient, inferred and reported but never demanded, and the line was
-measured rather than chosen, and re-measured 2026-08-31: of the 3,616
-declarations `symbols self_host/main.ax` lists for the compiler and its
-standard library, 2,290 perform something at all, and 1,721 of those
-perform exactly `Alloc,Mut` - which is every function that touches a
-`String` or a `Vec`. `Mut` alone is on 2,126 of the 2,290, so requiring
-it would be requiring a tag on 93% of everything that has an effect at
-all. `IO` is the one effect a caller cannot learn
+measured rather than chosen, and re-measured 2026-09-08
+(`scripts/check-effect-distribution.sh` pins the whole histogram in
+two views): of the 4,246 declarations `symbols --calls
+self_host/main.ax` lists for the compiler and its standard library,
+2,682 perform something at all, and 2,020 of those perform exactly
+`Alloc,Mut` - which is every function that touches a `String` or a
+`Vec`. `Mut` anywhere is on 2,508 of the 2,682, so requiring
+it would be requiring a tag on 94% of everything that has an effect at
+all. The stdlib view agrees: 406 of 817 perform, 174 of those exactly
+`Alloc,Mut`, with two singletons carrying custom effects (`Assert`,
+`Fallible`) and 3 rows marked `#effects-incomplete`. `IO` is the one effect a caller cannot learn
 without opening the callee. `Alloc` and `Mut` are still DECLARABLE, and
 checked when declared:
 `;@axiom:effect(mut)` over a body that writes a field is accepted, and
@@ -2067,12 +2099,13 @@ for the same reason.
 ```
 
 `(half 0)` writes ``axiom: precondition failed in `half`: (> n 0)`` on
-fd 2, prints the backtrace, and exits **77**, beside `MM-EXEC-16`'s
+fd 2, prints the backtrace, and exits **80**, beside `MM-EXEC-16`'s
 70/71/72, the FFI boundary's 73, 74's absent syscall ABI, 75's invalid
-arena mark and 76's reset past a live handle. **77 is shared with the
-out-of-range index trap** — a supervisor tells those two apart by the
-sentence on fd 2 and not by the status, which is a defect recorded in
-`docs/subtypes-design.md`. There is no flag to turn the checks
+arena mark, 76's reset past a live handle and 77's out-of-range index.
+**80 is the contract trap's own row since D3 (2026-09-08)** — before
+that it shared 77 with the index trap, which a supervisor could tell
+apart only by the sentence on fd 2 (`docs/subtypes-design.md` keeps
+the history). There is no flag to turn the checks
 off: a check that is off by default is a comment by default.
 
 | | |

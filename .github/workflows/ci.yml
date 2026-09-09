@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # sixty-six of the gates below build the compiler under test from
+    # sixty-eight of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -1156,6 +1156,14 @@ jobs:
       - name: The call graph explains the effect rows
         run: ./scripts/check-agent-calls.sh
 
+      # The distribution behind "only IO is required": `Alloc` and `Mut`
+      # stay ambient because requiring them would tag nearly every
+      # effectful function. This pins the full bucket histogram in two
+      # views - if the population moves, the required/ambient line is
+      # revisited in the diff rather than retuned here.
+      - name: The ambient-effect distribution sits where measured
+        run: ./scripts/check-effect-distribution.sh
+
       # Syscall numbers are written down TWICE in this repository - once
       # in `self_host/codegen.ax` for the runtime the compiler emits
       # (the allocator's mmap, and the exit and write of three abort
@@ -1254,6 +1262,14 @@ jobs:
       # compared only line numbers passed with it removed.
       - name: Language server
         run: ./scripts/check-lsp-selfhost.sh
+
+      # The measurement that re-opens MAC-TOOL-3: editor requests read
+      # the raw parse tree, so a name only the expansion knows goes
+      # unanswered. This pins the population of generated names and
+      # the count of requests that want one - if either moves, the
+      # decision is revisited in the diff rather than retuned here.
+      - name: Generated-name demand behind the raw-tree rule
+        run: ./scripts/check-macro-demand.sh
 
       # The normative documents drift because they are maintained by
       # hand: nine claims in README.md and docs/reference.md were

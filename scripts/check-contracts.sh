@@ -21,9 +21,11 @@
 #
 #   1. A VIOLATED CONTRACT ABORTS, WITH ITS OWN STATUS AND ITS OWN
 #      SENTENCE. A `pre` that does not hold and a `post` that does not
-#      hold each exit 77 - a status of its own beside 70/71/72
-#      (MM-EXEC-16), 73 (the FFI boundary), 74 (no syscall ABI) and 75
-#      (an arena reset to an invalid mark, MM-ALLOC-16a) - and write a
+#      hold each exit 80 - a status of its own beside 70/71/72
+#      (MM-EXEC-16), 73 (the FFI boundary), 74 (no syscall ABI), 75
+#      (an arena reset to an invalid mark, MM-ALLOC-16a), 76 (a reset
+#      past a live handle), 77 (an out-of-range index), 78/79
+#      (parallel) - and write a
 #      line on fd 2 naming the KIND, the FUNCTION and the CONTRACT AS
 #      WRITTEN. Asserted at every optimisation level, since the check
 #      is ordinary emitted code and `opt` is free to move it.
@@ -33,7 +35,7 @@
 #      `@__axiom_contract_fail` opens with `__axiom_recover_abort`, the
 #      way the division trap does and the way the arena's bad-mark trap
 #      deliberately does NOT, so a violated contract inside
-#      `(__axiom_recover mark thunk)` answers **77** to the arming call
+#      `(__axiom_recover mark thunk)` answers **80** to the arming call
 #      instead of ending the process - and outside one it still ends
 #      it. Both halves in one program, for the reason
 #      `403-recover-div.ax` gives for its own: with `__axiom_recover`
@@ -93,7 +95,7 @@
 #      violated `;@axiom:pre` checked OK and exited 0: one expression
 #      in the body withdrew a claim the tag still made. Both arms of
 #      that guard are asserted here, the block and the `result` bind,
-#      and both must still exit 77.
+#      and both must still exit 80.
 #
 #   7. THE COMPILER THAT STOPS ANSWERING IS CAUGHT. Three compilers are
 #      built from copies of `self_host/`: one whose `expandProgram` no
@@ -194,7 +196,7 @@ cat > "$work/held.ax" <<'AX'
 AX
 
 # ---------------------------------------------------------------
-echo "== 1. a violated contract exits 77 and says which contract =="
+echo "== 1. a violated contract exits 80 and says which contract =="
 # ---------------------------------------------------------------
 # `section1 <compiler>` -> 0 when every claim holds, 1 otherwise. It is
 # a function so that section 6 can run the SAME claims against an
@@ -203,37 +205,37 @@ section1() {
   local cc="$1" quiet="${2:-0}" bad_here=0 o rc
   for o in 0 1 2 3; do
     rc=0; run_prog "$cc" pre.ax "$o" || rc=$?
-    if (( rc != 77 )); then
-      (( quiet )) || bad "a violated \`pre\` at --opt $o exits $rc, not 77"
+    if (( rc != 80 )); then
+      (( quiet )) || bad "a violated \`pre\` at --opt $o exits $rc, not 80"
       bad_here=1
     elif ! grep -qF 'axiom: precondition failed in `half`: (> n 0)' "$work/run.err"; then
       (( quiet )) || bad "a violated \`pre\` at --opt $o does not name itself on fd 2: $(head -1 "$work/run.err")"
       bad_here=1
     else
-      (( quiet )) || ok "a violated \`pre\` at --opt $o exits 77 and names \`half\` and \`(> n 0)\`"
+      (( quiet )) || ok "a violated \`pre\` at --opt $o exits 80 and names \`half\` and \`(> n 0)\`"
     fi
 
     rc=0; run_prog "$cc" post.ax "$o" || rc=$?
-    if (( rc != 77 )); then
-      (( quiet )) || bad "a violated \`post\` at --opt $o exits $rc, not 77"
+    if (( rc != 80 )); then
+      (( quiet )) || bad "a violated \`post\` at --opt $o exits $rc, not 80"
       bad_here=1
     elif ! grep -qF 'axiom: postcondition failed in `dec`: (> result 0)' "$work/run.err"; then
       (( quiet )) || bad "a violated \`post\` at --opt $o does not name itself on fd 2: $(head -1 "$work/run.err")"
       bad_here=1
     else
-      (( quiet )) || ok "a violated \`post\` at --opt $o exits 77 and names \`dec\` and \`(> result 0)\`"
+      (( quiet )) || ok "a violated \`post\` at --opt $o exits 80 and names \`dec\` and \`(> result 0)\`"
     fi
   done
 
   rc=0; run_prog "$cc" recover.ax 1 || rc=$?
-  if (( rc != 77 )); then
-    (( quiet )) || bad "the recovery program exits $rc, not 77 - the SECOND violation, outside every recovery point, must still end it"
+  if (( rc != 80 )); then
+    (( quiet )) || bad "the recovery program exits $rc, not 80 - the SECOND violation, outside every recovery point, must still end it"
     bad_here=1
-  elif ! grep -qF 'recovered 77' "$work/run.out"; then
-    (( quiet )) || bad "a violated contract inside \`__axiom_recover\` did not answer 77 to the arming call: $(head -1 "$work/run.out")"
+  elif ! grep -qF 'recovered 80' "$work/run.out"; then
+    (( quiet )) || bad "a violated contract inside \`__axiom_recover\` did not answer 80 to the arming call: $(head -1 "$work/run.out")"
     bad_here=1
   else
-    (( quiet )) || ok "a violated contract inside \`__axiom_recover\` answers 77 to the arming call, and outside one still exits 77"
+    (( quiet )) || ok "a violated contract inside \`__axiom_recover\` answers 80 to the arming call, and outside one still exits 80"
   fi
   return $bad_here
 }
@@ -436,17 +438,17 @@ echo "== 6. a program cannot turn its own contract off =="
 section6() {
   local cc="$1" quiet="${2:-0}" bad_here=0 rc
   rc=0; run_prog "$cc" forge-pre.ax 1 || rc=$?
-  if (( rc == 77 )); then
-    (( quiet )) || ok "a violated \`pre\` still exits 77 with \`__contract\` written first in the body"
+  if (( rc == 80 )); then
+    (( quiet )) || ok "a violated \`pre\` still exits 80 with \`__contract\` written first in the body"
   else
-    (( quiet )) || bad "a violated \`pre\` whose body opens with \`(__contract ...)\` exits $rc, not 77 - the contract was skipped"
+    (( quiet )) || bad "a violated \`pre\` whose body opens with \`(__contract ...)\` exits $rc, not 80 - the contract was skipped"
     bad_here=1
   fi
   rc=0; run_prog "$cc" forge-post.ax 1 || rc=$?
-  if (( rc == 77 )); then
-    (( quiet )) || ok "a violated \`post\` still exits 77 with the body bound to \`result\` around a \`__contract\`"
+  if (( rc == 80 )); then
+    (( quiet )) || ok "a violated \`post\` still exits 80 with the body bound to \`result\` around a \`__contract\`"
   else
-    (( quiet )) || bad "a violated \`post\` whose body is a \`result\` bind over \`(__contract ...)\` exits $rc, not 77 - the contract was skipped"
+    (( quiet )) || bad "a violated \`post\` whose body is a \`result\` bind over \`(__contract ...)\` exits $rc, not 80 - the contract was skipped"
     bad_here=1
   fi
   return $bad_here

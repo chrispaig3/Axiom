@@ -1,0 +1,29 @@
+; expect 80
+; A range-constrained subtype conversion that does not hold, and the
+; status a failed check exits with.
+;
+; 80 IS THE CONTRACT TRAP, and sharing it is the point of the case.
+; A subtype adds no new enforcement mechanism over a `pre`
+; (`docs/subtypes-design.md` Question 1): the conversion is a
+; compare, a branch, and a call to `@__axiom_contract_fail`, which
+; `docs/memory-model.md` MM-EXEC-16 reserves status 80 for since
+; 2026-09-08 (roadmap item 11, D3). A supervisor reading a status
+; therefore tells a range violation from an out-of-range index (77)
+; the same way it tells a violated contract from one.
+;
+; The check exercised here is the CALL-ARGUMENT one: `takePos`
+; declares `(-> Positive Int)` and 99 is outside `1 .. 10`, so the
+; call traps before the body runs. The cast half takes the same path
+; through the same trap and would pin the same number twice.
+;
+; The message and the backtrace go to fd 2 and are not this gate's
+; subject - `scripts/check-contracts.sh` reads that shape.
+(subtype Positive is Int range 1 .. 10)
+
+(:: takePos (-> Positive Int))
+
+(fn (takePos x) x)
+
+(:: main Int)
+
+(fn (main) (takePos 99))

@@ -4700,15 +4700,18 @@
                 true
                 (if (strEq h "type")
                   true
-                  (if (strEq h "trait")
+                  (if (strEq h "subtype")
                     true
-                    (if (strEq h "impl")
+                    (if (strEq h "trait")
                       true
-                      (if (strEq h "effect")
+                      (if (strEq h "impl")
                         true
-                        (if (strEq h "macro")
+                        (if (strEq h "effect")
                           true
-                          false
+                          (if (strEq h "macro")
+                            true
+                            false
+                          )
                         )
                       )
                     )
@@ -5298,6 +5301,57 @@
   )
 )
 
+; `(subtype Name is Base range LO[ .. HI])`. Printed structurally:
+; the keywords literally, the base through the type printer and the
+; bounds through the expression printer. A lower-only range prints
+; with no `..`; anything else shaped is a refusal, as a malformed
+; `type` is.
+(pub :: fpDeclSubtype (-> Int Int Int))
+
+(pub fn (fpDeclSubtype p n)
+  (let (
+    (src (fpSrc p))
+    (b (fpDeclBase src n))
+  )
+    (if (||
+      (< (fnLen n) (+ b 6))      (if (fpIsIdentAtom (fnKid n (+ b 1)))
+        false
+        true
+      )
+    )
+      (fpBad p)
+      (if (||
+        (if (fpIsAtomText src (fnKid n (+ b 2)) "is") false true)        (if (fpIsAtomText src (fnKid n (+ b 4)) "range") false true)
+      )
+        (fpBad p)
+        {
+          (fpP p "(")
+          (fpVis p n)
+          (fpP p "subtype ")
+          (fpP p (fnText src (fnKid n (+ b 1))))
+          (fpP p " is ")
+          (fpType p (fnKid n (+ b 3)))
+          (fpP p " range ")
+          (fpExpr p (fnKid n (+ b 5)))
+          (if (== (fnLen n) (+ b 6))
+            (fpP p ")")
+            (if (||
+              (!= (fnLen n) (+ b 9))              (|| (if (fpIsAtomText src (fnKid n (+ b 6)) ".") false true) (if (fpIsAtomText src (fnKid n (+ b 7)) ".") false true))
+            )
+              (fpBad p)
+              {
+                (fpP p " .. ")
+                (fpExpr p (fnKid n (+ b 8)))
+                (fpP p ")")
+              }
+            )
+          )
+        }
+      )
+    )
+  )
+)
+
 (pub :: fpDeclSig (-> Int Int Int))
 
 (pub fn (fpDeclSig p n)
@@ -5840,7 +5894,9 @@
                 (fpDeclStruct p n)
                 (if (strEq h "type")
                   (fpDeclType p n)
-                  (if (fpIsRemovedDeclHead h)
+                  (if (strEq h "subtype")
+                    (fpDeclSubtype p n)
+                    (if (fpIsRemovedDeclHead h)
                     ; A REMOVED declaration keyword: refused, not
                     ; printed. `fpIsRefusedHead` is this rule in
                     ; expression position; this is the declaration
@@ -5872,6 +5928,7 @@
       )
     )
   )
+)
 )
 
 ; An AXTAG line, reconstructed the way stage0's parser splits it: the
