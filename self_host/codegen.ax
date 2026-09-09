@@ -16233,7 +16233,10 @@
                                               (memSetWord cg 14 0)
                                               cg
                                             }
-                                            (emitDefault cg)
+                                            (if (== tag TAG_E_SUBCHECK)
+                                              (emitPrimSubtypeCheck node cg)
+                                              (emitDefault cg)
+                                            )
                                           )
                                         )
                                       )
@@ -17916,6 +17919,82 @@
     (_5 (emitLine cg2 "  unreachable"))
     (_6 (emitLabel cg2 okB))
     (_7 (memSetWord cg2 2 (constStr 0)))
+  )
+    cg2
+  )
+)
+
+; `TAG_E_SUBCHECK` — the run-time half of a range-constrained subtype
+; conversion. a = value expr, b = bounds Vec (1-2 EXPR nodes: lower,
+; upper), c = message string. Emits the value ONCE into `v`, the bounds
+; once each, compares against `v` (single evaluation, so a
+; side-effecting value is never run twice), and returns `v` on success.
+; On failure calls `@__axiom_contract_fail` and marks unreachable —
+; the same trap contracts use (status 80), so no new runtime is added.
+; Lower-only means `>= lo`; two bounds mean `>= lo` and `< hi`.
+(pub :: emitPrimSubtypeCheck (-> Int Int Int))
+
+;@axiom:effect(io)
+(pub fn (emitPrimSubtypeCheck node cg)
+  (let ((bounds (nodeBVec node)))
+    (if (== (vecLen bounds) 0)
+      (emitExpr (nodeA node) cg)
+      (let (
+        (cg0 (emitExpr (nodeA node) cg))
+        (v (strDup (memGetWordStr cg0 2)))
+        (cg1 (emitExpr (vecGet bounds 0) cg0))
+        (lo (strDup (memGetWordStr cg1 2)))
+        (c1 (allocReg cg1))
+        (okL (allocReg cg1))
+        (badL (allocReg cg1))
+        (c1r (regStr c1))
+        (okB (labelStr okL))
+        (badB (labelStr badL))
+        (_1 (emitLine cg1 (cat3 (cat4 (cat2 "  " c1r) " = icmp sge i64 " v ", ") lo "")))
+        (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " c1r ", label %") okB (cat2 ", label %" badB) "")))
+      )
+        (if (== (vecLen bounds) 1)
+          {
+            (emitLabel cg1 badB)
+            (emitSubtypeFail node cg1 v okB badB)
+          }
+          {
+            (emitLabel cg1 okB)
+            (let (
+              (cg2 (emitExpr (vecGet bounds 1) cg1))
+              (hi (strDup (memGetWordStr cg2 2)))
+              (c2 (allocReg cg2))
+              (ok2L (allocReg cg2))
+              (c2r (regStr c2))
+              (ok2B (labelStr ok2L))
+              (_3 (emitLine cg2 (cat3 (cat4 (cat2 "  " c2r) " = icmp slt i64 " v ", ") hi "")))
+              (_4 (emitLine cg2 (cat4 (cat3 "  br i1 " c2r ", label %") ok2B (cat2 ", label %" badB) "")))
+            )
+              {
+                (emitLabel cg2 badB)
+                (emitSubtypeFail node cg2 v ok2B badB)
+              }
+            )
+          }
+        )
+      )
+    )
+  )
+)
+
+; The failing block shared by both bound checks: emit the message,
+; trap, mark unreachable, then the success label with the saved value.
+(pub :: emitSubtypeFail (-> Int Int String String String Int))
+
+;@axiom:effect(io)
+(pub fn (emitSubtypeFail node cg v okB badB)
+  (let (
+    (cg2 (emitExpr (nodeC node) cg))
+    (m (strDup (memGetWordStr cg2 2)))
+    (_4 (emitLine cg2 (cat3 "  call i64 @__axiom_contract_fail(i64 " m ")")))
+    (_5 (emitLine cg2 "  unreachable"))
+    (_6 (emitLabel cg2 okB))
+    (_7 (memSetWord cg2 2 v))
   )
     cg2
   )

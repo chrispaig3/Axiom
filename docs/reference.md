@@ -294,6 +294,7 @@ which was the retired Rust compiler's lexer rule, and refused
 | `data` | Algebraic data type |
 | `struct` | Product type with named fields |
 | `type` | Type alias |
+| `subtype` | Range-constrained subtype of `Int` ([below](#range-constrained-subtypes)), since 2026-09-09 |
 | `trait` | **Reserved** — removed 2026-08-31, reports `AX2004`; an interface is a [capability record](#capability-records) |
 | `impl` | **Reserved** — removed 2026-08-31, reports `AX2004`; an instance is an ordinary value |
 | `import` | Import a module |
@@ -1683,6 +1684,33 @@ it was not given ([Partial Application](#partial-application)).
 
 A type alias gives a name to an existing type. It does not create a new type — `StringList` and `[String]` are interchangeable: the alias is expanded before checking in every position that names a type — a function signature, a struct field, and a `data` constructor's fields — and its float flags are rewritten with it, so the checker and the emitter cannot disagree about a `(type Real = Float)`. The two record positions were added on 2026-08-23: an alias there stayed nominal, so `(R 1 s)` drew `AX3004` against its own field, and behind that the emitter's `fldClass` could not classify the alias, forced the block to a leaf, and dropped the reference map that a `String` in the NEXT field needed — 80 bytes an iteration, on the field that was spelled correctly (`tests/stdlib/374-arc-alias-field.ax`). A PARAMETERISED alias — `(type Pair a = ...)` — needs substitution and is not expanded; it behaves nominally. `tests/selfhost/973-type-alias.ax`
 
+### Range-constrained subtypes
+
+```scheme
+(subtype Positive is Int range 1 .. 10)
+(subtype NonNeg is Int range 0)
+```
+
+A subtype names a subset of `Int`'s values. It is a distinct type, not
+an alias: a `Positive` is not an `Int` where the checker compares
+names, and the base is `Int` and only `Int`. The check is at the
+*conversion*, enforced at run time by the same compare-branch-trap a
+contract lowers to (status 80), because the compiler has no value
+analysis that could discharge it statically:
+
+- `(cast Positive v)` traps unless `1 <= v < 10`. A lower-only range
+  checks `>=` with no upper bound.
+- Passing a base value to a `(-> Positive Int)` parameter, or
+  returning one through `(-> Int Positive)`, checks at the boundary
+  the same way.
+- Widening needs no check: a `Positive` already proved its range, so
+  `(cast Int p)` and passing one where `Int` is declared are free.
+
+Subtype values compute as `Int` — arithmetic and `println` treat a
+`Positive` as the `Int` it constrains. `tests/selfhost/134-subtype-checked.ax`
+pins the satisfied conversions; `135-subtype-violated.ax` pins the
+status a failed one exits with.
+
 ---
 
 ## Effects
@@ -1698,11 +1726,11 @@ is the claim "performs no IO", and a body performing IO under it is
 ambient, inferred and reported but never demanded, and the line was
 measured rather than chosen, and re-measured 2026-09-08
 (`scripts/check-effect-distribution.sh` pins the whole histogram in
-two views): of the 4,222 declarations `symbols --calls
+two views): of the 4,246 declarations `symbols --calls
 self_host/main.ax` lists for the compiler and its standard library,
-2,669 perform something at all, and 2,014 of those perform exactly
+2,682 perform something at all, and 2,020 of those perform exactly
 `Alloc,Mut` - which is every function that touches a `String` or a
-`Vec`. `Mut` anywhere is on 2,497 of the 2,669, so requiring
+`Vec`. `Mut` anywhere is on 2,508 of the 2,682, so requiring
 it would be requiring a tag on 94% of everything that has an effect at
 all. The stdlib view agrees: 406 of 817 perform, 174 of those exactly
 `Alloc,Mut`, with two singletons carrying custom effects (`Assert`,

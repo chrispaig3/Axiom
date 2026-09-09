@@ -11,9 +11,9 @@
 # views, because the claim "ambient" is a claim about a population:
 #
 #   compiler  `symbols --calls self_host/main.ax`: the compiler and the
-#             stdlib it reaches. 4,222 functions; 2,669 perform, 2,014
-#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,497 of
-#             the 2,669 (94%).
+#             stdlib it reaches. 4,246 functions; 2,682 perform, 2,020
+#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,508 of
+#             the 2,682 (94%).
 #   stdlib    one probe importing every stdlib module: the whole
 #             library's. 817 functions; 406 perform, 174 of those
 #             exactly `Alloc,Mut`; customs are two singletons (`Assert`,
@@ -48,14 +48,14 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2014 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 364 "Alloc,IO,Mut"
-have "$(bucket "$work/main.axsym" 'Mut')" 115 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 114 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2020 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 366 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Mut')" 118 "exactly Mut"
+have "$(bucket "$work/main.axsym" 'Alloc')" 116 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 39 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 19 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 4 "IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1553 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1564 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 

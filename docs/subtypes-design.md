@@ -14,12 +14,13 @@ conclusion is a **recommendation not to build it as a type**. Every
 number below carries the command that produced it, over the merged tree
 at `HEAD`.
 
-**Status: designed 2026-08-31, re-measured 2026-09-04, still not
-built.** The re-measurement moved one of the three conditions below
-(the cost argument — see "Re-measured 2026-09-04" under Question 3),
-refreshed a stale census, and found a defect in the CONTRACTS feature
-this note leans on (see the last section). The recommendation is
-unchanged, now resting on two conditions instead of three.
+**Status: designed 2026-08-31, re-measured 2026-09-04, refused
+2026-09-08 (D2 below), BUILT 2026-09-09 ("Built" section below
+supersedes D2 by direction).** The re-measurement moved one of the
+three conditions below (the cost argument — see "Re-measured
+2026-09-04" under Question 3), refreshed a stale census, and found a
+defect in the CONTRACTS feature this note leans on (see the last
+section).
 
 ## What the feature would be
 
@@ -329,6 +330,36 @@ handle word); the value-analysis condition is met by LLVM's backend,
 not by a frontend domain, and buys cost but not static refusal. Reopen
 only by meeting the two standing conditions, re-measured, not by
 re-arguing the case for.
+
+## Built 2026-09-09: D2 superseded by direction, not by measurement
+
+D2 above is reversed without meeting its two conditions, and that is
+recorded here rather than edited away so the reversal stays visible.
+`(subtype Positive is Int range 1 .. 10)` now declares a distinct
+type over `Int`, checked at every narrowing conversion (explicit
+`cast`, call argument, declared return) by the contract trap (status
+80), with widening free. `tests/selfhost/134-subtype-checked.ax` and
+`135-subtype-violated.ax` pin both halves.
+
+What the two standing conditions become under this design, stated so
+they stay checkable rather than becoming décor:
+
+1. **The `cast` condition is met structurally, one way.** A narrowing
+   `(cast Subtype v)` always checks, so a constraint cannot be
+   laundered INTO a subtype in silence; a widening `(cast Int p)`
+   drops it aloud, which is the documented semantics and not a hole.
+   What is still unbuilt is any refusal: a program that widens and
+   never narrows pays nothing and proves nothing.
+2. **The integer-type condition still stands, unchanged.** The base
+   is `Int` and only `Int`, so a subtype inherits both of `Int`'s
+   jobs (number and handle word). A ranged handle checks its range
+   as a number, which is a true sentence about the word and may not
+   be the sentence the author meant. Revisit when a first-class
+   integer type lands.
+
+The cost condition stays where the 2026-09-04 re-measurement left
+it: the per-conversion check costs what a `pre` costs, which at
+`--opt 2` is nothing this instrument can see.
 
 ## The status this note got wrong, and what that turned out to be
 
