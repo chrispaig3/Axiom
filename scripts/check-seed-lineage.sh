@@ -592,7 +592,16 @@ for ((i = 0; i < nrows; i++)); do
       l="$(detail_of "${row_detail[i]}" list)"
       [[ -n "$l" && -f "$repo_root/bootstrap/$l" ]] || { fail "$chain:${row_line[i]}: a walk row needs list=<file under bootstrap/>"; continue; }
       listed="$(grep -vE '^[[:space:]]*(#|$)' "$repo_root/bootstrap/$l" | awk '{print $1}')"
-      gits="$(git -C "$repo_root" log --reverse --format=%h "${row_from[i]}..${row_seed[i]}" -- self_host stdlib)"
+      # Pinned at 7, not ambient: `core.abbrev=auto` scales with the
+      # object store, so an unpinned `%h` grows 7 to 8 chars the day
+      # the repo crosses the threshold and every committed list fails
+      # against git's own longer spelling of the same commits
+      # (measured 2026-09-10: all 63 rows of one walk list, same
+      # commits, one char wider). The committed lists are 7-wide, the
+      # CHAIN short hashes beside them are `${x:0:7}` throughout, and a
+      # genuine 7-char collision still fails loudly: git lengthens an
+      # ambiguous abbreviation past the pin rather than emitting it.
+      gits="$(git -C "$repo_root" -c core.abbrev=7 log --reverse --format=%h "${row_from[i]}..${row_seed[i]}" -- self_host stdlib)"
       if [[ "$listed" == "$gits" ]]; then
         ok "row ${row_seed_short[i]} walks the $(grep -c . <<< "$listed") commits between ${row_from[i]:0:7} and ${row_seed_short[i]} that touched the sources - the list is git's"
       else
