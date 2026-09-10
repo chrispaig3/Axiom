@@ -406,7 +406,13 @@ replay_walk() {  # <prev> <next> <listfile> <dir>
       *) ladder_reason="step $i (${c}): unknown annotation \`$how\`"; return 1 ;;
     esac
     local note=""
-    if [[ " $walk_seed_commits " == *" $c "* ]]; then
+    # Full hashes: `$c` is the walk file's short form and
+    # `walk_seed_commits` is `%H` for the same abbrev reason as the
+    # list check above - an 8-char rendering never contains the
+    # 7-char token with word boundaries, which silently skipped this
+    # re-emission comparison rather than failing it.
+    local cf; cf="$(resolve "$c")"
+    if [[ -n "$cf" && " $walk_seed_commits " == *" $cf "* ]]; then
       seed_at "$c" "$nd/seed.ll"
       emit "$new" "$nd/w" "$nd/w/re.ll" || { ladder_reason="step $i (${c}): the new compiler cannot re-emit its own tree ($emit_reason)"; return 1; }
       if cmp -s "$nd/w/re.ll" "$nd/seed.ll"; then note=" - re-emits its own seed exactly"
@@ -592,21 +598,29 @@ for ((i = 0; i < nrows; i++)); do
       l="$(detail_of "${row_detail[i]}" list)"
       [[ -n "$l" && -f "$repo_root/bootstrap/$l" ]] || { fail "$chain:${row_line[i]}: a walk row needs list=<file under bootstrap/>"; continue; }
       listed="$(grep -vE '^[[:space:]]*(#|$)' "$repo_root/bootstrap/$l" | awk '{print $1}')"
-      # Pinned at 7, not ambient: `core.abbrev=auto` scales with the
-      # object store, so an unpinned `%h` grows 7 to 8 chars the day
-      # the repo crosses the threshold and every committed list fails
-      # against git's own longer spelling of the same commits
-      # (measured 2026-09-10: all 63 rows of one walk list, same
-      # commits, one char wider). The committed lists are 7-wide, the
-      # CHAIN short hashes beside them are `${x:0:7}` throughout, and a
-      # genuine 7-char collision still fails loudly: git lengthens an
-      # ambiguous abbreviation past the pin rather than emitting it.
-      gits="$(git -C "$repo_root" -c core.abbrev=7 log --reverse --format=%h "${row_from[i]}..${row_seed[i]}" -- self_host stdlib)"
-      if [[ "$listed" == "$gits" ]]; then
+      # Full hashes on both sides. `%h` lengths are the viewer's
+      # business - core.abbrev=auto scales with the object store and
+      # the git that reads it - so comparing short strings compares
+      # two renderings rather than two lists: measured 2026-09-09,
+      # this file's seven-char shorts against eight-char `git log`
+      # output on the CI runner, failing the equality while the list
+      # was git's own. The file's shorts resolve (an unresolvable one
+      # fails loudly) and git is asked for `%H`.
+      listed_full=""
+      listed_ok=1
+      while IFS= read -r c; do
+        [[ -z "$c" ]] && continue
+        f="$(resolve "$c")"
+        if [[ -z "$f" ]]; then listed_ok=0; break; fi
+        listed_full+="$f"$'\n'
+      done <<< "$listed"
+      listed_full="${listed_full%$'\n'}"
+      gits="$(git -C "$repo_root" log --reverse --format=%H "${row_from[i]}..${row_seed[i]}" -- self_host stdlib)"
+      if (( listed_ok )) && [[ "$listed_full" == "$gits" ]]; then
         ok "row ${row_seed_short[i]} walks the $(grep -c . <<< "$listed") commits between ${row_from[i]:0:7} and ${row_seed_short[i]} that touched the sources - the list is git's"
       else
         fail "$chain:${row_line[i]}: bootstrap/$l is not the list of source commits between ${row_from[i]:0:7} and ${row_seed_short[i]}"
-        diff <(printf '%s\n' "$gits") <(printf '%s\n' "$listed") | head -6 | sed 's/^/       /'
+        diff <(printf '%s\n' "$gits") <(printf '%s\n' "$listed_full") | head -6 | sed 's/^/       /'
       fi
       while read -r c how arg sha; do
         [[ -z "$c" || "$c" == \#* || -z "${how:-}" ]] && continue
@@ -887,7 +901,7 @@ for ((i = first; i < nrows; i++)); do
     seed)       replay_seed "$from" "$seed" "$d"; rc=$? ;;
     mixed-tree) replay_mixed "$from" "$seed" "$d"; rc=$? ;;
     skip)       replay_skip "$from" "$seed" "$(resolve "$(detail_of "${row_detail[i]}" skips)")" "$d"; rc=$? ;;
-    walk)       walk_seed_commits="$(git -C "$repo_root" log --format=%h -- 'bootstrap/*.ll' | tr '\n' ' ')"
+    walk)       walk_seed_commits="$(git -C "$repo_root" log --format=%H -- 'bootstrap/*.ll' | tr '\n' ' ')"
                 replay_walk "$from" "$seed" "$repo_root/bootstrap/$(detail_of "${row_detail[i]}" list)" "$d"; rc=$? ;;
     bridge-needed) continue ;;
   esac
