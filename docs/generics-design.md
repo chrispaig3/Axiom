@@ -735,6 +735,12 @@ typed and not a per-type spelling; `stdlib/Html.ax`'s `for` and
 `forInt` — the two macros for one idea the opening paragraph names —
 are deleted with no call site moved. `tests/stdlib/466-for-loop.ax`
 holds twelve terms, `tests/diagnostics/625-for-shape` and
-`626-for-not-a-container` the two refusals. What the keyword does NOT
-yet do is appear in `self_host/` or `stdlib/`: the seed must learn it
-first, and `range` stays in the prelude until it has.
+`626-for-not-a-container` the two refusals. What the keyword did NOT
+do until the ea78e37 reseed is appear in `self_host/` or `stdlib/`:
+the seed predated the keyword, and `scripts/reseed.sh` states the
+order — land the construct, reseed, THEN use it. That reseed is
+landed, so the first use is too: `self_host/symbols.ax` spells its
+argument-type loop with `for`, where it spelled it with the `range`
+macro before. The `range` macro itself stays — it is `pub`, user
+programs write it, and `tests/stdlib/463-range-loop.ax` pins it —
+with new in-tree code preferring the keyword.

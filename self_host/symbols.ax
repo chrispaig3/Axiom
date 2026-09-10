@@ -160,7 +160,13 @@
                   (mut s (nodeAName t))
                 )
                   {
-                    (range i 0 (vecLen args)
+                    ; The keyword's range shape mirrors `range` binding
+                    ; for binding, so this is a spelling change and
+                    ; nothing else. First `for` in the compiler's own
+                    ; sources: the seed learned the keyword at ea78e37,
+                    ; and this site is what proves a seeded compiler
+                    ; builds a tree that uses it.
+                    (for i 0 (vecLen args)
                       (set s (strConcat s (strConcat " " (symTy (vecGet args i))))))
                     s
                   }

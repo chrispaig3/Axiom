@@ -35,11 +35,15 @@
 ; hoisted in source order, a `mut` counter, the caller's name bound
 ; over the body, `0` as the value - so the two agree by construction.
 ;
-; WHY THIS STAYS. The compiler's own sources are built by the committed
-; seed, which predates the keyword, and `scripts/reseed.sh` states the
-; order: land the construct, reseed, THEN use it. Until that reseed,
-; `self_host/` cannot write `for` - `self_host/symbols.ax` spells its
-; loop with `range` - and the prelude is where it lives.
+; WHY THIS STAYS. It used to stay because the committed seed
+; predated the keyword: `self_host/` could not write `for`, so
+; `self_host/symbols.ax` spelled its loop with `range`. The ea78e37
+; reseed retired that reason - the seed knows `for` now, and that
+; site spells it with the keyword. What keeps the macro is that it is
+; `pub`: user programs write it (`tests/stdlib/463-range-loop.ax`
+; pins the shape), and removing a public name is a break
+; `compat/BREAKING` would have to declare. New code in this
+; repository prefers `for`.
 ;
 ; The shape this replaces is written by hand about a hundred times in
 ; this repository:
