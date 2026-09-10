@@ -1,6 +1,7 @@
-Source stamp:          f7b0a760c3c48903a23d2579e5b532ff9482df1853c4c36fe2859ed8064b3325
-Source files:          60
-Generated on:          2026-09-03T06:19:29Z
+Source stamp:          0424f6a53a69505c499054c8dd4836682e4a2598e48a5947c9d8300a85e751ad
+Source files:          61
+Generated on:          2026-09-10T13:20:29Z
+Generated on host:     darwin-aarch64 (llc 23.1.0)
 Regenerate with:       scripts/reseed.sh
 Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh, scripts/check-seed-lineage.sh
 
@@ -12,3 +13,9 @@ it finds the commit that last touched the six `.ll` files - not this
 directory, which also holds metadata about them - requires that
 commit's sources to hash to this line, and then regenerates all six
 seeds from them and requires the result to be byte-identical.
+
+`Generated on host:` is a REPORT, not a claim: nothing can check where
+a file was written. It is here so that when the provenance gate
+regenerates these bytes on a different host it can say so - two
+toolchains agreeing is more than one repeating itself - and so that the
+day it stops being a different host, that is visible rather than silent.
