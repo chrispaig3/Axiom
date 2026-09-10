@@ -43,7 +43,7 @@ export const STATS: Stat[] = [
   },
   {
     key: 'gates',
-    n: '82',
+    n: '84',
     label: 'gate scripts in the battery that runs before a push',
     evidence: "ls scripts/check-*.sh | wc -l",
   },

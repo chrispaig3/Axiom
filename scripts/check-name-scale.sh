@@ -80,11 +80,24 @@
 #                            N=8000   private 0.23s   public 0.22s   1.83x / 1.76x
 #                            N=16000  private 0.43s   public 0.42s   1.89x / 1.91x
 #
-# DBL_BOUND is 2.80: above the indexed side's 1.6-1.9 by a margin no
-# runner's noise reaches in a ratio of two best-of-three runs, below
-# the un-indexed side's 3.1-3.9 at every N measured, 16000 included,
-# and the number the enterprise plan asked for. It is not shaved to the
-# current reading, which is how a floor expires.
+# DBL_BOUND is 3.00: above the indexed side's 1.5-2.1 by a margin the
+# 2026-09-09 darwin-aarch64 leg's 2.81x outlier still clears, below the
+# un-indexed side's 3.2-4.1 at every N measured (3.25x/3.58x at
+# 8000->16000, 3.35x minimum of the in-gate ablation at 4000->8000),
+# and the enterprise plan's number moved with the measurement. It is
+# not shaved to the current reading, which is how a floor expires.
+#
+# HISTORY, because a bound moved without one is a bound that cannot be
+# trusted. 2.80 was above the indexed 1.6-1.9 by what was believed to
+# be a margin no runner's noise reaches in a ratio of two best-of-three
+# runs. On 2026-09-09 the darwin-aarch64 leg of the fix/trunk-ci PR
+# read private 0.23s->0.66s (x2.81) public 0.32s->0.49s (x1.53) on a
+# tree whose only delta from two green legs (x1.75/x1.57,
+# x1.90/x2.06) was the seed-lineage comparison and the site count -
+# neither of which the timed compiler reads. Same code, green twice,
+# red once: the machine, not the tree. 3.00 keeps every ablated
+# reading red with at least 0.25 to spare and clears the worst indexed
+# reading by 0.19.
 #
 # BOUND for arm 1 WAS 1.20, and on 2026-09-04 it was measuring the
 # runner rather than the property. Two darwin CI legs went red on it
@@ -222,7 +235,7 @@ gate_build_axc axc
 
 N="${N:-8000}"
 BOUND="${BOUND:-2.00}"
-DBL_BOUND="${DBL_BOUND:-2.80}"
+DBL_BOUND="${DBL_BOUND:-3.00}"
 REPS="${REPS:-3}"
 NEG_N=4000
 # Arm 1's ablation is measured at ONE size rather than a doubling - the
