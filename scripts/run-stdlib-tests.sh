@@ -174,6 +174,51 @@ for case_file in tests/stdlib/*.ax; do
     continue
   fi
 
+  # Opt-level stability, for the fixtures that claim it. Most cases
+  # cannot carry it: which backtrace frames survive depends on what
+  # the optimiser inlined, so the runner truncates traces rather
+  # than comparing them, and exit statuses move for the same reason.
+  # A case with a `NAME.optstable` file beside it opts in: the same
+  # stdout AND the same exit must answer at --opt 0, 1, 2 and 3, each
+  # compared against the default-opt run above rather than the
+  # golden, so this stays a stability claim beside the correctness
+  # one instead of a second copy of it.
+  #
+  # That is the property raw operators cannot claim: `(<< 1 100)`
+  # answers 68719476736 at --opt 0 and 1 at --opt 1 (`stdlib/Err.ax`
+  # says so above `shlChecked`), and it is the reason a checked
+  # operator exists. The marker is load-bearing rather than
+  # decorative: a probe answering the raw shift both ways fails this
+  # block at --opt 1 while passing the golden run, which is what
+  # proves the comparison can fail rather than merely pass.
+  if [[ -f "$repo_root/tests/stdlib/$name.optstable" ]]; then
+    for o in 0 1 2 3; do
+      if ! "$axc" build --input "$repo_root/$case_file" \
+          --output "$case_dir/$name-o$o" --opt "$o" >"$case_dir/$name-o$o.build" 2>&1; then
+        echo "FAIL $name (optstable: would not build at --opt $o)"
+        sed 's/^/    /' "$case_dir/$name-o$o.build" | head -5
+        failed=$((failed + 1))
+        continue 2
+      fi
+      set +e
+      opt_out="$(cd "$case_dir" && "./$name-o$o" <"$stdin_src" 2>/dev/null)"
+      opt_exit=$?
+      set -e
+      if [[ "$opt_out" != "$actual_out" ]]; then
+        echo "FAIL $name (optstable: stdout at --opt $o differs from the default-opt run)"
+        diff <(printf '%s\n' "$actual_out") <(printf '%s\n' "$opt_out") | sed 's/^/    /' || true
+        failed=$((failed + 1))
+        continue 2
+      fi
+      if [[ "$opt_exit" != "$actual_exit" ]]; then
+        echo "FAIL $name (optstable: exit at --opt $o is $opt_exit, default-opt run was $actual_exit)"
+        failed=$((failed + 1))
+        continue 2
+      fi
+    done
+    echo "    --- optstable: identical stdout and exit at --opt 0, 1, 2, 3"
+  fi
+
   echo "ok   $name"
   passed=$((passed + 1))
 done

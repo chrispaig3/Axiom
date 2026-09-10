@@ -1294,7 +1294,7 @@ term 2, which now carries both spellings and compares them.
 | `ERR-MEM-5` | H | `AX3029` / `AX3030` |
 | `ERR-MEM-6` | R | `linear` enforces nothing |
 | `ERR-REC-1` | R | no unwinding exists |
-| `ERR-REC-2` | **H, partly gated** | `371-err-module.ax` terms 64 and 32; `remChecked`/`shrChecked` unpinned |
+| `ERR-REC-2` | **H, gated** | `371-err-module.ax` terms 64 and 32; `312-checked-arithmetic.ax` boundary terms for all seven operators, pinned at `--opt` 0, 1, 2 and 3 by the case's `.optstable` marker in `scripts/run-stdlib-tests.sh` |
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4`, `5` | P | — |
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |

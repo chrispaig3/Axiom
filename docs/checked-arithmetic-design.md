@@ -374,11 +374,13 @@ by accident.
   already exist in `stdlib/Err.ax` to answer a future `no-untrapped`
   or similarly-named restriction. The closed list has room. This is a
   named follow-up, not a gap in phase 1.
-- **`remChecked`/`shrChecked` have no fixture.** Still true: neither
-  has a case in `tests/stdlib/312-checked-arithmetic.ax`, which is
-  where the other five are pinned at `--opt` 0/1/2/3. Still
-  `docs/error-model.md` `ERR-REC-2`'s "H, partly gated", still not
-  closed here.
+- **`remChecked`/`shrChecked` have fixtures as of 2026-09-10.**
+  `tests/stdlib/312-checked-arithmetic.ax` carries their boundary
+  terms beside the other five — the remainder's one wraparound
+  (`intMin % -1`), the zero divisor, the 63/64/-1 shift amounts —
+  and the case's `.optstable` marker holds identical stdout and exit
+  at `--opt` 0, 1, 2 and 3. `docs/error-model.md` `ERR-REC-2` reads
+  "H, gated" over exactly this.
 
 ## Decision D1 (2026-09-08, roadmap item 11): BUILT, Shape B
 

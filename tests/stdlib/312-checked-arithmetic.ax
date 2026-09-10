@@ -25,6 +25,16 @@
 ; operand orders are excluded, because `(* -1 intMin)` is the same
 ; overflow written the other way round.
 ;
+; `remChecked` and `shrChecked` below close the fixture gap
+; `docs/error-model.md` ERR-REC-2 named: every other checked operator
+; had boundary terms here and these two had none. The remainder's one
+; wraparound is `intMin % -1` - the only `(a, b)` whose mathematical
+; value does not fit, and on some platforms a trap rather than a
+; value, so it is excluded the way `mulChecked` excludes its own
+; unseeable case. The shift's boundary is the amount, not the value:
+; 63 is the widest exact shift and 64 the first refusal, with the
+; negative amount refused beside it.
+;
 ; AND THE WHOLE FILE ANSWERS THE SAME AT EVERY `--opt` LEVEL, which is
 ; the property the raw operators cannot claim: `MM-VAL-3b` records
 ; `INT_MIN / -1` and shifts of 64 or more answering differently at 0
@@ -108,6 +118,22 @@
   )
 )
 
+; Refused with a SPECIFIC code - not merely failed. `divChecked` has
+; two refusals with two meanings (zero divisor against unrepresentable
+; quotient) and the shift has its own, so `isErr` alone would accept a
+; swapped diagnostic the way `overflowed` would accept a swapped sum.
+(:: refused (-> (Result Int Error) Int Int))
+
+(fn (refused r want)
+  (if (isErr r)
+    (if (== (codeOf r) want)
+      1
+      0
+    )
+    0
+  )
+)
+
 (:: intMax Int)
 
 (fn (intMax) 9223372036854775807)
@@ -150,6 +176,25 @@
     (say (gave (mulChecked intMax 1) intMax) "intMax * 1 is exact")
     (say (gave (mulChecked (- 0 1) (- 0 1)) 1) "-1 * -1 is exact")
     (say (gave (mulChecked 3 5) 15) "3 * 5 is exact")
+    ; --- remainder --------------------------------------------------
+    ; The one wraparound, excluded up front like mulChecked's: intMin
+    ; % -1 is the only pair whose value does not fit.
+    (say (refused (remChecked intMin (- 0 1)) errOverflow) "intMin % -1 is unrepresentable")
+    (say (refused (remChecked 10 0) errDivideByZero) "x % 0 is a zero divisor, not an overflow")
+    (say (gave (remChecked 10 3) 1) "10 % 3 is exact")
+    (say (gave (remChecked intMin 1) 0) "intMin % 1 is exact, not a refusal")
+    (say (gave (remChecked 0 5) 0) "0 % 5 is exact")
+    ; --- shift ------------------------------------------------------
+    ; The boundary is the amount: 63 shifts, 64 refuses, and so does a
+    ; negative one. intMin >> 63 is exact - arithmetic shift of the
+    ; sign bit down to the units place - which is the term that would
+    ; go red if the check were `> 63` instead of `>= 64`.
+    (say (refused (shrChecked 1 64) errShiftTooWide) "1 >> 64 refuses")
+    (say (refused (shrChecked 1 100) errShiftTooWide) "1 >> 100 refuses")
+    (say (refused (shrChecked 1 (- 0 1)) errShiftTooWide) "1 >> -1 refuses")
+    (say (gave (shrChecked intMin 63) (- 0 1)) "intMin >> 63 is exact")
+    (say (gave (shrChecked 8 2) 2) "8 >> 2 is exact")
+    (say (gave (shrChecked 5 0) 5) "5 >> 0 is exact")
     ; --- the shape the repository already measured ------------------
     ; `bodyRel + n`, where `n` is the peer's number. Unchecked this
     ; wraps negative and the framer slices a body that never arrived.

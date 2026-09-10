@@ -22,4 +22,15 @@ ok   intMin * 1 is exact
 ok   intMax * 1 is exact
 ok   -1 * -1 is exact
 ok   3 * 5 is exact
+ok   intMin % -1 is unrepresentable
+ok   x % 0 is a zero divisor, not an overflow
+ok   10 % 3 is exact
+ok   intMin % 1 is exact, not a refusal
+ok   0 % 5 is exact
+ok   1 >> 64 refuses
+ok   1 >> 100 refuses
+ok   1 >> -1 refuses
+ok   intMin >> 63 is exact
+ok   8 >> 2 is exact
+ok   5 >> 0 is exact
 ok   a framer offset plus a peer's length refuses instead of wrapping

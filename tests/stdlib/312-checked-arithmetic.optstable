@@ -1,0 +1,8 @@
+# Opt-level stability marker for 312-checked-arithmetic.ax.
+#
+# The fixture's header claims every term answers the same at --opt 0,
+# 1, 2 and 3, which is the property the raw operators cannot claim and
+# the reason the checked ones exist. run-stdlib-tests.sh holds it:
+# with this file beside the case, the same stdout and exit must answer
+# at all four levels. Empty of configuration by design - presence is
+# the whole claim - so this comment is the only thing in it.
