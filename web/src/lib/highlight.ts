@@ -69,7 +69,7 @@ const BUILTIN_TYPES = new Set([
 const BUILTIN_EFFECTS = new Set(['Pure', 'IO', 'Alloc', 'Mut', 'Div'])
 
 const KEYWORD_FUNCTION = new Set(['fn', 'define', 'lambda'])
-const KEYWORD_TYPE = new Set(['data', 'struct', 'type', 'effect'])
+const KEYWORD_TYPE = new Set(['data', 'struct', 'type', 'subtype', 'effect'])
 const KEYWORD_CONDITIONAL = new Set(['if', 'cond', 'match', 'else'])
 const KEYWORD_PLAIN = new Set([
   'let', 'handle', 'where', 'pub', 'import', 'set', 'while', 'for', 'extern',

@@ -218,6 +218,7 @@ module.exports = grammar({
       $.data_declaration,
       $.struct_declaration,
       $.type_alias,
+      $.subtype_declaration,
       $.import,
       $.effect_declaration,
       $.extern_declaration,
@@ -477,6 +478,27 @@ module.exports = grammar({
       optional(field('type_parameters', $.type_parameters)),
       optional('='),
       field('target', $._type),
+      ')',
+    ),
+
+    // `(subtype Name is Base range LO[ .. HI])` — Ada-style
+    // range-constrained subtypes (`self_host/parser.ax`'s
+    // `parseSubtypeDecl`). The upper bound is present exactly when two
+    // consecutive dots follow the lower bound. The compiler lexes `..`
+    // as two DOT tokens; here it is one token the way `...` is
+    // (`ellipsis` above) — the identifier rule would glue the dots
+    // anyway, so naming them keeps the bound readable instead of
+    // hiding it inside an `(identifier)`. A single bound is
+    // lower-only (`>= lo`); two bounds are closed-below, open-above
+    // (`>= lo` and `< hi`).
+    subtype_declaration: $ => seq(
+      '(', optional(field('visibility', 'pub')), 'subtype',
+      field('name', choice($.identifier, $.syntax_join_name)),
+      'is',
+      field('base', $._type),
+      'range',
+      field('lower', $._expression),
+      optional(seq('..', field('upper', $._expression))),
       ')',
     ),
 

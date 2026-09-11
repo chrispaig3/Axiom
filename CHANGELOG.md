@@ -84,6 +84,16 @@ spelling:
   base-36 spellings) is already in range. Declared in
   `compat/BREAKING` against 0.7.6 (`F strFromByte`).
 
+  **Fallout, in the editor grammar.** The tree-sitter grammar had no
+  `subtype` rule — bare `(subtype …)` in the fixtures parsed only as
+  a generic application — so `(pub subtype Byte …)` in `Str.ax` drew
+  the sweep's one ERROR and failed `scripts/check-tree-sitter.sh` on the
+  push. `grammar.js` gains `subtype_declaration` (`pub`, `is`,
+  `range`, `..` as one token the way `...` is), with a corpus case
+  covering both bound shapes, `subtype` in `highlights.scm`'s type
+  keywords and the web highlighter's `KEYWORD_TYPE`, and the corpus
+  census in `docs/status.md` moves 41 → 42 with it.
+
 ### Range-constrained subtypes are built — `(subtype Positive is Int range 1 .. 10)`
 
 `docs/subtypes-design.md` closed these as refused-as-a-type on

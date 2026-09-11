@@ -32,6 +32,10 @@
         "named": true
       },
       {
+        "type": "subtype_declaration",
+        "named": true
+      },
+      {
         "type": "syntax_for_declaration",
         "named": true
       },
@@ -1778,6 +1782,66 @@
     }
   },
   {
+    "type": "subtype_declaration",
+    "named": true,
+    "fields": {
+      "base": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_type",
+            "named": true
+          }
+        ]
+      },
+      "lower": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          },
+          {
+            "type": "syntax_join_name",
+            "named": true
+          }
+        ]
+      },
+      "upper": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "_expression",
+            "named": true
+          }
+        ]
+      },
+      "visibility": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "pub",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "syntax_binders_pattern",
     "named": true,
     "fields": {
@@ -2156,6 +2220,10 @@
     "named": false
   },
   {
+    "type": "..",
+    "named": false
+  },
+  {
     "type": ":",
     "named": false
   },
@@ -2391,6 +2459,10 @@
     "named": true
   },
   {
+    "type": "is",
+    "named": false
+  },
+  {
     "type": "lambda",
     "named": false
   },
@@ -2423,6 +2495,10 @@
     "named": false
   },
   {
+    "type": "range",
+    "named": false
+  },
+  {
     "type": "region",
     "named": false
   },
@@ -2444,6 +2520,10 @@
   },
   {
     "type": "struct",
+    "named": false
+  },
+  {
+    "type": "subtype",
     "named": false
   },
   {

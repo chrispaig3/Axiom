@@ -475,3 +475,23 @@ extern: a Rust FFI binding block
       (extern_clause
         (identifier)
         (string_literal)))))
+
+================================================================
+subtype with and without an upper bound
+================================================================
+
+(pub subtype Byte is Int range 0 .. 256)
+(subtype NonNeg is Int range 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (subtype_declaration
+    (identifier)
+    (builtin_type)
+    (integer_literal)
+    (integer_literal))
+  (subtype_declaration
+    (identifier)
+    (builtin_type)
+    (integer_literal)))

@@ -125,6 +125,7 @@
   "data"
   "struct"
   "type"
+  "subtype"
   "effect"
 ] @keyword.type
 
