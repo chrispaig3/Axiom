@@ -84,6 +84,20 @@ web/.tok-bundle.mjs
 # is what notices one committed past it, under any name.
 axiom_temp_output.*
 
+# Scratch files the HTTP stdlib fixtures write into the WORKING
+# DIRECTORY. tests/stdlib/431-http-response.ax writes resp.tmp and
+# fail.tmp, tests/stdlib/432-http-router.ax writes out.tmp, pub/ and
+# secret.txt - each via a relative path, so a manual `axiom run` from
+# the repository root leaves them beside the checkout. The gates run
+# each case in an isolated $work/$name directory and never see these;
+# this stops a manual run from showing up as untracked files or, worse,
+# from being committed by `git add -A`.
+fail.tmp
+out.tmp
+resp.tmp
+secret.txt
+pub/
+
 # Node packages a local skill installs; never part of the tree.
 .claude/node_modules/
 .claude/package.json
