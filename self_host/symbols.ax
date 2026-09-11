@@ -179,19 +179,17 @@
                 (let (
                   (xs (nodeAVec t))
                   (mut s "(")
-                  (mut i 0)
                 )
                   {
                     (if (== (cast Int xs) 0)
                       0
-                      (while (< i (vecLen xs))
+                      (for i 0 (vecLen xs)
                         {
                           (if (> i 0)
                             (set s (strConcat s ", "))
                             ""
                           )
                           (set s (strConcat s (symTy (vecGet xs i))))
-                          (set i (+ i 1))
                         })
                     )
                     (strConcat s ")")

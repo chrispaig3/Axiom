@@ -153,12 +153,14 @@
 ; The largest request head - request line plus headers plus the blank
 ; line - `httpRead` will buffer, in bytes: 16 KiB. A head that has not
 ; ended by then is refused as 431.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: httpMaxHead Int)
 
 (pub fn (httpMaxHead) 16384)
 
 ; The largest `Content-Length` `httpRead` accepts, in bytes: 8 MiB.
 ; Larger is 413, and so is a value the parser cannot represent.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: httpMaxBody Int)
 
 (pub fn (httpMaxBody) 8388608)
@@ -167,12 +169,14 @@
 ; browser's request head with a few cookies in one read (measured in
 ; the header); the buffer doubles up to `httpMaxHead` when a head does
 ; not fit.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: httpReadCap Int)
 
 (pub fn (httpReadCap) 2048)
 
 ; `Bool` negation. `==` compares Ints, so `(not b)` is spelled as an
 ; `if`; one spelling here rather than a dozen inline.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: httpNot (-> Bool Bool))
 
 (fn (httpNot x)
@@ -196,6 +200,7 @@
   (mut consumed : Int))
 
 ; A reader over `fd` with the default buffer.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: httpReaderNew (-> Int HttpReader))
 
 (pub fn (httpReaderNew fd) (httpReaderWith fd httpReadCap))
@@ -205,6 +210,8 @@
 ; tests/stdlib/430-http-parse.ax drives the refill loop through every
 ; boundary a slow peer could put a read on, deterministically and in
 ; one process.
+;@axiom:restrict(no-io,no-foreign)
+;@axiom:post((== result.filled 0))
 (pub :: httpReaderWith (-> Int Int HttpReader))
 
 (pub fn (httpReaderWith fd cap)
@@ -219,6 +226,8 @@
 )
 
 ; Bytes read but not yet consumed.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+;@axiom:post((>= result 0))
 (:: httpAvail (-> HttpReader Int))
 
 (fn (httpAvail r) (- r.filled r.consumed))
@@ -367,26 +376,28 @@
 (:: httpHeaderIndex (-> HttpReq String Int))
 
 (fn (httpHeaderIndex r name)
-  (let (
-    (want (strLower name))
-    (n (vecLen r.hnames))
-    (mut i 0)
-    (mut found (- 0 1))
-  )
-    {
-      (while (&& (< found 0) (< i n))
-        {
-          (if (strEq (vecGetStr r.hnames i) want)
-            {
-              (set found i)
+  (region tmp
+    (let (
+      (want (strLower name))
+      (n (vecLen r.hnames))
+      (mut i 0)
+      (mut found (- 0 1))
+    )
+      {
+        (while (&& (< found 0) (< i n))
+          {
+            (if (strEq (vecGetStr r.hnames i) want)
+              {
+                (set found i)
+                0
+              }
               0
-            }
-            0
-          )
-          (set i (+ i 1))
-        })
-      found
-    }
+            )
+            (set i (+ i 1))
+          })
+        found
+      }
+    )
   )
 )
 
@@ -410,6 +421,7 @@
 (pub fn (httpHasHeader r name) (>= (httpHeaderIndex r name) 0))
 
 ; Whether the two bytes after a `%` at `i` are hex digits.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: httpEscapeAt (-> String Int Bool))
 
 (fn (httpEscapeAt s i) (&& (== (strByte s i) 37) (&& (strIsHexDigit (strByte s (+ i 1))) (strIsHexDigit (strByte s (+ i 2))))))
@@ -417,6 +429,8 @@
 ; The byte the two hex digits at `i` and `i+1` spell. Asked only where
 ; `httpEscapeAt` has already said both are digits, so the `None` arms
 ; are unreachable and answer 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+;@axiom:pre((&& (strIsHexDigit (strByte s i)) (strIsHexDigit (strByte s (+ i 1)))))
 (:: httpHexPair (-> String Int Int))
 
 (fn (httpHexPair s i)
@@ -848,54 +862,28 @@
 ; ------------------------------------------------------------------
 ; The reason phrase for a status, or `Unknown` for one this module
 ; does not name.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+;@axiom:post((> (strLen result) 0))
 (pub :: httpStatusText (-> Int String))
 
 (pub fn (httpStatusText status)
-  (if (== status 200)
-    "OK"
-    (if (== status 201)
-      "Created"
-      (if (== status 204)
-        "No Content"
-        (if (== status 301)
-          "Moved Permanently"
-          (if (== status 302)
-            "Found"
-            (if (== status 304)
-              "Not Modified"
-              (if (== status 400)
-                "Bad Request"
-                (if (== status 403)
-                  "Forbidden"
-                  (if (== status 404)
-                    "Not Found"
-                    (if (== status 405)
-                      "Method Not Allowed"
-                      (if (== status 413)
-                        "Content Too Large"
-                        (if (== status 431)
-                          "Request Header Fields Too Large"
-                          (if (== status 500)
-                            "Internal Server Error"
-                            (if (== status 501)
-                              "Not Implemented"
-                              (if (== status 505)
-                                "HTTP Version Not Supported"
-                                "Unknown"
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
+  (match status
+    (200 "OK")
+    (201 "Created")
+    (204 "No Content")
+    (301 "Moved Permanently")
+    (302 "Found")
+    (304 "Not Modified")
+    (400 "Bad Request")
+    (403 "Forbidden")
+    (404 "Not Found")
+    (405 "Method Not Allowed")
+    (413 "Content Too Large")
+    (431 "Request Header Fields Too Large")
+    (500 "Internal Server Error")
+    (501 "Not Implemented")
+    (505 "HTTP Version Not Supported")
+    (_ "Unknown")
   )
 )
 
@@ -903,67 +891,45 @@
 ; `.css`, `.js`, `.svg`, `.png`, `.ico`, `.txt` and `.json` are named,
 ; and everything else is `application/octet-stream` - deliberately not
 ; `text/html`, which is the stored-XSS route for an unknown file.
+;@axiom:restrict(no-io,no-foreign)
 (pub :: httpContentType (-> String String))
 
 (pub fn (httpContentType name)
-  (let ((ext (pathExt name)))
-    (if (strEq ext ".html")
-      "text/html; charset=utf-8"
-      (if (strEq ext ".css")
-        "text/css; charset=utf-8"
-        (if (strEq ext ".js")
-          "text/javascript; charset=utf-8"
-          (if (strEq ext ".svg")
-            "image/svg+xml"
-            (if (strEq ext ".png")
-              "image/png"
-              (if (strEq ext ".ico")
-                "image/vnd.microsoft.icon"
-                (if (strEq ext ".txt")
-                  "text/plain; charset=utf-8"
-                  (if (strEq ext ".json")
-                    "application/json"
-                    "application/octet-stream"
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
+  (match (pathExt name)
+    (".html" "text/html; charset=utf-8")
+    (".css" "text/css; charset=utf-8")
+    (".js" "text/javascript; charset=utf-8")
+    (".svg" "image/svg+xml")
+    (".png" "image/png")
+    (".ico" "image/vnd.microsoft.icon")
+    (".txt" "text/plain; charset=utf-8")
+    (".json" "application/json")
+    (_ "application/octet-stream")
   )
 )
 
 ; The pieces of a `Vec` of Strings as one String: one allocation and
 ; one copy per piece, `Json.ax`'s `jsonJoin`.
+;@axiom:restrict(no-io,no-foreign)
 (:: httpJoin (-> (Vec String) String))
 
 (fn (httpJoin pieces)
   (let (
-    (mut k 0)
     (mut total 0)
   )
     {
-      (while (< k (vecLen pieces))
-        {
-          (set total (+ total (strLen (vecGetStr pieces k))))
-          (set k (+ k 1))
-        })
+      (for p pieces
+        (set total (+ total (strLen p))))
       (let (
         (out (strAlloc total))
-        (mut j 0)
         (mut off 0)
       )
         {
-          (while (< j (vecLen pieces))
-            (let ((p (vecGetStr pieces j)))
-              {
-                (memCopy (+ (strData out) off) (strData p) (strLen p))
-                (set off (+ off (strLen p)))
-                (set j (+ j 1))
-              }
-            ))
+          (for p pieces
+            {
+              (memCopy (+ (strData out) off) (strData p) (strLen p))
+              (set off (+ off (strLen p)))
+            })
           out
         }
       )
@@ -973,6 +939,7 @@
 
 ; The response head: status line, `Content-Type`, `Content-Length`,
 ; `Connection: close`, blank line. CRLF throughout.
+;@axiom:restrict(no-io,no-foreign)
 (:: httpHead (-> Int String Int String))
 
 (fn (httpHead status ctype len)

@@ -16,6 +16,74 @@ its changelog too.
 
 ## Unreleased
 
+### The tree eats its own cooking: `for`, `match`, contracts, `restrict`, `region`, `subtype`
+
+The language features landed over the last month with fixtures but
+almost no users in the repository's own sources: five `(for …)` loops
+against 709 `(while …)`, zero `;@axiom:pre/post` tags and zero
+`(region …)` scopes outside `tests/`, no `restrict` tag in `Http.ax`
+at all, and `subtype` declared only in its two fixtures
+(`tests/selfhost/134-subtype-checked.ax`,
+`tests/selfhost/135-subtype-violated.ax`). The seed
+learned `for` at `ea78e37`, so `self_host/` and `stdlib/` may now
+write every one of these, and they do where each one is the honest
+spelling:
+
+- **`for`.** Five counted loops become the keyword: the tuple-printer
+  beside the one `for` the tree already had (`self_host/symbols.ax`),
+  both passes of `strLower` (`stdlib/Str.ax`), and both passes of
+  `httpJoin` (`stdlib/Http.ax`) — the second pair in the container
+  shape `(for p pieces …)`, which drops the `vecGetStr` casts. Loops
+  with early exits, variable strides (`httpDecode` steps 1 or 3) and
+  descending counters (`vecSort`) stay `while`: `for` has no break and
+  no step, so those are not counted loops wearing another spelling.
+- **`match`.** `strIsSpace`'s four-deep `if` ladder becomes literal
+  arms (`tests/selfhost/990-char-class.ax` still exits 42), as do
+  `httpStatusText` (fifteen status codes) and `httpContentType`
+  (eight extensions, matched on `String` literals over `(pathExt
+  name)`). Range tests (`strIsDigit`, `strIsAlpha`) stay `if`: a
+  `match` over ten digit arms is not clearer than a comparison.
+- **`restrict`.** Thirteen pure helpers in `stdlib/Http.ax` gain the
+  claim they already keep — eight of them
+  `no-io,no-alloc,no-foreign`, five `no-io,no-foreign` — and
+  `tests/agent/restrictions.allow` grows the thirteen derived rows.
+- **`pre`/`post`.** Five contracts on the same leaves:
+  `httpAvail` answers `(>= result 0)`, `httpReaderWith` leaves
+  `result.filled` at 0, `httpStatusText` never answers empty,
+  `strLower` preserves length, and `httpHexPair` requires hex digits
+  at its own indices. The first draft of that last one named
+  `(httpEscapeAt s i)` and the 430-case HTTP fixture refused it at
+  once — the escape check reads one position left of where the pair
+  does — which is the contract doing exactly what it exists to do.
+- **`region`, one scope — and one annotation reverted.** `httpHeaderIndex`
+  runs inside `(region tmp …)`: the lowered name it compares against
+  never leaves the call, and the answer is an `Int`.
+  `tests/stdlib/430-http-parse.ax` still passes whole. `vecGet` was
+  annotated next, `(-> (Vec a @r) Int (a @r))`, and reverted the same
+  hour: one annotated signature in `stdlib/` switches the `S3` pass on
+  for every program that imports `Vec`, and two gates said at once
+  that the tree is not ready for that. `tests/diagnostics/631`
+  gained two `AX3060` lines beside the `AX3059` ones it pins — the
+  same stores refused twice, since a value built inside a region
+  extent reads as region-allocated — and `check-region-scope.sh`'s
+  ablation, which disables the scope check and requires its probe
+  accepted, stayed refused through the typed rule instead. The
+  projection shape `S3` exists for stays pinned as a program
+  (`tests/stdlib/468-region-signatures.ax`); switching it on across
+  the standard library waits for `S4`, when allocation into a named
+  region makes the attribution precise. `strSlice` never got that
+  far: it builds a fresh header, and a fresh block lives in the
+  caller's region, so `AX3061` refuses the annotation outright.
+- **`subtype`, and one real one — breaking.** `(pub subtype Byte is
+  Int range 0 .. 256)` in `stdlib/Str.ax`, and `strFromByte` takes it:
+  the store kept only the low eight bits, so 256 and up used to
+  arrive truncated in silence and now trap with status 80 at the
+  call boundary (measured: 300 exits 80, 65 exits 1). No call site
+  moves — narrowing at an argument is automatic, and every in-tree
+  caller (two constants, a percent-decoded byte, hex-digit and
+  base-36 spellings) is already in range. Declared in
+  `compat/BREAKING` against 0.7.6 (`F strFromByte`).
+
 ### Range-constrained subtypes are built — `(subtype Positive is Int range 1 .. 10)`
 
 `docs/subtypes-design.md` closed these as refused-as-a-type on

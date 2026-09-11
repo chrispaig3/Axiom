@@ -462,18 +462,12 @@
 (pub :: strIsSpace (-> Int Bool))
 
 (pub fn (strIsSpace ch)
-  (if (== ch 32)
-    true
-    (if (== ch 10)
-      true
-      (if (== ch 13)
-        true
-        (if (== ch 9)
-          true
-          false
-        )
-      )
-    )
+  (match ch
+    (32 true)
+    (10 true)
+    (13 true)
+    (9 true)
+    (_ false)
   )
 )
 
@@ -564,11 +558,23 @@
   )
 )
 
+; A byte: an `Int` the range check has already admitted to `0 .. 255`.
+; The upper bound is exclusive (`0 <= b < 256`), as for every
+; two-bound subtype. Narrowing into it - `(cast Byte b)` - traps with
+; status 80 outside the range, by the same compare-branch-trap a
+; contract lowers to; widening back to `Int` is free, which is why the
+; `__store8` below takes `b` with no cast at all.
+(pub subtype Byte is Int range 0 .. 256)
+
 ; A one-byte `Str` holding `b`. The compiler driver and the JSON
 ; encoder each had this three-line allocate-and-store under a private
 ; name; it is a `Str` constructor, so it lives with the others.
+;
+; `Byte` and not `Int` since the store keeps only the low eight bits:
+; a caller with 256 or more used to get a silently truncated byte, and
+; now traps with status 80 at the call boundary instead.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: strFromByte (-> Int String))
+(pub :: strFromByte (-> Byte String))
 
 (pub fn (strFromByte b)
   (let ((s (strAlloc 1)))
@@ -597,42 +603,35 @@
 ; ASCII fold a case-insensitive header table needs, not a Unicode
 ; case mapping.
 ;@axiom:restrict(no-io,no-foreign)
+;@axiom:post((== (strLen result) (strLen s)))
 (pub :: strLower (-> String String))
 
 (pub fn (strLower s)
   (let (
     (len (strLen s))
-    (mut k 0)
     (mut upper 0)
   )
     {
-      (while (< k len)
-        {
-          (if (&& (>= (strByte s k) 65) (<= (strByte s k) 90))
-            (set upper (+ upper 1))
-            0
-          )
-          (set k (+ k 1))
-        })
+      (for k 0 len
+        (if (&& (>= (strByte s k) 65) (<= (strByte s k) 90))
+          (set upper (+ upper 1))
+          0
+        ))
       (if (== upper 0)
         s
         (let (
           (out (strAlloc len))
           (d (strData out))
-          (mut i 0)
         )
           {
-            (while (< i len)
+            (for i 0 len
               (let ((c (strByte s i)))
-                {
-                  (__store8
-                    d                    i                    (if (&& (>= c 65) (<= c 90))
-                      (+ c 32)
-                      c
-                    )
+                (__store8
+                  d                    i                    (if (&& (>= c 65) (<= c 90))
+                    (+ c 32)
+                    c
                   )
-                  (set i (+ i 1))
-                }
+                )
               ))
             out
           }

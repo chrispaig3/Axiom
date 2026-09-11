@@ -732,3 +732,14 @@
 0.7.6  M  ulA         REMOVED with stdlib/Html.ax
 0.7.6  M  value       REMOVED with stdlib/Html.ax
 0.7.6  M  width       REMOVED with stdlib/Html.ax
+
+# 0.7.6 - SUBTYPE-ADOPT-1: `strFromByte` takes a `Byte`.
+# `strFromByte` stored only the low eight bits, so a caller with 256
+# or more got a silently truncated byte. Its parameter is
+# `(subtype Byte is Int range 0 .. 256)` now, and an out-of-range
+# argument traps with status 80 at the call boundary instead. Every
+# in-tree caller passes a value already in range (two constants, a
+# percent-decoded byte, two hex-digit spellings, two base-36 digits),
+# so none of them moves. A caller that relied on the truncation masks
+# first and casts: `(strFromByte (cast Byte (& b 255)))`.
+0.7.6  F  strFromByte  (-> Int String) -> (-> Byte String): truncation is now a trap, not a silent wrap
