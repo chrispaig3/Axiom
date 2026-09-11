@@ -30,9 +30,11 @@ got.
 ```scheme
 (import IO)
 
+; A custom effect
 (effect Log
   (write :: (-> String Int)))
 
+; If the param is not satisfied with a value greater than 0 then the compiler will fail with a backtrace.
 ;@axiom:pre((> n 0))
 (:: work (-> Int Int))
 
@@ -59,6 +61,10 @@ got.
     0
   }
 )
+
+; output:
+;  [log] starting
+;  [log] done
 ```
 
 Algebraic data types; a `match` the compiler proves exhaustive; string
