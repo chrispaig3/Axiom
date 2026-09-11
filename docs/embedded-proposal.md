@@ -211,7 +211,7 @@ dividing probe under both: status 72 out of both, the sentence on fd 2
 out of one and zero bytes out of the other. A UART strategy is a second
 row when a board needs one; the no-op is the door it would hang off.
 
-### 4.4 A `--no-std`-shaped subset of the standard library
+### 4.4 A `--no-std`-shaped subset of the standard library *(done — `scripts/check-nostd-subset.sh`*)
 
 `Sys`, `IO`, `Path`, `Http`, `Rpc` and `Par` all assume a filesystem, a
 process model, or sockets. `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`,

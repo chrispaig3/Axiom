@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # sixty-nine of the gates below build the compiler under test from
+    # seventy of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -602,6 +602,14 @@ jobs:
       # IR is emitted cross, so each leg reads it.
       - name: Freestanding check
         run: ./scripts/check-freestanding.sh
+
+      # The subset half of the same claim, and it belongs beside the
+      # one above: eight standard-library modules a bare-metal program
+      # may import, with closed imports, no extern blocks, and one
+      # probe over all of them importing nothing a hello world does
+      # not - on every target.
+      - name: Freestanding subset check
+        run: ./scripts/check-nostd-subset.sh
 
       # The other claim about the linked binary's symbol table, and it
       # belongs beside the one above because both are answered by `nm`

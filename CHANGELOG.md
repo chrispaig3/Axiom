@@ -16,6 +16,21 @@ its changelog too.
 
 ## Unreleased
 
+### The freestanding subset is gated — `scripts/check-nostd-subset.sh`
+
+`docs/embedded-proposal.md` 4.4 named eight standard-library modules
+a bare-metal program may import and required the split to be gated
+before the port. Three arms: the transitive imports of every member
+stay inside the eight (a `Str` importing `Sys` would still build and
+pass every golden); no member declares an `extern` block (the door
+imports cannot see); and one probe over all eight builds for all
+seven targets with the hello world's import surface exactly - linked
+imports on the host (both empty), IR declares elsewhere (none on the
+six syscall targets, the runtime six on Windows). Differential
+throughout, so no libc-name table is duplicated. Two planted
+breakages, each required red. Import surfaces are read with
+`scripts/lib/imports.sh`, the one reader every gate shares. Calls `gate_build_axc`, so the six count sites state seventy gates; the battery has eighty-six.
+
 ### MIR: boolean literals lower as constants — `scripts/check-mir.sh` §2/§4, ABLATION 6
 
 `true` and `false` are identifiers to the parser and refused as
@@ -256,7 +271,7 @@ row naming a program that is gone, README's link removed — each red).
 Its floors are re-derived at the population, three files and two
 programs, and the `.js`/`.css` allowance went with the only files that
 used it. It runs no Axiom program and builds no compiler, so it is no
-longer among the gates that call `gate_build_axc`: **sixty-nine gates**
+longer among the gates that call `gate_build_axc`: **seventy gates**
 call it, and the six sites that state that count moved together. The
 battery still has eighty-three gates.
 
