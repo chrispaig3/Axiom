@@ -1,0 +1,86 @@
+; Casts erase: `(cast T v)` answers v's register and emits nothing,
+; because the walk evaluates the value directly (a no-op at the i64
+; level). So a cast is free in the IR - the three probes below print
+; through one, under an operator, nested, and around a call, and every
+; one of them is a straight line the emitter routes.
+;
+; What does NOT lower is the one cast that means something: `(cast
+; Float k)` re-enters float arithmetic, which this IR has one `add`
+; for, so `floatKept` is refused and stays refused - the golden pins
+; the refusal the way it pins `emit`'s.
+;
+; And `probeSub` is not commutative on purpose: every other probe
+; here adds or multiplies, so a lowering that swapped a binary
+; operator's operands would print the same twenty lines through both
+; sides of the differential - the hole `100-callargs` exists for.
+;
+(import IO)
+
+(:: probeId (-> Int Int))
+
+(fn (probeId k)
+  (cast Int k)
+)
+
+(:: probeAdd (-> Int Int))
+
+(fn (probeAdd k)
+  (+
+    (cast Int k)
+    (* k 2)
+  )
+)
+
+(:: probeNest (-> Int Int))
+
+(fn (probeNest k)
+  (cast Int (cast Int (+ k 3)))
+)
+
+(:: probeCall (-> Int Int))
+
+(fn (probeCall k)
+  (cast Int (probeId k))
+)
+
+(:: probeSub (-> Int Int Int))
+
+(fn (probeSub a b)
+  (-
+    (*
+      (cast Int a)
+      100
+    )
+    b
+  )
+)
+
+(:: probe (-> Int Int))
+
+(fn (probe k) (+ (probeSub k (+ k 1)) (+ (probeId k) (+ (probeAdd k) (+ (probeNest k) (probeCall k))))))
+
+(:: floatKept (-> Int Float))
+
+(fn (floatKept k)
+  (cast Float k)
+)
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

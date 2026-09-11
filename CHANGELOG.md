@@ -16,6 +16,34 @@ its changelog too.
 
 ## Unreleased
 
+### MIR: casts erase — `scripts/check-mir.sh` §2/§4/§6b, ABLATION 5
+
+`(cast T v)` lowered to `MO_CALL "cast"`, a call to a function that
+does not exist: unrunnable in the evaluator and unroutable in the
+emitter (`mirStraightLine` takes no calls). A survey of the 2,888
+refused corpus functions put a cast in 715 of them — first among
+refusal reasons a slice can take without new instructions, a new
+value representation, or multi-block emission. The lowering now
+answers the value's register and emits nothing,
+exactly as the walk evaluates it — a no-op at the i64 level
+(`dispatchCall`). Three refusals keep the erasure exact: a shadowed
+`cast` is a real call, anything but two arguments is surplus
+application rather than conversion, and a `Float` destination
+re-enters float arithmetic, which the IR has one `add` for. The
+`Float` test names the same predicate on the same node the walk's
+own flag follows (`VAR` spelled `Float`), so the two cannot disagree
+about any destination; checked subtype conversions never arrive as
+applications (the checker rewrites them to `TAG_E_SUBCHECK`), and
+the routing guard (`mirCastRoot`/`mirCastClean`) mirrors the rule so
+a converted function routes only when the lowering erased it.
+Measured: 2,011 → 2,276 of 4,954 corpus functions lower, 1,713 →
+1,726 of 20,187 emitted functions take the IR path, byte-identical
+with the routing off. Pinned by `tests/mir/110-cast.ax` (erasure
+under an operator, nested, around a call, and the `Float` refusal
+beside `emit`'s), floors re-derived at 2,150/1,620/250, and a fifth
+ablation — erasure deleted — required red exactly on the fixtures
+whose sources cast, with the verifier silent throughout.
+
 ### Silent traps: `targetTrapSilent` — `docs/embedded-proposal.md` 4.3
 
 Every trap reported through `write(2, ...)`, and a part with no fd 2

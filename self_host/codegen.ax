@@ -12806,6 +12806,42 @@
 ; which cannot reach here: an `if` makes blocks, and this emitter
 ; takes single-block functions. Anything else is a shape `mLowerFn`
 ; already refused, and answering `false` for it costs nothing.
+;
+; `cast` is the one head with its own arm, because the type argument
+; is not a value: walking it like an operand would refuse every
+; conversion, since a type is none of the shapes above. The arm fires
+; only at the spine's root - inner levels carry fewer than two
+; arguments - and mirrors `mLowerApp`'s rule exactly: same two-arity
+; gate, same `Float` refusal (the walk follows the named type into
+; float arithmetic, which this IR has one `add` for), the value
+; walked and the type skipped. A shadowed `cast` never reaches the
+; arm: the `LET` case above already refuses any binding the
+; `mirPlainName` table does not know, and `cast` is in that table.
+(pub :: mirCastRoot (-> Int Bool))
+
+(pub fn (mirCastRoot e)
+  (let ((ch (spineHead e)))
+    (if (!= (nodeTag ch) TAG_E_VAR)
+      false
+      (if (strEq (nodeAName ch) "cast")
+        (== (spineArgs e 0) 2)
+        false
+      )
+    )
+  )
+)
+
+(pub :: mirCastClean (-> Int Int Bool))
+
+(pub fn (mirCastClean cg e)
+  (let ((dst (spineArgAt e 0)))
+    (if (&& (== (nodeTag dst) TAG_E_VAR) (strEq (nodeAName dst) "Float"))
+      false
+      (mirScopeClean cg (spineArgAt e 1))
+    )
+  )
+)
+
 (pub :: mirScopeClean (-> Int Int Bool))
 
 (pub fn (mirScopeClean cg e)
@@ -12823,9 +12859,12 @@
             false
           )
           (if (== t TAG_E_APP)
-            (if (mirScopeClean cg (nodeA e))
-              (mirScopeClean cg (nodeB e))
-              false
+            (if (mirCastRoot e)
+              (mirCastClean cg e)
+              (if (mirScopeClean cg (nodeA e))
+                (mirScopeClean cg (nodeB e))
+                false
+              )
             )
             (if (== t TAG_E_BEGIN)
               (mirScopeCleanVec cg (nodeAVec e) 0)

@@ -130,6 +130,18 @@
 #      text with the routing OFF, or the red would be about something
 #      other than the IR path.
 #
+#      ABLATION 4 answers a join block's parameter with one arm's
+#      register instead. Terminators, single assignment and
+#      reachability all still hold, so it is the DOMINANCE rule
+#      alone that must fire, on every branching fixture and none
+#      other.
+#
+#      ABLATION 5 deletes the cast erasure: a conversion refuses
+#      instead of answering its value's register. §2 and §4 must go
+#      red exactly on the fixtures whose sources cast - derived
+#      from each fixture's own bytes, not listed - while §3 stays
+#      silent everywhere, since a refusal produces no IR at all.
+#
 # AXIOM_BLESS=1 rewrites the §2 goldens and nothing else. It cannot
 # write `self_host/mir.ax`, the fixtures, `codegen.ax` or the corpus,
 # which is why §3 to §9 survive a bless.
@@ -396,8 +408,8 @@ while IFS= read -r line; do
   mir_corpus+=("$line")
 done < <(ls self_host/main.ax stdlib/*.ax stdlib/*/*.ax tests/selfhost/*.ax tests/stdlib/*.ax)
 
-MARK_FLOOR=1600
-MAIN_FLOOR=240
+MARK_FLOOR=1620
+MAIN_FLOOR=250
 n_same=0
 n_moved=0
 n_marks=0
@@ -478,7 +490,7 @@ echo "--- 6b. the coverage floor: how much of the corpus lowers ---"
 # requires the count to be a strict subset of the corpus, because
 # "everything lowered" would mean the counter, not the lowering, is
 # what changed.
-FLOOR=1900
+FLOOR=2150
 CORPUS_FLOOR=4700
 tot_l=0
 tot_t=0
@@ -592,6 +604,15 @@ elif which == "4":
     # DOMINATE the use.
     pat = re.compile(r"\(set lc\.cur bj\)(\s+)pj")
     rep = r"(set lc.cur bj)\g<1>r1"
+elif which == "5":
+    # The cast erasure, removed: a conversion refuses instead of
+    # answering its value's register. Every probe that casts goes
+    # from lowered to refused, so the goldens and the differential
+    # move while the verifier stays silent - nothing ill-formed is
+    # produced, which is what distinguishes this drill from
+    # ablations 2 and 4.
+    pat = re.compile(r"\(mLower\s+lc\s+env\s+\(vecGet\s+args\s+1\)\)")
+    rep = r"(- 0 1)"
 else:
     sys.stderr.write("no such ablation: %s\n" % which)
     sys.exit(1)
@@ -876,6 +897,59 @@ else
   else
     bad "ABLATION 4: $n_domlines of $n_lines4 complaints named dominance"
     sed 's/^/     /' "$work/abl4.020-if.verify" 2>/dev/null | head -6
+  fi
+fi
+
+# --- ABLATION 5: the cast erasure, removed ---
+# WITHOUT THIS, THE ERASURE IS UNPINNED. Ablations 1, 2 and 4 all
+# leave a conversion alone: with the erasure deleted every probe
+# that casts goes from lowered to refused, and nothing else moves.
+# Which fixtures those are is derived from the fixture SOURCES -
+# `(cast ` in NAME.ax - not from a list written here, for ablation
+# 2's reason: a hand-written list goes stale the moment a fixture
+# gains or loses a cast, and would silently excuse the very fixture
+# that stopped converting.
+if ! ablate 5; then
+  bad "ABLATION 5 could not be built"
+  sed 's/^/     /' "$work/abl5/build.log" 2>/dev/null | head -10
+else
+  a5="$work/abl5/mirtool"
+  n_cast=0
+  wrong5=""
+  crashed5=0
+  for f in "${fixtures[@]}"; do
+    n="$(basename "$f" .ax)"
+    if grep -q '(cast ' "tests/mir/$n.ax"; then expect=red; else expect=same; fi
+    [[ "$expect" == "red" ]] && n_cast=$((n_cast + 1))
+    "$a5" lower "$f" > "$work/abl5.$n.mir" 2>/dev/null
+    if cmp -s "$work/abl5.$n.mir" "tests/mir/$n.mir"; then got=same; else got=red; fi
+    [[ "$got" != "$expect" ]] && wrong5="$wrong5 $n(print-$got)"
+    { "$a5" run "$f" "$PROBES" > "$work/abl5.$n.out" 2>/dev/null; } 2>/dev/null
+    (( $? > 128 )) && crashed5=$((crashed5 + 1))
+    cmp -s "$work/abl5.$n.out" "$work/$n.native" || {
+      [[ "$expect" == "red" ]] || wrong5="$wrong5 $n(eval-red)"
+    }
+    if cmp -s "$work/abl5.$n.out" "$work/$n.native"; then
+      [[ "$expect" == "red" ]] && wrong5="$wrong5 $n(eval-same)"
+    fi
+    "$a5" verify "$f" > "$work/abl5.$n.verify" 2>&1
+    [[ -s "$work/abl5.$n.verify" ]] && wrong5="$wrong5 $n(spoke)"
+  done
+  if (( n_cast > 0 )); then
+    ok "$n_cast fixture(s) cast, so the drill has something to move"
+  else
+    bad "no fixture casts - ABLATION 5 passes over an empty set"
+    wrong5="$wrong5 (empty)"
+  fi
+  if [[ -z "$wrong5" ]]; then
+    ok "ABLATION 5: §2 and §4 go red exactly on the fixtures that cast, and §3 stays silent on all $n_fix"
+  else
+    bad "ABLATION 5: answered wrongly for:$wrong5"
+  fi
+  if (( crashed5 == 0 )); then
+    ok "ABLATION 5: every red is a wrong answer or a refusal, not a crash"
+  else
+    bad "ABLATION 5: $crashed5 fixtures died instead of answering"
   fi
 fi
 
