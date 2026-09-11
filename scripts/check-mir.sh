@@ -142,6 +142,12 @@
 #      from each fixture's own bytes, not listed - while §3 stays
 #      silent everywhere, since a refusal produces no IR at all.
 #
+#      ABLATION 6 answers the `true` constant as 0. §2 and §4 must
+#      go red exactly on the fixtures spelling a boolean literal -
+#      derived from each fixture's source outside comments and
+#      strings, not listed - while §3 stays silent, since the IR
+#      stays well formed with the wrong meaning.
+#
 # AXIOM_BLESS=1 rewrites the §2 goldens and nothing else. It cannot
 # write `self_host/mir.ax`, the fixtures, `codegen.ax` or the corpus,
 # which is why §3 to §9 survive a bless.
@@ -490,7 +496,7 @@ echo "--- 6b. the coverage floor: how much of the corpus lowers ---"
 # requires the count to be a strict subset of the corpus, because
 # "everything lowered" would mean the counter, not the lowering, is
 # what changed.
-FLOOR=2150
+FLOOR=2250
 CORPUS_FLOOR=4700
 tot_l=0
 tot_t=0
@@ -613,6 +619,16 @@ elif which == "5":
     # ablations 2 and 4.
     pat = re.compile(r"\(mLower\s+lc\s+env\s+\(vecGet\s+args\s+1\)\)")
     rep = r"(- 0 1)"
+elif which == "6":
+    # `true` lowered as 0: the boolean constant answers the wrong
+    # value. Well-formed IR with the wrong meaning, so the goldens
+    # and the differential move while the verifier stays silent -
+    # the same shape as ablation 1, for the constant the operand
+    # swap cannot reach. (The replacement is assembled without a
+    # literal quote: this seam runs inside a quoted heredoc, and a
+    # backslash-escaped quote would land in the source as AX1001.)
+    pat = re.compile(r"\(mlcFresh lc\)\s+1\s+0\s+\"\"")
+    rep = "(mlcFresh lc)        0        0        " + chr(34) + chr(34)
 else:
     sys.stderr.write("no such ablation: %s\n" % which)
     sys.exit(1)
@@ -950,6 +966,60 @@ else
     ok "ABLATION 5: every red is a wrong answer or a refusal, not a crash"
   else
     bad "ABLATION 5: $crashed5 fixtures died instead of answering"
+  fi
+fi
+
+# --- ABLATION 6: `true` answers 0 ---
+# WITHOUT THIS, THE CONSTANT IS UNPINNED. Ablation 1 swaps operands,
+# which a constant survives; nothing else in the drill set touches
+# what a literal answers. Which fixtures those are is derived from
+# the fixture SOURCES - a bare `true` or `false` outside comments
+# and string literals - not from a list written here, for ablation
+# 2's reason.
+if ! ablate 6; then
+  bad "ABLATION 6 could not be built"
+  sed 's/^/     /' "$work/abl6/build.log" 2>/dev/null | head -10
+else
+  a6="$work/abl6/mirtool"
+  n_bool=0
+  wrong6=""
+  crashed6=0
+  for f in "${fixtures[@]}"; do
+    n="$(basename "$f" .ax)"
+    if sed 's/;.*//; s/"[^"]*"//g' "tests/mir/$n.ax" | grep -qwE 'true|false'; then
+      expect=red
+    else
+      expect=same
+    fi
+    [[ "$expect" == "red" ]] && n_bool=$((n_bool + 1))
+    "$a6" lower "$f" > "$work/abl6.$n.mir" 2>/dev/null
+    if cmp -s "$work/abl6.$n.mir" "tests/mir/$n.mir"; then got=same; else got=red; fi
+    [[ "$got" != "$expect" ]] && wrong6="$wrong6 $n(print-$got)"
+    { "$a6" run "$f" "$PROBES" > "$work/abl6.$n.out" 2>/dev/null; } 2>/dev/null
+    (( $? > 128 )) && crashed6=$((crashed6 + 1))
+    if cmp -s "$work/abl6.$n.out" "$work/$n.native"; then
+      [[ "$expect" == "red" ]] && wrong6="$wrong6 $n(eval-same)"
+    else
+      [[ "$expect" == "same" ]] && wrong6="$wrong6 $n(eval-red)"
+    fi
+    "$a6" verify "$f" > "$work/abl6.$n.verify" 2>&1
+    [[ -s "$work/abl6.$n.verify" ]] && wrong6="$wrong6 $n(spoke)"
+  done
+  if (( n_bool > 0 )); then
+    ok "$n_bool fixture(s) spell a boolean, so the drill has something to move"
+  else
+    bad "no fixture spells a boolean - ABLATION 6 passes over an empty set"
+    wrong6="$wrong6 (empty)"
+  fi
+  if [[ -z "$wrong6" ]]; then
+    ok "ABLATION 6: §2 and §4 go red exactly on the fixtures that spell a boolean, and §3 stays silent on all $n_fix"
+  else
+    bad "ABLATION 6: answered wrongly for:$wrong6"
+  fi
+  if (( crashed6 == 0 )); then
+    ok "ABLATION 6: every red is a wrong answer, not a crash"
+  else
+    bad "ABLATION 6: $crashed6 fixtures died instead of answering"
   fi
 fi
 

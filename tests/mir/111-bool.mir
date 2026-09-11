@@ -1,0 +1,72 @@
+fn probeT(%0) {
+bb0:
+  %1 = const 1
+  condbr %1, bb1, bb2
+bb1:
+  %3 = const 1
+  br bb3(%3)
+bb2:
+  %4 = const 0
+  br bb3(%4)
+bb3(%2):
+  ret %2
+}
+fn probeF(%0) {
+bb0:
+  %1 = const 0
+  condbr %1, bb1, bb2
+bb1:
+  %3 = const 1
+  br bb3(%3)
+bb2:
+  %4 = const 0
+  br bb3(%4)
+bb3(%2):
+  ret %2
+}
+fn probeAdd(%0) {
+bb0:
+  %1 = const 1
+  condbr %1, bb1, bb2
+bb1:
+  %3 = const 10
+  br bb3(%3)
+bb2:
+  %4 = const 20
+  br bb3(%4)
+bb3(%2):
+  %5 = add %0, %2
+  ret %5
+}
+fn probeSub(%0) {
+bb0:
+  %1 = const 0
+  condbr %1, bb1, bb2
+bb1:
+  %3 = const 1
+  br bb3(%3)
+bb2:
+  %4 = const 2
+  br bb3(%4)
+bb3(%2):
+  %5 = sub %0, %2
+  ret %5
+}
+fn probe(%0) {
+bb0:
+  %1 = call probeT(%0)
+  %2 = call probeF(%0)
+  %3 = call probeAdd(%0)
+  %4 = call probeSub(%0)
+  %5 = add %3, %4
+  %6 = add %2, %5
+  %7 = add %1, %6
+  ret %7
+}
+fn main() {
+bb0:
+  %0 = const 0
+  %1 = call emit(%0)
+  ret %1
+}
+; not lowered: emit

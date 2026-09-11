@@ -49,9 +49,9 @@
 ; types needs a side table keyed by node, and that is a later slice.
 ;
 ; THE SUBSET. `mLowerFn` lowers a function whose body is built from
-; integer literals, variables, `let`, `if`, `begin` and applications
-; of the eleven arithmetic and comparison operators or of a
-; TOP-LEVEL function - plus `cast`, which erases: `(cast T v)`
+; integer and boolean literals, variables, `let`, `if`, `begin` and
+; applications of the eleven arithmetic and comparison operators or
+; of a TOP-LEVEL function - plus `cast`, which erases: `(cast T v)`
 ; answers v's register and emits nothing, exactly as the walk
 ; evaluates it, except a `Float` destination, which re-enters float
 ; arithmetic and stays refused. Anything else - a string, a match, a
@@ -60,9 +60,9 @@
 ;
 ; HOW MUCH THAT IS, measured with `tests/mir/mirtool.ax count` over
 ; `self_host/*.ax stdlib/*.ax stdlib/*/*.ax` and NOT taken from
-; anywhere else: 2,276 of 4,954 top-level functions lower end to end,
-; among them 301 of 728 in `codegen.ax`, 437 of 935 in
-; `typecheck.ax`, 125 of 321 in `parser.ax` and 137 of 279 in
+; anywhere else: 2,345 of 4,954 top-level functions lower end to end,
+; among them 321 of 728 in `codegen.ax`, 437 of 935 in
+; `typecheck.ax`, 129 of 321 in `parser.ax` and 137 of 279 in
 ; `expand.ax`. `check-mir.sh` recomputes the total every run, prints
 ; it, and holds a floor under it, so the day a lowering rule narrows
 ; itself to keep the differential green the count says so. The
@@ -563,7 +563,29 @@
         ; refusal is what keeps the differential honest: an
         ; unresolved name lowered as "some register" would evaluate
         ; to whatever that register happened to hold.
-        (mEnvFind env (nodeAName e))
+        ;
+        ; Except `true` and `false`: boolean literals, which the walk
+        ; emits as the constants 1 and 0 (`emitVar`, float flag 0).
+        ; The environment is consulted first, exactly as the walk
+        ; consults its symbol table first, so a shadowing binding -
+        ; to the extent the checker lets one stand - reads the same
+        ; register on both paths.
+        (let ((r (mEnvFind env (nodeAName e))))
+          (if (>= r 0)
+            r
+            (if (strEq (nodeAName e) "true")
+              (mlcEmit lc (MInst
+                MO_CONST        (mlcFresh lc)        1        0        ""        vecNew        0        0
+              ))
+              (if (strEq (nodeAName e) "false")
+                (mlcEmit lc (MInst
+                  MO_CONST        (mlcFresh lc)        0        0        ""        vecNew        0        0
+                ))
+                (- 0 1)
+              )
+            )
+          )
+        )
         (if (== t TAG_E_LET)
           (mLowerLet lc env e)
           (if (== t TAG_E_IF)

@@ -1,0 +1,79 @@
+; Boolean literals lower as the constants the walk emits for them:
+; `true` is 1 and `false` is 0 (`emitVar`, float flag 0). So a
+; boolean literal is free in the IR - the three probes below branch
+; on one, add one, and subtract through one, and the conditions
+; evaluate in the reference interpreter exactly as the compiled
+; program evaluates them.
+;
+; `probeSub` is not commutative on purpose, for ABLATION 1's reason:
+; every other probe here adds, so a lowering that swapped a binary
+; operator's operands would print the same twenty lines through both
+; sides of the differential.
+;
+(import IO)
+
+(:: probeT (-> Int Int))
+
+(fn (probeT k)
+  (if true
+    1
+    0
+  )
+)
+
+(:: probeF (-> Int Int))
+
+(fn (probeF k)
+  (if false
+    1
+    0
+  )
+)
+
+(:: probeAdd (-> Int Int))
+
+(fn (probeAdd k)
+  (+
+    k
+    (if true
+      10
+      20
+    )
+  )
+)
+
+(:: probeSub (-> Int Int))
+
+(fn (probeSub k)
+  (-
+    k
+    (if false
+      1
+      2
+    )
+  )
+)
+
+(:: probe (-> Int Int))
+
+(fn (probe k) (+ (probeT k) (+ (probeF k) (+ (probeAdd k) (probeSub k)))))
+
+(:: emit (-> Int Int))
+
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}")
+      )
+      (emit (+ k 1))
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main) (emit 0))

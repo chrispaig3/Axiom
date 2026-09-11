@@ -16,6 +16,25 @@ its changelog too.
 
 ## Unreleased
 
+### MIR: boolean literals lower as constants — `scripts/check-mir.sh` §2/§4, ABLATION 6
+
+`true` and `false` are identifiers to the parser and refused as
+unresolved names in the lowering, while the walk emits them as the
+constants 1 and 0 — so 66 corpus functions whose only blocker was a
+boolean literal sat outside the IR. `mLower` answers `MO_CONST` 1/0
+for the two spellings on an environment miss, consulting the
+environment first exactly as the walk consults its symbol table
+first, so a shadowing binding reads the same register on both
+paths. Measured: 2,276 → 2,345 of 4,954 corpus functions lower, 1,726 →
+1,727 of 20,187 emitted functions take the IR path (booleans mostly
+branch, and branches do not route yet), byte-identical with the
+routing off. Pinned by `tests/mir/111-bool.ax`
+(branch, add and subtract through both spellings, with the
+non-commutative probe ABLATION 1 needs) and a sixth ablation —
+`true` lowered as 0 — required red exactly on the fixtures
+spelling a boolean, derived from each fixture's source outside
+comments and strings, with the verifier silent throughout.
+
 ### MIR: casts erase — `scripts/check-mir.sh` §2/§4/§6b, ABLATION 5
 
 `(cast T v)` lowered to `MO_CALL "cast"`, a call to a function that
