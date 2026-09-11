@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------
-# The arena's two assumptions about a hosted operating system, removed
-# and gated. docs/embedded-proposal.md 4.1 and 4.2, and the gate its
-# section 8 names for both rows.
+# The arena's - and now the trap path's - assumptions about a hosted
+# operating system, removed and gated. docs/embedded-proposal.md 4.1,
+# 4.2 and 4.3, and the gate its section 8 names for all three rows.
+#
+# WHAT THE THREE ITEMS ARE. The emitted allocator asked the kernel for a
+# MEGABYTE the first time a program allocated, and `mmap` was the only
+# way a chunk could ever arrive. On a Cortex-M4-class part with 192 KiB
+# of SRAM the first allocation fails, and there is no `mmap` for it to
+# fail in. So:
 #
 # WHAT THE TWO ITEMS ARE. The emitted allocator asked the kernel for a
 # MEGABYTE the first time a program allocated, and `mmap` was the only
@@ -21,6 +27,14 @@
 #        branches on it once, at EMISSION time, so the emitted program
 #        contains exactly one of the two and the other costs it nothing,
 #        not even a branch.
+#   4.3  the trap's write is a per-target STRATEGY. Zero from
+#        `targetTrapSilent` means today's `write(2, ...)` (or
+#        `WriteFile`); non-zero means no write at all, while the abort,
+#        the backtrace walk and the exit with the trap's own status all
+#        still run. `emitRuntimeWrite` - the single door the backtrace
+#        writer delegates to - branches on it once, at EMISSION time,
+#        so a silent program carries a comment where each write was and
+#        no branch for one.
 #
 # THE CONSTRAINT THAT DECIDES WHETHER THIS IS CORRECT is that it is a
 # REFACTOR for every supported target and a new capability only for a
@@ -52,6 +66,9 @@
 #     fact. A6 runs one program that fits and one that does not, and
 #     requires the same answer as the `mmap` arena for the first and
 #     status 70 for the second.
+#   * A9 builds a THIRD compiler, silent on the host, for the same
+#     reason: a no-op trap write runs perfectly well here, and running
+#     it is what turns 4.3 from an emission into the statuses it keeps.
 #
 # WHAT IT ASSERTS.
 #   A1  SEVEN TARGETS EMIT TODAY'S ALLOCATOR. Every supported target's
@@ -98,6 +115,14 @@
 #       capped by it and no `mmap`, and the flag's own refusals
 #       (non-numeric, zero, missing value, `--threads` on a spawning
 #       program) each go red when broken.
+#   A8  4.3 - EVERY SUPPORTED TARGET WRITES ITS TRAPS. A dividing
+#       probe carries one fd-2 write per trap and backtrace line on
+#       every target (the error handle's, on Windows), and the silent
+#       strategy's default is one row answering 0.
+#   A9  4.3 - AND SILENCE TRAPS CORRECTLY. A second variant compiler,
+#       silent on the host, suppresses exactly the lines A8 counts and
+#       no others; both binaries exit 72, the tree's naming the
+#       division on fd 2 and the silent one's fd 2 empty.
 #
 # ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
 # directory, breaks ONE thing in `codegen.ax` there, builds every
@@ -105,7 +130,7 @@
 # The patch is applied by exact string match by
 # `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
 # there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all seven and requires each to go red.
+# gate can pass. `--ablations` runs all nine and requires each to go red.
 #
 #   chunk     every target answers 4 KiB                   -> A1
 #   literal   `refill:` goes back to the hardcoded 1 MiB   -> A2, A4
@@ -116,20 +141,23 @@
 #             never seen                                   -> A6
 #   ceiling   the flag is never read, so a ceiling build is a
 #             mmap build in disguise                      -> A7
+#   trapwrite the silent branch never fires, so a silent
+#             target still writes                          -> A9
+#   allsilent every target is silent, so the supported
+#             targets stop emitting their trap writes      -> A8
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
 # discovered: section 6's QEMU reference port. There is no bare-metal
 # TARGET in the tree - no triple, no `Sys/Platform.baremetal-*.ax`, no
 # linker script - so nothing here executes on a device. What it does
-# establish is that the two things the port needs from the COMPILER are
-# per-target values a port can set, that setting them changes the
+# establish is that the three things the port needs from the COMPILER
+# are per-target values a port can set, that setting them changes the
 # emitted program in the ways they claim to, and that a program built
-# with them set runs and traps correctly. 4.3, 4.4 and 4.5 remain
-# proposed.
+# with them set runs and traps correctly. 4.4 and 4.5 remain proposed.
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
-#   scripts/check-embedded.sh --ablations  # the seven drills, each red
+#   scripts/check-embedded.sh --ablations  # the nine drills, each red
 #   AXIOM_ABLATE=literal scripts/check-embedded.sh
 # ---------------------------------------------------------------------
 
@@ -170,7 +198,7 @@ if [[ "${1:-}" == "--ablations" ]]; then
   self="${BASH_SOURCE[0]}"
   red=0
   ran=0
-  for ab in chunk literal grain strategy cursor oomsig ceiling; do
+  for ab in chunk literal grain strategy cursor oomsig ceiling trapwrite allsilent; do
     ran=$((ran + 1))
     echo "== ablation: $ab =="
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
@@ -853,11 +881,138 @@ else
   note "no thread runtime on $host_target: the threads leg is untestable here, and says so"
 fi
 
+# ---------------------------------------------------------------------
+echo "== A8. 4.3: every supported target writes its traps to fd 2 =="
+# ---------------------------------------------------------------------
+# The proposal's default: a trap reports its sentence before it exits.
+# `emitRuntimeWrite` is the single door - the backtrace writer
+# delegates to it - so one probe exercises every site: a division by
+# zero for the div guard's trap, plus the backtrace its handler walks.
+# On the six syscall targets a trap write is an `asm sideeffect` line
+# carrying fd 2; the probe's own `println` carries fd 1, which is what
+# makes the pattern the trap's and not the program's. On Windows the
+# discriminator is the handle: -12 is STD_ERROR_HANDLE, -11 the
+# program's own stdout.
+checks=$((checks + 1))
+cat > "$work/divtrap.ax" <<'AX'
+(import IO)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (/ 10 0))
+    0
+  }
+)
+AX
+prob=0
+# Trap writes per emitted module, by target. On the six syscall
+# targets a trap write is an `asm sideeffect` line carrying fd 2 -
+# both halves are load-bearing: `, i64 2, i64 ` alone also matches a
+# `memSetWord` of the word 2, and `asm sideeffect` alone is every
+# syscall the module makes. On Windows the discriminator is the
+# handle: -12 is STD_ERROR_HANDLE, -11 the program's own stdout, and
+# both go through `WriteFile`.
+trapwrites() {
+  if [[ "$2" == windows-* ]]; then grep -c 'GetStdHandle(i64 -12)' "$1" || true
+  else grep 'asm sideeffect' "$1" | grep -c ', i64 2, i64 ' || true; fi
+}
+for t in "${targets[@]}"; do
+  if ! emit "$axc" "$t" "$work/divtrap.ax" "$work/div.$t.ll"; then
+    bad "[$t] emit-llvm failed for the trapping probe"
+    sed 's/^/    /' "$work/emit.log" | head -6
+    prob=1
+    continue
+  fi
+  if grep -q 'trap message suppressed' "$work/div.$t.ll"; then
+    bad "[$t] the tree's own compiler emits silent traps - the strategy is not off by default"
+    prob=1
+  fi
+  n2=$(trapwrites "$work/div.$t.ll" "$t")
+  echo "     [$t] $n2 trap writes"
+  (( n2 >= 10 )) || { bad "[$t] $n2 trap writes, floor 10"; prob=1; }
+done
+(( prob )) || note "seven targets write their traps (15 apiece here), and none is silent"
+
+# The default has one spelling, held the way A2 holds 4.1's: a second
+# spelling is a target that cannot choose silence.
+checks=$((checks + 1))
+prob=0
+nrow=$(grep -c '^(pub fn (targetTrapSilent t) 0)$' "$src_root/self_host/codegen.ax" || true)
+[[ "$nrow" == "1" ]] || { bad "targetTrapSilent's default is spelled $nrow times, not once"; prob=1; }
+(( prob )) || note "the silent strategy is one row, off unless a target asks"
+
+# ---------------------------------------------------------------------
+echo "== A9. 4.3: silent traps exit with the status and print nothing =="
+# ---------------------------------------------------------------------
+# A second variant compiler, silent on the host: the no-op door of 4.3,
+# which is what a board with nothing to write to would select. The same
+# probe as A8, so the comparison is line for line: every fd-2 write the
+# tree's build carries must be a suppression mark in the silent one,
+# and nothing else may move. Then both binaries run: the statuses must
+# agree and only one of them may have spoken.
+checks=$((checks + 1))
+mkdir -p "$work/stree"
+cp -a "$src_root/self_host" "$work/stree/self_host"
+python3 "$repo_root/scripts/lib/embedded-patch.py" \
+  "silent:$host_code" "$work/stree/self_host/codegen.ax" || exit 1
+if ! ( cd "$work/stree" && "$axiom" build --input self_host/main.ax --output "$work/saxc" ) \
+      > "$work/sbuild.log" 2>&1; then
+  bad "the silent variant does not build - a target-table row that cannot take 1 is not a row"
+  sed 's/^/    /' "$work/sbuild.log" | head -15
+else
+saxc="$work/saxc"
+prob=0
+nsup=0; nloud=0; nquiet=0
+if ! emit "$saxc" "$host_target" "$work/divtrap.ax" "$work/div.silent.ll"; then
+  bad "the silent variant could not emit the trapping probe"
+  sed 's/^/    /' "$work/emit.log" | head -6
+  prob=1
+else
+  nsup=$(grep -c 'trap message suppressed' "$work/div.silent.ll" || true)
+  nloud=$(trapwrites "$work/div.$host_target.ll" "$host_target")
+  nquiet=$(trapwrites "$work/div.silent.ll" "$host_target")
+  echo "     $nloud trap writes loud, $nsup suppressions and $nquiet trap writes silent"
+  [[ "$nsup" == "$nloud" && "$nloud" != "0" ]] \
+    || { bad "the silent build suppresses $nsup writes where the tree's carries $nloud -
+     the branch must move exactly the write lines"; prob=1; }
+  [[ "$nquiet" == "0" ]] \
+    || { bad "the silent build still writes its traps ($nquiet lines)"; prob=1; }
+fi
+(( prob )) || note "the silent build carries $nsup suppressions for $nloud writes and none of its own"
+checks=$((checks + 1))
+prob=0
+loud="$(run_probe "$axc" "$work/divtrap.ax" div.loud)"
+quiet="$(run_probe "$saxc" "$work/divtrap.ax" div.quiet)"
+echo "     loud [$loud] quiet [$quiet]"
+case "$loud" in
+  "72"|"72 ") ;;
+  *) bad "the tree's build of the trapping probe answered [$loud], not status 72,
+     so the silence below would be compared against nothing"; prob=1 ;;
+esac
+case "$quiet" in
+  "72"|"72 ") ;;
+  *) bad "the silent build answered [$quiet]; a trap that cannot write must still exit 72"; prob=1 ;;
+esac
+if [[ -s "$work/div.quiet.err" ]]; then
+  bad "the silent trap wrote $(wc -c < "$work/div.quiet.err" | tr -d ' ') bytes to fd 2"
+  prob=1
+fi
+if ! grep -q 'division by zero' "$work/div.loud.err" 2>/dev/null; then
+  bad "the control's trap names no division, so the silence comparison compares nothing"
+  prob=1
+fi
+(( prob )) || note "status 72 out of both, the sentence out of one and zero bytes out of the other"
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-embedded: $failed of $checks checks failed"
   exit 1
 fi
-echo "check-embedded: $checks checks - the arena's chunk size is a target constant"
-echo "                and mmap is one of two strategies, with every supported target"
-echo "                emitting the bytes it emitted before either was true"
+echo "check-embedded: $checks checks - the arena's chunk size is a target constant,"
+echo "                mmap is one of two strategies, and traps write or stay silent"
+echo "                per target, with every supported target emitting the bytes it"
+echo "                emitted before any of the three was true"

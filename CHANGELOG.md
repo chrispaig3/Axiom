@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### Silent traps: `targetTrapSilent` — `docs/embedded-proposal.md` 4.3
+
+Every trap reported through `write(2, ...)`, and a part with no fd 2
+had no door of its own. The trap's write is now a per-target strategy
+row beside the arena rows: 0 today's write, non-zero no write at all,
+read by `emitRuntimeWrite` — the single door the backtrace writer
+delegates to — at emission time. The abort, the backtrace walk and the
+exit with the trap's own status all still run, so a silent trap is a
+status with no sentence. Every supported target answers 0: the default
+row is taken zero times on any hosted target, and a dividing probe
+emits byte-identical IR before and after the change on the host
+(measured). Gated by `scripts/check-embedded.sh` A8/A9: the
+writes pinned per target with the default held to one spelling, a
+silent-on-the-host variant suppressing exactly the lines the tree
+build carries, and both binaries run to status 72 with the sentence on
+fd 2 out of one and zero bytes out of the other. Two drills,
+`trapwrite` and `allsilent`, each required red.
+
 ### `parallel` capture rule closed over indirection — AX3064
 
 `checkSpawnCaptures` answered 0 for any thunk that was not a lambda

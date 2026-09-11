@@ -7955,6 +7955,29 @@
 
 (pub fn (targetArenaStaticBase t) 0)
 
+; 4.3, THE TRAP'S WRITE STRATEGY. Zero means today's `write(2, ...)`
+; (or `WriteFile` on the handle `GetStdHandle(-12)` answers, where
+; there is no syscall ABI): every trap reports its sentence before it
+; exits, which is what every supported target does and will keep
+; doing. Non-zero is the SILENT strategy - no write at all, while the
+; recovery abort, the backtrace walk and the exit with the trap's own
+; status all still run. That is the proposal's no-op door: on a part
+; with a UART the board supplies its own writer instead, and where
+; there is nothing to write to the status codes are the whole report -
+; `tests/stdlib/465-pop-empty-trap.exit` and its siblings pin them,
+; and they are the only thing an automated test on-device can observe.
+;
+; Read at EMISSION time, like 4.2's strategy, so a silent program
+; contains no write and no branch for one. `emitRuntimeWrite` is the
+; single reader - the backtrace writer delegates to it - so every trap
+; moves together and none can be half-silent.
+;
+; A bare-metal target's row is `(if (== t <its code>) 1 0)`. That edit
+; is the whole of 4.3, and it is literally the edit the gate makes.
+(pub :: targetTrapSilent (-> Int Int))
+
+(pub fn (targetTrapSilent t) 0)
+
 ; The EFFECTIVE static-arena size: the build's ceiling when one was
 ; given, else the target table's row. One reader, so the table keeps
 ; the single spelling of the default (4.1's rule, held by A2) and the
@@ -8189,14 +8212,17 @@
 (pub :: emitRuntimeWrite (-> Int String String Int))
 
 (pub fn (emitRuntimeWrite cg ptrExpr lenExpr)
-  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
-    (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)")))
-    (let ((tag (strSlice ptrExpr 1 (- (strLen ptrExpr) 1))))
-      {
-        ; STD_ERROR_HANDLE is -12.
-        (emitLine cg (cat3 "  %" tag "_h = call i64 @GetStdHandle(i64 -12)"))
-        (emitLine cg (cat4 (cat3 "  call i64 @WriteFile(i64 %" tag "_h, i64 ") ptrExpr (cat3 ", i64 " lenExpr ", i64 ptrtoint (ptr @__axiom_win_written to i64), i64 0)") ""))
-      }
+  (if (== (targetTrapSilent (memGetWord cg 26)) 1)
+    (emitLine cg "  ; trap message suppressed: the target asked for silent traps")
+    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
+      (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)")))
+      (let ((tag (strSlice ptrExpr 1 (- (strLen ptrExpr) 1))))
+        {
+          ; STD_ERROR_HANDLE is -12.
+          (emitLine cg (cat3 "  %" tag "_h = call i64 @GetStdHandle(i64 -12)"))
+          (emitLine cg (cat4 (cat3 "  call i64 @WriteFile(i64 %" tag "_h, i64 ") ptrExpr (cat3 ", i64 " lenExpr ", i64 ptrtoint (ptr @__axiom_win_written to i64), i64 0)") ""))
+        }
+      )
     )
   )
 )

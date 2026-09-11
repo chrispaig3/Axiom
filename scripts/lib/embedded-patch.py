@@ -11,6 +11,12 @@ same mechanism, so they live together:
         port makes to the target table, and nothing more. The gate then
         asserts what moved and what did not.
 
+  silent:<hostcode>
+        THE POSITIVE ONE FOR 4.3. Give the host silent traps - the
+        no-op door of `docs/embedded-proposal.md` 4.3 - so the gate can
+        link, run and listen to a program whose traps exit without
+        writing.
+
   <name>
         AN ABLATION. Break one thing, so that a named assertion in the
         gate has to go red. The gate runs itself once per drill under
@@ -118,6 +124,22 @@ ABLATIONS = {
         """(pub fn (heapCeilingBytes) (if (argHas "--never-a-flag" 1) 1 0))""",
         "A7 - the flag reaching the emitter at all",
     ),
+    # The silent branch never fires, so a silent target still writes:
+    # the strategy row is read and ignored. Aims at A9's absence half.
+    "trapwrite": (
+        """  (if (== (targetTrapSilent (memGetWord cg 26)) 1)
+    (emitLine cg "  ; trap message suppressed: the target asked for silent traps")""",
+        """  (if (== (targetTrapSilent (memGetWord cg 26)) 999)
+    (emitLine cg "  ; trap message suppressed: the target asked for silent traps")""",
+        "A9 - the silent branch carrying the write away",
+    ),
+    # Every target is silent, so the supported targets stop emitting
+    # the trap writes they have always emitted. Aims at A8.
+    "allsilent": (
+        "(pub fn (targetTrapSilent t) 0)",
+        "(pub fn (targetTrapSilent t) 1)",
+        "A8 - the supported targets' emitted trap writes",
+    ),
 }
 
 
@@ -168,6 +190,20 @@ def variant(src, spec):
     return src
 
 
+def silent(src, spec):
+    """The target-table row a silent-trap port writes."""
+    parts = spec.split(":")
+    if len(parts) != 2:
+        die("silent needs `silent:<host code>`, got %r" % spec)
+    chost = parts[1]
+    if not chost.isdigit():
+        die("silent target code must be a number, got %r" % chost)
+    return replace_defn(
+        src, "targetTrapSilent",
+        "(pub fn (targetTrapSilent t) (if (== t %s) 1 0))" % chost,
+        "silent (trap row)")
+
+
 def main():
     if len(sys.argv) != 3:
         die("usage: embedded-patch.py <name|variant:C41:CHOST> <codegen.ax>")
@@ -178,6 +214,10 @@ def main():
         src = variant(src, name)
         label = "variant"
         n_edits = 2
+    elif name.startswith("silent"):
+        src = silent(src, name)
+        label = "silent variant"
+        n_edits = 1
     elif name in ABLATIONS:
         old, new, aims = ABLATIONS[name]
         label = "ablation %s (aims at %s)" % (name, aims)

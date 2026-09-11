@@ -189,7 +189,7 @@ the whole heap is built from. A static target therefore answers no to
 which already means precisely that. Section 7 puts threads out of scope
 for bare metal; this is what that costs in code.
 
-### 4.3 The trap path must be able to reach something other than fd 2
+### 4.3 The trap path must be able to reach something other than fd 2 *(done — `check-embedded.sh` A8/A9)*
 
 `write(2, msg, len)` is how every trap reports. A device may have a
 UART, a semihosting channel, or nothing. Proposed: the target module
@@ -198,6 +198,18 @@ on a bare-metal target it is whatever the board offers, or a no-op that
 still exits with the right status. **The status codes must not change** —
 `tests/stdlib/465-pop-empty-trap.exit` and its siblings pin them, and
 they are the only thing an automated test on-device can observe.
+
+Shipped as `targetTrapSilent`, one row beside the arena rows: 0 today's
+write, non-zero no write at all, read by `emitRuntimeWrite` — the single
+door the backtrace writer delegates to — at emission time, so a silent
+program carries a comment where each write was and no branch for one.
+The abort, the backtrace walk and the exit with the trap's own status
+all still run. A8 pins the writes on all seven targets and the default's
+single spelling; A9 builds a silent-on-the-host variant, requires its
+suppressions to equal the tree build's writes line for line, and runs a
+dividing probe under both: status 72 out of both, the sentence on fd 2
+out of one and zero bytes out of the other. A UART strategy is a second
+row when a board needs one; the no-op is the door it would hang off.
 
 ### 4.4 A `--no-std`-shaped subset of the standard library
 
