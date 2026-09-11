@@ -177,8 +177,8 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 644 `.ax` files
-in the repository answers `is already formatted` for 421 of them and
+2026-09-04, `axiom fmt --check` over every one of the 645 `.ax` files
+in the repository answers `is already formatted` for 422 of them and
 `needs formatting` for 223. Two of the 223 are deliberate and are named
 below; the other 221 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
@@ -197,7 +197,10 @@ double-compile gate arrived, each measured formatted on its own with
 `axiom fmt --check`, taking it to 642/419/223. Then the two subtype
 fixtures arrived — `134-subtype-checked.ax` and
 `135-subtype-violated.ax`, each measured formatted on its own with
-`axiom fmt --check` — taking it to 644/421/223. Each of those sixteen files was measured on its own with
+`axiom fmt --check` — taking it to 644/421/223. Then the
+`parallel`-capture indirection fixture arrived —
+`643-parallel-capture-hop.ax`, measured formatted on its own with
+`axiom fmt --check` — taking it to 645/422/223. Each of those seventeen files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.

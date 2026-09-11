@@ -107,22 +107,24 @@
 # ablation, which fired in one run of five - is recorded in that
 # section's comment and asserted nowhere, for that reason.
 #
-# WHAT THIS GATE DOES NOT CLAIM. The thread lowering does not yet check
-# what a binding captures: a heap value shared with the parent is
-# touched from two threads with no fence, which the process lowering
-# cannot suffer and the static rule that refuses it (MM-RGN-3 over
-# sibling regions) is S3's. Both fixtures capture only words, on
-# purpose, and `emitPrimPar`'s header in codegen.ax states the gap.
+# WHAT THIS GATE DOES NOT CLAIM. The thread lowering shares the
+# parent's address space, so a heap value a binding captures is touched
+# from two threads with no fence - which the process lowering cannot
+# suffer. The static rule refuses both shapes the checker can see: a
+# literal-lambda thunk is scanned for captures, and a thunk that is a
+# frame-local name of arrow type is refused outright, because its
+# captures are not visible where it stands (AX3064 both;
+# tests/diagnostics/642 and 643 pin the two). Both fixtures capture
+# only words, on purpose. What remains open is a thunk that is neither
+# a lambda nor a bare name - a call result, a conditional - which is
+# still accepted: no such shape reaches a spawn from `parallel`'s
+# desugaring, which always emits a literal lambda, and none is in the
+# corpus.
 #
-# NOR does it claim AX3064 is complete. Measured 2026-09-03 on this
-# compiler: a literal `(__par_spawn (lambda (w) (+ (strLen s) w)) 1)`
-# capturing a `String` draws AX3064, and the SAME lambda handed to a
-# one-line wrapper `(fn (viaHop f w) (__par_join (__par_spawn f w)))`
-# draws nothing and runs. The rule is bypassed by one hop. It is latent
-# rather than live - the parser's desugaring always emits a literal
-# lambda, so no `parallel` written in source reaches it - and closing it
-# is its own workstream. Section 6b is what keeps `Par.ax` out of the
-# hole in the meantime.
+# Section 6b is what keeps `Par.ax`'s primitive choice honest: that
+# module spawns a parameter through `__proc_spawn`, whose forked
+# lowering isolates by construction, and the arm requires its module
+# byte-identical with and without `--threads`.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"

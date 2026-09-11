@@ -9432,13 +9432,53 @@
 (pub :: checkSpawnCaptures (-> Int Int Int))
 
 (pub fn (checkSpawnCaptures tc lam)
-  ; A bare function reference - `(__par_spawn worker 0)` - is not a
-  ; lambda and captures nothing: a top-level name is a symbol, not a
-  ; record.
-  (if (!= (nodeTag lam) TAG_E_LAM)
-    0
+  ; A bare TOP-LEVEL function reference - `(__par_spawn worker 0)` -
+  ; is not a lambda and captures nothing: a top-level name is a
+  ; symbol, not a record. `scopeFindFrame` reads the current frame
+  ; only, so a name it cannot find is either top-level (safe) or
+  ; undefined (some other diagnostic's: AX3001) - either way silent
+  ; here.
+  ;
+  ; A FRAME-LOCAL name holding a function is the opposite: one hop the
+  ; walk cannot see through. `(fn (viaHop f w) (__par_join
+  ; (__par_spawn f w)))` spawns whatever function its caller passes,
+  ; and a caller passing a lambda that captures a `String` compiled
+  ; and ran under `--threads` with no diagnostic - the capture check
+  ; ran at the spawn, where the thunk is the parameter `f`, and a
+  ; parameter is not a lambda, so the old rule answered 0. The fix
+  ; refuses the indirection itself: a spawn whose thunk is a
+  ; frame-local name of arrow type draws AX3064, because its captures
+  ; are not visible where it stands. Write the lambda at the spawn, or
+  ; name a top-level function; both are checked where they stand.
+  ;
+  ; A frame-local of NON-arrow type is the argument checker's, not
+  ; this rule's: the application is ill-typed without any capture
+  ; question, and reporting it here too would say one mistake twice.
+  ; Poison and the silent wildcard stay silent for the cascade reason
+  ; `capReport` gives. Anything that is neither a lambda nor a bare
+  ; name - a call result, a conditional - is still accepted, and that
+  ; is OPEN rather than closed: no such shape reaches a spawn from
+  ; `parallel`'s desugaring, and none is in the corpus.
+  (if (== (nodeTag lam) TAG_E_LAM)
     (capReport
       tc      (capScanInto (nodeB lam) (capBoundOf (nodeAVec lam)) vecNew)      0      vecNew
+    )
+    (if (!= (nodeTag lam) TAG_E_VAR)
+      0
+      (let ((ent (scopeFindFrame tc (nodeAName lam))))
+        (if (== ent 0)
+          0
+          (let ((ty (sEntTy ent)))
+            (if (|| (== (tyIsErr ty) 1) (== (tyIsSilentWild ty) 1))
+              0
+              (if (== (tyIsArrow ty) 1)
+                (emitSpawnIndirection tc (nodeAName lam) ty (nodeSpan lam))
+                0
+              )
+            )
+          )
+        )
+      )
     )
   )
 )
@@ -9818,6 +9858,31 @@
           "` - a type this checker cannot classify, so it cannot promise the block's count is untouched"
         )
       ))      0      0      "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word"      "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt"
+    ) (strConcat (strConcat "`" name) "` is bound outside this binding")))
+    0
+  }
+)
+
+; The indirection half of AX3064: the spawned thunk is a frame-local
+; NAME of arrow type, so its captures are not visible where it stands.
+; Same code because it is the same rule (MM-PAR-6); different message
+; because the name itself is not the captured reference - whatever
+; function it holds may close over one, and the checker cannot tell
+; from here.
+(pub :: emitSpawnIndirection (-> Int String Int Int Int))
+
+(pub fn (emitSpawnIndirection tc name ty span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3064"
+      "parallel-capture"
+      span
+      (strConcat (strConcat (strConcat (strConcat "a concurrent binding spawns `" name) "`, a local name holding a function of type `") (tyRender ty)) "` whose captures this checker cannot see")
+      0
+      0
+      "write the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing"
+      "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt"
     ) (strConcat (strConcat "`" name) "` is bound outside this binding")))
     0
   }

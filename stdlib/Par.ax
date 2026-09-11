@@ -25,19 +25,20 @@
 ; than about a build flag. So this module does not weaken, dodge or
 ; argue with the rule: it names the lowering whose guarantee it needs.
 ;
-; AND AX3064 CANNOT CHECK THIS MODULE'S CALLERS, which is the part a
-; reader has to be told rather than left to assume.
+; AND WHAT AX3064 SEES OF THIS MODULE'S CALLERS, which is the part
+; a reader has to be told rather than left to assume.
 ;
-; `checkSpawnCaptures` inspects argument 0 of a spawn only when it is
-; LITERALLY a lambda; anything else - a parameter, a `let`-bound name -
-; is a symbol rather than a record and the walk answers 0. `parMapWords`
-; spawns `f`, a PARAMETER, so the check never sees the thunk a caller
-; wrote. Measured on this compiler, 2026-09-03: a literal
-; `(__par_spawn (lambda (w) (+ (strLen s) w)) 1)` capturing a `String`
-; draws AX3064, and the same lambda handed to a one-line wrapper
-; `(fn (viaHop f w) (__par_join (__par_spawn f w)))` draws nothing and
-; runs. That hole is not opened by this module and not closed by it -
-; it is `__par_spawn`'s, and it is reported separately.
+; `checkSpawnCaptures` scans a thunk that is LITERALLY a lambda, and
+; refuses a thunk that is a frame-local name of arrow type - a
+; parameter, a `let`-bound name - because its captures are not visible
+; where it stands (`tests/diagnostics/643-parallel-capture-hop.ax`).
+; Had this module named `__par_spawn`, the spawn of `f` below would
+; draw AX3064 for every caller, capturing or not: a parameter's
+; captures cannot be proven absent. It names `__proc_spawn`, whose
+; forked lowering isolates by construction, so the exemption above
+; applies and callers may capture freely. The two halves meet at one
+; fact - this file names `__proc_spawn` - which is why §6b gates the
+; primitive choice rather than commenting it.
 ;
 ; What it means HERE is that the safety of every caller's capture rests
 ; on ONE fact: this file names `__proc_spawn`. Nothing in the type

@@ -1046,14 +1046,17 @@ reads its own copy-on-write copy. `stdlib/Par.ax` is built on that
 exemption — a bounded pool that runs an Axiom closure over whatever the
 caller captured.
 
-`AX3064` is bypassed by **one hop**, and this is worth knowing before
-hand-spelling a primitive. `checkSpawnCaptures` inspects argument 0 only
-when it is literally a lambda, so the same capturing lambda passed
-through a wrapper — `(fn (viaHop f w) (__par_join (__par_spawn f w)))` —
-draws nothing and runs (measured 2026-09-03). No `parallel` written in
-source can reach that: the parser's desugaring always emits a literal
-lambda. It is reachable only from a hand-written `__par_spawn` or
-`__thread_spawn`, and closing it is open work.
+`AX3064` also refuses the indirection: a spawn whose thunk is a
+frame-local name of arrow type - a parameter, a `let`-bound function -
+draws it at the name, because whatever function that name holds may
+close over a reference and the checker cannot tell from the spawn
+(`tests/diagnostics/643-parallel-capture-hop.ax`). Write the lambda at
+the spawn, or name a top-level function. A thunk that is neither a
+lambda nor a bare name - a call result, a conditional - is still
+accepted and still open work: no `parallel` written in source can reach
+that shape, since the parser's desugaring always emits a literal
+lambda, and it is reachable only from a hand-written `__par_spawn` or
+`__thread_spawn`.
 
 **Where it is not available.** `--threads` on freebsd-* or
 windows-x86_64, and `__thread_spawn` there, are refused at build time

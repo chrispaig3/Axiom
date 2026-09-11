@@ -1,0 +1,29 @@
+[1;31merror[AX3064][0m[1m: a concurrent binding spawns `f`, a local name holding a function of type `(Int -> Int)` whose captures this checker cannot see[0m
+  [1;34m--> [0m643-parallel-capture-hop.ax:39:43
+[1;34m   |[0m
+[1;34m39 |[0m (fn (viaHop f w) (__par_join (__par_spawn f w)))
+[1;34m   |[0m                                           [1;31m^ `f` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mwrite the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected (Int -> Int), found Int[0m
+  [1;34m--> [0m643-parallel-capture-hop.ax:71:41
+[1;34m   |[0m
+[1;34m71 |[0m (fn (scalar n) (__par_join (__par_spawn n 0)))
+[1;34m   |[0m                                         [1;31m^ this has type `Int`, expected `(Int -> Int)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding spawns `f`, a local name holding a function of type `(Int -> Int)` whose captures this checker cannot see[0m
+  [1;34m--> [0m643-parallel-capture-hop.ax:76:45
+[1;34m   |[0m
+[1;34m76 |[0m (fn (viaAlias f w) (__par_join (__par_spawn f w)))
+[1;34m   |[0m                                             [1;31m^ `f` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mwrite the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+compilation failed due to 3 previous errors

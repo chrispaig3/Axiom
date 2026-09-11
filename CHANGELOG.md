@@ -16,6 +16,23 @@ its changelog too.
 
 ## Unreleased
 
+### `parallel` capture rule closed over indirection — AX3064
+
+`checkSpawnCaptures` answered 0 for any thunk that was not a lambda
+literal, so a spawn through a wrapper — `(fn (viaHop f w)
+(__par_join (__par_spawn f w)))` — smuggled every capture past the
+rule: the check ran where the thunk is the parameter `f`. A spawn
+whose thunk is a frame-local name of arrow type now draws AX3064 at
+the name, because its captures are not visible where it stands; a bare
+top-level name stays silent and a non-arrow local stays the argument
+checker's (one mistake, one diagnostic). Pinned by
+`tests/diagnostics/643-parallel-capture-hop.ax` (the refused shape, the
+literal and top-level controls, and the no-cascade row), with
+`check-parallel.sh`, `stdlib/Par.ax`, `docs/reference.md` and
+`docs/memory-model-v2-design.md` §3.2b recording the closure. What
+remains open is a thunk that is neither a lambda nor a bare name, which
+no `parallel` desugaring can produce.
+
 ### Every trap owns its exit status — `scripts/check-trap-statuses.sh`
 
 The contract trap shared 77 with the index trap while both gates

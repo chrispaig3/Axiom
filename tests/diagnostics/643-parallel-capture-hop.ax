@@ -1,0 +1,90 @@
+; MM-PAR-6, the indirection half (docs/memory-model-v2-design.md 3.2b).
+;
+; `checkSpawnCaptures` used to answer 0 for any thunk that was not a
+; lambda literal, so a spawn through a one-line wrapper smuggled every
+; capture past AX3064: the check runs at the spawn, where the thunk is
+; the wrapper's parameter `f`, and a parameter is not a lambda. A
+; spawn whose thunk is a frame-local name of arrow type is now refused
+; - its captures are not visible where it stands - while a bare
+; top-level name stays silent (a symbol, not a record) and a
+; non-arrow local stays the argument checker's (one mistake draws one
+; diagnostic).
+;
+;   1  `hop` reaches a capturing lambda through `viaHop`. One AX3064,
+;      anchored on `f` at the spawn: the occurrence is where the fix
+;      is (write the lambda at the spawn, or name a top-level
+;      function).
+;   2  `direct` is the control: the same shape written as a literal
+;      at the spawn is scanned, captures only a word, and is silent.
+;   3  `topfn` is the other control: spawning the top-level `worker`
+;      by name captures nothing and is silent.
+;   4  `scalar` passes a local `Int` as the thunk. That application
+;      is ill-typed and draws AX3004 at the argument - and no AX3064.
+;   5  `ahop` is row 1 through a type alias: `Thunk` expands before
+;      checking, so the parameter still arrives as an arrow and draws
+;      the same AX3064.
+(import IO)
+
+(import Str)
+
+(type Thunk = (-> Int Int))
+
+(:: worker (-> Int Int))
+
+(fn (worker w) (+ w 1))
+
+(:: viaHop (-> (-> Int Int) Int Int))
+
+;@axiom:effect(io)
+(fn (viaHop f w) (__par_join (__par_spawn f w)))
+
+(:: hop (-> String Int))
+
+;@axiom:effect(io)
+(fn (hop s)
+  (viaHop
+    (lambda (w) (+ (strLen s) w))
+    1
+  )
+)
+
+(:: direct (-> Int Int))
+
+;@axiom:effect(io)
+(fn (direct n)
+  (__par_join
+    (__par_spawn
+      (lambda (w) (+ w n))
+      0
+    )
+  )
+)
+
+(:: topfn Int)
+
+;@axiom:effect(io)
+(fn (topfn) (__par_join (__par_spawn worker 0)))
+
+(:: scalar (-> Int Int))
+
+;@axiom:effect(io)
+(fn (scalar n) (__par_join (__par_spawn n 0)))
+
+(:: viaAlias (-> Thunk Int Int))
+
+;@axiom:effect(io)
+(fn (viaAlias f w) (__par_join (__par_spawn f w)))
+
+(:: ahop (-> String Int))
+
+;@axiom:effect(io)
+(fn (ahop s)
+  (viaAlias
+    (lambda (w) (+ (strLen s) w))
+    1
+  )
+)
+
+(:: main Int)
+
+(fn (main) 0)

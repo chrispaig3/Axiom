@@ -477,6 +477,22 @@ uses `scopeFindIdx` against it. Make it **unconditional** rather than
 `--threads`-dependent, or the diagnostic appears and disappears with a
 codegen flag, which nothing else in the AX3xxx band does.
 
+**Closed 2026-09-11, the indirection half.** `checkSpawnCaptures`
+(`self_host/typecheck.ax`) scans a literal-lambda thunk as before, and
+now refuses a thunk that is a frame-local name of arrow type: the
+`viaHop` wrapper above draws `AX3064` at `f`, a bare top-level name
+stays silent, and a non-arrow local stays the argument checker's (one
+mistake, one diagnostic). `tests/diagnostics/643` pins the refused
+shape and both controls. What this does NOT build is the sibling-region
+typing §3.2 describes — no region nodes are created for bindings, and
+`rgnCheckAll` still runs only under `@r` signatures. The safety
+property that typing was meant to provide (no unrefused capture reaches
+a thread) now holds by refusal instead: every shape the checker can see
+is either scanned or refused, and the one it cannot — a thunk that is
+neither a lambda nor a bare name — is stated open in `check-parallel.sh`
+rather than left to be discovered. Typed precision (accepting captures
+a region discipline proves safe) waits for S4 with everything else.
+
 ---
 
 **Built 2026-09-03 (S5 and S6), and two things the table above promised
