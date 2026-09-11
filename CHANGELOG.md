@@ -16,6 +16,21 @@ its changelog too.
 
 ## Unreleased
 
+### Effect-distribution pins re-derived — `scripts/check-effect-distribution.sh`
+
+The compiler-view buckets moved without the pins: exactly
+`Alloc,Mut` 2,020 → 2,025 and pure 1,564 → 1,566, failing the gate
+on all three legs. The whole delta is seven added functions across
+four commits - the threads fix's `emitSpawnIndirection`, 4.3's
+`targetTrapSilent`, the cast slice's `mirCastRoot`/`mirCastClean`,
+the ISR key's `tagsHaveIsr`/`tagsHaveIsrIn`/`checkIsrParams` -
+verified by diffing bucket membership between the old and new trees
+(added 7, removed 0, changed 0), so the required/ambient line itself
+did not move and the pins, with `docs/reference.md`'s histogram,
+are re-derived rather than retuned. The four commits each ran their
+own gates; none ran this one, which pins globally-derived numbers
+and therefore notices any commit that adds an effectful function.
+
 ### `;@axiom:isr` marks an interrupt entry point — `scripts/check-isr.sh`
 
 `docs/embedded-proposal.md` 4.5 is the last of the five compiler
