@@ -222,7 +222,7 @@ but the target's own primitives. That gate is a variant of
 `check-freestanding.sh` and should be written *before* the port, because
 it is what makes the subset a fact rather than an intention.
 
-### 4.5 Interrupt handlers need an entry-point form
+### 4.5 Interrupt handlers need an entry-point form *(done — `scripts/check-isr.sh`)*
 
 An ISR is a function the hardware calls with a fixed name and no
 arguments, which must not allocate. Both halves already exist
@@ -231,6 +231,18 @@ separately: `--emit-staticlib` makes every `pub fn` a C symbol, and
 that combines them and additionally refuses a non-empty parameter list,
 so an ISR that allocates is a compile error rather than a heap
 corruption at 3 a.m.
+
+Shipped as `;@axiom:isr`: the tag pushes `no-alloc` into the claim
+set the restriction walk already answers (so the violation, the
+warning and `strict` all read as written), and a parameterised
+declaration draws `AX3010`. A typo within one edit suggests it
+(`AX3039`). What the proposal called a "target attribute" turned out
+not to need target machinery at all: neither half varies by target,
+and `--emit-staticlib` already exports every `pub fn` on every target
+that archives. `tests/diagnostics/651-isr-params.ax` and
+`652-isr-alloc.ax` pin the refusals; the gate builds a `pub` ISR
+beside a plain function into an archive carrying both symbols, and
+refuses the allocating fixture under `--emit-staticlib` too.
 
 ### 4.6 A static stack bound from the call graph *(done — `check-stack-bound.sh`)*
 

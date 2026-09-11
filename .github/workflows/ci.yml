@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # seventy of the gates below build the compiler under test from
+    # seventy-one of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -689,6 +689,13 @@ jobs:
       # and not this step (2026-08-29); a gate no job runs is a script.
       - name: Restriction claims are answered, and a restricted corpus does not move
         run: ./scripts/check-restrictions.sh
+
+      # `;@axiom:isr` marks an interrupt entry point - no parameters,
+      # no allocation, exported beside a plain function under
+      # `--emit-staticlib`, with both halves ablated. It belongs
+      # beside the restriction gate because it is checked as one.
+      - name: Interrupt entry points take no parameters and do not allocate
+        run: ./scripts/check-isr.sh
 
       # `;@axiom:pre(...)`/`post(...)`: the one claim in this namespace
       # the checker cannot refuse, because there is no value analysis

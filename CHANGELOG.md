@@ -16,6 +16,26 @@ its changelog too.
 
 ## Unreleased
 
+### `;@axiom:isr` marks an interrupt entry point — `scripts/check-isr.sh`
+
+`docs/embedded-proposal.md` 4.5 is the last of the five compiler
+rows: both halves existed (`--emit-staticlib` exports every `pub
+fn`, `restrict(no-alloc)` is checked) but nothing combined them, so
+an ISR that allocates was a heap corruption rather than a compile
+error. The tag pushes `no-alloc` into the claim set the walk already
+answers - the violation, the warning and `strict` all read as
+written - and a parameterised declaration draws `AX3010`, since the
+hardware calls by name with no arguments. Near-miss typos suggest it
+(`AX3039`, whose checked-key list gains the name). Pinned by
+`tests/diagnostics/651-isr-params.ax` and `652-isr-alloc.ax`, with
+the `369-axtag-known-keys` row extended to the new key; the gate
+builds a `pub` ISR beside a plain function into an archive carrying
+both symbols and refuses the allocating fixture under
+`--emit-staticlib` too. Two ablations, each required red: the
+implication deleted, and an allocation planted in the good probe.
+Calls `gate_build_axc`, so the six count sites state seventy-one
+gates; the battery has eighty-seven.
+
 ### The freestanding subset is gated — `scripts/check-nostd-subset.sh`
 
 `docs/embedded-proposal.md` 4.4 named eight standard-library modules
@@ -29,7 +49,7 @@ imports on the host (both empty), IR declares elsewhere (none on the
 six syscall targets, the runtime six on Windows). Differential
 throughout, so no libc-name table is duplicated. Two planted
 breakages, each required red. Import surfaces are read with
-`scripts/lib/imports.sh`, the one reader every gate shares. Calls `gate_build_axc`, so the six count sites state seventy gates; the battery has eighty-six.
+`scripts/lib/imports.sh`, the one reader every gate shares. Calls `gate_build_axc`, so the six count sites state seventy-one gates; the battery has eighty-seven.
 
 ### MIR: boolean literals lower as constants — `scripts/check-mir.sh` §2/§4, ABLATION 6
 
@@ -271,7 +291,7 @@ row naming a program that is gone, README's link removed — each red).
 Its floors are re-derived at the population, three files and two
 programs, and the `.js`/`.css` allowance went with the only files that
 used it. It runs no Axiom program and builds no compiler, so it is no
-longer among the gates that call `gate_build_axc`: **seventy gates**
+longer among the gates that call `gate_build_axc`: **seventy-one gates**
 call it, and the six sites that state that count moved together. The
 battery still has eighty-three gates.
 

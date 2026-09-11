@@ -3,8 +3,8 @@
 ; `pre` is one insertion from `pure`, and until 2026-08-29 every
 ; `;@axiom:pre(...)` drew AX3039 "did you mean `pure`?" - measured. The
 ; near-miss test now asks first whether the key is one the compiler
-; knows; `pre`, `post`, `restrict` and `unhandled` are, so the four
-; below draw nothing - and `unhandled` is checked on an `effect`
+; knows; `pre`, `post`, `restrict`, `isr` and `unhandled` are, so the
+; five below draw nothing - and `unhandled` is checked on an `effect`
 ; declaration, which is the only declaration kind whose tags are
 ; walked for this at all (`checkEffectDeclAxtags`), so its silence here
 ; is evidence about that walk and not only about the key set.
@@ -26,6 +26,11 @@
 (:: confined (-> Int Int))
 
 (fn (confined n) n)
+
+;@axiom:isr
+(:: tick Int)
+
+(fn (tick) 1)
 
 ;@axiom:unhandled(trap)
 (effect Declared

@@ -177,8 +177,8 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 647 `.ax` files
-in the repository answers `is already formatted` for 424 of them and
+2026-09-04, `axiom fmt --check` over every one of the 649 `.ax` files
+in the repository answers `is already formatted` for 426 of them and
 `needs formatting` for 223. Two of the 223 are deliberate and are named
 below; the other 221 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
@@ -204,7 +204,10 @@ fixtures arrived — `134-subtype-checked.ax` and
 fixture arrived — `110-cast.ax`, measured formatted on its own with
 `axiom fmt --check` — taking it to 646/423/223. Then the MIR boolean
 fixture arrived — `111-bool.ax`, measured formatted on its own with
-`axiom fmt --check` — taking it to 647/424/223. Each of those nineteen files was measured on its own with
+`axiom fmt --check` — taking it to 647/424/223. Then the two ISR
+fixtures arrived — `651-isr-params.ax` and `652-isr-alloc.ax`, each
+measured formatted on its own with `axiom fmt --check` — taking it
+to 649/426/223. Each of those twenty-one files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.
@@ -383,7 +386,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the seventy gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim seventy gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the seventy-one gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim seventy-one gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-install.sh` | the script `README.md` tells a stranger to pipe into bash. A release built from this tree is served over the loopback and installed; a tampered archive, one with no checksum and one with no `stdlib/` must each be refused. Its own probe deletes `install.sh`'s checksum comparison in a copy and requires the tampered case to stop being refused |
 | `check-release-targets.sh` | what a release BUILDS and what `install.sh` REFUSES are one fact split across two files on opposite sides of the project. A target in both uploads an archive the installer will not fetch; a target in neither gives the user a bare `curl` 404. Also holds the two axes apart: nothing is shipped that README does not call supported, and nothing is supported-but-unshipped without a CI leg or a README paragraph saying why (`darwin-x86_64`) |
@@ -396,6 +399,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-mir-projection.sh` | `symbols --mir`: every `#mir-*` key is re-derivable from the raw region words of the `.axir` record whose whole header tuple matches that row - the record carries the checker's words undecoded and the gate decodes them itself, so it compares two independent derivations rather than one number twice. Every row has a record, in order, on the tuple, because the nid is not unique across modules (4,068 nids, 4,066 distinct). Without `--mir` no row carries the key, and with it the stream with every `#mir-*` token deleted is byte-identical to the default one. And the sentinel is held to the boundary it reports: `#mir-truncated` present at call-chain depth 41, absent at depth 5, which is the only assertion in the tree that watches `rgnRounds`' 40-round cap. Four ablations, all required; the silence one needs BOTH guards removed, because the facts fixpoint runs on demand and a program that asks for nothing has nothing to print |
 | `check-restrictions.sh` | `;@axiom:restrict(...)` is a check and never a transformation: restricting every `fn` of 168 corpus programs changes no emitted IR byte and no AXSYM row beyond `#restrict=`, and draws AX3051 only on rows that justify the word - `#effects-incomplete`, `#effects-overapprox`, or `#effect-params=`, the third added on 2026-08-31 with the reading that a restriction over a body calling its own parameter is the caller's to decide; a satisfied restriction is silent on every control; each restriction goes red when its violation is planted in a copy, the `no-cast` plant at the cast's own span; a compiler whose `checkRestricts` answers nothing fails the fixtures; and every restricted declaration in the tree is on `tests/agent/restrictions.allow` with the verdict the compiler gave |
 | `check-contracts.sh` | `;@axiom:pre(...)` and `;@axiom:post(...)` are checked, both halves. A violated contract exits **80** - beside 70/71/72, the FFI's 73, 74's absent syscall ABI, 75's invalid arena mark, 76's reset past a live handle and 77's out-of-range index (`MM-EXEC-16`; 80 its own row since D3, 2026-09-08) - and writes a line naming the kind, the function and the contract as written, at every `--opt` level; a satisfied one answers exactly what the same program with the tags deleted answers; `@__axiom_contract_fail` is defined in every module, called only where a contract is; `tests/diagnostics/385` draws seven `AX3050`s and nothing on five controls; and the cost the design names is measured in both directions - a `pre` keeps the tail-call rewrite, a `post` spends it. Two ablations, both required: a compiler whose `expandProgram` lowers no contract fails section 1, and one whose `tcCheckFn` checks none fails section 4 |
+| `check-isr.sh` | `;@axiom:isr` marks an interrupt entry point - no parameters (`AX3010`), no allocation (the implied `no-alloc` draws `AX3049`, near-miss typos suggest it) - composed with `--emit-staticlib`, where a `pub` ISR beside a plain function archives both symbols and an allocating one is refused. Two ablations, each required: the implication deleted, and an allocation planted in the good probe |
 | `check-ffi.sh` | every FFI tier and the symbols each one imports, priced against a per-crate `axiom-allow.txt`; the one MM-FFI-5 requires. Runs in its own CI job, on linux-x86_64 and darwin-aarch64, because it is the only gate that needs `cargo` |
 | `check-packages.sh` | `axiom.pkg`: a project's declared dependencies join the module search path after its own directory and before `$AXIOM_PATH`, and two of them providing one module are REFUSED rather than ordered. Every project is built in the gate's work directory and every module answers a distinct number, so the exit status says which file the resolver chose; the negative probe removes the manifest and requires the same program to stop resolving |
 | `check-name-scale.sh` | resolving a module's private names costs no more than resolving its public ones, and doubling a module's declaration count costs under 3.0x rather than a scan's 4x - both ratios rather than wall-clock bounds, so it is not flaky on a shared runner - paired with an ablated twin whose scan must fail the doubling arm |

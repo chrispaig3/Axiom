@@ -1,0 +1,21 @@
+; `;@axiom:isr` marks an interrupt entry point, which the hardware
+; calls by name with no arguments. A declaration carrying parameters
+; contradicts the tag, and the walk has an answer - so it is AX3010
+; (axtag-mismatch), not AX3037.
+;
+; One AX3010, anchored on the declaration: the occurrence is where
+; the fix is (remove the parameters, or drop the tag). `plain` is
+; the control - the same body without the tag checks clean, proving
+; the refusal is the claim and not the code.
+(:: tick (-> Int Int))
+
+;@axiom:isr
+(fn (tick n) n)
+
+(:: plain (-> Int Int))
+
+(fn (plain n) n)
+
+(:: main Int)
+
+(fn (main) 0)

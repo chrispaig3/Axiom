@@ -1901,7 +1901,8 @@ metadata, is recorded, and is not checked. `agent:readonly` draws
 nothing and is meant to.
 
 A key one edit - or one change of case - from a key the compiler knows
-- `pure`, `effect`, `raw`, `pre`, `post`, `restrict`, `unhandled` -
+- `pure`, `effect`, `raw`, `pre`, `post`, `restrict`, `isr`,
+`unhandled` -
 draws `AX3039`.
 `;@axiom:pur` is not a purity claim, so nothing checks it as one, and a
 body performing IO under it drew no `AX3010` at all: the tag read like
@@ -2074,6 +2075,28 @@ declaration, where `symbols` shows it. A `restrict` tag is not an
 effect claim and does not stand in for one: a restricted function
 that performs IO without `effect(io)` draws `AX3042` like any other,
 and `restrict(no-io)` over it draws `AX3049` as well.
+
+#### `isr` - an interrupt entry point
+
+`;@axiom:isr` marks a function the hardware calls by name with no
+arguments, which must not allocate. It is two claims in one tag: the
+declaration takes no parameters, and its body keeps
+`restrict(no-alloc)`. A parameterised `isr` draws `AX3010` at the
+declaration - the tag contradicting what is written under it - and an
+allocating `isr` draws `AX3049` naming `no-alloc`, with the same path,
+the same `AX3051` warning where the walk cannot settle the claim, and
+the same `strict` composition as a written restriction, because it is
+checked as one: the tag pushes `no-alloc` into the claim set the walk
+already answers. An author who writes both spellings is checked once,
+not twice. `tests/diagnostics/651-isr-params.ax` and
+`652-isr-alloc.ax` pin the two refusals; `scripts/check-isr.sh` holds
+the composition with `--emit-staticlib`, where every `pub fn` of the
+file is already a C symbol under its own name - so a `pub` ISR is
+reachable by name, checked for parameters, and checked for
+allocation, and an allocating one is a compile error rather than a
+heap corruption. Only `pub` functions become symbols; a private `isr`
+is still checked, which is what makes the tag meaningful on a helper
+nobody calls from C.
 
 #### `pre(...)` / `post(...)` - a claim the compiler CANNOT decide
 

@@ -18700,12 +18700,90 @@
     {
       (restrictCollect sig rs 0)
       (restrictCollect own rs 0)
+      ; `;@axiom:isr` marks an interrupt entry point and implies
+      ; `restrict(no-alloc)`: a handler runs where no heap can grow,
+      ; so a body that allocates is refused here rather than
+      ; corrupting memory at 3 a.m. The implication is pushed into
+      ; this same set - not checked twice elsewhere - so the
+      ; violation, the unverifiable warning and `strict` all read
+      ; exactly as if the author had written the restriction: an
+      ; `isr` that allocates draws AX3049 naming `no-alloc`, which
+      ; the tag means. `strInVec` dedups for the author who wrote
+      ; both spellings, so the claim is still checked once. The
+      ; parameter half lives beside it (`checkIsrParams`): an entry
+      ; point the hardware calls by name takes no arguments.
+      (if (== (tagsHaveIsr sig own) 1)
+        {
+          (if (== (strInVec rs "no-alloc" 0) 1)
+            0
+            { (vecPush rs "no-alloc") 0 }
+          )
+          (checkIsrParams tc d)
+        }
+        0
+      )
       ; `strict` is read off the whole SET, before any name in it is
       ; checked, because it modifies how every one of them answers.
       (memSetWord tc 32 (restrictHasStrict rs 0))
       (checkRestrictsFrom tc d rs 0 eff)
       (memSetWord tc 32 0)
     }
+  )
+)
+
+; Whether either tag set carries a bare `isr` claim. Same head rule
+; as `restrictCollect` - the content up to `(` - and the same null
+; guard, so a value riding on the key (`isr(foo)`) still claims;
+; there is nothing to read out of one.
+(pub :: tagsHaveIsr (-> (Vec Int) (Vec Int) Int))
+
+(pub fn (tagsHaveIsr sig own)
+  (if (== (tagsHaveIsrIn sig 0) 1)
+    1
+    (tagsHaveIsrIn own 0)
+  )
+)
+
+(pub :: tagsHaveIsrIn (-> (Vec Int) Int Int))
+
+(pub fn (tagsHaveIsrIn tags i)
+  (if (== (cast Int tags) 0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      (let ((content (memGetWordStr (vecGet tags i) 1)))
+        (let ((op (match (strFindByte content 40 0) ((None) (- 0 1)) ((Some k) k))))
+          (if (strEq (if (< op 0) content (strSlice content 0 op)) "isr")
+            1
+            (tagsHaveIsrIn tags (+ i 1))
+          )
+        )
+      )
+    )
+  )
+)
+
+; An interrupt entry point takes no arguments: the hardware calls it
+; by name. Anything else is the tag contradicting the declaration,
+; which is AX3010's whole subject - the walk HAS an answer here, so
+; it is not AX3037. Only functions are asked (`d` is one where this
+; runs, and the guard says so rather than assuming it); a `::` with
+; no `fn` under it never reaches `checkRestricts` with parameters to
+; count.
+(pub :: checkIsrParams (-> Int Int Int))
+
+(pub fn (checkIsrParams tc d)
+  (if (!= (nodeTag d) TAG_D_FN)
+    0
+    (let ((ps (nodeBVec d)))
+      (if (== (cast Int ps) 0)
+        0
+        (if (== (vecLen ps) 0)
+          0
+          (emitAxtag tc d "`isr` marks an interrupt entry point, which the hardware calls by name with no arguments - this declaration takes parameters, so it cannot be one. Remove the parameters, or drop the tag")
+        )
+      )
+    )
   )
 )
 
@@ -21434,7 +21512,13 @@
               1
               (if (strEq key "unhandled")
                 1
-                0
+                ; `isr` is checked (an implied `no-alloc` plus an
+                ; arity rule), so a near miss of it is a guarantee
+                ; that buys silence, exactly as for the six above.
+                (if (strEq key "isr")
+                  1
+                  0
+                )
               )
             )
           )
@@ -21463,7 +21547,10 @@
                 "restrict"
                 (if (== (axtagSlip key "unhandled") 1)
                   "unhandled"
-                  ""
+                  (if (== (axtagSlip key "isr") 1)
+                    "isr"
+                    ""
+                  )
                 )
               )
             )
@@ -21503,7 +21590,7 @@
   (if (== (nodeSpan d) 0)
     0
     (emitDiag tc (mkDiag
-      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)`, `restrict(...)`, `pre(...)`, `post(...)` and `unhandled(trap)` on an `effect` declaration"
+      SEV_WARNING      "AX3039"      "axtag-key-typo"      (nodeSpan d)      (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))      0      0      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)`, `restrict(...)`, `pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect` declaration"
     ))
   )
 )

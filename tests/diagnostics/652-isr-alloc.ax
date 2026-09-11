@@ -1,0 +1,24 @@
+; `;@axiom:isr` implies `restrict(no-alloc)`: a handler runs where
+; no heap can grow. A body that allocates - here through `strConcat`,
+; two hops down - draws AX3049 naming `no-alloc`, exactly as if the
+; author had written the restriction: the tag means it. The chain in
+; the message is the resolved call path to where the allocation
+; enters, so the fix is at a named place.
+;
+; `clean` is the control: the same tag over a body that allocates
+; nothing is silent.
+(import Str)
+
+(:: tick Int)
+
+;@axiom:isr
+(fn (tick) (strLen (strConcat "a" "b")))
+
+(:: clean Int)
+
+;@axiom:isr
+(fn (clean) 0)
+
+(:: main Int)
+
+(fn (main) 0)
