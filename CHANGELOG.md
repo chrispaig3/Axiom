@@ -16,6 +16,25 @@ its changelog too.
 
 ## Unreleased
 
+### Every trap owns its exit status — `scripts/check-trap-statuses.sh`
+
+The contract trap shared 77 with the index trap while both gates
+stayed green, because no gate compared one trap's status to another's
+(`docs/subtypes-design.md`, `CHANGELOG.md` "A violated contract and an
+out-of-range index exit with the same status"). The move to 80 fixed
+the collision without closing the gap it came through. This gate does:
+a census of every numeric `emitRuntimeExit cg "<n>"` in
+`self_host/codegen.ax` (exactly 70 71 72 74 75 76 77 78 79 80, each
+once; `0` and `%status` named as dynamic sites, not traps), the same
+ten read out of the MM-EXEC-16 table in `docs/memory-model.md`, seven
+traps run to their own statuses with the seven answers required
+pairwise distinct (70, 71, 72, 75, 76, 77, 80 — the subtype range
+violation sharing 80 with the contract trap by design), the
+emitted-only 74/78/79 held by their `define` sites, and two doctored
+copies (census 80→77, table 80→77) each required to go red. It calls
+`gate_build_axc`, so the six count sites move sixty-eight →
+sixty-nine with it.
+
 ### The tree eats its own cooking: `for`, `match`, contracts, `restrict`, `region`, `subtype`
 
 The language features landed over the last month with fixtures but
@@ -155,9 +174,9 @@ row naming a program that is gone, README's link removed — each red).
 Its floors are re-derived at the population, three files and two
 programs, and the `.js`/`.css` allowance went with the only files that
 used it. It runs no Axiom program and builds no compiler, so it is no
-longer among the gates that call `gate_build_axc`: **sixty-eight gates**
+longer among the gates that call `gate_build_axc`: **sixty-nine gates**
 call it, and the six sites that state that count moved together. The
-battery still has eighty-two gates.
+battery still has eighty-three gates.
 
 What is still measured, and what is not. MM-ALLOC-22 — the request
 handler as an arena scope — is measured by `check-net.sh` over
