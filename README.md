@@ -30,29 +30,34 @@ got.
 ```scheme
 (import IO)
 
-(data Shape
-  (Circle Int)
-  (Square Int))
+(effect Log
+  (write :: (-> String Int)))
 
-(:: area (-> Shape Int))
+;@axiom:pre((> n 0))
+(:: work (-> Int Int))
 
-(fn (area s)
-  (match s
-    ((Circle r) (* 3 (* r r)))
-    ((Square w) (* w w))
-  )
+(fn (work n)
+  {
+    (write "starting")
+    (write "done")
+    n
+  }
 )
 
 (:: main Int)
 
 ;@axiom:effect(io)
 (fn (main)
-  (let ((a (area (Circle 4))))
-    {
-      (println "area = {a}")
-      0
-    }
-  )
+  {
+    (handle (work 1) (Log IO) (lambda (m)
+      {
+        (println "[log] {m}")
+        0
+      }
+    ))
+    (handle (work 2) (Log) (lambda (m) 0))
+    0
+  }
 )
 ```
 
