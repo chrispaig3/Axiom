@@ -222,3 +222,109 @@
 (pub :: pathIsAbsolute (-> String Bool))
 
 (pub fn (pathIsAbsolute p) (== (strByte p 0) 47))
+
+; `p`, lexically simplified to the shortest path naming the same
+; location: doubled `/`s collapse, a `.` segment is dropped, and a
+; real segment is cancelled by the `..` that immediately follows it.
+; Nothing here touches the filesystem - a symlink component is
+; resolved exactly as if it were an ordinary name, which is what
+; makes this a STRING operation and not a `Sys` one. Same rules as
+; Go's `path.Clean` or Python's `posixpath.normpath`.
+;
+; A leading `..` in a RELATIVE path has nothing to cancel against and
+; is kept, once per unmatched `..` - `(pathClean "a/../../b")` is
+; `"../b"`, not `"b"`. The same `..` at an ABSOLUTE root has nowhere
+; to go and is simply dropped - `(pathClean "/../a")` is `"/a"`. An
+; empty path names the working directory, so it answers `"."`, the
+; same as `"."` itself; `(pathClean "/")` and `(pathClean "//")` both
+; answer `"/"`.
+;
+; The two traps `pathExtIndex` already had to name reappear here: a
+; leading `.` that starts a NAME rather than a segment (`".axiomrc"`)
+; is not a `.` segment, and `..` as a PREFIX of a longer name
+; (`"..b"`) is not a `..` segment. Both survive untouched, because
+; the check below is on the whole segment, never one byte of it.
+(pub :: pathClean (-> String String))
+
+(pub fn (pathClean p)
+  (if (== (strLen p) 0)
+    "."
+    (let ((abs (pathIsAbsolute p)))
+      (let ((body (pathCleanFrom p (strLen p) 0 "" abs)))
+        (if abs
+          (strConcat "/" body)
+          (if (== (strLen body) 0) "." body)
+        )
+      )
+    )
+  )
+)
+
+; Walks `p` backward one segment at a time from `end`, exactly as
+; `pathLastSlashFrom` does, folding each into `acc` - built up in
+; REVERSE, right to left, so a segment is PREPENDED rather than
+; appended - under `skip` pending `..`s still owed a real segment to
+; cancel:
+;
+;   kind 0 : the segment IS `..` - one more cancellation now owed.
+;   kind 1 : "" or "." - contributes nothing either way.
+;   kind 2 : a real segment, but a `..` further right already claimed
+;            it - contributes nothing, and pays off one `skip`.
+;   kind 3 : a real segment nothing has claimed - joins `acc`.
+;
+; `slash < 0` is `pathLastSlashFrom`'s sentinel for "no more `/` in
+; `p`", meaning this was the leftmost segment; what remains of `skip`
+; then goes to `pathLeadingDotDot` rather than another `..` to cancel.
+(:: pathCleanFrom (-> String Int Int String Bool String))
+
+(fn (pathCleanFrom p end skip acc abs)
+  (let ((slash (pathLastSlashFrom p (- end 1))))
+    (let ((seg (strSlice p (+ slash 1) (- end (+ slash 1)))))
+      (let ((kind
+        (if (strEq seg "..")
+          0
+          (if (|| (== (strLen seg) 0) (strEq seg "."))
+            1
+            (if (> skip 0) 2 3)
+          )
+        )
+      ))
+        (let ((skip2 (if (== kind 0) (+ skip 1) (if (== kind 2) (- skip 1) skip))))
+          (let ((acc2 (if (== kind 3) (pathPrependSeg seg acc) acc)))
+            (if (< slash 0)
+              (pathLeadingDotDot skip2 acc2 abs)
+              (pathCleanFrom p slash skip2 acc2 abs)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; `seg` and `acc` as one path, with exactly one `/` between them when
+; `acc` already holds something - `pathJoin`'s rule, folded onto the
+; right-to-left walk above instead of `pathJoin`'s left-to-right one.
+; `seg` is a shared slice of `p`; `strDup` is what makes the answer
+; an owned copy once `acc` stops being empty, keeping this module's
+; every-answer-is-owned rule even for a one-segment path like `"a/"`.
+(:: pathPrependSeg (-> String String String))
+
+(fn (pathPrependSeg seg acc)
+  (if (== (strLen acc) 0)
+    (strDup seg)
+    (strConcat (strConcat seg "/") acc)
+  )
+)
+
+; `skip` unmatched `..`s, each turned into a leading `../` - unless
+; `abs` says there is a root above which none of them can climb, in
+; which case every one left over is simply dropped.
+(:: pathLeadingDotDot (-> Int String Bool String))
+
+(fn (pathLeadingDotDot skip acc abs)
+  (if (|| abs (<= skip 0))
+    acc
+    (pathLeadingDotDot (- skip 1) (pathPrependSeg ".." acc) abs)
+  )
+)

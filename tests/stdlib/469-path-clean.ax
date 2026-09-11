@@ -1,0 +1,39 @@
+; `pathClean`: lexical path simplification, the one thing `pathJoin`
+; does not do - `(pathJoin "src" "../other.ax")` answers
+; "src/../other.ax" unsimplified, and nothing else in `Path` resolves
+; a `.` or a `..` segment or collapses a doubled slash.
+;
+; Seventeen cases, each pinning one rule from Go's `path.Clean` /
+; Python's `posixpath.normpath` (the two `.axiomrc` / `..b` rows are
+; the same trap `pathExtIndex` already had to reason about: a dot or
+; a double-dot INSIDE a longer name is not the segment of the same
+; name).
+(import IO)
+
+(import Path)
+
+(pub :: main Int)
+
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (println (pathClean ""))
+    (println (pathClean "."))
+    (println (pathClean ".."))
+    (println (pathClean "a/"))
+    (println (pathClean "a//b"))
+    (println (pathClean "a/./b"))
+    (println (pathClean "a/../b"))
+    (println (pathClean "a/b/.."))
+    (println (pathClean "../a"))
+    (println (pathClean "a/../../b"))
+    (println (pathClean "/a/../b"))
+    (println (pathClean "/../a"))
+    (println (pathClean "/"))
+    (println (pathClean "//"))
+    (println (pathClean ".axiomrc"))
+    (println (pathClean "a/..b/c"))
+    (println (pathClean "./a/./b/../../c"))
+    0
+  }
+)
