@@ -11,11 +11,11 @@
 # views, because the claim "ambient" is a claim about a population:
 #
 #   compiler  `symbols --calls self_host/main.ax`: the compiler and the
-#             stdlib it reaches. 4,253 functions; 2,687 perform, 2,025
-#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,513 of
-#             the 2,687 (94%).
+#             stdlib it reaches. 4,257 functions; 2,691 perform, 2,029
+#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,517 of
+#             the 2,691 (94%).
 #   stdlib    one probe importing every stdlib module: the whole
-#             library's. 817 functions; 406 perform, 174 of those
+#             library's. 821 functions; 410 perform, 178 of those
 #             exactly `Alloc,Mut`; customs are two singletons (`Assert`,
 #             `Fallible`); 3 rows carry `#effects-incomplete`.
 #
@@ -48,7 +48,7 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2025 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2029 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 366 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 118 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 116 "exactly Alloc"
@@ -79,7 +79,7 @@ done
 lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
-have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 174 "exactly Alloc,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 178 "exactly Alloc,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 73 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 51 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 35 "exactly Alloc"

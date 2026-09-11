@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### `Path.pathClean` resolves `.` and `..` segments
+
+`pathJoin` and every other function in `stdlib/Path.ax` treat a path
+as bytes to split or concatenate; none of them simplified one —
+`(pathJoin "src" "../other.ax")` still answers `"src/../other.ax"`,
+unsimplified, and nothing built on `pathJoin` had anywhere to clean
+that up. `pathClean` is the lexical rule Go's `path.Clean` and
+Python's `posixpath.normpath` use: doubled `/`s collapse, a `.`
+segment is dropped, and a real segment is cancelled by the `..` that
+immediately follows it — an unmatched `..` in a relative path is kept
+(nothing to cancel against), and dropped at an absolute root (nowhere
+to climb to). No syscalls and no new effect tag: every function in
+this module allocates without one, and this is no exception.
+`tests/stdlib/469-path-clean.ax` pins seventeen cases, including the two
+names `pathExtIndex` already had to reason about carefully —
+`".axiomrc"` and `"..b"` are ordinary names, not a `.` or `..`
+segment.
+
 ### Effect-distribution pins re-derived — `scripts/check-effect-distribution.sh`
 
 The compiler-view buckets moved without the pins: exactly

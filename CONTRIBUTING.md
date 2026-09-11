@@ -177,8 +177,8 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 649 `.ax` files
-in the repository answers `is already formatted` for 426 of them and
+2026-09-04, `axiom fmt --check` over every one of the 650 `.ax` files
+in the repository answers `is already formatted` for 427 of them and
 `needs formatting` for 223. Two of the 223 are deliberate and are named
 below; the other 221 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
@@ -207,7 +207,9 @@ fixture arrived — `111-bool.ax`, measured formatted on its own with
 `axiom fmt --check` — taking it to 647/424/223. Then the two ISR
 fixtures arrived — `651-isr-params.ax` and `652-isr-alloc.ax`, each
 measured formatted on its own with `axiom fmt --check` — taking it
-to 649/426/223. Each of those twenty-one files was measured on its own with
+to 649/426/223. Then the `pathClean` fixture arrived —
+`469-path-clean.ax`, measured formatted on its own with
+`axiom fmt --check` — taking it to 650/427/223. Each of those twenty-two files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.

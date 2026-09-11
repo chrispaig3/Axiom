@@ -341,7 +341,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Path`
 
-`stdlib/Path.ax` — 10 public names
+`stdlib/Path.ax` — 11 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -355,6 +355,7 @@ See [reference.md](reference.md) for the language, and
 | `pathStem` | value | `(-> String String)` | `Alloc,Mut` | The base name with its extension removed: `"src/main.ax"` is `"main"`. What a driver names an output after. |
 | `pathReplaceExt` | value | `(-> String String String)` | `Alloc,Mut` | `p` with its extension replaced by `ext`, which carries its own dot. `(pathReplaceExt "build/main.ax" ".ll")` is `"build/main.ll"`, and a path with no extension simply gains one. |
 | `pathIsAbsolute` | value | `(-> String Bool)` |  | True when `p` starts at the root. A relative path is resolved against the working directory, which is why `Sys.sysGetCwd` exists. |
+| `pathClean` | value | `(-> String String)` | `Alloc,Mut` | `p`, lexically simplified to the shortest path naming the same location: doubled `/`s collapse, a `.` segment is dropped, and a real segment is cancelled by the `..` that immediately follows it. Nothing here touches the filesystem - a symlink component is resolved exactly as if it were an ordinary name, which is what makes this a STRING operation and not a `Sys` one. Same rules as Go's `path.Clean` or Python's `posixpath.normpath`. |
 
 ## `Pre`
 

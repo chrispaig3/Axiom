@@ -1729,13 +1729,13 @@ is the claim "performs no IO", and a body performing IO under it is
 ambient, inferred and reported but never demanded, and the line was
 measured rather than chosen, and re-measured 2026-09-08
 (`scripts/check-effect-distribution.sh` pins the whole histogram in
-two views): of the 4,253 declarations `symbols --calls
+two views): of the 4,257 declarations `symbols --calls
 self_host/main.ax` lists for the compiler and its standard library,
-2,687 perform something at all, and 2,025 of those perform exactly
+2,691 perform something at all, and 2,029 of those perform exactly
 `Alloc,Mut` - which is every function that touches a `String` or a
-`Vec`. `Mut` anywhere is on 2,513 of the 2,687, so requiring
+`Vec`. `Mut` anywhere is on 2,517 of the 2,691, so requiring
 it would be requiring a tag on 94% of everything that has an effect at
-all. The stdlib view agrees: 406 of 817 perform, 174 of those exactly
+all. The stdlib view agrees: 410 of 821 perform, 178 of those exactly
 `Alloc,Mut`, with two singletons carrying custom effects (`Assert`,
 `Fallible`) and 3 rows marked `#effects-incomplete`. `IO` is the one effect a caller cannot learn
 without opening the callee. `Alloc` and `Mut` are still DECLARABLE, and
@@ -3423,7 +3423,7 @@ requires the result to be byte-identical.
 | `Fallible` | `fallibleMalformed` — the operation a batch loop's callee performs on a malformed record — and the handlers that answer it without unwinding: `fallibleSkip`, `fallibleDefault`, `fallibleCounting`; the skip sentinel `fallibleSkipped`/`fallibleIsSkipped`; the `FallibleTally` a counting handler writes, `fallibleTally`/`fallibleCount` ([error-model.md](error-model.md) ERR-REC-7) |
 | `Intern` | `internNew`, `internFree`, `internIntern`, `internFind`, `internLookup`, `internCount` (string interner) |
 | `Sys` | the syscall layer: `sysWriteFd`, `sysReadFd`, `sysWriteAllFd`, `sysReadAllFd`, `sysReadLineFd`, `sysOpenPath`, `sysCloseFd`, `sysExitWith`, `sysFailed`, `sysErrno`, `stdin`/`stdout`/`stderr`; the filesystem (below); and the process layer `sysSpawn`, `sysRun`, `sysRunPath`, `sysWaitPid`, `sysEnv`, `sysArgc`, `sysArg`, `sysGetPid`, `sysNowMicros` |
-| `Path` | `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex` — decisions about bytes, no syscalls |
+| `Path` | `pathDir`, `pathBase`, `pathExt`, `pathStem`, `pathJoin`, `pathReplaceExt`, `pathWithSlash`, `pathIsAbsolute`, `pathLastSlash`, `pathExtIndex`, `pathClean` — decisions about bytes, no syscalls |
 | `IO` | `println`, `eprintln` (**macros** — see Printing and Formatting), `writeStr` (bytes, no newline, no rendering), `readLine` and `readAll` (a descriptor's next line, or the rest of it — `(readLine stdin)` is how a program reads what was typed or piped at it), the raw-address variants `printlnLit`/`readFileLit`, `exit`, `die`, `todo` (a hole that types as any result and never returns, printing `todo: <what>` and exiting 70 — it is what `AX3005`'s machine-applicable fix writes into each missing arm); and the filesystem (below) |
 | `Ffi` | `ffiHandleNew`/`ffiHandlePtr`/`ffiHandleClose`, the out-cell (`ffiCellNew`, `ffiCellWord`, `ffiCellFree`) and the `Vec` conversions a generated binding needs ([ffi.md](ffi.md)) |
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them — written for JSON-RPC |
