@@ -432,9 +432,9 @@ A row is done when the gate named beside it is green in CI.
 |---|---|---|---|
 | 4.1 | arena chunk is a target constant | `check-embedded.sh` (ablation) | **done** |
 | 4.2 | static arena strategy | `check-embedded.sh` | **done** |
-| 4.3 | `trapWrite` seam, statuses unchanged | existing `.exit` fixtures | proposed |
-| 4.4 | freestanding stdlib subset | new variant of `check-freestanding.sh` | proposed |
-| 4.5 | ISR entry form | `check-restrictions.sh` extension | proposed |
+| 4.3 | `trapWrite` seam, statuses unchanged | `check-embedded.sh` (A8, A9) | **done** |
+| 4.4 | freestanding stdlib subset | `check-nostd-subset.sh` | **done** |
+| 4.5 | ISR entry form | `check-isr.sh` | **done** |
 | 4.6 | static stack bound from the call graph | `check-stack-bound.sh` | **done** |
 | 4.7 | bounded heaps on hosted targets | `check-embedded.sh` (A7, `ceiling` ablation) | **done** |
 | 6 | the QEMU reference port | `check-embedded.sh` | proposed |
