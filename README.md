@@ -2,7 +2,7 @@
 
 ![GitHub CI](https://github.com/chrispaig3/Axiom/actions/workflows/ci.yml/badge.svg)
 
-**A functional systems language that ships a binary, not a runtime.**
+**Functional system programming that ships a binary, not a runtime.**
 
 <img width="1500" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
 
