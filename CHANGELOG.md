@@ -16,6 +16,15 @@ its changelog too.
 
 ## Unreleased
 
+## 0.7.5 — 2026-09-11
+
+<!-- Empty by design until the next change lands. The heading STAYS when a
+     release is cut: `scripts/check-gate-lib.sh` reads this file starting at
+     `## Unreleased` and takes the two sections below it, so removing the
+     heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
+     state \"sixty-five gates\" anywhere" - the count as it stands today.
+     Measured on the 0.7.0 tag, which is how this comment came to be here. -->
+
 ### `Path.pathClean` resolves `.` and `..` segments
 
 `pathJoin` and every other function in `stdlib/Path.ax` treat a path
@@ -32,7 +41,7 @@ this module allocates without one, and this is no exception.
 `tests/stdlib/469-path-clean.ax` pins seventeen cases, including the two
 names `pathExtIndex` already had to reason about carefully —
 `".axiomrc"` and `"..b"` are ordinary names, not a `.` or `..`
-segment.
+segment. Contributed by @JessicaTemplet in PR #32.
 
 ### Effect-distribution pins re-derived — `scripts/check-effect-distribution.sh`
 
@@ -507,8 +516,6 @@ moved: the additions are at the end of `IO.ax` and `Sys.ax`, and the
 one edit above a pinned line (`sysReadFile`'s fold) sits below both
 `Sys.ax:175` and `:222`. `docs/stdlib-api.md` and
 `tests/agent/stdlib-effects.allow` are re-derived by their gates.
-
-## 0.7.5 — 2026-09-04
 
 ### A restriction violation named its call path in prose and nowhere a tool could read it
 
@@ -1926,13 +1933,6 @@ table was written, three of the twelve hits in those files are prose and
 one function contributed three of the rest. New §10.2 carries the table.
 
 ## 0.7.4 — 2026-09-03
-
-<!-- Empty by design until the next change lands. The heading STAYS when a
-     release is cut: `scripts/check-gate-lib.sh` reads this file starting at
-     `## Unreleased` and takes the two sections below it, so removing the
-     heading makes the gate read NOTHING and fail with "CHANGELOG.md does not
-     state \"sixty-five gates\" anywhere" - the count as it stands today.
-     Measured on the 0.7.0 tag, which is how this comment came to be here. -->
 
 ### A mid-level IR, and the first thing that lowers through it
 
