@@ -4133,6 +4133,34 @@ all three failures still ran (`tests/testrunner/mixed-tests.ax`). A
 memory-safety fault is the one thing this does not contain, and no
 language contains it.
 
+### Marking a Test Expected to Fail
+
+`;@axiom:expect`, written above a test's `fn` (or its `::`
+signature, when that is where it ends up), flips the verdict: a
+tagged test that fails is reported `xfail` rather than `FAIL`, and
+does not count against the run, while a tagged test that does *not*
+fail is reported `FAIL` — with its own message — and does. The flip
+is keyed on the status the recovery point answers, not on the
+`Assert` effect specifically, so a tagged test that ends in a
+division by zero is `xfail` too:
+
+```
+ok   testANormalTestIsUnaffected
+     deliberate: want 1, got 2
+xfail testXFailReportsTheFailureAsExpected - a failed assertion, or an unhandled effect (status 71), as expected
+xfail testXFailAlsoCatchesADivisionByZero - division by zero (status 72), as expected
+FAIL testXFailButItPassesAnyway - expected to fail, but passed
+     still deliberate: want 1, got 2
+xfail testXFailTaggedOnTheSignature - a failed assertion, or an unhandled effect (status 71), as expected
+
+5 test(s), 1 failed
+```
+
+The tag cannot be used to silence a broken test: `testXFailButItPassesAnyway`
+above is tagged and still reported as a failure, because its assertion
+stopped failing (`tests/testrunner/xfail-tests.ax`,
+`scripts/check-test-runner.sh`).
+
 ---
 
 ## Compiler Pipeline

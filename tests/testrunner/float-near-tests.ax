@@ -1,0 +1,24 @@
+; `assertFloatNear` compares within a tolerance rather than exactly,
+; which is what a `Float` a program COMPUTES needs: `assertEq` on two
+; `Int`s never has rounding to forgive, and a `Float` routinely does.
+;
+; Three tests: comfortably within `epsilon`, exactly AT it (inclusive,
+; so a boundary value is not a surprise failure), and far enough
+; outside it that the assertion must still catch a real mismatch - an
+; assertion that always passes is worse than no assertion.
+(import Test)
+
+(:: testFloatNearWithinTolerance Int)
+
+;@axiom:effect(io)
+(fn (testFloatNearWithinTolerance) (assertFloatNear "close enough" 3.14159 3.14158 0.001))
+
+(:: testFloatNearAtTheBoundary Int)
+
+;@axiom:effect(io)
+(fn (testFloatNearAtTheBoundary) (assertFloatNear "diff equals epsilon" 1.0 1.5 0.5))
+
+(:: testFloatNearCatchesARealMismatch Int)
+
+;@axiom:effect(io)
+(fn (testFloatNearCatchesARealMismatch) (assertFloatNear "too far" 1.0 2.0 0.001))

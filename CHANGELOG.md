@@ -16,6 +16,50 @@ its changelog too.
 
 ## Unreleased
 
+### `assertFloatNear` — `stdlib/Test.ax`, `scripts/check-test-runner.sh`
+
+A tolerance-based assertion for `stdlib/Test.ax`, alongside `assertEq`
+and the other five: `(assertFloatNear label want got epsilon)` compares
+`|want - got|` against `epsilon` rather than for exact equality, which
+is what a `Float` a program COMPUTES needs and none of the other six
+assertions do - two `Int`s that should match never carry rounding
+error, and two `Float`s routinely do. The comparison is inclusive at
+the boundary (`diff <= epsilon`, not `<`), so a value exactly as far
+off as the tolerance allows is not a surprise failure. `epsilon` is the
+caller's to choose rather than a default this module picks, because
+how near is near enough depends on the computation being tested, not
+on the assertion. `tests/testrunner/float-near-tests.ax` pins three
+cases - comfortably within tolerance, exactly at the boundary, and far
+enough outside it that the assertion still catches a real mismatch, an
+assertion that always passes being worse than none - and
+`tests/agent/stdlib-effects.allow` and the generated
+`docs/stdlib-api.md` both carry the new name.
+
+### A test may be marked expected to fail — `scripts/check-test-runner.sh`
+
+`;@axiom:expect`, above a test's `fn` or its `::` signature, flips
+`axiom test`'s verdict rather than adding a new mechanism: the
+generated driver already calls a report function per test inside its
+own recovery point (`ERR-REC-6`), and a tagged test now calls a second
+one, `axiomTestReportXFail`, that reads the same status the other one
+does and inverts which value is the failure. A tagged test that ends
+in *any* nonzero status - not only a failed assertion, a division by
+zero too - is reported `xfail` and does not count against the run; one
+that ends in status 0 is reported `FAIL - expected to fail, but
+passed` and does, which is what keeps the tag from silencing a test
+that is actually broken. `testCollect` now answers a small record per
+test (name, and whether either declaration half carries the tag) in
+place of a bare name, and `testExpectFail` checks the `fn` first and
+falls back to the `::` signature - the same two-halves reasoning
+`rawTagged` already applied to `;@axiom:raw`, since an AXTAG attaches
+to one declaration group and a function is normally two of them.
+`tests/testrunner/xfail-tests.ax` carries five tests: an untagged
+control, a tagged assertion failure, a tagged division by zero, a
+tagged assertion that unexpectedly holds, and the tag read off a `::`
+signature - one real failure among the five, and the golden pins the
+exact `xfail`/`FAIL` line for each. Setup/teardown and running tests
+in parallel are still not here.
+
 ### A repeating pattern binds each binder to a sequence — `tests/selfhost/397-nested-repeat.ax`
 
 MAC-LANG-16's second half: `(m (f a) ...)` matches every absorbed

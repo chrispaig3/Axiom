@@ -3,6 +3,7 @@ andThen Err.ax Alloc
 appendFile IO.ax Alloc,IO,Mut
 assertEq Test.ax Alloc,Assert,IO,Mut
 assertFalse Test.ax Alloc,Assert,IO,Mut
+assertFloatNear Test.ax Alloc,Assert,IO,Mut
 assertNe Test.ax Alloc,Assert,IO,Mut
 assertStrEq Test.ax Alloc,Assert,IO,Mut
 assertTrue Test.ax Alloc,Assert,IO,Mut

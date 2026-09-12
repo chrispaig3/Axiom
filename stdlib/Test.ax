@@ -171,6 +171,31 @@
   )
 )
 
+; Two `Float`s are equal within `epsilon` - the tolerance none of the
+; assertions above need, because comparing a COMPUTED float against an
+; exact literal is comparing against rounding error, not against the
+; answer: `(assertEq "" 3 (+ 1 2))`'s `Int` analogue would never be
+; wrong this way, and a `Float` one routinely is. `epsilon` is the
+; caller's to choose rather than a default picked here, because how
+; near is near enough depends on the computation, not on this module.
+(pub :: assertFloatNear (-> String Float Float Float Int))
+
+;@axiom:effect(io)
+(pub fn (assertFloatNear label want got epsilon)
+  (let (
+    (d (- want got))
+    (diff (if (< d 0.0) (- 0.0 d) d))
+  )
+    (if (<= diff epsilon)
+      0
+      {
+        (println "     {label}: want {want}, got {got} (diff {diff} exceeds epsilon {epsilon})")
+        (assertFail label)
+      }
+    )
+  )
+)
+
 ; Fail unconditionally: the branch that must not be reached, and the
 ; case a test has not written yet. `(testFail "todo: the empty input")`
 ; reads as a failure rather than as a passing test with nothing in it,

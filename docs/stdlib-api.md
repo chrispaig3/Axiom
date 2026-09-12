@@ -632,7 +632,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Test`
 
-`stdlib/Test.ax` — 7 public names
+`stdlib/Test.ax` — 8 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -642,6 +642,7 @@ See [reference.md](reference.md) for the language, and
 | `assertStrEq` | value | `(-> String String String Int)` | `Alloc,Assert,IO,Mut` | Two `String`s are equal, by bytes. |
 | `assertTrue` | value | `(-> String Bool Int)` | `Alloc,Assert,IO,Mut` | A `Bool` is true. |
 | `assertFalse` | value | `(-> String Bool Int)` | `Alloc,Assert,IO,Mut` | A `Bool` is false. Not `(assertTrue label (! b))`, because Axiom has no `!` and `(== b false)` at the call site is what this exists to keep out of the test. |
+| `assertFloatNear` | value | `(-> String Float Float Float Int)` | `Alloc,Assert,IO,Mut` | Two `Float`s are equal within `epsilon` - the tolerance none of the assertions above need, because comparing a COMPUTED float against an exact literal is comparing against rounding error, not against the answer: `(assertEq "" 3 (+ 1 2))`'s `Int` analogue would never be wrong this way, and a `Float` one routinely is. `epsilon` is the caller's to choose rather than a default picked here, because how near is near enough depends on the computation, not on this module. |
 | `testFail` | value | `(-> String Int)` | `Alloc,Assert,IO,Mut` | Fail unconditionally: the branch that must not be reached, and the case a test has not written yet. `(testFail "todo: the empty input")` reads as a failure rather than as a passing test with nothing in it, which is what an empty test body is. |
 
 ## `Tui.Edit`
