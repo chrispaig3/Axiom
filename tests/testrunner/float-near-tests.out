@@ -1,0 +1,6 @@
+ok   testFloatNearWithinTolerance
+ok   testFloatNearAtTheBoundary
+     too far: want 1.000000, got 2.000000 (diff 1.000000 exceeds epsilon 0.001000)
+FAIL testFloatNearCatchesARealMismatch - a failed assertion, or an unhandled effect (status 71)
+
+3 test(s), 1 failed

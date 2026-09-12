@@ -1,0 +1,53 @@
+; The suite that proves the VERDICT FLIP: a test tagged
+; `;@axiom:expect-fail` is `xfail` when it fails, the way every other
+; failing test above it in this directory is `FAIL`, and `FAIL` when it
+; does NOT - so the tag cannot be used to make a broken test quiet.
+;
+; Read the golden beside this file as the claim. Five tests, one of
+; them reported as a genuine failure - the one whose whole point is
+; that a tag does not launder a test into always passing.
+(import Test)
+
+(:: testANormalTestIsUnaffected Int)
+
+;@axiom:effect(io)
+(fn (testANormalTestIsUnaffected) (assertTrue "untagged tests still run as before" true))
+
+; The ordinary case: the assertion fails, the tag said it would, and
+; the runner reports `xfail` rather than `FAIL` - and does not count
+; it in the failed total.
+(:: testXFailReportsTheFailureAsExpected Int)
+
+;@axiom:expect-fail
+;@axiom:effect(io)
+(fn (testXFailReportsTheFailureAsExpected) (assertEq "deliberate" 1 2))
+
+; The flip is keyed on the STATUS the recovery point answers, not on
+; the `Assert` effect specifically - the same rule that makes an
+; ordinary failing test in `mixed-tests.ax` end at a division by zero
+; ends this one too, and it is still `xfail`.
+(:: testXFailAlsoCatchesADivisionByZero Int)
+
+;@axiom:expect-fail
+(fn (testXFailAlsoCatchesADivisionByZero) (/ 1 (- 1 1)))
+
+; The case the tag exists to keep honest: the assertion the author
+; expected to fail no longer does, and that is now the failure -
+; reported `FAIL`, with its own message, and counted.
+(:: testXFailButItPassesAnyway Int)
+
+;@axiom:expect-fail
+;@axiom:effect(io)
+(fn (testXFailButItPassesAnyway) (assertEq "surprise" 2 2))
+
+; The tag read off the `::` signature rather than the `fn` - the
+; other half of the same declaration, and the half `testExpectFail`
+; falls back to check when the `fn` does not carry it. Every other
+; test in this file tags the `fn`, which is where the convention
+; already puts `;@axiom:effect(io)`; this one exists so that path is
+; not dead code.
+;@axiom:expect-fail
+(:: testXFailTaggedOnTheSignature Int)
+
+;@axiom:effect(io)
+(fn (testXFailTaggedOnTheSignature) (assertEq "still deliberate" 1 2))

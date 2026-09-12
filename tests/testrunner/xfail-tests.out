@@ -1,0 +1,9 @@
+ok   testANormalTestIsUnaffected
+     deliberate: want 1, got 2
+xfail testXFailReportsTheFailureAsExpected - a failed assertion, or an unhandled effect (status 71), as expected
+xfail testXFailAlsoCatchesADivisionByZero - division by zero (status 72), as expected
+FAIL testXFailButItPassesAnyway - expected to fail, but passed
+     still deliberate: want 1, got 2
+xfail testXFailTaggedOnTheSignature - a failed assertion, or an unhandled effect (status 71), as expected
+
+5 test(s), 1 failed

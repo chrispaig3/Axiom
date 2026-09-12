@@ -21,6 +21,15 @@
 #      declared AFTER all three still reports `ok`.
 #   4. A file with no test is a failure, and a `test`-named function
 #      that takes parameters is refused by name.
+#   5. `;@axiom:expect-fail` flips the verdict and nothing else: a
+#      tagged test that fails is `xfail` and does not count against
+#      the run, and a tagged test that does NOT fail is `FAIL` and
+#      does - `xfail-tests.ax` carries both, so the tag cannot be used
+#      to silence a test that is actually broken.
+#   6. `assertFloatNear`'s tolerance is inclusive at the boundary and
+#      still catches a real mismatch outside it - `float-near-tests.ax`
+#      carries both, for the same reason as 5: a comparison that always
+#      passes is worse than no comparison.
 #
 # WHY THE FIXTURES ARE COPIED INTO $work. `axiom test` writes its
 # generated driver beside the file under test, because that is where
@@ -143,6 +152,84 @@ if printf '%s\n' "$mixed" | grep -q "unreachable"; then
   bad "execution continued past a failed assertion"
 else
   ok "nothing ran after the failed assertion inside its own test"
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== \`;@axiom:expect-fail\` flips the verdict, and only the verdict =="
+# --------------------------------------------------------------------
+# `xfail-tests.ax`: a tagged test that fails is `xfail` and does not
+# count against the run; a tagged test that does NOT fail is `FAIL`
+# and does - so the tag cannot be used to silence a broken test, only
+# to say a real failure is expected. One case tags the `::` signature
+# rather than the `fn`, the other half `testExpectFail` falls back to.
+set +e
+xf="$(axiom_test suite/xfail-tests.ax)"; rc=$?
+set -e
+if (( rc == 1 )); then ok "xfail-tests.ax exits 1"; else bad "xfail-tests.ax exits $rc, expected 1"; fi
+
+if diff -u "$fixtures/xfail-tests.out" <(printf '%s\n' "$xf") > "$work/xfail.diff"; then
+  ok "its report is the golden, byte for byte"
+else
+  bad "xfail-tests.ax report differs from tests/testrunner/xfail-tests.out"
+  sed 's/^/     /' "$work/xfail.diff"
+fi
+
+# The claims the golden encodes, restated so a re-blessed golden cannot
+# quietly lose any of them.
+if printf '%s\n' "$xf" | grep -qx "xfail testXFailReportsTheFailureAsExpected - a failed assertion, or an unhandled effect (status 71), as expected"; then
+  ok "a tagged test that fails is reported xfail, not FAIL"
+else
+  bad "an expect-fail test that failed was not reported xfail"
+fi
+if printf '%s\n' "$xf" | grep -qx "xfail testXFailAlsoCatchesADivisionByZero - division by zero (status 72), as expected"; then
+  ok "the flip is keyed on the status, not on the Assert effect specifically"
+else
+  bad "a non-assertion trap under expect-fail was not reported xfail"
+fi
+if printf '%s\n' "$xf" | grep -qx "FAIL testXFailButItPassesAnyway - expected to fail, but passed"; then
+  ok "a tagged test that unexpectedly PASSES is reported FAIL, not xfail"
+else
+  bad "an expect-fail test that passed was not reported as a failure - the tag can silence a broken test"
+fi
+if printf '%s\n' "$xf" | grep -qx "xfail testXFailTaggedOnTheSignature - a failed assertion, or an unhandled effect (status 71), as expected"; then
+  ok "the tag is also read off the \`::\` signature, not only the \`fn\`"
+else
+  bad "the tag on the signature half was not honoured"
+fi
+if printf '%s\n' "$xf" | grep -qx "5 test(s), 1 failed"; then
+  ok "the summary counts only the one real failure, not the two expected ones"
+else
+  bad "the summary miscounted the expected failures"
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== \`assertFloatNear\` compares within a tolerance, inclusively =="
+# --------------------------------------------------------------------
+# `float-near-tests.ax`: within epsilon, exactly at it (inclusive), and
+# far enough outside it that the assertion still catches a real
+# mismatch - an assertion that always passes is worse than none.
+set +e
+fn_out="$(axiom_test suite/float-near-tests.ax)"; rc=$?
+set -e
+if (( rc == 1 )); then ok "float-near-tests.ax exits 1"; else bad "float-near-tests.ax exits $rc, expected 1"; fi
+
+if diff -u "$fixtures/float-near-tests.out" <(printf '%s\n' "$fn_out") > "$work/floatnear.diff"; then
+  ok "its report is the golden, byte for byte"
+else
+  bad "float-near-tests.ax report differs from tests/testrunner/float-near-tests.out"
+  sed 's/^/     /' "$work/floatnear.diff"
+fi
+if printf '%s\n' "$fn_out" | grep -qx "ok   testFloatNearAtTheBoundary"; then
+  ok "a diff exactly equal to epsilon passes (inclusive), not a surprise failure"
+else
+  bad "the boundary case did not pass - the comparison is not inclusive"
+fi
+if printf '%s\n' "$fn_out" | grep -q "^FAIL testFloatNearCatchesARealMismatch"; then
+  ok "a diff outside epsilon still fails"
+else
+  bad "assertFloatNear did not catch a real mismatch"
 fi
 
 # --------------------------------------------------------------------
