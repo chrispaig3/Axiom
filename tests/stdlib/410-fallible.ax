@@ -58,6 +58,12 @@
 ; with a message built per record 80 - see the module's header. A
 ; batch loop has no arena reset, so a byte per record is a byte kept.
 ;
+; Term `e` is the built-message row closed: the handler answers an
+; `Int`, so the last step's closure argument goes with the call and
+; the term reads flat. Before the release it read 0 at 80 bytes per
+; operation; `scripts/check-closure-reclaim.sh` holds that an
+; ablation brings exactly this term back and no other.
+;
 ;     1  skip allocates nothing per record
 ;     1  default allocates nothing per record
 ;     1  counting allocates nothing per record
@@ -118,6 +124,44 @@
   )
     1
     0
+  )
+)
+
+; The same loop with a message BUILT per malformed record
+; (`strConcat`/`fmtInt`, 32 bytes each): term `e` below. Until the
+; closure-argument release this read 80 bytes per operation - an
+; application through a closure never released its owned argument -
+; and now reads flat, because the handler answers an `Int` and the
+; last step's argument goes with the call.
+(:: parseBuilt (-> Int Int))
+
+(fn (parseBuilt i)
+  (if (== (% i 7) 0)
+    (fallibleMalformed (strConcat "record " (fmtInt i)))
+    i
+  )
+)
+
+(:: totalB (-> Int Int))
+
+(fn (totalB n)
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
+    {
+      (while (<= i n)
+        (let ((v (parseBuilt i)))
+          {
+            (set acc (if (fallibleIsSkipped v)
+              acc
+              (+ acc v)
+            ))
+            (set i (+ i 1))
+          }
+        ))
+      acc
+    }
   )
 )
 
@@ -191,6 +235,13 @@
         ))
           (let ((c2 __axiom_arena_mark))
             (println (flat c1 c2))  ; 1
+          )
+        )
+      )
+      (let ((e1 __axiom_arena_mark))
+        (let ((r (cast Int (handle (totalB 10000) (Fallible Alloc Mut) fallibleSkip))))
+          (let ((e2 __axiom_arena_mark))
+            (println (flat e1 e2))  ; 1
           )
         )
       )

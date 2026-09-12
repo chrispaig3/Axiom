@@ -16,6 +16,32 @@ its changelog too.
 
 ## Unreleased
 
+### A closure application's last-step argument goes with a word answer — `scripts/check-closure-reclaim.sh`
+
+An application through a closure never released its owned argument
+at all, where a direct call has since MM-LIFE-2g: 96 bytes for a
+fully-typed named function passed as a value, 80 for a message built
+per record (`stdlib/Fallible.ax`'s table). The word-result rule this
+waited on was unsound while the park was uncounted; the park has
+been counted since 2026-08-30, so both chain walkers now release the
+last step's argument when it is owned, neither static nor nullary,
+and the checker's stamped answer is a word. The stamp is new -
+`nodeResWord` on the application node, proven words only (`Int`,
+`Float`, `Bool`, `Char`, the empty tuple, and never `Vec`, which
+takes no share while still being a block) - because the evidence
+encoding has no definitely-word value, only reference-or-unknown.
+Intermediate steps keep theirs (the next step loads the answer's
+word 0 as a code pointer), surplus arguments keep theirs (the cast
+spine, the over-applied tail: unmeasured rather than known safe),
+and the effect path classifies through the same stamp.
+`tests/stdlib/410-fallible.ax` term `e` pins the built-message row
+flat; the gate's new section ablates the stamp and requires exactly
+that term back to 0 with thirteen lines untouched and both exits
+beside it unmoved. `tests/stdlib/460/461/462` answer as before.
+Four new pure-or-`Mut` functions move the pins re-derived rather
+than retuned (exactly `Mut` 118 → 119, everything else where it
+was; added 4, removed 0, changed 0).
+
 ### S4 slice 1: in-region constructions are reset-reclaimed — `scripts/check-region-reclaim.sh`
 
 The first traffic the region discipline provably owns: a release

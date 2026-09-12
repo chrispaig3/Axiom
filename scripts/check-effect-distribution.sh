@@ -11,9 +11,9 @@
 # views, because the claim "ambient" is a claim about a population:
 #
 #   compiler  `symbols --calls self_host/main.ax`: the compiler and the
-#             stdlib it reaches. 4,258 functions; 2,692 perform, 2,030
-#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,518 of
-#             the 2,692 (94%).
+#             stdlib it reaches. 4,262 functions; 2,693 perform, 2,030
+#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,519 of
+#             the 2,693 (94%).
 #   stdlib    one probe importing every stdlib module: the whole
 #             library's. 821 functions; 410 perform, 178 of those
 #             exactly `Alloc,Mut`; customs are two singletons (`Assert`,
@@ -50,12 +50,12 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2030 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 366 "Alloc,IO,Mut"
-have "$(bucket "$work/main.axsym" 'Mut')" 118 "exactly Mut"
+have "$(bucket "$work/main.axsym" 'Mut')" 119 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 116 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 39 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 19 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 4 "IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1566 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1569 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 

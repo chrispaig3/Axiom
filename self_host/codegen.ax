@@ -16540,7 +16540,7 @@
                 (let ((cgP (loadWordAt cgL rec 1)))
                   (let ((prev (strDup (memGetWordStr cgP 2))))
                     (let ((_8 (emitLine cgP (cat4 "  store i64 " prev ", ptr @" slot))))
-                      (let ((cgR (emitApplyRegs regs cgP handler 0 snode)))
+                      (let ((cgR (emitApplyRegs args regs cgP handler 0 snode)))
                         (let ((res (strDup (memGetWordStr cgR 2))))
                           {
                             (emitLine cgR (cat4 "  store i64 " rec ", ptr @" slot))
@@ -16584,10 +16584,10 @@
 ; value absorbs exactly one, so a two-argument operation takes a
 ; curried handler chain and applying both at once would answer with
 ; the inner closure's address.
-(pub :: emitApplyRegs (-> (Vec a) Int String Int Int Int))
+(pub :: emitApplyRegs (-> (Vec Int) (Vec a) Int String Int Int Int))
 
-(pub fn (emitApplyRegs regs cg rec i snode)
-  (emitApplyRegsOwned regs cg rec i 0 snode)
+(pub fn (emitApplyRegs args regs cg rec i snode)
+  (emitApplyRegsOwned args regs cg rec i 0 snode)
 )
 
 ; The walk, carrying whether THIS walk produced `rec`. `recOwned` is 0
@@ -16604,9 +16604,9 @@
 ; the block files. Unreleased it was 31-32 bytes per two-argument
 ; operation, which is the whole of `Fallible.ax`'s "two arguments
 ; (message, fallback) 32 bytes per operation" row.
-(pub :: emitApplyRegsOwned (-> (Vec a) Int String Int Int Int Int))
+(pub :: emitApplyRegsOwned (-> (Vec Int) (Vec a) Int String Int Int Int Int))
 
-(pub fn (emitApplyRegsOwned regs cg rec i recOwned snode)
+(pub fn (emitApplyRegsOwned args regs cg rec i recOwned snode)
   (if (>= i (vecLen regs))
     {
       (memSetWord cg 2 rec)
@@ -16618,13 +16618,29 @@
     ; application node whose class the checker could have recorded.
     ; Under-retaining leaks; the alternative would be to guess.
     (let ((cgR (applyOneArg cg rec (vecGetStr regs i) (constStr 0) snode)))
-      (let ((cgD 
+      (let ((cgD
         (if (== recOwned 1)
           (emitReleaseOf cgR rec)
           cgR
         )
       ))
-        (emitApplyRegsOwned regs cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1 snode)
+        ; The argument half, same rule as the chain walker's: the
+        ; last step's argument goes with the call when it is owned,
+        ; neither static nor nullary, and the stamped answer is a
+        ; word. Intermediate arguments stay for the same reason -
+        ; the next step loads the answer's word 0 as a code pointer,
+        ; so it may alias them. `args` and `regs` are parallel (one
+        ; register per node, pushed in order by `emitArgRegs`), which
+        ; is what lets this walker classify what it already
+        ; evaluated.
+        (let ((cgE
+          (if (&& (>= (+ i 1) (vecLen regs)) (&& (== (valueOwnedRef cgD (vecGet args i)) 1) (&& (== (isStaticSentinelNode cgD (vecGet args i)) 0) (&& (== (isNullaryConNode cgD (vecGet args i)) 0) (== (nodeResWord snode) 1)))))
+            (emitReleaseOf cgD (vecGetStr regs i))
+            cgD
+          )
+        ))
+          (emitApplyRegsOwned args regs cgE (strDup (memGetWordStr cgE 2)) (+ i 1) 1 snode)
+        )
       )
     )
   )
@@ -17422,7 +17438,7 @@
             {
               (memSetWord cg 30 0)
               (let ((cgH (emitExpr fnNode cg)))
-                (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs snode)
+                (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs snode 1)
               )
             }
           )
@@ -17612,7 +17628,7 @@
   ; one.
   (let ((evs (spineEvs cg)))
     (let ((cgH (emitVar (mkEVar fnName) cg)))
-      (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs snode)
+      (emitApplyChainOwned args cgH (strDup (memGetWordStr cgH 2)) 0 0 evs snode 1)
     )
   )
 )
@@ -17629,7 +17645,10 @@
 
 ;@axiom:effect(io)
 (pub fn (emitApplyChain args cg rec i evs snode)
-  (emitApplyChainOwned args cg rec i 0 evs snode)
+  ; Surplus arguments only: the cast spine and the over-applied tail
+  ; enter here, and neither releases its arguments - unmeasured
+  ; rather than known safe, so the flag below stays 0 for both.
+  (emitApplyChainOwned args cg rec i 0 evs snode 0)
 )
 
 ; The evidence classes for a spine, SNAPSHOTTED before the walk begins
@@ -17668,10 +17687,18 @@
 ; (`emitApp`'s two-argument operator path, and the partial-application
 ; path that drops the arity prefix) still hand in a record they did
 ; not make, so they start at 0 like everyone else.
-(pub :: emitApplyChainOwned (-> (Vec Int) Int String Int Int (Vec Int) Int Int))
+;
+; `arel` is whether this walk may release a last-step argument: 1
+; for a closure applied where it stands (a computed head, an
+; indirect call), 0 through the `emitApplyChain` wrapper below,
+; whose only callers are surplus arguments (the cast spine, the
+; over-applied tail) - unmeasured rather than known safe, so they
+; keep their releases. The flag threads through the recursion
+; unchanged.
+(pub :: emitApplyChainOwned (-> (Vec Int) Int String Int Int (Vec Int) Int Int Int))
 
 ;@axiom:effect(io)
-(pub fn (emitApplyChainOwned args cg rec i recOwned evs snode)
+(pub fn (emitApplyChainOwned args cg rec i recOwned evs snode arel)
   (if (>= i (vecLen args))
     {
       (memSetWord cg 2 rec)
@@ -17682,13 +17709,45 @@
     (let ((cgA (emitExpr (vecGet args i) cg)))
       (let ((a (strDup (memGetWordStr cgA 2))))
         (let ((cgR (applyOneArg cgA rec a ev snode)))
-          (let ((cgD 
+          (let ((cgD
             (if (== recOwned 1)
               (emitReleaseOf cgR rec)
               cgR
             )
           ))
-            (emitApplyChainOwned args cgD (strDup (memGetWordStr cgD 2)) (+ i 1) 1 evs snode)
+            ; The argument half of the closure reclaim: an application
+            ; through a closure never released its owned argument at
+            ; all, where a direct call has since MM-LIFE-2g
+            ; (`releaseOwnedArgs`). The release fires only where all
+            ; four hold:
+            ;
+            ;   * this is the LAST step - an intermediate answer is a
+            ;     closure record by construction (the next step loads
+            ;     its word 0 as a code pointer), so it may alias the
+            ;     argument and keeps it;
+            ;   * the stamped answer is a word (`nodeResWord`) - a word
+            ;     cannot alias the argument, while a reference answer
+            ;     may BE it (identity), which would double-free. The
+            ;     zero default keeps: unstamped spines (cast) never
+            ;     fire;
+            ;   * the argument is owned, neither static nor nullary -
+            ;     the same three answers `argOwnedRelease` gives, for
+            ;     the same reasons (a static release is a no-op, a
+            ;     nullary one loads from an immediate);
+            ;   * `arel` allows it - surplus arguments keep theirs.
+            ;
+            ; No `a == rec` guard: registers are unique per function
+            ; (the counter resets only on function entry), and neither
+            ; constants nor immediates reach this release, so the two
+            ; strings cannot name one value.
+            (let ((cgE
+              (if (&& (== arel 1) (&& (>= (+ i 1) (vecLen args)) (&& (== (valueOwnedRef cgD (vecGet args i)) 1) (&& (== (isStaticSentinelNode cgD (vecGet args i)) 0) (&& (== (isNullaryConNode cgD (vecGet args i)) 0) (== (nodeResWord snode) 1))))))
+                (emitReleaseOf cgD a)
+                cgD
+              )
+            ))
+              (emitApplyChainOwned args cgE (strDup (memGetWordStr cgE 2)) (+ i 1) 1 evs snode arel)
+            )
           )
         )
       )

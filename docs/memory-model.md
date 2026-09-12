@@ -2319,36 +2319,25 @@ the owned ARGUMENT a closure application consumes, which a direct call
 has released since `MM-LIFE-2g` — is still open, and is 96 bytes for a
 message built per record.
 
-**It is open because THE LEAK IS LOAD-BEARING, and that is a stronger
-statement than "not done yet".** The rule this was to be closed with —
-release the argument where the application's result class is known to
-be a word, on the reasoning that a word answer cannot *be* the
-argument — is **unsound**, measured 2026-08-30. A lambda that PARKS
-its argument and answers `0` satisfies it, and the park takes no
-share:
-
-    in a named `fn`   call @Vec$vecPush(i64 %box, i64 %s, i64 1)
-    in `_lam_0`       call @Vec$vecPush(i64 %.t2, i64 %m, i64 0)
-
-The trailing operand is `MM-LIFE-2d`'s evidence word, and `0` means
-`__retainref` emits nothing. So `releaseOwnedArgs`' governing premise —
-"every store it could make took a share (events 5/6, `MM-LIFE-2g`)" —
-**is false inside a lifted lambda**, and is false for the same reason
-on both application paths.
-
-Today the two defects cancel: nothing releases the argument, so the
-uncounted park is harmless, and a lambda parameter is never
-`valueOwnedRef` so the two never meet. **Closing the leak is precisely
-what makes them meet.** Simulated with `__release` at exactly the point
-the walker would emit it, a parked 16-byte String reads back as 3 —
-the length of the string allocated into the block after it was filed.
-`tests/stdlib/460-closure-reclaim.ax` term 64 pins that: 127 today, 63
-the moment the release is added.
-
-What this half really waits on is therefore not a guard but a
-prerequisite: **a lifted lambda taking an evidence word**, so that a
-store inside one takes its share like a store anywhere else. Until
-that lands the 96 bytes stay, deliberately.
+**CLOSED 2026-09-11, in the order the note said it had to be.**
+The prerequisite landed first, on 2026-08-30: a lifted lambda takes
+an evidence word for its own argument, so a store inside one takes
+its share like a store anywhere else - `tests/stdlib/460-closure-reclaim.ax`
+term 64 survives COUNTED now, where it used to survive by accident,
+and the `__release` probe that read 3 reads 16. With the park
+counted, the word-result rule is sound, and it is what the walkers
+emit: the last step's argument goes with the call when it is owned,
+neither static nor nullary, and the checker's stamped answer
+(`nodeResWord`, proven words only - `Int`, `Float`, `Bool`, `Char`,
+the empty tuple, and never `Vec`, which takes no share while still
+being a block) is a word. Intermediate steps keep theirs - the next
+step loads the answer's word 0 as a code pointer, so it may alias
+them - and surplus arguments keep theirs (the cast spine, the
+over-applied tail: unmeasured rather than known safe). The
+Fallible.ax row reads 0, `tests/stdlib/410-fallible.ax` term `e`
+pins it, and `scripts/check-closure-reclaim.sh` holds the other
+half: the stamp ablated brings term `e` back to 0 with thirteen
+lines untouched and both exits beside it unmoved.
 
 **Event 5 emits since 2026-08-15** (`tests/stdlib/361-arc-field-store.ax`,
 63 against the unfixed compiler's 7): `(set e.f v)` into a reference

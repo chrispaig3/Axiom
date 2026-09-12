@@ -175,8 +175,8 @@ s = open(p).read()
 # so a third use of `recOwned` added later is not silently ablated
 # instead of - or as well as - these two.
 pairs = [
-    ("""(pub fn (emitApplyRegsOwned regs cg rec i recOwned snode)""", "emitApplyRegsOwned"),
-    ("""(pub fn (emitApplyChainOwned args cg rec i recOwned evs snode)""", "emitApplyChainOwned"),
+    ("""(pub fn (emitApplyRegsOwned args regs cg rec i recOwned snode)""", "emitApplyRegsOwned"),
+    ("""(pub fn (emitApplyChainOwned args cg rec i recOwned evs snode arel)""", "emitApplyChainOwned"),
 ]
 for head, name in pairs:
     if s.count(head) != 1:
@@ -289,8 +289,8 @@ fi
 # The emitter half: `emitApplyChain` passes `vecNew` again, which is
 # what it did until 2026-08-31, and takes BOTH of its callers with it.
 rc_a="$(ablate_and_run emitter self_host/codegen.ax \
-  '(emitApplyChainOwned args cg rec i 0 evs snode)' \
-  '(emitApplyChainOwned args cg rec i 0 vecNew snode)')" || rc_a=""
+  '(emitApplyChainOwned args cg rec i 0 evs snode 0)' \
+  '(emitApplyChainOwned args cg rec i 0 vecNew snode 0)')" || rc_a=""
 if [[ -z "$rc_a" ]]; then
   bad "could not ablate the emitter half - nothing was proven"
 elif [[ "$rc_a" == "$surplus_want" ]]; then
@@ -299,6 +299,113 @@ elif [[ "$rc_a" == "139" ]]; then
   ok "the emitter-ablated compiler exits 139 - two uncounted parks, a segmentation fault"
 else
   ok "the emitter-ablated compiler exits $rc_a rather than $surplus_want"
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== and the last-step argument goes with a word answer =="
+# --------------------------------------------------------------------
+# The other half of this gate's subject: an application through a
+# closure never released its owned argument at all, where a direct
+# call has since MM-LIFE-2g. The rule fires only where all three
+# hold - the last step (an intermediate answer is a record by
+# construction), an owned argument that is neither static nor
+# nullary, and a stamped word answer (`nodeResWord`, which the
+# checker proves and defaults to keep). Surplus arguments keep
+# theirs: the wrapper both surplus paths enter passes 0.
+#
+# `tests/stdlib/410-fallible.ax` term `e` is the measurement: a
+# message built per malformed record over 10,000 records, flat when
+# the argument goes with the call (80 bytes per operation before).
+# The ablation below kills the stamp, not the walk: term `e` must go
+# back to 0 while every other line of 410 and both exits beside it
+# stay exactly where they are - 460's bitmask and 462's exit - or
+# the ablation moved something it should not have.
+term410="$repo_root/tests/stdlib/410-fallible.ax"
+if "$axc" build --input "$term410" --output "$work/fall410" >"$work/fall410.build.log" 2>&1; then
+  "$work/fall410" >"$work/fall410.out" 2>&1
+  if (( $? != 0 )); then
+    bad "410-fallible exits nonzero under test"
+  elif ! cmp -s "$work/fall410.out" "$repo_root/tests/stdlib/410-fallible.out"; then
+    bad "410-fallible's stdout differs under test"
+    diff "$repo_root/tests/stdlib/410-fallible.out" "$work/fall410.out" | head -6 | sed 's/^/     /'
+  else
+    ok "410-fallible answers its fourteen lines under test, term e flat"
+  fi
+else
+  bad "410-fallible did not build under test"
+  sed 's/^/     /' "$work/fall410.build.log" | head -10
+fi
+
+argabl="$work/tree-arg"
+rm -rf "$argabl"; mkdir -p "$argabl"
+cp -R "$repo_root/self_host" "$repo_root/stdlib" "$argabl/" || {
+  echo "FAIL: could not copy the tree to ablate" >&2; exit 1; }
+if ! python3 - "$argabl/self_host/typecheck.ax" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+# The stamp write, and only it: `(setNodeResWord e (evResultWord
+# funcTy))` occurs once, beside `evStampFill`. With no stamp every
+# node reads the zero default and keeps its argument's release.
+needle = "(setNodeResWord e (evResultWord funcTy))"
+if s.count(needle) != 1:
+    sys.stderr.write("resWord stamp not found verbatim (%d matches)\n" % s.count(needle))
+    sys.exit(1)
+open(p, "w").write(s.replace(needle, "0", 1))
+PY
+then
+  bad "could not ablate the resWord stamp - nothing was proven"
+else
+  echo "-- rebuilding the compiler from the stamp-ablated tree --"
+  if AXIOM_STDLIB="$argabl/stdlib" "$axiom" build "$argabl/self_host/main.ax" \
+       -o "$work/axc-argabl" >"$work/argabl.build.log" 2>&1; then
+    if "$work/axc-argabl" build --input "$term410" --output "$work/fall410a" >>"$work/argabl.build.log" 2>&1; then
+      "$work/fall410a" >"$work/fall410a.out" 2>&1
+      if (( $? != 0 )); then
+        bad "410-fallible exits nonzero stamp-ablated"
+      elif cmp -s "$work/fall410a.out" "$repo_root/tests/stdlib/410-fallible.out"; then
+        bad "410-fallible still answers flat stamp-ablated - term e cannot fail"
+      else
+        # Thirteen of fourteen lines must be untouched: only term e
+        # may move, from 1 back to 0. The count is captured first
+        # because `diff` exits 1 on differing files, which `pipefail`
+        # would otherwise read as the test failing.
+        n_move="$(diff "$repo_root/tests/stdlib/410-fallible.out" "$work/fall410a.out" | grep -c '^[<>]' || true)"
+        if [[ "$n_move" == "2" ]]; then
+          line="$(diff "$repo_root/tests/stdlib/410-fallible.out" "$work/fall410a.out" | grep '^>' | head -1)"
+          if [[ "$line" == "> 0" ]]; then
+            ok "stamp-ablated term e reads 0, thirteen lines untouched"
+          else
+            bad "stamp-ablated diff is not term e going 1 -> 0: $line"
+          fi
+        else
+          bad "stamp-ablated 410 differs by more than term e"
+          diff "$repo_root/tests/stdlib/410-fallible.out" "$work/fall410a.out" | head -8 | sed 's/^/     /'
+        fi
+      fi
+    else
+      bad "410-fallible did not build stamp-ablated"
+    fi
+    # Isolation, both directions the earlier sections use: the stamp
+    # ablation must not move the bitmask or the surplus exit.
+    rc460a="$(run_fixture "$work/axc-argabl")"
+    if [[ "$rc460a" == "$want" ]]; then
+      ok "stamp-ablated 460 still exits $want"
+    else
+      bad "stamp-ablated 460 exits $rc460a, wanted $want - the ablation is not isolated"
+    fi
+    ( "$work/axc-argabl" run "$surplus" ) >"$work/argabl-surplus.run" 2>&1
+    rc462a="$?"
+    if [[ "$rc462a" == "$surplus_want" ]]; then
+      ok "stamp-ablated 462 still exits $surplus_want"
+    else
+      bad "stamp-ablated 462 exits $rc462a, wanted $surplus_want - the ablation is not isolated"
+    fi
+  else
+    bad "the stamp-ablated compiler did not build"
+    sed 's/^/     /' "$work/argabl.build.log" | head -20
+  fi
 fi
 
 echo

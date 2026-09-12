@@ -1244,6 +1244,52 @@
   )
 )
 
+; A result the release walk may treat as alias-free: 1 for the four
+; machine words and the empty tuple, 0 for everything else. This is
+; deliberately NOT `evScalarName`: that list answers "takes no
+; share", and a `Vec` takes none while still being a block that can
+; hold the argument's block without one - releasing the argument
+; under a `Vec` answer would free storage the answer points at. So
+; `Vec` is 0 here, and so is every name this does not spell: a type
+; variable, an unexpanded alias, `Unit` (a constructor, hence a
+; block), `Any`, `Foreign`, `Handle`, `String`, an arrow, and no
+; type at all. Each of those is a missed elision, never an unsound
+; one; the zero default is what makes an unstamped node keep its
+; release. Pure readers, so untagged like the setters beside it.
+(pub :: evResultWord (-> Int Int))
+
+(pub fn (evResultWord funcTy)
+  (if (!= (nodeTag funcTy) TAG_T_ARR)
+    0
+    (resWordTy (nodeB funcTy))
+  )
+)
+
+(pub :: resWordTy (-> Int Int))
+
+(pub fn (resWordTy t)
+  (if (== t 0)
+    0
+    (let ((tg (nodeTag t)))
+      (if (== tg TAG_T_CON)
+        (let ((n (nodeAName t)))
+          (if (|| (strEq n "Int") (|| (strEq n "Float") (|| (strEq n "Bool") (strEq n "Char"))))
+            1
+            0
+          )
+        )
+        (if (== tg TAG_T_TUP)
+          (if (== (vecLen (nodeAVec t)) 0)
+            1
+            0
+          )
+          0
+        )
+      )
+    )
+  )
+)
+
 (pub :: evDataTyKnown (-> Int String Int))
 
 (pub fn (evDataTyKnown tc n)
@@ -1550,8 +1596,17 @@
 (pub :: evStampFill (-> Int Int Int Int Int))
 
 (pub fn (evStampFill tc e funcTy argTy)
-  (if (!= (nodeTag funcTy) TAG_T_ARR)
-    0
+  ; The application's own answer, beside the argument's: 1 when the
+  ; arrow's result is a proven word (see `evResultWord`), 0
+  ; otherwise. The chain walker spends it - a word answer cannot
+  ; alias the argument, so the argument's share can go with the
+  ; call. Stamped here, next to the argument's stamp, because this
+  ; is the one place with the arrow in scope; idempotent, so
+  ; re-checking a body rewrites the same bit.
+  {
+    (setNodeResWord e (evResultWord funcTy))
+    (if (!= (nodeTag funcTy) TAG_T_ARR)
+      0
     (let ((head (spineHead e)))
       (if (!= (nodeTag head) TAG_E_VAR)
         0
@@ -1580,6 +1635,7 @@
       )
     )
   )
+  }
 )
 
 (pub :: evWalk (-> Int Int Int Int Int Int))

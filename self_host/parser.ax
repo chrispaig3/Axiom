@@ -667,6 +667,38 @@
 
 (pub fn (nodeBinderTy n) (memGetWord n 11))
 
+; Whether an application's answer is a machine word, as the checker
+; proved it - 1 for `Int`, `Float`, `Bool`, `Char` and the empty
+; tuple, 0 for everything else INCLUDING the unknowns (a type
+; variable, an unexpanded alias, no type at all). Word 7, which no
+; AST consumer reads on any node: words 8/9/10 are module,
+; field-names and def-scope, word 6 is the evidence stamp, and word
+; 11 is the binder type above (an application is never a binder, so
+; reusing that word would still be wrong - 1 would read as a type).
+;
+; It is here for the same reason `nodeBinderTy` is: codegen has to
+; answer a question it cannot see the input to. A closure
+; application that answers a word cannot alias its argument into
+; its answer, so the argument's share can go with the call - but
+; the walker holding the argument never sees the application's
+; type, only the checker's word for it. The zero default is the
+; safe direction: an unstamped node (a macro head the LSP checks
+; without emitting, a spine the cast form claims whole) keeps its
+; release. `setNodeResWord`'s only writer is the checker's stamp
+; beside `evStampFill`; its only reader is the chain walker.
+(pub :: nodeResWord (-> Int Int))
+
+(pub fn (nodeResWord n) (memGetWord n 7))
+
+(pub :: setNodeResWord (-> Int Int Int))
+
+(pub fn (setNodeResWord n w)
+  {
+    (memSetWord n 7 w)
+    n
+  }
+)
+
 (pub :: setNodeBinderTy (-> Int Int Int))
 
 (pub fn (setNodeBinderTy n t)
