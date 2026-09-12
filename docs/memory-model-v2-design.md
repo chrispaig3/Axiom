@@ -535,6 +535,42 @@ gate below follows it.
 | **S5** | **DONE 2026-09-03. `__thread_spawn`/`__thread_join`, and `cgThreads`'s owed body** | the primitive pair, the scan (`parScan` in codegen.ax, before `emitAllocator`), the thread runtime (`emitParThread`: the platform's `pthread_create`, an entry that runs the thunk and writes its word) | `scripts/check-thread-local.sh` reaches the ON path through a program that spawns, no ablation: eight globals move and nothing else, the OFF path imports no TLS symbol, a thread's cost is `pthread_create`+`pthread_join` (+`__tlv_bootstrap` on Darwin), local-exec on both Linux targets. freebsd and windows refuse it at build time (`AX4006`) |
 | **S6** | **DONE 2026-09-03, with the limit stated. `parallel`, both lowerings** | the surface is a parser desugaring over `__par_spawn`/`__par_join` (no AST tag); the two backends are `emitParProc` (fork, one `MAP_SHARED` page per binding, `wait4` re-raising a child's status) and `emitParThread`, selected by `--threads` | `scripts/check-parallel.sh`: `tests/stdlib/470-parallel.ax` and `471-parallel-trap.ax` under both lowerings, byte-identical stdout and the same exit (77 out of both for the trap); processes add no import, threads add exactly their own; the flag is inert on a program that spawns nothing; windows emits a status-79 trap in place of both primitives. **What crosses a join is a word, and captures are unchecked under threads** - §3.3 below, and §3.2b for why S3 did not close it |
 
+**S4 slice 1, BUILT 2026-09-11 - direct-construction temporaries, and
+the hole beside it.** `isRegionCoveredCon` (`self_host/codegen.ax`)
+answers whether a release operand is a fully-applied construction the
+emitter is building right here; `releaseOwnedArgs` skips emitting its
+release while `argOwnedRelease` still says 1, so `mustTailOK` stays
+conservative. A region-depth count (pair slot 9) bounds the textual
+extent; `emitLamDef` clears it because a lambda may run after the
+reset. `tests/stdlib/479-region-reclaim.ax` (eight terms) plus
+`scripts/check-region-reclaim.sh`: six releases gone from the
+fixture's IR and the diff is those six lines and nothing else, the
+same eight answers under both compilers, peak RSS 98% across
+300,000 regions, and an ablation answering 0 bringing all six back.
+
+Three things this slice is not, each with the reason. Call results
+are not covered: a callee may alias an outer value, and freshness
+needs the MM-RGN-5 witness - the next slice. `VAR` operands and
+field stores are not covered: the first needs def-tracking, the
+second balances a retain in the same step. And the head check
+mirrors `dispatchCall`'s order (locals shadow, effect ops dispatch,
+the cast path aliases) because a registry hit alone is not the
+decision - a `let`-bound lambda named `MkBox` turns `(MkBox 1)` into
+a closure call, measured leaking without the guard, and constructors
+CAN be named `cast`, probed.
+
+**The adjacent hole, recorded and not fixed here.** A
+callee-mediated store of a fresh construction into an outer cell
+from inside an UN-annotated region is unchecked: `rgnCheckAll` runs
+only under `@r` signatures, so the program checks OK and reads back
+wrong (measured: stores 1, reads 0 after reuse, every gate green -
+the textual half is what S2's AX3059 refuses). The elision is
+outcome-identical there, because the reset frees unconditionally,
+and the gate pins that identity rather than the wrongness: the
+probe built by both compilers prints the same bytes with the same
+exit. S3's "over EVERY body" overclaims until this closes; the fix
+belongs to the checker, not to this slice.
+
 **S3 as built, 2026-09-03 — what it is and what it is not.** Every
 signature may name regions, `(Vec String @r)`, and the rule of §2.3 is
 checked after the type checker has run, over EVERY body in the program:

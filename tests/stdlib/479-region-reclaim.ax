@@ -1,0 +1,134 @@
+; S4 slice 1 (docs/memory-model-v2-design.md §4): inside a
+; `(region r BODY)` a value the body itself constructed and drops
+; needs no `axiom_release` - the reset reclaims it in one pointer
+; move. `scripts/check-region-reclaim.sh` holds the release counts,
+; the RSS and the ablations; this file pins the ANSWERS, so a gate
+; that deleted releases too eagerly fails here first.
+;
+; What each term establishes:
+;
+;   1. A data-construction temporary handed to a call inside a
+;      region answers (the elision fires here).
+;   2. A struct-construction temporary does too (same call, built
+;      through the same `emitConstructor`).
+;   3. The same call with NO region answers the same (the control:
+;      elision needs the reset).
+;   4. A `let`-bound construction answers (the temporary is a `VAR`
+;      at the release site, which this slice does not resolve - the
+;      release stays and the answer is unchanged).
+;   5. A lambda inside a region answers (its body may run after the
+;      reset, so the depth does not cross the boundary - the release
+;      stays).
+;   6. A constructor shadowed by a lambda answers (the application
+;      is a closure call returning an alias, not a construction -
+;      the local guard keeps the release).
+;   7. THE WATERLINE COMES BACK. Marks around a region that builds
+;      and drops a hundred boxes: reclaimed, with the releases
+;      elided - the reset covers what counting used to free.
+;   8. Fifty thousand regions, one sum: the loop answers, proving
+;      the elided traffic was never load-bearing for correctness.
+(import IO)
+
+(import Mem)
+
+(data Box
+  (MkBox Int))
+
+(struct Pair
+  (x : Int)
+  (y : Int))
+
+(:: useBox (-> Box Int Int))
+
+(fn (useBox o d)
+  (+
+    (match o
+      ((MkBox x) x)
+    )
+    d
+  )
+)
+
+(:: getx (-> Pair Int))
+
+(fn (getx p) p.x)
+
+; Term 8's loop: scalar stores to an outer binding are allowed, so
+; the counter lives outside the regions it counts.
+(:: spin (-> Int Int Int))
+
+(fn (spin i acc)
+  (if (<= i 0)
+    acc
+    (region r
+      (spin (- i 1) (+ acc (useBox (MkBox i) 0))))
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- 1. data-construction temporary in a region ---
+    (println
+      (region r
+        (useBox (MkBox 40) 2))
+    )
+    ; --- 2. struct-construction temporary in a region ---
+    (println
+      (region r
+        (getx (Pair 10 32)))
+    )
+    ; --- 3. no region, no elision, same answer ---
+    (println (useBox (MkBox 40) 2))
+    ; --- 4. let-bound construction: the release stays ---
+    (println
+      (region r
+        (let ((b (MkBox 40)))
+          (useBox b 2)
+        ))
+    )
+    ; --- 5. lambda in a region: the release stays ---
+    (println
+      (region r
+        (let ((k 
+          (lambda (q) (useBox (MkBox q) 2))
+        ))
+          (k 40)
+        ))
+    )
+    ; --- 6. shadowed constructor: an alias, not a block ---
+    (println
+      (let ((G (MkBox 7)))
+        (let ((MkBox 
+          (lambda (q) G)
+        ))
+          (region r
+            (useBox (MkBox 1) 2))
+        )
+      )
+    )
+    ; --- 7. the waterline comes back, releases elided ---
+    (let ((m1 __axiom_arena_mark))
+      {
+        (region r
+          {
+            (useBox (MkBox 1) 0)
+            (useBox (MkBox 2) 0)
+            (useBox (MkBox 3) 0)
+            0
+          })
+        (println
+          (if (<= (- (memGetWord __axiom_arena_mark 0) (memGetWord m1 0)) 48)
+            1
+            0
+          )
+        )
+      }
+    )
+    ; --- 8. fifty thousand regions, one sum ---
+    (println (spin 50000 0))
+    0
+  }
+)

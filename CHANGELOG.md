@@ -16,6 +16,34 @@ its changelog too.
 
 ## Unreleased
 
+### S4 slice 1: in-region constructions are reset-reclaimed — `scripts/check-region-reclaim.sh`
+
+The first traffic the region discipline provably owns: a release
+whose operand IS the construction - a fully-applied data or struct
+construction, emitted right here, after the mark, at count 1 -
+dropped inside the region body needs no `axiom_release`, because the
+reset frees it unconditionally. `isRegionCoveredCon`
+(`self_host/codegen.ax`) answers it over a region-depth count
+`emitRegion` maintains and `emitLamDef` clears; `releaseOwnedArgs`
+spends the answer while `argOwnedRelease` still says 1, so
+`mustTailOK` stays conservative. The head check mirrors
+`dispatchCall`'s order (locals shadow, effect ops dispatch, the cast
+path aliases): a `let`-bound lambda named `MkBox` turns `(MkBox 1)`
+into a closure call, measured leaking without the guard, and
+constructors CAN be named `cast`, probed. `tests/stdlib/479-region-reclaim.ax`
+pins eight answers (fired twice, kept four ways, the waterline back,
+fifty thousand regions summed); the gate counts six releases gone
+with an IR diff of those six lines and nothing else, peak RSS 98%
+across 300,000 regions, and an ablation answering 0 bringing all six
+back. Call results await the MM-RGN-5 witness, `VAR` operands await
+def-tracking, field stores keep their paired retains. Recorded
+beside it, not fixed by it: a callee-mediated store of a fresh value
+into an outer cell from an un-annotated region is unchecked
+(`rgnCheckAll` runs only under `@r`) and reads back wrong with every
+gate green - the elision is outcome-identical there, and the gate
+pins the identity. Calls `gate_build_axc`, so the six count sites
+state seventy-two gates; the battery has eighty-eight.
+
 ## 0.7.5 — 2026-09-11
 
 <!-- Empty by design until the next change lands. The heading STAYS when a

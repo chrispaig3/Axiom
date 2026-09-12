@@ -563,6 +563,13 @@
       ; walks the whole environment block, and a mode of 0 would send
       ; it round once per function emitted.
       (vecPush ps 0)
+      ; slot 9: region-body depth, for S4's first slice
+      ; (docs/memory-model-v2-design.md §4). 0 outside any `region`
+      ; body; `emitRegion` counts it up around the body and back
+      ; down after, and `emitLamDef` clears it across a lambda body
+      ; whose execution may outlive the reset. Read only by
+      ; `isRegionCoveredCon`, written only in those two places.
+      (vecPush ps 0)
       (addTypeNamed
         ts        "Some"        TF_DATA        1        0        2        (let ((f vecNew))
           {
@@ -15124,6 +15131,13 @@
       ; `emitPairWrapper` runs after `drainPending` and would read
       ; whatever the last lambda left here.
       (_6c (pairSetSlot cg 7 1))
+      ; S4 slice 1: a lambda body executes when called, which may be
+      ; after an enclosing region's reset - so the region-body depth
+      ; does not cross this boundary. Saved and restored rather than
+      ; just cleared, because a lambda inside a lambda inside a
+      ; region must hand the outer lambda its own 0 back.
+      (rgnSaved (pairSlot cg 9))
+      (_6d (pairSetSlot cg 9 0))
     )
       ; MM-LIFE-2g: the evidence word for THIS lambda's own argument,
       ; appended to the rendered parameter list only - the AST param
@@ -15166,8 +15180,12 @@
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((cg2 (emitExpr body cg1c)))
                 (let ((ret (cat3 "  ret i64 " (strDup (memGetWordStr cg2 2)) "")))
+                  ; S4 slice 1: hand the region-body depth back, beside
+                  ; the slot-7 clear above whose shape this copies.
                   (pairSetSlot
-                    (emitLine (emitLine (closeAllocaMark cg2) ret) "}")                    7                    0
+                    (pairSetSlot
+                      (emitLine (emitLine (closeAllocaMark cg2) ret) "}")                    7                    0
+                    )                    9                    rgnSaved
                   )
                 )
               )
@@ -19481,10 +19499,19 @@
   (if (>= i (vecLen args))
     cg
     (if (== (argOwnedRelease cg fnName args i) 1)
-      (releaseOwnedArgs
-        (emitReleaseOf
-          cg          (cast String (vecGet regs i))
-        )        fnName        args        regs        (+ i 1)
+      ; S4 slice 1: a region-covered construction is reclaimed by the
+      ; reset, so emitting its release is binary only. The DECISION
+      ; predicate above is untouched - `mustTailOK` reads it too, and
+      ; stays conservative.
+      (if (== (isRegionCoveredCon cg (vecGet args i)) 1)
+        (releaseOwnedArgs
+          cg          fnName        args        regs        (+ i 1)
+        )
+        (releaseOwnedArgs
+          (emitReleaseOf
+            cg          (cast String (vecGet regs i))
+          )        fnName        args        regs        (+ i 1)
+        )
       )
       (releaseOwnedArgs
         cg        fnName        args        regs        (+ i 1)
@@ -19677,6 +19704,120 @@
       (if (&& (== (nodeTag e) TAG_E_APP) (== (spineArity e) 0))
         (isNullaryConNode cg (spineHead e))
         0
+      )
+    )
+  )
+)
+
+; S4 slice 1 (docs/memory-model-v2-design.md §4): a release the
+; region's own reset makes redundant.
+;
+; Inside a `(region r BODY)` every allocation lands after the body's
+; mark cell, and the reset at the body's end frees all of it in one
+; pointer move - so a value the body itself constructed and drops
+; there needs no `axiom_release`: the call cannot free anything the
+; reset will not free first. What it CAN do is cost binary size,
+; which is the whole of this slice.
+;
+; The rule fires only where all three hold, each for a soundness
+; reason rather than caution:
+;
+;   * pair slot 9 is nonzero - emission is textually inside a region
+;     body. `emitRegion` counts it up around the body and back down
+;     after; `emitLamDef` clears it across a lambda body, because a
+;     lambda emitted here may run after the reset (an escaping
+;     closure), and a release elided on that path would leak where
+;     counting would have freed. Plain functions need no clearing:
+;     they are only ever emitted at the top level, where the count
+;     is 0 by construction. Thunks need none either: a thunk body
+;     is fixed shape with no user expression in it, so no release
+;     site can read the slot there.
+;   * the operand IS the construction the emitter will build - a
+;     `TAG_E_APP` spine whose head takes the `emitConstructor` arm
+;     of `dispatchCall` (data or struct alike - a struct name in
+;     head position builds through the same call), or a
+;     `TAG_E_STRUCTCON`, applied to exactly its arity. The block
+;     `emitConstructor` builds for it was allocated right here,
+;     after the mark, at count 1. A `VAR` operand, however freshly
+;     bound, is not answered here: resolving it to its definition is
+;     def-tracking this slice does not build, and a fixture pins
+;     that the release stays.
+;   * full application only: a bare constructor is a curried closure
+;     value, allocated by the curry machinery and not by the site
+;     being released. The equality costs nothing and keeps a future
+;     relaxation from silently widening this.
+;
+; The head check mirrors `dispatchCall`'s order, because a registry
+; hit alone is not the decision: locals shadow (a `let`-bound lambda
+; named `MkBox` turns `(MkBox 1)` into a closure call returning an
+; alias - measured leaking without this guard), effect operations
+; dispatch, and a constructor literally named `cast` takes the cast
+; path (an alias - and constructors CAN be so named, probed). The
+; `defscope` exemption on the local arm is deliberately NOT mirrored:
+; omitting it can only refuse an elision emission would have taken,
+; never take one it refused. Every other dispatch arm needs no
+; guard: scalar answers (`sizeof`, arithmetic, comparisons) never
+; reach a release site, and allocating primops build fresh blocks
+; after the mark, where elision is outcome-identical.
+;
+; What is NOT covered, by design: call results (the callee may alias
+; an outer value - freshness needs the MM-RGN-5 witness, which is
+; S4's next slice), field stores (their release balances a retain in
+; the same step - eliding one half would leak), and `musttail`
+; decisions (`argOwnedRelease` still answers 1 for a covered
+; temporary, so `mustTailOK` stays conservative and
+; `check-tail-calls.sh` does not move; a `musttail` jump also skips
+; the reset itself, so eliding on that path would widen S2's own
+; skipped-reset leak).
+(pub :: isRegionCoveredCon (-> Int Int Int))
+
+(pub fn (isRegionCoveredCon cg e)
+  (if (== (pairSlot cg 9) 0)
+    0
+    (if (== e 0)
+      0
+      (if (== (nodeTag e) TAG_E_STRUCTCON)
+        (let ((entry (lookupType (memGetWordVec cg 3) (nodeAName e))))
+          (if (== entry 0)
+            0
+            (if (&& (== (eKind entry) (TF_STRUCT)) (&& (> (eArity entry) 0) (== (vecLen (nodeBVec e)) (eArity entry))))
+              1
+              0
+            )
+          )
+        )
+        (if (!= (nodeTag e) TAG_E_APP)
+          0
+          (let ((hd (spineHead e)))
+            (if (!= (nodeTag hd) TAG_E_VAR)
+              0
+              (let ((n (nodeAName hd)))
+                ; `dispatchCall`'s order: a shadowing local, an effect
+                ; operation, and the cast path all claim the head
+                ; before the constructor table does.
+                (if (|| (isCastName n) (|| (isLocalValue cg n) (!= (lookupEffFor cg (memGetWordVec cg 33) n) 0)))
+                  0
+                  (let ((entry (lookupType (memGetWordVec cg 3) n)))
+                    (if (== entry 0)
+                      0
+                      ; Data and struct alike: `dispatchCall` answers
+                      ; `emitConstructor` for either hit, and the types
+                      ; table holds nothing else, so a function name
+                      ; cannot reach the arity check below. The kind
+                      ; test is still load-bearing as documentation:
+                      ; without it a future table resident would be
+                      ; one `lookupType` hit away from an elision.
+                      (if (&& (|| (== (eKind entry) (TF_DATA)) (== (eKind entry) (TF_STRUCT))) (&& (> (eArity entry) 0) (== (spineArity e) (eArity entry))))
+                        1
+                        0
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
       )
     )
   )
@@ -23251,7 +23392,15 @@
       (_6 (emitLine cg (cat4 (cat2 "  store i64 " br) ", ptr " cell "")))
       (_7 (emitLine cg (cat4 (cat2 "  store i64 " er) ", ptr " p1 "")))
       (_8 (emitLine cg (cat4 (cat2 "  store i64 " kr) ", ptr " p2 "")))
+      ; S4 slice 1: count the region-body depth up around the body
+      ; and back down after, so `isRegionCoveredCon` can see it. The
+      ; restore sits before the divergence check below on purpose:
+      ; a body that never returns must not leak the count into the
+      ; enclosing extent.
+      (rgnSaved (pairSlot cg 9))
+      (_rgn (pairSetSlot cg 9 (+ rgnSaved 1)))
       (cgB (emitExpr (nodeB node) cg))
+      (_rgnBack (pairSetSlot cgB 9 rgnSaved))
     )
       (if (== (memGetWord cgB 31) 1)
         cgB
