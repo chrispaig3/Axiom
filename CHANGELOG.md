@@ -4355,8 +4355,6 @@ so in the type. `stdlib/Tui/Term.ax` is the one stdlib caller, and its
 against `0`; two `if` arms became `{ (sysCloseFd fd) 0 }` where a
 discarded close sat opposite an `Int`.
 
->>>>>>> origin/trunk
-
 ### Seven socket calls that answered a negative errno now answer a `Result`, and a callee nearly undid the exclusion the slice was drawn around
 
 `ERR-ADOPT-1`'s third slice. `netBind`, `netListen`, `netConnect`,
@@ -4639,7 +4637,6 @@ exist: the byte-identical fixpoint by `check-bootstrap.sh`,
 by `build-shared-axc.sh`. The wall-clock numbers are
 `scripts/bench-compile.sh`'s, which is a profile and not a gate, and
 they are reported as such.
-||||||| 1e9f35e
 
 
 ### Range-constrained subtypes: the design pass, and a recommendation not to build it
@@ -4864,10 +4861,8 @@ read like guarantees.
   calls `checkContracts` — and requires section 1 to fail against the
   first and section 4 against the second. 27 of 27 checks green,
   darwin and linux. `docs/contracts-design.md` is the design note,
-  written before the code. Fifty-two gates build the compiler under
-  test, up from fifty.
-||||||| 7458d7d
-=======
+written before the code. Fifty-two gates build the compiler under
+test, up from fifty.
 
 ### `axiom.pkg`: a line that means nothing is refused, and `name` is read
 
