@@ -571,6 +571,20 @@ probe built by both compilers prints the same bytes with the same
 exit. S3's "over EVERY body" overclaims until this closes; the fix
 belongs to the checker, not to this slice.
 
+**Why the fix is not "run `rgnCheckAll` everywhere", measured
+2026-09-12.** Forcing the trigger on (one line) refuses the evil
+shape with a precise AX3060 - and is silent across self_host,
+stdlib and 558 test files EXCEPT `tests/diagnostics/631`, where it
+adds two AX3060s on top of the two AX3059s S2 already draws at
+52:16 and 58:18. Same store, two diagnostics: the S3 walk covers
+the textual shapes S2 owns, so a universal trigger double-reports
+every one of them. The ways out are retiring AX3059 into the walk
+(a diagnostic code retired, the S2 gate's counts re-derived, the
+fixpoint paid on every program) or suppressing one finding where
+the other fires (span coordination this tree has refused to build
+twice) - neither is this slice, and neither is free. Until one
+lands the hole above stays open, pinned, and stated.
+
 **S3 as built, 2026-09-03 — what it is and what it is not.** Every
 signature may name regions, `(Vec String @r)`, and the rule of §2.3 is
 checked after the type checker has run, over EVERY body in the program:
