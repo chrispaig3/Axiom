@@ -1509,8 +1509,8 @@ not know is metadata, it is recorded, and nothing checks it. That is
 not what this reports.
 
 This reports a key one edit - or one change of case - away from one
-the compiler checks. Six are: `pure`, `effect(...)`, `restrict(...)`,
-`pre(...)`, `post(...)`, and `unhandled(trap)` on an `effect`
+the compiler checks. Seven are: `pure`, `effect(...)`, `restrict(...)`,
+`pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect`
 declaration. `;@axiom:pur` is not a
 purity claim. Nothing validates it, so a body performing IO under it
 draws no AX3010 at all: the tag reads like a guarantee and buys
