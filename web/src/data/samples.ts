@@ -69,7 +69,7 @@ export const HERO: Sample = {
 )`,
 }
 
-// SIX RECIPES, AND EVERY ONE OF THEM RAN.
+// EIGHT RECIPES, AND EVERY ONE OF THEM RAN.
 //
 // The set these replaced were feature demos in costume: a function that
 // parsed the literal string "8080", a handler that logged
@@ -82,9 +82,11 @@ export const HERO: Sample = {
 // `axiom fmt`, so what is shown IS the formatter's normal form. The
 // `result` field is the observed stdout, not a guess.
 //
-// The ORDER is an argument, not a menu: types, then failure, then
-// effects, then data, then memory, then concurrency. It walks a reader
-// from the thing every language has to the thing only this one does.
+// The ORDER is an argument, not a menu: types twice - first sums,
+// then the shape of the data itself - then failure, then effects,
+// then data, then memory, then concurrency, then the machine
+// itself. It walks a reader from the thing every language has to
+// the thing only this one does, and lands on a tool.
 export const SAMPLES: Sample[] = [
   {
     id: 'types',
@@ -149,6 +151,88 @@ export const SAMPLES: Sample[] = [
     (row "AX-1044" Delivered)
     0
   }
+)`,
+  },
+  {
+    id: 'records',
+    tab: 'columns.ax',
+    title: "A typed column",
+    note: "A generic struct over an ADT: every cell names its shape, and the total skips what isn't a number.",
+    result: "price total 8159 over 2 gaps",
+    docs: { label: "Structs", href: `${REF}#structs` },
+    code: `(import IO)
+
+(import Str)
+
+(import Vec)
+
+(data Cell
+  (Num Int)
+  (Text String)
+  (Missing))
+
+(struct Column (a)
+  (name : String)
+  (cells : (Vec a)))
+
+(:: colSum (-> (Column Cell) Int))
+
+(fn (colSum col)
+  (let ((mut total 0))
+    {
+      (for c col.cells
+        (match c
+          ((Num n)
+            (set total (+ total n))
+          )
+          ((Text _) 0)
+          ((Missing) 0)
+        ))
+      total
+    }
+  )
+)
+
+(:: colGaps (-> (Column Cell) Int))
+
+(fn (colGaps col)
+  (let ((mut gaps 0))
+    {
+      (for c col.cells
+        (match c
+          ((Missing)
+            (set gaps (+ gaps 1))
+          )
+          (_ 0)
+        ))
+      gaps
+    }
+  )
+)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((v vecNew))
+    (let ((price (Column "price" v)))
+      {
+        (vecPush v (Num 450))
+        (vecPush v (Text "n/a"))
+        (vecPush v Missing)
+        (vecPush v (Num 2299))
+        (vecPush v Missing)
+        (vecPush v (Num 5410))
+        (let (
+          (total (colSum price))
+          (gaps (colGaps price))
+        )
+          (println "price total {total} over {gaps} gaps")
+        )
+        0
+      }
+    )
+  )
 )`,
   },
   {
@@ -392,6 +476,104 @@ export const SAMPLES: Sample[] = [
         (println "errors  us {us}  eu {eu}  apac {apac}  total {total}")
         0
       }
+    )
+  )
+)`,
+  },
+  {
+    id: 'sysinfo',
+    tab: 'sysfetch.ax',
+    title: "What machine is this",
+    note: "Parse os-release and meminfo the way sysReadFile delivers them. The texts below stand in for the live files, so point fieldOf at /etc/os-release for the real report.",
+    result: "os       Axiom Linux 0.7.5\nmemory   3930 MiB total, 1205 MiB available",
+    docs: { label: "Standard Library", href: `${REF}#standard-library` },
+    code: `(import IO)
+
+(import Str)
+
+(import Vec)
+
+; A sysfetch in pure Axiom: read NAME= and VERSION_ID= out of an
+; os-release text, sizes out of a meminfo text, and print the report.
+; The two texts below stand in for \`sysReadFile\` on /etc/os-release
+; and /proc/meminfo (which answers "" where the file is missing), so
+; the output pinned under this file is exact - point \`fieldOf\` at
+; the live files for the report about this machine instead.
+(:: unquote (-> String String))
+
+(fn (unquote s)
+  (if (strStartsWith s "\\"")
+    (strSlice s 1 (- (strLen s) 2))
+    s
+  )
+)
+
+(:: fieldScan (-> (Vec Int) String Int String))
+
+(fn (fieldScan lines key i)
+  (if (>= i (vecLen lines))
+    ""
+    (let ((line (vecGetStr lines i)))
+      (if (fieldHead line key)
+        (unquote (strTrim (strSlice line (+ (strLen key) 1) (- (strLen line) (+ (strLen key) 1)))))
+        (fieldScan lines key (+ i 1))
+      )
+    )
+  )
+)
+
+(:: fieldHead (-> String String Bool))
+
+(fn (fieldHead line key)
+  (if (strStartsWith line key)
+    (let ((sep (strByte line (strLen key))))
+      (|| (== sep 61) (== sep 58))
+    )
+    false
+  )
+)
+
+(:: fieldOf (-> String String String))
+
+(fn (fieldOf text key) (fieldScan (strSplit text 10) key 0))
+
+(:: firstNonEmpty (-> (Vec Int) Int String))
+
+(fn (firstNonEmpty parts i)
+  (if (>= i (vecLen parts))
+    ""
+    (let ((w (vecGetStr parts i)))
+      (if (> (strLen w) 0)
+        w
+        (firstNonEmpty parts (+ i 1))
+      )
+    )
+  )
+)
+
+(:: memKb (-> String Int))
+
+(fn (memKb value) (optUnwrapOr (strParseInt (firstNonEmpty (strSplit value 32) 0)) 0))
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((os "NAME=\\"Axiom Linux\\"\\nVERSION_ID=\\"0.7.5\\"\\nID=axiom\\n"))
+    (let ((mem "MemTotal:        4024548 kB\\nMemAvailable:    1234176 kB\\n"))
+      (let ((name (fieldOf os "NAME")))
+        (let ((vers (fieldOf os "VERSION_ID")))
+          (let ((total (/ (memKb (fieldOf mem "MemTotal")) 1024)))
+            (let ((avail (/ (memKb (fieldOf mem "MemAvailable")) 1024)))
+              {
+                (println "os       {name} {vers}")
+                (println "memory   {total} MiB total, {avail} MiB available")
+                0
+              }
+            )
+          )
+        )
+      )
     )
   )
 )`,
