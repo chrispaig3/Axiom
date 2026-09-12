@@ -427,10 +427,10 @@ the env, modelled on the `syntax/for` stack beside it.
 The depth rule is `AX3034`, `macro-ellipsis`, in four shapes and split
 by where the author can act
 (`tests/diagnostics/610-macro-ellipsis-misuse.ax`). At the macro's
-line: two `...` in one rule, and a repeat over a PATTERN rather than a
-bare name. At the invocation: a repeating name used with no `...`
-(which without this refusal died as `AX3001 undefined variable`,
-blaming the name), and `...` after something that does not repeat.
+line: two `...` in one rule, and a repeat BENEATH a repeat. At the
+invocation: a repeating name used with no `...` (which without this
+refusal died as `AX3001 undefined variable`, blaming the name), and
+`...` after something that does not repeat.
 
 Selection composes with `MAC-LANG-18` by turning a rule's arity into a
 FLOOR. So a fixed rule and a repeating rule of the same fixed count
@@ -441,6 +441,19 @@ covering one arity and covering a range.
 **What v1 does not do:** a repeat over a nested pattern, which binds
 each of that pattern's binders to a sequence in lockstep. That is a
 second feature and is refused rather than half-built.
+
+**v2, landed 2026-09-11: the nested half.** A repeating element that
+is a pattern - `(m (f a) ...)` - matches every absorbed argument
+against it and binds each binder to the sequence of what it bound,
+in tail order; `(f a) ...` in a template rebuilds the form once per
+element. Empty tails match with empty sequences. What is still
+refused is a repeat BENEATH a repeat (sequences of sequences), and
+what the template side does not yet reach is whole declarations,
+data-constructor lists and match arms - application spines only -
+so the §10.5 machine macro is still one slice out.
+`tests/selfhost/397-nested-repeat.ax` (170) is six macros over the
+new shape; `tests/diagnostics/610` keeps the four refusals with the
+graduated row rewritten.
 
 **`...` lexes, and it lexes as an ORDINARY IDENTIFIER.** Three
 dots are one token and there is no new token kind: `self_host/lexer.ax`

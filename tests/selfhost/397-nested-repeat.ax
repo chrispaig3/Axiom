@@ -1,0 +1,78 @@
+; expect 170
+; A repeating PATTERN (MAC-LANG-16, second half): `(f a) ...` binds
+; every binder of the pattern to a sequence of its own, in lockstep
+; over the absorbed tail, and `(f a) ...` in a template rebuilds the
+; form once per element. `tests/diagnostics/610` holds what is still
+; refused (two `...` in a rule, a repeat beneath a repeat, the two
+; invocation-side misuses); this file holds what answers.
+;
+;   t1   6  two elements, both binders spent in place
+;   t2  33  two binders, two splices, lockstep across shapes
+;   t3 102  an empty tail matches the repeat with empty sequences -
+;           shaped with a fixed head element, because an EMPTY rule
+;           makes `fmt` refuse the file (pre-existing: an empty rule
+;           has no `...` in it at all) and a zero-form splice would
+;           leave `(+ h)` under-applied
+;   t4  11  two elements; the template need not spend every binder
+;   t5   7  a literal in the pattern falls through to the next rule
+;   t6  11  a literal pattern is a shape filter; the binder still binds
+(macro m1 ((m1 (f a) ...)
+   (:: r1 (-> Int Int))
+   (fn (r1 x) (+ (f a) ...))))
+
+(macro m2 ((m2 (pr x y) ...)
+   (:: r2 (-> Int Int))
+   (fn (r2 x) (+ (+ x ...) (+ y ...)))))
+
+(macro m3a ((m3a h)
+   (:: r3a (-> Int Int))
+   (fn (r3a x) h)))
+
+(macro m3b ((m3b h (f a) ...)
+   (:: r3b (-> Int Int))
+   (fn (r3b x) (+ h (f a) ...))))
+
+(macro m4 ((m4 (f a) ...)
+   (:: r4 (-> Int Int))
+   (fn (r4 x) (+ a ...))))
+
+(macro m5 ((m5 (f 1) ...)
+   (:: r5 (-> Int Int))
+   (fn (r5 x) 1000))
+  ((m5 rest ...)
+   (:: r5 (-> Int Int))
+   (fn (r5 x) 7)))
+
+(macro m6 ((m6 (k 1 v) ...)
+   (:: r6 (-> Int Int))
+   (fn (r6 x) (+ v ...))))
+
+(:: add1 (-> Int Int))
+
+(fn (add1 x) (+ x 1))
+
+(:: add2 (-> Int Int))
+
+(fn (add2 x) (+ x 2))
+
+(:: dbl (-> Int Int))
+
+(fn (dbl x) (+ x x))
+
+(m1 (add1 1) (add2 2))
+
+(m2 (pr 1 10) (pr 2 20))
+
+(m3a 100)
+
+(m3b 0 (add1 1))
+
+(m4 (zz 5) (zz 6))
+
+(m5 (f 2) (g 3))
+
+(m6 (k 1 5) (k 1 6))
+
+(:: main Int)
+
+(fn (main) (+ (+ (+ (+ (+ (r1 0) (r2 0)) (+ (r3a 0) (r3b 0))) (r4 0)) (r5 0)) (r6 0)))

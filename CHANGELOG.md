@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### A repeating pattern binds each binder to a sequence — `tests/selfhost/397-nested-repeat.ax`
+
+MAC-LANG-16's second half: `(m (f a) ...)` matches every absorbed
+argument against the pattern and binds each binder to the sequence
+of what it bound, in tail order, and `(f a) ...` in an application
+spine rebuilds the form once per element. Empty tails match with
+empty sequences. Still refused: a repeat beneath a repeat
+(`tests/diagnostics/610`, whose graduated row is rewritten), and
+splice contexts past application spines - data-constructor lists,
+match arms and whole declarations do not splice yet, which is what
+the §10.5 machine macro still waits on. `tests/selfhost/397`
+answers 170 over six macros (lockstep, empty-tail order, partial
+binder use, literal fallthrough and filter); `tests/selfhost/393`
+and `tests/diagnostics/610` hold what v1 held. Nine new matching
+and splice functions move the pins re-derived rather than retuned
+(exactly `Alloc,Mut` 2,030 → 2,037, pure 1,569 → 1,571; added 9,
+removed 0, changed 0).
+
 ### A closure application's last-step argument goes with a word answer — `scripts/check-closure-reclaim.sh`
 
 An application through a closure never released its owned argument

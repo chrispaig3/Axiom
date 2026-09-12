@@ -13,7 +13,7 @@
 # names are wanted. Two numbers, both pinned here:
 #
 #   population  every `#generated=` AXSYM row over the corpus that can
-#               carry one - 108 today, all in tests/selfhost's decl-macro
+#               carry one - 115 today, all in tests/selfhost's decl-macro
 #               family plus one frontend case, none in stdlib or the
 #               compiler itself. The surface that could want locating.
 #   demand      requests in tests/lsp/drive.py targeting a generated
@@ -37,7 +37,7 @@ failed=0; passed=0
 ok()   { echo "ok   $*"; passed=$((passed + 1)); }
 fail() { echo "FAIL: $*"; failed=$((failed + 1)); }
 
-WANT_POPULATION=108
+WANT_POPULATION=115
 WANT_DEMAND=3
 
 echo "== population: every #generated= row over the corpus =="
@@ -102,10 +102,10 @@ echo "== the pin refuses a doctored count =="
 # A pin that accepts everything is the vacuous check this repository
 # finds most often: the comparison below is the whole gate, so the
 # probe exercises it directly.
-if (( 109 == WANT_POPULATION )); then
-  fail "probe: a population of 109 against a pin of $WANT_POPULATION was accepted - the comparison cannot fail"
+if (( 116 == WANT_POPULATION )); then
+  fail "probe: a population of 116 against a pin of $WANT_POPULATION was accepted - the comparison cannot fail"
 else
-  ok "probe: a population of 109 against a pin of $WANT_POPULATION is refused"
+  ok "probe: a population of 116 against a pin of $WANT_POPULATION is refused"
 fi
 if (( 4 == WANT_DEMAND )); then
   fail "probe: a demand of 4 against a pin of $WANT_DEMAND was accepted - the comparison cannot fail"

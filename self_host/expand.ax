@@ -3500,6 +3500,19 @@
                       )
                       (set i (+ i 1))
                     }
+                    ; MAC-LANG-16, second half: `(f a) ...` rebuilds the
+                    ; form once per absorbed element, with each binder
+                    ; taking its element. An APP here that is not a
+                    ; for-spine (checked above) and is followed by
+                    ; `...` is that - or a misuse, which the splice
+                    ; diagnoses rather than silently dropping.
+                    (if (== (expNestedEllipsisAt env qargs i) 1)
+                      {
+                        (expSpliceNested
+                          env                        a                        params                        args                        ren                        isp                        out
+                        )
+                        (set i (+ i 1))
+                      }
                     (if (&& (== (nodeTag a) TAG_E_VAR) (strEq (nodeAName a) "..."))
                       {
                         (expEllipsisDiag
@@ -3513,6 +3526,7 @@
                       )) 0 }
                     )
                   )
+                )
                 )
                 (set i (+ i 1))
               }
@@ -3592,6 +3606,126 @@
         env        forms        params        args        ren        isp        out        (+ i 1)
       )
     }
+  )
+)
+
+; Is `qargs[i]` a form followed by `...` - the nested half of the
+; check above, for `(f a) ...` where the flat one needs a bare
+; name? Shape only: whether anything inside repeats is the splice's
+; own diagnostic, so a misuse still names itself rather than
+; falling through to a silent rebuild.
+(pub :: expNestedEllipsisAt (-> Int (Vec Int) Int Int))
+
+(pub fn (expNestedEllipsisAt env qargs i)
+  (if (>= (+ i 1) (vecLen qargs))
+    0
+    (let (
+      (a (vecGet qargs i))
+      (n (vecGet qargs (+ i 1)))
+    )
+      (if (&& (== (nodeTag a) TAG_E_APP) (&& (== (nodeTag n) TAG_E_VAR) (strEq (nodeAName n) "...")))
+        1
+        0
+      )
+    )
+  )
+)
+
+; Every sequence-bound name inside a template form, in first-seen
+; order. Duplicates are harmless downstream (one index's value
+; twice), so this collects rather than dedupes.
+(pub :: expNestedSeqNames (-> Int (Vec Int) Int (Vec Int)))
+
+(pub fn (expNestedSeqNames form acc env)
+  (let ((tg (nodeTag form)))
+    (if (== tg TAG_E_VAR)
+      (if (!= (expSeqLookup (expSeqBindsVec env) (nodeAName form)) 0)
+        {
+          (vecPush acc (nodeA form))
+          acc
+        }
+        acc
+      )
+      (if (== tg TAG_E_APP)
+        (expNestedSeqNames
+          (nodeB form)          (expNestedSeqNames (nodeA form) acc env)          env
+        )
+        acc
+      )
+    )
+  )
+)
+
+; `(f a) ...` in a template: rebuild the form once per absorbed
+; element, with each sequence-bound name taking its element. All
+; sequences share one length by construction - one value per
+; absorbed argument - so the first names it. The per-element
+; substitution appends singles onto the shared params/args (last
+; wins, so they shadow correctly) and pops them after: nothing
+; appends to those vecs during substitution - matching builds
+; fresh ones, `expHoleArgs` builds its own - so the truncation
+; restores exactly what was there.
+;
+; Two diagnosed misuses, neither silent: no sequence inside (the
+; `...` follows nothing that repeats), and a `...` inside (a repeat
+; beneath a repeat, refused on patterns at the macro's line and
+; here at the use).
+(pub :: expSpliceNested (-> Int Int (Vec Int) (Vec Int) (Vec Int) Int (Vec Int) Int))
+
+(pub fn (expSpliceNested env app params args ren isp out)
+  (let ((names (expNestedSeqNames app vecNew env)))
+    (if (== (vecLen names) 0)
+      {
+        (expEllipsisDiag
+          env          "..."          "follows nothing that repeats"          "put `...` directly after the form whose binders repeat, or drop it"          isp
+        )
+        (vecPush out (mkEInt 0))
+        0
+      }
+      (if (== (patHasEllipsis app) 1)
+        {
+          (expEllipsisDiag
+            env            "..."            "nests a repeat inside a repeat"            "repeat one level only - splice `(f a) ...`, never `(f (g a ...) ...)`"            isp
+          )
+          (vecPush out (mkEInt 0))
+          0
+        }
+        (let ((n (vecLen (cast (Vec Int) (expSeqLookup (expSeqBindsVec env) (vecGetStr names 0))))))
+          (let ((markP (vecLen params)))
+            (let ((markA (vecLen args)))
+              (let ((mut j 0))
+                {
+                  (while (< j n)
+                    (let ((mut k 0))
+                      {
+                        (while (< k (vecLen names))
+                          {
+                            (vecPush params (vecGet names k))
+                            (vecPush args (vecGet (cast (Vec Int) (expSeqLookup (expSeqBindsVec env) (vecGetStr names k))) j))
+                            (set k (+ k 1))
+                          }
+                        )
+                        (vecPush out (substTpl
+                          app                        params                        args                        ren                        env                        isp
+                        ))
+                        (while (> (vecLen params) markP)
+                          (vecPop params)
+                        )
+                        (while (> (vecLen args) markA)
+                          (vecPop args)
+                        )
+                        (set j (+ j 1))
+                      }
+                    )
+                  )
+                  0
+                }
+              )
+            )
+          )
+        )
+      )
+    )
   )
 )
 
@@ -5090,12 +5224,19 @@
         0
         {
           (let ((k (expRepIndex (vecGet rules i))))
+            ; MAC-LANG-16, second half: a repeating element that is a
+            ; PATTERN binds each of its binders to a sequence of its
+            ; own, in lockstep over the absorbed tail
+            ; (`expMatchRuleAt`). What is still refused is a repeat
+            ; BENEATH a repeat: `...` inside the repeating pattern
+            ; would need sequences of sequences, which is a third
+            ; thing and is not built.
             (if (if (< k 0)
               false
-              (!= (nodeTag (vecGet (expRulePats (vecGet rules i)) k)) TAG_E_VAR)
+              (== (patHasEllipsis (vecGet (expRulePats (vecGet rules i)) k)) 1)
             )
               (expEmit env (mkDiagNote
-                SEV_ERROR                "AX3034"                "macro-ellipsis"                (nodeSpan mac)                (strConcat (strConcat "macro `" (nodeAName mac)) "` repeats something that is not a plain name")                0                0                "repeat a bare binder - `(m T v ...)` - and take the shape apart in the template"                "v1 of MAC-LANG-16 binds ONE name to the forms a repeat absorbs. A repeated PATTERN binds each of its binders to a sequence of its own, in lockstep, which is a second thing and is not built"
+                SEV_ERROR                "AX3034"                "macro-ellipsis"                (nodeSpan mac)                (strConcat (strConcat "macro `" (nodeAName mac)) "` repeats beneath a repeat")                0                0                "repeat one level only - `(m (f a) ...)` - and take deeper shapes apart across rules"                "a repeated pattern binds each binder to one sequence; a `...` inside it would bind sequences of sequences (macro-system.md MAC-LANG-16)"
               ))
               0
             )
@@ -5562,12 +5703,22 @@
         ps        args        0        k        names        vals
       ) 0)
         0
-        {
-          (vecPush
-            seqs            (cast Int (SeqBind (nodeAName (vecGet ps k)) (cast Int (expTailFrom args k vecNew))))
+        (let ((pk (vecGet ps k)))
+          (if (== (nodeTag pk) TAG_E_VAR)
+            {
+              (vecPush
+                seqs            (cast Int (SeqBind (nodeAName pk) (cast Int (expTailFrom args k vecNew))))
+              )
+              1
+            }
+            ; A repeating PATTERN: every absorbed argument matches the
+            ; pattern, and each of its binders takes the sequence of
+            ; what it bound, in lockstep (MAC-LANG-16). A match
+            ; failure on any element fails the rule, exactly as a
+            ; fixed-element mismatch does.
+            (expMatchNestTail pk args k seqs)
           )
-          1
-        }
+        )
       )
     )
   )
@@ -5596,6 +5747,109 @@
     {
       (vecPush acc (vecGet args i))
       (expTailFrom args (+ i 1) acc)
+    }
+  )
+)
+
+; A repeating PATTERN against the absorbed tail, one element at a
+; time (MAC-LANG-16, second half). Each tail argument matches the
+; pattern with a FRESH names/vals pair - sharing one across elements
+; would let `expParamIndex`'s last-wins silently discard every
+; binding but the tail's - and each of the pattern's binders takes
+; the sequence of what it bound, in tail order. All sequences have
+; the same length by construction: one value per absorbed argument.
+; An empty tail matches with every sequence empty.
+;
+; The binder set comes from the pattern itself
+; (`expRuleBindersOf`), so a match that bound something else - which
+; the same pattern cannot produce, but a future matcher change
+; might - fails rather than misaligns. `_` never appears: it binds
+; nothing and `expRuleBindersOf` skips it, so a pattern repeating
+; over `_` is a shape filter with no sequences. `...` never appears
+; either: a repeat beneath a repeat is refused at the macro's line
+; before matching runs.
+(pub :: expMatchNestTail (-> Int (Vec Int) Int (Vec Int) Int))
+
+(pub fn (expMatchNestTail pat args i seqs)
+  (let ((binders (expRuleBindersOf pat vecNew)))
+    (let ((accs (expFreshAccs binders 0 vecNew)))
+      (if (== (expMatchNestEach pat args i binders accs) 0)
+        0
+        {
+          (expSealSeqs binders accs seqs 0)
+          1
+        }
+      )
+    )
+  )
+)
+
+; One empty accumulator per binder, in binder order. The inner
+; vecs ride as `Int` words, the way match-time `names`/`vals` carry
+; nodes - uncast on the way back out, exactly as `seqs` does.
+(pub :: expFreshAccs (-> (Vec Int) Int (Vec Int) (Vec Int)))
+
+(pub fn (expFreshAccs binders i acc)
+  (if (>= i (vecLen binders))
+    acc
+    {
+      (vecPush acc (cast Int vecNew))
+      (expFreshAccs binders (+ i 1) acc)
+    }
+  )
+)
+
+; Every absorbed argument against the pattern; each success appends
+; one value per binder.
+(pub :: expMatchNestEach (-> Int (Vec Int) Int (Vec Int) (Vec Int) Int))
+
+(pub fn (expMatchNestEach pat args i binders accs)
+  (if (>= i (vecLen args))
+    1
+    (let ((names vecNew))
+      (let ((vals vecNew))
+        (if (== (expMatchPat pat (vecGet args i) names vals) 0)
+          0
+          (if (== (expNestAppend binders accs names vals 0) 0)
+            0
+            (expMatchNestEach pat args (+ i 1) binders accs)
+          )
+        )
+      )
+    )
+  )
+)
+
+; One element's bindings into the accumulators, by binder order. 0
+; when the element did not bind something the pattern declares -
+; which the same pattern cannot do, so this is the tripwire not the
+; path.
+(pub :: expNestAppend (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int))
+
+(pub fn (expNestAppend binders accs names vals i)
+  (if (>= i (vecLen binders))
+    1
+    (let ((at (expParamIndex names (vecGetStr binders i))))
+      (if (< at 0)
+        0
+        {
+          (vecPush (cast (Vec Int) (vecGet accs i)) (vecGet vals at))
+          (expNestAppend binders accs names vals (+ i 1))
+        }
+      )
+    )
+  )
+)
+
+; Accumulators into `SeqBind`s, in binder order.
+(pub :: expSealSeqs (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
+
+(pub fn (expSealSeqs binders accs seqs i)
+  (if (>= i (vecLen binders))
+    1
+    {
+      (vecPush seqs (cast Int (SeqBind (vecGetStr binders i) (vecGet accs i))))
+      (expSealSeqs binders accs seqs (+ i 1))
     }
   )
 )

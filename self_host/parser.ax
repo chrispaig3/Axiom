@@ -1985,6 +1985,36 @@
   )
 )
 
+; Whether a rule PATTERN contains `...` anywhere inside it - for the
+; refusal a repeat beneath a repeat draws (MAC-LANG-16). The
+; top-level `...` never reaches here: `parseMacroPatList` consumes
+; it into the `reps` vector before this is asked. What is left is a
+; `VAR` spelling `...` nested in a form, which matching would
+; otherwise bind as an ordinary name, one silent wrong answer per
+; element. Pure readers, so untagged.
+(pub :: patHasEllipsis (-> Int Int))
+
+(pub fn (patHasEllipsis p)
+  (if (== p 0)
+    0
+    (let ((tg (nodeTag p)))
+      (if (== tg TAG_E_VAR)
+        (if (strEq (nodeAName p) "...")
+          1
+          0
+        )
+        (if (== tg TAG_E_APP)
+          (if (== (patHasEllipsis (nodeA p)) 1)
+            1
+            (patHasEllipsis (nodeB p))
+          )
+          0
+        )
+      )
+    )
+  )
+)
+
 ; The names-slot entry for one top-level pattern element.
 (pub :: patSlotName (-> Int String))
 

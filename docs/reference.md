@@ -1729,11 +1729,11 @@ is the claim "performs no IO", and a body performing IO under it is
 ambient, inferred and reported but never demanded, and the line was
 measured rather than chosen, and re-measured 2026-09-08
 (`scripts/check-effect-distribution.sh` pins the whole histogram in
-two views): of the 4,262 declarations `symbols --calls
+two views): of the 4,271 declarations `symbols --calls
 self_host/main.ax` lists for the compiler and its standard library,
-2,693 perform something at all, and 2,030 of those perform exactly
+2,700 perform something at all, and 2,037 of those perform exactly
 `Alloc,Mut` - which is every function that touches a `String` or a
-`Vec`. `Mut` anywhere is on 2,519 of the 2,693, so requiring
+`Vec`. `Mut` anywhere is on 2,526 of the 2,700, so requiring
 it would be requiring a tag on 94% of everything that has an effect at
 all. The stdlib view agrees: 410 of 821 perform, 178 of those exactly
 `Alloc,Mut`, with two singletons carrying custom effects (`Assert`,
