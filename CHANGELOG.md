@@ -2004,7 +2004,9 @@ functions**: recounted against `9f99ccd`, the tree as it stood when that
 table was written, three of the twelve hits in those files are prose and
 one function contributed three of the rest. New §10.2 carries the table.
 
-## 0.7.4 — 2026-09-03
+<!-- 0.7.4 was never tagged: 60 commits shared the number across Sep 3-4
+     and 0.7.5 shipped containing all of them, so the releases jump
+     0.7.3 to 0.7.5 and everything below this line shipped in 0.7.5. -->
 
 ### A mid-level IR, and the first thing that lowers through it
 
