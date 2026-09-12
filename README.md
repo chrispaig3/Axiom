@@ -67,12 +67,6 @@ got.
 ;  [log] done
 ```
 
-Algebraic data types; a `match` the compiler proves exhaustive; string
-interpolation that calls the compiler's own renderer, chosen from the static
-type of the hole; and an effect the checker verified against what the body
-does. Drop the `Square` arm and it does not compile.
-[The language reference](docs/reference.md) has the rest.
-
 ---
 
 ## Install
