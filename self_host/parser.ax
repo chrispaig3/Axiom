@@ -3661,6 +3661,23 @@
           )
         )
       )
+      ; A bare `...` among constructors is the splice marker a rule
+      ; template leaves for instantiation (`(s) ...` rebuilding one
+      ; constructor per absorbed element, MAC-LANG-16). It parses as
+      ; exactly what `(...)` already parsed as - a nullary
+      ; constructor named `...` - so no wire format changes and no
+      ; new refusal: outside a template splice the marker is the same
+      ; curiosity a parenthesised `...` has always been, and inside
+      ; one it is consumed before checking ever runs.
+      (if (&& (peekIs tokens pos TK_IDENT) (strEq (tokenLexeme (vecGet tokens pos)) "..."))
+        (let ((mkr (setNodeTy (mkCtor (cast Int "...") 0 vecNew) (cast Int vecNew))))
+          {
+            (setNodeSpan mkr (tokenSpan (vecGet tokens pos)))
+            (parseConstructors
+              tokens              (advance pos)              dataName              nameSpan              (vecPush acc mkr)              tvs
+            )
+          }
+        )
       ; `deriving (Eq Show)` after the last constructor - REFUSED
       ; (AX2004), the settled MAC-CAP-9 decision. The clause parsed and
       ; was silently DISCARDED from the day it was written: its names
@@ -3676,6 +3693,7 @@
       (if (&& (peekIs tokens pos TK_IDENT) (strEq (tokenLexeme (vecGet tokens pos)) "deriving"))
         (pErrRemoved pos "deriving")
         (pErrExp pos "identifier")
+      )
       )
     )
   )
@@ -5824,7 +5842,24 @@
           )
         )
       )
-      (pErr pos)
+      ; A bare `...` where an arm stands is the splice marker a rule
+      ; template leaves for instantiation (`((s) 1) ...` rebuilding
+      ; one arm per absorbed element, MAC-LANG-16). It parses as an
+      ; arm whose pattern is the variable `...` with no body - the
+      ; shape the expander's splice consumes and every other consumer
+      ; refuses: ordinary code meets it in `expandArmsIn` (a diagnostic
+      ; plus a poison arm, beside the `syntax/for` refusal above), and
+      ; a template arm without a preceding repeat meets it in the
+      ; splice loop the same way. No wire format changes: it is a
+      ; TAG_M_ARM like any other.
+      (if (&& (peekIs tokens pos TK_IDENT) (strEq (tokenLexeme (vecGet tokens pos)) "..."))
+        (let ((mkr (mkNodeAt
+          TAG_M_ARM          (mkEVarAt "..." (tokenSpan (vecGet tokens pos)))          0          0          (tokenSpan (vecGet tokens pos))
+        )))
+          (parseMatchArms tokens (advance pos) (vecPush acc mkr))
+        )
+        (pErr pos)
+      )
     )
   )
 )

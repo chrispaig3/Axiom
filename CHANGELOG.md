@@ -16,6 +16,41 @@ its changelog too.
 
 ## Unreleased
 
+### Match arms and constructor lists splice per element — `tests/selfhost/398-arm-ctor-splice.ax`
+
+MAC-LANG-16's third half: a template `arm ...` rebuilds one match
+arm per absorbed element with each sequence-bound name taking its
+element, and a template `C ...` rebuilds one constructor per
+element the same way - the two halves the §10.5 machine macro's
+step function and its `data` need, so the machine in §10.5 now
+expands. A bare `...` parses where an arm stands (an arm whose
+pattern is the variable `...`) and where a constructor stands (the
+nullary constructor `(...)` already parsed as), as the marker shape
+each splice consumes; beside no marker both keep ordinary meaning -
+an ordinary-code arm `...` is diagnosed where it stands, and a
+constructor-list `...` builds as the nullary constructor it spells.
+The rebuilt arm pattern is a TEST, not a binder - `(Off)` answers
+only Off - so the splice converts a sequence-bound bare name to the
+nullary-constructor test before the single-arm path renames
+binders; without the conversion the substituted name binds and the
+first arm swallows every scrutinee at exit 0, the silent wildcard
+`expSubstPatForSpine`'s note records for the `syntax/for` path.
+Still refused: a repeat beneath a repeat, a constructor pattern in
+a spliced arm (bind whole values in the repeated pattern and take
+them apart outside it), and whole declarations, which do not splice
+yet. `tests/selfhost/398` answers 118 over three macros (a
+fixed-type arm splice with the second arm as the wildcard
+tripwire, a constructor splice building its own data type, and the
+Door machine end to end); `tests/selfhost/397` and
+`tests/diagnostics/610` hold what they held. Twelve new splice
+functions at exactly `Alloc,Mut` and seven pure move the pins
+re-derived rather than retuned (exactly `Alloc,Mut` 2,037 → 2,052,
+pure 1,571 → 1,578; added 19 here plus the 3 test-runner fns whose
+landing predates this derivation, removed 0, changed 0); the
+stdlib `Alloc,Assert,IO,Mut` pin is re-derived 6 → 7 for
+`assertFloatNear` for the same reason, and the macro-demand
+population 115 → 117 for the two generated names this fixture adds.
+
 ### `assertFloatNear` — `stdlib/Test.ax`, `scripts/check-test-runner.sh`
 
 A tolerance-based assertion for `stdlib/Test.ax`, alongside `assertEq`

@@ -17,7 +17,7 @@
 ;               sequences, a third thing, refused rather than
 ;               half-built. (A repeating PATTERN without one -
 ;               `(a b) ...` - is legal since MAC-LANG-16's second
-;               half, and lives in `tests/selfhost/396-nested-repeat`
+;               half, and lives in `tests/selfhost/397-nested-repeat`
 ;               instead of here.)
 ;
 ;   at the INVOCATION, because the rule is fine and this expansion is

@@ -177,10 +177,10 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 652 `.ax` files
-in the repository answers `is already formatted` for 429 of them and
-`needs formatting` for 223. Two of the 223 are deliberate and are named
-below; the other 221 were committed unformatted, and that same sweep is
+2026-09-04, `axiom fmt --check` over every one of the 655 `.ax` files
+in the repository answers `is already formatted` for 431 of them and
+`needs formatting` for 224. Two of the 224 are deliberate and are named
+below; the other 222 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
@@ -213,7 +213,15 @@ to 649/426/223. Then the `pathClean` fixture arrived —
 fixture arrived — `479-region-reclaim.ax`, measured formatted on its
 own with `axiom fmt --check` — taking it to 651/428/223. Then the nested-repeat
 fixture arrived — `397-nested-repeat.ax`, measured formatted on its
-own with `axiom fmt --check` — taking it to 652/429/223. Each of those twenty-four files was measured on its own with
+own with `axiom fmt --check` — taking it to 652/429/223. Then the two
+test-runner fixtures arrived — `float-near-tests.ax` and
+`xfail-tests.ax`, each measured formatted on its own with
+`axiom fmt --check` — taking it to 654/431/223. Then the
+arm-ctor-splice fixture arrived — `398-arm-ctor-splice.ax`, measured
+needing formatting on its own with `axiom fmt --check` (its
+`(mkdata (Cat) (Dog))` invocation is the form under test, and the
+formatter collapses it to bare names) — taking it to 655/431/224.
+Each of those twenty-six files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.

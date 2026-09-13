@@ -316,8 +316,12 @@
               "type": "FIELD",
               "name": "type_parameters",
               "content": {
-                "type": "SYMBOL",
-                "name": "_data_type_parameters"
+                "type": "PREC_DYNAMIC",
+                "value": 1,
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "_data_type_parameters"
+                }
               }
             },
             {
@@ -331,8 +335,17 @@
             "type": "FIELD",
             "name": "constructor",
             "content": {
-              "type": "SYMBOL",
-              "name": "data_constructor"
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "data_constructor"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "ellipsis"
+                }
+              ]
             }
           }
         },
@@ -401,6 +414,10 @@
               {
                 "type": "SYMBOL",
                 "name": "constructor_identifier"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
               },
               {
                 "type": "SYMBOL",
@@ -2119,6 +2136,10 @@
               {
                 "type": "SYMBOL",
                 "name": "wildcard_pattern"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "identifier"
               }
             ]
           }
@@ -2957,6 +2978,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "syntax_for_arm"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "ellipsis"
                 }
               ]
             }
@@ -3030,6 +3055,10 @@
                 {
                   "type": "SYMBOL",
                   "name": "syntax_for_arm"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "ellipsis"
                 }
               ]
             }
@@ -3713,6 +3742,10 @@
     [
       "type_parameters",
       "field_declaration"
+    ],
+    [
+      "type_parameters",
+      "data_constructor"
     ],
     [
       "effect",

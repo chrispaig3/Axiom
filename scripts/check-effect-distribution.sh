@@ -11,9 +11,9 @@
 # views, because the claim "ambient" is a claim about a population:
 #
 #   compiler  `symbols --calls self_host/main.ax`: the compiler and the
-#             stdlib it reaches. 4,271 functions; 2,700 perform, 2,037
-#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,526 of
-#             the 2,700 (94%).
+#             stdlib it reaches. 4,293 functions; 2,715 perform, 2,052
+#             of those exactly `Alloc,Mut`; `Mut` anywhere in 2,541 of
+#             the 2,715 (94%).
 #   stdlib    one probe importing every stdlib module: the whole
 #             library's. 821 functions; 410 perform, 178 of those
 #             exactly `Alloc,Mut`; customs are two singletons (`Assert`,
@@ -48,14 +48,14 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2037 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2052 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 366 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 119 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 116 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 39 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 19 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 4 "IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1571 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1578 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
@@ -85,7 +85,7 @@ have "$(bucket "$work/lib.axsym" 'Mut')" 51 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 35 "exactly Alloc"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 32 "Alloc,IO"
 have "$(bucket "$work/lib.axsym" 'IO')" 29 "exactly IO"
-have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 6 "Alloc,Assert,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 7 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 4 "IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Fallible')" 1 "exactly Fallible"
 have "$(bucket "$work/lib.axsym" 'Assert')" 1 "exactly Assert"

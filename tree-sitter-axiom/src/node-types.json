@@ -491,6 +491,10 @@
             "named": true
           },
           {
+            "type": "identifier",
+            "named": true
+          },
+          {
             "type": "syntax_join_name",
             "named": true
           }
@@ -508,6 +512,10 @@
         "types": [
           {
             "type": "data_constructor",
+            "named": true
+          },
+          {
+            "type": "ellipsis",
             "named": true
           }
         ]
@@ -1343,6 +1351,10 @@
         "required": false,
         "types": [
           {
+            "type": "ellipsis",
+            "named": true
+          },
+          {
             "type": "match_arm",
             "named": true
           },
@@ -1462,6 +1474,10 @@
         "types": [
           {
             "type": "_literal",
+            "named": true
+          },
+          {
+            "type": "identifier",
             "named": true
           },
           {
@@ -1875,6 +1891,10 @@
         "multiple": true,
         "required": true,
         "types": [
+          {
+            "type": "ellipsis",
+            "named": true
+          },
           {
             "type": "match_arm",
             "named": true

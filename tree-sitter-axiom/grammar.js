@@ -138,6 +138,15 @@ module.exports = grammar({
     // application until the body ends.
     [$.type_parameters, $.field_declaration, $._expression],
     [$.type_parameters, $.field_declaration],
+    // `(data Foo (a))`: with lowercase constructor names admitted for the
+    // rule-form splice (`(c)` rebuilt per element, MAC-LANG-16 v3), a
+    // first group of lowercase names is a type-parameter list AND a
+    // nullary constructor, diverging nowhere. The compiler's
+    // `collectTyParams` reads it as parameters, so the dynamic
+    // precedence on `_data_type_parameters` above expresses exactly
+    // that; this declares the ambiguity the precedence then settles,
+    // the same shape `(struct Point (x))` already carries two rules up.
+    [$.type_parameters, $.data_constructor],
     // `(handle body (foo) handler)`: is `(foo)` a one-element custom effect
     // list, or is it an application that serves as the handler? Nothing in
     // the form settles it, and the language itself is ambiguous here -
@@ -278,11 +287,17 @@ module.exports = grammar({
     // The name may also be `(syntax/join a b)`, since `data` became a
     // declaration-macro template kind (MAC-CAP-7/8): a generated type
     // is named the same way a generated function is.
+    //
+    // A bare `...` stands among the constructors for the rule-form
+    // repetition (MAC-LANG-16 v3): `C ...` in a template rebuilds one
+    // constructor per absorbed element, and the compiler's
+    // parseConstructors reads the marker as the nullary constructor
+    // `(...)` already parsed as.
     data_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'data',
       field('name', choice($.identifier, $.syntax_join_name)),
-      optional(field('type_parameters', $._data_type_parameters)),
-      repeat(field('constructor', $.data_constructor)),
+      optional(field('type_parameters', prec.dynamic(1, $._data_type_parameters))),
+      repeat(field('constructor', choice($.data_constructor, $.ellipsis))),
       ')',
     ),
 
@@ -332,9 +347,18 @@ module.exports = grammar({
     // spell it `(syntax/join Off N)` - which is what lets two
     // invocations of one macro generate two distinct types rather
     // than colliding on a fixed constructor name.
+    //
+    // A template may also spell it with a plain lowercase name -
+    // `(c)` rebuilt once per absorbed element by the rule-form
+    // repetition (MAC-LANG-16 v3) - which the compiler's
+    // `parseOneCtorInner` accepts through `parseDeclName` with no
+    // case asked. So the name here is an `identifier` beside the
+    // uppercase one, not instead of it: existing trees keep the
+    // `constructor_identifier` they have, by the same tie-break
+    // every `(Nil)` in the corpus already exercises.
     data_constructor: $ => seq(
       '(',
-      field('name', choice($.constructor_identifier, $.syntax_join_name)),
+      field('name', choice($.constructor_identifier, $.identifier, $.syntax_join_name)),
       choice(
         repeat(field('field', $._type)),
         seq('{', repeat(seq(field('field', $.named_field), optional(','))), '}'),
@@ -773,7 +797,7 @@ module.exports = grammar({
 
     wildcard_pattern: _ => '_',
 
-    // `(true)`, `(false)`, `(1)`, `(_)`.
+    // `(true)`, `(false)`, `(1)`, `(_)`, `(st)`.
     //
     // A pattern in this language is PARSED as an expression and only
     // then read as a pattern (`parseArmPattern` falls back to
@@ -797,8 +821,17 @@ module.exports = grammar({
     // Unambiguous against `constructor_pattern`, which requires a
     // `constructor_identifier` (`[A-Z]...`): none of `true`, `false`,
     // a number or `_` can begin one.
+    //
+    // A lowercase name in the same brackets is a grouped variable and
+    // BINDS (`parseArmPattern` takes the expression path for a
+    // lowercase head), so it reads here as a plain `identifier`.
+    // Found by `tests/selfhost/398-arm-ctor-splice.ax`, whose spliced
+    // arms are built from exactly this shape. No new token: the lexer
+    // already breaks the `identifier`/`constructor_identifier` tie
+    // every `(Nil)` in the corpus exercises, and this adds a parser
+    // alternative only where `)` follows the name.
     parenthesized_pattern: $ => seq(
-      '(', field('pattern', choice($._literal, $.wildcard_pattern)), ')',
+      '(', field('pattern', choice($._literal, $.wildcard_pattern, $.identifier)), ')',
     ),
 
     // `(Cons h t)`, and nested: `(Cons h (Cons h2 t))`.
@@ -977,7 +1010,7 @@ module.exports = grammar({
     match_expression: $ => seq(
       '(', 'match',
       field('scrutinee', $._expression),
-      repeat(field('arm', choice($.match_arm, $.syntax_for_arm))),
+      repeat(field('arm', choice($.match_arm, $.syntax_for_arm, $.ellipsis))),
       ')',
     ),
 
@@ -990,10 +1023,15 @@ module.exports = grammar({
     // template arm per element, spliced by the expander during
     // template instantiation. The head is a reserved spelling in this
     // position, matching the compiler's parseMatchArms.
+    //
+    // A bare `...` stands beside those arms for the same reason it
+    // stands beside a `match`'s own: the rule-form repetition
+    // (MAC-LANG-16 v3) splices template arms, and the compiler's
+    // parseMatchArms is the one function that reads both positions.
     syntax_for_arm: $ => seq(
       '(', 'syntax/for',
       $._syntax_iter_binding,
-      repeat1(field('arm', choice($.match_arm, $.syntax_for_arm))),
+      repeat1(field('arm', choice($.match_arm, $.syntax_for_arm, $.ellipsis))),
       ')',
     ),
 

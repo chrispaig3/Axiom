@@ -1,0 +1,73 @@
+; expect 118
+; Rule-template splices over whole match arms and data-constructor
+; lists (MAC-LANG-16, third slice): `arm ...` rebuilds one arm per
+; absorbed element with each sequence-bound name taking its element,
+; and `C ...` rebuilds one constructor per element the same way -
+; the two halves the §10.5 machine macro's step function and its
+; `data` need. A rebuilt arm pattern is a TEST, not a binder: `(Off)`
+; answers only Off. Substituted as a bare name it would bind and
+; match everything - the silent wildcard expSubstPatForSpine's note
+; records for the `syntax/for` path - so t1b below answers through
+; the SECOND arm on purpose, where a wildcard would answer 100
+; through the first.
+;
+;   t1a  100  arm splice over a fixed type, first arm answers
+;   t1b  0    arm splice, second arm answers (the wildcard tripwire)
+;   t2   8    constructor splice builds the data type itself
+;   t3   10   both halves: the §10.5 Door machine end to end
+(data Light
+  (Off)
+  (On))
+
+(macro stepm ((stepm (st nxt) ...)
+   (:: lightStep (-> Light Int Light))
+   (fn (lightStep l e)
+     (match l
+       ((st) (if (== e 1) (nxt) (st))) ...))))
+
+(stepm (Off On) (On Off))
+
+(:: lightCode (-> Light Int))
+
+(fn (lightCode l)
+  (match l
+    ((Off) 0)
+    ((On) 100)
+  )
+)
+
+(macro mkdata ((mkdata (c) ...)
+   (data Animal () (c) ...)))
+
+(mkdata (Cat) (Dog))
+
+(:: legs (-> Animal Int))
+
+(fn (legs a)
+  (match a
+    ((Cat) 4)
+    ((Dog) 4)
+  )
+)
+
+(macro machine ((machine (state s (on ev next)) ...)
+   (data DoorState () (s) ...)
+   (:: step (-> DoorState Int DoorState))
+   (fn (step st e)
+     (match st
+       ((s) (if (== e ev) (next) (s))) ...))))
+
+(machine (state Closed (on 1 Open)) (state Open (on 0 Closed)))
+
+(:: doorCode (-> DoorState Int))
+
+(fn (doorCode st)
+  (match st
+    ((Closed) 0)
+    ((Open) 10)
+  )
+)
+
+(:: main Int)
+
+(fn (main) (+ (+ (+ (lightCode (lightStep Off 1)) (lightCode (lightStep On 1))) (+ (legs Cat) (legs Dog))) (+ (doorCode (step Closed 1)) (+ (doorCode (step Open 0)) (doorCode (step (step Closed 1) 0))))))

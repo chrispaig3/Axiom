@@ -455,6 +455,25 @@ so the §10.5 machine macro is still one slice out.
 new shape; `tests/diagnostics/610` keeps the four refusals with the
 graduated row rewritten.
 
+**v3, landed 2026-09-13: arms and constructor lists.** A template
+`arm ...` rebuilds one arm per absorbed element with each
+sequence-bound name taking its element, and a template `C ...`
+rebuilds one constructor per element the same way - the two halves
+the §10.5 machine macro's step function and its `data` need, so the
+machine in §10.5 now expands. The rebuilt arm pattern is a TEST,
+not a binder: `(Off)` answers only Off, and substituting the
+element there unconverted would bind and match everything - the
+silent wildcard `expSubstPatForSpine`'s note records for the
+`syntax/for` path - so the splice converts a sequence-bound bare
+name to the nullary-constructor test before the single-arm path
+renames binders. Still refused: a repeat BENEATH a repeat, a
+constructor pattern in a spliced arm (bind whole values in the
+repeated pattern and take them apart outside it), and a `...`
+standing where an arm stands in ordinary code, which is diagnosed
+where it stands rather than spliced; whole declarations still do
+not splice. `tests/selfhost/398-arm-ctor-splice.ax` (118) is three
+macros over the new shapes, ending in the Door machine end to end.
+
 **`...` lexes, and it lexes as an ORDINARY IDENTIFIER.** Three
 dots are one token and there is no new token kind: `self_host/lexer.ax`
 meets byte 46, looks at the next two, and emits `TK_IDENT` spanning

@@ -4219,9 +4219,317 @@
 ; substituted argument that happen to share a name stay distinct.
 (pub :: substArms (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int)))
 
-(pub fn (substArms arms params args ren env isp) (substArmsIn
-  arms  params  args  ren  env  isp  vecNew  0
-))
+(pub fn (substArms arms params args ren env isp)
+  ; An arm followed by the marker diverts to the splice loop;
+  ; otherwise this is the ordinary arm walk, byte for byte what it
+  ; was. The pre-scan costs one pass over short vectors and keeps
+  ; the hot path - and its goldens - untouched.
+  (if (== (armsHasSpliceMarker arms 0) 1)
+    (substArmsSplice arms params args ren env isp vecNew 0)
+    (substArmsIn
+      arms  params  args  ren  env  isp  vecNew  0
+    )
+  )
+)
+
+; Is element `i` a plain arm followed by the marker? `syntax/for`
+; forms manage their own repetition and never trigger this, even
+; beside a marker - the marker after one falls through to whatever
+; a stray marker does today, which is none of this function's
+; new business.
+(pub :: armsHasSpliceMarker (-> (Vec Int) Int Int))
+
+(pub fn (armsHasSpliceMarker arms i)
+  (if (>= (+ i 1) (vecLen arms))
+    0
+    (if (&& (!= (nodeTag (vecGet arms i)) TAG_M_FOR) (== (isEllipsisArm (vecGet arms (+ i 1))) 1))
+      1
+      (armsHasSpliceMarker arms (+ i 1))
+    )
+  )
+)
+
+; `arm ...` in an arm list: rebuild `arm` once per absorbed
+; element, with each sequence-bound name taking its element - the
+; match-arm half of what `expSpliceNested` does for application
+; spines, and the half the §10.5 machine macro's step function
+; needs. Ordinary arms delegate back to `substArmsIn` on a
+; singleton, so the single-arm logic lives in exactly one place;
+; a marker on its own diagnoses (mirroring the ordinary-code
+; refusal) and splices a poison arm, so no shape falls through to
+; a null-bodied arm the checker would walk into.
+;
+; Two diagnosed misuses, neither silent: no sequence in the arm
+; (the `...` follows nothing that repeats), and a constructor
+; pattern in the arm (its binders are invisible to the
+; expression-side walk below, so splicing it would leave them
+; unbound - refused plainly rather than miscompiled).
+(pub :: substArmsSplice (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) Int (Vec Int)))
+
+(pub fn (substArmsSplice arms params args ren env isp acc i)
+  (if (>= i (vecLen arms))
+    acc
+    (let ((arm (vecGet arms i)))
+      (if (== (isEllipsisArm arm) 1)
+        {
+          (expEllipsisDiag
+            env            "..."            "starts nothing - a repetition marker follows the arm it repeats"            "drop it, or move it directly after the repeated arm"            isp
+          )
+          (substArmsSplice
+            arms            params            args            ren            env            isp            (vecPush acc (mkNodeAt
+              TAG_M_ARM              (mkEVarAt "_" (nodeSpan arm))              (mkEInt 0)              0              (nodeSpan arm)
+            ))            (+ i 1)
+          )
+        }
+        (if (&& (!= (nodeTag arm) TAG_M_FOR) (&& (< (+ i 1) (vecLen arms)) (== (isEllipsisArm (vecGet arms (+ i 1))) 1)))
+          (substArmsSplice
+            arms            params            args            ren            env            isp            (expAppendBuilt acc (expSpliceOneArm
+              arm              params              args              ren              env              isp
+            ) 0)            (+ i 2)
+          )
+          (let ((one (substArmsIn
+            (let ((single vecNew))
+              {
+                (vecPush single arm)
+                single
+              }
+            )            params            args            ren            env            isp            vecNew            0
+          )))
+            (substArmsSplice
+              arms              params              args              ren              env              isp              (expAppendBuilt acc one 0)              (+ i 1)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; One arm spliced: per-element rebuilds through the ordinary
+; single-arm path, with each sequence-bound name taking its
+; element. Answers a vec of arms; on a diagnosed misuse the vec
+; holds one poison arm (`_` answering 0, mirroring the
+; ordinary-code refusal), because the diagnostic is the signal and
+; a failed match would only add a follow-on error.
+; The per-element substitution appends singles onto the shared
+; params/args (last wins) and pops them after: nothing appends to
+; those vecs during substitution, so the truncation restores
+; exactly what was there.
+(pub :: expSpliceOneArm (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int)))
+
+(pub fn (expSpliceOneArm arm params args ren env isp)
+  (let ((seqs (expSeqBindsVec env)))
+    (if (== (vecLen seqs) 0)
+      (let ((poison vecNew))
+        {
+          (expEllipsisDiag
+            env            "..."            "follows nothing that repeats"            "repetition lives in a rule-form macro's match: move the match there, or drop the marker"            isp
+          )
+          (vecPush poison (mkNodeAt
+            TAG_M_ARM              (mkEVarAt "_" (nodeSpan arm))              (mkEInt 0)              0              (nodeSpan arm)
+          ))
+          poison
+        }
+      )
+      (if (== (patHasPCtor (nodeA arm)) 1)
+        (let ((poison vecNew))
+          {
+            (expEllipsisDiag
+              env              "..."              "a constructor pattern cannot splice yet"              "bind whole values in the repeated pattern and take them apart outside it"              isp
+            )
+            (vecPush poison (mkNodeAt
+              TAG_M_ARM              (mkEVarAt "_" (nodeSpan arm))              (mkEInt 0)              0              (nodeSpan arm)
+            ))
+            poison
+          }
+        )
+        (let ((n (vecLen (cast (Vec Int) (memGetWord (vecGet seqs 0) 1)))))
+          (let ((markP (vecLen params)))
+            (let ((markA (vecLen args)))
+              (let ((mut j 0))
+                (let ((mut bad 0))
+                  (let ((out vecNew))
+                    {
+                      (while (< j n)
+                        (if (== bad 1)
+                          (set j n)
+                          (let ((mut k 0))
+                            {
+                              (while (< k (vecLen seqs))
+                                {
+                                  (vecPush params (memGetWord (vecGet seqs k) 0))
+                                  (vecPush args (vecGet (cast (Vec Int) (memGetWord (vecGet seqs k) 1)) j))
+                                  (set k (+ k 1))
+                                }
+                              )
+                              ; The pattern with this element's values
+                              ; in test position BEFORE the single-arm
+                              ; path renames binders: a bare
+                              ; sequence-bound name there must become
+                              ; the constructor test it names, not a
+                              ; binder matching everything
+                              ; (expSubstPatSeq). The body keeps the
+                              ; ordinary substitution below.
+                              (let ((one (substArmsIn
+                                (let ((single vecNew))
+                                  {
+                                    (vecPush single (mkNodeAt
+                                      TAG_M_ARM                                      (expSubstPatSeq (nodeA arm) (expSeqBindsVec env) j isp)                                      (nodeB arm)                                      0                                      (nodeSpan arm)
+                                    ))
+                                    single
+                                  }
+                                )                                params                                args                                ren                                env                                isp                                vecNew                                0
+                              )))
+                                ; A singleton substitution cannot fail -
+                                ; every arm shape builds exactly one - so
+                                ; this is the tripwire, not the path: poison
+                                ; the match loudly rather than dropping an
+                                ; arm silently.
+                                (if (!= (vecLen one) 1)
+                                  {
+                                    (expEllipsisDiag
+                                      env                                      "..."                                      "an arm rebuild failed mid-splice"                                      "this is an internal inconsistency, not a program error - the single-arm path builds exactly one arm"                                      isp
+                                    )
+                                    (vecPush out (mkNodeAt
+                                      TAG_M_ARM                                      (mkEVarAt "_" (nodeSpan arm))                                      (mkEInt 0)                                      0                                      (nodeSpan arm)
+                                    ))
+                                    (set bad 1)
+                                    (set j n)
+                                  }
+                                  {
+                                    (vecPush out (vecGet one 0))
+                                    (set j (+ j 1))
+                                  }
+                                )
+                              )
+                              (while (> (vecLen params) markP)
+                                (vecPop params)
+                              )
+                              (while (> (vecLen args) markA)
+                                (vecPop args)
+                              )
+                            }
+                          )
+                        )
+                      )
+                      out
+                    }
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; A spliced arm's pattern with one element's values in test
+; position, BEFORE the single-arm path below renames binders. A
+; bare identifier in pattern position BINDS (expRenamePat's
+; header), so substituting the element there answers a binder
+; matching everything - the same silent wildcard
+; expSubstPatForSpine's note records for the `syntax/for` path,
+; where `(deriveShow Colour)` generated a first arm that swallowed
+; every scrutinee at exit 0. A sequence-bound bare name whose
+; element is itself a bare name therefore rebuilds as TAG_P_CON0,
+; the nullary-constructor test `(...)` parses as; every other
+; shape is left for the ordinary binder path, which owns it.
+;
+; Only the splice loop above reads this; ordinary arms never do.
+(pub :: expSubstPatSeq (-> Int (Vec Int) Int Int Int))
+
+(pub fn (expSubstPatSeq p seqs j isp)
+  (if (== p 0)
+    p
+    (let ((tag (nodeTag p)))
+      (if (== tag TAG_E_VAR)
+        (let ((elems (expSeqLookup seqs (nodeAName p))))
+          (if (== (cast Int elems) 0)
+            p
+            (let ((e (vecGet (cast (Vec Int) elems) j)))
+              (if (== (nodeTag e) TAG_E_VAR)
+                (mkNodeAt
+                  TAG_P_CON0                  (nodeAName e)                  0                  0                  (nodeSpan p)
+                )
+                p
+              )
+            )
+          )
+        )
+        (if (== tag TAG_E_APP)
+          (expSubstPatSeqSpine p seqs j isp)
+          p
+        )
+      )
+    )
+  )
+)
+
+; One application spine: the head names the constructor and must
+; survive as a reference (expRenamePatSpine's rule), so a
+; sequence-bound head takes the element's name bare; every
+; argument is a test position and takes the full rule above.
+(pub :: expSubstPatSeqSpine (-> Int (Vec Int) Int Int Int))
+
+(pub fn (expSubstPatSeqSpine p seqs j isp)
+  (let (
+    (head (spineHead p))
+    (pargs (spineArgVec p vecNew))
+  )
+    (let (
+      (newHead (if (== (nodeTag head) TAG_E_VAR)
+        (let ((elems (expSeqLookup seqs (nodeAName head))))
+          (if (== (cast Int elems) 0)
+            head
+            (let ((e (vecGet (cast (Vec Int) elems) j)))
+              (if (== (nodeTag e) TAG_E_VAR)
+                (mkEVarAt (nodeAName e) (nodeSpan head))
+                head
+              )
+            )
+          )
+        )
+        head
+      ))
+      (out vecNew)
+      (mut i 0)
+    )
+      {
+        (while (< i (vecLen pargs))
+          {
+            (vecPush out (expSubstPatSeq (vecGet pargs i) seqs j isp))
+            (set i (+ i 1))
+          }
+        )
+        (expRebuildSpine newHead out isp 0)
+      }
+    )
+  )
+)
+
+; Whether a pattern mentions a constructor shape: the line this
+; slice does not cross yet.
+(pub :: patHasPCtor (-> Int Int))
+
+(pub fn (patHasPCtor p)
+  (if (== p 0)
+    0
+    (let ((tg (nodeTag p)))
+      (if (|| (== tg TAG_P_CON0) (== tg TAG_P_CONNAMED))
+        1
+        (if (== tg TAG_E_APP)
+          (if (== (patHasPCtor (nodeA p)) 1)
+            1
+            (patHasPCtor (nodeB p))
+          )
+          0
+        )
+      )
+    )
+  )
+)
 
 (pub :: substArmsIn (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) Int (Vec Int)))
 
@@ -4579,6 +4887,21 @@
   (if (>= i (vecLen arms))
     acc
     (let ((arm (vecGet arms i)))
+      ; A bare `...` where an arm stands splices in a rule template
+      ; and means nothing in ordinary code: refuse it the way the
+      ; `syntax/for` refusal below does, with a well-formed poison
+      ; arm so the checker walks something shaped like an arm.
+      (if (== (isEllipsisArm arm) 1)
+        {
+          (expQueryErr
+            env            (nodeSpan arm)            "`...` splices a repeated template arm, and stands in no ordinary match"            "repetition lives in a rule-form macro's template: move the match there, or write the arms by hand"            (memGetWord env 11)
+          )
+          (expandArmsIn
+            arms            env            bs            (vecPush acc (mkNodeAt
+              TAG_M_ARM              (mkEVarAt "_" (nodeSpan arm))              (mkEInt 0)              0              (nodeSpan arm)
+            ))            (+ i 1)
+          )
+        }
       (if (== (nodeTag arm) TAG_M_FOR)
         ; `syntax/for` in an ordinary match - the user's own code,
         ; outside any macro template - has no iteration to splice
@@ -4613,6 +4936,7 @@
       )
     )
   )
+)
 )
 
 (pub :: expPatBinders (-> Int (Vec Int) Int))
@@ -7312,9 +7636,71 @@
 ; reach them.
 (pub :: expBuildCtors (-> (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int)))
 
-(pub fn (expBuildCtors cs params args env isp) (expBuildCtorsIn
-  cs  params  args  env  isp  vecNew  0
-))
+(pub fn (expBuildCtors cs params args env isp)
+  ; A `...` marker after a form diverts to the splice loop;
+  ; otherwise this is the ordinary one-form-per-constructor walk,
+  ; byte for byte what it was. The pre-scan costs one pass over
+  ; short vectors and keeps the hot path - and its goldens -
+  ; untouched.
+  (if (== (csHasSpliceMarker cs 0) 1)
+    (expBuildCtorsSplice cs params args env isp vecNew 0)
+    (expBuildCtorsIn
+      cs  params  args  env  isp  vecNew  0
+    )
+  )
+)
+
+; Is element `i` followed by the marker - a nullary constructor
+; spelling `...`, exactly what `(...)` parses as? The marker on its
+; own (leading, doubled, trailing nothing) is not a splice site:
+; it builds as the ordinary `...` constructor it has always been.
+(pub :: csHasSpliceMarker (-> (Vec Int) Int Int))
+
+(pub fn (csHasSpliceMarker cs i)
+  (if (>= (+ i 1) (vecLen cs))
+    0
+    (if (== (isEllipsisCtor (vecGet cs (+ i 1))) 1)
+      1
+      (csHasSpliceMarker cs (+ i 1))
+    )
+  )
+)
+
+; The `...` marker: a nullary constructor spelling `...`, exactly
+; what `(...)` parses as and what a bare `...` now parses as. Only
+; the splice loop reads it; everywhere else it is a name like any
+; other, which is why real code keeps the acceptance it had.
+(pub :: isEllipsisCtor (-> Int Int))
+
+(pub fn (isEllipsisCtor c)
+  (if (!= (nodeTag c) TAG_CTOR)
+    0
+    (if (strEq (nodeAName c) "...")
+      1
+      0
+    )
+  )
+)
+
+; The same marker one level up: an arm whose pattern is the bare
+; variable `...`, exactly what the parser builds. Only the splice
+; loop below and the ordinary-code refusal above read it.
+(pub :: isEllipsisArm (-> Int Int))
+
+(pub fn (isEllipsisArm a)
+  (if (!= (nodeTag a) TAG_M_ARM)
+    0
+    (let ((p (nodeA a)))
+      (if (!= (nodeTag p) TAG_E_VAR)
+        0
+        (if (strEq (nodeAName p) "...")
+          1
+          0
+        )
+      )
+    )
+  )
+)
 
 (pub :: expBuildCtorsIn (-> (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) Int (Vec Int)))
 
@@ -7363,11 +7749,296 @@
   )
 )
 
+; `C ...` in a constructor list: rebuild `C` once per absorbed
+; element, with each sequence-bound name taking its element - the
+; declaration-list half of what `expSpliceNested` does for
+; application spines, and the half the §10.5 machine macro's `data`
+; needs. Ordinary elements delegate back to `expBuildCtors` on a
+; singleton, so the single-constructor logic lives in exactly one
+; place and the no-marker path above never reaches here.
+;
+; Two diagnosed misuses, neither silent: no sequence in `C` (the
+; `...` follows nothing that repeats), and a `...` leaf inside `C`
+; (a repeat beneath a repeat - no `...` can be sequence-bound,
+; since a repeating pattern cannot contain one, so a leaf spelling
+; it is literal). A form whose names all resolve the ordinary way
+; never triggers the loop: `csHasSpliceMarker` only fires beside a
+; marker, and the marker beside nothing repeatable diagnoses.
+(pub :: expBuildCtorsSplice (-> (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) Int (Vec Int)))
+
+(pub fn (expBuildCtorsSplice cs params args env isp acc i)
+  (if (>= i (vecLen cs))
+    acc
+    (let ((c (vecGet cs i)))
+      (if (&& (< (+ i 1) (vecLen cs)) (== (isEllipsisCtor (vecGet cs (+ i 1))) 1))
+        (let ((built (expSpliceOneCtor
+          c          params          args          env          isp
+        )))
+          (if (== (cast Int built) 0)
+            (cast (Vec Int) 0)
+            (expBuildCtorsSplice
+              cs              params              args              env              isp              (expAppendBuilt acc built 0)              (+ i 2)
+            )
+          )
+        )
+        (let ((one (expBuildCtors
+          (let ((single vecNew))
+            {
+              (vecPush single c)
+              single
+            }
+          )          params          args          env          isp
+        )))
+          (if (== (vecLen one) 0)
+            (cast (Vec Int) 0)
+            (expBuildCtorsSplice
+              cs              params              args              env              isp              (expAppendBuilt acc one 0)              (+ i 1)
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; A built vec appended onto the accumulator, element by element.
+(pub :: expAppendBuilt (-> (Vec Int) (Vec Int) Int (Vec Int)))
+
+(pub fn (expAppendBuilt acc built i)
+  (if (>= i (vecLen built))
+    acc
+    {
+      (vecPush acc (vecGet built i))
+      (expAppendBuilt acc built (+ i 1))
+    }
+  )
+)
+
+; One constructor form spliced: per-element rebuilds through the
+; ordinary single-constructor path, with each sequence-bound name
+; taking its element. The per-element substitution appends singles
+; onto the shared params/args (last wins) and pops them after:
+; nothing appends to those vecs during substitution, so the
+; truncation restores exactly what was there.
+(pub :: expSpliceOneCtor (-> Int (Vec Int) (Vec Int) Int Int (Vec Int)))
+
+(pub fn (expSpliceOneCtor c params args env isp)
+  (let ((names (expCtorSeqNames c vecNew env)))
+    (if (== (vecLen names) 0)
+      {
+        (expEllipsisDiag
+          env          "..."          "follows nothing that repeats"          "put `...` directly after a constructor form whose names repeat, or drop it"          isp
+        )
+        (cast (Vec Int) 0)
+      }
+      (if (== (expCtorHasEllipsis c) 1)
+        {
+          (expEllipsisDiag
+            env            "..."            "nests a repeat inside a repeat"            "repeat one level only in constructor lists too"            isp
+          )
+          (cast (Vec Int) 0)
+        }
+        (let ((n (vecLen (cast (Vec Int) (expSeqLookup (expSeqBindsVec env) (vecGetStr names 0))))))
+          (let ((markP (vecLen params)))
+            (let ((markA (vecLen args)))
+              (let ((mut j 0))
+                (let ((mut bad 0))
+                  (let ((out vecNew))
+                    {
+                      (while (< j n)
+                        (if (== bad 1)
+                          (set j n)
+                          (let ((mut k 0))
+                            {
+                              (while (< k (vecLen names))
+                                {
+                                  (vecPush params (vecGet names k))
+                                  (vecPush args (vecGet (cast (Vec Int) (expSeqLookup (expSeqBindsVec env) (vecGetStr names k))) j))
+                                  (set k (+ k 1))
+                                }
+                              )
+                              (let ((one (expBuildCtors
+                                (let ((single vecNew))
+                                  {
+                                    (vecPush single c)
+                                    single
+                                  }
+                                )                            params                            args                            env                            isp
+                              )))
+                                (if (!= (vecLen one) 1)
+                                  {
+                                    (set bad 1)
+                                    (set j n)
+                                  }
+                                  {
+                                    (vecPush out (vecGet one 0))
+                                    (set j (+ j 1))
+                                  }
+                                )
+                              )
+                              (while (> (vecLen params) markP)
+                                (vecPop params)
+                              )
+                              (while (> (vecLen args) markA)
+                                (vecPop args)
+                              )
+                            }
+                          )
+                        )
+                      )
+                      (if (== bad 1)
+                        (cast (Vec Int) 0)
+                        out
+                      )
+                    }
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Every sequence-bound name a constructor form mentions: its own
+; name, then every binder-looking leaf of its field types (absent
+; for a nullary constructor, exactly as the single build below
+; reads it). A name the match never bound is not collected -
+; `expSeqLookup` missing means a literal head or a fixed name,
+; which substitutes the ordinary way. Duplicates are harmless
+; downstream (one index's value twice), so this collects rather
+; than dedupes.
+(pub :: expCtorSeqNames (-> Int (Vec Int) Int (Vec Int)))
+
+(pub fn (expCtorSeqNames c acc env)
+  (if (!= (expSeqLookup (expSeqBindsVec env) (nodeAName c)) 0)
+    {
+      (vecPush acc (nodeA c))
+      (expTySeqNamesVec (expCtorFieldTys c) acc env 0)
+    }
+    (expTySeqNamesVec (expCtorFieldTys c) acc env 0)
+  )
+)
+
+; A constructor form's field types, or an empty vector for a
+; nullary one - the same guard the single build reads through.
+(pub :: expCtorFieldTys (-> Int (Vec Int)))
+
+(pub fn (expCtorFieldTys c)
+  (if (== (nodeTy c) 0)
+    vecNew
+    (nodeTyVec c)
+  )
+)
+
+; Binder-looking leaves of field-type nodes. `TAG_T_VAR` carries
+; the name; the containers recurse structurally; anything else is
+; skipped here and refused by the splice above, which owns the
+; diagnostic.
+(pub :: expTySeqNames (-> Int (Vec Int) Int (Vec Int)))
+
+(pub fn (expTySeqNames t acc env)
+  (let ((tg (nodeTag t)))
+    (if (== tg TAG_T_VAR)
+      (if (!= (expSeqLookup (expSeqBindsVec env) (nodeAName t)) 0)
+        {
+          (vecPush acc (nodeA t))
+          acc
+        }
+        acc
+      )
+      (if (== tg TAG_T_CON)
+        (expTySeqNamesVec (nodeBVec t) acc env 0)
+        (if (== tg TAG_T_ARR)
+          (expTySeqNames (nodeB t) (expTySeqNames (nodeA t) acc env) env)
+          (if (== tg TAG_T_TUP)
+            (expTySeqNamesVec (nodeAVec t) acc env 0)
+            ; A pointer's referent: the only other single-child
+            ; shape, and the only arm that reads `nodeA` as a node
+            ; rather than a name - `TAG_T_VAR` and `TAG_T_CON`
+            ; above take names from the same word.
+            (if (== tg TAG_T_PTR)
+              (expTySeqNames (nodeA t) acc env)
+              acc
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: expTySeqNamesVec (-> (Vec Int) (Vec Int) Int Int (Vec Int)))
+
+(pub fn (expTySeqNamesVec tys acc env i)
+  (if (>= i (vecLen tys))
+    acc
+    (expTySeqNamesVec tys (expTySeqNames (vecGet tys i) acc env) env (+ i 1))
+  )
+)
+
+; A `...` leaf inside a constructor form: a repeat beneath a
+; repeat. Only the spelling is checked here - no `...` can be
+; sequence-bound (a repeating pattern cannot contain one), so any
+; leaf spelling it is literal.
+(pub :: expCtorHasEllipsis (-> Int Int))
+
+(pub fn (expCtorHasEllipsis c)
+  (if (strEq (nodeAName c) "...")
+    1
+    (expTyHasEllipsisVec (expCtorFieldTys c) 0)
+  )
+)
+
+(pub :: expTyHasEllipsis (-> Int Int))
+
+(pub fn (expTyHasEllipsis t)
+  (let ((tg (nodeTag t)))
+    (if (|| (== tg TAG_T_VAR) (== tg TAG_T_CON))
+      (if (strEq (nodeAName t) "...")
+        1
+        (if (== tg TAG_T_CON)
+          (expTyHasEllipsisVec (nodeBVec t) 0)
+          0
+        )
+      )
+      (if (== tg TAG_T_ARR)
+        (if (== (expTyHasEllipsis (nodeA t)) 1)
+          1
+          (expTyHasEllipsis (nodeB t))
+        )
+        (if (== tg TAG_T_TUP)
+          (expTyHasEllipsisVec (nodeAVec t) 0)
+          ; A pointer's referent, read as a node - see the reader
+          ; above for why this arm does not share the tuple's.
+          (if (== tg TAG_T_PTR)
+            (expTyHasEllipsis (nodeA t))
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: expTyHasEllipsisVec (-> (Vec Int) Int Int))
+
+(pub fn (expTyHasEllipsisVec tys i)
+  (if (>= i (vecLen tys))
+    0
+    (if (== (expTyHasEllipsis (vecGet tys i)) 1)
+      1
+      (expTyHasEllipsisVec tys (+ i 1))
+    )
+  )
+)
+
 ; One float flag per field, from the SUBSTITUTED type - the same
 ; recomputation `expSigFlags` does per arrow, and for the same reason:
 ; a type rewritten without its flags prints 0.00 at exit 0.
 (pub :: expCtorFlags (-> (Vec Int) (Vec Int)))
-
 (pub fn (expCtorFlags ftys)
   (let (
     (acc vecNew)
