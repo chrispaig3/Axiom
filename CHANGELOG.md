@@ -16,6 +16,33 @@ its changelog too.
 
 ## Unreleased
 
+### Whole declarations splice per element — `tests/selfhost/399-decl-splice.ax`
+
+MAC-LANG-16's fourth half: a template `decl ...` rebuilds one
+declaration per absorbed element with each sequence-bound name
+taking its element - the last template position the repetition did
+not reach - through the ordinary single-declaration path, so names,
+types and bodies substitute exactly as a written declaration's do.
+A bare `...` parses among template declarations as the shape the
+expander's splice consumes; beside no marker every form keeps
+ordinary meaning - `(...)` still draws `AX3027`, and a bare `...`
+outside a template is still the `AX2001` it has always been, so
+neither ordinary spelling changed. A repeat INSIDE the spliced
+declaration is refused rather than rebuilt n-squared: an interior
+spine, arm, constructor or declaration `...` would use one sequence
+at two depths, and the splice loop answers `AX3034` naming it
+before any element builds. `tests/selfhost/399` answers 45 over
+three macros (a `fn` and `::` pair over parallel sequences, a `data`
+building two boxed types, and a nested invocation rebuilt once per
+element); `tests/selfhost/397`, `tests/selfhost/398` and the four
+old `tests/diagnostics/610` rows hold what they held, with two new
+rows for the lone marker and the interior repeat. Two new splice
+functions at exactly `Alloc,Mut` and eight pure move the pins
+re-derived rather than retuned (exactly `Alloc,Mut` 2,052 → 2,054,
+pure 1,578 → 1,586; added 10 here, removed 0, changed 0), and the
+macro-demand population 117 → 121 for the four generated names
+this fixture adds.
+
 ### Match arms and constructor lists splice per element — `tests/selfhost/398-arm-ctor-splice.ax`
 
 MAC-LANG-16's third half: a template `arm ...` rebuilds one match

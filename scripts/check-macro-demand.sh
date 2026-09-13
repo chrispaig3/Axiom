@@ -13,7 +13,7 @@
 # names are wanted. Two numbers, both pinned here:
 #
 #   population  every `#generated=` AXSYM row over the corpus that can
-#               carry one - 117 today, all in tests/selfhost's decl-macro
+#               carry one - 121 today, all in tests/selfhost's decl-macro
 #               family plus one frontend case, none in stdlib or the
 #               compiler itself. The surface that could want locating.
 #   demand      requests in tests/lsp/drive.py targeting a generated
@@ -37,7 +37,7 @@ failed=0; passed=0
 ok()   { echo "ok   $*"; passed=$((passed + 1)); }
 fail() { echo "FAIL: $*"; failed=$((failed + 1)); }
 
-WANT_POPULATION=117
+WANT_POPULATION=121
 WANT_DEMAND=3
 
 echo "== population: every #generated= row over the corpus =="

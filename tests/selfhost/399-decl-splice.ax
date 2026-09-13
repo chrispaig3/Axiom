@@ -1,0 +1,57 @@
+; expect 45
+; Rule-template splices over whole declarations (MAC-LANG-16, fourth
+; slice): `decl ...` rebuilds one declaration per absorbed element
+; with each sequence-bound name taking its element - the last
+; template position the rule-form repetition did not reach. A spliced
+; declaration rebuilds through the ordinary single-declaration path,
+; so names, types and bodies substitute exactly as a written
+; declaration's do; a repeat INSIDE the declaration (a spine, arm,
+; constructor or declaration `...` of its own) is refused rather
+; than rebuilt n-squared.
+;
+;   t1  33  fn and :: splices over parallel sequences
+;   t2  7   a data splice building two boxed types
+;   t3  5   a nested-invocation splice, one call per element
+(macro gen ((gen (c v) ...)
+  (:: (syntax/join code c) (-> Int Int))
+  ...
+  (fn ((syntax/join code c) x) (+ x v))
+  ...))
+
+(gen (A 10) (B 20))
+
+(macro mkbox ((mkbox (t) ...)
+  (data (syntax/join Box t) ((syntax/join Mk t) Int))
+  ...))
+
+(mkbox (A) (B))
+
+(:: unwrapA (-> BoxA Int))
+
+(fn (unwrapA b)
+  (match b
+    ((MkA x) x)
+  )
+)
+
+(:: unwrapB (-> BoxB Int))
+
+(fn (unwrapB b)
+  (match b
+    ((MkB x) x)
+  )
+)
+
+(macro mkone ((mkone n v)
+  (:: (syntax/join one n) Int)
+  (fn ((syntax/join one n)) v)))
+
+(macro gen2 ((gen2 (n v) ...)
+  (mkone n v)
+  ...))
+
+(gen2 (Two 2) (Three 3))
+
+(:: main Int)
+
+(fn (main) (+ (+ (+ (codeA 1) (codeB 2)) (+ (unwrapA (MkA 3)) (unwrapB (MkB 4)))) (+ oneTwo oneThree)))

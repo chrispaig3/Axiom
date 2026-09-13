@@ -31,6 +31,17 @@
 ;     loose     `...` after something that does not repeat. There is
 ;               no sequence to splice
 ;
+;   at the INVOCATION, from a declaration splice (MAC-LANG-16's
+;   fourth half - `decl ...` rebuilding one declaration per
+;   element):
+;
+;     lonedecl  a marker with no declaration before it. It follows
+;               nothing, so there is nothing to rebuild
+;     nestdecl  a repeat INSIDE the spliced declaration - a spine
+;               `...` of its own. That would use one sequence at
+;               two depths and rebuild n-squared, so it is refused
+;               rather than half-built
+;
 ; `...` is an ordinary identifier to the lexer - three dots, one
 ; token - which is why it stands beside the name it repeats rather
 ; than gluing to it, and why a single `.` still means field access.
@@ -53,9 +64,25 @@
    (:: (syntax/join q T) Int)
    (fn ((syntax/join q T)) (sum3 v ...))))
 
+(:: box (-> Int Int))
+
+(fn (box x) x)
+
+(macro lonedecl ((lonedecl (n) ...)
+   ...
+   (fn ((syntax/join w n)) 3)))
+
+(macro nestdecl ((nestdecl (n) ...)
+   (fn ((syntax/join q n)) (box n ...))
+   ...))
+
 (bare P 1 2)
 
 (loose P 1)
+
+(lonedecl A)
+
+(nestdecl A B)
 
 (:: main Int)
 

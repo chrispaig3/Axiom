@@ -474,6 +474,23 @@ where it stands rather than spliced; whole declarations still do
 not splice. `tests/selfhost/398-arm-ctor-splice.ax` (118) is three
 macros over the new shapes, ending in the Door machine end to end.
 
+**v4, landed 2026-09-13: whole declarations.** A template `decl
+...` rebuilds one declaration per absorbed element with each
+sequence-bound name taking its element - the last template position
+the repetition did not reach - through the ordinary
+single-declaration path, so names, types and bodies substitute
+exactly as a written declaration's do. A bare `...` parses among
+template declarations as the invocation `(...)` already parsed as,
+so no wire format changes; outside a template it keeps ordinary
+meaning and refuses as `AX3027`, and a bare `...` outside a
+template stays the `AX2001` it has always been. Still refused: a
+repeat INSIDE the spliced declaration, which would use one sequence
+at two depths and rebuild n-squared, and a marker on its own, which
+follows nothing. `tests/selfhost/399-decl-splice.ax` (45) is three
+macros over the new shape: `fn` and `::` over parallel sequences, a
+`data` building two boxed types, and a nested invocation rebuilt
+once per element.
+
 **`...` lexes, and it lexes as an ORDINARY IDENTIFIER.** Three
 dots are one token and there is no new token kind: `self_host/lexer.ax`
 meets byte 46, looks at the next two, and emits `TK_IDENT` spanning

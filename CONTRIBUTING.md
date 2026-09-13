@@ -177,10 +177,10 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 655 `.ax` files
+2026-09-04, `axiom fmt --check` over every one of the 656 `.ax` files
 in the repository answers `is already formatted` for 431 of them and
-`needs formatting` for 224. Two of the 224 are deliberate and are named
-below; the other 222 were committed unformatted, and that same sweep is
+`needs formatting` for 225. Two of the 225 are deliberate and are named
+below; the other 223 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
@@ -221,7 +221,11 @@ arm-ctor-splice fixture arrived — `398-arm-ctor-splice.ax`, measured
 needing formatting on its own with `axiom fmt --check` (its
 `(mkdata (Cat) (Dog))` invocation is the form under test, and the
 formatter collapses it to bare names) — taking it to 655/431/224.
-Each of those twenty-six files was measured on its own with
+Then the decl-splice fixture arrived — `399-decl-splice.ax`, measured
+needing formatting on its own with `axiom fmt --check` (its
+`(mkbox (A) (B))` invocation is the form under test, and the
+formatter collapses it the same way) — taking it to 656/431/225.
+Each of those twenty-seven files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.

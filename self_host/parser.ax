@@ -4296,7 +4296,24 @@
           }
         )
       )
-      (pErr pos)
+      ; A bare `...` among template declarations is the splice marker
+      ; a rule template leaves for instantiation (`decl ...`
+      ; rebuilding one declaration per absorbed element, MAC-LANG-16).
+      ; It parses as a declaration-macro invocation of `...` with no
+      ; arguments - the shape the expander's splice consumes before
+      ; phase D ever resolves it, and the shape phase D refuses as
+      ; AX3027 anywhere the splice does not consume it. Ordinary
+      ; declaration lists (parseDecls) do NOT take this arm: a bare
+      ; `...` outside a template stays AX2001 where it stands.
+      (if (&& (peekIs tokens pos TK_IDENT) (strEq (tokenLexeme (vecGet tokens pos)) "..."))
+        {
+          (vecPush acc (mkNodeAt
+            TAG_D_MACROCALL            "..."            vecNew            0            (tokenSpan (vecGet tokens pos))
+          ))
+          (parseTplDecls tokens (advance pos) acc)
+        }
+        (pErr pos)
+      )
     )
   )
 )

@@ -6842,6 +6842,359 @@
   )
 )
 
+(pub :: isEllipsisDecl (-> Int Int))
+
+; A bare `...` among template declarations: the splice marker a rule
+; template leaves for instantiation (`decl ...` rebuilding one
+; declaration per absorbed element, MAC-LANG-16). The parser builds
+; exactly what `(...)` builds - a declaration-macro invocation of
+; `...` with no arguments - so no wire format changes: it is a
+; TAG_D_MACROCALL like any nested invocation. Only the splice loop
+; below and phase D read it: the loop consumes it beside a preceding
+; declaration, and anywhere else it resolves as a macro named `...`
+; and refuses as AX3027, which is what `(...)` has always drawn.
+(pub fn (isEllipsisDecl d)
+  (if (!= (nodeTag d) TAG_D_MACROCALL)
+    0
+    (if (strEq (nodeAName d) "...")
+      (if (== (vecLen (nodeBVec d)) 0)
+        1
+        0
+      )
+      0
+    )
+  )
+)
+
+; One template declaration spliced: per-element rebuilds through the
+; ordinary single-declaration path, with each sequence-bound name
+; taking its element. Answers a vec of declarations; answers 0 (with
+; the diagnostic already emitted) when the splice is refused or any
+; element's rebuild fails, because the caller aborts the whole
+; instantiation on 0 and the diagnostic is the signal. The
+; per-element substitution appends singles onto the shared
+; params/args (last wins) and pops them after: nothing appends to
+; those vecs during substitution, so the truncation restores exactly
+; what was there. Mirrors `expSpliceOneArm` one level up.
+;
+; Two diagnosed misuses, neither silent: no sequence in scope (the
+; `...` follows nothing that repeats), and a repeat INSIDE the
+; declaration (a spine, arm, constructor or declaration `...` of its
+; own - using one sequence at two depths, refused rather than
+; rebuilt n-squared).
+(pub :: expSpliceOneDecl (-> Int (Vec Int) (Vec Int) Int Int (Vec Int)))
+
+(pub fn (expSpliceOneDecl t params args env isp)
+  (let ((seqs (expSeqBindsVec env)))
+    (if (== (vecLen seqs) 0)
+      {
+        (expEllipsisDiag
+          env          "..."          "follows nothing that repeats"          "repetition lives in a rule-form macro's match: move the match there, or drop the marker"          isp
+        )
+        (cast (Vec Int) 0)
+      }
+      (if (== (tplDeclHasRepeat t) 1)
+        {
+          (expEllipsisDiag
+            env            "..."            "nests a repeat inside a repeat"            "repeat one level only - splice one declaration per element, never a declaration that splices again inside"            isp
+          )
+          (cast (Vec Int) 0)
+        }
+        (let ((n (vecLen (cast (Vec Int) (memGetWord (vecGet seqs 0) 1)))))
+          (let ((markP (vecLen params)))
+            (let ((markA (vecLen args)))
+              (let ((mut j 0))
+                (let ((out vecNew))
+                  (let ((mut bad 0))
+                    {
+                      (while (< j n)
+                        (if (== bad 1)
+                          (set j n)
+                          (let ((mut k 0))
+                            {
+                              (while (< k (vecLen seqs))
+                                {
+                                  (vecPush params (memGetWord (vecGet seqs k) 0))
+                                  (vecPush args (vecGet (cast (Vec Int) (memGetWord (vecGet seqs k) 1)) j))
+                                  (set k (+ k 1))
+                                }
+                              )
+                              (let ((g (expBuildOneDecl
+                                t                                params                                args                                env                                isp
+                              )))
+                                (if (== g 0)
+                                  {
+                                    (set bad 1)
+                                    (set j n)
+                                  }
+                                  {
+                                    (vecPush out g)
+                                    (set j (+ j 1))
+                                  }
+                                )
+                              )
+                              (while (> (vecLen params) markP)
+                                (vecPop params)
+                              )
+                              (while (> (vecLen args) markA)
+                                (vecPop args)
+                              )
+                            }
+                          )
+                        )
+                      )
+                      (if (== bad 1)
+                        (cast (Vec Int) 0)
+                        out
+                      )
+                    }
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Does a template declaration hold a repeat of its own (a spine,
+; arm, constructor or declaration `...` inside it)? The splice loop
+; above refuses one rather than rebuilding it per element, because
+; the interior marker would re-splice the whole sequence inside
+; every element. A `syntax/for` interior is walked, not exempted:
+; its queries are independent, but a rule-`...` marker written
+; inside it still consumes a rule sequence at the wrong depth.
+(pub :: tplDeclHasRepeat (-> Int Int))
+
+(pub fn (tplDeclHasRepeat t)
+  (let ((tag (nodeTag t)))
+    (if (== tag TAG_D_FN)
+      (tplExprHasRepeat (nodeC t))
+      (if (== tag TAG_D_DATA)
+        (tplCtorsHaveRepeat (nodeBVec t) 0)
+        (if (== tag TAG_D_MACROCALL)
+          (tplVecHasRepeat (nodeBVec t) 0)
+          (if (== tag TAG_D_SYNFOR)
+            (tplDeclsHaveRepeat (nodeCVec t) 0)
+            0
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tplDeclsHaveRepeat (-> (Vec Int) Int Int))
+
+(pub fn (tplDeclsHaveRepeat ds i)
+  (if (>= i (vecLen ds))
+    0
+    (if (== (tplDeclHasRepeat (vecGet ds i)) 1)
+      1
+      (tplDeclsHaveRepeat ds (+ i 1))
+    )
+  )
+)
+
+(pub :: tplCtorsHaveRepeat (-> (Vec Int) Int Int))
+
+(pub fn (tplCtorsHaveRepeat cs i)
+  (if (>= i (vecLen cs))
+    0
+    (if (== (isEllipsisCtor (vecGet cs i)) 1)
+      1
+      (tplCtorsHaveRepeat cs (+ i 1))
+    )
+  )
+)
+
+; Does a template expression hold a rule-`...` marker? Any bare
+; `...` variable is one: nothing can bind that spelling, so no
+; program means it as a reference. Arms are walked for their bodies
+; and for a marker standing where an arm stands; a `syntax/for`
+; arm's arms likewise. Patterns hold no marker positions and types
+; hold no expressions, so neither is walked.
+(pub :: tplExprHasRepeat (-> Int Int))
+
+(pub fn (tplExprHasRepeat e)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_VAR)
+        (if (strEq (nodeAName e) "...")
+          1
+          0
+        )
+        (if (== tag TAG_E_APP)
+          (if (== (tplExprHasRepeat (nodeA e)) 1)
+            1
+            (tplExprHasRepeat (nodeB e))
+          )
+          (if (== tag TAG_E_IF)
+            (if (== (tplExprHasRepeat (nodeA e)) 1)
+              1
+              (if (== (tplExprHasRepeat (nodeB e)) 1)
+                1
+                (tplExprHasRepeat (nodeC e))
+              )
+            )
+            (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+              (if (== (tplExprHasRepeat (nodeB e)) 1)
+                1
+                (tplExprHasRepeat (nodeC e))
+              )
+              (if (== tag TAG_E_LAM)
+                (tplExprHasRepeat (nodeB e))
+                (if (== tag TAG_E_BEGIN)
+                  (tplVecHasRepeat (nodeAVec e) 0)
+                  (if (== tag TAG_E_WHILE)
+                    (if (== (tplExprHasRepeat (nodeA e)) 1)
+                      1
+                      (tplVecHasRepeat (nodeBVec e) 0)
+                    )
+                    (if (== tag TAG_E_REGION)
+                      (tplExprHasRepeat (nodeB e))
+                      (if (== tag TAG_E_SET)
+                        (tplExprHasRepeat (nodeB e))
+                        (if (== tag TAG_E_FIELD)
+                          (tplExprHasRepeat (nodeA e))
+                          (if (== tag TAG_E_SETF)
+                            (if (== (tplExprHasRepeat (nodeA e)) 1)
+                              1
+                              (tplExprHasRepeat (nodeC e))
+                            )
+                            (if (== tag TAG_E_STRUCTCON)
+                              (tplVecHasRepeat (nodeBVec e) 0)
+                              (if (== tag TAG_E_ALLOC)
+                                (tplExprHasRepeat (nodeB e))
+                                (if (== tag TAG_E_HANDLE)
+                                  (if (== (tplExprHasRepeat (nodeA e)) 1)
+                                    1
+                                    (tplExprHasRepeat (nodeC e))
+                                  )
+                                  (if (== tag TAG_E_MATCH)
+                                    (if (== (tplExprHasRepeat (nodeA e)) 1)
+                                      1
+                                      (tplArmsHaveRepeat (nodeBVec e) 0)
+                                    )
+                                    (if (== tag TAG_E_COND)
+                                      (if (== (tplClausesHaveRepeat (nodeAVec e) 0) 1)
+                                        1
+                                        (if (== (nodeB e) 0)
+                                          0
+                                          (tplExprHasRepeat (nodeB e))
+                                        )
+                                      )
+                                      0
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tplVecHasRepeat (-> (Vec Int) Int Int))
+
+(pub fn (tplVecHasRepeat es i)
+  (if (>= i (vecLen es))
+    0
+    (if (== (tplExprHasRepeat (vecGet es i)) 1)
+      1
+      (tplVecHasRepeat es (+ i 1))
+    )
+  )
+)
+
+(pub :: tplArmsHaveRepeat (-> (Vec Int) Int Int))
+
+(pub fn (tplArmsHaveRepeat arms i)
+  (if (>= i (vecLen arms))
+    0
+    (let ((arm (vecGet arms i)))
+      (if (== (isEllipsisArm arm) 1)
+        1
+        (if (== (nodeTag arm) TAG_M_FOR)
+          (if (== (tplArmsHaveRepeat (nodeCVec arm) 0) 1)
+            1
+            (tplArmsHaveRepeat arms (+ i 1))
+          )
+          (if (== (tplExprHasRepeat (nodeB arm)) 1)
+            1
+            (tplArmsHaveRepeat arms (+ i 1))
+          )
+        )
+      )
+    )
+  )
+)
+
+(pub :: tplClausesHaveRepeat (-> (Vec Int) Int Int))
+
+(pub fn (tplClausesHaveRepeat cls i)
+  (if (>= i (vecLen cls))
+    0
+    (let ((cl (vecGet cls i)))
+      (if (== (tplExprHasRepeat (nodeA cl)) 1)
+        1
+        (if (== (tplExprHasRepeat (nodeB cl)) 1)
+          1
+          (tplClausesHaveRepeat cls (+ i 1))
+        )
+      )
+    )
+  )
+)
+
+; One spliced declaration's siblings, drained through the same push
+; discipline the single-declaration path below uses: the template's
+; AXTAGs travel to every declaration it generated, each one counts
+; against the width budget as it exists, and the walk continues two
+; past the marker.
+(pub :: expDrainBuilt (-> (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) Int Int (Vec Int)))
+
+(pub fn (expDrainBuilt built tmpl tpl params args env isp acc i j)
+  (if (>= j (vecLen built))
+    (expBuildDecls
+      tpl      params      args      env      isp      acc      (+ i 2)
+    )
+    (let ((g (vecGet built j)))
+      {
+        (memSetWord g 7 (memGetWord tmpl 7))
+        (vecPush acc g)
+        (let ((tot (+ (memGetWord env 22) 1)))
+          {
+            (memSetWord env 22 tot)
+            (if (> tot expMaxDecls)
+              {
+                (expBlow env isp (strConcat (strConcat "macro expansion produced more than the limit of " (expFmtInt expMaxDecls)) " declarations"))
+                (cast (Vec Int) 0)
+              }
+              (expDrainBuilt
+                built                tmpl                tpl                params                args                env                isp                acc                i                (+ j 1)
+              )
+            )
+          }
+        )
+      }
+    )
+  )
+)
+
 (pub :: expBuildDecls (-> (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) Int (Vec Int)))
 
 (pub fn (expBuildDecls tpl params args env isp acc i)
@@ -6862,6 +7215,31 @@
             tpl            params            args            env            isp            acc            (+ i 1)
           )
         )
+        ; A `decl ...` splice: the declaration rebuilds once per
+        ; absorbed element, spliced where the pair stood. A
+        ; `syntax/for` form manages its own repetition and never
+        ; triggers this, even beside a marker. A marker on its own
+        ; diagnoses - it follows nothing - and aborts the
+        ; instantiation, so no shape falls through to a macro
+        ; invocation of `...` the next round would refuse as AX3027.
+        (if (== (isEllipsisDecl t) 1)
+          {
+            (expEllipsisDiag
+              env              "..."              "starts nothing - a repetition marker follows the declaration it repeats"              "drop it, or move it directly after the repeated declaration"              isp
+            )
+            (cast (Vec Int) 0)
+          }
+          (if (&& (< (+ i 1) (vecLen tpl)) (== (isEllipsisDecl (vecGet tpl (+ i 1))) 1))
+            (let ((built (expSpliceOneDecl
+              t              params              args              env              isp
+            )))
+              (if (== (cast Int built) 0)
+                (cast (Vec Int) 0)
+                (expDrainBuilt
+                  (cast (Vec Int) built)                  t                  tpl                  params                  args                  env                  isp                  acc                  i                  0
+                )
+              )
+            )
         (let ((g (expBuildOneDecl
           t          params          args          env          isp
         )))
@@ -6907,6 +7285,8 @@
                 }
               )
             }
+          )
+        )
           )
         )
       )
