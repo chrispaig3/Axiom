@@ -3669,7 +3669,10 @@
 ; Two diagnosed misuses, neither silent: no sequence inside (the
 ; `...` follows nothing that repeats), and a `...` inside (a repeat
 ; beneath a repeat, refused on patterns at the macro's line and
-; here at the use).
+; here at the use). The interior check walks the whole form, not
+; just one application level: a marker nested inside a `match`,
+; an `if` or any other form would otherwise re-splice the whole
+; sequence inside every element.
 (pub :: expSpliceNested (-> Int Int (Vec Int) (Vec Int) (Vec Int) Int (Vec Int) Int))
 
 (pub fn (expSpliceNested env app params args ren isp out)
@@ -3682,7 +3685,7 @@
         (vecPush out (mkEInt 0))
         0
       }
-      (if (== (patHasEllipsis app) 1)
+      (if (== (tplExprHasRepeat app) 1)
         {
           (expEllipsisDiag
             env            "..."            "nests a repeat inside a repeat"            "repeat one level only - splice `(f a) ...`, never `(f (g a ...) ...)`"            isp
@@ -3740,15 +3743,36 @@
   )
 )
 
+; A template literal rebuilt with the invocation's span
+; (MAC-EXP-14a): keeping the defining file's byte offsets renders
+; against the invoking file's line table. Every literal kind carries
+; its value in word A and nothing else, so the rebuild is exact.
+(pub :: expRebuildLit (-> Int Int Int))
+
+(pub fn (expRebuildLit tpl isp)
+  (let ((tag (nodeTag tpl)))
+    (if (== tag TAG_E_INT)
+      (mkNodeAt TAG_E_INT (nodeA tpl) 0 0 isp)
+      (if (== tag TAG_E_STR)
+        (mkNodeAt TAG_E_STR (nodeA tpl) 0 0 isp)
+        (if (== tag TAG_E_FLT)
+          (mkNodeAt TAG_E_FLT (nodeA tpl) 0 0 isp)
+          (mkNodeAt TAG_E_CHAR (nodeA tpl) 0 0 isp)
+        )
+      )
+    )
+  )
+)
+
 (pub :: substTpl (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 
 (pub fn (substTpl tpl params args ren env isp)
   (if (== tpl 0)
     0
-    ; --- leaves: no children, nothing to substitute ------------
+    ; --- leaves: rebuilt with the invocation span (MAC-EXP-14) -----
     (let ((tag (nodeTag tpl)))
       (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_FLT) (== tag TAG_E_CHAR))))
-        tpl
+        (expRebuildLit tpl isp)
         ; --- a name: a rename, a for-binding, a parameter, or ------
         ; --- itself, in that order ---------------------------------
         (if (== tag TAG_E_VAR)
@@ -4008,13 +4032,20 @@
                         )
                       )
                       ; --- `(set name value)`: the name is a REFERENCE ------------
+                      ; A null target (AX3022, MAC-CAP-3a) poisons the whole
+                      ; node rather than emitting the template's own name.
                       (if (== tag TAG_E_SET)
-                        (mkNodeAt
-                          TAG_E_SET                          (substName
-                            (nodeAName tpl)                            params                            args                            ren                            env                            isp
-                          )                          (substTpl
-                            (nodeB tpl)                            params                            args                            ren                            env                            isp
-                          )                          0                          isp
+                        (let ((tgt (substName
+                          (nodeAName tpl)                          params                          args                          ren                          env                          isp
+                        )))
+                          (if (== (cast Int tgt) 0)
+                            (mkEInt 0)
+                            (mkNodeAt
+                              TAG_E_SET                              tgt                              (substTpl
+                                (nodeB tpl)                                params                                args                                ren                                env                                isp
+                              )                              0                              isp
+                            )
+                          )
                         )
                         ; A FIELD NAME substitutes only from an active for-binding -
                         ; `s.f` with f iterating (syntax/fields S) names each field
@@ -4185,7 +4216,12 @@
                 (expEmit env (mkDiagNote
                   SEV_ERROR                  "AX3022"                  "macro-set-target"                  isp                  "a macro parameter used as the target of `set` was given something that is not a variable"                  0                  0                  "pass a variable name for this parameter, or rewrite the template so the parameter is not a `set` target"                  "`set` assigns to a binding, so its target has to be a name; the argument here is an expression"
                 ))
-                name
+                ; Poison, not the parameter's own name: returning `name`
+                ; would emit the template's identifier into the tree,
+                ; which only the driver's error gate keeps from codegen
+                ; (MAC-CAP-3a). A null name tells the caller to poison
+                ; the whole node, whose span 0 then suppresses cascades.
+                (cast String 0)
               }
             )
           )
@@ -4315,6 +4351,13 @@
 ; params/args (last wins) and pops them after: nothing appends to
 ; those vecs during substitution, so the truncation restores
 ; exactly what was there.
+;
+; Two diagnosed misuses, neither silent: no sequence in the arm,
+; and a repeat inside the arm's body. Constructor patterns splice
+; like anything else - a fixed test rebuilds as itself and a
+; sequence-bound field tests its element (`expSubstPatSeq`) - with
+; a parameter standing in binder position for a non-name still
+; refused downstream as `AX3035`.
 (pub :: expSpliceOneArm (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int)))
 
 (pub fn (expSpliceOneArm arm params args ren env isp)
@@ -4331,18 +4374,18 @@
           poison
         }
       )
-      (if (== (patHasPCtor (nodeA arm)) 1)
-        (let ((poison vecNew))
-          {
-            (expEllipsisDiag
-              env              "..."              "a constructor pattern cannot splice yet"              "bind whole values in the repeated pattern and take them apart outside it"              isp
-            )
-            (vecPush poison (mkNodeAt
-              TAG_M_ARM              (mkEVarAt "_" (nodeSpan arm))              (mkEInt 0)              0              (nodeSpan arm)
-            ))
-            poison
-          }
-        )
+      (if (== (tplExprHasRepeat (nodeB arm)) 1)
+          (let ((poison vecNew))
+            {
+              (expEllipsisDiag
+                env                "..."                "nests a repeat inside a repeat"                "repeat one level only - splice `arm ...`, never an arm that splices again inside"                isp
+              )
+              (vecPush poison (mkNodeAt
+                TAG_M_ARM                (mkEVarAt "_" (nodeSpan arm))                (mkEInt 0)                0                (nodeSpan arm)
+              ))
+              poison
+            }
+          )
         (let ((n (vecLen (cast (Vec Int) (memGetWord (vecGet seqs 0) 1)))))
           (let ((markP (vecLen params)))
             (let ((markA (vecLen args)))
@@ -4438,6 +4481,15 @@
 ; shape is left for the ordinary binder path, which owns it.
 ;
 ; Only the splice loop above reads this; ordinary arms never do.
+;
+; Parsed constructor patterns ride along: a fixed nullary test
+; (`TAG_P_CON0`) names no sequence and rebuilds as itself, and a
+; named pattern (`TAG_P_CONNAMED`) maps this same rule over its
+; field sub-patterns - a sequence-bound field with a bare-name
+; element tests that constructor, anything else stays for the
+; ordinary binder path below, which owns it (and refuses a
+; parameter standing in binder position for a non-name, `AX3035`,
+; rather than binding silently).
 (pub :: expSubstPatSeq (-> Int (Vec Int) Int Int Int))
 
 (pub fn (expSubstPatSeq p seqs j isp)
@@ -4460,9 +4512,35 @@
         )
         (if (== tag TAG_E_APP)
           (expSubstPatSeqSpine p seqs j isp)
-          p
+          (if (== tag TAG_P_CONNAMED)
+            (mkNodeAt
+              TAG_P_CONNAMED              (nodeAName p)              (nodeBVec p)              (expSubstPatSeqVec
+                (nodeCVec p)                seqs                j                isp
+              )              (nodeSpan p)
+            )
+            p
+          )
         )
       )
+    )
+  )
+)
+
+(pub :: expSubstPatSeqVec (-> (Vec Int) (Vec Int) Int Int (Vec Int)))
+
+(pub fn (expSubstPatSeqVec ps seqs j isp) (expSubstPatSeqVecIn
+  ps  seqs  j  isp  vecNew  0
+))
+
+(pub :: expSubstPatSeqVecIn (-> (Vec Int) (Vec Int) Int Int (Vec Int) Int (Vec Int)))
+
+(pub fn (expSubstPatSeqVecIn ps seqs j isp acc i)
+  (if (>= i (vecLen ps))
+    acc
+    (expSubstPatSeqVecIn
+      ps      seqs      j      isp      (vecPush acc (expSubstPatSeq
+        (vecGet ps i)        seqs        j        isp
+      ))      (+ i 1)
     )
   )
 )
@@ -4505,28 +4583,6 @@
         )
         (expRebuildSpine newHead out isp 0)
       }
-    )
-  )
-)
-
-; Whether a pattern mentions a constructor shape: the line this
-; slice does not cross yet.
-(pub :: patHasPCtor (-> Int Int))
-
-(pub fn (patHasPCtor p)
-  (if (== p 0)
-    0
-    (let ((tg (nodeTag p)))
-      (if (|| (== tg TAG_P_CON0) (== tg TAG_P_CONNAMED))
-        1
-        (if (== tg TAG_E_APP)
-          (if (== (patHasPCtor (nodeA p)) 1)
-            1
-            (patHasPCtor (nodeB p))
-          )
-          0
-        )
-      )
     )
   )
 )
@@ -4681,11 +4737,19 @@
 ; The budgeted wrapper. `expandExprInner` is the walk itself; this
 ; counts the node, tracks the walk's depth on the way in and out, and
 ; stops the recursion at the limits rather than at the guard page.
+; Only expansion-produced nodes count (MAC-EXP-11a): the parser's own
+; limits already bound source depth, and counting source nodes lets a
+; large macro-free file hit a budget whose message blames macros that
+; do not exist. Inside an instantiation (`expDepth` > 0) every node
+; visited is expansion-produced (or reached through one), so both
+; budgets apply there and only there.
 (pub fn (expandExpr e env bs)
   (if (== e 0)
     0
     (if (== (memGetWord env 8) 1)
       e
+      (if (== (expDepth env) 0)
+        (expandExprInner e env bs)
       (let (
         (d (+ (memGetWord env 6) 1))
         (n (+ (memGetWord env 7) 1))
@@ -4716,6 +4780,7 @@
         }
       )
     )
+  )
   )
 )
 
@@ -5215,8 +5280,12 @@
 (pub :: expandMacroApp (-> Int Int Int Int (Vec Int) Int))
 
 (pub fn (expandMacroApp e head mac env bs)
-  ; A DECLARATION macro (rule form, template in word 9) has no
-  ; expression template to instantiate here.
+  ; A DECLARATION-rule macro (word 9, word 6 == 0) has no expression
+  ; template to instantiate here. An EXPRESSION-rule macro (word 9,
+  ; word 6 == 1, `emacro`) selects by match like a declaration rule
+  ; does and instantiates its single expression template; arity is
+  ; exact in rule position, so there is no surplus-applies story here
+  ; (that story is the head-list form's alone).
   (let (
     (args (spineArgVec e vecNew))
     (params (nodeBVec mac))
@@ -5226,12 +5295,25 @@
     ))
   )
     (if (!= (memGetWord mac 9) 0)
+      (if (== (memGetWord mac 6) 1)
+        (let ((m (expRuleForForms (memGetWordVec mac 9) args 0 (expMatchCtx
+          (expDeclsVec env)          (memGetWord env 9)          (nodeModule mac)
+        ))))
+          (if (== m 0)
+            {
+              (expNoRuleDiag env (expSrcSpelling (nodeAName head)) (expRuleShapes (memGetWordVec mac 9) (expSrcSpelling (nodeAName head)) 0 "") isp)
+              (mkEInt 0)
+            }
+            (expandExprRuleInstantiate mac (cast (Vec Int) m) env bs isp)
+          )
+        )
       {
         (expEmit env (expMarkUnit env (mkDiagNote
           SEV_ERROR          "AX3027"          "declaration-macro"          isp          (strConcat (strConcat "declaration macro `" (expSrcSpelling (nodeAName head))) "` invoked in expression position")          0          0          "a rule-form macro's template is declarations; invoke it at top level"          "the two template kinds are disjoint: an expression position needs a value, and this macro generates declarations (macro-system.md MAC-CAP-8)"
         ) (memGetWord env 11)))
         (mkEInt 0)
       }
+      )
       (if (< (vecLen args) (vecLen params))
         {
           (expArityDiag
@@ -5332,6 +5414,62 @@
           {
             (expSetMacMod env prevMod)
             (memSetWord env 13 prevFors)
+            (expSetDepth env d)
+            (let ((out (expandExpr body env bs)))
+              {
+                (memSetWord env 9 prevSite)
+                (expSetDepth env (- d 1))
+                out
+              }
+            )
+          }
+        )
+      )
+    )
+  )
+)
+
+; Instantiate an EXPRESSION-rule macro (MAC-LANG-14 wide half,
+; `emacro`): the match `m` already selected the rule and built the
+; parallel names/vals plus the sequence binds. Substitution runs
+; through `substTpl` like any expression template, so hygiene, spans
+; and the definition-site rule are unchanged; the result is expanded
+; so a template invoking another macro expands too. Sequences ride
+; on env word 20, exactly as declaration instantiation does, and the
+; iteration stack starts empty for the same reason.
+(pub :: expandExprRuleInstantiate (-> Int (Vec Int) Int (Vec Int) Int Int))
+
+(pub fn (expandExprRuleInstantiate mac m env bs isp)
+  (let ((d (+ (expDepth env) 1)))
+    (if (> d expDepthLimit)
+      {
+        (expEmit env (mkDiagNote
+          SEV_ERROR          "AX3019"          "macro-recursion-limit"          isp          (strConcat (strConcat "expanding `" (nodeAName mac)) "` exceeded the macro expansion depth limit")          0          0          "check whether this macro, directly or through another, invokes itself with no case that stops"          "expansion is a rewrite, so a macro that always rewrites to itself never terminates; the limit is 128"
+        ))
+        (mkEInt 0)
+      }
+      (let (
+        (prevMod (expMacMod env))
+        (prevSite (memGetWord env 9))
+        (prevFors (memGetWord env 13))
+        (prevSeqs (memGetWord env 20))
+        (_frame (vecPush
+          (memGetWordVec env 10)          (cast Int (ExpFrame
+            (memGetWord env 11)            isp            (nodeAName mac)            (nodeSpan mac)            (nodeModule mac)
+          ))
+        ))
+        (_setmod (expSetMacMod env (nodeModule mac)))
+        (_setsite (memSetWord env 9 (nodeModule mac)))
+        (_setfors (memSetWord env 13 vecNew))
+        (_setseqs (memSetWord env 20 (expMatchSeqs m)))
+      )
+        (let ((body (substTpl
+          (vecGet (expMatchOf m) 1)          (expMatchNames m)          (expMatchVals m)          vecNew          env          isp
+        )))
+          {
+            (expSetMacMod env prevMod)
+            (memSetWord env 13 prevFors)
+            (memSetWord env 20 prevSeqs)
             (expSetDepth env d)
             (let ((out (expandExpr body env bs)))
               {
@@ -5487,7 +5625,14 @@
       (expCheckRuleParams (vecGet (expMacrosVec env) i) env 0)
       (expCheckRuleArities (vecGet (expMacrosVec env) i) env 0)
       (expCheckRuleEllipsis (vecGet (expMacrosVec env) i) env 0)
-      (expCheckTplKinds (vecGet (expMacrosVec env) i) env 0)
+      (expCheckRuleLiterals (vecGet (expMacrosVec env) i) env)
+      ; Declaration template kinds only: an expression-rule macro
+      ; (word 6) holds single expressions, not declarations, so the
+      ; decl-kind check has nothing to read there.
+      (if (== (memGetWord (vecGet (expMacrosVec env) i) 6) 0)
+        (expCheckTplKinds (vecGet (expMacrosVec env) i) env 0)
+        0
+      )
       (expCheckMacros env (+ i 1))
     }
   )
@@ -5574,6 +5719,91 @@
           (expCheckRuleEllipsis mac env (+ i 1))
         }
       )
+    )
+  )
+)
+
+; A literal no pattern spells is dead text - and the likeliest
+; reading is a typo for a name the patterns spell, in which case
+; the rule binds where the author meant to match. Refused at the
+; macro's own line (`AX3066`), beside the other definition-time
+; rule checks. Literals are list-scoped, so the used set is the
+; UNION across rules: a literal spelled in any rule is live.
+(pub :: expCheckRuleLiterals (-> Int Int Int))
+
+(pub fn (expCheckRuleLiterals mac env)
+  (let ((rules (memGetWordVec mac 9)))
+    (if (== (cast Int rules) 0)
+      0
+      (if (== (vecLen rules) 0)
+        0
+        (let ((union vecNew))
+          {
+            (expCollectUsed rules union 0)
+            (expCheckLiteralsUsed mac rules union env)
+          }
+        )
+      )
+    )
+  )
+)
+
+(pub :: expCollectUsed (-> (Vec Int) (Vec Int) Int Int))
+
+(pub fn (expCollectUsed rules union i)
+  (if (>= i (vecLen rules))
+    0
+    (let ((r (cast (Vec Int) (vecGet rules i))))
+      {
+        (if (>= (vecLen r) 6)
+          (expCollectUsedVec (cast (Vec Int) (vecGet (cast (Vec Int) (vecGet r 5)) 1)) union 0)
+          0
+        )
+        (expCollectUsed rules union (+ i 1))
+      }
+    )
+  )
+)
+
+(pub :: expCollectUsedVec (-> (Vec Int) (Vec Int) Int Int))
+
+(pub fn (expCollectUsedVec used union i)
+  (if (>= i (vecLen used))
+    0
+    {
+      (if (== (strVecHas union (vecGetStr used i)) 0)
+        (vecPush union (vecGet used i))
+        union
+      )
+      (expCollectUsedVec used union (+ i 1))
+    }
+  )
+)
+
+(pub :: expCheckLiteralsUsed (-> Int (Vec Int) (Vec Int) Int Int))
+
+(pub fn (expCheckLiteralsUsed mac rules union env)
+  (let ((r0 (cast (Vec Int) (vecGet rules 0))))
+    (if (< (vecLen r0) 6)
+      0
+      (expCheckLiteralsUsedIn mac (cast (Vec Int) (vecGet (cast (Vec Int) (vecGet r0 5)) 0)) union env 0)
+    )
+  )
+)
+
+(pub :: expCheckLiteralsUsedIn (-> Int (Vec Int) (Vec Int) Int Int Int))
+
+(pub fn (expCheckLiteralsUsedIn mac lits union env i)
+  (if (>= i (vecLen lits))
+    0
+    (if (== (strVecHas union (vecGetStr lits i)) 1)
+      (expCheckLiteralsUsedIn mac lits union env (+ i 1))
+      {
+        (expEmit env (mkDiagNote
+          SEV_ERROR          "AX3066"          "macro-literal"          (nodeSpan mac)          (strConcat (strConcat "macro `" (nodeAName mac)) (strConcat "` declares the literal `" (strConcat (vecGetStr lits i) "` but no pattern spells it")))          0          0          "spell it in a pattern, or drop it from the header"          "a declared literal that matches nothing is dead text, and the likeliest reading is a typo for a name the patterns spell - in which case the rule binds where the author meant to match"
+        ))
+        (expCheckLiteralsUsedIn mac lits union env (+ i 1))
+      }
     )
   )
 )
@@ -5753,6 +5983,213 @@
 )
 
 ; ------------------------------------------------------------------
+; LITERALS (macro-system.md MAC-LANG-17, subset): a rule pattern may
+; spell a literal identifier, which matches an argument spelling the
+; SAME binding - and binds nothing.
+;
+; Spelling with a reservation: a literal occurrence is an `E_VAR`
+; whose name is `syntax/literal ` plus the spelling (note the
+; SPACE - no lexed identifier contains one, so no template name can
+; resolve to it, the same trick `syntax/pat` and the
+; `syntax/join a b` marker strings use). The parser rewrites
+; declared literals to this spelling when it parses the rules, so
+; arity, tree shape and every reader that counts elements is
+; untouched: a literal is still one `E_VAR` node in exactly the
+; position its spelling stood.
+;
+; The comparison is canonical spellings, via `expCanonKey`, not raw
+; ones: a pattern `+` meaning the Prelude operator must not match an
+; invocation whose `+` the call site defined itself, and a qualified
+; `Pre::+` must match it although the spellings differ. Two
+; spellings neither side declares match by spelling - the DSL-keyword
+; case, where there is no binding to disagree on. What this is NOT
+; is scope sets (MAC-HYG-9, still provisional): names introduced by
+; renaming carry no scope to compare, but a renamed head spells
+; `name.N` with an unspellable separator, so one never spells a
+; literal by accident.
+; ------------------------------------------------------------------
+; The reserved spelling a declared literal takes in patterns.
+(pub :: expLitSpelling (-> String String))
+
+(pub fn (expLitSpelling name) (strConcat "syntax/literal " name))
+
+; A builtin operator spelling: the eighteen primitives the checker
+; registers for every program (typecheck.ax `regFn`), which resolve
+; although no declaration spells them. The list going stale fails
+; LOUD, never wrong: an unlisted primitive falls through to the
+; unbound spelling both sides agree on while nothing shadows it,
+; and refuses to match where something does.
+(pub :: expBuiltinOp (-> String Int))
+
+(pub fn (expBuiltinOp name)
+  (if (strEq name "+")
+    1
+    (if (strEq name "-")
+      1
+      (if (strEq name "*")
+        1
+        (if (strEq name "/")
+          1
+          (if (strEq name "%")
+            1
+            (if (strEq name "&")
+              1
+              (if (strEq name "|")
+                1
+                (if (strEq name "^")
+                  1
+                  (if (strEq name "<<")
+                    1
+                    (if (strEq name ">>")
+                      1
+                      (if (strEq name "==")
+                        1
+                        (if (strEq name "!=")
+                          1
+                          (if (strEq name "<")
+                            1
+                            (if (strEq name ">")
+                              1
+                              (if (strEq name "<=")
+                                1
+                                (if (strEq name ">=")
+                                  1
+                                  (if (strEq name "&&")
+                                    1
+                                    (if (strEq name "||")
+                                      1
+                                      0
+                                    )
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; One name's canonical key at one module: `D:` plus what the name
+; resolves to where it stands - the module's own declaration, the
+; single visible declarer, or the builtin - and `U:` plus the bare
+; spelling where it resolves to nothing (or to two declarers, whose
+; ambiguity the checker reports at the use). Keys compare with
+; `strEq`: equal keys are one binding, and two unbound spellings
+; agree exactly when they spell alike.
+;
+; A qualified spelling (`Pre$+` for source `Pre::+`) resolves
+; directly: the module names its declaration, so no search runs.
+; A builtin through a qualifier is still the builtin - `Pre::+`
+; and `+` are one binding although the spellings differ, which is
+; the case the key exists to catch.
+(pub :: expCanonKey (-> (Vec Int) Int String String))
+
+(pub fn (expCanonKey decls modW name)
+  (let ((qm (expModOf name)))
+    (if (!= (cast Int qm) 0)
+      (if (== (expDeclNamed decls name 0) 1)
+        (strConcat "D:" name)
+        (if (== (expBuiltinOp (bareOf name)) 1)
+          (strConcat "D:builtin:" (bareOf name))
+          (strConcat "U:" name)
+        )
+      )
+      (if (== modW 0)
+        (if (== (expDeclNamed decls name 0) 1)
+          (strConcat "D:" name)
+          (if (== (expBuiltinOp name) 1)
+            (strConcat "D:builtin:" name)
+            (let ((u (expUniqueModuleName decls name)))
+              (if (strEq u name)
+                (strConcat "U:" name)
+                (strConcat "D:" u)
+              )
+            )
+          )
+        )
+        (let ((q (strConcat (strConcat (cast String modW) "$") name)))
+          (if (== (expDeclNamed decls q 0) 1)
+            (strConcat "D:" q)
+            (if (== (expBuiltinOp name) 1)
+              (strConcat "D:builtin:" name)
+              (let ((u (expUniqueModuleName decls name)))
+                (if (strEq u name)
+                  (strConcat "U:" name)
+                  (strConcat "D:" u)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The match context rule selection threads: the merged declaration
+; list both canonicalizations read, and the invocation-site and
+; macro-definition modules they resolve at. One vec rather than
+; three parameters, so the seven functions from selection to leaf
+; match grow by one slot each instead of three.
+(pub :: expMatchCtx (-> (Vec Int) Int Int (Vec Int)))
+
+(pub fn (expMatchCtx decls siteW defW)
+  (let ((lctx vecNew))
+    {
+      (vecPush lctx (cast Int decls))
+      (vecPush lctx siteW)
+      (vecPush lctx defW)
+      lctx
+    }
+  )
+)
+
+(pub :: expIsLiteral (-> Int Int))
+
+(pub fn (expIsLiteral p)
+  (if (!= (nodeTag p) TAG_E_VAR)
+    0
+    (if (strStartsWith (nodeAName p) "syntax/literal ")
+      1
+      0
+    )
+  )
+)
+
+(pub :: expLitName (-> Int String))
+
+(pub fn (expLitName p) (strSlice (nodeAName p) 15 (- (strLen (nodeAName p)) 15)))
+
+(pub :: expMatchLiteral (-> String Int (Vec Int) Int))
+
+; One literal against one argument form: the canonical keys at the
+; invocation site and at the macro's definition must agree. Anything
+; that is not a bare name cannot spell a binding, so only an
+; `E_VAR` argument can match.
+(pub fn (expMatchLiteral nm a lctx)
+  (if (!= (nodeTag a) TAG_E_VAR)
+    0
+    (if (strEq
+      (expCanonKey (cast (Vec Int) (vecGet lctx 0)) (vecGet lctx 1) (nodeAName a))
+      (expCanonKey (cast (Vec Int) (vecGet lctx 0)) (vecGet lctx 2) nm)
+    )
+      1
+      0
+    )
+  )
+)
+
+; ------------------------------------------------------------------
 ; MATCHING (macro-system.md MAC-LANG-15).
 ;
 ; The whole of what a match produces is the two PARALLEL VECTORS
@@ -5775,21 +6212,27 @@
 ; partial push behind, which is why a failed rule's vectors are
 ; DISCARDED rather than truncated (`expRuleForForms` makes a fresh
 ; pair per rule).
-(pub :: expMatchPat (-> Int Int (Vec Int) (Vec Int) Int))
+(pub :: expMatchPat (-> Int Int (Vec Int) (Vec Int) (Vec Int) Int))
 
-(pub fn (expMatchPat p a names vals)
+(pub fn (expMatchPat p a names vals lctx)
   (let ((pt (nodeTag p)))
     (if (== pt TAG_E_VAR)
-      ; `_` matches anything and binds nothing - which is also why
-      ; several `_` in one rule are legal where two of any other
-      ; name are not.
-      (if (strEq (nodeAName p) "_")
-        1
+      ; A literal matches one binding and binds nothing: no push onto
+      ; either vector, so a literal never allocates a parameter slot
+      ; and never collides with a binder of the same spelling.
+      (if (== (expIsLiteral p) 1)
+        (expMatchLiteral (expLitName p) a lctx)
+        ; `_` matches anything and binds nothing - which is also why
+        ; several `_` in one rule are legal where two of any other
+        ; name are not.
+        (if (strEq (nodeAName p) "_")
+          1
         {
           (vecPush names (nodeA p))
           (vecPush vals a)
           1
         }
+        )
       )
       (if (== pt TAG_E_INT)
         (if (&&
@@ -5848,10 +6291,10 @@
                   )
                     (if (!= (vecLen ps) (vecLen as))
                       0
-                      (if (== (expMatchPat (spineHead p) (spineHead a) names vals) 0)
+                      (if (== (expMatchPat (spineHead p) (spineHead a) names vals lctx) 0)
                         0
                         (expMatchVec
-                          ps                          as                          0                          names                          vals
+                          ps                          as                          0                          names                          vals                          lctx
                         )
                       )
                     )
@@ -5927,15 +6370,15 @@
 ; itself, which is what `\\`, `\'` and `\"` need. The same table
 ; `codegen.ax` carries under this name - duplicated because `codegen`
 ; imports `expand` and not the other way round.
-(pub :: expMatchVec (-> (Vec Int) (Vec Int) Int (Vec Int) (Vec Int) Int))
+(pub :: expMatchVec (-> (Vec Int) (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) Int))
 
-(pub fn (expMatchVec ps as i names vals)
+(pub fn (expMatchVec ps as i names vals lctx)
   (if (>= i (vecLen ps))
     1
-    (if (== (expMatchPat (vecGet ps i) (vecGet as i) names vals) 0)
+    (if (== (expMatchPat (vecGet ps i) (vecGet as i) names vals lctx) 0)
       0
       (expMatchVec
-        ps        as        (+ i 1)        names        vals
+        ps        as        (+ i 1)        names        vals        lctx
       )
     )
   )
@@ -5958,9 +6401,9 @@
 ; pattern matches wins. Arity is now a pre-filter rather than the
 ; selector - a rule whose element count differs cannot match, and
 ; skipping it is cheaper than walking it.
-(pub :: expRuleForForms (-> (Vec (Vec Int)) (Vec Int) Int Int))
+(pub :: expRuleForForms (-> (Vec (Vec Int)) (Vec Int) Int (Vec Int) Int))
 
-(pub fn (expRuleForForms rules args i)
+(pub fn (expRuleForForms rules args i lctx)
   (if (>= i (vecLen rules))
     0
     ; Arity is a pre-filter still, but a repeating rule's arity is
@@ -5974,16 +6417,16 @@
         (!= (vecLen (expRulePats r)) (vecLen args))
         (< (vecLen args) k)
       )
-        (expRuleForForms rules args (+ i 1))
+        (expRuleForForms rules args (+ i 1) lctx)
         (let (
           (names vecNew)
           (vals vecNew)
           (seqs vecNew)
         )
           (if (== (expMatchRuleAt
-            r            args            names            vals            seqs
+            r            args            names            vals            seqs            lctx
           ) 0)
-            (expRuleForForms rules args (+ i 1))
+            (expRuleForForms rules args (+ i 1) lctx)
             (let ((m vecNew))
               {
                 (vecPush
@@ -6012,19 +6455,19 @@
 ; repeating element if there is one. The elements BEFORE it match one
 ; argument each; the element itself absorbs every argument left, as a
 ; SEQUENCE binding rather than a value binding.
-(pub :: expMatchRuleAt (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int))
+(pub :: expMatchRuleAt (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int))
 
-(pub fn (expMatchRuleAt r args names vals seqs)
+(pub fn (expMatchRuleAt r args names vals seqs lctx)
   (let (
     (ps (expRulePats r))
     (k (expRepIndex r))
   )
     (if (< k 0)
       (expMatchVec
-        ps        args        0        names        vals
+        ps        args        0        names        vals        lctx
       )
       (if (== (expMatchFixed
-        ps        args        0        k        names        vals
+        ps        args        0        k        names        vals        lctx
       ) 0)
         0
         (let ((pk (vecGet ps k)))
@@ -6040,7 +6483,7 @@
             ; what it bound, in lockstep (MAC-LANG-16). A match
             ; failure on any element fails the rule, exactly as a
             ; fixed-element mismatch does.
-            (expMatchNestTail pk args k seqs)
+            (expMatchNestTail pk args k seqs lctx)
           )
         )
       )
@@ -6049,15 +6492,15 @@
 )
 
 ; The first `n` elements, one argument each.
-(pub :: expMatchFixed (-> (Vec Int) (Vec Int) Int Int (Vec Int) (Vec Int) Int))
+(pub :: expMatchFixed (-> (Vec Int) (Vec Int) Int Int (Vec Int) (Vec Int) (Vec Int) Int))
 
-(pub fn (expMatchFixed ps args i n names vals)
+(pub fn (expMatchFixed ps args i n names vals lctx)
   (if (>= i n)
     1
-    (if (== (expMatchPat (vecGet ps i) (vecGet args i) names vals) 0)
+    (if (== (expMatchPat (vecGet ps i) (vecGet args i) names vals lctx) 0)
       0
       (expMatchFixed
-        ps        args        (+ i 1)        n        names        vals
+        ps        args        (+ i 1)        n        names        vals        lctx
       )
     )
   )
@@ -6092,12 +6535,12 @@
 ; over `_` is a shape filter with no sequences. `...` never appears
 ; either: a repeat beneath a repeat is refused at the macro's line
 ; before matching runs.
-(pub :: expMatchNestTail (-> Int (Vec Int) Int (Vec Int) Int))
+(pub :: expMatchNestTail (-> Int (Vec Int) Int (Vec Int) (Vec Int) Int))
 
-(pub fn (expMatchNestTail pat args i seqs)
+(pub fn (expMatchNestTail pat args i seqs lctx)
   (let ((binders (expRuleBindersOf pat vecNew)))
     (let ((accs (expFreshAccs binders 0 vecNew)))
-      (if (== (expMatchNestEach pat args i binders accs) 0)
+      (if (== (expMatchNestEach pat args i binders accs lctx) 0)
         0
         {
           (expSealSeqs binders accs seqs 0)
@@ -6125,18 +6568,18 @@
 
 ; Every absorbed argument against the pattern; each success appends
 ; one value per binder.
-(pub :: expMatchNestEach (-> Int (Vec Int) Int (Vec Int) (Vec Int) Int))
+(pub :: expMatchNestEach (-> Int (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) Int))
 
-(pub fn (expMatchNestEach pat args i binders accs)
+(pub fn (expMatchNestEach pat args i binders accs lctx)
   (if (>= i (vecLen args))
     1
     (let ((names vecNew))
       (let ((vals vecNew))
-        (if (== (expMatchPat pat (vecGet args i) names vals) 0)
+        (if (== (expMatchPat pat (vecGet args i) names vals lctx) 0)
           0
           (if (== (expNestAppend binders accs names vals 0) 0)
             0
-            (expMatchNestEach pat args (+ i 1) binders accs)
+            (expMatchNestEach pat args (+ i 1) binders accs lctx)
           )
         )
       )
@@ -6222,9 +6665,14 @@
 (pub fn (expPatsIrrefutable ps i)
   (if (>= i (vecLen ps))
     1
-    (if (== (nodeTag (vecGet ps i)) TAG_E_VAR)
-      (expPatsIrrefutable ps (+ i 1))
+    ; A literal is refutable although it is an `E_VAR`: it matches
+    ; one binding, not any form.
+    (if (== (expIsLiteral (vecGet ps i)) 1)
       0
+      (if (== (nodeTag (vecGet ps i)) TAG_E_VAR)
+        (expPatsIrrefutable ps (+ i 1))
+        0
+      )
     )
   )
 )
@@ -6287,21 +6735,27 @@
 (pub :: expRuleBindersOf (-> Int (Vec Int) (Vec Int)))
 
 (pub fn (expRuleBindersOf p acc)
-  (if (== (nodeTag p) TAG_E_VAR)
-    (if (strEq (nodeAName p) "_")
-      acc
-      {
-        (vecPush acc (nodeA p))
+  ; A literal binds nothing: a reserved spelling never allocates a
+  ; parameter slot, or the name would collide with a binder of the
+  ; same spelling downstream.
+  (if (== (expIsLiteral p) 1)
+    acc
+    (if (== (nodeTag p) TAG_E_VAR)
+      (if (strEq (nodeAName p) "_")
         acc
-      }
-    )
-    (if (== (nodeTag p) TAG_E_APP)
-      {
-        (expRuleBindersOf (nodeA p) acc)
-        (expRuleBindersOf (nodeB p) acc)
+        {
+          (vecPush acc (nodeA p))
+          acc
+        }
+      )
+      (if (== (nodeTag p) TAG_E_APP)
+        {
+          (expRuleBindersOf (nodeA p) acc)
+          (expRuleBindersOf (nodeB p) acc)
+          acc
+        }
         acc
-      }
-      acc
+      )
     )
   )
 )
@@ -6684,11 +7138,13 @@
             (expDeclCallErr
               env              d              (strConcat (strConcat "`" (expSrcSpelling (nodeAName d))) "` is neither a declaration keyword nor a visible macro")              "a top-level form is a declaration - fn, ::, data, struct, type, trait, impl, effect, import, macro - or an invocation of a declaration macro"              "this used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file"
             )
-            (if (== (memGetWord mac 9) 0)
+            (if (|| (== (memGetWord mac 9) 0) (== (memGetWord mac 6) 1))
               (expDeclCallErr
                 env                d                (strConcat (strConcat "macro `" (expSrcSpelling (nodeAName d))) "` has an expression template and cannot stand in declaration position")                "give it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations"                "an expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)"
               )
-              (let ((m (expRuleForForms (memGetWordVec mac 9) (nodeBVec d) 0)))
+              (let ((m (expRuleForForms (memGetWordVec mac 9) (nodeBVec d) 0 (expMatchCtx
+                decls                (nodeModule d)                (nodeModule mac)
+              ))))
                 (if (== m 0)
                   {
                     (expNoRuleDiag env (expSrcSpelling (nodeAName d)) (expRuleShapes (memGetWordVec mac 9) (expSrcSpelling (nodeAName d)) 0 "") (nodeSpan d))

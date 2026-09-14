@@ -2190,6 +2190,7 @@
       (vecPush v "data")
       (vecPush v "define")
       (vecPush v "effect")
+      (vecPush v "emacro")
       (vecPush v "extern")
       (vecPush v "fn")
       (vecPush v "for")

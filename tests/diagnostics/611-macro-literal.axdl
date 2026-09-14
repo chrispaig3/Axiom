@@ -1,0 +1,1 @@
+E AX3066 611-macro-literal.ax:9:8-15 macro-literal "macro `haunted` declares the literal `ghost` but no pattern spells it" !"a declared literal that matches nothing is dead text, and the likeliest reading is a typo for a name the patterns spell - in which case the rule binds where the author meant to match" ?"spell it in a pattern, or drop it from the header"

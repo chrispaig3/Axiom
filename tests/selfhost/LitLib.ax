@@ -1,0 +1,23 @@
+; The cross-module half of `402-literal-dispatch.ax`. `pick`
+; matches `myop` - which this module never declares, so the
+; literal is unresolved here - and `picklib` matches `libop`,
+; which it declares and exports.
+(pub macro pick (literals myop)
+  ((pick (myop a))
+   (pub :: picked Int)
+   (pub fn (picked) 1))
+  ((pick other)
+   (pub :: fellthrough Int)
+   (pub fn (fellthrough) 2)))
+
+(pub :: libop (-> Int Int))
+
+(pub fn (libop x) x)
+
+(pub macro picklib (literals libop)
+  ((picklib (libop a))
+   (pub :: libhit Int)
+   (pub fn (libhit) 7))
+  ((picklib other)
+   (pub :: libmiss Int)
+   (pub fn (libmiss) 8)))

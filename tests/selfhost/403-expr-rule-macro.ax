@@ -1,0 +1,35 @@
+; expect 153
+; Expression-rule macros (MAC-LANG-14 wide half, `emacro`): a rule list
+; over EXPRESSION templates, selected by a match in rule order like
+; declaration rules are. The head-list form stays single-template;
+; `emacro` is the multi-rule expression form, so no rule guesses its
+; kind from its head.
+;
+;   t1  40  literal dispatch: `(+ a 0)` rewrites to `a`
+;   t2  2   literal dispatch: `(* a 1)` rewrites to `a`
+;   t3  0   fallback: anything else rewrites to itself
+;   t4  10  ellipsis: `(call4 v ...)` splices into `(sum4 v ...)`
+;   t5  101 hygiene: the template's `tmp` cannot capture the caller's
+(emacro simp (literals + *)
+  ((simp (+ a 0)) a)
+  ((simp (* a 1)) a)
+  ((simp other) other))
+
+(:: sum4 (-> Int Int Int Int Int))
+
+(fn (sum4 a b c d) (+ a (+ b (+ c d))))
+
+(emacro call4 ((call4 v ...) (sum4 v ...)))
+
+(emacro addTo ((addTo x) (let ((tmp 100)) (+ tmp x))))
+
+(:: main Int)
+
+(fn (main)
+  (+
+    (+ (+ (simp (+ 40 0)) (+ (simp (* 2 1)) (simp 0))) (call4 1 2 3 4))
+    (let ((tmp 1))
+      (addTo tmp)
+    )
+  )
+)

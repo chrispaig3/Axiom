@@ -3001,21 +3001,31 @@ another query's argument, which is how `showOr` asks about a name no
 source file spells.
 
 Macros match on the shape of their arguments and repeat a template
-over a variable number of them, both since 2026-08-16. A rule-form
-macro's parameters are PATTERNS — a binder, `_`, a literal matched by
-value, or a parenthesised form of patterns — its rules are tried in
-order with the first match winning, and its last element may repeat,
-which is how a macro becomes variadic
+over a variable number of them. A rule-form macro's parameters are
+PATTERNS — a binder, `_`, a literal matched by value, or a
+parenthesised form of patterns — its rules are tried in order with the
+first match winning, and its last element may repeat, which is how a
+macro becomes variadic
 (`tests/selfhost/392-macro-patterns.ax` 127,
-`393-macro-ellipsis.ax` 63).
+`393-macro-ellipsis.ax` 63, `397-nested-repeat.ax` 170,
+`398-arm-ctor-splice.ax` 155, `399-decl-splice.ax` 45).
 
-What they still cannot do: dispatch on an argument's *spelling* rather
-than its shape — a literal identifier in a pattern needs two
-identifiers spelled alike to be the same pattern only when they mean
-the same binding, which is scope sets; and carry rules on the
-expression form, which stays one parameter list and one template
-because the two forms differ in what a template is. (`deriving (Eq)`
-is refused outright — see [Deriving](#deriving).)
+A rule list may also reserve head spellings with a `(literals ...)`
+header: a reserved identifier matches one binding and binds nothing,
+compared by binding rather than spelling, so a `+` the macro means is
+not hijacked by a caller's own `+`
+(`tests/selfhost/402-literal-dispatch.ax` 19; a member no pattern
+spells is `AX3066`).
+
+Rules come in both template kinds with no guessing: `macro` with a
+name heads declaration rules, `emacro` with a name heads expression
+rules over one expression template each
+(`tests/selfhost/403-expr-rule-macro.ax` 153).
+
+What they still cannot do: read a repeated binder as a same-form test
+(`(- e e)` is `AX3020`, last-wins), and generate `import` or a nested
+`macro` (`AX3021` — each would reopen a phase that already ran).
+(`deriving (Eq)` is refused outright — see [Deriving](#deriving).)
 The normative specification is [macro-system.md](macro-system.md);
 [macro-system.md](macro-system.md) is the measured detail and the order the rest
 is planned in.

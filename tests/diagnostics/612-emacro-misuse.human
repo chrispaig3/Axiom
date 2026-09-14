@@ -1,0 +1,31 @@
+[1;31merror[AX3027][0m[1m: macro `esimp` has an expression template and cannot stand in declaration position[0m
+  [1;34m--> [0m612-emacro-misuse.ax:10:2
+[1;34m   |[0m
+[1;34m10 |[0m (esimp (+ 1 0))
+[1;34m   |[0m  [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)
+  [1;34m = [0m[1;32mhelp: [0mgive it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+[1;31merror[AX3027][0m[1m: macro `esimp` has an expression template and cannot stand in declaration position[0m
+  [1;34m--> [0m612-emacro-misuse.ax:12:2
+[1;34m   |[0m
+[1;34m12 |[0m (esimp)
+[1;34m   |[0m  [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man expression macro's template is one expression; a declaration position needs declarations (macro-system.md MAC-CAP-8)
+  [1;34m = [0m[1;32mhelp: [0mgive it a rule form - `(macro name ((name args ...) (fn ...) ...))` - whose template is declarations
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
+
+[1;31merror[AX3018][0m[1m: no rule of macro `esimp` matches this invocation; it accepts (esimp (+ a 0)) or (esimp other)[0m
+  [1;34m--> [0m612-emacro-misuse.ax:16:13
+[1;34m   |[0m
+[1;34m16 |[0m (fn (main) (esimp 1 2 3))
+[1;34m   |[0m             [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mrules are tried IN ORDER and the first whose pattern matches wins (macro-system.md MAC-LANG-18): an invocation matching none is this refusal rather than a fall-through. A plain identifier in a shape matches any argument; a literal matches its own VALUE, and a parenthesised shape matches a form of that many elements - but not a form headed by a keyword (`if`, `let`, `lambda`, `match`), which the parser gives a shape of its own
+  [1;34m = [0m[1;32mhelp: [0mwrite the invocation in one of the shapes above
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3018` for a full explanation
+
+compilation failed due to 3 previous errors

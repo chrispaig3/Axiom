@@ -1,0 +1,52 @@
+; expect 19
+; Rule patterns dispatching on head spellings (MAC-LANG-17,
+; subset): a `(literals ...)` header reserves its members across
+; the rule list, and an occurrence matches an argument spelling
+; the SAME binding - never binding it. Builtin operators resolve
+; although no declaration spells them; an unbound keyword matches
+; by spelling; and a spelling the call site declares itself does
+; NOT match a literal the macro's module never did - the shadow
+; veto that makes this binding comparison rather than spelling
+; comparison (t5).
+;
+;   t1  1   `+` dispatches although `+` binds nowhere here
+;   t2  2   `*` likewise
+;   t3  3   anything else falls through to the binder rule
+;   t4  4   an unbound keyword matches by spelling
+;   t5  2   a shadowed spelling falls through (`LitLib.pick`)
+;   t6  7   an unshadowed cross-module spelling matches (`LitLib.picklib`)
+(import LitLib)
+
+(macro simp (literals + * otherwise)
+  ((simp (+ a 0))
+   (:: plusZero Int)
+   (fn (plusZero) 1))
+  ((simp (* a 1))
+   (:: timesOne Int)
+   (fn (timesOne) 2))
+  ((simp (otherwise a))
+   (:: pct Int)
+   (fn (pct) 4))
+  ((simp other)
+   (:: fallback Int)
+   (fn (fallback) 3)))
+
+(simp (+ x 0))
+
+(simp (* y 1))
+
+(simp (foo z))
+
+(simp (otherwise w))
+
+(:: myop (-> Int Int))
+
+(fn (myop x) x)
+
+(pick (myop 5))
+
+(picklib (libop 6))
+
+(:: main Int)
+
+(fn (main) (+ (+ (+ (+ (+ plusZero timesOne) fallback) pct) fellthrough) libhit))

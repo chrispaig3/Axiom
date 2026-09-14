@@ -5791,16 +5791,17 @@
 (pub :: fpDeclMacro (-> Int Int Int))
 
 (pub fn (fpDeclMacro p n)
-  ; The RULE form - `(macro name ((name args...) decl...))` - is a
-  ; bare identifier where the head-list form has a paren. Its
-  ; interior is copied VERBATIM from the source: the template holds
-  ; DECLARATIONS, and the expression printer's normalisations are
-  ; semantically destructive there - probed, it rewrote a template
-  ; `(fn (nm) 42)` into `(lambda (nm) 42)` and flattened the
-  ; pattern's parens, turning a compiling file into a refused one.
-  ; A formatter region it does not understand is copied, not
-  ; normalised; comments inside the template survive for the same
-  ; reason.
+  ; The RULE form - `(macro name ((name args...) decl...))` and
+  ; `(emacro name ((name pat...) expr))` - is a bare identifier where
+  ; the head-list form has a paren. Its interior is copied VERBATIM
+  ; from the source: a declaration template holds DECLARATIONS and an
+  ; expression template holds EXPRESSIONS, and the expression
+  ; printer's normalisations are semantically destructive in either -
+  ; probed, it rewrote a template `(fn (nm) 42)` into
+  ; `(lambda (nm) 42)` and flattened the pattern's parens, turning a
+  ; compiling file into a refused one. A formatter region it does not
+  ; understand is copied, not normalised; comments inside the template
+  ; survive for the same reason.
   (let (
     (src (fpSrc p))
     (b (fpDeclBase src n))
@@ -5819,7 +5820,7 @@
             {
               (fpP p "(")
               (fpVis p n)
-              (fpP p "macro ")
+              (fpP p (strConcat (fpDeclHead src n) " "))
               (fpP p (fnText src (fnKid n (+ b 1))))
               (while (< ri (vecLen tail))
                 (let ((rule (vecGet tail ri)))
@@ -5906,7 +5907,7 @@
                       (fpDeclEffect p n)
                       (if (strEq h "extern")
                         (fpDeclExtern p n)
-                        (if (strEq h "macro")
+                        (if (|| (strEq h "macro") (strEq h "emacro"))
                           (fpDeclMacro p n)
                           ; Any other head is a DECLARATION MACRO INVOCATION (the parser's
                           ; TAG_D_MACROCALL since 2026-08-14), printed through the
@@ -5914,8 +5915,19 @@
                           ; qualified names - because an invocation IS call-shaped. This
                           ; used to be `fpBad`, so every file using the feature was
                           ; unformattable with the least informative refusal in the
-                          ; toolchain.
-                          (fpExpr p n)
+                          ; toolchain. A singleton `(m)` keeps its parens here:
+                          ; `fpApp`'s singleton unwrap is correct in expression
+                          ; position - `(x)` IS `x` - but a bare `m` at top
+                          ; level is not a declaration at all, so unwrapping
+                          ; would print a file `check` refuses.
+                          (if (&& (== (fnKind n) FN_PAREN) (== (fnLen n) 1))
+                            {
+                              (fpP p "(")
+                              (fpExpr p (fnKid n 0))
+                              (fpP p ")")
+                            }
+                            (fpExpr p n)
+                          )
                         )
                       )
                     )

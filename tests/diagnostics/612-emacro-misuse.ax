@@ -1,0 +1,16 @@
+; `emacro` in declaration position, and an invocation matching no
+; expression rule (MAC-LANG-14 wide half, MAC-LANG-18).
+;
+; An `emacro` template is one expression; a declaration position needs
+; declarations, so the invocation is `AX3027` at the use. An invocation
+; matching no rule is `AX3018` naming every shape the macro accepts.
+(emacro esimp ((esimp (+ a 0)) a)
+  ((esimp other) other))
+
+(esimp (+ 1 0))
+
+(esimp)
+
+(:: main Int)
+
+(fn (main) (esimp 1 2 3))

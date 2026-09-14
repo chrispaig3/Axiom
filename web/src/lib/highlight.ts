@@ -73,7 +73,7 @@ const KEYWORD_TYPE = new Set(['data', 'struct', 'type', 'subtype', 'effect'])
 const KEYWORD_CONDITIONAL = new Set(['if', 'cond', 'match', 'else'])
 const KEYWORD_PLAIN = new Set([
   'let', 'handle', 'where', 'pub', 'import', 'set', 'while', 'for', 'extern',
-  'macro',
+  'macro', 'emacro',
   // `region` returned on 2026-09-03 as a checked allocation scope
   // (docs/reference.md, Regions); it left REMOVED below the same day.
   'region',

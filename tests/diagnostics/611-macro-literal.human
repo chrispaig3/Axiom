@@ -1,0 +1,11 @@
+[1;31merror[AX3066][0m[1m: macro `haunted` declares the literal `ghost` but no pattern spells it[0m
+ [1;34m--> [0m611-macro-literal.ax:9:8
+[1;34m  |[0m
+[1;34m9 |[0m (macro haunted (literals + ghost)
+[1;34m  |[0m        [1;31m^^^^^^^[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma declared literal that matches nothing is dead text, and the likeliest reading is a typo for a name the patterns spell - in which case the rule binds where the author meant to match
+ [1;34m = [0m[1;32mhelp: [0mspell it in a pattern, or drop it from the header
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3066` for a full explanation
+
+compilation failed due to 1 previous error

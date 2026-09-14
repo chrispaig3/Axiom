@@ -232,6 +232,7 @@ module.exports = grammar({
       $.effect_declaration,
       $.extern_declaration,
       $.macro_declaration,
+      $.emacro_declaration,
       $.syntax_for_declaration,
     ),
 
@@ -386,9 +387,40 @@ module.exports = grammar({
       seq(
         '(', optional(field('visibility', 'pub')), 'macro',
         field('name', $.identifier),
+        optional(field('literals', $.literals_clause)),
         repeat1(field('rule', $.macro_rule)),
         ')',
       ),
+    ),
+
+    // MAC-LANG-14 wide half (`emacro`): an expression-rule macro holds
+    // single EXPRESSION templates, not declaration lists, so one TAG
+    // serves both without renumbering the wire format. The rules share
+    // the pattern language (including `literals` and `...`) with
+    // declaration rules; only the template differs.
+    emacro_declaration: $ => seq(
+      '(', optional(field('visibility', 'pub')), 'emacro',
+      field('name', $.identifier),
+      optional(field('literals', $.literals_clause)),
+      repeat1(field('rule', $.emacro_rule)),
+      ')',
+    ),
+
+    emacro_rule: $ => seq(
+      '(',
+      '(', field('rule_name', $.identifier), repeat(field('parameter', $._macro_pattern)), ')',
+      field('template', $._expression),
+      ')',
+    ),
+
+    // MAC-LANG-17: `(literals + *)` between the name and the rules
+    // declares the identifiers whose pattern occurrences match
+    // literally. Single-paren, so it never collides with a rule,
+    // whose head is doubly parenthesised - no conflict to declare.
+    literals_clause: $ => seq(
+      '(', 'literals',
+      repeat(field('literal', $.identifier)),
+      ')',
     ),
 
     macro_rule: $ => seq(

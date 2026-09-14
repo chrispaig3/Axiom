@@ -2140,6 +2140,10 @@
 
 (pub fn (kwMacro) "macro")
 
+(pub :: kwEmacro String)
+
+(pub fn (kwEmacro) "emacro")
+
 (pub :: kwPub String)
 
 (pub fn (kwPub) "pub")
@@ -2215,6 +2219,8 @@
                       (parseImportDecl tokens (advance pos))
                       (if (kwEq name kwMacro)
                         (parseMacroDecl tokens (advance pos))
+                        (if (kwEq name kwEmacro)
+                          (parseEmacroDecl tokens (advance pos))
                         (if (kwEq name kwEffect)
                           (parseEffectDecl tokens (advance pos))
                           (if (kwEq name "type")
@@ -2268,6 +2274,7 @@
             )
           )
         )
+      )
       )
       (pErr pos)
     )
@@ -4198,6 +4205,144 @@
   )
 )
 
+; Whether `pos` opens a `(literals ...)` header: a paren followed
+; by the identifier `literals`. Single-paren, so it never collides
+; with a rule, whose head is doubly parenthesised.
+(pub :: parseLiteralsHead (-> (Vec Int) Int Bool))
+
+(pub fn (parseLiteralsHead tokens pos)
+  (if (peekIs tokens pos TK_LPAREN)
+    (if (peekIs tokens (advance pos) TK_IDENT)
+      (strEq (tokenLexeme (vecGet tokens (advance pos))) "literals")
+      false
+    )
+    false
+  )
+)
+
+; A `(literals ...)` header (MAC-LANG-17): the identifiers whose
+; occurrences in this rule list's patterns match literally - one
+; binding, never a binder - rather than binding. Only in leading
+; position: anywhere else the form reads as a rule whose head is
+; not the macro's name, which stops the list. Members are bare
+; identifiers; anything else is `pErrExp`'s AX2001 where it stands.
+; `_` and `...` may be listed but never reserve: the rewrite skips
+; both (a wildcard stays a wildcard, the repeat marker stays the
+; repeat marker), and the expansion-time unused check names them.
+(pub :: parseLiteralsDecl (-> (Vec Int) Int Int))
+
+(pub fn (parseLiteralsDecl tokens pos)
+  (let ((acc vecNew))
+    (parseLiteralsDeclIn tokens (advance (advance pos)) acc)
+  )
+)
+
+(pub :: parseLiteralsDeclIn (-> (Vec Int) Int (Vec String) Int))
+
+(pub fn (parseLiteralsDeclIn tokens pos acc)
+  (if (peekIs tokens pos TK_RPAREN)
+    (pOk acc (advance pos))
+    (if (peekIs tokens pos TK_IDENT)
+      {
+        (vecPush acc (tokenLexeme (vecGet tokens pos)))
+        (parseLiteralsDeclIn tokens (advance pos) acc)
+      }
+      (pErrExp pos "identifier")
+    )
+  )
+)
+
+; Reserve the declared literals across one rule's patterns: every
+; `E_VAR` spelling a member (besides `_` and `...`, which are never
+; reserved) becomes `syntax/literal ` plus the spelling - note the
+; SPACE, which no lexed identifier contains. Answers the rewritten
+; pattern and name vectors with the used set beside them; the rule
+; record carries all three (slots 2 and 0 rewritten, slot 5 the
+; `[lits used]` pair the unused check reads).
+(pub :: rewriteRuleLits (-> (Vec Int) (Vec String) (Vec String) (Vec Int)))
+
+(pub fn (rewriteRuleLits pats names lits)
+  (let ((used vecNew))
+    (let ((pats2 vecNew))
+      (let ((names2 vecNew))
+        {
+          (rewriteRuleLitsIn pats names lits used pats2 names2 0)
+          (let ((out vecNew))
+            {
+              (vecPush out (cast Int pats2))
+              (vecPush out (cast Int names2))
+              (vecPush out (cast Int used))
+              out
+            }
+          )
+        }
+      )
+    )
+  )
+)
+
+(pub :: rewriteRuleLitsIn (-> (Vec Int) (Vec String) (Vec String) (Vec String) (Vec Int) (Vec String) Int Int))
+
+(pub fn (rewriteRuleLitsIn pats names lits used pats2 names2 i)
+  (if (>= i (vecLen pats))
+    0
+    (let ((p2 (rewritePatLits (vecGet pats i) lits used)))
+      {
+        (vecPush pats2 p2)
+        (vecPush names2 (if (== (patIsReserved p2) 1)
+          "syntax/pat"
+          (vecGetStr names i)
+        ))
+        (rewriteRuleLitsIn pats names lits used pats2 names2 (+ i 1))
+      }
+    )
+  )
+)
+
+; Whether this pattern node is a reserved literal spelling (top
+; level or nested - the recursive use): exactly what the names
+; slot must not carry as a binder.
+(pub :: patIsReserved (-> Int Int))
+
+(pub fn (patIsReserved p)
+  (if (== (nodeTag p) TAG_E_VAR)
+    (if (strStartsWith (nodeAName p) "syntax/literal ")
+      1
+      0
+    )
+    0
+  )
+)
+
+(pub :: rewritePatLits (-> Int (Vec String) (Vec String) Int))
+
+(pub fn (rewritePatLits p lits used)
+  (if (== (nodeTag p) TAG_E_VAR)
+    (let ((nm (nodeAName p)))
+      (if (|| (strEq nm "_") (strEq nm "..."))
+        p
+        (if (== (strVecHas lits nm) 0)
+          p
+          {
+            (if (== (strVecHas used nm) 0)
+              (vecPush used nm)
+              used
+            )
+            (mkEVarAt (strConcat "syntax/literal " nm) (nodeSpan p))
+          }
+        )
+      )
+    )
+    (if (== (nodeTag p) TAG_E_APP)
+      (mkEApp
+        (rewritePatLits (nodeA p) lits used)
+        (rewritePatLits (nodeB p) lits used)
+      )
+      p
+    )
+  )
+)
+
 ; Zero or more parenthesized DECLARATIONS - a rule-form macro's
 ; template - up to the rule's closing paren (consumed). Parsed by
 ; `parseTopForm`, the real declaration grammar, which is what makes
@@ -4217,9 +4362,9 @@
 ; own name stops the list, which is what makes a malformed second rule
 ; a refusal rather than a silent truncation - the caller then demands
 ; the closing paren and fails there.
-(pub :: parseMacroRules (-> (Vec Int) Int String (Vec Int) Int))
+(pub :: parseMacroRules (-> (Vec Int) Int String (Vec Int) (Vec String) Int))
 
-(pub fn (parseMacroRules tokens pos macName acc)
+(pub fn (parseMacroRules tokens pos macName acc lits)
   (if (if (peekIs tokens pos TK_LPAREN)
     (peekIs tokens (advance pos) TK_LPAREN)
     false
@@ -4246,22 +4391,34 @@
                   ; construction. (Two of them were
                   ; appended for patterns and the fifth
                   ; for the ellipsis, which is why the
-                  ; rule is appending and not widening.)
+                  ; rule is appending and not widening.
+                  ; Slot 5 is the literals pair - the
+                  ; declared names beside the used set -
+                  ; for the same reason.)
                   (let (
                     (rule vecNew)
                     (three (memGetWordVec paramsR 1))
                   )
-                    {
-                      (vecPush rule (vecGet three 1))
-                      (vecPush rule (memGetWord tplR 1))
-                      (vecPush rule (vecGet three 0))
-                      (vecPush rule (vecGet three 2))
-                      (vecPush rule (vecGet three 3))
-                      (vecPush
-                        acc                        (cast Int rule)
+                    (let ((rw (rewriteRuleLits
+                      (cast (Vec Int) (vecGet three 0))                      (cast (Vec String) (vecGet three 1))                      lits
+                    )))
+                      (let ((litpair vecNew))
+                        {
+                          (vecPush litpair (cast Int lits))
+                          (vecPush litpair (vecGet rw 2))
+                          (vecPush rule (vecGet rw 1))
+                          (vecPush rule (memGetWord tplR 1))
+                          (vecPush rule (vecGet rw 0))
+                          (vecPush rule (vecGet three 2))
+                          (vecPush rule (vecGet three 3))
+                          (vecPush rule (cast Int litpair))
+                          (vecPush
+                            acc                        (cast Int rule)
+                          )
+                          (parseMacroRules tokens (memGetWord tplR 2) macName acc lits)
+                        }
                       )
-                      (parseMacroRules tokens (memGetWord tplR 2) macName acc)
-                    }
+                    )
                   )
                 )
               )
@@ -4342,32 +4499,195 @@
     (p1 (advance pos))
   )
     (if (peekIs tokens p1 TK_LPAREN)
+      ; A `(literals ...)` header (MAC-LANG-17) between the name and
+      ; the rules: single-paren, so it never collides with a rule,
+      ; whose head is doubly parenthesised.
+      (if (parseLiteralsHead tokens p1)
+        (let ((lr (parseLiteralsDecl tokens p1)))
+          (if (== (memGetWord lr 0) 0)
+            lr
+            (parseDeclMacroRules tokens (memGetWord lr 2) macName macSpan (cast (Vec String) (memGetWordVec lr 1)))
+          )
+        )
       (if (peekIs tokens (advance p1) TK_LPAREN)
         ; One or more RULES (MAC-LANG-14). Word 9 holds them all,
         ; each a two-slot record of (parameters, template); node B
         ; keeps the FIRST rule's parameters, which is what every
         ; reader that wants "the" parameters already indexes and
         ; what a single-rule macro has always meant.
-        (let ((rulesR (parseMacroRules tokens p1 macName vecNew)))
-          (if (== (memGetWord rulesR 0) 0)
-            rulesR
-            (let (
-              (rules (memGetWordVec rulesR 1))
-              (after (memGetWord rulesR 2))
+        (parseDeclMacroRules tokens p1 macName macSpan vecNew)
+        (pErr (advance p1))
+      )
+      )
+      (pErr p1)
+    )
+  )
+)
+
+; One or more RULES after the optional `(literals ...)` header:
+; shared by the plain and headered shapes so the two spell one
+; list, one node and one refusal.
+(pub :: parseDeclMacroRules (-> (Vec Int) Int String Int (Vec String) Int))
+
+(pub fn (parseDeclMacroRules tokens pos macName macSpan lits)
+  (if (peekIs tokens (advance pos) TK_LPAREN)
+    (let ((rulesR (parseMacroRules tokens pos macName vecNew lits)))
+      (if (== (memGetWord rulesR 0) 0)
+        rulesR
+        (let (
+          (rules (memGetWordVec rulesR 1))
+          (after (memGetWord rulesR 2))
+        )
+          (if (peekIs tokens after TK_RPAREN)
+            (let ((node (mkDMacroAt macName (vecGet (vecGet rules 0) 0) 0 macSpan)))
+              {
+                (memSetWord node 9 rules)
+                (pOk node (advance after))
+              }
             )
-              (if (peekIs tokens after TK_RPAREN)
-                (let ((node (mkDMacroAt macName (vecGet (vecGet rules 0) 0) 0 macSpan)))
-                  {
-                    (memSetWord node 9 rules)
-                    (pOk node (advance after))
-                  }
+            (pErr after)
+          )
+        )
+      )
+    )
+    (pErr (advance pos))
+  )
+)
+
+; One or more EXPRESSION rules after the optional `(literals ...)`
+; header (MAC-LANG-14 wide half): shared by the plain and headered
+; shapes so the two spell one list, one node and one refusal. Word 6
+; marks expression-rule macros (1) apart from declaration-rule ones
+; (0), which is what lets one TAG serve both without renumbering the
+; wire format (MAC-LANG-14a): existing readers that stop at word 9
+; are untouched, and the two template kinds stay disjoint by
+; construction rather than by guessing from a template's head, which
+; the specification records as unsound.
+(pub :: parseEmacroDeclRules (-> (Vec Int) Int String Int (Vec String) Int))
+
+(pub fn (parseEmacroDeclRules tokens pos macName macSpan lits)
+  (if (peekIs tokens (advance pos) TK_LPAREN)
+    (let ((rulesR (parseEmacroRules tokens pos macName vecNew lits)))
+      (if (== (memGetWord rulesR 0) 0)
+        rulesR
+        (let (
+          (rules (memGetWordVec rulesR 1))
+          (after (memGetWord rulesR 2))
+        )
+          (if (peekIs tokens after TK_RPAREN)
+            (let ((node (mkDMacroAt macName (vecGet (vecGet rules 0) 0) 0 macSpan)))
+              {
+                (memSetWord node 9 rules)
+                (memSetWord node 6 1)
+                (pOk node (advance after))
+              }
+            )
+            (pErr after)
+          )
+        )
+      )
+    )
+    (pErr (advance pos))
+  )
+)
+
+; The RULE form with EXPRESSION templates (MAC-LANG-14 wide half):
+;   (emacro name (literals lits...) ((name pat...) expr) ...)
+; Each rule is `((name pat...) expr)`: the pattern head repeats the
+; macro's name (syntax-rules convention, as declaration rules do),
+; and everything after the pattern is ONE expression template parsed
+; by `parseExpr`, not declarations. One rule is the list of length
+; one. A rule whose pattern head is not the macro's own name stops
+; the list, which makes a malformed second rule a refusal rather
+; than a silent truncation.
+(pub :: parseEmacroRules (-> (Vec Int) Int String (Vec Int) (Vec String) Int))
+
+(pub fn (parseEmacroRules tokens pos macName acc lits)
+  (if (if (peekIs tokens pos TK_LPAREN)
+    (peekIs tokens (advance pos) TK_LPAREN)
+    false
+  )
+    (let ((nr (parseIdentName tokens (advance (advance pos)))))
+      (if (== (memGetWord nr 0) 0)
+        nr
+        (if (strEq (memGetWordStr nr 1) macName)
+          (let ((paramsR (parseMacroPatList
+            tokens            (memGetWord nr 2)            vecNew            vecNew            vecNew            vecNew
+          )))
+            (if (== (memGetWord paramsR 0) 0)
+              paramsR
+              (let ((tplR (parseExpr tokens (memGetWord paramsR 2))))
+                (if (== (memGetWord tplR 0) 0)
+                  tplR
+                  (if (peekIs tokens (memGetWord tplR 2) TK_RPAREN)
+                    (let (
+                      (rule vecNew)
+                      (three (memGetWordVec paramsR 1))
+                    )
+                      (let ((rw (rewriteRuleLits
+                        (cast (Vec Int) (vecGet three 0))                        (cast (Vec String) (vecGet three 1))                        lits
+                      )))
+                        (let ((litpair vecNew))
+                          {
+                            (vecPush litpair (cast Int lits))
+                            (vecPush litpair (vecGet rw 2))
+                            (vecPush rule (vecGet rw 1))
+                            (vecPush rule (memGetWord tplR 1))
+                            (vecPush rule (vecGet rw 0))
+                            (vecPush rule (vecGet three 2))
+                            (vecPush rule (vecGet three 3))
+                            (vecPush rule (cast Int litpair))
+                            (vecPush
+                              acc                              (cast Int rule)
+                            )
+                            (parseEmacroRules tokens (advance (memGetWord tplR 2)) macName acc lits)
+                          }
+                        )
+                      )
+                    )
+                    (pErr (memGetWord tplR 2))
+                  )
                 )
-                (pErr after)
               )
             )
           )
+          (pErr (advance (advance pos)))
         )
+      )
+    )
+    (if (== (vecLen acc) 0)
+      (pErr pos)
+      (pOk acc pos)
+    )
+  )
+)
+
+; The `emacro` form: `(emacro name ...)` with an optional
+; `(literals ...)` header between the name and the rules. There is
+; no head-list shape here: the head-list `(macro (name params...)
+; template)` stays the single-template expression form, and `emacro`
+; is the multi-rule expression form, so the two spell one template
+; kind each and no rule guesses its kind from its head.
+(pub :: parseEmacroDecl (-> (Vec Int) Int Int))
+
+(pub fn (parseEmacroDecl tokens pos)
+  (let (
+    (macName (tokenLexeme (vecGet tokens pos)))
+    (macSpan (tokenSpan (vecGet tokens pos)))
+    (p1 (advance pos))
+  )
+    (if (peekIs tokens p1 TK_LPAREN)
+      (if (parseLiteralsHead tokens p1)
+        (let ((lr (parseLiteralsDecl tokens p1)))
+          (if (== (memGetWord lr 0) 0)
+            lr
+            (parseEmacroDeclRules tokens (memGetWord lr 2) macName macSpan (cast (Vec String) (memGetWordVec lr 1)))
+          )
+        )
+      (if (peekIs tokens (advance p1) TK_LPAREN)
+        (parseEmacroDeclRules tokens p1 macName macSpan vecNew)
         (pErr (advance p1))
+      )
       )
       (pErr p1)
     )
@@ -6472,8 +6792,16 @@
 (pub :: attachAxtagsNested (-> Int (Vec Int) Int Int))
 
 (pub fn (attachAxtagsNested d axtags cur)
+  ; Expression-rule macros (`emacro`, word 6) hold single expressions,
+  ; not declaration vectors, so there is no nested declaration list
+  ; to thread tags through. Declaration rules do, and head-list
+  ; macros hold no rules at all (word 9 == 0, which the callee returns
+  ; at once).
   (if (== (nodeTag d) TAG_D_MACRO)
-    (attachAxtagsRules (memGetWordVec d 9) 0 axtags cur)
+    (if (== (memGetWord d 6) 1)
+      cur
+      (attachAxtagsRules (memGetWordVec d 9) 0 axtags cur)
+    )
     cur
   )
 )

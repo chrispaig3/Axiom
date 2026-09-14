@@ -512,21 +512,29 @@ macro cannot perform effects at expansion time: a template calling
 `readFile` emits the *call*, and the file's contents appear nowhere in
 the output. That is the sandbox the proposal wanted, and it holds.
 
-Two measured defects still block a *safe* expansion API, and neither is
-small. A third, the one that was never a hygiene defect, is closed:
+One measured defect still blocks a *safe* expansion API, and it is not
+small. Two others, one of which was never a hygiene defect, are closed.
+A fourth closed 2026-08-16 and is struck below, because what it cost
+is the argument for the mechanism that closed it:
 
-1. **Reverse hygiene has a live hole**, and the printing macros are no
-   longer an instance of it. A template's free identifier can still be
-   captured by an entry-file declaration of the same name, which is
-   what a general expansion API would have to answer for. The format
-   lowering was the worked example — it expanded to bare `show` and
-   `strConcat` calls, and an entry file declaring either hijacked every
-   hole in the file — and both halves closed:
+1. ~~**Reverse hygiene has a live hole**, and the printing macros are no
+   longer an instance of it.~~ **Closed 2026-08-16** (`MAC-HYG-8.1` in
+   [macro-system.md](macro-system.md)). A template's free identifier
+   used to be capturable by an entry-file declaration of the same
+   name; a macro is a top-level declaration, so every free identifier
+   in its template means something top level, and one bit on the
+   reference says so — both resolvers skip the local scope for a
+   stamped reference. The format lowering was the worked example — it
+   expanded to bare `show` and `strConcat` calls, and an entry file
+   declaring either hijacked every hole in the file — and both halves
+   closed:
    `expQualify`'s exactly-one-module rule takes `strConcat` to
    `Str$strConcat`, and 0.7.4 replaced the rendering head with the
    unwritable `format#`.
    `tests/selfhost/383-format-capture.ax` measures both, at exit 60,
-   where 20 was the value that said the hijack won.
+   where 20 was the value that said the hijack won;
+   `tests/selfhost/394-macro-entry-capture.ax` (130) measures the
+   general case the lowering instance hid.
 2. **Declaration-level generated names are unhygienic**, colliding with
    hand-written ones as `AX3006` at a positionless span.
 3. ~~**A declaration-macro fan-out is unbounded.**~~ **Bounded,
@@ -605,7 +613,8 @@ in-language access-control lever, and works today.
    It was the prerequisite for any harness that compiles code it did not
    write.
 6. **`Agent.Macro`**, over `syntax/*`, after 5 — now unblocked, and
-   still gated on the three hygiene defects §3.6 lists.
+   still gated on the one hygiene defect §3.6 leaves open (item 2:
+   declaration-level generated names).
 
 `Agent.IR` does not appear as proposed, and neither does
 `--agent-harness`. What did land under that heading is a **printer, not

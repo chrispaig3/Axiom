@@ -211,10 +211,12 @@ output (`MM-EXEC-14`).
 
 ### 1.5 Pattern macros
 
-**MAC-LANG-14 (H in part; rules 2026-08-15, patterns 2026-08-16).** A
+**MAC-LANG-14 (H; rules 2026-08-15, patterns 2026-08-16, expression rules 2026-09-14).** A
 macro **SHALL** be a sequence of rules, each a pattern and a template,
 tried in order. **The rules belong to the RULE FORM**, which is the
-decision the 2026-08-15 measurement below forced. They were selected
+decision the 2026-08-15 measurement below forced — and since
+2026-09-14 there are TWO rule forms, one per template kind, so no rule
+guesses its kind from its head. They were selected
 by ARITY for one day; since `MAC-LANG-15` they are selected by a
 MATCH, and arity survives as a pre-filter — see the paragraph after
 the example:
@@ -260,20 +262,20 @@ Two refusals hang off this, and BOTH changed with the selector:
   every SHAPE. `tests/diagnostics/585-multi-rule-misuse.ax` pins both,
   and `600`/`605` pin them apart.
 
-**What this rule still specifies and does not yet hold:** rules over
-EXPRESSION templates, which is the question the measurement below
-leaves open. The pattern language landed in part — see `MAC-LANG-15`
-for which four of its six kinds, and which two are still blocked and
-on what.
+**What this rule still specifies and does not yet hold:** nothing.
+Rules over EXPRESSION templates landed 2026-09-14 as `emacro` (the
+wide half below), and the pattern language holds in full — see
+`MAC-LANG-15`.
 
-*Today (2026-08-16):* the **rule list takes one or more rules and it
-is the declaration-macro form** — `MAC-CAP-8` parses
-`(macro name ((name p ...) decl ...) ...)` and each pattern head must
-repeat the macro's name. The parameters are no longer a flat list of
-identifiers: each is a PATTERN (`MAC-LANG-15`), and selection is a
-match in rule order (`MAC-LANG-18`). What this rule still specifies
-beyond that: ellipsis (`MAC-LANG-16`) and literal identifiers
-(`MAC-LANG-17`). A mismatched invocation is still a refusal and never
+*Today (2026-09-14):* the **rule list takes one or more rules in
+either of two forms** — `(macro name ((name p ...) decl ...) ...)`
+whose template is declarations (`MAC-CAP-8`), and `(emacro name
+((name p ...) expr) ...)` whose template is one expression — and each
+pattern head must repeat the macro's name. The parameters are no
+longer a flat list of identifiers: each is a PATTERN (`MAC-LANG-15`),
+and selection is a match in rule order (`MAC-LANG-18`). Ellipsis
+(`MAC-LANG-16`) and literal identifiers (`MAC-LANG-17`) both hold.
+A mismatched invocation is still a refusal and never
 a fall-through past the last rule — with several rules, "mismatched"
 means matching none of them.
 
@@ -302,15 +304,19 @@ through the compiler rather than reading the parser.*
    generates two), so "not a declaration keyword" would misread it as
    an expression.
 
-   **THE DECISION, made 2026-08-15: rules belong to the rule form, and
-   the head-list form stays single-template.** The example above was
-   rewritten to a declaration macro to match. A rule list over
-   EXPRESSION templates would need the two forms to agree about what a
-   template is, and nothing forces that question until patterns exist
-   (`MAC-LANG-15`): an expression macro selected by arity alone buys
-   little, since its one template already takes whatever arity it
-   declares. The narrow half is what shipped, and the wide half is
-   held open rather than guessed at.
+    **THE DECISION, made 2026-08-15 and extended 2026-09-14: rules belong to the rule form, and
+    the head-list form stays single-template.** The example above was
+    rewritten to a declaration macro to match. A rule list over
+    EXPRESSION templates needed the two forms to agree about what a
+    template is, and nothing forced that question until patterns existed
+    (`MAC-LANG-15`): an expression macro selected by arity alone buys
+    little, since its one template already takes whatever arity it
+    declares. The narrow half is what shipped first, and the wide half —
+    `emacro`, the multi-rule expression form — shipped 2026-09-14 once
+    patterns, ellipsis and literals gave it something to select by, so
+    no rule guesses its kind from its head
+    (`tests/selfhost/403-expr-rule-macro.ax`, 153;
+    `tests/diagnostics/612-emacro-misuse.ax` pins the two refusals).
 
 **MAC-LANG-14a (P, prerequisite).** **Patterns are not a distinct
 syntactic category today**, and a pattern-macro design must say what it
@@ -337,7 +343,7 @@ Choice 2 costs nothing structurally and has one consequence that
 pattern or expression position, so a macro usable in both **MUST**
 expand to a form valid in both.
 
-**MAC-LANG-15 (P; four of the six landed 2026-08-16).** A pattern
+**MAC-LANG-15 (H; four of the six landed 2026-08-16, the last two 2026-09-11/14).** A pattern
 **SHALL** be one of:
 
 | Pattern | Matches | |
@@ -346,24 +352,26 @@ expand to a form valid in both.
 | `_` | any single form, binding nothing | **holds** |
 | a literal integer, float, char or string | itself | **holds** |
 | `(p1 ... pn)` | a form of exactly *n* elements, each matching | **holds** |
-| `(p ...)` | zero or more forms matching `p` (`MAC-LANG-16`) | `...` lexes since 2026-08-16; a repeat over a PATTERN rather than a bare NAME is still `AX3034` |
-| a **literal identifier** declared in the macro's literal list | itself, by *binding*, not by spelling (`MAC-LANG-17`) | needs scope sets |
+| `(p ...)` | zero or more forms matching `p` (`MAC-LANG-16`) | **holds** — v2 (2026-09-11): a repeat over a nested pattern binds each binder in lockstep (`tests/selfhost/397-nested-repeat.ax`, 170) |
+| a **literal identifier** declared in the macro's literal list | itself, by *binding*, not by spelling (`MAC-LANG-17`, landed 2026-09-14 as canonical-spelling comparison; scope sets still provisional) | `tests/selfhost/402-literal-dispatch.ax` (19), `tests/diagnostics/611-macro-literal.ax` |
 
 (The `...` in the fourth row is this document's metasyntax for "p₁
 through pₙ" and not the ellipsis operator, which is why that row cites
 no rule and the fifth does.)
 
-**What the four buy, stated as a limit rather than a promise.** A
-pattern's head is an ordinary binder, so a nested pattern
-discriminates by the SHAPE of a form and never by its head's spelling:
+**What the six buy, stated as a limit rather than a promise.** A
+pattern's head is an ordinary binder unless the rule list reserves it,
+so an unreserved nested pattern discriminates by the SHAPE of a form
+and never by its head's spelling:
 `(m (h T))` matches `(m (anything X))`. Measured while building this —
 the first draft of `tests/selfhost/392-macro-patterns.ax` wrote
 `((defOp (unary T)) ...)` and `((defOp (binary T)) ...)` expecting two
 rules, and both invocations took the first, answering 2 where the file
-claimed 3. So the discriminating powers this landed are exactly two:
-the shape of a nested form, and the value of a literal. Discriminating
-by a head's spelling is `MAC-LANG-17`, and §10.4's `simplify` table —
-whose rules are told apart by `+` and `*` in head position — needs it.
+claimed 3. So the discriminating powers are exactly three:
+the shape of a nested form, the value of a literal, and — since
+2026-09-14 — a reserved head's binding (`MAC-LANG-17`), which is what
+§10.4's `simplify` table needs for its `+`/`*` heads
+(`tests/selfhost/403-expr-rule-macro.ax` rewrites `(+ a 0)` to `a`).
 
 The representation discharges `MAC-LANG-14a`'s choice 2 literally: a
 pattern is an ordinary expression node in a slot the parser knows is a
@@ -489,7 +497,27 @@ at two depths and rebuild n-squared, and a marker on its own, which
 follows nothing. `tests/selfhost/399-decl-splice.ax` (45) is three
 macros over the new shape: `fn` and `::` over parallel sequences, a
 `data` building two boxed types, and a nested invocation rebuilt
-once per element.
+once per element. Every splice position now refuses an interior
+repeat with `AX3034`: the spine check walks the whole form rather
+than one application level, and the arm splice scans the arm's
+body, so a marker nested inside a `match`, an `if` or a second
+splice no longer re-splices the whole sequence inside every
+element - `tests/diagnostics/610` carries the arm and spine rows
+beside the declaration one.
+
+**v5, landed 2026-09-14: constructor patterns in spliced arms.**
+A spliced arm whose pattern is a constructor form substitutes
+like anything else: a fixed nullary test rebuilds as itself,
+and a sequence-bound field of a named pattern tests its element
+- the same TEST-not-binder rule v3 established, one level down,
+mirroring what the `syntax/for` substitution already did for its
+own iteration variables. A parameter standing in a field binder
+for a non-name is still refused downstream as `AX3035`, which is
+the honest form of v3's interim refusal (`bind whole values in
+the repeated pattern and take them apart outside it`).
+`tests/selfhost/398-arm-ctor-splice.ax` grows two terms (155):
+a fixed-test splice falling through to the wildcard, and a named
+field-test splice answering per element.
 
 **`...` lexes, and it lexes as an ORDINARY IDENTIFIER.** Three
 dots are one token and there is no new token kind: `self_host/lexer.ax`
@@ -543,13 +571,28 @@ Two facts make this more delicate than a token addition sounds:
   from the free bytes (`$ ? @ ` ` ` ~` are the only ones with no
   lexical meaning).
 
-**MAC-LANG-17 (P).** A rule list **MAY** declare *literal identifiers*,
-which match only themselves and are compared by **binding**, not by
-spelling — the `else` in a `cond`-shaped macro must be *the* `else` the
-macro means, not any identifier a caller happened to name `else`. This
-is the pattern-side half of hygiene and it is why `MAC-HYG-9`'s scope
-sets are a prerequisite: with renaming alone there is nothing to compare
-a literal *against*.
+**MAC-LANG-17 (H, landed 2026-09-14, subset).** A rule list
+**MAY** declare *literal identifiers* - `(macro name (literals
+lits...) rules...)` - which match only themselves and are compared
+by **binding**, not by spelling: the comparison is canonical
+spellings (the module's own declaration, the single visible
+declarer, or the builtin; unbound spellings agreeing by spelling),
+so a pattern `+` meaning the Prelude operator does not match an
+invocation whose `+` the call site declared itself - the shadow
+veto that makes this binding comparison rather than spelling
+comparison - while a qualified `Pre::+` matches although the
+spellings differ. The `else` in a `cond`-shaped macro must be
+*the* `else` the macro means, not any identifier a caller happened
+to name `else`. A literal binds nothing, never allocates a
+parameter slot, and makes its rule refutable; a declared literal
+no pattern spells is `AX3066` at the macro's own line.
+What scope sets would add on top is narrow and stated: renamed
+heads spell `name.N` with an unspellable separator, so one never
+spells a literal by accident, and constructor heads compare by
+spelling (call-head resolution covers `fn` declarations, which is
+the operator namespace the dispatch needs). `MAC-HYG-9` stays
+provisional for the representation change; the dispatch does not
+wait on it.
 
 **MAC-LANG-18 (H, 2026-08-16).** Rules are tried in order; the first
 whose pattern matches wins. If no rule matches, the diagnostic **MUST**
@@ -814,17 +857,15 @@ E AX3024 macro-expansion-limit "macro expansion produced more than the limit of 
 to segfault the compiler in about 10 ms — no output, no diagnostic, and
 not even slowly enough to interrupt.
 
-**MAC-EXP-11a (H).** The two output budgets share `AX3024` and are
+**MAC-EXP-11a (H; closed 2026-09-14).** The two output budgets share `AX3024` and are
 distinguished by message — *"nested deeper than the limit of 1024
-forms"* against *"produced more than the limit of 2000000 forms"*. Both
-counters increment for **every node the pass visits**, macro-generated
-or not, so they apply to a macro-free program as well. The depth budget
-is harmless there — the parser's identical limit catches deep source
-first — but the node budget has no parser analogue and is reachable by a
-large generated file containing no macros at all. A conforming
-implementation **SHOULD** count only expansion-produced nodes, and
-**MUST NOT** let the limit's message imply a macro is involved when none
-is.
+forms"* against *"produced more than the limit of 2000000 forms"*. Only
+expansion-produced nodes count: inside an instantiation (`expDepth` >
+0) every node visited is expansion-produced (or reached through one),
+so both budgets apply there and only there. The parser's own limits
+already bound source depth, and counting source nodes let a large
+macro-free file hit a budget whose message blamed macros that do not
+exist.
 
 ### 2.4 Determinism
 
@@ -844,15 +885,11 @@ for byte: a renamed binder must not renumber a type variable.
 the invocation**, and every node that came from an argument keeps its
 own span.
 
-**MAC-EXP-14a (H, defective).** Four tags are exempt from `MAC-EXP-14`
-because they are returned rather than rebuilt: integer, string, float
-and char literals. A literal in a template therefore keeps the **defining
-file's** byte offsets, which are then rendered against the *invoking*
-file's line table — producing a span like `probe.ax:4:375-378` in a
-50-byte file. This is the wrong-file anchoring `MAC-EXP-14` exists to
-prevent, surviving in the one case where rebuilding looked unnecessary.
-A conforming implementation **MUST** rebuild literals with the
-invocation's span.
+**MAC-EXP-14a (H; closed 2026-09-14).** Every template literal is
+rebuilt with the invocation's span (`expRebuildLit`): integer, string,
+float and char literals carry their value in word A and nothing else,
+so the rebuild is exact, and a diagnostic anchored at one indexes the
+unit it is reported against rather than the defining file's bytes.
 
 The same question applies to the sub-nodes `MAC-EXP-14b` names, and this
 specification answers it the same way: a node that reaches a diagnostic
@@ -1356,17 +1393,14 @@ miscompile.
 `AX3022 macro-set-target` when the argument is an expression rather than
 a name.
 
-**MAC-CAP-3a (H).** `AX3022` **does not poison its expansion**: the
-substituter reports it and then emits the *parameter's own name* into
-the generated tree. Only the driver's error gate keeps that tree away
-from codegen, so any consumer that renders diagnostics without exiting —
-an incremental path, the language server — would emit a template
-identifier into IR. A conforming implementation **MUST** replace the
-node with a poison value, as every other refusal in the pass does.
+**MAC-CAP-3a (H; closed 2026-09-14).** `AX3022` poisons its expansion:
+the substituter reports it and answers a null name, and the caller
+emits a poison node (span 0, suppressing cascades) rather than the
+template's own identifier into the tree.
 
 ### 4.2 Pattern matching on syntax
 
-**MAC-CAP-4 (P; two of the four dispatch axes landed 2026-08-16).** With
+**MAC-CAP-4 (H; closed 2026-09-14).** With
 `MAC-LANG-14`–`MAC-LANG-18`, a macro **SHALL** be able to dispatch on
 the *shape* of its arguments: arity, literal heads, nesting, and
 repetition. This is what turns the current facility from
@@ -1375,10 +1409,12 @@ the roadmap's §4.2 means by tier 1.
 
 **Arity** and **nesting** hold (`MAC-LANG-15`, `MAC-LANG-18`), and so
 does dispatch on a literal argument's VALUE, which this list did not
-separate out. **Repetition** followed on 2026-08-16 (`MAC-LANG-16` v1). **Literal
-heads** need `MAC-LANG-17`, which needs `MAC-HYG-9`'s scope sets — the
-one axis of the four still blocked, and blocked on something named
-rather than on effort.
+separate out. **Repetition** holds since 2026-08-16 (`MAC-LANG-16` v1)
+through its nested (v2), arm/ctor (v3), declaration (v4) and
+ctor-pattern (v5) halves. **Literal heads** hold since 2026-09-14
+(`MAC-LANG-17`, canonical-spelling comparison with the shadow veto);
+scope sets (`MAC-HYG-9`) remain provisional for the representation
+change, and the dispatch does not wait on them.
 
 ### 4.3 Compile-time evaluation
 
@@ -2617,27 +2653,34 @@ write (`(simplify e)` falling through to itself would otherwise hang the
 compiler), and `MAC-LANG-18`'s ordering is what makes the last rule a
 default rather than an ambiguity.
 
-**What this example still needs, itemised on 2026-08-16 rather than
-left implied.** `MAC-LANG-18`'s ordering holds and the seven rules of
+**What this example still needs, itemised on 2026-08-16 and re-measured
+2026-09-14.** `MAC-LANG-18`'s ordering holds and the seven rules of
 arity one are no longer refused — that refusal narrowed the same day,
 and refusing this table six times over was the measurement that showed
-it had to. Three things are still missing, and every one is a named
-rule rather than an omission:
+it had to. Of the three things missing then, two have landed:
 
 - the heads. `+` and `*` in `(+ e 0)` are what tell rule 1 from rule 3,
-  and a pattern's head is an ordinary binder, so `(+ e 0)` as written
-  matches `(* n 1)` too. Literal identifiers are `MAC-LANG-17` and
-  they need `MAC-HYG-9`'s scope sets, exactly as `MAC-LANG-17` says.
-- `(f a ...)`, which is `MAC-LANG-16`'s ellipsis.
+  and since 2026-09-14 a `(literals + *)` header reserves them, so the
+  dispatch is by binding with the shadow veto (`MAC-LANG-17`,
+  `tests/selfhost/403-expr-rule-macro.ax` rewrites both).
+- `(f a ...)`, which is `MAC-LANG-16`'s ellipsis (v1, and v2 for the
+  nested shape the last rule's right-hand side needs).
+
+One thing is still missing, and it is a named rule rather than an
+omission:
+
 - `(- e e)`, a repeated binder, which `MAC-LANG-15` refuses (`AX3020`)
   rather than reading as a same-form test: `expParamIndex` is
   last-wins, so permitting it would silently bind the second
   occurrence, and there is no structural form-equality to compare
   against — `syntax/same` is not one.
 
-And the templates here are EXPRESSIONS, which the rule form does not
-take (`MAC-LANG-14`'s decision of 2026-08-15). So this section is
-still a sketch of where the rules point, and it now says which ones.
+And the templates here are EXPRESSIONS, which the rule form takes since
+2026-09-14 as `emacro` (`MAC-LANG-14`'s wide half): the table as written
+spells `macro`, and as `emacro` with a `(literals + *)` header five of
+its seven rules run today, with `(- e e)` the one that still refuses.
+So this section is a sketch with two of its three legs built, and it
+now says which one is not.
 
 ### 10.5 A small DSL
 
@@ -2665,7 +2708,10 @@ Here the ellipsis is doing the work rather than a query: the pattern
 template uses each at the same depth — `MAC-LANG-16`'s rule. The
 generated `match` is exhaustive over the generated `data` type by
 construction, and if a transition names a state that has no `state`
-clause, `AX3002` reports it at the `(machine Door ...)` line.
+clause, `AX3002` reports it at the `(machine Door ...)` line. Since
+2026-09-13 this machine expands end to end (`tests/selfhost/398-arm-ctor-splice.ax`,
+the Door machine) — arm and constructor splices were its last two
+halves.
 
 That last sentence is why `MAC-DIAG-4` is normative rather than a
 nicety: without an expansion backtrace, the author of `(machine Door
@@ -2715,14 +2761,15 @@ tense, so it is not rediscovered:
 - **`MAC-LANG-13`** decided that escaping was a run-time function
   (`hEscText`, `hEscAttr`) and that `</` inside `script`/`style` was
   rewritten at run time rather than refused at `check`.
-- The limits it worked around, each named in its header, are still the
-  system's limits: no variadic expression macro (`MAC-LANG-14`'s
-  decision, so children were a block), no macro generating a macro
+- The limits it worked around, each named in its header, were the
+  system's limits at the time: no variadic expression macro (`MAC-LANG-14`'s
+  decision, so children were a block — `emacro` since 2026-09-14), no macro generating a macro
   (`MAC-CAP-8`'s `AX3021`, so the tag table was written out, two lines
   per tag), no `{}` (so `div` and `divA` were two macros), no `:class`
   (the lexer), no dispatch on a head's spelling (`MAC-LANG-17`, so one
-  macro per attribute name plus `attr`), and `MAC-EXP-14a`'s literal
-  spans, of which the ~70 string literals in its templates were the
+  macro per attribute name plus `attr` — canonical-spelling dispatch
+  since 2026-09-14), and `MAC-EXP-14a`'s literal
+  spans (closed 2026-09-14), of which the ~70 string literals in its templates were the
   densest exposure in the tree.
 - **One measured refusal worth knowing before naming a macro**: a bare
   identifier that names a macro is a zero-argument invocation
@@ -2738,26 +2785,26 @@ tense, so it is not rediscovered:
 
 | Area | Holds today | Planned | Refused |
 |---|---|---|---|
-| Language | LANG-1…12, LANG-14 (multi-rule over the declaration form — selected by ARITY for one day, and by a pattern MATCH in rule order since 2026-08-16, with arity surviving inside the match as a pre-filter), LANG-15 (four of its six pattern kinds), LANG-16 (v1: one repeating bare NAME as a rule's last element), LANG-18 | LANG-14 (rules over expression templates), LANG-15's last two kinds — a repeat over a PATTERN (LANG-16's second half) and a literal identifier (LANG-17) | LANG-13 |
+| Language | LANG-1…12, LANG-14 (multi-rule over BOTH forms — declarations via `macro` since 2026-08-15 and expressions via `emacro` since 2026-09-14 — selected by a pattern MATCH in rule order since 2026-08-16, with arity surviving inside the match as a pre-filter), LANG-15 (all six pattern kinds), LANG-16 (v1–v5: bare-name, nested-pattern, arm/ctor, declaration and ctor-pattern splices), LANG-17 (literal identifiers, canonical-spelling comparison), LANG-18 | — | LANG-13 |
 | Expansion | EXP-1…17 (module-side invocation landed 2026-08-15) | — | — |
 | Hygiene | HYG-1…8 (HYG-8's four holes are all closed, the last two on 2026-08-16; HYG-3a held-but-defective) | HYG-9 | — |
-| Capabilities | CAP-1…3, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`type`/`effect`/invocation/iteration templates — the kind list closed 2026-08-15, and `impl` left it with the construct in 0.6.0), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5's capture CLOSED in 0.7.4) | CAP-4 | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
+| Capabilities | CAP-1…4, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`type`/`effect`/invocation/iteration templates — the kind list closed 2026-08-15, and `impl` left it with the construct in 0.6.0), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5's capture CLOSED in 0.7.4) | — | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…6 | — | — |
 | Diagnostics | DIAG-1…5 (DIAG-5's second snippet landed 2026-08-15) | — | — |
 | Tooling | TOOL-1…6 (TOOL-6 held-but-defective) | — | — |
 
-Six rules in the Holds column are held-but-defective, each with the
+Three rules in the Holds column are held-but-defective, each with the
 defect stated inline where it is defined —
 `MAC-EXP-8` (the over-application diagnostic anchors at the expansion,
-not the surplus argument), `MAC-EXP-11a` (the node budget counts
-unexpanded nodes and its message blames macros that may not exist),
-`MAC-EXP-14a` (a template literal keeps the defining file's byte
-offsets), `MAC-HYG-3a` (a renamed binder is still RENDERED under its
+not the surplus argument), `MAC-HYG-3a` (a renamed binder is still RENDERED under its
 gensym spelling; the `~>` half of that defect closed with
-`MAC-TOOL-5` on 2026-08-15), `MAC-CAP-3a` (`AX3022` reports and then
-emits the bad node anyway), and
+`MAC-TOOL-5` on 2026-08-15), and
 `MAC-TOOL-6` (`fmt` rewrites what `check` refuses to lex).
+`MAC-EXP-11a`, `MAC-EXP-14a` and `MAC-CAP-3a` were the fourth, fifth
+and sixth until 2026-09-14, when the node budget learned to count only
+expansion-produced nodes, template literals learned the invocation's
+span, and `AX3022` learned poison.
 `MAC-CAP-10.5` was the seventh until 0.7.4, when the format
 lowering's last capturable name stopped being a name. This is [memory-model.md §9.0](memory-model.md)'s
 convention; the list, not any one entry, is the argument for gating.
@@ -2785,6 +2832,18 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/376-syntax-nested-for.ax` (7) | CAP-5 — nested syntax/for over two types, inner splice under the live outer binding |
 | `tests/selfhost/386-syntax-parallel-for.ax` (63) | CAP-5's parallel `syntax/for` — the zip in all three positions, one bit each, positional past the first element; the unfixed compiler does not parse the file |
 | `tests/selfhost/390-multi-rule-macro.ax` (51) | LANG-14's arity selection across three rules, each a template in its own right |
+| `tests/selfhost/392-macro-patterns.ax` (127) | LANG-15/LANG-18 — shape and literal-value dispatch in rule order; the compiler before it refuses the file at the first pattern's paren |
+| `tests/selfhost/393-macro-ellipsis.ax` (63) | LANG-16 v1 — one repeating bare name, spliced into a constructor call |
+| `tests/selfhost/397-nested-repeat.ax` (170) | LANG-16 v2 — a repeat over a nested pattern, six macros over matching and spine splices |
+| `tests/selfhost/398-arm-ctor-splice.ax` (155) | LANG-16 v3/v5 — `arm ...` and `C ...` splices, including fixed-test and named field-test ctor patterns in spliced arms |
+| `tests/selfhost/399-decl-splice.ax` (45) | LANG-16 v4 — `decl ...` over parallel sequences, a `data` splice and a nested-invocation splice |
+| `tests/selfhost/402-literal-dispatch.ax` (19) | LANG-17 — `(literals ...)` head-spelling dispatch with the shadow veto, over `LitLib.ax` |
+| `tests/selfhost/403-expr-rule-macro.ax` (153) | LANG-14 wide half — `emacro` rules over expression templates, with ellipsis and hygiene |
+| `tests/diagnostics/600-macro-rule-unreachable.ax` | LANG-18's `AX3033` — an irrefutable rule starving a later one of its arity |
+| `tests/diagnostics/605-macro-no-rule-matches.ax` | LANG-18's `AX3018` — every SHAPE the macro accepts, joined from the tokens |
+| `tests/diagnostics/610-macro-ellipsis-misuse.ax` | LANG-16's `AX3034` — all four depth refusals plus the arm/spine interior rows |
+| `tests/diagnostics/611-macro-literal.ax` | LANG-17's `AX3066` — a declared literal no pattern spells |
+| `tests/diagnostics/612-emacro-misuse.ax` | LANG-14 wide half's refusals — `emacro` in declaration position (`AX3027`) and no rule matching (`AX3018`) |
 | `tests/diagnostics/585-multi-rule-misuse.ax` | LANG-14's refusals — two rules of one arity at the macro's line, and an invocation matching none, which names every arity the macro offers |
 | `tests/diagnostics/575-syntax-parallel-for-misuse.axbad` | the zip's refusals — a skewed pair in each of the three positions, and a parallel binding that is not a pair (`.axbad`: the last is an expression to the parser and a non-shape to the grammar) |
 | `tests/selfhost/387-syntax-nested-join.ax` (47) | CAP-5's nested `syntax/join` — a lens set over two structs sharing a field name, three-deep nesting, and the `getX`-twice collision that made the two-part form unusable |
@@ -2888,21 +2947,25 @@ rather than the value alone.
 
 ### 11.3 What is left
 
-Three things, and they are the same three `MAC-LANG-14`–`MAC-LANG-18`
-and the Language row of the conformance table name:
+The three this list named — `MAC-LANG-17`, `MAC-LANG-16`'s nested half,
+and `MAC-LANG-14` over expression templates — have all landed (2026-09-11
+through 2026-09-14), and the Language row of the conformance table holds
+in full. What remains is narrower, and stated rather than implied:
 
-1. **`MAC-LANG-17` — literal identifiers**, where a head's *spelling*
-   discriminates rather than its shape. It needs `MAC-HYG-9`'s scope
-   sets, because two identifiers spelled alike are the same pattern
-   only if they mean the same binding, and it is why §10.4's
-   `simplify` table does not run yet.
-2. **`MAC-LANG-16`'s second half — a repeat over a nested pattern**,
-   binding each of that pattern's binders to a sequence in lockstep.
-   Refused rather than half-built (§1.5).
-3. **`MAC-LANG-14` over EXPRESSION templates.** Rules belong to the
-   rule form today, because the two forms differ in what a template
-   IS; extending them to the head-list form is a separate decision,
-   not a port.
+1. **`MAC-HYG-9` — scope sets.** The dispatch holds without them
+   (canonical-spelling comparison with the shadow veto), and what they
+   would add is narrow and stated in `MAC-LANG-17`: renamed heads that
+   can never be spelled by accident, and constructor heads compared by
+   spelling. The representation change stays provisional.
+2. **A repeated binder read as a same-form test** (`(- e e)` in §10.4's
+   `simplify` table), which `MAC-LANG-15` refuses as last-wins
+   (`AX3020`). The table's templates are expressions too, which the
+   rule form does not take — `emacro` takes one expression per rule,
+   and the table wants rewriting, not just dispatch.
+3. **The three held-but-defective renders** in §11: `MAC-EXP-8`'s anchor,
+   `MAC-HYG-3a`'s gensym spelling, and `MAC-TOOL-6`'s `fmt`/`check`
+   disagreement — plus `MAC-EXP-14c`'s spanless nodes, which no
+   invocation-span rule can reach.
 
 Everything else this list once scheduled has landed, and two of its
 price estimates are worth keeping because they were measured and

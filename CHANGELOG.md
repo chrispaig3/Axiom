@@ -16,6 +16,70 @@ its changelog too.
 
 ## Unreleased
 
+### Rules over expression templates (`emacro`) — `tests/selfhost/403-expr-rule-macro.ax`
+
+MAC-LANG-14's wide half: `(emacro name ((name p ...) expr) ...)` is a
+rule list over EXPRESSION templates, selected by the same match in rule
+order as declaration rules are, with literals, ellipsis and hygiene
+unchanged. The head-list form stays single-template by decision, so no
+rule guesses its kind from its head — `macro` with a paren is one
+expression template, `macro` with a name is declaration rules, `emacro`
+with a name is expression rules, one TAG serving both without
+renumbering the wire. An `emacro` in declaration position is `AX3027`
+(a one-expression template where declarations belong), and an
+invocation matching no rule is `AX3018` naming every shape. `tests/selfhost/403`
+answers 153 over three macros (literal dispatch rewriting `(+ a 0)` to
+`a`, an ellipsis splice into `sum4`, and a hygienic `tmp`); `tests/diagnostics/612`
+pins both refusals. Tree-sitter learns `emacro_declaration`,
+`emacro_rule` and the `literals_clause` beside them (43-case corpus),
+`fmt` copies both rule forms verbatim, and the LSP offers `emacro`
+where it offered `macro`.
+
+### Literal identifiers dispatch by binding — `tests/selfhost/402-literal-dispatch.ax`
+
+MAC-LANG-17 (subset): a rule list may declare `(literals lits...)`,
+whose members match one binding and bind nothing. The comparison is
+canonical spellings — the module's own declaration, the single visible
+declarer, or the builtin; unbound spellings agreeing by spelling — so a
+pattern `+` meaning the Prelude operator does not match an invocation
+whose `+` the call site declared itself (the shadow veto), while a
+qualified `Pre::+` matches although the spellings differ. A literal
+never allocates a parameter slot and makes its rule refutable; a member
+no pattern spells is `AX3066` at the macro's own line
+(`tests/diagnostics/611`). `tests/selfhost/402` answers 19 over six
+macros (builtin-operator dispatch, fallthrough, an unbound keyword, the
+shadow veto via `LitLib.pick`, and the cross-module hit via
+`LitLib.picklib`). Scope sets stay provisional for the representation
+change; the dispatch does not wait on them.
+
+### Three held-but-defective renders close; constructor patterns splice — `tests/selfhost/398-arm-ctor-splice.ax`
+
+MAC-LANG-16's fifth half plus three closes, one commit because one
+splice owns them: a spliced arm whose pattern is a constructor form
+substitutes like anything else — a fixed nullary test rebuilds as
+itself and a sequence-bound field of a named pattern tests its element
+— with a parameter in field-binder position for a non-name still
+refused downstream as `AX3035`. `tests/selfhost/398` grows two terms
+(118 → 155). The same pass closes `MAC-EXP-14a` (template literals
+rebuild with the invocation's span), `MAC-CAP-3a` (`AX3022` poisons
+rather than emitting the template's name), and `MAC-EXP-11a` (the
+output budgets count only expansion-produced nodes, inside an
+instantiation). `fmt` keeps a singleton `(m)` in declaration position
+rather than unwrapping to a bare name that is not a declaration.
+
+### Every splice position refuses an interior repeat — `tests/diagnostics/610-macro-ellipsis-misuse.ax`
+
+A repeat inside a spliced template used one sequence at two depths:
+the declaration splice refused it from birth, but a spine marker
+nested deeper than one application level, or inside a spliced arm's
+body, re-spliced the whole sequence inside every element in
+silence. The spine check now walks the whole form and the arm
+splice scans the arm's body, both answering `AX3034` naming the
+nesting; `tests/diagnostics/610` gains the arm and spine rows
+beside the declaration one, and every older fixture holds what it
+held. No new functions, so no pin moves - only prose, the two new
+golden rows, and the twenty lines of guard.
+
 ### Whole declarations splice per element — `tests/selfhost/399-decl-splice.ax`
 
 MAC-LANG-16's fourth half: a template `decl ...` rebuilds one

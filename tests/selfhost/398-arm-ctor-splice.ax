@@ -1,4 +1,4 @@
-; expect 118
+; expect 155
 ; Rule-template splices over whole match arms and data-constructor
 ; lists (MAC-LANG-16, third slice): `arm ...` rebuilds one arm per
 ; absorbed element with each sequence-bound name taking its element,
@@ -9,12 +9,17 @@
 ; match everything - the silent wildcard expSubstPatForSpine's note
 ; records for the `syntax/for` path - so t1b below answers through
 ; the SECOND arm on purpose, where a wildcard would answer 100
-; through the first.
+; through the first. Constructor patterns splice like anything
+; else: a fixed nullary test rebuilds as itself (t4a, falling
+; through to the wildcard), and a sequence-bound field of a named
+; pattern tests its element (t4b).
 ;
 ;   t1a  100  arm splice over a fixed type, first arm answers
 ;   t1b  0    arm splice, second arm answers (the wildcard tripwire)
 ;   t2   8    constructor splice builds the data type itself
 ;   t3   10   both halves: the §10.5 Door machine end to end
+;   t4a  7    fixed-test splice, first arm answers, other falls through
+;   t4b  30   named-pattern splice, each field test answers its element
 (data Light
   (Off)
   (On))
@@ -68,6 +73,26 @@
   )
 )
 
+(data Dev
+  (MkDev {st : Light, n : Int}))
+
+(macro fixm ((fixm (st) ...)
+   (:: fixCode (-> Light Int))
+   (fn (fixCode l)
+     (match l
+       ((Off) 7) ...
+       (_ 0)))))
+
+(fixm Off On)
+
+(macro modem ((modem (s v) ...)
+   (:: modeCode (-> Dev Int))
+   (fn (modeCode d)
+     (match d
+       ((MkDev {st = s}) v) ...))))
+
+(modem (Off 10) (On 20))
+
 (:: main Int)
 
-(fn (main) (+ (+ (+ (lightCode (lightStep Off 1)) (lightCode (lightStep On 1))) (+ (legs Cat) (legs Dog))) (+ (doorCode (step Closed 1)) (+ (doorCode (step Open 0)) (doorCode (step (step Closed 1) 0))))))
+(fn (main) (+ (+ (+ (+ (lightCode (lightStep Off 1)) (lightCode (lightStep On 1))) (+ (legs Cat) (legs Dog))) (+ (doorCode (step Closed 1)) (+ (doorCode (step Open 0)) (doorCode (step (step Closed 1) 0))))) (+ (+ (fixCode Off) (fixCode On)) (+ (modeCode (MkDev Off 0)) (modeCode (MkDev On 0))))))

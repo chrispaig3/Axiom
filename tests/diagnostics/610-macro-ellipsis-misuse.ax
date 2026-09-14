@@ -42,6 +42,16 @@
 ;               two depths and rebuild n-squared, so it is refused
 ;               rather than half-built
 ;
+;   and the same rule one level down, in the positions the fourth
+;   half's interior scan owns:
+;
+;     armnest   a repeat INSIDE a spliced arm's body. The body would
+;               re-splice the whole sequence inside every element
+;     spinenest a repeat INSIDE a spliced spine - `(f (g a ...) ...)`.
+;               One application level was always refused; deeper
+;               forms spliced silently until the scan learned to
+;               walk them
+;
 ; `...` is an ordinary identifier to the lexer - three dots, one
 ; token - which is why it stands beside the name it repeats rather
 ; than gluing to it, and why a single `.` still means field access.
@@ -68,6 +78,14 @@
 
 (fn (box x) x)
 
+(:: mk (-> Int Int))
+
+(fn (mk x) x)
+
+(data Bit
+  (B0)
+  (B1))
+
 (macro lonedecl ((lonedecl (n) ...)
    ...
    (fn ((syntax/join w n)) 3)))
@@ -76,6 +94,16 @@
    (fn ((syntax/join q n)) (box n ...))
    ...))
 
+(macro armnest ((armnest (s t) ...)
+   (:: bitCodeN (-> Bit Int))
+   (fn (bitCodeN b)
+     (match b
+       ((s) (box t ...)) ...))))
+
+(macro spinenest ((spinenest (n) ...)
+   (:: spineN Int)
+   (fn (spineN) (box (mk n ...) ...))))
+
 (bare P 1 2)
 
 (loose P 1)
@@ -83,6 +111,10 @@
 (lonedecl A)
 
 (nestdecl A B)
+
+(armnest (B0 7) (B1 8))
+
+(spinenest 1 2)
 
 (:: main Int)
 

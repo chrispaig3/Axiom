@@ -53,7 +53,8 @@ duplicate parameter, `AX3021` an unsupported template form, `AX3022` a
 `AX3027` a declaration-macro invocation the expander cannot resolve,
 `AX3028` a `syntax/*` query with no answer, `AX3033` a rule that can
 never match, `AX3034` an ellipsis used at the wrong depth, `AX3035` a
-binder parameter given something that is not a variable. All eleven are
+binder parameter given something that is not a variable, `AX3066` a
+literal a rule declares and never uses. All twelve are
 constructed in `self_host/expand.ax` (`AX3028` in
 `self_host/typecheck.ax` as well). See
 [macro-system.md](macro-system.md).

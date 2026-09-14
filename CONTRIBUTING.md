@@ -177,9 +177,9 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 656 `.ax` files
-in the repository answers `is already formatted` for 431 of them and
-`needs formatting` for 225. Two of the 225 are deliberate and are named
+2026-09-04, `axiom fmt --check` over every one of the 661 `.ax` files
+in the repository answers `is already formatted` for 434 of them and
+`needs formatting` for 227. Two of the 227 are deliberate and are named
 below; the other 223 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
@@ -225,7 +225,21 @@ Then the decl-splice fixture arrived — `399-decl-splice.ax`, measured
 needing formatting on its own with `axiom fmt --check` (its
 `(mkbox (A) (B))` invocation is the form under test, and the
 formatter collapses it the same way) — taking it to 656/431/225.
-Each of those twenty-seven files was measured on its own with
+Then the literal-dispatch fixtures arrived — `402-literal-dispatch.ax`,
+its `LitLib.ax` helper and `611-macro-literal.ax`, each measured
+formatted on its own with `axiom fmt --check` — taking it to
+659/434/225. (An early draft spelled the unbound keyword `%%`;
+the formatter refuses any `(%% ...)` application on either
+compiler, old or new, so the fixture spells it `otherwise`.)
+Then the expression-rule fixtures arrived — `403-expr-rule-macro.ax`
+and `612-emacro-misuse.ax`, each measured formatted on its own with
+`axiom fmt --check` — taking it to 661/434/227. (`612`'s bare
+`(esimp)` in declaration position exposed a formatter hole: a
+singleton `(m)` unwrapped to bare `m`, which at top level is not a
+declaration at all, so the file was refused outright. `fpDecl` now
+keeps the parens there; expression-position `(x)` still unwraps, as
+it should.)
+Each of those thirty-two files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.

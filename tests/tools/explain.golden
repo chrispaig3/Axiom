@@ -76,6 +76,7 @@
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
   [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
+  [93mAX3066[0m  a literal a rule declares and never uses  (macro-literal)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2440,6 +2441,13 @@ are CHECKED, which is the difference.
 Namespace it - `;@axiom:my:effects(...)`, which a `:` exempts - or
 drop it.
 
+### explain AX3066
+AX3066 - a literal a rule declares and never uses
+
+A `(literals ...)` header reserves its members across the rule list's patterns: an occurrence stops binding and matches one binding instead (docs/macro-system.md MAC-LANG-17). A member no pattern spells is therefore dead text - and the likeliest reading is a typo for a name the patterns DO spell, in which case the rule binds where the author meant to match.
+
+Spell it in a pattern, or drop it from the header.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2825,6 +2833,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3063[0m  a region the callee's signature names and the arguments do not agree on  (region-argument)
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
   [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
+  [93mAX3066[0m  a literal a rule declares and never uses  (macro-literal)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

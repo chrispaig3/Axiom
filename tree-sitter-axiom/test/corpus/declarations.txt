@@ -495,3 +495,26 @@ subtype with and without an upper bound
     (identifier)
     (builtin_type)
     (integer_literal)))
+
+================================================================
+expression-rule macro, selected by match
+================================================================
+
+(emacro simp ((simp (+ a 0)) a) ((simp other) other))
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (emacro_declaration
+    name: (identifier)
+    rule: (emacro_rule
+      rule_name: (identifier)
+      parameter: (macro_pattern_form
+        (identifier)
+        (identifier)
+        (integer_literal))
+      template: (identifier))
+    rule: (emacro_rule
+      rule_name: (identifier)
+      parameter: (identifier)
+      template: (identifier))))
