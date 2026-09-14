@@ -163,7 +163,8 @@
   ; The extra ASCII bytes that count as word characters, beyond
   ; letters, digits and `_`. See `ledIsWord`: this is where the
   ; CALLER'S language enters, and the only place it does.
-  (wordChars : String))
+  (wordChars : String)
+)
 
 ; The kill ring, created once per session and outliving every line.
 ;
@@ -1179,10 +1180,6 @@
 
 (pub fn (ledApply ed ev out)
   {
-    ; Every key that is not a kill starts a fresh ring entry, and
-    ; every key that is not a yank makes Alt-y a refusal. Doing it
-    ; here, once, is what stops the two flags from being cleared in
-    ; some branches and not others.
     (if (ledIsKillKey ev)
       0
       {
@@ -1276,10 +1273,10 @@
   )
 )
 
-; Arrows, Home and End - and the keys this effort deliberately leaves
-; alone. Up and Down belong to the HISTORY effort and Tab to
-; COMPLETION; they are decoded, they arrive here, and they do nothing.
-; Adding them is a branch beside these, not a change to the decoder.
+; Arrows, Home and End. Up and Down are not bound here - they are
+; reserved for the REPL's history effort. Tab is not bound here -
+; reserved for completion. Adding them is a branch beside these, not
+; a change to the decoder.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledNavKey (-> LineEd KeyEv Int))
 
@@ -1299,10 +1296,6 @@
           (ledHome ed)
           (if (== ev.kind KEY_END)
             (ledEnd ed)
-            ; KEY_UP, KEY_DOWN: history's.
-            ; KEY_TAB: completion's.
-            ; KEY_ESCAPE, KEY_FN, KEY_PGUP, KEY_PGDN, KEY_INSERT,
-            ; KEY_NONE: nothing is bound to them.
             0
           )
         )
@@ -1314,7 +1307,8 @@
 
 ; A printable key, or an Alt-<letter> word command. Alt-b/f/d/y are
 ; the bindings every terminal can produce, where Ctrl-Left and
-; Alt-Delete are the ones only some can.
+; Alt-Delete are the ones only some can. Tab inserts a literal tab
+; here; the REPL's completion effort is a separate branch.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledCharKey (-> LineEd KeyEv Int))
 
@@ -1334,15 +1328,17 @@
           )
         )
       )
-      (ledInsert ed ev.cp)
+      (if (== ev.kind KEY_TAB)
+        (ledInsert ed 9)
+        (ledInsert ed ev.cp)
+      )
     )
     LED_GO
   }
 )
 
 ; The control keys. readline's letters, and only the ones this effort
-; owns: Ctrl-N and Ctrl-P are history's and are left unbound so that
-; effort can take them without moving anything here.
+; owns: Ctrl-N and Ctrl-P are reserved for history.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledCtrlKey (-> LineEd KeyEv (Vec String) Int))
 
@@ -1399,3 +1395,9 @@
     )
   )
 )
+
+; ------------------------------------------------------------------
+; Setters and helpers for REPL-owned features.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+
