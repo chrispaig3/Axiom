@@ -103,8 +103,6 @@
 
 (import Tui.Term)
 
-(import replhl)
-
 ; All REPL output is stdout - stage0's rule, measured: stderr stayed
 ; empty in every probed session, errors included.
 (pub :: replOut (-> String Int))
@@ -1434,7 +1432,7 @@
     ; be the document lying about the program.
     (if (== replInteractive 0)
       (replOut "  • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it\n")
-      (replOut "  • Arrows, Ctrl-A/E/B/F/K/U/W/Y and Alt-b/f/d edit the line; Ctrl+D ends the session, Ctrl+C cancels the line\n  • Syntax highlighting is active on a terminal\n")
+      (replOut "  • Arrows, Ctrl-A/E/B/F/K/U/W/Y and Alt-b/f/d edit the line; Ctrl+D ends the session, Ctrl+C cancels the line\n")
     )
     (replOut "\n")
     0
@@ -1638,6 +1636,16 @@
 ; already-open path, not a new one.
 ;
 ; Two decisions this leaves deliberately narrow:
+;   * a STRING spanning lines is not tracked - `replParenDepth` does
+;     not know it is inside an unterminated string, only that lexing
+;     one produced no bracket tokens either way. `lex` itself already
+;     does not stop an unterminated string at a newline (lexer.ax),
+;     so a string opened on one line and closed two lines later inside
+;     an otherwise-balanced form still lexes correctly when the whole
+;     buffer is finally handed to the parser; what this does NOT do is
+;     wait for more input just because a string is open and depth is
+;     already 0 - the buffer dispatches, and an unterminated string
+;     left open forever is the parse error it always was.
 ;   * an empty line WHILE continuing aborts rather than joins: typing
 ;     nothing and pressing enter mid-form is the escape hatch for a
 ;     paren the user cannot close (or does not want to anymore),
@@ -1645,24 +1653,17 @@
 ;     input. Continuing accepts blank lines inside the form as long as
 ;     something non-blank follows to close it, since a blank line
 ;     between clauses is ordinary formatting, not a submission.
-;   * A STRING spanning lines IS tracked: if the lexer's last token is
-;     a TK_ERROR that begins with `"` or `'` and whose span reaches
-;     the buffer end, the buffer is incomplete regardless of bracket
-;     balance, so the REPL keeps reading. An unclosed string inside an
-;     otherwise-balanced form therefore continues to the next line
-;     instead of dispatching and failing to parse.
 (pub :: replParenDepth (-> String Int))
 
 (pub fn (replParenDepth src)
   (let ((toks (lex src)))
     (let (
-      (n (strLen src))
-      (nToks (vecLen toks))
+      (n (vecLen toks))
       (mut i 0)
       (mut depth 0)
     )
       {
-        (while (< i nToks)
+        (while (< i n)
           {
             (let ((k (kindInt (tokenKind (vecGet toks i)))))
               (if (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_LBRACKET))))
@@ -1675,20 +1676,7 @@
             )
             (set i (+ i 1))
           })
-        ; An unclosed string or char literal keeps the buffer open
-        ; even when brackets balance.
-        (if (&& (> nToks 0) (== (kindInt (tokenKind (vecGet toks (- nToks 1)))) (kindInt TK_ERROR)))
-          (let ((lx (tokenLexeme (vecGet toks (- nToks 1)))))
-            (if (&& (> (strLen lx) 0) (|| (== (strByte lx 0) 34) (== (strByte lx 0) 39)))
-              (if (== (spanEnd (tokenSpan (vecGet toks (- nToks 1)))) n)
-                (+ depth 1)
-                depth
-              )
-              depth
-            )
-          )
-          depth
-        )
+        depth
       }
     )
   )
@@ -1702,25 +1690,13 @@
 
 ;@axiom:effect(io)
 (pub fn (replDispatch declsSrc entry)
-  {
-    (if (&& (== replInteractive 1) (|| (isDeclLine entry) (!= (strByte entry 0) 58)))
-      (replOut (catStrs (let ((v vecNew))
-        {
-          (vecPush v (replHlPaint entry 0 0))
-          (vecPush v "\n")
-          v
-        }
-      )))
-      0
-    )
-    (if (isDeclLine entry)
-      (replDecl declsSrc entry)
-      {
-        (replExpr declsSrc entry)
-        declsSrc
-      }
-    )
-  }
+  (if (isDeclLine entry)
+    (replDecl declsSrc entry)
+    {
+      (replExpr declsSrc entry)
+      declsSrc
+    }
+  )
 )
 
 ; ------------------------------------------------------------------
@@ -1752,7 +1728,6 @@
       ; bytes and requires this string to make `ledIsWord` agree with
       ; `lexer.isIdentChar` exactly, so the two cannot drift.
       (ed (ledNew ledRingNew "-!*+/<>=%&|'^"))
-      
       (mut declsSrc "")
       (mut running 1)
       ; The buffer of a decl-or-expr entry whose parens have not
