@@ -288,6 +288,8 @@ ledNotWord stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
 ledRangeStr stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledRefresh stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledRefreshFull stdlib/Tui/Edit.ax no-io,no-foreign ok
+ledRefreshFullPainted stdlib/Tui/Edit.ax no-io,no-foreign ok
+ledRefreshPainted stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledRefreshWindow stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledReset stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledResize stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
@@ -379,11 +381,16 @@ refuted tests/diagnostics/393-restrict-strict.ax no-io,strict violated
 renderDiag self_host/diag.ax no-io,no-foreign ok
 renderDiagIx self_host/diag.ax no-io,no-foreign ok
 renderDiagsUnits self_host/diag.ax no-io,no-foreign ok
+replHistDown self_host/repl.ax no-io,no-foreign ok
+replHistText self_host/repl.ax no-io,no-foreign ok
+replHistUp self_host/repl.ax no-io,no-foreign ok
 replHlClass self_host/replhl.ax no-io,no-foreign ok
 replHlDepth self_host/replhl.ax no-io,no-foreign ok
 replHlLine self_host/replhl.ax no-io,no-foreign ok
 replHlMatch self_host/replhl.ax no-io,no-foreign ok
 replHlPaint self_host/replhl.ax no-io,no-foreign ok
+replIsHistDown self_host/repl.ax no-io,no-alloc,no-foreign ok
+replIsHistUp self_host/repl.ax no-io,no-alloc,no-foreign ok
 restrictedTwice tests/fmt/syntax-zoo.ax no-io,no-cast ok
 restrictedTwice tests/fmt/syntax-zoo.expected.ax no-io,no-cast ok
 scaled tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
