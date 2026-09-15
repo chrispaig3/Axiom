@@ -1146,6 +1146,68 @@
   )
 )
 
+; ------------------------------------------------------------------
+; The painted repaint, for a caller with a highlighter.
+;
+; IT KNOWS NOTHING ABOUT AXIOM either: `painted` arrives as a String
+; the caller painted, the way the prompt already arrives painted. All
+; geometry - the content width, the cursor row and column, the forced
+; newline at the phantom column, the row counts stored back - is still
+; computed from the PLAIN buffer, exactly as `ledRefreshFull` computes
+; it. That is correct only when the caller's painting preserves the
+; display width, i.e. `tuiVisLen painted == ledColsBefore of the whole
+; buffer`; `self_host/replhl.ax` states that invariant as
+; `(visLen (replHlPaint src cursor 0)) == (visLen src)` and its fixture
+; asserts it per case. Escapes go around whole spans there, never
+; around individual characters, so no cursor column here can land
+; inside one.
+;
+; The single-row window has no painted form: slicing a painted string
+; by columns would cut escape sequences in half. When the content is
+; taller than the screen the dispatcher below draws the plain window,
+; which is correct and merely unpainted for that one huge line.
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-foreign)
+(pub :: ledRefreshFullPainted (-> LineEd (Vec String) String Int))
+
+(pub fn (ledRefreshFullPainted ed out painted)
+  (let (
+    (w (ledCols ed))
+    (c (ledContentCols ed))
+    (k (ledCursor ed))
+  )
+    {
+      (ledEraseOld ed out)
+      (vecPush out ed.prompt)
+      (vecPush out painted)
+      (if (&& (> c 0) (== (% c w) 0))
+        (vecPush out "\n\r")
+        (cast (Vec String) 0)
+      )
+      (vecPush out (ledCup (- (/ c w) (ledRowOf ed k)) 65))
+      (vecPush out "\r")
+      (vecPush out (ledCup (ledColOf ed k) 67))
+      (set ed.rows (+ (/ c w) 1))
+      (set ed.curRow (ledRowOf ed k))
+      0
+    }
+  )
+)
+
+; Like `ledRefresh`, but the full repaint draws `painted` - the
+; caller's rendering of the current buffer - instead of the plain
+; snapshot. See `ledRefreshFullPainted` for the width contract that
+; makes the cursor land correctly.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: ledRefreshPainted (-> LineEd (Vec String) String Int))
+
+(pub fn (ledRefreshPainted ed out painted)
+  (if (&& (> ed.height 1) (> (ledRowsUsed ed) ed.height))
+    (ledRefreshWindow ed out)
+    (ledRefreshFullPainted ed out painted)
+  )
+)
+
 ; Called with the terminal's current size before every refresh. When
 ; the width changed we cannot know how the terminal reflowed the text
 ; it already holds, so `rows` and `curRow` are reset rather than used:
