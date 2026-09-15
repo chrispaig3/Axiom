@@ -647,7 +647,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Tui.Edit`
 
-`stdlib/Tui/Edit.ax` — 62 public names
+`stdlib/Tui/Edit.ax` — 64 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -704,6 +704,8 @@ See [reference.md](reference.md) for the language, and
 | `ledRefreshFull` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | The multi-row repaint. |
 | `ledRefreshWindow` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` |  |
 | `ledRefresh` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | The one dispatcher, so the choice between the two repaints lives in exactly one place. |
+| `ledRefreshFullPainted` | value | `(-> LineEd (Vec String) String Int)` | `Alloc,Mut` |  |
+| `ledRefreshPainted` | value | `(-> LineEd (Vec String) String Int)` | `Alloc,Mut` | Like `ledRefresh`, but the full repaint draws `painted` - the caller's rendering of the current buffer - instead of the plain snapshot. See `ledRefreshFullPainted` for the width contract that makes the cursor land correctly. |
 | `ledResize` | value | `(-> LineEd Int Int Int)` | `Mut` | Called with the terminal's current size before every refresh. When the width changed we cannot know how the terminal reflowed the text it already holds, so `rows` and `curRow` are reset rather than used: refusing to compute motions from a stale width beats computing them wrongly, and one more keystroke fully repairs the line. 1 when it changed. |
 | `ledApply` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut` |  |
 | `ledIsKillKey` | value | `(-> KeyEv Bool)` |  |  |
