@@ -29,11 +29,14 @@
 ;     cursor's bracket pair marked. Since 2026-09-16 Up and Down
 ;     (Ctrl-P/Ctrl-N) browse `replhist.ax`: an in-memory ring always,
 ;     a file across sessions when one resolves, complete entries
-;     recorded on dispatch and recalled flattened to one row. What
-;     does NOT: completion (Tab) and reverse search (Ctrl-R) -
-;     separate efforts, whose keys are decoded and reach `ledApply`
-;     as explicit no-ops so that adding them is a branch beside an
-;     existing one rather than a change to the decoder.
+;     recorded on dispatch and recalled flattened to one row. Since
+;     2026-09-15 Tab completes through `replcomp.ax` - session names,
+;     imports, keywords and colon commands, with the menu's rows
+;     erased on the next keystroke - and Ctrl-R steps back through
+;     matching history with the buffer as the needle. What does NOT:
+;     multi-line in-place editing (a submitted line is still final;
+;     the escape is Ctrl-C or two blank lines, and history still
+;     recalls flattened).
 ;
 ;     THE HIGHLIGHTING LIVES HERE, NOT IN `Tui/`, because
 ;     scripts/check-repl-tui.sh requires every `stdlib/Tui` module to
@@ -124,6 +127,8 @@
 (import replhl)
 
 (import replhist)
+
+(import replcomp)
 
 ; All REPL output is stdout - stage0's rule, measured: stderr stayed
 ; empty in every probed session, errors included.
@@ -257,16 +262,21 @@
 ; It travels with the editor because Up and Down are answered inside
 ; the keystroke loop, not after it: a recall replaces the buffer and
 ; repaints in the same step, the way an edit does.
+;
+; `cenv` is the session's completion handle (`replComplEnvNew` in
+; `replMain`, re-synced to `declsSrc`/`pending` every iteration). Tab
+; is answered inside the loop for the same reason: the splice, the
+; cursor seek and the menu all land in one step.
 ; ------------------------------------------------------------------
-(pub :: replReadPrompted (-> Int KeyIn LineEd String String Int (Option String)))
+(pub :: replReadPrompted (-> Int KeyIn LineEd String String Int Int (Option String)))
 
 ;@axiom:effect(io)
-(pub fn (replReadPrompted interactive kin ed prompt pending hist)
+(pub fn (replReadPrompted interactive kin ed prompt pending hist cenv)
   (if (== interactive 0)
     (replReadLine 0)
     (if (< (termRawEnter kin) 0)
       (replReadLine 0)
-      (let ((r (replTermLoop kin ed prompt pending hist)))
+      (let ((r (replTermLoop kin ed prompt pending hist cenv)))
         {
           (termRawLeave kin)
           r
@@ -388,28 +398,289 @@
   )
 )
 
-; `termEditLoop`'s twin, with live highlighting and history. Every
-; step - the initial draw, the paste-coalesced skip, the per-key
-; repaint - mirrors `Tui.Term`'s loop exactly except that the refresh
-; draws `replPaintCurrent` instead of the plain snapshot, and Up/Down
-; (Ctrl-P/Ctrl-N) recall history instead of doing nothing; the DONE,
-; EOF and ABORT answers are byte for byte its answers (`"\r\n"`,
-; None, and `"^C"` plus an empty line), so `replMain` cannot tell
-; which loop ran. Kept beside `term.ax` rather than inside it because
-; painting calls `lex` and recall needs `replhist`, and `term.ax` may
-; import neither.
-(pub :: replTermLoop (-> KeyIn LineEd String String Int (Option String)))
+; Whether `raw` is the Ctrl-C abort sentinel: the single byte 3 (ETX).
+; `ledInsert` refuses every byte below 32, so no TTY buffer can ever
+; hold it, and no piped line but a pathological one contains it alone;
+; `replTermLoop` answers it for LED_ABORT so that `replMain` can tell
+; "the user cancelled" apart from "the user submitted an empty line".
+; Without the distinction a blank line inside a multi-line entry could
+; not be preserved - it is also what the abort key produces.
+(pub :: replIsAbort (-> String Bool))
+
+(pub fn (replIsAbort raw)
+  (if (== (strLen raw) 1)
+    (== (strByte raw 0) 3)
+    false
+  )
+)
+
+; Tab, and the Ctrl-R search key. Shift-Tab decodes as KEY_NONE today
+; (`keyFinalKind` names no `Z` final), so completion cycles forward
+; only; teaching the decoder that final is the way back, not a change
+; here.
+(pub :: replIsComplTab (-> KeyEv Bool))
+
+(pub fn (replIsComplTab ev) (== ev.kind KEY_TAB))
+
+(pub :: replIsSearch (-> KeyEv Bool))
+
+(pub fn (replIsSearch ev)
+  (if (== ev.kind KEY_CTRL)
+    (&& (== ev.cp 82) (== ev.mods 0))
+    false
+  )
+)
+
+(pub :: replIsEscKey (-> KeyEv Bool))
+
+(pub fn (replIsEscKey ev) (== ev.kind KEY_ESCAPE))
+
+; The nesting depth of `#| ... |#` block comments left open at the end
+; of `src`, counted outside strings, character literals and line
+; comments. `lex` skips an unterminated block comment to end of source
+; with no error token, so `replParenDepth` alone measures 0 inside one
+; and the REPL would dispatch half a form; this is the third arm of
+; `replEntryIncomplete`. Kept BESIDE `replParenDepth` rather than
+; inside it, because that answer is piped-surface behaviour the
+; highlighter reconciles against (`replHlDepth`), and neither may move
+; for the other's reason.
+(pub :: replBlockDepth (-> String Int))
+
+(pub fn (replBlockDepth src)
+  (let (
+    (n (strLen src))
+    (mut i 0)
+    (mut depth 0)
+  )
+    {
+      (while (< i n)
+        (if (> depth 0)
+          ; Inside a block comment only the delimiters read: `#|`
+          ; nests, `|#` closes, and everything else - quotes and
+          ; semicolons included - is comment text.
+          (if (&& (== (strByte src i) 35) (&& (< (+ i 1) n) (== (strByte src (+ i 1)) 124)))
+            {
+              (set depth (+ depth 1))
+              (set i (+ i 2))
+            }
+            (if (&& (== (strByte src i) 124) (&& (< (+ i 1) n) (== (strByte src (+ i 1)) 35)))
+              {
+                (set depth (- depth 1))
+                (set i (+ i 2))
+              }
+              (set i (+ i 1))
+            )
+          )
+          (let ((b (strByte src i)))
+            (if (== b 34)
+              ; A string: skipped whole, honouring `\` escapes. An
+              ; unterminated one runs to the end - the `replStrOpen`
+              ; case - and contributes no delimiters either way.
+              {
+                (set i (+ i 1))
+                (let ((mut closed 0))
+                  (while (&& (< i n) (== closed 0))
+                    (if (== (strByte src i) 92)
+                      (set i (+ i 2))
+                      (if (== (strByte src i) 34)
+                        {
+                          (set closed 1)
+                          (set i (+ i 1))
+                        }
+                        (set i (+ i 1))
+                      )
+                    )
+                  ))
+                0
+              }
+              (if (== b 39)
+                ; A character literal: one byte, or two past a `\`,
+                ; then its closer when the line has one. A lone `'`
+                ; (quote) only skips its neighbour, so misreading one
+                ; cannot swallow a delimiter further down the line.
+                {
+                  (set i (+ i 1))
+                  (if (&& (< i n) (== (strByte src i) 92))
+                    (set i (+ i 2))
+                    (set i (+ i 1))
+                  )
+                  (if (&& (< i n) (== (strByte src i) 39))
+                    (set i (+ i 1))
+                    0
+                  )
+                  0
+                }
+                (if (== b 59)
+                  {
+                    (set i (+ i 1))
+                    (while (&& (< i n) (!= (strByte src i) 10))
+                      (set i (+ i 1)))
+                    0
+                  }
+                  (if (&& (== b 35) (&& (< (+ i 1) n) (== (strByte src (+ i 1)) 124)))
+                    {
+                      (set depth (+ depth 1))
+                      (set i (+ i 2))
+                    }
+                    (set i (+ i 1))
+                  )
+                )
+              )
+            )
+          )
+        ))
+      depth
+    }
+  )
+)
+
+; True when `src` closes more than it opens. `replParenDepth`'s single
+; mixed counter goes negative for `( ]` and `())`; dispatching those
+; drew the generic parse error, which names nothing about the extra
+; closer. The dispatch sites name it instead, before any parser runs.
+(pub :: replDepthNegative (-> String Bool))
+
+(pub fn (replDepthNegative src) (< (replParenDepth src) 0))
+
+; Spaces a continuation line starts with on a TTY: two per open
+; bracket, capped at four levels, two when the entry waits on a string
+; or a comment rather than a bracket. Cosmetic only - `replMain`
+; trims every physical line before joining - so the piped surface,
+; which never calls this, is byte-identical with or without it.
+(pub :: replIndentFor (-> String String))
+
+(pub fn (replIndentFor pending)
+  (let ((d (replParenDepth pending)))
+    (if (<= d 0)
+      "  "
+      (if (> d 4)
+        "        "
+        (if (== d 1)
+          "  "
+          (if (== d 2)
+            "    "
+            (if (== d 3)
+              "      "
+              "        "
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; Move the editor's cursor to byte offset `to` (a `replCursorBytes`
+; reading). `ledSetStr` parks at the end and completion splices before
+; it, so the cursor walks back; lines are short and Tab is rare, and
+; the quadratic string-building is nothing at that rate.
+(pub :: replSeekByte (-> LineEd Int Int))
+
+(pub fn (replSeekByte ed to)
+  {
+    (ledHome ed)
+    (let ((mut moved 1))
+      (while (&& (< (replCursorBytes ed) to) (== moved 1))
+        (set moved (ledRight ed))
+      ))
+    (ledCursor ed)
+  }
+)
+
+; One Tab inside `replTermLoop`: the menu the last Tab printed erased,
+; the state machine stepped, its buffer installed with the cursor where
+; it says. Answers the machine's own answer; the caller repaints,
+; prints `tabMenu` and carries `tabState`. Browsing ends here: a
+; completed line is an edit, and the next Up starts from the newest.
+; `cancel` 1 is Escape: the answer's menu already carries its erase,
+; so the old one is not erased twice.
+(pub :: replComplKey (-> Int LineEd Int Int Int (Vec String) Int Int))
 
 ;@axiom:effect(io)
-(pub fn (replTermLoop kin ed prompt pending hist)
+(pub fn (replComplKey cst ed hist cenv width out cancel)
+  {
+    (if (&& (== cancel 0) (!= cst 0))
+      (vecPush out (replComplErase (stRows cst)))
+      (cast (Vec String) 0)
+    )
+    (let (
+      (buf (ledSnapshot ed))
+      (cur (replCursorBytes ed))
+    )
+      (let ((r (if (== cancel 0)
+        (replComplTab cst buf cur 1 width cenv)
+        (replComplCancel cst buf cur)
+      )))
+        {
+          (ledSetStr ed (tabBuf r))
+          (replSeekByte ed (tabCur r))
+          (histBrowseReset hist)
+          r
+        }
+      )
+    )
+  }
+)
+
+; Whether a colon line opens a multi-line entry: one of the four
+; expression commands with an argument that does not yet balance.
+; Everything else dispatches at once - including `:type` with no
+; argument, which is a usage error, and `:load`, whose argument is a
+; filename and never a form.
+(pub :: replColonBuffers (-> String String Bool))
+
+(pub fn (replColonBuffers w rest)
+  (if (== (strLen rest) 0)
+    false
+    (if (|| (strEq w ":type") (|| (strEq w ":t") (|| (strEq w ":llvm") (strEq w ":time"))))
+      (replEntryIncomplete rest)
+      false
+    )
+  )
+)
+
+; `termEditLoop`'s twin, with live highlighting, history, completion
+; and reverse search. Every step - the initial draw, the
+; paste-coalesced skip, the per-key repaint - mirrors `Tui.Term`'s
+; loop exactly except that the refresh draws `replPaintCurrent`
+; instead of the plain snapshot; Up/Down (Ctrl-P/Ctrl-N) recall
+; history instead of doing nothing; Tab steps `replComplKey` (Escape
+; cancels it and puts the typed prefix back); and Ctrl-R steps back
+; through history matching the buffer. The DONE, EOF and ABORT
+; answers are byte for byte `term.ax`'s answers (`"\r\n"`, None, and
+; `"^C"` plus a sentinel line), so `replMain` cannot tell which loop
+; ran except for the sentinel, which is what lets a blank line inside
+; a multi-line entry be preserved rather than read as a cancel. Kept
+; beside `term.ax` rather than inside it because painting calls `lex`,
+; recall needs `replhist` and completion needs `replcomp`, and
+; `term.ax` may import none of them.
+;
+; A continuation line starts indented (`replIndentFor`); the indent is
+; cosmetic - `replMain` trims before joining - so it aligns the form
+; without ever entering it.
+(pub :: replTermLoop (-> KeyIn LineEd String String Int Int (Option String)))
+
+;@axiom:effect(io)
+(pub fn (replTermLoop kin ed prompt pending hist cenv)
   (let (
     (out vecNew)
     (mut state 0)
     (mut got "")
+    ; Tab completion state, 0 when idle (`tabState`).
+    (mut cst 0)
+    ; Ctrl-R search state: the needle kept across repeats, where the
+    ; next repeat continues from, and whether a search is open.
+    (mut sNeedle "")
+    (mut sAt 0)
+    (mut sActive 0)
   )
     {
       (termReadSize kin)
       (ledReset ed prompt (termWsCols kin) (termWsRows kin))
+      (if (> (strLen pending) 0)
+        (ledInsertStr ed (replIndentFor pending))
+        0
+      )
       (ledRefreshPainted ed out (replPaintCurrent ed pending))
       (termFlush out)
       (while (== state 0)
@@ -424,65 +695,178 @@
               0
               (if (replIsHistUp ev)
                 {
+                  (if (!= cst 0)
+                    {
+                      (vecPush out (replComplClear cst))
+                      (set cst 0)
+                      0
+                    }
+                    0
+                  )
+                  (set sActive 0)
                   (replHistUp hist ed pending out)
                   (termFlush out)
                   0
                 }
                 (if (replIsHistDown ev)
                   {
+                    (if (!= cst 0)
+                      {
+                        (vecPush out (replComplClear cst))
+                        (set cst 0)
+                        0
+                      }
+                      0
+                    )
+                    (set sActive 0)
                     (replHistDown hist ed pending out)
                     (termFlush out)
                     0
                   }
-                  (let ((before (ledSnapshot ed)))
-                    (let ((d (ledApply ed ev out)))
-                      (if (== d LED_DONE)
+                  (if (replIsComplTab ev)
+                    {
+                      (set sActive 0)
+                      (termReadSize kin)
+                      (let ((r (replComplKey cst ed hist cenv (termWsCols kin) out 0)))
                         {
-                          (vecPush out "\r\n")
+                          (ledResize ed (termWsCols kin) (termWsRows kin))
+                          (ledRefreshPainted ed out (replPaintCurrent ed pending))
+                          (vecPush out (tabMenu r))
                           (termFlush out)
-                          (set got (ledSnapshot ed))
-                          (histBrowseReset hist)
-                          (set state 1)
+                          (set cst (tabState r))
                           0
                         }
-                        (if (== d LED_EOF)
+                      )
+                    }
+                    (if (replIsSearch ev)
+                      ; Reverse search, readline's lite form: the buffer
+                      ; is the needle on the first press and is kept
+                      ; across repeats, each press steps older, and the
+                      ; match replaces the buffer as the flattened row
+                      ; Up would offer - so accepting is Enter and
+                      ; leaving is any edit. A press with no (older)
+                      ; match leaves the line as it is.
+                      {
+                        (if (!= cst 0)
                           {
-                            (histBrowseReset hist)
-                            (set state 2)
+                            (vecPush out (replComplClear cst))
+                            (set cst 0)
                             0
                           }
-                          (if (== d LED_ABORT)
+                          0
+                        )
+                        (if (== sActive 0)
+                          {
+                            (set sNeedle (ledSnapshot ed))
+                            (set sAt (histSearchTop hist))
+                            (set sActive 1)
+                            0
+                          }
+                          0
+                        )
+                        (let ((ix (histFindBack hist sNeedle sAt)))
+                          (if (< ix 0)
+                            0
                             {
-                              (vecPush out "^C")
-                              (vecPush out "\r\n")
-                              (termFlush out)
-                              (set got "")
-                              (histBrowseReset hist)
-                              (set state 1)
-                              0
-                            }
-                            {
-                              ; An edit that changed the buffer leaves
-                              ; browse mode; a motion compares equal and
-                              ; keeps it. See the history section above.
-                              (if (strEq before (ledSnapshot ed))
-                                0
-                                (histBrowseReset hist)
-                              )
-                              (if (> (keyInPending kin) 0)
-                                0
-                                {
-                                  (termReadSize kin)
-                                  (ledResize ed (termWsCols kin) (termWsRows kin))
-                                  (ledRefreshPainted ed out (replPaintCurrent ed pending))
-                                  0
-                                }
-                              )
-                              (termFlush out)
+                              (ledSetStr ed (histFlatten (histAt hist ix) " "))
+                              (set sAt (- ix 1))
                               0
                             }
                           )
                         )
+                        (histBrowseReset hist)
+                        (termReadSize kin)
+                        (ledResize ed (termWsCols kin) (termWsRows kin))
+                        (ledRefreshPainted ed out (replPaintCurrent ed pending))
+                        (termFlush out)
+                        0
+                      }
+                      (if (&& (replIsEscKey ev) (!= cst 0))
+                        {
+                          (set sActive 0)
+                          (termReadSize kin)
+                          (let ((r (replComplKey cst ed hist cenv (termWsCols kin) out 1)))
+                            {
+                              (ledResize ed (termWsCols kin) (termWsRows kin))
+                              (ledRefreshPainted ed out (replPaintCurrent ed pending))
+                              (vecPush out (tabMenu r))
+                              (termFlush out)
+                              (set cst (tabState r))
+                              0
+                            }
+                          )
+                        }
+                        {
+                          (if (!= cst 0)
+                            {
+                              (vecPush out (replComplClear cst))
+                              (set cst 0)
+                              0
+                            }
+                            0
+                          )
+                          (set sActive 0)
+                          (let ((before (ledSnapshot ed)))
+                            (let ((d (ledApply ed ev out)))
+                              (if (== d LED_DONE)
+                                {
+                                  (vecPush out "\r\n")
+                                  (termFlush out)
+                                  (set got (ledSnapshot ed))
+                                  (histBrowseReset hist)
+                                  (set state 1)
+                                  0
+                                }
+                                (if (== d LED_EOF)
+                                  {
+                                    (histBrowseReset hist)
+                                    (set state 2)
+                                    0
+                                  }
+                                  (if (== d LED_ABORT)
+                                    {
+                                      (vecPush out "^C")
+                                      (vecPush out "\r\n")
+                                      (termFlush out)
+                                      ; The sentinel, not "": an empty
+                                      ; line is preserved inside a
+                                      ; multi-line entry now (see
+                                      ; `replIsAbort`), so a cancel
+                                      ; must not look like one. No
+                                      ; buffer can hold byte 3 -
+                                      ; `ledInsert` refuses it - so
+                                      ; this spelling is unambiguous.
+                                      (set got (byteAsStr 3))
+                                      (histBrowseReset hist)
+                                      (set state 1)
+                                      0
+                                    }
+                                    {
+                                      ; An edit that changed the buffer leaves
+                                      ; browse mode; a motion compares equal and
+                                      ; keeps it. See the history section above.
+                                      (if (strEq before (ledSnapshot ed))
+                                        0
+                                        (histBrowseReset hist)
+                                      )
+                                      (if (> (keyInPending kin) 0)
+                                        0
+                                        {
+                                          (termReadSize kin)
+                                          (ledResize ed (termWsCols kin) (termWsRows kin))
+                                          (ledRefreshPainted ed out (replPaintCurrent ed pending))
+                                          0
+                                        }
+                                      )
+                                      (termFlush out)
+                                      0
+                                    }
+                                  )
+                                )
+                              )
+                            )
+                          )
+                        }
                       )
                     )
                   )
@@ -1679,7 +2063,7 @@
     (replOut "  • Data types: (data Maybe (a) (Nothing) (Just a))\n")
     (replOut "  • Expressions are evaluated and results shown\n")
     (replOut "  • Use ; for line comments\n")
-    (replOut "  • Unbalanced parens continue on the next line; a blank line aborts\n")
+    (replOut "  • Unbalanced input continues on the next line; two blank lines abort the entry\n")
     ; THE ONLY LINES OF OUTPUT IN THIS FILE THAT DIFFER BY SURFACE,
     ; and they differ because they are statements ABOUT the surface.
     ; The piped branch is the bytes 050-commands.golden pins; the TTY
@@ -1691,7 +2075,9 @@
       {
         (replOut "  • Arrows, Ctrl-A/E/B/F/K/U/W/Y and Alt-b/f/d edit the line; Ctrl+D ends the session, Ctrl+C cancels the line\n")
         (replOut "  • Up/Down (Ctrl-P/Ctrl-N) recall history across lines and sessions\n")
+        (replOut "  • Ctrl-R steps back through history matching the line; Tab completes names and commands (Escape cancels the menu)\n")
         (replOut "  • Syntax highlighting follows the cursor, brackets included; an unclosed string keeps reading like an open paren\n")
+        (replOut "  • An unclosed form keeps reading, indented; Ctrl+C or two blank lines abort it\n")
         0
       }
     )
@@ -1897,13 +2283,15 @@
 ; already-open path, not a new one.
 ;
 ; Two decisions this leaves deliberately narrow:
-;   * an empty line WHILE continuing aborts rather than joins: typing
-;     nothing and pressing enter mid-form is the escape hatch for a
-;     paren the user cannot close (or does not want to anymore),
-;     matching the common REPL convention of a blank line ending
-;     input. Continuing accepts blank lines inside the form as long as
-;     something non-blank follows to close it, since a blank line
-;     between clauses is ordinary formatting, not a submission.
+;   * an empty line WHILE continuing is preserved, not an abort: a
+;     blank line between clauses is ordinary formatting, and pasted
+;     code is full of them. The escape hatch for a paren the user
+;     cannot close is the SECOND blank line in a row - `pending`
+;     ends in `\n` exactly when its last line was blank, because only
+;     blanks join as empty tails - and on a TTY also Ctrl-C, which
+;     `replTermLoop` answers as the byte-3 sentinel (`replIsAbort`)
+;     so that it cannot look like a preserved blank. EOF abandons
+;     the entry on both surfaces and says so.
 ;
 ;   `replParenDepth` itself stays a pure bracket count: `replHlDepth`
 ;   (replhl.ax) recovers the same number from its own walk, and
@@ -1997,31 +2385,178 @@
 )
 
 ; Whether an entry is not yet complete: its brackets do not balance,
-; or it ends inside a string or character literal that a later line
-; may still close. This - not the bare depth - is what `replMain`
-; waits on, on both surfaces.
+; it ends inside a string or character literal that a later line may
+; still close, or it ends inside a block comment. This - not the bare
+; depth - is what `replMain` waits on, on both surfaces. The four
+; expression colon commands (`:type`, `:t`, `:llvm`, `:time`) buffer
+; through this too (`replColonBuffers`); every other colon line
+; dispatches at once.
 (pub :: replEntryIncomplete (-> String Bool))
 
 (pub fn (replEntryIncomplete src)
   (if (> (replParenDepth src) 0)
     true
-    (replStrOpen src)
+    (if (replStrOpen src)
+      true
+      (> (replBlockDepth src) 0)
+    )
   )
 )
 
 ; A complete entry (one line, or several a paren balance joined):
 ; declaration or expression, exactly `replMain`'s old inline dispatch,
 ; factored out so both the single-line path and the multi-line join
-; call the one copy.
+; call the one copy. An entry that closes more than it opens is
+; refused here with its own line, before any parser runs.
 (pub :: replDispatch (-> String String String))
 
 ;@axiom:effect(io)
 (pub fn (replDispatch declsSrc entry)
-  (if (isDeclLine entry)
-    (replDecl declsSrc entry)
+  (if (replDepthNegative entry)
     {
-      (replExpr declsSrc entry)
+      (replOut "Parse error: too many closing parens\n")
       declsSrc
+    }
+    (if (isDeclLine entry)
+      (replDecl declsSrc entry)
+      {
+        (replExpr declsSrc entry)
+        declsSrc
+      }
+    )
+  )
+)
+
+; A buffered expression colon command whose argument now balances -
+; the completion of a line `replColonBuffers` held back. Only the four
+; expression commands can arrive here, so only they are dispatched;
+; the `:time` arm is `replMain`'s own order (the eval lines, then the
+; duration) over the joined rest.
+(pub :: replDispatchColonMulti (-> String String String String))
+
+;@axiom:effect(io)
+(pub fn (replDispatchColonMulti declsSrc w rest)
+  (if (|| (strEq w ":type") (strEq w ":t"))
+    {
+      (replCmdType declsSrc rest)
+      declsSrc
+    }
+    (if (strEq w ":llvm")
+      {
+        (replCmdLlvm declsSrc rest)
+        declsSrc
+      }
+      (let ((tbuf (memAlloc 16)))
+        (let ((t0 (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0))))
+          {
+            (replExpr declsSrc rest)
+            (replOut (fmtMicrosMs (- (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0)) t0)))
+            declsSrc
+          }
+        )
+      )
+    )
+  )
+)
+
+; ------------------------------------------------------------------
+; One colon-command line: recorded whole exactly as typed (except the
+; quit commands, which are never entries), then dispatched. Answers
+; the session's declaration source, updated by `:load` and `:reset`.
+; Split out of `replMain` so the buffering check
+; (`replColonBuffers`) stays a shallow branch at the call site rather
+; than a new level around the whole dispatch.
+; ------------------------------------------------------------------
+(pub :: replColon (-> String String Int String))
+
+;@axiom:effect(io)
+(pub fn (replColon declsSrc line hist)
+  (let ((mut src declsSrc))
+    {
+      ; A colon command is recorded whole, exactly
+      ; as typed, before it runs - except the quit
+      ; commands. A recalled `:quit` submitted with
+      ; a stray Enter ends the session it just
+      ; started, so quitting is the one line that
+      ; is never an entry; measured live, where
+      ; the first Up of a fresh session offered
+      ; nothing but the previous session's quit.
+      (if (|| (strEq (cmdWord line) ":quit") (|| (strEq (cmdWord line) ":q") (strEq (cmdWord line) ":exit")))
+        0
+        (histRecord hist line)
+      )
+      (let (
+        (w (cmdWord line))
+        (rest (cmdRest line))
+      )
+      (if (|| (strEq w ":help") (strEq w ":h"))
+        replHelp
+        (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
+          {
+            ; Compaction, if the file earned it,
+            ; before the process goes away: the
+            ; EOF arm closes for the same reason.
+            (histClose hist)
+            (sysExitWith 0)
+            0
+          }
+          (if (|| (strEq w ":type") (strEq w ":t"))
+            (replCmdType src rest)
+            (if (|| (strEq w ":load") (strEq w ":l"))
+              {
+                (set src (replCmdLoad src rest))
+                0
+              }
+              (if (|| (strEq w ":reset") (strEq w ":r"))
+                {
+                  (set src "")
+                  (replOut "REPL state reset.\n")
+                  0
+                }
+                (if (|| (strEq w ":defs") (strEq w ":d"))
+                  (replCmdDefs src)
+                  (if (strEq w ":llvm")
+                    (replCmdLlvm src rest)
+                    (if (strEq w ":time")
+                      ; stage0 prints the two eval lines, then
+                      ; the duration (probed: type, result,
+                      ; Time). The duration is real now -
+                      ; sysNowMicros bracketing the eval - in
+                      ; stage1's own format: stage0 prints
+                      ; Rust's Duration debug, which is
+                      ; internals, and the gate's marker pins
+                      ; only the `Time: ` prefix.
+                      (let ((tbuf (memAlloc 16)))
+                        (let ((t0 (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0))))
+                          {
+                            (replExpr src rest)
+                            (replOut (fmtMicrosMs (- (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0)) t0)))
+                            0
+                          }
+                        )
+                      )
+                      (replOut
+                        (catStrs
+                          (let ((v vecNew))
+                            {
+                              (vecPush v "Error: Unknown command '")
+                              (vecPush v w)
+                              (vecPush v "'. Type :help for available commands.\n")
+                              v
+                            }
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          )
+        )
+      )
+      )
+      src
     }
   )
 )
@@ -2067,6 +2602,12 @@
       ; later redefines it bare, and an IO effect that needs its tag
       ; will say so (AX3042) rather than silently change meaning.
       (hist (histOpen interactive))
+      ; The session's completion handle: the two strings Tab completes
+      ; against (`replcomp.ax`). Re-synced every iteration below,
+      ; because every dispatch and every continuation line moves one
+      ; of them; the sync is two stores, and the parse it invalidates
+      ; is repaid on the next Tab rather than here.
+      (cenv (replComplEnvNew "" ""))
       (mut declsSrc "")
       (mut running 1)
       ; The buffer of a decl-or-expr entry whose parens have not
@@ -2077,12 +2618,14 @@
     )
       {
         (while (== running 1)
-          (let ((lineOpt (replReadPrompted
-            interactive            kin            ed            (if (> (strLen pending) 0)
-              replPromptCont
-              replPromptMain
-            )            pending            hist
-          )))
+          {
+            (replComplEnvSet cenv declsSrc pending)
+            (let ((lineOpt (replReadPrompted
+              interactive            kin            ed            (if (> (strLen pending) 0)
+                replPromptCont
+                replPromptMain
+              )            pending            hist            cenv
+            )))
             (match lineOpt
               ((None)
                 {
@@ -2109,36 +2652,81 @@
               ((Some raw)
                 (if (> (strLen pending) 0)
                   ; Continuing an entry the completeness check has not
-                  ; closed. A blank line here ABORTS it (see the
-                  ; multi-line section above) rather than joining an
-                  ; empty line in forever; anything else joins and
-                  ; re-measures the WHOLE buffer, because a closer - or
-                  ; a closing quote - on THIS line can only be judged
-                  ; against everything opened before it.
-                  (let ((next (replTrim raw)))
-                    (if (== (strLen next) 0)
-                      {
-                        (set pending "")
-                        (replOut "Aborted: unbalanced input discarded.\n")
-                      }
-                      (let ((joined (strConcat (strConcat pending "\n") next)))
-                        (if (replEntryIncomplete joined)
-                          {
-                            (set pending joined)
-                            0
-                          }
+                  ; closed. Anything typed joins and re-measures the
+                  ; WHOLE buffer, because a closer - or a closing quote
+                  ; - on THIS line can only be judged against everything
+                  ; opened before it. A blank line joins as an empty
+                  ; line (formatting and pastes survive); the SECOND
+                  ; blank in a row aborts - `pending` ends in `\n`
+                  ; exactly when its last line was blank, because only
+                  ; blanks join as empty tails - and so does the Ctrl-C
+                  ; sentinel (`replIsAbort`), which is why a cancel
+                  ; must not look like a blank.
+                  (if (replIsAbort raw)
+                    {
+                      (set pending "")
+                      (replOut "Aborted: unbalanced input discarded.\n")
+                    }
+                    (let ((next (replTrim raw)))
+                      (if (== (strLen next) 0)
+                        (if (== (strByte pending (- (strLen pending) 1)) 10)
                           {
                             (set pending "")
-                            (set declsSrc (replDispatch declsSrc joined))
-                            (histRecord hist joined)
+                            (replOut "Aborted: unbalanced input discarded.\n")
+                          }
+                          {
+                            (set pending (strConcat pending "\n"))
                             0
                           }
+                        )
+                        (let ((joined (strConcat (strConcat pending "\n") next)))
+                          (if (replEntryIncomplete joined)
+                            {
+                              (set pending joined)
+                              0
+                            }
+                            {
+                              (set pending "")
+                              (if (replDepthNegative joined)
+                                {
+                                  (replOut "Parse error: too many closing parens\n")
+                                  (histRecord hist joined)
+                                  0
+                                }
+                                (if (== (strByte joined 0) 58)
+                                  ; A buffered `:type`/`:llvm`/`:time`
+                                  ; whose argument now balances: the
+                                  ; fresh path only ever buffers those,
+                                  ; so this is one of them.
+                                  (let (
+                                    (w (cmdWord joined))
+                                    (rest (cmdRest joined))
+                                  )
+                                    {
+                                      (set declsSrc (replDispatchColonMulti declsSrc w rest))
+                                      (histRecord hist joined)
+                                      0
+                                    }
+                                  )
+                                  {
+                                    (set declsSrc (replDispatch declsSrc joined))
+                                    (histRecord hist joined)
+                                    0
+                                  }
+                                )
+                              )
+                            }
+                          )
                         )
                       )
                     )
                   )
                   (let ((line (replTrim raw)))
-                    (if (== (strLen line) 0)
+                    ; A blank line is a no-op - and so is the Ctrl-C
+                    ; sentinel, whose `^C` echo is the whole answer on
+                    ; a fresh line; it aborts a pending entry and never
+                    ; an empty one.
+                    (if (|| (== (strLen line) 0) (replIsAbort raw))
                       0
                       (if (== (strByte line 0) 59)
                         ; A comment is discarded; an AXTAG looks like a
@@ -2155,91 +2743,20 @@
                           0
                         )
                         (if (== (strByte line 0) 58)
-                          {
-                            ; A colon command is recorded whole, exactly
-                            ; as typed, before it runs - except the quit
-                            ; commands. A recalled `:quit` submitted with
-                            ; a stray Enter ends the session it just
-                            ; started, so quitting is the one line that
-                            ; is never an entry; measured live, where
-                            ; the first Up of a fresh session offered
-                            ; nothing but the previous session's quit.
-                            (if (|| (strEq (cmdWord line) ":quit") (|| (strEq (cmdWord line) ":q") (strEq (cmdWord line) ":exit")))
+                          (if (replColonBuffers (cmdWord line) (cmdRest line))
+                            ; An expression command whose argument does
+                            ; not yet balance (`:type (fn ...`): later
+                            ; lines join `pending` until it does, and
+                            ; the whole entry is recorded then.
+                            {
+                              (set pending line)
                               0
-                              (histRecord hist line)
-                            )
-                            (let (
-                              (w (cmdWord line))
-                              (rest (cmdRest line))
-                            )
-                            (if (|| (strEq w ":help") (strEq w ":h"))
-                              replHelp
-                              (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
-                                {
-                                  ; Compaction, if the file earned it,
-                                  ; before the process goes away: the
-                                  ; EOF arm closes for the same reason.
-                                  (histClose hist)
-                                  (sysExitWith 0)
-                                  0
-                                }
-                                (if (|| (strEq w ":type") (strEq w ":t"))
-                                  (replCmdType declsSrc rest)
-                                  (if (|| (strEq w ":load") (strEq w ":l"))
-                                    {
-                                      (set declsSrc (replCmdLoad declsSrc rest))
-                                      0
-                                    }
-                                    (if (|| (strEq w ":reset") (strEq w ":r"))
-                                      {
-                                        (set declsSrc "")
-                                        (replOut "REPL state reset.\n")
-                                        0
-                                      }
-                                      (if (|| (strEq w ":defs") (strEq w ":d"))
-                                        (replCmdDefs declsSrc)
-                                        (if (strEq w ":llvm")
-                                          (replCmdLlvm declsSrc rest)
-                                          (if (strEq w ":time")
-                                            ; stage0 prints the two eval lines, then
-                                            ; the duration (probed: type, result,
-                                            ; Time). The duration is real now -
-                                            ; sysNowMicros bracketing the eval - in
-                                            ; stage1's own format: stage0 prints
-                                            ; Rust's Duration debug, which is
-                                            ; internals, and the gate's marker pins
-                                            ; only the `Time: ` prefix.
-                                            (let ((tbuf (memAlloc 16)))
-                                              (let ((t0 (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0))))
-                                                {
-                                                  (replExpr declsSrc rest)
-                                                  (replOut (fmtMicrosMs (- (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0)) t0)))
-                                                  0
-                                                }
-                                              )
-                                            )
-                                            (replOut
-                                              (catStrs
-                                                (let ((v vecNew))
-                                                  {
-                                                    (vecPush v "Error: Unknown command '")
-                                                    (vecPush v w)
-                                                    (vecPush v "'. Type :help for available commands.\n")
-                                                    v
-                                                  }
-                                                )
-                                              )
-                                            )
-                                          )
-                                        )
-                                      )
-                                    )
-                                  )
-                                )
-                              )
-                            )
+                            }
+                            {
+                              (set declsSrc (replColon declsSrc line hist))
+                              0
+                            }
                           )
-                          }
                           ; A decl-or-expr candidate: dispatch now if it is
                           ; already complete (every existing single-line
                           ; entry is), otherwise start buffering.
@@ -2261,7 +2778,7 @@
                 )
               )
             )
-          ))
+          )})
         0
       }
     ))

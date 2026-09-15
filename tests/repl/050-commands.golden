@@ -15,7 +15,7 @@ Tips:
   • Data types: (data Maybe (a) (Nothing) (Just a))
   • Expressions are evaluated and results shown
   • Use ; for line comments
-  • Unbalanced parens continue on the next line; a blank line aborts
+  • Unbalanced input continues on the next line; two blank lines abort the entry
   • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it
 
 Error: Unknown command ':zzz'. Type :help for available commands.
