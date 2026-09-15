@@ -26,11 +26,14 @@
 ;     correct when the line wraps past the terminal's width. Since
 ;     2026-09-15 the redraw also paints the buffer: live syntax
 ;     highlighting from `replhl.ax`, on every keystroke, with the
-;     cursor's bracket pair marked. What does NOT: history (Up, Down,
-;     Ctrl-R) and completion (Tab) - separate efforts, whose keys are
-;     decoded and reach `ledApply` as explicit no-ops so that adding
-;     them is a branch beside an existing one rather than a change to
-;     the decoder.
+;     cursor's bracket pair marked. Since 2026-09-16 Up and Down
+;     (Ctrl-P/Ctrl-N) browse `replhist.ax`: an in-memory ring always,
+;     a file across sessions when one resolves, complete entries
+;     recorded on dispatch and recalled flattened to one row. What
+;     does NOT: completion (Tab) and reverse search (Ctrl-R) -
+;     separate efforts, whose keys are decoded and reach `ledApply`
+;     as explicit no-ops so that adding them is a branch beside an
+;     existing one rather than a change to the decoder.
 ;
 ;     THE HIGHLIGHTING LIVES HERE, NOT IN `Tui/`, because
 ;     scripts/check-repl-tui.sh requires every `stdlib/Tui` module to
@@ -119,6 +122,8 @@
 (import Tui.Term)
 
 (import replhl)
+
+(import replhist)
 
 ; All REPL output is stdout - stage0's rule, measured: stderr stayed
 ; empty in every probed session, errors included.
@@ -247,16 +252,21 @@
 ; the context a closing bracket needs: a `)` on this line can only
 ; match a `(` two lines up, so the paint lexes the joined buffer and
 ; renders only this line's tail past it.
+;
+; `hist` is the session's history handle (`histOpen` in `replMain`).
+; It travels with the editor because Up and Down are answered inside
+; the keystroke loop, not after it: a recall replaces the buffer and
+; repaints in the same step, the way an edit does.
 ; ------------------------------------------------------------------
-(pub :: replReadPrompted (-> Int KeyIn LineEd String String (Option String)))
+(pub :: replReadPrompted (-> Int KeyIn LineEd String String Int (Option String)))
 
 ;@axiom:effect(io)
-(pub fn (replReadPrompted interactive kin ed prompt pending)
+(pub fn (replReadPrompted interactive kin ed prompt pending hist)
   (if (== interactive 0)
     (replReadLine 0)
     (if (< (termRawEnter kin) 0)
       (replReadLine 0)
-      (let ((r (replTermLoop kin ed prompt pending)))
+      (let ((r (replTermLoop kin ed prompt pending hist)))
         {
           (termRawLeave kin)
           r
@@ -296,18 +306,102 @@
   )
 )
 
-; `termEditLoop`'s twin, with live highlighting. Every step - the
-; initial draw, the paste-coalesced skip, the per-key repaint -
-; mirrors `Tui.Term`'s loop exactly except that the refresh draws
-; `replPaintCurrent` instead of the plain snapshot; the DONE, EOF and
-; ABORT answers are byte for byte its answers (`"\r\n"`, None, and
-; `"^C"` plus an empty line), so `replMain` cannot tell which loop
-; ran. Kept beside `term.ax` rather than inside it because painting
-; calls `lex` and `term.ax` may not import the compiler.
-(pub :: replTermLoop (-> KeyIn LineEd String String (Option String)))
+; ------------------------------------------------------------------
+; History inside the keystroke loop.
+;
+; Up and Down (with Ctrl-P / Ctrl-N as the aliases every terminal can
+; produce, where some terminals send no distinct arrow sequence at
+; all) are answered here rather than in `Tui.Edit`, because recall
+; needs `replhist.ax` and `stdlib/Tui` may not import the compiler -
+; the same reason highlighting lives on this side. The recalled text
+; is a whole recorded entry flattened to one row: a multi-line `fn`
+; comes back with its newlines as spaces, which still balances and
+; still evaluates the same everywhere except inside a string literal
+; or a comment - the one loss this keeps, stated rather than
+; discovered. Leaving browse mode is `histBrowseReset`'s contract and
+; is kept here twice: on submit, and on any key that changed the
+; buffer, measured by comparing snapshots rather than by naming keys
+; (a motion compares equal and keeps browsing; Alt-d does not).
+; ------------------------------------------------------------------
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: replIsHistUp (-> KeyEv Bool))
+
+(pub fn (replIsHistUp ev)
+  (if (== ev.kind KEY_UP)
+    true
+    (if (== ev.kind KEY_CTRL)
+      (&& (== ev.cp 80) (== ev.mods 0))
+      false
+    )
+  )
+)
+
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: replIsHistDown (-> KeyEv Bool))
+
+(pub fn (replIsHistDown ev)
+  (if (== ev.kind KEY_DOWN)
+    true
+    (if (== ev.kind KEY_CTRL)
+      (&& (== ev.cp 78) (== ev.mods 0))
+      false
+    )
+  )
+)
+
+; What a recall puts in the buffer: the browse cursor's entry - or the
+; saved draft coming back down past the newest - on one row.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHistText (-> Int String))
+
+(pub fn (replHistText hist) (histFlatten (histCurrent hist) " "))
+
+; Recall one step older. Answers 1 when the buffer moved and was
+; repainted, 0 at the oldest entry, where the editor does nothing -
+; the same "did it move" shape `histBrowseUp` itself answers.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHistUp (-> Int LineEd String (Vec String) Int))
+
+(pub fn (replHistUp hist ed pending out)
+  (if (== (histBrowseUp hist (ledSnapshot ed)) 0)
+    0
+    {
+      (ledSetStr ed (replHistText hist))
+      (ledRefreshPainted ed out (replPaintCurrent ed pending))
+      1
+    }
+  )
+)
+
+; Recall one step newer, back toward the saved draft.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: replHistDown (-> Int LineEd String (Vec String) Int))
+
+(pub fn (replHistDown hist ed pending out)
+  (if (== (histBrowseDown hist) 0)
+    0
+    {
+      (ledSetStr ed (replHistText hist))
+      (ledRefreshPainted ed out (replPaintCurrent ed pending))
+      1
+    }
+  )
+)
+
+; `termEditLoop`'s twin, with live highlighting and history. Every
+; step - the initial draw, the paste-coalesced skip, the per-key
+; repaint - mirrors `Tui.Term`'s loop exactly except that the refresh
+; draws `replPaintCurrent` instead of the plain snapshot, and Up/Down
+; (Ctrl-P/Ctrl-N) recall history instead of doing nothing; the DONE,
+; EOF and ABORT answers are byte for byte its answers (`"\r\n"`,
+; None, and `"^C"` plus an empty line), so `replMain` cannot tell
+; which loop ran. Kept beside `term.ax` rather than inside it because
+; painting calls `lex` and recall needs `replhist`, and `term.ax` may
+; import neither.
+(pub :: replTermLoop (-> KeyIn LineEd String String Int (Option String)))
 
 ;@axiom:effect(io)
-(pub fn (replTermLoop kin ed prompt pending)
+(pub fn (replTermLoop kin ed prompt pending hist)
   (let (
     (out vecNew)
     (mut state 0)
@@ -323,46 +417,73 @@
           (if (== ev.kind KEY_EOF)
             {
               (set state 2)
+              (histBrowseReset hist)
               0
             }
             (if (== ev.kind KEY_NONE)
               0
-              (let ((d (ledApply ed ev out)))
-                (if (== d LED_DONE)
+              (if (replIsHistUp ev)
+                {
+                  (replHistUp hist ed pending out)
+                  (termFlush out)
+                  0
+                }
+                (if (replIsHistDown ev)
                   {
-                    (vecPush out "\r\n")
+                    (replHistDown hist ed pending out)
                     (termFlush out)
-                    (set got (ledSnapshot ed))
-                    (set state 1)
                     0
                   }
-                  (if (== d LED_EOF)
-                    {
-                      (set state 2)
-                      0
-                    }
-                    (if (== d LED_ABORT)
-                      {
-                        (vecPush out "^C")
-                        (vecPush out "\r\n")
-                        (termFlush out)
-                        (set got "")
-                        (set state 1)
-                        0
-                      }
-                      {
-                        (if (> (keyInPending kin) 0)
+                  (let ((before (ledSnapshot ed)))
+                    (let ((d (ledApply ed ev out)))
+                      (if (== d LED_DONE)
+                        {
+                          (vecPush out "\r\n")
+                          (termFlush out)
+                          (set got (ledSnapshot ed))
+                          (histBrowseReset hist)
+                          (set state 1)
                           0
+                        }
+                        (if (== d LED_EOF)
                           {
-                            (termReadSize kin)
-                            (ledResize ed (termWsCols kin) (termWsRows kin))
-                            (ledRefreshPainted ed out (replPaintCurrent ed pending))
+                            (histBrowseReset hist)
+                            (set state 2)
                             0
                           }
+                          (if (== d LED_ABORT)
+                            {
+                              (vecPush out "^C")
+                              (vecPush out "\r\n")
+                              (termFlush out)
+                              (set got "")
+                              (histBrowseReset hist)
+                              (set state 1)
+                              0
+                            }
+                            {
+                              ; An edit that changed the buffer leaves
+                              ; browse mode; a motion compares equal and
+                              ; keeps it. See the history section above.
+                              (if (strEq before (ledSnapshot ed))
+                                0
+                                (histBrowseReset hist)
+                              )
+                              (if (> (keyInPending kin) 0)
+                                0
+                                {
+                                  (termReadSize kin)
+                                  (ledResize ed (termWsCols kin) (termWsRows kin))
+                                  (ledRefreshPainted ed out (replPaintCurrent ed pending))
+                                  0
+                                }
+                              )
+                              (termFlush out)
+                              0
+                            }
+                          )
                         )
-                        (termFlush out)
-                        0
-                      }
+                      )
                     )
                   )
                 )
@@ -1569,6 +1690,7 @@
       (replOut "  • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it\n")
       {
         (replOut "  • Arrows, Ctrl-A/E/B/F/K/U/W/Y and Alt-b/f/d edit the line; Ctrl+D ends the session, Ctrl+C cancels the line\n")
+        (replOut "  • Up/Down (Ctrl-P/Ctrl-N) recall history across lines and sessions\n")
         (replOut "  • Syntax highlighting follows the cursor, brackets included; an unclosed string keeps reading like an open paren\n")
         0
       }
@@ -1933,6 +2055,18 @@
       ; bytes and requires this string to make `ledIsWord` agree with
       ; `lexer.isIdentChar` exactly, so the two cannot drift.
       (ed (ledNew ledRingNew "-!*+/<>=%&|'^"))
+      ; The session's history: an in-memory ring always, a file that
+      ; survives the session when one resolves (`replhist.ax` decides
+      ; where). Opened on `interactive` - off a TTY the ring still
+      ; records, into memory nobody reads, and nothing is written, so
+      ; both surfaces run this same code. Recorded are complete
+      ; decl/expr entries and colon-command lines except the quit
+      ; commands, exactly as trimmed before dispatch; blanks, comments
+      ; and tag-only lines are not entries and are skipped. What is NOT recorded with an entry
+      ; are the `;@axiom:` lines typed above it: recalling the entry
+      ; later redefines it bare, and an IO effect that needs its tag
+      ; will say so (AX3042) rather than silently change meaning.
+      (hist (histOpen interactive))
       (mut declsSrc "")
       (mut running 1)
       ; The buffer of a decl-or-expr entry whose parens have not
@@ -1947,12 +2081,16 @@
             interactive            kin            ed            (if (> (strLen pending) 0)
               replPromptCont
               replPromptMain
-            )            pending
+            )            pending            hist
           )))
             (match lineOpt
               ((None)
                 {
                   (set running 0)
+                  ; The file is compacted, if it needs it, on every
+                  ; exit path - including this one. `:quit` below
+                  ; closes before it exits for the same reason.
+                  (histClose hist)
                   ; End of input with an entry still open discards it,
                   ; and says so: otherwise a piped session whose last
                   ; form never balanced ends with the same farewell as
@@ -1992,6 +2130,7 @@
                           {
                             (set pending "")
                             (set declsSrc (replDispatch declsSrc joined))
+                            (histRecord hist joined)
                             0
                           }
                         )
@@ -2016,14 +2155,31 @@
                           0
                         )
                         (if (== (strByte line 0) 58)
-                          (let (
-                            (w (cmdWord line))
-                            (rest (cmdRest line))
-                          )
+                          {
+                            ; A colon command is recorded whole, exactly
+                            ; as typed, before it runs - except the quit
+                            ; commands. A recalled `:quit` submitted with
+                            ; a stray Enter ends the session it just
+                            ; started, so quitting is the one line that
+                            ; is never an entry; measured live, where
+                            ; the first Up of a fresh session offered
+                            ; nothing but the previous session's quit.
+                            (if (|| (strEq (cmdWord line) ":quit") (|| (strEq (cmdWord line) ":q") (strEq (cmdWord line) ":exit")))
+                              0
+                              (histRecord hist line)
+                            )
+                            (let (
+                              (w (cmdWord line))
+                              (rest (cmdRest line))
+                            )
                             (if (|| (strEq w ":help") (strEq w ":h"))
                               replHelp
                               (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
                                 {
+                                  ; Compaction, if the file earned it,
+                                  ; before the process goes away: the
+                                  ; EOF arm closes for the same reason.
+                                  (histClose hist)
                                   (sysExitWith 0)
                                   0
                                 }
@@ -2083,6 +2239,7 @@
                               )
                             )
                           )
+                          }
                           ; A decl-or-expr candidate: dispatch now if it is
                           ; already complete (every existing single-line
                           ; entry is), otherwise start buffering.
@@ -2093,6 +2250,7 @@
                             }
                             {
                               (set declsSrc (replDispatch declsSrc line))
+                              (histRecord hist line)
                               0
                             }
                           )
