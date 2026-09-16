@@ -585,6 +585,21 @@ answers it for those too; telling the two columns apart per callee —
 read, as `rgnRounds` reads callees — is exactly MM-RGN-5's job, and
 this census is its worksheet.
 
+**Forcing the fixpoint on every build costs ~14s, so the trigger stays
+and grows.** Timed 2026-09-16 on the compiler itself (`symbols
+self_host/main.ax`, 4,614 rows): 3.98s without `--mir`, 18.11s with
+it — the fixpoint plus projection, ~14.1s, which every build would
+pay three times over in bootstrap. The real tree converges: zero
+`#mir-truncated` rows, 1,656 carrying `#mir-result-fresh`. And the
+trigger can stay cheap: `self_host` holds no real region form (the
+seven textual hits are the printer's spelling, an error message, and
+comments), while `stdlib` holds one (`Http.ax:379`) — so "a region
+form is present" keeps the compiler's own build and every region-free
+program at zero added cost, provided the test itself is O(1) and not
+a body scan on every check. That is slice 2b's shape: a parser-set
+bit, ORed with the `@r` test, with truncated still meaning the
+witness abstains and codegen keeps every release.
+
 **The adjacent hole, recorded and not fixed here.** A
 callee-mediated store of a fresh construction into an outer cell
 from inside an UN-annotated region is unchecked: `rgnCheckAll` runs
