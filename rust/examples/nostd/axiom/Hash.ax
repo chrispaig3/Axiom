@@ -6,7 +6,6 @@
   (repeatByteRaw :: (-> Int Int Int Int) (symbol "axffi_repeat_byte")))
 
 (pub :: repeatByte (-> Int Int String))
-
 ;@axiom:effect(io)
 (pub fn (repeatByte b n)
   (let (
@@ -20,6 +19,4 @@
       (ffiFreeBytes __p __n)
       (ffiCellFree __c)
       __v
-    }
-  )
-)
+    }))

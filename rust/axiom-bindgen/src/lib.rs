@@ -640,9 +640,48 @@ impl Surface {
             ));
         }
 
-        out.push_str(&tops.join("\n\n"));
+        // Blank lines group like the formatter groups: none inside
+        // an import run or a `::`/`fn` pair, one everywhere else.
+        // The pairing is by construction - imports are pushed as a
+        // run, and every signature the loops above push is
+        // immediately followed by its body - so the text tests below
+        // re-derive it rather than asserting it. A grouping the
+        // formatter would split fails `check-fmt.sh` 1b, which
+        // requires every generated module to be an `axiom fmt` fixed
+        // point.
+        let mut prev = "";
+        for b in &tops {
+            if !prev.is_empty() {
+                out.push_str(sep_for(prev, b));
+            }
+            out.push_str(b);
+            prev = b;
+        }
         out.push('\n');
         out
+    }
+}
+
+/// `"\n"` inside an import run or a `::`/`fn` pair, `"\n\n"` between
+/// everything else - the blank-line grouping `axiom fmt` prints.
+fn sep_for(prev: &str, cur: &str) -> &'static str {
+    // Imports are the only single-line `(import ...)` blocks this
+    // generator emits.
+    let prev_import = !prev.contains('\n') && prev.starts_with("(import ");
+    let cur_import = !cur.contains('\n') && cur.starts_with("(import ");
+    // A signature block ends with its `::` line (a leading comment
+    // rides above it); a body block opens its `fn` (or the effect
+    // tag above it).
+    let prev_sig = prev
+        .lines()
+        .last()
+        .is_some_and(|l| l.starts_with("(:: ") || l.starts_with("(pub :: "));
+    let cur_fn =
+        cur.starts_with("(fn (") || cur.starts_with("(pub fn (") || cur.starts_with(";@axiom");
+    if (prev_import && cur_import) || (prev_sig && cur_fn) {
+        "\n"
+    } else {
+        "\n\n"
     }
 }
 

@@ -22,25 +22,28 @@
 //! - an application prints on one line iff its head is simple, it has
 //!   at most four arguments and every argument is simple; otherwise
 //!   the head ends the line and the arguments follow ONE PER LINE at
-//!   one deeper indent, then `)` on its own line (`fpApp`). Until
-//!   2026-09-04 there was no newline between the arguments - stage0's
-//!   quirk, kept for byte-identity - and both printers wrote the
-//!   indent as a run of spaces between them;
+//!   one deeper indent, then `)` stacked onto the last one (`fpApp`).
+//!   Until 2026-09-04 there was no newline between the arguments at
+//!   all - stage0's quirk, kept for byte-identity until stage0 was
+//!   deleted;
 //! - `let` with one binding keeps the binding on the `let` line (the
-//!   init breaks onto its own line if it is not simple); with several,
-//!   each binding sits on its own line under `(let (` and the list
-//!   closes with `)` at the `let`'s indent; the body is always on its
-//!   own line at one deeper indent, and the `let` closes on its own
-//!   line (`fpLet`, `fpLetBinding`, `fpLetBindingBroken`);
+//!   init breaks onto its own line if it is not simple, and the pair
+//!   closes stacked onto it); with several, each binding sits on its
+//!   own line under `(let (` and the list closes with `)` at the
+//!   `let`'s indent; the body is always on its own line at one deeper
+//!   indent, and the `let` closes stacked onto it (`fpLet`,
+//!   `fpLetBinding`, `fpLetBindingBroken`);
 //! - `if` puts the condition on the `if` line and each branch on its
-//!   own line, `)` alone (`fpIf`);
+//!   own line, `)` stacked (`fpIf`);
 //! - `match` puts every arm on its own line; an arm's body sits beside
-//!   the pattern if simple, else below it (`fpMatch`, `fpTailBody`);
+//!   the pattern if simple, else below it; the `match` closes stacked
+//!   (`fpMatch`, `fpTailBody`);
 //! - a block prints `{`, one statement per line, `}` (`fpBeginVec`);
-//! - a `fn` body sits beside the head if simple, else below it, and
-//!   the `fn` closes on its own line (`fpDeclFn`).
+//! - a `fn` head stands alone and the body sits below it, `)` stacked
+//!   (`fpDeclFn`).
 //!
-//! Indent is two spaces per level.
+//! Indent is two spaces per level. A closing paren never stands on its
+//! own line: it stacks onto whatever precedes it.
 
 /// An Axiom expression.
 #[derive(Clone, Debug)]
@@ -132,8 +135,6 @@ pub fn print(e: &Ex, level: usize, out: &mut String) {
                     out.push_str(&ind(level + 1));
                     print(a, level + 1, out);
                 }
-                out.push('\n');
-                out.push_str(&ind(level));
                 out.push(')');
             }
         }
@@ -150,8 +151,6 @@ pub fn print(e: &Ex, level: usize, out: &mut String) {
                     out.push('\n');
                     out.push_str(&ind(level + 1));
                     print(init, level + 1, out);
-                    out.push('\n');
-                    out.push_str(&ind(level));
                 }
                 out.push(')');
             } else {
@@ -169,8 +168,6 @@ pub fn print(e: &Ex, level: usize, out: &mut String) {
             out.push_str(")\n");
             out.push_str(&ind(level + 1));
             print(body, level + 1, out);
-            out.push('\n');
-            out.push_str(&ind(level));
             out.push(')');
         }
         Ex::If(c, t, f) => {
@@ -182,22 +179,22 @@ pub fn print(e: &Ex, level: usize, out: &mut String) {
             out.push('\n');
             out.push_str(&ind(level + 1));
             print(f, level + 1, out);
-            out.push('\n');
-            out.push_str(&ind(level));
             out.push(')');
         }
         Ex::Match(scrut, arms) => {
             out.push_str("(match ");
             print(scrut, level, out);
             out.push('\n');
-            for (pat, body) in arms {
+            for (i, (pat, body)) in arms.iter().enumerate() {
+                if i > 0 {
+                    out.push('\n');
+                }
                 out.push_str(&ind(level + 1));
                 out.push('(');
                 print(pat, level + 1, out);
                 tail_body(body, level + 1, out);
-                out.push_str(")\n");
+                out.push(')');
             }
-            out.push_str(&ind(level));
             out.push(')');
         }
         Ex::Block(stmts) => {
@@ -250,8 +247,10 @@ fn decl_fn_vis(public: bool, name: &str, params: &[String], body: &Ex) -> String
         out.push(' ');
         out.push_str(p);
     }
-    out.push(')');
-    tail_body(body, 0, &mut out);
+    // The head stands alone; the body goes on the next line, as
+    // `fpDeclFn` lays it out.
+    out.push_str(")\n  ");
+    print(body, 1, &mut out);
     out.push(')');
     out
 }
@@ -278,7 +277,7 @@ mod tests {
             1,
             &mut s,
         );
-        assert_eq!(s, "(f\n    a\n    b\n    c\n    d\n    e\n  )");
+        assert_eq!(s, "(f\n    a\n    b\n    c\n    d\n    e)");
     }
 
     #[test]
@@ -289,7 +288,7 @@ mod tests {
             0,
             &mut s,
         );
-        assert_eq!(s, "(let ((x 1))\n  x\n)");
+        assert_eq!(s, "(let ((x 1))\n  x)");
         let mut s = String::new();
         print(
             &Ex::Let(
@@ -299,7 +298,7 @@ mod tests {
             1,
             &mut s,
         );
-        assert_eq!(s, "(let (\n    (x 1)\n    (y 2)\n  )\n    x\n  )");
+        assert_eq!(s, "(let (\n    (x 1)\n    (y 2)\n  )\n    x)");
     }
 
     #[test]
@@ -313,7 +312,7 @@ mod tests {
         );
         assert_eq!(
             decl_fn("counterClose", &["c".into()], &body),
-            "(pub fn (counterClose c)\n  (match c\n    ((Counter __h) (ffiHandleClose __h))\n  )\n)"
+            "(pub fn (counterClose c)\n  (match c\n    ((Counter __h) (ffiHandleClose __h))))"
         );
     }
 }

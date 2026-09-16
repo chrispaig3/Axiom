@@ -116,16 +116,20 @@
 ### 040-bad-escape.axp (exit 1)
 ### 050-int-overflow.axp (exit 1)
 ### 051-int-max-ok.axp (exit 0)
-(fn (f) 9223372036854775807)
+(fn (f)
+  9223372036854775807)
 ### 052-neg-max-ok.axp (exit 0)
-(fn (f) -9223372036854775807)
+(fn (f)
+  -9223372036854775807)
 ### 060-splice-refused.axp (exit 1)
 ### 070-deriving-refused.axp (exit 1)
 ### 070-keyword-in-expr.axp (exit 0)
-(fn (f) (g data))
+(fn (f)
+  (g data))
 ### 071-eq-in-expr.axp (exit 1)
 ### 080-dollar-is-bang.axp (exit 0)
-(fn (f x) (! x))
+(fn (f x)
+  (! x))
 ### 090-fused-arm-starved.axp (exit 1)
 ### 091-ctor-fusion.axp (exit 0)
 (data M
@@ -133,29 +137,34 @@
 
 (fn (f v)
   (match v
-    ((C h t) 1)
-  )
-)
+    ((C h t) 1)))
 ### 092-negative-pattern.axp (exit 1)
 ### 100-empty-form-dropped.axp (exit 1)
 ### 101-axtag-then-unit.axp (exit 1)
 ### 102-axtag-trailing.axp (exit 1)
 ### 110-nested-block-comment.axp (exit 0)
 #| outer #| inner |# still |#
-(fn (f) 1)
+(fn (f)
+  1)
 ### 120-trait-both-lists.axp (exit 1)
 ### 130-effect-mut-canon.axp (exit 0)
 (fn (f n)
-  (handle n (Mut) 0)
-)
+  (handle
+    n
+    (Mut)
+    0))
 ### 131-effect-alloc-kw.axp (exit 0)
 (fn (f n)
-  (handle n (alloc) 0)
-)
+  (handle
+    n
+    (alloc)
+    0))
 ### 132-effect-Alloc-ok.axp (exit 0)
 (fn (f n)
-  (handle n (Alloc) 0)
-)
+  (handle
+    n
+    (Alloc)
+    0))
 ### 140-if-missing-else.axp (exit 1)
 ### 141-let-missing-init.axp (exit 1)
 ### 142-lambda-bare-param.axp (exit 1)
@@ -165,25 +174,24 @@
 ### 151-import-empty-names.axp (exit 0)
 (import Mem)
 
-(fn (f) 1)
+(fn (f)
+  1)
 ### 160-nbsp-whitespace.axp (exit 0)
-(fn (f) 42)
+(fn (f)
+  42)
 ### 170-empty-tuple.axp (exit 1)
 ### 171-singleton-unwrap.axp (exit 0)
-(fn (f x) x)
+(fn (f x)
+  (x))
 ### 172-empty-brace-body.axp (exit 1)
 ### 173-empty-match.axp (exit 0)
 (fn (f v)
   (match v
-
-  )
-)
+))
 ### 174-cond-only-else.axp (exit 0)
 (fn (f n)
   (cond
-    (else 9)
-  )
-)
+    (else 9)))
 ### 175-empty-data.axp (exit 0)
 (data Empty)
 ### 176-empty-pattern.axp (exit 1)
@@ -191,36 +199,36 @@
 ### 180-pub-import.axp (exit 0)
 (import Mem)
 
-(fn (f) 1)
+(fn (f)
+  1)
 ### 181-legacy-eq-binding.axp (exit 0)
 (fn (f)
   (let ((x 1))
-    x
-  )
-)
+    x))
 ### 182-define-rewrites.axp (exit 0)
-(fn (legacy) 7)
+(fn (legacy)
+  7)
 ### 190-keyword-param.axp (exit 0)
-(fn (g data) data)
+(fn (g data)
+  data)
 ### 191-keyword-let-binder.axp (exit 0)
 (fn (f)
   (let ((match 1))
-    match
-  )
-)
+    match))
 ### 192-keyword-argument.axp (exit 0)
-(fn (f g) (g match let data where))
+(fn (f g)
+  (g match let data where))
 ### 193-keyword-pattern-var.axp (exit 0)
 (fn (f v)
   (match v
-    (data data)
-  )
-)
+    (data data)))
 ### 194-mut-binder-head-refused.axp (exit 1)
 ### 195-effect-keyword-atom.axp (exit 0)
 (fn (f n)
-  (handle n (data) 0)
-)
+  (handle
+    n
+    (data)
+    0))
 ### 196-consume-head-refused.axp (exit 1)
 ### 197-begin-head-refused.axp (exit 1)
 ### 198-for-head-layout.axp (exit 0)
@@ -233,27 +241,22 @@
       })
     (for x xs
       (println x))
-  }
-)
+  })
 ### 199-for-arg-position.axp (exit 0)
 (:: g (-> Int Int))
-
-(fn (g for) for)
+(fn (g for)
+  for)
 
 (fn (h xs)
   (let ((for 1))
     (match xs
       ((Some for) (g for))
-      (_ 0)
-    )
-  )
-)
+      (_ 0))))
 ### 200-parallel-layout.axp (exit 0)
 (fn (f)
   {
     (parallel p ((a 1))
-      (println a)
-    )
+      (println a))
     (parallel q (
       (a 1)
       (b 2)
@@ -261,23 +264,18 @@
       {
         (println a)
         (println b)
-      }
-    )
-  }
-)
+      })
+  })
 ### 201-parallel-arg-position.axp (exit 0)
 (:: g (-> Int Int))
-
-(fn (g parallel) parallel)
+(fn (g parallel)
+  parallel)
 
 (fn (h xs)
   (let ((parallel 1))
     (match xs
       ((Some parallel) (g parallel))
-      (_ 0)
-    )
-  )
-)
+      (_ 0))))
 ### 210-region-head-layout.axp (exit 0)
 (fn (f xs)
   {
@@ -288,17 +286,16 @@
         (println 1)
         (println 2)
       })
-  }
-)
+  })
 ### 211-region-arity-refused.axp (exit 1)
 ### 220-broken-app-one-arg-per-line.axp (exit 0)
-(fn (f a b c d e) (g
-  a
-  b
-  c
-  d
-  e
-))
+(fn (f a b c d e)
+  (g
+    a
+    b
+    c
+    d
+    e))
 ### 221-comment-first-in-block.axp (exit 0)
 (fn (f)
   (let ((v 1))
@@ -306,8 +303,7 @@
       ; first
       (g v)
       (h v)
-    }
-  )
-)
+    }))
 ### 222-qualified-head-inline.axp (exit 0)
-(fn (f v) (println (Vec::vecLen v)))
+(fn (f v)
+  (println (Vec::vecLen v)))

@@ -177,10 +177,10 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-04, `axiom fmt --check` over every one of the 661 `.ax` files
-in the repository answers `is already formatted` for 434 of them and
-`needs formatting` for 227. Two of the 227 are deliberate and are named
-below; the other 223 were committed unformatted, and that same sweep is
+2026-09-16, `axiom fmt --check` over every one of the 662 `.ax` files
+in the repository answers `is already formatted` for 10 of them and
+`needs formatting` for 652. Two of the 652 are deliberate and are named
+below; the other 650 were committed unformatted, and that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
@@ -243,6 +243,18 @@ Each of those thirty-two files was measured on its own with
 `axiom fmt --check`, which reads and does not rewrite. A total that
 moves while the two numbers under it do not is the drift this
 paragraph is about, so it is re-derived here rather than adjusted.
+
+Then the normal form moved, deliberately and all at once: closers stack
+onto the last content line instead of standing alone, `fn` heads stand
+alone above their bodies, `handle` operands go one per line, imports
+group without blank lines, `::` sticks to its `fn`, and nullary calls
+keep their parens — the same shapes the corpus golden's re-bless note
+names. Measured 2026-09-16 with the rebuilt compiler, the sweep answers
+10 and 652: the tree was written in the old form and stays that way file
+by file, per the paragraph above, so the jump is the ruler moving and
+not the tree drifting. One file arrived with the change itself —
+`tests/diagnostics/644-parallel-thunk-shape.ax`, HEAD's AX3064 fixture —
+and it needs formatting like almost everything else.
 
 Over that tree, at its then 636 files, the previous printer answered
 498 and 136, and the 89 files that stopped being formatted did not
