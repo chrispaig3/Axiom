@@ -9,5 +9,5 @@
 ; there is a later phase of the Windows track, after the executing CI
 ; leg and the file-I/O half of `Sys/Platform.windows.ax`.
 (pub :: hostTarget String)
-
-(pub fn (hostTarget) "windows-x86_64")
+(pub fn (hostTarget)
+  "windows-x86_64")

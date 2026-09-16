@@ -37,23 +37,23 @@
 ; pins the triple at 14.0.
 ; read(fd, buf, count) - 3
 (pub :: sysRead Int)
-
-(pub fn (sysRead) 3)
+(pub fn (sysRead)
+  3)
 
 ; write(fd, buf, count) - 4
 (pub :: sysWrite Int)
-
-(pub fn (sysWrite) 4)
+(pub fn (sysWrite)
+  4)
 
 ; open(path, flags, mode) - 5
 (pub :: sysOpen Int)
-
-(pub fn (sysOpen) 5)
+(pub fn (sysOpen)
+  5)
 
 ; close(fd) - 6
 (pub :: sysClose Int)
-
-(pub fn (sysClose) 6)
+(pub fn (sysClose)
+  6)
 
 ; exit(status) - 1, and it ends the PROCESS. FreeBSD has no
 ; `exit_group`; the thread-only call is `thr_exit` (431). This is the
@@ -61,33 +61,33 @@
 ; emitted abort paths, and `scripts/check-platform-constants.sh` is the
 ; gate that keeps the two copies equal.
 (pub :: sysExit Int)
-
-(pub fn (sysExit) 1)
+(pub fn (sysExit)
+  1)
 
 ; lseek(fd, offset, whence) - 478. NOT 199, which is `freebsd6_lseek`
 ; (COMPAT6): the pre-7 entry with a padding word in its argument list,
 ; which reads the offset from the wrong register and seeks somewhere
 ; plausible.
 (pub :: sysLseek Int)
-
-(pub fn (sysLseek) 478)
+(pub fn (sysLseek)
+  478)
 
 ; FreeBSD has a real `open`, so no `openat` indirection is needed.
 (pub :: openNeedsDirFd Int)
-
-(pub fn (openNeedsDirFd) 0)
+(pub fn (openNeedsDirFd)
+  0)
 
 ; AT_FDCWD is -100 here as on Linux. Unused (see `openNeedsDirFd`),
 ; defined so `Sys.ax` type-checks against every platform module, and
 ; carrying the real value rather than a placeholder so that flipping
 ; the capability above is one edit.
 (pub :: atFdCwd Int)
-
-(pub fn (atFdCwd) (- 0 100))
+(pub fn (atFdCwd)
+  (- 0 100))
 
 (pub :: oRdonly Int)
-
-(pub fn (oRdonly) 0)
+(pub fn (oRdonly)
+  0)
 
 ; O_WRONLY | O_CREAT | O_TRUNC = 0x0001 | 0x0200 | 0x0400. These are
 ; BSD's flag values, the same as Darwin's and NOT Linux's 577: Linux
@@ -95,22 +95,22 @@
 ; O_WRONLY | O_TRUNC | 0x40, which is O_NOCTTY - a file that is
 ; truncated and never created.
 (pub :: oWronlyCreateTrunc Int)
-
-(pub fn (oWronlyCreateTrunc) 1537)
+(pub fn (oWronlyCreateTrunc)
+  1537)
 
 ; O_WRONLY | O_CREAT | O_APPEND = 0x0001 | 0x0200 | 0x0008. See the
 ; Darwin file for why append is a flag and not a seek.
 (pub :: oWronlyCreateAppend Int)
-
-(pub fn (oWronlyCreateAppend) 521)
+(pub fn (oWronlyCreateAppend)
+  521)
 
 (pub :: seekEnd Int)
-
-(pub fn (seekEnd) 2)
+(pub fn (seekEnd)
+  2)
 
 (pub :: seekSet Int)
-
-(pub fn (seekSet) 0)
+(pub fn (seekSet)
+  0)
 
 ; ------------------------------------------------------------------
 ; Starting a child process.
@@ -120,55 +120,55 @@
 ; it is the easy one: `fork` answers 0 in the child through the return
 ; register, as `forkChildIsZero` at the end of this file records.
 (pub :: spawnUsesPosixSpawn Int)
-
-(pub fn (spawnUsesPosixSpawn) 0)
+(pub fn (spawnUsesPosixSpawn)
+  0)
 
 ; Unused here (see `spawnUsesPosixSpawn`), defined so `Sys.ax`
 ; type-checks against every platform module.
 (pub :: sysPosixSpawn Int)
-
-(pub fn (sysPosixSpawn) 0)
+(pub fn (sysPosixSpawn)
+  0)
 
 ; wait4(pid, status, options, rusage) - 7.
 (pub :: sysWait4 Int)
-
-(pub fn (sysWait4) 7)
+(pub fn (sysWait4)
+  7)
 
 ; fork() - 2. Takes no arguments; `sysForkArg` exists for AArch64
 ; Linux, where fork is spelled `clone(SIGCHLD)`, and is ignored here.
 (pub :: sysFork Int)
-
-(pub fn (sysFork) 2)
+(pub fn (sysFork)
+  2)
 
 (pub :: sysForkArg Int)
-
-(pub fn (sysForkArg) 0)
+(pub fn (sysForkArg)
+  0)
 
 ; execve(path, argv, envp) - 59.
 (pub :: sysExecve Int)
-
-(pub fn (sysExecve) 59)
+(pub fn (sysExecve)
+  59)
 
 ; unlink(path) - 10.
 (pub :: sysUnlinkNum Int)
-
-(pub fn (sysUnlinkNum) 10)
+(pub fn (sysUnlinkNum)
+  10)
 
 ; mkdir(path, mode) - 136. The plain call, so `openNeedsDirFd` is 0
 ; and `sysMkdir` uses the two-argument form.
 (pub :: sysMkdirNum Int)
-
-(pub fn (sysMkdirNum) 136)
+(pub fn (sysMkdirNum)
+  136)
 
 ; rmdir(path) - 137.
 (pub :: sysRmdirNum Int)
-
-(pub fn (sysRmdirNum) 137)
+(pub fn (sysRmdirNum)
+  137)
 
 ; rename(from, to) - 128.
 (pub :: sysRenameNum Int)
-
-(pub fn (sysRenameNum) 128)
+(pub fn (sysRenameNum)
+  128)
 
 ; ------------------------------------------------------------------
 ; Reading a directory.
@@ -184,12 +184,12 @@
 ; down the Darwin branch. `basep` is optional to the kernel and always
 ; passed here.
 (pub :: sysGetdentsNum Int)
-
-(pub fn (sysGetdentsNum) 554)
+(pub fn (sysGetdentsNum)
+  554)
 
 (pub :: dirReadNeedsPosition Int)
-
-(pub fn (dirReadNeedsPosition) 1)
+(pub fn (dirReadNeedsPosition)
+  1)
 
 ; Where the name starts inside one record. FreeBSD 12's `dirent` is
 ;
@@ -204,8 +204,8 @@
 ; `reclen > direntNameOffset` guard is satisfied by every conforming
 ; record.
 (pub :: direntNameOffset Int)
-
-(pub fn (direntNameOffset) 24)
+(pub fn (direntNameOffset)
+  24)
 
 ; ------------------------------------------------------------------
 ; The working directory.
@@ -218,53 +218,53 @@
 ; both this and Linux's length-answering `getcwd` support. So no
 ; descriptor and no `fcntl` detour.
 (pub :: cwdUsesFcntlPath Int)
-
-(pub fn (cwdUsesFcntlPath) 0)
+(pub fn (cwdUsesFcntlPath)
+  0)
 
 (pub :: sysCwdNum Int)
-
-(pub fn (sysCwdNum) 326)
+(pub fn (sysCwdNum)
+  326)
 
 ; Unused here (see `cwdUsesFcntlPath`), defined so `Sys.ax`
 ; type-checks against every platform module.
 (pub :: fGetPath Int)
-
-(pub fn (fGetPath) 0)
+(pub fn (fGetPath)
+  0)
 
 ; ------------------------------------------------------------------
 ; The two errno values portable code above compares against. Both
 ; agree with Darwin and Linux; `eAgain` below does not, which is why
 ; all three are names.
 (pub :: eExist Int)
-
-(pub fn (eExist) 17)
+(pub fn (eExist)
+  17)
 
 (pub :: eIsDir Int)
-
-(pub fn (eIsDir) 21)
+(pub fn (eIsDir)
+  21)
 
 ; getpid() - 20
 (pub :: sysGetPidNum Int)
-
-(pub fn (sysGetPidNum) 20)
+(pub fn (sysGetPidNum)
+  20)
 
 ; clock_gettime(clockid, ts) - 232. timespec is {tv_sec i64, tv_nsec
 ; i64} on both 64-bit architectures, the layout `Sys.ax` reads.
 (pub :: sysClockNum Int)
-
-(pub fn (sysClockNum) 232)
+(pub fn (sysClockNum)
+  232)
 
 (pub :: clockIsGettimeofday Int)
-
-(pub fn (clockIsGettimeofday) 0)
+(pub fn (clockIsGettimeofday)
+  0)
 
 ; `clock_gettime` answers CLOCK_MONOTONIC here, so `sysNowMonotonic` is
 ; answerable and `sysNowMicros` is monotonic on this platform, as on
 ; Linux. Darwin's copy of this file explains why the capability is not
 ; simply assumed.
 (pub :: clockHasMonotonic Int)
-
-(pub fn (clockHasMonotonic) 1)
+(pub fn (clockHasMonotonic)
+  1)
 
 ; CLOCK_MONOTONIC IS 4 HERE, AND THIS CONSTANT EXISTS BECAUSE OF THAT.
 ; Until 2026-08-29 `Sys.ax` passed the clock id to `clock_gettime` as
@@ -275,8 +275,8 @@
 ; catches it, and that runs at the ratio of CPU time to wall time.
 ; `sys/sys/_clock_id.h`: REALTIME 0, VIRTUAL 1, PROF 2, MONOTONIC 4.
 (pub :: clockMonotonicId Int)
-
-(pub fn (clockMonotonicId) 4)
+(pub fn (clockMonotonicId)
+  4)
 
 ; --------------------------------------------------------------------
 ; Sockets
@@ -288,19 +288,19 @@
 ; --------------------------------------------------------------------
 ; socket(domain, type, protocol) - 97.
 (pub :: sysSocketNum Int)
-
-(pub fn (sysSocketNum) 97)
+(pub fn (sysSocketNum)
+  97)
 
 ; bind(fd, addr, addrlen) - 104. addrlen is 16 for `sockaddr_in`, 28
 ; for `sockaddr_in6`; `Sys.ax` reads it off the family in the buffer.
 (pub :: sysBindNum Int)
-
-(pub fn (sysBindNum) 104)
+(pub fn (sysBindNum)
+  104)
 
 ; listen(fd, backlog) - 106.
 (pub :: sysListenNum Int)
-
-(pub fn (sysListenNum) 106)
+(pub fn (sysListenNum)
+  106)
 
 ; accept(fd, addr, addrlen) - 30. FreeBSD does have `accept4` (541,
 ; with SOCK_NONBLOCK = 0x20000000) and it is deliberately not used:
@@ -319,38 +319,38 @@
 ; the byte, which is what keeps `tests/stdlib/317-peer-address.ax`'s
 ; "a short buffer still learns the address's real length" true here.
 (pub :: sysAcceptNum Int)
-
-(pub fn (sysAcceptNum) 30)
+(pub fn (sysAcceptNum)
+  30)
 
 ; connect(fd, addr, addrlen) - 98.
 (pub :: sysConnectNum Int)
-
-(pub fn (sysConnectNum) 98)
+(pub fn (sysConnectNum)
+  98)
 
 ; setsockopt(fd, level, name, val, len) - 105.
 (pub :: sysSetSockOptNum Int)
-
-(pub fn (sysSetSockOptNum) 105)
+(pub fn (sysSetSockOptNum)
+  105)
 
 ; getsockopt(fd, level, name, val, lenptr) - 118.
 (pub :: sysGetSockOptNum Int)
-
-(pub fn (sysGetSockOptNum) 118)
+(pub fn (sysGetSockOptNum)
+  118)
 
 ; shutdown(fd, how) - 134.
 (pub :: sysShutdownNum Int)
-
-(pub fn (sysShutdownNum) 134)
+(pub fn (sysShutdownNum)
+  134)
 
 ; fcntl(fd, cmd, arg) - 92. Distinct from `sysCwdNum`, which is
 ; `__getcwd` here and `fcntl(F_GETPATH)` on Darwin.
 (pub :: sysFcntlNum Int)
-
-(pub fn (sysFcntlNum) 92)
+(pub fn (sysFcntlNum)
+  92)
 
 (pub :: afInet Int)
-
-(pub fn (afInet) 2)
+(pub fn (afInet)
+  2)
 
 ; AF_INET6 IS 28 - A THIRD VALUE, against Darwin's 30 and Linux's 10,
 ; and the one constant in this group that agrees with neither
@@ -363,54 +363,54 @@
 ; - a listener on `::1` and a round-tripped connection - is the probe,
 ; on the day a FreeBSD leg runs it.
 (pub :: afInet6 Int)
-
-(pub fn (afInet6) 28)
+(pub fn (afInet6)
+  28)
 
 (pub :: sockStream Int)
-
-(pub fn (sockStream) 1)
+(pub fn (sockStream)
+  1)
 
 ; BSD's socket-option numbers, shared with Darwin: `SOL_SOCKET` is
 ; 0xffff, and `SO_*` are bitmask-style constants where Linux's are
 ; small sequential integers. A Linux number here sets some other
 ; option rather than failing.
 (pub :: solSocket Int)
-
-(pub fn (solSocket) 65535)
+(pub fn (solSocket)
+  65535)
 
 ; SO_REUSEADDR 0x0004.
 (pub :: soReuseAddr Int)
-
-(pub fn (soReuseAddr) 4)
+(pub fn (soReuseAddr)
+  4)
 
 ; SO_REUSEPORT 0x0200.
 (pub :: soReusePort Int)
-
-(pub fn (soReusePort) 512)
+(pub fn (soReusePort)
+  512)
 
 ; SO_ERROR 0x1007.
 (pub :: soError Int)
-
-(pub fn (soError) 4103)
+(pub fn (soError)
+  4103)
 
 ; fcntl's file-status commands, and the flag a non-blocking socket sets.
 ; `O_NONBLOCK` is 4 here, as on Darwin, and 2048 on Linux.
 (pub :: fGetFl Int)
-
-(pub fn (fGetFl) 3)
+(pub fn (fGetFl)
+  3)
 
 (pub :: fSetFl Int)
-
-(pub fn (fSetFl) 4)
+(pub fn (fSetFl)
+  4)
 
 (pub :: oNonblock Int)
-
-(pub fn (oNonblock) 4)
+(pub fn (oNonblock)
+  4)
 
 ; EAGAIN, 35 here as on Darwin; 11 on Linux.
 (pub :: eAgain Int)
-
-(pub fn (eAgain) 35)
+(pub fn (eAgain)
+  35)
 
 ; `sockaddr_in` opens with a length byte, as every BSD's does:
 ;
@@ -420,8 +420,8 @@
 ; 1, then port, flowinfo, the sixteen address bytes and scope_id - 28
 ; bytes. The Darwin file carries both layouts against Linux's.
 (pub :: sockaddrHasLenByte Int)
-
-(pub fn (sockaddrHasLenByte) 1)
+(pub fn (sockaddrHasLenByte)
+  1)
 
 ; --------------------------------------------------------------------
 ; Readiness
@@ -432,13 +432,13 @@
 ; ONE difference, the record size, below.
 ; --------------------------------------------------------------------
 (pub :: pollUsesKqueue Int)
-
-(pub fn (pollUsesKqueue) 1)
+(pub fn (pollUsesKqueue)
+  1)
 
 ; kqueue() - 362. Takes no arguments.
 (pub :: sysPollCreateNum Int)
-
-(pub fn (sysPollCreateNum) 362)
+(pub fn (sysPollCreateNum)
+  362)
 
 ; kevent(kq, changelist, nchanges, eventlist, nevents, timeout) - 560,
 ; and NOT 363, which is `freebsd11_kevent` (COMPAT11): the pre-12 entry
@@ -448,12 +448,12 @@
 ; middle of the one before it. Both of epoll's calls are this number,
 ; because registering is this call with an eventlist of nothing.
 (pub :: sysPollWaitNum Int)
-
-(pub fn (sysPollWaitNum) 560)
+(pub fn (sysPollWaitNum)
+  560)
 
 (pub :: sysPollCtlNum Int)
-
-(pub fn (sysPollCtlNum) 560)
+(pub fn (sysPollCtlNum)
+  560)
 
 ; `struct kevent` is 64 BYTES here, not Darwin's 32:
 ;
@@ -467,33 +467,33 @@
 ; requires of an unused extension. So no portable code changes - only
 ; the stride, which `netPollFdAt` and `netPollBufBytes` read from here.
 (pub :: pollEventSize Int)
-
-(pub fn (pollEventSize) 64)
+(pub fn (pollEventSize)
+  64)
 
 (pub :: pollEventFdOffset Int)
-
-(pub fn (pollEventFdOffset) 0)
+(pub fn (pollEventFdOffset)
+  0)
 
 ; EVFILT_READ, -1: kqueue's filters are negative small integers written
 ; into a SIGNED 16-bit field, which `Sys.ax` masks to two bytes.
 (pub :: pollReadFilter Int)
-
-(pub fn (pollReadFilter) (- 0 1))
+(pub fn (pollReadFilter)
+  (- 0 1))
 
 ; EV_ADD and EV_DELETE, 1 and 2.
 (pub :: pollAddOp Int)
-
-(pub fn (pollAddOp) 1)
+(pub fn (pollAddOp)
+  1)
 
 (pub :: pollDelOp Int)
-
-(pub fn (pollDelOp) 2)
+(pub fn (pollDelOp)
+  2)
 
 ; The size of the mask argument epoll_pwait takes and kevent does not.
 ; Zero here because nothing reads it.
 (pub :: pollSigsetSize Int)
-
-(pub fn (pollSigsetSize) 0)
+(pub fn (pollSigsetSize)
+  0)
 
 ; --------------------------------------------------------------------
 ; Memory, and what "out of memory" means here.
@@ -520,16 +520,16 @@
 ; syscall, not a syscall of its own.
 ; --------------------------------------------------------------------
 (pub :: sysRandomNum Int)
-
-(pub fn (sysRandomNum) 563)
+(pub fn (sysRandomNum)
+  563)
 
 (pub :: randomIsGetentropy Int)
-
-(pub fn (randomIsGetentropy) 0)
+(pub fn (randomIsGetentropy)
+  0)
 
 (pub :: randomMaxChunk Int)
-
-(pub fn (randomMaxChunk) 256)
+(pub fn (randomMaxChunk)
+  256)
 
 ; --------------------------------------------------------------------
 ; Signals
@@ -539,14 +539,14 @@
 ; on Darwin; `Sys.ax` takes that branch unchanged.
 ; --------------------------------------------------------------------
 (pub :: signalUsesSignalFd Int)
-
-(pub fn (signalUsesSignalFd) 0)
+(pub fn (signalUsesSignalFd)
+  0)
 
 ; sigprocmask(how, set, oset) - 340. Three arguments; the fourth
 ; `Sys.ax` passes is ignored, as Darwin ignores it.
 (pub :: sysSigProcMaskNum Int)
-
-(pub fn (sysSigProcMaskNum) 340)
+(pub fn (sysSigProcMaskNum)
+  340)
 
 ; SIG_BLOCK, which is 1 here as on Darwin and 0 on Linux. The Darwin
 ; file records what the wrong one does: 0 is not a value here at all,
@@ -554,8 +554,8 @@
 ; than Linux's 1, which on Darwin is SIG_UNBLOCK and lets the signal
 ; kill the process.
 (pub :: sigBlockHow Int)
-
-(pub fn (sigBlockHow) 1)
+(pub fn (sigBlockHow)
+  1)
 
 ; `sigset_t` IS SIXTEEN BYTES HERE - `__uint32_t __bits[4]` - a THIRD
 ; width against Darwin's 4 and Linux's 8, and the kernel copies all
@@ -565,40 +565,40 @@
 ; width first, so the caller's buffer has to hold sixteen bytes - the
 ; contract on `sysSignalBlock` says so.
 (pub :: sigsetBytes Int)
-
-(pub fn (sigsetBytes) 16)
+(pub fn (sigsetBytes)
+  16)
 
 ; EVFILT_SIGNAL, -6, the filter that marks an event as a signal rather
 ; than a readable socket.
 (pub :: pollSignalFilter Int)
-
-(pub fn (pollSignalFilter) (- 0 6))
+(pub fn (pollSignalFilter)
+  (- 0 6))
 
 ; Unused here (see `signalUsesSignalFd`), defined so `Sys.ax`
 ; type-checks against every platform module.
 (pub :: sysSignalFdNum Int)
-
-(pub fn (sysSignalFdNum) 0)
+(pub fn (sysSignalFdNum)
+  0)
 
 (pub :: sigInfoSize Int)
-
-(pub fn (sigInfoSize) 0)
+(pub fn (sigInfoSize)
+  0)
 
 ; kill(pid, sig) - 37.
 (pub :: sysKillNum Int)
-
-(pub fn (sysKillNum) 37)
+(pub fn (sysKillNum)
+  37)
 
 ; SIGTERM and SIGINT agree on every target; SIGUSR1 is 30 here, as on
 ; Darwin, and 10 on Linux, which is why these two are named and that
 ; one is not.
 (pub :: sigTerm Int)
-
-(pub fn (sigTerm) 15)
+(pub fn (sigTerm)
+  15)
 
 (pub :: sigInt Int)
-
-(pub fn (sigInt) 2)
+(pub fn (sigInt)
+  2)
 
 ; `fork` answers 0 in the child and the child's pid in the parent, the
 ; POSIX convention, so `sysForkProcess` passes the result through.
@@ -612,8 +612,8 @@
 ; caller as a second copy of the driver. The FreeBSD leg's first
 ; `sysRun` is the measurement.
 (pub :: forkChildIsZero Int)
-
-(pub fn (forkChildIsZero) 1)
+(pub fn (forkChildIsZero)
+  1)
 
 ; The flag `netAccept` passes to make the accepted socket non-blocking.
 ; 0: `accept4` exists here but is not used (see `sysAcceptNum`), so
@@ -623,8 +623,8 @@
 ; the reason the Darwin file gives for defining the answer rather than
 ; reporting it.
 (pub :: acceptNonblockFlag Int)
-
-(pub fn (acceptNonblockFlag) 0)
+(pub fn (acceptNonblockFlag)
+  0)
 
 ; ------------------------------------------------------------------
 ; Which KIND of platform module this is.
@@ -642,21 +642,21 @@
 ; `check-compat.sh`).
 ; ------------------------------------------------------------------
 (pub :: usesSyscallAbi Int)
-
-(pub fn (usesSyscallAbi) 1)
+(pub fn (usesSyscallAbi)
+  1)
 
 (pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
-
-(pub fn (platformWriteFd fd buf count) (Err (mkError 78 "platformWriteFd")))
+(pub fn (platformWriteFd fd buf count)
+  (Err (mkError 78 "platformWriteFd")))
 
 (pub :: platformReadFd (-> Int Int Int (Result Int Error)))
-
-(pub fn (platformReadFd fd buf count) (Err (mkError 78 "platformReadFd")))
+(pub fn (platformReadFd fd buf count)
+  (Err (mkError 78 "platformReadFd")))
 
 (pub :: platformExitWith (-> Int Int))
-
 ;@axiom:pure
-(pub fn (platformExitWith code) (- 0 78))
+(pub fn (platformExitWith code)
+  (- 0 78))
 
 ; --------------------------------------------------------------------
 ; Terminals
@@ -701,8 +701,8 @@
 ; --------------------------------------------------------------------
 ; See the Darwin module for what this capability selects.
 (pub :: ttyUsesTermios Int)
-
-(pub fn (ttyUsesTermios) 1)
+(pub fn (ttyUsesTermios)
+  1)
 
 ; ioctl(fd, request, arg) - 54. Quoted from `sys/kern/syscalls.master`
 ; at releng 14.0.0:
@@ -712,8 +712,8 @@
 ; the high byte, so this is 54 where Darwin writes 33554486 for the
 ; same call.
 (pub :: sysIoctlNum Int)
-
-(pub fn (sysIoctlNum) 54)
+(pub fn (sysIoctlNum)
+  54)
 
 ; TIOCGETA. `ttycom.h` says
 ;   #define TIOCGETA _IOR('t', 19, struct termios)
@@ -729,8 +729,8 @@
 ;     = 0x402c7413
 ;     = 1076655123
 (pub :: tcGetAttrReq Int)
-
-(pub fn (tcGetAttrReq) 1076655123)
+(pub fn (tcGetAttrReq)
+  1076655123)
 
 ; TIOCSETAF - `_IOW('t', 22, struct termios)`, the draining and
 ; input-flushing form, chosen for the reasons the Darwin module gives.
@@ -738,8 +738,8 @@
 ;     = 0x802c7416
 ;     = 2150396950
 (pub :: tcSetAttrReq Int)
-
-(pub fn (tcSetAttrReq) 2150396950)
+(pub fn (tcSetAttrReq)
+  2150396950)
 
 ; TIOCGWINSZ - `_IOR('t', 104, struct winsize)`, and `struct winsize`
 ; is four `unsigned short` = 8 bytes.
@@ -751,8 +751,8 @@
 ; agreement is a coincidence of `sizeof`, not a shared ABI: change
 ; `struct winsize` on either kernel and the two part company.
 (pub :: tcWinSizeReq Int)
-
-(pub fn (tcWinSizeReq) 1074295912)
+(pub fn (tcWinSizeReq)
+  1074295912)
 
 ; The bytes the kernel exchanges. From `sys/sys/_termios.h`, verbatim:
 ;
@@ -770,22 +770,22 @@
 ; Compiled here: `sizeof = 44  c_iflag@0 c_oflag@4 c_cflag@8
 ; c_lflag@12 c_cc@16 ispeed@36`. 16 + 20 + 8 = 44, no padding.
 (pub :: termiosBytes Int)
-
-(pub fn (termiosBytes) 44)
+(pub fn (termiosBytes)
+  44)
 
 ; `tcflag_t` is `unsigned int`, as on Linux and unlike Darwin. The four
 ; flag words are at 0, 4, 8 and 12.
 (pub :: termiosFlagBytes Int)
-
-(pub fn (termiosFlagBytes) 4)
+(pub fn (termiosFlagBytes)
+  4)
 
 ; Where `c_cc` begins: 16, immediately after the flag words. FreeBSD
 ; has no `c_line`, so this is NOT Linux's 17 - the two share a flag
 ; width and differ by one byte here, which is the near-miss worth
 ; naming.
 (pub :: termiosCcOff Int)
-
-(pub fn (termiosCcOff) 16)
+(pub fn (termiosCcOff)
+  16)
 
 ; Quoted from `_termios.h`:
 ;   #define VMIN  16
@@ -793,12 +793,12 @@
 ; These agree with Darwin's - the two BSDs share the c_cc numbering -
 ; and not with Linux's 6 and 5.
 (pub :: termiosVminIdx Int)
-
-(pub fn (termiosVminIdx) 16)
+(pub fn (termiosVminIdx)
+  16)
 
 (pub :: termiosVtimeIdx Int)
-
-(pub fn (termiosVtimeIdx) 17)
+(pub fn (termiosVtimeIdx)
+  17)
 
 ; c_lflag bits, quoted from `_termios.h`:
 ;   #define ECHO   0x00000008  ->    8
@@ -808,20 +808,20 @@
 ; All four agree with Darwin and three of the four do not agree with
 ; Linux.
 (pub :: tiosEcho Int)
-
-(pub fn (tiosEcho) 8)
+(pub fn (tiosEcho)
+  8)
 
 (pub :: tiosIcanon Int)
-
-(pub fn (tiosIcanon) 256)
+(pub fn (tiosIcanon)
+  256)
 
 (pub :: tiosIsig Int)
-
-(pub fn (tiosIsig) 128)
+(pub fn (tiosIsig)
+  128)
 
 (pub :: tiosIexten Int)
-
-(pub fn (tiosIexten) 1024)
+(pub fn (tiosIexten)
+  1024)
 
 ; c_iflag bits, quoted from `_termios.h`:
 ;   #define BRKINT 0x00000002  ->   2
@@ -830,24 +830,24 @@
 ;   #define ICRNL  0x00000100  -> 256
 ;   #define IXON   0x00000200  -> 512
 (pub :: tiosBrkint Int)
-
-(pub fn (tiosBrkint) 2)
+(pub fn (tiosBrkint)
+  2)
 
 (pub :: tiosIcrnl Int)
-
-(pub fn (tiosIcrnl) 256)
+(pub fn (tiosIcrnl)
+  256)
 
 (pub :: tiosIstrip Int)
-
-(pub fn (tiosIstrip) 32)
+(pub fn (tiosIstrip)
+  32)
 
 (pub :: tiosIxon Int)
-
-(pub fn (tiosIxon) 512)
+(pub fn (tiosIxon)
+  512)
 
 ; Quoted from `_termios.h`:
 ;   #define OPOST 0x00000001
 ; c_cflag is not covered here either; see the Darwin module for why.
 (pub :: tiosOpost Int)
-
-(pub fn (tiosOpost) 1)
+(pub fn (tiosOpost)
+  1)

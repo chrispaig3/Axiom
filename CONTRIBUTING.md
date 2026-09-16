@@ -178,9 +178,10 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
 2026-09-16, `axiom fmt --check` over every one of the 662 `.ax` files
-in the repository answers `is already formatted` for 10 of them and
-`needs formatting` for 652. Two of the 652 are deliberate and are named
-below; the other 650 were committed unformatted, and that same sweep is
+in the repository answers `is already formatted` for 71 of them and
+`needs formatting` for 591. Two of the 591 are deliberate and are named
+below; the other 589 are fixtures and tests that stay as they are, and
+that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
@@ -250,11 +251,13 @@ alone above their bodies, `handle` operands go one per line, imports
 group without blank lines, `::` sticks to its `fn`, and nullary calls
 keep their parens — the same shapes the corpus golden's re-bless note
 names. Measured 2026-09-16 with the rebuilt compiler, the sweep answers
-10 and 652: the tree was written in the old form and stays that way file
-by file, per the paragraph above, so the jump is the ruler moving and
-not the tree drifting. One file arrived with the change itself —
+71 and 591: `self_host` and `stdlib` were reformatted into the new form
+in the same change that moved it, so the 61 files there are fixed
+points; what remains unformatted is `tests`, whose fixtures are
+inputs to be transformed or spans to be pinned rather than programs
+to be tidied. One file arrived with the change itself —
 `tests/diagnostics/644-parallel-thunk-shape.ax`, HEAD's AX3064 fixture —
-and it needs formatting like almost everything else.
+and it needs formatting like almost everything else in that directory.
 
 Over that tree, at its then 636 files, the previous printer answered
 498 and 136, and the 89 files that stopped being formatted did not

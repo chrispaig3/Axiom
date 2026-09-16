@@ -22,25 +22,16 @@
 ; fact COLLECTION walks checker tables and lives with them; this file
 ; is the rendering half, testable against cached stage0 output alone.
 (import Pre (range))
-
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import Utf8)
-
 (import core)
-
 (import parser)
-
 (import typecheck)
-
 ; for `expGenOf`: the (name, macro) pairs phase D answers, which is
 ; what marks a row `#generated` (MAC-TOOL-4).
 (import expand)
-
 (import diag)
 
 ; A minimal digit formatter, local so this module need not import
@@ -49,25 +40,20 @@
 ; only by the effect-params index fallback, which no probed checker
 ; state can construct.
 (pub :: symsDigits (-> Int String))
-
 (pub fn (symsDigits n)
   (if (< n 10)
     (let ((s (strAlloc 1)))
       {
         (__store8 (strData s) 0 (+ n 48))
         s
-      }
-    )
+      })
     (strConcat
-      (symsDigits (/ n 10))      (let ((s (strAlloc 1)))
+      (symsDigits (/ n 10))
+      (let ((s (strAlloc 1)))
         {
           (__store8 (strData s) 0 (+ (% n 10) 48))
           s
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; ------------------------------------------------------------------
 ; FNV-1a 64.
@@ -77,7 +63,6 @@
 ; exist and `*`/`^` wrap mod 2^64, which is exactly what FNV wants.
 ; ------------------------------------------------------------------
 (pub :: fnv1a64 (-> String Int))
-
 (pub fn (fnv1a64 s)
   (let (
     (mut h (- 0 3750763034362895579))
@@ -91,9 +76,7 @@
           (set i (+ i 1))
         })
       h
-    }
-  )
-)
+    }))
 
 ; The 16-digit zero-padded lowercase hex of a 64-bit value, treated
 ; as unsigned. `fmtHexDigits` divides, and division is signed, so a
@@ -101,7 +84,6 @@
 ; mask instead: an arithmetic shift sign-fills only ABOVE bit 3, and
 ; `& 15` keeps bits 0-3, so every nibble comes out true.
 (pub :: symHex16 (-> Int String))
-
 (pub fn (symHex16 h)
   (let (
     (out (strAlloc 16))
@@ -112,22 +94,19 @@
         (let ((nib (& (>> h (* 4 (- 15 k))) 15)))
           {
             (__store8
-              (strData out)              k              (if (< nib 10)
+              (strData out)
+              k
+              (if (< nib 10)
                 (+ 48 nib)
-                (+ 87 nib)
-              )
-            )
+                (+ 87 nib)))
             (set k (+ k 1))
-          }
-        ))
+          }))
       out
-    }
-  )
-)
+    }))
 
 (pub :: symNid (-> String String String))
-
-(pub fn (symNid kindKey name) (symHex16 (fnv1a64 (strConcat kindKey name))))
+(pub fn (symNid kindKey name)
+  (symHex16 (fnv1a64 (strConcat kindKey name))))
 
 ; ------------------------------------------------------------------
 ; The type checker's type rendering: `TypeId::Display`, over the
@@ -143,7 +122,6 @@
 ;   TPtr          *a  or  *mut a
 ; ------------------------------------------------------------------
 (pub :: symTy (-> Int String))
-
 (pub fn (symTy t)
   (if (== t 0)
     "{unknown}"
@@ -154,11 +132,13 @@
           (nodeAName t)
           (if (== tag TAG_T_CON)
             (let ((args (nodeBVec t)))
-              (if (|| (== (cast Int args) 0) (== (vecLen args) 0))
+              (if (||
+                (==
+                  (cast Int args)
+                  0)
+                (== (vecLen args) 0))
                 (nodeAName t)
-                (let (
-                  (mut s (nodeAName t))
-                )
+                (let ((mut s (nodeAName t)))
                   {
                     ; The keyword's range shape mirrors `range` binding
                     ; for binding, so this is a spelling change and
@@ -169,10 +149,7 @@
                     (for i 0 (vecLen args)
                       (set s (strConcat s (strConcat " " (symTy (vecGet args i))))))
                     s
-                  }
-                )
-              )
-            )
+                  })))
             (if (== tag TAG_T_ARR)
               (strConcat "(" (strConcat (symTy (nodeA t)) (strConcat " -> " (strConcat (symTy (nodeB t)) ")"))))
               (if (== tag TAG_T_TUP)
@@ -181,40 +158,28 @@
                   (mut s "(")
                 )
                   {
-                    (if (== (cast Int xs) 0)
+                    (if (==
+                      (cast Int xs)
+                      0)
                       0
                       (for i 0 (vecLen xs)
                         {
                           (if (> i 0)
                             (set s (strConcat s ", "))
-                            ""
-                          )
+                            "")
                           (set s (strConcat s (symTy (vecGet xs i))))
-                        })
-                    )
+                        }))
                     (strConcat s ")")
-                  }
-                )
+                  })
                 (if (== tag TAG_T_LIST)
                   (strConcat "[" (strConcat (symTy (nodeA t)) "]"))
                   (if (== tag TAG_T_PTR)
                     (strConcat
                       (if (== (nodeB t) 1)
                         "*mut "
-                        "*"
-                      )                      (symTy (nodeA t))
-                    )
-                    "{unknown}"
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                        "*")
+                      (symTy (nodeA t)))
+                    "{unknown}"))))))))))
 
 ; ------------------------------------------------------------------
 ; One AXSYM line. The location string is the caller's - it owns the
@@ -225,7 +190,6 @@
 ; print in order, each as ` #meta`.
 ; ------------------------------------------------------------------
 (pub :: symLine (-> String String String String String (Vec String) String))
-
 (pub fn (symLine kind name loc ty nid metas)
   (let ((mut s kind))
     {
@@ -234,22 +198,19 @@
       (set s (strConcat s (strConcat " \"" (strConcat ty "\""))))
       (if (> (strLen nid) 0)
         (set s (strConcat s (strConcat " @" nid)))
-        ""
-      )
+        "")
       (let ((mut i 0))
-        (if (== (cast Int metas) 0)
+        (if (==
+          (cast Int metas)
+          0)
           0
           (while (< i (vecLen metas))
             {
               (set s (strConcat s (strConcat " #" (vecGetStr metas i))))
               (set i (+ i 1))
-            })
-        )
-      )
+            })))
       (strConcat s "\n")
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Fact collection.
@@ -263,7 +224,6 @@
 ; has tens of declarations, not thousands.
 ; ------------------------------------------------------------------
 (pub :: saIdx (-> (Vec String) String Int))
-
 (pub fn (saIdx names key)
   (let (
     (mut i 0)
@@ -274,18 +234,14 @@
         {
           (if (&& (< hit 0) (strEq (vecGetStr names i) key))
             (set hit i)
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       hit
-    }
-  )
-)
+    }))
 
 ; Insert-or-overwrite (stage0's `insert`).
 (pub :: saPut (-> (Vec String) (Vec a) String a Int))
-
 (pub fn (saPut names vals key val)
   (let ((i (saIdx names key)))
     (if (< i 0)
@@ -297,14 +253,10 @@
       {
         (vecSet vals i val)
         0
-      }
-    )
-  )
-)
+      })))
 
 ; Insert-if-absent (stage0's `or_insert`).
 (pub :: saPutSoft (-> (Vec String) (Vec Int) String (Vec Int) Int))
-
 (pub fn (saPutSoft names vals key val)
   (if (< (saIdx names key) 0)
     {
@@ -312,16 +264,13 @@
       (vecPushVec vals val)
       0
     }
-    0
-  )
-)
+    0))
 
 ; The two-value variants, for one names Vec shared by TWO value Vecs
 ; (a span AND a unit). The single-value put breaks lockstep there: the
 ; first put pushes the name, the second then finds it present and
 ; `vecSet`s into a value Vec that has no such slot yet.
 (pub :: saPut2 (-> (Vec String) (Vec Int) (Vec Int) String Int Int Int))
-
 (pub fn (saPut2 names v1 v2 key a b)
   (let ((i (saIdx names key)))
     (if (< i 0)
@@ -335,13 +284,9 @@
         (vecSet v1 i a)
         (vecSet v2 i b)
         0
-      }
-    )
-  )
-)
+      })))
 
 (pub :: saPutSoft2 (-> (Vec String) (Vec Int) (Vec Int) String Int Int Int))
-
 (pub fn (saPutSoft2 names v1 v2 key a b)
   (if (< (saIdx names key) 0)
     {
@@ -350,26 +295,19 @@
       (vecPush v2 b)
       0
     }
-    0
-  )
-)
+    0))
 
 (pub :: saGet (-> (Vec String) (Vec Int) String (Vec a)))
-
 (pub fn (saGet names vals key)
   (let ((i (saIdx names key)))
     (if (< i 0)
       0
-      (vecGet vals i)
-    )
-  )
-)
+      (vecGet vals i))))
 
 ; Byte-wise ascending insertion sort, in place: stage0's effect list
 ; arrives sorted (probed: `Beta,zeta`), and byte order is what Rust's
 ; string ordering is.
 (pub :: strLtBytes (-> String String Bool))
-
 (pub fn (strLtBytes a b)
   (let (
     (la (strLen a))
@@ -387,20 +325,13 @@
             (set ans 1)
             (if (> ca cb)
               (set ans 0)
-              (set i (+ i 1))
-            )
-          )
-        ))
+              (set i (+ i 1))))))
       (if (< ans 0)
         (< la lb)
-        (== ans 1)
-      )
-    }
-  )
-)
+        (== ans 1))
+    }))
 
 (pub :: saSort (-> (Vec String) (Vec String)))
-
 (pub fn (saSort v)
   (let ((mut i 1))
     {
@@ -413,20 +344,15 @@
                   {
                     (vecSet v j (vecGet v (- j 1)))
                     (vecSet v (- j 1) t)
-                  }
-                )
+                  })
                 (set j (- j 1))
               })
             (set i (+ i 1))
-          }
-        ))
+          }))
       v
-    }
-  )
-)
+    }))
 
 (pub :: saJoinComma (-> (Vec a) String))
-
 (pub fn (saJoinComma v)
   (let (
     (mut s "")
@@ -437,15 +363,12 @@
         {
           (if (> i 0)
             (set s (strConcat s ","))
-            ""
-          )
+            "")
           (set s (strConcat s (vecGetStr v i)))
           (set i (+ i 1))
         })
       s
-    }
-  )
-)
+    }))
 
 ; A byte AXSYM's own grammar reads, and therefore one an AXTAG may not
 ; put into a meta token unescaped: space and every control byte
@@ -454,19 +377,16 @@
 ; byte at or above 128 passes through, which keeps a UTF-8 tag value
 ; intact.
 (pub :: saAxStructural (-> Int Bool))
-
-(pub fn (saAxStructural b) (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (|| (== b 61) (== b 127)))))))
+(pub fn (saAxStructural b)
+  (|| (< b 33) (|| (== b 34) (|| (== b 35) (|| (== b 37) (|| (== b 61) (== b 127)))))))
 
 ; Named apart from render.ax's `jsonHexDigit` and codegen's `hexDigit`
 ; because imports join one flat top-level namespace.
 (pub :: saHexDigit (-> Int Int))
-
 (pub fn (saHexDigit n)
   (if (< n 10)
     (+ 48 n)
-    (+ 55 n)
-  )
-)
+    (+ 55 n)))
 
 ; An AXTAG's own bytes, made safe to put on an AXSYM line: every
 ; structural byte as `%XX`, everything else verbatim.
@@ -511,7 +431,6 @@
 ; tests/ contains a byte this escapes, so the whole corpus renders
 ; identically and neither AXSYM golden moves.
 (pub :: saAxSafe (-> String String))
-
 (pub fn (saAxSafe s)
   (let (
     (n (strLen s))
@@ -524,15 +443,11 @@
           {
             (if (saAxStructural b)
               (set acc (strConcat acc (strConcat "%" (strConcat (strFromByte (saHexDigit (/ b 16))) (strFromByte (saHexDigit (% b 16)))))))
-              (set acc (strConcat acc (strSlice s i 1)))
-            )
+              (set acc (strConcat acc (strSlice s i 1))))
             (set i (+ i 1))
-          }
-        ))
+          }))
       acc
-    }
-  )
-)
+    }))
 
 ; An AXTAG's content as its AXSYM meta: `effect(io)` is `effect=io`,
 ; a bare or empty-parens tag is its key alone - the value runs from
@@ -559,7 +474,6 @@
 ; through the PARENTHESISED form - and `axtagReservedKey`
 ; (self_host/typecheck.ax) is that half.
 (pub :: saAxMeta (-> String String))
-
 (pub fn (saAxMeta content)
   (let (
     (n (strLen content))
@@ -571,8 +485,7 @@
         {
           (if (&& (< paren 0) (== (strByte content i) 40))
             (set paren i)
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       (if (< paren 0)
@@ -583,23 +496,17 @@
               (set close (- close 1)))
             (if (<= (- close paren) 1)
               (saAxSafe (strSlice content 0 paren))
-              (strConcat (saAxSafe (strSlice content 0 paren)) (strConcat "=" (saAxSafe (strSlice content (+ paren 1) (- close (+ paren 1))))))
-            )
-          }
-        )
-      )
-    }
-  )
-)
+              (strConcat (saAxSafe (strSlice content 0 paren)) (strConcat "=" (saAxSafe (strSlice content (+ paren 1) (- close (+ paren 1)))))))
+          }))
+    }))
 
 ; The unit index a module's declarations render against: unit 0 is
 ; the entry file; an import's unit carries its module name.
 (pub :: saUnitOf (-> (Vec Int) a Int))
-
 (pub fn (saUnitOf units module)
   (if (==
-    (cast Int module)    0
-  )
+    (cast Int module)
+    0)
     0
     (let (
       (mut i 1)
@@ -609,20 +516,16 @@
         (while (< i (vecLen units))
           {
             (if (&&
-              (== hit 0)              (strEq
-                (memGetWordStr (vecGet units i) 2)                (cast String module)
-              )
-            )
+              (== hit 0)
+              (strEq
+                (memGetWordStr (vecGet units i) 2)
+                (cast String module)))
               (set hit i)
-              0
-            )
+              0)
             (set i (+ i 1))
           })
         hit
-      }
-    )
-  )
-)
+      })))
 
 ; The whole collection state, one handle: parallel-vec maps for the
 ; three span namespaces, ctor spans, nid variants, axtags, and fn
@@ -634,11 +537,6 @@
   (tyN : (Vec Int))
   (tyS : (Vec Int))
   (tyU : (Vec Int))
-  ; Words 6/7/8 were the `trait` name/span/unit maps. RETIRED IN
-  ; PLACE rather than removed, on the same reasoning as `TC`'s two:
-  ; every reader indexes this record by position (`memGetWord sm 20`
-  ; and the rest, thirty-one sites), so closing a hole in the middle
-  ; renumbers seventeen later fields for nothing.
   (retired6 : (Vec Int))
   (retired7 : (Vec Int))
   (retired8 : (Vec Int))
@@ -653,40 +551,68 @@
   (prmV : (Vec Int))
   (opN : (Vec Int))
   (opV : (Vec Int))
-  ; Macros. `symbols` emitted no row for one until 2026-08-26, so
-  ; twelve public names in the standard library - `println` and
-  ; `format` among them - were API that nothing over this stream could
-  ; see. `compat/UNCOVERED` listed them as a hole; these three slots
-  ; are what closes it.
   (mcN : (Vec Int))
   (mcS : (Vec Int))
   (mcU : (Vec Int))
-  ; The effect DECLARATION itself. Its operations were already keyed
-  ; (slots 18/19), which is what a handler needs; the effect's own name
-  ; had no row, so `Assert` was public API outside the stream.
   (efN : (Vec Int))
   (efS : (Vec Int))
   (efU : (Vec Int))
-  ; The `fn` DECLARATION NODE, on slot 16's key, so that a reader who
-  ; has the parameter names can also reach the body they belong to.
-  ; `axir.ax` lowers it to the mid-level IR for the `blk`/`op`/`term`
-  ; lines under `--mir`.
-  ;
-  ; A SECOND VALUE ON ONE KEY, not a second map. `saIdx` is a linear
-  ; scan and this map is one entry per declared function - 4,098 of
-  ; them for `self_host/main.ax` - so a parallel map keyed the same way
-  ; would have cost a second scan per put AND per get, quadratically,
-  ; to answer the question this one is already standing next to.
-  ; `saPut2` is what the span maps already do for exactly this shape.
   (fnD : (Vec Int)))
 
+; Words 6/7/8 were the `trait` name/span/unit maps. RETIRED IN
+; PLACE rather than removed, on the same reasoning as `TC`'s two:
+; every reader indexes this record by position (`memGetWord sm 20`
+; and the rest, thirty-one sites), so closing a hole in the middle
+; renumbers seventeen later fields for nothing.
+; Macros. `symbols` emitted no row for one until 2026-08-26, so
+; twelve public names in the standard library - `println` and
+; `format` among them - were API that nothing over this stream could
+; see. `compat/UNCOVERED` listed them as a hole; these three slots
+; are what closes it.
+; The effect DECLARATION itself. Its operations were already keyed
+; (slots 18/19), which is what a handler needs; the effect's own name
+; had no row, so `Assert` was public API outside the stream.
+; The `fn` DECLARATION NODE, on slot 16's key, so that a reader who
+; has the parameter names can also reach the body they belong to.
+; `axir.ax` lowers it to the mid-level IR for the `blk`/`op`/`term`
+; lines under `--mir`.
+;
+; A SECOND VALUE ON ONE KEY, not a second map. `saIdx` is a linear
+; scan and this map is one entry per declared function - 4,098 of
+; them for `self_host/main.ax` - so a parallel map keyed the same way
+; would have cost a second scan per put AND per get, quadratically,
+; to answer the question this one is already standing next to.
+; `saPut2` is what the span maps already do for exactly this shape.
 (pub :: smNew Int)
-
 (pub fn (smNew)
   (cast Int (SymMaps
-    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew    vecNew
-  ))
-)
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew
+    vecNew)))
 
 ; One declaration into the maps. The rules are stage0's exactly:
 ; DSig overwrites a function span, DFn only fills an absent one;
@@ -700,16 +626,12 @@
 ; spell. `#` is not an identifier byte, so a name that contains one
 ; cannot have been written.
 (pub :: smGenerated (-> String Bool))
-
 (pub fn (smGenerated name)
   (match (strFindByte name 35 0)
     ((None) false)
-    ((Some _) true)
-  )
-)
+    ((Some _) true)))
 
 (pub :: smCollect (-> Int Int (Vec Int) Int))
-
 (pub fn (smCollect sm d units)
   (if (smGenerated (nodeAName d))
     0
@@ -722,27 +644,43 @@
         (if (== tag TAG_D_SIG)
           {
             (saPut2
-              (memGetWordVec sm 0)              (memGetWordVec sm 1)              (memGetWordVec sm 2)              name              (nodeSpan d)              u
-            )
+              (memGetWordVec sm 0)
+              (memGetWordVec sm 1)
+              (memGetWordVec sm 2)
+              name
+              (nodeSpan d)
+              u)
             (smNid sm name "DSig:")
             (smTags sm d name)
           }
           (if (== tag TAG_D_FN)
             {
               (saPutSoft2
-                (memGetWordVec sm 0)                (memGetWordVec sm 1)                (memGetWordVec sm 2)                name                (nodeSpan d)                u
-              )
+                (memGetWordVec sm 0)
+                (memGetWordVec sm 1)
+                (memGetWordVec sm 2)
+                name
+                (nodeSpan d)
+                u)
               (smNid sm name "DFn:")
               (smTags sm d name)
               (saPut2
-                (memGetWordVec sm 16)                (memGetWordVec sm 17)                (memGetWordVec sm 26)                name                (nodeB d)                d
-              )
+                (memGetWordVec sm 16)
+                (memGetWordVec sm 17)
+                (memGetWordVec sm 26)
+                name
+                (nodeB d)
+                d)
             }
             (if (== tag TAG_D_DATA)
               {
                 (saPut2
-                  (memGetWordVec sm 3)                  (memGetWordVec sm 4)                  (memGetWordVec sm 5)                  name                  (nodeSpan d)                  u
-                )
+                  (memGetWordVec sm 3)
+                  (memGetWordVec sm 4)
+                  (memGetWordVec sm 5)
+                  name
+                  (nodeSpan d)
+                  u)
                 (smNid sm name "DData:")
                 (smTags sm d name)
                 (let (
@@ -753,38 +691,52 @@
                     (let ((c (vecGet ctors i)))
                       {
                         (saPut2
-                          (memGetWordVec sm 9)                          (memGetWordVec sm 10)                          (memGetWordVec sm 11)                          (nodeAName c)                          (nodeSpan c)                          u
-                        )
+                          (memGetWordVec sm 9)
+                          (memGetWordVec sm 10)
+                          (memGetWordVec sm 11)
+                          (nodeAName c)
+                          (nodeSpan c)
+                          u)
                         (set i (+ i 1))
-                      }
-                    ))
-                )
+                      })))
               }
               (if (== tag TAG_D_STRUCT)
                 {
                   (saPut2
-                    (memGetWordVec sm 3)                    (memGetWordVec sm 4)                    (memGetWordVec sm 5)                    name                    (nodeSpan d)                    u
-                  )
+                    (memGetWordVec sm 3)
+                    (memGetWordVec sm 4)
+                    (memGetWordVec sm 5)
+                    name
+                    (nodeSpan d)
+                    u)
                   (smNid sm name "DStruct:")
                   (smTags sm d name)
                 }
                 (if (== tag TAG_D_ALIAS)
                   {
                     (saPut2
-                      (memGetWordVec sm 3)                      (memGetWordVec sm 4)                      (memGetWordVec sm 5)                      name                      (nodeSpan d)                      u
-                    )
+                      (memGetWordVec sm 3)
+                      (memGetWordVec sm 4)
+                      (memGetWordVec sm 5)
+                      name
+                      (nodeSpan d)
+                      u)
                     (smNid sm name "DType:")
                     (smTags sm d name)
                   }
                   (if (== tag TAG_D_MACRO)
                     {
                       (saPut2
-                        (memGetWordVec sm 20)                        (memGetWordVec sm 21)                        (memGetWordVec sm 22)                        name                        (nodeSpan d)                        u
-                      )
+                        (memGetWordVec sm 20)
+                        (memGetWordVec sm 21)
+                        (memGetWordVec sm 22)
+                        name
+                        (nodeSpan d)
+                        u)
                       (smNid sm name "DMacro:")
                       (smTags sm d name)
                     }
-                  (if (== tag TAG_D_EXTERN)
+                    (if (== tag TAG_D_EXTERN)
                       ; An `extern` item has a LOCATION: the item in its block,
                       ; keyed like a signature so `symbols` and the LSP point at
                       ; it rather than answering `builtin` (the checker registers
@@ -793,26 +745,32 @@
                         (items (nodeCVec d))
                         (mut i 0)
                       )
-                        (if (== (cast Int items) 0)
+                        (if (==
+                          (cast Int items)
+                          0)
                           0
                           (while (< i (vecLen items))
                             (let ((f (vecGet items i)))
                               {
                                 (saPut2
-                                  (memGetWordVec sm 0)                                  (memGetWordVec sm 1)                                  (memGetWordVec sm 2)                                  (nodeAName f)                                  (nodeSpan f)                                  u
-                                )
+                                  (memGetWordVec sm 0)
+                                  (memGetWordVec sm 1)
+                                  (memGetWordVec sm 2)
+                                  (nodeAName f)
+                                  (nodeSpan f)
+                                  u)
                                 (smNid sm (nodeAName f) "DExtern:")
                                 (if (== (nodeModule d) 0)
                                   0
                                   (saPut2
-                                    (memGetWordVec sm 0)                                    (memGetWordVec sm 1)                                    (memGetWordVec sm 2)                                    (strConcat (strConcat (nodeModuleName d) "$") (nodeAName f))                                    (nodeSpan f)                                    u
-                                  )
-                                )
+                                    (memGetWordVec sm 0)
+                                    (memGetWordVec sm 1)
+                                    (memGetWordVec sm 2)
+                                    (strConcat (strConcat (nodeModuleName d) "$") (nodeAName f))
+                                    (nodeSpan f)
+                                    u))
                                 (set i (+ i 1))
-                              }
-                            ))
-                        )
-                      )
+                              }))))
                       (if (== tag TAG_D_EFFECT)
                         ; Operation types, keyed under both spellings the checker
                         ; registers ops with - AND the effect's own name, which
@@ -832,11 +790,17 @@
                           (mut i 0)
                           (_t (smTags sm d name))
                           (_e (saPut2
-                            (memGetWordVec sm 23)                            (memGetWordVec sm 24)                            (memGetWordVec sm 25)                            name                            (nodeSpan d)                            u
-                          ))
+                            (memGetWordVec sm 23)
+                            (memGetWordVec sm 24)
+                            (memGetWordVec sm 25)
+                            name
+                            (nodeSpan d)
+                            u))
                           (_n (smNid sm name "DEffect:"))
                         )
-                          (if (== (cast Int fields) 0)
+                          (if (==
+                            (cast Int fields)
+                            0)
                             0
                             (while (< i (vecLen fields))
                               (let ((f (vecGet fields i)))
@@ -844,31 +808,16 @@
                                   (saPut (memGetWordVec sm 18) (memGetWordVec sm 19) (nodeAName f) (nodeB f))
                                   (if (== (nodeModule d) 0)
                                     0
-                                    (saPut (memGetWordVec sm 18) (memGetWordVec sm 19) (strConcat (strConcat (nodeModuleName d) "$") (nodeAName f)) (nodeB f))
-                                  )
+                                    (saPut (memGetWordVec sm 18) (memGetWordVec sm 19) (strConcat (strConcat (nodeModuleName d) "$") (nodeAName f)) (nodeB f)))
                                   (set i (+ i 1))
-                                }
-                              ))
-                          )
-                        )
-                        0
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
+                                }))))
+                        0))))))))
         0
-      }
-    )
-  )
-)
+      })))
 
 (pub :: smNid (-> Int String String Int))
-
-(pub fn (smNid sm name variant) (saPut (memGetWordVec sm 12) (memGetWordVec sm 13) name variant))
+(pub fn (smNid sm name variant)
+  (saPut (memGetWordVec sm 12) (memGetWordVec sm 13) name variant))
 
 ; The AXTAGs of one NAME are the UNION of the sets on every declaration
 ; carrying it - a function has two, its `::` and its `fn`, and an author
@@ -890,33 +839,32 @@
 ; mutating the AST to print it - the same rule `#calls=` follows below
 ; when it sorts a copy.
 (pub :: smTags (-> Int Int String Int))
-
 (pub fn (smTags sm d name)
   (let ((tags (nodeAxtagsVec d)))
-    (if (== (cast Int tags) 0)
-      (saPutSoft (memGetWordVec sm 14) (memGetWordVec sm 15) name (cast (Vec Int) 0))
+    (if (==
+      (cast Int tags)
+      0)
+      (saPutSoft
+        (memGetWordVec sm 14)
+        (memGetWordVec sm 15)
+        name
+        (cast (Vec Int) 0))
       (if (== (vecLen tags) 0)
         (saPutSoft (memGetWordVec sm 14) (memGetWordVec sm 15) name tags)
         (let ((have (saGet (memGetWordVec sm 14) (memGetWordVec sm 15) name)))
-          (if (== (cast Int have) 0)
+          (if (==
+            (cast Int have)
+            0)
             (saPut (memGetWordVec sm 14) (memGetWordVec sm 15) name tags)
             (if (== (vecLen have) 0)
               (saPut (memGetWordVec sm 14) (memGetWordVec sm 15) name tags)
-              (saPut (memGetWordVec sm 14) (memGetWordVec sm 15) name (smTagsUnion have tags))
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              (saPut (memGetWordVec sm 14) (memGetWordVec sm 15) name (smTagsUnion have tags)))))))))
 
 ; `have` first, in its own order, then every tag of `more` whose text
 ; is not already present - so the row reads in source order, the
 ; signature's tags before the function's, and a tag written on both
 ; renders once.
 (pub :: smTagsUnion (-> (Vec Int) (Vec Int) (Vec Int)))
-
 (pub fn (smTagsUnion have more)
   (let (
     (out vecNew)
@@ -933,17 +881,16 @@
         {
           (if (== (smTagsHas out (memGetWordStr (vecGet more i) 1)) 1)
             0
-            { (vecPush out (vecGet more i)) 0 }
-          )
+            {
+              (vecPush out (vecGet more i))
+              0
+            })
           (set i (+ i 1))
         })
       out
-    }
-  )
-)
+    }))
 
 (pub :: smTagsHas (-> (Vec Int) String Int))
-
 (pub fn (smTagsHas tags txt)
   (let (
     (mut i 0)
@@ -954,17 +901,13 @@
         {
           (if (strEq (memGetWordStr (vecGet tags i) 1) txt)
             (set hit 1)
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       hit
-    }
-  )
-)
+    }))
 
 (pub :: smBuild (-> (Vec Int) (Vec Int) Int))
-
 (pub fn (smBuild decls units)
   (let (
     (sm smNew)
@@ -977,9 +920,7 @@
           (set i (+ i 1))
         })
       sm
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Emission: fn facts, then each data with its constructors, then
@@ -988,7 +929,6 @@
 ; The location string for `key` in the span namespace held at map
 ; slots (nIx, sIx, uIx), or "" when the name has no recorded span.
 (pub :: smLocReal (-> Int Int Int Int String (Vec Int) String))
-
 (pub fn (smLocReal sm nIx sIx uIx key units)
   (let ((i (saIdx (memGetWordVec sm nIx) key)))
     (if (< i 0)
@@ -997,26 +937,16 @@
         (if (== sp 0)
           ""
           (let ((unit (vecGet units (vecGet (memGetWordVec sm uIx) i))))
-            (strConcat (memGetWordStr unit 0) (strConcat ":" (fmtSpan (memGetWordStr unit 1) sp)))
-          )
-        )
-      )
-    )
-  )
-)
+            (strConcat (memGetWordStr unit 0) (strConcat ":" (fmtSpan (memGetWordStr unit 1) sp)))))))))
 
 ; The nid for `key`, or "" for a name with no recorded declaration
 ; (builtins, effect operations).
 (pub :: smNidFor (-> Int String String))
-
 (pub fn (smNidFor sm key)
   (let ((i (saIdx (memGetWordVec sm 12) key)))
     (if (< i 0)
       ""
-      (symNid (vecGetStr (memGetWordVec sm 13) i) (bareOf key))
-    )
-  )
-)
+      (symNid (vecGetStr (memGetWordVec sm 13) i) (bareOf key)))))
 
 ; The AXTAG metas for `key`, pushed in source order.
 ;
@@ -1042,21 +972,18 @@
 ; `A`, `T`), which is why the ordering is stated here rather than left
 ; to whichever site is read first.
 (pub :: smTagMetas (-> Int String (Vec String) Int))
-
 (pub fn (smTagMetas sm key metas)
   (let ((tags (saGet (memGetWordVec sm 14) (memGetWordVec sm 15) key)))
-    (if (== (cast Int tags) 0)
+    (if (==
+      (cast Int tags)
+      0)
       0
       (let ((mut i 0))
         (while (< i (vecLen tags))
           {
             (vecPush metas (saAxMeta (memGetWordStr (vecGet tags i) 1)))
             (set i (+ i 1))
-          })
-      )
-    )
-  )
-)
+          })))))
 
 ; ------------------------------------------------------------------
 ; The human table.
@@ -1081,7 +1008,6 @@
 ; name pads to the width a reader sees.
 ; ------------------------------------------------------------------
 (pub :: symKindWord (-> String String))
-
 (pub fn (symKindWord k)
   (if (strEq k "F")
     "Fn"
@@ -1097,20 +1023,11 @@
               "Effect"
               (if (strEq k "M")
                 "Macro"
-                k
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                k))))))))
 
 ; Characters, not bytes - the same rule every column in this compiler
 ; counts by.
 (pub :: symCharLen (-> String Int))
-
 (pub fn (symCharLen s)
   (let (
     (n (strLen s))
@@ -1122,17 +1039,13 @@
         {
           (if (utf8IsCont (strByte s i))
             0
-            (set c (+ c 1))
-          )
+            (set c (+ c 1)))
           (set i (+ i 1))
         })
       c
-    }
-  )
-)
+    }))
 
 (pub :: symPad (-> String Int String))
-
 (pub fn (symPad s w)
   (let ((have (symCharLen s)))
     (if (>= have w)
@@ -1148,30 +1061,22 @@
               (set i (+ i 1))
             })
           (strConcat s out)
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; One past the last byte of the line starting at `i`.
 ; The byte after the next space at or after `i`, and the field before
 ; it. Fields one to three of an AXSYM line are space-delimited and
 ; contain no spaces; the type that follows them is quoted and may.
 (pub :: symField (-> String Int Int Int))
-
 (pub fn (symField s i e)
   (let ((mut j i))
     {
       (while (&& (< j e) (!= (strByte s j) 32))
         (set j (+ j 1)))
       j
-    }
-  )
-)
+    }))
 
 (pub :: symbolsHumanTable (-> String String))
-
 (pub fn (symbolsHumanTable axsym)
   (let (
     (n (strLen axsym))
@@ -1202,10 +1107,8 @@
                             (set b (- b 1)))
                           (if (> b a)
                             (strSlice axsym a (- b a))
-                            ""
-                          )
-                        }
-                      ))
+                            "")
+                        }))
                     )
                       {
                         (vecPush parts (symPad (symKindWord kind) 8))
@@ -1215,26 +1118,17 @@
                         (vecPush parts (symPad ty 40))
                         (vecPush parts " [")
                         (vecPush
-                          parts                          (if (strEq loc "-")
+                          parts
+                          (if (strEq loc "-")
                             "builtin"
-                            loc
-                          )
-                        )
+                            loc))
                         (vecPush parts "]\n")
-                      }
-                    )
-                  )
-                )
-              )
-              (cast (Vec String) 0)
-            )
+                      }))))
+              (cast (Vec String) 0))
             (set i (+ e 1))
-          }
-        ))
+          }))
       (catStrs parts)
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Whether a `FnEnt` gets no row.
@@ -1255,13 +1149,10 @@
 ;     mangled spelling is the compiler's.
 ; ------------------------------------------------------------------
 (pub :: symFnRowSkipped (-> String Int Int Int Int))
-
 (pub fn (symFnRowSkipped name isB isOp builtins)
   (if (|| (smGenerated name) (|| (&& (== isB 1) (== builtins 0)) (&& (== isOp 1) (!= (strLen (bareOf name)) (strLen name)))))
     1
-    0
-  )
-)
+    0))
 
 ; ------------------------------------------------------------------
 ; THE MIR PROJECTION.
@@ -1313,7 +1204,6 @@
 ; body called something the walk could not resolve, so its own facts
 ; are a lower bound whatever the fixpoint did.
 (pub :: symMirParams (-> (Vec String) Int Int (Vec String)))
-
 (pub fn (symMirParams params np mask)
   (let (
     (out vecNew)
@@ -1324,19 +1214,19 @@
         {
           (if (!= (& mask (<< 1 i)) 0)
             (vecPush
-              out              (if (&& (!= (cast Int params) 0) (< i (vecLen params)))
+              out
+              (if (&&
+                (!=
+                  (cast Int params)
+                  0)
+                (< i (vecLen params)))
                 (vecGetStr params i)
-                (symsDigits i)
-              )
-            )
-            (cast (Vec String) 0)
-          )
+                (symsDigits i)))
+            (cast (Vec String) 0))
           (set i (+ i 1))
         })
       out
-    }
-  )
-)
+    }))
 
 ; Push this function's `#mir-*` keys onto `metas`. `ent` is the
 ; `FnEnt`, `params` its parameter names (or 0), `truncated` whether
@@ -1347,7 +1237,6 @@
 ; "No answer" and "the answer is none" are different claims and this
 ; stream has to keep them apart.
 (pub :: symMirMetas (-> Int (Vec String) Int (Vec String) Int))
-
 (pub fn (symMirMetas ent params truncated metas)
   (let ((f (memGetWord ent 8)))
     (if (== f 0)
@@ -1361,30 +1250,21 @@
           (vecPush metas (strConcat "mir-params=" (symsDigits np)))
           (if (> (vecLen esc) 0)
             (vecPush metas (strConcat "mir-escapes=" (saJoinComma esc)))
-            (cast (Vec String) 0)
-          )
+            (cast (Vec String) 0))
           (if (!= (memGetWord f 4) 0)
             (vecPush metas "mir-result-fresh")
-            (cast (Vec String) 0)
-          )
+            (cast (Vec String) 0))
           (if (> (vecLen rfr) 0)
             (vecPush metas (strConcat "mir-result-from=" (saJoinComma rfr)))
-            (cast (Vec String) 0)
-          )
+            (cast (Vec String) 0))
           (if (!= (memGetWord f 5) 0)
             (vecPush metas "mir-incomplete")
-            (cast (Vec String) 0)
-          )
+            (cast (Vec String) 0))
           (if (== truncated 1)
             (vecPush metas "mir-truncated")
-            (cast (Vec String) 0)
-          )
+            (cast (Vec String) 0))
           0
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; `gens` is `expandProgram`'s answer - the (name, macro) pairs of every
 ; declaration phase D generated. A row it names carries `#generated=`
@@ -1397,25 +1277,22 @@
 ; prints edges the effect walk already resolved, `--mir` runs a walk
 ; that would otherwise never run at all (see `symMirMetas`).
 (pub :: symbolsRenderGens (-> Int Int (Vec Int) Int Int String))
-
 (pub fn (symbolsRenderGens tc builtins gens calls mir)
   ; --- functions --------------------------------------------
+  ; Demanded HERE, before the row walk, because the fixpoint is a
+  ; whole-module computation and `rgnFactsTruncated` is a
+  ; whole-module answer: every row has to be told the same thing
+  ; about it.
   (let (
     (units (memGetWordVec tc 13))
     (decls (tcAllDeclsVec tc))
     (lines vecNew)
-    ; Demanded HERE, before the row walk, because the fixpoint is a
-    ; whole-module computation and `rgnFactsTruncated` is a
-    ; whole-module answer: every row has to be told the same thing
-    ; about it.
     (_rgn (if (== mir 1)
       (rgnEnsureFacts tc)
-      0
-    ))
+      0))
     (trunc (if (== mir 1)
       (rgnFactsTruncated tc)
-      0
-    ))
+      0))
   )
     (let ((sm (smBuild decls units)))
       {
@@ -1439,19 +1316,24 @@
                     (let (
                       (metas vecNew)
                       (loc (smLocReal
-                        sm                        0                        1                        2                        name                        units
-                      ))
+                        sm
+                        0
+                        1
+                        2
+                        name
+                        units))
                     )
                       {
                         (smTagMetas sm name metas)
                         (let ((gm (expGenOf gens name)))
                           (if (==
-                            (cast Int gm)                            0
-                          )
+                            (cast Int gm)
+                            0)
                             0
-                            { (vecPush metas (strConcat "generated=" gm)) 0 }
-                          )
-                        )
+                            {
+                              (vecPush metas (strConcat "generated=" gm))
+                              0
+                            }))
                         ; The incompleteness sentinel rides in the same
                         ; Vec and is NOT an effect: rendering it put
                         ; `incomplete` in the middle of `#effects=IO,
@@ -1491,28 +1373,27 @@
                                         {
                                           (if (== (strInVec disp (effRender ef) 0) 1)
                                             0
-                                            { (vecPush disp (effRender ef)) 0 }
-                                          )
+                                            {
+                                              (vecPush disp (effRender ef))
+                                              0
+                                            })
                                           (if (&& (== (effIsPossible ef) 1) (== (effIn effs (effDefiniteOf ef)) 0))
                                             (if (== (strInVec poss (effRender ef) 0) 1)
                                               0
-                                              { (vecPush poss (effRender ef)) 0 }
-                                            )
-                                            0
-                                          )
-                                        }
-                                      )
+                                              {
+                                                (vecPush poss (effRender ef))
+                                                0
+                                              })
+                                            0)
+                                        })
                                       (set k (+ k 1))
-                                    }
-                                  ))
+                                    }))
                                 (if (> (vecLen disp) 0)
                                   (vecPush metas (strConcat "effects=" (saJoinComma (saSort disp))))
-                                  (cast (Vec String) 0)
-                                )
+                                  (cast (Vec String) 0))
                                 (if (== partial 1)
                                   (vecPush metas "effects-incomplete")
-                                  (cast (Vec String) 0)
-                                )
+                                  (cast (Vec String) 0))
                                 ; The opposite admission. `-incomplete`
                                 ; says the row is a LOWER bound; this
                                 ; says some member of it is only
@@ -1531,13 +1412,9 @@
                                     (vecPush metas "effects-overapprox")
                                     (vecPush metas (strConcat "effects-possible=" (saJoinComma (saSort poss))))
                                   }
-                                  (cast (Vec String) 0)
-                                )
-                              }
-                            )
-                            (cast (Vec String) 0)
-                          )
-                        )
+                                  (cast (Vec String) 0))
+                              })
+                            (cast (Vec String) 0)))
                         ; The edges the effect walk resolved to build
                         ; the row above, opt-in behind `--calls`.
                         ;
@@ -1578,13 +1455,9 @@
                                   })
                                 (if (> (vecLen cv) 0)
                                   (vecPush metas (strConcat "calls=" (saJoinComma (saSort cv))))
-                                  (cast (Vec String) 0)
-                                )
-                              }
-                            )
-                            (cast (Vec String) 0)
-                          )
-                        )
+                                  (cast (Vec String) 0))
+                              })
+                            (cast (Vec String) 0)))
                         (let ((eps (memGetWordVec e 6)))
                           (if (&& (> (vecLen eps) 0) (== isB 0))
                             (let (
@@ -1597,53 +1470,50 @@
                                   (let ((pi (vecGet eps k)))
                                     {
                                       (vecPush
-                                        pnames                                        (if (&& (!= (cast Int params) 0) (< pi (vecLen params)))
+                                        pnames
+                                        (if (&&
+                                          (!=
+                                            (cast Int params)
+                                            0)
+                                          (< pi (vecLen params)))
                                           (vecGetStr params pi)
-                                          (symsDigits pi)
-                                        )
-                                      )
+                                          (symsDigits pi)))
                                       (set k (+ k 1))
-                                    }
-                                  ))
+                                    }))
                                 (vecPush metas (strConcat "effect-params=" (saJoinComma pnames)))
-                              }
-                            )
-                            (cast (Vec String) 0)
-                          )
-                        )
+                              })
+                            (cast (Vec String) 0)))
                         ; AFTER the author's AXTAGs, like every other derived key,
                         ; and for the reason spelled out at `smTagMetas`:
                         ; `symTagFrom` answers the LAST `#key` on the line,
                         ; so a compiler-owned key placed after the tags
                         ; cannot be shadowed by a forged one.
                         (if (&& (== mir 1) (== isB 0))
-                          (symMirMetas
-                            e                            (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name)                            trunc                            metas
-                          )
-                          0
-                        )
+                          (symMirMetas e (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name) trunc metas)
+                          0)
                         (let ((opTy (saGet (memGetWordVec sm 18) (memGetWordVec sm 19) name)))
                           (vecPush
-                            lines                            (symLine
-                              "F"                              (bareOf name)                              (if (== (strLen loc) 0)
+                            lines
+                            (symLine
+                              "F"
+                              (bareOf name)
+                              (if (== (strLen loc) 0)
                                 "-"
-                                loc
-                              )                              (if (&& (== isOp 1) (!= (cast Int opTy) 0))
-                                (symTy (cast Int opTy))
-                                (symTy (memGetWord e 1))
-                              )                              (smNidFor sm name)                              metas
-                            )
-                          )
-                        )
+                                loc)
+                              (if (&&
+                                (== isOp 1)
+                                (!=
+                                  (cast Int opTy)
+                                  0))
+                                (symTy
+                                  (cast Int opTy))
+                                (symTy (memGetWord e 1)))
+                              (smNidFor sm name)
+                              metas)))
                         0
-                      }
-                    )
-                  )
+                      }))
                   (set i (+ i 1))
-                }
-              )
-            ))
-        )
+                }))))
         ; --- data types and their constructors --------------------
         (let (
           (datas (tcDatasVec tc))
@@ -1672,52 +1542,56 @@
                       (smTagMetas sm name metas)
                       (if (> (vecLen cnames) 0)
                         (vecPush metas (strConcat "ctors=" (saJoinComma cnames)))
-                        (cast (Vec String) 0)
-                      )
+                        (cast (Vec String) 0))
                       (vecPush
-                        lines                        (symLine
-                          "D"                          (bareOf name)                          (let ((loc (smLocReal
-                            sm                            3                            4                            5                            name                            units
-                          )))
+                        lines
+                        (symLine
+                          "D"
+                          (bareOf name)
+                          (let ((loc (smLocReal
+                            sm
+                            3
+                            4
+                            5
+                            name
+                            units)))
                             (if (== (strLen loc) 0)
                               "-"
-                              loc
-                            )
-                          )                          (strConcat "data " (bareOf name))                          (smNidFor sm name)                          metas
-                        )
-                      )
-                    }
-                  )
+                              loc))
+                          (strConcat "data " (bareOf name))
+                          (smNidFor sm name)
+                          metas))
+                    })
                   (let ((mut k 0))
                     (while (< k (vecLen ctors))
                       (let ((c (vecGet ctors k)))
                         {
                           (vecPush
-                            lines                            (symLine
-                              "C"                              (bareOf (memGetWordStr c 0))                              (let ((loc (smLocReal
-                                sm                                9                                10                                11                                (memGetWordStr c 0)                                units
-                              )))
+                            lines
+                            (symLine
+                              "C"
+                              (bareOf (memGetWordStr c 0))
+                              (let ((loc (smLocReal
+                                sm
+                                9
+                                10
+                                11
+                                (memGetWordStr c 0)
+                                units)))
                                 (if (== (strLen loc) 0)
                                   "-"
-                                  loc
-                                )
-                              )                              (symTy (memGetWord c 3))                              ""                              (let ((m vecNew))
+                                  loc))
+                              (symTy (memGetWord c 3))
+                              ""
+                              (let ((m vecNew))
                                 {
                                   (vecPush m (strConcat "of=" (bareOf name)))
                                   m
-                                }
-                              )
-                            )
-                          )
+                                })))
                           (set k (+ k 1))
-                        }
-                      ))
-                  )
+                        })))
                   (set i (+ i 1))
-                }
-              )
-            ))
-        )
+                }))))
         ; --- structs ----------------------------------------------
         (let (
           (sts (tcStructsVec tc))
@@ -1741,31 +1615,32 @@
                           {
                             (vecPush fparts (strConcat (nodeAName f) (strConcat ":" (symTy (nodeTy f)))))
                             (set k (+ k 1))
-                          }
-                        ))
+                          }))
                       ; Author tags first, derived keys after: see
                       ; `smTagMetas`.
                       (smTagMetas sm name metas)
                       (vecPush metas (strConcat "fields=" (saJoinComma fparts)))
                       (vecPush
-                        lines                        (symLine
-                          "S"                          (bareOf name)                          (let ((loc (smLocReal
-                            sm                            3                            4                            5                            name                            units
-                          )))
+                        lines
+                        (symLine
+                          "S"
+                          (bareOf name)
+                          (let ((loc (smLocReal
+                            sm
+                            3
+                            4
+                            5
+                            name
+                            units)))
                             (if (== (strLen loc) 0)
                               "-"
-                              loc
-                            )
-                          )                          (strConcat "struct " (bareOf name))                          (smNidFor sm name)                          metas
-                        )
-                      )
-                    }
-                  )
+                              loc))
+                          (strConcat "struct " (bareOf name))
+                          (smNidFor sm name)
+                          metas))
+                    })
                   (set i (+ i 1))
-                }
-              )
-            ))
-        )
+                }))))
         ; --- type aliases -----------------------------------------
         (let (
           (als (tcAliasesVec tc))
@@ -1783,29 +1658,34 @@
                   )
                     {
                       (smTagMetas sm name metas)
-                      (if (&& (!= (cast Int tvs) 0) (> (vecLen tvs) 0))
+                      (if (&&
+                        (!=
+                          (cast Int tvs)
+                          0)
+                        (> (vecLen tvs) 0))
                         (vecPush metas (strConcat "tyvars=" (saJoinComma tvs)))
-                        (cast (Vec String) 0)
-                      )
+                        (cast (Vec String) 0))
                       (vecPush
-                        lines                        (symLine
-                          "A"                          (bareOf name)                          (let ((loc (smLocReal
-                            sm                            3                            4                            5                            name                            units
-                          )))
+                        lines
+                        (symLine
+                          "A"
+                          (bareOf name)
+                          (let ((loc (smLocReal
+                            sm
+                            3
+                            4
+                            5
+                            name
+                            units)))
                             (if (== (strLen loc) 0)
                               "-"
-                              loc
-                            )
-                          )                          (symTy (nodeB d))                          (smNidFor sm name)                          metas
-                        )
-                      )
-                    }
-                  )
+                              loc))
+                          (symTy (nodeB d))
+                          (smNidFor sm name)
+                          metas))
+                    })
                   (set i (+ i 1))
-                }
-              )
-            ))
-        )
+                }))))
         ; --- macros -----------------------------------------------
         ; The name vector collected above IS the list. Every other walk
         ; here iterates a `tc` list and uses `sm` only for the span and
@@ -1830,23 +1710,26 @@
                   {
                     (smTagMetas sm name metas)
                     (vecPush
-                      lines                      (symLine
-                        "M"                        (bareOf name)                        (let ((loc (smLocReal
-                          sm                          20                          21                          22                          name                          units
-                        )))
+                      lines
+                      (symLine
+                        "M"
+                        (bareOf name)
+                        (let ((loc (smLocReal
+                          sm
+                          20
+                          21
+                          22
+                          name
+                          units)))
                           (if (== (strLen loc) 0)
                             "-"
-                            loc
-                          )
-                        )                        (strConcat "macro " (bareOf name))                        (smNidFor sm name)                        metas
-                      )
-                    )
-                  }
-                )
+                            loc))
+                        (strConcat "macro " (bareOf name))
+                        (smNidFor sm name)
+                        metas))
+                  })
                 (set i (+ i 1))
-              }
-            ))
-        )
+              })))
         ; --- effects ----------------------------------------------
         ; The effect's own name. Its OPERATIONS were always keyed - a
         ; handler needs those - but the declaration had no row, so
@@ -1862,23 +1745,26 @@
                   {
                     (smTagMetas sm name metas)
                     (vecPush
-                      lines                      (symLine
-                        "E"                        (bareOf name)                        (let ((loc (smLocReal
-                          sm                          23                          24                          25                          name                          units
-                        )))
+                      lines
+                      (symLine
+                        "E"
+                        (bareOf name)
+                        (let ((loc (smLocReal
+                          sm
+                          23
+                          24
+                          25
+                          name
+                          units)))
                           (if (== (strLen loc) 0)
                             "-"
-                            loc
-                          )
-                        )                        (strConcat "effect " (bareOf name))                        (smNidFor sm name)                        metas
-                      )
-                    )
-                  }
-                )
+                            loc))
+                        (strConcat "effect " (bareOf name))
+                        (smNidFor sm name)
+                        metas))
+                  })
                 (set i (+ i 1))
-              }
-            ))
-        )
+              })))
         ; --- join -------------------------------------------------
         (let (
           (mut total 0)
@@ -1902,14 +1788,8 @@
                       (memCopy (+ (strData out) off) (strData f) (strLen f))
                       (set off (+ off (strLen f)))
                       (set j (+ j 1))
-                    }
-                  ))
+                    }))
                 out
-              }
-            )
-          }
-        )
-      }
-    )
-  )
-)
+              })
+          })
+      })))

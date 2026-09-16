@@ -34,7 +34,6 @@
 ; negate), so `sysFailed` is a single portable comparison rather than
 ; a per-OS special case.
 (import Sys.Platform)
-
 ; ------------------------------------------------------------------
 ; File descriptors
 ; ------------------------------------------------------------------
@@ -85,15 +84,6 @@
 ; `Error.code`, and a reader who wants the sentence builds it where
 ; they read it - which is the place that was going to pay for it
 ; anyway, and usually never runs.
-(pub :: sysResult (-> String Int (Result Int Error)))
-
-(pub fn (sysResult op n)
-  (if (< n 0)
-    (Err (mkError (- 0 n) op))
-    (Ok n)
-  )
-)
-
 ; Write all `count` bytes at `buf` to `fd`: bytes written, or `-errno`.
 ;
 ; A single `write` is PERMITTED to transfer fewer bytes than asked - a
@@ -136,15 +126,11 @@
 ; File I/O utilities
 ; ------------------------------------------------------------------
 (import Err)
-
 (import Str)
-
 (import Mem)
-
 ; `sysReadDir` answers a Vec of names. `Str` already imports `Vec` for
 ; `strSplit`, so this edge is not new - it is written down.
 (import Vec)
-
 ; `netAddrText` renders an address as decimal octets and hexadecimal
 ; groups, both of which `Fmt` already does; a second `fmtInt` living
 ; here would be the drift this library keeps refusing elsewhere. The
@@ -152,17 +138,23 @@
 ; and both are above this line.
 (import Fmt)
 
-(pub :: stdin Int)
+(pub :: sysResult (-> String Int (Result Int Error)))
+(pub fn (sysResult op n)
+  (if (< n 0)
+    (Err (mkError (- 0 n) op))
+    (Ok n)))
 
-(pub fn (stdin) 0)
+(pub :: stdin Int)
+(pub fn (stdin)
+  0)
 
 (pub :: stdout Int)
-
-(pub fn (stdout) 1)
+(pub fn (stdout)
+  1)
 
 (pub :: stderr Int)
-
-(pub fn (stderr) 2)
+(pub fn (stderr)
+  2)
 
 ; write(2): `Ok` bytes written - possibly fewer than asked, which is
 ; what `sysWriteAllFd` below exists to retry - or `Err` carrying the
@@ -170,14 +162,11 @@
 ; replaced is recorded in `sysWriteAllFd`'s header, with why it stood
 ; and what let it go.
 (pub :: sysWriteFd (-> Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysWriteFd fd buf count)
   (if (== usesSyscallAbi 1)
     (sysResult "sysWriteFd" (__syscall3 sysWrite fd buf count))
-    (platformWriteFd fd buf count)
-  )
-)
+    (platformWriteFd fd buf count)))
 
 ; THREE OUTCOMES, AND THE Int CHANNEL HELD TWO. Until 2026-08-30 this
 ; answered `done` when `write` returned exactly 0 - a short,
@@ -217,39 +206,30 @@
 ; "may `println`'s row widen": it may, because it can allocate, and
 ; only when a write fails.
 (pub :: sysWriteAllFd (-> Int Int Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sysWriteAllFd fd buf count done)
   (if (>= done count)
     done
-    (let ((n (match (sysWriteFd fd (+ buf done) (- count done))
-      ((Ok k) k)
-      ((Err e) (- 0 (errCode e)))
-    )))
+    (let ((n 
+      (match (sysWriteFd fd (+ buf done) (- count done))
+        ((Ok k) k)
+        ((Err e) (- 0 (errCode e))))))
       (if (< n 0)
         n
         (if (== n 0)
           (- 0 errShortWrite)
-          (sysWriteAllFd fd buf count (+ done n))
-        )
-      )
-    )
-  )
-)
+          (sysWriteAllFd fd buf count (+ done n)))))))
 
 ; read(2): `Ok` bytes read, `Ok 0` at end of input, or `Err` carrying
 ; the errno. `(Result Int Error)` since 2026-09-03, on the same terms as
 ; `sysWriteFd`: every reader in the tree matches the call directly and
 ; pays for no block on the bytes-arrived path.
 (pub :: sysReadFd (-> Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysReadFd fd buf count)
   (if (== usesSyscallAbi 1)
     (sysResult "sysReadFd" (__syscall3 sysRead fd buf count))
-    (platformReadFd fd buf count)
-  )
-)
+    (platformReadFd fd buf count)))
 
 ; ANSWERS `(Result Int Error)` - the descriptor, or the errno `open`
 ; refused with. This is the port `docs/error-model.md` ERR-ADOPT-1
@@ -258,11 +238,9 @@
 ; EISDIR are three different things a caller does three different
 ; things about. As an `Int` they were all "negative".
 (pub :: sysOpenPath (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysOpenPath path flags)
-  (sysResult "sysOpenPath" (sysOpenRaw path flags))
-)
+  (sysResult "sysOpenPath" (sysOpenRaw path flags)))
 
 ; The same open, answering the raw descriptor-or-errno.
 ;
@@ -275,21 +253,21 @@
 ; conversion they already do. The public contract is the `Result`; this
 ; is the shared implementation under it.
 (:: sysOpenRaw (-> Int Int Int))
-
 ;@axiom:effect(io)
-(fn (sysOpenRaw path flags) (sysOpenPathMode path flags 420))
+(fn (sysOpenRaw path flags)
+  (sysOpenPathMode path flags 420))
 
 (:: sysOpenPathMode (-> Int Int Int Int))
-
 ;@axiom:effect(io)
 (fn (sysOpenPathMode path flags mode)
   (if (== openNeedsDirFd 1)
     (__syscall4
-      sysOpen      atFdCwd      path      flags      mode
-    )
-    (__syscall3 sysOpen path flags mode)
-  )
-)
+      sysOpen
+      atFdCwd
+      path
+      flags
+      mode)
+    (__syscall3 sysOpen path flags mode)))
 
 ; Close a descriptor.
 ;
@@ -304,40 +282,34 @@
 ; this one and `sysFileExists`, which gains `Alloc`. Every other
 ; function in the library that closes a descriptor already allocated.
 (pub :: sysCloseFd (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
-(pub fn (sysCloseFd fd) (sysResult "sysCloseFd" (__syscall1 sysClose fd)))
+(pub fn (sysCloseFd fd)
+  (sysResult "sysCloseFd" (__syscall1 sysClose fd)))
 
 (:: sysSeek (-> Int Int Int Int))
-
 ;@axiom:effect(io)
-(fn (sysSeek fd offset whence) (__syscall3 sysLseek fd offset whence))
+(fn (sysSeek fd offset whence)
+  (__syscall3 sysLseek fd offset whence))
 
 (pub :: sysExitWith (-> Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sysExitWith code)
   {
     (if (== usesSyscallAbi 1)
       (__syscall1 sysExit code)
-      (platformExitWith code)
-    )
+      (platformExitWith code))
     0
-  }
-)
+  })
 
 (pub :: sysFailed (-> Int Bool))
-
-(pub fn (sysFailed result) (< result 0))
+(pub fn (sysFailed result)
+  (< result 0))
 
 (pub :: sysErrno (-> Int Int))
-
 (pub fn (sysErrno result)
   (if (< result 0)
     (- 0 result)
-    0
-  )
-)
+    0))
 
 ; Open, read entire contents, close.  Returns an empty string on any
 ; error (missing file, permission, etc.).
@@ -361,7 +333,6 @@
 ; header's address as a char*, opened garbage, and reported every file
 ; as missing.
 (pub :: sysReadFile (-> Int String))
-
 ;@axiom:effect(io)
 (pub fn (sysReadFile path)
   (let ((fd (sysOpenRaw path oRdonly)))
@@ -371,18 +342,14 @@
       ; failed part-way; this function's contract is "" for ANY error,
       ; so the fold is here and the loop stays honest for the callers
       ; that want the errno.
-      (let ((s (match (sysReadAllFd fd)
-        ((Ok got) got)
-        ((Err _) "")
-      )))
+      (let ((s 
+        (match (sysReadAllFd fd)
+          ((Ok got) got)
+          ((Err _) ""))))
         {
           (sysCloseFd fd)
           s
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; Read `fd` to EOF into `buf`, doubling the buffer whenever it fills.
 ; `used` bytes hold data; `cap` is the buffer's capacity. A short read
@@ -400,10 +367,12 @@
 ; `Err` to "", because that is its contract; `sysReadAllFd` below
 ; hands it up.
 (:: sysReadAll (-> Int String Int Int (Result String Error)))
-
 ;@axiom:effect(io)
 (fn (sysReadAll fd buf used cap)
-  (let ((n (match (sysReadFd fd (+ (strData buf) used) (- cap used)) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+  (let ((n 
+    (match (sysReadFd fd (+ (strData buf) used) (- cap used))
+      ((Ok k) k)
+      ((Err e) (- 0 (errCode e))))))
     (if (< n 0)
       (Err (mkError (- 0 n) "sysReadAllFd"))
       (if (== n 0)
@@ -421,9 +390,7 @@
             {
               (__retain own)
               (Ok (strWrapOwned (strData buf) used own))
-            }
-          )
-        )
+            }))
         (let ((used2 (+ used n)))
           (if (< used2 cap)
             (sysReadAll fd buf used2 cap)
@@ -431,14 +398,7 @@
               {
                 (memCopy (strData big) (strData buf) used2)
                 (sysReadAll fd big used2 (* cap 2))
-              }
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              })))))))
 
 ; ------------------------------------------------------------------
 ; Command-line arguments.
@@ -462,23 +422,20 @@
 ; ------------------------------------------------------------------
 ; How many arguments the process received, including the program name.
 (pub :: sysArgc Int)
-
 ;@axiom:effect(io)
-(pub fn (sysArgc) __argc)
+(pub fn (sysArgc)
+  __argc)
 
 ; The i-th argument as a Str (0 is the program name), or "" when `i`
 ; is out of range. The bytes are the process's own argv storage -
 ; NUL-terminated, alive for the whole run, never freed or moved - so
 ; wrapping them without copying is sound.
 (pub :: sysArg (-> Int String))
-
 ;@axiom:effect(io)
 (pub fn (sysArg i)
   (if (|| (< i 0) (>= i __argc))
     ""
-    (strFromLit (__argv i))
-  )
-)
+    (strFromLit (__argv i))))
 
 ; Write `s` to `path`, creating or truncating it. Answers the number of
 ; bytes written, or a negative errno from whichever step failed.
@@ -488,22 +445,18 @@
 ; and it could write to an already-open descriptor, but nothing put a
 ; string on disk under a name.
 (pub :: sysWriteFile (-> Int String (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysWriteFile path s)
-  (sysResult "sysWriteFile"
-  (let ((fd (sysOpenRaw path oWronlyCreateTrunc)))
-    (if (sysFailed fd)
-      fd
-      (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
-        {
-          (sysCloseFd fd)
-          n
-        }
-      )
-    )
-  )
-))
+  (sysResult
+    "sysWriteFile"
+    (let ((fd (sysOpenRaw path oWronlyCreateTrunc)))
+      (if (sysFailed fd)
+        fd
+        (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
+          {
+            (sysCloseFd fd)
+            n
+          })))))
 
 ; Append `s` to `path`, creating it if it is not there. Answers the
 ; number of bytes written, or a negative errno.
@@ -519,22 +472,18 @@
 ; overwriting each other's last one. Opening for writing and seeking
 ; by hand does not have that property.
 (pub :: sysAppendFile (-> Int String (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysAppendFile path s)
-  (sysResult "sysAppendFile"
-  (let ((fd (sysOpenRaw path oWronlyCreateAppend)))
-    (if (sysFailed fd)
-      fd
-      (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
-        {
-          (sysCloseFd fd)
-          n
-        }
-      )
-    )
-  )
-))
+  (sysResult
+    "sysAppendFile"
+    (let ((fd (sysOpenRaw path oWronlyCreateAppend)))
+      (if (sysFailed fd)
+        fd
+        (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
+          {
+            (sysCloseFd fd)
+            n
+          })))))
 
 ; Rename `old` to `new`, answering 0 or `-errno`. Both are
 ; NUL-terminated char* - `strCStr`.
@@ -555,17 +504,18 @@
 ; branches on the existing `openNeedsDirFd` capability rather than
 ; growing a second one.
 (pub :: sysRename (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysRename old new)
-  (sysResult "sysRename"
-  (if (== openNeedsDirFd 1)
-    (__syscall4
-      sysRenameNum      atFdCwd      old      atFdCwd      new
-    )
-    (__syscall2 sysRenameNum old new)
-  )
-))
+  (sysResult
+    "sysRename"
+    (if (== openNeedsDirFd 1)
+      (__syscall4
+        sysRenameNum
+        atFdCwd
+        old
+        atFdCwd
+        new)
+      (__syscall2 sysRenameNum old new))))
 
 ; Remove `path`. Answers 0, or `-errno`.
 ;
@@ -573,15 +523,13 @@
 ; is the same shape as `open`/`openat`, so it branches on the same
 ; `openNeedsDirFd` capability rather than growing a second one.
 (pub :: sysUnlink (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysUnlink path)
-  (sysResult "sysUnlink"
-  (if (== openNeedsDirFd 1)
-    (__syscall3 sysUnlinkNum atFdCwd path 0)
-    (__syscall1 sysUnlinkNum path)
-  )
-))
+  (sysResult
+    "sysUnlink"
+    (if (== openNeedsDirFd 1)
+      (__syscall3 sysUnlinkNum atFdCwd path 0)
+      (__syscall1 sysUnlinkNum path))))
 
 ; Create directory `path` with `mode`. Answers 0, or `-errno` - which
 ; is `-17` (EEXIST) when it is already there, and callers usually want
@@ -591,21 +539,19 @@
 ; branches on the existing `openNeedsDirFd` capability rather than
 ; growing a second one. `path` must be NUL-terminated - `strCStr`.
 (pub :: sysMkdir (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysMkdir path mode)
-  (sysResult "sysMkdir"
-  (if (== openNeedsDirFd 1)
-    (__syscall3 sysMkdirNum atFdCwd path mode)
-    (__syscall2 sysMkdirNum path mode)
-  )
-))
+  (sysResult
+    "sysMkdir"
+    (if (== openNeedsDirFd 1)
+      (__syscall3 sysMkdirNum atFdCwd path mode)
+      (__syscall2 sysMkdirNum path mode))))
 
 ; 0755, the mode a directory usually wants. A nullary function because
 ; that is how this language spells a constant.
 (pub :: sysDirMode Int)
-
-(pub fn (sysDirMode) 493)
+(pub fn (sysDirMode)
+  493)
 
 ; Remove the empty directory `path`. Answers 0, or `-errno`.
 ;
@@ -613,15 +559,13 @@
 ; the only call AArch64 has for either job - remove a directory rather
 ; than refuse with EISDIR.
 (pub :: sysRmdir (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysRmdir path)
-  (sysResult "sysRmdir"
-  (if (== openNeedsDirFd 1)
-    (__syscall3 sysRmdirNum atFdCwd path 512)
-    (__syscall1 sysRmdirNum path)
-  )
-))
+  (sysResult
+    "sysRmdir"
+    (if (== openNeedsDirFd 1)
+      (__syscall3 sysRmdirNum atFdCwd path 512)
+      (__syscall1 sysRmdirNum path))))
 
 ; ------------------------------------------------------------------
 ; Four questions about a file that need no new syscall.
@@ -642,7 +586,6 @@
 ; happened, "no such file" and "the child exited 127" are the same
 ; integer.
 (pub :: sysFileExists (-> Int Bool))
-
 ;@axiom:effect(io)
 (pub fn (sysFileExists path)
   (let ((fd (sysOpenRaw path oRdonly)))
@@ -651,10 +594,7 @@
       {
         (sysCloseFd fd)
         true
-      }
-    )
-  )
-)
+      })))
 
 ; The size of `path` in bytes, or `-errno`. Seeks to the end, which is
 ; what the size IS - no struct, no layout, no per-target record.
@@ -667,22 +607,18 @@
 ; over - a caller that must not be fooled asks two questions, and this
 ; one alone was never going to answer both.
 (pub :: sysFileSize (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysFileSize path)
-  (sysResult "sysFileSize"
-  (let ((fd (sysOpenRaw path oRdonly)))
-    (if (< fd 0)
-      fd
-      (let ((n (sysSeek fd 0 seekEnd)))
-        {
-          (sysCloseFd fd)
-          n
-        }
-      )
-    )
-  )
-))
+  (sysResult
+    "sysFileSize"
+    (let ((fd (sysOpenRaw path oRdonly)))
+      (if (< fd 0)
+        fd
+        (let ((n (sysSeek fd 0 seekEnd)))
+          {
+            (sysCloseFd fd)
+            n
+          })))))
 
 ; 0 when `path` can be opened AND read as a file, otherwise the errno
 ; saying why not.
@@ -700,26 +636,22 @@
 ; `main.ax` as `sourceReadErrno`, which is one program's private fix
 ; for a question every program reading a path has.
 (pub :: sysReadErrno (-> Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sysReadErrno path)
   (let ((fd (sysOpenRaw path oRdonly)))
     (if (sysFailed fd)
       (sysErrno fd)
       (let ((probe (strAlloc 1)))
-        (let ((n (match (sysReadFd fd (strData probe) 1) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+        (let ((n 
+          (match (sysReadFd fd (strData probe) 1)
+            ((Ok k) k)
+            ((Err e) (- 0 (errCode e))))))
           {
             (sysCloseFd fd)
             (if (< n 0)
               (sysErrno n)
-              0
-            )
-          }
-        )
-      )
-    )
-  )
-)
+              0)
+          })))))
 
 ; True when `path` names a directory.
 ;
@@ -730,9 +662,9 @@
 ; distinction `sysFileExists` cannot make and `sysFileSize` answers
 ; wrongly for.
 (pub :: sysIsDir (-> Int Bool))
-
 ;@axiom:effect(io)
-(pub fn (sysIsDir path) (== (sysReadErrno path) eIsDir))
+(pub fn (sysIsDir path)
+  (== (sysReadErrno path) eIsDir))
 
 ; ------------------------------------------------------------------
 ; Reading a directory.
@@ -766,8 +698,8 @@
 ; hundred entries comes back in one syscall (a Darwin record is 32
 ; bytes for a short name), and the loop below handles any number.
 (:: sysDirBufBytes Int)
-
-(fn (sysDirBufBytes) 32768)
+(fn (sysDirBufBytes)
+  32768)
 
 ; Every name in the directory `path`, as a Vec of owned `Str` - `.`
 ; and `..` INCLUDED, in whatever order the filesystem gives them.
@@ -789,7 +721,6 @@
 ; bytes N times over - which is the kind of bug that looks like a
 ; filesystem returning duplicates.
 (pub :: sysReadDir (-> Int (Vec Int)))
-
 ;@axiom:effect(io)
 (pub fn (sysReadDir path)
   (let ((out vecNew))
@@ -808,38 +739,30 @@
             (sysReadDirLoop fd buf pos out)
             (sysCloseFd fd)
             out
-          }
-        )
-      )
-    )
-  )
-)
+          })))))
 
 ; One `getdents` per pass until the directory is exhausted (0) or the
 ; kernel refuses (negative). A refusal mid-way keeps the names already
 ; decoded rather than discarding them, which matches `sysReadAll`'s
 ; rule for a short read.
 (:: sysReadDirLoop (-> Int Int Int (Vec Int) Int))
-
 ;@axiom:effect(io)
 (fn (sysReadDirLoop fd buf pos out)
   (let ((n 
     (if (== dirReadNeedsPosition 1)
       (__syscall4
-        sysGetdentsNum        fd        buf        sysDirBufBytes        pos
-      )
-      (__syscall3 sysGetdentsNum fd buf sysDirBufBytes)
-    )
-  ))
+        sysGetdentsNum
+        fd
+        buf
+        sysDirBufBytes
+        pos)
+      (__syscall3 sysGetdentsNum fd buf sysDirBufBytes))))
     (if (<= n 0)
       n
       {
         (sysReadDirDecode buf 0 n out)
         (sysReadDirLoop fd buf pos out)
-      }
-    )
-  )
-)
+      })))
 
 ; Walk the `n` bytes of packed records at `buf`, pushing one owned copy
 ; of each name.
@@ -866,7 +789,6 @@
 ; (Linux; Darwin's and FreeBSD's is 32), so nothing a conforming one
 ; returns is refused by it.
 (:: sysReadDirDecode (-> Int Int Int (Vec Int) Int))
-
 (fn (sysReadDirDecode buf off n out)
   ; 18 is the last byte of `d_reclen` on both layouts; without room for
   ; it there is no length to read.
@@ -888,15 +810,10 @@
           0
           {
             (vecPush
-              out              (cast Int (strDup (strFromLit (+ p direntNameOffset))))
-            )
+              out
+              (cast Int (strDup (strFromLit (+ p direntNameOffset)))))
             (sysReadDirDecode buf (+ off reclen) n out)
-          }
-        )
-      )
-    )
-  )
-)
+          })))))
 
 ; ------------------------------------------------------------------
 ; The working directory.
@@ -941,7 +858,6 @@
 ; result means (Linux answers the length including the NUL, Darwin's
 ; `fcntl` answers 0) and the NUL is the one thing both write.
 (pub :: sysGetCwd (Result String Error))
-
 ;@axiom:effect(io)
 (pub fn (sysGetCwd)
   ; PATH_MAX is 4096 on Linux and 1024 on Darwin and FreeBSD; one
@@ -959,21 +875,12 @@
               (sysCloseFd fd)
               (if (< rc 0)
                 (Err (mkError (- 0 rc) "getcwd"))
-                (Ok (strDup (strFromLit buf)))
-              )
-            }
-          )
-        )
-      )
+                (Ok (strDup (strFromLit buf))))
+            })))
       (let ((rc (__syscall2 sysCwdNum buf 4096)))
         (if (< rc 0)
           (Err (mkError (- 0 rc) "getcwd"))
-          (Ok (strDup (strFromLit buf)))
-        )
-      )
-    )
-  )
-)
+          (Ok (strDup (strFromLit buf))))))))
 
 ; ------------------------------------------------------------------
 ; The environment.
@@ -995,25 +902,22 @@
 ; ------------------------------------------------------------------
 ; The address of the i-th environment entry's bytes, or 0 past the end.
 (:: sysEnvSlot (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (sysEnvSlot i) (__argv (+ (+ __argc 1) i)))
+(fn (sysEnvSlot i)
+  (__argv (+ (+ __argc 1) i)))
 
 ; How many entries the environment has.
 (:: sysEnvCount Int)
-
 ;@axiom:effect(io)
-(fn (sysEnvCount) (sysEnvCountFrom 0))
+(fn (sysEnvCount)
+  (sysEnvCountFrom 0))
 
 (:: sysEnvCountFrom (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (sysEnvCountFrom i)
   (if (== (sysEnvSlot i) 0)
     i
-    (sysEnvCountFrom (+ i 1))
-  )
-)
+    (sysEnvCountFrom (+ i 1))))
 
 ; The value of the environment variable `name`, or "" when it is unset.
 ;
@@ -1022,12 +926,11 @@
 ; Anything handing it to a syscall as a path must copy it first, which
 ; `strConcat` and `strDup` both do.
 (pub :: sysEnv (-> String String))
-
 ;@axiom:effect(io)
-(pub fn (sysEnv name) (sysEnvLookup (strConcat name "=") 0))
+(pub fn (sysEnv name)
+  (sysEnvLookup (strConcat name "=") 0))
 
 (:: sysEnvLookup (-> String Int String))
-
 ;@axiom:effect(io)
 (fn (sysEnvLookup prefix i)
   (let ((p (sysEnvSlot i)))
@@ -1036,12 +939,7 @@
       (let ((e (strFromLit p)))
         (if (strStartsWith e prefix)
           (strSlice e (strLen prefix) (- (strLen e) (strLen prefix)))
-          (sysEnvLookup prefix (+ i 1))
-        )
-      )
-    )
-  )
-)
+          (sysEnvLookup prefix (+ i 1)))))))
 
 ; A NULL-terminated copy of the process's own environment vector, in the
 ; form a child expects.
@@ -1052,7 +950,6 @@
 ; empty one, which is rarely what a compiler driver wants - `cc` in
 ; particular resolves its toolchain through the environment.
 (pub :: sysEnvp Int)
-
 ;@axiom:effect(io)
 (pub fn (sysEnvp)
   (let ((n sysEnvCount))
@@ -1060,13 +957,9 @@
       {
         (sysEnvpFill v 0 n)
         v
-      }
-    )
-  )
-)
+      })))
 
 (:: sysEnvpFill (-> Int Int Int Int))
-
 ;@axiom:effect(io)
 (fn (sysEnvpFill v i n)
   (if (>= i n)
@@ -1074,9 +967,7 @@
     {
       (memSetWord v i (sysEnvSlot i))
       (sysEnvpFill v (+ i 1) n)
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Child processes.
@@ -1108,123 +999,118 @@
 ; supply it. Neither vector is searched for on `PATH` - `sysRunPath`
 ; does that.
 (pub :: sysSpawn (-> Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysSpawn path argv envp)
-  (sysResult "sysSpawn"
-  (if (== spawnUsesPosixSpawn 1)
-    (let ((pidbuf (memAlloc 8)))
-      {
-        (memSetWord pidbuf 0 0)
-        ; FIVE arguments, not libc's six: the kernel entry point fuses
-        ; the file actions and the attributes into one descriptor, so
-        ; `(pid, path, adesc, argv, envp)` is the shape. See the note
-        ; on `sysPosixSpawn` in the Darwin platform module for what the
-        ; six-argument spelling does instead, and why it is nearly
-        ; invisible.
-        (let ((rc (__syscall5
-          sysPosixSpawn          pidbuf          path          0          argv          envp
-        )))
-          (if (< rc 0)
-            rc
-            (memGetWord pidbuf 0)
-          )
-        )
-      }
-    )
-    ; The path is tested BEFORE the fork, and only this backend needs
-    ; the test. `posix_spawn` resolves the path in the PARENT and
-    ; answers `-ENOENT` without creating a process; here the fork
-    ; always succeeds, the failed `execve` is the CHILD's problem, and
-    ; the only thing the parent gets back is the exit status set
-    ; below - 127, a positive number indistinguishable from a tool
-    ; that ran and exited 127. Conflating those two is exactly what
-    ; `sysRun`'s contract says it does not do.
-    ;
-    ; `sysRunSearch` has its own test for the same reason and it is
-    ; not this one: that one skips a candidate on ANY open failure,
-    ; which is `execvp`'s rule for a PATH walk. This is the direct
-    ; path, where ENOENT ONLY is deliberate - a file that cannot be
-    ; opened can still be executable (mode 0711 is readable by nobody
-    ; and runnable by everyone), and `execve` is the only thing
-    ; entitled to decide that, so every other open failure still
-    ; forks and asks it.
-    (let ((probe (sysOpenRaw path oRdonly)))
-      (if (== probe (- 0 2))
-        probe
+  (sysResult
+    "sysSpawn"
+    (if (== spawnUsesPosixSpawn 1)
+      (let ((pidbuf (memAlloc 8)))
         {
-          (if (>= probe 0)
-            { (sysCloseFd probe) 0 }
+          (memSetWord pidbuf 0 0)
+          ; FIVE arguments, not libc's six: the kernel entry point fuses
+          ; the file actions and the attributes into one descriptor, so
+          ; `(pid, path, adesc, argv, envp)` is the shape. See the note
+          ; on `sysPosixSpawn` in the Darwin platform module for what the
+          ; six-argument spelling does instead, and why it is nearly
+          ; invisible.
+          (let ((rc (__syscall5
+            sysPosixSpawn
+            pidbuf
+            path
             0
-          )
-          ; Through `sysForkProcess` rather than the raw syscall, because
-          ; the test below is `pid == 0` and that is only the child on a
-          ; platform where `fork` answers 0 to one of them. Darwin does
-          ; not, so while this branch is unreachable there today -
-          ; `spawnUsesPosixSpawn` sends it elsewhere - a raw fork here
-          ; would have the CHILD fall through to `pid` and return into
-          ; the caller as a second copy of the driver, which is the one
-          ; failure the comment below is guarding against.
-          (let ((pid sysForkProcess))
-            (if (< pid 0)
-              pid
-              (if (== pid 0)
-                ; The child. `execve` replaces this image, so
-                ; reaching the next line means it failed - and
-                ; the child must then die rather than return
-                ; into the caller's code and become a second
-                ; copy of the driver. 127 is the shell's
-                ; convention for "command not found".
-                {
-                  (__syscall3 sysExecve path argv envp)
-                  (__syscall1 sysExit 127)
-                  0
-                }
+            argv
+            envp)))
+            (if (< rc 0)
+              rc
+              (memGetWord pidbuf 0)))
+        })
+      ; The path is tested BEFORE the fork, and only this backend needs
+      ; the test. `posix_spawn` resolves the path in the PARENT and
+      ; answers `-ENOENT` without creating a process; here the fork
+      ; always succeeds, the failed `execve` is the CHILD's problem, and
+      ; the only thing the parent gets back is the exit status set
+      ; below - 127, a positive number indistinguishable from a tool
+      ; that ran and exited 127. Conflating those two is exactly what
+      ; `sysRun`'s contract says it does not do.
+      ;
+      ; `sysRunSearch` has its own test for the same reason and it is
+      ; not this one: that one skips a candidate on ANY open failure,
+      ; which is `execvp`'s rule for a PATH walk. This is the direct
+      ; path, where ENOENT ONLY is deliberate - a file that cannot be
+      ; opened can still be executable (mode 0711 is readable by nobody
+      ; and runnable by everyone), and `execve` is the only thing
+      ; entitled to decide that, so every other open failure still
+      ; forks and asks it.
+      (let ((probe (sysOpenRaw path oRdonly)))
+        (if (== probe (- 0 2))
+          probe
+          {
+            (if (>= probe 0)
+              {
+                (sysCloseFd probe)
+                0
+              }
+              0)
+            ; Through `sysForkProcess` rather than the raw syscall, because
+            ; the test below is `pid == 0` and that is only the child on a
+            ; platform where `fork` answers 0 to one of them. Darwin does
+            ; not, so while this branch is unreachable there today -
+            ; `spawnUsesPosixSpawn` sends it elsewhere - a raw fork here
+            ; would have the CHILD fall through to `pid` and return into
+            ; the caller as a second copy of the driver, which is the one
+            ; failure the comment below is guarding against.
+            (let ((pid sysForkProcess))
+              (if (< pid 0)
                 pid
-              )
-            )
-          )
-        }
-      )
-    )
-  )
-))
+                (if (== pid 0)
+                  ; The child. `execve` replaces this image, so
+                  ; reaching the next line means it failed - and
+                  ; the child must then die rather than return
+                  ; into the caller's code and become a second
+                  ; copy of the driver. 127 is the shell's
+                  ; convention for "command not found".
+                  {
+                    (__syscall3 sysExecve path argv envp)
+                    (__syscall1 sysExit 127)
+                    0
+                  }
+                  pid)))
+          })))))
 
 ; Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)`
 ; carries the errno of a wait that could not be performed.
 (pub :: sysWaitPid (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysWaitPid pid)
-  (sysResult "sysWaitPid"
-  ; The kernel writes a 32-bit int into an 8-byte word, so the upper
-  ; half is whatever was there before. Zeroing first is what makes
-  ; the read below the status rather than the status plus garbage.
-  (let ((statbuf (memAlloc 8)))
-    {
-      (memSetWord statbuf 0 0)
-      (let ((w (__syscall4
-        sysWait4        pid        statbuf        0        0
-      )))
-        (if (< w 0)
-          w
-          (memGetWord statbuf 0)
-        )
-      )
-    }
-  )
-))
+  (sysResult
+    "sysWaitPid"
+    (let ((statbuf (memAlloc 8)))
+      {
+        ; The kernel writes a 32-bit int into an 8-byte word, so the upper
+        ; half is whatever was there before. Zeroing first is what makes
+        ; the read below the status rather than the status plus garbage.
+        (memSetWord statbuf 0 0)
+        (let ((w (__syscall4
+          sysWait4
+          pid
+          statbuf
+          0
+          0)))
+          (if (< w 0)
+            w
+            (memGetWord statbuf 0)))
+      })))
 
 ; The exit code carried by a wait status, for a child that exited
 ; normally.
 (pub :: sysExitCode (-> Int Int))
-
-(pub fn (sysExitCode status) (& (>> status 8) 255))
+(pub fn (sysExitCode status)
+  (& (>> status 8) 255))
 
 ; The signal that killed a child, or 0 if it exited normally.
 (pub :: sysTermSignal (-> Int Int))
-
-(pub fn (sysTermSignal status) (& status 127))
+(pub fn (sysTermSignal status)
+  (& status 127))
 
 ; Run `path` to completion and answer its exit code.
 ;
@@ -1238,7 +1124,6 @@
 ; carried by the arms now, which is the difference between a caller
 ; that may lose it and one that cannot.
 (pub :: sysRun (-> Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysRun path argv envp)
   ; The three-way answer, now split by the type rather than by a sign.
@@ -1255,13 +1140,9 @@
         ((Ok st)
           (if (!= (sysTermSignal st) 0)
             (Ok (+ 128 (sysTermSignal st)))
-            (Ok (sysExitCode st))
-          )
-        )
-      )
-    )
-  )
-)
+            (Ok (sysExitCode st)))
+        ))
+    )))
 
 ; Run `name`, searching `PATH` for it when it contains no slash.
 ;
@@ -1343,24 +1224,21 @@
 ; told nothing else about - a guess that is wrong on any target whose
 ; toolchain lives elsewhere, and wrong silently.
 (pub :: sysRunPath (-> String Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysRunPath name argv envp)
   (if (match (strFindByte name 47 0)
-      ((None) false)
-      ((Some _) true)
-    )
+    ((None) false)
+    ((Some _) true))
     (sysRun (strCStr (strDup name)) argv envp)
     (let ((path (sysEnv "PATH")))
       (if (== (strLen path) 0)
         (Err (mkError 2 "sysRunPath: PATH is empty"))
         (sysRunSearch
-          name          argv          envp          path          0
-        )
-      )
-    )
-  )
-)
+          name
+          argv
+          envp
+          path
+          0)))))
 
 ; Try `name` in each `:`-separated entry of `path` starting at `from`.
 ;
@@ -1371,7 +1249,6 @@
 ; here because either alone leaves this function unable to state its own
 ; termination.
 (:: sysRunSearch (-> String Int Int String Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (fn (sysRunSearch name argv envp path from)
   (if (>= from (strLen path))
@@ -1396,67 +1273,63 @@
     ; spelling for one, and it is unambiguous: a name with
     ; a slash in it. `sysRunPath` hands `./llc` straight to
     ; `sysRun` and never comes here.
-    (let ((end
+    (let ((end 
       (match (strFindByte path 58 from)
         ((None) (strLen path))
-        ((Some colon) colon)
-      )
-    ))
+        ((Some colon) colon))))
       (let ((dir (strSlice path from (- end from))))
-          (if (== (strLen dir) 0)
-            (sysRunSearch
-              name              argv              envp              path              (+ end 1)
-            )
-            ; `strConcat` copies, so the candidate is
-            ; NUL-terminated even though `dir` - a slice sharing
-            ; the environment's bytes - is not.
-            ; Does it exist? A candidate that cannot be opened
-            ; cannot be executed, and under fork+exec that is
-            ; the ONLY point at which the two are still
-            ; distinguishable - once the fork has happened, "no
-            ; such file" and "the tool exited 127" are the same
-            ; integer.
-            (let ((cand (strConcat (strConcat dir "/") name)))
-              (let ((cpath (strCStr cand)))
-                (let ((fd (sysOpenRaw cpath oRdonly)))
-                  (if (< fd 0)
-                    (sysRunSearch
-                      name                      argv                      envp                      path                      (+ end 1)
-                    )
-                    {
-                      (sysCloseFd fd)
-                      ; `Ok` here means the child RAN, whatever it
-                      ; answered - a non-zero exit is this entry's
-                      ; result and ends the walk. Only a spawn failure
-                      ; (`Err`) means try the next `PATH` entry, which
-                      ; is the distinction the old `>= 0` was making by
-                      ; sign.
-                      (let ((rc (sysRun cpath argv envp)))
-                        (if (isOk rc)
-                          rc
-                          (sysRunSearch
-                            name                            argv                            envp                            path                            (+ end 1)
-                          )
-                        )
-                      )
-                    }
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-  )
-)
+        (if (== (strLen dir) 0)
+          (sysRunSearch
+            name
+            argv
+            envp
+            path
+            (+ end 1))
+          ; `strConcat` copies, so the candidate is
+          ; NUL-terminated even though `dir` - a slice sharing
+          ; the environment's bytes - is not.
+          ; Does it exist? A candidate that cannot be opened
+          ; cannot be executed, and under fork+exec that is
+          ; the ONLY point at which the two are still
+          ; distinguishable - once the fork has happened, "no
+          ; such file" and "the tool exited 127" are the same
+          ; integer.
+          (let ((cand (strConcat (strConcat dir "/") name)))
+            (let ((cpath (strCStr cand)))
+              (let ((fd (sysOpenRaw cpath oRdonly)))
+                (if (< fd 0)
+                  (sysRunSearch
+                    name
+                    argv
+                    envp
+                    path
+                    (+ end 1))
+                  {
+                    (sysCloseFd fd)
+                    ; `Ok` here means the child RAN, whatever it
+                    ; answered - a non-zero exit is this entry's
+                    ; result and ends the walk. Only a spawn failure
+                    ; (`Err`) means try the next `PATH` entry, which
+                    ; is the distinction the old `>= 0` was making by
+                    ; sign.
+                    (let ((rc (sysRun cpath argv envp)))
+                      (if (isOk rc)
+                        rc
+                        (sysRunSearch
+                          name
+                          argv
+                          envp
+                          path
+                          (+ end 1))))
+                  })))))))))
 
 ; The calling process's own id - the per-session suffix scratch
 ; files need so two concurrent processes cannot collide. The
 ; syscall takes no arguments; the unused ones are simply zero.
 (pub :: sysGetPid Int)
-
 ;@axiom:effect(io)
-(pub fn (sysGetPid) (__syscall3 sysGetPidNum 0 0 0))
+(pub fn (sysGetPid)
+  (__syscall3 sysGetPidNum 0 0 0))
 
 ; Microseconds now, from the platform's cheapest correct clock: Darwin
 ; answers gettimeofday's timeval (realtime; Darwin's syscall table has
@@ -1483,24 +1356,17 @@
 ; struct padding above it - masked, not trusted. `(Result Int Error)`
 ; since 2026-09-03.
 (pub :: sysNowMicros (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysNowMicros buf)
   (if (== clockIsGettimeofday 1)
     (let ((r (__syscall3 sysClockNum buf 0 0)))
       (if (< r 0)
         (Err (mkError (- 0 r) "sysNowMicros"))
-        (Ok (+ (* (memGetWord buf 0) 1000000) (& (memGetWord buf 1) 4294967295)))
-      )
-    )
+        (Ok (+ (* (memGetWord buf 0) 1000000) (& (memGetWord buf 1) 4294967295)))))
     (let ((r (__syscall3 sysClockNum clockMonotonicId buf 0)))
       (if (< r 0)
         (Err (mkError (- 0 r) "sysNowMicros"))
-        (Ok (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000)))
-      )
-    )
-  )
-)
+        (Ok (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000)))))))
 
 ; Microseconds from a clock that NEVER steps backwards, or `Err` when
 ; this platform has none. The 16-byte buffer is the caller's, as
@@ -1521,7 +1387,6 @@
 ; take the fallback silently, which is the bug this pair exists to make
 ; impossible to write by accident.
 (pub :: sysNowMonotonic (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysNowMonotonic buf)
   (if (== clockHasMonotonic 0)
@@ -1529,11 +1394,7 @@
     (let ((r (__syscall3 sysClockNum clockMonotonicId buf 0)))
       (if (< r 0)
         (Err (mkError (- 0 r) "sysNowMonotonic"))
-        (Ok (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000)))
-      )
-    )
-  )
-)
+        (Ok (+ (* (memGetWord buf 0) 1000000) (/ (memGetWord buf 1) 1000)))))))
 
 ; ------------------------------------------------------------------
 ; Sockets
@@ -1611,11 +1472,9 @@
 ; into `netBind`, `netListen` and `netAccept`, each of which fails for
 ; a reason that has nothing to do with what went wrong.
 (pub :: netSocketTcp (Result Int Error))
-
 ;@axiom:effect(io)
 (pub fn (netSocketTcp)
-  (sysResult "netSocketTcp" (__syscall3 sysSocketNum afInet sockStream 0))
-)
+  (sysResult "netSocketTcp" (__syscall3 sysSocketNum afInet sockStream 0)))
 
 ; The same over IPv6. Its own name rather than a family parameter,
 ; because the family is not a runtime choice at this layer: a caller
@@ -1630,11 +1489,9 @@
 ; three functions later. `scripts/check-net.sh`'s IPv6 arm runs on all
 ; three targets and is what holds the number to its platform.
 (pub :: netSocketTcp6 (Result Int Error))
-
 ;@axiom:effect(io)
 (pub fn (netSocketTcp6)
-  (sysResult "netSocketTcp6" (__syscall3 sysSocketNum afInet6 sockStream 0))
-)
+  (sysResult "netSocketTcp6" (__syscall3 sysSocketNum afInet6 sockStream 0)))
 
 ; How many bytes an address of each family occupies, and how big a
 ; buffer that must take either has to be.
@@ -1647,18 +1504,18 @@
 ; and the totals land together. That is why they live here and not in
 ; `Sys.Platform`.
 (pub :: netAddr4Bytes Int)
-
-(pub fn (netAddr4Bytes) 16)
+(pub fn (netAddr4Bytes)
+  16)
 
 (pub :: netAddr6Bytes Int)
-
-(pub fn (netAddr6Bytes) 28)
+(pub fn (netAddr6Bytes)
+  28)
 
 ; What `netAcceptFrom` wants, which is the larger of the two: a caller
 ; does not get to know the peer's family until it has the peer.
 (pub :: netAddrMaxBytes Int)
-
-(pub fn (netAddrMaxBytes) 28)
+(pub fn (netAddrMaxBytes)
+  28)
 
 ; Write an IPv4 `sockaddr_in` into `buf`, which must hold 16 bytes, and
 ; answer `buf`. The four octets are given in reading order, so
@@ -1671,7 +1528,6 @@
 ; little-endian machines. Port 8080 is 0x1F90 and goes down as 0x1F
 ; then 0x90.
 (pub :: netAddr4 (-> Int Int Int Int Int Int Int))
-
 (pub fn (netAddr4 buf port a b c d)
   {
     (memSet buf 0 16)
@@ -1683,8 +1539,7 @@
       {
         (memPutByte buf 0 afInet)
         (memPutByte buf 1 0)
-      }
-    )
+      })
     (memPutByte buf 2 (& (>> port 8) 255))
     (memPutByte buf 3 (& port 255))
     (memPutByte buf 4 a)
@@ -1692,8 +1547,7 @@
     (memPutByte buf 6 c)
     (memPutByte buf 7 d)
     buf
-  }
-)
+  })
 
 ; Write an IPv6 `sockaddr_in6` into `buf`, which must hold
 ; `netAddr6Bytes`, and answer `buf`.
@@ -1719,7 +1573,6 @@
 ; `scripts/check-freestanding.sh` exists to hold. A link-local listener
 ; arrives as its own decision, the same way a resolver does.
 (pub :: netAddr6 (-> Int Int Int Int Int Int Int Int Int Int Int))
-
 (pub fn (netAddr6 buf port g0 g1 g2 g3 g4 g5 g6 g7)
   {
     (memSet buf 0 netAddr6Bytes)
@@ -1731,8 +1584,7 @@
       {
         (memPutByte buf 0 (& afInet6 255))
         (memPutByte buf 1 (& (>> afInet6 8) 255))
-      }
-    )
+      })
     (memPutByte buf 2 (& (>> port 8) 255))
     (memPutByte buf 3 (& port 255))
     (netPutGroup buf 0 g0)
@@ -1744,27 +1596,24 @@
     (netPutGroup buf 6 g6)
     (netPutGroup buf 7 g7)
     buf
-  }
-)
+  })
 
 ; The `i`th 16-bit group of a `sockaddr_in6` address, written
 ; big-endian at byte 8 + 2i. Network order, like `sin_port` and
 ; `sin_addr` and unlike everything else this file stores.
 (:: netPutGroup (-> Int Int Int Int))
-
 (fn (netPutGroup buf i g)
   {
     (memPutByte buf (+ 8 (* i 2)) (& (>> g 8) 255))
     (memPutByte buf (+ 9 (* i 2)) (& g 255))
     buf
-  }
-)
+  })
 
 ; The `i`th group read back, which is what `netAddrText` renders and
 ; what decides where a `::` may go.
 (:: netGetGroup (-> Int Int Int))
-
-(fn (netGetGroup addr i) (+ (<< (memGetByte addr (+ 8 (* i 2))) 8) (memGetByte addr (+ 9 (* i 2)))))
+(fn (netGetGroup addr i)
+  (+ (<< (memGetByte addr (+ 8 (* i 2))) 8) (memGetByte addr (+ 9 (* i 2)))))
 
 ; The address family in a `sockaddr` - `afInet`, `afInet6`, or whatever
 ; else the kernel wrote there.
@@ -1776,21 +1625,18 @@
 ; other, which is the whole shape `sockaddrHasLenByte` was added to
 ; stop.
 (pub :: netAddrFamily (-> Int Int))
-
 (pub fn (netAddrFamily addr)
   (if (== sockaddrHasLenByte 1)
     (memGetByte addr 1)
-    (+ (memGetByte addr 0) (<< (memGetByte addr 1) 8))
-  )
-)
+    (+ (memGetByte addr 0) (<< (memGetByte addr 1) 8))))
 
 ; The port in a `sockaddr`, decoded from network order. This one does
 ; NOT branch on the platform or the family: both layouts diverge in the
 ; four bytes before it and agree from byte 2 on, so `sin_port` and
 ; `sin6_port` are the same two bytes in the same place.
 (pub :: netAddrPort (-> Int Int))
-
-(pub fn (netAddrPort addr) (+ (<< (memGetByte addr 2) 8) (memGetByte addr 3)))
+(pub fn (netAddrPort addr)
+  (+ (<< (memGetByte addr 2) 8) (memGetByte addr 3)))
 
 ; How many bytes of `addr` a syscall must be given, read off the family
 ; the buffer carries. This is what `netBind` and `netConnect` pass, and
@@ -1804,13 +1650,10 @@
 ; `::1` with a length of 16 answers -22 EINVAL. Family first, then
 ; length - so a wrong family is never reported as a wrong size.
 (pub :: netAddrSize (-> Int Int))
-
 (pub fn (netAddrSize addr)
   (if (== (netAddrFamily addr) afInet6)
     netAddr6Bytes
-    netAddr4Bytes
-  )
-)
+    netAddr4Bytes))
 
 ; Bind a socket to an address built by `netAddr4` or `netAddr6`.
 ;
@@ -1831,19 +1674,15 @@
 ; caller that wants to distinguish EADDRINUSE from EADDRNOTAVAIL reads
 ; it there instead of comparing a negative Int against a constant.
 (pub :: netBind (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netBind fd addr)
-  (sysResult "netBind" (__syscall3 sysBindNum fd addr (netAddrSize addr)))
-)
+  (sysResult "netBind" (__syscall3 sysBindNum fd addr (netAddrSize addr))))
 
 ; Answers `(Result Int Error)`; `Ok 0` on success.
 (pub :: netListen (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netListen fd backlog)
-  (sysResult "netListen" (__syscall3 sysListenNum fd backlog 0))
-)
+  (sysResult "netListen" (__syscall3 sysListenNum fd backlog 0)))
 
 ; Accept a connection, answering `Ok` the new socket or `Err` the
 ; errno - `(Result Int Error)` since 2026-09-03; a would-block answer
@@ -1877,11 +1716,14 @@
 ; pre-forked pool - asks `netSetBlocking` for the other mode and gets a
 ; defined answer on both.
 (pub :: netAccept (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
-(pub fn (netAccept fd) (sysResult "netAccept" (netAcceptFinish (__syscall4
-  sysAcceptNum  fd  0  0  acceptNonblockFlag
-))))
+(pub fn (netAccept fd)
+  (sysResult "netAccept" (netAcceptFinish (__syscall4
+    sysAcceptNum
+    fd
+    0
+    0
+    acceptNonblockFlag))))
 
 ; The half of an accept that is not the syscall: put the accepted
 ; socket into the non-blocking state this layer promises, on the target
@@ -1893,7 +1735,6 @@
 ; same contract - which is the failure `311-preforked-server.ax` cost
 ; this tree once already.
 (:: netAcceptFinish (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (netAcceptFinish c)
   (if (< c 0)
@@ -1906,10 +1747,7 @@
         (netSetNonBlockingRaw c)
         c
       }
-      c
-    )
-  )
-)
+      c)))
 
 ; Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new
 ; socket or a negative errno, exactly as `netAccept` does, and fills
@@ -1968,7 +1806,6 @@
 ; It shares `netAcceptFinish` with `netAccept`, so the non-blocking
 ; contract above is this function's too and is not re-solved here.
 (pub :: netAcceptFrom (-> Int Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netAcceptFrom fd addr cap lenbuf)
   {
@@ -1979,8 +1816,11 @@
     ; withdrawn: clearing the family byte is what makes
     ; `netAddrFamily` answer 0 and `netAddrText` answer `af=0`.
     (let ((fd2 (netAcceptFinish (__syscall4
-      sysAcceptNum      fd      addr      lenbuf      acceptNonblockFlag
-    ))))
+      sysAcceptNum
+      fd
+      addr
+      lenbuf
+      acceptNonblockFlag))))
       {
         ; THE LENGTH THE KERNEL REPORTS IS NOT THE SAME FACT EVERYWHERE.
         ; Linux and Darwin write the peer's WHOLE length into the cell
@@ -1997,20 +1837,14 @@
           (let ((whole (memGetByte addr 0)))
             (if (> whole (netAddrLenRead lenbuf))
               (netPutInt32 lenbuf 0 whole)
-              0
-            )
-          )
-          0
-        )
+              0))
+          0)
         (if (&& (>= fd2 0) (> (netAddrLenRead lenbuf) cap))
           (memSet addr 0 cap)
-          0
-        )
+          0)
         (sysResult "netAcceptFrom" fd2)
-      }
-    )
-  }
-)
+      })
+  })
 
 ; The length the kernel wrote back into a `netAcceptFrom` cell - 16 for
 ; a v4 peer, 28 for a v6 one - as normalised by `netAcceptFrom`. It is
@@ -2028,15 +1862,14 @@
 ; the right number here - which is exactly why the sentinel in
 ; `317-peer-address.ax` is 0 and not 0xFF.
 (pub :: netAddrLenRead (-> Int Int))
-
-(pub fn (netAddrLenRead lenbuf) (netGetInt32 lenbuf 0))
+(pub fn (netAddrLenRead lenbuf)
+  (netGetInt32 lenbuf 0))
 
 ; A four-byte integer in the HOST's order, which is what the kernel
 ; reads a `socklen_t` and an `int` socket option as - unlike an
 ; address, whose port and octets are network order. Both spellings were
 ; written out twice before `netAcceptFrom` needed a third.
 (:: netPutInt32 (-> Int Int Int Int))
-
 (fn (netPutInt32 buf off v)
   {
     (memPutByte buf off (& v 255))
@@ -2044,12 +1877,11 @@
     (memPutByte buf (+ off 2) (& (>> v 16) 255))
     (memPutByte buf (+ off 3) (& (>> v 24) 255))
     buf
-  }
-)
+  })
 
 (:: netGetInt32 (-> Int Int Int))
-
-(fn (netGetInt32 buf off) (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (<< (memGetByte buf (+ off 3)) 24)))))
+(fn (netGetInt32 buf off)
+  (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (<< (memGetByte buf (+ off 3)) 24)))))
 
 ; Render an address as text: a dotted quad for `afInet`, RFC 5952 form
 ; for `afInet6`.
@@ -2069,36 +1901,27 @@
 ; `netAcceptFrom`. It is made when a line is written, not on every
 ; accept.
 (pub :: netAddrText (-> Int String))
-
 (pub fn (netAddrText addr)
   (let ((fam (netAddrFamily addr)))
     (if (== fam afInet6)
       (netAddrText6 addr 0 (netAddrZeroRunStart addr 0 (- 0 1) 1) "")
       (if (== fam afInet)
         (netAddrText4 addr)
-        (strConcat "af=" (fmtInt fam))
-      )
-    )
-  )
-)
+        (strConcat "af=" (fmtInt fam))))))
 
 (:: netAddrText4 (-> Int String))
-
-(fn (netAddrText4 addr) (strConcat (strConcat (strConcat (fmtInt (memGetByte addr 4)) ".") (strConcat (fmtInt (memGetByte addr 5)) ".")) (strConcat (strConcat (fmtInt (memGetByte addr 6)) ".") (fmtInt (memGetByte addr 7)))))
+(fn (netAddrText4 addr)
+  (strConcat (strConcat (strConcat (fmtInt (memGetByte addr 4)) ".") (strConcat (fmtInt (memGetByte addr 5)) ".")) (strConcat (strConcat (fmtInt (memGetByte addr 6)) ".") (fmtInt (memGetByte addr 7)))))
 
 ; How many groups from `i` are zero. The run this answers is what a
 ; `::` stands for.
 (:: netAddrZeroRun (-> Int Int Int))
-
 (fn (netAddrZeroRun addr i)
   (if (>= i 8)
     0
     (if (== (netGetGroup addr i) 0)
       (+ 1 (netAddrZeroRun addr (+ i 1)))
-      0
-    )
-  )
-)
+      0)))
 
 ; Where the `::` goes, or -1 for an address that gets none.
 ;
@@ -2108,7 +1931,6 @@
 ; length and one of them is ambiguous. And where two runs tie, the
 ; leftmost wins, which is what a strict `>` gives.
 (:: netAddrZeroRunStart (-> Int Int Int Int Int))
-
 (fn (netAddrZeroRunStart addr i best bestLen)
   (if (>= i 8)
     best
@@ -2116,17 +1938,14 @@
       (if (> n bestLen)
         (netAddrZeroRunStart addr (+ i n) i n)
         (netAddrZeroRunStart
-          addr          (+
-            i            (if (> n 0)
+          addr
+          (+
+            i
+            (if (> n 0)
               n
-              1
-            )
-          )          best          bestLen
-        )
-      )
-    )
-  )
-)
+              1))
+          best
+          bestLen)))))
 
 ; The groups joined, lowercase and without leading zeroes - RFC 5952
 ; §4.1 and §4.3 - with the run beginning at `zs` collapsed to `::`.
@@ -2137,32 +1956,29 @@
 ; do that, so it writes both. `::` itself is the second case with
 ; nothing before it.
 (:: netAddrText6 (-> Int Int Int String String))
-
 (fn (netAddrText6 addr i zs acc)
   (if (>= i 8)
     acc
     (if (== i zs)
       (let ((n (netAddrZeroRun addr i)))
         (netAddrText6
-          addr          (+ i n)          zs          (strConcat
-            acc            (if (== (+ i n) 8)
+          addr
+          (+ i n)
+          zs
+          (strConcat
+            acc
+            (if (== (+ i n) 8)
               "::"
-              ":"
-            )
-          )
-        )
-      )
+              ":"))))
       (netAddrText6
-        addr        (+ i 1)        zs        (strConcat
+        addr
+        (+ i 1)
+        zs
+        (strConcat
           (if (== i 0)
             acc
-            (strConcat acc ":")
-          )          (fmtHex (netGetGroup addr i))
-        )
-      )
-    )
-  )
-)
+            (strConcat acc ":"))
+          (fmtHex (netGetGroup addr i)))))))
 
 ; The same, with the port, in the form a URL authority uses:
 ; `127.0.0.1:80` and `[::1]:80`.
@@ -2172,13 +1988,10 @@
 ; §3.2.2 resolves that with the brackets, and a caller writing an
 ; access log should not have to know which family needs them.
 (pub :: netAddrTextPort (-> Int String))
-
 (pub fn (netAddrTextPort addr)
   (if (== (netAddrFamily addr) afInet6)
     (strConcat (strConcat "[" (netAddrText addr)) (strConcat "]:" (fmtInt (netAddrPort addr))))
-    (strConcat (netAddrText addr) (strConcat ":" (fmtInt (netAddrPort addr))))
-  )
-)
+    (strConcat (netAddrText addr) (strConcat ":" (fmtInt (netAddrPort addr))))))
 
 ; Take a descriptor OUT of non-blocking mode, preserving the other flags
 ; it carries. The counterpart of `netSetNonBlocking`, and what a caller
@@ -2193,18 +2006,14 @@
 ; because a `Result` built and discarded on the way is allocation for
 ; nothing.
 (pub :: netSetBlocking (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netSetBlocking fd)
   (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
-    (sysResult "netSetBlocking"
+    (sysResult
+      "netSetBlocking"
       (if (< fl 0)
         fl
-        (__syscall3 sysFcntlNum fd fSetFl (& fl (^ oNonblock (- 0 1))))
-      )
-    )
-  )
-)
+        (__syscall3 sysFcntlNum fd fSetFl (& fl (^ oNonblock (- 0 1))))))))
 
 ; Connect to an address built by `netAddr4` or `netAddr6`. The length
 ; comes off the family in the buffer for the same reason `netBind`'s
@@ -2216,19 +2025,15 @@
 ; `Error.code`, which is the one place a caller can tell it from a
 ; refusal - which comparing an Int against 0 never could.
 (pub :: netConnect (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netConnect fd addr)
-  (sysResult "netConnect" (__syscall3 sysConnectNum fd addr (netAddrSize addr)))
-)
+  (sysResult "netConnect" (__syscall3 sysConnectNum fd addr (netAddrSize addr))))
 
 ; Answers `(Result Int Error)`; `Ok 0` on success.
 (pub :: netShutdown (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netShutdown fd how)
-  (sysResult "netShutdown" (__syscall3 sysShutdownNum fd how 0))
-)
+  (sysResult "netShutdown" (__syscall3 sysShutdownNum fd how 0)))
 
 ; Set an integer-valued socket option. The value crosses as four bytes
 ; in the host's own order, which is what the kernel reads an `int`
@@ -2238,16 +2043,18 @@
 ;
 ; Answers `(Result Int Error)`; `Ok 0` on success.
 (pub :: netSetOptInt (-> Int Int Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netSetOptInt fd level name value v)
   {
     (netPutInt32 v 0 value)
     (sysResult "netSetOptInt" (__syscall5
-      sysSetSockOptNum      fd      level      name      v      4
-    ))
-  }
-)
+      sysSetSockOptNum
+      fd
+      level
+      name
+      v
+      4))
+  })
 
 ; The two `fcntl`s, answering the raw result. PRIVATE, AND IT EXISTS
 ; BECAUSE THE PUBLIC WRAPPER ALLOCATES.
@@ -2266,16 +2073,12 @@
 ; So the raw answer is the shared thing and the `Result` is the public
 ; skin over it, rather than the other way round.
 (:: netSetNonBlockingRaw (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (netSetNonBlockingRaw fd)
   (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
     (if (< fl 0)
       fl
-      (__syscall3 sysFcntlNum fd fSetFl (| fl oNonblock))
-    )
-  )
-)
+      (__syscall3 sysFcntlNum fd fSetFl (| fl oNonblock)))))
 
 ; Put a descriptor into non-blocking mode, preserving the flags it
 ; already carries - a bare `F_SETFL` of the one flag would clear the
@@ -2283,19 +2086,17 @@
 ;
 ; Two syscalls and one result, for the reason `netSetBlocking` gives.
 (pub :: netSetNonBlocking (-> Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netSetNonBlocking fd)
-  (sysResult "netSetNonBlocking" (netSetNonBlockingRaw fd))
-)
+  (sysResult "netSetNonBlocking" (netSetNonBlockingRaw fd)))
 
 ; Whether a negative answer means "nothing to take yet" rather than a
 ; broken socket. This is the whole reason `eAgain` is a capability: the
 ; number is 35 on Darwin and 11 on Linux, so an event loop written
 ; against a literal runs correctly on the machine it was written on.
 (pub :: netWouldBlock (-> Int Bool))
-
-(pub fn (netWouldBlock r) (== r (- 0 eAgain)))
+(pub fn (netWouldBlock r)
+  (== r (- 0 eAgain)))
 
 ; ------------------------------------------------------------------
 ; Readiness
@@ -2322,7 +2123,6 @@
 ; is raw bytes the kernel wrote a meaning onto. Retaining one would be
 ; retaining whatever integer the kernel happened to put there.
 (:: netPutWord (-> Int Int Int Int))
-
 (fn (netPutWord buf off v)
   {
     (memPutByte buf off (& v 255))
@@ -2334,34 +2134,30 @@
     (memPutByte buf (+ off 6) (& (>> v 48) 255))
     (memPutByte buf (+ off 7) (& (>> v 56) 255))
     buf
-  }
-)
+  })
 
 ; The same, read back. Byte-wise rather than `memGetWord` because the
 ; offset is not always word-aligned: epoll's data word sits at byte 4 on
 ; x86_64, where the struct is packed.
 (:: netGetWord (-> Int Int Int))
-
-(fn (netGetWord buf off) (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (+ (<< (memGetByte buf (+ off 3)) 24) (+ (<< (memGetByte buf (+ off 4)) 32) (+ (<< (memGetByte buf (+ off 5)) 40) (+ (<< (memGetByte buf (+ off 6)) 48) (<< (memGetByte buf (+ off 7)) 56)))))))))
+(fn (netGetWord buf off)
+  (+ (memGetByte buf off) (+ (<< (memGetByte buf (+ off 1)) 8) (+ (<< (memGetByte buf (+ off 2)) 16) (+ (<< (memGetByte buf (+ off 3)) 24) (+ (<< (memGetByte buf (+ off 4)) 32) (+ (<< (memGetByte buf (+ off 5)) 40) (+ (<< (memGetByte buf (+ off 6)) 48) (<< (memGetByte buf (+ off 7)) 56)))))))))
 
 ; How many bytes an event buffer for `n` events needs on this platform.
 (pub :: netPollBufBytes (-> Int Int))
-
-(pub fn (netPollBufBytes n) (* n pollEventSize))
+(pub fn (netPollBufBytes n)
+  (* n pollEventSize))
 
 ; A readiness descriptor, as `(Result Int Error)`.
 (pub :: netPollCreate (Result Int Error))
-
 ;@axiom:effect(io)
 (pub fn (netPollCreate)
-  (sysResult "netPollCreate" (__syscall3 sysPollCreateNum 0 0 0))
-)
+  (sysResult "netPollCreate" (__syscall3 sysPollCreateNum 0 0 0)))
 
 ; Write one registration record for `fd` into `rec`, which must hold
 ; `pollEventSize` bytes, and answer `rec`. Shared by add and delete
 ; because the two differ only in the operation word.
 (:: netPollRec (-> Int Int Int Int))
-
 (fn (netPollRec rec fd op)
   {
     (memSet rec 0 pollEventSize)
@@ -2380,11 +2176,9 @@
       {
         (netPutWord rec 0 pollReadFilter)
         (netPutWord rec pollEventFdOffset fd)
-      }
-    )
+      })
     rec
-  }
-)
+  })
 
 ; Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes.
 ;
@@ -2398,39 +2192,53 @@
 ; this file's socket section draws, and the reason `netPollWait` below
 ; is not ported while this is.
 (pub :: netPollAddRead (-> Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netPollAddRead pfd fd rec)
   {
     (netPollRec rec fd pollAddOp)
-    (sysResult "netPollAddRead" (if (== pollUsesKqueue 1)
-      (__syscall6
-        sysPollWaitNum        pfd        rec        1        0        0        0
-      )
-      (__syscall4
-        sysPollCtlNum        pfd        pollAddOp        fd        rec
-      )
-    ))
-  }
-)
+    (sysResult
+      "netPollAddRead"
+      (if (== pollUsesKqueue 1)
+        (__syscall6
+          sysPollWaitNum
+          pfd
+          rec
+          1
+          0
+          0
+          0)
+        (__syscall4
+          sysPollCtlNum
+          pfd
+          pollAddOp
+          fd
+          rec)))
+  })
 
 ; Answers `(Result Int Error)`; `Ok 0` on success.
 (pub :: netPollDelRead (-> Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netPollDelRead pfd fd rec)
   {
     (netPollRec rec fd pollDelOp)
-    (sysResult "netPollDelRead" (if (== pollUsesKqueue 1)
-      (__syscall6
-        sysPollWaitNum        pfd        rec        1        0        0        0
-      )
-      (__syscall4
-        sysPollCtlNum        pfd        pollDelOp        fd        rec
-      )
-    ))
-  }
-)
+    (sysResult
+      "netPollDelRead"
+      (if (== pollUsesKqueue 1)
+        (__syscall6
+          sysPollWaitNum
+          pfd
+          rec
+          1
+          0
+          0
+          0)
+        (__syscall4
+          sysPollCtlNum
+          pfd
+          pollDelOp
+          fd
+          rec)))
+  })
 
 ; Wait for readiness, answering `Ok` how many events landed in `buf`
 ; or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched
@@ -2443,30 +2251,41 @@
 ; `timespec` and reads NULL as "no timeout". So the millisecond argument
 ; is this layer's, and the timespec is built here.
 (pub :: netPollWait (-> Int Int Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netPollWait pfd buf maxEvents timeoutMs ts)
   (if (== pollUsesKqueue 1)
     (if (< timeoutMs 0)
       (sysResult "netPollWait" (__syscall6
-        sysPollWaitNum        pfd        0        0        buf        maxEvents        0
-      ))
+        sysPollWaitNum
+        pfd
+        0
+        0
+        buf
+        maxEvents
+        0))
       {
         (netPutWord ts 0 (/ timeoutMs 1000))
         (netPutWord ts 8 (* (% timeoutMs 1000) 1000000))
         (sysResult "netPollWait" (__syscall6
-          sysPollWaitNum          pfd          0          0          buf          maxEvents          ts
-        ))
-      }
-    )
+          sysPollWaitNum
+          pfd
+          0
+          0
+          buf
+          maxEvents
+          ts))
+      })
     ; epoll_pwait's fifth argument is a signal mask this layer does not
     ; use, and its sixth is that mask's size, which the kernel checks
     ; against its own `sigset_t` and rejects unless it is exactly 8.
     (sysResult "netPollWait" (__syscall6
-      sysPollWaitNum      pfd      buf      maxEvents      timeoutMs      0      pollSigsetSize
-    ))
-  )
-)
+      sysPollWaitNum
+      pfd
+      buf
+      maxEvents
+      timeoutMs
+      0
+      pollSigsetSize))))
 
 ; The descriptor named by event `i` of a buffer `netPollWait` filled.
 ;
@@ -2476,8 +2295,8 @@
 ; 64 (FreeBSD, whose `kevent` carries `ext[4]`), 12 or 16. Both come
 ; from `Sys.Platform`; a literal here would be right on one target.
 (pub :: netPollFdAt (-> Int Int Int))
-
-(pub fn (netPollFdAt buf i) (netGetWord buf (+ (* i pollEventSize) pollEventFdOffset)))
+(pub fn (netPollFdAt buf i)
+  (netGetWord buf (+ (* i pollEventSize) pollEventFdOffset)))
 
 ; ------------------------------------------------------------------
 ; Entropy
@@ -2502,46 +2321,35 @@
 ; A ZERO-BYTE REQUEST IS 0 AND MAKES NO SYSCALL, so a caller computing a
 ; length does not have to special-case an empty one.
 (pub :: sysRandomBytes (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysRandomBytes buf n)
-  (sysResult "sysRandomBytes"
-  (let ((mut off 0))
-    (let ((mut rc 0))
-      {
-        (while (&& (< off n) (== rc 0))
-          (let ((want 
-            (if (> (- n off) randomMaxChunk)
-              randomMaxChunk
-              (- n off)
-            )
-          ))
-            (let ((r (__syscall3 sysRandomNum (+ buf off) want 0)))
-              (if (< r 0)
-                (set rc r)
-                (if (== randomIsGetentropy 1)
-                  ; getentropy filled `want` or it failed; there is no
-                  ; partial answer to advance by.
-                  (set off (+ off want))
-                  ; getrandom answers a count. A zero would be neither a
-                  ; failure nor progress, and looping on it would spin,
-                  ; so it is treated as a failure the caller can see.
-                  (if (== r 0)
-                    (set rc (- 0 1))
-                    (set off (+ off r))
-                  )
-                )
-              )
-            )
-          ))
-        (if (< rc 0)
-          rc
-          0
-        )
-      }
-    )
-  )
-))
+  (sysResult
+    "sysRandomBytes"
+    (let ((mut off 0))
+      (let ((mut rc 0))
+        {
+          (while (&& (< off n) (== rc 0))
+            (let ((want 
+              (if (> (- n off) randomMaxChunk)
+                randomMaxChunk
+                (- n off))))
+              (let ((r (__syscall3 sysRandomNum (+ buf off) want 0)))
+                (if (< r 0)
+                  (set rc r)
+                  (if (== randomIsGetentropy 1)
+                    ; getentropy filled `want` or it failed; there is no
+                    ; partial answer to advance by.
+                    (set off (+ off want))
+                    ; getrandom answers a count. A zero would be neither a
+                    ; failure nor progress, and looping on it would spin,
+                    ; so it is treated as a failure the caller can see.
+                    (if (== r 0)
+                      (set rc (- 0 1))
+                      (set off (+ off r))))))))
+          (if (< rc 0)
+            rc
+            0)
+        }))))
 
 ; ------------------------------------------------------------------
 ; Signals
@@ -2569,8 +2377,8 @@
 ; that is easy to write the other way and yields the neighbouring
 ; signal's mask rather than an error.
 (pub :: sysSigBit (-> Int Int))
-
-(pub fn (sysSigBit signo) (<< 1 (- signo 1)))
+(pub fn (sysSigBit signo)
+  (<< 1 (- signo 1)))
 
 ; Block the signals in `mask` so they become observable instead of
 ; fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is
@@ -2583,7 +2391,6 @@
 ; Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before
 ; a server forks, so that every worker inherits the mask.
 (pub :: sysSignalBlock (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysSignalBlock mask setbuf)
   {
@@ -2594,10 +2401,12 @@
     ; exactly. Passing it unconditionally is the shape `netAccept`
     ; already uses for `accept` against `accept4`.
     (sysResult "sysSignalBlock" (__syscall4
-      sysSigProcMaskNum      sigBlockHow      setbuf      0      sigsetBytes
-    ))
-  }
-)
+      sysSigProcMaskNum
+      sigBlockHow
+      setbuf
+      0
+      sigsetBytes))
+  })
 
 ; Watch the signals in `mask` on the readiness descriptor `pfd`, and
 ; answer a HANDLE to pass back to `netPollSignalAt` - the signal
@@ -2612,11 +2421,9 @@
 ; convention would have called an unremarkable answer, while a caller
 ; testing `>= 0` could not tell the BSD handle from a Linux one.
 (pub :: netSignalOpen (-> Int Int Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (netSignalOpen pfd mask rec setbuf)
-  (sysResult "netSignalOpen" (netSignalOpenRaw pfd mask rec setbuf))
-)
+  (sysResult "netSignalOpen" (netSignalOpenRaw pfd mask rec setbuf)))
 
 ; The registration itself, answering the raw handle-or-errno.
 ;
@@ -2625,7 +2432,6 @@
 ; wrapping each of them would build four `Result`s where the function
 ; answers one. The public skin above converts once.
 (:: netSignalOpenRaw (-> Int Int Int Int Int))
-
 ;@axiom:effect(io)
 (fn (netSignalOpenRaw pfd mask rec setbuf)
   (if (== signalUsesSignalFd 1)
@@ -2634,23 +2440,25 @@
       ; signalfd4(-1, mask, sizemask, 0): -1 creates a descriptor rather
       ; than updating one.
       (let ((sfd (__syscall4
-        sysSignalFdNum        (- 0 1)        setbuf        sigsetBytes        0
-      )))
+        sysSignalFdNum
+        (- 0 1)
+        setbuf
+        sigsetBytes
+        0)))
         (if (< sfd 0)
           sfd
           {
             (netPollRec rec sfd pollAddOp)
             (let ((r (__syscall4
-              sysPollCtlNum              pfd              pollAddOp              sfd              rec
-            )))
+              sysPollCtlNum
+              pfd
+              pollAddOp
+              sfd
+              rec)))
               (if (< r 0)
                 r
-                sfd
-              )
-            )
-          }
-        )
-      )
+                sfd))
+          }))
     }
     ; The BSDs have no signal descriptor: each signal is its own filter
     ; registration on the readiness descriptor, so the mask is walked a
@@ -2669,24 +2477,22 @@
                   (memPutByte rec 10 (& pollAddOp 255))
                   (memPutByte rec 11 0)
                   (let ((r (__syscall6
-                    sysPollWaitNum                    pfd                    rec                    1                    0                    0                    0
-                  )))
+                    sysPollWaitNum
+                    pfd
+                    rec
+                    1
+                    0
+                    0
+                    0)))
                     (if (< r 0)
                       (set rc r)
-                      0
-                    )
-                  )
+                      0))
                 }
-                0
-              )
+                0)
               (set signo (+ signo 1))
             })
           rc
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; The signal named by event `i`, or `None` when that event is not a
 ; signal at all. `sigHandle` is what `netSignalOpen` answered and
@@ -2705,7 +2511,6 @@
 ; 128-byte record, and FOUR rather than eight, because eight would fold
 ; `ssi_errno` into the answer.
 (pub :: netPollSignalAt (-> Int Int Int Int (Option Int)))
-
 ;@axiom:effect(io)
 (pub fn (netPollSignalAt buf i sigHandle scratch)
   (if (== signalUsesSignalFd 1)
@@ -2714,23 +2519,15 @@
       (let ((n (__syscall3 sysRead sigHandle scratch sigInfoSize)))
         (if (< n sigInfoSize)
           None
-          (Some (+ (memGetByte scratch 0) (+ (<< (memGetByte scratch 1) 8) (+ (<< (memGetByte scratch 2) 16) (<< (memGetByte scratch 3) 24)))))
-        )
-      )
-    )
+          (Some (+ (memGetByte scratch 0) (+ (<< (memGetByte scratch 1) 8) (+ (<< (memGetByte scratch 2) 16) (<< (memGetByte scratch 3) 24))))))))
     ; kqueue: compare the record's own 16-bit filter field, byte for
     ; byte, rather than sign-extending it back to an Int.
     (let ((off (* i pollEventSize)))
       (if (== (memGetByte buf (+ off 8)) (& pollSignalFilter 255))
         (if (== (memGetByte buf (+ off 9)) (& (>> pollSignalFilter 8) 255))
           (Some (netPollFdAt buf i))
-          None
-        )
-        None
-      )
-    )
-  )
-)
+          None)
+        None))))
 
 ; Send a signal, which is how a test raises one against itself.
 ;
@@ -2738,11 +2535,9 @@
 ; the answer a pool driver needs and the sentinel hid: "that child is
 ; already gone" and "the signal was delivered" were both an Int.
 (pub :: sysKill (-> Int Int (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysKill pid signo)
-  (sysResult "sysKill" (__syscall3 sysKillNum pid signo 0))
-)
+  (sysResult "sysKill" (__syscall3 sysKillNum pid signo 0)))
 
 ; ------------------------------------------------------------------
 ; Duplicating this process
@@ -2770,24 +2565,22 @@
 ; private after a fork. A worker inherits the parent's heap as it stood
 ; and can never corrupt a sibling's.
 (pub :: sysForkProcess Int)
-
 ;@axiom:effect(io)
 (pub fn (sysForkProcess)
   (let ((r (__syscall5
-    sysFork    sysForkArg    0    0    0    0
-  )))
+    sysFork
+    sysForkArg
+    0
+    0
+    0
+    0)))
     (if (< r 0)
       r
       (if (== forkChildIsZero 1)
         r
         (if (== r (__syscall3 sysGetPidNum 0 0 0))
           0
-          r
-        )
-      )
-    )
-  )
-)
+          r)))))
 
 ; ------------------------------------------------------------------
 ; Terminals
@@ -2832,9 +2625,9 @@
 ; the request numbers are exactly the thing this design keeps behind
 ; `Sys.Platform`.
 (:: sysIoctl (-> Int Int Int Int))
-
 ;@axiom:effect(io)
-(fn (sysIoctl fd req arg) (__syscall3 sysIoctlNum fd req arg))
+(fn (sysIoctl fd req arg)
+  (__syscall3 sysIoctlNum fd req arg))
 
 ; How many bytes a saved terminal state occupies, which is how large
 ; the buffer a caller hands `sysTermSave`, `sysTermRaw` and
@@ -2847,15 +2640,15 @@
 ; layout from FreeBSD's still round-trips on the machine it was tested
 ; on.
 (pub :: sysTermStateBytes Int)
-
-(pub fn (sysTermStateBytes) termiosBytes)
+(pub fn (sysTermStateBytes)
+  termiosBytes)
 
 ; The bytes `sysTermSize` writes. 8 on every target that has one; see
 ; the section header for why this number is here and not in
 ; `Sys.Platform`.
 (pub :: sysTermSizeBytes Int)
-
-(pub fn (sysTermSizeBytes) 8)
+(pub fn (sysTermSizeBytes)
+  8)
 
 ; The answer `Sys.ax` gives where the platform has no terminal
 ; control at all, which today is Windows and only Windows.
@@ -2868,8 +2661,8 @@
 ; is the point: a caller finds out, where a fabricated success would
 ; have it draw a prompt into a console that is still echoing.
 (:: termUnsupported Int)
-
-(fn (termUnsupported) (- 0 78))
+(fn (termUnsupported)
+  (- 0 78))
 
 ; True when `fd` is a terminal.
 ;
@@ -2898,14 +2691,11 @@
 ; is not, but the next reader should not have to measure to find out
 ; which.
 (pub :: sysIsatty (-> Int Bool))
-
 ;@axiom:effect(io)
 (pub fn (sysIsatty fd)
   (if (== ttyUsesTermios 0)
     false
-    (>= (sysIoctl fd tcGetAttrReq (memAlloc termiosBytes)) 0)
-  )
-)
+    (>= (sysIoctl fd tcGetAttrReq (memAlloc termiosBytes)) 0)))
 
 ; Read `fd`'s current terminal attributes into `save`, which must hold
 ; `sysTermStateBytes` bytes. 0 on success, or a negative result.
@@ -2915,14 +2705,11 @@
 ; that wants to make some other change with no way to record the
 ; original first.
 (pub :: sysTermSave (-> Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sysTermSave fd save)
   (if (== ttyUsesTermios 0)
     termUnsupported
-    (sysIoctl fd tcGetAttrReq save)
-  )
-)
+    (sysIoctl fd tcGetAttrReq save)))
 
 ; Write `state` back to `fd` as its terminal attributes: 0, or a
 ; negative result.
@@ -2935,14 +2722,11 @@
 ; discipline is discarded rather than delivered as editing keys, and
 ; leaving, a half-typed line is not handed to the shell.
 (pub :: sysTermRestore (-> Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sysTermRestore fd state)
   (if (== ttyUsesTermios 0)
     termUnsupported
-    (sysIoctl fd tcSetAttrReq state)
-  )
-)
+    (sysIoctl fd tcSetAttrReq state)))
 
 ; Read one of the four flag words out of a saved state, and write one
 ; back. `n` is 0 for c_iflag, 1 for c_oflag, 2 for c_cflag and 3 for
@@ -2960,14 +2744,12 @@
 ; the behaviour the round trip needs: whatever the kernel put there
 ; goes back unaltered.
 (:: termFlagGet (-> Int Int Int))
-
-(fn (termFlagGet buf n) (netGetInt32 buf (* n termiosFlagBytes)))
+(fn (termFlagGet buf n)
+  (netGetInt32 buf (* n termiosFlagBytes)))
 
 (:: termFlagClear (-> Int Int Int Int))
-
 (fn (termFlagClear buf n mask)
-  (netPutInt32 buf (* n termiosFlagBytes) (& (termFlagGet buf n) (^ mask (- 0 1))))
-)
+  (netPutInt32 buf (* n termiosFlagBytes) (& (termFlagGet buf n) (^ mask (- 0 1)))))
 
 ; Put `fd` into raw mode, having first saved its current state into
 ; `save` (`sysTermStateBytes` bytes, owned by the caller). 0, or a
@@ -3019,7 +2801,6 @@
 ; c_cflag bit, because none was measured, and an unmeasured constant
 ; is worse than an absent one.
 (pub :: sysTermRaw (-> Int Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sysTermRaw fd save keepSignals)
   (if (== ttyUsesTermios 0)
@@ -3027,11 +2808,7 @@
     (let ((r (sysIoctl fd tcGetAttrReq save)))
       (if (< r 0)
         r
-        (sysTermRawApply fd save keepSignals (memAlloc termiosBytes))
-      )
-    )
-  )
-)
+        (sysTermRawApply fd save keepSignals (memAlloc termiosBytes))))))
 
 ; The edit, on a PRIVATE COPY of what was just saved.
 ;
@@ -3042,7 +2819,6 @@
 ; and `sysTermRestore` would then restore raw mode onto raw mode. The
 ; failure would be invisible in every test that does not compare bytes.
 (:: sysTermRawApply (-> Int Int Int Int Int))
-
 ;@axiom:effect(io)
 (fn (sysTermRawApply fd save keepSignals work)
   {
@@ -3050,16 +2826,15 @@
     (termFlagClear work 0 (| tiosBrkint (| tiosIcrnl (| tiosIstrip tiosIxon))))
     (termFlagClear work 1 tiosOpost)
     (termFlagClear
-      work      3      (if (== keepSignals 1)
+      work
+      3
+      (if (== keepSignals 1)
         (| tiosEcho (| tiosIcanon tiosIexten))
-        (| tiosEcho (| tiosIcanon (| tiosIexten tiosIsig)))
-      )
-    )
+        (| tiosEcho (| tiosIcanon (| tiosIexten tiosIsig)))))
     (memPutByte work (+ termiosCcOff termiosVminIdx) 1)
     (memPutByte work (+ termiosCcOff termiosVtimeIdx) 0)
     (sysIoctl fd tcSetAttrReq work)
-  }
-)
+  })
 
 ; Read `fd`'s window size into `buf` (`sysTermSizeBytes` bytes): 0, or
 ; a negative result. `sysTermRows` and `sysTermCols` read the answer
@@ -3071,25 +2846,22 @@
 ; then divides by the column count has a bug this call cannot report.
 ; Treat 0 as "unknown" and fall back to 80x24.
 (pub :: sysTermSize (-> Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sysTermSize fd buf)
   (if (== ttyUsesTermios 0)
     termUnsupported
-    (sysIoctl fd tcWinSizeReq buf)
-  )
-)
+    (sysIoctl fd tcWinSizeReq buf)))
 
 ; Rows out of a buffer `sysTermSize` filled. `ws_row` is an
 ; `unsigned short` at offset 0 on every target, little-endian.
 (pub :: sysTermRows (-> Int Int))
-
-(pub fn (sysTermRows buf) (+ (memGetByte buf 0) (<< (memGetByte buf 1) 8)))
+(pub fn (sysTermRows buf)
+  (+ (memGetByte buf 0) (<< (memGetByte buf 1) 8)))
 
 ; Columns: `ws_col`, the second `unsigned short`.
 (pub :: sysTermCols (-> Int Int))
-
-(pub fn (sysTermCols buf) (+ (memGetByte buf 2) (<< (memGetByte buf 3) 8)))
+(pub fn (sysTermCols buf)
+  (+ (memGetByte buf 2) (<< (memGetByte buf 3) 8)))
 
 ; ------------------------------------------------------------------
 ; Reading a descriptor: the whole of it, or one line of it.
@@ -3170,9 +2942,9 @@
 ; and the copying is linear; `sysReadFile` is this over a descriptor
 ; it opened itself.
 (pub :: sysReadAllFd (-> Int (Result String Error)))
-
 ;@axiom:effect(io)
-(pub fn (sysReadAllFd fd) (sysReadAll fd (strAlloc 65536) 0 65536))
+(pub fn (sysReadAllFd fd)
+  (sysReadAll fd (strAlloc 65536) 0 65536))
 
 ; One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at
 ; end of input when nothing was read, or `Err` carrying the errno.
@@ -3188,21 +2960,22 @@
 ; call under a `let` is not tail position, so a long line would be a
 ; long stack.
 (pub :: sysReadLineFd (-> Int (Result (Option String) Error)))
-
 ;@axiom:effect(io)
 (pub fn (sysReadLineFd fd)
+  ; the last `read`'s answer: 1 a byte, 0 end of input, -errno
   (let (
     (mut buf (strAlloc 128))
     (mut cap 128)
     (mut used 0)
-    ; the last `read`'s answer: 1 a byte, 0 end of input, -errno
     (mut n 1)
     (mut done 0)
   )
     {
       (while (== done 0)
         {
-          (set n (match (sysReadFd fd (+ (strData buf) used) 1) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
+          (set n (match (sysReadFd fd (+ (strData buf) used) 1)
+            ((Ok k) k)
+            ((Err e) (- 0 (errCode e)))))
           (if (<= n 0)
             (set done 1)
             (if (== (memGetByte (strData buf) used) 10)
@@ -3220,21 +2993,13 @@
                       (memCopy (strData big) (strData buf) used)
                       (set buf big)
                       (set cap (* cap 2))
-                    }
-                  )
-                  0
-                )
-              }
-            )
-          )
+                    })
+                  0)
+              }))
         })
       (if (< n 0)
         (Err (mkError (- 0 n) "sysReadLineFd"))
         (if (&& (== n 0) (== used 0))
           (Ok None)
-          (Ok (Some (strSlice buf 0 used)))
-        )
-      )
-    }
-  )
-)
+          (Ok (Some (strSlice buf 0 used)))))
+    }))

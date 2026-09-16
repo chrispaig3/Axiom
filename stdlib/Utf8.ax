@@ -43,8 +43,8 @@
 ; Is `b` a continuation byte, `10xxxxxx`?
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8IsCont (-> Int Bool))
-
-(pub fn (utf8IsCont b) (== (& b 192) 128))
+(pub fn (utf8IsCont b)
+  (== (& b 192) 128))
 
 ; How many bytes the sequence beginning with lead byte `b` occupies.
 ;
@@ -53,7 +53,6 @@
 ; forward.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8SeqLen (-> Int Int))
-
 (pub fn (utf8SeqLen b)
   (if (< b 128)
     1
@@ -63,12 +62,7 @@
         3
         (if (== (& b 248) 240)
           4
-          1
-        )
-      )
-    )
-  )
-)
+          1)))))
 
 ; ------------------------------------------------------------------
 ; Decoding
@@ -101,7 +95,6 @@
 ; byte, so `utf8Next` advances and no loop can hang on one.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8DecodeAt (-> String Int (Option Int)))
-
 (pub fn (utf8DecodeAt s i)
   (let ((b (strByte s i)))
     (let ((n (utf8SeqLen b)))
@@ -123,31 +116,18 @@
                 (Some (| (<< (& b 31) 6) (& (strByte s (+ i 1)) 63)))
                 (if (== n 3)
                   (Some (| (| (<< (& b 15) 12) (<< (& (strByte s (+ i 1)) 63) 6)) (& (strByte s (+ i 2)) 63)))
-                  (Some (| (| (| (<< (& b 7) 18) (<< (& (strByte s (+ i 1)) 63) 12)) (<< (& (strByte s (+ i 2)) 63) 6)) (& (strByte s (+ i 3)) 63)))
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                  (Some (| (| (| (<< (& b 7) 18) (<< (& (strByte s (+ i 1)) 63) 12)) (<< (& (strByte s (+ i 2)) 63) 6)) (& (strByte s (+ i 3)) 63))))))))))))
 
 ; The byte offset of the character after the one beginning at `i`,
 ; clamped to the byte length - `utf8Offset` clamps, and two stepping
 ; functions that disagree about the end of a string is a trap.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Next (-> String Int Int))
-
 (pub fn (utf8Next s i)
   (let ((n (+ i (utf8SeqLen (strByte s i)))))
     (if (> n (strLen s))
       (strLen s)
-      n
-    )
-  )
-)
+      n)))
 
 ; ------------------------------------------------------------------
 ; Character-indexed access
@@ -162,38 +142,31 @@
 ; The number of code points in `s`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Len (-> String Int))
-
-(pub fn (utf8Len s) (utf8LenFrom s 0 0))
+(pub fn (utf8Len s)
+  (utf8LenFrom s 0 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8LenFrom (-> String Int Int Int))
-
 (fn (utf8LenFrom s i acc)
   (if (>= i (strLen s))
     acc
-    (utf8LenFrom s (utf8Next s i) (+ acc 1))
-  )
-)
+    (utf8LenFrom s (utf8Next s i) (+ acc 1))))
 
 ; The byte offset at which character `n` begins, or the byte length of
 ; `s` when there are fewer than `n` characters.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Offset (-> String Int Int))
-
-(pub fn (utf8Offset s n) (utf8OffsetFrom s n 0))
+(pub fn (utf8Offset s n)
+  (utf8OffsetFrom s n 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8OffsetFrom (-> String Int Int Int))
-
 (fn (utf8OffsetFrom s n i)
   (if (<= n 0)
     i
     (if (>= i (strLen s))
       i
-      (utf8OffsetFrom s (- n 1) (utf8Next s i))
-    )
-  )
-)
+      (utf8OffsetFrom s (- n 1) (utf8Next s i)))))
 
 ; Character `n` of `s`, counting from 0. `None` past the end, the same
 ; answer `utf8DecodeAt` gives a byte it cannot decode and for the same
@@ -201,29 +174,21 @@
 ; they arrive (`pairFwdOK`), so this keeps `no-alloc` on the same terms.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8CharAt (-> String Int (Option Int)))
-
 (pub fn (utf8CharAt s n)
   (let ((i (utf8Offset s n)))
     (if (>= i (strLen s))
       None
-      (utf8DecodeAt s i)
-    )
-  )
-)
+      (utf8DecodeAt s i))))
 
 ; `count` characters of `s` beginning at character `start`, as a `Str`
 ; sharing the original's bytes - the character-indexed counterpart of
 ; `strSlice`.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: utf8Slice (-> String Int Int String))
-
 (pub fn (utf8Slice s start count)
   (let ((from (utf8Offset s start)))
     (let ((to (utf8OffsetFrom s count from)))
-      (strSlice s from (- to from))
-    )
-  )
-)
+      (strSlice s from (- to from)))))
 
 ; ------------------------------------------------------------------
 ; Encoding
@@ -234,15 +199,15 @@
 ; UTF-8 is ill-formed.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8IsScalar (-> Int Bool))
-
-(fn (utf8IsScalar cp) (&& (>= cp 0) (&& (<= cp 1114111) (|| (< cp 55296) (> cp 57343)))))
+(fn (utf8IsScalar cp)
+  (&& (>= cp 0) (&& (<= cp 1114111) (|| (< cp 55296) (> cp 57343)))))
 
 ; U+FFFD REPLACEMENT CHARACTER, what a code point that cannot be
 ; encoded becomes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Replacement Int)
-
-(pub fn (utf8Replacement) 65533)
+(pub fn (utf8Replacement)
+  65533)
 
 ; The code point `cp` will actually be encoded as: itself when it is a
 ; scalar value, U+FFFD otherwise.
@@ -254,19 +219,15 @@
 ; U+10FFFF was encoded as though it were ordinary text.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8Encodable (-> Int Int))
-
 (fn (utf8Encodable cp)
   (if (utf8IsScalar cp)
     cp
-    utf8Replacement
-  )
-)
+    utf8Replacement))
 
 ; How many bytes code point `cp` occupies when encoded - counting what
 ; `utf8FromChar` will actually write, so the two never disagree.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Width (-> Int Int))
-
 (pub fn (utf8Width cp0)
   (let ((cp (utf8Encodable cp0)))
     (if (< cp 128)
@@ -275,17 +236,11 @@
         2
         (if (< cp 65536)
           3
-          4
-        )
-      )
-    )
-  )
-)
+          4)))))
 
 ; A freshly allocated `Str` holding `cp` alone.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: utf8FromChar (-> Int String))
-
 (pub fn (utf8FromChar cp0)
   (let (
     (cp (utf8Encodable cp0))
@@ -312,16 +267,9 @@
                   (__store8 d 1 (| 128 (& (>> cp 12) 63)))
                   (__store8 d 2 (| 128 (& (>> cp 6) 63)))
                   (__store8 d 3 (| 128 (& cp 63)))
-                }
-              )
-            )
-          )
+                })))
           s
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; ------------------------------------------------------------------
 ; Validation
@@ -339,12 +287,11 @@
 ; asks the question yet.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: utf8Valid (-> String Bool))
-
-(pub fn (utf8Valid s) (utf8ValidFrom s 0))
+(pub fn (utf8Valid s)
+  (utf8ValidFrom s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8ValidFrom (-> String Int Bool))
-
 (fn (utf8ValidFrom s i)
   (if (>= i (strLen s))
     true
@@ -358,26 +305,14 @@
               false
               (if (utf8ContRun s (+ i 1) (- n 1))
                 (utf8ValidFrom s (+ i n))
-                false
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                false))))))))
 
 ; Are the next `k` bytes from `i` all continuation bytes?
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8ContRun (-> String Int Int Bool))
-
 (fn (utf8ContRun s i k)
   (if (<= k 0)
     true
     (if (utf8IsCont (strByte s i))
       (utf8ContRun s (+ i 1) (- k 1))
-      false
-    )
-  )
-)
+      false)))

@@ -79,14 +79,14 @@
 ; (see the module comment).
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecDefaultCap Int)
-
-(fn (vecDefaultCap) 8)
+(fn (vecDefaultCap)
+  8)
 
 ; An empty `Vec` with `vecDefaultCap` capacity.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecNew (Vec a))
-
-(pub fn (vecNew) (vecWithCapacity vecDefaultCap))
+(pub fn (vecNew)
+  (vecWithCapacity vecDefaultCap))
 
 ; An empty `Vec` that can hold at least `cap` elements without growing.
 ;
@@ -97,21 +97,21 @@
 ; on `cap >= 1` and needs no special case.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecWithCapacity (-> Int (Vec a)))
-
-(pub fn (vecWithCapacity cap) (vecBuild cap 0))
+(pub fn (vecWithCapacity cap)
+  (vecBuild cap 0))
 
 ; The same, with an ARRAY-FORM data block: every element is a handle
 ; this vector owns a share of. See the module comment.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecWithCapacityRef (-> Int (Vec a)))
-
-(pub fn (vecWithCapacityRef cap) (vecBuild cap 1))
+(pub fn (vecWithCapacityRef cap)
+  (vecBuild cap 1))
 
 ; An empty `Vec` with `vecDefaultCap` capacity, owning its elements.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecNewRef (Vec a))
-
-(pub fn (vecNewRef) (vecWithCapacityRef vecDefaultCap))
+(pub fn (vecNewRef)
+  (vecWithCapacityRef vecDefaultCap))
 
 ; `refs` decides one word - the data block's shape - and nothing else.
 ;
@@ -122,13 +122,11 @@
 ; its buffer, for the same reason, and calls it "the header's own share".
 ;@axiom:restrict(no-io,no-foreign)
 (:: vecBuild (-> Int Int (Vec a)))
-
 (fn (vecBuild cap refs)
   (let (
     (n (if (< cap 1)
       1
-      cap
-    ))
+      cap))
     (v (memAllocMapped 32 4))
     (d (memAlloc (* n 8)))
   )
@@ -137,8 +135,7 @@
       (__retain d)
       (if (== refs 1)
         (memMarkArray d n)
-        d
-      )
+        d)
       (memSetWord v 0 0)
       (memSetWord v 1 n)
       (memSetWord v 2 d)
@@ -152,9 +149,7 @@
       ; three words in a four-word block already; this one is free.
       (memSetWord v 3 refs)
       (cast (Vec a) v)
-    }
-  )
-)
+    }))
 
 ; Hand `v` back. Its data block goes with it - the header's reference
 ; map names word 2 - and, for a `vecNewRef` vector, so does one share of
@@ -165,13 +160,12 @@
 ; mutator answers the handle precisely so that it CAN be chained.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecFree (-> (Vec a) Int))
-
 (pub fn (vecFree v)
   {
-    (__release (cast Int v))
+    (__release
+      (cast Int v))
     0
-  }
-)
+  })
 
 ; ------------------------------------------------------------------
 ; Accessors
@@ -181,18 +175,26 @@
 ; and not a test of the data block's shape word: see `vecBuild`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecOwnsRefs (-> (Vec a) Bool))
-
-(pub fn (vecOwnsRefs v) (== (memGetWord (cast Int v) 3) 1))
+(pub fn (vecOwnsRefs v)
+  (==
+    (memGetWord
+      (cast Int v)
+      3)
+    1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecLen (-> (Vec a) Int))
-
-(pub fn (vecLen v) (memGetWord (cast Int v) 0))
+(pub fn (vecLen v)
+  (memGetWord
+    (cast Int v)
+    0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecCap (-> (Vec a) Int))
-
-(pub fn (vecCap v) (memGetWord (cast Int v) 1))
+(pub fn (vecCap v)
+  (memGetWord
+    (cast Int v)
+    1))
 
 ; The address of the element block.
 ;
@@ -202,8 +204,10 @@
 ; that wants the data pointer can already read word 2 itself.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecData (-> (Vec a) Int))
-
-(fn (vecData v) (memGetWord (cast Int v) 2))
+(fn (vecData v)
+  (memGetWord
+    (cast Int v)
+    2))
 
 ; The element at `i`. REFUSES an index outside `0 .. (vecLen v) - 1`.
 ;
@@ -245,16 +249,12 @@
 ; call in one word: `vecGetStr`, `vecGetVec`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecGet (-> (Vec a) Int a))
-
 (pub fn (vecGet v i)
   (if (< i 0)
     __indexTrap
     (if (>= i (vecLen v))
       __indexTrap
-      (cast a (memGetWord (vecData v) i))
-    )
-  )
-)
+      (cast a (memGetWord (vecData v) i)))))
 
 ; The element at `i`, or `None` when there is no element at `i`.
 ;
@@ -284,23 +284,18 @@
 ; distinction this function exists to draw, so the CLAIM is what goes.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecTry (-> (Vec a) Int (Option a)))
-
 (pub fn (vecTry v i)
   (if (< i 0)
     None
     (if (>= i (vecLen v))
       None
-      (Some (cast a (memGetWord (vecData v) i)))
-    )
-  )
-)
+      (Some
+        (cast a (memGetWord (vecData v) i))))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecGetStr (-> (Vec a) Int String))
-
 (pub fn (vecGetStr v i)
-  (cast String (vecGet v i))
-)
+  (cast String (vecGet v i)))
 
 ; The element at `i` read back as a CONTAINER.
 ;
@@ -318,10 +313,8 @@
 ; pins `b` for itself.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecGetVec (-> (Vec a) Int (Vec b)))
-
 (pub fn (vecGetVec v i)
-  (cast (Vec b) (vecGet v i))
-)
+  (cast (Vec b) (vecGet v i)))
 
 ; Append a `String` to a vector of WORDS, keeping the share.
 ;
@@ -341,25 +334,25 @@
 ; would have taken is exactly the one the cast suppresses.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPushStr (-> (Vec a) String (Vec a)))
-
 (pub fn (vecPushStr v s)
   {
     (__retainref s)
-    (vecPush v (cast a s))
-  }
-)
+    (vecPush
+      v
+      (cast a s))
+  })
 
 ; The same for a nested container. A `Vec` handle is a counted block
 ; too, so it needs the same explicit share for the same reason.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPushVec (-> (Vec a) (Vec b) (Vec a)))
-
 (pub fn (vecPushVec v x)
   {
     (__retainref x)
-    (vecPush v (cast a x))
-  }
-)
+    (vecPush
+      v
+      (cast a x))
+  })
 
 ; Overwrite the element at `i`. Returns the handle.
 ;
@@ -369,7 +362,6 @@
 ; of a wrong answer that `vecLen` makes visible.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSet (-> (Vec a) Int a (Vec a)))
-
 (pub fn (vecSet v i x)
   (if (< i 0)
     v
@@ -385,14 +377,10 @@
       {
         (if (vecOwnsRefs v)
           (vecDropAt v i)
-          v
-        )
+          v)
         (memSetWord (vecData v) i x)
         v
-      }
-    )
-  )
-)
+      })))
 
 ; ------------------------------------------------------------------
 ; Growth
@@ -401,13 +389,10 @@
 ; Returns the handle.
 ;@axiom:restrict(no-io,no-foreign)
 (:: vecReserve (-> (Vec a) Int (Vec a)))
-
 (fn (vecReserve v need)
   (if (<= need (vecCap v))
     v
-    (vecReserveExactly v (vecGrownCap (vecCap v) need))
-  )
-)
+    (vecReserveExactly v (vecGrownCap (vecCap v) need))))
 
 ; The first power-of-two multiple of `cap` that reaches `need`.
 ;
@@ -421,13 +406,10 @@
 ; Terminates because `vecWithCapacity` guarantees `cap >= 1`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecGrownCap (-> Int Int Int))
-
 (fn (vecGrownCap cap need)
   (if (>= cap need)
     cap
-    (vecGrownCap (* cap 2) need)
-  )
-)
+    (vecGrownCap (* cap 2) need)))
 
 ; Move `v`'s elements into a fresh block of exactly `newCap` elements.
 ;
@@ -437,7 +419,6 @@
 ; than whatever the arena last held there.
 ;@axiom:restrict(no-io,no-foreign)
 (:: vecReserveExactly (-> (Vec a) Int (Vec a)))
-
 (fn (vecReserveExactly v newCap)
   (let (
     (old (vecData v))
@@ -447,11 +428,16 @@
       (__retain bigger)
       (if (vecOwnsRefs v)
         (memMarkArray bigger newCap)
-        bigger
-      )
+        bigger)
       (memCopy bigger old (* (vecLen v) 8))
-      (memSetWord (cast Int v) 2 bigger)
-      (memSetWord (cast Int v) 1 newCap)
+      (memSetWord
+        (cast Int v)
+        2
+        bigger)
+      (memSetWord
+        (cast Int v)
+        1
+        newCap)
       ; The copy MOVED the elements' shares, so the old block must not
       ; spend them on the way out: it is marked a leaf first, and its
       ; release then reclaims the block and touches nothing it held.
@@ -460,9 +446,7 @@
       (memMarkLeaf old)
       (__release old)
       v
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Stack operations
@@ -476,17 +460,17 @@
 ; invisible until the vector happened to grow.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecPush (-> (Vec a) a (Vec a)))
-
 (pub fn (vecPush v x)
   (let ((len (vecLen v)))
     {
       (vecReserve v (+ len 1))
       (memSetWord (vecData v) len x)
-      (memSetWord (cast Int v) 0 (+ len 1))
+      (memSetWord
+        (cast Int v)
+        0
+        (+ len 1))
       v
-    }
-  )
-)
+    }))
 
 ; Remove and return the last element. REFUSES an empty vector.
 ;
@@ -506,7 +490,6 @@
 ; parser wants.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecPop (-> (Vec a) a))
-
 (pub fn (vecPop v)
   (let ((len (vecLen v)))
     (if (== len 0)
@@ -521,13 +504,12 @@
       (let ((top (memGetWord (vecData v) (- len 1))))
         {
           (memSetWord (vecData v) (- len 1) 0)
-          (memSetWord (cast Int v) 0 (- len 1))
+          (memSetWord
+            (cast Int v)
+            0
+            (- len 1))
           (cast a top)
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; The last element without removing it. REFUSES an empty vector.
 ;
@@ -537,8 +519,8 @@
 ; that index is -1, which `vecGet` refuses.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecLast (-> (Vec a) a))
-
-(pub fn (vecLast v) (vecGet v (- (vecLen v) 1)))
+(pub fn (vecLast v)
+  (vecGet v (- (vecLen v) 1)))
 
 ; Drop every element, keeping the capacity. Returns the handle.
 ;
@@ -549,45 +531,39 @@
 ; many iterations allocates once in total.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecClear (-> (Vec a) (Vec a)))
-
 (pub fn (vecClear v)
   {
     (if (vecOwnsRefs v)
       (vecDropFrom v 0)
-      v
-    )
-    (memSetWord (cast Int v) 0 0)
+      v)
+    (memSetWord
+      (cast Int v)
+      0
+      0)
     v
-  }
-)
+  })
 
 ; Hand back the share of element `i` and zero the slot. Only ever called
 ; on an array-form data block, where the vector owns what it holds.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecDropAt (-> (Vec a) Int (Vec a)))
-
 (fn (vecDropAt v i)
   (let ((old (memGetWord (vecData v) i)))
     {
       (memSetWord (vecData v) i 0)
       (__release old)
       v
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecDropFrom (-> (Vec a) Int (Vec a)))
-
 (fn (vecDropFrom v i)
   (if (>= i (vecLen v))
     v
     {
       (vecDropAt v i)
       (vecDropFrom v (+ i 1))
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Bulk reads
@@ -601,18 +577,15 @@
 ; for when order matters.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSum (-> (Vec Int) Int))
-
-(pub fn (vecSum v) (vecSumFrom v 0 0))
+(pub fn (vecSum v)
+  (vecSumFrom v 0 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSumFrom (-> (Vec Int) Int Int Int))
-
 (fn (vecSumFrom v i acc)
   (if (>= i (vecLen v))
     acc
-    (vecSumFrom v (+ i 1) (+ acc (vecGet v i)))
-  )
-)
+    (vecSumFrom v (+ i 1) (+ acc (vecGet v i)))))
 
 ; A position-sensitive digest of the whole vector.
 ;
@@ -622,18 +595,15 @@
 ; the single assertion in a test that cares about order.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecHash (-> (Vec Int) Int))
-
-(pub fn (vecHash v) (vecHashFrom v 0 1))
+(pub fn (vecHash v)
+  (vecHashFrom v 0 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecHashFrom (-> (Vec Int) Int Int Int))
-
 (fn (vecHashFrom v i h)
   (if (>= i (vecLen v))
     h
-    (vecHashFrom v (+ i 1) (% (+ (* h 31) (vecGet v i)) 1000000007))
-  )
-)
+    (vecHashFrom v (+ i 1) (% (+ (* h 31) (vecGet v i)) 1000000007))))
 
 ; ------------------------------------------------------------------
 ; Ordering
@@ -658,21 +628,17 @@
 ; a sorted input, which is the input a caller most often has.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSwapWords (-> Int Int Int Int))
-
 (fn (vecSwapWords d i j)
   (let ((t (memGetWord d i)))
     {
       (memSetWord d i (memGetWord d j))
       (memSetWord d j t)
       0
-    }
-  )
-)
+    }))
 
 ; Restore the heap property at `root`, over the first `n` words.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecSiftDown (-> Int Int Int Int))
-
 (fn (vecSiftDown d root n)
   (let (
     (mut r root)
@@ -688,25 +654,17 @@
                 (if (< (+ c 1) n)
                   (if (> (memGetWord d (+ c 1)) (memGetWord d c))
                     (set k (+ c 1))
-                    0
-                  )
-                  0
-                )
+                    0)
+                  0)
                 (if (>= (memGetWord d r) (memGetWord d k))
                   (set go 0)
                   {
                     (vecSwapWords d r k)
                     (set r k)
-                  }
-                )
-              }
-            )
-          )
-        ))
+                  })
+              }))))
       0
-    }
-  )
-)
+    }))
 
 ; Sort ascending, in place, by machine word. Answers the vector.
 ;
@@ -719,7 +677,6 @@
 ; across runs - use `vecSortBy` with `strCmp`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSort (-> (Vec a) (Vec a)))
-
 (pub fn (vecSort v)
   (let (
     (n (vecLen v))
@@ -731,23 +688,18 @@
           {
             (vecSiftDown d i n)
             (set i (- i 1))
-          })
-      )
+          }))
       (let ((mut e (- n 1)))
         (while (> e 0)
           {
             (vecSwapWords d 0 e)
             (vecSiftDown d 0 e)
             (set e (- e 1))
-          })
-      )
+          }))
       v
-    }
-  )
-)
+    }))
 
 (:: vecSiftDownBy (-> Int Int Int (-> Int Int Int) Int))
-
 (fn (vecSiftDownBy d root n cmp)
   (let (
     (mut r root)
@@ -763,25 +715,17 @@
                 (if (< (+ c 1) n)
                   (if (> (cmp (memGetWord d (+ c 1)) (memGetWord d c)) 0)
                     (set k (+ c 1))
-                    0
-                  )
-                  0
-                )
+                    0)
+                  0)
                 (if (>= (cmp (memGetWord d r) (memGetWord d k)) 0)
                   (set go 0)
                   {
                     (vecSwapWords d r k)
                     (set r k)
-                  }
-                )
-              }
-            )
-          )
-        ))
+                  })
+              }))))
       0
-    }
-  )
-)
+    }))
 
 ; The same, ordered by a caller's comparison rather than by the word.
 ;
@@ -807,7 +751,6 @@
 ; and never diverge in behaviour, because the fixture below sorts one
 ; input both ways and requires the same answer.
 (pub :: vecSortBy (-> (Vec a) (-> Int Int Int) (Vec a)))
-
 (pub fn (vecSortBy v cmp)
   (let (
     (n (vecLen v))
@@ -819,17 +762,13 @@
           {
             (vecSiftDownBy d i n cmp)
             (set i (- i 1))
-          })
-      )
+          }))
       (let ((mut e (- n 1)))
         (while (> e 0)
           {
             (vecSwapWords d 0 e)
             (vecSiftDownBy d 0 e cmp)
             (set e (- e 1))
-          })
-      )
+          }))
       v
-    }
-  )
-)
+    }))

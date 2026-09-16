@@ -5,15 +5,13 @@
 ;; (when test body) -> (if test body 0)
 (pub macro (when test body) (if test
   body
-  0
-))
+  0))
 
 ;; unless — evaluate body unless test is true
 ;; (unless test body) -> (if test 0 body)
 (pub macro (unless test body) (if test
   0
-  body
-))
+  body))
 
 ;; range — the counted loop: `(range i 0 n body)` is `0..n`
 ;; (range i lo hi body) -> `body` once per `i` in [lo, hi), ascending,
@@ -65,15 +63,11 @@
         (while (< cur b)
           {
             (let ((i cur))
-              body
-            )
+              body)
             (set cur (+ cur 1))
           })
         0
-      }
-    )
-  )
-))
+      }))))
 
 ;; cond2 — two-condition branching plus else
 ;; (cond2 t1 b1 t2 b2 els) -> (if t1 b1 (if t2 b2 els))
@@ -81,9 +75,7 @@
   b1
   (if t2
     b2
-    els
-  )
-))
+    els)))
 
 ;; cond3 — three-condition branching plus else
 ;; (cond3 t1 b1 t2 b2 t3 b3 els) -> (if t1 b1 (if t2 b2 (if t3 b3 els)))
@@ -93,10 +85,7 @@
     b2
     (if t3
       b3
-      els
-    )
-  )
-))
+      els))))
 
 ;; deriveEq — structural equality for a data type, derived at the
 ;; point of use: `(deriveEq Color)` generates `eqColor : Color ->
@@ -153,5 +142,4 @@
 ;; would be AX3001 in every program that did not.
 (pub macro (showOr T x fallback) (if (syntax/defined (syntax/join show T))
   (syntax/join show T x)
-  fallback
-))
+  fallback))

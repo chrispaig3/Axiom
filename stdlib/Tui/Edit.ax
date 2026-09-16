@@ -77,15 +77,10 @@
 ; with `tuiVisLen`, so a highlighter that paints the buffer needs only to
 ; make `ledRefresh` take a painted snapshot the same way.
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import Utf8)
-
 (import Fmt)
-
 (import Tui.Keys)
 
 ; ------------------------------------------------------------------
@@ -94,34 +89,34 @@
 ; Keep editing.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: LED_GO Int)
-
-(pub fn (LED_GO) 0)
+(pub fn (LED_GO)
+  0)
 
 ; Enter: the caller takes `ledSnapshot`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: LED_DONE Int)
-
-(pub fn (LED_DONE) 1)
+(pub fn (LED_DONE)
+  1)
 
 ; Ctrl-D on an EMPTY buffer: end of input, the same answer the piped
 ; reader gives at EOF, so `replMain`'s farewell path is shared.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: LED_EOF Int)
-
-(pub fn (LED_EOF) 2)
+(pub fn (LED_EOF)
+  2)
 
 ; Ctrl-C: abandon this line. NOT end of session - see the header of
 ; `term.ax` for why, and for why it cannot leave the terminal raw.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: LED_ABORT Int)
-
-(pub fn (LED_ABORT) 3)
+(pub fn (LED_ABORT)
+  3)
 
 ; How many kills the ring remembers.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: LED_RING_MAX Int)
-
-(pub fn (LED_RING_MAX) 16)
+(pub fn (LED_RING_MAX)
+  16)
 
 ; ------------------------------------------------------------------
 ; The state. One block, one per SESSION - `ledReset` per line.
@@ -140,31 +135,31 @@
   (right : (Vec Int))
   (ring : (Vec String))
   (mut ringIdx : Int)
-  ; 0 none, 1 forward, 2 backward. Consecutive kills in the same
-  ; direction accumulate into ONE ring entry, which is what makes
-  ; three Ctrl-K presses yank back as one run.
   (mut lastKill : Int)
-  ; Code points the last yank inserted, and the only state yank-pop
-  ; needs. Zeroed by every other key, which is what makes Ctrl-Alt-Y
-  ; pressed cold a refusal rather than a corruption.
   (mut yankLen : Int)
   (mut cols : Int)
   (mut height : Int)
-  ; Rows the LAST refresh drew, and the row it parked the cursor on.
-  ; Everything the next refresh erases is computed from these two.
   (mut rows : Int)
   (mut curRow : Int)
-  ; Already painted by the caller, so it is measured with `tuiVisLen`
-  ; and never with `strLen`: a 7-column prompt painted SGR_SEC is 20
-  ; bytes, and counting bytes would shift the cursor 13 cells right on
-  ; row one and compound by a row at every wrap.
   (mut prompt : String)
   (mut pcols : Int)
-  ; The extra ASCII bytes that count as word characters, beyond
-  ; letters, digits and `_`. See `ledIsWord`: this is where the
-  ; CALLER'S language enters, and the only place it does.
   (wordChars : String))
 
+; 0 none, 1 forward, 2 backward. Consecutive kills in the same
+; direction accumulate into ONE ring entry, which is what makes
+; three Ctrl-K presses yank back as one run.
+; Code points the last yank inserted, and the only state yank-pop
+; needs. Zeroed by every other key, which is what makes Ctrl-Alt-Y
+; pressed cold a refusal rather than a corruption.
+; Rows the LAST refresh drew, and the row it parked the cursor on.
+; Everything the next refresh erases is computed from these two.
+; Already painted by the caller, so it is measured with `tuiVisLen`
+; and never with `strLen`: a 7-column prompt painted SGR_SEC is 20
+; bytes, and counting bytes would shift the cursor 13 cells right on
+; row one and compound by a row at every wrap.
+; The extra ASCII bytes that count as word characters, beyond
+; letters, digits and `_`. See `ledIsWord`: this is where the
+; CALLER'S language enters, and the only place it does.
 ; The kill ring, created once per session and outliving every line.
 ;
 ; `vecNewRef`, not `vecNew`: the ring owns `String` handles, and
@@ -175,8 +170,8 @@
 ; share back.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRingNew (Vec String))
-
-(pub fn (ledRingNew) vecNewRef)
+(pub fn (ledRingNew)
+  vecNewRef)
 
 ; One editor over a session's ring, with the caller's word set. The
 ; gap vectors are `vecNew` (leaf) because their elements are CODE
@@ -184,13 +179,25 @@
 ; and costs nothing.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledNew (-> (Vec String) String LineEd))
-
-(pub fn (ledNew ring wordChars) (LineEd vecNew vecNew ring 0 0 0 80 24 1 0 "" 0 wordChars))
+(pub fn (ledNew ring wordChars)
+  (LineEd
+    vecNew
+    vecNew
+    ring
+    0
+    0
+    0
+    80
+    24
+    1
+    0
+    ""
+    0
+    wordChars))
 
 ; Prepare for the next physical line. Keeps both vectors' capacity.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledReset (-> LineEd String Int Int Int))
-
 (pub fn (ledReset ed prompt cols height)
   {
     (vecClear ed.left)
@@ -204,49 +211,42 @@
     (set ed.lastKill 0)
     (set ed.yankLen 0)
     0
-  }
-)
+  })
 
 ; Hand the two gap vectors back. For session end and for a test
 ; harness, which builds hundreds; see the struct's comment for why
 ; nothing else needs it.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledFree (-> LineEd Int))
-
 (pub fn (ledFree ed)
   {
     (vecFree ed.left)
     (vecFree ed.right)
     0
-  }
-)
+  })
 
 ; ------------------------------------------------------------------
 ; Reading the buffer.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledLen (-> LineEd Int))
-
-(pub fn (ledLen ed) (+ (vecLen ed.left) (vecLen ed.right)))
+(pub fn (ledLen ed)
+  (+ (vecLen ed.left) (vecLen ed.right)))
 
 ; The cursor, as a code-point index. It IS `(vecLen left)`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledCursor (-> LineEd Int))
-
-(pub fn (ledCursor ed) (vecLen ed.left))
+(pub fn (ledCursor ed)
+  (vecLen ed.left))
 
 ; Code point `i` of the logical buffer, or 0 out of range.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledCpAt (-> LineEd Int Int))
-
 (pub fn (ledCpAt ed i)
   (let ((nl (vecLen ed.left)))
     (if (< i nl)
       (vecGet ed.left i)
-      (vecGet ed.right (- (- (vecLen ed.right) 1) (- i nl)))
-    )
-  )
-)
+      (vecGet ed.right (- (- (vecLen ed.right) 1) (- i nl))))))
 
 ; `cnt` code points from `s`, as a String.
 ;
@@ -260,7 +260,6 @@
 ; arena's reset was measured at under 1% (MM-ALLOC-22).
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRangeStr (-> LineEd Int Int String))
-
 (pub fn (ledRangeStr ed s cnt)
   (let (
     (n (ledLen ed))
@@ -272,8 +271,7 @@
         {
           (if (&& (>= (+ s i) 0) (< (+ s i) n))
             (set total (+ total (utf8Width (ledCpAt ed (+ s i)))))
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       (let (
@@ -289,18 +287,13 @@
                   {
                     (memCopy (+ (strData out) o) (strData one) (strLen one))
                     (set o (+ o (strLen one)))
-                  }
-                )
-                0
-              )
+                  })
+                0)
               (set j (+ j 1))
             })
           out
-        }
-      )
-    }
-  )
-)
+        })
+    }))
 
 ; The whole buffer. This is the value handed to `replMain`, and it is
 ; the ONLY place the gap representation becomes a String - which is
@@ -308,8 +301,8 @@
 ; exactly what they take today.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledSnapshot (-> LineEd String))
-
-(pub fn (ledSnapshot ed) (ledRangeStr ed 0 (ledLen ed)))
+(pub fn (ledSnapshot ed)
+  (ledRangeStr ed 0 (ledLen ed)))
 
 ; ------------------------------------------------------------------
 ; Editing.
@@ -323,23 +316,19 @@
 ; 0-on-empty sentinel.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledInsert (-> LineEd Int Int))
-
 (pub fn (ledInsert ed cp)
   (if (|| (< cp 32) (== cp 127))
     0
     {
       (vecPush ed.left cp)
       1
-    }
-  )
-)
+    }))
 
 ; Decode a String and insert every code point; answers how many went
 ; in. Steps with `utf8Next`, never `utf8CharAt` in a rising loop -
 ; Utf8.ax's own comment records that as the quadratic mistake.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledInsertStr (-> LineEd String Int))
-
 (pub fn (ledInsertStr ed s)
   (let (
     (n (strLen s))
@@ -351,107 +340,86 @@
         {
           (match (utf8DecodeAt s i)
             ((None) 0)
-            ((Some cp) (set got (+ got (ledInsert ed cp))))
-          )
+            ((Some cp)
+              (set got (+ got (ledInsert ed cp)))
+            ))
           (set i (utf8Next s i))
         })
       got
-    }
-  )
-)
+    }))
 
 ; Replace the buffer, cursor at the end. What history and completion
 ; need: one call to put a whole line in.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledSetStr (-> LineEd String Int))
-
 (pub fn (ledSetStr ed s)
   {
     (vecClear ed.left)
     (vecClear ed.right)
     (ledInsertStr ed s)
-  }
-)
+  })
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledBackspace (-> LineEd Int))
-
 (pub fn (ledBackspace ed)
   (if (== (vecLen ed.left) 0)
     0
     {
       (vecPop ed.left)
       1
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledDelete (-> LineEd Int))
-
 (pub fn (ledDelete ed)
   (if (== (vecLen ed.right) 0)
     0
     {
       (vecPop ed.right)
       1
-    }
-  )
-)
+    }))
 
 ; Every motion is one code point moved from one gap vector to the
 ; other. O(1) per character; nothing re-derives the cursor.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledLeft (-> LineEd Int))
-
 (pub fn (ledLeft ed)
   (if (== (vecLen ed.left) 0)
     0
     {
       (vecPush ed.right (vecPop ed.left))
       1
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRight (-> LineEd Int))
-
 (pub fn (ledRight ed)
   (if (== (vecLen ed.right) 0)
     0
     {
       (vecPush ed.left (vecPop ed.right))
       1
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledHome (-> LineEd Int))
-
 (pub fn (ledHome ed)
   (let ((mut n 0))
     {
       (while (> (vecLen ed.left) 0)
         (set n (+ n (ledLeft ed))))
       n
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledEnd (-> LineEd Int))
-
 (pub fn (ledEnd ed)
   (let ((mut n 0))
     {
       (while (> (vecLen ed.right) 0)
         (set n (+ n (ledRight ed))))
       n
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Words.
@@ -477,7 +445,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledIsWord (-> LineEd Int Bool))
-
 (pub fn (ledIsWord ed cp)
   (if (>= cp 128)
     true
@@ -491,29 +458,21 @@
       ; calls `held`.
       (match (strFindByte ed.wordChars cp 0)
         ((None) false)
-        ((Some _) true)
-      )
-    )
-  )
-)
+        ((Some _) true)))))
 
 ; The complement, as a function because Axiom has no `!` - stdlib's
 ; `assertFalse` carries the same note for the same reason.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledNotWord (-> LineEd Int Bool))
-
 (pub fn (ledNotWord ed cp)
   (if (ledIsWord ed cp)
     false
-    true
-  )
-)
+    true))
 
 ; readline's rule: skip a run of non-word characters, then a run of
 ; word characters. Answers how many code points were crossed.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledWordLeft (-> LineEd Int))
-
 (pub fn (ledWordLeft ed)
   (let ((mut n 0))
     {
@@ -522,13 +481,10 @@
       (while (&& (> (vecLen ed.left) 0) (ledIsWord ed (vecLast ed.left)))
         (set n (+ n (ledLeft ed))))
       n
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledWordRight (-> LineEd Int))
-
 (pub fn (ledWordRight ed)
   (let ((mut n 0))
     {
@@ -537,9 +493,7 @@
       (while (&& (> (vecLen ed.right) 0) (ledIsWord ed (vecLast ed.right)))
         (set n (+ n (ledRight ed))))
       n
-    }
-  )
-)
+    }))
 
 ; How many code points a forward word kill would take, WITHOUT moving
 ; the cursor - the backward kills can move and then pop, because a
@@ -547,7 +501,6 @@
 ; forward one has nowhere to put it back.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledWordRightSpan (-> LineEd Int))
-
 (pub fn (ledWordRightSpan ed)
   (let (
     (k (ledCursor ed))
@@ -560,9 +513,7 @@
       (while (&& (< (+ k i) n) (ledIsWord ed (ledCpAt ed (+ k i))))
         (set i (+ i 1)))
       i
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The kill ring.
@@ -577,21 +528,19 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledKillPush (-> LineEd String Int Int))
-
 (pub fn (ledKillPush ed text dir)
   {
     (if (&& (== ed.lastKill dir) (> (vecLen ed.ring) 0))
       (let ((cur (vecGetStr ed.ring ed.ringIdx)))
         {
           (vecSet
-            ed.ring            ed.ringIdx            (if (== dir 1)
+            ed.ring
+            ed.ringIdx
+            (if (== dir 1)
               (strConcat cur text)
-              (strConcat text cur)
-            )
-          )
+              (strConcat text cur)))
           0
-        }
-      )
+        })
       (if (< (vecLen ed.ring) LED_RING_MAX)
         {
           (vecPush ed.ring text)
@@ -602,25 +551,21 @@
           (set ed.ringIdx (% (+ ed.ringIdx 1) LED_RING_MAX))
           (vecSet ed.ring ed.ringIdx text)
           0
-        }
-      )
-    )
+        }))
     (set ed.lastKill dir)
     0
-  }
-)
+  })
 
 ; Which ring entry a yank would take. Read by the test harness, and
 ; by whatever eventually shows the kill ring; the ring itself is the
 ; session's `Vec` and is already reachable.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledRingIdx (-> LineEd Int))
-
-(pub fn (ledRingIdx ed) ed.ringIdx)
+(pub fn (ledRingIdx ed)
+  ed.ringIdx)
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledKillToEnd (-> LineEd Int))
-
 (pub fn (ledKillToEnd ed)
   (let ((cnt (vecLen ed.right)))
     (if (== cnt 0)
@@ -629,14 +574,10 @@
         (ledKillPush ed (ledRangeStr ed (ledCursor ed) cnt) 1)
         (vecClear ed.right)
         cnt
-      }
-    )
-  )
-)
+      })))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledKillToStart (-> LineEd Int))
-
 (pub fn (ledKillToStart ed)
   (let ((cnt (vecLen ed.left)))
     (if (== cnt 0)
@@ -645,17 +586,13 @@
         (ledKillPush ed (ledRangeStr ed 0 cnt) 2)
         (vecClear ed.left)
         cnt
-      }
-    )
-  )
-)
+      })))
 
 ; Move left over the word, then pop what the motion pushed onto
 ; `right` - the run the cursor just crossed is exactly the top `moved`
 ; entries of that vector.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledKillWordLeft (-> LineEd Int))
-
 (pub fn (ledKillWordLeft ed)
   (let ((moved (ledWordLeft ed)))
     (if (== moved 0)
@@ -669,14 +606,10 @@
               (set i (+ i 1))
             }))
         moved
-      }
-    )
-  )
-)
+      })))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledKillWordRight (-> LineEd Int))
-
 (pub fn (ledKillWordRight ed)
   (let ((span (ledWordRightSpan ed)))
     (if (== span 0)
@@ -690,30 +623,23 @@
               (set i (+ i 1))
             }))
         span
-      }
-    )
-  )
-)
+      })))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledYank (-> LineEd Int))
-
 (pub fn (ledYank ed)
   (if (== (vecLen ed.ring) 0)
     0
     {
       (set ed.yankLen (ledInsertStr ed (vecGetStr ed.ring ed.ringIdx)))
       ed.yankLen
-    }
-  )
-)
+    }))
 
 ; Alt-y. Valid only immediately after a yank or another yank-pop,
 ; which `yankLen > 0` is exactly: every other key zeroes it in
 ; `ledApply`, so pressed cold this is a refusal that changes nothing.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledYankPop (-> LineEd Int))
-
 (pub fn (ledYankPop ed)
   (if (|| (== ed.yankLen 0) (< (vecLen ed.ring) 2))
     0
@@ -727,9 +653,7 @@
       (set ed.ringIdx (% (+ (- ed.ringIdx 1) (vecLen ed.ring)) (vecLen ed.ring)))
       (set ed.yankLen (ledInsertStr ed (vecGetStr ed.ring ed.ringIdx)))
       ed.yankLen
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Two services a caller driving a terminal needs, and neither of which
@@ -757,7 +681,6 @@
 ; looping, which is also what `style.visLen` does.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tuiVisLen (-> String Int))
-
 (pub fn (tuiVisLen s)
   (let (
     (n (strLen s))
@@ -773,22 +696,16 @@
                 (set j (+ j 1)))
               (set i (if (< j n)
                 (+ j 1)
-                n
-              ))
-            }
-          )
+                n))
+            })
           {
             (if (utf8IsCont (strByte s i))
               0
-              (set w (+ w 1))
-            )
+              (set w (+ w 1)))
             (set i (+ i 1))
-          }
-        ))
+          }))
       w
-    }
-  )
-)
+    }))
 
 ; Every fragment in `v`, concatenated, in ONE allocation.
 ;
@@ -802,7 +719,6 @@
 ; because the refresh below is what needs it.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: tuiCat (-> (Vec String) String))
-
 (pub fn (tuiCat v)
   (let (
     (n (vecLen v))
@@ -827,14 +743,10 @@
                 (memCopy (+ (strData out) o) (strData piece) (strLen piece))
                 (set o (+ o (strLen piece)))
                 (set j (+ j 1))
-              }
-            ))
+              }))
           out
-        }
-      )
-    }
-  )
-)
+        })
+    }))
 
 ; ------------------------------------------------------------------
 ; Geometry. Pure arithmetic, and where wrap correctness is decided.
@@ -855,13 +767,10 @@
 ; header. The single place a wcwidth table would land.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledCharCols (-> Int Int))
-
 (pub fn (ledCharCols cp)
   (if (< cp 0)
     0
-    1
-  )
-)
+    1))
 
 ; The columns the first `k` code points occupy. O(k), and it is the
 ; only reason `ledCharCols` is a function rather than a `1` written in
@@ -869,7 +778,6 @@
 ; else changes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledColsBefore (-> LineEd Int Int))
-
 (pub fn (ledColsBefore ed k)
   (let (
     (n (ledLen ed))
@@ -883,9 +791,7 @@
           (set i (+ i 1))
         })
       w
-    }
-  )
-)
+    }))
 
 ; The width to compute with: the terminal's, or 80 when it answered
 ; something a division cannot use. A pty that has never been sized
@@ -893,33 +799,30 @@
 ; dividing by it is the bug that report cannot make.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledCols (-> LineEd Int))
-
 (pub fn (ledCols ed)
   (if (< ed.cols 2)
     80
-    ed.cols
-  )
-)
+    ed.cols))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledContentCols (-> LineEd Int))
-
-(pub fn (ledContentCols ed) (+ ed.pcols (ledColsBefore ed (ledLen ed))))
+(pub fn (ledContentCols ed)
+  (+ ed.pcols (ledColsBefore ed (ledLen ed))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledRowOf (-> LineEd Int Int))
-
-(pub fn (ledRowOf ed k) (/ (+ ed.pcols (ledColsBefore ed k)) (ledCols ed)))
+(pub fn (ledRowOf ed k)
+  (/ (+ ed.pcols (ledColsBefore ed k)) (ledCols ed)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledColOf (-> LineEd Int Int))
-
-(pub fn (ledColOf ed k) (% (+ ed.pcols (ledColsBefore ed k)) (ledCols ed)))
+(pub fn (ledColOf ed k)
+  (% (+ ed.pcols (ledColsBefore ed k)) (ledCols ed)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledRowsUsed (-> LineEd Int))
-
-(pub fn (ledRowsUsed ed) (+ (/ (ledContentCols ed) (ledCols ed)) 1))
+(pub fn (ledRowsUsed ed)
+  (+ (/ (ledContentCols ed) (ledCols ed)) 1))
 
 ; ------------------------------------------------------------------
 ; The escape vocabulary: five sequences, all built here, so what this
@@ -940,7 +843,6 @@
 ; bytes. 65 A up, 66 B down, 67 C forward, 68 D back.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledCup (-> Int Int String))
-
 (pub fn (ledCup n final)
   (if (< n 1)
     ""
@@ -952,16 +854,11 @@
           (memCopy (+ (strData out) 2) (strData d) (strLen d))
           (memPutByte (strData out) (+ (strLen d) 2) final)
           out
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; `ESC [ H ESC [ 2 J` - cursor home, erase the whole screen. Ctrl-L.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledClearScreen (-> Int String))
-
 (pub fn (ledClearScreen _u)
   (let ((out (strAlloc 7)))
     {
@@ -973,9 +870,7 @@
       (memPutByte (strData out) 5 50)
       (memPutByte (strData out) 6 74)
       out
-    }
-  )
-)
+    }))
 
 ; `ESC [ 0 K` - erase from the cursor to the end of the row. Spelled
 ; out rather than routed through `ledCup`, which refuses n < 1 and
@@ -983,7 +878,6 @@
 ; leaves the old line's tail on the screen.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledEraseRow (-> Int String))
-
 (pub fn (ledEraseRow _u)
   (let ((out (strAlloc 4)))
     {
@@ -992,9 +886,7 @@
       (memPutByte (strData out) 2 48)
       (memPutByte (strData out) 3 75)
       out
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The redraw.
@@ -1024,7 +916,6 @@
 ; 0 of the first row.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledEraseOld (-> LineEd (Vec String) Int))
-
 (pub fn (ledEraseOld ed out)
   {
     (vecPush out (ledCup (- (- ed.rows 1) ed.curRow) 66))
@@ -1039,13 +930,11 @@
     (vecPush out "\r")
     (vecPush out (ledEraseRow 0))
     0
-  }
-)
+  })
 
 ; The multi-row repaint.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRefreshFull (-> LineEd (Vec String) Int))
-
 (pub fn (ledRefreshFull ed out)
   (let (
     (w (ledCols ed))
@@ -1058,17 +947,14 @@
       (vecPush out (ledSnapshot ed))
       (if (&& (> c 0) (== (% c w) 0))
         (vecPush out "\n\r")
-        (cast (Vec String) 0)
-      )
+        (cast (Vec String) 0))
       (vecPush out (ledCup (- (/ c w) (ledRowOf ed k)) 65))
       (vecPush out "\r")
       (vecPush out (ledCup (ledColOf ed k) 67))
       (set ed.rows (+ (/ c w) 1))
       (set ed.curRow (ledRowOf ed k))
       0
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The single-row window, for content taller than the screen.
@@ -1087,64 +973,52 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRefreshWindow (-> LineEd (Vec String) Int))
-
 (pub fn (ledRefreshWindow ed out)
+  ; One column is held back so the row can never fill exactly and
+  ; raise the phantom-column question a second time.
   (let (
     (w (ledCols ed))
     (n (ledLen ed))
     (k (ledCursor ed))
   )
-    ; One column is held back so the row can never fill exactly and
-    ; raise the phantom-column question a second time.
-    (let ((keepPrompt (if (< ed.pcols (- w 8))
-      1
-      0
-    )))
-      (let ((pc (if (== keepPrompt 1)
-        ed.pcols
-        0
-      )))
+    (let ((keepPrompt 
+      (if (< ed.pcols (- w 8))
+        1
+        0)))
+      (let ((pc 
+        (if (== keepPrompt 1)
+          ed.pcols
+          0)))
         (let ((avail (- (- w pc) 1)))
-          (let ((s (if (> k avail)
-            (- k avail)
-            0
-          )))
-            (let ((cnt (if (> (- n s) avail)
-              avail
-              (- n s)
-            )))
+          (let ((s 
+            (if (> k avail)
+              (- k avail)
+              0)))
+            (let ((cnt 
+              (if (> (- n s) avail)
+                avail
+                (- n s))))
               {
                 (ledEraseOld ed out)
                 (if (== keepPrompt 1)
                   (vecPush out ed.prompt)
-                  (cast (Vec String) 0)
-                )
+                  (cast (Vec String) 0))
                 (vecPush out (ledRangeStr ed s cnt))
                 (vecPush out "\r")
                 (vecPush out (ledCup (+ pc (- k s)) 67))
                 (set ed.rows 1)
                 (set ed.curRow 0)
                 0
-              }
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              })))))))
 
 ; The one dispatcher, so the choice between the two repaints lives in
 ; exactly one place.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRefresh (-> LineEd (Vec String) Int))
-
 (pub fn (ledRefresh ed out)
   (if (&& (> ed.height 1) (> (ledRowsUsed ed) ed.height))
     (ledRefreshWindow ed out)
-    (ledRefreshFull ed out)
-  )
-)
+    (ledRefreshFull ed out)))
 
 ; ------------------------------------------------------------------
 ; The painted repaint, for a caller with a highlighter.
@@ -1169,7 +1043,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRefreshFullPainted (-> LineEd (Vec String) String Int))
-
 (pub fn (ledRefreshFullPainted ed out painted)
   (let (
     (w (ledCols ed))
@@ -1182,17 +1055,14 @@
       (vecPush out painted)
       (if (&& (> c 0) (== (% c w) 0))
         (vecPush out "\n\r")
-        (cast (Vec String) 0)
-      )
+        (cast (Vec String) 0))
       (vecPush out (ledCup (- (/ c w) (ledRowOf ed k)) 65))
       (vecPush out "\r")
       (vecPush out (ledCup (ledColOf ed k) 67))
       (set ed.rows (+ (/ c w) 1))
       (set ed.curRow (ledRowOf ed k))
       0
-    }
-  )
-)
+    }))
 
 ; Like `ledRefresh`, but the full repaint draws `painted` - the
 ; caller's rendering of the current buffer - instead of the plain
@@ -1200,13 +1070,10 @@
 ; makes the cursor land correctly.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledRefreshPainted (-> LineEd (Vec String) String Int))
-
 (pub fn (ledRefreshPainted ed out painted)
   (if (&& (> ed.height 1) (> (ledRowsUsed ed) ed.height))
     (ledRefreshWindow ed out)
-    (ledRefreshFullPainted ed out painted)
-  )
-)
+    (ledRefreshFullPainted ed out painted)))
 
 ; Called with the terminal's current size before every refresh. When
 ; the width changed we cannot know how the terminal reflowed the text
@@ -1216,7 +1083,6 @@
 ; changed.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledResize (-> LineEd Int Int Int))
-
 (pub fn (ledResize ed cols height)
   (if (&& (== cols ed.cols) (== height ed.height))
     0
@@ -1226,9 +1092,7 @@
       (set ed.rows 1)
       (set ed.curRow 0)
       1
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The state machine: one key in, one disposition out.
@@ -1238,7 +1102,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledApply (-> LineEd KeyEv (Vec String) Int))
-
 (pub fn (ledApply ed ev out)
   {
     ; Every key that is not a kill starts a fresh ring entry, and
@@ -1250,22 +1113,18 @@
       {
         (set ed.lastKill 0)
         0
-      }
-    )
+      })
     (if (ledIsYankKey ev)
       0
       {
         (set ed.yankLen 0)
         0
-      }
-    )
+      })
     (ledDispatch ed ev out)
-  }
-)
+  })
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledIsKillKey (-> KeyEv Bool))
-
 (pub fn (ledIsKillKey ev)
   (if (== ev.kind KEY_CTRL)
     (|| (== ev.cp 75) (|| (== ev.cp 85) (== ev.cp 87)))
@@ -1275,25 +1134,16 @@
         (!= (& ev.mods (| MOD_ALT MOD_CTRL)) 0)
         (if (== ev.kind KEY_CHAR)
           (&& (!= (& ev.mods MOD_ALT) 0) (|| (== ev.cp 100) (== ev.cp 68)))
-          false
-        )
-      )
-    )
-  )
-)
+          false)))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledIsYankKey (-> KeyEv Bool))
-
 (pub fn (ledIsYankKey ev)
   (if (== ev.kind KEY_CTRL)
     (== ev.cp 89)
     (if (== ev.kind KEY_CHAR)
       (&& (!= (& ev.mods MOD_ALT) 0) (|| (== ev.cp 121) (== ev.cp 89)))
-      false
-    )
-  )
-)
+      false)))
 
 ; A motion key carrying Ctrl or Alt is the WORD variant. Terminals
 ; disagree about which modifier they send for Ctrl-Left - xterm sends
@@ -1301,12 +1151,11 @@
 ; another name - so both are accepted rather than one being picked.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: ledByWord (-> KeyEv Bool))
-
-(pub fn (ledByWord ev) (!= (& ev.mods (| MOD_ALT MOD_CTRL)) 0))
+(pub fn (ledByWord ev)
+  (!= (& ev.mods (| MOD_ALT MOD_CTRL)) 0))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledDispatch (-> LineEd KeyEv (Vec String) Int))
-
 (pub fn (ledDispatch ed ev out)
   (if (== ev.kind KEY_ENTER)
     LED_DONE
@@ -1318,25 +1167,17 @@
           {
             (if (ledByWord ev)
               (ledKillWordLeft ed)
-              (ledBackspace ed)
-            )
+              (ledBackspace ed))
             LED_GO
           }
           (if (== ev.kind KEY_DELETE)
             {
               (if (ledByWord ev)
                 (ledKillWordRight ed)
-                (ledDelete ed)
-              )
+                (ledDelete ed))
               LED_GO
             }
-            (ledNavKey ed ev)
-          )
-        )
-      )
-    )
-  )
-)
+            (ledNavKey ed ev)))))))
 
 ; Arrows, Home and End - and the keys this effort deliberately leaves
 ; alone. Up and Down belong to the HISTORY effort and Tab to
@@ -1344,19 +1185,16 @@
 ; Adding them is a branch beside these, not a change to the decoder.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledNavKey (-> LineEd KeyEv Int))
-
 (pub fn (ledNavKey ed ev)
   {
     (if (== ev.kind KEY_LEFT)
       (if (ledByWord ev)
         (ledWordLeft ed)
-        (ledLeft ed)
-      )
+        (ledLeft ed))
       (if (== ev.kind KEY_RIGHT)
         (if (ledByWord ev)
           (ledWordRight ed)
-          (ledRight ed)
-        )
+          (ledRight ed))
         (if (== ev.kind KEY_HOME)
           (ledHome ed)
           (if (== ev.kind KEY_END)
@@ -1365,21 +1203,15 @@
             ; KEY_TAB: completion's.
             ; KEY_ESCAPE, KEY_FN, KEY_PGUP, KEY_PGDN, KEY_INSERT,
             ; KEY_NONE: nothing is bound to them.
-            0
-          )
-        )
-      )
-    )
+            0))))
     LED_GO
-  }
-)
+  })
 
 ; A printable key, or an Alt-<letter> word command. Alt-b/f/d/y are
 ; the bindings every terminal can produce, where Ctrl-Left and
 ; Alt-Delete are the ones only some can.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledCharKey (-> LineEd KeyEv Int))
-
 (pub fn (ledCharKey ed ev)
   {
     (if (!= (& ev.mods MOD_ALT) 0)
@@ -1391,23 +1223,16 @@
             (ledKillWordRight ed)
             (if (|| (== ev.cp 121) (== ev.cp 89))
               (ledYankPop ed)
-              0
-            )
-          )
-        )
-      )
-      (ledInsert ed ev.cp)
-    )
+              0))))
+      (ledInsert ed ev.cp))
     LED_GO
-  }
-)
+  })
 
 ; The control keys. readline's letters, and only the ones this effort
 ; owns: Ctrl-N and Ctrl-P are history's and are left unbound so that
 ; effort can take them without moving anything here.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: ledCtrlKey (-> LineEd KeyEv (Vec String) Int))
-
 (pub fn (ledCtrlKey ed ev out)
   (if (== ev.cp 67)
     LED_ABORT
@@ -1420,8 +1245,7 @@
         {
           (ledDelete ed)
           LED_GO
-        }
-      )
+        })
       {
         (if (== ev.cp 65)
           (ledHome ed)
@@ -1446,18 +1270,6 @@
                             (set ed.curRow 0)
                             0
                           }
-                          0
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
+                          0)))))))))
         LED_GO
-      }
-    )
-  )
-)
+      })))

@@ -28,11 +28,8 @@
 ; gate runs it on every function before the differential.
 ; ------------------------------------------------------------------
 (import Str)
-
 (import Vec)
-
 (import IO)
-
 (import mir)
 
 ; The function table is a plain `Vec` scanned by name, because a
@@ -41,7 +38,6 @@
 ; shape `mLowerFn` answers, so "not found" is a length and not a
 ; sentinel pointer.
 (pub :: mvalFind (-> (Vec MFunc) String Int (Vec MFunc)))
-
 (pub fn (mvalFind fns nm i)
   (if (>= i (vecLen fns))
     vecNew
@@ -51,20 +47,14 @@
           {
             (vecPush v f)
             v
-          }
-        )
-        (mvalFind fns nm (+ i 1))
-      )
-    )
-  )
-)
+          })
+        (mvalFind fns nm (+ i 1))))))
 
 ; The MIR spellings, not Axiom's operators. This reads what
 ; `mir.ax`'s `mBinOp` WROTE, so a rule that lowered `-` to `add`
 ; would be caught by the differential rather than cancelled out by an
 ; evaluator that had also been told `-` means subtract.
 (pub :: mvalBin (-> String Int Int Int))
-
 (pub fn (mvalBin nm x y)
   (if (strEq nm "add")
     (+ x y)
@@ -85,25 +75,16 @@
         (if (strEq nm "sdiv")
           (if (== y 0)
             0
-            (/ x y)
-          )
+            (/ x y))
           (if (strEq nm "srem")
             (if (== y 0)
               0
-              (% x y)
-            )
-            (mvalCmp nm x y)
-          )
-        )
-      )
-    )
-  )
-)
+              (% x y))
+            (mvalCmp nm x y)))))))
 
 ; A comparison answers 1 or 0, which is what `codegen.ax`'s `icmp`
 ; result is widened to.
 (pub :: mvalCmp (-> String Int Int Int))
-
 (pub fn (mvalCmp nm x y)
   (if (strEq nm "eq")
     (mvalBool (== x y))
@@ -117,64 +98,44 @@
             (mvalBool (<= x y))
             (if (strEq nm "sge")
               (mvalBool (>= x y))
-              0
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              0)))))))
 
 (pub :: mvalBool (-> Bool Int))
-
 (pub fn (mvalBool b)
   (if b
     1
-    0
-  )
-)
+    0))
 
 (pub :: mvalZeros (-> (Vec Int) Int (Vec Int)))
-
 (pub fn (mvalZeros v n)
   (if (<= n 0)
     v
     {
       (vecPush v 0)
       (mvalZeros v (- n 1))
-    }
-  )
-)
+    }))
 
 ; Read a register list into a value list - call arguments and block
 ; arguments both.
 (pub :: mvalArgs (-> (Vec Int) (Vec Int) Int (Vec Int) (Vec Int)))
-
 (pub fn (mvalArgs regs rs i out)
   (if (>= i (vecLen rs))
     out
     {
       (vecPush out (vecGet regs (vecGet rs i)))
       (mvalArgs regs rs (+ i 1) out)
-    }
-  )
-)
+    }))
 
 (pub :: mvalBindParams (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
-
 (pub fn (mvalBindParams regs ps vals i)
   (if (>= i (vecLen ps))
     0
     {
       (vecSet regs (vecGet ps i) (vecGet vals i))
       (mvalBindParams regs ps vals (+ i 1))
-    }
-  )
-)
+    }))
 
 (pub :: mvalInsts (-> (Vec MFunc) (Vec Int) (Vec MInst) Int Int))
-
 ;@axiom:effect(io)
 (pub fn (mvalInsts fns regs insts i)
   (if (>= i (vecLen insts))
@@ -199,15 +160,9 @@
               ; An opcode this evaluator does not know leaves the
               ; register file alone. `mirVerify` is what refuses one,
               ; and the gate runs it first.
-              0
-            )
-          )
-        )
+              0)))
         (mvalInsts fns regs insts (+ i 1))
-      }
-    )
-  )
-)
+      })))
 
 ; A call to a name the table does not hold answers 0. The gate never
 ; reaches that arm - it lowers whole modules and `mirVerify` runs
@@ -215,19 +170,14 @@
 ; values, so an unresolved callee shows up as a wrong number rather
 ; than as a crash that could be mistaken for a machine problem.
 (pub :: mvalCall (-> (Vec MFunc) String (Vec Int) Int))
-
 ;@axiom:effect(io)
 (pub fn (mvalCall fns nm args)
   (let ((got (mvalFind fns nm 0)))
     (if (== (vecLen got) 0)
       0
-      (mvalRunFn fns (vecGet got 0) args)
-    )
-  )
-)
+      (mvalRunFn fns (vecGet got 0) args))))
 
 (pub :: mvalBlockAt (-> MFunc Int (Vec MBlock)))
-
 (pub fn (mvalBlockAt f id)
   (if (|| (< id 0) (>= id (vecLen f.blocks)))
     vecNew
@@ -235,13 +185,9 @@
       {
         (vecPush v (vecGet f.blocks id))
         v
-      }
-    )
-  )
-)
+      })))
 
 (pub :: mvalRunBlock (-> (Vec MFunc) MFunc (Vec Int) MBlock (Vec Int) Int))
-
 ;@axiom:effect(io)
 (pub fn (mvalRunBlock fns f regs b vals)
   {
@@ -254,34 +200,33 @@
           (vecGet regs t.a)
           (if (== t.op MT_BR)
             (mvalGoto
-              fns              f              regs              t.tgt              (mvalArgs regs t.args 0 vecNew)
-            )
+              fns
+              f
+              regs
+              t.tgt
+              (mvalArgs regs t.args 0 vecNew))
             (if (== t.op MT_CONDBR)
               (mvalGoto
-                fns                f                regs                (if (!= (vecGet regs t.a) 0)
+                fns
+                f
+                regs
+                (if (!= (vecGet regs t.a) 0)
                   t.tgt
-                  t.alt
-                )                vecNew
-              )
+                  t.alt)
+                vecNew)
               (if (== t.op MT_TRAPZ)
                 (mvalGoto
-                  fns                  f                  regs                  (if (== (vecGet regs t.a) 0)
+                  fns
+                  f
+                  regs
+                  (if (== (vecGet regs t.a) 0)
                     t.tgt
-                    t.alt
-                  )                  vecNew
-                )
+                    t.alt)
+                  vecNew)
                 (if (== t.op MT_TRAP)
                   (mvalTrap t.name)
-                  0
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  }
-)
+                  0)))))))
+  })
 
 ; A trap terminator leaves the program the way the emitted runtime
 ; leaves it: the helper's own message on fd 2 and the helper's own exit
@@ -292,57 +237,50 @@
 ; divide-by-zero program prints `axiom: division by zero` to fd 2,
 ; leaves stdout untouched, and exits 72.
 (pub :: mvalTrap (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (mvalTrap name)
   (if (strEq name "__axiom_div_by_zero")
     (die "axiom: division by zero\n" 72)
-    (die (strConcat (strConcat "axiom: trap " name) "\n") 70)
-  )
-)
+    (die (strConcat (strConcat "axiom: trap " name) "\n") 70)))
 
 (pub :: mvalGoto (-> (Vec MFunc) MFunc (Vec Int) Int (Vec Int) Int))
-
 ;@axiom:effect(io)
 (pub fn (mvalGoto fns f regs id vals)
   (let ((got (mvalBlockAt f id)))
     (if (== (vecLen got) 0)
       0
       (mvalRunBlock
-        fns        f        regs        (vecGet got 0)        vals
-      )
-    )
-  )
-)
+        fns
+        f
+        regs
+        (vecGet got 0)
+        vals))))
 
 ; One call. The register file is exactly `nreg` words and is fresh
 ; per call, which is what makes recursion work: `mirVerify` has
 ; already refused any register at or above `nreg`, so nothing here
 ; reads past the end.
 (pub :: mvalRunFn (-> (Vec MFunc) MFunc (Vec Int) Int))
-
 ;@axiom:effect(io)
 (pub fn (mvalRunFn fns f args)
   (let ((regs (mvalZeros vecNew f.nreg)))
     {
       (mvalBindParams regs f.params args 0)
       (mvalGoto
-        fns        f        regs        0        vecNew
-      )
-    }
-  )
-)
+        fns
+        f
+        regs
+        0
+        vecNew)
+    }))
 
 ; Call a function by name with one integer argument - the shape every
 ; fixture's `probe` has.
 (pub :: mvalCall1 (-> (Vec MFunc) String Int Int))
-
 ;@axiom:effect(io)
 (pub fn (mvalCall1 fns nm x)
   (let ((v vecNew))
     {
       (vecPush v x)
       (mvalCall fns nm v)
-    }
-  )
-)
+    }))

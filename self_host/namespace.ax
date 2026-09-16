@@ -17,13 +17,9 @@
 ; (`MangleIdx`, below), the import filters it records, and the AST
 ; nodes it renames.
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import Intern)
-
 (import parser)
 
 ; ------------------------------------------------------------------
@@ -88,13 +84,12 @@
   (done : Int))
 
 (pub :: mangleIdxNew Int)
-
-(pub fn (mangleIdxNew) (cast Int (MangleIdx internNew vecNew 0)))
+(pub fn (mangleIdxNew)
+  (cast Int (MangleIdx internNew vecNew 0)))
 
 ; Absorb every entry of `bares` from `done` to its end. Answers the
 ; new `done`.
 (pub :: mangleIdxSync (-> Int (Vec String) Int))
-
 (pub fn (mangleIdxSync idx bares)
   (let ((mut i (memGetWord idx 2)))
     {
@@ -103,30 +98,23 @@
           (let ((id (internIntern (memGetWord idx 0) (vecGetStr bares i))))
             (if (== id (vecLen (memGetWordVec idx 1)))
               (vecPush (memGetWordVec idx 1) i)
-              (cast (Vec Int) 0)
-            )
-          )
+              (cast (Vec Int) 0)))
           (set i (+ i 1))
         })
       (memSetWord idx 2 i)
       i
-    }
-  )
-)
+    }))
 
 ; Is `name` in `bares`? The indexed form of `mangleHasIn`, and the
 ; one every writer here asks.
 (pub :: mangleIdxHas (-> Int (Vec String) String Bool))
-
 (pub fn (mangleIdxHas idx bares name)
   {
     (mangleIdxSync idx bares)
     (match (internFind (memGetWord idx 0) name)
       ((Some _) true)
-      ((None) false)
-    )
-  }
-)
+      ((None) false))
+  })
 
 ; The first index in `bares` holding `name`, or `None`.
 ;
@@ -134,23 +122,19 @@
 ; `(vecSet fulls i name)`, so a miss that reached the index is a wild
 ; WRITE - it would store into the word before the vector's first.
 (pub :: mangleIdxIndexOf (-> Int (Vec String) String (Option Int)))
-
 (pub fn (mangleIdxIndexOf idx bares name)
   {
     (mangleIdxSync idx bares)
     (match (internFind (memGetWord idx 0) name)
       ((Some id) (Some (vecGet (memGetWordVec idx 1) id)))
-      ((None) None)
-    )
-  }
-)
+      ((None) None))
+  })
 
 ; Record how a bare reference reaches `full`, unless the bare name is
 ; already claimed. First-writer-wins is what makes the entry file win:
 ; `resolveImports` records every entry-file function before any import
 ; is read.
 (pub :: mangleRecord (-> Int (Vec String) (Vec String) String String Int))
-
 (pub fn (mangleRecord idx bares fulls bare full)
   ; The mangled name maps to itself, recorded whether or not the bare
   ; name was already claimed - which it usually is, by the entry
@@ -169,18 +153,15 @@
         (vecPush bares full)
         (vecPush fulls full)
         0
-      }
-    )
+      })
     (if (mangleIdxHas idx bares bare)
       0
       {
         (vecPush bares bare)
         (vecPush fulls full)
         0
-      }
-    )
-  }
-)
+      })
+  })
 
 ; The entry file's claim on a bare name, which OVERRIDES whatever an
 ; import recorded. `mangleRecord` gives the entry file the bare slot by
@@ -196,7 +177,6 @@
 ; answering 42, importing a module that generates its own `tagShape`
 ; answering 7, checked clean and answered 7.
 (pub :: mangleRecordEntry (-> Int (Vec String) (Vec String) String Int))
-
 (pub fn (mangleRecordEntry idx bares fulls name)
   (match (mangleIdxIndexOf idx bares name)
     ((None)
@@ -211,9 +191,7 @@
         (vecSet fulls i name)
         0
       }
-    )
-  )
-)
+    )))
 
 ; Is `bare` in `bares`, by scanning it. The UN-INDEXED form, kept for
 ; the one caller that holds no index: `mangledFor` in codegen.ax, the
@@ -221,16 +199,12 @@
 ; `buildNameIndexes` has run. Every writer in this module asks
 ; `mangleIdxHas` instead - see the note above `MangleIdx`.
 (pub :: mangleHasIn (-> (Vec String) String Int Bool))
-
 (pub fn (mangleHasIn bares bare i)
   (if (>= i (vecLen bares))
     false
     (if (strEq (vecGet bares i) bare)
       true
-      (mangleHasIn bares bare (+ i 1))
-    )
-  )
-)
+      (mangleHasIn bares bare (+ i 1)))))
 
 ; Rewrite an imported function's definition to its mangled name, in
 ; place - `emitFnDef` reads the same node later, so the header and the
@@ -249,11 +223,10 @@
 ; hold and is emitted unchanged - an undefined symbol reported by
 ; `opt` against generated code.
 (pub :: mangleDecl (-> Int String Int (Vec String) (Vec String) Int Int))
-
 (pub fn (mangleDecl node modName idx bares fulls exported)
   (if (==
-    (cast Int modName)    0
-  )
+    (cast Int modName)
+    0)
     0
     (if (== (nodeTag node) TAG_D_FN)
       (let ((bare (nodeAName node)))
@@ -261,31 +234,31 @@
           (strConcat
             (strConcat
               (strDup
-                (cast String modName)
-              )              "$"
-            )            (strDup bare)
-          )
-        ))
+                (cast String modName))
+              "$")
+            (strDup bare))))
           {
             (memSetWord node 1 full)
             (if (== exported 1)
-              (mangleRecord idx bares fulls bare full)
-              (mangleRecordSelf idx bares fulls full)
-            )
-          }
-        )
-      )
+              (mangleRecord
+                idx
+                bares
+                fulls
+                bare
+                full)
+              (mangleRecordSelf idx bares fulls full))
+          }))
       (if (== (nodeTag node) TAG_D_SIG)
         {
           (memSetWord
-            node            1            (strConcat
+            node
+            1
+            (strConcat
               (strConcat
                 (strDup
-                  (cast String modName)
-                )                "$"
-              )              (strDup (nodeAName node))
-            )
-          )
+                  (cast String modName))
+                "$")
+              (strDup (nodeAName node))))
           0
         }
         ; An `extern` block from an imported module. Its items are
@@ -301,40 +274,46 @@
         ; reached from the one direction the entry-file fixtures could
         ; not see, because `recordEntryFns` covers only the entry file.
         (if (== (nodeTag node) TAG_D_EXTERN)
-          (mangleExternItems (nodeCVec node) 0 idx bares fulls)
-          0
-        )
-      )
-    )
-  )
-)
+          (mangleExternItems
+            (nodeCVec node)
+            0
+            idx
+            bares
+            fulls)
+          0)))))
 
 ; Record every item of an `extern` block: the Axiom name maps to the
 ; `(symbol "...")` clause the parser resolved. Visibility does not
 ; change the mapping - an unexported item is simply never referenced
 ; from outside, and recording it costs one entry.
 (pub :: mangleExternItems (-> (Vec Int) Int Int (Vec String) (Vec String) Int))
-
 (pub fn (mangleExternItems items i idx bares fulls)
-  (if (== (cast Int items) 0)
+  (if (==
+    (cast Int items)
+    0)
     0
     (if (>= i (vecLen items))
       0
       {
         (let ((f (vecGet items i)))
-          (mangleRecord idx bares fulls (nodeAName f) (nodeCName f))
-        )
-        (mangleExternItems items (+ i 1) idx bares fulls)
-      }
-    )
-  )
-)
+          (mangleRecord
+            idx
+            bares
+            fulls
+            (nodeAName f)
+            (nodeCName f)))
+        (mangleExternItems
+          items
+          (+ i 1)
+          idx
+          bares
+          fulls)
+      })))
 
 ; The half of `mangleRecord` that a private declaration gets: the
 ; mangled name maps to itself, and the bare slot is left for whoever
 ; can legitimately claim it.
 (pub :: mangleRecordSelf (-> Int (Vec String) (Vec String) String Int))
-
 (pub fn (mangleRecordSelf idx bares fulls full)
   (if (mangleIdxHas idx bares full)
     0
@@ -342,34 +321,27 @@
       (vecPush bares full)
       (vecPush fulls full)
       0
-    }
-  )
-)
+    }))
 
 ; Is `name` in this Vec of names? The set test both the resolver's
 ; `seen` list and an import's name list are asked. It lives here
 ; rather than beside its first caller because its SECOND caller is
 ; the filter test below, which expansion needs.
 (pub :: seenHasIn (-> (Vec String) String Int Bool))
-
 (pub fn (seenHasIn seen name i)
   (if (>= i (vecLen seen))
     false
     (if (strEq (vecGetStr seen i) name)
       true
-      (seenHasIn seen name (+ i 1))
-    )
-  )
-)
+      (seenHasIn seen name (+ i 1)))))
 
 (pub :: filterKeeps (-> (Vec String) String Bool))
-
 (pub fn (filterKeeps filter name)
-  (if (== (cast Int filter) 0)
+  (if (==
+    (cast Int filter)
+    0)
     true
-    (seenHasIn filter name 0)
-  )
-)
+    (seenHasIn filter name 0)))
 
 ; `mods` is a vector of (module name, filter) pairs, one per module
 ; resolution merged. It exists for one reader: phase D, which
@@ -379,50 +351,42 @@
 ; because a parallel pair is one push away from desyncing and this
 ; table is written in exactly one place.
 (pub :: modFilterRecord (-> (Vec Int) String Int Int))
-
 (pub fn (modFilterRecord mods name filter)
-  (if (== (cast Int mods) 0)
+  (if (==
+    (cast Int mods)
+    0)
     0
     (let ((pair vecNew))
       {
         (vecPush
-          pair          (cast Int name)
-        )
+          pair
+          (cast Int name))
         (vecPush pair filter)
         (vecPush
-          mods          (cast Int pair)
-        )
+          mods
+          (cast Int pair))
         0
-      }
-    )
-  )
-)
+      })))
 
 ; The filter recorded for `name`, or 0 - which `filterKeeps` reads as
 ; "the import named nothing, so everything is kept". The entry file
 ; (module 0) has no import and therefore no filter, which is the same
 ; answer.
 (pub :: modFilterFor (-> (Vec (Vec Int)) String (Vec a)))
-
 (pub fn (modFilterFor mods name)
-  (if (== (cast Int mods) 0)
+  (if (==
+    (cast Int mods)
+    0)
     0
-    (modFilterForIn mods name 0)
-  )
-)
+    (modFilterForIn mods name 0)))
 
 (pub :: modFilterForIn (-> (Vec (Vec Int)) String Int Int))
-
 (pub fn (modFilterForIn mods name i)
   (if (>= i (vecLen mods))
     0
     (let ((pair (vecGet mods i)))
       (if (strEq
-        (cast String (vecGet pair 0))        name
-      )
+        (cast String (vecGet pair 0))
+        name)
         (vecGet pair 1)
-        (modFilterForIn mods name (+ i 1))
-      )
-    )
-  )
-)
+        (modFilterForIn mods name (+ i 1))))))

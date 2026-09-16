@@ -45,16 +45,16 @@
 ; The codes this module raises itself. A program's own codes live in
 ; its own space; these are the ones `ERR-REC-2` needs.
 (pub :: errDivideByZero Int)
-
-(pub fn (errDivideByZero) 1)
+(pub fn (errDivideByZero)
+  1)
 
 (pub :: errOverflow Int)
-
-(pub fn (errOverflow) 2)
+(pub fn (errOverflow)
+  2)
 
 (pub :: errShiftTooWide Int)
-
-(pub fn (errShiftTooWide) 3)
+(pub fn (errShiftTooWide)
+  3)
 
 ; A descriptor accepted some bytes and then accepted none, without an
 ; errno to say why. It is NOT a syscall error - `write` returned 0,
@@ -63,24 +63,24 @@
 ; express it while it answered an Int. `ERR-REC-3` calls a short write
 ; a failure and not an absence: the bytes were meant to go and did not.
 (pub :: errShortWrite Int)
-
-(pub fn (errShortWrite) 4)
+(pub fn (errShortWrite)
+  4)
 
 (pub :: mkError (-> Int String Error))
-
-(pub fn (mkError code message) (Error code message ""))
+(pub fn (mkError code message)
+  (Error code message ""))
 
 (pub :: errCode (-> Error Int))
-
-(pub fn (errCode e) e.code)
+(pub fn (errCode e)
+  e.code)
 
 (pub :: errMessage (-> Error String))
-
-(pub fn (errMessage e) e.message)
+(pub fn (errMessage e)
+  e.message)
 
 (pub :: errContext (-> Error String))
-
-(pub fn (errContext e) e.context)
+(pub fn (errContext e)
+  e.context)
 
 ; The rendering `main` writes to fd 2 (ERR-REC-4), and the one a
 ; program builds a longer report out of. A plain function rather than a
@@ -88,43 +88,31 @@
 ; reached through a type variable is AX3025, and every caller here has
 ; a concrete `Error` in hand anyway.
 (pub :: errorText (-> Error String))
-
 (pub fn (errorText e)
   (if (== (strLen e.context) 0)
     e.message
-    (strConcat (strConcat e.message " while ") e.context)
-  )
-)
+    (strConcat (strConcat e.message " while ") e.context)))
 
 ; ------------------------------------------------------------------
 ; Inspecting.
 ; ------------------------------------------------------------------
 (pub :: isOk (-> (Result a e) Bool))
-
 (pub fn (isOk r)
   (match r
     ((Ok x) true)
-    ((Err y) false)
-  )
-)
+    ((Err y) false)))
 
 (pub :: isErr (-> (Result a e) Bool))
-
 (pub fn (isErr r)
   (match r
     ((Ok x) false)
-    ((Err y) true)
-  )
-)
+    ((Err y) true)))
 
 (pub :: unwrapOr (-> (Result a e) a a))
-
 (pub fn (unwrapOr r fallback)
   (match r
     ((Ok x) x)
-    ((Err y) fallback)
-  )
-)
+    ((Err y) fallback)))
 
 ; ------------------------------------------------------------------
 ; Transforming.
@@ -134,31 +122,22 @@
 ; compiler finds nothing on its behalf.
 ; ------------------------------------------------------------------
 (pub :: mapOk (-> (Result a e) (-> a b) (Result b e)))
-
 (pub fn (mapOk r f)
   (match r
     ((Ok x) (Ok (f x)))
-    ((Err y) (Err y))
-  )
-)
+    ((Err y) (Err y))))
 
 (pub :: mapErr (-> (Result a e) (-> e f) (Result a f)))
-
 (pub fn (mapErr r f)
   (match r
     ((Ok x) (Ok x))
-    ((Err y) (Err (f y)))
-  )
-)
+    ((Err y) (Err (f y)))))
 
 (pub :: andThen (-> (Result a e) (-> a (Result b e)) (Result b e)))
-
 (pub fn (andThen r f)
   (match r
     ((Ok x) (f x))
-    ((Err y) (Err y))
-  )
-)
+    ((Err y) (Err y))))
 
 ; Attach what the caller was doing to an error in flight, passing `Ok`
 ; through untouched. It needs no binder, so it is a function and not a
@@ -183,17 +162,14 @@
 ; ERR-TYPE-3a records the retirement; `tests/stdlib/371-err-module.ax`
 ; term 2 checks the direct spelling against this one.
 (pub :: errContextOf (-> Error String Error))
-
-(pub fn (errContextOf e ctx) (Error e.code e.message ctx))
+(pub fn (errContextOf e ctx)
+  (Error e.code e.message ctx))
 
 (pub :: withContext (-> (Result a Error) String (Result a Error)))
-
 (pub fn (withContext r ctx)
   (match r
     ((Ok x) (Ok x))
-    ((Err y) (Err (errContextOf y ctx)))
-  )
-)
+    ((Err y) (Err (errContextOf y ctx)))))
 
 ; ------------------------------------------------------------------
 ; Option, converted explicitly.
@@ -203,22 +179,16 @@
 ; no implicit coercion in either direction (ERR-TYPE-4).
 ; ------------------------------------------------------------------
 (pub :: okOr (-> (Option a) e (Result a e)))
-
 (pub fn (okOr o e)
   (match o
     ((Some x) (Ok x))
-    ((None) (Err e))
-  )
-)
+    ((None) (Err e))))
 
 (pub :: toOption (-> (Result a e) (Option a)))
-
 (pub fn (toOption r)
   (match r
     ((Ok x) (Some x))
-    ((Err y) None)
-  )
-)
+    ((Err y) None)))
 
 ; ------------------------------------------------------------------
 ; Option, on its own terms.
@@ -250,73 +220,55 @@
 ; ------------------------------------------------------------------
 ; Whether the `Option` holds a value. The `Option` half of `isOk`.
 (pub :: isSome (-> (Option a) Bool))
-
 (pub fn (isSome o)
   (match o
     ((Some x) true)
-    ((None) false)
-  )
-)
+    ((None) false)))
 
 ; Whether the `Option` is empty. Exactly `isSome` negated, spelled
 ; out because a caller reads for the case it cares about.
 (pub :: isNone (-> (Option a) Bool))
-
 (pub fn (isNone o)
   (match o
     ((Some x) false)
-    ((None) true)
-  )
-)
+    ((None) true)))
 
 ; The value, or `fallback` when there is none. The one combinator that
 ; ends the `Option` rather than passing it on, and the reason most
 ; call sites need no `match` at all.
 (pub :: optUnwrapOr (-> (Option a) a a))
-
 (pub fn (optUnwrapOr o fallback)
   (match o
     ((Some x) x)
-    ((None) fallback)
-  )
-)
+    ((None) fallback)))
 
 ; Apply `f` to the value if there is one, leaving an absence alone.
 ; The result type is `f`'s, so this is how an `(Option Int)` becomes
 ; an `(Option String)`.
 (pub :: optMap (-> (Option a) (-> a b) (Option b)))
-
 (pub fn (optMap o f)
   (match o
     ((Some x) (Some (f x)))
-    ((None) None)
-  )
-)
+    ((None) None)))
 
 ; Chain a step that may itself be absent, without nesting two
 ; `Option`s. `optMap` with a function answering `(Option b)` would
 ; give `(Option (Option b))`; this is that flattened.
 (pub :: optAndThen (-> (Option a) (-> a (Option b)) (Option b)))
-
 (pub fn (optAndThen o f)
   (match o
     ((Some x) (f x))
-    ((None) None)
-  )
-)
+    ((None) None)))
 
 ; The first of two that is present. `alt` is EVALUATED at the call, so
 ; this is not a short-circuit: a caller whose alternative is expensive
 ; should write the `match`. Said here because the name is borrowed
 ; from languages where it is lazy.
 (pub :: optOr (-> (Option a) (Option a) (Option a)))
-
 (pub fn (optOr o alt)
   (match o
     ((Some x) (Some x))
-    ((None) alt)
-  )
-)
+    ((None) alt)))
 
 ; ------------------------------------------------------------------
 ; ERR-REC-2: a value-returning alternative for every trap.
@@ -333,8 +285,8 @@
 ; checked operator exists to end.
 ; ------------------------------------------------------------------
 (pub :: intMin Int)
-
-(pub fn (intMin) (- (- 0 9223372036854775807) 1))
+(pub fn (intMin)
+  (- (- 0 9223372036854775807) 1))
 
 ; ------------------------------------------------------------------
 ; The three that WRAP.
@@ -367,33 +319,24 @@
 ; the first; `mulChecked` divides the answer back out, which is exact
 ; whenever the multiplication did not wrap.
 (pub :: addChecked (-> Int Int (Result Int Error)))
-
 (pub fn (addChecked a b)
   ; Both operands on the same side of zero, the answer on the other:
   ; the sign bit of `(a ^ s) & (b ^ s)` is set exactly then.
   (let ((s (+ a b)))
     (if (< (& (^ a s) (^ b s)) 0)
       (Err (mkError errOverflow "sum is not representable"))
-      (Ok s)
-    )
-  )
-)
+      (Ok s))))
 
 (pub :: subChecked (-> Int Int (Result Int Error)))
-
 (pub fn (subChecked a b)
   ; A subtraction can only overflow when the operands disagree in
   ; sign, and then only if the answer disagrees with the first.
   (let ((s (- a b)))
     (if (< (& (^ a b) (^ a s)) 0)
       (Err (mkError errOverflow "difference is not representable"))
-      (Ok s)
-    )
-  )
-)
+      (Ok s))))
 
 (pub :: mulChecked (-> Int Int (Result Int Error)))
-
 (pub fn (mulChecked a b)
   (if (|| (== a 0) (== b 0))
     ; Answered before the division below, which would otherwise be by
@@ -418,57 +361,38 @@
       (let ((p (* a b)))
         (if (!= (/ p a) b)
           (Err (mkError errOverflow "product is not representable"))
-          (Ok p)
-        )
-      )
-    )
-  )
-)
+          (Ok p))))))
 
 (pub :: divChecked (-> Int Int (Result Int Error)))
-
 (pub fn (divChecked a b)
   (if (== b 0)
     (Err (mkError errDivideByZero "divided by zero"))
     (if (&& (== a intMin) (== b (- 0 1)))
       (Err (mkError errOverflow "quotient is not representable"))
-      (Ok (/ a b))
-    )
-  )
-)
+      (Ok (/ a b)))))
 
 (pub :: remChecked (-> Int Int (Result Int Error)))
-
 (pub fn (remChecked a b)
   (if (== b 0)
     (Err (mkError errDivideByZero "took the remainder by zero"))
     (if (&& (== a intMin) (== b (- 0 1)))
       (Err (mkError errOverflow "remainder is not representable"))
-      (Ok (% a b))
-    )
-  )
-)
+      (Ok (% a b)))))
 
 ; A shift amount of 64 or more, and a negative one, are undefined and
 ; no masking is emitted - `(<< 1 100)` answers 68719476736 at `--opt 0`
 ; and 1 at `--opt 1`.
 (pub :: shlChecked (-> Int Int (Result Int Error)))
-
 (pub fn (shlChecked a n)
   (if (|| (< n 0) (>= n 64))
     (Err (mkError errShiftTooWide "shifted by 64 or more"))
-    (Ok (<< a n))
-  )
-)
+    (Ok (<< a n))))
 
 (pub :: shrChecked (-> Int Int (Result Int Error)))
-
 (pub fn (shrChecked a n)
   (if (|| (< n 0) (>= n 64))
     (Err (mkError errShiftTooWide "shifted by 64 or more"))
-    (Ok (>> a n))
-  )
-)
+    (Ok (>> a n))))
 
 ; ------------------------------------------------------------------
 ; ERR-SUGAR-2: the propagation form.
@@ -498,5 +422,4 @@
 ; expansion, so a caller whose body mentions `er` means their own.
 (pub macro (try! x e body) (match e
   ((Err er) (Err er))
-  ((Ok x) body)
-))
+  ((Ok x) body)))

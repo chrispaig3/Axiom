@@ -6,7 +6,6 @@
 ; Doing it in Axiom instead is about 40 lines, is fully type-checked, and
 ; leaves nothing for a C library to do.
 (import Mem)
-
 (import Str)
 
 ; True for the one `Int` that is its own negation: the most negative
@@ -20,14 +19,13 @@
 ; way looks correct and never fires.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: intIsMostNegative (-> Int Bool))
-
-(fn (intIsMostNegative n) (&& (< n 0) (== (- 0 n) n)))
+(fn (intIsMostNegative n)
+  (&& (< n 0) (== (- 0 n) n)))
 
 ; Decimal digits in `n`, counting a leading `-` and treating 0 as one
 ; digit.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: fmtIntWidth (-> Int Int))
-
 (pub fn (fmtIntWidth n)
   (if (intIsMostNegative n)
     20  ; "-9223372036854775808"
@@ -35,11 +33,7 @@
       (+ 1 (fmtIntWidth (- 0 n)))
       (if (< n 10)
         1
-        (+ 1 (fmtIntWidth (/ n 10)))
-      )
-    )
-  )
-)
+        (+ 1 (fmtIntWidth (/ n 10)))))))
 
 ; `n` in base 10 as a `Str`.
 ;
@@ -58,48 +52,36 @@
 ; is `MIN + 1` and therefore never true of `MIN` itself.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtInt (-> Int String))
-
 (pub fn (fmtInt n)
   (if (intIsMostNegative n)
     "-9223372036854775808"
     (if (< n 0)
       (strConcat "-" (fmtNat (- 0 n)))
-      (fmtNat n)
-    )
-  )
-)
+      (fmtNat n))))
 
 ; `n` (assumed non-negative) in base 10.
 ;@axiom:restrict(no-io,no-foreign)
 (:: fmtNat (-> Int String))
-
 (fn (fmtNat n)
   (let ((width (fmtIntWidth n)))
     (let ((out (strAlloc width)))
       {
         (fmtDigits (strData out) n (- width 1))
         out
-      }
-    )
-  )
-)
+      })))
 
 ; Write `n`'s decimal digits into `buf` ending at index `at`, working
 ; right to left.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtDigits (-> Int Int Int Int))
-
 (fn (fmtDigits buf n at)
   (let ((digit (+ 48 (% n 10))))
     {
       (__store8 buf at digit)
       (if (< n 10)
         buf
-        (fmtDigits buf (/ n 10) (- at 1))
-      )
-    }
-  )
-)
+        (fmtDigits buf (/ n 10) (- at 1)))
+    }))
 
 ; `n` in base 16, lower case, no `0x` prefix, no leading zeros.
 ;
@@ -122,12 +104,11 @@
 ; mask a no-op rather than wrong, so this is correct either way.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexShr4 (-> Int Int))
-
-(fn (fmtHexShr4 n) (& (>> n 4) 1152921504606846975))
+(fn (fmtHexShr4 n)
+  (& (>> n 4) 1152921504606846975))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtHex (-> Int String))
-
 (pub fn (fmtHex n)
   (if (== n 0)
     "0"
@@ -136,50 +117,34 @@
         {
           (fmtHexDigits (strData out) n (- width 1))
           out
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexWidth (-> Int Int Int))
-
 (fn (fmtHexWidth n acc)
   (if (== n 0)
     acc
-    (fmtHexWidth (fmtHexShr4 n) (+ acc 1))
-  )
-)
+    (fmtHexWidth (fmtHexShr4 n) (+ acc 1))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigits (-> Int Int Int Int))
-
 (fn (fmtHexDigits buf n at)
   (let ((nibble (& n 15)))
     (let ((digit 
       (if (< nibble 10)
         (+ 48 nibble)
-        (+ 87 nibble)
-      )
-    ))
+        (+ 87 nibble))))
       {
         (__store8 buf at digit)
         (let ((rest (fmtHexShr4 n)))
           (if (== rest 0)
             buf
-            (fmtHexDigits buf rest (- at 1))
-          )
-        )
-      }
-    )
-  )
-)
+            (fmtHexDigits buf rest (- at 1))))
+      })))
 
 ; `s` padded on the left with spaces to at least `width` bytes.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadLeft (-> String Int String))
-
 (pub fn (fmtPadLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -189,16 +154,11 @@
           (memSet (strData out) 32 (- width len))
           (memCopy (+ (strData out) (- width len)) (strData s) len)
           out
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; `s` padded on the right with spaces to at least `width` bytes.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadRight (-> String Int String))
-
 (pub fn (fmtPadRight s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -208,18 +168,13 @@
           (memCopy (strData out) (strData s) len)
           (memSet (+ (strData out) len) 32 (- width len))
           out
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; `s` centred in `width` bytes. An odd remainder goes to the RIGHT,
 ; which is the convention Rust's `{:^}` uses and the one that makes a
 ; column of centred labels line up with a left-aligned header.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadCenter (-> String Int String))
-
 (pub fn (fmtPadCenter s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -232,13 +187,7 @@
               (memCopy (+ (strData out) left) (strData s) len)
               (memSet (+ (strData out) (+ left len)) 32 (- pad left))
               out
-            }
-          )
-        )
-      )
-    )
-  )
-)
+            }))))))
 
 ; `s` padded on the left with ZEROS to at least `width` bytes, with a
 ; leading sign kept in front of them: `-7` at width 4 is `-007` and
@@ -247,7 +196,6 @@
 ; one call rather than a sign test at every call site.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadZerosLeft (-> String Int String))
-
 (pub fn (fmtPadZerosLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -257,24 +205,17 @@
           0
           (if (== (strByte s 0) 45)
             1
-            0
-          )
-        ))
+            0)))
         (out (strAlloc width))
       )
         {
           (if (== neg 1)
             (__store8 (strData out) 0 45)
-            0
-          )
+            0)
           (memSet (+ (strData out) neg) 48 (- width len))
           (memCopy (+ (strData out) (+ neg (- width len))) (+ (strData s) neg) (- len neg))
           out
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; Uppercase hexadecimal, for the `{n:X}` specifier. Same digits as
 ; `fmtHex`, and deliberately a separate function rather than a flag:
@@ -282,7 +223,6 @@
 ; runtime test of a compile-time constant.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtHexUpper (-> Int String))
-
 (pub fn (fmtHexUpper n)
   (if (== n 0)
     "0"
@@ -291,35 +231,23 @@
         {
           (fmtHexDigitsUpper (strData out) n (- width 1))
           out
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigitsUpper (-> Int Int Int Int))
-
 (fn (fmtHexDigitsUpper buf n at)
   (let ((nibble (& n 15)))
     (let ((digit 
       (if (< nibble 10)
         (+ 48 nibble)
-        (+ 55 nibble)
-      )
-    ))
+        (+ 55 nibble))))
       {
         (__store8 buf at digit)
         (let ((rest (fmtHexShr4 n)))
           (if (== rest 0)
             buf
-            (fmtHexDigitsUpper buf rest (- at 1))
-          )
-        )
-      }
-    )
-  )
-)
+            (fmtHexDigitsUpper buf rest (- at 1))))
+      })))
 
 ; ------------------------------------------------------------------
 ; Floating point
@@ -334,13 +262,10 @@
 ; 10^n, for the scaling factor. `n` is a place count, so it is small.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: powTen (-> Int Int))
-
 (fn (powTen n)
   (if (<= n 0)
     1
-    (* 10 (powTen (- n 1)))
-  )
-)
+    (* 10 (powTen (- n 1)))))
 
 ; `n` rendered in base 10, left-padded with `0` to at least `width`.
 ;
@@ -350,25 +275,22 @@
 ; sign guard is a no-op here because `fmtNat` never answers a `-`.
 ;@axiom:restrict(no-io,no-foreign)
 (:: fmtPadZeros (-> Int Int String))
-
-(fn (fmtPadZeros n width) (fmtPadZerosLeft (fmtNat n) width))
+(fn (fmtPadZeros n width)
+  (fmtPadZerosLeft (fmtNat n) width))
 
 ; `x` with six decimal places.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtFloat (-> Float String))
-
-(pub fn (fmtFloat x) (fmtFloatPrec x 6))
+(pub fn (fmtFloat x)
+  (fmtFloatPrec x 6))
 
 ; `x` with `places` decimal places, rounded half away from zero.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtFloatPrec (-> Float Int String))
-
 (pub fn (fmtFloatPrec x places)
   (if (< x 0.0)
     (strConcat "-" (fmtFloatAbs (- 0.0 x) places))
-    (fmtFloatAbs x places)
-  )
-)
+    (fmtFloatAbs x places)))
 
 ; The non-negative case.
 ;
@@ -377,7 +299,6 @@
 ; the integer part rather than left to overflow the fraction field.
 ;@axiom:restrict(no-io,no-foreign)
 (:: fmtFloatAbs (-> Float Int String))
-
 (fn (fmtFloatAbs x places)
   (let (
     (whole (__floatToInt x))
@@ -386,14 +307,10 @@
     (scaled (__floatToInt (+ (* frac (__intToFloat scale)) 0.5)))
     (carried (if (>= scaled scale)
       1
-      0
-    ))
+      0))
     (whole2 (+ whole carried))
     (frac2 (- scaled (* carried scale)))
   )
     (if (<= places 0)
       (fmtInt whole2)
-      (strConcat (strConcat (fmtInt whole2) ".") (fmtPadZeros frac2 places))
-    )
-  )
-)
+      (strConcat (strConcat (fmtInt whole2) ".") (fmtPadZeros frac2 places)))))

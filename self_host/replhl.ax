@@ -131,19 +131,12 @@
 ; the plain counter from the same walk, so a gate can assert the two
 ; agree without either drifting into the other's job.
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import core)
-
 (import lexer)
-
 (import parser)
-
 (import format)
-
 (import style)
 
 ; ------------------------------------------------------------------
@@ -153,66 +146,65 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_PLAIN Int)
-
-(pub fn (HL_PLAIN) 0)
+(pub fn (HL_PLAIN)
+  0)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_KEYWORD Int)
-
-(pub fn (HL_KEYWORD) 1)
+(pub fn (HL_KEYWORD)
+  1)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_IDENT Int)
-
-(pub fn (HL_IDENT) 2)
+(pub fn (HL_IDENT)
+  2)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_NUM Int)
-
-(pub fn (HL_NUM) 3)
+(pub fn (HL_NUM)
+  3)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_LIT Int)
-
-(pub fn (HL_LIT) 4)
+(pub fn (HL_LIT)
+  4)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_COMMENT Int)
-
-(pub fn (HL_COMMENT) 5)
+(pub fn (HL_COMMENT)
+  5)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_PUNCT Int)
-
-(pub fn (HL_PUNCT) 6)
+(pub fn (HL_PUNCT)
+  6)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_ERROR Int)
-
-(pub fn (HL_ERROR) 7)
+(pub fn (HL_ERROR)
+  7)
 
 ; An incomplete literal, painted AS a literal. See `hlClassOf`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_PEND Int)
-
-(pub fn (HL_PEND) 8)
+(pub fn (HL_PEND)
+  8)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_MATCH Int)
-
-(pub fn (HL_MATCH) 9)
+(pub fn (HL_MATCH)
+  9)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: HL_MISMATCH Int)
-
-(pub fn (HL_MISMATCH) 10)
+(pub fn (HL_MISMATCH)
+  10)
 
 ; One ASCII letter per class, for `replHlClass`. Pure ASCII and no
 ; escapes, so the whole classification is a string a fixture can pin
 ; by hand beside the source it describes.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlLetter (-> Int Int))
-
 (pub fn (hlLetter cls)
   (if (== cls HL_KEYWORD)
     75
@@ -234,18 +226,7 @@
                     77
                     (if (== cls HL_MISMATCH)
                       88
-                      46
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                      46)))))))))))
 
 ; The SGR parameter string a class is painted with, or "" for a class
 ; that is left unpainted. Built ONLY from style.ax's nine exported
@@ -253,7 +234,6 @@
 ; because ESC has no literal spelling in this language.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSgr (-> Int String))
-
 (pub fn (hlSgr cls)
   (if (== cls HL_KEYWORD)
     SGR_SEC
@@ -269,15 +249,7 @@
               SGR_HELP
               (if (== cls HL_MISMATCH)
                 SGR_ERROR
-                ""
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                ""))))))))
 
 ; ------------------------------------------------------------------
 ; A classified byte range, half-open, mirroring core.ax's Span so the
@@ -290,23 +262,23 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkHlSpan (-> Int Int Int Int))
-
-(pub fn (mkHlSpan cls start end) (HlSpan cls start end))
+(pub fn (mkHlSpan cls start end)
+  (HlSpan cls start end))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSpanCls (-> Int Int))
-
-(pub fn (hlSpanCls s) (memGetWord s 0))
+(pub fn (hlSpanCls s)
+  (memGetWord s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSpanStart (-> Int Int))
-
-(pub fn (hlSpanStart s) (memGetWord s 1))
+(pub fn (hlSpanStart s)
+  (memGetWord s 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlSpanEnd (-> Int Int))
-
-(pub fn (hlSpanEnd s) (memGetWord s 2))
+(pub fn (hlSpanEnd s)
+  (memGetWord s 2))
 
 ; ------------------------------------------------------------------
 ; A bracket, its family, its partner's byte offset (-1 when it has
@@ -324,33 +296,38 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkHlBrk (-> Int Int Int Int Int Int))
-
-(pub fn (mkHlBrk pos open fam partner span) (HlBrk pos open fam partner span))
+(pub fn (mkHlBrk pos open fam partner span)
+  (HlBrk
+    pos
+    open
+    fam
+    partner
+    span))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkPos (-> Int Int))
-
-(pub fn (hlBrkPos b) (memGetWord b 0))
+(pub fn (hlBrkPos b)
+  (memGetWord b 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkOpen (-> Int Int))
-
-(pub fn (hlBrkOpen b) (memGetWord b 1))
+(pub fn (hlBrkOpen b)
+  (memGetWord b 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkFam (-> Int Int))
-
-(pub fn (hlBrkFam b) (memGetWord b 2))
+(pub fn (hlBrkFam b)
+  (memGetWord b 2))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkPartner (-> Int Int))
-
-(pub fn (hlBrkPartner b) (memGetWord b 3))
+(pub fn (hlBrkPartner b)
+  (memGetWord b 3))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkSpan (-> Int Int))
-
-(pub fn (hlBrkSpan b) (memGetWord b 4))
+(pub fn (hlBrkSpan b)
+  (memGetWord b 4))
 
 ; The result of one lex: the classified spans, and the brackets.
 ; Returned together because they come from ONE `lex` call - painting a
@@ -363,18 +340,18 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkHlScan (-> (Vec Int) (Vec Int) Int))
-
-(pub fn (mkHlScan spans brks) (HlScan spans brks))
+(pub fn (mkHlScan spans brks)
+  (HlScan spans brks))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlScanSpans (-> Int (Vec Int)))
-
-(pub fn (hlScanSpans s) (memGetWordVec s 0))
+(pub fn (hlScanSpans s)
+  (memGetWordVec s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlScanBrks (-> Int (Vec Int)))
-
-(pub fn (hlScanBrks s) (memGetWordVec s 1))
+(pub fn (hlScanBrks s)
+  (memGetWordVec s 1))
 
 ; ------------------------------------------------------------------
 ; The twelve declaration heads.
@@ -392,10 +369,8 @@
 ; alone is the keyword set.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlIsDeclHead (-> String Bool))
-
 (pub fn (hlIsDeclHead w)
-  (|| (strEq w "fn") (|| (strEq w "define") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl"))))))))))))
-)
+  (|| (strEq w "fn") (|| (strEq w "define") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl")))))))))))))
 
 ; A keyword is a POSITION, not a token kind, and this predicate only
 ; ever runs on a name in head position - see `hlClassOf`.
@@ -408,8 +383,8 @@
 ; fixture carries that exact form as a named case.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlIsKeyword (-> String Bool))
-
-(pub fn (hlIsKeyword w) (|| (isKeywordHead w) (hlIsDeclHead w)))
+(pub fn (hlIsKeyword w)
+  (|| (isKeywordHead w) (hlIsDeclHead w)))
 
 ; ------------------------------------------------------------------
 ; Push a span, dropping the empty ones. A zero-width span would paint
@@ -417,15 +392,10 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (:: hlPush (-> (Vec Int) Int Int Int (Vec Int)))
-
 (fn (hlPush out cls s e)
   (if (< s e)
-    (vecPush
-      out      (mkHlSpan cls s e)
-    )
-    out
-  )
-)
+    (vecPush out (mkHlSpan cls s e))
+    out))
 
 ; ------------------------------------------------------------------
 ; The trivia between two token spans: whitespace, comments, and - as
@@ -449,7 +419,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (:: hlGap (-> String Int Int (Vec Int) (Vec Int)))
-
 (fn (hlGap src a b out)
   (let ((mut q a))
     {
@@ -457,49 +426,41 @@
         (let ((c (strByte src q)))
           (if (== c 59)
             (let ((r (skipLineComment src (+ q 1) b)))
-              (let ((e (if (&& (> r q) (== (strByte src (- r 1)) 10))
-                (- r 1)
-                r
-              )))
+              (let ((e 
+                (if (&& (> r q) (== (strByte src (- r 1)) 10))
+                  (- r 1)
+                  r)))
                 {
                   (hlPush out HL_COMMENT q e)
                   (set q (if (> e q)
                     e
-                    (+ q 1)
-                  ))
-                }
-              )
-            )
+                    (+ q 1)))
+                }))
             (if (isBlockOpen src q b)
               (let ((r (skipBlockComment src (+ q 2) b)))
                 {
                   (hlPush out HL_COMMENT q r)
                   (set q (if (> r q)
                     r
-                    (+ q 1)
-                  ))
-                }
-              )
+                    (+ q 1)))
+                })
               ; Residue: whitespace, or program text stranded by a bad
               ; escape. One span per run rather than one per byte.
               (let ((mut r (+ q 1)))
                 {
-                  (while (&& (< r b) (&& (!= (strByte src r) 59) (if (isBlockOpen src r b)
-                      false
-                      true
-                    )))
+                  (while (&&
+                    (< r b)
+                    (&&
+                      (!= (strByte src r) 59)
+                      (if (isBlockOpen src r b)
+                        false
+                        true)))
                     (set r (+ r 1)))
                   (hlPush out HL_PLAIN q r)
                   (set q r)
-                }
-              )
-            )
-          )
-        ))
+                })))))
       out
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; One token to one class.
@@ -525,7 +486,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (:: hlClassOf (-> Int Bool Int Int))
-
 (fn (hlClassOf t isHead n)
   (let (
     (k (kindInt (tokenKind t)))
@@ -536,8 +496,7 @@
       (if (== k (kindInt TK_DOUBLE_COLON))
         (if isHead
           HL_KEYWORD
-          HL_PUNCT
-        )
+          HL_PUNCT)
         (if (|| (== k (kindInt TK_INT)) (== k (kindInt TK_FLOAT)))
           HL_NUM
           (if (|| (== k (kindInt TK_STRING)) (== k (kindInt TK_CHARLIT)))
@@ -545,36 +504,23 @@
             (if (== k (kindInt TK_IDENT))
               (if (&& isHead (hlIsKeyword lx))
                 HL_KEYWORD
-                HL_IDENT
-              )
+                HL_IDENT)
               (if (== k (kindInt TK_ERROR))
-                (let ((b0 (if (> (strLen lx) 0)
-                  (strByte lx 0)
-                  0
-                )))
+                (let ((b0 
+                  (if (> (strLen lx) 0)
+                    (strByte lx 0)
+                    0)))
                   (if (&& (== (spanEnd (tokenSpan t)) n) (|| (== b0 34) (== b0 39)))
                     HL_PEND
-                    HL_ERROR
-                  )
-                )
+                    HL_ERROR))
                 (if (== k (kindInt TK_ERROR_ESC))
                   HL_ERROR
-                  HL_PLAIN
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                  HL_PLAIN)))))))))
 
 ; The bracket family of a token kind: 0 `()`, 1 `{}`, 2 `[]`, -1 not a
 ; bracket.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: hlFamOf (-> Int Int))
-
 (fn (hlFamOf k)
   (if (|| (== k (kindInt TK_LPAREN)) (== k (kindInt TK_RPAREN)))
     0
@@ -582,16 +528,12 @@
       1
       (if (|| (== k (kindInt TK_LBRACKET)) (== k (kindInt TK_RBRACKET)))
         2
-        (- 0 1)
-      )
-    )
-  )
-)
+        (- 0 1)))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: hlIsOpener (-> Int Bool))
-
-(fn (hlIsOpener k) (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_LBRACKET)))))
+(fn (hlIsOpener k)
+  (|| (== k (kindInt TK_LPAREN)) (|| (== k (kindInt TK_LBRACE)) (== k (kindInt TK_LBRACKET)))))
 
 ; ------------------------------------------------------------------
 ; The classifier. ONE `lex`, then every byte of the buffer covered
@@ -606,7 +548,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: hlScan (-> String Int))
-
 (pub fn (hlScan src)
   (let (
     (toks (lex src))
@@ -628,57 +569,46 @@
                   (s0 (spanStart (tokenSpan t)))
                   (e0 (spanEnd (tokenSpan t)))
                 )
-                  (let ((s (if (< s0 p)
-                    p
-                    (if (> s0 n)
-                      n
-                      s0
-                    )
-                  )))
-                    (let ((e (if (> e0 n)
-                      n
-                      (if (< e0 s)
-                        s
-                        e0
-                      )
-                    )))
+                  (let ((s 
+                    (if (< s0 p)
+                      p
+                      (if (> s0 n)
+                        n
+                        s0))))
+                    (let ((e 
+                      (if (> e0 n)
+                        n
+                        (if (< e0 s)
+                          s
+                          e0))))
                       {
                         (if (> s p)
                           (hlGap src p s spans)
-                          spans
-                        )
+                          spans)
                         (if (>= (hlFamOf k) 0)
                           (vecPush
-                            brks                            (mkHlBrk
-                              s                              (if (hlIsOpener k)
+                            brks
+                            (mkHlBrk
+                              s
+                              (if (hlIsOpener k)
                                 1
-                                0
-                              )                              (hlFamOf k)                              (- 0 1)                              (vecLen spans)
-                            )
-                          )
-                          brks
-                        )
+                                0)
+                              (hlFamOf k)
+                              (- 0 1)
+                              (vecLen spans)))
+                          brks)
                         (hlPush spans (hlClassOf t prevLP n) s e)
                         (set prevLP (== k (kindInt TK_LPAREN)))
                         (set p e)
-                      }
-                    )
-                  )
-                )
-              )
-            )
-          )
+                      }))))))
           (set i (+ i 1))
         })
       (if (< p n)
         (hlGap src p n spans)
-        spans
-      )
+        spans)
       (hlPair src spans brks)
       (mkHlScan spans brks)
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Fill in every bracket's `partner`, with a typed stack.
@@ -701,20 +631,17 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (:: hlSetPartner (-> (Vec Int) Int Int (Vec Int)))
-
 (fn (hlSetPartner brks i partner)
   (let ((b (vecGet brks i)))
-    (vecSet
-      brks      i      (mkHlBrk
-        (hlBrkPos b)        (hlBrkOpen b)        (hlBrkFam b)        partner        (hlBrkSpan b)
-      )
-    )
-  )
-)
+    (vecSet brks i (mkHlBrk
+      (hlBrkPos b)
+      (hlBrkOpen b)
+      (hlBrkFam b)
+      partner
+      (hlBrkSpan b)))))
 
 ;@axiom:restrict(no-io,no-foreign)
 (:: hlPair (-> String (Vec Int) (Vec Int) (Vec Int)))
-
 (fn (hlPair src spans brks)
   (let (
     (n (vecLen brks))
@@ -726,9 +653,7 @@
         {
           (let ((b (vecGet brks i)))
             (if (== (hlBrkOpen b) 1)
-              (vecPush
-                stack                i
-              )
+              (vecPush stack i)
               (if (== (vecLen stack) 0)
                 brks
                 (let ((j (vecPop stack)))
@@ -738,19 +663,11 @@
                         (hlSetPartner brks j (hlBrkPos b))
                         (hlSetPartner brks i (hlBrkPos o))
                       }
-                      brks
-                    )
-                  )
-                )
-              )
-            )
-          )
+                      brks))))))
           (set i (+ i 1))
         })
       brks
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The bracket the cursor is ON, as an index into `brks`, or -1.
@@ -762,7 +679,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: hlBrkAt (-> (Vec Int) Int Int))
-
 (pub fn (hlBrkAt brks cursor)
   (let (
     (n (vecLen brks))
@@ -777,23 +693,17 @@
             {
               (set before (if (== p (- cursor 1))
                 i
-                before
-              ))
+                before))
               (set on (if (== p cursor)
                 i
-                on
-              ))
-            }
-          )
+                on))
+            })
           (set i (+ i 1))
         })
       (if (>= before 0)
         before
-        on
-      )
-    }
-  )
-)
+        on)
+    }))
 
 ; ------------------------------------------------------------------
 ; Recolour the cursor's bracket and its partner in place.
@@ -806,7 +716,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: hlMarkPair (-> (Vec Int) (Vec Int) Int (Vec Int)))
-
 (pub fn (hlMarkPair spans brks cursor)
   (let ((i (hlBrkAt brks cursor)))
     (if (< i 0)
@@ -819,19 +728,11 @@
               (hlRecolour spans (hlBrkSpan b) HL_MATCH)
               (if (>= j 0)
                 (hlRecolour spans (hlBrkSpan (vecGet brks j)) HL_MATCH)
-                spans
-              )
-            }
-          )
-        )
-      )
-    )
-  )
-)
+                spans)
+            }))))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: hlBrkIndexAt (-> (Vec Int) Int Int))
-
 ; The bracket AT exactly this byte offset, or -1. Direct rather than
 ; reusing `hlBrkAt`, whose cursor rule prefers the bracket that ENDS
 ; at its argument: correct there, needless indirection here.
@@ -846,28 +747,19 @@
         {
           (set got (if (== (hlBrkPos (vecGet brks i)) pos)
             i
-            got
-          ))
+            got))
           (set i (+ i 1))
         })
       got
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-foreign)
 (:: hlRecolour (-> (Vec Int) Int Int (Vec Int)))
-
 (fn (hlRecolour spans i cls)
   (if (|| (< i 0) (>= i (vecLen spans)))
     spans
     (let ((s (vecGet spans i)))
-      (vecSet
-        spans        i        (mkHlSpan cls (hlSpanStart s) (hlSpanEnd s))
-      )
-    )
-  )
-)
+      (vecSet spans i (mkHlSpan cls (hlSpanStart s) (hlSpanEnd s))))))
 
 ; ------------------------------------------------------------------
 ; PUBLIC SURFACE. Four pure functions; the editor needs no others.
@@ -894,7 +786,6 @@
 ; A cursor of -1 means "no cursor", so no bracket is marked.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHlClass (-> String Int String))
-
 (pub fn (replHlClass src cursor)
   (let (
     (sc (hlScan src))
@@ -923,19 +814,13 @@
                   {
                     (if (&& (>= q 0) (< q n))
                       (memPutByte (strData out) q b)
-                      0
-                    )
+                      0)
                     (set q (+ q 1))
-                  })
-              )
-            )
+                  })))
             (set i (+ i 1))
           })
         out
-      }
-    )
-  )
-)
+      })))
 
 ; Source, cursor and the byte offset the visible line starts at, to
 ; the painted bytes for [from, end).
@@ -956,7 +841,6 @@
 ; painting exactly.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHlPaint (-> String Int Int String))
-
 (pub fn (replHlPaint src cursor from)
   (let (
     (sc (hlScan src))
@@ -972,8 +856,7 @@
               (let (
                 (a (if (< (hlSpanStart s) from)
                   from
-                  (hlSpanStart s)
-                ))
+                  (hlSpanStart s)))
                 (b (hlSpanEnd s))
               )
                 (if (< a b)
@@ -983,26 +866,18 @@
                   )
                     (if (> (strLen sgr) 0)
                       (vecPush parts (paint sgr txt))
-                      (vecPush parts txt)
-                    )
-                  )
-                  parts
-                )
-              )
-            )
+                      (vecPush parts txt)))
+                  parts)))
             (set i (+ i 1))
           })
         (catStrs parts)
-      }
-    )
-  )
-)
+      })))
 
 ; The whole buffer, painted, with no cursor - the plain entry point.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHlLine (-> String String))
-
-(pub fn (replHlLine src) (replHlPaint src (- 0 1) 0))
+(pub fn (replHlLine src)
+  (replHlPaint src (- 0 1) 0))
 
 ; Source and cursor to the byte offset of the MATCHING delimiter.
 ;
@@ -1018,7 +893,6 @@
 ; broken" indistinguishable, which is the whole feedback.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHlMatch (-> String Int Int))
-
 (pub fn (replHlMatch src cursor)
   (let ((brks (hlScanBrks (hlScan src))))
     (let ((i (hlBrkAt brks cursor)))
@@ -1027,13 +901,7 @@
         (let ((p (hlBrkPartner (vecGet brks i))))
           (if (< p 0)
             (- 0 2)
-            p
-          )
-        )
-      )
-    )
-  )
-)
+            p))))))
 
 ; The plain +1/-1 bracket count, recovered from the typed walk.
 ;
@@ -1045,7 +913,6 @@
 ; reconciliation between the two walks.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHlDepth (-> String Int))
-
 (pub fn (replHlDepth src)
   (let (
     (brks (hlScanBrks (hlScan src)))
@@ -1057,11 +924,8 @@
         {
           (set d (if (== (hlBrkOpen (vecGet brks i)) 1)
             (+ d 1)
-            (- d 1)
-          ))
+            (- d 1)))
           (set i (+ i 1))
         })
       d
-    }
-  )
-)
+    }))

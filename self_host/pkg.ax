@@ -129,31 +129,27 @@
 ; library module, because that is documented, intended, and is a file
 ; the author wrote rather than one that arrived with a dependency.
 (import Str)
-
 (import Vec)
-
 (import Sys)
-
 (import Path)
-
 (import Fmt)
 
 ; `strConcat` three and four ways. `codegen.ax` has `cat3`/`cat4` and
 ; this module cannot import it: `codegen` imports THIS one, for the
 ; search path, and a cycle is worse than eight lines.
 (pub :: pkg3 (-> String String String String))
-
-(pub fn (pkg3 a b c) (strConcat (strConcat a b) c))
+(pub fn (pkg3 a b c)
+  (strConcat (strConcat a b) c))
 
 (pub :: pkg4 (-> String String String String String))
-
-(pub fn (pkg4 a b c d) (strConcat (strConcat a (strConcat b c)) d))
+(pub fn (pkg4 a b c d)
+  (strConcat (strConcat a (strConcat b c)) d))
 
 ; The manifest's file name. One place, because three functions here
 ; and one message all say it.
 (pub :: pkgManifestName String)
-
-(pub fn (pkgManifestName) "axiom.pkg")
+(pub fn (pkgManifestName)
+  "axiom.pkg")
 
 ; The nearest `axiom.pkg` at or above `dir`, or "".
 ;
@@ -164,19 +160,15 @@
 ; The number is stated here rather than derived: no project in this
 ; repository is deeper than three.
 (pub :: pkgFindManifest (-> String String))
-
 ;@axiom:effect(io)
 (pub fn (pkgFindManifest dir)
   (pkgFindManifestFrom
     (if (== (strLen dir) 0)
       "./"
-      (pathWithSlash dir)
-    )    0
-  )
-)
+      (pathWithSlash dir))
+    0))
 
 (pub :: pkgFindManifestFrom (-> String Int String))
-
 ;@axiom:effect(io)
 (pub fn (pkgFindManifestFrom dir depth)
   (if (> depth 8)
@@ -185,16 +177,10 @@
       (if (sysFileExists (strCStr cand))
         cand
         (let ((up (pathWithSlash (strConcat dir ".."))))
-          (pkgFindManifestFrom up (+ depth 1))
-        )
-      )
-    )
-  )
-)
+          (pkgFindManifestFrom up (+ depth 1)))))))
 
 ; The value of the first `key` line in `text`, or "".
 (pub :: pkgValue (-> String String String))
-
 (pub fn (pkgValue text key)
   (let (
     (lines (strSplit text 10))
@@ -214,20 +200,14 @@
                   (set found v)
                   0
                 }
-                0
-              )
-            )
+                0))
             (set i (+ i 1))
           })
         found
-      }
-    )
-  )
-)
+      })))
 
 ; Every value of `key`, in file order.
 (pub :: pkgValues (-> String String (Vec Int)))
-
 (pub fn (pkgValues text key)
   (let (
     (lines (strSplit text 10))
@@ -241,17 +221,13 @@
           (let ((v (pkgLineValue (vecGetStr lines i) key)))
             (if (> (strLen v) 0)
               (vecPush
-                out                (cast Int v)
-              )
-              (cast (Vec Int) 0)
-            )
-          )
+                out
+                (cast Int v))
+              (cast (Vec Int) 0)))
           (set i (+ i 1))
         })
       out
-    }
-  )
-)
+    }))
 
 ; One line's value for `key`, or "".
 ;
@@ -270,22 +246,16 @@
 ; manifest means what it looks like, and the token it returns is what
 ; `pkgCheckLines` refuses when it is not a key.
 (pub :: pkgLineValue (-> String String String))
-
 (pub fn (pkgLineValue line key)
   (let ((t (pkgTrim (pkgUncomment line))))
     (let ((k (pkgKeyOf t)))
       (if (strEq k key)
         (pkgTrim (strSlice t (strLen k) (- (strLen t) (strLen k))))
-        ""
-      )
-    )
-  )
-)
+        ""))))
 
 ; The leading run of non-space bytes of an already-trimmed line: its
 ; key, or "" for a line that is blank once its comment is removed.
 (pub :: pkgKeyOf (-> String String))
-
 (pub fn (pkgKeyOf t)
   (let (
     (n (strLen t))
@@ -295,36 +265,26 @@
       (while (if (< i n)
         (if (strIsSpace (strByte t i))
           false
-          true
-        )
-        false
-      )
+          true)
+        false)
         (set i (+ i 1)))
       (strSlice t 0 i)
-    }
-  )
-)
+    }))
 
 ; The four keys a manifest may write. A closed set on purpose: the
 ; format has no version field of its own, so a key it does not know is
 ; a typo rather than a message from the future.
 (pub :: pkgKnownKey (-> String Bool))
-
 (pub fn (pkgKnownKey k)
-  (|| (strEq k "name") (|| (strEq k "version") (|| (strEq k "depend") (strEq k "crate"))))
-)
+  (|| (strEq k "name") (|| (strEq k "version") (|| (strEq k "depend") (strEq k "crate")))))
 
 (pub :: pkgUncomment (-> String String))
-
 (pub fn (pkgUncomment line)
   (match (strFindByte line 35 0)
     ((None) line)
-    ((Some at) (strSlice line 0 at))
-  )
-)
+    ((Some at) (strSlice line 0 at))))
 
 (pub :: pkgTrim (-> String String))
-
 (pub fn (pkgTrim s)
   (let (
     (n (strLen s))
@@ -334,18 +294,14 @@
     {
       (while (if (< a b)
         (strIsSpace (strByte s a))
-        false
-      )
+        false)
         (set a (+ a 1)))
       (while (if (< a b)
         (strIsSpace (strByte s (- b 1)))
-        false
-      )
+        false)
         (set b (- b 1)))
       (strSlice s a (- b a))
-    }
-  )
-)
+    }))
 
 ; The dependency directories the manifest at or above `entryDir`
 ; declares, each with a trailing slash and resolved against the
@@ -357,9 +313,9 @@
 ; this repository's own gates make: the mechanism costs a project that
 ; does not use it one `sysFileExists` per directory level.
 (pub :: pkgDependDirs (-> String (Vec Int)))
-
 ;@axiom:effect(io)
-(pub fn (pkgDependDirs entryDir) (pkgDirsFor entryDir "depend"))
+(pub fn (pkgDependDirs entryDir)
+  (pkgDirsFor entryDir "depend"))
 
 ; The CRATE directories the manifest declares, same shape and same
 ; resolution rule. A crate directory is not a directory of modules: it
@@ -372,36 +328,31 @@
 ; header for why a checked-in line may not run another project's build
 ; system.
 (pub :: pkgCrateDirs (-> String (Vec Int)))
-
 ;@axiom:effect(io)
-(pub fn (pkgCrateDirs entryDir) (pkgDirsFor entryDir "crate"))
+(pub fn (pkgCrateDirs entryDir)
+  (pkgDirsFor entryDir "crate"))
 
 ; `DIR/axiom/` for each declared crate, in file order: the one
 ; directory of a crate that holds `.ax`.
 (pub :: pkgCrateAxiomDirs (-> String (Vec Int)))
-
 ;@axiom:effect(io)
-(pub fn (pkgCrateAxiomDirs entryDir) (pkgAxiomSub (pkgCrateDirs entryDir)))
+(pub fn (pkgCrateAxiomDirs entryDir)
+  (pkgAxiomSub (pkgCrateDirs entryDir)))
 
 ; The shared body of the two above: every value of `key`, resolved
 ; against the manifest's directory, each with a trailing slash.
 (pub :: pkgDirsFor (-> String String (Vec Int)))
-
 ;@axiom:effect(io)
 (pub fn (pkgDirsFor entryDir key)
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       vecNew
-      (pkgDirsIn (sysReadFile (strData mf)) (pathDir mf) key)
-    )
-  )
-)
+      (pkgDirsIn (sysReadFile (strData mf)) (pathDir mf) key))))
 
 ; Every value of `key` in an ALREADY-READ manifest, resolved against
 ; `base`. Split from the function above so that `pkgSearchDirs` can ask
 ; for two keys over one read - see its comment for why that matters.
 (pub :: pkgDirsIn (-> String String String (Vec Int)))
-
 (pub fn (pkgDirsIn text base key)
   (let ((raw (pkgValues text key)))
     (let (
@@ -413,19 +364,15 @@
         (while (< i n)
           {
             (vecPush
-              out              (cast Int (pathWithSlash (pkgResolve base (vecGetStr raw i))))
-            )
+              out
+              (cast Int (pathWithSlash (pkgResolve base (vecGetStr raw i)))))
             (set i (+ i 1))
           })
         out
-      }
-    )
-  )
-)
+      })))
 
 ; `DIR/axiom/` for each directory in `dirs`.
 (pub :: pkgAxiomSub (-> (Vec Int) (Vec Int)))
-
 (pub fn (pkgAxiomSub dirs)
   (let (
     (out vecNew)
@@ -435,14 +382,12 @@
       (while (< i (vecLen dirs))
         {
           (vecPush
-            out            (cast Int (strConcat (vecGetStr dirs i) "axiom/"))
-          )
+            out
+            (cast Int (strConcat (vecGetStr dirs i) "axiom/")))
           (set i (+ i 1))
         })
       out
-    }
-  )
-)
+    }))
 
 ; EVERY module search directory the manifest contributes, in order:
 ; each `depend`, then each `crate`'s `axiom/`.
@@ -457,7 +402,6 @@
 ; too late for a cost that is paid by every project in the world that
 ; does not use the feature.
 (pub :: pkgSearchDirs (-> String (Vec Int)))
-
 ;@axiom:effect(io)
 (pub fn (pkgSearchDirs entryDir)
   (let ((mf (pkgFindManifest entryDir)))
@@ -467,22 +411,15 @@
         (text (sysReadFile (strData mf)))
         (base (pathDir mf))
       )
-        (pkgConcatDirs (pkgDirsIn text base "depend") (pkgAxiomSub (pkgDirsIn text base "crate")))
-      )
-    )
-  )
-)
+        (pkgConcatDirs (pkgDirsIn text base "depend") (pkgAxiomSub (pkgDirsIn text base "crate")))))))
 
 ; A manifest path against the manifest's own directory. An absolute
 ; path is taken as it stands.
 (pub :: pkgResolve (-> String String String))
-
 (pub fn (pkgResolve base p)
   (if (pathIsAbsolute p)
     p
-    (strConcat (pathWithSlash base) p)
-  )
-)
+    (strConcat (pathWithSlash base) p)))
 
 ; The `name` the manifest at or above `entryDir` declares, or "".
 ;
@@ -495,61 +432,45 @@
 ; anyway, so the string could not name another directory even if the
 ; verification were removed.
 (pub :: pkgName (-> String String))
-
 ;@axiom:effect(io)
 (pub fn (pkgName entryDir)
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       ""
-      (pkgValue (sysReadFile (strData mf)) "name")
-    )
-  )
-)
+      (pkgValue (sysReadFile (strData mf)) "name"))))
 
 ; A package name is letters, digits, `.`, `-` and `_`, and is not `.`
 ; or `..`. Deliberately narrower than the filesystem: the name is spent
 ; as a path, so `..` or a `/` in it would write the executable
 ; somewhere the command line never mentioned.
 (pub :: pkgNameOk (-> String Bool))
-
 (pub fn (pkgNameOk s)
   (if (== (strLen s) 0)
     false
     (if (|| (strEq s ".") (strEq s ".."))
       false
-      (pkgNameBytesOk s 0)
-    )
-  )
-)
+      (pkgNameBytesOk s 0))))
 
 (pub :: pkgNameBytesOk (-> String Int Bool))
-
 (pub fn (pkgNameBytesOk s i)
   (if (>= i (strLen s))
     true
     (if (pkgIsNameByte (strByte s i))
       (pkgNameBytesOk s (+ i 1))
-      false
-    )
-  )
-)
+      false)))
 
 ; `.` is 46, `-` is 45, `_` is 95.
 (pub :: pkgIsNameByte (-> Int Bool))
-
 (pub fn (pkgIsNameByte b)
-  (|| (strIsAlpha b) (|| (strIsDigit b) (|| (== b 46) (|| (== b 45) (== b 95)))))
-)
+  (|| (strIsAlpha b) (|| (strIsDigit b) (|| (== b 46) (|| (== b 45) (== b 95))))))
 
 ; `error: axiom.pkg:LINE: `, the prefix every line-level refusal here
 ; shares. The line number is 1-based and counts blank and comment lines
 ; like every editor does, because the reader's next move is to open the
 ; file at it.
 (pub :: pkgAt (-> String Int String))
-
 (pub fn (pkgAt mf line)
-  (pkg4 "error: " mf ":" (pkg3 (fmtInt line) ": " ""))
-)
+  (pkg4 "error: " mf ":" (pkg3 (fmtInt line) ": " "")))
 
 ; Walk the manifest once and refuse every line that cannot mean what it
 ; says. Answers 0; every failure exits.
@@ -576,7 +497,6 @@
 ;      declare two.
 ;   4. A `name` that is not a file name, since it is spent as one.
 (pub :: pkgCheckLines (-> String String Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgCheckLines text mf)
   (let (
@@ -601,40 +521,27 @@
                         {
                           (if (> sawName 0)
                             (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`name` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
-                            0
-                          )
+                            0)
                           (set sawName 1)
                           (if (pkgNameOk v)
                             0
-                            (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`name` is not a package name: `" v "`\n") (pkg4 "       A package name is letters, digits, `.`, `-` and `_`, and is\n" "       neither `.` nor `..`. It is the file `axiom build` writes when\n" "       no --output is given, so it names a FILE and not a path.\n" "")))
-                          )
+                            (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`name` is not a package name: `" v "`\n") (pkg4 "       A package name is letters, digits, `.`, `-` and `_`, and is\n" "       neither `.` nor `..`. It is the file `axiom build` writes when\n" "       no --output is given, so it names a FILE and not a path.\n" ""))))
                           0
                         }
                         (if (strEq k "version")
                           {
                             (if (> sawVersion 0)
                               (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`version` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
-                              0
-                            )
+                              0)
                             (set sawVersion 1)
                             0
                           }
-                          0
-                        )
-                      )
-                    )
-                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version`, `depend` and `crate`,\n" "       and `#` starts a comment. An unknown key used to be ignored, which\n" "       made a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n")))
-                  )
-                )
-              )
-            )
-          )
+                          0)))
+                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version`, `depend` and `crate`,\n" "       and `#` starts a comment. An unknown key used to be ignored, which\n" "       made a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n"))))))))
           (set i (+ i 1))
         })
       0
-    }
-  )
-)
+    }))
 
 ; Refuse a manifest that cannot mean one thing.
 ;
@@ -667,46 +574,37 @@
 ;
 ; Answers 0, so a caller can bind it. Every failure exits.
 (pub :: pkgVerify (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgVerify entryDir)
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       0
       (let ((_lines (pkgCheckLines (sysReadFile (strData mf)) mf)))
-      (let ((dirs (pkgDependDirs entryDir)))
-        (let (
-          (n (vecLen dirs))
-          (mut i 0)
-        )
-          {
-            (while (< i n)
-              {
-                (if (sysIsDir (strCStr (vecGetStr dirs i)))
-                  0
-                  (pkgDie (pkg4 (pkg3 "error: " mf " names a dependency directory that is not there:\n") (pkg3 "       " (vecGetStr dirs i) "\n") "       `depend` names a DIRECTORY of modules, resolved against the\n" "       manifest's own directory.\n"))
-                )
-                (set i (+ i 1))
-              })
-            (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
-            ; The pairwise check runs over the depend directories AND
-            ; every crate's `axiom/` together, because they land in one
-            ; search path and a clash between two of them is the same
-            ; wrong answer whichever key declared them.
-            (pkgCheckOverlap (pkgConcatDirs dirs (pkgCrateAxiomDirs entryDir)) mf 0)
-          }
-        )
-      )
-      )
-    )
-  )
-)
+        (let ((dirs (pkgDependDirs entryDir)))
+          (let (
+            (n (vecLen dirs))
+            (mut i 0)
+          )
+            {
+              (while (< i n)
+                {
+                  (if (sysIsDir (strCStr (vecGetStr dirs i)))
+                    0
+                    (pkgDie (pkg4 (pkg3 "error: " mf " names a dependency directory that is not there:\n") (pkg3 "       " (vecGetStr dirs i) "\n") "       `depend` names a DIRECTORY of modules, resolved against the\n" "       manifest's own directory.\n")))
+                  (set i (+ i 1))
+                })
+              (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
+              ; The pairwise check runs over the depend directories AND
+              ; every crate's `axiom/` together, because they land in one
+              ; search path and a clash between two of them is the same
+              ; wrong answer whichever key declared them.
+              (pkgCheckOverlap (pkgConcatDirs dirs (pkgCrateAxiomDirs entryDir)) mf 0)
+            }))))))
 
 ; `a` then `b`, in order, in a NEW Vec - the caller is still holding
 ; both of them, and `pkgCrateAxiomDirs`' answer is also what
 ; `moduleSearchDirs` pushes.
 (pub :: pkgConcatDirs (-> (Vec Int) (Vec Int) (Vec Int)))
-
 (pub fn (pkgConcatDirs a b)
   (let (
     (out vecNew)
@@ -716,29 +614,26 @@
       (while (< i (vecLen a))
         {
           (vecPush
-            out            (cast Int (vecGetStr a i))
-          )
+            out
+            (cast Int (vecGetStr a i)))
           (set i (+ i 1))
         })
       (set i 0)
       (while (< i (vecLen b))
         {
           (vecPush
-            out            (cast Int (vecGetStr b i))
-          )
+            out
+            (cast Int (vecGetStr b i)))
           (set i (+ i 1))
         })
       out
-    }
-  )
-)
+    }))
 
 ; Every declared crate directory, refused for the three things it can
 ; fail to be. The messages name the DIRECTORY and what was looked for
 ; inside it, because "crate directory" is a shape the reader has to be
 ; told, not one they can infer from a path.
 (pub :: pkgCheckCrates (-> (Vec Int) String Int Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgCheckCrates dirs mf i)
   (if (>= i (vecLen dirs))
@@ -749,23 +644,16 @@
           (if (sysFileExists (strCStr (strConcat d "Cargo.toml")))
             (if (sysIsDir (strCStr (strConcat d "axiom/")))
               0
-              (pkgDie (pkg4 (pkg3 "error: " mf " names a crate with no generated module directory:\n") (pkg3 "       " (strConcat d "axiom/") "\n") "       A crate's binding module is written to `DIR/axiom/` by\n       `axiom-bindgen`, and a manifest `crate` does not run it: run\n" "       `axiom build --crate DIR` (or `axiom-bindgen`) once, or commit the\n       generated module, and this line is enough from then on.\n"))
-            )
-            (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory with no Cargo.toml:\n") (pkg3 "       " (strConcat d "Cargo.toml") "\n") "       `crate` names a CARGO CRATE - a `Cargo.toml` beside an `axiom/`\n" "       holding its generated module. A plain directory of `.ax` modules\n       is `depend`, not `crate`.\n"))
-          )
-          (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory that is not there:\n") (pkg3 "       " d "\n") "       `crate` names a DIRECTORY holding a `Cargo.toml` and an `axiom/`,\n" "       resolved against the manifest's own directory.\n"))
-        )
-      )
+              (pkgDie (pkg4 (pkg3 "error: " mf " names a crate with no generated module directory:\n") (pkg3 "       " (strConcat d "axiom/") "\n") "       A crate's binding module is written to `DIR/axiom/` by\n       `axiom-bindgen`, and a manifest `crate` does not run it: run\n" "       `axiom build --crate DIR` (or `axiom-bindgen`) once, or commit the\n       generated module, and this line is enough from then on.\n")))
+            (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory with no Cargo.toml:\n") (pkg3 "       " (strConcat d "Cargo.toml") "\n") "       `crate` names a CARGO CRATE - a `Cargo.toml` beside an `axiom/`\n" "       holding its generated module. A plain directory of `.ax` modules\n       is `depend`, not `crate`.\n")))
+          (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory that is not there:\n") (pkg3 "       " d "\n") "       `crate` names a DIRECTORY holding a `Cargo.toml` and an `axiom/`,\n" "       resolved against the manifest's own directory.\n"))))
       (pkgCheckCrates dirs mf (+ i 1))
-    }
-  )
-)
+    }))
 
 ; Every pair of dependency directories, checked for a module both
 ; provide. Quadratic in the number of dependencies and linear in their
 ; contents, which is the right shape for a list a human typed.
 (pub :: pkgCheckOverlap (-> (Vec Int) String Int Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgCheckOverlap dirs mf i)
   (if (>= i (vecLen dirs))
@@ -773,12 +661,9 @@
     {
       (pkgCheckPair dirs mf i (+ i 1))
       (pkgCheckOverlap dirs mf (+ i 1))
-    }
-  )
-)
+    }))
 
 (pub :: pkgCheckPair (-> (Vec Int) String Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgCheckPair dirs mf i j)
   (if (>= j (vecLen dirs))
@@ -787,13 +672,9 @@
       (let ((clash (pkgFirstShared (vecGetStr dirs i) (vecGetStr dirs j))))
         (if (== (strLen clash) 0)
           0
-          (pkgDie (pkg4 (pkg3 "error: two dependencies in " mf " provide the module `") (pkg3 (pkgModuleName clash) "`:\n" "") (pkg3 "       " (strConcat (vecGetStr dirs i) clash) "\n") (pkg4 "       " (strConcat (vecGetStr dirs j) clash) "\n" "       One of them would win by declaration order and the other's\n       modules would compile against declarations they never named.\n")))
-        )
-      )
+          (pkgDie (pkg4 (pkg3 "error: two dependencies in " mf " provide the module `") (pkg3 (pkgModuleName clash) "`:\n" "") (pkg3 "       " (strConcat (vecGetStr dirs i) clash) "\n") (pkg4 "       " (strConcat (vecGetStr dirs j) clash) "\n" "       One of them would win by declaration order and the other's\n       modules would compile against declarations they never named.\n")))))
       (pkgCheckPair dirs mf i (+ j 1))
-    }
-  )
-)
+    }))
 
 ; The first module file both directories hold, as a path relative to
 ; each, or "".
@@ -804,7 +685,6 @@
 ; which is the exact failure the whole file exists to refuse, one
 ; directory down. `pkgModules` descends.
 (pub :: pkgFirstShared (-> String String String))
-
 ;@axiom:effect(io)
 (pub fn (pkgFirstShared a b)
   (let ((mods (pkgModules a)))
@@ -821,16 +701,11 @@
                   (set hit name)
                   0
                 }
-                0
-              )
-            )
+                0))
             (set i (+ i 1))
           })
         hit
-      }
-    )
-  )
-)
+      })))
 
 ; Every `.ax` file under `dir`, as a path relative to it - `Widget.ax`,
 ; `Sub/Widget.ax`.
@@ -842,29 +717,28 @@
 ; writes. The walk runs once inside `pkgVerify`, per declared
 ; dependency, and never per module lookup.
 (pub :: pkgModules (-> String (Vec Int)))
-
 ;@axiom:effect(io)
 (pub fn (pkgModules dir)
   (let ((out vecNew))
     {
       (pkgWalkModules out dir "" 0)
       out
-    }
-  )
-)
+    }))
 
 (pub :: pkgWalkModules (-> (Vec Int) String String Int Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgWalkModules out root rel depth)
   (if (> depth 2)
     0
-    (pkgWalkEntries out root rel (sysReadDir (strCStr (strConcat root rel))) 0 depth)
-  )
-)
+    (pkgWalkEntries
+      out
+      root
+      rel
+      (sysReadDir (strCStr (strConcat root rel)))
+      0
+      depth)))
 
 (pub :: pkgWalkEntries (-> (Vec Int) String String (Vec Int) Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgWalkEntries out root rel entries i depth)
   (if (>= i (vecLen entries))
@@ -883,58 +757,48 @@
               (if (strEq (pathExt name) ".ax")
                 {
                   (vecPush
-                    out                    (cast Int r)
-                  )
+                    out
+                    (cast Int r))
                   0
                 }
-                0
-              )
-            )
-          )
-        )
-      )
-      (pkgWalkEntries out root rel entries (+ i 1) depth)
-    }
-  )
-)
+                0)))))
+      (pkgWalkEntries
+        out
+        root
+        rel
+        entries
+        (+ i 1)
+        depth)
+    }))
 
 ; `Sub/Widget.ax` -> `Sub.Widget`: the name an `import` spells, which
 ; is what a reader has to type to reproduce the clash. `pathStem` was
 ; here before nesting existed and answered `Widget` for both, so the
 ; message named a module no `import` in the project mentions.
 (pub :: pkgModuleName (-> String String))
-
 (pub fn (pkgModuleName rel)
   (pkgDotSlashes
     (if (strEq (pathExt rel) ".ax")
       (strSlice rel 0 (- (strLen rel) 3))
-      rel
-    )    0
-  )
-)
+      rel)
+    0))
 
 (pub :: pkgDotSlashes (-> String Int String))
-
 (pub fn (pkgDotSlashes s i)
   (if (>= i (strLen s))
     s
     (if (== (strByte s i) 47)
       (pkgDotSlashes (pkg3 (strSlice s 0 i) "." (strSlice s (+ i 1) (- (strLen s) (+ i 1)))) (+ i 1))
-      (pkgDotSlashes s (+ i 1))
-    )
-  )
-)
+      (pkgDotSlashes s (+ i 1)))))
 
 ; The driver's refusal shape: the message on fd 2, exit 3 - this
 ; compiler's code for "a module could not be read or parsed", which is
 ; what a manifest naming a module twice or naming nothing amounts to.
 (pub :: pkgDie (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (pkgDie msg)
   {
     (sysWriteAllFd 2 (strData msg) (strLen msg) 0)
     (sysExitWith 3)
     0
-  }
-)
+  })

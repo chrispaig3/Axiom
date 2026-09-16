@@ -83,27 +83,16 @@
 ; reader that kept raw lines would satisfy `emit | read | emit ==
 ; emit` without reading anything, which is the vacuous check this
 ; repository names most often.
-
 (import Pre (range))
-
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import core)
-
 (import parser)
-
 (import typecheck)
-
 (import symbols)
-
 (import diag)
-
 (import build)
-
 (import mir)
 
 ; ------------------------------------------------------------------
@@ -115,7 +104,6 @@
 ; word; -1 is "no such kind".
 ; ------------------------------------------------------------------
 (pub :: axirKindArityMin (-> String Int))
-
 (pub fn (axirKindArityMin k)
   (if (strEq k "axir")
     4
@@ -135,17 +123,7 @@
                   2
                   (if (strEq k "end")
                     1
-                    (- 0 1)
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                    (- 0 1)))))))))))
 
 ; Whether the kind's arity is exact. `op` and `term` carry a variable
 ; operand list and `blk` a variable BLOCK-PARAMETER list; `F` carries
@@ -159,7 +137,6 @@
 ; and not the parameter they land in, which is a record no reader can
 ; turn back into a function.
 (pub :: axirKindExact (-> String Bool))
-
 (pub fn (axirKindExact k)
   (if (strEq k "op")
     false
@@ -169,23 +146,16 @@
         false
         (if (strEq k "F")
           false
-          true
-        )
-      )
-    )
-  )
-)
+          true)))))
 
 ; ------------------------------------------------------------------
 ; Writing.
 ; ------------------------------------------------------------------
-
 ; One record's header, byte for byte AXSYM's own `F` tuple. The
 ; arguments arrive already escaped and already rendered by the same
 ; helpers `symbolsRenderGens` uses, so "verbatim" is a property of the
 ; call site rather than a hope.
 (pub :: axirHeader (-> String String String String String))
-
 (pub fn (axirHeader name loc ty nid)
   (let ((mut s "F "))
     {
@@ -193,12 +163,9 @@
       (set s (strConcat s (strConcat " \"" (strConcat ty "\""))))
       (if (> (strLen nid) 0)
         (set s (strConcat s (strConcat " @" nid)))
-        ""
-      )
+        "")
       (strConcat s "\n")
-    }
-  )
-)
+    }))
 
 ; The `region` line: the checker's own words, undecoded.
 ;
@@ -214,7 +181,6 @@
 ; with no parameters renders `-`, because an empty field would make
 ; the line's arity depend on its content.
 (pub :: axirRegionLine (-> Int Int String))
-
 (pub fn (axirRegionLine f np)
   (let (
     (ff (memGetWordVec f 2))
@@ -226,34 +192,23 @@
         {
           (if (> i 0)
             (set from (strConcat from ","))
-            ""
-          )
+            "")
           (set from (strConcat
-            from            (if (&& (!= (cast Int ff) 0) (< i (vecLen ff)))
+            from
+            (if (&&
+              (!=
+                (cast Int ff)
+                0)
+              (< i (vecLen ff)))
               (symsDigits (vecGet ff i))
-              "0"
-            )
-          ))
+              "0")))
           (set i (+ i 1))
         })
       (if (== np 0)
         (set from "-")
-        ""
-      )
-      (strConcat
-        "region "        (strConcat
-          (symsDigits (memGetWord f 1))          (strConcat
-            (strConcat " " from)            (strConcat
-              (strConcat " " (symsDigits (memGetWord f 3)))              (strConcat
-                (strConcat " " (symsDigits (memGetWord f 4)))                (strConcat (strConcat " " (symsDigits (memGetWord f 5))) "\n")
-              )
-            )
-          )
-        )
-      )
-    }
-  )
-)
+        "")
+      (strConcat "region " (strConcat (symsDigits (memGetWord f 1)) (strConcat (strConcat " " from) (strConcat (strConcat " " (symsDigits (memGetWord f 3))) (strConcat (strConcat " " (symsDigits (memGetWord f 4))) (strConcat (strConcat " " (symsDigits (memGetWord f 5))) "\n"))))))
+    }))
 
 ; ------------------------------------------------------------------
 ; The body lines: `blk`, `op` and `term`.
@@ -270,18 +225,14 @@
 ; `bb3` is a place, and `term br bb3 %4` puts one of each in the same
 ; operand list - so the byte tells them apart, not the position.
 ; ------------------------------------------------------------------
-
 ; A possibly negative integer. `symsDigits` is unsigned - AXSYM reaches
 ; it only for indices - and `MO_CONST` carries a source literal, so the
 ; sign is written here rather than assumed away.
 (pub :: axirNum (-> Int String))
-
 (pub fn (axirNum n)
   (if (< n 0)
     (strConcat "-" (symsDigits (- 0 n)))
-    (symsDigits n)
-  )
-)
+    (symsDigits n)))
 
 ; ` %0 %1 %2` - the operand SUFFIX a register list renders as, leading
 ; space included so an empty list renders as nothing at all. One
@@ -289,15 +240,10 @@
 ; arguments, for the reason `mirRegList` is one spelling: three that
 ; agreed today would be three to keep in step.
 (pub :: axirRegs (-> (Vec Int) Int String String))
-
 (pub fn (axirRegs v i acc)
   (if (>= i (vecLen v))
     acc
-    (axirRegs
-      v      (+ i 1)      (strConcat acc (strConcat " " (mirReg (vecGet v i))))
-    )
-  )
-)
+    (axirRegs v (+ i 1) (strConcat acc (strConcat " " (mirReg (vecGet v i)))))))
 
 ; One instruction, or "" for an opcode this grammar does not spell.
 ;
@@ -310,29 +256,14 @@
 ; because "should be unreachable" is how the verifier's own opcode set
 ; came to be open in the first place.
 (pub :: axirOpLine (-> MInst String))
-
 (pub fn (axirOpLine n)
   (if (== n.op MO_CONST)
     (strConcat "op " (strConcat (mirReg n.dst) (strConcat " const " (axirNum n.a))))
     (if (== n.op MO_BIN)
-      (strConcat
-        "op "        (strConcat
-          (mirReg n.dst)          (strConcat
-            " "            (strConcat n.name (strConcat " " (strConcat (mirReg n.a) (strConcat " " (mirReg n.b)))))
-          )
-        )
-      )
+      (strConcat "op " (strConcat (mirReg n.dst) (strConcat " " (strConcat n.name (strConcat " " (strConcat (mirReg n.a) (strConcat " " (mirReg n.b))))))))
       (if (== n.op MO_CALL)
-        (strConcat
-          "op "          (strConcat
-            (mirReg n.dst)            (strConcat " call " (strConcat (saAxSafe n.name) (axirRegs n.args 0 "")))
-          )
-        )
-        ""
-      )
-    )
-  )
-)
+        (strConcat "op " (strConcat (mirReg n.dst) (strConcat " call " (strConcat (saAxSafe n.name) (axirRegs n.args 0 "")))))
+        ""))))
 
 ; One terminator, or "" for an opcode this grammar does not spell.
 ;
@@ -344,36 +275,20 @@
 ; and a structural byte in either would silently add an atom to the
 ; line.
 (pub :: axirTermLine (-> MInst String))
-
 (pub fn (axirTermLine t)
   (if (== t.op MT_RET)
     (strConcat "term ret " (mirReg t.a))
     (if (== t.op MT_BR)
       (strConcat "term br " (strConcat (mirBB t.tgt) (axirRegs t.args 0 "")))
       (if (== t.op MT_CONDBR)
-        (strConcat
-          "term condbr "          (strConcat
-            (mirReg t.a)            (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))
-          )
-        )
+        (strConcat "term condbr " (strConcat (mirReg t.a) (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))))
         (if (== t.op MT_TRAPZ)
-          (strConcat
-            "term trapz "            (strConcat
-              (mirReg t.a)              (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))
-            )
-          )
+          (strConcat "term trapz " (strConcat (mirReg t.a) (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))))
           (if (== t.op MT_TRAP)
             (if (>= t.a 0)
               (strConcat "term trap " (strConcat (saAxSafe t.name) (strConcat " " (mirReg t.a))))
-              (strConcat "term trap " (saAxSafe t.name))
-            )
-            ""
-          )
-        )
-      )
-    )
-  )
-)
+              (strConcat "term trap " (saAxSafe t.name)))
+            ""))))))
 
 ; One block onto `out`. Answers 0 the moment a line renders as "" or
 ; the block carries other than one terminator - `mirVerify` reports
@@ -381,16 +296,13 @@
 ; two questions are one line apart and there they are a whole pass
 ; apart.
 (pub :: axirBlockLines (-> MBlock (Vec String) Int))
-
 (pub fn (axirBlockLines b out)
   (let (
     (mut ok 1)
     (mut i 0)
   )
     {
-      (vecPushStr
-        out        (strConcat "blk " (strConcat (mirBB b.id) (strConcat (axirRegs b.params 0 "") "\n")))
-      )
+      (vecPushStr out (strConcat "blk " (strConcat (mirBB b.id) (strConcat (axirRegs b.params 0 "") "\n"))))
       (while (< i (vecLen b.instrs))
         {
           (let ((s (axirOpLine (vecGet b.instrs i))))
@@ -399,9 +311,7 @@
               {
                 (vecPushStr out (strConcat s "\n"))
                 0
-              }
-            )
-          )
+              }))
           (set i (+ i 1))
         })
       (if (== (vecLen b.term) 1)
@@ -411,15 +321,10 @@
             {
               (vecPushStr out (strConcat s "\n"))
               0
-            }
-          )
-        )
-        (set ok 0)
-      )
+            }))
+        (set ok 0))
       ok
-    }
-  )
-)
+    }))
 
 ; The whole body of one lowered function, appended to `parts`, or
 ; nothing appended at all.
@@ -430,7 +335,6 @@
 ; failed - a partial body, which is exactly what `mLowerFn` goes out
 ; of its way never to answer.
 (pub :: axirBodyLines (-> MFunc (Vec String) Int))
-
 (pub fn (axirBodyLines f parts)
   (let (
     (body vecNew)
@@ -442,8 +346,7 @@
         {
           (if (== (axirBlockLines (vecGet f.blocks i) body) 0)
             (set ok 0)
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       (if (== ok 1)
@@ -455,14 +358,10 @@
                 (set k (+ k 1))
               })
             0
-          }
-        )
-        0
-      )
+          })
+        0)
       ok
-    }
-  )
-)
+    }))
 
 ; The `fn` declaration behind one `FnEnt`, or 0.
 ;
@@ -477,8 +376,8 @@
 ; ARE the shape of that curve, and doubling them would have been paid
 ; on the largest module in the tree.
 (pub :: axirDeclFor (-> Int String Int))
-
-(pub fn (axirDeclFor sm key) (cast Int (saGet (memGetWordVec sm 16) (memGetWordVec sm 26) key)))
+(pub fn (axirDeclFor sm key)
+  (cast Int (saGet (memGetWordVec sm 16) (memGetWordVec sm 26) key)))
 
 ; The body of `d`, when there is a `d`, when it lowers, and when what
 ; it lowers to verifies. Three refusals and one answer, and each
@@ -486,7 +385,6 @@
 ; compiler knows about a program, and "this lowering does not handle
 ; that shape" is a fact about the lowering.
 (pub :: axirLowered (-> Int (Vec String) Int))
-
 (pub fn (axirLowered d parts)
   (if (== d 0)
     0
@@ -496,13 +394,7 @@
         (let ((fnir (vecGet got 0)))
           (if (== (vecLen (mirVerify fnir)) 0)
             (axirBodyLines fnir parts)
-            0
-          )
-        )
-      )
-    )
-  )
-)
+            0))))))
 
 ; The whole file for one checked module.
 ;
@@ -514,7 +406,6 @@
 ; in order - so a drift here reddens a gate rather than producing a
 ; file that joins to the wrong row.
 (pub :: axirRender (-> Int Int Int String String))
-
 (pub fn (axirRender tc builtins mir target)
   (let (
     (units (memGetWordVec tc 13))
@@ -522,16 +413,11 @@
     (parts vecNew)
     (_rgn (if (== mir 1)
       (rgnEnsureFacts tc)
-      0
-    ))
+      0))
   )
     (let ((sm (smBuild decls units)))
       {
-        (vecPush
-          parts          (strConcat
-            "axir 1 "            (strConcat target (strConcat " " (strConcat axiomVersion "\n")))
-          )
-        )
+        (vecPush parts (strConcat "axir 1 " (strConcat target (strConcat " " (strConcat axiomVersion "\n")))))
         (let (
           (fns (tcFnsVec tc))
           (mut i 0)
@@ -544,74 +430,64 @@
                     0
                     (let (
                       (loc (smLocReal
-                        sm                        0                        1                        2                        name                        units
-                      ))
+                        sm
+                        0
+                        1
+                        2
+                        name
+                        units))
                       (params (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name))
                       (opTy (saGet (memGetWordVec sm 18) (memGetWordVec sm 19) name))
                     )
                       {
                         (vecPush
-                          parts                          (axirHeader
-                            (bareOf name)                            (if (== (strLen loc) 0)
+                          parts
+                          (axirHeader
+                            (bareOf name)
+                            (if (== (strLen loc) 0)
                               "-"
-                              loc
-                            )                            (if (&& (== (memGetWord e 4) 1) (!= (cast Int opTy) 0))
-                              (symTy (cast Int opTy))
-                              (symTy (memGetWord e 1))
-                            )                            (smNidFor sm name)
-                          )
-                        )
-                        (vecPush
-                          parts                          (strConcat "sig " (strConcat (symsDigits (memGetWord e 2)) "\n"))
-                        )
+                              loc)
+                            (if (&&
+                              (== (memGetWord e 4) 1)
+                              (!=
+                                (cast Int opTy)
+                                0))
+                              (symTy
+                                (cast Int opTy))
+                              (symTy (memGetWord e 1)))
+                            (smNidFor sm name)))
+                        (vecPush parts (strConcat "sig " (strConcat (symsDigits (memGetWord e 2)) "\n")))
                         (let ((mut k 0))
-                          (if (== (cast Int params) 0)
+                          (if (==
+                            (cast Int params)
+                            0)
                             0
                             (while (< k (vecLen params))
                               {
-                                (vecPush
-                                  parts                                  (strConcat
-                                    "param "                                    (strConcat
-                                      (symsDigits k)                                      (strConcat " " (strConcat (saAxSafe (vecGetStr params k)) "\n"))
-                                    )
-                                  )
-                                )
+                                (vecPush parts (strConcat "param " (strConcat (symsDigits k) (strConcat " " (strConcat (saAxSafe (vecGetStr params k)) "\n")))))
                                 (set k (+ k 1))
-                              })
-                          )
-                        )
+                              })))
                         (let ((f (memGetWord e 8)))
                           (if (== f 0)
                             0
                             {
                               (vecPush parts (axirRegionLine f (memGetWord f 7)))
                               0
-                            }
-                          )
-                        )
+                            }))
                         ; The body goes AFTER the region line, so a
                         ; record reads outside-in: who the function is,
                         ; what its signature is, what the checker
                         ; concluded about it, and then what it does.
                         (if (== mir 1)
                           (axirLowered (axirDeclFor sm name) parts)
-                          0
-                        )
+                          0)
                         (vecPush parts "end\n")
                         0
-                      }
-                    )
-                  )
+                      }))
                   (set i (+ i 1))
-                }
-              )
-            ))
-        )
+                }))))
         (catStrs parts)
-      }
-    )
-  )
-)
+      })))
 
 ; ------------------------------------------------------------------
 ; Reading.
@@ -623,13 +499,11 @@
 ; `axirWrite` refuses to render: a reader that returned a partial
 ; parse would let a malformed file round-trip as a shorter one.
 ; ------------------------------------------------------------------
-
 ; The tokens of `s[i..e)`, splitting on spaces, with a quoted field
 ; kept whole. Quoting is a property of the BYTE here rather than of
 ; the field position, because the only quoted field in the grammar is
 ; the type and `saAxSafe` escapes a `"` inside every other one.
 (pub :: axirTokens (-> String Int Int (Vec String)))
-
 (pub fn (axirTokens s i e)
   (let (
     (out vecNew)
@@ -646,27 +520,20 @@
                   (set k (+ k 1)))
                 (vecPushStr out (strSlice s (+ j 1) (- k (+ j 1))))
                 (set j (+ k 1))
-              }
-            )
+              })
             (let ((mut k j))
               {
                 (while (&& (< k e) (!= (strByte s k) 32))
                   (set k (+ k 1)))
                 (vecPushStr out (strSlice s j (- k j)))
                 (set j k)
-              }
-            )
-          )
-        ))
+              }))))
       out
-    }
-  )
-)
+    }))
 
 ; One error record, so that the shape of a refusal is the shape of a
 ; line.
 (pub :: axirErr (-> String (Vec Int)))
-
 (pub fn (axirErr msg)
   (let (
     (rec vecNew)
@@ -676,21 +543,16 @@
       (vecPushStr rec "axir-error")
       (vecPushStr rec msg)
       (vecPush
-        out        (cast Int rec)
-      )
+        out
+        (cast Int rec))
       out
-    }
-  )
-)
+    }))
 
 (pub :: axirIsErr (-> (Vec Int) Bool))
-
 (pub fn (axirIsErr recs)
   (if (== (vecLen recs) 1)
     (strEq (vecGetStr (vecGetVec recs 0) 0) "axir-error")
-    false
-  )
-)
+    false))
 
 ; Strip a leading sigil byte, refusing the token that does not carry
 ; it. The refusal matters: `@` and `%` are what tell a nid from a name
@@ -698,18 +560,14 @@
 ; token there would re-emit a line the writer could never have
 ; written.
 (pub :: axirUnsigil (-> String Int String))
-
 (pub fn (axirUnsigil tok b)
   (if (&& (> (strLen tok) 1) (== (strByte tok 0) b))
     (strSlice tok 1 (- (strLen tok) 1))
-    (cast String 0)
-  )
-)
+    (cast String 0)))
 
 ; One line's atoms, sigils removed. 0 means the line carried a field
 ; the grammar spells with a sigil and the file spelled without one.
 (pub :: axirDecompose (-> String (Vec String) (Vec String)))
-
 (pub fn (axirDecompose kind toks)
   (let (
     (rec vecNew)
@@ -726,19 +584,18 @@
           (vecPushStr rec (vecGetStr toks 3))
           (if (> (vecLen toks) 4)
             (let ((nid (axirUnsigil (vecGetStr toks 4) 64)))
-              (if (== (cast Int nid) 0)
+              (if (==
+                (cast Int nid)
+                0)
                 (set ok 0)
                 {
                   (vecPushStr rec nid)
                   0
-                }
-              )
-            )
+                }))
             {
               (vecPushStr rec "")
               0
-            }
-          )
+            })
           0
         }
         (if (strEq kind "blk")
@@ -754,23 +611,24 @@
               (while (&& (< k (vecLen toks)) (== ok 1))
                 {
                   (let ((pr (axirUnsigil (vecGetStr toks k) 37)))
-                    (if (== (cast Int pr) 0)
+                    (if (==
+                      (cast Int pr)
+                      0)
                       (set ok 0)
                       {
                         (vecPushStr rec pr)
                         0
-                      }
-                    )
-                  )
+                      }))
                   (set k (+ k 1))
                 })
               0
-            }
-          )
+            })
           (if (strEq kind "op")
             ; %n opcode operand... - the destination carries its sigil
             (let ((dst (axirUnsigil (vecGetStr toks 1) 37)))
-              (if (== (cast Int dst) 0)
+              (if (==
+                (cast Int dst)
+                0)
                 (set ok 0)
                 (let ((mut k 2))
                   {
@@ -781,10 +639,7 @@
                         (set k (+ k 1))
                       })
                     0
-                  }
-                )
-              )
-            )
+                  })))
             (let ((mut k 1))
               {
                 (while (< k (vecLen toks))
@@ -793,21 +648,13 @@
                     (set k (+ k 1))
                   })
                 0
-              }
-            )
-          )
-        )
-      )
+              }))))
       (if (== ok 1)
         rec
-        (cast (Vec String) 0)
-      )
-    }
-  )
-)
+        (cast (Vec String) 0))
+    }))
 
 (pub :: axirRead (-> String (Vec Int)))
-
 (pub fn (axirRead text)
   (let (
     (n (strLen text))
@@ -828,40 +675,29 @@
                       (if (|| (< (vecLen toks) want) (&& (axirKindExact kind) (> (vecLen toks) want)))
                         (set bad (strConcat "`" (strConcat kind "` line has the wrong number of fields")))
                         (let ((rec (axirDecompose kind toks)))
-                          (if (== (cast Int rec) 0)
+                          (if (==
+                            (cast Int rec)
+                            0)
                             (set bad (strConcat "`" (strConcat kind "` line is malformed")))
                             {
                               (vecPush
-                                out                                (cast Int rec)
-                              )
+                                out
+                                (cast Int rec))
                               ""
-                            }
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-              ""
-            )
+                            })))))))
+              "")
             (set i (+ e 1))
-          }
-        ))
+          }))
       (if (> (strLen bad) 0)
         (axirErr bad)
-        out
-      )
-    }
-  )
-)
+        out)
+    }))
 
 ; ------------------------------------------------------------------
 ; Writing a parse back out. The inverse of `axirDecompose`, and the
 ; two together are what `scripts/check-mir-roundtrip.sh` measures.
 ; ------------------------------------------------------------------
 (pub :: axirWrite (-> (Vec Int) String))
-
 (pub fn (axirWrite recs)
   (let (
     (parts vecNew)
@@ -873,11 +709,7 @@
           (let ((kind (vecGetStr rec 0)))
             {
               (if (strEq kind "F")
-                (vecPush
-                  parts                  (axirHeader
-                    (vecGetStr rec 1)                    (vecGetStr rec 2)                    (vecGetStr rec 3)                    (vecGetStr rec 4)
-                  )
-                )
+                (vecPush parts (axirHeader (vecGetStr rec 1) (vecGetStr rec 2) (vecGetStr rec 3) (vecGetStr rec 4)))
                 (let (
                   (mut s kind)
                   (mut k 1)
@@ -886,40 +718,32 @@
                     (while (< k (vecLen rec))
                       {
                         (set s (strConcat
-                          s                          (strConcat
-                            " "                            (if (|| (&& (strEq kind "op") (== k 1)) (&& (strEq kind "blk") (> k 1)))
+                          s
+                          (strConcat
+                            " "
+                            (if (|| (&& (strEq kind "op") (== k 1)) (&& (strEq kind "blk") (> k 1)))
                               (strConcat "%" (vecGetStr rec k))
-                              (vecGetStr rec k)
-                            )
-                          )
-                        ))
+                              (vecGetStr rec k)))))
                         (set k (+ k 1))
                       })
                     (vecPush parts (strConcat s "\n"))
-                  }
-                )
-              )
+                  }))
               (set i (+ i 1))
-            }
-          )
-        ))
+            })))
       (catStrs parts)
-    }
-  )
-)
+    }))
 
 ; `text` looks like an AXIR file: it opens with the magic word. Used
 ; by `axiom symbols --axir` to tell an input it should COMPILE from an
 ; input it should READ BACK, which is the whole reason the magic line
 ; is there rather than a convention about the extension.
 (pub :: axirLooksLikeFile (-> String Bool))
-
-(pub fn (axirLooksLikeFile text) (strStartsWith text "axir 1 "))
+(pub fn (axirLooksLikeFile text)
+  (strStartsWith text "axir 1 "))
 
 ; The round trip itself: read, then write. Answers "" when the parse
 ; refused, and pushes the message onto `msg`.
 (pub :: axirReemit (-> String (Vec String) String))
-
 (pub fn (axirReemit text msg)
   (let ((recs (axirRead text)))
     (if (axirIsErr recs)
@@ -927,7 +751,4 @@
         (vecPushStr msg (vecGetStr (vecGetVec recs 0) 1))
         ""
       }
-      (axirWrite recs)
-    )
-  )
-)
+      (axirWrite recs))))

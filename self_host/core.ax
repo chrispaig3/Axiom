@@ -6,9 +6,7 @@
 ; for the human reader and the type checker; the codegen treats every
 ; field as an 8-byte slot.
 (import Mem)
-
 (import Str)
-
 (import Vec)
 
 ; ------------------------------------------------------------------
@@ -28,8 +26,8 @@
 ; and `no-foreign` are unchanged and still true.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkSpan (-> Int Int Int))
-
-(pub fn (mkSpan start end) (Span start end))
+(pub fn (mkSpan start end)
+  (Span start end))
 
 ; ------------------------------------------------------------------
 ; TokenKind — nullary constructors, one per token shape.
@@ -104,6 +102,7 @@
   (kind : TokenKind)
   (lexeme : String)
   (span : Int))
+
 ; `@r` - a REGION ANNOTATION, read only in type position:
 ; `(Str @r)` names the region a value lives in (docs/memory-model-v2-
 ; design.md MM-RGN-4, the S3 stage). `@` was AX1001 everywhere before
@@ -111,58 +110,51 @@
 ; right after it; in expression position the token is AX2001, so a
 ; program cannot bind a name that begins with `@`. Appended, so no
 ; existing tag moves.
-
 ; `no-alloc` came off with `mkSpan`'s, for the same reason and on the
 ; same day: the body is one `Token` construction, which allocates.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkToken (-> TokenKind String Int Int))
-
-(pub fn (mkToken kind lexeme span) (Token kind lexeme span))
+(pub fn (mkToken kind lexeme span)
+  (Token kind lexeme span))
 
 ; Token accessors for readability.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenKind (-> Int TokenKind))
-
 (pub fn (tokenKind t)
-  (cast TokenKind (memGetWord t 0))
-)
+  (cast TokenKind (memGetWord t 0)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenLexeme (-> Int String))
-
-(pub fn (tokenLexeme t) (memGetWordStr t 1))
+(pub fn (tokenLexeme t)
+  (memGetWordStr t 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenSpan (-> Int Int))
-
-(pub fn (tokenSpan t) (memGetWord t 2))
+(pub fn (tokenSpan t)
+  (memGetWord t 2))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: spanStart (-> Int Int))
-
-(pub fn (spanStart s) (memGetWord s 0))
+(pub fn (spanStart s)
+  (memGetWord s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: spanEnd (-> Int Int))
-
-(pub fn (spanEnd s) (memGetWord s 1))
+(pub fn (spanEnd s)
+  (memGetWord s 1))
 
 ; ------------------------------------------------------------------
 ; Convert a decimal digit Str to Int. Returns 0 on non-digit.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strToInt (-> String Int))
-
 (pub fn (strToInt s)
   (if (&& (> (strLen s) 0) (== (strByte s 0) 45))
     (- 0 (strToIntFrom s 1 0))
-    (strToIntFrom s 0 0)
-  )
-)
+    (strToIntFrom s 0 0)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strToIntFrom (-> String Int Int Int))
-
 (pub fn (strToIntFrom s i acc)
   (if (>= i (strLen s))
     acc
@@ -173,12 +165,7 @@
         ; the value.
         (if (== ch 95)
           (strToIntFrom s (+ i 1) acc)
-          acc
-        )
-      )
-    )
-  )
-)
+          acc)))))
 
 ; ------------------------------------------------------------------
 ; A compilation UNIT: one source file that contributed declarations.
@@ -212,16 +199,12 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: pastBom (-> String Int Int))
-
 (pub fn (pastBom src lineStart)
   (if (!= lineStart 0)
     lineStart
     (if (&& (>= (strLen src) 3) (&& (== (strByte src 0) 239) (&& (== (strByte src 1) 187) (== (strByte src 2) 191))))
       3
-      0
-    )
-  )
-)
+      0)))
 
 ; ------------------------------------------------------------------
 ; Name and byte helpers every phase needs.
@@ -233,27 +216,22 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: bareOfFrom (-> String Int String))
-
 (pub fn (bareOfFrom s i)
   (if (< i 0)
     s
     (if (== (strByte s i) 36)
       (strSlice s (+ i 1) (- (strLen s) (+ i 1)))
-      (bareOfFrom s (- i 1))
-    )
-  )
-)
+      (bareOfFrom s (- i 1)))))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: bareOf (-> String String))
-
-(pub fn (bareOf s) (bareOfFrom s (- (strLen s) 1)))
+(pub fn (bareOf s)
+  (bareOfFrom s (- (strLen s) 1)))
 
 ; The byte an escape sequence stands for; anything else stands for
 ; itself, which is what makes `\\` and `\"` fall through correctly.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: unescByte (-> Int Int))
-
 (pub fn (unescByte c)
   (if (== c 110)
     10
@@ -263,19 +241,13 @@
         13
         (if (== c 48)
           0
-          c
-        )
-      )
-    )
-  )
-)
+          c)))))
 
 ; A Vec of String, searched by value: membership, and the index of the
 ; FIRST match or -1. The evidence walks in the checker and the emitter
 ; each had a copy under a phase-prefixed name.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strVecHas (-> (Vec a) String Int))
-
 (pub fn (strVecHas xs n)
   (let (
     (mut i 0)
@@ -285,21 +257,17 @@
       (while (< i (vecLen xs))
         {
           (if (strEq
-            (cast String (vecGet xs i))            n
-          )
+            (cast String (vecGet xs i))
+            n)
             (set found 1)
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       found
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strVecIdx (-> (Vec a) String Int))
-
 (pub fn (strVecIdx xs n)
   (let (
     (mut i 0)
@@ -309,39 +277,32 @@
       (while (< i (vecLen xs))
         {
           (if (&&
-            (== found (- 0 1))            (strEq
-              (cast String (vecGet xs i))              n
-            )
-          )
+            (== found (- 0 1))
+            (strEq
+              (cast String (vecGet xs i))
+              n))
             (set found i)
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       found
-    }
-  )
-)
+    }))
 
 ; Append every element of `src` to `acc`, answering `acc`.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: vecAppendFrom (-> (Vec Int) (Vec Int) Int (Vec Int)))
-
 (pub fn (vecAppendFrom src acc i)
   (if (>= i (vecLen src))
     acc
     {
       (vecPush acc (vecGet src i))
       (vecAppendFrom src acc (+ i 1))
-    }
-  )
-)
+    }))
 
 ; The index of the newline at or after `i`, or the end of `s`. The
 ; `explain` renderer and the symbol lister each walked this loop.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: lineEndFrom (-> String Int Int))
-
 (pub fn (lineEndFrom s i)
   (let (
     (n (strLen s))
@@ -351,6 +312,4 @@
       (while (&& (< j n) (!= (strByte s j) 10))
         (set j (+ j 1)))
       j
-    }
-  )
-)
+    }))

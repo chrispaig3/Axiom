@@ -41,9 +41,9 @@
 ; is stated in exactly one place in the compiler and
 ; `scripts/check-version.sh` holds that place to `VERSION`.
 (pub :: axiomVersion String)
-
-(pub fn (axiomVersion) "0.7.5")
+(pub fn (axiomVersion)
+  "0.7.5")
 
 (pub :: axiomBuildId String)
-
-(pub fn (axiomBuildId) "unstamped")
+(pub fn (axiomBuildId)
+  "unstamped")

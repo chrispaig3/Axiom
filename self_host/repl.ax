@@ -87,55 +87,34 @@
 ; including the Bool/String/Char/other dispatch and the `Int`-typed
 ; `__repl_result` carrier (generate_repl_wrapper, axiom-cli).
 (import core)
-
 (import Host)
-
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import Sys)
-
 (import Path)
-
 (import lexer)
-
 (import parser)
-
 (import diag)
-
 (import render)
-
 (import typecheck)
-
 (import expand)
-
 (import codegen)
-
 (import driver)
-
 (import style)
-
 (import Tui.Keys)
-
 (import Tui.Edit)
-
 (import Tui.Term)
-
 (import replhl)
-
 (import replhist)
-
 (import replcomp)
 
 ; All REPL output is stdout - stage0's rule, measured: stderr stayed
 ; empty in every probed session, errors included.
 (pub :: replOut (-> String Int))
-
 ;@axiom:effect(io)
-(pub fn (replOut s) (sysWriteAllFd 1 (strData s) (strLen s) 0))
+(pub fn (replOut s)
+  (sysWriteAllFd 1 (strData s) (strLen s) 0))
 
 ; ------------------------------------------------------------------
 ; Reading a line from fd 0. One byte per read(2): a REPL line is
@@ -160,7 +139,6 @@
 ; boxing there would be a real cost for a type the caller immediately
 ; discriminates anyway.
 (pub :: replReadLine (-> Int (Option String)))
-
 ;@axiom:effect(io)
 (pub fn (replReadLine _u)
   (let (
@@ -171,7 +149,10 @@
   )
     {
       (while (== done 0)
-        (let ((n (match (sysReadFd 0 buf 1) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+        (let ((n 
+          (match (sysReadFd 0 buf 1)
+            ((Ok k) k)
+            ((Err e) (- 0 (errCode e))))))
           (if (<= n 0)
             (set done 1)
             (let ((b (memGetByte buf 0)))
@@ -184,18 +165,11 @@
                   (set sawAny 1)
                   (vecPush parts (strSlice (byteAsStr b) 0 1))
                   0
-                }
-              )
-            )
-          )
-        ))
+                })))))
       (if (== sawAny 0)
         None
-        (Some (catStrs parts))
-      )
-    }
-  )
-)
+        (Some (catStrs parts)))
+    }))
 
 ; ------------------------------------------------------------------
 ; THE ONE PREDICATE. Everything interactive hangs off it, and it is
@@ -210,14 +184,11 @@
 ; escapes would land in the file.
 ; ------------------------------------------------------------------
 (pub :: replInteractive Int)
-
 ;@axiom:effect(io)
 (pub fn (replInteractive)
   (if (&& (sysIsatty 0) (sysIsatty 1))
     1
-    0
-  )
-)
+    0))
 
 ; The prompt, and the one shown while a form's parens are still open.
 ;
@@ -227,12 +198,12 @@
 ; measures the prompt with `visLen` and never with `strLen`: painted
 ; SGR_SEC, these seven columns are twenty bytes.
 (pub :: replPromptMain String)
-
-(pub fn (replPromptMain) (paint SGR_SEC "axiom> "))
+(pub fn (replPromptMain)
+  (paint SGR_SEC "axiom> "))
 
 (pub :: replPromptCont String)
-
-(pub fn (replPromptCont) (paint SGR_GUT "  ...> "))
+(pub fn (replPromptCont)
+  (paint SGR_GUT "  ...> "))
 
 ; ------------------------------------------------------------------
 ; THE BRANCH. One conditional, one call site, and both sides answer
@@ -269,30 +240,31 @@
 ; cursor seek and the menu all land in one step.
 ; ------------------------------------------------------------------
 (pub :: replReadPrompted (-> Int KeyIn LineEd String String Int Int (Option String)))
-
 ;@axiom:effect(io)
 (pub fn (replReadPrompted interactive kin ed prompt pending hist cenv)
   (if (== interactive 0)
     (replReadLine 0)
     (if (< (termRawEnter kin) 0)
       (replReadLine 0)
-      (let ((r (replTermLoop kin ed prompt pending hist cenv)))
+      (let ((r (replTermLoop
+        kin
+        ed
+        prompt
+        pending
+        hist
+        cenv)))
         {
           (termRawLeave kin)
           r
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; The editor's cursor as a BYTE offset into its snapshot. `ledCursor`
 ; answers code points and `replHlPaint` takes bytes; for ASCII they
 ; agree, and for anything else the snapshot's own first-`k`-points
 ; prefix measures the difference.
 (pub :: replCursorBytes (-> LineEd Int))
-
-(pub fn (replCursorBytes ed) (strLen (ledRangeStr ed 0 (ledCursor ed))))
+(pub fn (replCursorBytes ed)
+  (strLen (ledRangeStr ed 0 (ledCursor ed))))
 
 ; The current editor buffer, painted for display. `full` is what the
 ; lexer sees - the pending entry above plus this line - and `from` is
@@ -300,21 +272,12 @@
 ; brackets match across the whole entry. With no entry open the whole
 ; line is painted from 0.
 (pub :: replPaintCurrent (-> LineEd String String))
-
 (pub fn (replPaintCurrent ed pending)
   (let ((snap (ledSnapshot ed)))
     (if (== (strLen pending) 0)
       (replHlPaint snap (replCursorBytes ed) 0)
       (let ((from (+ (strLen pending) 1)))
-        (replHlPaint
-          (strConcat (strConcat pending "\n") snap)
-          (+ from (replCursorBytes ed))
-          from
-        )
-      )
-    )
-  )
-)
+        (replHlPaint (strConcat (strConcat pending "\n") snap) (+ from (replCursorBytes ed)) from)))))
 
 ; ------------------------------------------------------------------
 ; History inside the keystroke loop.
@@ -335,43 +298,34 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: replIsHistUp (-> KeyEv Bool))
-
 (pub fn (replIsHistUp ev)
   (if (== ev.kind KEY_UP)
     true
     (if (== ev.kind KEY_CTRL)
       (&& (== ev.cp 80) (== ev.mods 0))
-      false
-    )
-  )
-)
+      false)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: replIsHistDown (-> KeyEv Bool))
-
 (pub fn (replIsHistDown ev)
   (if (== ev.kind KEY_DOWN)
     true
     (if (== ev.kind KEY_CTRL)
       (&& (== ev.cp 78) (== ev.mods 0))
-      false
-    )
-  )
-)
+      false)))
 
 ; What a recall puts in the buffer: the browse cursor's entry - or the
 ; saved draft coming back down past the newest - on one row.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHistText (-> Int String))
-
-(pub fn (replHistText hist) (histFlatten (histCurrent hist) " "))
+(pub fn (replHistText hist)
+  (histFlatten (histCurrent hist) " "))
 
 ; Recall one step older. Answers 1 when the buffer moved and was
 ; repainted, 0 at the oldest entry, where the editor does nothing -
 ; the same "did it move" shape `histBrowseUp` itself answers.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHistUp (-> Int LineEd String (Vec String) Int))
-
 (pub fn (replHistUp hist ed pending out)
   (if (== (histBrowseUp hist (ledSnapshot ed)) 0)
     0
@@ -379,14 +333,11 @@
       (ledSetStr ed (replHistText hist))
       (ledRefreshPainted ed out (replPaintCurrent ed pending))
       1
-    }
-  )
-)
+    }))
 
 ; Recall one step newer, back toward the saved draft.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: replHistDown (-> Int LineEd String (Vec String) Int))
-
 (pub fn (replHistDown hist ed pending out)
   (if (== (histBrowseDown hist) 0)
     0
@@ -394,9 +345,7 @@
       (ledSetStr ed (replHistText hist))
       (ledRefreshPainted ed out (replPaintCurrent ed pending))
       1
-    }
-  )
-)
+    }))
 
 ; Whether `raw` is the Ctrl-C abort sentinel: the single byte 3 (ETX).
 ; `ledInsert` refuses every byte below 32, so no TTY buffer can ever
@@ -406,34 +355,28 @@
 ; Without the distinction a blank line inside a multi-line entry could
 ; not be preserved - it is also what the abort key produces.
 (pub :: replIsAbort (-> String Bool))
-
 (pub fn (replIsAbort raw)
   (if (== (strLen raw) 1)
     (== (strByte raw 0) 3)
-    false
-  )
-)
+    false))
 
 ; Tab, and the Ctrl-R search key. Shift-Tab decodes as KEY_NONE today
 ; (`keyFinalKind` names no `Z` final), so completion cycles forward
 ; only; teaching the decoder that final is the way back, not a change
 ; here.
 (pub :: replIsComplTab (-> KeyEv Bool))
-
-(pub fn (replIsComplTab ev) (== ev.kind KEY_TAB))
+(pub fn (replIsComplTab ev)
+  (== ev.kind KEY_TAB))
 
 (pub :: replIsSearch (-> KeyEv Bool))
-
 (pub fn (replIsSearch ev)
   (if (== ev.kind KEY_CTRL)
     (&& (== ev.cp 82) (== ev.mods 0))
-    false
-  )
-)
+    false))
 
 (pub :: replIsEscKey (-> KeyEv Bool))
-
-(pub fn (replIsEscKey ev) (== ev.kind KEY_ESCAPE))
+(pub fn (replIsEscKey ev)
+  (== ev.kind KEY_ESCAPE))
 
 ; The nesting depth of `#| ... |#` block comments left open at the end
 ; of `src`, counted outside strings, character literals and line
@@ -445,7 +388,6 @@
 ; highlighter reconciles against (`replHlDepth`), and neither may move
 ; for the other's reason.
 (pub :: replBlockDepth (-> String Int))
-
 (pub fn (replBlockDepth src)
   (let (
     (n (strLen src))
@@ -468,9 +410,7 @@
                 (set depth (- depth 1))
                 (set i (+ i 2))
               }
-              (set i (+ i 1))
-            )
-          )
+              (set i (+ i 1))))
           (let ((b (strByte src i)))
             (if (== b 34)
               ; A string: skipped whole, honouring `\` escapes. An
@@ -487,10 +427,7 @@
                           (set closed 1)
                           (set i (+ i 1))
                         }
-                        (set i (+ i 1))
-                      )
-                    )
-                  ))
+                        (set i (+ i 1))))))
                 0
               }
               (if (== b 39)
@@ -502,12 +439,10 @@
                   (set i (+ i 1))
                   (if (&& (< i n) (== (strByte src i) 92))
                     (set i (+ i 2))
-                    (set i (+ i 1))
-                  )
+                    (set i (+ i 1)))
                   (if (&& (< i n) (== (strByte src i) 39))
                     (set i (+ i 1))
-                    0
-                  )
+                    0)
                   0
                 }
                 (if (== b 59)
@@ -522,25 +457,17 @@
                       (set depth (+ depth 1))
                       (set i (+ i 2))
                     }
-                    (set i (+ i 1))
-                  )
-                )
-              )
-            )
-          )
-        ))
+                    (set i (+ i 1)))))))))
       depth
-    }
-  )
-)
+    }))
 
 ; True when `src` closes more than it opens. `replParenDepth`'s single
 ; mixed counter goes negative for `( ]` and `())`; dispatching those
 ; drew the generic parse error, which names nothing about the extra
 ; closer. The dispatch sites name it instead, before any parser runs.
 (pub :: replDepthNegative (-> String Bool))
-
-(pub fn (replDepthNegative src) (< (replParenDepth src) 0))
+(pub fn (replDepthNegative src)
+  (< (replParenDepth src) 0))
 
 ; Spaces a continuation line starts with on a TTY: two per open
 ; bracket, capped at four levels, two when the entry waits on a string
@@ -548,7 +475,6 @@
 ; trims every physical line before joining - so the piped surface,
 ; which never calls this, is byte-identical with or without it.
 (pub :: replIndentFor (-> String String))
-
 (pub fn (replIndentFor pending)
   (let ((d (replParenDepth pending)))
     (if (<= d 0)
@@ -561,31 +487,21 @@
             "    "
             (if (== d 3)
               "      "
-              "        "
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              "        ")))))))
 
 ; Move the editor's cursor to byte offset `to` (a `replCursorBytes`
 ; reading). `ledSetStr` parks at the end and completion splices before
 ; it, so the cursor walks back; lines are short and Tab is rare, and
 ; the quadratic string-building is nothing at that rate.
 (pub :: replSeekByte (-> LineEd Int Int))
-
 (pub fn (replSeekByte ed to)
   {
     (ledHome ed)
     (let ((mut moved 1))
       (while (&& (< (replCursorBytes ed) to) (== moved 1))
-        (set moved (ledRight ed))
-      ))
+        (set moved (ledRight ed))))
     (ledCursor ed)
-  }
-)
+  })
 
 ; One Tab inside `replTermLoop`: the menu the last Tab printed erased,
 ; the state machine stepped, its buffer installed with the cursor where
@@ -595,32 +511,33 @@
 ; `cancel` 1 is Escape: the answer's menu already carries its erase,
 ; so the old one is not erased twice.
 (pub :: replComplKey (-> Int LineEd Int Int Int (Vec String) Int Int))
-
 ;@axiom:effect(io)
 (pub fn (replComplKey cst ed hist cenv width out cancel)
   {
     (if (&& (== cancel 0) (!= cst 0))
       (vecPush out (replComplErase (stRows cst)))
-      (cast (Vec String) 0)
-    )
+      (cast (Vec String) 0))
     (let (
       (buf (ledSnapshot ed))
       (cur (replCursorBytes ed))
     )
-      (let ((r (if (== cancel 0)
-        (replComplTab cst buf cur 1 width cenv)
-        (replComplCancel cst buf cur)
-      )))
+      (let ((r 
+        (if (== cancel 0)
+          (replComplTab
+            cst
+            buf
+            cur
+            1
+            width
+            cenv)
+          (replComplCancel cst buf cur))))
         {
           (ledSetStr ed (tabBuf r))
           (replSeekByte ed (tabCur r))
           (histBrowseReset hist)
           r
-        }
-      )
-    )
-  }
-)
+        }))
+  })
 
 ; Whether a colon line opens a multi-line entry: one of the four
 ; expression commands with an argument that does not yet balance.
@@ -628,16 +545,12 @@
 ; argument, which is a usage error, and `:load`, whose argument is a
 ; filename and never a form.
 (pub :: replColonBuffers (-> String String Bool))
-
 (pub fn (replColonBuffers w rest)
   (if (== (strLen rest) 0)
     false
     (if (|| (strEq w ":type") (|| (strEq w ":t") (|| (strEq w ":llvm") (strEq w ":time"))))
       (replEntryIncomplete rest)
-      false
-    )
-  )
-)
+      false)))
 
 ; `termEditLoop`'s twin, with live highlighting, history, completion
 ; and reverse search. Every step - the initial draw, the
@@ -659,17 +572,16 @@
 ; cosmetic - `replMain` trims before joining - so it aligns the form
 ; without ever entering it.
 (pub :: replTermLoop (-> KeyIn LineEd String String Int Int (Option String)))
-
 ;@axiom:effect(io)
 (pub fn (replTermLoop kin ed prompt pending hist cenv)
+  ; Tab completion state, 0 when idle (`tabState`).
+  ; Ctrl-R search state: the needle kept across repeats, where the
+  ; next repeat continues from, and whether a search is open.
   (let (
     (out vecNew)
     (mut state 0)
     (mut got "")
-    ; Tab completion state, 0 when idle (`tabState`).
     (mut cst 0)
-    ; Ctrl-R search state: the needle kept across repeats, where the
-    ; next repeat continues from, and whether a search is open.
     (mut sNeedle "")
     (mut sAt 0)
     (mut sActive 0)
@@ -679,8 +591,7 @@
       (ledReset ed prompt (termWsCols kin) (termWsRows kin))
       (if (> (strLen pending) 0)
         (ledInsertStr ed (replIndentFor pending))
-        0
-      )
+        0)
       (ledRefreshPainted ed out (replPaintCurrent ed pending))
       (termFlush out)
       (while (== state 0)
@@ -701,8 +612,7 @@
                       (set cst 0)
                       0
                     }
-                    0
-                  )
+                    0)
                   (set sActive 0)
                   (replHistUp hist ed pending out)
                   (termFlush out)
@@ -716,8 +626,7 @@
                         (set cst 0)
                         0
                       }
-                      0
-                    )
+                      0)
                     (set sActive 0)
                     (replHistDown hist ed pending out)
                     (termFlush out)
@@ -727,7 +636,14 @@
                     {
                       (set sActive 0)
                       (termReadSize kin)
-                      (let ((r (replComplKey cst ed hist cenv (termWsCols kin) out 0)))
+                      (let ((r (replComplKey
+                        cst
+                        ed
+                        hist
+                        cenv
+                        (termWsCols kin)
+                        out
+                        0)))
                         {
                           (ledResize ed (termWsCols kin) (termWsRows kin))
                           (ledRefreshPainted ed out (replPaintCurrent ed pending))
@@ -735,8 +651,7 @@
                           (termFlush out)
                           (set cst (tabState r))
                           0
-                        }
-                      )
+                        })
                     }
                     (if (replIsSearch ev)
                       ; Reverse search, readline's lite form: the buffer
@@ -753,8 +668,7 @@
                             (set cst 0)
                             0
                           }
-                          0
-                        )
+                          0)
                         (if (== sActive 0)
                           {
                             (set sNeedle (ledSnapshot ed))
@@ -762,8 +676,7 @@
                             (set sActive 1)
                             0
                           }
-                          0
-                        )
+                          0)
                         (let ((ix (histFindBack hist sNeedle sAt)))
                           (if (< ix 0)
                             0
@@ -771,9 +684,7 @@
                               (ledSetStr ed (histFlatten (histAt hist ix) " "))
                               (set sAt (- ix 1))
                               0
-                            }
-                          )
-                        )
+                            }))
                         (histBrowseReset hist)
                         (termReadSize kin)
                         (ledResize ed (termWsCols kin) (termWsRows kin))
@@ -785,7 +696,14 @@
                         {
                           (set sActive 0)
                           (termReadSize kin)
-                          (let ((r (replComplKey cst ed hist cenv (termWsCols kin) out 1)))
+                          (let ((r (replComplKey
+                            cst
+                            ed
+                            hist
+                            cenv
+                            (termWsCols kin)
+                            out
+                            1)))
                             {
                               (ledResize ed (termWsCols kin) (termWsRows kin))
                               (ledRefreshPainted ed out (replPaintCurrent ed pending))
@@ -793,8 +711,7 @@
                               (termFlush out)
                               (set cst (tabState r))
                               0
-                            }
-                          )
+                            })
                         }
                         {
                           (if (!= cst 0)
@@ -803,8 +720,7 @@
                               (set cst 0)
                               0
                             }
-                            0
-                          )
+                            0)
                           (set sActive 0)
                           (let ((before (ledSnapshot ed)))
                             (let ((d (ledApply ed ev out)))
@@ -847,8 +763,7 @@
                                       ; keeps it. See the history section above.
                                       (if (strEq before (ledSnapshot ed))
                                         0
-                                        (histBrowseReset hist)
-                                      )
+                                        (histBrowseReset hist))
                                       (if (> (keyInPending kin) 0)
                                         0
                                         {
@@ -856,49 +771,28 @@
                                           (ledResize ed (termWsCols kin) (termWsRows kin))
                                           (ledRefreshPainted ed out (replPaintCurrent ed pending))
                                           0
-                                        }
-                                      )
+                                        })
                                       (termFlush out)
                                       0
-                                    }
-                                  )
-                                )
-                              )
-                            )
-                          )
-                        }
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        ))
+                                    })))))
+                        })))))))))
       (if (== state 1)
         (Some got)
-        None
-      )
-    }
-  )
-)
+        None)
+    }))
 
 ; A one-byte Str. strAlloc zeroes, so the NUL is already in place.
 (pub :: byteAsStr (-> Int String))
-
 (pub fn (byteAsStr b)
   (let ((s (strAlloc 1)))
     {
       (memPutByte (strData s) 0 b)
       s
-    }
-  )
-)
+    }))
 
 ; ASCII whitespace trim, both ends - stage0 trims every line before
 ; classifying it.
 (pub :: replTrim (-> String String))
-
 (pub fn (replTrim s)
   (let (
     (mut a 0)
@@ -910,17 +804,14 @@
       (while (&& (> b a) (replIsWs (strByte s (- b 1))))
         (set b (- b 1)))
       (strSlice s a (- b a))
-    }
-  )
-)
+    }))
 
 (pub :: replIsWs (-> Int Bool))
-
-(pub fn (replIsWs c) (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13)))))
+(pub fn (replIsWs c)
+  (|| (== c 32) (|| (== c 9) (|| (== c 10) (== c 13)))))
 
 ; First `:word` of a command line, and the rest after it (trimmed).
 (pub :: cmdWordEnd (-> String Int))
-
 (pub fn (cmdWordEnd line)
   (let (
     (n (strLen line))
@@ -928,24 +819,21 @@
   )
     {
       (while (&&
-        (< i n)        (if (replIsWs (strByte line i))
+        (< i n)
+        (if (replIsWs (strByte line i))
           false
-          true
-        )
-      )
+          true))
         (set i (+ i 1)))
       i
-    }
-  )
-)
+    }))
 
 (pub :: cmdWord (-> String String))
-
-(pub fn (cmdWord line) (strSlice line 0 (cmdWordEnd line)))
+(pub fn (cmdWord line)
+  (strSlice line 0 (cmdWordEnd line)))
 
 (pub :: cmdRest (-> String String))
-
-(pub fn (cmdRest line) (replTrim (strSlice line (cmdWordEnd line) (- (strLen line) (cmdWordEnd line)))))
+(pub fn (cmdRest line)
+  (replTrim (strSlice line (cmdWordEnd line) (- (strLen line) (cmdWordEnd line)))))
 
 ; ------------------------------------------------------------------
 ; Declaration-or-expression, decided the way stage0's
@@ -1004,94 +892,67 @@
 ; for a top-level form however many parens it carries. That is why
 ; this is safe to put in `declsSrc` at all.
 ; ------------------------------------------------------------------
-
 ; Does a `;@axiom:` tag begin at `p`?
 (pub :: replIsAxtagAt (-> String Int Int))
-
 (pub fn (replIsAxtagAt src p)
   (if (> (+ p 8) (strLen src))
     0
     (if (strEq (strSlice src p 8) ";@axiom:")
       1
-      0
-    )
-  )
-)
+      0)))
 
 (pub :: replIsAxtagLine (-> String Int))
-
-(pub fn (replIsAxtagLine line) (replIsAxtagAt line 0))
+(pub fn (replIsAxtagLine line)
+  (replIsAxtagAt line 0))
 
 ; The offset of the first byte of the line containing `i`.
 (pub :: replLineStartAt (-> String Int Int))
-
 (pub fn (replLineStartAt src i)
   (if (<= i 0)
     0
     (if (== (strByte src (- i 1)) 10)
       i
-      (replLineStartAt src (- i 1))
-    )
-  )
-)
+      (replLineStartAt src (- i 1)))))
 
 ; The start of the line immediately above the one beginning at `s`, or
 ; -1 when `s` does not begin a line or there is nothing above it.
 (pub :: replPrevLineStart (-> String Int Int))
-
 (pub fn (replPrevLineStart src s)
   (if (<= s 1)
     (- 0 1)
     (if (== (strByte src (- s 1)) 10)
       (replLineStartAt src (- s 2))
-      (- 0 1)
-    )
-  )
-)
+      (- 0 1))))
 
 ; `s`, moved back over the run of `;@axiom:` lines immediately above
 ; it. A tag belongs to the declaration below it, so this is the start
 ; of everything that declaration owns.
 (pub :: replTagRunStart (-> String Int Int))
-
 (pub fn (replTagRunStart src s)
   (let ((p (replPrevLineStart src s)))
     (if (< p 0)
       s
       (if (== (replIsAxtagAt src p) 1)
         (replTagRunStart src p)
-        s
-      )
-    )
-  )
-)
+        s))))
 
 ; `src` without its trailing run of `;@axiom:` lines - the tags that
 ; have no declaration under them yet.
 (pub :: replStripTrailingTags (-> String String))
-
 (pub fn (replStripTrailingTags src)
   (let ((k (replTagRunStart src (strLen src))))
     (if (>= k (strLen src))
       src
-      (strSlice src 0 k)
-    )
-  )
-)
+      (strSlice src 0 k))))
 
 (pub :: isDeclLine (-> String Bool))
-
 (pub fn (isDeclLine line)
   (if (< (strLen line) 2)
     false
     (if (!= (strByte line 0) 40)
       false
       (let ((w (declHeadWord line)))
-        (|| (strEq w "fn") (|| (strEq w "define") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl"))))))))))))
-      )
-    )
-  )
-)
+        (|| (strEq w "fn") (|| (strEq w "define") (|| (strEq w "::") (|| (strEq w "pub") (|| (strEq w "data") (|| (strEq w "struct") (|| (strEq w "import") (|| (strEq w "macro") (|| (strEq w "effect") (|| (strEq w "type") (|| (strEq w "trait") (strEq w "impl"))))))))))))))))
 
 ; `impl` was missing while `trait` and `type` were
 ; here, so a trait implementation typed at the prompt
@@ -1102,7 +963,6 @@
 ; implementation had never been recorded.
 ; The identifier (or `::`) immediately after the opening paren.
 (pub :: declHeadWord (-> String String))
-
 (pub fn (declHeadWord line)
   (let (
     (n (strLen line))
@@ -1114,26 +974,19 @@
       (let ((start i))
         {
           (while (&&
-            (< i n)            (let ((c (strByte line i)))
+            (< i n)
+            (let ((c (strByte line i)))
               (if (== c 40)
                 false
                 (if (== c 41)
                   false
                   (if (replIsWs c)
                     false
-                    true
-                  )
-                )
-              )
-            )
-          )
+                    true)))))
             (set i (+ i 1)))
           (strSlice line start (- i start))
-        }
-      )
-    }
-  )
-)
+        })
+    }))
 
 ; ------------------------------------------------------------------
 ; Typing an expression against the accumulated declarations -
@@ -1177,7 +1030,6 @@
 ; caller stops).
 ; ------------------------------------------------------------------
 (pub :: typeExprAgainst (-> String String Int))
-
 ;@axiom:effect(io)
 (pub fn (typeExprAgainst declsSrc exprLine)
   (let ((toks (lex exprLine)))
@@ -1238,13 +1090,13 @@
                 (units (let ((v vecNew))
                   {
                     (vecPush
-                      v                      (cast Int (CUnit2
-                        "<repl>"                        declsSrc                        (cast String 0)
-                      ))
-                    )
+                      v
+                      (cast Int (CUnit2
+                        "<repl>"
+                        declsSrc
+                        (cast String 0))))
                     v
-                  }
-                ))
+                  }))
               )
                 (let ((probe (mkDFnAt "__repl_type_probe" vecNew (memGetWord er 1) 0)))
                   (let ((_pp (vecPush decls probe)))
@@ -1254,12 +1106,24 @@
                       (tmods vecNew)
                     )
                       (let ((allDecls (resolveImports
-                        decls                        tbares                        tfulls                        tmods                        (checkedTargetCode hostTarget)                        "."                        units
-                      )))
+                        decls
+                        tbares
+                        tfulls
+                        tmods
+                        (checkedTargetCode hostTarget)
+                        "."
+                        units)))
                         (let ((exDiags vecNew))
-                          (let ((_ex (expandProgram
-                            decls                            allDecls                            exDiags                            vecNew                            (cast (Vec Int) 0)                            tbares                            tfulls                            tmods
-                          )))
+                          (let ((_ex 
+                            (expandProgram
+                              decls
+                              allDecls
+                              exDiags
+                              vecNew
+                              (cast (Vec Int) 0)
+                              tbares
+                              tfulls
+                              tmods)))
                             (if (> (countErrorDiags exDiags) 0)
                               {
                                 (printTypeErrors exDiags 0)
@@ -1269,39 +1133,18 @@
                               ; probe's own pass over the expression is not
                               ; counted twice - only what `checkExpr` adds is
                               ; printed.
-                                (let ((tc (checkModuleTc allDecls allDecls units)))
-                                  (let ((before (vecLen (tcOutVec tc))))
-                                    (let ((ty (checkExpr tc (nodeC probe))))
-                                      (let ((after (tcOutVec tc)))
-                                        (if (> (vecLen after) before)
-                                          {
-                                            (printTypeErrors after before)
-                                            (pErr 0)
-                                          }
-                                          (pOk (tyRender ty) 0)
-                                        )
-                                      )
-                                    )
-                                  )
-                                )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                              (let ((tc (checkModuleTc allDecls allDecls units)))
+                                (let ((before (vecLen (tcOutVec tc))))
+                                  (let ((ty (checkExpr tc (nodeC probe))))
+                                    (let ((after (tcOutVec tc)))
+                                      (if (> (vecLen after) before)
+                                        {
+                                          (printTypeErrors after before)
+                                          (pErr 0)
+                                        }
+                                        (pOk (tyRender ty) 0)))))))))))))))))))))
 
 (pub :: printTypeErrors (-> (Vec Int) Int Int))
-
 ;@axiom:effect(io)
 (pub fn (printTypeErrors ds from)
   (let ((mut i from))
@@ -1312,9 +1155,7 @@
           (set i (+ i 1))
         })
       0
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The wrapper module - stage0's generate_repl_wrapper in intent: how
@@ -1345,7 +1186,6 @@
 ; of the tag line is the whole of the diff.
 ; ------------------------------------------------------------------
 (pub :: replWrapper (-> String String String Int String))
-
 (pub fn (replWrapper declsSrc exprLine tyStr needsIo)
   (let (
     (printExpr (if (strEq tyStr "Bool")
@@ -1354,21 +1194,15 @@
         "(println (__repl_result 0))"
         (if (strEq tyStr "Char")
           "(let ((s (strAlloc 1)))\n  {\n    (memPutByte (strData s) 0 (cast Int (__repl_result 0)))\n    (println s)\n  })"
-          "(println (__repl_result 0))"
-        )
-      )
-    ))
+          "(println (__repl_result 0))"))))
     (carrier (if (strEq tyStr "Char")
       "Char"
       (if (|| (strEq tyStr "String") (strEq tyStr "Str"))
         "String"
-        "Int"
-      )
-    ))
+        "Int")))
     (body (if (strEq tyStr "Bool")
       (strConcat (strConcat "(if " exprLine) " 1 0)")
-      exprLine
-    ))
+      exprLine))
   )
     (catStrs
       (let ((v vecNew))
@@ -1385,18 +1219,18 @@
           (vecPush v "\n(:: __repl_result (-> Int ")
           (vecPush v carrier)
           (vecPush v "))\n")
-          (vecPush v (if (== needsIo 1) ";@axiom:effect(io)\n" ""))
+          (vecPush
+            v
+            (if (== needsIo 1)
+              ";@axiom:effect(io)\n"
+              ""))
           (vecPush v "(fn (__repl_result _dummy) ")
           (vecPush v body)
           (vecPush v ")\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { ")
           (vecPush v printExpr)
           (vecPush v " 0 })")
           v
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; ------------------------------------------------------------------
 ; Compile a complete wrapper module to IR through this compiler's
@@ -1416,7 +1250,6 @@
 ; every other caller (`:llvm`, and `replCompileExpr`'s own retry) goes
 ; through it unchanged.
 (pub :: replTryCompile (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (replTryCompile wrapper)
   (let ((pr (parseModuleWith (lex wrapper) (scanAxtags wrapper))))
@@ -1432,7 +1265,12 @@
       ; the compile step began. `PResult` built directly puts the
       ; vector where `pOk` already puts ITS payload (`value`, word 1),
       ; which is what every reader here expects.
-      (cast Int (PResult 0 vecNew 0 "" ""))
+      (cast Int (PResult
+        0
+        vecNew
+        0
+        ""
+        ""))
       ; The REPL compiles and RUNS, so it needs the same expansion
       ; the file path gets. When expansion lived in codegen this
       ; came for free; now it does not, and without this line a
@@ -1451,42 +1289,47 @@
         (units (let ((v vecNew))
           {
             (vecPush
-              v              (cast Int (CUnit2
-                "<repl>"                wrapper                (cast String 0)
-              ))
-            )
+              v
+              (cast Int (CUnit2
+                "<repl>"
+                wrapper
+                (cast String 0))))
             v
-          }
-        ))
+          }))
       )
         (let ((allDecls (resolveImports
-          decls          bares          fulls          mods          tcode          "."          units
-        )))
-          (let ((eds
+          decls
+          bares
+          fulls
+          mods
+          tcode
+          "."
+          units)))
+          (let ((eds 
             (let ((v vecNew))
               {
                 (expandProgram
-                  decls                  allDecls                  v                  vecNew                  (cast (Vec Int) 0)                  bares                  fulls                  mods
-                )
+                  decls
+                  allDecls
+                  v
+                  vecNew
+                  (cast (Vec Int) 0)
+                  bares
+                  fulls
+                  mods)
                 v
-              }
-            )
-          ))
+              })))
             (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
               (if (> (countErrorDiags ds) 0)
-                (cast Int (PResult 0 ds 0 "" ""))
-                (pOk (emitResolved allDecls bares fulls tcode) 0)
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                (cast Int (PResult
+                  0
+                  ds
+                  0
+                  ""
+                  ""))
+                (pOk (emitResolved allDecls bares fulls tcode) 0)))))))))
 
 (pub :: replCompile (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (replCompile wrapper)
   (let ((tr (replTryCompile wrapper)))
@@ -1496,14 +1339,9 @@
         {
           (if (== (vecLen ds) 0)
             (replOut "Error: parsing failed\n")
-            (replOut (strConcat "Error: " (joinDiagMsgs ds)))
-          )
+            (replOut (strConcat "Error: " (joinDiagMsgs ds))))
           (pErr 0)
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; Is `ds` EXACTLY the one AX3042 `replWrapper`'s missing IO tag draws
 ; on `__repl_result`? Checked by code AND by name, not by code alone:
@@ -1513,7 +1351,6 @@
 ; typed) must be reported, not silently retried into a second,
 ; unrelated failure.
 (pub :: replIoRetryNeeded (-> (Vec Int) Bool))
-
 (pub fn (replIoRetryNeeded ds)
   (if (!= (vecLen ds) 1)
     false
@@ -1521,13 +1358,8 @@
       (if (strEq (diagCode d) "AX3042")
         (match (strFind (diagMsg d) "__repl_result" 0)
           ((None) false)
-          ((Some _) true)
-        )
-        false
-      )
-    )
-  )
-)
+          ((Some _) true))
+        false))))
 
 ; One expression, wrapped and compiled - the retry that closes
 ; AX3042 lives here once, so `replExpr` and `:llvm` (`replCmdLlvm`)
@@ -1539,7 +1371,6 @@
 ; typecheck, not a second link. Only an IO-performing expression pays
 ; for both.
 (pub :: replCompileExpr (-> String String String Int))
-
 ;@axiom:effect(io)
 (pub fn (replCompileExpr declsSrc exprLine tyStr)
   (let ((tr (replTryCompile (replWrapper declsSrc exprLine tyStr 0))))
@@ -1551,18 +1382,11 @@
           {
             (if (== (vecLen ds) 0)
               (replOut "Error: parsing failed\n")
-              (replOut (strConcat "Error: " (joinDiagMsgs ds)))
-            )
+              (replOut (strConcat "Error: " (joinDiagMsgs ds))))
             (pErr 0)
-          }
-        )
-      )
-    )
-  )
-)
+          })))))
 
 (pub :: joinDiagMsgs (-> (Vec Int) String))
-
 (pub fn (joinDiagMsgs ds)
   (let (
     (parts vecNew)
@@ -1573,16 +1397,13 @@
         {
           (if (> i 0)
             (vecPush parts "; ")
-            (cast (Vec String) 0)
-          )
+            (cast (Vec String) 0))
           (vecPush parts (diagMsg (vecGet ds i)))
           (set i (+ i 1))
         })
       (vecPush parts "\n")
       (catStrs parts)
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Where the session's scratch files go: `$TMPDIR` when the environment
@@ -1607,16 +1428,16 @@
 ; trailing slash included - `pathJoin` collapses it.
 ; ------------------------------------------------------------------
 (:: replTmpRoot String)
-
 ;@axiom:effect(io)
 (fn (replTmpRoot)
   (let ((t (sysEnv "TMPDIR")))
-    (if (&& (pathIsAbsolute t) (match (strFindByte t 39 0) ((None) true) ((Some _) false)))
+    (if (&&
+      (pathIsAbsolute t)
+      (match (strFindByte t 39 0)
+        ((None) true)
+        ((Some _) false)))
       t
-      "/tmp"
-    )
-  )
-)
+      "/tmp")))
 
 ; ------------------------------------------------------------------
 ; Assemble, link, run, capture. The four scratch files live INSIDE a
@@ -1675,7 +1496,6 @@
 ; self-hosting record, phase-5 notes).
 ; ------------------------------------------------------------------
 (pub :: replEval (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (replEval ir)
   (let ((pid sysGetPid))
@@ -1695,48 +1515,44 @@
                   (replOut "Error: could not write the generated IR\n")
                   (let ((lrc 
                     (runTool
-                      "llc"                      (let ((v vecNew))
+                      "llc"
+                      (let ((v vecNew))
                         {
                           (vecPush
-                            v                            (cast Int ll)
-                          )
+                            v
+                            (cast Int ll))
                           (vecPush
-                            v                            (cast Int "-relocation-model=pic")
-                          )
+                            v
+                            (cast Int "-relocation-model=pic"))
                           (vecPush
-                            v                            (cast Int "-filetype=obj")
-                          )
+                            v
+                            (cast Int "-filetype=obj"))
                           (vecPush
-                            v                            (cast Int "-o")
-                          )
+                            v
+                            (cast Int "-o"))
                           (vecPush
-                            v                            (cast Int obj)
-                          )
+                            v
+                            (cast Int obj))
                           v
-                        }
-                      )
-                    )
-                  ))
+                        }))))
                     (if (!= lrc 0)
                       (replOut "Error: llc rejected the generated code\n")
                       (let ((crc 
                         (runTool
-                          "cc"                          (let ((v vecNew))
+                          "cc"
+                          (let ((v vecNew))
                             {
                               (vecPush
-                                v                                (cast Int obj)
-                              )
+                                v
+                                (cast Int obj))
                               (vecPush
-                                v                                (cast Int "-o")
-                              )
+                                v
+                                (cast Int "-o"))
                               (vecPush
-                                v                                (cast Int exe)
-                              )
+                                v
+                                (cast Int exe))
                               v
-                            }
-                          )
-                        )
-                      ))
+                            }))))
                         (if (!= crc 0)
                           (replOut "Error: linking failed\n")
                           (let ((cmd 
@@ -1749,10 +1565,7 @@
                                   (vecPush v outf)
                                   (vecPush v "'")
                                   v
-                                }
-                              )
-                            )
-                          ))
+                                }))))
                             (let ((rc (runTool "/bin/sh" (argsOf3 "-c" cmd ""))))
                               (let ((printed (replTrim (sysReadFile (strData outf)))))
                                 (if (> (strLen printed) 0)
@@ -1763,17 +1576,7 @@
                                     ; exit status is any byte, and
                                     ; `fmtIntStr` reported every one
                                     ; of them above 3 as `1`.
-                                    (replOut (strConcat (strConcat "result " (decStr rc)) "\n"))
-                                  )
-                                )
-                              )
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
+                                    (replOut (strConcat (strConcat "result " (decStr rc)) "\n"))))))))))))
                 (unwrapOr (sysUnlink (strCStr ll)) 0)
                 (unwrapOr (sysUnlink (strCStr obj)) 0)
                 (unwrapOr (sysUnlink (strCStr exe)) 0)
@@ -1784,18 +1587,10 @@
                 ; unlinks above are what earn the removal.
                 (unwrapOr (sysRmdir (strCStr dir)) 0)
                 0
-              }
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              })))))))
 
 ; One expression, end to end: type, announce, wrap, compile, run.
 (pub :: replExpr (-> String String Int))
-
 ;@axiom:effect(io)
 (pub fn (replExpr declsSrc line)
   (let ((tr (typeExprAgainst declsSrc line)))
@@ -1807,14 +1602,8 @@
           (let ((cr (replCompileExpr declsSrc line tyStr)))
             (if (== (memGetWord cr 0) 0)
               0
-              (replEval (memGetWordStr cr 1))
-            )
-          )
-        }
-      )
-    )
-  )
-)
+              (replEval (memGetWordStr cr 1))))
+        }))))
 
 ; If `src` ends in a newline right at `pos`, the position past it;
 ; `pos` itself otherwise. `replDecl` always appends `line "\n"`, so a
@@ -1823,13 +1612,10 @@
 ; without this, three redefinitions of `f` left two blank lines where
 ; the first two used to be, growing without bound over a long session.
 (pub :: replSkipNl (-> String Int Int))
-
 (pub fn (replSkipNl src pos)
   (if (&& (< pos (strLen src)) (== (strByte src pos) 10))
     (+ pos 1)
-    pos
-  )
-)
+    pos))
 
 ; The byte span of every top-level `(...)` form in `src`, in source
 ; order, found by counting parens over the TOKEN stream rather than by
@@ -1843,16 +1629,25 @@
 ; 1)` behind, which does not parse; measured, `Error: the accumulated
 ; declarations no longer parse` on the very next line typed.
 (pub :: replTopLevelSpans (-> String (Vec Int)))
-
 (pub fn (replTopLevelSpans src)
-  (let ((toks (lex src)) (out vecNew))
-    (let ((n (vecLen toks)) (mut i 0))
+  (let (
+    (toks (lex src))
+    (out vecNew)
+  )
+    (let (
+      (n (vecLen toks))
+      (mut i 0)
+    )
       {
         (while (< i n)
           (let ((k (kindInt (tokenKind (vecGet toks i)))))
             (if (== k (kindInt TK_LPAREN))
               (let ((start (spanStart (tokenSpan (vecGet toks i)))))
-                (let ((mut depth 1) (mut j (+ i 1)) (mut endTok i))
+                (let (
+                  (mut depth 1)
+                  (mut j (+ i 1))
+                  (mut endTok i)
+                )
                   {
                     (while (&& (> depth 0) (< j n))
                       {
@@ -1864,10 +1659,7 @@
                                 (set depth (- depth 1))
                                 (set endTok j)
                               }
-                              0
-                            )
-                          )
-                        )
+                              0)))
                         (set j (+ j 1))
                       })
                     (vecPush out (mkSpan start (spanEnd (tokenSpan (vecGet toks endTok)))))
@@ -1876,17 +1668,10 @@
                     ; on that same iteration) - `i` continues FROM
                     ; there, not past it a second time.
                     (set i j)
-                  }
-                )
-              )
-              (set i (+ i 1))
-            )
-          ))
+                  }))
+              (set i (+ i 1)))))
         out
-      }
-    )
-  )
-)
+      })))
 
 ; `src` with the top-level declaration named `name` of tag `tag`
 ; removed, or `src` unchanged if none matches (including: `src` does
@@ -1900,7 +1685,6 @@
 ; that does not open with `(`), so parsing and paren-counting see the
 ; same forms in the same order and agree on the count.
 (pub :: replDropMatching (-> String Int String String))
-
 (pub fn (replDropMatching src tag name)
   (let ((dr (parseDecls (lex src) 0 vecNew)))
     (if (== (memGetWord dr 0) 0)
@@ -1917,32 +1701,27 @@
             {
               (let ((d (vecGet decls i)))
                 (if (&& (== (nodeTag d) tag) (strEq (nodeAName d) name))
+                  ; The declaration's own span, extended back over the
+                  ; `;@axiom:` lines above it: a redefinition
+                  ; withdraws the claims written about the definition
+                  ; it replaces, exactly as rewriting the function in
+                  ; a file would. Without this the old function's
+                  ; `restrict(no-io)` was left above whatever
+                  ; declaration came next in `declsSrc`.
                   (let ((sp (vecGet spans i)))
-                    ; The declaration's own span, extended back over the
-                    ; `;@axiom:` lines above it: a redefinition
-                    ; withdraws the claims written about the definition
-                    ; it replaces, exactly as rewriting the function in
-                    ; a file would. Without this the old function's
-                    ; `restrict(no-io)` was left above whatever
-                    ; declaration came next in `declsSrc`.
-                    (let ((s (replTagRunStart src (spanStart sp))) (e (spanEnd sp)))
+                    (let (
+                      (s (replTagRunStart src (spanStart sp)))
+                      (e (spanEnd sp))
+                    )
                       {
                         (set out (strConcat out (strSlice src cursor (- s cursor))))
                         (set cursor (replSkipNl src e))
-                      }
-                    )
-                  )
-                  0
-                )
-              )
+                      }))
+                  0))
               (set i (+ i 1))
             })
           (strConcat out (strSlice src cursor (- (strLen src) cursor)))
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; `declsSrc` with every earlier top-level decl that `newDecls` is
 ; about to shadow removed first - one call per parsed decl, in the
@@ -1959,9 +1738,11 @@
 ; `trait` or `impl` re-declaration still accumulates as it always
 ; did; recorded, not fixed here.
 (pub :: replDeclsSrcDropping (-> String (Vec Int) String))
-
 (pub fn (replDeclsSrcDropping declsSrc newDecls)
-  (let ((mut out declsSrc) (mut j 0))
+  (let (
+    (mut out declsSrc)
+    (mut j 0)
+  )
     {
       (while (< j (vecLen newDecls))
         {
@@ -1972,16 +1753,11 @@
                   (set out (replDropMatching out tag (nodeAName nd)))
                   0
                 }
-                0
-              )
-            )
-          )
+                0)))
           (set j (+ j 1))
         })
       out
-    }
-  )
-)
+    }))
 
 ; A declaration line: appended to the source store unconditionally
 ; once it PARSES (stage0 gates on parse alone - a decl with a type
@@ -2003,7 +1779,6 @@
 ; accumulates - exactly what typing the same name twice in one file
 ; would mean if the second definition simply overwrote the first.
 (pub :: replDecl (-> String String String))
-
 ;@axiom:effect(io)
 (pub fn (replDecl declsSrc line)
   (let ((dr (parseDecls (lex line) 0 vecNew)))
@@ -2022,18 +1797,9 @@
                   (replOut (strConcat (strConcat "OK: " (nodeAName d)) " defined\n"))
                   (if (|| (== tag TAG_D_DATA) (== tag TAG_D_STRUCT))
                     (replOut (strConcat (strConcat "OK: data " (nodeAName d)) " defined\n"))
-                    (replOut "OK\n")
-                  )
-                )
-              )
-            )
-          )
+                    (replOut "OK\n"))))))
           (strConcat (strConcat (replDeclsSrcDropping declsSrc decls) line) "\n")
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; ------------------------------------------------------------------
 ; Colon commands - stage0's surface exactly, minus what is recorded
@@ -2044,7 +1810,6 @@
 ; bug.
 ; ------------------------------------------------------------------
 (pub :: replHelp Int)
-
 ;@axiom:effect(io)
 (pub fn (replHelp)
   {
@@ -2079,27 +1844,22 @@
         (replOut "  • Syntax highlighting follows the cursor, brackets included; an unclosed string keeps reading like an open paren\n")
         (replOut "  • An unclosed form keeps reading, indented; Ctrl+C or two blank lines abort it\n")
         0
-      }
-    )
+      })
     (replOut "\n")
     0
-  }
-)
+  })
 
 (pub :: replBanner Int)
-
 ;@axiom:effect(io)
 (pub fn (replBanner)
   {
     (replOut (cat3 "Axiom " axiomVersion " - REPL\n"))
     (replOut "Type :help for commands, :quit to exit\n\n")
     0
-  }
-)
+  })
 
 ; :type - the argument as typed, colon, its type. Does not evaluate.
 (pub :: replCmdType (-> String String Int))
-
 ;@axiom:effect(io)
 (pub fn (replCmdType declsSrc arg)
   (if (== (strLen arg) 0)
@@ -2120,21 +1880,13 @@
                   (vecPush v (memGetWordStr tr 1))
                   (vecPush v "\n")
                   v
-                }
-              )
-            )
-          )
+                })))
           0
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; :load - the whole file must parse; type errors refuse the load;
 ; warnings load and are said out loud (stage0's rule).
 (pub :: replCmdLoad (-> String String String))
-
 ;@axiom:effect(io)
 (pub fn (replCmdLoad declsSrc arg)
   (if (== (strLen arg) 0)
@@ -2182,27 +1934,36 @@
               (units (let ((v vecNew))
                 {
                   (vecPush
-                    v                    (cast Int (CUnit2
-                      arg                      src                      (cast String 0)
-                    ))
-                  )
+                    v
+                    (cast Int (CUnit2
+                      arg
+                      src
+                      (cast String 0))))
                   v
-                }
-              ))
+                }))
             )
               (let ((allDecls (resolveImports
-                decls                bares                fulls                mods                tcode                (pathDir arg)                units
-              )))
+                decls
+                bares
+                fulls
+                mods
+                tcode
+                (pathDir arg)
+                units)))
                 (let ((eds 
                   (let ((v vecNew))
                     {
                       (expandProgram
-                        decls                        allDecls                        v                        vecNew                        (cast (Vec Int) 0)                        bares                        fulls                        mods
-                      )
+                        decls
+                        allDecls
+                        v
+                        vecNew
+                        (cast (Vec Int) 0)
+                        bares
+                        fulls
+                        mods)
                       v
-                    }
-                  )
-                ))
+                    })))
                   (let ((ds (orderDiags (expMergeInto eds (checkModule decls allDecls units)))))
                     (if (> (countErrorDiags ds) 0)
                       {
@@ -2212,25 +1973,12 @@
                       {
                         (if (> (vecLen ds) 0)
                           (printTypeErrors ds 0)
-                          0
-                        )
+                          0)
                         (replOut (strConcat (strConcat "OK: Loaded '" arg) "'\n"))
                         (strConcat (strConcat declsSrc src) "\n")
-                      }
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                      })))))))))))
 
 (pub :: replCmdLlvm (-> String String Int))
-
 ;@axiom:effect(io)
 (pub fn (replCmdLlvm declsSrc arg)
   (if (== (strLen arg) 0)
@@ -2248,13 +1996,7 @@
               (replOut "Generated LLVM IR:\n")
               (replOut (memGetWordStr cr 1))
               0
-            }
-          )
-        )
-      )
-    )
-  )
-)
+            }))))))
 
 ; ------------------------------------------------------------------
 ; Multi-line input, closed 2026-08-31. Every entry used to be exactly
@@ -2314,7 +2056,6 @@
 ;   A bad escape is TK_ERROR_ESC, not TK_ERROR, and likewise never
 ;   waits.
 (pub :: replParenDepth (-> String Int))
-
 (pub fn (replParenDepth src)
   (let ((toks (lex src)))
     (let (
@@ -2330,36 +2071,26 @@
                 (set depth (+ depth 1))
                 (if (|| (== k (kindInt TK_RPAREN)) (|| (== k (kindInt TK_RBRACE)) (== k (kindInt TK_RBRACKET))))
                   (set depth (- depth 1))
-                  0
-                )
-              )
-            )
+                  0)))
             (set i (+ i 1))
           })
         depth
-      }
-    )
-  )
-)
+      })))
 
 ; The last token that is not EOF, or -1 when there is none.
 (pub :: replLastTok (-> (Vec Int) Int))
-
 (pub fn (replLastTok toks)
   (let ((mut i (- (vecLen toks) 1)))
     {
       (while (&& (>= i 0) (== (kindInt (tokenKind (vecGet toks i))) (kindInt TK_EOF)))
         (set i (- i 1)))
       i
-    }
-  )
-)
+    }))
 
 ; True when `src` ends inside an unclosed string or character
 ; literal. See the multi-line section above for why the sign is the
 ; lexer's own last token rather than a second scanner.
 (pub :: replStrOpen (-> String Bool))
-
 (pub fn (replStrOpen src)
   (let ((toks (lex src)))
     (let ((li (replLastTok toks)))
@@ -2373,16 +2104,7 @@
               (if (== (strLen (tokenLexeme t)) 0)
                 false
                 (let ((b0 (strByte (tokenLexeme t) 0)))
-                  (|| (== b0 34) (== b0 39))
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                  (|| (== b0 34) (== b0 39)))))))))))
 
 ; Whether an entry is not yet complete: its brackets do not balance,
 ; it ends inside a string or character literal that a later line may
@@ -2392,16 +2114,12 @@
 ; through this too (`replColonBuffers`); every other colon line
 ; dispatches at once.
 (pub :: replEntryIncomplete (-> String Bool))
-
 (pub fn (replEntryIncomplete src)
   (if (> (replParenDepth src) 0)
     true
     (if (replStrOpen src)
       true
-      (> (replBlockDepth src) 0)
-    )
-  )
-)
+      (> (replBlockDepth src) 0))))
 
 ; A complete entry (one line, or several a paren balance joined):
 ; declaration or expression, exactly `replMain`'s old inline dispatch,
@@ -2409,7 +2127,6 @@
 ; call the one copy. An entry that closes more than it opens is
 ; refused here with its own line, before any parser runs.
 (pub :: replDispatch (-> String String String))
-
 ;@axiom:effect(io)
 (pub fn (replDispatch declsSrc entry)
   (if (replDepthNegative entry)
@@ -2422,10 +2139,7 @@
       {
         (replExpr declsSrc entry)
         declsSrc
-      }
-    )
-  )
-)
+      })))
 
 ; A buffered expression colon command whose argument now balances -
 ; the completion of a line `replColonBuffers` held back. Only the four
@@ -2433,7 +2147,6 @@
 ; the `:time` arm is `replMain`'s own order (the eval lines, then the
 ; duration) over the joined rest.
 (pub :: replDispatchColonMulti (-> String String String String))
-
 ;@axiom:effect(io)
 (pub fn (replDispatchColonMulti declsSrc w rest)
   (if (|| (strEq w ":type") (strEq w ":t"))
@@ -2447,17 +2160,21 @@
         declsSrc
       }
       (let ((tbuf (memAlloc 16)))
-        (let ((t0 (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0))))
+        (let ((t0 
+          (match (sysNowMicros tbuf)
+            ((Ok t) t)
+            ((Err e) 0))))
           {
             (replExpr declsSrc rest)
-            (replOut (fmtMicrosMs (- (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0)) t0)))
+            (replOut
+              (fmtMicrosMs
+                (-
+                  (match (sysNowMicros tbuf)
+                    ((Ok t) t)
+                    ((Err e) 0))
+                  t0)))
             declsSrc
-          }
-        )
-      )
-    )
-  )
-)
+          })))))
 
 ; ------------------------------------------------------------------
 ; One colon-command line: recorded whole exactly as typed (except the
@@ -2468,7 +2185,6 @@
 ; than a new level around the whole dispatch.
 ; ------------------------------------------------------------------
 (pub :: replColon (-> String String Int String))
-
 ;@axiom:effect(io)
 (pub fn (replColon declsSrc line hist)
   (let ((mut src declsSrc))
@@ -2483,96 +2199,86 @@
       ; nothing but the previous session's quit.
       (if (|| (strEq (cmdWord line) ":quit") (|| (strEq (cmdWord line) ":q") (strEq (cmdWord line) ":exit")))
         0
-        (histRecord hist line)
-      )
+        (histRecord hist line))
       (let (
         (w (cmdWord line))
         (rest (cmdRest line))
       )
-      (if (|| (strEq w ":help") (strEq w ":h"))
-        replHelp
-        (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
-          {
-            ; Compaction, if the file earned it,
-            ; before the process goes away: the
-            ; EOF arm closes for the same reason.
-            (histClose hist)
-            (sysExitWith 0)
-            0
-          }
-          (if (|| (strEq w ":type") (strEq w ":t"))
-            (replCmdType src rest)
-            (if (|| (strEq w ":load") (strEq w ":l"))
-              {
-                (set src (replCmdLoad src rest))
-                0
-              }
-              (if (|| (strEq w ":reset") (strEq w ":r"))
+        (if (|| (strEq w ":help") (strEq w ":h"))
+          replHelp
+          (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
+            {
+              ; Compaction, if the file earned it,
+              ; before the process goes away: the
+              ; EOF arm closes for the same reason.
+              (histClose hist)
+              (sysExitWith 0)
+              0
+            }
+            (if (|| (strEq w ":type") (strEq w ":t"))
+              (replCmdType src rest)
+              (if (|| (strEq w ":load") (strEq w ":l"))
                 {
-                  (set src "")
-                  (replOut "REPL state reset.\n")
+                  (set src (replCmdLoad src rest))
                   0
                 }
-                (if (|| (strEq w ":defs") (strEq w ":d"))
-                  (replCmdDefs src)
-                  (if (strEq w ":llvm")
-                    (replCmdLlvm src rest)
-                    (if (strEq w ":time")
-                      ; stage0 prints the two eval lines, then
-                      ; the duration (probed: type, result,
-                      ; Time). The duration is real now -
-                      ; sysNowMicros bracketing the eval - in
-                      ; stage1's own format: stage0 prints
-                      ; Rust's Duration debug, which is
-                      ; internals, and the gate's marker pins
-                      ; only the `Time: ` prefix.
-                      (let ((tbuf (memAlloc 16)))
-                        (let ((t0 (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0))))
-                          {
-                            (replExpr src rest)
-                            (replOut (fmtMicrosMs (- (match (sysNowMicros tbuf) ((Ok t) t) ((Err e) 0)) t0)))
-                            0
-                          }
-                        )
-                      )
-                      (replOut
-                        (catStrs
-                          (let ((v vecNew))
+                (if (|| (strEq w ":reset") (strEq w ":r"))
+                  {
+                    (set src "")
+                    (replOut "REPL state reset.\n")
+                    0
+                  }
+                  (if (|| (strEq w ":defs") (strEq w ":d"))
+                    (replCmdDefs src)
+                    (if (strEq w ":llvm")
+                      (replCmdLlvm src rest)
+                      (if (strEq w ":time")
+                        ; stage0 prints the two eval lines, then
+                        ; the duration (probed: type, result,
+                        ; Time). The duration is real now -
+                        ; sysNowMicros bracketing the eval - in
+                        ; stage1's own format: stage0 prints
+                        ; Rust's Duration debug, which is
+                        ; internals, and the gate's marker pins
+                        ; only the `Time: ` prefix.
+                        (let ((tbuf (memAlloc 16)))
+                          (let ((t0 
+                            (match (sysNowMicros tbuf)
+                              ((Ok t) t)
+                              ((Err e) 0))))
                             {
-                              (vecPush v "Error: Unknown command '")
-                              (vecPush v w)
-                              (vecPush v "'. Type :help for available commands.\n")
-                              v
-                            }
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-      )
+                              (replExpr src rest)
+                              (replOut
+                                (fmtMicrosMs
+                                  (-
+                                    (match (sysNowMicros tbuf)
+                                      ((Ok t) t)
+                                      ((Err e) 0))
+                                    t0)))
+                              0
+                            }))
+                        (replOut
+                          (catStrs
+                            (let ((v vecNew))
+                              {
+                                (vecPush v "Error: Unknown command '")
+                                (vecPush v w)
+                                (vecPush v "'. Type :help for available commands.\n")
+                                v
+                              }))))))))))))
       src
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The loop.
 ; ------------------------------------------------------------------
 (pub :: replMain (-> Int Int))
-
 ;@axiom:effect(io)
 (pub fn (replMain noBanner)
   {
     (if (== noBanner 0)
       replBanner
-      0
-    )
+      0)
     ; Computed ONCE. `mkKeyIn`'s second argument is the same value:
     ; off a TTY it builds the inert shape - no poll descriptor, a
     ; one-byte buffer, nothing ever read - so the piped surface pays
@@ -2580,216 +2286,199 @@
     ; per line: a Vec handle is an `Int`, so an `Int`-typed struct
     ; field is outside the block's reference map and a per-line editor
     ; would leak both gap vectors every line typed.
+    ; Axiom's own identifier bytes beyond letters, digits and `_`,
+    ; so Alt-b over `vec-push!` crosses the whole name rather than
+    ; stopping at the hyphen. `Tui.Edit` cannot know this and does
+    ; not try to; `tests/selfhost/978-line-editor.ax` sweeps all 256
+    ; bytes and requires this string to make `ledIsWord` agree with
+    ; `lexer.isIdentChar` exactly, so the two cannot drift.
+    ; The session's history: an in-memory ring always, a file that
+    ; survives the session when one resolves (`replhist.ax` decides
+    ; where). Opened on `interactive` - off a TTY the ring still
+    ; records, into memory nobody reads, and nothing is written, so
+    ; both surfaces run this same code. Recorded are complete
+    ; decl/expr entries and colon-command lines except the quit
+    ; commands, exactly as trimmed before dispatch; blanks, comments
+    ; and tag-only lines are not entries and are skipped. What is NOT recorded with an entry
+    ; are the `;@axiom:` lines typed above it: recalling the entry
+    ; later redefines it bare, and an IO effect that needs its tag
+    ; will say so (AX3042) rather than silently change meaning.
+    ; The session's completion handle: the two strings Tab completes
+    ; against (`replcomp.ax`). Re-synced every iteration below,
+    ; because every dispatch and every continuation line moves one
+    ; of them; the sync is two stores, and the parse it invalidates
+    ; is repaid on the next Tab rather than here.
+    ; The buffer of a decl-or-expr entry whose parens have not
+    ; balanced yet. Empty whenever the next physical line starts a
+    ; fresh entry, which is every line until a form spans more than
+    ; one - the common case, and the one this changes nothing for.
     (let ((interactive replInteractive))
-    (let (
-      (kin (mkKeyIn 0 interactive))
-      ; Axiom's own identifier bytes beyond letters, digits and `_`,
-      ; so Alt-b over `vec-push!` crosses the whole name rather than
-      ; stopping at the hyphen. `Tui.Edit` cannot know this and does
-      ; not try to; `tests/selfhost/978-line-editor.ax` sweeps all 256
-      ; bytes and requires this string to make `ledIsWord` agree with
-      ; `lexer.isIdentChar` exactly, so the two cannot drift.
-      (ed (ledNew ledRingNew "-!*+/<>=%&|'^"))
-      ; The session's history: an in-memory ring always, a file that
-      ; survives the session when one resolves (`replhist.ax` decides
-      ; where). Opened on `interactive` - off a TTY the ring still
-      ; records, into memory nobody reads, and nothing is written, so
-      ; both surfaces run this same code. Recorded are complete
-      ; decl/expr entries and colon-command lines except the quit
-      ; commands, exactly as trimmed before dispatch; blanks, comments
-      ; and tag-only lines are not entries and are skipped. What is NOT recorded with an entry
-      ; are the `;@axiom:` lines typed above it: recalling the entry
-      ; later redefines it bare, and an IO effect that needs its tag
-      ; will say so (AX3042) rather than silently change meaning.
-      (hist (histOpen interactive))
-      ; The session's completion handle: the two strings Tab completes
-      ; against (`replcomp.ax`). Re-synced every iteration below,
-      ; because every dispatch and every continuation line moves one
-      ; of them; the sync is two stores, and the parse it invalidates
-      ; is repaid on the next Tab rather than here.
-      (cenv (replComplEnvNew "" ""))
-      (mut declsSrc "")
-      (mut running 1)
-      ; The buffer of a decl-or-expr entry whose parens have not
-      ; balanced yet. Empty whenever the next physical line starts a
-      ; fresh entry, which is every line until a form spans more than
-      ; one - the common case, and the one this changes nothing for.
-      (mut pending "")
-    )
-      {
-        (while (== running 1)
-          {
-            (replComplEnvSet cenv declsSrc pending)
-            (let ((lineOpt (replReadPrompted
-              interactive            kin            ed            (if (> (strLen pending) 0)
-                replPromptCont
-                replPromptMain
-              )            pending            hist            cenv
-            )))
-            (match lineOpt
-              ((None)
-                {
-                  (set running 0)
-                  ; The file is compacted, if it needs it, on every
-                  ; exit path - including this one. `:quit` below
-                  ; closes before it exits for the same reason.
-                  (histClose hist)
-                  ; End of input with an entry still open discards it,
-                  ; and says so: otherwise a piped session whose last
-                  ; form never balanced ends with the same farewell as
-                  ; a clean one, and nothing names the missing lines.
+      (let (
+        (kin (mkKeyIn 0 interactive))
+        (ed (ledNew ledRingNew "-!*+/<>=%&|'^"))
+        (hist (histOpen interactive))
+        (cenv (replComplEnvNew "" ""))
+        (mut declsSrc "")
+        (mut running 1)
+        (mut pending "")
+      )
+        {
+          (while (== running 1)
+            {
+              (replComplEnvSet cenv declsSrc pending)
+              (let ((lineOpt 
+                (replReadPrompted
+                  interactive
+                  kin
+                  ed
                   (if (> (strLen pending) 0)
+                    replPromptCont
+                    replPromptMain)
+                  pending
+                  hist
+                  cenv)))
+                (match lineOpt
+                  ((None)
                     {
-                      (set pending "")
-                      (replOut "Aborted: unbalanced input discarded.\n")
-                      0
+                      (set running 0)
+                      ; The file is compacted, if it needs it, on every
+                      ; exit path - including this one. `:quit` below
+                      ; closes before it exits for the same reason.
+                      (histClose hist)
+                      ; End of input with an entry still open discards it,
+                      ; and says so: otherwise a piped session whose last
+                      ; form never balanced ends with the same farewell as
+                      ; a clean one, and nothing names the missing lines.
+                      (if (> (strLen pending) 0)
+                        {
+                          (set pending "")
+                          (replOut "Aborted: unbalanced input discarded.\n")
+                          0
+                        }
+                        0)
+                      (replOut "\nGoodbye!\n")
                     }
-                    0
                   )
-                  (replOut "\nGoodbye!\n")
-                }
-              )
-              ((Some raw)
-                (if (> (strLen pending) 0)
-                  ; Continuing an entry the completeness check has not
-                  ; closed. Anything typed joins and re-measures the
-                  ; WHOLE buffer, because a closer - or a closing quote
-                  ; - on THIS line can only be judged against everything
-                  ; opened before it. A blank line joins as an empty
-                  ; line (formatting and pastes survive); the SECOND
-                  ; blank in a row aborts - `pending` ends in `\n`
-                  ; exactly when its last line was blank, because only
-                  ; blanks join as empty tails - and so does the Ctrl-C
-                  ; sentinel (`replIsAbort`), which is why a cancel
-                  ; must not look like a blank.
-                  (if (replIsAbort raw)
-                    {
-                      (set pending "")
-                      (replOut "Aborted: unbalanced input discarded.\n")
-                    }
-                    (let ((next (replTrim raw)))
-                      (if (== (strLen next) 0)
-                        (if (== (strByte pending (- (strLen pending) 1)) 10)
-                          {
-                            (set pending "")
-                            (replOut "Aborted: unbalanced input discarded.\n")
-                          }
-                          {
-                            (set pending (strConcat pending "\n"))
-                            0
-                          }
-                        )
-                        (let ((joined (strConcat (strConcat pending "\n") next)))
-                          (if (replEntryIncomplete joined)
-                            {
-                              (set pending joined)
-                              0
-                            }
-                            {
-                              (set pending "")
-                              (if (replDepthNegative joined)
+                  ((Some raw)
+                    (if (> (strLen pending) 0)
+                      ; Continuing an entry the completeness check has not
+                      ; closed. Anything typed joins and re-measures the
+                      ; WHOLE buffer, because a closer - or a closing quote
+                      ; - on THIS line can only be judged against everything
+                      ; opened before it. A blank line joins as an empty
+                      ; line (formatting and pastes survive); the SECOND
+                      ; blank in a row aborts - `pending` ends in `\n`
+                      ; exactly when its last line was blank, because only
+                      ; blanks join as empty tails - and so does the Ctrl-C
+                      ; sentinel (`replIsAbort`), which is why a cancel
+                      ; must not look like a blank.
+                      (if (replIsAbort raw)
+                        {
+                          (set pending "")
+                          (replOut "Aborted: unbalanced input discarded.\n")
+                        }
+                        (let ((next (replTrim raw)))
+                          (if (== (strLen next) 0)
+                            (if (== (strByte pending (- (strLen pending) 1)) 10)
+                              {
+                                (set pending "")
+                                (replOut "Aborted: unbalanced input discarded.\n")
+                              }
+                              {
+                                (set pending (strConcat pending "\n"))
+                                0
+                              })
+                            (let ((joined (strConcat (strConcat pending "\n") next)))
+                              (if (replEntryIncomplete joined)
                                 {
-                                  (replOut "Parse error: too many closing parens\n")
-                                  (histRecord hist joined)
+                                  (set pending joined)
                                   0
                                 }
-                                (if (== (strByte joined 0) 58)
-                                  ; A buffered `:type`/`:llvm`/`:time`
-                                  ; whose argument now balances: the
-                                  ; fresh path only ever buffers those,
-                                  ; so this is one of them.
-                                  (let (
-                                    (w (cmdWord joined))
-                                    (rest (cmdRest joined))
-                                  )
+                                {
+                                  (set pending "")
+                                  (if (replDepthNegative joined)
                                     {
-                                      (set declsSrc (replDispatchColonMulti declsSrc w rest))
+                                      (replOut "Parse error: too many closing parens\n")
                                       (histRecord hist joined)
                                       0
                                     }
-                                  )
-                                  {
-                                    (set declsSrc (replDispatch declsSrc joined))
-                                    (histRecord hist joined)
-                                    0
-                                  }
-                                )
-                              )
-                            }
-                          )
-                        )
-                      )
-                    )
-                  )
-                  (let ((line (replTrim raw)))
-                    ; A blank line is a no-op - and so is the Ctrl-C
-                    ; sentinel, whose `^C` echo is the whole answer on
-                    ; a fresh line; it aborts a pending entry and never
-                    ; an empty one.
-                    (if (|| (== (strLen line) 0) (replIsAbort raw))
-                      0
-                      (if (== (strByte line 0) 59)
-                        ; A comment is discarded; an AXTAG looks like a
-                        ; comment and is a CLAIM, so it is kept and
-                        ; attaches to the declaration typed next. See
-                        ; `replIsAxtagAt` for what that costs and why
-                        ; the two edges - redefinition and a trailing
-                        ; tag - are handled where they are.
-                        (if (== (replIsAxtagLine line) 1)
-                          {
-                            (set declsSrc (strConcat (strConcat declsSrc line) "\n"))
-                            0
-                          }
+                                    (if (== (strByte joined 0) 58)
+                                      ; A buffered `:type`/`:llvm`/`:time`
+                                      ; whose argument now balances: the
+                                      ; fresh path only ever buffers those,
+                                      ; so this is one of them.
+                                      (let (
+                                        (w (cmdWord joined))
+                                        (rest (cmdRest joined))
+                                      )
+                                        {
+                                          (set declsSrc (replDispatchColonMulti declsSrc w rest))
+                                          (histRecord hist joined)
+                                          0
+                                        })
+                                      {
+                                        (set declsSrc (replDispatch declsSrc joined))
+                                        (histRecord hist joined)
+                                        0
+                                      }))
+                                })))))
+                      ; A blank line is a no-op - and so is the Ctrl-C
+                      ; sentinel, whose `^C` echo is the whole answer on
+                      ; a fresh line; it aborts a pending entry and never
+                      ; an empty one.
+                      (let ((line (replTrim raw)))
+                        (if (|| (== (strLen line) 0) (replIsAbort raw))
                           0
-                        )
-                        (if (== (strByte line 0) 58)
-                          (if (replColonBuffers (cmdWord line) (cmdRest line))
-                            ; An expression command whose argument does
-                            ; not yet balance (`:type (fn ...`): later
-                            ; lines join `pending` until it does, and
-                            ; the whole entry is recorded then.
-                            {
-                              (set pending line)
-                              0
-                            }
-                            {
-                              (set declsSrc (replColon declsSrc line hist))
-                              0
-                            }
-                          )
-                          ; A decl-or-expr candidate: dispatch now if it is
-                          ; already complete (every existing single-line
-                          ; entry is), otherwise start buffering.
-                          (if (replEntryIncomplete line)
-                            {
-                              (set pending line)
-                              0
-                            }
-                            {
-                              (set declsSrc (replDispatch declsSrc line))
-                              (histRecord hist line)
-                              0
-                            }
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )})
-        0
-      }
-    ))
-  }
-)
+                          (if (== (strByte line 0) 59)
+                            ; A comment is discarded; an AXTAG looks like a
+                            ; comment and is a CLAIM, so it is kept and
+                            ; attaches to the declaration typed next. See
+                            ; `replIsAxtagAt` for what that costs and why
+                            ; the two edges - redefinition and a trailing
+                            ; tag - are handled where they are.
+                            (if (== (replIsAxtagLine line) 1)
+                              {
+                                (set declsSrc (strConcat (strConcat declsSrc line) "\n"))
+                                0
+                              }
+                              0)
+                            (if (== (strByte line 0) 58)
+                              (if (replColonBuffers (cmdWord line) (cmdRest line))
+                                ; An expression command whose argument does
+                                ; not yet balance (`:type (fn ...`): later
+                                ; lines join `pending` until it does, and
+                                ; the whole entry is recorded then.
+                                {
+                                  (set pending line)
+                                  0
+                                }
+                                {
+                                  (set declsSrc (replColon declsSrc line hist))
+                                  0
+                                })
+                              ; A decl-or-expr candidate: dispatch now if it is
+                              ; already complete (every existing single-line
+                              ; entry is), otherwise start buffering.
+                              (if (replEntryIncomplete line)
+                                {
+                                  (set pending line)
+                                  0
+                                }
+                                {
+                                  (set declsSrc (replDispatch declsSrc line))
+                                  (histRecord hist line)
+                                  0
+                                }))))))
+                  )))
+            })
+          0
+        }))
+  })
 
 ; :defs - what THIS session defined, one line per parsed declaration
 ; name. stage0 renders its whole builtin table here; reproducing
 ; that render is recorded divergent until someone needs it.
 (pub :: replCmdDefs (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (replCmdDefs declsSrc)
   {
@@ -2807,32 +2496,23 @@
                 {
                   (if (|| (== (nodeTag d) TAG_D_FN) (|| (== (nodeTag d) TAG_D_SIG) (|| (== (nodeTag d) TAG_D_DATA) (== (nodeTag d) TAG_D_STRUCT))))
                     (replOut (strConcat (strConcat "  " (nodeAName d)) "\n"))
-                    0
-                  )
+                    0)
                   (set i (+ i 1))
-                }
-              ))
+                }))
             0
-          }
-        )
-      )
-    )
+          })))
     0
-  }
-)
+  })
 
 ; `Time: 12.345ms` from a microsecond count - millis, a dot, the
 ; microsecond remainder zero-padded to three digits. stage1's own
 ; spelling of a duration; the shape gate pins only the prefix.
 (pub :: fmtMicrosMs (-> Int String))
-
 (pub fn (fmtMicrosMs us)
   (let ((u 
     (if (< us 0)
       0
-      us
-    )
-  ))
+      us)))
     (let (
       (ms (/ u 1000))
       (rem (% u 1000))
@@ -2844,20 +2524,13 @@
             (vecPush v (decStr ms))
             (vecPush v ".")
             (vecPush
-              v              (if (< rem 10)
+              v
+              (if (< rem 10)
                 "00"
                 (if (< rem 100)
                   "0"
-                  ""
-                )
-              )
-            )
+                  "")))
             (vecPush v (decStr rem))
             (vecPush v "ms\n")
             v
-          }
-        )
-      )
-    )
-  )
-)
+          })))))

@@ -54,7 +54,6 @@
 ; old three, because there is no `free`. Same trade, and same reasoning,
 ; as `Vec`; see that module's comment.
 (import Mem)
-
 (import Vec)
 
 ; THE HANDLE. `Map` names the seven-word header `mapAllocTable` builds,
@@ -147,20 +146,20 @@
 ; because `Intern`'s polynomial string hash reduces modulo it, and a
 ; prime modulus is what makes that polynomial hash sound.
 (pub :: mapHashPrime Int)
-
-(pub fn (mapHashPrime) 2147483647)
+(pub fn (mapHashPrime)
+  2147483647)
 
 ; fmix64's two multipliers, written as the signed 64-bit values whose
 ; bit patterns are 0xff51afd7ed558ccd and 0xc4ceb9fe1a85ec53. The
 ; multiplication wraps modulo 2^64 - LLVM `mul` - so only the bit
 ; pattern matters, not the sign.
 (:: mapMixC1 Int)
-
-(fn (mapMixC1) (- 0 49064778989728563))
+(fn (mapMixC1)
+  (- 0 49064778989728563))
 
 (:: mapMixC2 Int)
-
-(fn (mapMixC2) (- 0 4265267296055464877))
+(fn (mapMixC2)
+  (- 0 4265267296055464877))
 
 ; The unsigned 33-bit right shift fmix64 calls for. Axiom's `>>` is an
 ; arithmetic shift - it fills with the sign bit - so a negative operand
@@ -168,8 +167,8 @@
 ; 33-position shift can actually carry (bits 33..63 of the input) makes
 ; it exactly the logical shift: the sign-fill lands outside the mask.
 (:: mapShr33 (-> Int Int))
-
-(fn (mapShr33 h) (& (>> h 33) 2147483647))
+(fn (mapShr33 h)
+  (& (>> h 33) 2147483647))
 
 ; Hash `key` to a value in [0, 2^63).
 ;
@@ -183,14 +182,10 @@
 ; here - key 0 probes from slot 0, like any other key probes from its
 ; hash - but it is worth knowing when reading pinned values in tests.
 (pub :: mapHash (-> Int Int))
-
 (pub fn (mapHash key)
   (let ((a (* (^ key (mapShr33 key)) mapMixC1)))
     (let ((b (* (^ a (mapShr33 a)) mapMixC2)))
-      (& (^ b (mapShr33 b)) 9223372036854775807)
-    )
-  )
-)
+      (& (^ b (mapShr33 b)) 9223372036854775807))))
 
 ; The slot `key` probes first, in [0, cap).
 ;
@@ -207,35 +202,31 @@
 ; division, with identical results for the non-negative hash this
 ; receives.
 (pub :: mapSlotOf (-> Int Int Int))
-
 (pub fn (mapSlotOf key cap)
   (let ((h (& (mapHash key) (- cap 1))))
     (if (< h 0)
       (+ h cap)
-      h
-    )
-  )
-)
+      h)))
 
 ; ------------------------------------------------------------------
 ; Slot states
 ; ------------------------------------------------------------------
 ; Empty is 0 so that `memAlloc`'s zeroing initialises the table.
 (:: mapStateEmpty Int)
-
-(fn (mapStateEmpty) 0)
+(fn (mapStateEmpty)
+  0)
 
 (:: mapStateLive Int)
-
-(fn (mapStateLive) 1)
+(fn (mapStateLive)
+  1)
 
 ; A slot that held an entry that was removed. It must not stop a probe -
 ; the entry that followed it may have been placed past it - but it may be
 ; reused by an insert. See the module comment on why tombstones count
 ; toward growth.
 (:: mapStateTomb Int)
-
-(fn (mapStateTomb) 2)
+(fn (mapStateTomb)
+  2)
 
 ; ------------------------------------------------------------------
 ; Construction
@@ -248,8 +239,8 @@
 ; allocation. It must also be at least 2 for `mapWithCapacity`'s doubling to
 ; make progress and for a probe to have somewhere to go.
 (:: mapDefaultCap Int)
-
-(fn (mapDefaultCap) 8)
+(fn (mapDefaultCap)
+  8)
 
 ; An empty `Map` with `mapDefaultCap` slots.
 ;
@@ -259,16 +250,16 @@
 ; `mapWithCapacity` names an entry count - and conflating them made
 ; `mapNew` quietly twice as large as its own documented default.
 (pub :: mapNew Map)
-
-(pub fn (mapNew) (mapAllocTable mapDefaultCap 0))
+(pub fn (mapNew)
+  (mapAllocTable mapDefaultCap 0))
 
 ; An empty `Map` whose VALUES it owns a share of: the value array
 ; carries the array form, so `mapFree` releases every value in it. Keys
 ; stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s
 ; key parameter is `Int`, not a type variable.
 (pub :: mapNewRefVals Map)
-
-(pub fn (mapNewRefVals) (mapAllocTable mapDefaultCap 1))
+(pub fn (mapNewRefVals)
+  (mapAllocTable mapDefaultCap 1))
 
 ; An empty `Map` sized so that `want` entries fit without rehashing.
 ;
@@ -278,28 +269,24 @@
 ; things"; sizing the table at 128 and rehashing at 64 would make that
 ; request a lie.
 (pub :: mapWithCapacity (-> Int Map))
-
-(pub fn (mapWithCapacity want) (mapSized want 0))
+(pub fn (mapWithCapacity want)
+  (mapSized want 0))
 
 ; `mapWithCapacity`'s owning twin. See `mapNewRefVals`.
 (pub :: mapWithCapacityRefVals (-> Int Map))
-
-(pub fn (mapWithCapacityRefVals want) (mapSized want 1))
+(pub fn (mapWithCapacityRefVals want)
+  (mapSized want 1))
 
 (:: mapSized (-> Int Int Map))
-
 (fn (mapSized want refs)
   (mapAllocTable
     (mapRoundUpPow2
       (*
         (if (< want 1)
           1
-          want
-        )        2
-      )
-    )    refs
-  )
-)
+          want)
+        2))
+    refs))
 
 ; `n` rounded up to a power of two, at least `mapDefaultCap`.
 ;
@@ -308,28 +295,21 @@
 ; real division per probe instead of a mask once the optimiser sees the
 ; constant. It also keeps `mapWithCapacity`'s doubling exact.
 (pub :: mapRoundUpPow2 (-> Int Int))
-
 (pub fn (mapRoundUpPow2 n)
   (if (>= mapDefaultCap n)
     mapDefaultCap
-    (mapRoundUpPow2From mapDefaultCap n)
-  )
-)
+    (mapRoundUpPow2From mapDefaultCap n)))
 
 (:: mapRoundUpPow2From (-> Int Int Int))
-
 (fn (mapRoundUpPow2From cap n)
   (if (>= cap n)
     cap
-    (mapRoundUpPow2From (* cap 2) n)
-  )
-)
+    (mapRoundUpPow2From (* cap 2) n)))
 
 ; A header over three freshly zeroed arrays: `cap` words of keys, `cap`
 ; words of values, `cap` *bytes* of states - plus `len`, `used` and the
 ; flag saying whether this table owns a share of every value in it.
 (:: mapAllocTable (-> Int Int Map))
-
 (fn (mapAllocTable cap refs)
   ; Words 2, 3 and 4 are the map (28 = bits 2/3/4), so the
   ; header's death takes all three arrays with it - and each is
@@ -359,8 +339,7 @@
       (__retain states)
       (if (== refs 1)
         (memMarkArray vals cap)
-        vals
-      )
+        vals)
       (memSetWord m 0 0)
       (memSetWord m 1 cap)
       (memSetWord m 2 keys)
@@ -375,46 +354,40 @@
       ; itself. Seven words in an eight-word block; word 7 is spare.
       (memSetWord m 6 refs)
       (cast Map m)
-    }
-  )
-)
+    }))
 
 ; Hand `m` back: the three arrays go with it, and on a `mapNewRefVals`
 ; table so does one share of every value still in it. Answers 0, as
 ; `Vec.vecFree` does and for the same reason.
 (pub :: mapFree (-> Map Int))
-
 (pub fn (mapFree m)
   {
     (__release
-      (cast Int m)
-    )
+      (cast Int m))
     0
-  }
-)
+  })
 
 ; ------------------------------------------------------------------
 ; Accessors
 ; ------------------------------------------------------------------
 (pub :: mapLen (-> Map Int))
-
-(pub fn (mapLen m) m.len)
+(pub fn (mapLen m)
+  m.len)
 
 (pub :: mapCap (-> Map Int))
-
-(pub fn (mapCap m) m.cap)
+(pub fn (mapCap m)
+  m.cap)
 
 ; Slots that are live or tombstoned. Exposed because it is the number
 ; that explains a rehash, and a test that could not see it would have to
 ; infer growth from timing.
 (pub :: mapUsed (-> Map Int))
-
-(pub fn (mapUsed m) m.used)
+(pub fn (mapUsed m)
+  m.used)
 
 ; Hand back the share of the value in slot `i` and zero the word. A
 ; no-op on a `mapNew` table, which owns nothing it holds.
 (:: mapDropVal (-> Map Int Int))
-
 (fn (mapDropVal m i)
   (if (mapOwnsVals m)
     (let (
@@ -425,18 +398,15 @@
         (memSetWord vals i 0)
         (__release old)
         0
-      }
-    )
-    0
-  )
-)
+      })
+    0))
 
 ; Whether this table owns a share of every value it holds - the
 ; `mapNewRefVals` half. Word 6 of the header, and not a test of the
 ; value array's shape word: see `mapAllocTable`.
 (pub :: mapOwnsVals (-> Map Bool))
-
-(pub fn (mapOwnsVals m) (== m.refs 1))
+(pub fn (mapOwnsVals m)
+  (== m.refs 1))
 
 ; Read the key, or the value, out of slot `i`.
 ;
@@ -452,18 +422,18 @@
 ; Neither bounds-checks. A slot index that did not come from
 ; `mapLiveFrom` is the caller's error, the same way `vecGet`'s is.
 (pub :: mapKeyAt (-> Map Int Int))
-
-(pub fn (mapKeyAt m i) (memGetWord m.keys i))
+(pub fn (mapKeyAt m i)
+  (memGetWord m.keys i))
 
 ; The value in slot `i`. See `mapKeyAt` above for the bounds rule
 ; and why `mapStateAt` is not exported beside these two.
 (pub :: mapValAt (-> Map Int Int))
-
-(pub fn (mapValAt m i) (memGetWord m.vals i))
+(pub fn (mapValAt m i)
+  (memGetWord m.vals i))
 
 (:: mapStateAt (-> Map Int Int))
-
-(fn (mapStateAt m i) (memGetByte m.states i))
+(fn (mapStateAt m i)
+  (memGetByte m.states i))
 
 ; ------------------------------------------------------------------
 ; Probing
@@ -485,13 +455,10 @@
 ; `pub` because `Intern` probes its own table the same way and had a
 ; byte-identical copy under its own name. One statement of the step.
 (pub :: mapNextSlot (-> Int Int Int))
-
 (pub fn (mapNextSlot i cap)
   (if (>= (+ i 1) cap)
     0
-    (+ i 1)
-  )
-)
+    (+ i 1)))
 
 ; WHY THE PROBE LOOPS TEST ONE CONDITION PER `if`.
 ;
@@ -548,7 +515,6 @@
 ; on a path with no recursion anywhere, which inlines into every
 ; caller; the call survives only for keys that actually collide.
 (:: mapFindSlot (-> Map Int Int))
-
 (fn (mapFindSlot m key)
   (let (
     (cap (mapCap m))
@@ -563,21 +529,21 @@
             (if (== (memGetWord keys h) key)
               h
               (mapFindLoop
-                states                keys                cap                key                (mapNextSlot h cap)                (- cap 1)
-              )
-            )
+                states
+                keys
+                cap
+                key
+                (mapNextSlot h cap)
+                (- cap 1)))
             (mapFindLoop
-              states              keys              cap              key              (mapNextSlot h cap)              (- cap 1)
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              states
+              keys
+              cap
+              key
+              (mapNextSlot h cap)
+              (- cap 1))))))))
 
 (:: mapFindLoop (-> Int Int Int Int Int Int Int))
-
 (fn (mapFindLoop states keys cap key i left)
   (if (<= left 0)
     (- 0 1)
@@ -588,27 +554,29 @@
           (if (== (memGetWord keys i) key)
             i
             (mapFindLoop
-              states              keys              cap              key              (mapNextSlot i cap)              (- left 1)
-            )
-          )
+              states
+              keys
+              cap
+              key
+              (mapNextSlot i cap)
+              (- left 1)))
           ; A tombstone: keep going. Treating it as empty here
           ; would make every entry displaced past a removed one
           ; unreachable.
           (mapFindLoop
-            states            keys            cap            key            (mapNextSlot i cap)            (- left 1)
-          )
-        )
-      )
-    )
-  )
-)
+            states
+            keys
+            cap
+            key
+            (mapNextSlot i cap)
+            (- left 1)))))))
 
 ; ------------------------------------------------------------------
 ; Reading
 ; ------------------------------------------------------------------
 (pub :: mapHas (-> Map Int Bool))
-
-(pub fn (mapHas m key) (>= (mapFindSlot m key) 0))
+(pub fn (mapHas m key)
+  (>= (mapFindSlot m key) 0))
 
 ; The value for `key`, or `dflt` if `key` is absent.
 ;
@@ -649,17 +617,13 @@
 ; returning `Option`, for the reason above: a heap-boxed `Option` on the
 ; hottest lookup in a compiler's symbol table.
 (pub :: mapGet (-> Map Int Int Int))
-
 (pub fn (mapGet m key dflt)
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
       dflt
       ; `mapValAt` answers the raw word, and so does this. No cast: the
       ; declared result IS what the word is.
-      (mapValAt m i)
-    )
-  )
-)
+      (mapValAt m i))))
 
 ; The value for `key` read as a `String`, or `dflt` if `key` is absent.
 ;
@@ -676,15 +640,11 @@
 ; MM-LIFE-2d). The cast here is at a RETURN, which is the safe position
 ; and the one `vecGetStr` uses.
 (pub :: mapGetStr (-> Map Int String String))
-
 (pub fn (mapGetStr m key dflt)
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
       dflt
-      (cast String (mapValAt m i))
-    )
-  )
-)
+      (cast String (mapValAt m i)))))
 
 ; ------------------------------------------------------------------
 ; Writing
@@ -702,8 +662,8 @@
 ;
 ; It is `used`, not `len`: see the module comment on tombstones.
 (:: mapNeedsGrow (-> Map Bool))
-
-(fn (mapNeedsGrow m) (>= (* (mapUsed m) 2) (mapCap m)))
+(fn (mapNeedsGrow m)
+  (>= (* (mapUsed m) 2) (mapCap m)))
 
 ; The capacity to rehash AT, which is not always twice the current one.
 ;
@@ -727,13 +687,10 @@
 ; the next one can, so the rehash cost stays amortised O(1) per insert
 ; in both directions.
 (:: mapRehashCap (-> Map Int))
-
 (fn (mapRehashCap m)
   (if (<= (* (mapLen m) 4) (mapCap m))
     (mapCap m)
-    (* (mapCap m) 2)
-  )
-)
+    (* (mapCap m) 2)))
 
 ; Insert or overwrite, growing first if the load factor demands it.
 ;
@@ -755,16 +712,13 @@
 ; single insert push `used` to `cap` and leave the next lookup's probe
 ; with no empty slot to stop at.
 (pub :: mapInsert (-> Map Int a Int))
-
 (pub fn (mapInsert m key value)
   {
     (if (mapNeedsGrow m)
       (mapRehash m (mapRehashCap m))
-      0
-    )
+      0)
     (mapInsertNoGrow m key value)
-  }
-)
+  })
 
 ; Insert or overwrite, assuming there is room. Answers 0; see
 ; `mapInsert` for why no mutator here answers the handle.
@@ -782,7 +736,6 @@
 ; home slot. A tombstone there falls into the loop remembering it, so
 ; the reuse rule is exactly the loop's.
 (:: mapInsertNoGrow (-> Map Int a Int))
-
 (fn (mapInsertNoGrow m key value)
   (let (
     (cap (mapCap m))
@@ -794,8 +747,14 @@
       (let ((st (memGetByte states h)))
         (if (== st mapStateEmpty)
           (mapFillAt
-            m            keys            vals            states            h            key            value            1
-          )
+            m
+            keys
+            vals
+            states
+            h
+            key
+            value
+            1)
           (if (== st mapStateLive)
             (if (== (memGetWord keys h) key)
               {
@@ -804,21 +763,29 @@
                 0
               }
               (mapInsertLoop
-                m                keys                vals                states                cap                key                value                (mapNextSlot h cap)                (- 0 1)                (- cap 1)
-              )
-            )
+                m
+                keys
+                vals
+                states
+                cap
+                key
+                value
+                (mapNextSlot h cap)
+                (- 0 1)
+                (- cap 1)))
             (mapInsertLoop
-              m              keys              vals              states              cap              key              value              (mapNextSlot h cap)              h              (- cap 1)
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              m
+              keys
+              vals
+              states
+              cap
+              key
+              value
+              (mapNextSlot h cap)
+              h
+              (- cap 1))))))))
 
 (:: mapInsertLoop (-> Map Int Int Int Int Int a Int Int Int Int))
-
 (fn (mapInsertLoop m keys vals states cap key value i firstTomb left)
   (if (<= left 0)
     0
@@ -829,12 +796,23 @@
         ; fresh empty one on every cycle.
         (if (< firstTomb 0)
           (mapFillAt
-            m            keys            vals            states            i            key            value            1
-          )
+            m
+            keys
+            vals
+            states
+            i
+            key
+            value
+            1)
           (mapFillAt
-            m            keys            vals            states            firstTomb            key            value            0
-          )
-        )
+            m
+            keys
+            vals
+            states
+            firstTomb
+            key
+            value
+            0))
         (if (== state mapStateLive)
           (if (== (memGetWord keys i) key)
             ; Overwrite: `len` and `used` are both unchanged,
@@ -848,24 +826,33 @@
               0
             }
             (mapInsertLoop
-              m              keys              vals              states              cap              key              value              (mapNextSlot i cap)              firstTomb              (- left 1)
-            )
-          )
+              m
+              keys
+              vals
+              states
+              cap
+              key
+              value
+              (mapNextSlot i cap)
+              firstTomb
+              (- left 1)))
           ; A tombstone. Remember the first one and keep scanning:
           ; reusing it now, before the run has been searched to its
           ; end, would risk storing a second entry for a key that
           ; is already live further along.
           (mapInsertLoop
-            m            keys            vals            states            cap            key            value            (mapNextSlot i cap)            (if (< firstTomb 0)
+            m
+            keys
+            vals
+            states
+            cap
+            key
+            value
+            (mapNextSlot i cap)
+            (if (< firstTomb 0)
               i
-              firstTomb
-            )            (- left 1)
-          )
-        )
-      )
-    )
-  )
-)
+              firstTomb)
+            (- left 1)))))))
 
 ; Write a new entry into slot `i` and account for it.
 ;
@@ -884,7 +871,6 @@
 ; stack-dependent, and this is the layer everything else is going to
 ; trust.
 (:: mapFillAt (-> Map Int Int Int Int Int a Int Int))
-
 (fn (mapFillAt m keys vals states i key value consumesEmpty)
   {
     (memSetWord keys i key)
@@ -896,10 +882,8 @@
         (set m.used (+ (mapUsed m) 1))
         0
       }
-      0
-    )
-  }
-)
+      0)
+  })
 
 ; Delete `key`. Answers 0; see `mapInsert` for why no mutator here
 ; answers the handle.
@@ -909,7 +893,6 @@
 ; `len` drops, `used` does not - the slot is still not available to a
 ; probe as a stopping point, and only a rehash reclaims it.
 (pub :: mapRemove (-> Map Int Int))
-
 (pub fn (mapRemove m key)
   (let ((i (mapFindSlot m key)))
     (if (< i 0)
@@ -925,10 +908,7 @@
         (memPutByte m.states i mapStateTomb)
         (set m.len (- (mapLen m) 1))
         0
-      }
-    )
-  )
-)
+      })))
 
 ; ------------------------------------------------------------------
 ; Rehashing
@@ -950,7 +930,6 @@
 ; only way the space a removed entry occupies ever comes back, and it
 ; is why `mapRemove` can be O(1) and still leave the table healthy.
 (:: mapRehash (-> Map Int Int))
-
 (fn (mapRehash m newCap)
   (let (
     (oldCap (mapCap m))
@@ -969,15 +948,22 @@
         (__retain newStates)
         (if (mapOwnsVals m)
           (memMarkArray newVals newCap)
-          newVals
-        )
+          newVals)
         (set m.cap newCap)
         (set m.keys newKeys)
         (set m.vals newVals)
         (set m.states newStates)
         (let ((n (mapReinsertLoop
-          newKeys          newVals          newStates          newCap          oldKeys          oldVals          oldStates          oldCap          0          0
-        )))
+          newKeys
+          newVals
+          newStates
+          newCap
+          oldKeys
+          oldVals
+          oldStates
+          oldCap
+          0
+          0)))
           {
             (set m.len n)
             (set m.used n)
@@ -991,35 +977,49 @@
             (__release oldVals)
             (__release oldStates)
             0
-          }
-        )
-      }
-    )
-  )
-)
+          })
+      })))
 
 ; Walk the old arrays, placing every live entry into the new ones.
 ; Returns how many were placed.
 (:: mapReinsertLoop (-> Int Int Int Int Int Int Int Int Int Int Int))
-
 (fn (mapReinsertLoop newKeys newVals newStates newCap oldKeys oldVals oldStates oldCap i cnt)
   (if (>= i oldCap)
     cnt
     (if (== (memGetByte oldStates i) mapStateLive)
       {
         (mapPlaceLoop
-          newKeys          newVals          newStates          newCap          (memGetWord oldKeys i)          (memGetWord oldVals i)          (mapSlotOf (memGetWord oldKeys i) newCap)          newCap
-        )
+          newKeys
+          newVals
+          newStates
+          newCap
+          (memGetWord oldKeys i)
+          (memGetWord oldVals i)
+          (mapSlotOf (memGetWord oldKeys i) newCap)
+          newCap)
         (mapReinsertLoop
-          newKeys          newVals          newStates          newCap          oldKeys          oldVals          oldStates          oldCap          (+ i 1)          (+ cnt 1)
-        )
+          newKeys
+          newVals
+          newStates
+          newCap
+          oldKeys
+          oldVals
+          oldStates
+          oldCap
+          (+ i 1)
+          (+ cnt 1))
       }
       (mapReinsertLoop
-        newKeys        newVals        newStates        newCap        oldKeys        oldVals        oldStates        oldCap        (+ i 1)        cnt
-      )
-    )
-  )
-)
+        newKeys
+        newVals
+        newStates
+        newCap
+        oldKeys
+        oldVals
+        oldStates
+        oldCap
+        (+ i 1)
+        cnt))))
 
 ; Place `key`/`value` at the first empty slot of a probe starting at
 ; `i`. Only correct for a rehash target - a table with no tombstones
@@ -1030,7 +1030,6 @@
 ; full table here means a bug elsewhere, and dropping the entry is a
 ; wrong answer a test can see, where an unbounded scan is a hang.
 (:: mapPlaceLoop (-> Int Int Int Int Int Int Int Int Int))
-
 (fn (mapPlaceLoop keys vals states cap key value i left)
   (if (<= left 0)
     0
@@ -1042,11 +1041,14 @@
         0
       }
       (mapPlaceLoop
-        keys        vals        states        cap        key        value        (mapNextSlot i cap)        (- left 1)
-      )
-    )
-  )
-)
+        keys
+        vals
+        states
+        cap
+        key
+        value
+        (mapNextSlot i cap)
+        (- left 1)))))
 
 ; ------------------------------------------------------------------
 ; Iteration
@@ -1097,16 +1099,12 @@
 ; shape `mapSumKeysFrom` has carried over the same range since this
 ; module was written.
 (pub :: mapLiveFrom (-> Map Int (Option Int)))
-
 (pub fn (mapLiveFrom m i)
   (if (>= i (mapCap m))
     None
     (if (== (mapStateAt m i) mapStateLive)
       (Some i)
-      (mapLiveFrom m (+ i 1))
-    )
-  )
-)
+      (mapLiveFrom m (+ i 1)))))
 
 ; Every live key, and every live value, in one shared slot order: the
 ; `j`th key and the `j`th value came out of the same slot, so the two
@@ -1116,36 +1114,32 @@
 ; than only one of them because a caller that wants pairs otherwise
 ; walks the table twice.
 (pub :: mapKeys (-> Map (Vec Int)))
-
-(pub fn (mapKeys m) (mapCollect m 0 (vecWithCapacity (mapLen m)) 1))
+(pub fn (mapKeys m)
+  (mapCollect m 0 (vecWithCapacity (mapLen m)) 1))
 
 ; Every live value, in the same slot order `mapKeys` uses, so the two
 ; vectors zip element for element.
 (pub :: mapValues (-> Map (Vec Int)))
-
-(pub fn (mapValues m) (mapCollect m 0 (vecWithCapacity (mapLen m)) 0))
+(pub fn (mapValues m)
+  (mapCollect m 0 (vecWithCapacity (mapLen m)) 0))
 
 ; The walk both collectors share. `keys` picks which array is read, so
 ; the traversal exists once: two copies of a probe loop is how this
 ; module's own `mapNextSlot` comment says `Intern` went wrong.
 (:: mapCollect (-> Map Int (Vec Int) Int (Vec Int)))
-
 (fn (mapCollect m i out keys)
   (match (mapLiveFrom m i)
     ((None) out)
     ((Some s)
       {
         (vecPush
-          out          (if (== keys 1)
+          out
+          (if (== keys 1)
             (mapKeyAt m s)
-            (mapValAt m s)
-          )
-        )
+            (mapValAt m s)))
         (mapCollect m (+ s 1) out keys)
       }
-    )
-  )
-)
+    )))
 
 ; ------------------------------------------------------------------
 ; Bulk reads
@@ -1159,39 +1153,33 @@
 ; changes. A sum over an unordered collection is exactly as strong a
 ; check as the collection's semantics allow.
 (pub :: mapSumVals (-> Map Int))
-
-(pub fn (mapSumVals m) (mapSumValsFrom m 0 0))
+(pub fn (mapSumVals m)
+  (mapSumValsFrom m 0 0))
 
 (:: mapSumValsFrom (-> Map Int Int Int))
-
 (fn (mapSumValsFrom m i acc)
   (if (>= i (mapCap m))
     acc
     (mapSumValsFrom
-      m      (+ i 1)      (if (== (mapStateAt m i) mapStateLive)
+      m
+      (+ i 1)
+      (if (== (mapStateAt m i) mapStateLive)
         (+ acc (mapValAt m i))
-        acc
-      )
-    )
-  )
-)
+        acc))))
 
 ; The sum of every live key. Together with `mapSumVals` and `mapLen`
 ; this pins down a small map's contents well enough to test with.
 (pub :: mapSumKeys (-> Map Int))
-
-(pub fn (mapSumKeys m) (mapSumKeysFrom m 0 0))
+(pub fn (mapSumKeys m)
+  (mapSumKeysFrom m 0 0))
 
 (:: mapSumKeysFrom (-> Map Int Int Int))
-
 (fn (mapSumKeysFrom m i acc)
   (if (>= i (mapCap m))
     acc
     (mapSumKeysFrom
-      m      (+ i 1)      (if (== (mapStateAt m i) mapStateLive)
+      m
+      (+ i 1)
+      (if (== (mapStateAt m i) mapStateLive)
         (+ acc (mapKeyAt m i))
-        acc
-      )
-    )
-  )
-)
+        acc))))

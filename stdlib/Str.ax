@@ -29,7 +29,6 @@
 ; scans a literal. `(__addr "hello")` still yields the raw bytes for the
 ; cases that want NUL-terminated ones - see `strFromLit` and `strCStr`.
 (import Mem)
-
 ; For `strSplit`, which is the only thing here that answers a Vec.
 ; `Vec` imports `Mem` and nothing else, so this adds no cycle.
 (import Vec)
@@ -44,8 +43,8 @@
 ; this module goes through here.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strWrap (-> Int Int String))
-
-(pub fn (strWrap bytes len) (strWrapOwned bytes len 0))
+(pub fn (strWrap bytes len)
+  (strWrapOwned bytes len 0))
 
 ; The same, naming the block that OWNS the bytes (MM-LIFE-2d's `Str`
 ; half): word 2 holds the handle whose death should free them, or 0
@@ -67,7 +66,6 @@
 ; reachable from a slice may free an interior pointer.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strWrapOwned (-> Int Int Int String))
-
 (pub fn (strWrapOwned bytes len owner)
   (let ((s (memAllocMapped 24 4)))
     {
@@ -82,9 +80,7 @@
       ; (`tyIsReprScalar`), and this is the explicit escape it asks
       ; for rather than an exemption.
       (cast String s)
-    }
-  )
-)
+    }))
 
 ; A `Str` over freshly allocated, zeroed space for `len` bytes.
 ;
@@ -92,7 +88,6 @@
 ; payload; the allocator zeroes, so the terminator is already in place.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strAlloc (-> Int String))
-
 (pub fn (strAlloc len)
   ; the header's own share of its buffer - one retain here makes
   ; the rule uniform ("a `Str` header's death releases its owner
@@ -102,9 +97,7 @@
     {
       (__retain bytes)
       (strWrapOwned bytes len bytes)
-    }
-  )
-)
+    }))
 
 ; A `Str` sharing the bytes at a NUL-terminated address.
 ;
@@ -117,55 +110,46 @@
 ; Cost is one scan for the length; the bytes are never copied.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strFromLit (-> Int String))
-
-(pub fn (strFromLit cstr) (strWrap cstr (cstrLen cstr 0)))
+(pub fn (strFromLit cstr)
+  (strWrap cstr (cstrLen cstr 0)))
 
 ; Length of NUL-terminated bytes at `addr`, scanning from `i`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: cstrLen (-> Int Int Int))
-
 (pub fn (cstrLen addr i)
   (if (== (__load8 addr i) 0)
     i
-    (cstrLen addr (+ i 1))
-  )
-)
+    (cstrLen addr (+ i 1))))
 
 ; ------------------------------------------------------------------
 ; Accessors
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strLen (-> String Int))
-
 (pub fn (strLen s)
   ; The one place a `String` is read AS a word address - the handle
   ; crossing into the Mem boundary is spelled with the cast, so the
   ; checker sees every other use of `s` as the string it is
   ; (memory-model.md MM-ALLOC-20).
   (memGetWord
-    (cast Int s)    0
-  )
-)
+    (cast Int s)
+    0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strData (-> String Int))
-
 (pub fn (strData s)
   (memGetWord
-    (cast Int s)    1
-  )
-)
+    (cast Int s)
+    1))
 
 ; The block owning this string's bytes, or 0 for bytes no block owns
 ; (a literal's, a syscall buffer's, an arena keep block's interior).
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strOwner (-> String Int))
-
 (pub fn (strOwner s)
   (memGetWord
-    (cast Int s)    2
-  )
-)
+    (cast Int s)
+    2))
 
 ; The byte at `i`, or 0 when `i` is out of range.
 ;
@@ -174,16 +158,12 @@
 ; like an end-of-input sentinel, and NUL is already that sentinel here.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strByte (-> String Int Int))
-
 (pub fn (strByte s i)
   (if (< i 0)
     0
     (if (>= i (strLen s))
       0
-      (__load8 (strData s) i)
-    )
-  )
-)
+      (__load8 (strData s) i))))
 
 ; The bytes of `s` as a NUL-terminated address, for handing to a
 ; syscall.
@@ -191,13 +171,13 @@
 ; Free: every `Str` this module builds is already NUL-terminated.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strCStr (-> String Int))
-
-(pub fn (strCStr s) (strData s))
+(pub fn (strCStr s)
+  (strData s))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsEmpty (-> String Bool))
-
-(pub fn (strIsEmpty s) (== (strLen s) 0))
+(pub fn (strIsEmpty s)
+  (== (strLen s) 0))
 
 ; ------------------------------------------------------------------
 ; Comparison
@@ -207,7 +187,6 @@
 ; first.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strCmp (-> String String Int))
-
 (pub fn (strCmp a b)
   (let (
     (la (strLen a))
@@ -216,18 +195,11 @@
     (let ((shared 
       (if (< la lb)
         la
-        lb
-      )
-    ))
+        lb)))
       (let ((diff (memCmp (strData a) (strData b) shared)))
         (if (!= diff 0)
           diff
-          (- la lb)
-        )
-      )
-    )
-  )
-)
+          (- la lb))))))
 
 ; Equality, which is NOT `strCmp a b == 0` even though it answers the
 ; same thing. `strCmp` must produce an ORDERING, so it memcmps the
@@ -249,15 +221,11 @@
 ; holds under the change.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strEq (-> String String Bool))
-
 (pub fn (strEq a b)
   (let ((la (strLen a)))
     (if (!= la (strLen b))
       false
-      (== (memCmp (strData a) (strData b) la) 0)
-    )
-  )
-)
+      (== (memCmp (strData a) (strData b) la) 0))))
 
 ; ------------------------------------------------------------------
 ; Slicing and joining
@@ -274,7 +242,6 @@
 ; empty rather than a read of unrelated memory.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strSlice (-> String Int Int String))
-
 (pub fn (strSlice s start count)
   ; the slice's own share of the bytes it now points into
   (let ((len (strLen s)))
@@ -283,50 +250,33 @@
         0
         (if (> start len)
           len
-          start
-        )
-      )
-    ))
+          start))))
       (let ((avail (- len from)))
         (let ((n 
           (if (< count 0)
             0
             (if (> count avail)
               avail
-              count
-            )
-          )
-        ))
+              count))))
           (let ((owner (strOwner s)))
             {
               (__retain owner)
               (strWrapOwned (+ (strData s) from) n owner)
-            }
-          )
-        )
-      )
-    )
-  )
-)
+            }))))))
 
 ; An owned, NUL-terminated copy of `s`.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strDup (-> String String))
-
 (pub fn (strDup s)
   (let ((len (strLen s)))
     (let ((out (strAlloc len)))
       {
         (memCopy (strData out) (strData s) len)
         out
-      }
-    )
-  )
-)
+      })))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strConcat (-> String String String))
-
 (pub fn (strConcat a b)
   (let (
     (la (strLen a))
@@ -337,10 +287,7 @@
         (memCopy (strData out) (strData a) la)
         (memCopy (+ (strData out) la) (strData b) lb)
         out
-      }
-    )
-  )
-)
+      })))
 
 ; ------------------------------------------------------------------
 ; Searching
@@ -375,7 +322,6 @@
 ; this is a retype and not a behaviour change.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strFindByte (-> String Int Int (Option Int)))
-
 (pub fn (strFindByte s byte from)
   (let (
     (len (strLen s))
@@ -386,27 +332,19 @@
       (while (&& (== hit 0) (< i len))
         (if (== (strByte s i) byte)
           (set hit 1)
-          (set i (+ i 1))
-        ))
+          (set i (+ i 1))))
       (if (== hit 0)
         None
-        (Some i)
-      )
-    }
-  )
-)
+        (Some i))
+    }))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strStartsWith (-> String String Bool))
-
 (pub fn (strStartsWith s prefix)
   (let ((lp (strLen prefix)))
     (if (> lp (strLen s))
       false
-      (== (memCmp (strData s) (strData prefix) lp) 0)
-    )
-  )
-)
+      (== (memCmp (strData s) (strData prefix) lp) 0))))
 
 ; ------------------------------------------------------------------
 ; Byte classification.
@@ -431,45 +369,34 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsDigit (-> Int Bool))
-
 (pub fn (strIsDigit ch)
   (if (>= ch 48)
     (<= ch 57)
-    false
-  )
-)
+    false))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsAlpha (-> Int Bool))
-
 (pub fn (strIsAlpha ch)
   (if (>= ch 65)
     (if (<= ch 90)
       true
       (if (>= ch 97)
         (<= ch 122)
-        false
-      )
-    )
-    false
-  )
-)
+        false))
+    false))
 
 ; Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`:
 ; VT and FF are AX1001 to this language's lexer, and a formatter that
 ; skipped them turned a refused file into an accepted one.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsSpace (-> Int Bool))
-
 (pub fn (strIsSpace ch)
   (match ch
     (32 true)
     (10 true)
     (13 true)
     (9 true)
-    (_ false)
-  )
-)
+    (_ false)))
 
 ; The value of a hex digit, or `None`. Stated as the VALUE and not as
 ; a predicate because the value is what every caller needed: the JSON
@@ -484,7 +411,6 @@
 ; tests/diagnostics/384-restrict-no-alloc-ctor.ax).
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strHexVal (-> Int (Option Int)))
-
 (pub fn (strHexVal ch)
   (if (&& (>= ch 48) (<= ch 57))
     (Some (- ch 48))
@@ -492,21 +418,14 @@
       (Some (+ 10 (- ch 97)))
       (if (&& (>= ch 65) (<= ch 70))
         (Some (+ 10 (- ch 65)))
-        None
-      )
-    )
-  )
-)
+        None))))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strIsHexDigit (-> Int Bool))
-
 (pub fn (strIsHexDigit ch)
   (match (strHexVal ch)
     ((Some v) true)
-    ((None) false)
-  )
-)
+    ((None) false)))
 
 ; ------------------------------------------------------------------
 ; Splitting
@@ -526,37 +445,33 @@
 ; for that reason.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strSplit (-> String Int (Vec Int)))
-
 (pub fn (strSplit s byte)
   (let ((out vecNew))
     {
       (strSplitFrom s byte 0 out)
       out
-    }
-  )
-)
+    }))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strSplitFrom (-> String Int Int (Vec Int) Int))
-
 (pub fn (strSplitFrom s byte from out)
   (match (strFindByte s byte from)
     ((None)
       {
         (vecPush
-          out          (cast Int (strSlice s from (- (strLen s) from)))
-        )
+          out
+          (cast Int (strSlice s from (- (strLen s) from))))
         0
-      })
+      }
+    )
     ((Some cut)
       {
         (vecPush
-          out          (cast Int (strSlice s from (- cut from)))
-        )
+          out
+          (cast Int (strSlice s from (- cut from))))
         (strSplitFrom s byte (+ cut 1) out)
-      })
-  )
-)
+      }
+    )))
 
 ; A byte: an `Int` the range check has already admitted to `0 .. 255`.
 ; The upper bound is exclusive (`0 <= b < 256`), as for every
@@ -575,15 +490,12 @@
 ; now traps with status 80 at the call boundary instead.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strFromByte (-> Byte String))
-
 (pub fn (strFromByte b)
   (let ((s (strAlloc 1)))
     {
       (__store8 (strData s) 0 b)
       s
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Case, substring search, trimming and integer parsing.
@@ -605,7 +517,6 @@
 ;@axiom:restrict(no-io,no-foreign)
 ;@axiom:post((== (strLen result) (strLen s)))
 (pub :: strLower (-> String String))
-
 (pub fn (strLower s)
   (let (
     (len (strLen s))
@@ -615,8 +526,7 @@
       (for k 0 len
         (if (&& (>= (strByte s k) 65) (<= (strByte s k) 90))
           (set upper (+ upper 1))
-          0
-        ))
+          0))
       (if (== upper 0)
         s
         (let (
@@ -627,19 +537,14 @@
             (for i 0 len
               (let ((c (strByte s i)))
                 (__store8
-                  d                    i                    (if (&& (>= c 65) (<= c 90))
+                  d
+                  i
+                  (if (&& (>= c 65) (<= c 90))
                     (+ c 32)
-                    c
-                  )
-                )
-              ))
+                    c))))
             out
-          }
-        )
-      )
-    }
-  )
-)
+          }))
+    }))
 
 ; The index of the first occurrence of `needle` in `s` at or after
 ; `from`, or `None`. An empty needle is found at `from` whenever
@@ -652,30 +557,24 @@
 ; are unchanged.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strFind (-> String String Int (Option Int)))
-
 (pub fn (strFind s needle from)
   (let (
     (len (strLen s))
     (ln (strLen needle))
     (mut i (if (< from 0)
       0
-      from
-    ))
+      from))
     (mut found (- 0 1))
   )
     {
       (while (&& (< found 0) (<= (+ i ln) len))
         (if (== (memCmp (+ (strData s) i) (strData needle) ln) 0)
           (set found i)
-          (set i (+ i 1))
-        ))
+          (set i (+ i 1))))
       (if (< found 0)
         None
-        (Some found)
-      )
-    }
-  )
-)
+        (Some found))
+    }))
 
 ; `s` without the `strIsSpace` bytes at either end, as a SLICE that
 ; shares `s`'s storage - so it is not NUL-terminated unless it ends
@@ -683,7 +582,6 @@
 ; space trims to "".
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strTrim (-> String String))
-
 (pub fn (strTrim s)
   (let (
     (len (strLen s))
@@ -696,9 +594,7 @@
       (while (&& (> hi lo) (strIsSpace (strByte s (- hi 1))))
         (set hi (- hi 1)))
       (strSlice s lo (- hi lo))
-    }
-  )
-)
+    }))
 
 ; The decimal integer `s` spells - an optional `-`, then one or more
 ; ASCII digits and nothing else - or `None`: for an empty string, a
@@ -715,15 +611,13 @@
 ; reason: the `(Some ...)` answer allocates.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strParseInt (-> String (Option Int)))
-
 (pub fn (strParseInt s)
   (let (
     (len (strLen s))
     (neg (== (strByte s 0) 45))
     (mut i (if (== (strByte s 0) 45)
       1
-      0
-    ))
+      0))
     (mut acc 0)
     (mut bad 0)
     (mut digits 0)
@@ -738,39 +632,29 @@
               ; be 7, or 8 when the sign is negative.
               (let ((d (- c 48)))
                 (if (||
-                  (< acc (- 0 922337203685477580))                  (&&
-                    (== acc (- 0 922337203685477580))                    (>
-                      d                      (if neg
+                  (< acc (- 0 922337203685477580))
+                  (&&
+                    (== acc (- 0 922337203685477580))
+                    (>
+                      d
+                      (if neg
                         8
-                        7
-                      )
-                    )
-                  )
-                )
+                        7))))
                   (set bad 1)
                   {
                     (set acc (- (* acc 10) d))
                     (set digits (+ digits 1))
-                  }
-                )
-              )
-              (set bad 1)
-            )
+                  }))
+              (set bad 1))
             (set i (+ i 1))
-          }
-        ))
+          }))
       (if (|| (== bad 1) (== digits 0))
         None
         (Some
           (if neg
             acc
-            (- 0 acc)
-          )
-        )
-      )
-    }
-  )
-)
+            (- 0 acc))))
+    }))
 
 ; `format` — a String, built at compile time from a literal's runs and
 ; holes, or the hole lowering applied to anything else.

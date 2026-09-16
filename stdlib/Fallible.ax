@@ -122,14 +122,14 @@
 ; negative `Int`. A loop compares the value it got against this, or
 ; asks `fallibleIsSkipped`.
 (pub :: fallibleSkipped Int)
-
-(pub fn (fallibleSkipped) (- (- 0 9223372036854775807) 1))
+(pub fn (fallibleSkipped)
+  (- (- 0 9223372036854775807) 1))
 
 ; Whether a value is the skip sentinel. The comparison a batch loop
 ; makes once per record; it allocates nothing.
 (pub :: fallibleIsSkipped (-> Int Bool))
-
-(pub fn (fallibleIsSkipped v) (== v fallibleSkipped))
+(pub fn (fallibleIsSkipped v)
+  (== v fallibleSkipped))
 
 ; ------------------------------------------------------------------
 ; The ready handlers. Each is a value a program passes to `handle`:
@@ -149,8 +149,8 @@
 ; message. A one-parameter top-level function is a value, so it is
 ; passed bare.
 (pub :: fallibleSkip (-> String Int))
-
-(pub fn (fallibleSkip msg) fallibleSkipped)
+(pub fn (fallibleSkip msg)
+  fallibleSkipped)
 
 ; Use `d` in place of every malformed record. Built ONCE, at the
 ; `handle`, which is why the fallback is here and not an argument of
@@ -160,10 +160,8 @@
 ; curried and that is the formatter's normal form; `mkAdder` in
 ; `280-function-application.ax` is the precedent.
 (pub :: fallibleDefault (-> Int String Int))
-
 (pub fn (fallibleDefault d)
-  (lambda (msg) d)
-)
+  (lambda (msg) d))
 
 ; ------------------------------------------------------------------
 ; Counting
@@ -177,13 +175,13 @@
 
 ; A fresh tally at zero.
 (pub :: fallibleTally FallibleTally)
-
-(pub fn (fallibleTally) (FallibleTally 0))
+(pub fn (fallibleTally)
+  (FallibleTally 0))
 
 ; What a tally holds.
 (pub :: fallibleCount (-> FallibleTally Int))
-
-(pub fn (fallibleCount t) t.count)
+(pub fn (fallibleCount t)
+  t.count)
 
 ; Count every malformed record in `tally`, then answer as `next` would:
 ; `(fallibleCounting t fallibleSkip)` skips and counts,
@@ -191,12 +189,10 @@
 ; The `handle` installing it lists `Mut` beside `Fallible`, because a
 ; handler's own effects count at the site that installs it.
 (pub :: fallibleCounting (-> FallibleTally (-> String Int) String Int))
-
 (pub fn (fallibleCounting tally next)
   (lambda (msg)
     {
       (set tally.count (+ tally.count 1))
       (next msg)
     }
-  )
-)
+  ))

@@ -174,17 +174,11 @@
 ; are public as well, for the gate and for anyone who wants to read a
 ; history file without a session.
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import Sys)
-
 (import Err)
-
 (import Path)
-
 (import diag)
 
 ; ------------------------------------------------------------------
@@ -202,18 +196,18 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histMaxEntries Int)
-
-(pub fn (histMaxEntries) 1000)
+(pub fn (histMaxEntries)
+  1000)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histMaxBytes Int)
-
-(pub fn (histMaxBytes) 262144)
+(pub fn (histMaxBytes)
+  262144)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histMaxEntryBytes Int)
-
-(pub fn (histMaxEntryBytes) 4096)
+(pub fn (histMaxEntryBytes)
+  4096)
 
 ; ------------------------------------------------------------------
 ; THE CODEC. No IO, no terminal, no filesystem - `restrict(no-io)` is
@@ -224,18 +218,13 @@
 ; entry.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: histAllBlank (-> String Int Bool))
-
 (fn (histAllBlank s i)
   (if (>= i (strLen s))
     true
     (let ((b (strByte s i)))
       (if (|| (== b 32) (|| (== b 9) (|| (== b 10) (== b 13))))
         (histAllBlank s (+ i 1))
-        false
-      )
-    )
-  )
-)
+        false))))
 
 ; Establish the format's precondition on the ENTRY rather than assuming
 ; it of the caller: no leading blank on the first physical line, and a
@@ -245,7 +234,6 @@
 ; for whatever it hands back.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histNormalize (-> String String))
-
 (pub fn (histNormalize s)
   (let (
     (n (strLen s))
@@ -256,11 +244,8 @@
         (set i (+ i 1)))
       (if (histAllBlank s i)
         ""
-        (strSlice s i (- n i))
-      )
-    }
-  )
-)
+        (strSlice s i (- n i)))
+    }))
 
 ; One entry -> the exact bytes appended to the file. First line
 ; verbatim, every later line with one leading TAB, every line closed by
@@ -280,7 +265,6 @@
 ; `strDup`'ed entries that outlive the call that made them.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histEncode (-> String String))
-
 (pub fn (histEncode e)
   (let (
     (parts vecNew)
@@ -290,30 +274,28 @@
   )
     {
       (while (<= start n)
-        (let ((end (match (strFindByte e 10 start)
-          ((None) n)
-          ((Some nl) nl)
-        )))
+        (let ((end 
+          (match (strFindByte e 10 start)
+            ((None) n)
+            ((Some nl) nl))))
           {
             (if (== first 1)
               (set first 0)
-              { (vecPush parts "\t") 0 }
-            )
+              {
+                (vecPush parts "\t")
+                0
+              })
             (vecPush parts (strSlice e start (- end start)))
             (vecPush parts "\n")
             (set start (+ end 1))
-          }
-        ))
+          }))
       (catStrs parts)
-    }
-  )
-)
+    }))
 
 ; A Vec of entries -> the whole file's bytes. The inverse of
 ; `histDecode`, and the payload compaction renames into place.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histSerialize (-> (Vec String) String))
-
 (pub fn (histSerialize v)
   (let (
     (parts vecNew)
@@ -327,9 +309,7 @@
           (set i (+ i 1))
         })
       (catStrs parts)
-    }
-  )
-)
+    }))
 
 ; Push `e` onto `out` unless it repeats the entry already there.
 ; Consecutive dedup lives here so that a file written by an older
@@ -337,22 +317,20 @@
 ; well as on the way out.
 ;@axiom:restrict(no-io,no-foreign)
 (:: histPushDedup (-> (Vec String) String Int))
-
 (fn (histPushDedup out e)
   (let ((n (vecLen out)))
     (if (&& (> n 0) (strEq (vecGetStr out (- n 1)) e))
       0
-      { (vecPush out (strDup e)) 0 }
-    )
-  )
-)
+      {
+        (vecPush out (strDup e))
+        0
+      })))
 
 ; Keep the LAST `cap` elements of `v`, as a fresh vector. Newest-wins:
 ; the entries a user reaches with Up are the recent ones, so an
 ; overflow drops from the old end.
 ;@axiom:restrict(no-io,no-foreign)
 (:: histKeepLast (-> (Vec String) Int (Vec String)))
-
 (fn (histKeepLast v cap)
   (let ((n (vecLen v)))
     (if (<= n cap)
@@ -368,11 +346,7 @@
               (set i (+ i 1))
             })
           out
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; A whole file's bytes plus the entry cap -> a `vecNewRef` of entry
 ; Strings, oldest first, consecutive duplicates collapsed and trimmed
@@ -389,7 +363,6 @@
 ; the read.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histDecode (-> String Int (Vec String)))
-
 (pub fn (histDecode text cap)
   (let (
     (out vecNewRef)
@@ -400,63 +373,51 @@
   )
     {
       (while (< start n)
-        (let ((end (match (strFindByte text 10 start)
-          ((None) n)
-          ((Some nl) nl)
-        )))
-            {
-              (let ((line (strSlice text start (- end start))))
-                (if (== (strLen line) 0)
-                  ; a blank physical line closes whatever is open
+        (let ((end 
+          (match (strFindByte text 10 start)
+            ((None) n)
+            ((Some nl) nl))))
+          {
+            (let ((line (strSlice text start (- end start))))
+              (if (== (strLen line) 0)
+                ; a blank physical line closes whatever is open
+                {
+                  (if (== have 1)
+                    (histPushDedup out cur)
+                    0)
+                  (set have 0)
+                  (set cur "")
+                  0
+                }
+                (if (== (strByte line 0) 9)
+                  ; a continuation: exactly one TAB comes off
+                  (let ((body (strSlice line 1 (- (strLen line) 1))))
+                    (if (== have 1)
+                      {
+                        (set cur (strConcat (strConcat cur "\n") body))
+                        0
+                      }
+                      {
+                        (set cur body)
+                        (set have 1)
+                        0
+                      }))
+                  ; anything else starts a fresh entry
                   {
                     (if (== have 1)
                       (histPushDedup out cur)
-                      0
-                    )
-                    (set have 0)
-                    (set cur "")
+                      0)
+                    (set cur line)
+                    (set have 1)
                     0
-                  }
-                  (if (== (strByte line 0) 9)
-                    ; a continuation: exactly one TAB comes off
-                    (let ((body (strSlice line 1 (- (strLen line) 1))))
-                      (if (== have 1)
-                        {
-                          (set cur (strConcat (strConcat cur "\n") body))
-                          0
-                        }
-                        {
-                          (set cur body)
-                          (set have 1)
-                          0
-                        }
-                      )
-                    )
-                    ; anything else starts a fresh entry
-                    {
-                      (if (== have 1)
-                        (histPushDedup out cur)
-                        0
-                      )
-                      (set cur line)
-                      (set have 1)
-                      0
-                    }
-                  )
-                )
-              )
-              (set start (+ end 1))
-            }
-          )
-        )
+                  })))
+            (set start (+ end 1))
+          }))
       (if (== have 1)
         (histPushDedup out cur)
-        0
-      )
+        0)
       (histKeepLast out cap)
-    }
-  )
-)
+    }))
 
 ; A multi-line entry on ONE row, for the Ctrl-R prompt: every newline
 ; becomes `sep`. The separator is the caller's because the editor picks
@@ -464,7 +425,6 @@
 ; separator alike.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histFlatten (-> String String String))
-
 (pub fn (histFlatten e sep)
   (let (
     (parts vecNew)
@@ -474,24 +434,22 @@
   )
     {
       (while (<= start n)
-        (let ((end (match (strFindByte e 10 start)
-          ((None) n)
-          ((Some nl) nl)
-        )))
-            {
-              (if (== first 1)
-                (set first 0)
-                { (vecPush parts sep) 0 }
-              )
-              (vecPush parts (strSlice e start (- end start)))
-              (set start (+ end 1))
-            }
-          )
-        )
+        (let ((end 
+          (match (strFindByte e 10 start)
+            ((None) n)
+            ((Some nl) nl))))
+          {
+            (if (== first 1)
+              (set first 0)
+              {
+                (vecPush parts sep)
+                0
+              })
+            (vecPush parts (strSlice e start (- end start)))
+            (set start (+ end 1))
+          }))
       (catStrs parts)
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; THE FILE. Everything below reaches the filesystem and says so:
@@ -507,17 +465,12 @@
 ; the reason `histEnsureDir` cannot simply call `pathDir` twice.
 ;@axiom:restrict(no-io,no-foreign)
 (:: histDirOf (-> String String))
-
 (fn (histDirOf p)
   (let ((d (pathDir p)))
     (let ((n (strLen d)))
       (if (== n 0)
         ""
-        (strDup (strSlice d 0 (- n 1)))
-      )
-    )
-  )
-)
+        (strDup (strSlice d 0 (- n 1)))))))
 
 ; Where the history file lives, or "" for "no persistence". The
 ; resolution order is the header's; `interactive` 0 answers "" without
@@ -531,7 +484,6 @@
 ; nobody named: the value runs on into the next environment string.
 ; The gate greps this file for that spelling.
 (pub :: histResolvePath (-> Int String))
-
 ;@axiom:effect(io)
 (pub fn (histResolvePath interactive)
   (if (== interactive 0)
@@ -547,16 +499,7 @@
               (let ((home (sysEnv "HOME")))
                 (if (pathIsAbsolute home)
                   (pathJoin (pathJoin (pathJoin home ".config") "axiom") "repl-history")
-                  ""
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                  "")))))))))
 
 ; Create the two directories above `path`, ignoring every failure.
 ; Answers 0 always.
@@ -576,7 +519,6 @@
 ; The `(isErr (sysMkdir (strCStr d) mode))` spelling is `replEval`'s
 ; (repl.ax:808), applied to an ALLOCATED path for the reason above.
 (pub :: histEnsureDir (-> String Int))
-
 ;@axiom:effect(io)
 (pub fn (histEnsureDir path)
   (let ((d (histDirOf path)))
@@ -585,22 +527,15 @@
         (if (> (strLen g) 0)
           (if (isErr (sysMkdir (strCStr g) sysDirMode))
             0
-            0
-          )
-          0
-        )
+            0)
+          0)
         (if (> (strLen d) 0)
           (if (isErr (sysMkdir (strCStr d) sysDirMode))
             0
-            0
-          )
-          0
-        )
+            0)
+          0)
         0
-      }
-    )
-  )
-)
+      })))
 
 ; ------------------------------------------------------------------
 ; THE SESSION.
@@ -629,40 +564,36 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: histRing (-> Int (Vec String)))
-
-(fn (histRing h) (memGetWordVec h 0))
+(fn (histRing h)
+  (memGetWordVec h 0))
 
 ; The resolved history file, or "" when this session persists nothing.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histPath (-> Int String))
-
-(pub fn (histPath h) (memGetWordStr h 1))
+(pub fn (histPath h)
+  (memGetWordStr h 1))
 
 ; 1 when this session writes to a file.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histPersist (-> Int Int))
-
-(pub fn (histPersist h) (memGetWord h 5))
+(pub fn (histPersist h)
+  (memGetWord h 5))
 
 ; How many entries the ring holds.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histLen (-> Int Int))
-
-(pub fn (histLen h) (vecLen (histRing h)))
+(pub fn (histLen h)
+  (vecLen (histRing h)))
 
 ; The entry at `i`, oldest first, or "" out of range.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histAt (-> Int Int String))
-
 (pub fn (histAt h i)
   (if (< i 0)
     ""
     (if (>= i (histLen h))
       ""
-      (vecGetStr (histRing h) i)
-    )
-  )
-)
+      (vecGetStr (histRing h) i))))
 
 ; Build a session. `interactive` is 1 only when the caller has
 ; established that a person is at the other end; this module does not
@@ -671,26 +602,33 @@
 ; A cap is taken as an argument so a gate can drive the trim without
 ; recording a thousand entries. `histOpen` is the ordinary spelling.
 (pub :: histOpenWith (-> Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (histOpenWith interactive cap)
   (let ((path (histResolvePath interactive)))
     (if (== (strLen path) 0)
-      (Hist vecNewRef "" cap 0 "" 0)
+      (Hist
+        vecNewRef
+        ""
+        cap
+        0
+        ""
+        0)
       {
         (histEnsureDir path)
         (let ((v (histDecode (sysReadFile (strCStr path)) cap)))
-          (Hist v path cap (vecLen v) "" 1)
-        )
-      }
-    )
-  )
-)
+          (Hist
+            v
+            path
+            cap
+            (vecLen v)
+            ""
+            1))
+      })))
 
 (pub :: histOpen (-> Int Int))
-
 ;@axiom:effect(io)
-(pub fn (histOpen interactive) (histOpenWith interactive histMaxEntries))
+(pub fn (histOpen interactive)
+  (histOpenWith interactive histMaxEntries))
 
 ; Leave browse mode: the cursor goes back to the draft position and the
 ; saved draft is dropped. Called on submit, and by the editor on any
@@ -698,14 +636,12 @@
 ; next Up starts from the newest again.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histBrowseReset (-> Int Int))
-
 (pub fn (histBrowseReset h)
   {
     (memSetWord h 3 (histLen h))
     (memSetWord h 4 "")
     0
-  }
-)
+  })
 
 ; Record ONE COMPLETE entry - the whole multi-line string `replMain`
 ; hands `replDispatch`, not a physical line. Answers 1 when it was
@@ -716,7 +652,6 @@
 ; call, so `:quit`'s `sysExitWith` and a Ctrl-C at the prompt both lose
 ; nothing. An over-large entry stays in the ring and is not written.
 (pub :: histRecord (-> Int String Int))
-
 ;@axiom:effect(io)
 (pub fn (histRecord h raw)
   (let ((e (histNormalize raw)))
@@ -739,18 +674,10 @@
               (if (&& (== (histPersist h) 1) (<= (strLen e) histMaxEntryBytes))
                 (if (isErr (sysAppendFile (strCStr (histPath h)) (histEncode e)))
                   0
-                  0
-                )
-                0
-              )
+                  0)
+                0)
               1
-            }
-          )
-        )
-      )
-    )
-  )
-)
+            }))))))
 
 ; Compact the file if it has outgrown `histMaxBytes`, then answer 1
 ; when it was rewritten and 0 when it was not.
@@ -770,7 +697,6 @@
 ; everything else, and which is exactly why every REPL on this machine
 ; once wrote to one scratch name (repl.ax:752-766).
 (pub :: histClose (-> Int Int))
-
 ;@axiom:effect(io)
 (pub fn (histClose h)
   (if (== (histPersist h) 0)
@@ -788,18 +714,7 @@
                     0
                     (if (isErr (sysRename (strCStr tmp) cp))
                       0
-                      1
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                      1)))))))))))
 
 ; ------------------------------------------------------------------
 ; BROWSING - the Up and Down arrows.
@@ -814,7 +729,6 @@
 ; 0 at the oldest entry, where the editor should do nothing.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histBrowseUp (-> Int String Int))
-
 (pub fn (histBrowseUp h cur)
   (let ((pos (memGetWord h 3)))
     (if (<= pos 0)
@@ -822,19 +736,14 @@
       {
         (if (>= pos (histLen h))
           (memSetWord h 4 (strDup cur))
-          0
-        )
+          0)
         (memSetWord h 3 (- pos 1))
         1
-      }
-    )
-  )
-)
+      })))
 
 ; Down. Answers 0 when already on the draft.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histBrowseDown (-> Int Int))
-
 (pub fn (histBrowseDown h)
   (let ((pos (memGetWord h 3)))
     (if (>= pos (histLen h))
@@ -842,10 +751,7 @@
       {
         (memSetWord h 3 (+ pos 1))
         1
-      }
-    )
-  )
-)
+      })))
 
 ; The text the browse cursor points at: the entry at `pos`, or the
 ; saved draft once the cursor is back past the newest entry. A recalled
@@ -855,15 +761,11 @@
 ; because it balanced when it was recorded.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histCurrent (-> Int String))
-
 (pub fn (histCurrent h)
   (let ((pos (memGetWord h 3)))
     (if (>= pos (histLen h))
       (memGetWordStr h 4)
-      (histAt h pos)
-    )
-  )
-)
+      (histAt h pos))))
 
 ; ------------------------------------------------------------------
 ; REVERSE INCREMENTAL SEARCH - Ctrl-R.
@@ -872,8 +774,8 @@
 ; empty ring.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: histSearchTop (-> Int Int))
-
-(pub fn (histSearchTop h) (- (histLen h) 1))
+(pub fn (histSearchTop h)
+  (- (histLen h) 1))
 
 ; The greatest index <= `from` whose entry CONTAINS `needle`, or -1.
 ;
@@ -894,27 +796,23 @@
 ; (`MM-EXEC-9a`), which is the same reason `strFind` lost its own.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: histFindBack (-> Int String Int Int))
-
 (pub fn (histFindBack h needle from)
   (let ((n (histLen h)))
     (let (
       (mut i (if (>= from n)
         (- n 1)
-        from
-      ))
+        from))
       (mut found (- 0 1))
     )
       {
         (while (&& (< found 0) (>= i 0))
           {
             (match (strFind (histAt h i) needle 0)
-              ((Some _) (set found i))
-              ((None) 0)
-            )
+              ((Some _)
+                (set found i)
+              )
+              ((None) 0))
             (set i (- i 1))
           })
         found
-      }
-    )
-  )
-)
+      })))

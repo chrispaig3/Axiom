@@ -35,16 +35,13 @@
 ; holding both has an ambiguous `die` at every call site. Writing is
 ; three lines over `Sys` and costs nothing.
 (import Mem)
-
 (import Str)
-
 (import Fmt)
-
 (import Sys)
 
 (:: rdCap Int)
-
-(fn (rdCap) 65536)
+(fn (rdCap)
+  65536)
 
 ; The largest `Content-Length` this framer will accept, in bytes. A
 ; header naming more than this is refused, and refused exactly the way
@@ -85,11 +82,10 @@
 ; short of i64. Raising this is safe up to about 9e17; lowering it
 ; below ~1 MiB would start refusing this compiler's own sources.
 (:: rdMaxBody Int)
-
-(fn (rdMaxBody) 67108864)
+(fn (rdMaxBody)
+  67108864)
 
 (pub :: rdNew (-> Int Int))
-
 (pub fn (rdNew fd)
   (let ((r (memAlloc 32)))
     {
@@ -98,25 +94,23 @@
       (memSetWord r 2 0)
       (memSetWord r 3 0)
       r
-    }
-  )
-)
+    }))
 
 (:: rdFd (-> Int Int))
-
-(fn (rdFd r) (memGetWord r 0))
+(fn (rdFd r)
+  (memGetWord r 0))
 
 (pub :: rdBuf (-> Int String))
-
-(pub fn (rdBuf r) (memGetWordStr r 1))
+(pub fn (rdBuf r)
+  (memGetWordStr r 1))
 
 (pub :: rdFilled (-> Int Int))
-
-(pub fn (rdFilled r) (memGetWord r 2))
+(pub fn (rdFilled r)
+  (memGetWord r 2))
 
 (pub :: rdConsumed (-> Int Int))
-
-(pub fn (rdConsumed r) (memGetWord r 3))
+(pub fn (rdConsumed r)
+  (memGetWord r 3))
 
 ; Re-seat a reader on freshly allocated storage, carrying `u` bytes of
 ; not-yet-consumed input from `addr`.
@@ -128,30 +122,23 @@
 ; capacity - a partially-read large message is exactly the case - so
 ; the new buffer is at least as big as what it has to hold.
 (pub :: rdReseat (-> Int Int Int Int))
-
 (pub fn (rdReseat r addr u)
   (let ((buf 
     (strAlloc
       (if (> u rdCap)
         u
-        rdCap
-      )
-    )
-  ))
+        rdCap))))
     {
       (memCopy (strData buf) addr u)
       (memSetWord r 1 buf)
       (memSetWord r 2 u)
       (memSetWord r 3 0)
       r
-    }
-  )
-)
+    }))
 
 ; Move the live region to the front, and double the buffer if it is
 ; still full afterwards. Answers nothing useful; it mutates `r`.
 (:: rdCompact (-> Int Int))
-
 (fn (rdCompact r)
   (let (
     (buf (rdBuf r))
@@ -165,50 +152,43 @@
           (memSetWord r 2 (- f c))
           (memSetWord r 3 0)
         }
-        0
-      )
+        0)
       ; Still no room? Grow. `strLen` of the buffer is its capacity.
       (if (>= (rdFilled r) (strLen (rdBuf r)))
         (let ((bigger (strAlloc (* (strLen (rdBuf r)) 2))))
           {
             (memCopy (strData bigger) (strData (rdBuf r)) (rdFilled r))
             (memSetWord r 1 bigger)
-          }
-        )
-        0
-      )
+          })
+        0)
       0
-    }
-  )
-)
+    }))
 
 ; One `read` into the free tail. Answers the byte count: 0 at end of
 ; file, negative on error.
 (:: rdFill (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (rdFill r)
   {
     (if (>= (rdFilled r) (strLen (rdBuf r)))
       (rdCompact r)
-      0
-    )
-    (let ((n (match (sysReadFd (rdFd r) (+ (strData (rdBuf r)) (rdFilled r)) (- (strLen (rdBuf r)) (rdFilled r))) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+      0)
+    (let ((n 
+      (match (sysReadFd (rdFd r) (+ (strData (rdBuf r)) (rdFilled r)) (- (strLen (rdBuf r)) (rdFilled r)))
+        ((Ok k) k)
+        ((Err e) (- 0 (errCode e))))))
       {
         (if (> n 0)
           (memSetWord r 2 (+ (rdFilled r) n))
-          0
-        )
+          0)
         n
-      }
-    )
-  }
-)
+      })
+  })
 
 ; Bytes read but not yet consumed: the message currently in progress.
 (:: rdAvail (-> Int Int))
-
-(fn (rdAvail r) (- (rdFilled r) (rdConsumed r)))
+(fn (rdAvail r)
+  (- (rdFilled r) (rdConsumed r)))
 
 ; The offset of `\r\n\r\n` within the unconsumed region, or -1.
 ;
@@ -225,7 +205,6 @@
 ; `self_host/codegen.ax` is ~150 KB. Relative offsets are invariant
 ; under compaction, so the question cannot be got wrong again.
 (:: rdFindHeaderEnd (-> Int Int))
-
 (fn (rdFindHeaderEnd r)
   (let (
     (buf (rdBuf r))
@@ -239,28 +218,21 @@
         {
           (if (&& (== (strByte buf (+ base i)) 13) (&& (== (strByte buf (+ (+ base i) 1)) 10) (&& (== (strByte buf (+ (+ base i) 2)) 13) (== (strByte buf (+ (+ base i) 3)) 10))))
             (set found i)
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       found
-    }
-  )
-)
+    }))
 
 ; ASCII lower-case of one byte.
 (:: rdLower (-> Int Int))
-
 (fn (rdLower b)
   (if (&& (>= b 65) (<= b 90))
     (+ b 32)
-    b
-  )
-)
+    b))
 
 ; Does the buffer hold `word` at `at`, compared case-insensitively?
 (:: rdMatchCI (-> Int Int String Int Bool))
-
 (fn (rdMatchCI r at word i)
   (if (>= i (strLen word))
     true
@@ -268,11 +240,7 @@
       false
       (if (== (rdLower (strByte (rdBuf r) (+ at i))) (rdLower (strByte word i)))
         (rdMatchCI r at word (+ i 1))
-        false
-      )
-    )
-  )
-)
+        false))))
 
 ; The `Content-Length` value in the header block, which runs from the
 ; consume point to `hdrRel` bytes past it, or -1 when the header is
@@ -286,7 +254,6 @@
 ; an over-long header answered anything else, a peer could tell the
 ; ceiling from a typo and probe for it.
 (:: rdContentLength (-> Int Int Int))
-
 (fn (rdContentLength r hdrRel)
   (let (
     (buf (rdBuf r))
@@ -325,17 +292,13 @@
                       (set p (+ p 1))
                       (if (> v rdMaxBody)
                         (set over 1)
-                        0
-                      )
+                        0)
                     })
                   (if (&& (== over 0) (> digits 0))
                     (set len v)
-                    0
-                  )
-                }
-              )
-              0
-            )
+                    0)
+                })
+              0)
             (set i (+ i 1))
           })
         ; `len` is assigned only where `over` stayed 0, and `over`
@@ -345,16 +308,12 @@
         ; that would let a peer hide a real length behind an
         ; overflowing one and pick which of the two the framer used.
         len
-      }
-    )
-  )
-)
+      })))
 
 ; Read one whole message and answer its body. An empty Str means the
 ; stream ended or broke - the caller stops, which is what an LSP does
 ; when its client goes away without saying `exit`.
 (pub :: rpcRead (-> Int String))
-
 ;@axiom:effect(io)
 (pub fn (rpcRead r)
   ; 1. A complete header block.
@@ -369,10 +328,8 @@
           (if (< hdr 0)
             (if (< (rdFill r) 1)
               (set dead 1)
-              0
-            )
-            0
-          )
+              0)
+            0)
         })
       (if (== dead 1)
         ""
@@ -413,8 +370,7 @@
                 (while (&& (< (- (rdAvail r) bodyRel) n) (== dead 0))
                   (if (< (rdFill r) 1)
                     (set dead 1)
-                    0
-                  ))
+                    0))
                 (if (== dead 1)
                   ""
                   ; `strDup`, not `strSlice`: a slice would SHARE
@@ -428,29 +384,20 @@
                     {
                       (memSetWord r 3 (+ (+ (rdConsumed r) bodyRel) n))
                       body
-                    }
-                  )
-                )
-              }
-            )
-          )
-        )
-      )
-    }
-  )
-)
+                    }))
+              }))))
+    }))
 
 ; Write all of `s`. The short-write loop - a single `write` may
 ; transfer fewer bytes than asked, and treating that as success is how
 ; a reply gets silently truncated - is `Sys`'s, stated once there.
 (:: rpcPut (-> Int String Int))
-
 ;@axiom:effect(io)
-(fn (rpcPut fd s) (sysWriteAllFd fd (strData s) (strLen s) 0))
+(fn (rpcPut fd s)
+  (sysWriteAllFd fd (strData s) (strLen s) 0))
 
 ; Frame `body` and write it.
 (pub :: rpcWrite (-> Int String Int))
-
 ;@axiom:effect(io)
 (pub fn (rpcWrite fd body)
   {
@@ -459,5 +406,4 @@
     (rpcPut fd "\r\n\r\n")
     (rpcPut fd body)
     (strLen body)
-  }
-)
+  })

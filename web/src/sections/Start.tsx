@@ -11,14 +11,12 @@ import { ArrowUpRight } from '../components/Icons.tsx'
 const HELLO = `(import IO)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (println "Hello, Axiom!")
     0
-  }
-)`
+  })`
 
 const CLI: [string, string][] = [
   ['axiom run f.ax', 'compile and execute in one step'],

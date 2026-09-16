@@ -44,16 +44,12 @@ export const HERO: Sample = {
   (Square Int))
 
 (:: area (-> Shape Int))
-
 (fn (area s)
   (match s
     ((Circle r) (* 3 (* r r)))
-    ((Square w) (* w w))
-  )
-)
+    ((Square w) (* w w))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -64,9 +60,7 @@ export const HERO: Sample = {
       (println "circle = {c}")
       (println "square = {q}")
       0
-    }
-  )
-)`,
+    }))`,
 }
 
 // EIGHT RECIPES, AND EVERY ONE OF THEM RAN.
@@ -96,7 +90,6 @@ export const SAMPLES: Sample[] = [
     result: "parcel   status                action\nAX-1041  packing               not shipped yet\nAX-1042  DHL, 2 days out       -\nAX-1043  held at customs       call about customs\nAX-1044  delivered             -",
     docs: { label: "Pattern Matching", href: `${REF}#pattern-matching` },
     code: `(import IO)
-
 (import Err)
 
 (data Parcel
@@ -106,41 +99,31 @@ export const SAMPLES: Sample[] = [
   (Delivered))
 
 (:: status (-> Parcel String))
-
 (fn (status p)
   (match p
     ((Ordered) "packing")
     ((InTransit carrier days) (format "{carrier}, {days} days out"))
     ((Held why) (format "held at {why}"))
-    ((Delivered) "delivered")
-  )
-)
+    ((Delivered) "delivered")))
 
 (:: alert (-> Parcel (Option String)))
-
 (fn (alert p)
   (match p
     ((Ordered) (Some "not shipped yet"))
     ((InTransit _ _) None)
     ((Held why) (Some (format "call about {why}")))
-    ((Delivered) None)
-  )
-)
+    ((Delivered) None)))
 
 (:: row (-> String Parcel Int))
-
 ;@axiom:effect(io)
 (fn (row id p)
   (let (
     (s (status p))
     (a (optUnwrapOr (alert p) "-"))
   )
-    (println "{id:<9}{s:<22}{a}")
-  )
-)
+    (println "{id:<9}{s:<22}{a}")))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -150,8 +133,7 @@ export const SAMPLES: Sample[] = [
     (row "AX-1043" (Held "customs"))
     (row "AX-1044" Delivered)
     0
-  }
-)`,
+  })`,
   },
   {
     id: 'records',
@@ -161,9 +143,7 @@ export const SAMPLES: Sample[] = [
     result: "price total 8159 over 2 gaps",
     docs: { label: "Structs", href: `${REF}#structs` },
     code: `(import IO)
-
 (import Str)
-
 (import Vec)
 
 (data Cell
@@ -176,7 +156,6 @@ export const SAMPLES: Sample[] = [
   (cells : (Vec a)))
 
 (:: colSum (-> (Column Cell) Int))
-
 (fn (colSum col)
   (let ((mut total 0))
     {
@@ -186,15 +165,11 @@ export const SAMPLES: Sample[] = [
             (set total (+ total n))
           )
           ((Text _) 0)
-          ((Missing) 0)
-        ))
+          ((Missing) 0)))
       total
-    }
-  )
-)
+    }))
 
 (:: colGaps (-> (Column Cell) Int))
-
 (fn (colGaps col)
   (let ((mut gaps 0))
     {
@@ -203,15 +178,11 @@ export const SAMPLES: Sample[] = [
           ((Missing)
             (set gaps (+ gaps 1))
           )
-          (_ 0)
-        ))
+          (_ 0)))
       gaps
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((v vecNew))
@@ -227,13 +198,9 @@ export const SAMPLES: Sample[] = [
           (total (colSum price))
           (gaps (colGaps price))
         )
-          (println "price total {total} over {gaps} gaps")
-        )
+          (println "price total {total} over {gaps} gaps"))
         0
-      }
-    )
-  )
-)`,
+      })))`,
   },
   {
     id: 'failure',
@@ -243,36 +210,27 @@ export const SAMPLES: Sample[] = [
     result: "4096 x 256 = 1048576 bytes\n4 KiB is not a number while reading chunk\nproduct is not representable while sizing the upload",
     docs: { label: "The error model", href: `${LIB}docs/error-model.md` },
     code: `(import Err)
-
 (import IO)
-
 (import Str)
 
 (:: number (-> String String (Result Int Error)))
-
 (fn (number name text)
   (let ((bad (mkError 20 (strConcat text " is not a number"))))
-    (withContext (okOr (strParseInt text) bad) (strConcat "reading " name))
-  )
-)
+    (withContext (okOr (strParseInt text) bad) (strConcat "reading " name))))
 
 ; \`*\` wraps silently on overflow; this is the one that can say no.
 (:: upload (-> Int Int (Result Int Error)))
-
-(fn (upload chunk parts) (withContext (mulChecked chunk parts) "sizing the upload"))
+(fn (upload chunk parts)
+  (withContext (mulChecked chunk parts) "sizing the upload"))
 
 (:: report (-> String String Int))
-
 ;@axiom:effect(io)
 (fn (report chunk parts)
   (match (try! size (number "chunk" chunk) (try! n (number "parts" parts) (upload size n)))
     ((Ok total) (println "{chunk} x {parts} = {total} bytes"))
-    ((Err e) (eprintln (errorText e)))
-  )
-)
+    ((Err e) (eprintln (errorText e)))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -280,8 +238,7 @@ export const SAMPLES: Sample[] = [
     (report "4 KiB" "256")
     (report "4096" "9007199254740993")
     0
-  }
-)`,
+  })`,
   },
   {
     id: 'effects',
@@ -291,18 +248,14 @@ export const SAMPLES: Sample[] = [
     result: "skipped: n/a\n42\nok",
     docs: { label: "Effects", href: `${REF}#effects` },
     code: `(import IO)
-
 (import Str)
-
 (import Test)
-
 (import Vec)
 
 (effect Log
   (log :: (-> String Int)))
 
 (:: total (-> (Vec String) Int))
-
 ;@axiom:effect(log)
 (fn (total rows)
   (let ((mut sum 0))
@@ -312,15 +265,11 @@ export const SAMPLES: Sample[] = [
           ((Some n)
             (set sum (+ sum n))
           )
-          ((None) (log (strConcat "skipped: " row)))
-        ))
+          ((None) (log (strConcat "skipped: " row)))))
       sum
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -332,21 +281,22 @@ export const SAMPLES: Sample[] = [
       (vecPush rows " 30 ")
       (vecPush rows "n/a")
       (println
-        (handle (total rows) (Log Alloc Mut) (lambda (m) (println m)))
-      )
+        (handle
+          (total rows)
+          (Log Alloc Mut)
+          (lambda (m) (println m))))
       (let ((sum 
-        (handle (total rows) (Log Alloc Mut) (lambda (m) (vecLen (vecPush seen m))))
-      ))
+        (handle
+          (total rows)
+          (Log Alloc Mut)
+          (lambda (m) (vecLen (vecPush seen m))))))
         {
           (assertEq "same total, nothing printed" 42 sum)
           (assertStrEq "the warning was captured" "skipped: n/a" (vecGet seen 0))
-        }
-      )
+        })
       (println "ok")
       0
-    }
-  )
-)`,
+    }))`,
   },
   {
     id: 'data',
@@ -357,17 +307,12 @@ export const SAMPLES: Sample[] = [
     docs: { label: "Standard Library", href: `${REF}#standard-library` },
     code: `; Split on 32 (' ') for pieces, then each piece on 46 ('.'), so "Safari." counts as safari.
 (import IO)
-
 (import Str)
-
 (import Vec)
-
 (import Map)
-
 (import Intern)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -381,24 +326,17 @@ export const SAMPLES: Sample[] = [
         (let ((w (vecGetStr (strSplit (vecGetStr pieces i) 46) 0)))
           (if (>= (strLen w) 4)
             (let ((id (internIntern seen w)))
-              (mapInsert count id (+ 1 (mapGet count id 0)))
-            )
-            0
-          )
-        ))
+              (mapInsert count id (+ 1 (mapGet count id 0))))
+            0)))
       (let ((ranked (vecSortBy (mapKeys count) byCount)))
         (for r 0 5
           (let (
             (n (mapGet count (vecGet ranked r) 0))
             (w (internLookup seen (vecGet ranked r)))
           )
-            (println "{n:>4}  {w}")
-          ))
-      )
+            (println "{n:>4}  {w}"))))
       0
-    }
-  )
-)`,
+    }))`,
   },
   {
     id: 'memory',
@@ -408,17 +346,12 @@ export const SAMPLES: Sample[] = [
     result: "5 rows, 10374 cents, arena +48 bytes",
     docs: { label: "Memory Primitives", href: `${REF}#memory-primitives` },
     code: `(import IO)
-
 (import Str)
-
 (import Vec)
-
 (import Err)
-
 (import Mem)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -431,15 +364,11 @@ export const SAMPLES: Sample[] = [
       (for i 0 n
         (region r
           (let ((cols (strSplit (vecGetStr rows i) 44)))
-            (set cents (+ cents (optUnwrapOr (strParseInt (vecGetStr cols 1)) 0)))
-          )))
+            (set cents (+ cents (optUnwrapOr (strParseInt (vecGetStr cols 1)) 0))))))
       (let ((held (- (memGetWord __axiom_arena_mark 0) (memGetWord mark 0))))
-        (println "{n} rows, {cents} cents, arena +{held} bytes")
-      )
+        (println "{n} rows, {cents} cents, arena +{held} bytes"))
       0
-    }
-  )
-)`,
+    }))`,
   },
   {
     id: 'concurrency',
@@ -449,20 +378,15 @@ export const SAMPLES: Sample[] = [
     result: "errors  us 1  eu 2  apac 0  total 3",
     docs: { label: "parallel", href: `${REF}#parallel--bindings-that-run-beside-the-caller` },
     code: `(import IO)
-
 (import Str)
 
 (:: errors (-> String Int Int))
-
 (fn (errors shard from)
   (match (strFind shard "ERROR" from)
     ((None) 0)
-    ((Some at) (+ 1 (errors shard (+ at 1))))
-  )
-)
+    ((Some at) (+ 1 (errors shard (+ at 1))))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; A join carries one machine word, so a shard answers its count.
@@ -475,10 +399,7 @@ export const SAMPLES: Sample[] = [
       {
         (println "errors  us {us}  eu {eu}  apac {apac}  total {total}")
         0
-      }
-    )
-  )
-)`,
+      })))`,
   },
   {
     id: 'sysinfo',
@@ -488,9 +409,7 @@ export const SAMPLES: Sample[] = [
     result: "os       Axiom Linux 0.7.5\nmemory   3930 MiB total, 1205 MiB available",
     docs: { label: "Standard Library", href: `${REF}#standard-library` },
     code: `(import IO)
-
 (import Str)
-
 (import Vec)
 
 ; A sysfetch in pure Axiom: read NAME= and VERSION_ID= out of an
@@ -500,63 +419,45 @@ export const SAMPLES: Sample[] = [
 ; the output pinned under this file is exact - point \`fieldOf\` at
 ; the live files for the report about this machine instead.
 (:: unquote (-> String String))
-
 (fn (unquote s)
   (if (strStartsWith s "\\"")
     (strSlice s 1 (- (strLen s) 2))
-    s
-  )
-)
+    s))
 
 (:: fieldScan (-> (Vec Int) String Int String))
-
 (fn (fieldScan lines key i)
   (if (>= i (vecLen lines))
     ""
     (let ((line (vecGetStr lines i)))
       (if (fieldHead line key)
         (unquote (strTrim (strSlice line (+ (strLen key) 1) (- (strLen line) (+ (strLen key) 1)))))
-        (fieldScan lines key (+ i 1))
-      )
-    )
-  )
-)
+        (fieldScan lines key (+ i 1))))))
 
 (:: fieldHead (-> String String Bool))
-
 (fn (fieldHead line key)
   (if (strStartsWith line key)
     (let ((sep (strByte line (strLen key))))
-      (|| (== sep 61) (== sep 58))
-    )
-    false
-  )
-)
+      (|| (== sep 61) (== sep 58)))
+    false))
 
 (:: fieldOf (-> String String String))
-
-(fn (fieldOf text key) (fieldScan (strSplit text 10) key 0))
+(fn (fieldOf text key)
+  (fieldScan (strSplit text 10) key 0))
 
 (:: firstNonEmpty (-> (Vec Int) Int String))
-
 (fn (firstNonEmpty parts i)
   (if (>= i (vecLen parts))
     ""
     (let ((w (vecGetStr parts i)))
       (if (> (strLen w) 0)
         w
-        (firstNonEmpty parts (+ i 1))
-      )
-    )
-  )
-)
+        (firstNonEmpty parts (+ i 1))))))
 
 (:: memKb (-> String Int))
-
-(fn (memKb value) (optUnwrapOr (strParseInt (firstNonEmpty (strSplit value 32) 0)) 0))
+(fn (memKb value)
+  (optUnwrapOr (strParseInt (firstNonEmpty (strSplit value 32) 0)) 0))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((os "NAME=\\"Axiom Linux\\"\\nVERSION_ID=\\"0.7.5\\"\\nID=axiom\\n"))
@@ -569,14 +470,7 @@ export const SAMPLES: Sample[] = [
                 (println "os       {name} {vers}")
                 (println "memory   {total} MiB total, {avail} MiB available")
                 0
-              }
-            )
-          )
-        )
-      )
-    )
-  )
-)`,
+              })))))))`,
   },
 ]
 

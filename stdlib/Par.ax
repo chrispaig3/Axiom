@@ -90,13 +90,9 @@
 ; That last distinction is the one a driver must not lose - "could not
 ; start llc" and "llc rejected the module" are different failures.
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import Sys)
-
 (import Err)
 
 ; Run `f i` for every `i` in `0 .. n`, at most `width` at once,
@@ -110,14 +106,12 @@
 ; the hard way. Here `out`'s length IS `joined`, so the invariant is a
 ; consequence of the loop rather than something to maintain.
 (pub :: parMapWords (-> (-> Int Int) Int Int (Vec Int)))
-
 ;@axiom:effect(io)
 (pub fn (parMapWords f n width)
   (let (
     (w (if (< width 1)
       1
-      width
-    ))
+      width))
     (hs vecNew)
     (out vecNew)
     (mut i 0)
@@ -147,9 +141,7 @@
           (set joined (+ joined 1))
         })
       out
-    }
-  )
-)
+    }))
 
 ; A NULL-terminated array of char* from a Vec of `String`, which is the
 ; shape `execve` and `posix_spawn` both take.
@@ -164,7 +156,6 @@
 ; the same reason on its own argv helper, and
 ; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches it.
 (pub :: parArgvVector (-> (Vec String) Int))
-
 (pub fn (parArgvVector argv)
   (let (
     (n (vecLen argv))
@@ -179,10 +170,7 @@
           })
         (memSetWord v n 0)
         v
-      }
-    )
-  )
-)
+      })))
 
 ; Run one argv - element 0 is the program, looked up on `PATH` the way
 ; `sysRunPath` does it.
@@ -200,14 +188,11 @@
 ; program to run, and "the program never ran" is exactly what that
 ; means.
 (pub :: parRunOne (-> (Vec String) (Result Int Error)))
-
 ;@axiom:effect(io)
 (pub fn (parRunOne argv)
   (if (== (vecLen argv) 0)
     (Err (mkError 2 "parRunOne: an empty argv names no program"))
-    (sysRunPath (strDup (vecGetStr argv 0)) (parArgvVector argv) sysEnvp)
-  )
-)
+    (sysRunPath (strDup (vecGetStr argv 0)) (parArgvVector argv) sysEnvp)))
 
 ; `parRunOne` collapsed into the one word a join can carry, which is
 ; where `sysRun`'s sign convention gets re-established:
@@ -226,14 +211,11 @@
 ; `parRunOne`; a caller who wants a pool calls `parRunAll` and reads the
 ; convention its header states. Nothing needs the lossy form by name.
 (:: parRunWord (-> (Vec String) Int))
-
 ;@axiom:effect(io)
 (fn (parRunWord argv)
   (match (parRunOne argv)
     ((Ok c) c)
-    ((Err e) (- 0 (errCode e)))
-  )
-)
+    ((Err e) (- 0 (errCode e)))))
 
 ; Run every command in `cmds` at up to `width` at once, answering their
 ; exit codes in the order they appear in `cmds`.
@@ -251,10 +233,9 @@
 ; answers `Err` without ever exec'ing. What changed is only which
 ; process pays for the `PATH` walk.
 (pub :: parRunAll (-> (Vec (Vec String)) Int (Vec Int)))
-
 ;@axiom:effect(io)
 (pub fn (parRunAll cmds width)
   (parMapWords
-    (lambda (i) (parRunWord (vecGet cmds i)))    (vecLen cmds)    width
-  )
-)
+    (lambda (i) (parRunWord (vecGet cmds i)))
+    (vecLen cmds)
+    width))

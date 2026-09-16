@@ -60,11 +60,8 @@
 ; defect shape this repository refuses. `strLen buf` is the read
 ; buffer's CAPACITY and is never the fill.
 (import Mem)
-
 (import Str)
-
 (import Vec)
-
 (import Utf8)
 
 ; ------------------------------------------------------------------
@@ -77,110 +74,110 @@
 ; `used` is still the bytes to advance by.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_NONE Int)
-
-(pub fn (KEY_NONE) 0)
+(pub fn (KEY_NONE)
+  0)
 
 ; A strict prefix. Read more, or resolve it with `keyResolve`. This
 ; kind never leaves `term.ax`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_MORE Int)
-
-(pub fn (KEY_MORE) 1)
+(pub fn (KEY_MORE)
+  1)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_EOF Int)
-
-(pub fn (KEY_EOF) 2)
+(pub fn (KEY_EOF)
+  2)
 
 ; `cp` is the code point.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_CHAR Int)
-
-(pub fn (KEY_CHAR) 3)
+(pub fn (KEY_CHAR)
+  3)
 
 ; `cp` is the LETTER, 64..95: Ctrl-A is 65, Ctrl-@ is 64, Ctrl-_ is
 ; 95. Storing the letter rather than the control byte is what lets the
 ; binding table read as `(== ev.cp 65)` beside a comment saying A.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_CTRL Int)
-
-(pub fn (KEY_CTRL) 4)
+(pub fn (KEY_CTRL)
+  4)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_ENTER Int)
-
-(pub fn (KEY_ENTER) 5)
+(pub fn (KEY_ENTER)
+  5)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_TAB Int)
-
-(pub fn (KEY_TAB) 6)
+(pub fn (KEY_TAB)
+  6)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_BACKSPACE Int)
-
-(pub fn (KEY_BACKSPACE) 7)
+(pub fn (KEY_BACKSPACE)
+  7)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_ESCAPE Int)
-
-(pub fn (KEY_ESCAPE) 8)
+(pub fn (KEY_ESCAPE)
+  8)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_UP Int)
-
-(pub fn (KEY_UP) 9)
+(pub fn (KEY_UP)
+  9)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_DOWN Int)
-
-(pub fn (KEY_DOWN) 10)
+(pub fn (KEY_DOWN)
+  10)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_RIGHT Int)
-
-(pub fn (KEY_RIGHT) 11)
+(pub fn (KEY_RIGHT)
+  11)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_LEFT Int)
-
-(pub fn (KEY_LEFT) 12)
+(pub fn (KEY_LEFT)
+  12)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_HOME Int)
-
-(pub fn (KEY_HOME) 13)
+(pub fn (KEY_HOME)
+  13)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_END Int)
-
-(pub fn (KEY_END) 14)
+(pub fn (KEY_END)
+  14)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_DELETE Int)
-
-(pub fn (KEY_DELETE) 15)
+(pub fn (KEY_DELETE)
+  15)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_INSERT Int)
-
-(pub fn (KEY_INSERT) 16)
+(pub fn (KEY_INSERT)
+  16)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_PGUP Int)
-
-(pub fn (KEY_PGUP) 17)
+(pub fn (KEY_PGUP)
+  17)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_PGDN Int)
-
-(pub fn (KEY_PGDN) 18)
+(pub fn (KEY_PGDN)
+  18)
 
 ; `cp` is the function-key number: KEY_FN with cp 5 is F5.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: KEY_FN Int)
-
-(pub fn (KEY_FN) 19)
+(pub fn (KEY_FN)
+  19)
 
 ; ------------------------------------------------------------------
 ; Modifier BITS, not a sum type: a key can carry several at once, and
@@ -190,32 +187,32 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: MOD_SHIFT Int)
-
-(pub fn (MOD_SHIFT) 1)
+(pub fn (MOD_SHIFT)
+  1)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: MOD_ALT Int)
-
-(pub fn (MOD_ALT) 2)
+(pub fn (MOD_ALT)
+  2)
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: MOD_CTRL Int)
-
-(pub fn (MOD_CTRL) 4)
+(pub fn (MOD_CTRL)
+  4)
 
 ; How many bytes of a well-formed CSI this decoder will tolerate
 ; before calling it line noise. A wedged terminal spewing digits
 ; cannot otherwise grow the pending prefix without bound.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyCsiMax Int)
-
-(pub fn (keyCsiMax) 32)
+(pub fn (keyCsiMax)
+  32)
 
 ; And of an OSC/DCS string body.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyStrMax Int)
-
-(pub fn (keyStrMax) 1024)
+(pub fn (keyStrMax)
+  1024)
 
 ; ------------------------------------------------------------------
 ; The event. Four words, well inside AX3029's cliff.
@@ -247,7 +244,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyScanCtrl (-> Int KeyEv))
-
 (pub fn (keyScanCtrl b)
   (if (|| (== b 13) (== b 10))
     (KeyEv KEY_ENTER 0 0 1)
@@ -255,11 +251,7 @@
       (KeyEv KEY_TAB 0 0 1)
       (if (|| (== b 127) (== b 8))
         (KeyEv KEY_BACKSPACE 0 0 1)
-        (KeyEv KEY_CTRL (+ b 64) 0 1)
-      )
-    )
-  )
-)
+        (KeyEv KEY_CTRL (+ b 64) 0 1)))))
 
 ; ------------------------------------------------------------------
 ; The offset of a CSI's FINAL byte, given the offset of the byte after
@@ -267,7 +259,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyCsiEnd (-> String Int Int Int))
-
 (pub fn (keyCsiEnd src len i0)
   (let (
     (mut i i0)
@@ -286,22 +277,16 @@
           (set ans (- 0 2))
           (set done 1)
         }
-        0
-      )
+        0)
       (if (== done 0)
         (if (>= i len)
           (set ans (- 0 1))
           (if (&& (>= (strByte src i) 64) (<= (strByte src i) 126))
             (set ans i)
-            (set ans (- 0 2))
-          )
-        )
-        0
-      )
+            (set ans (- 0 2))))
+        0)
       ans
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The `idx`'th semicolon-separated decimal parameter of the CSI whose
@@ -318,7 +303,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyCsiParam (-> String Int Int Int Int))
-
 (pub fn (keyCsiParam src len i0 idx)
   (let (
     (mut i i0)
@@ -334,53 +318,43 @@
               (set seen (+ seen 1))
               (if (> seen idx)
                 (set done 1)
-                0
-              )
+                0)
               (set i (+ i 1))
             }
             (if (&& (>= b 48) (<= b 57))
               {
                 (if (== seen idx)
-                  (set val (+ (* (if (< val 0)
-                    0
-                    val
-                  ) 10) (- b 48)))
-                  0
-                )
+                  (set val (+
+                    (*
+                      (if (< val 0)
+                        0
+                        val)
+                      10)
+                    (- b 48)))
+                  0)
                 (set i (+ i 1))
               }
               ; `:` or a private marker - the number, if any, ended
               (if (== seen idx)
                 (set done 1)
-                (set i (+ i 1))
-              )
-            )
-          )
-        ))
+                (set i (+ i 1)))))))
       val
-    }
-  )
-)
+    }))
 
 ; A CSI whose first parameter byte is `<`, `=`, `>` or `?` is a
 ; private form: a mouse report, a device-attributes reply, a mode
 ; report. None of them is a keystroke.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyCsiPrivate (-> String Int Int Bool))
-
 (pub fn (keyCsiPrivate src len i0)
   (if (>= i0 len)
     false
     (let ((b (strByte src i0)))
-      (&& (>= b 60) (<= b 63))
-    )
-  )
-)
+      (&& (>= b 60) (<= b 63)))))
 
 ; The key a `~`-final CSI names, from its first parameter.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyTildeKind (-> Int Int))
-
 (pub fn (keyTildeKind p)
   (if (|| (== p 1) (== p 7))
     KEY_HOME
@@ -394,19 +368,11 @@
             KEY_PGUP
             (if (== p 6)
               KEY_PGDN
-              KEY_NONE
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              KEY_NONE)))))))
 
 ; F1..F12 out of a `~`-final parameter, or 0 for one that names none.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyTildeFn (-> Int Int))
-
 (pub fn (keyTildeFn p)
   (if (&& (>= p 11) (<= p 15))
     (- p 10)
@@ -416,17 +382,11 @@
         11
         (if (== p 24)
           12
-          0
-        )
-      )
-    )
-  )
-)
+          0)))))
 
 ; The key a letter-final CSI or SS3 names.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyFinalKind (-> Int Int))
-
 (pub fn (keyFinalKind f)
   (if (== f 65)
     KEY_UP
@@ -440,14 +400,7 @@
             KEY_END
             (if (== f 72)
               KEY_HOME
-              KEY_NONE
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              KEY_NONE)))))))
 
 ; ------------------------------------------------------------------
 ; A delimited CSI to its event. `off` is the ESC, `fin` the final byte.
@@ -462,7 +415,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyFromCsi (-> String Int Int Int KeyEv))
-
 (pub fn (keyFromCsi src len off fin)
   (let (
     (used (+ (- fin off) 1))
@@ -477,44 +429,42 @@
       )
         (if (== final 126)
           ; `~`: parameter 0 names the key, parameter 1 modifies it.
-          (let ((fnum (keyTildeFn (if (< p0 0)
-            1
-            p0
-          ))))
-            (if (> fnum 0)
-              (KeyEv KEY_FN fnum (if (> p1 0)
-                (- p1 1)
-                0
-              ) used)
-              (KeyEv (keyTildeKind (if (< p0 0)
+          (let ((fnum 
+            (keyTildeFn
+              (if (< p0 0)
                 1
-                p0
-              )) 0 (if (> p1 0)
-                (- p1 1)
+                p0))))
+            (if (> fnum 0)
+              (KeyEv
+                KEY_FN
+                fnum
+                (if (> p1 0)
+                  (- p1 1)
+                  0)
+                used)
+              (KeyEv
+                (keyTildeKind
+                  (if (< p0 0)
+                    1
+                    p0))
                 0
-              ) used)
-            )
-          )
+                (if (> p1 0)
+                  (- p1 1)
+                  0)
+                used)))
           (let ((k (keyFinalKind final)))
             (if (== k KEY_NONE)
               ; Well-formed and unbound: consumed whole, never typed.
               (KeyEv KEY_NONE 0 0 used)
               (KeyEv
-                k                0                (if (> p1 0)
+                k
+                0
+                (if (> p1 0)
                   (- p1 1)
                   (if (> p0 0)
                     (- p0 1)
-                    0
-                  )
-                )                used
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                    0))
+                used))))))))
 
 ; ------------------------------------------------------------------
 ; ESC O <final>: an arrow from a terminal left in application-cursor
@@ -526,7 +476,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyFromSs3 (-> String Int Int KeyEv))
-
 (pub fn (keyFromSs3 src len off)
   (if (>= (+ off 2) len)
     (KeyEv KEY_MORE 0 0 0)
@@ -536,13 +485,7 @@
         (let ((k (keyFinalKind f)))
           (if (== k KEY_NONE)
             (KeyEv KEY_NONE 0 0 3)
-            (KeyEv k 0 0 3)
-          )
-        )
-      )
-    )
-  )
-)
+            (KeyEv k 0 0 3)))))))
 
 ; ------------------------------------------------------------------
 ; The offset PAST the terminator of an OSC/DCS/PM/APC string, or -1
@@ -555,7 +498,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: keyStrEnd (-> String Int Int Int))
-
 (pub fn (keyStrEnd src len i0)
   (let (
     (mut i i0)
@@ -583,18 +525,11 @@
                   (set ans (- 0 1))
                   (set done 1)
                 }
-                (set i (+ i 1))
-              )
-            )
-          )
-        ))
+                (set i (+ i 1)))))))
       (if (&& (== done 0) (> (- i i0) keyStrMax))
         (- 0 2)
-        ans
-      )
-    }
-  )
-)
+        ans)
+    }))
 
 ; ------------------------------------------------------------------
 ; A lead byte >= 128.
@@ -610,7 +545,6 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyScanUtf8 (-> String Int Int KeyEv))
-
 (pub fn (keyScanUtf8 src len off)
   (let ((need (utf8SeqLen (strByte src off))))
     (if (> (+ off need) len)
@@ -619,18 +553,13 @@
         ; A stray continuation byte or an 11111xxx lead: advance
         ; one, the same rule Utf8.ax gives, for the same reason.
         ((None) (KeyEv KEY_NONE 0 0 1))
-        ((Some cp) (KeyEv KEY_CHAR cp 0 need))
-      )
-    )
-  )
-)
+        ((Some cp) (KeyEv KEY_CHAR cp 0 need))))))
 
 ; ------------------------------------------------------------------
 ; THE DECODER. src, valid length, offset -> the event.
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyScan (-> String Int Int KeyEv))
-
 (pub fn (keyScan src len off)
   (if (>= off len)
     (KeyEv KEY_MORE 0 0 0)
@@ -641,18 +570,11 @@
           (keyScanCtrl b)
           (if (< b 128)
             (KeyEv KEY_CHAR b 0 1)
-            (keyScanUtf8 src len off)
-          )
-        )
-      )
-    )
-  )
-)
+            (keyScanUtf8 src len off)))))))
 
 ; The escape path. See the header for the case list.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyScanEsc (-> String Int Int KeyEv))
-
 (pub fn (keyScanEsc src len off)
   (if (>= (+ off 1) len)
     (KeyEv KEY_MORE 0 0 0)
@@ -665,18 +587,10 @@
             (keyScanStr src len off)
             (if (== n 27)
               (KeyEv KEY_ESCAPE 0 0 1)
-              (keyScanAlt src len off)
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              (keyScanAlt src len off))))))))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyScanCsi (-> String Int Int KeyEv))
-
 (pub fn (keyScanCsi src len off)
   (let ((fin (keyCsiEnd src len (+ off 2))))
     (if (== fin (- 0 1))
@@ -685,40 +599,27 @@
       ; Swallowing the run would hide a real keystroke inside it.
       (if (== fin (- 0 2))
         (KeyEv KEY_NONE 0 0 1)
-        (keyFromCsi src len off fin)
-      )
-    )
-  )
-)
+        (keyFromCsi src len off fin)))))
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyScanStr (-> String Int Int KeyEv))
-
 (pub fn (keyScanStr src len off)
   (let ((e (keyStrEnd src len (+ off 2))))
     (if (== e (- 0 1))
       (KeyEv KEY_MORE 0 0 0)
       (if (== e (- 0 2))
         (KeyEv KEY_NONE 0 0 1)
-        (KeyEv KEY_NONE 0 0 (- e off))
-      )
-    )
-  )
-)
+        (KeyEv KEY_NONE 0 0 (- e off))))))
 
 ; ESC <anything else> is Alt-that-key: decode the key at off+1 and OR
 ; MOD_ALT into it. `used` grows by the ESC.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyScanAlt (-> String Int Int KeyEv))
-
 (pub fn (keyScanAlt src len off)
   (let ((inner (keyScan src len (+ off 1))))
     (if (== inner.kind KEY_MORE)
       (KeyEv KEY_MORE 0 0 0)
-      (KeyEv inner.kind inner.cp (| inner.mods MOD_ALT) (+ inner.used 1))
-    )
-  )
-)
+      (KeyEv inner.kind inner.cp (| inner.mods MOD_ALT) (+ inner.used 1)))))
 
 ; ------------------------------------------------------------------
 ; What a KEY_MORE prefix means once nothing more has arrived.
@@ -735,14 +636,9 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: keyResolve (-> String Int Int KeyEv))
-
 (pub fn (keyResolve src len off)
   (if (>= off len)
     (KeyEv KEY_NONE 0 0 1)
     (if (&& (== (strByte src off) 27) (>= (+ off 1) len))
       (KeyEv KEY_ESCAPE 0 0 1)
-      (KeyEv KEY_NONE 0 0 (- len off))
-    )
-  )
-)
-
+      (KeyEv KEY_NONE 0 0 (- len off)))))
