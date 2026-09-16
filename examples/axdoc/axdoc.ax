@@ -39,13 +39,9 @@
 ; The AXSYM file is one `axiom --diagnostic-format=ai symbols` stream
 ; covering the modules named after it; the gate produces it.
 (import IO)
-
 (import Str)
-
 (import Vec)
-
 (import Sys)
-
 (import Path)
 
 ; ------------------------------------------------------------------
@@ -57,7 +53,6 @@
 ; - the one exception to the `pub` rule, and the reason `Test`'s
 ; `assertFail` is callable from a file that imports only `Test`.
 (:: kindOf (-> String String))
-
 (fn (kindOf line)
   (if (strStartsWith line "(pub :: ")
     "value"
@@ -73,19 +68,10 @@
               "type"
               (if (strStartsWith line "(effect ")
                 "effect"
-                ""
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                ""))))))))
 
 ; How many bytes of the head to skip before the name begins.
 (:: headLen (-> String Int))
-
 (fn (headLen kind)
   (if (strEq kind "value")
     8
@@ -99,14 +85,7 @@
             11
             (if (strEq kind "type")
               10
-              8
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              8)))))))
 
 ; The identifier starting at `from`: bytes up to a space, `)` or `(`.
 ;
@@ -115,7 +94,6 @@
 ; name as well - and for the first spelling the name begins one byte
 ; further on, which `declName` handles by stepping over it.
 (:: identAt (-> String Int String))
-
 (fn (identAt s from)
   (let (
     (n (strLen s))
@@ -130,29 +108,18 @@
               false
               (if (== c 40)
                 false
-                true
-              )
-            )
-          )
-        )
-        false
-      )
+                true))))
+        false)
         (set i (+ i 1)))
       (strSlice s from (- i from))
-    }
-  )
-)
+    }))
 
 (:: declName (-> String String String))
-
 (fn (declName line kind)
   (let ((at (headLen kind)))
     (if (== (strByte line at) 40)
       (identAt line (+ at 1))
-      (identAt line at)
-    )
-  )
-)
+      (identAt line at))))
 
 ; A `(pub :: NAME TYPE)` line's TYPE: everything after the name, with
 ; the closing paren of the declaration dropped.
@@ -163,7 +130,6 @@
 ; `(-> Int Int Int)` - and a reference should show a reader the
 ; spelling they will have to write.
 (:: declType (-> String String String))
-
 (fn (declType line name)
   (let ((at (+ (+ 8 (strLen name)) 1)))
     (if (>= at (strLen line))
@@ -172,30 +138,20 @@
         (if (> (strLen rest) 0)
           (if (== (strByte rest (- (strLen rest) 1)) 41)
             (strSlice rest 0 (- (strLen rest) 1))
-            rest
-          )
-          rest
-        )
-      )
-    )
-  )
-)
+            rest)
+          rest)))))
 
 ; ------------------------------------------------------------------
 ; The documentation above a declaration
 ; ------------------------------------------------------------------
 ; A comment line's text, with the leading `; ` removed.
 (:: commentText (-> String String))
-
 (fn (commentText line)
   (if (strStartsWith line "; ")
     (strSlice line 2 (- (strLen line) 2))
     (if (strEq line ";")
       ""
-      line
-    )
-  )
-)
+      line)))
 
 ; Is this line a comment that is DOCUMENTATION rather than a banner?
 ;
@@ -204,19 +160,14 @@
 ; so a reference that printed it would put a row of dashes in the
 ; summary column of every first function in a section.
 (:: isDocLine (-> String Bool))
-
 (fn (isDocLine line)
   (if (strStartsWith line ";")
     (if (strStartsWith line "; ---")
       false
       (if (isTagLine line)
         false
-        true
-      )
-    )
-    false
-  )
-)
+        true))
+    false))
 
 ; The FIRST PARAGRAPH of the comment block immediately above line `i`,
 ; joined into one line.
@@ -246,22 +197,18 @@
 ; `docs/stdlib-api.md` went blank, because an `effect` has no separate
 ; signature to carry the prose.
 (:: isTagLine (-> String Bool))
-
-(fn (isTagLine line) (strStartsWith line ";@"))
+(fn (isTagLine line)
+  (strStartsWith line ";@"))
 
 ; A line the comment block above a declaration is made of: prose, or a
 ; tag written under it.
 (:: isBlockLine (-> String Bool))
-
 (fn (isBlockLine line)
   (if (isDocLine line)
     true
-    (isTagLine line)
-  )
-)
+    (isTagLine line)))
 
 (:: docAbove (-> (Vec Int) Int String))
-
 (fn (docAbove lines i)
   ; Walk UP to the top of the contiguous comment block.
   (let (
@@ -271,8 +218,7 @@
     {
       (while (if (>= start 0)
         (isBlockLine (vecGetStr lines start))
-        false
-      )
+        false)
         (set start (- start 1)))
       (set start (+ start 1))
       ; ...then down again, stopping at the paragraph break and
@@ -284,8 +230,7 @@
       )
         (while (if stop
           false
-          (< j i)
-        )
+          (< j i))
           {
             (if (isTagLine (vecGetStr lines j))
               0
@@ -298,20 +243,13 @@
                   {
                     (set out (if (== (strLen out) 0)
                       t
-                      (strConcat (strConcat out " ") t)
-                    ))
+                      (strConcat (strConcat out " ") t)))
                     0
-                  }
-                )
-              )
-            )
+                  })))
             (set j (+ j 1))
-          })
-      )
+          }))
       out
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; The effect row, from AXSYM
@@ -328,7 +266,6 @@
 ; place here, and a reference that reached for them would be teaching
 ; the wrong lesson in the file people read as an example.
 (:: effectsOf (-> (Vec Int) String String))
-
 (fn (effectsOf axsym name)
   (let (
     (n (vecLen axsym))
@@ -344,31 +281,22 @@
                 (set found (effectsField line))
                 (set i n)
               }
-              0
-            )
+              0)
             (set i (+ i 1))
-          }
-        ))
+          }))
       found
-    }
-  )
-)
+    }))
 
 ; The `#effects=...` token of one AXSYM line, without its key.
 (:: effectsField (-> String String))
-
 (fn (effectsField line)
   (let ((at (strFindStr line "#effects=")))
     (if (< at 0)
       ""
-      (identAt line (+ at 9))
-    )
-  )
-)
+      (identAt line (+ at 9)))))
 
 ; The first index at or after 0 where `needle` occurs in `hay`, or -1.
 (:: strFindStr (-> String String Int))
-
 (fn (strFindStr hay needle)
   (let (
     (n (strLen hay))
@@ -384,14 +312,11 @@
               (set at i)
               (set i n)
             }
-            0
-          )
+            0)
           (set i (+ i 1))
         })
       at
-    }
-  )
-)
+    }))
 
 ; ------------------------------------------------------------------
 ; Rendering
@@ -399,7 +324,6 @@
 ; A table cell: `|` would end the cell and a newline cannot occur, so
 ; the one byte that has to be escaped is the pipe.
 (:: cell (-> String String))
-
 (fn (cell s)
   (let (
     (n (strLen s))
@@ -410,22 +334,18 @@
       (while (< i n)
         {
           (set out (strConcat
-            out            (if (== (strByte s i) 124)
+            out
+            (if (== (strByte s i) 124)
               "\\|"
-              (strSlice s i 1)
-            )
-          ))
+              (strSlice s i 1))))
           (set i (+ i 1))
         })
       out
-    }
-  )
-)
+    }))
 
 ; The module name a path denotes: `stdlib/Sys/Platform.ax` is
 ; `Sys.Platform`, and `stdlib/Vec.ax` is `Vec`.
 (:: moduleName (-> String String))
-
 (fn (moduleName path)
   ; `pathDir` keeps its trailing slash - documented, and for a good
   ; reason - so `pathBase` of its answer is the empty string, and a
@@ -441,35 +361,23 @@
     (let ((dir (trimSlash (pathDir path))))
       (if (strEq (pathBase dir) "stdlib")
         stem
-        (strConcat (strConcat (pathBase dir) ".") stem)
-      )
-    )
-  )
-)
+        (strConcat (strConcat (pathBase dir) ".") stem)))))
 
 (:: upToDot (-> String String))
-
 (fn (upToDot s)
   (match (strFindByte s 46 0)
     ((None) s)
-    ((Some at) (strSlice s 0 at))
-  )
-)
+    ((Some at) (strSlice s 0 at))))
 
 (:: trimSlash (-> String String))
-
 (fn (trimSlash p)
   (if (== (strLen p) 0)
     p
     (if (== (strByte p (- (strLen p) 1)) 47)
       (strSlice p 0 (- (strLen p) 1))
-      p
-    )
-  )
-)
+      p)))
 
 (:: renderModule (-> String (Vec Int) String))
-
 ;@axiom:effect(io)
 (fn (renderModule path axsym)
   ; The `mut` bindings are in two `let`s, split by TYPE, and that
@@ -499,65 +407,52 @@
                         {
                           (set count (+ count 1))
                           (set rows (strConcat
-                            rows                            (renderRow
-                              kind                              dn                              (if (strEq kind "value")
+                            rows
+                            (renderRow
+                              kind
+                              dn
+                              (if (strEq kind "value")
                                 (declType line dn)
-                                ""
-                              )                              (effectsOf axsym dn)                              (docAbove lines i)
-                            )
-                          ))
+                                "")
+                              (effectsOf axsym dn)
+                              (docAbove lines i))))
                           ; The block answers `0` so it agrees with the
                           ; other arm of the `if` above it. Without it
                           ; the arm's type is `set`'s, which is the
                           ; STRING being assigned, and the checker
                           ; reports the mismatch against `count`.
                           0
-                        }
-                      )
-                    )
-                  )
+                        })))
                   (set i (+ i 1))
-                }
-              ))
+                }))
             (strConcat
-              (strConcat (strConcat (strConcat "## `" name) "`\n\n") (strConcat (strConcat "`" path) (strConcat "` — " (strConcat (decStrOf count) " public names\n\n"))))              (if (== count 0)
+              (strConcat (strConcat (strConcat "## `" name) "`\n\n") (strConcat (strConcat "`" path) (strConcat "` — " (strConcat (decStrOf count) " public names\n\n"))))
+              (if (== count 0)
                 ""
-                (strConcat "| Name | Kind | Type | Effects | Summary |\n|---|---|---|---|---|\n" (strConcat rows "\n"))
-              )
-            )
-          }
-        )
-      )
-    )
-  )
-)
+                (strConcat "| Name | Kind | Type | Effects | Summary |\n|---|---|---|---|---|\n" (strConcat rows "\n"))))
+          })))))
 
 (:: renderRow (-> String String String String String String))
-
 (fn (renderRow kind name ty effects summary)
   (strConcat
-    (strConcat (strConcat "| `" (cell name)) (strConcat "` | " kind))    (strConcat
+    (strConcat (strConcat "| `" (cell name)) (strConcat "` | " kind))
+    (strConcat
       (strConcat
-        " | "        (if (== (strLen ty) 0)
+        " | "
+        (if (== (strLen ty) 0)
           ""
-          (strConcat (strConcat "`" (cell ty)) "`")
-        )
-      )      (strConcat
+          (strConcat (strConcat "`" (cell ty)) "`")))
+      (strConcat
         (strConcat
-          " | "          (if (== (strLen effects) 0)
+          " | "
+          (if (== (strLen effects) 0)
             ""
-            (strConcat (strConcat "`" (cell effects)) "`")
-          )
-        )        (strConcat (strConcat " | " (cell summary)) " |\n")
-      )
-    )
-  )
-)
+            (strConcat (strConcat "`" (cell effects)) "`")))
+        (strConcat (strConcat " | " (cell summary)) " |\n")))))
 
 ; `Fmt.fmtInt` under another name, so this file needs no import for one
 ; call. The reference states one number per module and this writes it.
 (:: decStrOf (-> Int String))
-
 (fn (decStrOf n)
   (if (== n 0)
     "0"
@@ -572,13 +467,9 @@
             (set v (/ v 10))
           })
         out
-      }
-    )
-  )
-)
+      })))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((argc sysArgc))
@@ -598,13 +489,8 @@
               })
             (writeStr stdout out)
             0
-          }
-        )
-      )
-    )
-  )
-)
+          })))))
 
 (:: header String)
-
-(fn (header) "# Axiom standard library — API reference\n\nGENERATED. `examples/axdoc/axdoc.ax` writes this file from the\nstandard library's own source and from `axiom symbols`; do not edit it\nby hand. `scripts/check-stdlib-api.sh` regenerates it and requires the\nresult to be byte-identical, so an edit here is a failing gate rather\nthan a document that quietly disagrees with the library.\n\nThe **public surface** is read from the source, because visibility is\nonly written there — AXSYM cannot say whether a name is `pub` and emits\nno row for a macro at all. The **effects** column is the compiler's\nown answer, derived by a fixpoint over every body rather than claimed\nby a comment: `Alloc` is the heap machinery — allocation, the arena\nprimitives, installing handler evidence; `IO` reaches the outside\nworld, a syscall or an `extern` or the command line; `Mut` writes\nheap state something else can see, a field store or the primitive it\nlowers to. A blank cell means the checker derived no effect (or, for\na macro, that AXSYM has no row to derive one from) — and it is a\nLOWER bound: `docs/memory-model.md` MM-EXEC-9a lists what inference\nstill does not see, of which the one that can surprise a reader here\nis that a constructor allocates and contributes nothing.\n\nThe **type** column is the source spelling, `(-> Int Int)`, not AXSYM's\ncurried rendering, because it is the spelling you will have to write.\n\nSee [reference.md](reference.md) for the language, and\n[README](../README.md#standard-library) for what each module is for.\n\n")
+(fn (header)
+  "# Axiom standard library — API reference\n\nGENERATED. `examples/axdoc/axdoc.ax` writes this file from the\nstandard library's own source and from `axiom symbols`; do not edit it\nby hand. `scripts/check-stdlib-api.sh` regenerates it and requires the\nresult to be byte-identical, so an edit here is a failing gate rather\nthan a document that quietly disagrees with the library.\n\nThe **public surface** is read from the source, because visibility is\nonly written there — AXSYM cannot say whether a name is `pub` and emits\nno row for a macro at all. The **effects** column is the compiler's\nown answer, derived by a fixpoint over every body rather than claimed\nby a comment: `Alloc` is the heap machinery — allocation, the arena\nprimitives, installing handler evidence; `IO` reaches the outside\nworld, a syscall or an `extern` or the command line; `Mut` writes\nheap state something else can see, a field store or the primitive it\nlowers to. A blank cell means the checker derived no effect (or, for\na macro, that AXSYM has no row to derive one from) — and it is a\nLOWER bound: `docs/memory-model.md` MM-EXEC-9a lists what inference\nstill does not see, of which the one that can surprise a reader here\nis that a constructor allocates and contributes nothing.\n\nThe **type** column is the source spelling, `(-> Int Int)`, not AXSYM's\ncurried rendering, because it is the spelling you will have to write.\n\nSee [reference.md](reference.md) for the language, and\n[README](../README.md#standard-library) for what each module is for.\n\n")
