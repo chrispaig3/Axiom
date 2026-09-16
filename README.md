@@ -25,50 +25,6 @@ got.
 
 ---
 
-## A whole program
-
-```scheme
-(import IO)
-
-; A custom effect
-(effect Log
-  (write :: (-> String Int)))
-
-; If the param is not satisfied with a value greater than 0 then the compiler will fail with a backtrace.
-;@axiom:pre((> n 0))
-(:: work (-> Int Int))
-
-(fn (work n)
-  {
-    (write "starting")
-    (write "done")
-    n
-  }
-)
-
-(:: main Int)
-
-;@axiom:effect(io)
-(fn (main)
-  {
-    (handle (work 1) (Log IO) (lambda (m)
-      {
-        (println "[log] {m}")
-        0
-      }
-    ))
-    (handle (work 2) (Log) (lambda (m) 0))
-    0
-  }
-)
-
-; output:
-;  [log] starting
-;  [log] done
-```
-
----
-
 ## Install
 
 ```bash
