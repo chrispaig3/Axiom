@@ -16,6 +16,21 @@ its changelog too.
 
 ## Unreleased
 
+### Every spawn thunk is scanned or refused — `tests/diagnostics/644-parallel-thunk-shape.ax`
+
+The last shape `AX3064` accepted unseen: a spawn thunk that is neither
+a literal lambda nor a bare name. A conditional, a match, a `let` and
+a brace block are transparent, so every lambda they can answer is
+scanned where it stands — while whatever they read to choose or build
+it is collected as a capture, because a `let`-bound value and a match
+scrutinee flow into the closure that names them. A call result and a
+field are refused at the shape, whose captures no walk can see; what
+answers a word is the argument checker's. `tests/diagnostics/644`
+pins the four refusals and the three controls (word-only conditional
+and match, the `__proc_spawn` exemption), `scripts/check-parallel.sh`
+section 11 holds the property statically, and `scripts/check-diagnostics.sh`
+holds the whole corpus silent — the refusal costs nothing measured.
+
 ### Rules over expression templates (`emacro`) — `tests/selfhost/403-expr-rule-macro.ax`
 
 MAC-LANG-14's wide half: `(emacro name ((name p ...) expr) ...)` is a

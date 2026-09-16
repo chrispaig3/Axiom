@@ -1,0 +1,41 @@
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `s`, which has type `String` - a reference the parent also holds[0m
+  [1;34m--> [0m644-parallel-thunk-shape.ax:48:34
+[1;34m   |[0m
+[1;34m48 |[0m         (lambda (w) (+ w (strLen s)))
+[1;34m   |[0m                                  [1;31m^ `s` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding spawns a call result, whose captures this checker cannot see[0m
+  [1;34m--> [0m644-parallel-thunk-shape.ax:59:43
+[1;34m   |[0m
+[1;34m59 |[0m (fn (callRes s) (__par_join (__par_spawn (mk s) 0)))
+[1;34m   |[0m                                           [1;31m^^ the thunk's captures are not visible here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mwrite the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding spawns a field, whose captures this checker cannot see[0m
+  [1;34m--> [0m644-parallel-thunk-shape.ax:70:32
+[1;34m   |[0m
+[1;34m70 |[0m     (__par_join (__par_spawn b.f 0))
+[1;34m   |[0m                                [1;31m^ the thunk's captures are not visible here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mwrite the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `s`, which has type `String` - a reference the parent also holds[0m
+  [1;34m--> [0m644-parallel-thunk-shape.ax:80:24
+[1;34m   |[0m
+[1;34m80 |[0m       (let ((k (strLen s)))
+[1;34m   |[0m                        [1;31m^ `s` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+compilation failed due to 4 previous errors

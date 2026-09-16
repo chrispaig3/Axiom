@@ -1,0 +1,129 @@
+; MM-PAR-6, the opaque-thunk half (docs/memory-model-v2-design.md 3.2b).
+;
+; `checkSpawnCaptures` scans a literal-lambda thunk (`642`) and refuses
+; a frame-local arrow name (`643`), but a thunk that is neither - a
+; conditional choosing between two lambdas, a call result, a field -
+; used to be accepted unseen. Those shapes are walked structurally
+; now: every lambda a transparent form can answer is scanned where it
+; stands, and an opaque answer is refused at the shape.
+;
+;   1  `condCap` chooses between two lambdas over a `String`. One
+;      AX3064, anchored on `s` in the capturing branch: the branch
+;      is where the fix is.
+;   2  `callRes` spawns what `mk` answers. One AX3064, anchored on
+;      the call: a call result's captures are not visible here.
+;   3  `fieldThunk` spawns a closure read out of a record. One
+;      AX3064, anchored on the field: a field's captures are not
+;      visible here.
+;   4  `letCap` builds the closure in a `let` over a `String`. One
+;      AX3064, anchored on `s` where the `let` value reads it: the
+;      value flows into the closure.
+;   5  `condWord` is row 1 over words: the same conditional with
+;      `Int` captures is silent.
+;   6  `matchWord` chooses between two lambdas by match, over words:
+;      silent.
+;   7  `procCall` is row 2 through `__proc_spawn`: the forked
+;      lowering isolates by construction, so the exemption holds
+;      and it is silent.
+(import IO)
+
+(import Str)
+
+(:: mk (-> String Int Int))
+
+(fn (mk s)
+  (lambda (w) (+ w (strLen s)))
+)
+
+(struct Box
+  (f : (-> Int Int)))
+
+(:: condCap (-> String Bool Int))
+
+;@axiom:effect(io)
+(fn (condCap s c)
+  (__par_join
+    (__par_spawn
+      (if c
+        (lambda (w) (+ w (strLen s)))
+        (lambda (w) w)
+      )
+      0
+    )
+  )
+)
+
+(:: callRes (-> String Int))
+
+;@axiom:effect(io)
+(fn (callRes s) (__par_join (__par_spawn (mk s) 0)))
+
+(:: fieldThunk (-> String Int))
+
+;@axiom:effect(io)
+(fn (fieldThunk s)
+  (let ((b 
+    (Box
+      (lambda (w) (+ w (strLen s)))
+    )
+  ))
+    (__par_join (__par_spawn b.f 0))
+  )
+)
+
+(:: letCap (-> String Int))
+
+;@axiom:effect(io)
+(fn (letCap s)
+  (__par_join
+    (__par_spawn
+      (let ((k (strLen s)))
+        (lambda (w) (+ w k))
+      )
+      0
+    )
+  )
+)
+
+(:: condWord (-> Int Int Bool Int))
+
+;@axiom:effect(io)
+(fn (condWord n m c)
+  (__par_join
+    (__par_spawn
+      (if c
+        (lambda (w) (+ w n))
+        (lambda (w) (+ w m))
+      )
+      0
+    )
+  )
+)
+
+(:: matchWord (-> Int Int Int))
+
+;@axiom:effect(io)
+(fn (matchWord n m)
+  (__par_join
+    (__par_spawn
+      (match n
+        (0
+          (lambda (w) (+ w m))
+        )
+        (_
+          (lambda (w) w)
+        )
+      )
+      0
+    )
+  )
+)
+
+(:: procCall (-> String Int))
+
+;@axiom:effect(io)
+(fn (procCall s) (__proc_join (__proc_spawn (mk s) 0)))
+
+(:: main Int)
+
+(fn (main) 0)

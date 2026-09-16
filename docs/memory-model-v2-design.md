@@ -483,14 +483,23 @@ now refuses a thunk that is a frame-local name of arrow type: the
 `viaHop` wrapper above draws `AX3064` at `f`, a bare top-level name
 stays silent, and a non-arrow local stays the argument checker's (one
 mistake, one diagnostic). `tests/diagnostics/643` pins the refused
-shape and both controls. What this does NOT build is the sibling-region
+shape and both controls.
+
+**Closed 2026-09-16, the opaque-thunk half.** What 09-11 left open —
+a thunk that is neither a lambda nor a bare name — is walked
+structurally now (`capWalkThunk`): a conditional, a match, a `let`
+and a brace block are transparent, so every lambda they can answer
+is scanned where it stands, while whatever they read to choose or
+build it is collected as a capture; a call result and a field are
+refused at the shape (`emitSpawnOpaque`), whose captures no walk
+can see. `tests/diagnostics/644` pins the four refused shapes and
+the three controls (word-only conditional and match, `__proc_spawn`
+exemption). What this does NOT build is the sibling-region
 typing §3.2 describes — no region nodes are created for bindings, and
 `rgnCheckAll` still runs only under `@r` signatures. The safety
 property that typing was meant to provide (no unrefused capture reaches
 a thread) now holds by refusal instead: every shape the checker can see
-is either scanned or refused, and the one it cannot — a thunk that is
-neither a lambda nor a bare name — is stated open in `check-parallel.sh`
-rather than left to be discovered. Typed precision (accepting captures
+is either scanned or refused. Typed precision (accepting captures
 a region discipline proves safe) waits for S4 with everything else.
 
 ---

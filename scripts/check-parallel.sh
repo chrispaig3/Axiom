@@ -110,16 +110,18 @@
 # WHAT THIS GATE DOES NOT CLAIM. The thread lowering shares the
 # parent's address space, so a heap value a binding captures is touched
 # from two threads with no fence - which the process lowering cannot
-# suffer. The static rule refuses both shapes the checker can see: a
-# literal-lambda thunk is scanned for captures, and a thunk that is a
-# frame-local name of arrow type is refused outright, because its
-# captures are not visible where it stands (AX3064 both;
-# tests/diagnostics/642 and 643 pin the two). Both fixtures capture
-# only words, on purpose. What remains open is a thunk that is neither
-# a lambda nor a bare name - a call result, a conditional - which is
-# still accepted: no such shape reaches a spawn from `parallel`'s
-# desugaring, which always emits a literal lambda, and none is in the
-# corpus.
+# suffer. The static rule refuses every shape the checker can see: a
+# literal-lambda thunk is scanned for captures, a thunk that is a
+# frame-local name of arrow type is refused outright, a conditional, a
+# match, a `let` and a brace block are walked to every lambda they can
+# answer, and a call result and a field are refused at the shape -
+# because their captures are not visible where the spawn stands
+# (AX3064 all; tests/diagnostics/642, 643 and 644 pin them). Both
+# fixtures capture only words, on purpose. No `parallel` written in
+# source can reach the non-literal shapes, since the desugaring always
+# emits a literal lambda: they are reachable only from a hand-written
+# `__par_spawn` or `__thread_spawn`, and none is in the corpus.
+# Section 11 holds the four refusals and the three controls.
 #
 # Section 6b is what keeps `Par.ax`'s primitive choice honest: that
 # module spawns a parameter through `__proc_spawn`, whose forked
@@ -1044,6 +1046,77 @@ else
   bad "ablation bt: the edit did not land - emitBtWalk's thread-entry stop was never broken, so the arm proved nothing"
 fi
 
+# --------------------------------------------------------------------
+echo
+echo "== 11. every thunk shape is scanned or refused: AX3064's opaque half =="
+# --------------------------------------------------------------------
+# `checkSpawnCaptures` used to answer 0 for a thunk that was neither a
+# literal lambda nor a bare name, so a conditional choosing between two
+# lambdas compiled with its captured `String` unseen and a call result
+# with its captures invisible. `capWalkThunk` walks the transparent
+# forms to every lambda they can answer and `emitSpawnOpaque` refuses
+# the rest at the shape (tests/diagnostics/644 pins the four refusals
+# and the three controls). Static checks only - no binary runs, so
+# nothing here can flake with load. The ablation is the golden itself:
+# revert the walk and 644's four lines become silence, which
+# check-diagnostics.sh refuses (a golden must carry an AXDL line, and
+# empty never equals the checked-in four).
+check3064() {  # <file> <want-count> <tag>
+  got="$("$axc" --diagnostic-format=ai check "$1" 2>&1 | grep -c '^E AX3064' || true)"
+  if [[ "$got" == "$2" ]]; then
+    ok "11: $3 draws $got AX3064 line(s)"
+  else
+    bad "11: $3 draws $got AX3064 line(s), wanted $2"
+  fi
+}
+checkok() {  # <file> <tag>
+  if "$axc" --diagnostic-format=ai check "$1" > /dev/null 2>&1; then
+    ok "11: $2 checks clean"
+  else
+    bad "11: $2 should check clean"
+    "$axc" --diagnostic-format=ai check "$1" 2>&1 | head -3 | sed 's/^/     /'
+  fi
+}
+cat > "$work/opaque-cond.ax" <<'OPAQUE'
+(import Str)
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((s "hello"))
+    (__par_join (__par_spawn (if (== 1 1) (lambda (w) (+ w (strLen s))) (lambda (w) w)) 0))))
+OPAQUE
+cat > "$work/opaque-call.ax" <<'OPAQUE'
+(import Str)
+(:: mk (-> String (-> Int Int)))
+(fn (mk s) (lambda (w) (+ w (strLen s))))
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((s "hello"))
+    (__par_join (__par_spawn (mk s) 0))))
+OPAQUE
+cat > "$work/opaque-word.ax" <<'OPAQUE'
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((n 40))
+    (__par_join (__par_spawn (if (== 1 1) (lambda (w) (+ w n)) (lambda (w) w)) 0))))
+OPAQUE
+cat > "$work/opaque-proc.ax" <<'OPAQUE'
+(import Str)
+(:: mk (-> String (-> Int Int)))
+(fn (mk s) (lambda (w) (+ w (strLen s))))
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((s "hello"))
+    (__proc_join (__proc_spawn (mk s) 0))))
+OPAQUE
+check3064 "$work/opaque-cond.ax" 1 "a conditional hiding a captured String"
+check3064 "$work/opaque-call.ax" 1 "a call-result thunk"
+checkok "$work/opaque-word.ax" "the same conditional over words"
+checkok "$work/opaque-proc.ax" "a call-result thunk through __proc_spawn"
+
 echo
 if (( failed > 0 )); then
   echo "check-parallel: $failed of $((checks + failed)) checks failed"
@@ -1059,4 +1132,5 @@ echo "                its width, and emits the same module with the flag and wit
 echo "                freebsd's leg still executes the fixtures, four concurrent"
 echo "                allocators answer as four processes do, two failing bindings"
 echo "                are deterministic under processes and are not under threads,"
-echo "                and a thread's backtrace stops where its stack does"
+echo "                and a thread's backtrace stops where its stack does;"
+echo "                every thunk shape a spawn can take is scanned or refused"

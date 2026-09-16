@@ -1052,11 +1052,15 @@ draws it at the name, because whatever function that name holds may
 close over a reference and the checker cannot tell from the spawn
 (`tests/diagnostics/643-parallel-capture-hop.ax`). Write the lambda at
 the spawn, or name a top-level function. A thunk that is neither a
-lambda nor a bare name - a call result, a conditional - is still
-accepted and still open work: no `parallel` written in source can reach
-that shape, since the parser's desugaring always emits a literal
-lambda, and it is reachable only from a hand-written `__par_spawn` or
-`__thread_spawn`.
+lambda nor a bare name - a conditional, a match, a `let`-built
+closure - is walked to every lambda it can answer, and each is
+scanned where it stands; what is neither a lambda, a name, nor one
+of those transparent forms - a call result, a field - is refused at
+the shape, whose captures are not visible here
+(`tests/diagnostics/644-parallel-thunk-shape.ax`). No `parallel`
+written in source can reach any of those shapes, since the parser's
+desugaring always emits a literal lambda: they are reachable only
+from a hand-written `__par_spawn` or `__thread_spawn`.
 
 **Where it is not available.** `--threads` on freebsd-* or
 windows-x86_64, and `__thread_spawn` there, are refused at build time

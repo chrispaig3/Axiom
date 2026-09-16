@@ -9511,25 +9511,129 @@
   ; this rule's: the application is ill-typed without any capture
   ; question, and reporting it here too would say one mistake twice.
   ; Poison and the silent wildcard stay silent for the cascade reason
-  ; `capReport` gives. Anything that is neither a lambda nor a bare
-  ; name - a call result, a conditional - is still accepted, and that
-  ; is OPEN rather than closed: no such shape reaches a spawn from
-  ; `parallel`'s desugaring, and none is in the corpus.
+  ; `capReport` gives.
+  ;
+  ; Anything that is neither a lambda nor a bare name is walked
+  ; STRUCTURALLY (`capWalkThunk`, `tests/diagnostics/644`): a
+  ; conditional, a match, a `let` and a brace block choose or build
+  ; the closure, so every lambda they can answer is scanned where it
+  ; stands - while whatever they read to choose or build it is
+  ; collected as a capture, because a `let`-bound value and a match
+  ; scrutinee flow into the closure that names them. A `set` walks
+  ; its value, a `handle` its body and a `(region r ...)` its body:
+  ; the value is what each of those forms answers. What is none of
+  ; a lambda, a name, or those transparent forms - a call result, a
+  ; field - is refused outright (`emitSpawnOpaque`): its captures
+  ; are not visible where the spawn stands, exactly as a frame-local
+  ; name's are not. What answers a word - a literal, a constructor,
+  ; an allocation, a loop, a field store - is the argument
+  ; checker's: it cannot be the spawned closure. No opaque shape
+  ; reaches a spawn from `parallel`'s desugaring, which always emits
+  ; a literal lambda, and none is in the corpus - so the refusal
+  ; costs nothing measured and leaves no shape accepted unseen.
   (if (== (nodeTag lam) TAG_E_LAM)
     (capReport
       tc      (capScanInto (nodeB lam) (capBoundOf (nodeAVec lam)) vecNew)      0      vecNew
     )
     (if (!= (nodeTag lam) TAG_E_VAR)
-      0
-      (let ((ent (scopeFindFrame tc (nodeAName lam))))
-        (if (== ent 0)
-          0
-          (let ((ty (sEntTy ent)))
-            (if (|| (== (tyIsErr ty) 1) (== (tyIsSilentWild ty) 1))
-              0
-              (if (== (tyIsArrow ty) 1)
-                (emitSpawnIndirection tc (nodeAName lam) ty (nodeSpan lam))
-                0
+      (capThunkCheck tc lam)
+      (capThunkVar tc lam vecNew)
+    )
+  )
+)
+
+; The thunk is neither a lambda literal nor a bare name: walk it to
+; every closure it can answer, scanning each where it stands, and
+; refuse it if any answer is opaque. `bound` holds the thunk's own
+; binders - a `let` name, a match pattern - so a use of one is not
+; mistaken for a capture of the parent; `acc` gathers the
+; occurrences the values and scrutinees contribute, because those
+; are evaluated in the parent and flow into the closure; `done`
+; keeps the opaque refusal to one per spawn site.
+(pub :: capThunkCheck (-> Int Int Int))
+
+(pub fn (capThunkCheck tc e)
+  (let ((bound vecNew) (acc vecNew) (done vecNew))
+    {
+      (capWalkThunk tc e bound acc done)
+      (capReport tc acc 0 vecNew)
+    }
+  )
+)
+
+; One spawn thunk's structure. The condition of an `if`, the tests of
+; a `cond` and all but the last of a brace block run in the parent
+; and choose nothing the child holds, so they are not walked; the
+; branches, the bodies and the last are the closure. A `let`'s value
+; is walked BEFORE its name is bound, as `capScanInto` walks it: the
+; value cannot see the binding, and the body can. A match
+; scrutinee IS walked, unlike a condition: the arm patterns bind
+; parts of it, so a closure over a pattern holds the parent's block
+; through the scrutinee (`rgnBindPat` reads patterns the same way).
+(pub :: capWalkThunk (-> Int Int (Vec Int) (Vec Int) (Vec Int) Int))
+
+(pub fn (capWalkThunk tc e bound acc done)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_LAM)
+        (let ((mark (vecLen bound)))
+          {
+            (capPushAll (nodeAVec e) 0 bound)
+            (capScanInto (nodeB e) bound acc)
+            (scopeTrunc bound mark)
+          }
+        )
+        (if (== tag TAG_E_VAR)
+          (capThunkVar tc e bound)
+          (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+            {
+              (capScanInto (nodeB e) bound acc)
+              (let ((mark (vecLen bound)))
+                {
+                  (vecPush bound (nodeA e))
+                  (capWalkThunk tc (nodeC e) bound acc done)
+                  (scopeTrunc bound mark)
+                }
+              )
+            }
+            (if (== tag TAG_E_IF)
+              {
+                (capWalkThunk tc (nodeB e) bound acc done)
+                (capWalkThunk tc (nodeC e) bound acc done)
+              }
+              (if (== tag TAG_E_COND)
+                {
+                  (capWalkCondBodies tc (nodeAVec e) 0 bound acc done)
+                  (capWalkThunk tc (nodeB e) bound acc done)
+                }
+                (if (== tag TAG_E_MATCH)
+                  {
+                    (capScanInto (nodeA e) bound acc)
+                    (capWalkMatchArms tc (nodeBVec e) 0 bound acc done)
+                  }
+                  (if (== tag TAG_E_BEGIN)
+                    (let ((v (nodeAVec e)))
+                      (if (== (vecLen v) 0)
+                        0
+                        (capWalkThunk tc (vecGet v (- (vecLen v) 1)) bound acc done)
+                      )
+                    )
+                    (if (== tag TAG_E_SET)
+                      (capWalkThunk tc (nodeB e) bound acc done)
+                      (if (== tag TAG_E_HANDLE)
+                        (capWalkThunk tc (nodeA e) bound acc done)
+                        (if (== tag TAG_E_REGION)
+                          (capWalkThunk tc (nodeB e) bound acc done)
+                          (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_QUOTE) (|| (== tag TAG_E_STRUCTCON) (|| (== tag TAG_E_ALLOC) (|| (== tag TAG_E_WHILE) (== tag TAG_E_SETF)))))))))
+                            0
+                            (capOpaqueOnce tc e tag done)
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
               )
             )
           )
@@ -9537,6 +9641,106 @@
       )
     )
   )
+)
+
+; Every `cond` body in turn; the tests chose the body in the parent.
+(pub :: capWalkCondBodies (-> Int (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) Int))
+
+(pub fn (capWalkCondBodies tc cls i bound acc done)
+  (if (>= i (vecLen cls))
+    0
+    {
+      (capWalkThunk tc (nodeB (vecGet cls i)) bound acc done)
+      (capWalkCondBodies tc cls (+ i 1) bound acc done)
+    }
+  )
+)
+
+; Every match arm's body under its own pattern's binders, as
+; `capScanArms` binds them.
+(pub :: capWalkMatchArms (-> Int (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) Int))
+
+(pub fn (capWalkMatchArms tc arms i bound acc done)
+  (if (>= i (vecLen arms))
+    0
+    (let ((a (vecGet arms i)))
+      (let ((mark (vecLen bound)))
+        {
+          (capPatBind (nodeA a) bound)
+          (capWalkThunk tc (nodeB a) bound acc done)
+          (scopeTrunc bound mark)
+          (capWalkMatchArms tc arms (+ i 1) bound acc done)
+        }
+      )
+    )
+  )
+)
+
+; A bare name where a thunk stands: the indirection half of AX3064,
+; shared by the top-level spawn and every transparent form above it.
+; A name the thunk bound itself is not a capture. A name no frame
+; holds is top-level (safe) or undefined (AX3001's) - either way
+; silent here. Of the rest, an arrow may close over a reference the
+; checker cannot see, and anything else is the argument checker's.
+(pub :: capThunkVar (-> Int Int (Vec Int) Int))
+
+(pub fn (capThunkVar tc e bound)
+  (if (>= (strVecIdx bound (nodeAName e)) 0)
+    0
+    (let ((ent (scopeFindFrame tc (nodeAName e))))
+      (if (== ent 0)
+        0
+        (let ((ty (sEntTy ent)))
+          (if (|| (== (tyIsErr ty) 1) (== (tyIsSilentWild ty) 1))
+            0
+            (if (== (tyIsArrow ty) 1)
+              (emitSpawnIndirection tc (nodeAName e) ty (nodeSpan e))
+              0
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+; The opaque half of AX3064: the thunk is a shape whose captures no
+; walk can see through - a call result, a field - so the spawn is
+; refused at the shape rather than at a name. Same code because it
+; is the same rule (MM-PAR-6); different message because there is
+; no name to fix - the fix is to restructure. `done` answers
+; whether this site already drew it.
+(pub :: capOpaqueOnce (-> Int Int Int (Vec Int) Int))
+
+(pub fn (capOpaqueOnce tc e tag done)
+  (if (>= (vecLen done) 1)
+    0
+    {
+      (vecPush done 1)
+      (emitSpawnOpaque tc (if (== tag TAG_E_APP) "a call result" (if (== tag TAG_E_FIELD) "a field" "an expression")) (nodeSpan e))
+    }
+  )
+)
+
+; The opaque half's diagnostic, beside `emitSpawnCapture` and
+; `emitSpawnIndirection`.
+(pub :: emitSpawnOpaque (-> Int String Int Int))
+
+(pub fn (emitSpawnOpaque tc shape span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3064"
+      "parallel-capture"
+      span
+      (strConcat (strConcat "a concurrent binding spawns " shape) ", whose captures this checker cannot see")
+      0
+      0
+      "write the lambda at the spawn, or name a top-level function: a literal is checked where it stands and a top-level name captures nothing"
+      "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt"
+    ) "the thunk's captures are not visible here"))
+    0
+  }
 )
 
 ; The lambda's own parameters, COPIED. The walk pushes and truncates
