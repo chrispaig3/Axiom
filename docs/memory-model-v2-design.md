@@ -568,6 +568,23 @@ decision - a `let`-bound lambda named `MkBox` turns `(MkBox 1)` into
 a closure call, measured leaking without the guard, and constructors
 CAN be named `cast`, probed.
 
+**Sizing the next slice, measured 2026-09-16.** Every `axiom_release`
+site in the compiler's own IR (`emit-llvm self_host/main.ax`, 387,162
+lines), classified by what defines its operand with the same per-`define`
+walk `check-static-release.sh` uses: 6,501 sites — 5,916 on call
+results, 408 on `load`ed locals, 157 on `phi` joins, 13 on
+`extractvalue` projections, 7 on static literals. So the witness's
+ceiling is the 5,916: `VAR` operands need def-tracking and joins need
+per-arm reasoning, each its own later slice, and neither is this one.
+The top callees say why the witness is computed and never syntactic:
+`strConcat` (1,203), `cat2`/`cat3`/`cat4`, `strDup`, `strSlice`,
+`fmtInt` construct, while `memGetWordStr`, `vecGetStr`, `tokenLexeme`,
+`bareOf`, `nodeAName`, `fpSrc` and `sysArg` read into memory the callee
+did not build. A witness answering "fresh" for every call result
+answers it for those too; telling the two columns apart per callee —
+read, as `rgnRounds` reads callees — is exactly MM-RGN-5's job, and
+this census is its worksheet.
+
 **The adjacent hole, recorded and not fixed here.** A
 callee-mediated store of a fresh construction into an outer cell
 from inside an UN-annotated region is unchecked: `rgnCheckAll` runs
