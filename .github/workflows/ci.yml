@@ -492,6 +492,17 @@ jobs:
       - name: In-region constructions are reset-reclaimed
         run: ./scripts/check-region-reclaim.sh
 
+      # S4's second slice, args path: a call result the witness
+      # proves fresh, handed to a call inside a region body, needs
+      # no release for the same reason. Six release sites gone
+      # from a second fixture's IR and nothing else, the RSS flat
+      # across 300,000 regions of fresh calls, and an ablation of
+      # the stamp bringing all six back. A reader's result, no
+      # region, a `let`-bound result and a closure call keep
+      # theirs.
+      - name: Fresh call results are reset-reclaimed as arguments
+        run: ./scripts/check-region-fresh.sh
+
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is
       # excellent and it tests the Rust CLIENT: cargo, `#[axiom_export]`,

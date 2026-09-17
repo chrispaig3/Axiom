@@ -17795,21 +17795,39 @@
       ; reset, so emitting its release is binary only. The DECISION
       ; predicate above is untouched - `mustTailOK` reads it too, and
       ; stays conservative.
-      (if (== (isRegionCoveredCon cg (vecGet args i)) 1)
-        (releaseOwnedArgs
-          cg
-          fnName
-          args
-          regs
-          (+ i 1))
-        (releaseOwnedArgs
-          (emitReleaseOf
+      ;
+      ; S4 slice 2, args path: a call whose answer the witness proved
+      ; fresh (`nodeResWord` 2, stamped post-fixpoint from the
+      ; callee's converged facts - result from CUR0, from no
+      ; parameter, from no unresolved call - and never when
+      ; truncation made every row a lower bound) is reclaimed by the
+      ; same reset, so its release is the same binary-only traffic.
+      ; The depth gate is the same textual extent slice 1 owns: the
+      ; stamp is context-free (the callee is fresh everywhere) and
+      ; only a use inside the body may go without its release. What
+      ; is NOT covered here is a fresh call result bound by `let`
+      ; and released at scope end rather than passed as an argument
+      ; - that walker is the next slice, and this one leaves it
+      ; exactly alone. Inlined rather than factored so no new
+      ; top-level function moves the effect-distribution pins; the
+      ; callee-mediated hole is outcome-identical either way (the
+      ; reset frees unconditionally), as slice 1's gate pins.
+      (let ((a (vecGet args i)))
+        (if (|| (== (isRegionCoveredCon cg a) 1) (&& (!= (pairSlot cg 9) 0) (&& (== (nodeTag a) TAG_E_APP) (== (nodeResWord a) 2))))
+          (releaseOwnedArgs
             cg
-            (cast String (vecGet regs i)))
-          fnName
-          args
-          regs
-          (+ i 1)))
+            fnName
+            args
+            regs
+            (+ i 1))
+          (releaseOwnedArgs
+            (emitReleaseOf
+              cg
+              (cast String (vecGet regs i)))
+            fnName
+            args
+            regs
+            (+ i 1))))
       (releaseOwnedArgs
         cg
         fnName

@@ -620,6 +620,34 @@ keeps every release. Measured on a baseline built the same way:
 ways), 2.6s against 2.6s; 631 still draws only its three AX3059s;
 479 checks OK.
 
+**S4 slice 2, args path, BUILT 2026-09-17 - fresh call results handed
+to a call.** The witness is a stamp, not a query: the region pass
+records a proven-fresh call result on its own node (`nodeResWord` 0
+to 2, post-fixpoint only, never while facts are still moving and
+never when truncation made every row a lower bound - TC word 40,
+`rgnStamping`, is what distinguishes the stamp walks from the
+fixpoint's own passes), and `releaseOwnedArgs` spends the stamp
+exactly where slice 1 spends its construction test, while
+`argOwnedRelease` still says 1 so `mustTailOK` stays conservative.
+Fresh means the callee's facts say the answer derives from CUR0,
+from no heap parameter (a scalar-typed parameter contributes no
+alias, so a cell built over words is still a fresh cell - `mkBox`
+over `Int` stamps and `idBox` over `Box` does not), and from no call
+the walk could not resolve; the call must be saturated, an annotated
+result is never stamped, and a word answer is never touched (every
+old reader asks `== 1`). Constructors are not stamped - slice 1 owns
+them syntactically, so the two deltas never overlap. Inlined rather
+than factored, so no new top-level function moves the
+effect-distribution pins. `tests/stdlib/480-region-fresh-call.ax`
+(eight terms) plus `scripts/check-region-fresh.sh`: six releases
+gone from the fixture's IR and the diff is those six lines and
+nothing else, the same eight answers under both compilers, peak RSS
+100% across 300,000 regions of fresh calls, and an ablation of the
+stamp bringing all six back. What is NOT this slice is a fresh call
+result bound by `let` and released at scope end: `releaseOwnedArgs`
+never sees it, so the stamp sits unused on it (term 4 pins one,
+kept) until the scope-end walker learns to read it.
+
 **The adjacent hole, recorded and not fixed here.** A
 callee-mediated store of a fresh construction into an outer cell
 from inside an UN-annotated region is unchecked: `rgnCheckAll` runs

@@ -2209,7 +2209,8 @@
   (pairSites : Int)
   (floatOps : (Vec Int))
   (subtypes : (Vec Int))
-  (rgnHasForm : Int))
+  (rgnHasForm : Int)
+  (rgnStamping : Int))
 
 ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
 ; walked, and word 28 was `implIdx`, every `impl` declaration
@@ -2387,6 +2388,12 @@
 ; because the parser has no TC to set and changing `parseModuleWith`'s
 ; PResult shape touches every caller, while the S2 walk already sees
 ; every form exactly once.
+; Whether the region pass may stamp call nodes with proven freshness,
+; 1 only during the post-fixpoint walks `rgnCheckAll` runs. The same
+; `rgnPass` with report 0 also runs inside `rgnRounds` on every round
+; while facts are still moving, so the report value cannot distinguish
+; them; this word can. Appended, for the reason every field before it
+; was.
 (pub :: tcFns (-> Int Int))
 (pub fn (tcFns tc)
   (memGetWord tc 0))
@@ -2954,6 +2961,7 @@
           0
           vecNew
           vecNew
+          0
           0))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
@@ -21459,7 +21467,8 @@
                             ent
                             n
                             args
-                            (spanOf e)))))))))))))))
+                            (spanOf e)
+                            e))))))))))))))
 
 (pub :: rgnLastArg (-> Int (Vec Int) Int))
 (pub fn (rgnLastArg rc args)
@@ -21567,8 +21576,13 @@
 
 ; A user function: its signature's regions instantiate against the
 ; arguments, and its facts say what it stores where.
-(pub :: rgnKnownCall (-> Int Int String (Vec Int) Int Int))
-(pub fn (rgnKnownCall rc ent spelled args span)
+;
+; `e` is the application node itself, carried so the post-fixpoint
+; stamp walks can record a proven-fresh result on it (`nodeResWord`
+; 0 to 2; never touching 1). Only `rgnApp` calls this, so the extra
+; word moves one site.
+(pub :: rgnKnownCall (-> Int Int String (Vec Int) Int Int Int))
+(pub fn (rgnKnownCall rc ent spelled args span e)
   ; the entry's own name is the mangled one the declaration carries
   ; (`Vec$vecPush`); the spelling at the call may be bare or qualified
   (let (
@@ -21581,6 +21595,7 @@
     (instMasks (rgnIntVec))
     (mut i 0)
     (mut res 0)
+    (mut ok 1)
   )
     {
       (while (< i (vecLen args))
@@ -21716,6 +21731,47 @@
                     0)
                   (set i (+ i 1))
                 })
+              ; S4 slice 2's witness stamp: this call's answer is
+              ; freshly allocated by the callee - its facts say the
+              ; result derives from CUR0, from no HEAP parameter (a
+              ; scalar-typed parameter contributes no alias: an `Int`
+              ; field needs no release, so a cell built over words is
+              ; still a fresh cell), and from no call the walk could
+              ; not resolve - so record it on the node for codegen's
+              ; elision. The call must be saturated (every parameter
+              ; present, so no bit hides past the argument list); a
+              ; partial application abstains. Upgrade only (0 to 2; a
+              ; word answer stays 1), only on the post-fixpoint stamp
+              ; walks (`rgnStamping`, word 40), never while facts are
+              ; still moving, and never when truncation made every row
+              ; a lower bound (word 28 is 2 then, not 1). An annotated
+              ; result takes the branch above and is never stamped: it
+              ; lives where the signature says, not in the current
+              ; region, so no reset reclaims it. Over-stamping would
+              ; leak a share, never free one early - and the RSS half
+              ; of the gate watches the ratio - but the rule above is
+              ; stated as the guarantee, not the tendency.
+              ;
+              ; No signature, no stamp: without declared parameter
+              ; types there is nothing to prove scalar with, so a
+              ; signature-less callee abstains rather than guessing.
+              (if (== sig 0)
+                (set ok 0)
+                {
+                  (set ok 1)
+                  (set i 0)
+                  (while (< i (vecLen args))
+                    {
+                      (if (&& (!= (& (memGetWord f 3) (<< 1 i)) 0) (== (rgTyScalar tc (nthParamTy sig i 0)) 0))
+                        (set ok 0)
+                        0)
+                      (set i (+ i 1))
+                    })
+                  0
+                })
+              (if (&& (== (memGetWord tc 40) 1) (&& (== (memGetWord tc 28) 1) (&& (== (nodeResWord e) 0) (&& (!= (memGetWord f 4) 0) (&& (== (memGetWord f 5) 0) (&& (== (vecLen args) (memGetWord f 7)) (== ok 1)))))))
+                (setNodeResWord e 2)
+                0)
               res
             })))
     }))
@@ -21894,7 +21950,13 @@
   (if (== (rgnProgramUsesRegions tc) 1)
     {
       (rgnEnsureFacts tc)
+      ; S4 slice 2's stamp walk: facts are final now, so record
+      ; proven-fresh call results on their nodes for codegen. The
+      ; flag is down during `rgnRounds`' own passes, which is what
+      ; keeps a still-moving row from ever becoming a stamp.
+      (memSetWord tc 40 1)
       (rgnPass tc (memGetWordVec tc 10) 0 1)
+      (memSetWord tc 40 0)
       0
     }
     ; S4 slice 2b: a region form with no `@r` still gets its facts for
@@ -21903,10 +21965,15 @@
     ; 2026-09-12); the callee-mediated hole stays open, pinned, and
     ; stated until one of the two ways out lands. Truncated still means
     ; the witness abstains: `rgnEnsureFacts` records it on words 28/33
-    ; and the future elision keeps every release.
+    ; and the stamp walk below stamps nothing. The report-0 walk
+    ; stamps without diagnosing, which is the whole of what slice 2
+    ; needs from a program with nothing annotated.
     (if (== (memGetWord tc 39) 1)
       {
         (rgnEnsureFacts tc)
+        (memSetWord tc 40 1)
+        (rgnPass tc (memGetWordVec tc 10) 0 0)
+        (memSetWord tc 40 0)
         0
       }
       0)))

@@ -1,0 +1,126 @@
+; S4 slice 2, args path (docs/memory-model-v2-design.md §4): inside a
+; `(region r BODY)` a call result the witness proved fresh - the
+; callee's facts say its answer derives from CUR0, from no parameter,
+; and from no call the walk could not resolve - needs no
+; `axiom_release`, because the reset reclaims it in one pointer move.
+; The checker stamps such a call `nodeResWord` 2 post-fixpoint (never
+; while facts are still moving, never when truncation made every row
+; a lower bound); `releaseOwnedArgs` spends the stamp exactly where
+; slice 1 spends its construction test, while `argOwnedRelease`
+; still says 1 so `mustTailOK` stays conservative.
+; `scripts/check-region-fresh.sh` holds the release counts, the RSS
+; and the ablations; this file pins the ANSWERS, so a gate that
+; deleted releases too eagerly fails here first.
+;
+; What each term establishes:
+;
+;   1. A fresh call result handed to a call inside a region answers
+;      (the elision fires here).
+;   2. A reader's result handed to the same call answers (its facts
+;      say the answer derives from the parameter, so no stamp - the
+;      release stays and the answer is unchanged).
+;   3. The same fresh call with NO region answers the same (the
+;      control: elision needs the reset).
+;   4. A `let`-bound fresh call answers (the temporary is a `VAR`
+;      at the release site and its release runs at scope end, not in
+;      `releaseOwnedArgs` - the next slice, not this one; the release
+;      stays and the answer is unchanged).
+;   5. A call through a closure parameter answers (the walk cannot
+;      resolve it, so no stamp - the release stays).
+;   6. A fresh result built on both arms of a branch answers (the
+;      fixpoint unions two fresh origins into a fresh-only row - the
+;      elision fires here too).
+;   7. THE WATERLINE COMES BACK. Marks around a region that builds
+;      and drops fresh call results: reclaimed, with the releases
+;      elided - the reset covers what counting used to free.
+;   8. Fifty thousand regions, one sum: the loop answers, proving
+;      the elided traffic was never load-bearing for correctness.
+(import IO)
+(import Mem)
+
+(data Box
+  (MkBox Int))
+
+; Fresh: answers a block this body built from nothing but its word
+; argument. Facts: resultCUR set, resultFrom empty, no unknown calls.
+(:: mkBox (-> Int Box))
+(fn (mkBox x)
+  (MkBox x))
+
+; Reader: answers the very block it was handed. Facts: resultFrom
+; names the parameter, so no stamp whatever the argument was.
+(:: idBox (-> Box Box))
+(fn (idBox b)
+  b)
+
+; Fresh on both arms: each branch builds, neither reads a parameter.
+(:: mkEither (-> Int Box))
+(fn (mkEither c)
+  (if (== c 0)
+    (MkBox 10)
+    (MkBox 20)))
+
+(:: useBox (-> Box Int Int))
+(fn (useBox o d)
+  (+
+    (match o
+      ((MkBox x) x))
+    d))
+
+; Term 8's loop: scalar stores to an outer binding are allowed, so
+; the counter lives outside the regions it counts.
+(:: spinFresh (-> Int Int Int))
+(fn (spinFresh i acc)
+  (if (<= i 0)
+    acc
+    (region r
+      (spinFresh (- i 1) (+ acc (useBox (mkBox i) 0))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- 1. fresh call result in a region ---
+    (println
+      (region r
+        (useBox (mkBox 40) 2)))
+    ; --- 2. reader result in a region: the release stays ---
+    (println
+      (region r
+        (useBox (idBox (MkBox 40)) 2)))
+    ; --- 3. no region, no elision, same answer ---
+    (println (useBox (mkBox 40) 2))
+    ; --- 4. let-bound fresh call: the release stays ---
+    (println
+      (region r
+        (let ((b (mkBox 40)))
+          (useBox b 2))))
+    ; --- 5. call through a closure parameter: the release stays ---
+    (println
+      (region r
+        (let ((k 
+          (lambda (q) (mkBox q))))
+          (useBox (k 40) 0))))
+    ; --- 6. fresh on both branch arms ---
+    (println
+      (region r
+        (useBox (mkEither 1) 0)))
+    ; --- 7. the waterline comes back, releases elided ---
+    (let ((m1 __axiom_arena_mark))
+      {
+        (region r
+          {
+            (useBox (mkBox 1) 0)
+            (useBox (mkBox 2) 0)
+            (useBox (mkBox 3) 0)
+            0
+          })
+        (println
+          (if (<= (- (memGetWord __axiom_arena_mark 0) (memGetWord m1 0)) 48)
+            1
+            0))
+      })
+    ; --- 8. fifty thousand regions, one sum ---
+    (println (spinFresh 50000 0))
+    0
+  })

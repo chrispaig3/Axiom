@@ -16,6 +16,34 @@ its changelog too.
 
 ## Unreleased
 
+### S4 slice 2, args path: fresh call results handed to a call are reset-reclaimed — `scripts/check-region-fresh.sh`
+
+The first traffic the MM-RGN-5 witness provably owns: a call result
+the region facts prove fresh - the callee's answer derives from
+CUR0, from no heap parameter (scalar-typed parameters contribute no
+alias), and from no call the walk could not resolve - handed to a
+call inside a region body needs no `axiom_release`, because the
+reset frees it unconditionally. The witness is a stamp, not a query:
+the region pass records it on the call's own node (`nodeResWord` 0
+to 2, post-fixpoint only, never while facts are still moving and
+never when truncation made every row a lower bound - TC word 40
+keeps the stamp walks apart from the fixpoint's own passes), and
+`releaseOwnedArgs` spends it exactly where slice 1 spends its
+construction test while `argOwnedRelease` still says 1, so
+`mustTailOK` stays conservative. Constructors are not stamped -
+slice 1 owns them syntactically, so the two deltas never overlap -
+and the whole of it is inlined, so no new top-level function moves
+the effect-distribution pins. `tests/stdlib/480-region-fresh-call.ax`
+pins eight answers (fired once, kept four ways: a reader, no region,
+a `let` binding, a closure call; fresh on both branch arms fired);
+the gate counts six releases gone with an IR diff of those six lines
+and nothing else, peak RSS 100% across 300,000 regions of fresh
+calls, and an ablation of the stamp bringing all six back. NOT this
+slice: a fresh result bound by `let` and released at scope end, which
+keeps its release until the scope-end walker learns the stamp. Calls
+`gate_build_axc`, so the count sites state seventy-three gates; the
+battery has eighty-nine.
+
 ### S4 slice 2b: the trigger without the report — `self_host/typecheck.ax`
 
 The facts the coming call-result witness needs have to be computed
