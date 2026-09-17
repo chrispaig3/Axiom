@@ -19731,15 +19731,32 @@
                         ; in a jump: that block is terminated, the jump path has
                         ; already paid, and an instruction after a terminator is
                         ; not LLVM.
+                        ;
+                        ; S4 slice 2, scope-end path: a `let` initialiser the
+                        ; witness proved fresh is reclaimed by the region's
+                        ; reset exactly as an argument temporary is, so its
+                        ; scope-end release is the same binary-only traffic.
+                        ; The depth gate is the same textual extent the
+                        ; args path owns, and `releasable` still says 1 -
+                        ; the DECISION is untouched, only its spending is
+                        ; conditional, and the pending vector above still
+                        ; takes the share for the tail-jump path, which
+                        ; keeps its release. Inlined rather than factored
+                        ; so no new top-level function moves the
+                        ; effect-distribution pins. `emitLetMAt` needs
+                        ; nothing: a mutable binding keeps its alloca and
+                        ; has no scope-end release to spend.
                         (if (&& (== releasable 1) (!= (memGetWord cgB 31) 1))
-                          (let (
-                            (res (strDup (memGetWordStr cgB 2)))
-                            (cgR (emitReleaseOf cgB valReg))
-                          )
-                            {
-                              (memSetWord cgR 2 res)
-                              cgR
-                            })
+                          (if (&& (!= (pairSlot cgB 9) 0) (&& (== (nodeTag valExpr) TAG_E_APP) (== (nodeResWord valExpr) 2)))
+                            cgB
+                            (let (
+                              (res (strDup (memGetWordStr cgB 2)))
+                              (cgR (emitReleaseOf cgB valReg))
+                            )
+                              {
+                                (memSetWord cgR 2 res)
+                                cgR
+                              }))
                           cgB)
                       })
                   }))))

@@ -497,11 +497,21 @@ jobs:
       # no release for the same reason. Six release sites gone
       # from a second fixture's IR and nothing else, the RSS flat
       # across 300,000 regions of fresh calls, and an ablation of
-      # the stamp bringing all six back. A reader's result, no
-      # region, a `let`-bound result and a closure call keep
-      # theirs.
+      # the args-path spend bringing all six back. A reader's
+      # result, no region, a `let`-bound result and a closure call
+      # keep theirs.
       - name: Fresh call results are reset-reclaimed as arguments
         run: ./scripts/check-region-fresh.sh
+
+      # S4's second slice, scope-end path: a `let` binding whose
+      # initialiser the witness proves fresh needs no scope-end
+      # release for the same reason. Eight release sites gone from
+      # a third fixture's IR and nothing else, the RSS flat across
+      # 300,000 regions of bound fresh calls, and an ablation of
+      # the scope-end spend bringing all eight back. A reader, no
+      # region and a closure call keep theirs.
+      - name: Let-bound fresh results are reset-reclaimed at scope end
+        run: ./scripts/check-region-fresh-let.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is

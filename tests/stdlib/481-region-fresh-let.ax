@@ -1,0 +1,132 @@
+; S4 slice 2, scope-end path (docs/memory-model-v2-design.md §4):
+; inside a `(region r BODY)` a `let` binding whose initialiser the
+; witness proved fresh needs no scope-end `axiom_release` - the reset
+; reclaims it in one pointer move. The stamp is the same one the args
+; path spends (`nodeResWord` 2, post-fixpoint, never truncated);
+; `emitLetAt` spends it where MM-LIFE-2c event 3 used to emit
+; unconditionally, while `releasable` still says 1 and the pending
+; vector still takes the share for the tail-jump path, which keeps
+; its release. `scripts/check-region-fresh-let.sh` holds the release
+; counts, the RSS and the ablations; this file pins the ANSWERS, so
+; a gate that deleted releases too eagerly fails here first.
+;
+; What each term establishes:
+;
+;   1. A `let`-bound fresh call in a region answers (the elision
+;      fires here).
+;   2. Two nested `let`-bound fresh calls answer (it fires twice -
+;      each binding holds its own birth share).
+;   3. A `let`-bound reader result answers (its facts say the answer
+;      derives from the parameter, so no stamp - the release stays
+;      and the answer is unchanged).
+;   4. The same `let`-bound fresh call with NO region answers the
+;      same (the control: elision needs the reset).
+;   5. A `let`-bound closure-call result answers (the walk cannot
+;      resolve the callee, so no stamp - the release stays).
+;   6. A `let`-bound fresh call borrowed twice answers (two
+;      borrows, one scope-end share - the elision fires once).
+;   7. THE WATERLINE COMES BACK. Marks around a region that binds
+;      and drops three fresh call results: reclaimed, with the
+;      releases elided - the reset covers what counting used to
+;      free.
+;   8. Fifty thousand regions, one sum: the loop answers, proving
+;      the elided traffic was never load-bearing for correctness.
+;
+; Every fresh call here is a `let` initialiser and every consuming
+; argument a bare name, so the args path of slice 2 has nothing to
+; spend: `valueOwnedRef` answers 0 for a local, and the whole of the
+; measured delta below is the scope-end walker.
+(import IO)
+(import Mem)
+
+(data Box
+  (MkBox Int))
+
+; Fresh: answers a block this body built from nothing but its word
+; argument. Facts: resultCUR set, resultFrom empty of heap, no
+; unknown calls.
+(:: mkBox (-> Int Box))
+(fn (mkBox x)
+  (MkBox x))
+
+; Reader: answers the very block it was handed. Facts: resultFrom
+; names the parameter, so no stamp whatever the argument was.
+(:: idBox (-> Box Box))
+(fn (idBox b)
+  b)
+
+(:: useBox (-> Box Int Int))
+(fn (useBox o d)
+  (+
+    (match o
+      ((MkBox x) x))
+    d))
+
+; Term 8's loop: scalar stores to an outer binding are allowed, so
+; the counter lives outside the regions it counts.
+(:: spinLet (-> Int Int Int))
+(fn (spinLet i acc)
+  (if (<= i 0)
+    acc
+    (region r
+      (let ((b (mkBox i)))
+        (spinLet (- i 1) (+ acc (useBox b 0)))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- 1. let-bound fresh call in a region ---
+    (println
+      (region r
+        (let ((b (mkBox 40)))
+          (useBox b 2))))
+    ; --- 2. two nested let-bound fresh calls ---
+    (println
+      (region r
+        (let ((b (mkBox 1)))
+          (let ((c (mkBox 2)))
+            (+ (useBox b 0) (useBox c 0))))))
+    ; --- 3. let-bound reader result: the release stays ---
+    (println
+      (region r
+        (let ((b (idBox (MkBox 9))))
+          (useBox b 0))))
+    ; --- 4. no region, no elision, same answer ---
+    (println
+      (let ((b (mkBox 40)))
+        (useBox b 2)))
+    ; --- 5. let-bound closure call: the release stays ---
+    (println
+      (region r
+        (let ((k 
+          (lambda (q) (mkBox q))))
+          (let ((b (k 40)))
+            (useBox b 0)))))
+    ; --- 6. one binding borrowed twice: one share elided ---
+    (println
+      (region r
+        (let ((b (mkBox 21)))
+          (+ (useBox b 0) (useBox b 0)))))
+    ; --- 7. the waterline comes back, releases elided ---
+    (let ((m1 __axiom_arena_mark))
+      {
+        (region r
+          {
+            (let ((b (mkBox 1)))
+              (useBox b 0))
+            (let ((b (mkBox 2)))
+              (useBox b 0))
+            (let ((b (mkBox 3)))
+              (useBox b 0))
+            0
+          })
+        (println
+          (if (<= (- (memGetWord __axiom_arena_mark 0) (memGetWord m1 0)) 48)
+            1
+            0))
+      })
+    ; --- 8. fifty thousand regions, one sum ---
+    (println (spinLet 50000 0))
+    0
+  })

@@ -177,7 +177,7 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-17, `axiom fmt --check` over every one of the 667 `.ax` files
+2026-09-17, `axiom fmt --check` over every one of the 668 `.ax` files
 in the repository answers `is already formatted` for 663 of them and
 `needs formatting` for 3. Two of the 3 are deliberate and are named
 below; the third is `examples/batch-fallible/batch-fallible.ax`, a
@@ -446,7 +446,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the seventy-three gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim seventy-three gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the seventy-four gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim seventy-four gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-install.sh` | the script `README.md` tells a stranger to pipe into bash. A release built from this tree is served over the loopback and installed; a tampered archive, one with no checksum and one with no `stdlib/` must each be refused. Its own probe deletes `install.sh`'s checksum comparison in a copy and requires the tampered case to stop being refused |
 | `check-release-targets.sh` | what a release BUILDS and what `install.sh` REFUSES are one fact split across two files on opposite sides of the project. A target in both uploads an archive the installer will not fetch; a target in neither gives the user a bare `curl` 404. Also holds the two axes apart: nothing is shipped that README does not call supported, and nothing is supported-but-unshipped without a CI leg or a README paragraph saying why (`darwin-x86_64`) |

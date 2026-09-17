@@ -643,10 +643,34 @@ effect-distribution pins. `tests/stdlib/480-region-fresh-call.ax`
 gone from the fixture's IR and the diff is those six lines and
 nothing else, the same eight answers under both compilers, peak RSS
 100% across 300,000 regions of fresh calls, and an ablation of the
-stamp bringing all six back. What is NOT this slice is a fresh call
-result bound by `let` and released at scope end: `releaseOwnedArgs`
-never sees it, so the stamp sits unused on it (term 4 pins one,
-kept) until the scope-end walker learns to read it.
+args-path spend bringing all six back. What is NOT this slice is a
+fresh call result bound by `let` and released at scope end:
+`releaseOwnedArgs` never sees it, so the stamp sits unused on it
+(term 4 pins one, kept) until the scope-end walker learns to read
+it.
+
+**S4 slice 2, scope-end path, BUILT 2026-09-17 - the same stamp at
+`let` scope end.** A result bound by `let` never reaches
+`releaseOwnedArgs` at all - `valueOwnedRef` answers 0 for a local,
+so the argument position keeps its silence and MM-LIFE-2c event 3
+pays the share at the binding's scope end instead. `emitLetAt`
+spends the stamp there: same witness, same depth gate, same
+`releasable` decision left untouched with only its spending
+conditional, and the pending vector still taking the share for the
+tail-jump path, which keeps its release. `emitLetMAt` needs nothing:
+a mutable binding keeps its alloca and has no scope-end release to
+spend. `tests/stdlib/481-region-fresh-let.ax` (eight terms, every
+fresh call a `let` initialiser and every consuming argument a bare
+name, so the args path has nothing to spend) plus
+`scripts/check-region-fresh-let.sh`: eight releases gone and the
+diff is those eight lines and nothing else, the same eight answers
+under both compilers, peak RSS 100% across 300,000 regions of bound
+fresh calls, and an ablation of the scope-end spend bringing all
+eight back. Both ablations are path-specific on purpose - ablating
+the shared stamp would restore traffic the walker under test never
+owned. What remains of S4 is `VAR` operands that are not `let`
+bindings, field stores with their paired retains, and join arms
+needing per-arm reasoning, each its own later slice.
 
 **The adjacent hole, recorded and not fixed here.** A
 callee-mediated store of a fresh construction into an outer cell

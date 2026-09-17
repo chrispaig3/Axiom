@@ -16,6 +16,29 @@ its changelog too.
 
 ## Unreleased
 
+### S4 slice 2, scope-end path: `let`-bound fresh results are reset-reclaimed — `scripts/check-region-fresh-let.sh`
+
+The same witness at the binding's scope end. A fresh call result
+bound by `let` never reaches `releaseOwnedArgs` at all -
+`valueOwnedRef` answers 0 for a local, so the argument position
+keeps its silence and MM-LIFE-2c event 3 pays the share at scope
+end instead. `emitLetAt` spends the stamp there: same depth gate,
+same `releasable` decision left untouched with only its spending
+conditional, and the pending vector still taking the share for the
+tail-jump path, which keeps its release. `emitLetMAt` needs
+nothing: a mutable binding keeps its alloca and has no scope-end
+release to spend. `tests/stdlib/481-region-fresh-let.ax` pins eight
+answers (one binding, two nested, a reader kept, no region kept, a
+closure call kept, one binding borrowed twice, the waterline, fifty
+thousand regions summed); the gate counts eight releases gone with
+an IR diff of those eight lines and nothing else, peak RSS 100%
+across 300,000 regions of bound fresh calls, and an ablation of the
+scope-end spend bringing all eight back. Both sibling gates ablate
+path-specifically now - ablating the shared stamp would restore
+traffic the walker under test never owned. Calls `gate_build_axc`,
+so the count sites state seventy-four gates; the battery has
+ninety.
+
 ### S4 slice 2, args path: fresh call results handed to a call are reset-reclaimed — `scripts/check-region-fresh.sh`
 
 The first traffic the MM-RGN-5 witness provably owns: a call result
@@ -34,15 +57,15 @@ construction test while `argOwnedRelease` still says 1, so
 slice 1 owns them syntactically, so the two deltas never overlap -
 and the whole of it is inlined, so no new top-level function moves
 the effect-distribution pins. `tests/stdlib/480-region-fresh-call.ax`
-pins eight answers (fired once, kept four ways: a reader, no region,
-a `let` binding, a closure call; fresh on both branch arms fired);
-the gate counts six releases gone with an IR diff of those six lines
-and nothing else, peak RSS 100% across 300,000 regions of fresh
-calls, and an ablation of the stamp bringing all six back. NOT this
-slice: a fresh result bound by `let` and released at scope end, which
-keeps its release until the scope-end walker learns the stamp. Calls
-`gate_build_axc`, so the count sites state seventy-three gates; the
-battery has eighty-nine.
+pins eight answers (fired once, kept three ways: a reader, no
+region, a closure call; fresh on both branch arms fired; term 4's
+`let` binding fired under the scope-end path, elided in both arms
+of this gate's delta); the gate counts six releases gone with an IR
+diff of those six lines and nothing else, peak RSS 100% across
+300,000 regions of fresh calls, and an ablation of the args-path
+spend bringing all six back. The scope-end path is the sibling
+entry above. Calls `gate_build_axc`, so the count sites state
+seventy-four gates; the battery has ninety.
 
 ### S4 slice 2b: the trigger without the report — `self_host/typecheck.ax`
 
