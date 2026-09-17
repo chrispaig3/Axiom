@@ -16,6 +16,92 @@ its changelog too.
 
 ## Unreleased
 
+### S4 slice 4, scrutinee path: fresh match scrutinees are reset-reclaimed — `scripts/check-region-scrutinee.sh`
+
+The last position holding a birth the earlier slices cannot see: a
+`match` consumes its scrutinee temporary, released after the merge
+when `scrutineeReleasable` says no arm binder escapes through its
+body. The region pass records nothing new - the stamp is slices 2
+and 3's (a fresh call, or a join whose every arm is one,
+post-fixpoint, converged, upgrade-only) - and `releaseScrutinee`
+spends it where MM-LIFE-2c used to emit unconditionally, under the
+same depth gate, while the pending vector still takes the share for
+the tail-jump path and `argOwnedRelease` stays out of it, so
+`mustTailOK` cannot drift. Shared by the tail and non-tail emitters,
+so no new top-level function moves the effect-distribution pins. The
+load census behind the slice: 404 of the 410 load-defined releases
+in the compiler's own IR are tail-loop parameter slots (the entry
+retain's counterpart - callee-shared, no call site may elide) and
+`set` old values (retain-new/release-old paired, provenance
+unknown); match-result scratch loads already spent in slice 3; and
+a field read is a borrow at every site - argument, binding,
+scrutinee and join arm all answer unowned for one - so no release
+site exists to spend on. Measured, not assumed, and recorded in the
+design note's S4 subsection. `tests/stdlib/484-region-scrutinee.ax`
+pins twelve answers (a call scrutinee fired, `if`/`match`/`cond`
+scrutinees fired, a reader kept, a borrowed binder fired, an
+escaping binder with no site at all, no region kept, a `let`
+binding kept, a construction kept, the waterline, fifty thousand
+regions summed); the gate counts eight releases gone with an IR
+diff of those eight lines and nothing else, peak RSS 99% across
+300,000 regions of fresh scrutinees, and an ablation of the
+scrutinee spend bringing all eight back. Calls `gate_build_axc`,
+so the count sites state seventy-seven gates; the battery has
+ninety-three.
+
+### S4 slice 3, scope-end path: `let`-bound fresh joins are reset-reclaimed — `scripts/check-region-phi-let.sh`
+
+The same join stamp at the binding's scope end. A fresh join bound
+by `let` never reaches `releaseOwnedArgs` at all -
+`valueOwnedRef` answers 0 for a local, so the argument position
+keeps its silence and MM-LIFE-2c event 3 pays the share at scope
+end instead. `emitLetAt` spends the stamp there: same depth gate,
+same `releasable` decision left untouched with only its spending
+conditional, and the pending vector still taking the share for the
+tail-jump path, which keeps its release. `emitLetMAt` needs
+nothing: a mutable binding keeps its alloca and has no scope-end
+release to spend. `tests/stdlib/483-region-phi-let.ax` pins eight
+answers (one join, two nested - an `if` and a `match` - a reader
+arm kept, no region kept, a closure-call arm kept, one binding
+borrowed twice, the waterline, fifty thousand regions summed); the
+gate counts eight releases gone with an IR diff of those eight
+lines and nothing else, peak RSS 100% across 300,000 regions of
+bound fresh joins, and an ablation of the scope-end join spend
+bringing all eight back. Both phi gates ablate path-specifically -
+ablating the shared stamp would restore traffic the walker under
+test never owned. Calls `gate_build_axc`, so the count sites state
+seventy-seven gates; the battery has ninety-three.
+
+### S4 slice 3, args path: fresh joins handed to a call are reset-reclaimed — `scripts/check-region-phi.sh`
+
+The joins the call witness cannot see: an `if`, `cond` or `match`
+answers whichever arm it took, so freshness needs per-arm
+reasoning instead. The region pass stamps the join itself
+(`nodeResWord` 2) iff every arm value node already carries the
+stamp - a proven-fresh call result, or such a join, the inner
+stamping before the outer reads it in the same post-fixpoint walk -
+under the call stamp's own guards (post-fixpoint walks only,
+converged facts only, upgrade 0 to 2). A reader arm, an unknown-call
+arm, a construction arm (slice 1's syntactic domain, never stamped)
+and a missing `else` all abstain, and so does the join over any of
+them. `releaseOwnedArgs` spends the stamp exactly where slices 1
+and 2 spend theirs while `argOwnedRelease` still says 1, so
+`mustTailOK` stays conservative. Threaded through the existing arm
+walkers with the `else` walking last inside the cond walker, and
+inlined at `if` and both spends, so no new top-level function moves
+the effect-distribution pins. `tests/stdlib/482-region-phi-call.ax`
+pins eleven answers (an `if` join fired, a reader arm kept, a
+construction arm kept, no region kept, a `let`-bound join fired
+under the scope-end path and elided in both arms of this gate's
+delta, a closure-call arm kept, a nested join fired, a `match` join
+fired, a `cond` join fired, the waterline, fifty thousand regions
+summed); the gate counts seven releases gone with an IR diff of
+those seven lines and nothing else, peak RSS 99% across 300,000
+regions of fresh joins, and an ablation of the args-path join spend
+bringing all seven back. The scope-end path is the sibling entry
+above. Calls `gate_build_axc`, so the count sites state
+seventy-seven gates; the battery has ninety-three.
+
 ### S4 slice 2, scope-end path: `let`-bound fresh results are reset-reclaimed — `scripts/check-region-fresh-let.sh`
 
 The same witness at the binding's scope end. A fresh call result
@@ -36,8 +122,8 @@ across 300,000 regions of bound fresh calls, and an ablation of the
 scope-end spend bringing all eight back. Both sibling gates ablate
 path-specifically now - ablating the shared stamp would restore
 traffic the walker under test never owned. Calls `gate_build_axc`,
-so the count sites state seventy-four gates; the battery has
-ninety.
+so the count sites state seventy-seven gates; the battery has
+ninety-three.
 
 ### S4 slice 2, args path: fresh call results handed to a call are reset-reclaimed — `scripts/check-region-fresh.sh`
 
@@ -57,15 +143,18 @@ construction test while `argOwnedRelease` still says 1, so
 slice 1 owns them syntactically, so the two deltas never overlap -
 and the whole of it is inlined, so no new top-level function moves
 the effect-distribution pins. `tests/stdlib/480-region-fresh-call.ax`
-pins eight answers (fired once, kept three ways: a reader, no
-region, a closure call; fresh on both branch arms fired; term 4's
-`let` binding fired under the scope-end path, elided in both arms
-of this gate's delta); the gate counts six releases gone with an IR
-diff of those six lines and nothing else, peak RSS 100% across
-300,000 regions of fresh calls, and an ablation of the args-path
-spend bringing all six back. The scope-end path is the sibling
-entry above. Calls `gate_build_axc`, so the count sites state
-seventy-four gates; the battery has ninety.
+pins nine answers (fired three ways - term 1, fresh on both
+branch arms in term 6, and the heap-param keeper in term 9, whose
+callee takes a `Box` but answers a cell built over its word
+argument alone; kept three ways: a reader, no region, a closure
+call; term 4's `let` binding fired under the scope-end path,
+elided in both arms of this gate's delta); the gate counts seven
+releases gone with an IR diff of those seven lines and nothing
+else, peak RSS 100% across 300,000 regions of fresh calls, and an
+ablation of the args-path spend bringing all seven back. The
+scope-end path is the sibling entry above. Calls `gate_build_axc`,
+so the count sites state seventy-seven gates; the battery has
+ninety-three.
 
 ### S4 slice 2b: the trigger without the report — `self_host/typecheck.ax`
 
@@ -386,7 +475,7 @@ into an outer cell from an un-annotated region is unchecked
 (`rgnCheckAll` runs only under `@r`) and reads back wrong with every
 gate green - the elision is outcome-identical there, and the gate
 pins the identity. Calls `gate_build_axc`, so the six count sites
-state seventy-two gates; the battery has eighty-eight.
+state seventy-seven gates; the battery has ninety-three.
 
 ## 0.7.5 — 2026-09-11
 

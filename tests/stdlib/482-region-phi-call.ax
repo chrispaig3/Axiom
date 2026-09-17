@@ -1,0 +1,208 @@
+; S4 slice 3, args path (docs/memory-model-v2-design.md §4): inside a
+; `(region r BODY)` a join - an `if`, `cond` or `match` - whose every
+; arm value node already carries the witness stamp (a proven-fresh
+; call result, or such a join) needs no `axiom_release` for the
+; single value it answers, because the reset reclaims whichever arm
+; flowed in one pointer move. The checker stamps such a join
+; `nodeResWord` 2 post-fixpoint (never while facts are still moving,
+; never when truncation made every row a lower bound);
+; `releaseOwnedArgs` spends the stamp exactly where slices 1 and 2
+; spend theirs, while `argOwnedRelease` still says 1 so `mustTailOK`
+; stays conservative.
+; `scripts/check-region-phi.sh` holds the release counts, the RSS
+; and the ablations; this file pins the ANSWERS, so a gate that
+; deleted releases too eagerly fails here first.
+;
+; What each term establishes:
+;
+;   1. A join of two fresh calls handed to a call inside a region
+;      answers (the elision fires here).
+;   2. A join with a reader arm answers (that arm's facts say the
+;      answer derives from the parameter, so the arm never stamps
+;      and neither does the join - the release stays and the answer
+;      is unchanged). Per-arm precision: one cold arm keeps the
+;      whole join.
+;   3. A join with a construction arm answers (constructions are
+;      slice 1's syntactic domain and are never stamped, so the
+;      join abstains too - the release stays). The stamp means
+;      proven-fresh CALL results, nothing else.
+;   4. The same join with NO region answers the same (the control:
+;      elision needs the reset).
+;   5. A `let`-bound join answers (the temporary is a `VAR` at the
+;      release site and its release runs at scope end, not in
+;      `releaseOwnedArgs` - the scope-end walker owns it, elided in
+;      both arms of the args-path delta, so it never enters that
+;      count; the answer is unchanged either way).
+;   6. A join with a closure-call arm answers (the walk cannot
+;      resolve the callee, so the arm never stamps and neither does
+;      the join - the release stays).
+;   7. A nested join - an arm that is itself an all-fresh join -
+;      answers (the inner stamps first, the outer reads it - the
+;      elision fires here too).
+;   8. A `match` join with fresh calls on both arms answers (the
+;      elision fires here too).
+;   9. A `cond` join with fresh calls in every clause and `else`
+;      answers (the elision fires here too).
+;  10. THE WATERLINE COMES BACK. Marks around a region that builds
+;      and drops two join values: reclaimed, with the releases
+;      elided - the reset covers what counting used to free.
+;  11. Fifty thousand regions, one alternating sum: the loop
+;      answers, proving the elided traffic was never load-bearing
+;      for correctness.
+(import IO)
+(import Mem)
+
+(data Box
+  (MkBox Int))
+
+(data Flag
+  (Yes)
+  (No))
+
+; Fresh: answers a block this body built from nothing but its word
+; argument. Facts: resultCUR set, resultFrom empty of heap, no
+; unknown calls.
+(:: mkBox (-> Int Box))
+(fn (mkBox x)
+  (MkBox x))
+
+; Reader: answers the very block it was handed. Facts: resultFrom
+; names the parameter, so no stamp whatever the argument was - and
+; no join over it stamps either (term 2).
+(:: idBox (-> Box Box))
+(fn (idBox b)
+  b)
+
+; Consumer: answers its payload plus the default. Its argument
+; position is where the join release fires.
+(:: usePhi (-> Box Int Int))
+(fn (usePhi o d)
+  (+
+    (match o
+      ((MkBox x) x))
+    d))
+
+; Term 11's loop: scalar stores to an outer binding are allowed, so
+; the counter lives outside the regions it counts. Even iterations
+; take the left arm, odd ones the right, so the sum pairs to one
+; per two iterations.
+(:: spinPhi (-> Int Int Int))
+(fn (spinPhi i acc)
+  (if (<= i 0)
+    acc
+    (region r
+      (spinPhi
+        (- i 1)
+        (+
+          acc
+          (usePhi
+            (if (== (% i 2) 0)
+              (mkBox i)
+              (mkBox (- 0 i)))
+            0))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- 1. join of two fresh calls in a region ---
+    (println
+      (region r
+        (usePhi
+          (if (== 1 0)
+            (mkBox 10)
+            (mkBox 20))
+          0)))
+    ; --- 2. reader arm: the release stays ---
+    (println
+      (region r
+        (usePhi
+          (if (== 1 1)
+            (mkBox 10)
+            (idBox (MkBox 40)))
+          0)))
+    ; --- 3. construction arm: the release stays ---
+    (println
+      (region r
+        (usePhi
+          (if (== 1 1)
+            (MkBox 7)
+            (mkBox 8))
+          5)))
+    ; --- 4. no region, no elision, same answer ---
+    (println
+      (usePhi
+        (if (== 1 0)
+          (mkBox 10)
+          (mkBox 20))
+        0))
+    ; --- 5. let-bound join: the scope-end walker's (elided in both arms here) ---
+    (println
+      (region r
+        (let ((b 
+          (if (== 1 0)
+            (mkBox 30)
+            (mkBox 31))))
+          (usePhi b 4))))
+    ; --- 6. closure-call arm: the release stays ---
+    (println
+      (region r
+        (let ((k 
+          (lambda (q) (mkBox q))))
+          (usePhi
+            (if (== 1 1)
+              (mkBox 10)
+              (k 40))
+            0))))
+    ; --- 7. nested join: the release goes ---
+    (println
+      (region r
+        (usePhi
+          (if (== 1 1)
+            (mkBox 1)
+            (if (== 1 0)
+              (mkBox 2)
+              (mkBox 3)))
+          0)))
+    ; --- 8. match join: the release goes ---
+    (println
+      (region r
+        (usePhi
+          (match No
+            ((Yes) (mkBox 11))
+            ((No) (mkBox 12)))
+          0)))
+    ; --- 9. cond join: the release goes ---
+    (println
+      (region r
+        (usePhi
+          (cond
+            ((== 1 1) (mkBox 13))
+            (else (mkBox 14)))
+          0)))
+    ; --- 10. the waterline comes back, releases elided ---
+    (let ((m1 __axiom_arena_mark))
+      {
+        (region r
+          {
+            (usePhi
+              (if (== 1 0)
+                (mkBox 1)
+                (mkBox 2))
+              0)
+            (usePhi
+              (match No
+                ((Yes) (mkBox 3))
+                ((No) (mkBox 4)))
+              0)
+            0
+          })
+        (println
+          (if (<= (- (memGetWord __axiom_arena_mark 0) (memGetWord m1 0)) 48)
+            1
+            0))
+      })
+    ; --- 11. fifty thousand regions, one alternating sum ---
+    (println (spinPhi 50000 0))
+    0
+  })

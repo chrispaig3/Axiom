@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # seventy-two of the gates below build the compiler under test from
+    # seventy-seven of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -494,10 +494,10 @@ jobs:
 
       # S4's second slice, args path: a call result the witness
       # proves fresh, handed to a call inside a region body, needs
-      # no release for the same reason. Six release sites gone
+      # no release for the same reason. Seven release sites gone
       # from a second fixture's IR and nothing else, the RSS flat
       # across 300,000 regions of fresh calls, and an ablation of
-      # the args-path spend bringing all six back. A reader's
+      # the args-path spend bringing all seven back. A reader's
       # result, no region, a `let`-bound result and a closure call
       # keep theirs.
       - name: Fresh call results are reset-reclaimed as arguments
@@ -512,6 +512,40 @@ jobs:
       # region and a closure call keep theirs.
       - name: Let-bound fresh results are reset-reclaimed at scope end
         run: ./scripts/check-region-fresh-let.sh
+
+      # S4's third slice, args path: a join (`if`, `cond`, `match`)
+      # whose every arm the witness proves fresh needs no release
+      # for the single value it answers. Seven release sites gone
+      # from a fourth fixture's IR and nothing else, the RSS flat
+      # across 300,000 regions of fresh joins, and an ablation of
+      # the args-path join spend bringing all seven back. A reader
+      # arm, a construction arm, no region, a `let`-bound join and
+      # a closure-call arm keep theirs.
+      - name: Fresh joins are reset-reclaimed as arguments
+        run: ./scripts/check-region-phi.sh
+
+      # S4's third slice, scope-end path: a `let` binding whose
+      # initialiser is a join the witness proves fresh needs no
+      # scope-end release for the same reason. Eight release sites
+      # gone from a fifth fixture's IR and nothing else, the RSS
+      # flat across 300,000 regions of bound fresh joins, and an
+      # ablation of the scope-end join spend bringing all eight
+      # back. A reader arm, no region and a closure-call arm keep
+      # theirs.
+      - name: Let-bound fresh joins are reset-reclaimed at scope end
+        run: ./scripts/check-region-phi-let.sh
+
+      # S4's fourth slice, scrutinee path: a `match` whose scrutinee
+      # the witness proves fresh - a call result, or a join whose
+      # every arm is one - needs no merge-path release for the
+      # temporary it consumed. Eight release sites gone from a sixth
+      # fixture's IR and nothing else, the RSS flat across 300,000
+      # regions of fresh scrutinees, and an ablation of the
+      # scrutinee spend bringing all eight back. A reader, escaping
+      # binders, no region, a `let` binding and a construction keep
+      # theirs.
+      - name: Fresh scrutinee temporaries are reset-reclaimed
+        run: ./scripts/check-region-scrutinee.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is

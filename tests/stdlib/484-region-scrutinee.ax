@@ -1,0 +1,196 @@
+; S4 slice 4, scrutinee path (docs/memory-model-v2-design.md §4):
+; inside a `(region r BODY)` a `match` whose scrutinee the witness
+; proved fresh - a call result, or a join whose every arm is one -
+; needs no merge-path `axiom_release` for the temporary it
+; consumed, because the reset reclaims it in one pointer move. The
+; stamp is the same one slices 2 and 3 record (`nodeResWord` 2,
+; post-fixpoint, never truncated); `releaseScrutinee` spends it
+; where MM-LIFE-2c used to emit unconditionally, while
+; `scrutineeReleasable` still says 1 - binders that escape through
+; an arm keep the release - and the pending vector still takes the
+; share for the tail-jump path, which keeps its release.
+; `scripts/check-region-scrutinee.sh` holds the release counts, the
+; RSS and the ablations; this file pins the ANSWERS, so a gate that
+; deleted releases too eagerly fails here first.
+;
+; What each term establishes:
+;
+;   1. A fresh call scrutinee in a region answers (the elision
+;      fires here: the temporary is consumed, nobody else's).
+;   2. A fresh `if`-join scrutinee answers (the elision fires here
+;      too - the join stamp spends at a third site).
+;   3. A fresh `match` scrutinee answers (the elision fires here
+;      too: the inner match stamps, and its result register - a
+;      scratch-cell load, the "match temp" shape - is what the
+;      outer release drops).
+;   4. A fresh `cond` scrutinee answers (the elision fires here
+;      too).
+;   5. A reader scrutinee answers (its facts say the answer derives
+;      from the parameter, so no stamp - the release stays and the
+;      answer is unchanged).
+;   6. A scrutinee whose reference binder is only borrowed answers
+;      (the arm hands the binder to a call answering a word, which
+;      cannot alias the block - the release goes).
+;   7. A scrutinee whose binder escapes bare answers (the arm answers
+;      the destructured block itself, so `scrutineeReleasable` says 0
+;      - no release site at all, and the answer is unchanged).
+;   8. The same call scrutinee with NO region answers the same (the
+;      control: elision needs the reset).
+;   9. A `let`-bound scrutinee answers (the temporary is a `VAR` at
+;      the match, borrowed - no release site at all, and the binding
+;      keeps its scope-end share outside the region).
+;  10. A construction scrutinee answers (constructions are slice 1's
+;      syntactic domain and are never stamped, so the witness-pure
+;      spend abstains - the release stays).
+;  11. THE WATERLINE COMES BACK. Marks around a region that builds
+;      and drops two scrutinee temporaries: reclaimed, with the
+;      releases elided - the reset covers what counting used to
+;      free.
+;  12. Fifty thousand regions, one alternating sum: the loop
+;      answers, proving the elided traffic was never load-bearing
+;      for correctness.
+(import IO)
+(import Mem)
+
+(data Box
+  (MkBox Int))
+
+(data Flag
+  (Yes)
+  (No))
+
+(data Wrap
+  (MkWrap Box))
+
+; Fresh: answers a block this body built from nothing but its word
+; argument. Facts: resultCUR set, resultFrom empty of heap, no
+; unknown calls.
+(:: mkBox (-> Int Box))
+(fn (mkBox x)
+  (MkBox x))
+
+; Reader: answers the very block it was handed. Facts: resultFrom
+; names the parameter, so no stamp whatever the argument was - and
+; no scrutinee over it spends either (term 5).
+(:: idBox (-> Box Box))
+(fn (idBox b)
+  b)
+
+; Fresh wrapper: answers a block holding a fresh block, built over
+; its word argument alone. Facts: resultCUR set, resultFrom empty
+; of heap - the call stamps. Term 6's arm answers the inner block,
+; so the binders escape and the scrutinee keeps its release anyway.
+(:: mkWrap (-> Int Wrap))
+(fn (mkWrap x)
+  (MkWrap (mkBox x)))
+
+(:: useBox (-> Box Int Int))
+(fn (useBox o d)
+  (+
+    (match o
+      ((MkBox x) x))
+    d))
+
+; Term 11's loop: scalar stores to an outer binding are allowed, so
+; the counter lives outside the regions it counts. Even iterations
+; take the left arm, odd ones the right, so the sum pairs to one
+; per two iterations.
+(:: spinScrut (-> Int Int Int))
+(fn (spinScrut i acc)
+  (if (<= i 0)
+    acc
+    (region r
+      (spinScrut
+        (- i 1)
+        (+
+          acc
+          (match (if (== (% i 2) 0)
+            (mkBox i)
+            (mkBox (- 0 i)))
+            ((MkBox x) x)))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- 1. fresh call scrutinee in a region ---
+    (println
+      (region r
+        (match (mkBox 40)
+          ((MkBox x) x))))
+    ; --- 2. fresh join scrutinee: the release goes ---
+    (println
+      (region r
+        (match (if (== 1 1)
+          (mkBox 10)
+          (mkBox 20))
+          ((MkBox x) x))))
+    ; --- 3. fresh match scrutinee: the release goes ---
+    (println
+      (region r
+        (match (match No
+          ((Yes) (mkBox 11))
+          ((No) (mkBox 12)))
+          ((MkBox x) x))))
+    ; --- 4. fresh cond scrutinee: the release goes ---
+    (println
+      (region r
+        (match (cond
+          ((== 1 1) (mkBox 13))
+          (else (mkBox 14)))
+          ((MkBox x) x))))
+    ; --- 5. reader scrutinee: the release stays ---
+    (println
+      (region r
+        (match (idBox (MkBox 40))
+          ((MkBox x) x))))
+    ; --- 6. borrowed binder: the release goes ---
+    (println
+      (region r
+        (match (mkWrap 7)
+          ((MkWrap b) (useBox b 0)))))
+    ; --- 7. escaping binder: no release site, kept ---
+    (println
+      (region r
+        {
+          (match (mkWrap 7)
+            ((MkWrap b) b))
+          42
+        }))
+    ; --- 8. no region, no elision, same answer ---
+    (println
+      (match (mkBox 40)
+        ((MkBox x) x)))
+    ; --- 9. let-bound scrutinee: borrowed, no site ---
+    (println
+      (region r
+        (let ((b (mkBox 40)))
+          (match b
+            ((MkBox x) x)))))
+    ; --- 10. construction scrutinee: the release stays ---
+    (println
+      (region r
+        (match (MkBox 40)
+          ((MkBox x) x))))
+    ; --- 11. the waterline comes back, releases elided ---
+    (let ((m1 __axiom_arena_mark))
+      {
+        (region r
+          {
+            (match (mkBox 1)
+              ((MkBox x) x))
+            (match (if (== 1 0)
+              (mkBox 2)
+              (mkBox 3))
+              ((MkBox x) x))
+            0
+          })
+        (println
+          (if (<= (- (memGetWord __axiom_arena_mark 0) (memGetWord m1 0)) 48)
+            1
+            0))
+      })
+    ; --- 12. fifty thousand regions, one alternating sum ---
+    (println (spinScrut 50000 0))
+    0
+  })

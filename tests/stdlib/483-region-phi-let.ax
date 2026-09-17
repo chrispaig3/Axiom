@@ -1,0 +1,176 @@
+; S4 slice 3, scope-end path (docs/memory-model-v2-design.md §4):
+; inside a `(region r BODY)` a `let` binding whose initialiser is a
+; join the witness proved fresh - every arm a stamped call or such
+; a join - needs no scope-end `axiom_release`, because the reset
+; reclaims whichever arm flowed in one pointer move. The stamp is
+; the same one the args path spends (`nodeResWord` 2, post-fixpoint,
+; never truncated); `emitLetAt` spends it where MM-LIFE-2c event 3
+; used to emit unconditionally, while `releasable` still says 1 and
+; the pending vector still takes the share for the tail-jump path,
+; which keeps its release. `scripts/check-region-phi-let.sh` holds
+; the release counts, the RSS and the ablations; this file pins the
+; ANSWERS, so a gate that deleted releases too eagerly fails here
+; first.
+;
+; What each term establishes:
+;
+;   1. A `let`-bound join in a region answers (the elision fires
+;      here).
+;   2. Two nested `let`-bound joins answer (it fires twice - an
+;      `if` join and a `match` join, each binding holding its own
+;      birth share).
+;   3. A `let`-bound join with a reader arm answers (that arm never
+;      stamps, so the join never stamps - the release stays and the
+;      answer is unchanged).
+;   4. The same `let`-bound join with NO region answers the same
+;      (the control: elision needs the reset).
+;   5. A `let`-bound join with a closure-call arm answers (the walk
+;      cannot resolve the callee, so the arm never stamps - the
+;      release stays).
+;   6. One `let`-bound join borrowed twice answers (two borrows,
+;      one scope-end share - the elision fires once).
+;   7. THE WATERLINE COMES BACK. Marks around a region that binds
+;      and drops three join values - an `if`, a `match` and a
+;      `cond` - reclaimed, with the releases elided.
+;   8. Fifty thousand regions, one alternating sum: the loop
+;      answers, proving the elided traffic was never load-bearing
+;      for correctness.
+;
+; Every join here is a `let` initialiser and every consuming
+; argument a bare name, so the args path of slice 3 has nothing to
+; spend: `valueOwnedRef` answers 0 for a local, and the whole of the
+; measured delta below is the scope-end walker.
+(import IO)
+(import Mem)
+
+(data Box
+  (MkBox Int))
+
+(data Flag
+  (Yes)
+  (No))
+
+; Fresh: answers a block this body built from nothing but its word
+; argument. Facts: resultCUR set, resultFrom empty of heap, no
+; unknown calls.
+(:: mkBox (-> Int Box))
+(fn (mkBox x)
+  (MkBox x))
+
+; Reader: answers the very block it was handed. Facts: resultFrom
+; names the parameter, so no stamp whatever the argument was - and
+; no join over it stamps either (term 3).
+(:: idBox (-> Box Box))
+(fn (idBox b)
+  b)
+
+; Consumer: answers its payload plus the default. Every use below
+; hands it a bare name, so the args path stays silent.
+(:: usePhi (-> Box Int Int))
+(fn (usePhi o d)
+  (+
+    (match o
+      ((MkBox x) x))
+    d))
+
+; Term 8's loop: scalar stores to an outer binding are allowed, so
+; the counter lives outside the regions it counts.
+(:: spinPhiLet (-> Int Int Int))
+(fn (spinPhiLet i acc)
+  (if (<= i 0)
+    acc
+    (region r
+      (let ((b 
+        (if (== (% i 2) 0)
+          (mkBox i)
+          (mkBox (- 0 i)))))
+        (spinPhiLet (- i 1) (+ acc (usePhi b 0)))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    ; --- 1. let-bound join in a region ---
+    (println
+      (region r
+        (let ((b 
+          (if (== 1 0)
+            (mkBox 40)
+            (mkBox 41))))
+          (usePhi b 2))))
+    ; --- 2. two nested let-bound joins: an if and a match ---
+    (println
+      (region r
+        (let ((b 
+          (if (== 1 1)
+            (mkBox 5)
+            (mkBox 6))))
+          (let ((c 
+            (match No
+              ((Yes) (mkBox 1))
+              ((No) (mkBox 2)))))
+            (+ (usePhi b 0) (usePhi c 0))))))
+    ; --- 3. let-bound join with a reader arm: the release stays ---
+    (println
+      (region r
+        (let ((b 
+          (if (== 1 1)
+            (mkBox 9)
+            (idBox (MkBox 1)))))
+          (usePhi b 0))))
+    ; --- 4. no region, no elision, same answer ---
+    (println
+      (let ((b 
+        (if (== 1 0)
+          (mkBox 40)
+          (mkBox 41))))
+        (usePhi b 2)))
+    ; --- 5. let-bound join with a closure-call arm: the release stays ---
+    (println
+      (region r
+        (let ((k 
+          (lambda (q) (mkBox q))))
+          (let ((b 
+            (if (== 1 1)
+              (mkBox 10)
+              (k 40))))
+            (usePhi b 0)))))
+    ; --- 6. one binding borrowed twice: one share elided ---
+    (println
+      (region r
+        (let ((b 
+          (if (== 1 0)
+            (mkBox 21)
+            (mkBox 22))))
+          (+ (usePhi b 0) (usePhi b 0)))))
+    ; --- 7. the waterline comes back, releases elided ---
+    (let ((m1 __axiom_arena_mark))
+      {
+        (region r
+          {
+            (let ((b 
+              (if (== 1 0)
+                (mkBox 1)
+                (mkBox 2))))
+              (usePhi b 0))
+            (let ((b 
+              (match No
+                ((Yes) (mkBox 3))
+                ((No) (mkBox 4)))))
+              (usePhi b 0))
+            (let ((b 
+              (cond
+                ((== 1 0) (mkBox 5))
+                (else (mkBox 6)))))
+              (usePhi b 0))
+            0
+          })
+        (println
+          (if (<= (- (memGetWord __axiom_arena_mark 0) (memGetWord m1 0)) 48)
+            1
+            0))
+      })
+    ; --- 8. fifty thousand regions, one alternating sum ---
+    (println (spinPhiLet 50000 0))
+    0
+  })

@@ -23,8 +23,9 @@
 ;      control: elision needs the reset).
 ;   4. A `let`-bound fresh call answers (the temporary is a `VAR`
 ;      at the release site and its release runs at scope end, not in
-;      `releaseOwnedArgs` - the next slice, not this one; the release
-;      stays and the answer is unchanged).
+;      `releaseOwnedArgs` - the scope-end walker owns it, elided in
+;      both arms of the args-path delta, so it never enters that
+;      count; the answer is unchanged either way).
 ;   5. A call through a closure parameter answers (the walk cannot
 ;      resolve it, so no stamp - the release stays).
 ;   6. A fresh result built on both arms of a branch answers (the
@@ -35,6 +36,9 @@
 ;      elided - the reset covers what counting used to free.
 ;   8. Fifty thousand regions, one sum: the loop answers, proving
 ;      the elided traffic was never load-bearing for correctness.
+;   9. A heap-param keeper handed to a call inside a region answers
+;      (the elision fires here too: the callee takes a `Box` but
+;      the result derives from the word argument alone).
 (import IO)
 (import Mem)
 
@@ -52,6 +56,16 @@
 (:: idBox (-> Box Box))
 (fn (idBox b)
   b)
+
+; Keeper: takes a heap parameter but answers a fresh cell built over
+; its word argument alone. Facts: resultCUR set, resultFrom names
+; only the scalar parameter, so the heap parameter contributes no
+; alias and the call stamps. Without this shape a walker that
+; abstained whenever the callee TAKES a heap parameter would still
+; pass every other term in this file.
+(:: wrapBox (-> Box Int Box))
+(fn (wrapBox b x)
+  (MkBox x))
 
 ; Fresh on both arms: each branch builds, neither reads a parameter.
 (:: mkEither (-> Int Box))
@@ -90,7 +104,7 @@
         (useBox (idBox (MkBox 40)) 2)))
     ; --- 3. no region, no elision, same answer ---
     (println (useBox (mkBox 40) 2))
-    ; --- 4. let-bound fresh call: the release stays ---
+    ; --- 4. let-bound fresh call: the scope-end walker's (elided in both arms here) ---
     (println
       (region r
         (let ((b (mkBox 40)))
@@ -122,5 +136,9 @@
       })
     ; --- 8. fifty thousand regions, one sum ---
     (println (spinFresh 50000 0))
+    ; --- 9. heap-param keeper: the release goes ---
+    (println
+      (region r
+        (useBox (wrapBox (MkBox 9) 40) 2)))
     0
   })

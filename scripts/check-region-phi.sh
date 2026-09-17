@@ -1,67 +1,67 @@
 #!/usr/bin/env bash
-# S4 slice 2, args path (docs/memory-model-v2-design.md §4): inside a
-# `(region r BODY)` a call result the witness proved fresh needs no
-# `axiom_release` - the reset reclaims it in one pointer move - and
-# this is what holds that the elision fires, fires only there, and
-# changes nothing but binary size.
+# S4 slice 3, args path (docs/memory-model-v2-design.md §4): inside a
+# `(region r BODY)` a join - an `if`, `cond` or `match` - whose every
+# arm the witness proved fresh needs no `axiom_release` for the
+# single value it answers - the reset reclaims whichever arm flowed
+# in one pointer move - and this is what holds that the elision
+# fires, fires only there, and changes nothing but binary size.
 #
-# WHAT SLICE 2 IS, IN ONE ARGUMENT. Slice 1 owned releases whose
-# operand IS the construction, answered syntactically where the value
-# is built. A call result needs the MM-RGN-5 witness instead: the
-# callee may alias an outer value, so freshness is read per callee
-# off the region facts - result from CUR0, from no heap parameter (a
-# scalar-typed parameter contributes no alias), from no call the walk
-# could not resolve - never while facts are still moving and never
-# when truncation made every row a lower bound. The checker stamps
-# such a call `nodeResWord` 2 post-fixpoint (an upgrade 0 to 2; a word
-# answer stays 1, and every old reader asks `== 1`); `releaseOwnedArgs`
-# spends the stamp exactly where slice 1 spends its construction test
-# while `argOwnedRelease` still says 1, so `mustTailOK` stays
-# conservative and `check-tail-calls.sh` does not move. TC word 40
-# (`rgnStamping`) is what keeps a still-moving row from ever becoming
-# a stamp: the same `rgnPass` with report 0 runs inside `rgnRounds` on
-# every round, so the report value cannot distinguish them.
+# WHAT SLICE 3 IS, IN ONE ARGUMENT. Slices 1 and 2 owned releases
+# whose operand IS the value's birth: a construction answered
+# syntactically where it is built, a call result read off the
+# MM-RGN-5 witness on the callee. A join is neither - it answers
+# whichever arm it took, so freshness needs per-arm reasoning: the
+# region pass stamps the join itself (`nodeResWord` 2, post-fixpoint
+# only, converged facts only, an upgrade 0 to 2) iff every arm value
+# node already carries the stamp, a proven-fresh call result or such
+# a join. Anything else for an arm - a reader, an unknown call, a
+# construction (slice 1's syntactic domain, never stamped), a name -
+# abstains, and so does the join; a missing `else` is not a stamped
+# arm either. `releaseOwnedArgs` spends the stamp exactly where
+# slices 1 and 2 spend theirs while `argOwnedRelease` still says 1,
+# so `mustTailOK` stays conservative and `check-tail-calls.sh` does
+# not move. TC word 40 (`rgnStamping`) is what keeps a still-moving
+# row from ever becoming a stamp: the same `rgnPass` with report 0
+# runs inside `rgnRounds` on every round, so the report value cannot
+# distinguish them.
 #
 # Five checks, each with the reason a lesser gate would be vacuous:
 #
-#   1. THE ANSWERS. `tests/stdlib/480-region-fresh-call.ax` prints
-#      nine terms under the compiler under test, byte-identical to
-#      its `.out` - a fresh call result elided (term 1), a reader's
-#      result kept (term 2), the un-regioned, let-bound and
-#      closure-called shapes kept (terms 3-5), a fresh result built
-#      on both branch arms elided (term 6), the waterline back
-#      (term 7), fifty thousand regions summed (term 8), and a
-#      heap-param keeper elided (term 9: the callee takes a `Box`
-#      but answers a cell built over its word argument alone, so
-#      the heap parameter contributes no alias). A gate that
-#      stamped too eagerly fails here first, against a golden no
-#      re-bless of the IR counts below can move.
+#   1. THE ANSWERS. `tests/stdlib/482-region-phi-call.ax` prints
+#      eleven terms under the compiler under test, byte-identical to
+#      its `.out` - an `if` join elided (term 1), a reader arm kept
+#      (term 2), a construction arm kept (term 3), the un-regioned
+#      and closure-called shapes kept (terms 4 and 6), a `let`-bound
+#      join elided by the scope-end walker in both arms here (term
+#      5), a nested join elided (term 7), a `match` join elided
+#      (term 8), a `cond` join elided (term 9), the waterline back
+#      (term 10), fifty thousand regions summed (term 11). A gate
+#      that stamped too eagerly fails here first, against a golden
+#      no re-bless of the IR counts below can move.
 #   2. THE COUNT, AS A DELTA. The fixture's IR under this compiler
 #      against the same IR under a compiler built from a tree whose
-#      ARGS-path spend never fires: seven fewer `axiom_release` calls,
-#      and the `diff` between the two IRs is those seven lines and
-#      nothing else. An absolute count would bless whatever the
+#      ARGS-path join spend never fires: seven fewer `axiom_release`
+#      calls, and the `diff` between the two IRs is those seven lines
+#      and nothing else. An absolute count would bless whatever the
 #      println machinery contributes; a delta distinguishes the seven
-#      this path owns from all of it. Seven is terms 1, 6, three in
-#      term 7, the loop in term 8, and the keeper in term 9 -
-#      counted by hand, asserted by machine. Terms 2, 3 and 5 keep
-#      theirs: a reader, no region, and a closure call the walk
-#      cannot resolve. Term 4's
-#      `let`-bound result is the SCOPE path's
-#      (`scripts/check-region-fresh-let.sh`): elided in both arms
-#      here, so it never enters this delta. The ablation is
-#      path-specific for exactly that reason - ablating the shared
-#      stamp would restore a seventh release this walker never
-#      owned, and the gate would pin another walker's traffic as
-#      its own.
+#      this path owns from all of it. Seven is terms 1, 7, 8 and 9,
+#      two in term 10 and the loop in term 11 - counted by hand,
+#      asserted by machine. Terms 2, 3, 4 and 6 keep theirs: a
+#      reader arm, a construction arm, no region, and a closure-call
+#      arm the walk cannot resolve. Term 5's `let`-bound join is the
+#      SCOPE path's (`scripts/check-region-phi-let.sh`): elided in
+#      both arms here, so it never enters this delta. No term hands
+#      a bare call result directly to a call, so every stamped
+#      argument here is a join and the shared spend's ablation below
+#      restores exactly this walker's traffic.
 #   3. THE RSS, AS A RATIO. A loop of 300,000 regions, each calling
-#      home a fresh box and dropping it, under both compilers: same
-#      stdout, same exit, and this compiler's peak RSS within 1.5x of
-#      the ablated one's. If an elided release had been load-bearing
-#      the loop would leak ~5 MiB here and the ratio would say so;
-#      the waterline term of check 1 already says it exactly, and
-#      this says it dynamically. A ratio and not a bound, so a loaded
-#      runner cannot fail it.
+#      home a join of two fresh calls and dropping it, under both
+#      compilers: same stdout, same exit, and this compiler's peak
+#      RSS within 1.5x of the ablated one's. If an elided release had
+#      been load-bearing the loop would leak ~5 MiB here and the ratio
+#      would say so; the waterline term of check 1 already says it
+#      exactly, and this says it dynamically. A ratio and not a bound,
+#      so a loaded runner cannot fail it.
 #   4. THE ABLATION IS WHAT MAKES 2 AND 3 MEAN ANYTHING. The tree is
 #      copied, the args path's own spend is made to never fire - the
 #      rule still exists, still runs beside the construction test,
@@ -83,25 +83,25 @@
 #      Recorded in the design note's S4 subsection, not fixed here.
 #
 # What this gate does NOT cover, stated rather than left to be
-# found: a fresh call result bound by `let` and released at scope end
+# found: a fresh join bound by `let` and released at scope end
 # rather than passed as an argument - `releaseOwnedArgs` never sees
-# it, so this walker never spends on it. Term 4 pins one, elided in
+# it, so this walker never spends on it. Term 5 pins one, elided in
 # both arms here by the scope-end walker
-# (`scripts/check-region-fresh-let.sh`), which is why the ablation
-# above restores exactly seven. `VAR`
-# operands that are not `let` bindings are neither walker's. Loads
-# resolved in slice 4 (`scripts/check-region-scrutinee.sh`): the
-# spendable ones were match scrutinee temporaries; tail-loop slots
-# and `set` olds are paired, and field reads are borrows at every
-# site with no release to spend on.
+# (`scripts/check-region-phi-let.sh`), which is why the ablation
+# above restores exactly seven. `VAR` operands that are not `let`
+# bindings are neither walker's. Loads resolved in slice 4
+# (`scripts/check-region-scrutinee.sh`): the spendable ones were
+# match scrutinee temporaries; tail-loop slots and `set` olds are
+# paired, and field reads are borrows at every site with no release
+# to spend on.
 # Field stores are excluded finally, not deferred: their release
 # balances a retain in the same step (`emitSetF`), so eliding one
 # half would leak. `musttail` paths stay conservative by
 # construction (`argOwnedRelease` untouched).
 #
 # Usage:
-#   scripts/check-region-fresh.sh
-#   AXIOM=path/to/compiler scripts/check-region-fresh.sh
+#   scripts/check-region-phi.sh
+#   AXIOM=path/to/compiler scripts/check-region-phi.sh
 
 set -uo pipefail
 
@@ -116,8 +116,8 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 gate_build_axc axc
 
-fixture="$repo_root/tests/stdlib/480-region-fresh-call.ax"
-golden="$repo_root/tests/stdlib/480-region-fresh-call.out"
+fixture="$repo_root/tests/stdlib/482-region-phi-call.ax"
+golden="$repo_root/tests/stdlib/482-region-phi-call.out"
 
 # `measure-memory-baseline.sh`'s reader, and its rule: fail rather
 # than skip when neither `time` answers.
@@ -141,21 +141,21 @@ releases_in() { # <ll> -> count of release call sites (not the define)
 }
 
 # ---------------------------------------------------------------
-echo "== 1. the nine terms answer under the compiler under test =="
+echo "== 1. the eleven terms answer under the compiler under test =="
 # ---------------------------------------------------------------
-if ! "$axc" build --input "$fixture" --output "$work/fresh" >"$work/build.log" 2>&1; then
+if ! "$axc" build --input "$fixture" --output "$work/phi" >"$work/build.log" 2>&1; then
   bad "could not build the fixture"
   sed 's/^/     /' "$work/build.log" | head -20
 else
-  "$work/fresh" >"$work/fresh.out" 2>&1
+  "$work/phi" >"$work/phi.out" 2>&1
   rc=$?
   if (( rc != 0 )); then
     bad "the fixture exits $rc, wanted 0"
-  elif ! cmp -s "$work/fresh.out" "$golden"; then
+  elif ! cmp -s "$work/phi.out" "$golden"; then
     bad "the fixture's stdout differs from $golden"
-    diff "$golden" "$work/fresh.out" | head -10 | sed 's/^/     /'
+    diff "$golden" "$work/phi.out" | head -10 | sed 's/^/     /'
   else
-    ok "480-region-fresh-call: nine terms byte-identical to the golden, exit 0"
+    ok "482-region-phi-call: eleven terms byte-identical to the golden, exit 0"
   fi
 fi
 
@@ -220,16 +220,16 @@ else
       fi
       # The ablated binary answers identically: the traffic was never
       # load-bearing for correctness, only for binary size.
-      if "$work/axc-ablated" build --input "$fixture" --output "$work/fresh-abl" >>"$work/emit.log" 2>&1; then
-        "$work/fresh-abl" >"$work/fresh-abl.out" 2>&1
+      if "$work/axc-ablated" build --input "$fixture" --output "$work/phi-abl" >>"$work/emit.log" 2>&1; then
+        "$work/phi-abl" >"$work/phi-abl.out" 2>&1
         rc_abl=$?
         if (( rc_abl != 0 )); then
           bad "the ablated fixture exits $rc_abl, wanted 0"
-        elif ! cmp -s "$work/fresh-abl.out" "$golden"; then
+        elif ! cmp -s "$work/phi-abl.out" "$golden"; then
           bad "the ablated fixture's stdout differs - the ablation broke the program, not the traffic"
-          diff "$golden" "$work/fresh-abl.out" | head -10 | sed 's/^/     /'
+          diff "$golden" "$work/phi-abl.out" | head -10 | sed 's/^/     /'
         else
-          ok "ablated binary answers the same nine terms - the seven calls were binary only"
+          ok "ablated binary answers the same eleven terms - the seven calls were binary only"
         fi
       else
         bad "the ablated fixture did not build"
@@ -254,14 +254,17 @@ cat > "$work/loop.ax" <<'AX'
 
 (fn (mkBox x) (MkBox x))
 
-(:: useBox (-> Box Int Int))
+(:: usePhi (-> Box Int Int))
 
-(fn (useBox o d) (+ (match o ((MkBox x) x)) d))
+(fn (usePhi o d) (+ (match o ((MkBox x) x)) d))
 
 ; The RSS loop is iterative, not recursive: a `region` around a
 ; self-call is not a tail position (MM-EXEC-6b's whole subject), so
 ; a recursive loop would die of stack, identically, under both
 ; compilers - measuring nothing. `while` trips no frames at all.
+; Each iteration calls home a join of two fresh calls: even
+; iterations take the left arm, odd ones the right, so the sum
+; pairs to one per two iterations.
 (:: loop (-> Int Int))
 
 (fn (loop n)
@@ -270,7 +273,7 @@ cat > "$work/loop.ax" <<'AX'
       {
         (while (> i 0)
           {
-            (region r (set acc (+ acc (useBox (mkBox i) 0))))
+            (region r (set acc (+ acc (usePhi (if (== (% i 2) 0) (mkBox i) (mkBox (- 0 i))) 0))))
             (set i (- i 1))
           })
         acc
@@ -296,8 +299,8 @@ if "$axc" build --input "$work/loop.ax" --output "$work/loop" >"$work/loop.build
   out_abl="$("$work/loop-abl" 2>&1)"; rc_abl=$?
   if [[ "$out_new" != "$out_abl" || "$rc_new" != "$rc_abl" ]]; then
     bad "loop answers differ: test '$out_new'/$rc_new against ablated '$out_abl'/$rc_abl"
-  elif [[ "$out_new" != "45000150000" ]]; then
-    bad "loop answers $out_new, wanted 45000150000"
+  elif [[ "$out_new" != "150000" ]]; then
+    bad "loop answers $out_new, wanted 150000"
   else
     rss_new="$(max_rss_kb "$work/loop")" || rss_new=""
     rss_abl="$(max_rss_kb "$work/loop-abl")" || rss_abl=""
@@ -313,7 +316,7 @@ if "$axc" build --input "$work/loop.ax" --output "$work/loop" >"$work/loop.build
       if (( ratio > 150 )); then
         bad "peak RSS ratio ${ratio}% (${rss_new} KiB against ${rss_abl} KiB) - the reset did not cover the elided traffic"
       else
-        ok "loop answers 45000150000 both ways, peak RSS ${rss_new} KiB against ${rss_abl} KiB (${ratio}%)"
+        ok "loop answers 150000 both ways, peak RSS ${rss_new} KiB against ${rss_abl} KiB (${ratio}%)"
       fi
     fi
   fi
@@ -388,7 +391,7 @@ fi
 
 echo
 if (( failed > 0 )); then
-  echo "check-region-fresh: $failed check(s) failed, $checks passed"
+  echo "check-region-phi: $failed check(s) failed, $checks passed"
   exit 1
 fi
-echo "check-region-fresh: $checks checks - fresh call results are reset-reclaimed as arguments, and only binary changed"
+echo "check-region-phi: $checks checks - fresh joins are reset-reclaimed as arguments, and only binary changed"

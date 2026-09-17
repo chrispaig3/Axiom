@@ -1,72 +1,72 @@
 #!/usr/bin/env bash
-# S4 slice 2, args path (docs/memory-model-v2-design.md §4): inside a
-# `(region r BODY)` a call result the witness proved fresh needs no
-# `axiom_release` - the reset reclaims it in one pointer move - and
+# S4 slice 4, scrutinee path (docs/memory-model-v2-design.md §4):
+# inside a `(region r BODY)` a `match` whose scrutinee the witness
+# proved fresh - a call result, or a join whose every arm is one -
+# needs no merge-path `axiom_release` for the temporary it
+# consumed, because the reset reclaims it in one pointer move - and
 # this is what holds that the elision fires, fires only there, and
 # changes nothing but binary size.
 #
-# WHAT SLICE 2 IS, IN ONE ARGUMENT. Slice 1 owned releases whose
-# operand IS the construction, answered syntactically where the value
-# is built. A call result needs the MM-RGN-5 witness instead: the
-# callee may alias an outer value, so freshness is read per callee
-# off the region facts - result from CUR0, from no heap parameter (a
-# scalar-typed parameter contributes no alias), from no call the walk
-# could not resolve - never while facts are still moving and never
-# when truncation made every row a lower bound. The checker stamps
-# such a call `nodeResWord` 2 post-fixpoint (an upgrade 0 to 2; a word
-# answer stays 1, and every old reader asks `== 1`); `releaseOwnedArgs`
-# spends the stamp exactly where slice 1 spends its construction test
-# while `argOwnedRelease` still says 1, so `mustTailOK` stays
-# conservative and `check-tail-calls.sh` does not move. TC word 40
-# (`rgnStamping`) is what keeps a still-moving row from ever becoming
-# a stamp: the same `rgnPass` with report 0 runs inside `rgnRounds` on
-# every round, so the report value cannot distinguish them.
+# WHAT SLICE 4 IS, IN ONE ARGUMENT. Slices 1 through 3 owned
+# releases whose operand IS the value's birth: a construction
+# answered syntactically, a call result read off the MM-RGN-5
+# witness, a join whose every arm carries the stamp. A match
+# scrutinee is a fourth position holding the same birth: the
+# temporary the match consumes, released after the merge when
+# `scrutineeReleasable` says no arm binder escapes through its body
+# (binders are the block's fields - releasing first would hand an
+# arm a dangling field). The stamp is the same one (a fresh call,
+# or a fresh join - including a nested match, whose result register
+# is a scratch-cell load); `releaseScrutinee` spends it exactly
+# where MM-LIFE-2c used to emit unconditionally, under the same
+# depth gate, while the pending vector still takes the share for
+# the tail-jump path, which keeps its release. `argOwnedRelease`
+# is not asked here - `scrutineeReleasable` already decided - so
+# `mustTailOK` cannot drift, and the tail and non-tail emitters
+# share the one spend: the rule is position-independent by
+# construction. TC word 40 (`rgnStamping`) is what keeps a
+# still-moving row from ever becoming a stamp.
 #
 # Five checks, each with the reason a lesser gate would be vacuous:
 #
-#   1. THE ANSWERS. `tests/stdlib/480-region-fresh-call.ax` prints
-#      nine terms under the compiler under test, byte-identical to
-#      its `.out` - a fresh call result elided (term 1), a reader's
-#      result kept (term 2), the un-regioned, let-bound and
-#      closure-called shapes kept (terms 3-5), a fresh result built
-#      on both branch arms elided (term 6), the waterline back
-#      (term 7), fifty thousand regions summed (term 8), and a
-#      heap-param keeper elided (term 9: the callee takes a `Box`
-#      but answers a cell built over its word argument alone, so
-#      the heap parameter contributes no alias). A gate that
-#      stamped too eagerly fails here first, against a golden no
-#      re-bless of the IR counts below can move.
+#   1. THE ANSWERS. `tests/stdlib/484-region-scrutinee.ax` prints
+#      twelve terms under the compiler under test, byte-identical
+#      to its `.out` - a call scrutinee elided (term 1), `if`,
+#      `match` and `cond` scrutinees elided (terms 2-4), a reader
+#      scrutinee kept (term 5), a borrowed binder elided (term 6),
+#      an escaping binder with no release site at all (term 7), the
+#      un-regioned, `let`-bound and construction shapes kept (terms
+#      8-10), the waterline back (term 11), fifty thousand regions
+#      summed (term 12). A gate that stamped too eagerly fails here
+#      first, against a golden no re-bless of the IR counts below
+#      can move.
 #   2. THE COUNT, AS A DELTA. The fixture's IR under this compiler
 #      against the same IR under a compiler built from a tree whose
-#      ARGS-path spend never fires: seven fewer `axiom_release` calls,
-#      and the `diff` between the two IRs is those seven lines and
-#      nothing else. An absolute count would bless whatever the
-#      println machinery contributes; a delta distinguishes the seven
-#      this path owns from all of it. Seven is terms 1, 6, three in
-#      term 7, the loop in term 8, and the keeper in term 9 -
-#      counted by hand, asserted by machine. Terms 2, 3 and 5 keep
-#      theirs: a reader, no region, and a closure call the walk
-#      cannot resolve. Term 4's
-#      `let`-bound result is the SCOPE path's
-#      (`scripts/check-region-fresh-let.sh`): elided in both arms
-#      here, so it never enters this delta. The ablation is
-#      path-specific for exactly that reason - ablating the shared
-#      stamp would restore a seventh release this walker never
-#      owned, and the gate would pin another walker's traffic as
-#      its own.
-#   3. THE RSS, AS A RATIO. A loop of 300,000 regions, each calling
-#      home a fresh box and dropping it, under both compilers: same
-#      stdout, same exit, and this compiler's peak RSS within 1.5x of
-#      the ablated one's. If an elided release had been load-bearing
-#      the loop would leak ~5 MiB here and the ratio would say so;
-#      the waterline term of check 1 already says it exactly, and
-#      this says it dynamically. A ratio and not a bound, so a loaded
-#      runner cannot fail it.
+#      scrutinee spend never fires: eight fewer `axiom_release`
+#      calls, and the `diff` between the two IRs is those eight
+#      lines and nothing else. An absolute count would bless
+#      whatever the println machinery contributes; a delta
+#      distinguishes the eight this path owns from all of it. Eight
+#      is terms 1-4 and 6, two in term 11 and the loop in term 12 -
+#      counted by hand, asserted by machine. Terms 5 and 8-10 keep
+#      theirs: a reader, no region, a borrowed `let` binding with
+#      no site either way, and a construction the witness never
+#      stamps. Term 7 has no release site in either arm -
+#      `scrutineeReleasable` says 0 where a binder escapes bare -
+#      so it never enters this delta.
+#   3. THE RSS, AS A RATIO. A loop of 300,000 regions, each
+#      consuming a fresh join scrutinee and dropping it, under both
+#      compilers: same stdout, same exit, and this compiler's peak
+#      RSS within 1.5x of the ablated one's. If an elided release
+#      had been load-bearing the loop would leak ~5 MiB here and the
+#      ratio would say so; the waterline term of check 1 already
+#      says it exactly, and this says it dynamically. A ratio and
+#      not a bound, so a loaded runner cannot fail it.
 #   4. THE ABLATION IS WHAT MAKES 2 AND 3 MEAN ANYTHING. The tree is
-#      copied, the args path's own spend is made to never fire - the
-#      rule still exists, still runs beside the construction test,
-#      and answers nothing - and a compiler is built from it. Seven
-#      releases come back and only seven: any other delta fails the
+#      copied, the scrutinee spend is made to never fire - the rule
+#      still exists, still runs beside `scrutineeReleasable`, and
+#      answers nothing - and a compiler is built from it. Eight
+#      releases come back and only eight: any other delta fails the
 #      gate, because an ablation that moved anything else broke the
 #      program instead of restoring the traffic. Cost: one extra
 #      compiler build, the price the sibling gates pay for the same
@@ -83,25 +83,22 @@
 #      Recorded in the design note's S4 subsection, not fixed here.
 #
 # What this gate does NOT cover, stated rather than left to be
-# found: a fresh call result bound by `let` and released at scope end
-# rather than passed as an argument - `releaseOwnedArgs` never sees
-# it, so this walker never spends on it. Term 4 pins one, elided in
-# both arms here by the scope-end walker
-# (`scripts/check-region-fresh-let.sh`), which is why the ablation
-# above restores exactly seven. `VAR`
-# operands that are not `let` bindings are neither walker's. Loads
-# resolved in slice 4 (`scripts/check-region-scrutinee.sh`): the
-# spendable ones were match scrutinee temporaries; tail-loop slots
-# and `set` olds are paired, and field reads are borrows at every
-# site with no release to spend on.
-# Field stores are excluded finally, not deferred: their release
-# balances a retain in the same step (`emitSetF`), so eliding one
-# half would leak. `musttail` paths stay conservative by
-# construction (`argOwnedRelease` untouched).
+# found: tail-loop parameter slots (released on the callee's return
+# path against its entry retain - callee-shared code no call site
+# may elide), field and `mut`-slot old values (their release drops
+# a share of unknown provenance - load-bearing unless proven
+# otherwise, which no walker here proves), and field reads anywhere
+# (a field read is a borrow at every site - argument, binding,
+# scrutinee and join arm all answer unowned for one - so no release
+# site exists to spend on; measured, not assumed). Field stores are
+# excluded finally, not deferred: their release balances a retain
+# in the same step (`emitSetF`), so eliding one half would leak.
+# `musttail` paths stay conservative by construction (the pending
+# vector keeps its share).
 #
 # Usage:
-#   scripts/check-region-fresh.sh
-#   AXIOM=path/to/compiler scripts/check-region-fresh.sh
+#   scripts/check-region-scrutinee.sh
+#   AXIOM=path/to/compiler scripts/check-region-scrutinee.sh
 
 set -uo pipefail
 
@@ -116,8 +113,8 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 gate_build_axc axc
 
-fixture="$repo_root/tests/stdlib/480-region-fresh-call.ax"
-golden="$repo_root/tests/stdlib/480-region-fresh-call.out"
+fixture="$repo_root/tests/stdlib/484-region-scrutinee.ax"
+golden="$repo_root/tests/stdlib/484-region-scrutinee.out"
 
 # `measure-memory-baseline.sh`'s reader, and its rule: fail rather
 # than skip when neither `time` answers.
@@ -141,27 +138,27 @@ releases_in() { # <ll> -> count of release call sites (not the define)
 }
 
 # ---------------------------------------------------------------
-echo "== 1. the nine terms answer under the compiler under test =="
+echo "== 1. the twelve terms answer under the compiler under test =="
 # ---------------------------------------------------------------
-if ! "$axc" build --input "$fixture" --output "$work/fresh" >"$work/build.log" 2>&1; then
+if ! "$axc" build --input "$fixture" --output "$work/scrut" >"$work/build.log" 2>&1; then
   bad "could not build the fixture"
   sed 's/^/     /' "$work/build.log" | head -20
 else
-  "$work/fresh" >"$work/fresh.out" 2>&1
+  "$work/scrut" >"$work/scrut.out" 2>&1
   rc=$?
   if (( rc != 0 )); then
     bad "the fixture exits $rc, wanted 0"
-  elif ! cmp -s "$work/fresh.out" "$golden"; then
+  elif ! cmp -s "$work/scrut.out" "$golden"; then
     bad "the fixture's stdout differs from $golden"
-    diff "$golden" "$work/fresh.out" | head -10 | sed 's/^/     /'
+    diff "$golden" "$work/scrut.out" | head -10 | sed 's/^/     /'
   else
-    ok "480-region-fresh-call: nine terms byte-identical to the golden, exit 0"
+    ok "484-region-scrutinee: twelve terms byte-identical to the golden, exit 0"
   fi
 fi
 
 # ---------------------------------------------------------------
 echo
-echo "== 2-4. seven releases gone, nothing else moved, ablation red =="
+echo "== 2-4. eight releases gone, nothing else moved, ablation red =="
 # ---------------------------------------------------------------
 # Ablated on a COPY of the tree: `gate_source_stamp` hashes
 # `self_host/`, so an ablation left behind would silently become the
@@ -176,23 +173,23 @@ if ! python3 - "$target" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-# Anchored on the args path's own spend, and only it: the scope-end
-# path in `emitLetAt` reads `(nodeResWord valExpr)`, the chain
-# walkers read `(nodeResWord snode)` for wordness, and ablating any
-# of those instead would restore traffic this walker never owned -
-# or break every closure application. Replacing the stamp read with
-# a value no stamp takes leaves the rule in place - the construction
-# test still evaluates beside it on every argument - and answering
-# nothing. 2 is the only stamped value beside 0 and 1, so 3 fires
-# nowhere.
-old = "(== (nodeResWord a) 2)"
+# Anchored on the scrutinee spend, and only it: the args path reads
+# `(nodeResWord a)`, the scope-end path reads `(nodeResWord
+# valExpr)`, the chain walkers read `(nodeResWord snode)` for
+# wordness, and ablating any of those instead would restore traffic
+# this walker never owned - or break every closure application.
+# Replacing the stamp read with a value no stamp takes leaves the
+# rule in place - `scrutineeReleasable` still decides beside it on
+# every match - and answering nothing. 2 is the only stamped value
+# beside 0 and 1, so 3 fires nowhere.
+old = "(== (nodeResWord scrutExpr) 2)"
 if s.count(old) != 1:
-    sys.stderr.write("args-path spend not found verbatim (%d)\n" % s.count(old))
+    sys.stderr.write("scrutinee spend not found verbatim (%d)\n" % s.count(old))
     sys.exit(1)
-open(p, "w").write(s.replace(old, "(== (nodeResWord a) 3)"))
+open(p, "w").write(s.replace(old, "(== (nodeResWord scrutExpr) 3)"))
 PY
 then
-  bad "could not ablate the args-path spend"
+  bad "could not ablate the scrutinee spend"
   echo "     nothing was ablated, so the red half of this gate proves nothing"
 else
   echo "-- rebuilding the compiler from the ablated tree --"
@@ -207,29 +204,29 @@ else
       n_abl="$(releases_in "$work/fix-abl.ll")"
       if (( n_new == 0 )); then
         bad "no releases at all under test - an elision that fires everywhere proves nothing"
-      elif (( n_abl - n_new != 7 )); then
-        bad "release delta is $((n_abl - n_new)) ($n_abl ablated, $n_new under test), wanted exactly 7"
+      elif (( n_abl - n_new != 8 )); then
+        bad "release delta is $((n_abl - n_new)) ($n_abl ablated, $n_new under test), wanted exactly 8"
       else
         other="$(diff "$work/fix-abl.ll" "$work/fix.ll" | grep -E '^[<>]' | grep -vc 'axiom_release' || true)"
         if (( other != 0 )); then
           bad "the two IRs differ by $other non-release line(s) - the elision moved something else"
           diff "$work/fix-abl.ll" "$work/fix.ll" | grep -E '^[<>]' | grep -v 'axiom_release' | head -10 | sed 's/^/     /'
         else
-          ok "seven releases gone ($n_abl -> $n_new), and the IR diff is those seven lines and nothing else"
+          ok "eight releases gone ($n_abl -> $n_new), and the IR diff is those eight lines and nothing else"
         fi
       fi
       # The ablated binary answers identically: the traffic was never
       # load-bearing for correctness, only for binary size.
-      if "$work/axc-ablated" build --input "$fixture" --output "$work/fresh-abl" >>"$work/emit.log" 2>&1; then
-        "$work/fresh-abl" >"$work/fresh-abl.out" 2>&1
+      if "$work/axc-ablated" build --input "$fixture" --output "$work/scrut-abl" >>"$work/emit.log" 2>&1; then
+        "$work/scrut-abl" >"$work/scrut-abl.out" 2>&1
         rc_abl=$?
         if (( rc_abl != 0 )); then
           bad "the ablated fixture exits $rc_abl, wanted 0"
-        elif ! cmp -s "$work/fresh-abl.out" "$golden"; then
+        elif ! cmp -s "$work/scrut-abl.out" "$golden"; then
           bad "the ablated fixture's stdout differs - the ablation broke the program, not the traffic"
-          diff "$golden" "$work/fresh-abl.out" | head -10 | sed 's/^/     /'
+          diff "$golden" "$work/scrut-abl.out" | head -10 | sed 's/^/     /'
         else
-          ok "ablated binary answers the same nine terms - the seven calls were binary only"
+          ok "ablated binary answers the same twelve terms - the eight calls were binary only"
         fi
       else
         bad "the ablated fixture did not build"
@@ -254,14 +251,13 @@ cat > "$work/loop.ax" <<'AX'
 
 (fn (mkBox x) (MkBox x))
 
-(:: useBox (-> Box Int Int))
-
-(fn (useBox o d) (+ (match o ((MkBox x) x)) d))
-
 ; The RSS loop is iterative, not recursive: a `region` around a
 ; self-call is not a tail position (MM-EXEC-6b's whole subject), so
 ; a recursive loop would die of stack, identically, under both
 ; compilers - measuring nothing. `while` trips no frames at all.
+; Each iteration consumes a fresh join scrutinee: even iterations
+; take the left arm, odd ones the right, so the sum pairs to one
+; per two iterations.
 (:: loop (-> Int Int))
 
 (fn (loop n)
@@ -270,7 +266,7 @@ cat > "$work/loop.ax" <<'AX'
       {
         (while (> i 0)
           {
-            (region r (set acc (+ acc (useBox (mkBox i) 0))))
+            (region r (set acc (+ acc (match (if (== (% i 2) 0) (mkBox i) (mkBox (- 0 i))) ((MkBox x) x)))))
             (set i (- i 1))
           })
         acc
@@ -296,8 +292,8 @@ if "$axc" build --input "$work/loop.ax" --output "$work/loop" >"$work/loop.build
   out_abl="$("$work/loop-abl" 2>&1)"; rc_abl=$?
   if [[ "$out_new" != "$out_abl" || "$rc_new" != "$rc_abl" ]]; then
     bad "loop answers differ: test '$out_new'/$rc_new against ablated '$out_abl'/$rc_abl"
-  elif [[ "$out_new" != "45000150000" ]]; then
-    bad "loop answers $out_new, wanted 45000150000"
+  elif [[ "$out_new" != "150000" ]]; then
+    bad "loop answers $out_new, wanted 150000"
   else
     rss_new="$(max_rss_kb "$work/loop")" || rss_new=""
     rss_abl="$(max_rss_kb "$work/loop-abl")" || rss_abl=""
@@ -313,7 +309,7 @@ if "$axc" build --input "$work/loop.ax" --output "$work/loop" >"$work/loop.build
       if (( ratio > 150 )); then
         bad "peak RSS ratio ${ratio}% (${rss_new} KiB against ${rss_abl} KiB) - the reset did not cover the elided traffic"
       else
-        ok "loop answers 45000150000 both ways, peak RSS ${rss_new} KiB against ${rss_abl} KiB (${ratio}%)"
+        ok "loop answers 150000 both ways, peak RSS ${rss_new} KiB against ${rss_abl} KiB (${ratio}%)"
       fi
     fi
   fi
@@ -388,7 +384,7 @@ fi
 
 echo
 if (( failed > 0 )); then
-  echo "check-region-fresh: $failed check(s) failed, $checks passed"
+  echo "check-region-scrutinee: $failed check(s) failed, $checks passed"
   exit 1
 fi
-echo "check-region-fresh: $checks checks - fresh call results are reset-reclaimed as arguments, and only binary changed"
+echo "check-region-scrutinee: $checks checks - fresh scrutinee temporaries are reset-reclaimed, and only binary changed"

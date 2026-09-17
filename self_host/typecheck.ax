@@ -21058,10 +21058,30 @@
               (if (== tag TAG_E_IF)
                 {
                   (rgnExpr rc (nodeA e))
-                  (| (rgnExpr rc (nodeB e)) (rgnExpr rc (nodeC e)))
+                  (let ((mb (rgnExpr rc (nodeB e))))
+                    (let ((mc (rgnExpr rc (nodeC e))))
+                      {
+                        ; S4 slice 3's witness stamp for joins: this `if`
+                        ; answers whichever arm it takes, so when every
+                        ; arm value node already carries the stamp - a
+                        ; proven-fresh call result, or such a join - the
+                        ; join carries it too. Same guards as the call
+                        ; stamp (post-fixpoint walks only, converged
+                        ; facts only, upgrade 0 to 2), plus both arms
+                        ; present: a missing arm is not a stamped one.
+                        ; Anything else for an arm - a reader, an unknown
+                        ; call, a construction, a name - abstains, and so
+                        ; does the join. Inlined here (two arms, no walk
+                        ; to thread) so no new top-level function moves
+                        ; the effect-distribution pins.
+                        (if (&& (== (memGetWord (rgnTc rc) 40) 1) (&& (== (memGetWord (rgnTc rc) 28) 1) (&& (== (nodeResWord e) 0) (&& (!= (nodeB e) 0) (&& (!= (nodeC e) 0) (&& (== (nodeResWord (nodeB e)) 2) (== (nodeResWord (nodeC e)) 2)))))))
+                          (setNodeResWord e 2)
+                          0)
+                        (| mb mc)
+                      }))
                 }
                 (if (== tag TAG_E_COND)
-                  (| (rgnCondClauses rc (nodeAVec e) 0 0) (rgnExpr rc (nodeB e)))
+                  (rgnCondClauses rc (nodeAVec e) 0 0 e 1 (nodeB e))
                   (if (== tag TAG_E_BEGIN)
                     (rgnSeq rc (nodeAVec e) 0 0)
                     (if (== tag TAG_E_MATCH)
@@ -21134,14 +21154,29 @@
       acc
       (rgnArgsUnion rc v (+ i 1) (| acc (rgnExpr rc (vecGet v i)))))))
 
-(pub :: rgnCondClauses (-> Int (Vec Int) Int Int Int))
-(pub fn (rgnCondClauses rc clauses i acc)
+(pub :: rgnCondClauses (-> Int (Vec Int) Int Int Int Int Int Int))
+(pub fn (rgnCondClauses rc clauses i acc cnode allok elsenode)
   (if (>= i (vecLen clauses))
-    acc
+    ; The `else` walks here, last, exactly where `rgnExpr` walked it
+    ; before - clauses in order, then `else` - so moving it inside
+    ; changes no side-effect order and no diagnostic. With every arm
+    ; walked the join stamp decides with full knowledge: every clause
+    ; body stamped, a real `else` present and stamped, at least one
+    ; clause (a bare `(else ...)` is just `else` - write the call),
+    ; and the call stamp's own guards.
+    (let ((em (rgnExpr rc elsenode)))
+      {
+        (if (&& (== (memGetWord (rgnTc rc) 40) 1) (&& (== (memGetWord (rgnTc rc) 28) 1) (&& (== (nodeResWord cnode) 0) (&& (!= i 0) (&& (== allok 1) (&& (!= elsenode 0) (== (nodeResWord elsenode) 2)))))))
+          (setNodeResWord cnode 2)
+          0)
+        (| acc em)
+      })
     (let ((cl (vecGet clauses i)))
       {
         (rgnExpr rc (nodeA cl))
-        (rgnCondClauses rc clauses (+ i 1) (| acc (rgnExpr rc (nodeB cl))))
+        (let ((cb (rgnExpr rc (nodeB cl))))
+          (let ((ok (if (&& (== allok 1) (&& (!= (nodeB cl) 0) (== (nodeResWord (nodeB cl)) 2))) 1 0)))
+            (rgnCondClauses rc clauses (+ i 1) (| acc cb) cnode ok elsenode)))
       })))
 
 ; A loop body is walked twice: a `set` late in the body widens a
@@ -21169,12 +21204,24 @@
       (nodeBVec e)
       0
       s
-      0)))
+      0
+      e
+      1)))
 
-(pub :: rgnArms (-> Int (Vec Int) Int Int Int Int))
-(pub fn (rgnArms rc arms i s acc)
+(pub :: rgnArms (-> Int (Vec Int) Int Int Int Int Int Int))
+(pub fn (rgnArms rc arms i s acc mnode allok)
   (if (>= i (vecLen arms))
-    acc
+    ; Every arm walked: stamp the match iff every arm body carries
+    ; the stamp, with at least one arm (a join of nothing stamps
+    ; nothing), under the call stamp's own guards. The flag threaded
+    ; down, so no new top-level function moves the
+    ; effect-distribution pins.
+    {
+      (if (&& (== (memGetWord (rgnTc rc) 40) 1) (&& (== (memGetWord (rgnTc rc) 28) 1) (&& (== (nodeResWord mnode) 0) (&& (!= i 0) (== allok 1)))))
+        (setNodeResWord mnode 2)
+        0)
+      acc
+    }
     (let (
       (arm (vecGet arms i))
       (mark (rgnEnvLen rc))
@@ -21182,15 +21229,19 @@
       {
         (rgnBindPat rc (nodeA arm) s)
         (let ((r (rgnExpr rc (nodeB arm))))
-          {
-            (rgnEnvTrunc rc mark)
-            (rgnArms
-              rc
-              arms
-              (+ i 1)
-              s
-              (| acc r))
-          })
+          (let ((ok (if (&& (== allok 1) (&& (!= (nodeB arm) 0) (== (nodeResWord (nodeB arm)) 2))) 1 0)))
+            {
+              (rgnEnvTrunc rc mark)
+              (rgnArms
+                rc
+                arms
+                (+ i 1)
+                s
+                (| acc r)
+                mnode
+                ok)
+            })
+          )
       })))
 
 ; A pattern's binders take the scrutinee's origins: a field of a

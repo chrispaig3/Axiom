@@ -626,24 +626,30 @@ records a proven-fresh call result on its own node (`nodeResWord` 0
 to 2, post-fixpoint only, never while facts are still moving and
 never when truncation made every row a lower bound - TC word 40,
 `rgnStamping`, is what distinguishes the stamp walks from the
-fixpoint's own passes), and `releaseOwnedArgs` spends the stamp
+fixpoint's own passes; the abstention is global, a truncated
+fixpoint stamps nothing anywhere and keeps every release, which is
+the safe direction, a missed elision and never an early free), and `releaseOwnedArgs` spends the stamp
 exactly where slice 1 spends its construction test, while
 `argOwnedRelease` still says 1 so `mustTailOK` stays conservative.
 Fresh means the callee's facts say the answer derives from CUR0,
 from no heap parameter (a scalar-typed parameter contributes no
 alias, so a cell built over words is still a fresh cell - `mkBox`
-over `Int` stamps and `idBox` over `Box` does not), and from no call
+over `Int` stamps and `idBox` over `Box` does not - and a callee
+that TAKES a heap parameter without letting it reach the result
+stamps too: `wrapBox` over `Box` and `Int` answers a cell built
+over the word alone, and term 9 pins the elision, so a walker that
+abstained on any heap parameter would fail the gate), and from no call
 the walk could not resolve; the call must be saturated, an annotated
 result is never stamped, and a word answer is never touched (every
 old reader asks `== 1`). Constructors are not stamped - slice 1 owns
 them syntactically, so the two deltas never overlap. Inlined rather
 than factored, so no new top-level function moves the
 effect-distribution pins. `tests/stdlib/480-region-fresh-call.ax`
-(eight terms) plus `scripts/check-region-fresh.sh`: six releases
-gone from the fixture's IR and the diff is those six lines and
-nothing else, the same eight answers under both compilers, peak RSS
+(nine terms) plus `scripts/check-region-fresh.sh`: seven releases
+gone from the fixture's IR and the diff is those seven lines and
+nothing else, the same nine answers under both compilers, peak RSS
 100% across 300,000 regions of fresh calls, and an ablation of the
-args-path spend bringing all six back. What is NOT this slice is a
+args-path spend bringing all seven back. What is NOT this slice is a
 fresh call result bound by `let` and released at scope end:
 `releaseOwnedArgs` never sees it, so the stamp sits unused on it
 (term 4 pins one, kept) until the scope-end walker learns to read
@@ -668,9 +674,104 @@ under both compilers, peak RSS 100% across 300,000 regions of bound
 fresh calls, and an ablation of the scope-end spend bringing all
 eight back. Both ablations are path-specific on purpose - ablating
 the shared stamp would restore traffic the walker under test never
-owned. What remains of S4 is `VAR` operands that are not `let`
-bindings, field stores with their paired retains, and join arms
-needing per-arm reasoning, each its own later slice.
+owned. What remains of S4 is counted, not promised: pair-error
+projections (`extractvalue` of an errno out of a two-word pair, 13
+sites in the compiler's own IR), scope-end releases of string
+literals (runtime no-ops through the `-1` sentinel, 7 sites), and
+the call/join traffic the witness correctly keeps (readers,
+escapes, unknown callees). Field
+stores are not among them, finally and not deferred: a field
+store's release balances a retain in the same step (`emitSetF`
+retains the value into the field beside releasing the temporary),
+and the field slot outlives any region the walk can prove, so no
+reset covers both halves and eliding one half would leak.
+
+**S4 slice 4, scrutinee path, BUILT 2026-09-17 - match scrutinee
+temporaries.** A `match` consumes its scrutinee, released after
+the merge when `scrutineeReleasable` says no arm binder escapes
+through its body (binders are the block's fields). No new stamp:
+the spend reads slices 2 and 3's (`nodeResWord` 2 - a fresh call,
+or a fresh join, including a nested match whose result register is
+a scratch-cell load, the one "match temp" shape that is a `load`
+in the census's terms), under the same depth gate, in
+`releaseScrutinee`, shared by the tail and non-tail emitters. The
+pending vector still takes the share for the tail-jump path;
+`argOwnedRelease` is not asked, so `mustTailOK` cannot drift.
+`tests/stdlib/484-region-scrutinee.ax` (twelve terms) plus
+`scripts/check-region-scrutinee.sh`: eight releases gone from the
+fixture's IR and the diff is those eight lines and nothing else,
+the same twelve answers under both compilers, peak RSS 99% across
+300,000 regions of fresh scrutinees, and an ablation of the
+scrutinee spend bringing all eight back.
+
+**The load census behind slice 4, measured 2026-09-17.** Every
+`axiom_release` site in the compiler's own IR, classified by what
+defines its operand as in the S4 sizing above: 404 on frame-slot
+loads, 6 on heap-field loads. Of the 404, all but one sit on a
+function's return path - tail-loop parameter slots, the entry
+retain's counterpart (`releaseRefParamSlots`) - callee-shared code
+no call site may elide, finally. The rest, frame and heap alike,
+are `set` old values, retain-new/release-old paired with
+provenance unknown. Match-result scratch loads spend in slice 3
+already (its elided operands include `load` definers, measured on
+the fixtures). And a field read is a borrow at every site - a
+field read handed to a call, bound by a `let`, matched on, or
+taken as a join arm all answer unowned (`valueOwnedRef` 0), so no
+release site exists to spend on; probed in all four positions,
+kept everywhere. That is why the slice is one spend site and a
+page of measured negatives.
+
+**S4 slice 3, args path, BUILT 2026-09-17 - joins whose every arm
+is fresh, handed to a call.** A join answers whichever arm it
+took, so freshness needs per-arm reasoning rather than a
+callee fact: the region pass stamps the join itself
+(`nodeResWord` 2) iff every arm value node already carries the
+stamp - a proven-fresh call result, or such a join, the inner
+stamping before the outer reads it in the same post-fixpoint walk.
+Anything else for an arm abstains, and so does the join: a reader
+arm, an arm through a call the walk cannot resolve, a construction
+arm (slice 1's syntactic domain, never stamped, so the stamp keeps
+its one meaning), a bare name, and a missing `else`, which is not
+a stamped arm. Same guards as the call stamp (post-fixpoint walks
+only under TC word 40, converged facts only, upgrade 0 to 2), and
+`releaseOwnedArgs` spends the stamp exactly where slices 1 and 2
+spend theirs while `argOwnedRelease` still says 1, so `mustTailOK`
+stays conservative. Threaded through the existing arm walkers
+(`rgnArms`, `rgnCondClauses` - the `else` walks last inside the
+cond walker, exactly where it walked before, so no side-effect
+order and no diagnostic moves) and inlined at `if` and both spend
+sites, so no new top-level function moves the
+effect-distribution pins. `tests/stdlib/482-region-phi-call.ax`
+(eleven terms) plus `scripts/check-region-phi.sh`: seven releases
+gone from the fixture's IR and the diff is those seven lines and
+nothing else, the same eleven answers under both compilers, peak
+RSS 99% across 300,000 regions of fresh joins, and an ablation of
+the args-path join spend bringing all seven back. What is NOT this
+slice is a fresh join bound by `let` and released at scope end:
+`releaseOwnedArgs` never sees it, so the stamp sits unused on it
+there (term 5 pins one, elided in both arms of this gate's delta
+by the scope-end walker, the sibling entry below).
+
+**S4 slice 3, scope-end path, BUILT 2026-09-17 - the same stamp at
+`let` scope end.** A join bound by `let` never reaches
+`releaseOwnedArgs` at all - `valueOwnedRef` answers 0 for a local,
+so the argument position keeps its silence and MM-LIFE-2c event 3
+pays the share at the binding's scope end instead. `emitLetAt`
+spends the stamp there: same witness, same depth gate, same
+`releasable` decision left untouched with only its spending
+conditional, and the pending vector still taking the share for the
+tail-jump path, which keeps its release. `emitLetMAt` needs
+nothing: a mutable binding keeps its alloca and has no scope-end
+release to spend. `tests/stdlib/483-region-phi-let.ax` (eight
+terms, every join a `let` initialiser and every consuming argument
+a bare name, so the args path has nothing to spend) plus
+`scripts/check-region-phi-let.sh`: eight releases gone and the
+diff is those eight lines and nothing else, the same eight answers
+under both compilers, peak RSS 100% across 300,000 regions of
+bound fresh joins, and an ablation of the scope-end join spend
+bringing all eight back. Both ablations are path-specific on
+purpose - ablating the shared stamp would restore traffic the
+walker under test never owned.
 
 **The adjacent hole, recorded and not fixed here.** A
 callee-mediated store of a fresh construction into an outer cell

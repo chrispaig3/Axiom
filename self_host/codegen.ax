@@ -13483,7 +13483,7 @@
     (_4 (memSetWord cg3 31 0))
   )
     (if (== rel 1)
-      (releaseScrutinee sv cg3)
+      (releaseScrutinee sv cg3 scrutExpr)
       cg3)))
 
 (pub :: emitArmsTail (-> (Vec Int) String String String Int Int Int Int))
@@ -14556,7 +14556,7 @@
       (if (== gotPair 2)
         ; already given back, per arm, above
         cg3
-        (releaseScrutinee sv cg3))
+        (releaseScrutinee sv cg3 scrutExpr))
       cg3)))
 
 ; An OWNED scrutinee - `(match (Some (fmtInt i)) ...)` - is a
@@ -14577,13 +14577,27 @@
       0
       1)))
 
-(pub :: releaseScrutinee (-> String Int Int))
-(pub fn (releaseScrutinee sv cg)
+(pub :: releaseScrutinee (-> String Int Int Int))
+(pub fn (releaseScrutinee sv cg scrutExpr)
   (let (
     (v (strDup (memGetWordStr cg 2)))
     (fl (memGetWord cg 14))
   )
-    (let ((cgR (emitReleaseOf cg sv)))
+    ; S4 slice 4: a scrutinee the witness proved fresh is reclaimed
+    ; by the region's reset exactly as an argument temporary is, so
+    ; its merge-path release is the same binary-only traffic. The
+    ; stamp is the join/call stamp slices 2 and 3 record (a fresh
+    ; call, or a join whose every arm is one - including a nested
+    ; match, whose result register is a scratch-cell load); the
+    ; depth gate is the same textual extent, and the pending vector
+    ; above still takes the share for the tail-jump path, which
+    ; keeps its release. `argOwnedRelease` is not asked here -
+    ; `scrutineeReleasable` already decided - so `mustTailOK` cannot
+    ; drift. Shared by the tail and non-tail emitters: the rule is
+    ; position-independent by construction.
+    (let ((cgR (if (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag scrutExpr) TAG_E_APP) (|| (== (nodeTag scrutExpr) TAG_E_IF) (|| (== (nodeTag scrutExpr) TAG_E_COND) (== (nodeTag scrutExpr) TAG_E_MATCH)))) (== (nodeResWord scrutExpr) 2)))
+      cg
+      (emitReleaseOf cg sv))))
       {
         (memSetWord cgR 2 v)
         (memSetWord cgR 14 fl)
@@ -17812,8 +17826,17 @@
       ; top-level function moves the effect-distribution pins; the
       ; callee-mediated hole is outcome-identical either way (the
       ; reset frees unconditionally), as slice 1's gate pins.
+      ; S4 slice 3, args path: a join whose every arm the witness
+      ; proved fresh (`nodeResWord` 2 - an `if`, `cond` or `match`
+      ; whose arm value nodes all carry the stamp) answers whichever
+      ; arm it took, so the single join release is the same
+      ; binary-only traffic. Same depth gate, same `argOwnedRelease`
+      ; still saying 1, same inlining so no new top-level function
+      ; moves the effect-distribution pins. What is NOT covered here
+      ; is a fresh join bound by `let` - that walker is the sibling
+      ; slice, and this one leaves it exactly alone.
       (let ((a (vecGet args i)))
-        (if (|| (== (isRegionCoveredCon cg a) 1) (&& (!= (pairSlot cg 9) 0) (&& (== (nodeTag a) TAG_E_APP) (== (nodeResWord a) 2))))
+        (if (|| (== (isRegionCoveredCon cg a) 1) (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag a) TAG_E_APP) (|| (== (nodeTag a) TAG_E_IF) (|| (== (nodeTag a) TAG_E_COND) (== (nodeTag a) TAG_E_MATCH)))) (== (nodeResWord a) 2))))
           (releaseOwnedArgs
             cg
             fnName
@@ -19746,8 +19769,14 @@
                         ; effect-distribution pins. `emitLetMAt` needs
                         ; nothing: a mutable binding keeps its alloca and
                         ; has no scope-end release to spend.
+                        ; S4 slice 3, scope-end path: a `let` initialiser
+                        ; that is a join the witness proved fresh spends
+                        ; the same way - same depth gate, same
+                        ; `releasable` decision left untouched with only
+                        ; its spending conditional, same pending vector
+                        ; for the tail-jump path.
                         (if (&& (== releasable 1) (!= (memGetWord cgB 31) 1))
-                          (if (&& (!= (pairSlot cgB 9) 0) (&& (== (nodeTag valExpr) TAG_E_APP) (== (nodeResWord valExpr) 2)))
+                          (if (&& (!= (pairSlot cgB 9) 0) (&& (|| (== (nodeTag valExpr) TAG_E_APP) (|| (== (nodeTag valExpr) TAG_E_IF) (|| (== (nodeTag valExpr) TAG_E_COND) (== (nodeTag valExpr) TAG_E_MATCH)))) (== (nodeResWord valExpr) 2)))
                             cgB
                             (let (
                               (res (strDup (memGetWordStr cgB 2)))

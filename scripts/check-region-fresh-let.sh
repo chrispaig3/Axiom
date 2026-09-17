@@ -78,10 +78,15 @@
 #
 # What this gate does NOT cover, stated rather than left to be
 # found: `VAR` operands that are not `let` bindings (a parameter, a
-# bare name from outside - borrowed, never released here), field
-# stores (their release balances a retain in the same step), and
-# `musttail` paths (the pending vector keeps its share by
-# construction).
+# bare name from outside - borrowed, never released here). Loads
+# resolved in slice 4 (`scripts/check-region-scrutinee.sh`): the
+# spendable ones were match scrutinee temporaries; tail-loop slots
+# and `set` olds are paired, and field reads are borrows at every
+# site with no release to spend on.
+# Field stores are excluded finally, not deferred: their release
+# balances a retain in the same step (`emitSetF`), so eliding one
+# half would leak. `musttail` paths stay conservative by
+# construction (the pending vector keeps its share).
 #
 # Usage:
 #   scripts/check-region-fresh-let.sh
