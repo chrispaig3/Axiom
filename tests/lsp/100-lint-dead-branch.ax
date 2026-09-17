@@ -1,0 +1,32 @@
+; The dead-branch lint's fixtures: an `if` whose condition is a
+; boolean literal can never reach one arm. Both orders, plus the two
+; shapes that must stay silent - a condition that merely names a
+; boolean, and the negation order, which is the language's spelling
+; of `not` (`stdlib/Http.ax` writes `httpNot` exactly that way).
+(:: alwaysTrue (-> Int Int))
+(fn (alwaysTrue n)
+  (if true
+    n
+    0))
+
+(:: alwaysFalse (-> Int Int))
+(fn (alwaysFalse n)
+  (if false
+    0
+    n))
+
+(:: negate (-> Bool Bool))
+(fn (negate ok)
+  (if ok
+    false
+    true))
+
+(:: main Int)
+(fn (main)
+  (+
+    (alwaysTrue 1)
+    (+
+      (alwaysFalse 2)
+      (if (negate true)
+        1
+        0))))

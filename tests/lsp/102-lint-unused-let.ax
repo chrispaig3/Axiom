@@ -1,0 +1,32 @@
+; The unused-let lint's fixtures: a binding nothing reads is
+; usually a forgotten use or a leftover. `used` is read and stays
+; silent; `_` is the explicit discard and stays silent; `acc` is
+; written and read and stays silent; `waste` is never touched; and
+; `tmp` is written but never read, which still draws the Hint -
+; only reads keep a binding alive.
+(:: main Int)
+(fn (main)
+  (+ (build 1) (+ (drop 2) (kept 3))))
+
+(:: kept (-> Int Int))
+(fn (kept n)
+  (let ((used n))
+    (let ((waste 0))
+      (let ((_ 0))
+        used))))
+
+(:: build (-> Int Int))
+(fn (build n)
+  (let ((mut acc n))
+    {
+      (set acc (+ acc 1))
+      acc
+    }))
+
+(:: drop (-> Int Int))
+(fn (drop n)
+  (let ((mut tmp n))
+    {
+      (set tmp 0)
+      0
+    }))

@@ -5,7 +5,9 @@
 ; that the language server should REUSE the compiler's frontend rather
 ; than reimplement parsing. This module is that reuse: it owns the
 ; protocol and nothing else. Every diagnostic it publishes comes from
-; the same `parseModuleWith`/`checkModule` pair that `check` runs.
+; the same `parseModuleWith`/`checkModule` pair that `check` runs -
+; plus the editor-only lint Hints the LINT section walks the raw tree
+; for, which `axiom check` never emits anywhere.
 ;
 ; WHAT IT SPEAKS. The lifecycle (`initialize`, `initialized`,
 ; `shutdown`, `exit`), full-text document sync (`didOpen`, `didChange`,
@@ -593,8 +595,688 @@
                                     0)
                                   (set i (+ i 1))
                                 }))
+                            (lspLintDoc out src ix decls)
                             out
                           })))))))))))))
+
+; ------------------------------------------------------------------
+; Editor-only lints.
+;
+; Three Hints the server publishes beneath the checker's diagnostics,
+; and that `axiom check` never emits anywhere: a condition written as
+; a boolean literal, an `if` that hands its condition straight back,
+; and a `let` binding nothing reads. They are Hints (LSP severity 4),
+; on for every document, and they never refuse a build - a lint is
+; the editor thinking out loud, and a thought is not a verdict. That
+; is also why they live here and not in the checker: the checker's
+; warnings are the ones the project promises about every build
+; (tests/diagnostics/severity.policy), and a style of writing no
+; build depends on must not appear in that channel at all.
+;
+; WHAT EACH ONE SAYS, and what it pointedly does not:
+;
+;   `lint-dead-branch`  `(if true A B)` or `(if false A B)`. One
+;                       branch can never run, which is a fact about
+;                       the program rather than a taste in spelling -
+;                       the usual cause is a condition left literal
+;                       while debugging, or a copy-pasted arm. The
+;                       squiggle sits on the literal. A `while` with
+;                       a literal condition is NOT linted: an
+;                       infinite loop is an idiom, and flagging one
+;                       would be the dogma this section refuses.
+;
+;   `lint-bool-if`      `(if c true false)` where `c` is a bare name.
+;                       The `if` answers its condition unchanged, so
+;                       the shorter spelling says the same thing.
+;                       The other order is deliberately NOT linted:
+;                       `(if c false true)` IS this language's boolean
+;                       negation - `stdlib/Http.ax` spells `httpNot`
+;                       exactly that way, there is no `not` operator
+;                       - and suggesting one would invent a rule
+;                       against the standard library.
+;
+;   `lint-unused-let`   a `let` (or `mut`) binding nothing in its
+;                       scope reads. Computing a value and dropping
+;                       it is usually a mistake - a forgotten use, a
+;                       leftover from an edit - rather than a style.
+;                       Only reads keep a binding alive: a `set!`
+;                       does not mark it used, so a binding that is
+;                       written and never read still draws the Hint.
+;                       Its value reaches nothing, and the message
+;                       says exactly that. What is NOT linted is
+;                       almost as deliberate: `_` is the explicit
+;                       discard and flagging it would punish the
+;                       remedy; pattern binders only document a shape;
+;                       parameters are interface; and macro bodies are
+;                       staging code, not runtime code, so the walk
+;                       does not enter them.
+;
+; PRECISION OVER COVERAGE, in three rules the code below keeps:
+;
+;   * A lint that cannot point precisely does not fire. Every rule
+;     needs a non-zero span that spells exactly what its message
+;     quotes in backticks - which is what
+;     `tests/lsp/drive.py:check_range` holds every published
+;     diagnostic to, lints included. Parser-made names (the `$` in
+;     a desugared `for` binder) wear the keyword's span, so any
+;     name containing one is ineligible: the squiggle would sit on
+;     `for` while the message names `for$i`.
+;
+;   * A name the author rebound is not the name the rule means.
+;     `true` and `false` are ordinary names a `let` can shadow, so
+;     an `if` whose literal - or whose boolean branches - sit under
+;     such a binding stays silent. The scope walk that decides this
+;     is the same one that decides use.
+;
+;   * The walk over-approximates descent and under-approximates
+;     binding: every expression form `lspNavWalk` knows is recursed
+;     into, while only `let`, `mut`, `lambda` parameters, `fn`
+;     parameters and match patterns introduce scope - and of those,
+;     only plain `let`/`mut` bindings are ever reported. Missing a
+;     use would be a false positive, so any form the walk does not
+;     know is a leaf it still descends nowhere from; missing a
+;     binder is only ever a missed lint.
+;
+; OPTING OUT is one tag, on either half of the declaration, read the
+; way every other AXTAG is: `;@axiom:nolint(lint-unused-let)` quiets
+; that rule for the whole declaration, `;@axiom:nolint(all)` quiets
+; all three. The namespace stays open - the checker does not know
+; this key and stays silent about it, exactly as for any other
+; metadata - and an unknown name inside the parens is ignored rather
+; than reported: a suppression that names nothing is already visible
+; as the lint it failed to quiet.
+; ------------------------------------------------------------------
+; The three codes. Strings, so a client that has never heard of one
+; still shows the message; the `lint-` prefix is what keeps them out
+; of the terminal/editor fidelity comparison in
+; `tests/lsp/drive.py`, which holds `axiom check` to the compiler's
+; diagnostics alone.
+(pub :: lintDeadBranch String)
+(pub fn (lintDeadBranch)
+  "lint-dead-branch")
+
+(pub :: lintBoolIf String)
+(pub fn (lintBoolIf)
+  "lint-bool-if")
+
+(pub :: lintUnusedLet String)
+(pub fn (lintUnusedLet)
+  "lint-unused-let")
+
+; The walk's context, one block:
+;
+;   word 0  the document's text (unused by the walk itself, kept so
+;           a span can always be asked what it spells while debugging)
+;   word 1  the scope's names, innermost last - reset to a fresh
+;           vector at every declaration
+;   word 2  every binder pushed, in order: 5-word blocks of name,
+;           span, used flag, owner declaration, eligible flag
+;   word 3  the lint records, in pop order: 4-word blocks of span,
+;           code, message, owner
+;   word 4  the suppression map's owners, parallel to word 7
+;   word 5  the declaration being walked, whose name every record
+;           carries for the suppression check
+;   word 6  the scope's binder indices, parallel to word 1: two
+;           vectors rather than one flat one because a vector holds
+;           one type, and an index is not a name
+;   word 7  the suppression map's code vectors, parallel to word 4
+(pub :: lspLintContext (-> String Int))
+(pub fn (lspLintContext src)
+  (let ((lx (memAlloc 64)))
+    {
+      (memSetWord lx 0 src)
+      (memSetWord lx 1 vecNew)
+      (memSetWord lx 2 vecNew)
+      (memSetWord lx 3 vecNew)
+      (memSetWord lx 4 vecNew)
+      (memSetWord lx 5 "")
+      (memSetWord lx 6 vecNew)
+      (memSetWord lx 7 vecNew)
+      lx
+    }))
+
+; A name that may be linted about: `_` is the explicit discard, and
+; anything containing `$` is made up by the parser (a desugared `for`
+; binder) and wears a span that does not spell it.
+(pub :: lspLintPlainName (-> String Bool))
+(pub fn (lspLintPlainName name)
+  (if (strEq name "_")
+    false
+    (match (strFindByte name 36 0)
+      ((None) true)
+      ((Some _) false))))
+
+; A `let`/`mut` binding worth reporting when it goes unread: it needs
+; a span to point at, besides a plain name.
+(pub :: lspLintLetOk (-> String Int Bool))
+(pub fn (lspLintLetOk name span)
+  (if (== span 0)
+    false
+    (lspLintPlainName name)))
+
+; Push a binder and open its scope. Parameters and pattern binders
+; arrive with eligible 0: they resolve references but are never
+; reported, for the reasons the header gives.
+(pub :: lspLintPush (-> Int String Int Int Int))
+(pub fn (lspLintPush lx name span eligible)
+  (let ((b (memAlloc 40)))
+    {
+      (memSetWord b 0 name)
+      (memSetWord b 1 span)
+      (memSetWord b 2 0)
+      (memSetWord b 3 (memGetWordStr lx 5))
+      (memSetWord b 4 eligible)
+      (let ((binders (memGetWordVec lx 2)))
+        (let ((idx (vecLen binders)))
+          {
+            (vecPush binders b)
+            {
+              (vecPush (memGetWordVec lx 1) name)
+              (vecPush (memGetWordVec lx 6) idx)
+              0
+            }
+          }))
+    }))
+
+; Mark the innermost binding of `name` used. A name resolving to
+; nothing - a top-level declaration, an unbound variable the checker
+; will report - marks nothing, which is exactly right: the checker
+; owns that verdict and this walk must not invent a second one about
+; the same bytes.
+(pub :: lspLintUse (-> Int String Int))
+(pub fn (lspLintUse lx name)
+  (let ((scope (memGetWordVec lx 1))
+        (idxs (memGetWordVec lx 6))
+        (mut i (- (vecLen scope) 1)))
+    {
+      (while (>= i 0)
+        (if (strEq (vecGetStr scope i) name)
+          {
+            (memSetWord (vecGet (memGetWordVec lx 2) (vecGet idxs i)) 2 1)
+            (set i (- 0 1))
+          }
+          (set i (- i 1))))
+      0
+    }))
+
+; Whether any binding of `name` is in scope: what keeps a rebased
+; `true` from reading as the boolean.
+(pub :: lspLintScopeHas (-> Int String Bool))
+(pub fn (lspLintScopeHas lx name)
+  (let ((scope (memGetWordVec lx 1))
+        (mut i (- (vecLen scope) 1))
+        (mut found false))
+    {
+      (while (>= i 0)
+        (if (strEq (vecGetStr scope i) name)
+          {
+            (set found true)
+            (set i (- 0 1))
+          }
+          (set i (- i 1))))
+      found
+    }))
+
+; Close `n` scopes. A binder that was eligible and never marked is a
+; `lint-unused-let` at its own span - which spells its name, the one
+; invariant `check_range` asks of every diagnostic this server
+; publishes.
+(pub :: lspLintPop (-> Int Int Int))
+(pub fn (lspLintPop lx n)
+  (let ((scope (memGetWordVec lx 1))
+        (idxs (memGetWordVec lx 6))
+        (binders (memGetWordVec lx 2))
+        (mut i 0))
+    {
+      (while (< i n)
+        (let ((idx (vecGet idxs (- (vecLen idxs) 1))))
+          {
+            (vecPop scope)
+            (vecPop idxs)
+            (let ((b (vecGet binders idx)))
+              (if (&& (== (memGetWord b 4) 1) (== (memGetWord b 2) 0))
+                (lspLintRecord lx (memGetWord b 1) (lintUnusedLet) (strConcat (strConcat "`" (memGetWordStr b 0)) "` is bound here and never read"))
+                0))
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
+; One lint record: span, code, message, owner. Suppression is checked
+; once, at flush, so recording never needs the map.
+(pub :: lspLintRecord (-> Int Int String String Int))
+(pub fn (lspLintRecord lx span code msg)
+  (let ((r (memAlloc 32)))
+    {
+      (memSetWord r 0 span)
+      (memSetWord r 1 code)
+      (memSetWord r 2 msg)
+      (memSetWord r 3 (memGetWordStr lx 5))
+      (vecPush (memGetWordVec lx 3) r)
+      0
+    }))
+
+; `true` or `false` as a bare variable with a span worth pointing at.
+(pub :: lspLintBoolName (-> Int String Bool))
+(pub fn (lspLintBoolName e want)
+  (if (== (nodeTag e) TAG_E_VAR)
+    (if (strEq (nodeAName e) want)
+      (!= (nodeSpan e) 0)
+      false)
+    false))
+
+; The `if` rules. The dead branch is checked first: `(if true true
+; false)` is dead code before it is anything else, and one Hint per
+; site is the whole allowance - two squiggles on one form would read
+; as stuttering.
+(pub :: lspLintIf (-> Int Int Int))
+(pub fn (lspLintIf lx e)
+  (let ((t (nodeA e)))
+    (if (== (nodeTag t) TAG_E_VAR)
+      (let ((cn (nodeAName t))
+            (sp (nodeSpan t)))
+        (if (== sp 0)
+          0
+          (if (lspLintPlainName cn)
+            (if (strEq cn "true")
+              (if (lspLintScopeHas lx "true")
+                0
+                (lspLintRecord lx sp (lintDeadBranch) "`true` is always true; the second branch never runs"))
+              (if (strEq cn "false")
+                (if (lspLintScopeHas lx "false")
+                  0
+                  (lspLintRecord lx sp (lintDeadBranch) "`false` is always false; the first branch never runs"))
+                (lspLintBoolIf lx e cn sp)))
+            0)))
+      0)))
+
+; `(if c true false)` answers `c` unchanged. The branches must be the
+; booleans themselves - rebound under a shadowing `let`, they are
+; just names, which is why the scope is asked and not only the tree.
+; The condition stays a bare name for the reason the header gives:
+; the squiggle must spell what the message quotes.
+(pub :: lspLintBoolIf (-> Int Int String Int Int))
+(pub fn (lspLintBoolIf lx e cn sp)
+  (if (lspLintBoolName (nodeB e) "true")
+    (if (lspLintBoolName (nodeC e) "false")
+      (if (lspLintScopeHas lx "true")
+        0
+        (if (lspLintScopeHas lx "false")
+          0
+          (lspLintRecord lx sp (lintBoolIf) (strConcat (strConcat "`" cn) "` is handed straight back; the `if` adds nothing"))))
+      0)
+    0))
+
+; Match arms: pattern binders scope the arm body, then pop. The count
+; answers how many, exactly as `lspNavWalkArms` counts for its own
+; pop.
+(pub :: lspLintArms (-> Int (Vec Int) Int Int))
+(pub fn (lspLintArms lx arms i)
+  (if (>= i (vecLen arms))
+    0
+    (let ((arm (vecGet arms i)))
+      {
+        (if (== (nodeTag arm) TAG_M_ARM)
+          (let ((bound (lspLintPat lx (nodeA arm))))
+            {
+              (lspLintWalk lx (nodeB arm))
+              (lspLintPop lx bound)
+            })
+          (if (== (nodeTag arm) TAG_M_FOR)
+            {
+              (lspLintWalk lx (nodeB arm))
+              (lspLintPush lx (nodeAName arm) 0 0)
+              (lspLintArms lx (nodeCVec arm) 0)
+              (lspLintPop lx 1)
+            }
+            0))
+        (lspLintArms lx arms (+ i 1))
+      })))
+
+; Pattern binders resolve references but are never reported: a field
+; ignored by name documents the shape it came in, and `_` says so
+; out loud. `lspNavWalkPat`'s shape, without the occurrences.
+(pub :: lspLintPat (-> Int Int Int))
+(pub fn (lspLintPat lx p)
+  (if (== p 0)
+    0
+    (let ((tag (nodeTag p)))
+      (if (== tag TAG_E_VAR)
+        (if (|| (strEq (nodeAName p) "_") (== (nodeSpan p) 0))
+          0
+          {
+            (lspLintPush lx (nodeAName p) (nodeSpan p) 0)
+            1
+          })
+        (if (== tag TAG_E_APP)
+          (lspLintPatSpine lx p)
+          (if (== tag TAG_P_CONNAMED)
+            (lspLintPatVec lx (nodeCVec p) 0)
+            0))))))
+
+; `(Just x)` is App(Var Just, Var x): the spine's head names the
+; constructor and every argument along it is a sub-pattern.
+(pub :: lspLintPatSpine (-> Int Int Int))
+(pub fn (lspLintPatSpine lx m)
+  (if (== (nodeTag m) TAG_E_APP)
+    (let ((a (lspLintPatSpine lx (nodeA m))))
+      (+ a (lspLintPat lx (nodeB m))))
+    (if (== (nodeTag m) TAG_E_VAR)
+      0
+      (lspLintPat lx m))))
+
+(pub :: lspLintPatVec (-> Int (Vec Int) Int Int))
+(pub fn (lspLintPatVec lx pats i)
+  (if (>= i (vecLen pats))
+    0
+    (let ((a (lspLintPat lx (vecGet pats i))))
+      (+ a (lspLintPatVec lx pats (+ i 1))))))
+
+; `cond` clauses are (test, body) pairs and bind nothing.
+(pub :: lspLintClauses (-> Int (Vec Int) Int Int))
+(pub fn (lspLintClauses lx clauses i)
+  (if (>= i (vecLen clauses))
+    0
+    (let ((c (vecGet clauses i)))
+      {
+        (lspLintWalk lx (nodeA c))
+        (lspLintWalk lx (nodeB c))
+        (lspLintClauses lx clauses (+ i 1))
+      })))
+
+(pub :: lspLintWalkVec (-> Int (Vec Int) Int Int))
+(pub fn (lspLintWalkVec lx xs i)
+  (if (>= i (vecLen xs))
+    0
+    {
+      (lspLintWalk lx (vecGet xs i))
+      (lspLintWalkVec lx xs (+ i 1))
+    }))
+
+; The walk: expressions. Every arm reads exactly the children
+; `lspNavWalk` reads for its tag and nothing else, and a tag with no
+; arm is a leaf it descends nowhere from - missing a use would be a
+; false positive, so coverage here is the correctness property, and
+; it is held by construction against that walk's case list.
+(pub :: lspLintWalk (-> Int Int Int))
+(pub fn (lspLintWalk lx e)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_VAR)
+        (lspLintUse lx (nodeAName e))
+        (if (== tag TAG_E_APP)
+          {
+            (lspLintWalk lx (nodeA e))
+            (lspLintWalk lx (nodeB e))
+          }
+          (if (== tag TAG_E_LAM)
+            (let ((ps (nodeAVec e)))
+              (if (== (vecLen ps) 0)
+                (lspLintWalk lx (nodeB e))
+                {
+                  (lspLintPush lx (vecGetStr ps 0) 0 0)
+                  (lspLintWalk lx (nodeB e))
+                  (lspLintPop lx 1)
+                }))
+            (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+              {
+                (lspLintWalk lx (nodeB e))
+                (lspLintPush lx (nodeAName e) (nodeSpan e) (if (lspLintLetOk (nodeAName e) (nodeSpan e)) 1 0))
+                (lspLintWalk lx (nodeC e))
+                (lspLintPop lx 1)
+              }
+              (if (== tag TAG_E_IF)
+                {
+                  (lspLintIf lx e)
+                  (lspLintWalk lx (nodeA e))
+                  (lspLintWalk lx (nodeB e))
+                  (lspLintWalk lx (nodeC e))
+                }
+                (if (== tag TAG_E_BEGIN)
+                  (lspLintWalkVec lx (nodeAVec e) 0)
+                  (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                    (if (== tag TAG_E_REGION)
+                      (lspLintWalk lx (nodeB e))
+                      {
+                        (lspLintWalk lx (nodeA e))
+                        (lspLintWalkVec lx (nodeBVec e) 0)
+                      })
+                    (if (== tag TAG_E_MATCH)
+                      {
+                        (lspLintWalk lx (nodeA e))
+                        (lspLintArms lx (nodeBVec e) 0)
+                      }
+                      (if (== tag TAG_E_COND)
+                        {
+                          (lspLintClauses lx (nodeAVec e) 0)
+                          (lspLintWalk lx (nodeB e))
+                        }
+                        (if (== tag TAG_E_SET)
+                          ; The target is not marked: only reads keep
+                          ; a binding alive, so a `set!` with no read
+                          ; anywhere is still a dead binding. The
+                          ; value follows the target in the source
+                          ; and in this list.
+                          (lspLintWalk lx (nodeB e))
+                          (if (== tag TAG_E_FIELD)
+                            (lspLintWalk lx (nodeA e))
+                            (if (== tag TAG_E_SETF)
+                              {
+                                (lspLintWalk lx (nodeA e))
+                                (lspLintWalk lx (nodeC e))
+                              }
+                              (if (== tag TAG_E_STRUCTCON)
+                                (lspLintWalkVec lx (nodeBVec e) 0)
+                                (if (== tag TAG_E_ALLOC)
+                                  (lspLintWalk lx (nodeB e))
+                                  (if (== tag TAG_E_HANDLE)
+                                    {
+                                      (lspLintWalk lx (nodeA e))
+                                      (lspLintWalk lx (nodeC e))
+                                    }
+                                    0))))))))))))))))))
+
+; One declaration: a fresh scope under its own name, its parameters
+; bound over its body. Macro bodies are not entered - templates are
+; staging code, and a use inside one is a different question from a
+; use at runtime - and neither are signatures, data, structs or
+; imports, which hold no expressions. A top-level macro invocation's
+; arguments are ordinary expressions and are walked.
+(pub :: lspLintWalkDecl (-> Int Int Int))
+(pub fn (lspLintWalkDecl lx d)
+  (let ((tag (nodeTag d)))
+    {
+      (memSetWord lx 1 vecNew)
+      (memSetWord lx 6 vecNew)
+      (memSetWord lx 5 (nodeAName d))
+      (if (== tag TAG_D_FN)
+        (let ((params (nodeBVec d))
+              (mut i 0))
+          {
+            (while (< i (vecLen params))
+              {
+                (lspLintPush lx (vecGetStr params i) 0 0)
+                (set i (+ i 1))
+              })
+            (lspLintWalk lx (nodeC d))
+            (lspLintPop lx (vecLen params))
+          })
+        (if (== tag TAG_D_MACROCALL)
+          (lspLintWalkVec lx (nodeBVec d) 0)
+          0))
+    }))
+
+; The suppression map: owner names to the lint codes their AXTAGs
+; name, read off the declarations' own word-7 tags - the same
+; attachment `attachAxtags` gives every other per-declaration claim,
+; so a tag above either half of a `::`/`fn` pair lands on the one
+; owner both halves share. Two parallel vectors, owners beside code
+; vectors, because a vector holds one type and a name is not a Vec.
+(pub :: lspLintSuppBuild (-> Int (Vec Int) Int))
+(pub fn (lspLintSuppBuild lx decls)
+  (let ((mut i 0))
+    {
+      (while (< i (vecLen decls))
+        (let ((d (vecGet decls i)))
+          {
+            (if (!= (memGetWord d 7) 0)
+              (lspLintSuppDecl lx (nodeAName d) (memGetWordVec d 7) 0)
+              0)
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
+; One declaration's tags into the map. Only the `nolint` key is
+; read; every other key belongs to the checker or to someone else's
+; metadata and is left where it lay.
+(pub :: lspLintSuppDecl (-> Int String (Vec Int) Int Int))
+(pub fn (lspLintSuppDecl lx owner tags i)
+  (if (>= i (vecLen tags))
+    0
+    {
+      (lspLintTagCodes lx owner (memGetWordStr (vecGet tags i) 1))
+      (lspLintSuppDecl lx owner tags (+ i 1))
+    }))
+
+; The codes one tag text names. `content` is what followed `;@axiom:`
+; - `nolint(lint-unused-let, all)` - so the key is the bytes before
+; the first `(` and the value runs to the last `)`, `ctCloseAt`'s
+; rule, which is also what lets a value hold parens of its own.
+(pub :: lspLintTagCodes (-> Int String String Int))
+(pub fn (lspLintTagCodes lx owner content)
+  (let ((op (match (strFindByte content 40 0)
+              ((None) (- 0 1))
+              ((Some k) k))))
+    (if (< op 0)
+      0
+      (if (strEq (strSlice content 0 op) "nolint")
+        (let ((val (strSlice content (+ op 1) (- (ctCloseAt content) (+ op 1)))))
+          (let ((parts (strSplit val 44)))
+            (let ((codes vecNew)
+                  (mut i 0))
+              {
+                (while (< i (vecLen parts))
+                  {
+                    (vecPush codes (cast Int (strTrim (vecGetStr parts i))))
+                    (set i (+ i 1))
+                  })
+                (lspLintSuppAdd lx owner codes 0)
+              })))
+        0))))
+
+; Merge one declaration's codes under its owner: an entry already
+; there gains the codes (a tag above each half is two entries for
+; one declaration), else the owner is entered with them.
+(pub :: lspLintSuppAdd (-> Int String (Vec Int) Int Int))
+(pub fn (lspLintSuppAdd lx owner codes i)
+  (if (>= i (vecLen codes))
+    0
+    (let ((code (vecGetStr codes i))
+          (owners (memGetWordVec lx 4))
+          (codevecs (memGetWordVec lx 7))
+          (mut j 0)
+          (mut at (- 0 1)))
+      {
+        (while (< j (vecLen owners))
+          {
+            (if (strEq (vecGetStr owners j) owner)
+              (set at j)
+              0)
+            (set j (+ j 1))
+          })
+        (if (< at 0)
+          (let ((v vecNew))
+            {
+              (vecPush v code)
+              (vecPush owners owner)
+              (vecPush codevecs (cast Int v))
+              0
+            })
+          {
+            (vecPush (vecGetVec codevecs at) code)
+            0
+          })
+        (lspLintSuppAdd lx owner codes (+ i 1))
+      })))
+
+; Whether `code` is quieted for `owner`: named, or the `all` that
+; names everything. An unknown name matches nothing and is ignored,
+; which is what makes a misspelled suppression visible as the lint
+; it failed to quiet rather than as a verdict about the tag.
+(pub :: lspLintSuppressed (-> Int String String Bool))
+(pub fn (lspLintSuppressed lx owner code)
+  (let ((owners (memGetWordVec lx 4))
+        (codevecs (memGetWordVec lx 7))
+        (mut j 0)
+        (mut out false))
+    {
+      (while (< j (vecLen owners))
+        {
+          (if (strEq (vecGetStr owners j) owner)
+            (let ((codes (vecGetVec codevecs j))
+                  (mut k 0))
+              {
+                (while (< k (vecLen codes))
+                  {
+                    (if (|| (strEq (vecGetStr codes k) code) (strEq (vecGetStr codes k) "all"))
+                      (set out true)
+                      false)
+                    (set k (+ k 1))
+                  })
+                0
+              })
+            0)
+          (set j (+ j 1))
+        })
+      out
+    }))
+
+; One lint as an LSP Diagnostic: Hint severity, this server as the
+; source, no related information - a Hint with a link would read as
+; stronger than it is. Severity 4 is also what keeps these out of
+; the terminal/editor fidelity comparison, which holds `axiom
+; check` to the compiler's diagnostics alone.
+(pub :: lspLintJson (-> String (Vec Int) Int String String Int))
+(pub fn (lspLintJson src ix span code msg)
+  (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "range" (lspRangeIx src ix span)) "severity" (jsonNum 4)) "code" (jsonStr code)) "source" (jsonStr "axiom")) "message" (jsonStr msg)))
+
+; Publish every unsuppressed record into `out`.
+(pub :: lspLintFlush (-> Int Int String (Vec Int) Int))
+(pub fn (lspLintFlush lx out src ix)
+  (let ((recs (memGetWordVec lx 3))
+        (mut i 0))
+    {
+      (while (< i (vecLen recs))
+        (let ((r (vecGet recs i)))
+          {
+            (if (lspLintSuppressed lx (memGetWordStr r 3) (memGetWordStr r 1))
+              0
+              (jsonArrPush out (lspLintJson src ix (memGetWord r 0) (memGetWordStr r 1) (memGetWordStr r 2))))
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
+; Walk every declaration, then publish. The walk is over the raw
+; parse tree and expands nothing - MAC-TOOL-3's rule, which is also
+; why a lint can never disagree with the checker about what the code
+; means: it never sees what the code expands to, only what the
+; author wrote.
+(pub :: lspLintDoc (-> Int String (Vec Int) (Vec Int) Int))
+(pub fn (lspLintDoc out src ix decls)
+  (let ((lx (lspLintContext src))
+        (mut i 0))
+    {
+      (lspLintSuppBuild lx decls)
+      (while (< i (vecLen decls))
+        {
+          (lspLintWalkDecl lx (vecGet decls i))
+          (set i (+ i 1))
+        })
+      (lspLintFlush lx out src ix)
+    }))
 
 ; ------------------------------------------------------------------
 ; Document symbols

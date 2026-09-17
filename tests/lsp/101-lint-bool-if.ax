@@ -1,0 +1,16 @@
+; The bool-if lint's fixture: `(if ok true false)` answers its
+; condition unchanged, so the `if` adds nothing. The control below
+; pins what the rule does not cover - a condition that is a call
+; rather than a bare name stays silent, because the squiggle must
+; spell what the message quotes.
+(:: isYes (-> Bool Bool))
+(fn (isYes ok)
+  (if ok
+    true
+    false))
+
+(:: main Int)
+(fn (main)
+  (if (isYes true)
+    1
+    0))

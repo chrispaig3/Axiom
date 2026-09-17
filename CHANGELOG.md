@@ -16,6 +16,28 @@ its changelog too.
 
 ## Unreleased
 
+### Editor-only lint Hints in the language server — `tests/lsp/100-` through `103-lint-*.ax`
+
+Three Hints the server walks the raw parse tree for and `axiom check`
+never emits: `lint-dead-branch` for an `if` with a boolean-literal
+condition, `lint-bool-if` for an `if` that hands a bare-name condition
+straight back, and `lint-unused-let` for a `let` binding nothing reads.
+Severity Hint, on for every document that parses, declining everything
+dogmatic by construction - a `while` with a literal condition stays
+silent because an infinite loop is an idiom, `(if c false true)` stays
+silent because it IS the negation idiom (`stdlib/Http.ax` spells
+`httpNot` exactly that way), and `_`, pattern binders, parameters and
+macro bodies are never reported. Opting out is one tag on either half
+of the declaration, `;@axiom:nolint(name)` or `;@axiom:nolint(all)`,
+which the checker does not know and stays silent about. The gate holds
+each rule with the controls that keep it from being a blanket refusal -
+a rebound `true`, a call-shaped condition, a read binding, a write-only
+one that still draws the Hint - plus the range-spells-name invariant
+over every Hint and a terminal/editor fidelity comparison that filters
+severity 4, so a lint the terminal also reported would fail there.
+`scripts/check-lsp-selfhost.sh` is the gate; `docs/lsp.md` and
+`docs/reference.md` (AXTAG Keys) describe the rules and the tag.
+
 ### Every spawn thunk is scanned or refused — `tests/diagnostics/644-parallel-thunk-shape.ax`
 
 The last shape `AX3064` accepted unseen: a spawn thunk that is neither

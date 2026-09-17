@@ -177,8 +177,8 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-17, `axiom fmt --check` over every one of the 662 `.ax` files
-in the repository answers `is already formatted` for 659 of them and
+2026-09-17, `axiom fmt --check` over every one of the 666 `.ax` files
+in the repository answers `is already formatted` for 663 of them and
 `needs formatting` for 3. Two of the 3 are deliberate and are named
 below; the third is `examples/batch-fallible/batch-fallible.ax`, a
 program that stays as it is until someone edits it, and
@@ -269,7 +269,8 @@ the re-bless re-keys edited files rather than moving the formatter.
 What stays unformatted is the two deliberate fixtures named below, plus
 the one example program named above. `tests/fmt/parity/*.axp` and the
 `*.axbad` refusal cases stay as they are beside them: they are the
-inputs the formatter is pinned to refuse, not programs to tidy.
+inputs the formatter is pinned to refuse, not programs to tidy. The
+four `tests/lsp/10*-lint-*.ax` fixtures arrived formatted at birth.
 
 Over that tree, at its then 636 files, the previous printer answered
 498 and 136, and the 89 files that stopped being formatted did not

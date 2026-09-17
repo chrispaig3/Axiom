@@ -904,6 +904,47 @@ to carry the type node where it had been carrying the parser's float
 flag — an expander defect, not a printer choice, recorded beside
 `MAC-TOOL-3` in [macro-system.md](macro-system.md).
 
+### Lint Hints
+
+Beneath the checker's diagnostics, every document that parses gets
+three Hints the server walks the raw tree for and `axiom check`
+never emits. They are severity `Hint`, on for every document, and
+they never refuse a build: a Hint is the editor thinking out loud,
+and a thought is not a verdict. That is why they live here and not
+in the checker, whose warnings are the ones the project promises
+about every build. The walk expands nothing, so a lint can never
+disagree with the checker about what the code means — it sees what
+the author wrote, not what it expands to.
+
+- `lint-dead-branch`: `(if true A B)` or `(if false A B)`. One arm
+  can never run — usually a condition left literal while debugging,
+  or a copy-pasted arm. The squiggle sits on the literal. A `while`
+  with a literal condition is not linted: an infinite loop is an
+  idiom, and flagging one would be dogma.
+- `lint-bool-if`: `(if c true false)` where `c` is a bare name. The
+  `if` answers its condition unchanged. The other order is not
+  linted: `(if c false true)` is this language's boolean negation —
+  `stdlib/Http.ax` spells `httpNot` exactly that way, and there is
+  no `not` operator — so suggesting one would rule against the
+  standard library.
+- `lint-unused-let`: a `let` (or `mut`) binding nothing reads.
+  Usually a forgotten use or a leftover. Only reads keep a binding
+  alive, so a binding that is written and never read still draws
+  the Hint. `_` is the explicit discard and stays silent, as do
+  pattern binders, parameters, and anything inside a macro body.
+
+Three precision rules keep them honest, and the gate holds each one:
+a lint that cannot point precisely does not fire (every range must
+spell exactly what its message quotes); a `true` the author rebound
+with a `let` is not the boolean; and the walk recurses into every
+expression form the navigation walk knows, because a missed use
+would be a false positive. Opting out is one tag on either half of
+the declaration ([reference.md](reference.md), AXTAG Keys):
+`;@axiom:nolint(lint-unused-let)` quiets one rule,
+`;@axiom:nolint(all)` quiets all three. `tests/lsp/100-` through
+`103-lint-*.ax` pin the three rules and the opt-out, each with the
+controls that keep it from being a blanket refusal.
+
 ## Highlighting
 
 **The server will not send `textDocument/semanticTokens`.** That is a

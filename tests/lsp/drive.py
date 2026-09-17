@@ -55,6 +55,18 @@ any compiler at all:
      line at [start, end) must equal the first backticked name in the
      message - the analogue of tests/tools/verify-axsym.py.
 
+  5. THE EDITOR-ONLY LINTS, AS ORDINARY MANIFEST ROWS. Three Hints the
+     server walks the raw tree for and `axiom check` never emits -
+     `lint-dead-branch`, `lint-bool-if`, `lint-unused-let` - are pinned
+     exactly like compiler diagnostics: severity H, anchor-derived
+     positions, hand-written first lines, and the range-spells-name
+     check above. What keeps them honest as lints rather than as
+     second opinions is that the fidelity comparison below filters
+     severity 4 before asking the terminal anything: a lint the
+     terminal also reported would pass here and fail there, and a
+     compiler diagnostic published as a Hint would fail the manifest's
+     severity column first.
+
 WHAT IS GOLDEN-ONLY, and is therefore exactly as strong as the compiler
 that last blessed it: the framed byte stream itself - framing, field
 order, JSON escaping, the `initialize` capabilities, the -32601 error
@@ -106,7 +118,7 @@ OUTLINE_FLOOR = 10
 # LSP's own constants, transcribed from the protocol specification.
 # Writing the integers in the manifests instead would be copying down
 # whatever the server under test happens to emit.
-LSP_SEVERITY = {"E": 1, "W": 2}
+LSP_SEVERITY = {"E": 1, "W": 2, "H": 4}
 LSP_SYMBOL_KIND = {"Function": 12, "Enum": 10, "Struct": 23,
                    "EnumMember": 22, "Field": 8}
 
@@ -663,16 +675,17 @@ for fx in fixtures:
         continue
     diags = pubs[0]["params"]["diagnostics"]
 
-    # LSP defines exactly four severities and this compiler emits two.
-    # Said separately from the comparison below because the failure
-    # "severity 3 where the protocol allows 1..4 and axiom uses 1 or 2"
-    # is worth naming: the projection this replaced - `1 -> E, anything
-    # else -> W` - reported 2, 3 and 4 as the same thing.
+    # LSP defines exactly four severities; the compiler emits two and
+    # the editor-only lints emit a third. Said separately from the
+    # comparison below because the failure "severity 3 where the
+    # protocol allows 1..4 and axiom uses 1, 2 or 4" is worth naming:
+    # the projection this replaced - `1 -> E, anything else -> W` -
+    # reported 2, 3 and 4 as the same thing.
     illegal = [(d.get("code"), d.get("severity")) for d in diags
-               if d.get("severity") not in (1, 2)]
+               if d.get("severity") not in (1, 2, 4)]
     if illegal:
-        print(f"FAIL {name}: published severities outside LSP Error(1) and "
-              f"Warning(2): {illegal}")
+        print(f"FAIL {name}: published severities outside LSP Error(1), "
+              f"Warning(2) and Hint(4): {illegal}")
         failed += 1
         continue
 
@@ -4687,6 +4700,11 @@ for fx in fixtures:
     if pub is None:
         dwhy = f"{fx}: the server published no diagnostics array at all"
         break
+    # Editor-only lints are not the terminal's to report: `axiom check`
+    # never emits severity 4, so the comparison holds the editor to the
+    # compiler's diagnostics alone. A server that published ONLY lints
+    # still fails here - [] against the terminal's codes.
+    pub = [d for d in pub if d.get("severity") != 4]
     if [d.get("code") for d in term] != [d.get("code") for d in pub]:
         dwhy = (f"{fx}: the terminal reports {[d.get('code') for d in term]} and "
                 f"the editor is published {[d.get('code') for d in pub]}")

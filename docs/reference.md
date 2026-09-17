@@ -2280,6 +2280,20 @@ The remaining honest gap: passing an effect-polymorphic function
 itself as a callback does not instantiate the callee's marks
 (higher-rank flows).
 
+#### `nolint(...)` - quieting the editor's Hints
+
+`;@axiom:nolint(lint-unused-let)` quiets that lint for the whole
+declaration it sits above - either half of a `::`/`fn` pair, read as
+one list exactly as `restrict` is - and `;@axiom:nolint(all)` quiets
+every lint the editor walks for. The three it can name are the
+server's alone (`docs/lsp.md`): `lint-dead-branch`, `lint-bool-if`
+and `lint-unused-let`, published as LSP Hints that `axiom check`
+never emits. The checker does not know this key and stays silent
+about it, like any other metadata; a name inside the parens it does
+not recognise is ignored rather than reported, so a misspelled
+suppression is visible as the Hint it failed to quiet.
+`tests/lsp/103-lint-nolint.ax` pins all three placements quiet.
+
 ### The Unsafe Layer
 
 A signature whose result names a type variable that **no parameter

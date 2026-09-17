@@ -1,0 +1,34 @@
+; The opt-out fixture: the same shapes the other lint fixtures
+; draw Hints for, quieted per declaration. `quietIf` names its rule
+; above the signature, `quietBool` between the signature and the
+; body, and `quietLet` quiets everything at once. This file draws
+; nothing - it is the control that a suppression suppresses.
+;@axiom:nolint(lint-dead-branch)
+(:: quietIf (-> Int Int))
+(fn (quietIf n)
+  (if true
+    n
+    0))
+
+(:: quietBool (-> Bool Bool))
+;@axiom:nolint(lint-bool-if)
+(fn (quietBool ok)
+  (if ok
+    true
+    false))
+
+;@axiom:nolint(all)
+(:: quietLet (-> Int Int))
+(fn (quietLet n)
+  (let ((waste n))
+    0))
+
+(:: main Int)
+(fn (main)
+  (+
+    (quietIf 1)
+    (+
+      (if (quietBool true)
+        1
+        0)
+      (quietLet 2))))
