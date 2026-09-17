@@ -29,10 +29,14 @@ beside the other two.
 
 ## Methodology
 
-Inherited from `scripts/bench-datastructures.sh`:
+Inherited from `scripts/bench-datastructures.sh`, timed with
+[hyperfine](https://github.com/sharkdp/hyperfine):
 
 - Every stage is timed as a **whole process** doing the real work, not
   as an in-process timer, because that is what a user waits for.
+  Hyperfine runs one sample per invocation (`--runs 1`,
+  `--warmup 0`); the script loops it round-robin and keeps the
+  minimum of its per-sample times.
 - The figure is the **best of N** runs, not the mean. The distribution is
   one-sided — interference only ever makes a run slower — so the minimum
   is the closest estimate of the cost itself.
@@ -41,7 +45,8 @@ Inherited from `scripts/bench-datastructures.sh`:
   different load conditions. That is not hypothetical — a block-scheduled
   pass once reported a 1.6x gap that was entirely a background build
   landing on one block, and interleaving collapsed the four figures onto
-  each other.
+  each other. (Hyperfine itself schedules in blocks, which is why the
+  round-robin lives in the script around it rather than inside it.)
 
 Run time is best of 20; compile is best of 15, cold.
 

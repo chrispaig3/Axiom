@@ -177,11 +177,13 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-17, `axiom fmt --check` over every one of the 668 `.ax` files
-in the repository answers `is already formatted` for 663 of them and
-`needs formatting` for 3. Two of the 3 are deliberate and are named
+2026-09-17, `axiom fmt --check` over every one of the 671 `.ax` files
+in the repository answers `is already formatted` for 667 of them and
+`needs formatting` for 4. Two of the 4 are deliberate and are named
 below; the third is `examples/batch-fallible/batch-fallible.ax`, a
-program that stays as it is until someone edits it, and
+program that stays as it is until someone edits it; the fourth is
+`self_host/lsp.ax`, which this change does not touch and leaves as it
+is on the same terms — and
 that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a

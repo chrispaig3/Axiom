@@ -14579,25 +14579,26 @@
 
 (pub :: releaseScrutinee (-> String Int Int Int))
 (pub fn (releaseScrutinee sv cg scrutExpr)
+  ; S4 slice 4: a scrutinee the witness proved fresh is reclaimed
+  ; by the region's reset exactly as an argument temporary is, so
+  ; its merge-path release is the same binary-only traffic. The
+  ; stamp is the join/call stamp slices 2 and 3 record (a fresh
+  ; call, or a join whose every arm is one - including a nested
+  ; match, whose result register is a scratch-cell load); the
+  ; depth gate is the same textual extent, and the pending vector
+  ; above still takes the share for the tail-jump path, which
+  ; keeps its release. `argOwnedRelease` is not asked here -
+  ; `scrutineeReleasable` already decided - so `mustTailOK` cannot
+  ; drift. Shared by the tail and non-tail emitters: the rule is
+  ; position-independent by construction.
   (let (
     (v (strDup (memGetWordStr cg 2)))
     (fl (memGetWord cg 14))
   )
-    ; S4 slice 4: a scrutinee the witness proved fresh is reclaimed
-    ; by the region's reset exactly as an argument temporary is, so
-    ; its merge-path release is the same binary-only traffic. The
-    ; stamp is the join/call stamp slices 2 and 3 record (a fresh
-    ; call, or a join whose every arm is one - including a nested
-    ; match, whose result register is a scratch-cell load); the
-    ; depth gate is the same textual extent, and the pending vector
-    ; above still takes the share for the tail-jump path, which
-    ; keeps its release. `argOwnedRelease` is not asked here -
-    ; `scrutineeReleasable` already decided - so `mustTailOK` cannot
-    ; drift. Shared by the tail and non-tail emitters: the rule is
-    ; position-independent by construction.
-    (let ((cgR (if (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag scrutExpr) TAG_E_APP) (|| (== (nodeTag scrutExpr) TAG_E_IF) (|| (== (nodeTag scrutExpr) TAG_E_COND) (== (nodeTag scrutExpr) TAG_E_MATCH)))) (== (nodeResWord scrutExpr) 2)))
-      cg
-      (emitReleaseOf cg sv))))
+    (let ((cgR 
+      (if (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag scrutExpr) TAG_E_APP) (|| (== (nodeTag scrutExpr) TAG_E_IF) (|| (== (nodeTag scrutExpr) TAG_E_COND) (== (nodeTag scrutExpr) TAG_E_MATCH)))) (== (nodeResWord scrutExpr) 2)))
+        cg
+        (emitReleaseOf cg sv))))
       {
         (memSetWord cgR 2 v)
         (memSetWord cgR 14 fl)

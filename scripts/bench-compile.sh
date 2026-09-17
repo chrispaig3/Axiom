@@ -31,9 +31,11 @@
 #   - Best of REPS runs, not the mean. The distribution is one-sided -
 #     interference only ever makes a run slower - so the minimum is the
 #     closest estimate of the cost itself.
-#   - Process startup is measured separately, with the same binary doing
-#     nothing, and subtracted. At these durations `execve` plus dynamic
-#     linking is a real fraction of the total, and it is not compilation.
+#   - The instrument is hyperfine: `--runs REPS --warmup 0`, and the
+#     figure is the minimum of its per-run times. Process startup is
+#     measured separately, with the same binary doing nothing, and
+#     subtracted. At these durations `execve` plus dynamic linking is
+#     a real fraction of the total, and it is not compilation.
 #
 # The stages are NOT a partition and the script does not pretend they
 # are. `emit-llvm` re-does everything `check` does and then writes the
@@ -48,8 +50,9 @@
 #
 # It does not. `main.ax:340` reads `(if (== doEmit 0) "" ...
 # (emitResolved ...))`, so `check` returns before a byte of IR exists.
-# Measured two ways rather than re-read: `check` is 1.32s against
-# `emit-llvm` 1.77s on `main.ax`, and eight sampling profiles of `axiom
+# Measured two ways rather than re-read: `check` is 0.70s against
+# `emit-llvm` 2.54s on `main.ax` (hyperfine best of 5, Apple M1,
+# 2026-09-17), and eight sampling profiles of `axiom
 # check` contain ZERO `codegen$` frames. The cited line number was stale
 # as well.
 #
@@ -89,23 +92,25 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -f "$input" ]] || { echo "no such input: $input" >&2; exit 2; }
 
-for t in opt llc cc; do
+for t in opt llc cc "${HYPERFINE:-hyperfine}"; do
   command -v "$t" >/dev/null 2>&1 || { echo "FAIL: $t is not on PATH; this script measures it" >&2; exit 1; }
 done
 
-# Best-of-REPS wall clock in seconds. Lifted from
-# `bench-datastructures.sh:286` so the two profiles are comparable.
+# Best-of-REPS wall clock in seconds, timed by hyperfine. Lifted from
+# `bench-datastructures.sh` so the two profiles are comparable: the
+# figure is the minimum of hyperfine's per-run times.
 time_best() {
-  python3 - "$REPS" "$@" <<'PY'
-import subprocess, sys, time
-reps = int(sys.argv[1]); cmd = sys.argv[2:]
-best = None
-for _ in range(reps):
-    t = time.perf_counter()
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    d = time.perf_counter() - t
-    best = d if best is None else min(best, d)
-print(f"{best:.6f}")
+  HF_BIN="${HYPERFINE:-hyperfine}" python3 - "$REPS" "$@" <<'PY'
+import json, os, shlex, subprocess, sys, tempfile
+reps = int(sys.argv[1])
+cmd = shlex.join(sys.argv[2:])
+with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+    path = f.name
+subprocess.run([os.environ["HF_BIN"], "--warmup", "0", "--runs", str(reps),
+                "--style", "none", "--export-json", path, cmd],
+               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+print(f"{min(json.load(open(path))['results'][0]['times']):.6f}")
+os.unlink(path)
 PY
 }
 

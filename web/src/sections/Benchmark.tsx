@@ -72,7 +72,8 @@ export function Benchmark() {
               figure is the <strong>best</strong> of its runs, not the mean:
               interference only ever makes a run slower, so the minimum is the
               closest estimate of the cost itself — the methodology the
-              repository uses for its own benchmarks.
+              repository uses for its own benchmarks, timed with{' '}
+              <code>{BENCH_ENV.timer}</code>.
             </p>
             <p>
               The runs are also <strong>interleaved</strong> — one repetition of
@@ -93,7 +94,7 @@ export function Benchmark() {
             </p>
             <p className="micro">
               {BENCH_ENV.machine} · {BENCH_ENV.axiom} · {BENCH_ENV.rust} ·{' '}
-              {BENCH_ENV.c}. Go and Haskell are absent on purpose: no toolchain
+              {BENCH_ENV.c} · timed with {BENCH_ENV.timer}. Go and Haskell are absent on purpose: no toolchain
               for either was on the machine, and this project does not publish a
               number it has not measured. One micro-benchmark is one
               micro-benchmark — it says nothing about allocation-heavy work,

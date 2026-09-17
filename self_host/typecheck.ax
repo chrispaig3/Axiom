@@ -21081,7 +21081,14 @@
                       }))
                 }
                 (if (== tag TAG_E_COND)
-                  (rgnCondClauses rc (nodeAVec e) 0 0 e 1 (nodeB e))
+                  (rgnCondClauses
+                    rc
+                    (nodeAVec e)
+                    0
+                    0
+                    e
+                    1
+                    (nodeB e))
                   (if (== tag TAG_E_BEGIN)
                     (rgnSeq rc (nodeAVec e) 0 0)
                     (if (== tag TAG_E_MATCH)
@@ -21175,8 +21182,18 @@
       {
         (rgnExpr rc (nodeA cl))
         (let ((cb (rgnExpr rc (nodeB cl))))
-          (let ((ok (if (&& (== allok 1) (&& (!= (nodeB cl) 0) (== (nodeResWord (nodeB cl)) 2))) 1 0)))
-            (rgnCondClauses rc clauses (+ i 1) (| acc cb) cnode ok elsenode)))
+          (let ((ok 
+            (if (&& (== allok 1) (&& (!= (nodeB cl) 0) (== (nodeResWord (nodeB cl)) 2)))
+              1
+              0)))
+            (rgnCondClauses
+              rc
+              clauses
+              (+ i 1)
+              (| acc cb)
+              cnode
+              ok
+              elsenode)))
       })))
 
 ; A loop body is walked twice: a `set` late in the body widens a
@@ -21229,7 +21246,10 @@
       {
         (rgnBindPat rc (nodeA arm) s)
         (let ((r (rgnExpr rc (nodeB arm))))
-          (let ((ok (if (&& (== allok 1) (&& (!= (nodeB arm) 0) (== (nodeResWord (nodeB arm)) 2))) 1 0)))
+          (let ((ok 
+            (if (&& (== allok 1) (&& (!= (nodeB arm) 0) (== (nodeResWord (nodeB arm)) 2)))
+              1
+              0)))
             {
               (rgnEnvTrunc rc mark)
               (rgnArms
@@ -21240,8 +21260,7 @@
                 (| acc r)
                 mnode
                 ok)
-            })
-          )
+            }))
       })))
 
 ; A pattern's binders take the scrutinee's origins: a field of a

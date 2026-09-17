@@ -7,7 +7,9 @@
 # `tests/stdlib/200-scale.ax`, which is a CI gate. This one prints a
 # table rather than failing a build, because a wall-clock threshold on a
 # shared CI runner is a flaky test. Pass `--check` to enforce the
-# roadmap's "within 2x" exit criterion anyway.
+# roadmap's "within 2x" exit criterion anyway. Timings are measured with
+# hyperfine; see `web/bench/README.md` for the methodology (whole
+# process, best of N, interleaved where commands are compared).
 #
 # METHODOLOGY, because the obvious way to write this measures the wrong
 # thing in two directions at once:
@@ -84,6 +86,7 @@ for arg in "$@"; do
 done
 
 command -v rustc > /dev/null || { echo "error: rustc not on PATH" >&2; exit 1; }
+command -v "${HYPERFINE:-hyperfine}" > /dev/null || { echo "error: hyperfine not on PATH - timings are measured with it" >&2; exit 1; }
 
 # ------------------------------------------------------------------
 # The Axiom side. Each structure is its own program, so one's
@@ -270,21 +273,22 @@ for b in empty vec map intern; do
   }
 done
 
-# Best-of-REPS wall clock, in seconds. Best rather than mean: the
-# distribution is one-sided, since interference only ever makes a run
-# slower, so the minimum is the closest estimate of the cost itself.
+# Best-of-REPS wall clock, in seconds, timed by hyperfine. Best
+# rather than mean: the distribution is one-sided, since interference
+# only ever makes a run slower, so the minimum of hyperfine's
+# per-run times is the closest estimate of the cost itself.
 time_best() {
-  python3 - "$REPS" "$@" <<'PY'
-import subprocess, sys, time
+  HF_BIN="${HYPERFINE:-hyperfine}" python3 - "$REPS" "$@" <<'PY'
+import json, os, shlex, subprocess, sys, tempfile
 reps = int(sys.argv[1])
-cmd = sys.argv[2:]
-best = None
-for _ in range(reps):
-    t = time.perf_counter()
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, check=True)
-    d = time.perf_counter() - t
-    best = d if best is None else min(best, d)
-print(f"{best:.6f}")
+cmd = shlex.join(sys.argv[2:])
+with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+    path = f.name
+subprocess.run([os.environ["HF_BIN"], "--warmup", "0", "--runs", str(reps),
+                "--style", "none", "--export-json", path, cmd],
+               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+print(f"{min(json.load(open(path))['results'][0]['times']):.6f}")
+os.unlink(path)
 PY
 }
 

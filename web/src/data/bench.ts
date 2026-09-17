@@ -16,9 +16,12 @@
  * Methodology is the repository's own (`scripts/bench-datastructures.sh`,
  * `scripts/bench-compile.sh`): every stage is timed as a whole process
  * doing the real work, because that is what a user waits for, and the
- * figure reported is the BEST of N runs rather than the mean —
- * interference only ever makes a run slower, so the minimum is the
- * closest estimate of the cost itself.
+ * instrument is hyperfine - one sample per round, round-robin across
+ * the binaries exactly as before, `--warmup 0` so the compile row
+ * stays cold. The figure reported is the BEST of N rather than the
+ * mean - interference only ever makes a run slower, so the minimum of
+ * hyperfine's per-sample times is the closest estimate of the cost
+ * itself.
  *
  * ONE ADDITION, and it changed the answer. The first pass ran all of
  * A's repetitions, then all of B's, and reported Axiom at 0.732s against
@@ -43,11 +46,12 @@
  */
 
 export const BENCH_ENV = {
-  machine: 'Apple M1, macOS 26.6.2, darwin-aarch64',
+  machine: 'Apple M1, macOS 27.0, darwin-aarch64',
   axiom: 'Axiom 0.7.5',
   rust: 'rustc 1.98.1',
-  c: 'clang 23.1.0',
+  c: 'clang 23.1.1',
   answer: '428343467',
+  timer: 'hyperfine 1.20.0',
 }
 
 export interface BenchRow {
@@ -63,25 +67,25 @@ export interface BenchRow {
 export const BENCH: BenchRow[] = [
   {
     metric: 'Run time',
-    how: '3,000,000 Collatz sequences · best of 20, interleaved',
-    axiom: '0.446 s',
-    rust: '0.447 s',
-    c: '0.446 s',
-    note: 'Within one millisecond across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
+    how: '3,000,000 Collatz sequences · hyperfine best of 20, interleaved',
+    axiom: '0.429 s',
+    rust: '0.431 s',
+    c: '0.431 s',
+    note: 'Within two milliseconds across all three. Axiom emits LLVM IR, so a loop that is only arithmetic and branches gets the machine code the other two get.',
   },
   {
     metric: 'Compile to a native binary',
-    how: 'one file, cold · best of 15, interleaved',
-    axiom: '0.140 s',
-    rust: '0.111 s',
-    c: '0.132 s',
-    note: 'Axiom is the slowest of the three, by twenty-nine milliseconds against rustc — 1.26x — and eight behind clang at 1.06x. Published because it is what was measured, by the script beside the sources.',
+    how: 'one file, cold · hyperfine best of 15, interleaved',
+    axiom: '0.156 s',
+    rust: '0.114 s',
+    c: '0.148 s',
+    note: 'Axiom is the slowest of the three, by forty-two milliseconds against rustc — 1.37x — and eight behind clang at 1.05x. Published because it is what was measured, by the script beside the sources.',
   },
   {
     metric: 'Binary size',
     how: 'the executable on disk',
-    axiom: '35,560 B',
-    rust: '469,592 B',
+    axiom: '35,592 B',
+    rust: '469,608 B',
     c: '33,432 B',
     note: 'Thirteen times smaller than the Rust binary, and within seven percent of C — with no C runtime inside it at all.',
   },
@@ -96,9 +100,11 @@ export const BENCH: BenchRow[] = [
 ]
 
 /*
- * RE-MEASURED 2026-09-04 by `web/bench/run-bench.sh`, against the
- * compiler this page ships with. Interleaved, best of 15 for the
- * compile row and best of 20 for the run row, on an Apple M1.
+ * RE-MEASURED 2026-09-17 by `web/bench/run-bench.sh`, against the
+ * compiler this page ships with. Interleaved, hyperfine best of 15
+ * for the compile row and best of 20 for the run row, on an Apple
+ * M1 - the first pass timed by hyperfine rather than the hand-rolled
+ * monotonic-clock loop, same round-robin and same minimum.
  *
  * WHY A SCRIPT, AND WHY NOW. The 2026-09-01 pass below was measured
  * under 0.6.3 and then carried through two version bumps with only its
@@ -111,10 +117,11 @@ export const BENCH: BenchRow[] = [
  * the command, and it prints every cell of this table.
  *
  * Read the ratios, not the seconds. The compile row moved for all three
- * arms at once between the two passes (0.115/0.088/0.115 -> 0.140/0.111/
- * 0.132), which is the machine, not the compilers; the ratio against
- * rustc went 1.31x -> 1.26x and against clang 1.00x -> 1.06x. The run
- * row is within a millisecond across all three in both passes.
+ * arms at once between the passes (0.115/0.088/0.115 -> 0.140/0.111/
+ * 0.132 -> 0.156/0.114/0.148), which is the machine, not the
+ * compilers; the ratio against rustc went 1.31x -> 1.26x -> 1.37x and
+ * against clang 1.00x -> 1.06x -> 1.05x. The run row stays within two
+ * milliseconds across all three in every pass.
  *
  * THE 2026-09-01 PASS, kept for the reasoning it recorded:
  *
