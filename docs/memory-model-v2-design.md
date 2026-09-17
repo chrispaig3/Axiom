@@ -932,13 +932,25 @@ narrows what the work is allowed to claim.
    direction, and it means S3 lands on a substrate where the containers
    are still outside the model.
 
-3. **Whether the RSS survives S4.** §1.1's ablation deleted the
-   releases and lost 2.4× on peak RSS. The design's whole claim is that
-   a region reset returns that memory in one pointer move. **Still
-   unmeasured** — it is the one probe that needs S4 to exist, and S4's
-   gate is exactly this measurement.
-4. **The wall-clock question is open**, per §1.1. An idle machine, best
-   of N, interleaved arms.
+3. **Whether the RSS survives S4 — RUN 2026-09-17, and it does.**
+   §1.1's ablation deleted the releases and lost 2.4× on peak RSS.
+   Each S4 slice carries its own RSS half: 300,000 regions under the
+   test compiler against the path-ablated one, peak RSS 98–100% in
+   every slice gate (`check-region-reclaim.sh`,
+   `check-region-fresh.sh`, `check-region-fresh-let.sh`,
+   `check-region-phi.sh`, `check-region-phi-let.sh`,
+   `check-region-scrutinee.sh`). The reset returns in one pointer
+   move what counting used to free, per path, not just in total.
+4. **The wall-clock question — RUN 2026-09-17, and there is none to
+   find.** The same 300,000-region loop from slice 2's gate, built
+   with the test compiler and with the args-path ablation (releases
+   kept), timed with hyperfine best-of-10 on an Apple M1: 404.3ms
+   against 401.3ms one way round, 397.6ms against 402.8ms the other
+   - the faster side flips with the order, and both gaps sit inside
+   the runs' own ±10ms spread. Three hundred thousand deleted
+   release calls buy no measurable time either way; the win is
+   binary size with the RSS intact, which is what the gates above
+   hold.
 
 ---
 

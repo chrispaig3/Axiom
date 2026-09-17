@@ -28,7 +28,7 @@
 
 # --- readers: print every version the file states, one per line -------
 ax_version()   { grep -oE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ (\(build|- REPL)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-axv_version()  { grep -oE '\(pub fn \(axiomVersion\) "[0-9]+\.[0-9]+\.[0-9]+"\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+axv_version()  { grep -oE -A1 '\(pub fn \(axiomVersion\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 lsp_version()  { grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 toml_version() { grep -oE '^version = "[0-9]+\.[0-9]+\.[0-9]+"|version = "[0-9]+\.[0-9]+\.[0-9]+" }' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 json_version() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
@@ -91,7 +91,7 @@ _rewrite() { # _rewrite <file> <sed-expr>
 }
 
 ax_replace()   { _rewrite "$1" "s/(Axiom )[0-9]+\.[0-9]+\.[0-9]+( (\(build|- REPL))/\1$2\2/g"; }
-axv_replace()  { _rewrite "$1" "s/(\(pub fn \(axiomVersion\) \")[0-9]+\.[0-9]+\.[0-9]+(\"\))/\1$2\2/g"; }
+axv_replace()  { _rewrite "$1" "/\(pub fn \(axiomVersion\)/{N;s/\"[0-9]+\.[0-9]+\.[0-9]+\"/\"$2\"/;}"; }
 lsp_replace()  { _rewrite "$1" "s/(\"version\" \(jsonStr \")[0-9]+\.[0-9]+\.[0-9]+(\"\))/\1$2\2/g"; }
 json_replace() { _rewrite "$1" "s/(\"version\": \")[0-9]+\.[0-9]+\.[0-9]+(\")/\1$2\2/g"; }
 lspg_replace() { _rewrite "$1" "s/(\"version\":\")[0-9]+\.[0-9]+\.[0-9]+(\")/\1$2\2/g"; }
