@@ -1,7 +1,7 @@
 [1;31merror[AX3065][0m[1m: AXTAG key `effects` on `collided` is a key the compiler derives and writes itself[0m
-  [1;34m--> [0m349-axsym-tag-forgery.ax:62:6
+  [1;34m--> [0m349-axsym-tag-forgery.ax:61:6
 [1;34m   |[0m
-[1;34m62 |[0m (fn (collided n) (__syscall3 1 1 n 0))
+[1;34m61 |[0m (fn (collided n)
 [1;34m   |[0m      [1;31m^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mthe AXTAG namespace is open, but not for the keys `axiom symbols` writes from the checker's own answers: a reader of that stream cannot tell an author's copy from the compiler's. Namespace it - `;@axiom:my:effects(...)` - or drop it

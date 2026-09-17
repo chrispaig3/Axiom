@@ -1,39 +1,39 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected Color, found a[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:42:7
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:41:7
 [1;34m   |[0m
-[1;34m42 |[0m     ((Red) 1)
+[1;34m41 |[0m     ((Red) 1)
 [1;34m   |[0m       [1;31m^^^ this has type `a`, expected `Color`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Color, found Int[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:51:7
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:47:7
 [1;34m   |[0m
-[1;34m51 |[0m     ((Red) 1)
+[1;34m47 |[0m     ((Red) 1)
 [1;34m   |[0m       [1;31m^^^ this has type `Int`, expected `Color`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Color, found Shape[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:60:7
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:53:7
 [1;34m   |[0m
-[1;34m60 |[0m     ((Red) 1)
+[1;34m53 |[0m     ((Red) 1)
 [1;34m   |[0m       [1;31m^^^ this has type `Shape`, expected `Color`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:70:6
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:60:6
 [1;34m   |[0m
-[1;34m70 |[0m     ("hello" 1)
+[1;34m60 |[0m     ("hello" 1)
 [1;34m   |[0m      [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Blue[0m
-  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:80:14
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:67:14
 [1;34m   |[0m
-[1;34m80 |[0m       (match x
+[1;34m67 |[0m       (match x
 [1;34m   |[0m              [1;31m^ this `match` does not cover: Blue[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~>[0m
@@ -43,11 +43,11 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
-   [1;34m--> [0m995-match-ctor-scrutinee-type.ax:103:12
-[1;34m    |[0m
-[1;34m103 |[0m     ((Some "x") 1)
-[1;34m    |[0m            [1;31m^^^ this has type `Int`, expected `String`[0m
-[1;34m    |[0m
-   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+  [1;34m--> [0m995-match-ctor-scrutinee-type.ax:82:12
+[1;34m   |[0m
+[1;34m82 |[0m     ((Some "x") 1)
+[1;34m   |[0m            [1;31m^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 compilation failed due to 6 previous errors

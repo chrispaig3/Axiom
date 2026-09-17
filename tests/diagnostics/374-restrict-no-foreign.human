@@ -1,7 +1,7 @@
 [1;31merror[AX3049][0m[1m: `bridges` claims `restrict(no-foreign)` and the body reaches the `extern` item `add`: bridges -> add[0m
-  [1;34m--> [0m374-restrict-no-foreign.ax:23:6
+  [1;34m--> [0m374-restrict-no-foreign.ax:22:6
 [1;34m   |[0m
-[1;34m23 |[0m (fn (bridges n) (add n 1))
+[1;34m22 |[0m (fn (bridges n)
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0madd (no declaration to point at)
@@ -9,12 +9,12 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `viaHelper` claims `restrict(no-foreign)` and the body reaches the `extern` item `add`: viaHelper -> wrap -> add[0m
-  [1;34m--> [0m374-restrict-no-foreign.ax:34:6
+  [1;34m--> [0m374-restrict-no-foreign.ax:33:6
 [1;34m   |[0m
-[1;34m28 |[0m (fn (wrap n) (add n 2))
+[1;34m27 |[0m (fn (wrap n)
 [1;34m   |[0m      [1;36m---- wrap[0m
 [1;34m...[0m
-[1;34m34 |[0m (fn (viaHelper n) (wrap n))
+[1;34m33 |[0m (fn (viaHelper n)
 [1;34m   |[0m      [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0madd (no declaration to point at)

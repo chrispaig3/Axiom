@@ -29,7 +29,6 @@
   (mut tag : Int))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (p (P 0 "zz"))
@@ -40,6 +39,4 @@
       (set p.name "abc")
       (set q.tag 7)
       (+ (+ p.tag q.tag) (strLen q.name))
-    }
-  )
-)
+    }))

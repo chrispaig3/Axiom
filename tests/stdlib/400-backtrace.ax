@@ -28,27 +28,24 @@
 ; constant here would make this case pass by not testing anything -
 ; the same trap `314-out-of-memory` records for its own size.
 (import IO)
-
 (import Sys)
 
 (pub :: depth3 (-> Int Int))
-
-(pub fn (depth3 n) (/ 100 n))
+(pub fn (depth3 n)
+  (/ 100 n))
 
 (pub :: depth2 (-> Int Int))
-
-(pub fn (depth2 n) (+ 1 (depth3 n)))
+(pub fn (depth2 n)
+  (+ 1 (depth3 n)))
 
 (pub :: depth1 (-> Int Int))
-
-(pub fn (depth1 n) (+ 1 (depth2 n)))
+(pub fn (depth1 n)
+  (+ 1 (depth2 n)))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (printlnLit (strCStr "dividing by a zero the compiler cannot see"))
     (depth1 (- sysArgc 1))
-  }
-)
+  })

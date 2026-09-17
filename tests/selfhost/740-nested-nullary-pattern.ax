@@ -12,10 +12,7 @@
   (Wrap Color))
 
 (:: main Int)
-
 (fn (main)
   (match (Wrap Green)
     ((Wrap (Red)) 1)
-    ((Wrap (Green)) 2)
-  )
-)
+    ((Wrap (Green)) 2)))

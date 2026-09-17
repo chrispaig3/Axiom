@@ -52,19 +52,16 @@
 ;      WAS captured, silently and wrongly). This file declares a
 ;      `vecLen` that answers 99; the loop must still run twice.
 (import IO)
-
 (import Vec)
-
 (import Mem)
 
 ; Term 12's shadow. A bare `vecLen` in the desugaring would resolve
 ; here; the mangled `Vec$vecLen` cannot.
 (:: vecLen (-> (Vec Int) Int))
-
-(fn (vecLen z) 99)
+(fn (vecLen z)
+  99)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -76,21 +73,23 @@
     {
       ; --- 1. the range counts [0, n) ---
       (memSetWord acc 0 0)
-      (for k 0 5 (memSetWord acc 0 (+ (memGetWord acc 0) k)))
+      (for k 0 5
+        (memSetWord acc 0 (+ (memGetWord acc 0) k)))
       (println (memGetWord acc 0))  ; 10
-
       ; --- 2. the range counts [lo, hi) ---
       (memSetWord acc 0 0)
-      (for k 3 7 (memSetWord acc 0 (+ (memGetWord acc 0) k)))
+      (for k 3 7
+        (memSetWord acc 0 (+ (memGetWord acc 0) k)))
       (println (memGetWord acc 0))  ; 18
-
       ; --- 3. empty ranges run zero times ---
       (memSetWord acc 0 0)
-      (for a 0 0 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
-      (for b 5 5 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
-      (for c 7 3 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (for a 0 0
+        (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (for b 5 5
+        (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+      (for c 7 3
+        (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
       (println (memGetWord acc 0))  ; 0
-
       ; --- 4. the bound is read once, range form ---
       (let ((g vecNew))
         {
@@ -105,7 +104,6 @@
           (println (memGetWord acc 0))  ; 2, not runaway
           (println (Vec::vecLen g))  ; 4: the body really did push
         })
-
       ; --- 5. the bound is read once, container form ---
       (let ((g vecNew))
         {
@@ -122,74 +120,75 @@
           (println (memGetWord acc 0))  ; 4, not runaway
           (println (Vec::vecLen g))  ; 8
         })
-
       ; --- 6. hygiene: a caller's i, n and v survive both shapes ---
       (memSetWord acc 0 0)
-      (for k 0 3 (memSetWord acc 0 (+ (memGetWord acc 0) i)))
+      (for k 0 3
+        (memSetWord acc 0 (+ (memGetWord acc 0) i)))
       (println (memGetWord acc 0))  ; 333
       (let ((g vecNew))
         {
           (vecPush g 1)
           (vecPush g 2)
-          (for e g (memSetWord acc 0 (+ (memGetWord acc 0) n)))
+          (for e g
+            (memSetWord acc 0 (+ (memGetWord acc 0) n)))
         })
       (println (memGetWord acc 0))  ; 333 + 444 = 777
       (println i)  ; 111
       (println n)  ; 222
       (println v)  ; 333
-
       ; --- 7. a container of Strings, printed directly ---
       (let ((ss vecNew))
         {
           (vecPush ss "one")
           (vecPush ss "two")
-          (for s ss (println s))  ; one, two
+          (for s ss
+            (println s))
         })
-
+      ; one, two
       ; --- 8. a container of Ints, printed directly ---
       (let ((ns vecNew))
         {
           (vecPush ns 7)
           (vecPush ns 8)
-          (for w ns (println w))  ; 7, 8
+          (for w ns
+            (println w))
         })
-
+      ; 7, 8
       ; --- 9. an empty container runs zero times ---
       (memSetWord acc 0 0)
       (let ((emp vecNew))
         {
           (vecPush emp 1)
           (vecPop emp)
-          (for e emp (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+          (for e emp
+            (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
         })
       (println (memGetWord acc 0))  ; 0
-
       ; --- 10. nesting ---
       (memSetWord acc 0 0)
       (for p 0 3
-        (for q 0 4 (memSetWord acc 0 (+ (memGetWord acc 0) 1))))
+        (for q 0 4
+          (memSetWord acc 0 (+ (memGetWord acc 0) 1))))
       (println (memGetWord acc 0))  ; 12
-
       ; --- 11. `for` is an ordinary identifier off the head ---
       (let ((for 5))
-        (println (twice for)))  ; 10
-
+        (println (twice for)))
+      ; 10
       ; --- 12. the qualified read is not captured ---
       (let ((g vecNew))
         {
           (vecPush g 41)
           (vecPush g 42)
           (memSetWord acc 0 0)
-          (for e g (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
+          (for e g
+            (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
           (println (memGetWord acc 0))  ; 2, not 99
           (println (vecLen g))  ; 99: this file's own vecLen really is in scope
         })
       0
-    }
-  )
-)
+    }))
 
 ; Term 11's callee: `for` in PARAMETER position.
 (:: twice (-> Int Int))
-
-(fn (twice for) (+ for for))
+(fn (twice for)
+  (+ for for))

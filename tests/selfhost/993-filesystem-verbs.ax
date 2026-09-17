@@ -14,25 +14,18 @@
 ; from one host, and the numbers sit in the per-target module beside
 ; the ones already proven.
 (import Sys)
-
 (import Err)
-
 (import Str)
 
 ; The errno behind a failed rename, or 0 when it succeeded.
 (:: renameCode (-> Int Int Int))
-
 ;@axiom:effect(io)
 (fn (renameCode a b)
   (match (sysRename a b)
     ((Ok v) 0)
-    ((Err e) (errCode e))
-  )
-)
-
+    ((Err e) (errCode e))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; --- append -----------------------------------------------------
@@ -50,59 +43,47 @@
     {
       (if (== (unwrapOr (sysAppendFile f "one\n") 0) 4)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (unwrapOr (sysFileSize f) 0) 4)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (unwrapOr (sysAppendFile f "two\n") 0) 4)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (unwrapOr (sysFileSize f) 0) 8)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (strEq (sysReadFile f) "one\ntwo\n")
         (set n (+ n 1))
-        0
-      )
+        0)
       ; and the contrast that makes the pair worth having
       (if (== (unwrapOr (sysWriteFile f "1") 0) 1)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (unwrapOr (sysFileSize f) 0) 1)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; --- rename -----------------------------------------------------
       ; The destination gains the bytes AND the source stops existing.
       ; Checking only the first would pass for a copy.
       (if (isOk (sysRename f g))
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysFileExists f)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       (if (strEq (sysReadFile g) "1")
         (set n (+ n 1))
-        0
-      )
+        0)
       ; A missing source is refused rather than silently creating an
       ; empty destination. ENOENT is `Error.code` now, not a negated
       ; return: the failure and the answer stopped being the same Int.
       (if (== (renameCode gone f) 2)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysFileExists f)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       ; --- the three facts a read collapses ---------------------------
       ; `sysReadFile` answers "" for a missing file, an EMPTY file and
       ; a DIRECTORY alike. These six lines are the whole reason
@@ -113,34 +94,30 @@
       (unwrapOr (sysWriteFile f "") 0)
       (if (== (sysReadErrno g) 0)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (sysReadErrno d) 21)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (sysReadErrno gone) 2)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; an EMPTY file is readable - it reads back "" like the other two
       ; and is not an error, which is the case that used to be reported
       ; as a missing file
       (if (== (sysReadErrno f) 0)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (strLen (sysReadFile f)) 0)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; `unwrapOr ... 0` here would count a FAILURE as a success: the
       ; expected size is 0 and the fallback is 0, so the two become
       ; indistinguishable. The arms keep them apart.
-      (if (match (sysFileSize f) ((Ok v) (== v 0)) ((Err e) false))
+      (if (match (sysFileSize f)
+        ((Ok v) (== v 0))
+        ((Err e) false))
         (set n (+ n 1))
-        0
-      )
+        0)
       ; --- is it a directory ------------------------------------------
       ; `sysFileExists` answers true for BOTH a file and a directory,
       ; so on its own it cannot tell them apart. Checked here in all
@@ -148,24 +125,19 @@
       ; would satisfy the first line alone.
       (if (sysIsDir d)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysIsDir f)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       (if (sysIsDir gone)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       (if (sysFileExists d)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysFileExists f)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; --- the working directory --------------------------------------
       ; Its value is the machine's, so this checks the SHAPE: an
       ; absolute, non-empty path. On Darwin it comes back through
@@ -177,42 +149,31 @@
       ; directory named by the empty string.
       (if (isOk sysGetCwd)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (> (strLen (unwrapOr sysGetCwd "")) 0)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (== (strByte (unwrapOr sysGetCwd "") 0) 47)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; and it names a real directory - this one
       (if (sysIsDir (strCStr (unwrapOr sysGetCwd "")))
         (set n (+ n 1))
-        0
-      )
+        0)
       ; --- teardown ----------------------------------------------------
       (if (isOk (sysUnlink f))
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (isOk (sysUnlink g))
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (isOk (sysRmdir d))
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysFileExists d)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       (if (== n 31)
         77
-        1
-      )
-    }
-  )
-)
+        1)
+    }))

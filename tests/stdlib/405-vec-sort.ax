@@ -29,24 +29,17 @@
 ; from several `writeStr` calls is a line that model cannot attribute -
 ; measured, it reported "claims '', and no such line remains".
 (import Vec)
-
 (import IO)
-
 (import Fmt)
-
 (import Str)
 
 (:: joined (-> (Vec Int) Int String String))
-
 (fn (joined v i acc)
   (if (>= i (vecLen v))
     acc
-    (joined v (+ i 1) (strConcat (strConcat acc (fmtInt (vecGet v i))) " "))
-  )
-)
+    (joined v (+ i 1) (strConcat (strConcat acc (fmtInt (vecGet v i))) " "))))
 
 (:: push4 (-> (Vec Int) Int Int Int Int (Vec Int)))
-
 (fn (push4 v a b c d)
   {
     (vecPush v a)
@@ -54,47 +47,34 @@
     (vecPush v c)
     (vecPush v d)
     v
-  }
-)
+  })
 
 (:: fill (-> (Vec Int) Int Int Int))
-
 (fn (fill v i n)
   (if (>= i n)
     0
     {
       (vecPush v (% (* i 7919) 1000))
       (fill v (+ i 1) n)
-    }
-  )
-)
+    }))
 
 (:: ordered (-> (Vec Int) Int Int))
-
 (fn (ordered v i)
   (if (>= (+ i 1) (vecLen v))
     1
     (if (> (vecGet v i) (vecGet v (+ i 1)))
       0
-      (ordered v (+ i 1))
-    )
-  )
-)
+      (ordered v (+ i 1)))))
 
 (:: same (-> (Vec Int) (Vec Int) Int Int))
-
 (fn (same a b i)
   (if (>= i (vecLen a))
     1
     (if (!= (vecGet a i) (vecGet b i))
       0
-      (same a b (+ i 1))
-    )
-  )
-)
+      (same a b (+ i 1)))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; the bounds cases: empty, one, already sorted, exactly reversed
@@ -103,54 +83,60 @@
       {
         (vecSort e)
         (println (fmtInt (vecLen e)))
-      }
-    )
+      })
     (let ((o vecNew))
       {
         (vecPush o 7)
         (vecSort o)
         (println (joined o 0 ""))
-      }
-    )
+      })
     (let ((s vecNew))
       {
         (push4
-          s          1          2          3          4
-        )
+          s
+          1
+          2
+          3
+          4)
         (vecSort s)
         (println (joined s 0 ""))
-      }
-    )
+      })
     (let ((r vecNew))
       {
         (push4
-          r          4          3          2          1
-        )
+          r
+          4
+          3
+          2
+          1)
         (vecSort r)
         (println (joined r 0 ""))
-      }
-    )
+      })
     ; duplicates and negatives together
     (let ((m vecNew))
       {
         (push4
-          m          5          (- 0 8)          3          42
-        )
+          m
+          5
+          (- 0 8)
+          3
+          42)
         (push4
-          m          3          0          9          (- 0 8)
-        )
+          m
+          3
+          0
+          9
+          (- 0 8))
         (vecSort m)
         (println (joined m 0 ""))
-      }
-    )
+      })
     ; 5,000 elements, checked ordered rather than printed
     (let ((big vecNew))
       {
         (fill big 0 5000)
         (vecSort big)
         (println (fmtInt (ordered big 0)))
-      }
-    )
+      })
     ; the two implementations agree on one input
     (let (
       (p vecNew)
@@ -158,18 +144,23 @@
     )
       {
         (push4
-          p          9          2          7          2
-        )
+          p
+          9
+          2
+          7
+          2)
         (push4
-          q          9          2          7          2
-        )
+          q
+          9
+          2
+          7
+          2)
         (vecSort p)
         (vecSortBy
-          q          (lambda (a b) (- a b))
-        )
+          q
+          (lambda (a b) (- a b)))
         (println (fmtInt (same p q 0)))
-      }
-    )
+      })
     ; a REF-OWNING vector: every element read back after the sort
     (let ((owned vecNewRef))
       {
@@ -178,18 +169,16 @@
         (vecPush owned (strConcat "ap" "ple"))
         (vecPush owned (strConcat "da" "te"))
         (vecSortBy
-          owned          (lambda (a b)
+          owned
+          (lambda (a b)
             (strCmp
-              (cast String a)              (cast String b)
-            )
-          )
-        )
+              (cast String a)
+              (cast String b))
+          ))
         (println (vecGetStr owned 0))
         (println (vecGetStr owned 1))
         (println (vecGetStr owned 2))
         (println (vecGetStr owned 3))
-      }
-    )
+      })
     0
-  }
-)
+  })

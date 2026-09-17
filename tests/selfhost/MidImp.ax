@@ -4,5 +4,5 @@
 (import DeepImp)
 
 (pub :: midFn (-> Int Int))
-
-(pub fn (midFn n) (+ n 1))
+(pub fn (midFn n)
+  (+ n 1))

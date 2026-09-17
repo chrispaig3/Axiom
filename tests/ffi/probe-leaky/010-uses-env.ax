@@ -3,7 +3,6 @@
 ; because the crate imports symbols its `axiom-allow.txt` does not
 ; permit. The gate requires that failure.
 (import IO)
-
 (import Fmt)
 
 (pub extern "axiom_leaky"
@@ -16,11 +15,7 @@
       (fmtInt
         (if (>= homeLen 0)
           1
-          0
-        )
-      )
-    )
+          0)))
     0
-  }
-)
+  })
 ; expect 0

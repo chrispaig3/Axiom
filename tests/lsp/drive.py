@@ -927,7 +927,7 @@ expect_symbols += N + 1
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PARSER_AX = os.path.join(REPO, "self_host", "parser.ax")
 _psrc = open(PARSER_AX, encoding="utf-8").read()
-_kwdefs = dict(re.findall(r'\(pub fn \((kw[A-Za-z]+)\) "([^"]+)"\)', _psrc))
+_kwdefs = dict(re.findall(r'\(pub fn \((kw[A-Za-z]+)\)\s+"([^"]+)"\)', _psrc))
 _kwlits = set(re.findall(r'kwEq\s+\w+\s+"([^"]+)"', _psrc))
 _kwnames = set(re.findall(r'kwEq\s+\w+\s+(kw[A-Za-z]+)', _psrc))
 _missing = _kwnames - set(_kwdefs)

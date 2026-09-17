@@ -11,8 +11,8 @@
    (pub fn (fellthrough) 2)))
 
 (pub :: libop (-> Int Int))
-
-(pub fn (libop x) x)
+(pub fn (libop x)
+  x)
 
 (pub macro picklib (literals libop)
   ((picklib (libop a))

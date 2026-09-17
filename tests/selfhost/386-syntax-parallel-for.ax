@@ -76,43 +76,33 @@
 (deriveOf Pt Mk)
 
 (:: hueBit (-> Hue Int Int Int))
-
 (fn (hueBit h want bit)
   (if (== (hueTag h) want)
     bit
-    0
-  )
-)
+    0))
 
 (:: hueTag (-> Hue Int))
-
 (fn (hueTag h)
   (match h
     ((Rojo) 0)
     ((Verde) 1)
-    ((Azul) 2)
-  )
-)
+    ((Azul) 2)))
 
 (:: main Int)
-
 (fn (main)
   (+
-    (hueBit (toHue Red) 0 1)    (+
-      (hueBit (toHue Green) 1 2)      (+
-        (hueBit (toHue Blue) 2 4)        (+
-          (hueBit constRed 0 8)          (+
-            (hueBit constBlue 2 16)            (match (ofPt (Pt 6 7))
+    (hueBit (toHue Red) 0 1)
+    (+
+      (hueBit (toHue Green) 1 2)
+      (+
+        (hueBit (toHue Blue) 2 4)
+        (+
+          (hueBit constRed 0 8)
+          (+
+            (hueBit constBlue 2 16)
+            (match (ofPt (Pt 6 7))
               ((Mk a b)
                 (if (&& (== a 6) (== b 7))
                   32
-                  0
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                  0)
+              ))))))))

@@ -131,11 +131,44 @@ restriction_lines() {
 # itself. Column 0 only: an `impl` member is indented, and this
 # section's claim is about the programs as they are, not about every
 # declaration shape the tag can reach (373-376 cover the shapes).
+#
+# Since the stacked-closer normal form `::` sticks to its `fn` with no
+# blank line between them, the blank above a signed function sits above
+# its `(::`, not above its `(fn`. So a `(::` with a blank above it is
+# tagged too - the tag above the signature restricts the same
+# declaration - while a bare `(fn` with a blank above it keeps the old
+# rule for the unsigned few.
+#
+# A declaration that already carries a `;@axiom:restrict` tag - above
+# its `(::`, or between its `(::` and its `(fn` - is left alone, so the
+# sweep never adds a second field to its AXSYM row. `465` pins this:
+# its tags sit on the `fn` deliberately, and a second tag above the
+# `::` would read as a row the sweep moved rather than as the claim it
+# makes.
 tag_every_fn() {
-  awk 'NR == 1 { prev = $0; next }
-       { if ($0 ~ /^\((pub )?fn / && prev == "") prev = ";@axiom:restrict(no-foreign)"
-         print prev; prev = $0 }
-       END { print prev }' "$1" > "$2"
+  python3 - "$1" "$2" <<'PY'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+lines = open(src, encoding="utf-8").read().split("\n")
+out = list(lines)
+n = len(lines)
+is_sig = re.compile(r"^\((pub )?:: ").match
+is_fn = re.compile(r"^\((pub )?fn ").match
+is_tag = re.compile(r"^;@axiom:restrict[(]").match
+for i in range(1, n):
+    if lines[i-1] != "":
+        continue
+    if is_sig(lines[i]):
+        # A tag between the signature and its body restricts the same
+        # declaration already; tagging the signature as well would add
+        # a second `#restrict=` field to one AXSYM row.
+        if i+1 < n and is_tag(lines[i+1]):
+            continue
+        out[i-1] = ";@axiom:restrict(no-foreign)"
+    elif is_fn(lines[i]):
+        out[i-1] = ";@axiom:restrict(no-foreign)"
+open(dst, "w", encoding="utf-8").write("\n".join(out))
+PY
 }
 
 echo "== 1. a satisfied restriction changes no emitted byte =="
@@ -288,7 +321,7 @@ done
 if (( swept < 120 )); then
   bad "only $swept programs were swept ($refused skipped); the floor is 120"
 else
-  ok "$swept programs emit identical IR, diagnostics and AXSYM rows with every fn restricted ($refused skipped: refused, extern-bearing, no main, or no fn with a blank line above it)"
+  ok "$swept programs emit identical IR, diagnostics and AXSYM rows with every fn restricted ($refused skipped: refused, extern-bearing, no main, or no fn or signature with a blank line above it)"
 fi
 # The exception must occur, or the rule about it was never exercised:
 # `docs/reference.md` names six corpus files carrying the sentinel.
@@ -498,7 +531,12 @@ echo "== 4. a compiler that stops answering is caught =="
 # this feature existed. Built from a copy so the tree is untouched.
 mkdir -p "$work/ablate"
 cp -R "$repo_root/self_host" "$work/ablate/self_host"
-hook='          (checkRestricts tc d own sig eff)'
+hook='          (checkRestricts
+            tc
+            d
+            own
+            sig
+            eff)'
 if ! grep -qF "$hook" "$work/ablate/self_host/typecheck.ax"; then
   bad "the ablation target \`$hook\` is not in typecheck.ax - this probe no longer ablates anything"
 else

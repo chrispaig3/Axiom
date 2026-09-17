@@ -17,9 +17,7 @@
 ; AXIOM_PATH, so this exercises the GENERATED wrapper rather than a copy
 ; of it written by hand.
 (import IO)
-
 (import Str)
-
 (import Demo)
 
 ;@axiom:effect(io)
@@ -39,8 +37,5 @@
         (println b)
         (println c)
         1
-      }
-    )
-  )
-)
+      })))
 ; expect 0

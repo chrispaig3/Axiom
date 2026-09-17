@@ -4,10 +4,10 @@
 (import Test)
 
 (:: testFixture (-> Int Int))
-
-(fn (testFixture n) (* n 2))
+(fn (testFixture n)
+  (* n 2))
 
 (:: testUsesTheFixture Int)
-
 ;@axiom:effect(io)
-(fn (testUsesTheFixture) (assertEq "doubled" 8 (testFixture 4)))
+(fn (testUsesTheFixture)
+  (assertEq "doubled" 8 (testFixture 4)))

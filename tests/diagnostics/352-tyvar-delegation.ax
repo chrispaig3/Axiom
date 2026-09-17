@@ -32,43 +32,36 @@
 (import IO)
 
 (:: panic (-> String a))
-
 ;@axiom:effect(io)
 (fn (panic msg)
   {
     (writeStr 2 msg)
     (cast a (exit 70))
-  }
-)
+  })
 
 (:: conjure (-> Int a))
-
 (fn (conjure n)
-  (cast a n)
-)
+  (cast a n))
 
 ; CORRECT: diverges, because `panic` does.
 (:: rethrow (-> Int a))
-
 ;@axiom:effect(io)
-(fn (rethrow n) (panic "rethrown\n"))
+(fn (rethrow n)
+  (panic "rethrown\n"))
 
 ; UNSOUND: fabricates, because `conjure` does.
 (:: sneak (-> Int a))
-
-(fn (sneak n) (conjure n))
+(fn (sneak n)
+  (conjure n))
 
 ; UNSOUND on one arm, which is enough.
 (:: mixed (-> Int a))
-
 ;@axiom:effect(io)
 (fn (mixed n)
   (if (> n 0)
     (panic "big\n")
-    (cast a n)
-  )
-)
+    (cast a n)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

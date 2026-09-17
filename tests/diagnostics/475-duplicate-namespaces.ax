@@ -17,11 +17,14 @@
 ;           there is deliberately no diagnostic about it below. A
 ;           bucket keyed on the name alone, without the namespace,
 ;           would report one here and this file would fail.
-(fn (dup n) 1)
+(fn (dup n)
+  1)
 
-(fn (dup n) 2)
+(fn (dup n)
+  2)
 
-(fn (dup n) 3)
+(fn (dup n)
+  3)
 
 (data Same
   (MkSame Int))
@@ -31,13 +34,15 @@
 
 (macro (mm x) (+ x 1))
 
-(fn (mm n) 2)
+(fn (mm n)
+  2)
 
 (data Thing
   (MkThing Int))
 
-(fn (Thing n) 1)
+(fn (Thing n)
+  1)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

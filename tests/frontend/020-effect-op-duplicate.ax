@@ -7,12 +7,12 @@
 ; question of a trait method. What is being pinned is that a global
 ; value-namespace occupant COLLIDES rather than being quietly won by
 ; whichever declaration the pass order reached last.
-(effect Sz (
-  sz :: (-> Int Int)
-))
+(effect Sz
+  (sz :: (-> Int Int)))
 
-(fn (sz n) 7)
+(fn (sz n)
+  7)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

@@ -24,7 +24,6 @@
   (MCons a (MyList a)))
 
 (:: walk (-> (MyList Int) Int))
-
 (fn (walk l)
   (let (
     (mut cur l)
@@ -42,23 +41,17 @@
           )
           ((MNil)
             (set go 0)
-          )
-        ))
+          )))
       acc
-    }
-  )
-)
+    }))
 
 (:: deep (-> (Option (Option Int)) Int))
-
 (fn (deep o)
   (match o
     ((Some (Some x)) (+ x 1))
     ((Some (None)) 1)
-    ((None) 0)
-  )
-)
+    ((None) 0)))
 
 (:: main Int)
-
-(fn (main) (+ (walk (MCons 10 (MCons 20 MNil))) (deep (Some (Some 11)))))
+(fn (main)
+  (+ (walk (MCons 10 (MCons 20 MNil))) (deep (Some (Some 11)))))

@@ -7,4 +7,5 @@
 (import EffLeak (leak))
 
 (:: main Int)
-(fn (main) (leak 1))
+(fn (main)
+  (leak 1))

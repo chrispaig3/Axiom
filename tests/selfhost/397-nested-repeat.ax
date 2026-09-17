@@ -48,16 +48,16 @@
    (fn (r6 x) (+ v ...))))
 
 (:: add1 (-> Int Int))
-
-(fn (add1 x) (+ x 1))
+(fn (add1 x)
+  (+ x 1))
 
 (:: add2 (-> Int Int))
-
-(fn (add2 x) (+ x 2))
+(fn (add2 x)
+  (+ x 2))
 
 (:: dbl (-> Int Int))
-
-(fn (dbl x) (+ x x))
+(fn (dbl x)
+  (+ x x))
 
 (m1 (add1 1) (add2 2))
 
@@ -74,5 +74,5 @@
 (m6 (k 1 5) (k 1 6))
 
 (:: main Int)
-
-(fn (main) (+ (+ (+ (+ (+ (r1 0) (r2 0)) (+ (r3a 0) (r3b 0))) (r4 0)) (r5 0)) (r6 0)))
+(fn (main)
+  (+ (+ (+ (+ (+ (r1 0) (r2 0)) (+ (r3a 0) (r3b 0))) (r4 0)) (r5 0)) (r6 0)))

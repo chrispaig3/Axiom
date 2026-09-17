@@ -23,29 +23,23 @@
   (mut f : (-> Int Int)))
 
 (:: hook (-> (Hook @r) (String @s) Int))
-
 (fn (hook h s)
   {
     (set h.f (lambda (n) (+ n (strLen s))))
     0
-  }
-)
+  })
 
 (:: keep (-> (Hook @r) (String @r) Int))
-
 (fn (keep h s)
   {
     (set h.f (lambda (n) (+ n (strLen s))))
     0
-  }
-)
+  })
 
 (:: mk (-> (String @s) Int Int))
-
 (fn (mk s)
-  (lambda (n) (+ n (strLen s)))
-)
+  (lambda (n) (+ n (strLen s))))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

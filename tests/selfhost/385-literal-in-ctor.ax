@@ -6,15 +6,12 @@
   (JustB Int))
 
 (:: h (-> M2 Int))
-
 (fn (h m)
   (match m
     ((JustB 5) 50)
     ((JustB x) x)
-    ((NoneB) 7)
-  )
-)
+    ((NoneB) 7)))
 
 (:: main Int)
-
-(fn (main) (+ (h (JustB 5)) (+ (h (JustB 3)) (h NoneB))))
+(fn (main)
+  (+ (h (JustB 5)) (+ (h (JustB 3)) (h NoneB))))

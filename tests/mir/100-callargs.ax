@@ -12,33 +12,29 @@
 (import IO)
 
 (:: probeSub (-> Int Int Int))
-
-(fn (probeSub a b) (- (* a 100) b))
+(fn (probeSub a b)
+  (- (* a 100) b))
 
 (:: probeMix (-> Int Int Int Int))
-
-(fn (probeMix a b c) (+ (* a 100) (+ (* b 10) c)))
+(fn (probeMix a b c)
+  (+ (* a 100) (+ (* b 10) c)))
 
 (:: probe (-> Int Int))
-
-(fn (probe n) (+ (probeSub n (+ n 1)) (probeMix n (+ n 1) (+ n 2))))
+(fn (probe n)
+  (+ (probeSub n (+ n 1)) (probeMix n (+ n 1) (+ n 2))))
 
 (:: emit (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (emit k)
   (if (>= k 20)
     0
     {
       (let ((v (probe k)))
-        (println "{v}")
-      )
+        (println "{v}"))
       (emit (+ k 1))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (emit 0))
+(fn (main)
+  (emit 0))

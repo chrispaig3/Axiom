@@ -35,85 +35,72 @@
 (struct EmitOf (a)
   (emit : (-> a Int)))
 
-
 ;@axiom:restrict(no-recursion)
 (:: viaCap (-> Int Int))
-
 (fn (viaCap n)
-  (let ((c (EmitOf (lambda (v) (viaCap v)))))
-    ((c.emit) n)
-  )
-)
+  (let ((c 
+    (EmitOf
+      (lambda (v) (viaCap v)))))
+    (c.emit n)))
 
 ;@axiom:restrict(no-recursion)
 (:: countdown (-> Int Int))
-
 (fn (countdown n)
   (if (<= n 0)
     0
-    (countdown (- n 1))
-  )
-)
+    (countdown (- n 1))))
 
 ;@axiom:restrict(no-recursion)
 (:: ping (-> Int Int))
-
 (fn (ping n)
   (if (<= n 0)
     0
-    (pong (- n 1))
-  )
-)
+    (pong (- n 1))))
 
 (:: pong (-> Int Int))
-
-(fn (pong n) (pang n))
+(fn (pong n)
+  (pang n))
 
 (:: pang (-> Int Int))
-
-(fn (pang n) (ping n))
+(fn (pang n)
+  (ping n))
 
 ;@axiom:restrict(no-recursion)
 (:: entry (-> Int Int))
-
-(fn (entry n) (countdown n))
+(fn (entry n)
+  (countdown n))
 
 (:: d4 (-> Int Int))
-
-(fn (d4 n) (+ n 1))
+(fn (d4 n)
+  (+ n 1))
 
 (:: d3 (-> Int Int))
-
-(fn (d3 n) (d4 n))
+(fn (d3 n)
+  (d4 n))
 
 (:: d2 (-> Int Int))
-
-(fn (d2 n) (d3 n))
+(fn (d2 n)
+  (d3 n))
 
 (:: d1 (-> Int Int))
-
-(fn (d1 n) (d2 n))
+(fn (d1 n)
+  (d2 n))
 
 ;@axiom:restrict(no-recursion)
 (:: deep (-> Int Int))
-
-(fn (deep n) (d1 n))
+(fn (deep n)
+  (d1 n))
 
 ;@axiom:restrict(no-recursion)
 (:: looped (-> Int Int))
-
 (fn (looped n)
   (let ((mut i 0))
     {
       (while (< i n)
         (set i (+ i 1)))
       i
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 (fn (main)
-  (+ (viaCap 2) (+ (countdown 3) (+ (ping 4) (+ (entry 5) (+ (deep 6) (looped 7))))))
-)
+  (+ (viaCap 2) (+ (countdown 3) (+ (ping 4) (+ (entry 5) (+ (deep 6) (looped 7)))))))

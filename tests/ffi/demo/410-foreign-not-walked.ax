@@ -17,9 +17,7 @@
 ; are built and dropped, each holding a live foreign handle beside two
 ; strings the release path must follow.
 (import IO)
-
 (import Fmt)
-
 (import Str)
 
 ; The RAW shims are bound here on purpose, bypassing `Demo.ax`'s
@@ -37,7 +35,6 @@
   (after : String))
 
 (pub :: roundTrip (-> Foreign Int Int))
-
 ;@axiom:effect(io)
 (pub fn (roundTrip h i)
   (if (>= i 2000)
@@ -47,11 +44,7 @@
     (let ((s (Session (strConcat "a" "b") h (strConcat "c" "d"))))
       (if (== (strLen s.before) 2)
         (roundTrip h (+ i 1))
-        (- 0 1)
-      )
-    )
-  )
-)
+        (- 0 1)))))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -67,10 +60,6 @@
           {
             (println (fmtInt v))
             1
-          }
-        )
-      }
-    )
-  )
-)
+          })
+      })))
 ; expect 0

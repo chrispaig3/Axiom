@@ -33,42 +33,22 @@
 ; `#effect=io` claim and the checker's `#effects=IO` derivation, and a
 ; policy is the comparison of the two.
 (import IO)
-
 (import Str)
-
 (import Vec)
-
 (import Agent.Tags)
 
 (:: stream String)
-
 (fn (stream)
-  (strConcat
-    (strConcat
-      (strConcat
-        "F shout specimen.ax:11:5-10 \"(Int -> Int)\" @cc70b00d8093fca4 #effect=io #agent:readonly #effects=IO\n"
-        "F quiet specimen.ax:16:5-10 \"(Int -> Int)\" @67cbf1247deb9229 #pure\n"
-      )
-      (strConcat
-        "D Option - \"data Option\" #ctors=Some,None\n"
-        "T Show /p/Show.ax:39:13-17 \"trait Show\" @8318f82fa5e17568 #methods=show:(a -> String)\n"
-      )
-    )
-    (strConcat
-      "F die /p/IO.ax:458:9-12 \"(String -> (Int -> Int))\" @52fb9ccad9feab1b #effect=io #effects=Alloc,IO #calls=IO$exit,Show#Int#show,Str$strConcat\n"
-      "compilation failed due to 1 previous error\n"
-    )
-  )
-)
+  (strConcat (strConcat (strConcat "F shout specimen.ax:11:5-10 \"(Int -> Int)\" @cc70b00d8093fca4 #effect=io #agent:readonly #effects=IO\n" "F quiet specimen.ax:16:5-10 \"(Int -> Int)\" @67cbf1247deb9229 #pure\n") (strConcat "D Option - \"data Option\" #ctors=Some,None\n" "T Show /p/Show.ax:39:13-17 \"trait Show\" @8318f82fa5e17568 #methods=show:(a -> String)\n")) (strConcat "F die /p/IO.ax:458:9-12 \"(String -> (Int -> Int))\" @52fb9ccad9feab1b #effect=io #effects=Alloc,IO #calls=IO$exit,Show#Int#show,Str$strConcat\n" "compilation failed due to 1 previous error\n")))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((syms (axsymParse (stream))))
     {
       (println (format (vecLen syms)))
-      (let ((sh (cast Sym (vecGet syms 0))))
+      (let ((sh 
+        (cast Sym (vecGet syms 0))))
         {
           (println sh.name)
           (println (symEffects sh))
@@ -78,28 +58,30 @@
           (println sh.nid)
           (println sh.ty)
         })
-      (let ((q (cast Sym (vecGet syms 1))))
+      (let ((q 
+        (cast Sym (vecGet syms 1))))
         {
           (println (format (symHasTag q "pure")))
           (println (format (strLen (symTag q "pure"))))
           (println (format (symDerivedPure q)))
         })
-      (let ((o (cast Sym (vecGet syms 2))))
+      (let ((o 
+        (cast Sym (vecGet syms 2))))
         {
           (println o.loc)
           (println (symTag o "ctors"))
         })
-      (let ((t (cast Sym (vecGet syms 3))))
+      (let ((t 
+        (cast Sym (vecGet syms 3))))
         (println (symTag t "methods")))
       ; The delimiter-carrying value, both directions: the whole value
       ; reads back, AND the key to its left is not shadowed by it.
-      (let ((d (cast Sym (vecGet syms 4))))
+      (let ((d 
+        (cast Sym (vecGet syms 4))))
         {
           (println (symTag d "calls"))
           (println (symEffects d))
           (println (symTag d "effect"))
         })
       0
-    }
-  )
-)
+    }))

@@ -28,16 +28,12 @@
 ; draft, and the fixture passed with no fence emitted.
 ; `tests/stdlib/440-atomics.ax` prints the same answer.
 (:: bit (-> Bool Int Int))
-
 (fn (bit ok n)
   (if ok
     n
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 (fn (main)
   (let ((p (__alloc 16)))
     {
@@ -58,8 +54,5 @@
         (b16 (bit (== plain 50) 16))
         (b32 (bit (== word1 7) 32))
       )
-        (+ fenced (+ b1 (+ b2 (+ b4 (+ b8 (+ b16 b32))))))
-      )
-    }
-  )
-)
+        (+ fenced (+ b1 (+ b2 (+ b4 (+ b8 (+ b16 b32)))))))
+    }))

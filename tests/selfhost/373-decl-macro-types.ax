@@ -19,5 +19,5 @@
 (defT idFloat Float)
 
 (:: main Int)
-
-(fn (main) (+ (idInt 7) (__floatToInt (idFloat 3.5))))
+(fn (main)
+  (+ (idInt 7) (__floatToInt (idFloat 3.5))))

@@ -55,48 +55,50 @@
 
 ;@axiom:restrict(no-io, strict)
 (:: hardIo (-> (-> Int Int) Int Int))
-
-(fn (hardIo f n) (f n))
+(fn (hardIo f n)
+  (f n))
 
 ;@axiom:restrict(no-alloc, strict)
 (:: hardAlloc (-> (-> Int Int) Int Int))
-
-(fn (hardAlloc f n) (f n))
+(fn (hardAlloc f n)
+  (f n))
 
 ;@axiom:restrict(no-recursion, strict)
 (:: hardRec (-> (-> Int Int) Int Int))
-
-(fn (hardRec f n) (f n))
+(fn (hardRec f n)
+  (f n))
 
 ;@axiom:restrict(no-io)
 (:: softIo (-> (-> Int Int) Int Int))
-
-(fn (softIo f n) (f n))
+(fn (softIo f n)
+  (f n))
 
 ;@axiom:restrict(no-io, strict)
 (:: provable (-> Int Int))
-
-(fn (provable n) (+ n 1))
+(fn (provable n)
+  (+ n 1))
 
 ;@axiom:effect(io)
 ;@axiom:restrict(no-io, strict)
 (:: refuted (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (refuted n) { (println "loud") n })
+(fn (refuted n)
+  {
+    (println "loud")
+    n
+  })
 
 ;@axiom:restrict(strict)
 (:: strictOnly (-> Int Int))
-
-(fn (strictOnly n) n)
+(fn (strictOnly n)
+  n)
 
 ;@axiom:restrict(no-cast, strict)
 (:: lexStrict (-> (-> Int Int) Int Int))
-
-(fn (lexStrict f n) (f n))
+(fn (lexStrict f n)
+  (f n))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -108,5 +110,4 @@
     (refuted 1)
     (strictOnly 1)
     (lexStrict provable 1)
-  }
-)
+  })

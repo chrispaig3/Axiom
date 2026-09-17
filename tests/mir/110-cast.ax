@@ -17,70 +17,51 @@
 (import IO)
 
 (:: probeId (-> Int Int))
-
 (fn (probeId k)
-  (cast Int k)
-)
+  (cast Int k))
 
 (:: probeAdd (-> Int Int))
-
 (fn (probeAdd k)
   (+
     (cast Int k)
-    (* k 2)
-  )
-)
+    (* k 2)))
 
 (:: probeNest (-> Int Int))
-
 (fn (probeNest k)
-  (cast Int (cast Int (+ k 3)))
-)
+  (cast Int (cast Int (+ k 3))))
 
 (:: probeCall (-> Int Int))
-
 (fn (probeCall k)
-  (cast Int (probeId k))
-)
+  (cast Int (probeId k)))
 
 (:: probeSub (-> Int Int Int))
-
 (fn (probeSub a b)
   (-
     (*
       (cast Int a)
-      100
-    )
-    b
-  )
-)
+      100)
+    b))
 
 (:: probe (-> Int Int))
-
-(fn (probe k) (+ (probeSub k (+ k 1)) (+ (probeId k) (+ (probeAdd k) (+ (probeNest k) (probeCall k))))))
+(fn (probe k)
+  (+ (probeSub k (+ k 1)) (+ (probeId k) (+ (probeAdd k) (+ (probeNest k) (probeCall k))))))
 
 (:: floatKept (-> Int Float))
-
 (fn (floatKept k)
-  (cast Float k)
-)
+  (cast Float k))
 
 (:: emit (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (emit k)
   (if (>= k 20)
     0
     {
       (let ((v (probe k)))
-        (println "{v}")
-      )
+        (println "{v}"))
       (emit (+ k 1))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (emit 0))
+(fn (main)
+  (emit 0))

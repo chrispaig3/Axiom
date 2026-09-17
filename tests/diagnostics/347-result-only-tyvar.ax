@@ -27,21 +27,17 @@
 ; permission and does not make the read safe; it makes the unsafe layer
 ; finite and enumerable, which is what `#raw` in AXSYM is for.
 (:: conjure (-> Int a))
-
 (fn (conjure n)
-  (cast a n)
-)
+  (cast a n))
 
 (:: witnessed (-> a a))
-
-(fn (witnessed x) x)
+(fn (witnessed x)
+  x)
 
 ;@axiom:raw
 (:: declared (-> Int a))
-
 (fn (declared n)
-  (cast a n)
-)
+  (cast a n))
 
 ; A variable NESTED in the result is not a variable the body returns.
 ; `(-> Int (Option a))` answers an `Option`, and `None` carries no `a`
@@ -55,14 +51,14 @@
 ; `(pub :: vecNew (Vec a))` drew AX3040 with no way around it.
 ; `docs/generics-design.md` records what that blocked.
 (:: emptyOpt (-> Int (Option a)))
-
-(fn (emptyOpt n) None)
+(fn (emptyOpt n)
+  None)
 
 ; The same shape one arrow deeper: still nested, still silent.
 (:: emptyOptPair (-> Int Int (Option a)))
-
-(fn (emptyOptPair a b) None)
+(fn (emptyOptPair a b)
+  None)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

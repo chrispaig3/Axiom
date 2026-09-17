@@ -18,38 +18,36 @@
 
 ;@axiom:restrict(no-foreign)
 (:: bridges (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (bridges n) (add n 1))
+(fn (bridges n)
+  (add n 1))
 
 (:: wrap (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (wrap n) (add n 2))
+(fn (wrap n)
+  (add n 2))
 
 ;@axiom:restrict(no-foreign)
 (:: viaHelper (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (viaHelper n) (wrap n))
+(fn (viaHelper n)
+  (wrap n))
 
 ;@axiom:restrict(no-foreign)
 (:: native (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (native n)
   {
     (__syscall3 1 1 0 0)
     n
-  }
-)
+  })
 
 ;@axiom:restrict(no-foreign)
 (:: local (-> Int Int))
-
-(fn (local n) (- n 1))
+(fn (local n)
+  (- n 1))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (+ (bridges 1) (+ (viaHelper 2) (+ (native 3) (local 4)))))
+(fn (main)
+  (+ (bridges 1) (+ (viaHelper 2) (+ (native 3) (local 4)))))

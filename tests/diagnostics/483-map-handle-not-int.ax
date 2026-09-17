@@ -41,25 +41,31 @@
 ; re-bless: the second one's output does not contain the first two
 ; lines at all.
 (import Map)
-
 (import Intern)
 
 ; The control: a real map, used as one. It must stay accepted, or this
 ; case is testing that `Map` is unusable rather than that `Int` is not
 ; a `Map`.
 (:: good (-> Map Int))
-
-(fn (good m) (mapGet m 1 0))
+(fn (good m)
+  (mapGet m 1 0))
 
 (:: main Int)
-
 (fn (main)
-  (let ((it internNew) (real mapNew))
+  (let (
+    (it internNew)
+    (real mapNew)
+  )
     {
       (mapLen it)
       (mapGet 12345 1 0)
-      (mapLen (Map 0 8 0 0 0 0 0))
+      (mapLen (Map
+        0
+        8
+        0
+        0
+        0
+        0
+        0))
       (good real)
-    }
-  )
-)
+    }))

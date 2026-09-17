@@ -17,5 +17,5 @@
 (haunted (+ 1 2))
 
 (:: main Int)
-
-(fn (main) (summing 1 2))
+(fn (main)
+  (summing 1 2))

@@ -2,7 +2,6 @@
 (import IO)
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   (let (
@@ -31,13 +30,26 @@
       ; are the assertion the `Int` channel could not carry: absence is
       ; a TAG now, not a sign, so it survives a lookup that legitimately
       ; answers a negative index and it cannot be confused with one.
-      (println (match (strFindByte hello 108 0) ((None) (- 0 1)) ((Some i) i)))
-      (println (match (strFindByte hello 108 3) ((None) (- 0 1)) ((Some i) i)))
-      (println (match (strFindByte hello 122 0) ((None) (- 0 1)) ((Some i) i)))
-      (println (match (strFindByte hello 122 0) ((None) 1) ((Some _) 0)))
-      (println (match (strFindByte hello 104 0) ((None) 1) ((Some _) 0)))
+      (println
+        (match (strFindByte hello 108 0)
+          ((None) (- 0 1))
+          ((Some i) i)))
+      (println
+        (match (strFindByte hello 108 3)
+          ((None) (- 0 1))
+          ((Some i) i)))
+      (println
+        (match (strFindByte hello 122 0)
+          ((None) (- 0 1))
+          ((Some i) i)))
+      (println
+        (match (strFindByte hello 122 0)
+          ((None) 1)
+          ((Some _) 0)))
+      (println
+        (match (strFindByte hello 104 0)
+          ((None) 1)
+          ((Some _) 0)))
       (println (strDup hello))
       0
-    }
-  )
-)
+    }))

@@ -13,20 +13,18 @@
 ; through the content rewrite (035-string-equality pins it).
 ; The pre-deletion compiler accepts this whole file, exit 0.
 (:: addOne (-> Int Int))
-
-(fn (addOne n) (+ n 1))
+(fn (addOne n)
+  (+ n 1))
 
 (:: shout (-> String String))
-
-(fn (shout s) s)
+(fn (shout s)
+  s)
 
 (:: main Int)
-
 (fn (main)
   {
     (+ 1 "hi")
     (addOne "three")
     (shout 42)
     0
-  }
-)
+  })

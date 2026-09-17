@@ -7,5 +7,5 @@
   (Dark))
 
 (pub :: shadeTouch Int)
-
-(pub fn (shadeTouch) 1)
+(pub fn (shadeTouch)
+  1)

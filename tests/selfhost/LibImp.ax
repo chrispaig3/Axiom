@@ -2,12 +2,11 @@
 ; names something this module can SEE but does not DECLARE, except
 ; `both`, which it declares and imports at once.
 (import HelpImp)
-
 (import MidImp)
 
 (pub :: both (-> Int Int))
-
-(pub fn (both n) (+ n 2))
+(pub fn (both n)
+  (+ n 2))
 
 ; An imported name. `HelpImp$tenTimes` is the meaning here; a `let` or
 ; a declaration of `tenTimes` at the invocation is not.

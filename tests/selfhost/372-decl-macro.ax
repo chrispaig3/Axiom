@@ -31,8 +31,8 @@
    (fn (nm) 7)))
 
 (:: base (-> Int Int))
-
-(fn (base n) (* n 2))
+(fn (base n)
+  (* n 2))
 
 (defWrap w1 base 1)
 
@@ -40,10 +40,8 @@
 
 (defPair p q)
 
-(QualMac::qmk
-  made
-)
+(QualMac::qmk made)
 
 (:: main Int)
-
-(fn (main) (+ (+ (w1 5) (w2 5)) (+ (+ p q) made)))
+(fn (main)
+  (+ (+ (w1 5) (w2 5)) (+ (+ p q) made)))

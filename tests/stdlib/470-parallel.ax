@@ -34,7 +34,6 @@
 (import IO)
 
 (:: spin (-> Int Int))
-
 (fn (spin n)
   (let (
     (mut i 0)
@@ -47,49 +46,67 @@
           (set i (+ i 1))
         })
       acc
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((base 40))
     {
       ; --- 1. two bindings, the first one slow ---
-      (parallel p ((a (+ base (spin 3000000))) (b (+ base 2)))
-        (println a)
-        (println b))
-
+      (parallel p (
+        (a (+ base (spin 3000000)))
+        (b (+ base 2))
+      )
+        {
+          (println a)
+          (println b)
+        })
       ; --- 2. captured words, three bindings ---
-      (parallel q ((x (* base 2)) (y (* base 3)) (z (* base 4)))
+      (parallel q (
+        (x (* base 2))
+        (y (* base 3))
+        (z (* base 4))
+      )
         (println (+ x (+ y z))))
-
       ; --- 3. one binding ---
       (parallel r ((one 1))
         (println one))
-
       ; --- 4. a child that spawns children ---
-      (parallel s ((inner (parallel t ((u 5) (v 6)) (* u v))))
+      (parallel s ((inner 
+        (parallel t (
+          (u 5)
+          (v 6)
+        )
+          (* u v))))
         (println inner))
-
       ; --- 5. twelve bindings ---
-      (parallel w ((b0 0) (b1 1) (b2 2) (b3 3) (b4 4) (b5 5) (b6 6) (b7 7) (b8 8) (b9 9) (b10 10) (b11 11))
+      (parallel w (
+        (b0 0)
+        (b1 1)
+        (b2 2)
+        (b3 3)
+        (b4 4)
+        (b5 5)
+        (b6 6)
+        (b7 7)
+        (b8 8)
+        (b9 9)
+        (b10 10)
+        (b11 11)
+      )
         (println (+ b0 (+ b1 (+ b2 (+ b3 (+ b4 (+ b5 (+ b6 (+ b7 (+ b8 (+ b9 (+ b10 b11)))))))))))))
-
       ; --- 6. the value of the form ---
-      (println (parallel v ((k 7)) (+ k 1)))
-
+      (println
+        (parallel v ((k 7))
+          (+ k 1)))
       ; --- 7. `parallel` off the head is a name ---
       (let ((parallel 3))
         (println (twice parallel)))
       0
-    }
-  )
-)
+    }))
 
 ; Term 7's callee: `parallel` in PARAMETER position.
 (:: twice (-> Int Int))
-
-(fn (twice parallel) (+ parallel parallel))
+(fn (twice parallel)
+  (+ parallel parallel))

@@ -17,17 +17,25 @@
   (tell :: (-> String Int)))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
-    (println (handle (ask 1) (Ask) (lambda (x) (* x 10))))
-    (handle (tell "typed") (Tell) (lambda (s)
-      {
-        (println s)
-        (strLen s)
-      }
-    ))
-    (handle (ask 1) (Ask) (lambda (x) (* x 10)))
-  }
-)
+    (println
+      (handle
+        (ask 1)
+        (Ask)
+        (lambda (x) (* x 10))))
+    (handle
+      (tell "typed")
+      (Tell)
+      (lambda (s)
+        {
+          (println s)
+          (strLen s)
+        }
+      ))
+    (handle
+      (ask 1)
+      (Ask)
+      (lambda (x) (* x 10)))
+  })

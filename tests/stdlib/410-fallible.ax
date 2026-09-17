@@ -72,28 +72,21 @@
 ;        the gap or across a chunk - 1,428 strings of 32 bytes is
 ;        68 KB, seventeen gaps
 (import IO)
-
 (import Str)
-
 (import Vec)
-
 (import Fallible)
 
 ; The deep callee. It does not know what the loop wants done; it says
 ; what was wrong and continues with whatever it is told.
 (:: parseRecord (-> Int Int))
-
 (fn (parseRecord i)
   (if (== (% i 7) 0)
     (fallibleMalformed "record malformed")
-    i
-  )
-)
+    i))
 
 ; The batch loop. A `while`, so it runs the same at -O0 and -O2 with
 ; no tail-call question, and one `fallibleIsSkipped` per record.
 (:: total (-> Int Int))
-
 (fn (total n)
   (let (
     (mut i 1)
@@ -105,27 +98,18 @@
           {
             (set acc (if (fallibleIsSkipped v)
               acc
-              (+ acc v)
-            ))
+              (+ acc v)))
             (set i (+ i 1))
-          }
-        ))
+          }))
       acc
-    }
-  )
-)
+    }))
 
 ; 1 when the bump barely moved and the chunk is the same one.
 (:: flat (-> Int Int Int))
-
 (fn (flat m1 m2)
-  (if (&&
-    (== (__load64 m2 2) (__load64 m1 2))    (< (- (__load64 m2 0) (__load64 m1 0)) 4096)
-  )
+  (if (&& (== (__load64 m2 2) (__load64 m1 2)) (< (- (__load64 m2 0) (__load64 m1 0)) 4096))
     1
-    0
-  )
-)
+    0))
 
 ; The same loop with a message BUILT per malformed record
 ; (`strConcat`/`fmtInt`, 32 bytes each): term `e` below. Until the
@@ -134,16 +118,12 @@
 ; and now reads flat, because the handler answers an `Int` and the
 ; last step's argument goes with the call.
 (:: parseBuilt (-> Int Int))
-
 (fn (parseBuilt i)
   (if (== (% i 7) 0)
     (fallibleMalformed (strConcat "record " (fmtInt i)))
-    i
-  )
-)
+    i))
 
 (:: totalB (-> Int Int))
-
 (fn (totalB n)
   (let (
     (mut i 1)
@@ -155,31 +135,21 @@
           {
             (set acc (if (fallibleIsSkipped v)
               acc
-              (+ acc v)
-            ))
+              (+ acc v)))
             (set i (+ i 1))
-          }
-        ))
+          }))
       acc
-    }
-  )
-)
+    }))
 
 ; 1 when the bump moved past a gap, or the chunk changed - a crossing
 ; IS growth for this direction.
 (:: grew (-> Int Int Int))
-
 (fn (grew m1 m2)
-  (if (||
-    (!= (__load64 m2 2) (__load64 m1 2))    (> (- (__load64 m2 0) (__load64 m1 0)) 4096)
-  )
+  (if (|| (!= (__load64 m2 2) (__load64 m1 2)) (> (- (__load64 m2 0) (__load64 m1 0)) 4096))
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -188,81 +158,108 @@
     (kept vecNewRef)
   )
     {
-      (println (cast Int (handle (total 20) (Fallible) fallibleSkip)))  ; 189
-      (println (cast Int (handle (total 20) (Fallible) (fallibleDefault 100))))  ; 389
       (println
-        (cast Int (handle (total 20) (Fallible Mut) (fallibleCounting tSkip fallibleSkip)))
-      )  ; 189
+        (cast Int (handle
+          (total 20)
+          (Fallible)
+          fallibleSkip)))
+      ; 189
+      (println
+        (cast Int (handle
+          (total 20)
+          (Fallible)
+          (fallibleDefault 100))))
+      ; 389
+      (println
+        (cast Int (handle
+          (total 20)
+          (Fallible Mut)
+          (fallibleCounting tSkip fallibleSkip))))
+      ; 189
       (println (fallibleCount tSkip))  ; 2
       (println
-        (cast Int (handle (total 20) (Fallible Mut) (fallibleCounting tDefault (fallibleDefault 100))))
-      )  ; 389
+        (cast Int (handle
+          (total 20)
+          (Fallible Mut)
+          (fallibleCounting tDefault (fallibleDefault 100)))))
+      ; 389
       (println
-        (cast Int (handle (let (
-          (inner (cast Int (handle (total 20) (Fallible) fallibleSkip)))
-          (outer (total 20))
-        )
-          (+ inner outer)
-        ) (Fallible Alloc) (fallibleDefault 100)))
-      )  ; 578
+        (cast Int (handle
+          (let (
+            (inner (cast Int (handle
+              (total 20)
+              (Fallible)
+              fallibleSkip)))
+            (outer (total 20))
+          )
+            (+ inner outer))
+          (Fallible Alloc)
+          (fallibleDefault 100))))
+      ; 578
       (println
-        (cast Int (handle (total 20) (Fallible IO) (lambda (m)
-          {
-            (println
-              (cast String m)
-            )
-            fallibleSkipped
-          }
-        )))
-      )  ; 189
-      (let ((a1 __axiom_arena_mark))
-        (let ((r (cast Int (handle (total 10000) (Fallible) fallibleSkip))))
-          (let ((a2 __axiom_arena_mark))
-            (println (flat a1 a2))  ; 1
-          )
-        )
-      )
-      (let ((b1 __axiom_arena_mark))
-        (let ((r (cast Int (handle (total 10000) (Fallible) (fallibleDefault 0)))))
-          (let ((b2 __axiom_arena_mark))
-            (println (flat b1 b2))  ; 1
-          )
-        )
-      )
-      (let ((c1 __axiom_arena_mark))
-        (let ((r
-          (cast Int (handle (total 10000) (Fallible Mut) (fallibleCounting fallibleTally fallibleSkip)))
-        ))
-          (let ((c2 __axiom_arena_mark))
-            (println (flat c1 c2))  ; 1
-          )
-        )
-      )
-      (let ((e1 __axiom_arena_mark))
-        (let ((r (cast Int (handle (totalB 10000) (Fallible Alloc Mut) fallibleSkip))))
-          (let ((e2 __axiom_arena_mark))
-            (println (flat e1 e2))  ; 1
-          )
-        )
-      )
-      (let ((d1 __axiom_arena_mark))
-        (let ((r
-          (cast Int (handle (total 10000) (Fallible Alloc Mut) (lambda (m)
+        (cast Int (handle
+          (total 20)
+          (Fallible IO)
+          (lambda (m)
             {
-              (vecPush kept (strDup "0123456789abcdef0123456789abcdef"))
+              (println
+                (cast String m))
               fallibleSkipped
             }
-          )))
-        ))
+          ))))
+      ; 189
+      (let ((a1 __axiom_arena_mark))
+        (let ((r 
+          (cast Int (handle
+            (total 10000)
+            (Fallible)
+            fallibleSkip))))
+          (let ((a2 __axiom_arena_mark))
+            (println (flat a1 a2)))))
+      ; 1
+      (let ((b1 __axiom_arena_mark))
+        (let ((r 
+          (cast Int (handle
+            (total 10000)
+            (Fallible)
+            (fallibleDefault 0)))))
+          (let ((b2 __axiom_arena_mark))
+            (println (flat b1 b2)))))
+      ; 1
+      (let ((c1 __axiom_arena_mark))
+        (let ((r 
+          (cast Int (handle
+            (total 10000)
+            (Fallible Mut)
+            (fallibleCounting fallibleTally fallibleSkip)))))
+          (let ((c2 __axiom_arena_mark))
+            (println (flat c1 c2)))))
+      ; 1
+      (let ((e1 __axiom_arena_mark))
+        (let ((r 
+          (cast Int (handle
+            (totalB 10000)
+            (Fallible Alloc Mut)
+            fallibleSkip))))
+          (let ((e2 __axiom_arena_mark))
+            (println (flat e1 e2)))))
+      ; 1
+      (let ((d1 __axiom_arena_mark))
+        (let ((r 
+          (cast Int (handle
+            (total 10000)
+            (Fallible Alloc Mut)
+            (lambda (m)
+              {
+                (vecPush kept (strDup "0123456789abcdef0123456789abcdef"))
+                fallibleSkipped
+              }
+            )))))
           (let ((d2 __axiom_arena_mark))
-            (println (grew d1 d2))  ; 1
-          )
-        )
-      )
+            (println (grew d1 d2)))))
+      ; 1
       ; The status. `main` used to end on the deliberate trap and never
       ; answer; the block's value is now the last `println`'s, which is
       ; a byte count, so it says 0 explicitly.
       0
-    }
-  )
-)
+    }))

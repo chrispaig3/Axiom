@@ -67,30 +67,25 @@
 (import IO)
 
 (:: panic (-> String a))
-
 ;@axiom:effect(io)
 (fn (panic msg)
   {
     (writeStr 2 msg)
     (cast a (exit 70))
-  }
-)
+  })
 
 (:: sound (-> a a))
-
-(fn (sound x) x)
+(fn (sound x)
+  x)
 
 (:: pick (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (pick n)
   (if (< n 0)
     (panic "negative\n")
-    n
-  )
-)
+    n))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (pick 7))
+(fn (main)
+  (pick 7))

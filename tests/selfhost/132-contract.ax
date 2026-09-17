@@ -24,47 +24,61 @@
 ; No `import`: the whole file is arithmetic and comparison, which is
 ; also the vocabulary a contract is allowed (`AX3050`), so it doubles
 ; as evidence that the allowed vocabulary is enough to write one.
-
 ;@axiom:pre((> n 0))
 (:: guarded (-> Int Int))
-
-(fn (guarded n) (- n 1))
+(fn (guarded n)
+  (- n 1))
 
 ;@axiom:post((> result 0))
 (:: ensured (-> Int Int))
-
-(fn (ensured n) (- n 1))
+(fn (ensured n)
+  (- n 1))
 
 ;@axiom:post((== result (* n 2)))
 (:: holds (-> Int Int))
-
-(fn (holds n) (* n 2))
+(fn (holds n)
+  (* n 2))
 
 ;@axiom:pre((> n 0))
 ;@axiom:post((>= result 0))
 (:: both (-> Int Int))
-
-(fn (both n) (- n 1))
+(fn (both n)
+  (- n 1))
 
 ;@axiom:pre((>= n 0))
 (:: onTheSig (-> Int Int))
-
-(fn (onTheSig n) n)
+(fn (onTheSig n)
+  n)
 
 ;@axiom:pre((>= n 0))
 (:: countdown (-> Int Int Int))
-
 (fn (countdown n acc)
   (if (== n 0)
     acc
     (countdown (- n 1) (+ acc 1))))
 
 (:: main Int)
-
 (fn (main)
-  (+ (if (== (guarded 4) 3) 1 0)
-     (+ (if (== (ensured 4) 3) 2 0)
-        (+ (if (== (holds 21) 42) 4 0)
-           (+ (if (== (both 1) 0) 8 0)
-              (+ (if (== (onTheSig 7) 7) 16 0)
-                 (if (== (countdown 200000 0) 200000) 32 0)))))))
+  (+
+    (if (== (guarded 4) 3)
+      1
+      0)
+    (+
+      (if (== (ensured 4) 3)
+        2
+        0)
+      (+
+        (if (== (holds 21) 42)
+          4
+          0)
+        (+
+          (if (== (both 1) 0)
+            8
+            0)
+          (+
+            (if (== (onTheSig 7) 7)
+              16
+              0)
+            (if (== (countdown 200000 0) 200000)
+              32
+              0)))))))

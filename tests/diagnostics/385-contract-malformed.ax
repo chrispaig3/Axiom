@@ -64,79 +64,82 @@
 ; there - `tests/lsp/drive.py`'s `check_range` rule, which
 ; `emitAxtagKeyTypo` one code over had to be corrected for.
 (import Str)
-
 (import Fmt)
 
 ;@axiom:pre((+ n 1))
 (:: wrongType (-> Int Int))
-
-(fn (wrongType n) n)
+(fn (wrongType n)
+  n)
 
 ;@axiom:pre((> n 0) extra)
 (:: notOne (-> Int Int))
-
-(fn (notOne n) n)
+(fn (notOne n)
+  n)
 
 ;@axiom:pre
 (:: noValue (-> Int Int))
-
-(fn (noValue n) n)
+(fn (noValue n)
+  n)
 
 ;@axiom:pre((> result 0))
 (:: resultInPre (-> Int Int))
-
-(fn (resultInPre n) n)
+(fn (resultInPre n)
+  n)
 
 ;@axiom:post((> result 0))
-(fn (noSignature n) n)
+(fn (noSignature n)
+  n)
 
 ;@axiom:pre((> (strLen (fmtInt n)) 0))
 (:: allocates (-> Int Int))
-
-(fn (allocates n) n)
+(fn (allocates n)
+  n)
 
 ;@axiom:pre((> n 0))
 (:: guarded (-> Int Int))
-
-(fn (guarded n) n)
+(fn (guarded n)
+  n)
 
 ;@axiom:post((> result 0))
 (:: ensured (-> Int Int))
-
-(fn (ensured n) n)
+(fn (ensured n)
+  n)
 
 ;@axiom:pre((> (strLen s) 0))
 (:: measures (-> String Int))
-
-(fn (measures s) 1)
+(fn (measures s)
+  1)
 
 (:: onTheSig (-> Int Int))
-
 ;@axiom:post((> result 0))
-(fn (onTheSig n) 1)
+(fn (onTheSig n)
+  1)
 
 (:: bump (-> Int Int))
-
-(fn (bump n) n)
+(fn (bump n)
+  n)
 
 ;@axiom:pre((> (strLen s) 0))
 (:: names (-> String Int))
+(fn (names s)
+  (cast Int bump))
 
-(fn (names s) (cast Int bump))
-
-(data Box (Wrap Int) (Empty))
+(data Box
+  (Wrap Int)
+  (Empty))
 
 (:: boxed (-> Int Int))
-
-(fn (boxed n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+(fn (boxed n)
+  (match (Wrap n)
+    ((Wrap x) x)
+    ((Empty) 0)))
 
 ;@axiom:pre((> (boxed n) 0))
 (:: constructs (-> Int Int))
-
-(fn (constructs n) n)
+(fn (constructs n)
+  n)
 
 (:: main Int)
-
 (fn (main)
   {
     (wrongType 1)
@@ -151,5 +154,4 @@
     (onTheSig 1)
     (names "y")
     (constructs 1)
-  }
-)
+  })

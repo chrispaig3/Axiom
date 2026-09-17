@@ -35,52 +35,39 @@
 ; out of the `match`. `(Cons a (Nil))` rejecting a two-element list has
 ; to leave `(Cons a b)` a chance to take it.
 (pub :: firstTwo (-> L Int))
-
 (pub fn (firstTwo l)
   (match l
     ((Cons a (Cons b t)) (+ a b))
     ((Cons a (Nil)) a)
-    ((Nil) 0)
-  )
-)
+    ((Nil) 0)))
 
 ; The scrutinee is a parameter, so its shape cannot be read off the
 ; expression that built it — only off `Red`/`Green`/`Blue`.
 (pub :: rank (-> Color Int))
-
 (pub fn (rank c)
   (match c
     ((Red) 1)
     ((Green) 2)
-    ((Blue) 3)
-  )
-)
+    ((Blue) 3)))
 
 ; An unboxed tag stored in a field of a boxed constructor: `describe`
 ; must compare the field word itself, not load word 0 of it.
 (pub :: describe (-> Item Int))
-
 (pub fn (describe it)
   (match it
     ((Wrap (Red) n) (+ 100 n))
     ((Wrap (Green) n) (+ 200 n))
-    ((Wrap (Blue) n) (+ 300 n))
-  )
-)
+    ((Wrap (Blue) n) (+ 300 n))))
 
 ; Plain integers that collide numerically with `Color`'s tags. Nothing
 ; about the value 2 says whether it is the integer 2 or a constructor,
 ; so a representation decision made by looking at it gets this wrong.
 (pub :: addPair (-> Pair Int))
-
 (pub fn (addPair p)
   (match p
-    ((Mk a b) (+ a b))
-  )
-)
+    ((Mk a b) (+ a b))))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; --- nested-pattern fallthrough ---
@@ -103,10 +90,7 @@
     ; --- a bare tag through a let, then matched again ---
     (println
       (let ((c Green))
-        (rank c)
-      )
-    )
+        (rank c)))
     ; 2
     0
-  }
-)
+  })

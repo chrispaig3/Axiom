@@ -1,8 +1,8 @@
 ; expect 42
 (:: answer Int)
-
-(fn (answer) 42)
+(fn (answer)
+  42)
 
 (:: main Int)
-
-(fn (main) answer)
+(fn (main)
+  answer)

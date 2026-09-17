@@ -11,13 +11,10 @@
 ; standard library hands it straight to `write` - so both views are
 ; checked side by side here: "héllo" is 6 bytes and 5 characters.
 (import IO)
-
 (import Str)
-
 (import Utf8)
 
 (:: check (-> Bool Int Int))
-
 ;@axiom:effect(io)
 (fn (check ok n)
   (if ok
@@ -25,25 +22,19 @@
     {
       (println n)
       1
-    }
-  )
-)
+    }))
 
 ; `utf8DecodeAt` and `utf8CharAt` answer `(Option Int)`; this file
 ; prints the code point, and -1 for `None`, which keeps the golden
 ; readable as numbers and is the sentinel the two answered until
 ; 2026-09-03.
 (:: cpOr (-> (Option Int) Int))
-
 (fn (cpOr o)
   (match o
     ((Some c) c)
-    ((None) (- 0 1))
-  )
-)
+    ((None) (- 0 1))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; Both views of the same string, neither one wrong.
@@ -55,50 +46,39 @@
     (println
       (check
         (==
-          (cpOr (utf8DecodeAt "A" 0))          (cast Int 'A')
-        )        101
-      )
-    )
+          (cpOr (utf8DecodeAt "A" 0))
+          (cast Int 'A'))
+        101))
     (println
       (check
         (==
-          (cpOr (utf8DecodeAt "é" 0))          (cast Int 'é')
-        )        102
-      )
-    )
+          (cpOr (utf8DecodeAt "é" 0))
+          (cast Int 'é'))
+        102))
     (println
       (check
         (==
-          (cpOr (utf8DecodeAt "世" 0))          (cast Int '世')
-        )        103
-      )
-    )
+          (cpOr (utf8DecodeAt "世" 0))
+          (cast Int '世'))
+        103))
     (println
       (check
         (==
-          (cpOr (utf8DecodeAt "😀" 0))          (cast Int '😀')
-        )        104
-      )
-    )
+          (cpOr (utf8DecodeAt "😀" 0))
+          (cast Int '😀'))
+        104))
     ; Encoding is the inverse, and its width agrees with the bytes it
     ; actually writes.
     (println
       (utf8FromChar
-        (cast Int '世')
-      )
-    )
+        (cast Int '世')))
     (println
       (strLen
         (utf8FromChar
-          (cast Int '😀')
-        )
-      )
-    )
+          (cast Int '😀'))))
     (println
       (utf8Width
-        (cast Int 'é')
-      )
-    )
+        (cast Int 'é')))
     ; Character indexing steps over multi-byte sequences: in
     ; "aé世", character 2 is 世 even though it starts at byte 3.
     (println (cpOr (utf8CharAt "aé世" 2)))
@@ -111,10 +91,8 @@
       (check
         (if (utf8Valid (strSlice "é" 1 1))
           false
-          true
-        )        106
-      )
-    )
+          true)
+        106))
     ; A malformed byte still advances, so iteration terminates: the
     ; tail byte of "é" alone is one "character".
     (println (utf8Len (strSlice "é" 1 1)))
@@ -139,5 +117,4 @@
     (println (check (utf8Valid (utf8FromChar 2000000)) 109))
     (println (cpOr (utf8DecodeAt (utf8FromChar 55296) 0)))
     0
-  }
-)
+  })

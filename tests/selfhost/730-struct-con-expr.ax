@@ -23,16 +23,9 @@
   (y : Int))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (p (struct P 40 2))
     (z (cast Int (alloc Int 8)))
   )
-    (+
-      (+
-        p.x        p.y
-      )      z
-    )
-  )
-)
+    (+ (+ p.x p.y) z)))

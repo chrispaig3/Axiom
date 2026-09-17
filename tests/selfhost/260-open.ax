@@ -1,19 +1,14 @@
 ; expect 42
 (import Sys)
-
 (import Err)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (match (sysOpenPath (__addr "in.ax") oRdonly)
     ((Ok fd)
       (if (> fd 2)
         42
-        8
-      )
+        8)
     )
-    ((Err e) 7)
-  )
-)
+    ((Err e) 7)))

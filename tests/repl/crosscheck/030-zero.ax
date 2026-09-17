@@ -1,11 +1,9 @@
 (import IO)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (println (- 5 5))
     0
-  }
-)
+  })

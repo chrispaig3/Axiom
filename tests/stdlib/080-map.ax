@@ -31,51 +31,40 @@
 ; collision between distinct keys is impossible). That is the case
 ; linear probing has to handle.
 (import IO)
-
 (import Map)
 
 ; `Bool` as a printable digit. There is no `printBool`, and adding one
 ; belongs in `IO`, not in a test.
 (pub :: mtBit (-> Bool Int))
-
 (pub fn (mtBit b)
   (if b
     1
-    0
-  )
-)
+    0))
 
 ; Insert `k -> k*10` for k in [lo, hi). Recursion, because there is no
 ; loop and no function value to fold with.
 (pub :: mtInsertRange (-> Map Int Int Map))
-
 (pub fn (mtInsertRange m lo hi)
   (if (>= lo hi)
     m
     {
       (mapInsert m lo (* lo 10))
       (mtInsertRange m (+ lo 1) hi)
-    }
-  )
-)
+    }))
 
 ; Check that every k in [lo, hi) still maps to k*10, returning the count
 ; of keys that do. A single number that must equal `hi - lo` is a
 ; stronger assertion than a handful of spot checks, and it localises
 ; nothing - which is why the spot checks are also kept.
 (pub :: mtCountIntact (-> Map Int Int Int))
-
 (pub fn (mtCountIntact m lo hi)
   (if (>= lo hi)
     0
     (+
       (if (== (mapGet m lo (- 0 1)) (* lo 10))
         1
-        0
-      )      (mtCountIntact m (+ lo 1) hi)
-    )
-  )
-)
+        0)
+      (mtCountIntact m (+ lo 1) hi))))
 
 ; Insert then immediately remove `key`, `n` times.
 ;
@@ -87,7 +76,6 @@
 ; hang, so the assertion after this runs is that lookups are still
 ; *right*, not merely that the program terminated.
 (pub :: mtChurn (-> Map Int Int Map))
-
 (pub fn (mtChurn m key n)
   (if (<= n 0)
     m
@@ -95,12 +83,9 @@
       (mapInsert m key 7)
       (mapRemove m key)
       (mtChurn m key (- n 1))
-    }
-  )
-)
+    }))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; --- a fresh Map is empty and total ---
@@ -115,8 +100,7 @@
       (println (mapUsed m))  ; 0
       (println (mtBit (mapHas m 5)))  ; 0
       (println
-        (cast Int (mapGet m 5 (- 0 7)))
-      )
+        (cast Int (mapGet m 5 (- 0 7))))
       ; -7: default returned
       (println (mapSumKeys m))  ; 0
       (println (mapSumVals m))  ; 0
@@ -129,22 +113,18 @@
       (println (mapSumKeys m))  ; 820 = 1+..+40
       (println (mapSumVals m))  ; 8200
       (println
-        (cast Int (mapGet m 1 (- 0 1)))
-      )
+        (cast Int (mapGet m 1 (- 0 1))))
       ; 10: first ever inserted
       (println
-        (cast Int (mapGet m 40 (- 0 1)))
-      )
+        (cast Int (mapGet m 40 (- 0 1))))
       ; 400: last inserted
       (println
-        (cast Int (mapGet m 20 (- 0 1)))
-      )
+        (cast Int (mapGet m 20 (- 0 1))))
       ; 200
       ; --- a key that was never inserted ---
       (println (mtBit (mapHas m 999)))  ; 0
       (println
-        (cast Int (mapGet m 999 (- 0 7)))
-      )
+        (cast Int (mapGet m 999 (- 0 7))))
       ; -7
       (println (mtBit (mapHas m 0)))  ; 0: 0 is not special
       (println (mtBit (mapHas m 41)))  ; 0: just past the range
@@ -154,8 +134,7 @@
       (println (mapUsed m))  ; 40: unchanged
       (println (mapCap m))  ; 128: no growth
       (println
-        (cast Int (mapGet m 7 (- 0 1)))
-      )
+        (cast Int (mapGet m 7 (- 0 1))))
       ; 12345
       (println (mapSumVals m))  ; 8200 - 70 + 12345
       (mapInsert m 7 70)
@@ -172,16 +151,13 @@
       (println (mapLen c))  ; 3: three entries...
       (println (mapCap c))  ; 16: ...no rehash
       (println
-        (cast Int (mapGet c 30 (- 0 1)))
-      )
+        (cast Int (mapGet c 30 (- 0 1))))
       ; 230: home slot
       (println
-        (cast Int (mapGet c 79 (- 0 1)))
-      )
+        (cast Int (mapGet c 79 (- 0 1))))
       ; 380: one probe on
       (println
-        (cast Int (mapGet c 85 (- 0 1)))
-      )
+        (cast Int (mapGet c 85 (- 0 1))))
       ; 460: two probes on
       (println (mapSumVals c))  ; 1070
       ; --- removing the middle of the probe run must not orphan the end
@@ -190,12 +166,10 @@
       (println (mapUsed c))  ; 3: tombstone still held
       (println (mtBit (mapHas c 79)))  ; 0
       (println
-        (cast Int (mapGet c 30 (- 0 1)))
-      )
+        (cast Int (mapGet c 30 (- 0 1))))
       ; 230: before the hole
       (println
-        (cast Int (mapGet c 85 (- 0 1)))
-      )
+        (cast Int (mapGet c 85 (- 0 1))))
       ; 460: past the hole
       (println (mapSumVals c))  ; 690
       ; --- the tombstone is reused, not leaked ---
@@ -203,12 +177,10 @@
       (println (mapLen c))  ; 3
       (println (mapUsed c))  ; 3: reused, not grown
       (println
-        (cast Int (mapGet c 79 (- 0 1)))
-      )
+        (cast Int (mapGet c 79 (- 0 1))))
       ; 381
       (println
-        (cast Int (mapGet c 85 (- 0 1)))
-      )
+        (cast Int (mapGet c 85 (- 0 1))))
       ; 460: still reachable
       ; --- removing an absent key changes nothing ---
       (mapRemove c 999)
@@ -231,16 +203,13 @@
       (mapInsert x (- 0 1) 333)
       (println (mapLen x))  ; 8
       (println
-        (cast Int (mapGet x 9223372036854775807 (- 0 1)))
-      )
+        (cast Int (mapGet x 9223372036854775807 (- 0 1))))
       ; 111
       (println
-        (cast Int (mapGet x (- 0 9223372036854775807) (- 0 1)))
-      )
+        (cast Int (mapGet x (- 0 9223372036854775807) (- 0 1))))
       ; 222
       (println
-        (cast Int (mapGet x (- 0 1) (- 0 1)))
-      )
+        (cast Int (mapGet x (- 0 1) (- 0 1))))
       ; 333
       (println (mtBit (mapHas x (- 0 2))))  ; 0
       ; --- a Map of Str values: the value position is a type variable,
@@ -252,9 +221,7 @@
       ; answers `Int` since 2026-08-25, because a type variable there
       ; let a caller name a type the table does not hold and exit 139.
       ; The typed reader says at the CALL what the word is.
-      (println
-        (mapGetStr x 1000 "")
-      )
+      (println (mapGetStr x 1000 ""))
       ; interned
       ; --- the hash is pinned against an independent fmix64 ---
       ; Values computed by a Python reimplementation working in
@@ -269,6 +236,4 @@
       (println (mapHash 9223372036854775807))  ; 3150617518162374122
       (println (mapHash (- 0 9223372036854775807)))  ; 7913832204677143650
       0
-    }
-  )
-)
+    }))

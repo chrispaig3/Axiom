@@ -21,12 +21,9 @@
 ; `eq` calls below and forbids a `FAIL` line, so a re-blessed golden
 ; cannot make a wrong rendering pass.
 (import Str)
-
 (import IO)
 
-
 (:: eq (-> String String String Int))
-
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
@@ -37,9 +34,7 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 (struct Point
   (x : Int)
@@ -82,8 +77,8 @@
 ; A bare `None` is `(Option _t)` - no element type, so no renderer
 ; (a type variable is not a type); the signature is what names it.
 (:: noneInt (Option Int))
-
-(fn (noneInt) None)
+(fn (noneInt)
+  None)
 
 ; There is no user-written rendering to prefer. A written `impl` used
 ; to win at the call and that preference was pinned here with an
@@ -93,7 +88,6 @@
 ; declare, so `showResolve` renders every type from its static type and
 ; this file pins that alone.
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; scalars: the instances, unchanged
@@ -142,6 +136,4 @@
       (set c.next (Some c))
       (eq "a value that reaches itself" (format c) "{v = 7, next = (Some ...)}")
       0
-    }
-  )
-)
+    }))

@@ -27,22 +27,16 @@
 ; any particular number - and prints only `ok` or `FAIL`. The errno is
 ; never printed. A case that printed it could not be a golden at all.
 (import IO)
-
 (import Sys)
-
 (import Err)
-
 (import Mem)
 
 (:: say (-> Int String Int))
-
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))
-  )
-)
+    (printlnLit (strCStr (strConcat "FAIL " label)))))
 
 ; Accept, allowing for the connection not having landed on the queue
 ; yet. A loopback `connect` on a BLOCKING socket returns once the kernel
@@ -58,25 +52,21 @@
 ; exactly the distinction that function exists to make, and this is the
 ; loop every server built on this API will write.
 (:: acceptSoon (-> Int Int Int))
-
 ;@axiom:effect(io)
 (fn (acceptSoon lsn tries)
-  (let ((c (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+  (let ((c 
+    (match (netAccept lsn)
+      ((Ok k) k)
+      ((Err e) (- 0 (errCode e))))))
     (if (>= c 0)
       c
       (if (netWouldBlock c)
         (if (> tries 0)
           (acceptSoon lsn (- tries 1))
-          c
-        )
-        c
-      )
-    )
-  )
-)
+          c)
+        c))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((port (+ 20000 (% sysGetPid 10000))))
@@ -87,127 +77,112 @@
       (match netSocketTcp
         ((Err e) (say 0 "socket() answers a descriptor"))
         ((Ok lsn)
-        {
-          (say
-            (if (> lsn 2)
-              1
-              0
-            )            "socket() answers a descriptor"
-          )
-          (say
-            (if (isOk (netSetOptInt
-              lsn              solSocket              soReuseAddr              1              optb
-            ))
-              1
-              0
-            )            "setsockopt(SO_REUSEADDR) is accepted"
-          )
-          (netAddr4
-            buf            port            127            0            0            1
-          )
-          ; The address builder is the one place the two sockaddr layouts
-          ; differ, so check the bytes it wrote rather than only that
-          ; `bind` liked them: the family must land where this platform
-          ; keeps it, and the port must be big-endian on both.
-          (say
-            (if (== sockaddrHasLenByte 1)
-              (if (== (memGetByte buf 0) 16)
-                (if (== (memGetByte buf 1) afInet)
-                  1
-                  0
-                )
-                0
-              )
-              (if (== (memGetByte buf 0) afInet)
-                (if (== (memGetByte buf 1) 0)
-                  1
-                  0
-                )
-                0
-              )
-            )            "the address family lands where this platform keeps it"
-          )
-          (say
-            (if (== (memGetByte buf 2) (& (>> port 8) 255))
-              (if (== (memGetByte buf 3) (& port 255))
-                1
-                0
-              )
-              0
-            )            "the port is written big-endian"
-          )
-          (say
-            (if (isOk (netBind lsn buf))
-              1
-              0
-            )            "bind() accepts a 16-byte address"
-          )
-          (say
-            (if (isOk (netListen lsn 16))
-              1
-              0
-            )            "listen() is accepted"
-          )
-          (say
-            (if (isOk (netSetNonBlocking lsn))
-              1
-              0
-            )            "the listener goes non-blocking"
-          )
-          ; Nothing has connected yet, so this must be the "not yet"
-          ; answer and not a failure - the distinction the whole event
-          ; loop is built on.
-          (let ((idle (match (netAccept lsn) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+          {
             (say
-              (if (netWouldBlock idle)
+              (if (> lsn 2)
                 1
-                0
-              )              "accept with nothing pending would block"
-            )
-          )
-          (match netSocketTcp
-            ((Err e) (say 0 "a client socket is created"))
-            ((Ok cli)
-            (let ((rc (netConnect cli buf)))
-              {
-                (say
-                  (if (isOk rc)
+                0)
+              "socket() answers a descriptor")
+            (say
+              (if (isOk (netSetOptInt
+                lsn
+                solSocket
+                soReuseAddr
+                1
+                optb))
+                1
+                0)
+              "setsockopt(SO_REUSEADDR) is accepted")
+            (netAddr4
+              buf
+              port
+              127
+              0
+              0
+              1)
+            ; The address builder is the one place the two sockaddr layouts
+            ; differ, so check the bytes it wrote rather than only that
+            ; `bind` liked them: the family must land where this platform
+            ; keeps it, and the port must be big-endian on both.
+            (say
+              (if (== sockaddrHasLenByte 1)
+                (if (== (memGetByte buf 0) 16)
+                  (if (== (memGetByte buf 1) afInet)
                     1
-                    0
-                  )                  "connect() to our own listener is accepted"
-                )
-                (let ((con (acceptSoon lsn 1000)))
+                    0)
+                  0)
+                (if (== (memGetByte buf 0) afInet)
+                  (if (== (memGetByte buf 1) 0)
+                    1
+                    0)
+                  0))
+              "the address family lands where this platform keeps it")
+            (say
+              (if (== (memGetByte buf 2) (& (>> port 8) 255))
+                (if (== (memGetByte buf 3) (& port 255))
+                  1
+                  0)
+                0)
+              "the port is written big-endian")
+            (say
+              (if (isOk (netBind lsn buf))
+                1
+                0)
+              "bind() accepts a 16-byte address")
+            (say
+              (if (isOk (netListen lsn 16))
+                1
+                0)
+              "listen() is accepted")
+            (say
+              (if (isOk (netSetNonBlocking lsn))
+                1
+                0)
+              "the listener goes non-blocking")
+            ; Nothing has connected yet, so this must be the "not yet"
+            ; answer and not a failure - the distinction the whole event
+            ; loop is built on.
+            (let ((idle 
+              (match (netAccept lsn)
+                ((Ok k) k)
+                ((Err e) (- 0 (errCode e))))))
+              (say
+                (if (netWouldBlock idle)
+                  1
+                  0)
+                "accept with nothing pending would block"))
+            (match netSocketTcp
+              ((Err e) (say 0 "a client socket is created"))
+              ((Ok cli)
+                (let ((rc (netConnect cli buf)))
                   {
                     (say
-                      (if (> con 2)
+                      (if (isOk rc)
                         1
-                        0
-                      )                      "accept() answers the connected socket"
-                    )
-                    (say
-                      (if (isOk (netShutdown con 2))
-                        1
-                        0
-                      )                      "shutdown() closes both directions"
-                    )
-                    (sysCloseFd con)
-                  }
-                )
-                (sysCloseFd cli)
-              }
-            )
-          )
-          )
-          (say
-            (if (isOk (sysCloseFd lsn))
-              1
-              0
-            )            "the listener closes"
-          )
-          0
-        }
-      )
-      )
-    )
-  )
-)
+                        0)
+                      "connect() to our own listener is accepted")
+                    (let ((con (acceptSoon lsn 1000)))
+                      {
+                        (say
+                          (if (> con 2)
+                            1
+                            0)
+                          "accept() answers the connected socket")
+                        (say
+                          (if (isOk (netShutdown con 2))
+                            1
+                            0)
+                          "shutdown() closes both directions")
+                        (sysCloseFd con)
+                      })
+                    (sysCloseFd cli)
+                  })
+              ))
+            (say
+              (if (isOk (sysCloseFd lsn))
+                1
+                0)
+              "the listener closes")
+            0
+          }
+        )))))

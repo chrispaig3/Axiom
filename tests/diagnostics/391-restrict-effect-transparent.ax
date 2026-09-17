@@ -55,58 +55,60 @@
 
 ;@axiom:restrict(no-io)
 (:: viaIo (-> (-> Int Int) Int Int))
-
-(fn (viaIo f n) (f n))
+(fn (viaIo f n)
+  (f n))
 
 ;@axiom:restrict(no-alloc)
 (:: viaAlloc (-> (-> Int Int) Int Int))
-
-(fn (viaAlloc f n) (f n))
+(fn (viaAlloc f n)
+  (f n))
 
 ;@axiom:restrict(no-foreign)
 (:: viaForeign (-> (-> Int Int) Int Int))
-
-(fn (viaForeign f n) (f n))
+(fn (viaForeign f n)
+  (f n))
 
 ;@axiom:restrict(no-recursion)
 (:: viaRec (-> (-> Int Int) Int Int))
-
-(fn (viaRec f n) (f n))
+(fn (viaRec f n)
+  (f n))
 
 ;@axiom:restrict(no-cast:deep)
 (:: viaDeep (-> (-> Int Int) Int Int))
-
-(fn (viaDeep f n) (f n))
+(fn (viaDeep f n)
+  (f n))
 
 ;@axiom:restrict(no-cast)
 (:: lexCast (-> (-> Int Int) Int Int))
-
-(fn (lexCast f n) (f n))
+(fn (lexCast f n)
+  (f n))
 
 ;@axiom:restrict(no-wrap)
 (:: lexWrap (-> (-> Int Int) Int Int))
-
-(fn (lexWrap f n) (f n))
+(fn (lexWrap f n)
+  (f n))
 
 ;@axiom:restrict(no-io)
 (:: named (-> (-> Int Int) Int Int))
-
-(fn (named f n) (cast Int f))
+(fn (named f n)
+  (cast Int f))
 
 ;@axiom:restrict(no-io)
 (:: plain (-> Int Int))
-
-(fn (plain n) n)
+(fn (plain n)
+  n)
 
 ;@axiom:effect(io)
 ;@axiom:restrict(no-io)
 (:: bothWays (-> (-> Int Int) Int Int))
-
 ;@axiom:effect(io)
-(fn (bothWays f n) { (println "loud") (f n) })
+(fn (bothWays f n)
+  {
+    (println "loud")
+    (f n)
+  })
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -120,5 +122,4 @@
     (named plain 1)
     (plain 1)
     (bothWays plain 1)
-  }
-)
+  })

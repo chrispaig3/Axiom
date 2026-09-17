@@ -13,19 +13,13 @@
 ; extension, a name with none, and an unknown one, which must be
 ; `application/octet-stream` and never `text/html`.
 (import IO)
-
 (import Sys)
-
 (import Err)
-
 (import Str)
-
 (import Mem)
-
 (import Http)
 
 (:: eq (-> String String String Int))
-
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
@@ -36,12 +30,9 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 (:: eqInt (-> String Int Int Int))
-
 ;@axiom:effect(io)
 (fn (eqInt name got want)
   (if (== got want)
@@ -52,13 +43,10 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 ; The bytes `httpRespond` writes for a status, a type and a body.
 (:: captured (-> Int String String String))
-
 ;@axiom:effect(io)
 (fn (captured status ctype body)
   (match (sysOpenPath (__addr "resp.tmp") oWronlyCreateTrunc)
@@ -69,13 +57,10 @@
         (sysCloseFd fd)
         (sysReadFile (__addr "resp.tmp"))
       }
-    )
-  )
-)
+    )))
 
 ; The bytes `httpFail` writes.
 (:: capturedFail (-> Int String String))
-
 ;@axiom:effect(io)
 (fn (capturedFail status why)
   (match (sysOpenPath (__addr "fail.tmp") oWronlyCreateTrunc)
@@ -86,12 +71,9 @@
         (sysCloseFd fd)
         (sysReadFile (__addr "fail.tmp"))
       }
-    )
-  )
-)
+    )))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; --- the shape of a response -------------------------------
@@ -116,11 +98,8 @@
               (eq "and its head says five bytes" (strSlice got 0 (strLen head)) head)
               (eqInt "the NUL byte is in place" (strByte got (+ (strLen head) 2)) 0)
               (eqInt "and the byte after it too" (strByte got (+ (strLen head) 3)) 71)
-            }
-          )
-        )
-      }
-    )
+            }))
+      })
     ; --- status texts ------------------------------------------
     (eq "200" (httpStatusText 200) "OK")
     (eq "400" (httpStatusText 400) "Bad Request")
@@ -146,5 +125,4 @@
     (eq "a dot in a directory is not an extension" (httpContentType "v1.0/README") "application/octet-stream")
     (eq "the extension is case-sensitive" (httpContentType "PAGE.HTML") "application/octet-stream")
     0
-  }
-)
+  })

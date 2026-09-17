@@ -22,16 +22,12 @@
 (import Str)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (lit "abcdef")
@@ -48,28 +44,22 @@
             {
               (set acc (+ acc (* 4 (b2i (== (strOwner s2) (strOwner d))))))
               (set acc (+ acc (* 2 (b2i (== (__load64 (- (strOwner d) 16) 0) 3)))))
-            }
-          )
-        }
-      )
+            })
+        })
       (let ((ls (strSlice lit 2 2)))
         (set acc (+
-          acc          (*
-            1            (b2i
+          acc
+          (*
+            1
+            (b2i
               (&&
-                (== (strOwner ls) 0)                (==
+                (== (strOwner ls) 0)
+                (==
                   (__load64
                     (-
-                      (cast Int lit)                      16
-                    )                    0
-                  )                  (- 0 1)
-                )
-              )
-            )
-          )
-        ))
-      )
+                      (cast Int lit)
+                      16)
+                    0)
+                  (- 0 1))))))))
       acc
-    }
-  )
-)
+    }))

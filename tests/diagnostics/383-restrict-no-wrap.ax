@@ -28,59 +28,49 @@
 (import Err)
 
 (:: bump (-> Int Int))
-
-(fn (bump n) (+ n 1))
+(fn (bump n)
+  (+ n 1))
 
 ;@axiom:restrict(no-wrap)
 (:: wraps (-> Int Int Int))
-
-(fn (wraps a b) (+ a b))
+(fn (wraps a b)
+  (+ a b))
 
 ;@axiom:restrict(no-wrap)
 (:: nested (-> Int Int Int Int))
-
 (fn (nested a b c)
   (if (> a 0)
     (let ((d (- a b)))
-      (* d c)
-    )
-    0
-  )
-)
+      (* d c))
+    0))
 
 ;@axiom:restrict(no-wrap)
 (:: delegates (-> Int Int))
-
-(fn (delegates n) (bump n))
+(fn (delegates n)
+  (bump n))
 
 ;@axiom:restrict(no-wrap)
 (:: compares (-> Int Int Bool))
-
 (fn (compares a b)
   (if (< a b)
     true
-    (== a b)
-  )
-)
+    (== a b)))
 
 ;@axiom:restrict(no-wrap)
 (:: honest (-> Int Int Int))
-
-(fn (honest a b) (unwrapOr (addChecked a b) 0))
+(fn (honest a b)
+  (unwrapOr (addChecked a b) 0))
 
 (:: main Int)
-
 (fn (main)
   (+
-    (wraps 1 2)    (+
-      (nested 3 4 5)      (+
-        (delegates 6)        (+
+    (wraps 1 2)
+    (+
+      (nested 3 4 5)
+      (+
+        (delegates 6)
+        (+
           (if (compares 1 2)
             1
-            0
-          )          (honest 7 8)
-        )
-      )
-    )
-  )
-)
+            0)
+          (honest 7 8))))))

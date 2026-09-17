@@ -33,50 +33,40 @@
 ; escape-store.ax` - which reclaims the region past the stored value
 ; and reads it back.
 (import IO)
-
 (import Vec)
-
 (import Str)
 
 (struct Cell
   (mut s : String))
 
 (:: putField (-> (Cell @r) (String @s) Int))
-
 (fn (putField c x)
   {
     (set c.s x)
     0
-  }
-)
+  })
 
 (:: putSame (-> (Cell @r) (String @r) Int))
-
 (fn (putSame c x)
   {
     (set c.s x)
     0
-  }
-)
+  })
 
 (:: putVec (-> (Vec String @r) (String @s) Int))
-
 (fn (putVec v x)
   {
     (vecPush v x)
     0
-  }
-)
+  })
 
 (:: putFresh (-> (Vec String @r) String Int))
-
 (fn (putFresh v x)
   {
     (vecPush v (strConcat x "!"))
     0
-  }
-)
+  })
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

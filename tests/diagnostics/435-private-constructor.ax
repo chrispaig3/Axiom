@@ -1,9 +1,6 @@
 (import VisAll)
 
 (:: main Int)
-
 (fn (main)
   (match (Wrap 7)
-    ((Wrap x) x)
-  )
-)
+    ((Wrap x) x)))

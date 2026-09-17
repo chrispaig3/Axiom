@@ -1,16 +1,13 @@
 (:: b (-> Int Bool))
-
-(fn (b x) 42)
+(fn (b x)
+  42)
 
 (:: f (-> Int Float))
-
-(fn (f x) 42)
+(fn (f x)
+  42)
 
 (:: main Int)
-
 (fn (main)
   (if (b 1)
     7
-    9
-  )
-)
+    9))

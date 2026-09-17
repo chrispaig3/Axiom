@@ -61,7 +61,6 @@
 ; would not have found it. `held` is the third leg: a `some` that went
 ; silent because the checker stopped looking would leave `held` silent
 ; too.
-
 (data W
   (Wrap Int)
   (Empty))
@@ -72,62 +71,77 @@
 
 ;@axiom:restrict(no-alloc)
 (:: mk (-> Int Int))
-
-(fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+(fn (mk n)
+  (match (Wrap n)
+    ((Wrap x) x)
+    ((Empty) 0)))
 
 ;@axiom:restrict(no-alloc)
 (:: pair (-> Int P))
-
-(fn (pair n) (P n n))
+(fn (pair n)
+  (P n n))
 
 ;@axiom:restrict(no-alloc)
 (:: kw (-> Int P))
-
-(fn (kw n) (struct P n n))
+(fn (kw n)
+  (struct P n n))
 
 ;@axiom:restrict(no-alloc)
 (:: tag (-> Int W))
-
-(fn (tag n) (Empty))
+(fn (tag n)
+  (Empty))
 
 ;@axiom:restrict(no-alloc)
 (:: some (-> Int (Option Int)))
-
-(fn (some n) (Some n))
+(fn (some n)
+  (Some n))
 
 ;@axiom:restrict(no-alloc)
 (:: none (-> Int (Option Int)))
-
-(fn (none n) None)
+(fn (none n)
+  None)
 
 ;@axiom:restrict(no-alloc)
 (:: held (-> Int Int))
-
 (fn (held n)
   (let ((o (some n)))
-    (match o ((Some x) x) (None 0))
-  )
-)
+    (match o
+      ((Some x) x)
+      (None 0))))
 
 ;@axiom:restrict(no-alloc)
 (:: pass (-> Int Int Int))
-
-(fn (pass a b) (+ a b))
+(fn (pass a b)
+  (+ a b))
 
 (:: sizeOf (-> W Int))
-
-(fn (sizeOf w) (match w ((Wrap x) x) ((Empty) 0)))
+(fn (sizeOf w)
+  (match w
+    ((Wrap x) x)
+    ((Empty) 0)))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (p (pair 5))
     (q (kw 6))
   )
-    (+ (mk 1) (+ (pass 2 3) (+ (sizeOf (tag 4)) (+ p.a (+ q.b
-      (+ (match (some 7) ((Some x) x) (None 0))
-         (+ (held 9)
-         (match (none 8) ((Some x) x) (None 0)))))))))
-  )
-)
+    (+
+      (mk 1)
+      (+
+        (pass 2 3)
+        (+
+          (sizeOf (tag 4))
+          (+
+            p.a
+            (+
+              q.b
+              (+
+                (match (some 7)
+                  ((Some x) x)
+                  (None 0))
+                (+
+                  (held 9)
+                  (match (none 8)
+                    ((Some x) x)
+                    (None 0)))))))))))

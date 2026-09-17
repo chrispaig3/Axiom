@@ -16,9 +16,6 @@
   (Rect { w : Int, h : Int }))
 
 (:: main Int)
-
 (fn (main)
   (match (Rect 3 4)
-    ((Rect w h) (+ (* w 10) h))
-  )
-)
+    ((Rect w h) (+ (* w 10) h))))

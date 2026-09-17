@@ -10,9 +10,9 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3042` for a full explanation
 
 [1;31merror[AX3042][0m[1m: `main` performs IO and its declaration does not say so[0m
-  [1;34m--> [0m363-effect-fix.ax:32:6
+  [1;34m--> [0m363-effect-fix.ax:31:6
 [1;34m   |[0m
-[1;34m32 |[0m (fn (main) (greet "hi"))
+[1;34m31 |[0m (fn (main)
 [1;34m   |[0m      [1;31m^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration[1;35m ~>[0m

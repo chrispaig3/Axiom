@@ -25,26 +25,19 @@
 ; descriptor put in comes back out, which is true on every target and
 ; false for every wrong layout.
 (import IO)
-
 (import Sys)
-
 (import Err)
-
 (import Mem)
 
 (:: say (-> Int String Int))
-
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))
-  )
-)
+    (printlnLit (strCStr (strConcat "FAIL " label)))))
 
 ; A bound, listening, non-blocking socket on `port`, or a negative.
 (:: listenOn (-> Int Int Int Int))
-
 ;@axiom:effect(io)
 (fn (listenOn addr optb port)
   (match netSocketTcp
@@ -52,11 +45,18 @@
     ((Ok fd)
       {
         (netSetOptInt
-          fd          solSocket          soReuseAddr          1          optb
-        )
+          fd
+          solSocket
+          soReuseAddr
+          1
+          optb)
         (netAddr4
-          addr          port          127          0          0          1
-        )
+          addr
+          port
+          127
+          0
+          0
+          1)
         (if (isErr (netBind fd addr))
           (- 0 1)
           (if (isErr (netListen fd 16))
@@ -64,17 +64,12 @@
             {
               (netSetNonBlocking fd)
               fd
-            }
-          )
-        )
+            }))
       }
-    )
-  )
-)
+    )))
 
 ; Whether `fd` is among the `n` events in `buf`.
 (:: hasFd (-> Int Int Int Int))
-
 (fn (hasFd buf n fd)
   (let ((mut i 0))
     (let ((mut found 0))
@@ -83,18 +78,13 @@
           {
             (if (== (netPollFdAt buf i) fd)
               (set found 1)
-              0
-            )
+              0)
             (set i (+ i 1))
           })
         found
-      }
-    )
-  )
-)
+      })))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((base (+ 20000 (% sysGetPid 9000))))
@@ -110,201 +100,209 @@
               (match netPollCreate
                 ((Err e) (say 0 "the readiness descriptor is created"))
                 ((Ok pfd)
-                {
-                  (say
-                    (if (> la 2)
-                      (if (> lb 2)
+                  {
+                    (say
+                      (if (> la 2)
+                        (if (> lb 2)
+                          1
+                          0)
+                        0)
+                      "two listeners are bound")
+                    (say
+                      (if (> pfd 2)
                         1
-                        0
-                      )
-                      0
-                    )                    "two listeners are bound"
-                  )
-                  (say
-                    (if (> pfd 2)
-                      1
-                      0
-                    )                    "the readiness descriptor is created"
-                  )
-                  (say
-                    (if (isOk (netPollAddRead pfd la rec))
-                      (if (isOk (netPollAddRead pfd lb rec))
+                        0)
+                      "the readiness descriptor is created")
+                    (say
+                      (if (isOk (netPollAddRead pfd la rec))
+                        (if (isOk (netPollAddRead pfd lb rec))
+                          1
+                          0)
+                        0)
+                      "both listeners are registered for read")
+                    ; Nothing has connected, so a zero timeout must answer
+                    ; zero events rather than blocking or erroring.
+                    (say
+                      (if (==
+                        (match (netPollWait
+                          pfd
+                          buf
+                          8
+                          0
+                          ts)
+                          ((Ok k) k)
+                          ((Err e) (- 0 (errCode e))))
+                        0)
                         1
-                        0
-                      )
-                      0
-                    )                    "both listeners are registered for read"
-                  )
-                  ; Nothing has connected, so a zero timeout must answer
-                  ; zero events rather than blocking or erroring.
-                  (say
-                    (if (== (match (netPollWait
-                      pfd                      buf                      8                      0                      ts
-                    ) ((Ok k) k) ((Err e) (- 0 (errCode e)))) 0)
-                      1
-                      0
-                    )                    "polling with nothing pending answers no events"
-                  )
-                  ; Connect to the FIRST listener only, so the event that
-                  ; comes back has to name that one and not merely "a
-                  ; descriptor we registered".
-                  (match netSocketTcp
-                    ((Err e) (say 0 "a client socket is created"))
-                    ((Ok ca)
-                    {
-                      (netAddr4
-                        addr                        base                        127                        0                        0                        1
-                      )
-                      (netConnect ca addr)
-                      (let ((n (match (netPollWait
-                        pfd                        buf                        8                        2000                        ts
-                      ) ((Ok k) k) ((Err e) (- 0 (errCode e))))))
+                        0)
+                      "polling with nothing pending answers no events")
+                    ; Connect to the FIRST listener only, so the event that
+                    ; comes back has to name that one and not merely "a
+                    ; descriptor we registered".
+                    (match netSocketTcp
+                      ((Err e) (say 0 "a client socket is created"))
+                      ((Ok ca)
                         {
-                          (say
-                            (if (== n 1)
-                              1
-                              0
-                            )                            "one connection wakes exactly one event"
-                          )
-                          (say
-                            (if (== (netPollFdAt buf 0) la)
-                              1
-                              0
-                            )                            "the event names the listener that was connected to"
-                          )
-                        }
-                      )
-                      ; TAKE THE CONNECTION BEFORE GOING ON. A listening
-                      ; socket stays readable until its pending
-                      ; connection is accepted, and this case was
-                      ; FLAKY for exactly that reason before it was
-                      ; written this way: it connected to the second
-                      ; listener and waited again while the FIRST was
-                      ; still ready, so the wait returned at once with
-                      ; the stale event and the second connection had
-                      ; not necessarily landed. It passed under light
-                      ; load and failed under the full battery, which is
-                      ; the worst way for a gate to be wrong.
-                      (match (netAccept la)
-                        ((Ok acc) (sysCloseFd acc))
-                        ((Err e) (Err e))
-                      )
-                      ; NOW BOTH AT ONCE, and this is the shape the
-                      ; stride needs.
-                      ;
-                      ; THIS USED TO CLAIM DETERMINISM AND THE CLAIM WAS
-                      ; FALSE. It read: "a loopback connect returns once
-                      ; the listener has the connection - so two
-                      ; descriptors are ready and the wait answers two
-                      ; events deterministically rather than racing."
-                      ; Measured 2026-08-24: both assertions below
-                      ; failed together during a battery run, and passed
-                      ; 8 times out of 8 alone. A connect returning says
-                      ; the connection is QUEUED on the listener; it
-                      ; does not say the poll set has already been
-                      ; updated, and nothing makes one wake carry both.
-                      ; The comment two paragraphs up already records
-                      ; the FIRST race here being found the same way -
-                      ; "it passed under light load and failed under the
-                      ; full battery, which is the worst way for a gate
-                      ; to be wrong" - and this is the second one,
-                      ; asserted away in prose rather than removed.
-                      ;
-                      ; The retry is sound rather than a weakening, and
-                      ; the reason is level-triggering: neither backend
-                      ; asks for EV_CLEAR or EPOLLET, and NEITHER
-                      ; CONNECTION IS ACCEPTED here, so both listeners
-                      ; STAY readable and a repeated wait converges on
-                      ; two. What the gate asserts is unchanged - two
-                      ; events in ONE buffer, which is the only thing
-                      ; that exercises the stride - and it no longer
-                      ; depends on the kernel coalescing them.
-                      ;
-                      ; One event only exercises the OFFSET a descriptor
-                      ; sits at. The STRIDE between records is a
-                      ; separate number, and reading event 1 out of the
-                      ; middle of event 0 answers a plausible descriptor
-                      ; rather than failing - so only a second event
-                      ; catches it.
-                      (match netSocketTcp
-                        ((Err e) (say 0 "a client socket is created"))
-                        ((Ok cb)
-                        (match netSocketTcp
-                          ((Err e) (say 0 "a client socket is created"))
-                          ((Ok cc)
-                          {
-                            (netAddr4
-                              addr                              base                              127                              0                              0                              1
-                            )
-                            (netConnect cb addr)
-                            (netAddr4
-                              addr                              (+ base 1)                              127                              0                              0                              1
-                            )
-                            (netConnect cc addr)
-                            (let (
-                              (mut n2 (match (netPollWait
-                                pfd                                buf                                8                                2000                                ts
-                              ) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
-                              (mut tries 0)
-                            )
-                              {
-                                (while (&& (< n2 2) (< tries 50))
+                          (netAddr4
+                            addr
+                            base
+                            127
+                            0
+                            0
+                            1)
+                          (netConnect ca addr)
+                          (let ((n 
+                            (match (netPollWait
+                              pfd
+                              buf
+                              8
+                              2000
+                              ts)
+                              ((Ok k) k)
+                              ((Err e) (- 0 (errCode e))))))
+                            {
+                              (say
+                                (if (== n 1)
+                                  1
+                                  0)
+                                "one connection wakes exactly one event")
+                              (say
+                                (if (== (netPollFdAt buf 0) la)
+                                  1
+                                  0)
+                                "the event names the listener that was connected to")
+                            })
+                          ; TAKE THE CONNECTION BEFORE GOING ON. A listening
+                          ; socket stays readable until its pending
+                          ; connection is accepted, and this case was
+                          ; FLAKY for exactly that reason before it was
+                          ; written this way: it connected to the second
+                          ; listener and waited again while the FIRST was
+                          ; still ready, so the wait returned at once with
+                          ; the stale event and the second connection had
+                          ; not necessarily landed. It passed under light
+                          ; load and failed under the full battery, which is
+                          ; the worst way for a gate to be wrong.
+                          (match (netAccept la)
+                            ((Ok acc) (sysCloseFd acc))
+                            ((Err e) (Err e)))
+                          ; NOW BOTH AT ONCE, and this is the shape the
+                          ; stride needs.
+                          ;
+                          ; THIS USED TO CLAIM DETERMINISM AND THE CLAIM WAS
+                          ; FALSE. It read: "a loopback connect returns once
+                          ; the listener has the connection - so two
+                          ; descriptors are ready and the wait answers two
+                          ; events deterministically rather than racing."
+                          ; Measured 2026-08-24: both assertions below
+                          ; failed together during a battery run, and passed
+                          ; 8 times out of 8 alone. A connect returning says
+                          ; the connection is QUEUED on the listener; it
+                          ; does not say the poll set has already been
+                          ; updated, and nothing makes one wake carry both.
+                          ; The comment two paragraphs up already records
+                          ; the FIRST race here being found the same way -
+                          ; "it passed under light load and failed under the
+                          ; full battery, which is the worst way for a gate
+                          ; to be wrong" - and this is the second one,
+                          ; asserted away in prose rather than removed.
+                          ;
+                          ; The retry is sound rather than a weakening, and
+                          ; the reason is level-triggering: neither backend
+                          ; asks for EV_CLEAR or EPOLLET, and NEITHER
+                          ; CONNECTION IS ACCEPTED here, so both listeners
+                          ; STAY readable and a repeated wait converges on
+                          ; two. What the gate asserts is unchanged - two
+                          ; events in ONE buffer, which is the only thing
+                          ; that exercises the stride - and it no longer
+                          ; depends on the kernel coalescing them.
+                          ;
+                          ; One event only exercises the OFFSET a descriptor
+                          ; sits at. The STRIDE between records is a
+                          ; separate number, and reading event 1 out of the
+                          ; middle of event 0 answers a plausible descriptor
+                          ; rather than failing - so only a second event
+                          ; catches it.
+                          (match netSocketTcp
+                            ((Err e) (say 0 "a client socket is created"))
+                            ((Ok cb)
+                              (match netSocketTcp
+                                ((Err e) (say 0 "a client socket is created"))
+                                ((Ok cc)
                                   {
-                                    (set n2 (match (netPollWait
-                                      pfd                                      buf                                      8                                      2000                                      ts
-                                    ) ((Ok k) k) ((Err e) (- 0 (errCode e)))))
-                                    (set tries (+ tries 1))
-                                  })
-                                (say
-                                  (if (== n2 2)
-                                    1
-                                    0
-                                  )                                  "two ready listeners wake two events"
-                                )
-                                (say
-                                  (if (== (hasFd buf n2 la) 1)
-                                    (if (== (hasFd buf n2 lb) 1)
-                                      1
+                                    (netAddr4
+                                      addr
+                                      base
+                                      127
                                       0
+                                      0
+                                      1)
+                                    (netConnect cb addr)
+                                    (netAddr4
+                                      addr
+                                      (+ base 1)
+                                      127
+                                      0
+                                      0
+                                      1)
+                                    (netConnect cc addr)
+                                    (let (
+                                      (mut n2 (match (netPollWait
+                                        pfd
+                                        buf
+                                        8
+                                        2000
+                                        ts)
+                                        ((Ok k) k)
+                                        ((Err e) (- 0 (errCode e)))))
+                                      (mut tries 0)
                                     )
-                                    0
-                                  )                                  "both events decode at the right stride"
-                                )
-                              }
-                            )
-                            (sysCloseFd cc)
-                            (sysCloseFd cb)
-                          }
-                        )
-                        )
-                      )
-                      )
-                      (sysCloseFd ca)
-                    }
-                  )
-                  )
-                  (say
-                    (if (isOk (netPollDelRead pfd la rec))
-                      1
-                      0
-                    )                    "a listener can be unregistered"
-                  )
-                  (sysCloseFd la)
-                  (sysCloseFd lb)
-                  (say
-                    (if (isOk (sysCloseFd pfd))
-                      1
-                      0
-                    )                    "the readiness descriptor closes"
-                  )
-                  0
-                }
-              )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                                      {
+                                        (while (&& (< n2 2) (< tries 50))
+                                          {
+                                            (set n2 (match (netPollWait
+                                              pfd
+                                              buf
+                                              8
+                                              2000
+                                              ts)
+                                              ((Ok k) k)
+                                              ((Err e) (- 0 (errCode e)))))
+                                            (set tries (+ tries 1))
+                                          })
+                                        (say
+                                          (if (== n2 2)
+                                            1
+                                            0)
+                                          "two ready listeners wake two events")
+                                        (say
+                                          (if (== (hasFd buf n2 la) 1)
+                                            (if (== (hasFd buf n2 lb) 1)
+                                              1
+                                              0)
+                                            0)
+                                          "both events decode at the right stride")
+                                      })
+                                    (sysCloseFd cc)
+                                    (sysCloseFd cb)
+                                  }
+                                ))
+                            ))
+                          (sysCloseFd ca)
+                        }
+                      ))
+                    (say
+                      (if (isOk (netPollDelRead pfd la rec))
+                        1
+                        0)
+                      "a listener can be unregistered")
+                    (sysCloseFd la)
+                    (sysCloseFd lb)
+                    (say
+                      (if (isOk (sysCloseFd pfd))
+                        1
+                        0)
+                      "the readiness descriptor closes")
+                    0
+                  }
+                )))))))))

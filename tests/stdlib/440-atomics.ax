@@ -24,7 +24,6 @@
 (import IO)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((p (__alloc 16)))
@@ -44,6 +43,4 @@
       (println (__atomic_load (+ p 8)))  ; 7
       (println __fence)  ; 0
       0
-    }
-  )
-)
+    }))

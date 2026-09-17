@@ -1,12 +1,12 @@
 (:: pure (-> Int Int))
-
 ;@axiom:pur
-(fn (pure x) x)
+(fn (pure x)
+  x)
 
 (:: alpha Int)
-
-(fn (alpha) missingOne)
+(fn (alpha)
+  missingOne)
 
 (:: beta Int)
-
-(fn (beta) missingTwo)
+(fn (beta)
+  missingTwo)

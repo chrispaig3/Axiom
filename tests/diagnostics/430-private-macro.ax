@@ -1,5 +1,5 @@
 (import VisAll)
 
 (:: main Int)
-
-(fn (main) (+ (pubMac 1) (privMac 2)))
+(fn (main)
+  (+ (pubMac 1) (privMac 2)))

@@ -16,7 +16,6 @@
   (Dot))
 
 (:: area (-> Shape Int))
-
 ;@axiom:effect(io)
 (fn (area s)
   (match s
@@ -25,6 +24,6 @@
     ((Dot) (todo "Dot"))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (area (Rect 1 2)))
+(fn (main)
+  (area (Rect 1 2)))

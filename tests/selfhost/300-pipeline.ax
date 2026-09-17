@@ -1,22 +1,14 @@
 ; expect 42
 (import Str)
-
 (import Vec)
-
 (import Mem)
-
 (import Sys)
-
 (import lexer)
-
 (import parser)
-
 (import typecheck)
-
 (import codegen)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((src (sysReadFile (__addr "in.ax"))))
@@ -28,11 +20,4 @@
           (let ((out (emitModule (memGetWordVec pr 1) "darwin-aarch64")))
             (if (> (strLen out) 10)
               42
-              9
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              9)))))))

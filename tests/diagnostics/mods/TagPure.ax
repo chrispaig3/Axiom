@@ -4,10 +4,8 @@
 
 ;@axiom:pure
 (pub :: work (-> Int Int))
-
 (pub fn (work n)
   {
     (println "tagpure does IO")
     n
-  }
-)
+  })

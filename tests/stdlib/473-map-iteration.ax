@@ -39,14 +39,11 @@
 ;      rehash at load factor 0.5, so the cursor runs over a capacity
 ;      that is not the one the entries were inserted under.
 (import IO)
-
 (import Map)
-
 (import Vec)
 
 ; Walk with the cursor, adding keys or values, and answer the total.
 (:: walkSum (-> Map Int Int Int))
-
 (fn (walkSum m i keys)
   (match (mapLiveFrom m i)
     ((None) 0)
@@ -54,38 +51,27 @@
       (+
         (if (== keys 1)
           (mapKeyAt m s)
-          (mapValAt m s)
-        )        (walkSum m (+ s 1) keys)
-      )
-    )
-  )
-)
+          (mapValAt m s))
+        (walkSum m (+ s 1) keys))
+    )))
 
 ; Does every (key, value) pair from the two vectors agree with what the
 ; map answers for that key? 1 if so.
 (:: zipOk (-> Map (Vec Int) (Vec Int) Int Int))
-
 (fn (zipOk m ks vs j)
   (if (>= j (vecLen ks))
     1
     (if (== (mapGet m (vecGet ks j) 0) (vecGet vs j))
       (zipOk m ks vs (+ j 1))
-      0
-    )
-  )
-)
+      0)))
 
 (:: hasKey (-> (Vec Int) Int Int Int))
-
 (fn (hasKey ks k j)
   (if (>= j (vecLen ks))
     0
     (if (== (vecGet ks j) k)
       1
-      (hasKey ks k (+ j 1))
-    )
-  )
-)
+      (hasKey ks k (+ j 1)))))
 
 ; The insert is a STATEMENT, not the recursive call's argument. Since
 ; 2026-09-03 `mapInsert` answers 0 rather than the handle - a mutator
@@ -96,19 +82,15 @@
 ; and the `mapRemove` at case 5 below were the only two places in the
 ; tree that chained on a mutator's result.
 (:: fill (-> Map Int Int Map))
-
 (fn (fill m i n)
   (if (>= i n)
     m
     {
       (mapInsert m (* i 10) (* i 100))
       (fill m (+ i 1) n)
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; --- 1. an empty table has no live slot ---
@@ -117,15 +99,11 @@
       (println
         (match (mapLiveFrom empty 0)
           ((None) 1)
-          ((Some s) 0)
-        )
-      )
+          ((Some s) 0)))
       (println
         (match (mapLiveFrom empty 1000000)
           ((None) 1)
-          ((Some s) 0)
-        )
-      )
+          ((Some s) 0)))
       ; --- 2. the cursor reaches every entry exactly once ---
       (let ((m (fill mapNew 0 5)))
         {
@@ -145,18 +123,13 @@
               (println (hasKey (mapKeys m2) 20 0))
               (println (hasKey (mapKeys m2) 30 0))
               (println (vecLen (mapKeys m2)))
-            }
-          )
-        }
-      )
+            })
+        })
       ; --- 6. a table that has grown past its first capacity ---
       (let ((big (fill mapNew 0 20)))
         {
           (println (vecLen (mapKeys big)))
           (println (== (walkSum big 0 1) (mapSumKeys big)))
-        }
-      )
+        })
       0
-    }
-  )
-)
+    }))

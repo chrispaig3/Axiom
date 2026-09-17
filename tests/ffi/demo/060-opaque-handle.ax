@@ -19,13 +19,10 @@
 ; and a `Foreign` is excluded from MM-LIFE-2d's reference map, so no
 ; arena primitive and no release walk ever dereferences it.
 (import IO)
-
 (import Fmt)
-
 (import Demo)
 
 (pub :: sumOfFresh (-> Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (sumOfFresh i acc)
   ; Each iteration builds a Counter and drops it on the way out of the
@@ -33,10 +30,7 @@
   (if (>= i 200)
     acc
     (let ((c (counterNew i)))
-      (sumOfFresh (+ i 1) (+ acc (counterValue c)))
-    )
-  )
-)
+      (sumOfFresh (+ i 1) (+ acc (counterValue c))))))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -67,11 +61,6 @@
               (println (fmtInt dropped))
               (println (fmtInt countersDropped))
               1
-            }
-          )
-        }
-      )
-    )
-  )
-)
+            })
+        }))))
 ; expect 0

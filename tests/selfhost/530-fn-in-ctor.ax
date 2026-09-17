@@ -6,13 +6,10 @@
   (MkF (-> Int Int)))
 
 (:: inc (-> Int Int))
-
-(fn (inc x) (+ x 1))
+(fn (inc x)
+  (+ x 1))
 
 (:: main Int)
-
 (fn (main)
   (match (MkF inc)
-    ((MkF g) (g 42))
-  )
-)
+    ((MkF g) (g 42))))

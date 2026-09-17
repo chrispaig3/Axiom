@@ -12,19 +12,14 @@
 ; enumerates every accepted type; anything else is a compile error that
 ; lists the set.
 (import IO)
-
 (import Fmt)
-
 (import Demo)
 
 (pub :: unwrapOr (-> (Option Int) Int Int))
-
 (pub fn (unwrapOr o d)
   (match o
     ((Some v) v)
-    (_ d)
-  )
-)
+    (_ d)))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -43,8 +38,5 @@
         (println (fmtInt zero))
         (println (fmtInt none))
         1
-      }
-    )
-  )
-)
+      })))
 ; expect 0

@@ -22,22 +22,16 @@
   (Some Int))
 
 (macro (addTo x) (let ((tmp 100))
-  (+ tmp x)
-))
+  (+ tmp x)))
 
 (macro (orElse o d) (match o
   ((Some v) d)
-  ((None) d)
-))
+  ((None) d)))
 
 (:: main Int)
-
 (fn (main)
   (let ((tmp 1))
     (+
-      (addTo tmp)      (let ((v 42))
-        (orElse (Some 8) v)
-      )
-    )
-  )
-)
+      (addTo tmp)
+      (let ((v 42))
+        (orElse (Some 8) v)))))

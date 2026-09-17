@@ -14,29 +14,29 @@
 ;   `control`   restrict(no-io) satisfied           -> silent
 ;@axiom:restrict(no-fo)
 (:: slipped (-> Int Int))
-
-(fn (slipped n) n)
+(fn (slipped n)
+  n)
 
 ;@axiom:restrict(no-io, no-foo)
 (:: mixed (-> Int Int))
-
-(fn (mixed n) n)
+(fn (mixed n)
+  n)
 
 ;@axiom:restrict()
 (:: empty (-> Int Int))
-
-(fn (empty n) n)
+(fn (empty n)
+  n)
 
 ;@axiom:restrict(no-io,no-io)
 (:: twice (-> Int Int))
-
-(fn (twice n) n)
+(fn (twice n)
+  n)
 
 ;@axiom:restrict(no-io)
 (:: control (-> Int Int))
-
-(fn (control n) n)
+(fn (control n)
+  n)
 
 (:: main Int)
-
-(fn (main) (+ (slipped 1) (+ (mixed 2) (+ (empty 3) (+ (twice 4) (control 5))))))
+(fn (main)
+  (+ (slipped 1) (+ (mixed 2) (+ (empty 3) (+ (twice 4) (control 5))))))

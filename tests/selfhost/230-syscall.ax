@@ -2,11 +2,9 @@
 (import Sys)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (sysWriteAllFd 1 (__addr "ok\n") 3 0)
     42
-  }
-)
+  })

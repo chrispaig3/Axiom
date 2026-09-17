@@ -22,15 +22,10 @@
 ; unusual way for a test to discriminate, so it is recorded here - the
 ; case is doing its job when it stops, not when it fails a diff.
 (import IO)
-
 (import Sys)
-
 (import Err)
-
 (import Str)
-
 (import Mem)
-
 (import Vec)
 
 ; Build a NULL-terminated argv from up to three Str arguments; a "" ends
@@ -38,31 +33,27 @@
 ; every element is copied through `strDup` - a slice of a larger string
 ; shares storage and stops at no NUL.
 (pub :: argv3 (-> String String String Int))
-
 (pub fn (argv3 a b c)
   (let ((v (memAlloc 32)))
     {
       (memSetWord v 0 (strCStr (strDup a)))
       (memSetWord
-        v        1        (if (> (strLen b) 0)
+        v
+        1
+        (if (> (strLen b) 0)
           (strCStr (strDup b))
-          0
-        )
-      )
+          0))
       (memSetWord
-        v        2        (if (> (strLen c) 0)
+        v
+        2
+        (if (> (strLen c) 0)
           (strCStr (strDup c))
-          0
-        )
-      )
+          0))
       (memSetWord v 3 0)
       v
-    }
-  )
-)
+    }))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; A child that exits 0, and one that exits 1: the status has to
@@ -90,9 +81,7 @@
       (println
         (if (isErr (sysRun (strCStr "/nonexistent/tool") (argv3 "x" "" "") env))  ; 1
           1
-          0
-        )
-      )
+          0))
       ; PATH search finds a bare name, and still delivers arguments.
       (println (unwrapOr (sysRunPath "sh" (argv3 "sh" "-c" "exit 3") env) (- 0 1)))  ; 3
       ; A bare name that is on no PATH entry answers -ENOENT, not an
@@ -100,22 +89,16 @@
       (println
         (if (isErr (sysRunPath "axiom-no-such-tool" (argv3 "x" "" "") env))  ; 1
           1
-          0
-        )
-      )
+          0))
       ; The environment is readable, and is the process's own: PATH is
       ; set for every process that got here through a shell.
       (println
         (if (> (strLen (sysEnv "PATH")) 0)  ; 1
           1
-          0
-        )
-      )
+          0))
       (println (strLen (sysEnv "AXIOM_NO_SUCH_VARIABLE_IS_SET")))  ; 0
       ; The forwarded environment reaches the child: `sh` can see PATH
       ; only if `envp` was passed through rather than emptied.
       (println (unwrapOr (sysRunPath "sh" (argv3 "sh" "-c" "test -n \"$PATH\" && exit 5") env) (- 0 1)))  ; 5
       0
-    }
-  )
-)
+    }))

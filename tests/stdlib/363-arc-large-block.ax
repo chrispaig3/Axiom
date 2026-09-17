@@ -37,16 +37,12 @@
 ; is why they are asserted beside the positive ones and not alone,
 ; and why 16 is guarded by the reuse it is about.
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (h1 (__alloc 2048))
@@ -71,20 +67,16 @@
           (let ((h3 (__alloc 4096)))
             {
               (set acc (+
-                acc                (*
-                  8                  (b2i
+                acc
+                (*
+                  8
+                  (b2i
                     (if (== h3 h2)
                       false
-                      true
-                    )
-                  )
-                )
-              ))
+                      true)))))
               (set steps (+ steps 1))
-            }
-          )
-        }
-      )
+            })
+        })
       (let ((b1 (__alloc 65552)))
         {
           (__retain b1)
@@ -92,20 +84,16 @@
           (let ((b2 (__alloc 65552)))
             {
               (set acc (+
-                acc                (*
-                  4                  (b2i
+                acc
+                (*
+                  4
+                  (b2i
                     (if (== b2 b1)
                       false
-                      true
-                    )
-                  )
-                )
-              ))
+                      true)))))
               (set steps (+ steps 1))
-            }
-          )
-        }
-      )
+            })
+        })
       (let ((c1 (__alloc 65536)))
         {
           (__retain c1)
@@ -114,14 +102,9 @@
             {
               (set acc (+ acc (* 2 (b2i (== c2 c1)))))
               (set steps (+ steps 1))
-            }
-          )
-        }
-      )
+            })
+        })
       (if (== steps 4)
         (+ acc 1)
-        acc
-      )
-    }
-  )
-)
+        acc)
+    }))

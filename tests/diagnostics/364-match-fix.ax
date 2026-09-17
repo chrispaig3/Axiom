@@ -27,4 +27,5 @@
     ((Circle r) (* r r))))
 
 (:: main Int)
-(fn (main) (area (Circle 2)))
+(fn (main)
+  (area (Circle 2)))

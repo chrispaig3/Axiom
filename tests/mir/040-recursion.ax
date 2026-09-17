@@ -14,34 +14,27 @@
 (import IO)
 
 (:: probeFact (-> Int Int))
-
 (fn (probeFact n)
   (if (<= n 1)
     1
-    (* n (probeFact (- n 1)))
-  )
-)
+    (* n (probeFact (- n 1)))))
 
 (:: probe (-> Int Int))
-
-(fn (probe n) (probeFact (% (+ n 1) 11)))
+(fn (probe n)
+  (probeFact (% (+ n 1) 11)))
 
 (:: emit (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (emit k)
   (if (>= k 20)
     0
     {
       (let ((v (probe k)))
-        (println "{v}")
-      )
+        (println "{v}"))
       (emit (+ k 1))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (emit 0))
+(fn (main)
+  (emit 0))

@@ -80,75 +80,61 @@
   (f : (-> Int Int)))
 
 (:: deep (-> Int Int))
-
-(fn (deep n) (shout "from deep"))
+(fn (deep n)
+  (shout "from deep"))
 
 (:: viaLoud (-> Int Int))
-
-(fn (viaLoud n) (deep n))
+(fn (viaLoud n)
+  (deep n))
 
 (:: viaQuiet (-> Int Int))
-
 (fn (viaQuiet n)
-  (cast Int (handle (whisper "covered") (Quiet) (lambda (s) 0)))
-)
+  (cast Int (handle
+    (whisper "covered")
+    (Quiet)
+    (lambda (s) 0))))
 
 (:: viaTrapping (-> Int Int))
-
-(fn (viaTrapping n) (bail "deliberate"))
+(fn (viaTrapping n)
+  (bail "deliberate"))
 
 (:: viaSloppy (-> Int Int))
-
-(fn (viaSloppy n) (slip "not trap"))
+(fn (viaSloppy n)
+  (slip "not trap"))
 
 (:: viaTypo (-> Int Int))
-
-(fn (viaTypo n) (oops "one slip"))
+(fn (viaTypo n)
+  (oops "one slip"))
 
 (:: usesPing (-> Int Int))
-
-(fn (usesPing n) (ping n))
+(fn (usesPing n)
+  (ping n))
 
 (:: install Box)
-
-(fn (install) (Box usesPing))
+(fn (install)
+  (Box usesPing))
 
 (:: viaField (-> Box Int))
-
 (fn (viaField b)
-  (cast Int (handle (b.f 7) (Alloc) (lambda (v) 0)))
-)
+  (cast Int (handle
+    (b.f 7)
+    (Alloc)
+    (lambda (v) 0))))
 
 ; The standard library's own effect, undischarged.
 (:: viaFallible (-> Int Int))
-
-(fn (viaFallible n) (fallibleMalformed "quantity is not a number"))
+(fn (viaFallible n)
+  (fallibleMalformed "quantity is not a number"))
 
 (:: viaWritten (-> Int Int))
-
 (fn (viaWritten n)
-  (let ((g (lambda (x) (ask x))))
-    (cast Int (handle (g n) (Written Alloc) (lambda (v) (* v 10))))
-  )
-)
+  (let ((g 
+    (lambda (x) (ask x))))
+    (cast Int (handle
+      (g n)
+      (Written Alloc)
+      (lambda (v) (* v 10))))))
 
 (:: main Int)
-
 (fn (main)
-  (+
-    (viaLoud 1)
-    (+
-      (viaQuiet 1)
-      (+
-        (viaTrapping 1)
-        (+
-          (viaSloppy 1)
-          (+
-            (viaTypo 1)
-            (+ (viaField install) (+ (viaFallible 1) (viaWritten 2)))
-          )
-        )
-      )
-    )
-  )
-)
+  (+ (viaLoud 1) (+ (viaQuiet 1) (+ (viaTrapping 1) (+ (viaSloppy 1) (+ (viaTypo 1) (+ (viaField install) (+ (viaFallible 1) (viaWritten 2)))))))))

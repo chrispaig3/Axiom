@@ -26,82 +26,58 @@
 ;      lowering isolates by construction, so the exemption holds
 ;      and it is silent.
 (import IO)
-
 (import Str)
 
 (:: mk (-> String Int Int))
-
 (fn (mk s)
-  (lambda (w) (+ w (strLen s)))
-)
+  (lambda (w) (+ w (strLen s))))
 
 (struct Box
   (f : (-> Int Int)))
 
 (:: condCap (-> String Bool Int))
-
 ;@axiom:effect(io)
 (fn (condCap s c)
   (__par_join
     (__par_spawn
       (if c
         (lambda (w) (+ w (strLen s)))
-        (lambda (w) w)
-      )
-      0
-    )
-  )
-)
+        (lambda (w) w))
+      0)))
 
 (:: callRes (-> String Int))
-
 ;@axiom:effect(io)
-(fn (callRes s) (__par_join (__par_spawn (mk s) 0)))
+(fn (callRes s)
+  (__par_join (__par_spawn (mk s) 0)))
 
 (:: fieldThunk (-> String Int))
-
 ;@axiom:effect(io)
 (fn (fieldThunk s)
   (let ((b 
     (Box
-      (lambda (w) (+ w (strLen s)))
-    )
-  ))
-    (__par_join (__par_spawn b.f 0))
-  )
-)
+      (lambda (w) (+ w (strLen s))))))
+    (__par_join (__par_spawn b.f 0))))
 
 (:: letCap (-> String Int))
-
 ;@axiom:effect(io)
 (fn (letCap s)
   (__par_join
     (__par_spawn
       (let ((k (strLen s)))
-        (lambda (w) (+ w k))
-      )
-      0
-    )
-  )
-)
+        (lambda (w) (+ w k)))
+      0)))
 
 (:: condWord (-> Int Int Bool Int))
-
 ;@axiom:effect(io)
 (fn (condWord n m c)
   (__par_join
     (__par_spawn
       (if c
         (lambda (w) (+ w n))
-        (lambda (w) (+ w m))
-      )
-      0
-    )
-  )
-)
+        (lambda (w) (+ w m)))
+      0)))
 
 (:: matchWord (-> Int Int Int))
-
 ;@axiom:effect(io)
 (fn (matchWord n m)
   (__par_join
@@ -112,18 +88,14 @@
         )
         (_
           (lambda (w) w)
-        )
-      )
-      0
-    )
-  )
-)
+        ))
+      0)))
 
 (:: procCall (-> String Int))
-
 ;@axiom:effect(io)
-(fn (procCall s) (__proc_join (__proc_spawn (mk s) 0)))
+(fn (procCall s)
+  (__proc_join (__proc_spawn (mk s) 0)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

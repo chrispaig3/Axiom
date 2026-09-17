@@ -2,7 +2,6 @@
 (import IO)
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   (let (
@@ -24,12 +23,8 @@
       (println (memGetByte a 1))
       (memSetWord a 0 123456789)
       (println
-        (cast Int (memGetWord a 0))
-      )
+        (cast Int (memGetWord a 0)))
       (println
-        (cast Int (memGetWord a 1))
-      )
+        (cast Int (memGetWord a 1)))
       0
-    }
-  )
-)
+    }))

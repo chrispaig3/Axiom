@@ -18,9 +18,8 @@
 ; makes the call resolve again - `checkVar`'s quiet arm suppresses the
 ; AX3001 for a `show` HEAD - and this golden's only line disappears.
 (import Fmt)
-
 (import Str)
 
 (:: main Int)
-
-(fn (main) (strLen (show 1)))
+(fn (main)
+  (strLen (show 1)))

@@ -4,14 +4,11 @@
   (Green))
 
 (:: rank (-> C Int))
-
 (fn (rank c)
   (match c
     ((Red) 42)
-    ((Green) 7)
-  )
-)
+    ((Green) 7)))
 
 (:: main Int)
-
-(fn (main) (rank Red))
+(fn (main)
+  (rank Red))

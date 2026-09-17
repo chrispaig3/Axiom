@@ -16,20 +16,20 @@
 ; answered - is never reached: the body never runs, and nothing after
 ; the form does either.
 (import IO)
-
 (import Str)
-
 (import Vec)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((v vecNew))
     {
       (vecPush v 1)
       (println "before")
-      (parallel p ((a (vecGet v 5)) (b 2))
+      (parallel p (
+        (a (vecGet v 5))
+        (b 2)
+      )
         (println (+ a b)))
       ; Nothing after the form runs: the join of `a` re-raises 77. The
       ; tail is a CALL and not the literal 0 for `464-index-trap.ax`'s
@@ -39,6 +39,4 @@
       ; the join swallowing the status: if it ever answers instead of
       ; exiting 77, this line runs and the golden says so.
       (printlnLit (strCStr "UNREACHABLE: the join returned"))
-    }
-  )
-)
+    }))

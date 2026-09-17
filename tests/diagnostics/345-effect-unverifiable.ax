@@ -26,30 +26,30 @@
   (f : (-> Int Int)))
 
 (:: usesLog (-> Int Int))
-
 (fn (usesLog n)
   {
     (log "op")
     n
-  }
-)
+  })
 
 (:: install Box)
-
-(fn (install) (Box usesLog))
+(fn (install)
+  (Box usesLog))
 
 (:: viaDirect (-> Int Int))
-
 (fn (viaDirect n)
-  (handle (usesLog n) (Alloc) (lambda (v) 0))
-)
+  (handle
+    (usesLog n)
+    (Alloc)
+    (lambda (v) 0)))
 
 (:: viaField (-> Box Int))
-
 (fn (viaField b)
-  (handle (b.f 7) (Alloc) (lambda (v) 0))
-)
+  (handle
+    (b.f 7)
+    (Alloc)
+    (lambda (v) 0)))
 
 (:: main Int)
-
-(fn (main) (+ (viaDirect 1) (viaField install)))
+(fn (main)
+  (+ (viaDirect 1) (viaField install)))

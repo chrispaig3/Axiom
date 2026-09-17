@@ -3,11 +3,8 @@
   (Green Int))
 
 (:: main Int)
-
 (fn (main)
   (match Red
     ((Purple) 1)
     ((Grean x) x)
-    (_ 0)
-  )
-)
+    (_ 0)))

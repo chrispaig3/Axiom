@@ -21,9 +21,9 @@
 (subtype Positive is Int range 1 .. 10)
 
 (:: takePos (-> Positive Int))
-
-(fn (takePos x) x)
+(fn (takePos x)
+  x)
 
 (:: main Int)
-
-(fn (main) (takePos 99))
+(fn (main)
+  (takePos 99))

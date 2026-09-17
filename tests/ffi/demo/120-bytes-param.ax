@@ -12,9 +12,7 @@
 ; string differs from the character count - the proof that the shim
 ; saw bytes, not characters.
 (import IO)
-
 (import Fmt)
-
 (import Demo)
 
 ;@axiom:effect(io)
@@ -34,8 +32,5 @@
         (println (fmtInt empty))
         (println (fmtInt utf8))
         1
-      }
-    )
-  )
-)
+      })))
 ; expect 0

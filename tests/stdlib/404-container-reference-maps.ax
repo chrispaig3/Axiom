@@ -75,31 +75,24 @@
 ;   fixture answers 254. Only probe 1 falls, and it falls to exactly
 ;   the count the double release predicts.
 (import Mem)
-
 (import Vec)
-
 (import Map)
-
 (import Intern)
-
 (import Str)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: shapeOf (-> Int Int))
-
-(fn (shapeOf h) (__load64 (- h 8) 0))
+(fn (shapeOf h)
+  (__load64 (- h 8) 0))
 
 (:: countOf (-> Int Int))
-
-(fn (countOf h) (__load64 (- h 16) 0))
+(fn (countOf h)
+  (__load64 (- h 16) 0))
 
 ; Build a one-element vector over a 200-byte string, drop every share
 ; of it, and answer whether the string's BYTE block came back. `refs`
@@ -113,32 +106,25 @@
 ; rather than what it meant to - applies in reverse here, where the
 ; free list IS the measurement.
 (:: bytesComeBack (-> Bool Bool))
-
 (fn (bytesComeBack refs)
   (let ((s (strAlloc 200)))
     (let (
       (bytes (memGetWord
-        (cast Int s)        2
-      ))
+        (cast Int s)
+        2))
       (v (if refs
         vecNewRef
-        vecNew
-      ))
+        vecNew))
     )
       {
         (vecPush v s)
         (__release
-          (cast Int s)
-        )
+          (cast Int s))
         (vecFree v)
         (== (memAlloc 200) bytes)
-      }
-    )
-  )
-)
+      })))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (vr vecNewRef)
@@ -149,9 +135,41 @@
     (mut acc 0)
   )
     {
-      (set acc (+ acc (* 128 (b2i (&& (== (shapeOf (memGetWord (cast Int vr) 2)) 557072) (== (shapeOf (memGetWord (cast Int vp) 2)) 16))))))
+      (set acc (+
+        acc
+        (*
+          128
+          (b2i
+            (&&
+              (==
+                (shapeOf
+                  (memGetWord
+                    (cast Int vr)
+                    2))
+                557072)
+              (==
+                (shapeOf
+                  (memGetWord
+                    (cast Int vp)
+                    2))
+                16))))))
       (set acc (+ acc (* 64 (b2i (== (shapeOf (memGetWord (memGetWord it 0) 2)) 4227200)))))
-      (set acc (+ acc (* 32 (b2i (&& (== (shapeOf (cast Int vr)) 262152) (&& (== (shapeOf (cast Int mp)) 1835024) (== (shapeOf it) 327688)))))))
+      (set acc (+
+        acc
+        (*
+          32
+          (b2i
+            (&&
+              (==
+                (shapeOf
+                  (cast Int vr))
+                262152)
+              (&&
+                (==
+                  (shapeOf
+                    (cast Int mp))
+                  1835024)
+                (== (shapeOf it) 327688)))))))
       (set acc (+ acc (* 16 (b2i (bytesComeBack true)))))
       (set acc (+ acc (* 8 (b2i (== (b2i (bytesComeBack false)) 0)))))
       ; Cap 8 means a 64-byte data block. Nine pushes double it, the
@@ -159,14 +177,32 @@
       ; elements are zeroes, which release skips as immediates, so this
       ; probe measures the block and nothing else.
       (let ((g vecNewRef))
-        (let ((old (memGetWord (cast Int g) 2)))
+        (let ((old 
+          (memGetWord
+            (cast Int g)
+            2)))
           {
             (vecPushN g 9)
             (set acc (+ acc (* 4 (b2i (== (memAlloc 64) old)))))
-          }
-        )
-      )
-      (set acc (+ acc (* 2 (b2i (&& (== (shapeOf (memGetWord (cast Int mr) 3)) 557072) (== (shapeOf (memGetWord (cast Int mp) 3)) 16))))))
+          }))
+      (set acc (+
+        acc
+        (*
+          2
+          (b2i
+            (&&
+              (==
+                (shapeOf
+                  (memGetWord
+                    (cast Int mr)
+                    3))
+                557072)
+              (==
+                (shapeOf
+                  (memGetWord
+                    (cast Int mp)
+                    3))
+                16))))))
       ; The popped element keeps the caller's share: two retains put its
       ; count at 3, the pop zeroes the word, and the free walks past a
       ; zero rather than spending a share. Without `vecPop`'s zero the
@@ -176,35 +212,25 @@
           {
             (vecPush pv k)
             (__retain
-              (cast Int k)
-            )
+              (cast Int k))
             (vecPop pv)
             (vecFree pv)
             (set acc (+
-              acc              (b2i
+              acc
+              (b2i
                 (==
                   (countOf
-                    (cast Int k)
-                  )                  3
-                )
-              )
-            ))
-          }
-        )
-      )
+                    (cast Int k))
+                  3))))
+          }))
       acc
-    }
-  )
-)
+    }))
 
 (:: vecPushN (-> (Vec Int) Int (Vec Int)))
-
 (fn (vecPushN v n)
   (if (<= n 0)
     v
     {
       (vecPush v 0)
       (vecPushN v (- n 1))
-    }
-  )
-)
+    }))

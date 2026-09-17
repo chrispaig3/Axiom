@@ -40,38 +40,38 @@
 ;   `unwrap`  the honest direction, so the case is not vacuous
 (import Str)
 
-(data Box (Bx String))
+(data Box
+  (Bx String))
 
-(struct Pt (x : Int) (y : Int))
+(struct Pt
+  (x : Int)
+  (y : Int))
 
 (:: g (-> Int Box))
-
-(fn (g x) 7)
+(fn (g x)
+  7)
 
 (:: mkPt (-> Int Pt))
-
-(fn (mkPt n) n)
+(fn (mkPt n)
+  n)
 
 (:: pun (-> Int Box))
-
-(fn (pun n) (Pt n n))
+(fn (pun n)
+  (Pt n n))
 
 (:: mkSpan (-> Int Int Int))
-
-(fn (mkSpan a b) (Pt a b))
+(fn (mkSpan a b)
+  (Pt a b))
 
 (:: mkOk (-> Int Box))
-
-(fn (mkOk n) (cast Box n))
+(fn (mkOk n)
+  (cast Box n))
 
 (:: unwrap (-> Box Int))
-
 (fn (unwrap b)
   (match b
-    ((Bx s) (strLen s))
-  )
-)
+    ((Bx s) (strLen s))))
 
 (:: main Int)
-
-(fn (main) (unwrap (g 1)))
+(fn (main)
+  (unwrap (g 1)))

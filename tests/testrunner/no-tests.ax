@@ -4,5 +4,5 @@
 (import Str)
 
 (:: helper (-> Int Int))
-
-(pub fn (helper x) (+ x 1))
+(pub fn (helper x)
+  (+ x 1))

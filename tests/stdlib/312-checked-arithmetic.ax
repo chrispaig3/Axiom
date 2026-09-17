@@ -43,18 +43,14 @@
 ; `mulChecked` excludes the undefined division rather than relying on
 ; what it happens to return.
 (import IO)
-
 (import Err)
 
 (:: say (-> Int String Int))
-
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))
-  )
-)
+    (printlnLit (strCStr (strConcat "FAIL " label)))))
 
 ; The binder is handed to a function whose parameter is DECLARED
 ; `Error` because, when this was written, a `match` binder over a
@@ -77,69 +73,51 @@
 ; public name and this file is about checked arithmetic, not about
 ; which way an error's fields are read.
 (:: codeOf (-> (Result Int Error) Int))
-
 (fn (codeOf r)
   (match r
     ((Ok x) 0)
-    ((Err e) (errCode e))
-  )
-)
+    ((Err e) (errCode e))))
 
 (:: valueOr (-> (Result Int Error) Int Int))
-
 (fn (valueOr r d)
   (match r
     ((Ok x) x)
-    ((Err e) d)
-  )
-)
+    ((Err e) d)))
 
 ; Overflowed, specifically - not merely failed. A checked operator that
 ; answered `errDivideByZero` for a sum would satisfy `isErr` and be
 ; wrong, so every refusal below is asked for its code.
 (:: overflowed (-> (Result Int Error) Int))
-
 (fn (overflowed r)
   (if (== (codeOf r) errOverflow)
     1
-    0
-  )
-)
+    0))
 
 (:: gave (-> (Result Int Error) Int Int))
-
 (fn (gave r want)
   (if (isOk r)
     (if (== (valueOr r 0) want)
       1
-      0
-    )
-    0
-  )
-)
+      0)
+    0))
 
 ; Refused with a SPECIFIC code - not merely failed. `divChecked` has
 ; two refusals with two meanings (zero divisor against unrepresentable
 ; quotient) and the shift has its own, so `isErr` alone would accept a
 ; swapped diagnostic the way `overflowed` would accept a swapped sum.
 (:: refused (-> (Result Int Error) Int Int))
-
 (fn (refused r want)
   (if (isErr r)
     (if (== (codeOf r) want)
       1
-      0
-    )
-    0
-  )
-)
+      0)
+    0))
 
 (:: intMax Int)
-
-(fn (intMax) 9223372036854775807)
+(fn (intMax)
+  9223372036854775807)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; --- addition ---------------------------------------------------
@@ -202,5 +180,4 @@
     ; the caller can act on rather than a wrong length it cannot see.
     (say (overflowed (addChecked 64 (- intMax 8))) "a framer offset plus a peer's length refuses instead of wrapping")
     0
-  }
-)
+  })

@@ -18,54 +18,46 @@
 ; on one declaration is not a contradiction the compiler resolves; it
 ; is two claims, one kept and one not.
 (import IO)
-
 (import Vec)
 
 ;@axiom:restrict(no-io)
 (:: parseConfig (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (parseConfig n) (readSection n))
+(fn (parseConfig n)
+  (readSection n))
 
 (:: readSection (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (readSection n)
   {
     (println "section")
     n
-  }
-)
+  })
 
 ;@axiom:restrict(no-io)
 (:: pureMath (-> Int Int))
-
-(fn (pureMath n) (* n 2))
+(fn (pureMath n)
+  (* n 2))
 
 ;@axiom:restrict(no-io)
 (:: sigTagged (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (sigTagged n)
   {
     (println "direct")
     n
-  }
-)
+  })
 
 (:: allocates (-> Int Int))
-
 ;@axiom:restrict(no-io)
 (fn (allocates n)
   (let ((v vecNew))
     {
       (vecPush v n)
       (vecLen v)
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (+ (parseConfig 1) (+ (pureMath 2) (+ (sigTagged 3) (allocates 4)))))
+(fn (main)
+  (+ (parseConfig 1) (+ (pureMath 2) (+ (sigTagged 3) (allocates 4)))))

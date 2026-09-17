@@ -48,14 +48,15 @@
 
 ;@axiom:effect(Tick)
 (:: useIt (-> Int Int))
-
 ;@axiom:effect(Tick)
-(fn (useIt n) (bump n))
+(fn (useIt n)
+  (bump n))
 
 (:: main Int)
-
 (fn (main)
   (+
-    (wrapBox 8)    (handle (useIt 3) (Tick) (lambda (v) (+ v 27)))
-  )
-)
+    (wrapBox 8)
+    (handle
+      (useIt 3)
+      (Tick)
+      (lambda (v) (+ v 27)))))

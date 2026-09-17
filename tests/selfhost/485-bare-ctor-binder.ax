@@ -8,14 +8,11 @@
   (Cons2 Int L2))
 
 (:: f (-> L2 Int))
-
 (fn (f l)
   (match l
     (Nil2 5)
-    ((Cons2 h t) 6)
-  )
-)
+    ((Cons2 h t) 6)))
 
 (:: main Int)
-
-(fn (main) (f (Cons2 1 Nil2)))
+(fn (main)
+  (f (Cons2 1 Nil2)))

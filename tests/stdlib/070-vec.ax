@@ -7,26 +7,21 @@
 ; no loop and no function values, so bulk work is always a top-level
 ; function threading its own index.
 (import IO)
-
 (import Vec)
 
 ; Push `x`, `x+1`, ... until the vector holds `upto` elements.
 (pub :: pushRange (-> (Vec Int) Int (Vec Int)))
-
 (pub fn (pushRange v upto)
   (if (>= (vecLen v) upto)
     v
     {
       (vecPush v (vecLen v))
       (pushRange v upto)
-    }
-  )
-)
+    }))
 
 ; Pop `n` times, printing each result, so "pop to empty" is checked
 ; element by element rather than by a single summary number.
 (pub :: popTimes (-> (Vec Int) Int (Vec Int)))
-
 ;@axiom:effect(io)
 (pub fn (popTimes v n)
   (if (<= n 0)
@@ -34,12 +29,9 @@
     {
       (println (vecPop v))
       (popTimes v (- n 1))
-    }
-  )
-)
+    }))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; --- a fresh Vec ---
@@ -70,16 +62,13 @@
       (println (vecLen v))  ; 9
       (println (vecCap v))  ; 16
       (println
-        (cast Int (vecGet v 0))
-      )
+        (cast Int (vecGet v 0)))
       ; 0: survived the realloc
       (println
-        (cast Int (vecGet v 7))
-      )
+        (cast Int (vecGet v 7)))
       ; 7: last pre-growth element
       (println
-        (cast Int (vecGet v 8))
-      )
+        (cast Int (vecGet v 8)))
       ; 100
       (println (vecSum v))  ; 128
       ; --- growth across several doublings at once ---
@@ -87,16 +76,13 @@
       (println (vecLen v))  ; 70
       (println (vecCap v))  ; 128: 16 -> 32 -> 64 -> 128
       (println
-        (cast Int (vecGet v 8))
-      )
+        (cast Int (vecGet v 8)))
       ; 100: still there
       (println
-        (cast Int (vecGet v 9))
-      )
+        (cast Int (vecGet v 9)))
       ; 9: pushRange resumed at len
       (println
-        (cast Int (vecGet v 69))
-      )
+        (cast Int (vecGet v 69)))
       ; 69
       ; --- out of range on both sides, through the CHECKED read ---
       ;
@@ -107,41 +93,43 @@
       ; move to `vecTry`, which is what a caller who does not know the
       ; index is good was always supposed to use.
       (println
-        (match (vecTry v (- 0 1)) ((Some x) x) ((None) (- 0 1)))
-      )
+        (match (vecTry v (- 0 1))
+          ((Some x) x)
+          ((None) (- 0 1))))
       ; -1: None
       (println
-        (match (vecTry v (- 0 1000)) ((Some x) x) ((None) (- 0 1)))
-      )
+        (match (vecTry v (- 0 1000))
+          ((Some x) x)
+          ((None) (- 0 1))))
       ; -1: None
       (println
-        (match (vecTry v 70) ((Some x) x) ((None) (- 0 1)))
-      )
+        (match (vecTry v 70)
+          ((Some x) x)
+          ((None) (- 0 1))))
       ; -1: None, one past the end
       (println
-        (match (vecTry v 100000) ((Some x) x) ((None) (- 0 1)))
-      )
+        (match (vecTry v 100000)
+          ((Some x) x)
+          ((None) (- 0 1))))
       ; -1: None, inside cap but past len
       ; --- set then get, including rejected out-of-range sets ---
       (vecSet v 0 999)
       (println
-        (cast Int (vecGet v 0))
-      )
+        (cast Int (vecGet v 0)))
       ; 999
       (vecSet v 70 777)  ; ignored: index == len
       (println
-        (match (vecTry v 70) ((Some x) x) ((None) (- 0 1)))
-      )
+        (match (vecTry v 70)
+          ((Some x) x)
+          ((None) (- 0 1))))
       ; -1: the set was ignored, so there is still nothing there
       (println (vecLen v))  ; 70: set did not append
       (vecSet v (- 0 1) 555)  ; ignored
       (println (vecLen v))  ; 70
       ; --- order matters: vecHash catches a permutation, vecSum does not
       (println
-        (cast Int (vecLast v))
-      )
+        (cast Int (vecLast v)))
       ; 69
-
       (println (vecHash v))  ; position-sensitive digest
       ; --- clear keeps capacity, drops contents ---
       (vecClear v)
@@ -149,8 +137,9 @@
       (println (vecCap v))  ; 128: capacity retained
       (println (vecSum v))  ; 0: stale words not visible
       (println
-        (match (vecTry v 0) ((Some x) x) ((None) (- 0 1)))
-      )
+        (match (vecTry v 0)
+          ((Some x) x)
+          ((None) (- 0 1))))
       ; -1: None. The word 999 is still in the block, and that is the
       ; point - `vecClear` drops the LENGTH, so the element is gone as
       ; far as any reader is concerned, and the checked read says so
@@ -181,10 +170,7 @@
       ; anyway - that the handle round-tripped through the Vec is
       ; still a `Str`.
       (println
-        (cast String (vecGet (vecPush (vecPush vecNew "alpha") "omega") 1))
-      )
+        (cast String (vecGet (vecPush (vecPush vecNew "alpha") "omega") 1)))
       ; omega
       0
-    }
-  )
-)
+    }))

@@ -9,11 +9,5 @@
 (import QualMac)
 
 (:: main Int)
-
 (fn (main)
-  (+
-    (QualMac::qdbl
-      21
-    )    QualMac::qfive
-  )
-)
+  (+ (QualMac::qdbl 21) QualMac::qfive))

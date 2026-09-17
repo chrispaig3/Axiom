@@ -18,7 +18,15 @@
   (ask :: (-> Int Int)))
 
 (:: overApplied Int)
-(fn (overApplied) (handle (op 1 2 3) (Untyped) (lambda (x) (* x 10))))
+(fn (overApplied)
+  (handle
+    (op 1 2 3)
+    (Untyped)
+    (lambda (x) (* x 10))))
 
 (:: main Int)
-(fn (main) (handle (ask 1) (Typed) (lambda (x) (* x 10))))
+(fn (main)
+  (handle
+    (ask 1)
+    (Typed)
+    (lambda (x) (* x 10))))

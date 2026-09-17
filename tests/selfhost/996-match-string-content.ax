@@ -15,17 +15,13 @@
 (import Str)
 
 (:: tag (-> String Int))
-
 (fn (tag s)
   (match s
     ("hello" 40)
     ("hi" 2)
-    (_ 0)
-  )
-)
+    (_ 0)))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (hello (strConcat "hel" "lo"))
@@ -34,7 +30,4 @@
   )
     (if (== hello "hello")
       (+ (+ (tag hello) (tag hi)) (tag yo))
-      100
-    )
-  )
-)
+      100)))

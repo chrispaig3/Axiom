@@ -9,9 +9,8 @@
 ; `492` is the same program with the imports swapped and must give
 ; the same answer; that pair is the actual property.
 (import TeamA)
-
 (import TeamB)
 
 (:: main Int)
-
-(fn (main) bPort)
+(fn (main)
+  bPort)

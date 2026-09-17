@@ -16,5 +16,5 @@
 (declM (+ 1 2))
 
 (:: main Int)
-
-(fn (main) (declM 2))
+(fn (main)
+  (declM 2))

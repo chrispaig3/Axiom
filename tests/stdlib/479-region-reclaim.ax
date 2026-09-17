@@ -28,7 +28,6 @@
 ;   8. Fifty thousand regions, one sum: the loop answers, proving
 ;      the elided traffic was never load-bearing for correctness.
 (import IO)
-
 (import Mem)
 
 (data Box
@@ -39,76 +38,57 @@
   (y : Int))
 
 (:: useBox (-> Box Int Int))
-
 (fn (useBox o d)
   (+
     (match o
-      ((MkBox x) x)
-    )
-    d
-  )
-)
+      ((MkBox x) x))
+    d))
 
 (:: getx (-> Pair Int))
-
-(fn (getx p) p.x)
+(fn (getx p)
+  p.x)
 
 ; Term 8's loop: scalar stores to an outer binding are allowed, so
 ; the counter lives outside the regions it counts.
 (:: spin (-> Int Int Int))
-
 (fn (spin i acc)
   (if (<= i 0)
     acc
     (region r
-      (spin (- i 1) (+ acc (useBox (MkBox i) 0))))
-  )
-)
+      (spin (- i 1) (+ acc (useBox (MkBox i) 0))))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     ; --- 1. data-construction temporary in a region ---
     (println
       (region r
-        (useBox (MkBox 40) 2))
-    )
+        (useBox (MkBox 40) 2)))
     ; --- 2. struct-construction temporary in a region ---
     (println
       (region r
-        (getx (Pair 10 32)))
-    )
+        (getx (Pair 10 32))))
     ; --- 3. no region, no elision, same answer ---
     (println (useBox (MkBox 40) 2))
     ; --- 4. let-bound construction: the release stays ---
     (println
       (region r
         (let ((b (MkBox 40)))
-          (useBox b 2)
-        ))
-    )
+          (useBox b 2))))
     ; --- 5. lambda in a region: the release stays ---
     (println
       (region r
         (let ((k 
-          (lambda (q) (useBox (MkBox q) 2))
-        ))
-          (k 40)
-        ))
-    )
+          (lambda (q) (useBox (MkBox q) 2))))
+          (k 40))))
     ; --- 6. shadowed constructor: an alias, not a block ---
     (println
       (let ((G (MkBox 7)))
         (let ((MkBox 
-          (lambda (q) G)
-        ))
+          (lambda (q) G)))
           (region r
-            (useBox (MkBox 1) 2))
-        )
-      )
-    )
+            (useBox (MkBox 1) 2)))))
     ; --- 7. the waterline comes back, releases elided ---
     (let ((m1 __axiom_arena_mark))
       {
@@ -122,13 +102,9 @@
         (println
           (if (<= (- (memGetWord __axiom_arena_mark 0) (memGetWord m1 0)) 48)
             1
-            0
-          )
-        )
-      }
-    )
+            0))
+      })
     ; --- 8. fifty thousand regions, one sum ---
     (println (spin 50000 0))
     0
-  }
-)
+  })

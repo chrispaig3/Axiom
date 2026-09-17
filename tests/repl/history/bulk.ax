@@ -10,21 +10,15 @@
 ;
 ; Driven by scripts/check-repl-history.sh.
 (import Str)
-
 (import Sys)
-
 (import diag)
-
 (import replhist)
 
 (:: pad String)
-
 (fn (pad)
-  "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789"
-)
+  "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789")
 
 (:: bulkRecord (-> Int Int Int Int))
-
 ;@axiom:effect(io)
 (fn (bulkRecord h i limit)
   (if (>= i limit)
@@ -32,12 +26,9 @@
     {
       (histRecord h (strConcat (strConcat "(bulk " (decStr i)) (strConcat " " (strConcat pad ")"))))
       (bulkRecord h (+ i 1) limit)
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -53,13 +44,9 @@
       (if (== (histClose h) 1)
         (if (== (histLen h) histMaxEntries)
           42
-          43
-        )
-        44
-      )
-    }
-  )
-)
+          43)
+        44)
+    }))
 
 ; A small unsigned parser, because `sysEnv` answers a String and this
 ; fixture needs a number from it. Answers 0 on anything that is not all
@@ -67,19 +54,14 @@
 ; silent zero-length run: it requires the exit status to report the
 ; compaction it asked for.
 (:: strToIntPub (-> String Int))
-
-(fn (strToIntPub s) (digitsFrom s 0 0))
+(fn (strToIntPub s)
+  (digitsFrom s 0 0))
 
 (:: digitsFrom (-> String Int Int Int))
-
 (fn (digitsFrom s i acc)
   (if (>= i (strLen s))
     acc
     (let ((b (strByte s i)))
       (if (|| (< b 48) (> b 57))
         0
-        (digitsFrom s (+ i 1) (+ (* acc 10) (- b 48)))
-      )
-    )
-  )
-)
+        (digitsFrom s (+ i 1) (+ (* acc 10) (- b 48)))))))

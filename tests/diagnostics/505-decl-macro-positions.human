@@ -24,10 +24,10 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3027` for a full explanation
 
 [1;31merror[AX3027][0m[1m: declaration macro `declM` invoked in expression position[0m
-  [1;34m--> [0m505-decl-macro-positions.ax:20:13
+  [1;34m--> [0m505-decl-macro-positions.ax:20:4
 [1;34m   |[0m
-[1;34m20 |[0m (fn (main) (declM 2))
-[1;34m   |[0m             [1;31m^^^^^[0m
+[1;34m20 |[0m   (declM 2))
+[1;34m   |[0m    [1;31m^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mthe two template kinds are disjoint: an expression position needs a value, and this macro generates declarations (macro-system.md MAC-CAP-8)
   [1;34m = [0m[1;32mhelp: [0ma rule-form macro's template is declarations; invoke it at top level

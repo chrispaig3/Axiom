@@ -28,14 +28,12 @@
 ; Every row is AX3059 with the one slug `region-escape`: a code has one
 ; slug, and the message says which shape it was.
 (import IO)
-
 (import Str)
 
 (struct Box
   (mut s : String))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -45,7 +43,8 @@
   )
     {
       ; --- (a) the value ---
-      (region r (strConcat "a" "b"))
+      (region r
+        (strConcat "a" "b"))
       ; --- (b) a store to an outer binding ---
       (region s
         {
@@ -59,9 +58,12 @@
           0
         })
       ; --- silent: a scalar leaves ---
-      (println (region u (strLen (strConcat "a" "b"))))
+      (println
+        (region u
+          (strLen (strConcat "a" "b"))))
       ; --- silent: a scalar store to an outer counter ---
-      (region v (set n (+ n (strLen (strConcat "a" "b")))))
+      (region v
+        (set n (+ n (strLen (strConcat "a" "b")))))
       ; --- silent: a store to a binding made inside ---
       (region w
         (let ((mut inner ""))
@@ -72,6 +74,4 @@
       (println n)
       (println (strLen out))
       0
-    }
-  )
-)
+    }))

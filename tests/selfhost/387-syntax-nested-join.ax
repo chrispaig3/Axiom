@@ -53,30 +53,23 @@
 (deriveMyGet Point)
 
 (:: main Int)
-
 (fn (main)
   (+
     (if (== (getPointX (Point 1 2)) 1)
       1
-      0
-    )    (+
+      0)
+    (+
       (if (== (getRectX (Rect 3 4)) 3)
         2
-        0
-      )      (+
+        0)
+      (+
         (if (== (getRectW (Rect 3 4)) 4)
           4
-          0
-        )        (+
+          0)
+        (+
           (if (== (myGetPointY (Point 1 2)) 2)
             8
-            0
-          )          (if (== (getPointY (Point 5 6)) 6)
+            0)
+          (if (== (getPointY (Point 5 6)) 6)
             32
-            0
-          )
-        )
-      )
-    )
-  )
-)
+            0))))))

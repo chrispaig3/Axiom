@@ -22,9 +22,7 @@
 ; `alloc::vec!` through `axiom_alloc`, was generated, diffed, and never
 ; run. A generated module with no consumer is a golden, not a binding.
 (import IO)
-
 (import Str)
-
 (import Hash)
 
 ;@axiom:effect(io)
@@ -38,8 +36,5 @@
         (println "nostd: agree")
         0
       }
-      2
-    )
-  )
-)
+      2)))
 ; expect 0

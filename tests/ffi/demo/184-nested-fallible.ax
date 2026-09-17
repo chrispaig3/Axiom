@@ -8,52 +8,36 @@
 ; third level (`Result<Option<Option<_>>, _>`) is refused at compile
 ; time: three states is what the status word has.
 (import IO)
-
 (import Fmt)
-
 (import Str)
-
 (import Err)
-
 (import Demo)
 
 (pub :: parsed (-> (Result (Option Int) String) Int))
-
 (pub fn (parsed r)
   (match r
     ((Ok (Some v)) v)
     ((Ok None) -1)
-    ((Err _) -2)
-  )
-)
+    ((Err _) -2)))
 
 (pub :: parsedMsg (-> (Result (Option Int) String) String))
-
 (pub fn (parsedMsg r)
   (match r
     ((Ok _) "")
-    ((Err m) m)
-  )
-)
+    ((Err m) m)))
 
 (pub :: found (-> (Option (Result Int String)) Int))
-
 (pub fn (found o)
   (match o
     ((Some (Ok v)) v)
     ((Some (Err _)) -2)
-    (None -1)
-  )
-)
+    (None -1)))
 
 (pub :: foundMsg (-> (Option (Result Int String)) String))
-
 (pub fn (foundMsg o)
   (match o
     ((Some (Err m)) m)
-    (_ "")
-  )
-)
+    (_ "")))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -82,8 +66,5 @@
         (println (fmtInt neg))
         (println negMsg)
         1
-      }
-    )
-  )
-)
+      })))
 ; expect 0

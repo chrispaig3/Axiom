@@ -28,32 +28,28 @@
 (import IO)
 
 (:: shout (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (shout n)
   {
     (writeStr 1 "!\n")
     n
-  }
-)
+  })
 
 ;@axiom:pure
 (:: handoff (-> Int Int Int))
-
 ;@axiom:pure
-(fn (handoff k) shout)
+(fn (handoff k)
+  shout)
 
 ;@axiom:pure
 (:: liar (-> Int Int))
-
 ;@axiom:pure
 (fn (liar n)
   {
     (writeStr 1 "!\n")
     n
-  }
-)
+  })
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

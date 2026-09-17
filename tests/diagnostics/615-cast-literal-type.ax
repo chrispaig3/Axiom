@@ -40,5 +40,5 @@
 (viaMacro D 4)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

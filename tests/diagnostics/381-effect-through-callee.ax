@@ -27,42 +27,38 @@
 (import IO)
 
 (:: shout (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (shout n)
   {
     (println "n={n}")
     n
-  }
-)
+  })
 
 (:: relay (-> Int Int))
-
-(fn (relay n) (shout n))
+(fn (relay n)
+  (shout n))
 
 (:: relay2 (-> Int Int))
+(fn (relay2 n)
+  (relay n))
 
-(fn (relay2 n) (relay n))
-
-(:: handoff (-> Int (-> Int Int)))
-
-(fn (handoff k) shout)
+(:: handoff (-> Int Int Int))
+(fn (handoff k)
+  shout)
 
 (:: g (-> Int Int))
-
 ;@axiom:pure
-(fn (g n) ((handoff 1) n))
+(fn (g n)
+  (handoff 1 n))
 
 (:: liar (-> Int Int))
-
 ;@axiom:pure
 (fn (liar n)
   {
     (writeStr 1 "!\n")
     n
-  }
-)
+  })
 
 (:: main Int)
-
-(fn (main) (+ (relay2 1) (liar 2)))
+(fn (main)
+  (+ (relay2 1) (liar 2)))

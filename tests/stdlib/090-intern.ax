@@ -31,18 +31,14 @@
 ; a collision in the table index only, which is what linear probing has
 ; to survive.
 (import IO)
-
 (import Intern)
 
 ; `Bool` as a printable digit.
 (pub :: itBit (-> Bool Int))
-
 (pub fn (itBit b)
   (if b
     1
-    0
-  )
-)
+    0))
 
 ; The nth generated name: "id0", "id1", ...
 ;
@@ -51,21 +47,18 @@
 ; `Str` handle every time it is called - which is exactly the condition
 ; the re-interning check below needs.
 (pub :: itName (-> Int String))
-
-(pub fn (itName n) (strConcat "id" (fmtInt n)))
+(pub fn (itName n)
+  (strConcat "id" (fmtInt n)))
 
 ; Intern "id{lo}" .. "id{hi-1}".
 (pub :: itInternRange (-> Int Int Int Int))
-
 (pub fn (itInternRange it lo hi)
   (if (>= lo hi)
     it
     {
       (internIntern it (itName lo))
       (itInternRange it (+ lo 1) hi)
-    }
-  )
-)
+    }))
 
 ; Count the n in [lo, hi) for which re-interning "id{n}" - from a freshly
 ; built handle - returns the id it was first given, `n`, *and* looking that
@@ -77,7 +70,6 @@
 ; `&&` miscompiles when its operands are comparisons, and a `Bool` may not
 ; be the value of an `if`. See the note above `Map`'s probe loops.
 (pub :: itCountRoundTrip (-> Int Int Int Int))
-
 (pub fn (itCountRoundTrip it lo hi)
   (if (>= lo hi)
     0
@@ -85,13 +77,9 @@
       (if (== (internIntern it (itName lo)) lo)
         (if (strEq (internLookup it lo) (itName lo))
           1
-          0
-        )
-        0
-      )      (itCountRoundTrip it (+ lo 1) hi)
-    )
-  )
-)
+          0)
+        0)
+      (itCountRoundTrip it (+ lo 1) hi))))
 
 ; The id `internFind` answers, or -1 when it answers `None`.
 ;
@@ -101,13 +89,10 @@
 ; golden: what moved is the TYPE, and a golden that moved with it would
 ; make a contract change indistinguishable from a behaviour change.
 (pub :: itFound (-> (Option Int) Int))
-
 (pub fn (itFound o)
   (match o
     ((Some id) id)
-    ((None) (- 0 1))
-  )
-)
+    ((None) (- 0 1))))
 
 ; Which CONSTRUCTOR came back, as a word.
 ;
@@ -117,16 +102,12 @@
 ; port is for, and the two lines it adds are APPENDED to the golden
 ; rather than folded into it.
 (pub :: itShape (-> (Option Int) String))
-
 (pub fn (itShape o)
   (match o
     ((Some _) "some")
-    ((None) "none")
-  )
-)
+    ((None) "none")))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; --- a fresh interner ---
@@ -161,10 +142,8 @@
       (println
         (itBit
           (==
-            (cast Int alpha)            (cast Int built)
-          )
-        )
-      )
+            (cast Int alpha)
+            (cast Int built))))
       ; 0: different Ints
       ; ...but the ids do not.
       (println (internIntern it built))  ; 0
@@ -232,6 +211,4 @@
       (println (itShape (internFind big "id7")))  ; some
       (println (itShape (internFind big "id100")))  ; none
       0
-    }
-  )
-)
+    }))

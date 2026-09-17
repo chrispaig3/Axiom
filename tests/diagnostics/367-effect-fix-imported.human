@@ -11,7 +11,7 @@
 [1;31merror[AX3042][0m[1m: `main` performs IO and its declaration does not say so[0m
   [1;34m--> [0m367-effect-fix-imported.ax:10:6
 [1;34m   |[0m
-[1;34m10 |[0m (fn (main) (leak 1))
+[1;34m10 |[0m (fn (main)
 [1;34m   |[0m      [1;31m^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(io)` above the declaration[1;35m ~>[0m

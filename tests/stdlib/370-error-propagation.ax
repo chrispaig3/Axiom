@@ -131,9 +131,7 @@
 ; exactly as it did before the fix. `scripts/check-fallible-reclaim.sh`
 ; runs that ablation rather than describing it.
 (import Str)
-
 (import Mem)
-
 (import Vec)
 
 (data Res (a e)
@@ -141,69 +139,52 @@
   (Bad e))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: wide (-> Int String))
-
-(fn (wide k) (strDup "0123456789abcdef0123456789abcdef"))
+(fn (wide k)
+  (strDup "0123456789abcdef0123456789abcdef"))
 
 ; a fallible step that does not, in fact, fail here
 (:: step (-> Int (Res Int Int)))
-
 (fn (step n)
   (if (< n 0)
     (Bad n)
-    (Good 1)
-  )
-)
+    (Good 1)))
 
 ; the same step with no error value, for term 8's control
 (:: stepPlain (-> Int Int))
-
-(fn (stepPlain n) 1)
+(fn (stepPlain n)
+  1)
 
 ; THE SHAPE. The fallible call is the scrutinee; the recursion is the
 ; Good arm's answer, in tail position, and converts to a loop.
 (:: total (-> Int Int (Res Int Int)))
-
 (fn (total n acc)
   (if (== n 0)
     (Good acc)
     (match (step n)
       ((Bad e) (Bad e))
-      ((Good v) (total (- n 1) (+ acc v)))
-    )
-  )
-)
+      ((Good v) (total (- n 1) (+ acc v))))))
 
 ; term 8's control: identical loop, no Res constructed
 (:: totalPlain (-> Int Int Int))
-
 (fn (totalPlain n acc)
   (if (== n 0)
     acc
-    (totalPlain (- n 1) (+ acc (stepPlain n)))
-  )
-)
+    (totalPlain (- n 1) (+ acc (stepPlain n)))))
 
 ; a loop carrying a reference in the error payload, let-bound so the
 ; frame may release it
 (:: carry (-> (Res Int String) Int Int))
-
 (fn (carry r n)
   (if (<= n 0)
     0
     (let ((next (Bad (wide n))))
-      (carry next (- n 1))
-    )
-  )
-)
+      (carry next (- n 1)))))
 
 ; Term 64: the probe pair is not blind. 2000 Strings allocated and
 ; KEPT - the Vec outlives the second probe, so nothing may reclaim
@@ -218,7 +199,6 @@
 ; flat line too now and would have made a control that cannot fail.
 ; A control has to be something the allocator must answer for.
 (:: hoard (-> Int (Vec String)))
-
 (fn (hoard n)
   (let (
     (v vecNewRef)
@@ -231,66 +211,49 @@
           (set i (+ i 1))
         })
       v
-    }
-  )
-)
+    }))
 
 ; ERR-MEM-4's two spellings. The recursion is the tail call in both -
 ; the `match` sits inside an ARGUMENT to it, so term 1's cliff is not
 ; in play and what these measure is the `Res` block alone. `v` is an
 ; `Int` living in a field the declaration spells `a`.
 (:: drain (-> Int Int Int))
-
 (fn (drain n acc)
   (if (== n 0)
     acc
     (drain
-      (- n 1)      (+
-        acc        (match (step n)
+      (- n 1)
+      (+
+        acc
+        (match (step n)
           ((Good v) v)
-          ((Bad e) 0)
-        )
-      )
-    )
-  )
-)
+          ((Bad e) 0))))))
 
 (:: drainLet (-> Int Int Int))
-
 (fn (drainLet n acc)
   (if (== n 0)
     acc
     (drainLet
-      (- n 1)      (+
-        acc        (let ((r (step n)))
+      (- n 1)
+      (+
+        acc
+        (let ((r (step n)))
           (match r
             ((Good v) v)
-            ((Bad e) 0)
-          )
-        )
-      )
-    )
-  )
-)
+            ((Bad e) 0)))))))
 
 ; an error raised mid-loop must answer unchanged, not be re-wrapped
 (:: failAt (-> Int Int (Res Int Int)))
-
 (fn (failAt n acc)
   (if (== n 0)
     (Good acc)
     (match (if (== n 500)
       (Bad 77)
-      (Good 1)
-    )
+      (Good 1))
       ((Bad e) (Bad e))
-      ((Good v) (failAt (- n 1) (+ acc v)))
-    )
-  )
-)
+      ((Good v) (failAt (- n 1) (+ acc v))))))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (mut acc 0)
@@ -298,99 +261,57 @@
   )
     {
       (set acc (+
-        acc        (*
-          16          (b2i
+        acc
+        (*
+          16
+          (b2i
             (==
               (match (total 1000000 0)
                 ((Good x) x)
-                ((Bad e) (- 0 1))
-              )              1000000
-            )
-          )
-        )
-      ))
+                ((Bad e) (- 0 1)))
+              1000000)))))
       (set steps (+ steps 1))
       (let ((a1 __axiom_arena_mark))
         {
           (totalPlain 100000 0)
           (let ((a2 __axiom_arena_mark))
-            (set acc (+
-              acc              (*
-                8                (b2i (&&
-                  (== (__load64 a2 2) (__load64 a1 2))                  (< (- (__load64 a2 0) (__load64 a1 0)) 4096)
-                ))
-              )
-            ))
-          )
+            (set acc (+ acc (* 8 (b2i (&& (== (__load64 a2 2) (__load64 a1 2)) (< (- (__load64 a2 0) (__load64 a1 0)) 4096)))))))
           (set steps (+ steps 1))
-        }
-      )
+        })
       (let ((b1 __axiom_arena_mark))
         {
           (carry (Bad (wide 0)) 2000)
           (let ((b2 __axiom_arena_mark))
-            (set acc (+
-              acc              (*
-                4                (b2i (&&
-                  (== (__load64 b2 2) (__load64 b1 2))                  (< (- (__load64 b2 0) (__load64 b1 0)) 4096)
-                ))
-              )
-            ))
-          )
+            (set acc (+ acc (* 4 (b2i (&& (== (__load64 b2 2) (__load64 b1 2)) (< (- (__load64 b2 0) (__load64 b1 0)) 4096)))))))
           (set steps (+ steps 1))
-        }
-      )
+        })
       (let ((c1 __axiom_arena_mark))
         {
           (drain 10000 0)
           (drainLet 10000 0)
           (let ((c2 __axiom_arena_mark))
-            (set acc (+
-              acc              (*
-                32                (b2i (&&
-                  (== (__load64 c2 2) (__load64 c1 2))                  (< (- (__load64 c2 0) (__load64 c1 0)) 4096)
-                ))
-              )
-            ))
-          )
+            (set acc (+ acc (* 32 (b2i (&& (== (__load64 c2 2) (__load64 c1 2)) (< (- (__load64 c2 0) (__load64 c1 0)) 4096)))))))
           (set steps (+ steps 1))
-        }
-      )
+        })
       (let ((d1 __axiom_arena_mark))
         (let ((h (hoard 2000)))
           {
             (let ((d2 __axiom_arena_mark))
-              (set acc (+
-                acc                (*
-                  64                  (b2i (&&
-                    (== (vecLen h) 2000)                    (||
-                      (!= (__load64 d2 2) (__load64 d1 2))                      (> (- (__load64 d2 0) (__load64 d1 0)) 4096)
-                    )
-                  ))
-                )
-              ))
-            )
+              (set acc (+ acc (* 64 (b2i (&& (== (vecLen h) 2000) (|| (!= (__load64 d2 2) (__load64 d1 2)) (> (- (__load64 d2 0) (__load64 d1 0)) 4096))))))))
             (set steps (+ steps 1))
-          }
-        )
-      )
+          }))
       (set acc (+
-        acc        (*
-          2          (b2i
+        acc
+        (*
+          2
+          (b2i
             (==
               (match (failAt 1000 0)
                 ((Good x) x)
-                ((Bad e) e)
-              )              77
-            )
-          )
-        )
-      ))
+                ((Bad e) e))
+              77)))))
       (set steps (+ steps 1))
       (if (== steps 6)
         (+ acc 1)
-        acc
-      )
-    }
-  )
-)
+        acc)
+    }))

@@ -1,13 +1,11 @@
 (:: emit (-> Int Int))
-
 ;@axiom:pure
 (fn (emit fd)
   {
     (__syscall3 1 fd 0 0)
     (alloc Int 1)
-  }
-)
+  })
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

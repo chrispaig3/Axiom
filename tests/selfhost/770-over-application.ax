@@ -5,12 +5,9 @@
 ; call passed both to `adder` and answered with the returned closure's
 ; ADDRESS. Every function value absorbs exactly one argument per call.
 (fn (adder n)
-  (lambda (x) x)
-)
+  (lambda (x) x))
 
 (fn (main)
   (if (== (adder 10 5) 5)
     0
-    1
-  )
-)
+    1))

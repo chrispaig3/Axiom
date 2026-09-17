@@ -14,17 +14,14 @@
 ; `Fmt.ax` carries a note about making exactly that mistake; this is
 ; the test that makes it stay fixed.
 (import Str)
-
 (import IO)
-
 (import Json)
 
 (:: checks Int)
-
-(fn (checks) 0)
+(fn (checks)
+  0)
 
 (:: eq (-> String String String Int))
-
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
@@ -35,12 +32,9 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 (:: eqInt (-> String Int Int Int))
-
 ;@axiom:effect(io)
 (fn (eqInt name got want)
   (if (== got want)
@@ -54,12 +48,9 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; --- integer boundaries ----------------------------------------
@@ -85,13 +76,13 @@
       (set bad (+ bad (eqInt "parse negative" (jsonInt (jsonParse "-7")) (- 0 7))))
       (set bad (+ bad (eqInt "parse big" (jsonInt (jsonParse "9007199254740993")) 9007199254740993)))
       (set bad (+
-        bad        (eqInt
-          "null is null"          (if (jsonIsNull (jsonParse "null"))
+        bad
+        (eqInt
+          "null is null"
+          (if (jsonIsNull (jsonParse "null"))
             1
-            0
-          )          1
-        )
-      ))
+            0)
+          1)))
       (set bad (+ bad (eqInt "true" (jsonBoolVal (jsonParse "true")) 1)))
       (set bad (+ bad (eqInt "false" (jsonBoolVal (jsonParse "false")) 0)))
       ; A fraction keeps its text and truncates its integer part.
@@ -162,6 +153,4 @@
       (println "checks {n}")
       (println "failures {bad}")
       bad
-    }
-  )
-)
+    }))

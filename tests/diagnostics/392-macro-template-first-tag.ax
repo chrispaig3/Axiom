@@ -66,12 +66,10 @@
 (defPlain plain)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (loud 1)
     (quiet 2)
     (plain 3)
-  }
-)
+  })

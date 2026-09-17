@@ -19,36 +19,27 @@
 ; the byte view of an Axiom String and `Vec<u8>` answers a String, so
 ; `sumU8` takes a String and `bytesOf` answers one.
 (import IO)
-
 (import Fmt)
-
 (import Str)
-
 (import Vec)
-
 (import Demo)
 
 (pub :: sumFloats (-> (Vec Int) Int Float Float))
-
 (pub fn (sumFloats v i acc)
   (if (>= i (vecLen v))
     acc
     (sumFloats
-      v      (+ i 1)      (+
-        acc        (cast Float (vecGet v i))
-      )
-    )
-  )
-)
+      v
+      (+ i 1)
+      (+
+        acc
+        (cast Float (vecGet v i))))))
 
 (pub :: countOnes (-> (Vec Int) Int Int Int))
-
 (pub fn (countOnes v i acc)
   (if (>= i (vecLen v))
     acc
-    (countOnes v (+ i 1) (+ acc (vecGet v i)))
-  )
-)
+    (countOnes v (+ i 1) (+ acc (vecGet v i)))))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -62,14 +53,14 @@
   )
     {
       (vecPush
-        floats        (cast Int 1.25)
-      )
+        floats
+        (cast Int 1.25))
       (vecPush
-        floats        (cast Int 2.5)
-      )
+        floats
+        (cast Int 2.5))
       (vecPush
-        floats        (cast Int -0.75)
-      )
+        floats
+        (cast Int -0.75))
       (vecPush shorts 65535)
       (vecPush shorts 1)
       (vecPush shorts 4)
@@ -109,10 +100,6 @@
             (println (fmtInt sShorts))
             (println (fmtInt sBytes))
             1
-          }
-        )
-      )
-    }
-  )
-)
+          }))
+    }))
 ; expect 0

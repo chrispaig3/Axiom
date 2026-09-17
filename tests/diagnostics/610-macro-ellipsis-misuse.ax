@@ -75,12 +75,12 @@
    (fn ((syntax/join q T)) (sum3 v ...))))
 
 (:: box (-> Int Int))
-
-(fn (box x) x)
+(fn (box x)
+  x)
 
 (:: mk (-> Int Int))
-
-(fn (mk x) x)
+(fn (mk x)
+  x)
 
 (data Bit
   (B0)
@@ -117,5 +117,5 @@
 (spinenest 1 2)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

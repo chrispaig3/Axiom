@@ -11,11 +11,8 @@
 ; and `(cast Int row2)` below is how that word is asked for now that
 ; the outer vector is a `(Vec (Vec Int))`.
 (import IO)
-
 (import Fmt)
-
 (import Vec)
-
 (import Demo)
 
 ;@axiom:effect(io)
@@ -45,7 +42,25 @@
         (ours (sumRows rows))
         (none (sumRows vecNew))
       )
-        (if (&& (== n 3) (&& (== len2 3) (&& (== cell 7) (&& (== first 0) (&& (== total 36) (&& (== emptyLen 0) (&& (== ours 35) (&& (!= (cast Int row2) 0) (== none 0)))))))))
+        (if (&&
+          (== n 3)
+          (&&
+            (== len2 3)
+            (&&
+              (== cell 7)
+              (&&
+                (== first 0)
+                (&&
+                  (== total 36)
+                  (&&
+                    (== emptyLen 0)
+                    (&&
+                      (== ours 35)
+                      (&&
+                        (!=
+                          (cast Int row2)
+                          0)
+                        (== none 0)))))))))
           {
             (println "nested vec: agree")
             0
@@ -60,10 +75,6 @@
             (println (fmtInt ours))
             (println (fmtInt none))
             1
-          }
-        )
-      )
-    }
-  )
-)
+          }))
+    }))
 ; expect 0

@@ -28,24 +28,18 @@
 ; scan, because letting that fall through would let a peer hide the
 ; length it means behind one it does not.
 (import IO)
-
 (import Err)
-
 (import Rpc)
-
 (import Str)
 
 ; `s` doubled until it covers `n` bytes, then cut to exactly `n`.
 ; Repeated `strConcat` of a fixed chunk would be quadratic, and this
 ; case wants 200,000 bytes.
 (:: repeatTo (-> String Int String))
-
 (fn (repeatTo s n)
   (if (>= (strLen s) n)
     (strSlice s 0 n)
-    (repeatTo (strConcat s s) n)
-  )
-)
+    (repeatTo (strConcat s s) n)))
 
 ; Write `Content-Length: <header>\r\n\r\n<body>` to a scratch file,
 ; frame ONE message out of it, and print what came back together with
@@ -53,7 +47,6 @@
 ; computed, which is the whole point: a peer is under no obligation to
 ; make it agree with the bytes that follow.
 (:: frameOne (-> String String String Int))
-
 ;@axiom:effect(io)
 (fn (frameOne label header body)
   (let ((path (__addr "axiom-rpc-framing.tmp")))
@@ -70,25 +63,17 @@
                 (a (- (rdFilled r) (rdConsumed r)))
                 (shown (if (> (strLen got) 32)
                   "<long>"
-                  got
-                ))
+                  got))
               )
                 {
                   (sysCloseFd fd)
                   (println "{label}: len={n} consumed={c} avail={a} body={shown}")
                   0
-                }
-              )
-            )
-          )
-        )
-      )
-    }
-  )
-)
+                })))
+        ))
+    }))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; Case by case. The first is the ordinary path, and the shape every
@@ -125,5 +110,4 @@
     (frameOne "large-legal" "200000" (repeatTo "abcdefgh" 200000))
     (unwrapOr (removeFile "axiom-rpc-framing.tmp") 0)
     0
-  }
-)
+  })

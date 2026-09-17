@@ -373,7 +373,8 @@ fi
 # --------------------------------------------------------------
 echo "== 7. an empty prefix, and the cap that bounds it =="
 # --------------------------------------------------------------
-cap="$(grep -oE '\(pub fn \(LSP_COMPL_MAX\) [0-9]+\)' "$repo_root/self_host/lsp.ax" \
+cap="$(tr '\n' ' ' < "$repo_root/self_host/lsp.ax" \
+       | grep -oE '\(pub fn \(LSP_COMPL_MAX\) +[0-9]+\)' \
        | grep -oE '[0-9]+')"
 checks=$((checks + 1))
 if [[ -z "$cap" ]] || (( cap < 50 )); then

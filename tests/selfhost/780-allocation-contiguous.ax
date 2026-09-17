@@ -19,7 +19,6 @@
 (import Mem)
 
 (:: main Int)
-
 (fn (main)
   ; 80 = the request rounded to 64 plus MM-LIFE-2b's 16-byte
   ; header; the CONSTANT is incidental - this fixture pins that a
@@ -31,7 +30,4 @@
   )
     (if (== (- b a) 80)
       42
-      1
-    )
-  )
-)
+      1)))

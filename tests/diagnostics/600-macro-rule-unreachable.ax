@@ -26,5 +26,5 @@
    (fn ((syntax/join u a)) 2)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

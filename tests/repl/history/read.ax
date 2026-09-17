@@ -12,11 +12,9 @@
 ;
 ; Driven by scripts/check-repl-history.sh.
 (import Str)
-
 (import replhist)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -27,73 +25,57 @@
       ; the session found a file and will write to it
       (if (== (histPersist h) 1)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (> (strLen (histPath h)) 0)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; eight entries, not ten (the duplicate and the blank were
       ; refused) and not twelve (which is what a line-per-record file
       ; would decode the three multi-line entries into)
       (if (== (histLen h) 8)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (strEq (histAt h 0) "(+ 1 2)")
         (set n (+ n 1))
-        0
-      )
+        0)
       ; MULTI-LINE: three physical lines, one entry, byte for byte
       (if (strEq (histAt h 1) "(fn (f x)\n  (if (> x 0)\n    1 0))")
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (strEq (histAt h 2) "(* 3 4)")
         (set n (+ n 1))
-        0
-      )
+        0)
       ; MULTI-LINE, and its continuation line begins with a TAB of its
       ; own - the case that separates an injective marker from a
       ; present one
       (if (strEq (histAt h 3) "(tabbed)\n\t(inner)")
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (strEq (histAt h 4) "(+ 1 2)")
         (set n (+ n 1))
-        0
-      )
+        0)
       ; MULTI-LINE
       (if (strEq (histAt h 5) "(let ((a 1))\n  a)")
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (strEq (histAt h 6) ":type foo")
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (strEq (histAt h 7) "(- 9 5)")
         (set n (+ n 1))
-        0
-      )
+        0)
       ; NEGATIVE CONTROL: nothing past the end
       (if (== (strLen (histAt h 8)) 0)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; reverse search over the RELOADED ring, on a needle that appears
       ; only on the second line of a multi-line entry
       (if (== (histFindBack h "(> x 0)" (histSearchTop h)) 1)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; browsing the reloaded ring lands on the newest entry
       (if (&& (== (histBrowseUp h "") 1) (strEq (histCurrent h) "(- 9 5)"))
         (set n (+ n 1))
-        0
-      )
+        0)
       n
-    }
-  )
-)
+    }))

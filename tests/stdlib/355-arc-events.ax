@@ -27,41 +27,35 @@
   (MkCell Int Int))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: spin (-> Int Int))
-
 (fn (spin n)
   (if (<= n 0)
     0
     {
       (MkCell n n)
       (spin (- n 1))
-    }
-  )
-)
+    }))
 
 (:: hspin (-> Int Int (-> Int Int) Int))
-
 (fn (hspin n acc h)
   (if (<= n 0)
     acc
     (hspin
-      (- n 1)      (+
-        acc        (handle (tick n) (Tick) h)
-      )      h
-    )
-  )
-)
+      (- n 1)
+      (+
+        acc
+        (handle
+          (tick n)
+          (Tick)
+          h))
+      h)))
 
 (:: main Int)
-
 (fn (main)
   (let ((h1 (__alloc 8)))
     {
@@ -69,14 +63,9 @@
       (let ((h2 (__alloc 8)))
         (let ((r 
           (hspin
-            1000            0            (lambda (k) k)
-          )
-        ))
+            1000
+            0
+            (lambda (k) k))))
           (let ((h3 (__alloc 8)))
-            (+ (* 4 (b2i (< (- h2 h1) 4096))) (+ (* 2 (b2i (== r 500500))) (b2i (< (- h3 h2) 8192))))
-          )
-        )
-      )
-    }
-  )
-)
+            (+ (* 4 (b2i (< (- h2 h1) 4096))) (+ (* 2 (b2i (== r 500500))) (b2i (< (- h3 h2) 8192)))))))
+    }))

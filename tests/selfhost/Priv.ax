@@ -15,24 +15,21 @@
   (W Int))
 
 (:: unwrap (-> Wrap Int))
-
 (fn (unwrap w)
   (match w
-    ((W x) x)
-  )
-)
+    ((W x) x)))
 
 ; A private helper whose name the importing file also defines. If the
 ; module's own call reaches the importer's definition instead of this
 ; one, `quad` answers 4 rather than 18.
 (:: scale (-> Int Int))
-
-(fn (scale n) (* n 3))
+(fn (scale n)
+  (* n 3))
 
 (pub :: quad (-> Int Int))
-
-(pub fn (quad n) (scale (scale n)))
+(pub fn (quad n)
+  (scale (scale n)))
 
 (pub :: roundTrip (-> Int Int))
-
-(pub fn (roundTrip n) (unwrap (W n)))
+(pub fn (roundTrip n)
+  (unwrap (W n)))

@@ -19,33 +19,33 @@
 ; builtin - is named `_`. Expression position had no existing meaning
 ; for a hole to collide with.
 (:: sub (-> Int Int Int))
-(fn (sub x y) (- x y))
+(fn (sub x y)
+  (- x y))
 
 (:: mul3 (-> Int Int Int Int))
-(fn (mul3 x y z) (* x (* y z)))
+(fn (mul3 x y z)
+  (* x (* y z)))
 
-(data Pair (a b) (Pair a b))
+(data Pair (a b)
+  (Pair a b))
 
 (:: fstOf (-> (Pair Int Int) Int))
-(fn (fstOf p) (match p ((Pair x _) x)))
+(fn (fstOf p)
+  (match p
+    ((Pair x _) x)))
 
 (:: main Int)
-
 (fn (main)
+  ; (lambda (y) (sub 50 y))
+  ; (lambda (x) (sub x 50))
+  ; (lambda (h0 h1) (mul3 1 h0 h1)), left to right
   (let (
-    (subFrom50 (sub 50 _))    ; (lambda (y) (sub 50 y))
-    (subTo50 (sub _ 50))      ; (lambda (x) (sub x 50))
-    (twoHoles (mul3 1 _ _))   ; (lambda (h0 h1) (mul3 1 h0 h1)), left to right
+    (subFrom50 (sub 50 _))
+    (subTo50 (sub _ 50))
+    (twoHoles (mul3 1 _ _))
   )
-    (+
-      (subFrom50 8)                    ; 42
-      (+
-        (- (subTo50 100) 50)           ; 0
-        (+
-          (- (twoHoles 6 7) 42)        ; 0
-          (fstOf (Pair 0 0))           ; 0
-        )
-      )
-    )
-  )
-)
+    (+ (subFrom50 8) (+ (- (subTo50 100) 50) (+ (- (twoHoles 6 7) 42) (fstOf (Pair 0 0)))))))
+; 42
+; 0
+; 0
+; 0

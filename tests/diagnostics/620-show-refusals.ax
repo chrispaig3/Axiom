@@ -21,14 +21,12 @@
 (import IO)
 
 (:: generic (-> a Int))
-
 ;@axiom:effect(io)
 (fn (generic x)
   {
     (println x)
     0
-  }
-)
+  })
 
 (struct Holder
   (f : Foreign))
@@ -37,27 +35,20 @@
   (MkBox a))
 
 (:: boxed (-> (Box a) Int))
-
 ;@axiom:effect(io)
 (fn (boxed b)
   {
     (println b)
     0
-  }
-)
+  })
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((h 
     (Holder
-      (cast Foreign 0)
-    )
-  ))
+      (cast Foreign 0))))
     {
       (println h)
       0
-    }
-  )
-)
+    }))

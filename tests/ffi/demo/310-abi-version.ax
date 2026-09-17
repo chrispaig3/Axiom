@@ -11,7 +11,6 @@
 ; the pin on `declare i64 @axffi_abi_version()` staying parenthesised
 ; correctly.
 (import IO)
-
 (import Fmt)
 
 (pub extern "axiom_demo"
@@ -27,7 +26,5 @@
     {
       (println (fmtInt abiVersion))
       1
-    }
-  )
-)
+    }))
 ; expect 0

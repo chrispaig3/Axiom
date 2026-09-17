@@ -28,5 +28,5 @@
   })
 
 (:: main Int)
-
-(fn (main) (greet "hi"))
+(fn (main)
+  (greet "hi"))

@@ -7,21 +7,21 @@
 ; values from its own region and is silent too, which is MM-RGN-4: a
 ; program that never writes `@` is the one-region instance.
 (:: pair (-> (String @r) (String @r) Int))
-
-(fn (pair a b) 0)
+(fn (pair a b)
+  0)
 
 (:: twoRegions (-> (String @s) (String @t) Int))
-
-(fn (twoRegions x y) (pair x y))
+(fn (twoRegions x y)
+  (pair x y))
 
 (:: oneRegion (-> (String @s) Int))
-
-(fn (oneRegion x) (pair x x))
+(fn (oneRegion x)
+  (pair x x))
 
 (:: plain (-> String String Int))
-
-(fn (plain x y) (pair x y))
+(fn (plain x y)
+  (pair x y))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

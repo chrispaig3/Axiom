@@ -16,34 +16,31 @@
 ; here is checked by the analysis that also refuses AX3060 - one
 ; computation, two readers.
 (import Vec)
-
 (import Str)
 
 ;@axiom:restrict(no-escape)
 (:: stores (-> (Vec String) String Int))
-
 (fn (stores v x)
   {
     (vecPush v (strConcat x "!"))
     0
-  }
-)
+  })
 
 ;@axiom:restrict(no-escape)
 (:: reads (-> (Vec String) Int))
-
-(fn (reads v) (vecLen v))
+(fn (reads v)
+  (vecLen v))
 
 ;@axiom:restrict(no-escape)
 (:: dispatch (-> (-> String Int) String Int))
-
-(fn (dispatch f s) (f s))
+(fn (dispatch f s)
+  (f s))
 
 ;@axiom:restrict(no-escape, strict)
 (:: dispatchStrict (-> (-> String Int) String Int))
-
-(fn (dispatchStrict f s) (f s))
+(fn (dispatchStrict f s)
+  (f s))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

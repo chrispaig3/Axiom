@@ -18,15 +18,12 @@
   (y : Int))
 
 (:: main Int)
-
 (fn (main)
   (let ((p (P 40 2)))
     (+
       (__load64
-        (cast Int p)        0
-      )      (__load64
-        (cast Int p)        1
-      )
-    )
-  )
-)
+        (cast Int p)
+        0)
+      (__load64
+        (cast Int p)
+        1))))

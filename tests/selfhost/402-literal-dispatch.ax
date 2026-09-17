@@ -40,13 +40,13 @@
 (simp (otherwise w))
 
 (:: myop (-> Int Int))
-
-(fn (myop x) x)
+(fn (myop x)
+  x)
 
 (pick (myop 5))
 
 (picklib (libop 6))
 
 (:: main Int)
-
-(fn (main) (+ (+ (+ (+ (+ plusZero timesOne) fallback) pct) fellthrough) libhit))
+(fn (main)
+  (+ (+ (+ (+ (+ plusZero timesOne) fallback) pct) fellthrough) libhit))

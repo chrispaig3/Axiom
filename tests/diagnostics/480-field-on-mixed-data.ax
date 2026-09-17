@@ -11,9 +11,6 @@
   (N { v : Int }))
 
 (:: main Int)
-
 (fn (main)
   (let ((x E))
-    x.v
-  )
-)
+    x.v))

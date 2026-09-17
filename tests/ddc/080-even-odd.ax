@@ -1,27 +1,18 @@
 ; expect 42
 (:: even (-> Int Bool))
-
 (fn (even n)
   (if (== n 0)
     true
-    (odd (- n 1))
-  )
-)
+    (odd (- n 1))))
 
 (:: odd (-> Int Bool))
-
 (fn (odd n)
   (if (== n 0)
     false
-    (even (- n 1))
-  )
-)
+    (even (- n 1))))
 
 (:: main Int)
-
 (fn (main)
   (if (even 20)
     42
-    0
-  )
-)
+    0))

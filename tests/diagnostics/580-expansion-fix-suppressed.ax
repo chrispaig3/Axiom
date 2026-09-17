@@ -36,30 +36,26 @@
   {
     (set tmp 2)
     (+ tmp v)
-  }
-))
+  }))
 
 (macro (callIt x) (helperr x))
 
 (:: helper (-> Int Int))
-
-(fn (helper y) y)
+(fn (helper y)
+  y)
 
 (:: fromMacro (-> Int Int))
-
-(fn (fromMacro n) (+ (bumpIt n) (callIt n)))
+(fn (fromMacro n)
+  (+ (bumpIt n) (callIt n)))
 
 (:: byHand (-> Int Int))
-
 (fn (byHand n)
   (let ((tmp 1))
     {
       (set tmp 2)
       (+ tmp (helperr n))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
-(fn (main) (+ (+ (fromMacro 1) (byHand 2)) (+ (bumpThing One) (handBump One))))
+(fn (main)
+  (+ (+ (fromMacro 1) (byHand 2)) (+ (bumpThing One) (handBump One))))

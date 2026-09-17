@@ -27,34 +27,28 @@
 ; bits of user address space and accounts no overcommit - and this
 ; case printed the address instead of 70. 2^60 is past all six.
 (import IO)
-
 (import Str)
-
 (import Mem)
 
 (:: ask (-> Int Int))
-
-(fn (ask x) (memAlloc 1152921504606846976))
+(fn (ask x)
+  (memAlloc 1152921504606846976))
 
 (:: usable (-> Int Int))
-
 (fn (usable x)
   (let ((p (memAlloc 64)))
     {
       (memSetWord p 0 4242)
       (memGetWord p 0)
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
     (inside (__axiom_recover
-      __axiom_arena_mark      (lambda (x) (ask x))
-    ))
+      __axiom_arena_mark
+      (lambda (x) (ask x))))
     (again (usable 0))
   )
     {
@@ -71,6 +65,4 @@
       ; trap outside a recovery point ever stops stopping the program,
       ; stdout gains a line and the golden says so.
       (printlnLit (strCStr "UNREACHABLE: the trap outside a recovery point returned"))
-    }
-  )
-)
+    }))

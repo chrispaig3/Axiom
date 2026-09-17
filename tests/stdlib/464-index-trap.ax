@@ -25,29 +25,21 @@
 ; by `464-index-trap.exit` and `.err` beside this file, because a
 ; fixture that traps cannot also print its own success.
 (import IO)
-
 (import Str)
 
 (:: pick (-> Int Int))
-
 (fn (pick n)
   (if (< n 0)
     __indexTrap
-    n
-  )
-)
+    n))
 
 (:: name (-> Int String))
-
 (fn (name n)
   (if (< n 0)
     __indexTrap
-    "ok"
-  )
-)
+    "ok"))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -61,5 +53,4 @@
     ; tripwire for the trap being removed - if `__indexTrap` ever starts
     ; returning, this line runs and the golden says so.
     (printlnLit (strCStr "UNREACHABLE: the trap returned"))
-  }
-)
+  })

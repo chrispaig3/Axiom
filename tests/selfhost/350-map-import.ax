@@ -8,17 +8,14 @@
 (import Map)
 
 (:: fill (-> Map Int Map))
-
 (fn (fill m i)
   (if (> i 10)
     m
     {
       (mapInsert m i i)
       (fill m (+ i 1))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
-(fn (main) (mapSumVals (fill mapNew 1)))
+(fn (main)
+  (mapSumVals (fill mapNew 1)))

@@ -11,8 +11,10 @@
 (import IO)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
-  (parallel p ((s "x") (n 2))
+  (parallel p (
+    (s "x")
+    (n 2)
+  )
     n))

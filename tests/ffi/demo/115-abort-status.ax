@@ -28,7 +28,6 @@
 ; The message on fd 2 always named the function and the argument. The
 ; status now matches it.
 (import IO)
-
 (import Demo)
 
 ;@axiom:effect(io)
@@ -41,6 +40,5 @@
     (println "UNREACHABLE: the boundary accepted 256 as a u8")
     (bytePlus 256 1)
     0
-  }
-)
+  })
 ; expect 73

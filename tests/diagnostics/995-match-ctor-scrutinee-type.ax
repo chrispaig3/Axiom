@@ -36,75 +36,52 @@
   (Square Int))
 
 (:: g (-> a Int))
-
 (fn (g v)
   (match v
     ((Red) 1)
-    (_ 0)
-  )
-)
+    (_ 0)))
 
 (:: h (-> Int Int))
-
 (fn (h n)
   (match n
     ((Red) 1)
-    (_ 0)
-  )
-)
+    (_ 0)))
 
 (:: k (-> Shape Int))
-
 (fn (k s)
   (match s
     ((Red) 1)
     ((Circle r) r)
-    (_ 0)
-  )
-)
+    (_ 0)))
 
 (:: lit (-> Int Int))
-
 (fn (lit n)
   (match n
     ("hello" 1)
-    (_ 0)
-  )
-)
+    (_ 0)))
 
 (:: ph Int)
-
 (fn (ph)
   (let ((f 
     (lambda (x)
       (match x
         ((Red) 1)
-        ((Green) 2)
-      )
-    )
-  ))
-    (f Blue)
-  )
-)
+        ((Green) 2))
+    )))
+    (f Blue)))
 
 (:: ok (-> (Option a) Int))
-
 (fn (ok o)
   (match o
     ((Some x) 1)
-    ((None) 0)
-  )
-)
+    ((None) 0)))
 
 (:: nested (-> (Option Int) Int))
-
 (fn (nested o)
   (match o
     ((Some "x") 1)
-    (_ 0)
-  )
-)
+    (_ 0)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

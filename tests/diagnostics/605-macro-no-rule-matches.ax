@@ -43,5 +43,5 @@
 (defN D 8 9)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

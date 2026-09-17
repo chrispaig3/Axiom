@@ -10,13 +10,13 @@
 ; is what the author wrote, and that is what both fields quote now.
 ;@axiom:deprecated(use (newLen v) instead)
 (pub :: oldLen (-> Int Int))
-
-(pub fn (oldLen v) 0)
+(pub fn (oldLen v)
+  0)
 
 (:: newLen (-> Int Int))
-
-(fn (newLen v) 1)
+(fn (newLen v)
+  1)
 
 (:: main Int)
-
-(fn (main) (+ (oldLen 7) (newLen 7)))
+(fn (main)
+  (+ (oldLen 7) (newLen 7)))

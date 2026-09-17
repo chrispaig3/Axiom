@@ -21,21 +21,14 @@
 ; an unknown extension as octet-stream; a directory and a missing
 ; file as 404; the static prefix refusing POST with 405.
 (import IO)
-
 (import Sys)
-
 (import Err)
-
 (import Str)
-
 (import Vec)
-
 (import Mem)
-
 (import Http)
 
 (:: eq (-> String String String Int))
-
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
@@ -46,21 +39,23 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 ; A request for `method` and `path`, as the parser would hand it over
 ; with no headers and no body.
 (:: req (-> String String String HttpReq))
-
-(fn (req method path query) (HttpReq
-  method  path  query  "HTTP/1.1"  vecNew  vecNew  ""
-))
+(fn (req method path query)
+  (HttpReq
+    method
+    path
+    query
+    "HTTP/1.1"
+    vecNew
+    vecNew
+    ""))
 
 ; Dispatch `r` through `rt` into a file, and answer what was written.
 (:: dispatched (-> HttpRouter HttpReq String))
-
 ;@axiom:effect(io)
 (fn (dispatched rt r)
   (match (sysOpenPath (__addr "out.tmp") oWronlyCreateTrunc)
@@ -71,49 +66,43 @@
         (sysCloseFd fd)
         (sysReadFile (__addr "out.tmp"))
       }
-    )
-  )
-)
+    )))
 
 ; The response's status line and body, the headers between them
 ; elided, so a check reads as `<status> | <body>`.
 (:: gist (-> String String))
-
 (fn (gist resp)
   (match (strFindByte resp 13 0)
     ((None) resp)
     ((Some eol)
       (match (strFind resp "\r\n\r\n" 0)
         ((None) resp)
-        ((Some blank) (strConcat (strSlice resp 0 eol) (strConcat " | " (strSlice resp (+ blank 4) (- (strLen resp) (+ blank 4))))))
-      ))
-  )
-)
+        ((Some blank) (strConcat (strSlice resp 0 eol) (strConcat " | " (strSlice resp (+ blank 4) (- (strLen resp) (+ blank 4)))))))
+    )))
 
 ; The handlers, as signed functions; the router holds lambdas that
 ; call them.
 (:: index (-> Int HttpReq Int))
-
 ;@axiom:effect(io)
-(fn (index fd r) (httpRespond fd 200 "text/html; charset=utf-8" "<p>index</p>"))
+(fn (index fd r)
+  (httpRespond fd 200 "text/html; charset=utf-8" "<p>index</p>"))
 
 (:: echo (-> Int HttpReq Int))
-
 ;@axiom:effect(io)
-(fn (echo fd r) (httpRespond fd 200 "text/plain; charset=utf-8" (strConcat "q=" (httpQueryParam r "q" "none"))))
+(fn (echo fd r)
+  (httpRespond fd 200 "text/plain; charset=utf-8" (strConcat "q=" (httpQueryParam r "q" "none"))))
 
 (:: submit (-> Int HttpReq Int))
-
 ;@axiom:effect(io)
-(fn (submit fd r) (httpRespond fd 201 "text/plain; charset=utf-8" "posted"))
+(fn (submit fd r)
+  (httpRespond fd 201 "text/plain; charset=utf-8" "posted"))
 
 (:: lost (-> Int HttpReq Int))
-
 ;@axiom:effect(io)
-(fn (lost fd r) (httpRespond fd 404 "text/html; charset=utf-8" (strConcat "<h1>nothing at " (strConcat r.path "</h1>"))))
+(fn (lost fd r)
+  (httpRespond fd 404 "text/html; charset=utf-8" (strConcat "<h1>nothing at " (strConcat r.path "</h1>"))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; the files: a static directory with a stylesheet, a binary of
@@ -126,20 +115,23 @@
       (writeFile "pub/blob.bin" "not html")
       (writeFile "secret.txt" "the secret\n")
       (routeAdd
-        rt        "GET"        "/"        (HttpHandler
-          (lambda (fd r) (index fd r))
-        )
-      )
+        rt
+        "GET"
+        "/"
+        (HttpHandler
+          (lambda (fd r) (index fd r))))
       (routeAdd
-        rt        "GET"        "/echo"        (HttpHandler
-          (lambda (fd r) (echo fd r))
-        )
-      )
+        rt
+        "GET"
+        "/echo"
+        (HttpHandler
+          (lambda (fd r) (echo fd r))))
       (routeAdd
-        rt        "POST"        "/echo"        (HttpHandler
-          (lambda (fd r) (submit fd r))
-        )
-      )
+        rt
+        "POST"
+        "/echo"
+        (HttpHandler
+          (lambda (fd r) (submit fd r))))
       (routeStatic rt "/static/" "pub")
       (routeStatic rt "/open/" ".")
       ; --- routes ------------------------------------------------
@@ -149,10 +141,9 @@
       (eq "a path with a route for another method is 405" (gist (dispatched rt (req "DELETE" "/echo" ""))) "HTTP/1.1 405 Method Not Allowed | 405 Method Not Allowed: no route for this method at this path\n")
       (eq "a path nothing matched is the default 404" (gist (dispatched rt (req "GET" "/nope" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no route for this path\n")
       (routeNotFound
-        rt        (HttpHandler
-          (lambda (fd r) (lost fd r))
-        )
-      )
+        rt
+        (HttpHandler
+          (lambda (fd r) (lost fd r))))
       (eq "the not-found handler can be replaced" (gist (dispatched rt (req "GET" "/nope" ""))) "HTTP/1.1 404 Not Found | <h1>nothing at /nope</h1>")
       ; --- static files ------------------------------------------
       (eq "a static file is served with its type" (dispatched rt (req "GET" "/static/site.css" "")) "HTTP/1.1 200 OK\r\nContent-Type: text/css; charset=utf-8\r\nContent-Length: 19\r\nConnection: close\r\n\r\nbody { margin: 0 }\n")
@@ -176,52 +167,49 @@
           (memCopy (strData nulPath) (strData "/static/x") 9)
           (__store8 (strData nulPath) 8 0)
           (eq "a NUL byte in the path is refused" (gist (dispatched rt (req "GET" nulPath ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
-        }
-      )
+        })
       ; --- httpPathSafe directly -------------------------------
       (eq
-        "httpPathSafe accepts a plain path"        (if (httpPathSafe "/a/b.c")
+        "httpPathSafe accepts a plain path"
+        (if (httpPathSafe "/a/b.c")
           "yes"
-          "no"
-        )        "yes"
-      )
+          "no")
+        "yes")
       (eq
-        "httpPathSafe accepts a trailing slash"        (if (httpPathSafe "/a/")
+        "httpPathSafe accepts a trailing slash"
+        (if (httpPathSafe "/a/")
           "yes"
-          "no"
-        )        "yes"
-      )
+          "no")
+        "yes")
       (eq
-        "httpPathSafe accepts the root"        (if (httpPathSafe "/")
+        "httpPathSafe accepts the root"
+        (if (httpPathSafe "/")
           "yes"
-          "no"
-        )        "yes"
-      )
+          "no")
+        "yes")
       (eq
-        "httpPathSafe refuses the empty path"        (if (httpPathSafe "")
+        "httpPathSafe refuses the empty path"
+        (if (httpPathSafe "")
           "yes"
-          "no"
-        )        "no"
-      )
+          "no")
+        "no")
       (eq
-        "httpPathSafe refuses /.."        (if (httpPathSafe "/..")
+        "httpPathSafe refuses /.."
+        (if (httpPathSafe "/..")
           "yes"
-          "no"
-        )        "no"
-      )
+          "no")
+        "no")
       (eq
-        "httpPathSafe refuses a/../b"        (if (httpPathSafe "/a/../b")
+        "httpPathSafe refuses a/../b"
+        (if (httpPathSafe "/a/../b")
           "yes"
-          "no"
-        )        "no"
-      )
+          "no")
+        "no")
       (eq
-        "httpPathSafe accepts a single dot segment"        (if (httpPathSafe "/a/./b")
+        "httpPathSafe accepts a single dot segment"
+        (if (httpPathSafe "/a/./b")
           "yes"
-          "no"
-        )        "yes"
-      )
+          "no")
+        "yes")
       0
-    }
-  )
-)
+    }))

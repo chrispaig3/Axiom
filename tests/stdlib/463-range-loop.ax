@@ -33,15 +33,11 @@
 ;   6. Nesting: the inner loop's binder shadows nothing of the outer's,
 ;      and both counters advance independently. 3 x 4 = 12 iterations.
 (import IO)
-
 (import Pre (range))
-
 (import Vec)
-
 (import Mem)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -55,44 +51,39 @@
       (memSetWord acc 0 0)
       (range i 0 5 (memSetWord acc 0 (+ (memGetWord acc 0) i)))
       (println (memGetWord acc 0))  ; 10
-
       ; --- 2. range counts [lo, hi) ---
       (memSetWord acc 0 0)
       (range j 3 7 (memSetWord acc 0 (+ (memGetWord acc 0) j)))
       (println (memGetWord acc 0))  ; 18
-
       ; --- 3. empty ranges run zero times ---
       (memSetWord acc 0 0)
       (range a 0 0 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
       (range b 5 5 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
       (range c 7 3 (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
       (println (memGetWord acc 0))  ; 0
-
       ; --- 4. the bound is read once ---
       (vecPush v 10)
       (vecPush v 20)
       (memSetWord acc 0 0)
-      (range k 0 (vecLen v)
+      (range
+        k
+        0
+        (vecLen v)
         {
           (vecPush v 99)
           (memSetWord acc 0 (+ (memGetWord acc 0) 1))
         })
       (println (memGetWord acc 0))  ; 2, not runaway
       (println (vecLen v))  ; 4: the body really did push
-
       ; --- 5. hygiene: the template's names are not the caller's ---
       (memSetWord acc 0 0)
       (range n 0 3 (memSetWord acc 0 (+ (memGetWord acc 0) hi)))
       (println (memGetWord acc 0))  ; 333
       (println hi)  ; 111
       (println cur)  ; 222
-
       ; --- 6. nesting ---
       (memSetWord acc 0 0)
-      (range p 0 3
-        (range q 0 4 (memSetWord acc 0 (+ (memGetWord acc 0) 1))))
+      (range p 0 3 (range q 0 4 (memSetWord acc 0 (+ (memGetWord acc 0) 1))))
       (println (memGetWord acc 0))  ; 12
       0
-    }
-  )
-)
+    }))

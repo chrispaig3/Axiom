@@ -33,9 +33,9 @@
 ; it. The marker is set anyway, because `-1` there would CLAIM the
 ; binder was attributed somewhere, and it is not.
 (:: doIO (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (doIO n) (__syscall3 1 1 n 0))
+(fn (doIO n)
+  (__syscall3 1 1 n 0))
 
 (struct Box
   (f : (-> Int Int)))
@@ -44,45 +44,39 @@
   (Wrap (-> Int Int)))
 
 (:: install Box)
-
-(fn (install) (Box doIO))
+(fn (install)
+  (Box doIO))
 
 (:: hold Holder)
-
-(fn (hold) (Wrap doIO))
+(fn (hold)
+  (Wrap doIO))
 
 ;@axiom:pure
 (:: viaField (-> Box Int))
-
-(fn (viaField b) (b.f 7))
+(fn (viaField b)
+  (b.f 7))
 
 ;@axiom:pure
 (:: viaLet (-> Box Int))
-
 (fn (viaLet b)
   (let ((g b.f))
-    (g 7)
-  )
-)
+    (g 7)))
 
 ;@axiom:pure
 (:: viaPattern (-> Holder Int))
-
 (fn (viaPattern h)
   (match h
-    ((Wrap f) (f 7))
-  )
-)
+    ((Wrap f) (f 7))))
 
 (:: apply1 (-> (-> Int Int) Int))
-
-(fn (apply1 g) (g 1))
+(fn (apply1 g)
+  (g 1))
 
 ;@axiom:pure
 (:: viaTransparent (-> (-> (-> Int Int) Int) Box Int))
-
-(fn (viaTransparent h b) (h b.f))
+(fn (viaTransparent h b)
+  (h b.f))
 
 (:: main Int)
-
-(fn (main) (+ (+ (viaField install) (viaLet install)) (+ (viaPattern hold) (viaTransparent apply1 install))))
+(fn (main)
+  (+ (+ (viaField install) (viaLet install)) (+ (viaPattern hold) (viaTransparent apply1 install))))

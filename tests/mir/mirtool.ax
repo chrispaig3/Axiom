@@ -40,31 +40,18 @@
 ;   so where it prints it.
 ; ------------------------------------------------------------------
 (import Str)
-
 (import Vec)
-
 (import Fmt)
-
 (import Sys)
-
 (import IO)
-
 (import Host)
-
 (import lexer)
-
 (import parser)
-
 (import diag)
-
 (import codegen)
-
 (import expand)
-
 (import typecheck)
-
 (import mir)
-
 (import mireval)
 
 ; ------------------------------------------------------------------
@@ -78,7 +65,6 @@
 ; message a reader needs is already printed there.
 ; ------------------------------------------------------------------
 (:: frontend (-> String (Vec Int)))
-
 ;@axiom:effect(io)
 (fn (frontend path)
   (let ((src (sysReadFile (strCStr path))))
@@ -96,54 +82,52 @@
         )
           {
             (vecPush
-              units              (cast Int (CUnit2
-                path                src                (cast String 0)
-              ))
-            )
+              units
+              (cast Int (CUnit2
+                path
+                src
+                (cast String 0))))
             (let ((allDecls (resolveImports
-              decls              bares              fulls              mods              (checkedTargetCode hostTarget)              (pathDir path)              units
-            )))
+              decls
+              bares
+              fulls
+              mods
+              (checkedTargetCode hostTarget)
+              (pathDir path)
+              units)))
               {
                 (expandProgram
-                  decls                  allDecls                  eds                  ftbl                  units                  bares                  fulls                  mods
-                )
+                  decls
+                  allDecls
+                  eds
+                  ftbl
+                  units
+                  bares
+                  fulls
+                  mods)
                 (if (> (countErrorDiags eds) 0)
                   vecNew
                   (if (> (countErrorDiags (checkModule decls allDecls units)) 0)
                     vecNew
-                    decls
-                  )
-                )
-              }
-            )
-          }
-        )
-      )
-    )
-  )
-)
+                    decls))
+              })
+          })))))
 
 ; Parse only - `count`'s frontend. See the header for why the two
 ; differ.
 (:: parseOnly (-> String (Vec Int)))
-
 ;@axiom:effect(io)
 (fn (parseOnly path)
   (let ((src (sysReadFile (strCStr path))))
     (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
       (if (== (memGetWord pr 0) 0)
         vecNew
-        (memGetWordVec pr 1)
-      )
-    )
-  )
-)
+        (memGetWordVec pr 1)))))
 
 ; ------------------------------------------------------------------
 ; `lower`
 ; ------------------------------------------------------------------
 (:: printFuncs (-> (Vec MFunc) Int Int))
-
 ;@axiom:effect(io)
 (fn (printFuncs fns i)
   (if (>= i (vecLen fns))
@@ -151,12 +135,9 @@
     {
       (writeStr stdout (mirFunc (vecGet fns i)))
       (printFuncs fns (+ i 1))
-    }
-  )
-)
+    }))
 
 (:: printRefused (-> (Vec String) Int Int))
-
 ;@axiom:effect(io)
 (fn (printRefused ns i)
   (if (>= i (vecLen ns))
@@ -165,16 +146,12 @@
       {
         (println "; not lowered: {nm}")
         (printRefused ns (+ i 1))
-      }
-    )
-  )
-)
+      })))
 
 ; ------------------------------------------------------------------
 ; `verify`
 ; ------------------------------------------------------------------
 (:: printComplaints (-> String (Vec String) Int Int))
-
 ;@axiom:effect(io)
 (fn (printComplaints fname cs i)
   (if (>= i (vecLen cs))
@@ -183,13 +160,9 @@
       {
         (println "{fname}: {c}")
         (printComplaints fname cs (+ i 1))
-      }
-    )
-  )
-)
+      })))
 
 (:: verifyAll (-> (Vec MFunc) Int Int Int))
-
 ;@axiom:effect(io)
 (fn (verifyAll fns i bad)
   (if (>= i (vecLen fns))
@@ -199,18 +172,13 @@
         {
           (printComplaints f.name cs 0)
           (verifyAll fns (+ i 1) (+ bad (vecLen cs)))
-        }
-      )
-    )
-  )
-)
+        }))))
 
 ; ------------------------------------------------------------------
 ; `run` - the differential's IR side. One line per k, exactly what
 ; every fixture's own `main` prints natively.
 ; ------------------------------------------------------------------
 (:: runProbe (-> (Vec MFunc) Int Int Int))
-
 ;@axiom:effect(io)
 (fn (runProbe fns k n)
   (if (>= k n)
@@ -219,10 +187,7 @@
       {
         (println "{v}")
         (runProbe fns (+ k 1) n)
-      }
-    )
-  )
-)
+      })))
 
 ; ------------------------------------------------------------------
 ; `optable` - the seam with `codegen.ax`.
@@ -239,7 +204,6 @@
 ; where `mBinOp` answers "" and the lowering refuses.
 ; ------------------------------------------------------------------
 (:: opRow (-> String String Int))
-
 ;@axiom:effect(io)
 (fn (opRow nm cg)
   ; Bar-separated, because `mBinOp` answers the EMPTY string
@@ -250,12 +214,9 @@
     {
       (println "{nm}|{mine}|{cg}")
       0
-    }
-  )
-)
+    }))
 
 (:: printOpTable Int)
-
 ;@axiom:effect(io)
 (fn (printOpTable)
   {
@@ -272,24 +233,20 @@
     (opRow ">=" (cmpToLLVM ">="))
     (opRow "notanoperator" (binopToLLVM "notanoperator"))
     0
-  }
-)
+  })
 
 ; ------------------------------------------------------------------
 ; The entry point.
 ; ------------------------------------------------------------------
 (:: usage Int)
-
 ;@axiom:effect(io)
 (fn (usage)
   {
     (println "usage: mirtool (lower|verify|run|count) FILE [N] | mirtool optable")
     2
-  }
-)
+  })
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -303,8 +260,7 @@
         (let (
           (decls (if (strEq mode "count")
             (parseOnly path)
-            (frontend path)
-          ))
+            (frontend path)))
           (fns vecNew)
           (refused vecNew)
         )
@@ -324,8 +280,7 @@
                 (if (strEq mode "verify")
                   (if (== (verifyAll fns 0 0) 0)
                     0
-                    1
-                  )
+                    1)
                   (if (strEq mode "run")
                     {
                       (runProbe fns 0 (strToInt (sysArg 3)))
@@ -339,17 +294,6 @@
                         {
                           (println "{nl} {nt}")
                           0
-                        }
-                      )
-                      usage
-                    )
-                  )
-                )
-              )
-            }
-          )
-        )
-      )
-    )
-  )
-)
+                        })
+                      usage))))
+            }))))))

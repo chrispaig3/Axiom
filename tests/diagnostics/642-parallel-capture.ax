@@ -41,50 +41,59 @@
 ;      comment gives - a `Vec` takes no share, so there is no count to
 ;      race over. `tests/stdlib/471-parallel-trap.ax` captures one.
 (import IO)
-
 (import Str)
-
 (import Vec)
 
 (:: sink (-> String Int))
-
-(fn (sink s) (strLen s))
+(fn (sink s)
+  (strLen s))
 
 (:: shared (-> String Int))
-
 ;@axiom:effect(io)
 (fn (shared s)
-  (parallel p ((a (+ (strLen s) (strLen s))) (b (strLen s)))
+  (parallel p (
+    (a (+ (strLen s) (strLen s)))
+    (b (strLen s))
+  )
     (+ a b)))
 
 (:: words (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (words n)
-  (parallel p ((a (* n 2)) (b (+ n 1)))
+  (parallel p (
+    (a (* n 2))
+    (b (+ n 1))
+  )
     (+ a b)))
 
 (:: shadowed (-> String Int))
-
 ;@axiom:effect(io)
 (fn (shadowed s)
-  (parallel p ((a (let ((s (strConcat "x" "y"))) (strLen s))) (b 2))
+  (parallel p (
+    (a (let ((s (strConcat "x" "y")))
+      (strLen s)))
+    (b 2)
+  )
     (+ a b)))
 
 (:: called (-> String Int))
-
 ;@axiom:effect(io)
 (fn (called s)
-  (parallel p ((a (sink "lit")) (b 2))
+  (parallel p (
+    (a (sink "lit"))
+    (b 2)
+  )
     (+ a b)))
 
 (:: container (-> (Vec Int) Int))
-
 ;@axiom:effect(io)
 (fn (container v)
-  (parallel p ((a (vecLen v)) (b 2))
+  (parallel p (
+    (a (vecLen v))
+    (b 2)
+  )
     (+ a b)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

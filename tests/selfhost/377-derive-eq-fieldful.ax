@@ -46,14 +46,11 @@
 (deriveEqF Shape)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
-(fn (main) (+ (* 27 (b2i (eqShape (Circle 3) (Circle 3)))) (+ (* 9 (b2i (eqShape (Rect 1 2) (Rect 1 3)))) (+ (* 3 (b2i (eqShape Dot Dot))) (b2i (eqShape (Circle 3) Dot))))))
+(fn (main)
+  (+ (* 27 (b2i (eqShape (Circle 3) (Circle 3)))) (+ (* 9 (b2i (eqShape (Rect 1 2) (Rect 1 3)))) (+ (* 3 (b2i (eqShape Dot Dot))) (b2i (eqShape (Circle 3) Dot))))))

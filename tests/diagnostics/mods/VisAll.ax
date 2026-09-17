@@ -10,9 +10,6 @@
   (Wrap Int))
 
 (pub :: unwrapped (-> Int Int))
-
 (pub fn (unwrapped n)
   (match (Wrap n)
-    ((Wrap x) x)
-  )
-)
+    ((Wrap x) x)))

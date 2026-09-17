@@ -42,32 +42,32 @@
   (ask :: (-> Int Int)))
 
 (:: shout (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (shout n)
   {
     (__syscall3 1 n 0 0)
     n
-  }
-)
+  })
 
 (:: asker (-> Int Int))
-
-(fn (asker n) (ask n))
+(fn (asker n)
+  (ask n))
 
 (:: launders (-> Int Int))
-
 ;@axiom:pure
 (fn (launders n)
-  (handle (shout n) (IO) 0)
-)
+  (handle
+    (shout n)
+    (IO)
+    0))
 
 (:: discharges (-> Int Int))
-
 ;@axiom:effect(alloc)
 (fn (discharges n)
-  (handle (asker n) (Ask) (lambda (v) 0))
-)
+  (handle
+    (asker n)
+    (Ask)
+    (lambda (v) 0)))
 
 ; Two shapes that are NOT about a false claim, and are the reason this
 ; is a defect rather than a loophole for liars.
@@ -103,35 +103,38 @@
 ; halves of the file should see that the erasure never depended on
 ; anyone lying.
 (:: guarded (-> Int Int))
-
 ;@axiom:pure
 (fn (guarded n)
-  (handle (handle (shout n) (IO) 0) (Pure) 0)
-)
+  (handle
+    (handle
+      (shout n)
+      (IO)
+      0)
+    (Pure)
+    0))
 
 (:: logger (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (logger n)
   {
     (ask n)
     (shout n)
-  }
-)
+  })
 
 (:: run (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (run n)
-  (handle (logger n) (Ask IO) (lambda (v) 0))
-)
+  (handle
+    (logger n)
+    (Ask IO)
+    (lambda (v) 0)))
 
 (:: caller (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (caller n) (launders n))
+(fn (caller n)
+  (launders n))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (+ (+ (caller 1) (discharges 2)) (+ (guarded 3) (run 4))))
+(fn (main)
+  (+ (+ (caller 1) (discharges 2)) (+ (guarded 3) (run 4))))

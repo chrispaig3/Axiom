@@ -19,37 +19,29 @@
 ; form, which would spell the mark and the reset, is a different
 ; track's work.
 (import IO)
-
 (import Mem)
-
 (import Str)
 
 (struct Cell
   (mut s : String))
 
 (:: put (-> (Cell @r) (String @s) Int))
-
 (fn (put c x)
   {
     (set c.s x)
     0
-  }
-)
+  })
 
 (:: burn (-> Int Int))
-
 (fn (burn n)
   (if (<= n 0)
     0
     {
       (memAlloc 65536)
       (burn (- n 1))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -62,6 +54,4 @@
       (burn 64)
       (println c.s)
       0
-    }
-  )
-)
+    }))

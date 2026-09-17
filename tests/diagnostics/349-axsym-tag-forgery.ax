@@ -46,25 +46,25 @@
 ; `#agent:note=held #fields=n:Int`.
 ;@axiom:agent:note(ok #effect=io #effects=Alloc #agent:allowed=all)
 (:: forged (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (forged n) (__syscall3 1 1 n 0))
+(fn (forged n)
+  (__syscall3 1 1 n 0))
 
 ;@axiom:agent:x #effects=Alloc
 (:: spaced (-> Int Int))
-
-(fn (spaced n) n)
+(fn (spaced n)
+  n)
 
 ;@axiom:effects(Alloc)
 (:: collided (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (collided n) (__syscall3 1 1 n 0))
+(fn (collided n)
+  (__syscall3 1 1 n 0))
 
 ;@axiom:agent:note(held)
 (struct Held
   (n : Int))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

@@ -34,31 +34,26 @@
   (Wrap Int))
 
 (:: mkPt (-> Int Int Int))
-
-(fn (mkPt a b) (Pt a b))
+(fn (mkPt a b)
+  (Pt a b))
 
 (:: roundTrip (-> Int Box))
-
-(fn (roundTrip w) (cast Box w))
+(fn (roundTrip w)
+  (cast Box w))
 
 (:: unwrap (-> Box Int))
-
 (fn (unwrap b)
   (match b
-    ((Wrap v) v)
-  )
-)
+    ((Wrap v) v)))
 
 (:: main Int)
-
 (fn (main)
   (let ((h (mkPt 30 5)))
-    (let ((p (cast Pt h)))
+    (let ((p 
+      (cast Pt h)))
       (let ((b (Wrap 7)))
         (+
-          (+ p.x p.y)          (unwrap (roundTrip (cast Int b)))
-        )
-      )
-    )
-  )
-)
+          (+ p.x p.y)
+          (unwrap
+            (roundTrip
+              (cast Int b))))))))

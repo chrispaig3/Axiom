@@ -1,14 +1,11 @@
 (import IO)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (if (== (* 3 3) 10)
       (println "true")
-      (println "false")
-    )
+      (println "false"))
     0
-  }
-)
+  })

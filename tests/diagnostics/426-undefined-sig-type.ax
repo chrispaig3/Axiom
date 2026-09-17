@@ -1,13 +1,11 @@
 (:: g (-> Nonexistent Int))
-
-(fn (g x) 1)
+(fn (g x)
+  1)
 
 (:: main Int)
-
 (fn (main)
   {
     (g 1)
     (g 2)
     0
-  }
-)
+  })

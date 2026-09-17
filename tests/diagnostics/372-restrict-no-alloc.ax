@@ -12,28 +12,26 @@
 
 ;@axiom:restrict(no-alloc)
 (:: builds (-> String String))
-
-(fn (builds s) (strConcat s "!"))
+(fn (builds s)
+  (strConcat s "!"))
 
 ;@axiom:restrict(no-alloc)
 (:: direct (-> Int Int))
-
 (fn (direct n)
-  (let ((p (alloc Int 1)))
-    n
-  )
-)
+  (let ((p 
+    (alloc Int 1)))
+    n))
 
 ;@axiom:restrict(no-alloc)
 (:: sums (-> Int Int Int))
-
-(fn (sums a b) (+ a b))
+(fn (sums a b)
+  (+ a b))
 
 (:: reads (-> Int Int))
-
 ;@axiom:restrict(no-alloc)
-(fn (reads p) (__load64 p 0))
+(fn (reads p)
+  (__load64 p 0))
 
 (:: main Int)
-
-(fn (main) (+ (strLen (builds "a")) (+ (direct 1) (+ (sums 2 3) (reads (direct 0))))))
+(fn (main)
+  (+ (strLen (builds "a")) (+ (direct 1) (+ (sums 2 3) (reads (direct 0))))))

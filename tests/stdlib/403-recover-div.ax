@@ -28,26 +28,23 @@
 ; decide it before the guard does - the same reason
 ; `tests/selfhost/980-divide-by-zero.ax` gives.
 (import IO)
-
 (import Str)
 
 (:: zero Int)
-
-(fn (zero) 0)
+(fn (zero)
+  0)
 
 (:: divide (-> Int Int))
-
-(fn (divide x) (/ 10 zero))
+(fn (divide x)
+  (/ 10 zero))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((inside 
     (__axiom_recover
-      __axiom_arena_mark      (lambda (x) (divide x))
-    )
-  ))
+      __axiom_arena_mark
+      (lambda (x) (divide x)))))
     {
       (println "recovered {inside}")
       ; Outside every recovery point: this one is the end of the
@@ -61,6 +58,4 @@
       ; trap outside a recovery point ever stops stopping the program,
       ; stdout gains a line and the golden says so.
       (printlnLit (strCStr "UNREACHABLE: the trap outside a recovery point returned"))
-    }
-  )
-)
+    }))

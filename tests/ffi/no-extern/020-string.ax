@@ -2,7 +2,6 @@
 ; marshalling layer reads, so a regression here would look like an FFI
 ; bug when it is not one.
 (import IO)
-
 (import Str)
 
 ;@axiom:effect(io)
@@ -10,6 +9,5 @@
   {
     (println (strConcat "hello" " world"))
     0
-  }
-)
+  })
 ; expect 0

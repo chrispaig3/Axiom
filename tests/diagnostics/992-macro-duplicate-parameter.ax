@@ -4,5 +4,5 @@
 (macro (dup a a) (+ a a))
 
 (:: main Int)
-
-(fn (main) (dup 10 20))
+(fn (main)
+  (dup 10 20))

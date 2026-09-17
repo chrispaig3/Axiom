@@ -23,22 +23,20 @@
 ; copied from a run, because there is no run to copy from - unlike
 ; 640, whose expectation came from stage0's own output.
 (import Str)
-
 (import Vec)
-
 (import Mem)
-
 (import core)
-
 (import diag)
 
 (:: main Int)
-
 (fn (main)
   (let ((src "(fn (a) 0)\n(fn (b) 1)\n(fn (c) 2)\n"))
     (let ((d (mkDiagBase
-      SEV_ERROR      "AX9999"      "kitchen-sink"      (mkSpan 5 6)      "everything at once"
-    )))
+      SEV_ERROR
+      "AX9999"
+      "kitchen-sink"
+      (mkSpan 5 6)
+      "everything at once")))
       {
         (diagSetLabel d "the label")
         ; Two of each, so the difference between "renders the field" and
@@ -55,15 +53,14 @@
         ; concatenating the wrong vectors would still have to lie
         ; about how many it held.
         (let (
-          (got (renderDiag d src "k.ax" (cast (Vec Int) 0)))
+          (got (renderDiag
+            d
+            src
+            "k.ax"
+            (cast (Vec Int) 0)))
           (want (strConcat (strConcat (strConcat (strConcat "E AX9999 k.ax:1:6-7 kitchen-sink \"everything at once\" #\"the label\"" " ^2:6-7:\"first related\" ^3:6-7:\"second related\"") " !\"first note\" !\"second note\"") " ?\"plain help\" ?1:6-7:\"fix help\"~>\"z\"") " &\"outer!\" &\"inner!\""))
         )
           (if (&& (strEq got want) (&& (== (diagSecCount d) 2) (&& (== (diagNoteCount d) 2) (&& (== (diagHelpCount d) 2) (== (diagTraceCount d) 2)))))
             42
-            7
-          )
-        )
-      }
-    )
-  )
-)
+            7))
+      })))

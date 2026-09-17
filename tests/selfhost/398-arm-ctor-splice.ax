@@ -33,13 +33,10 @@
 (stepm (Off On) (On Off))
 
 (:: lightCode (-> Light Int))
-
 (fn (lightCode l)
   (match l
     ((Off) 0)
-    ((On) 100)
-  )
-)
+    ((On) 100)))
 
 (macro mkdata ((mkdata (c) ...)
    (data Animal () (c) ...)))
@@ -47,13 +44,10 @@
 (mkdata (Cat) (Dog))
 
 (:: legs (-> Animal Int))
-
 (fn (legs a)
   (match a
     ((Cat) 4)
-    ((Dog) 4)
-  )
-)
+    ((Dog) 4)))
 
 (macro machine ((machine (state s (on ev next)) ...)
    (data DoorState () (s) ...)
@@ -65,16 +59,13 @@
 (machine (state Closed (on 1 Open)) (state Open (on 0 Closed)))
 
 (:: doorCode (-> DoorState Int))
-
 (fn (doorCode st)
   (match st
     ((Closed) 0)
-    ((Open) 10)
-  )
-)
+    ((Open) 10)))
 
 (data Dev
-  (MkDev {st : Light, n : Int}))
+  (MkDev { st : Light, n : Int }))
 
 (macro fixm ((fixm (st) ...)
    (:: fixCode (-> Light Int))
@@ -94,5 +85,5 @@
 (modem (Off 10) (On 20))
 
 (:: main Int)
-
-(fn (main) (+ (+ (+ (+ (lightCode (lightStep Off 1)) (lightCode (lightStep On 1))) (+ (legs Cat) (legs Dog))) (+ (doorCode (step Closed 1)) (+ (doorCode (step Open 0)) (doorCode (step (step Closed 1) 0))))) (+ (+ (fixCode Off) (fixCode On)) (+ (modeCode (MkDev Off 0)) (modeCode (MkDev On 0))))))
+(fn (main)
+  (+ (+ (+ (+ (lightCode (lightStep Off 1)) (lightCode (lightStep On 1))) (+ (legs Cat) (legs Dog))) (+ (doorCode (step Closed 1)) (+ (doorCode (step Open 0)) (doorCode (step (step Closed 1) 0))))) (+ (+ (fixCode Off) (fixCode On)) (+ (modeCode (MkDev Off 0)) (modeCode (MkDev On 0))))))

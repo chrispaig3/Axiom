@@ -9,11 +9,9 @@
 ; a double-dot INSIDE a longer name is not the segment of the same
 ; name).
 (import IO)
-
 (import Path)
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   {
@@ -35,5 +33,4 @@
     (println (pathClean "a/..b/c"))
     (println (pathClean "./a/./b/../../c"))
     0
-  }
-)
+  })

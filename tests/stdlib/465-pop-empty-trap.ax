@@ -34,13 +34,10 @@
 ; sentence and exited 0 fails on the status, and one that exited 77 in
 ; silence fails on the stderr.
 (import IO)
-
 (import Vec)
-
 (import Str)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; --- LEGAL: three elements, popped LIFO, the length falling ---
@@ -51,31 +48,25 @@
       (vecPush v 9)
       (println (vecLen v))  ; 3
       (println
-        (cast Int (vecPop v))
-      )
+        (cast Int (vecPop v)))
       ; 9: last in, first out
       (println (vecLen v))  ; 2
       (println
-        (cast Int (vecPop v))
-      )
+        (cast Int (vecPop v)))
       ; 8
       (println
-        (cast Int (vecPop v))
-      )
+        (cast Int (vecPop v)))
       ; 7
       (println (vecLen v))  ; 0: popped exactly to empty, never negative
       ; --- LEGAL: the checked read a caller writes instead ---
       (println
         (match (vecTry v 0)
           ((Some x) x)
-          ((None) (- 0 1))
-        )
-      )
+          ((None) (- 0 1))))
       ; -1: None, and no trap - the refusal is `vecPop`'s
       ; --- ILLEGAL: one pop past empty, and this is where it ends ---
       (println
-        (cast Int (vecPop v))
-      )
+        (cast Int (vecPop v)))
       ; NOT REACHED, and deliberately not a bare numeral:
       ; `verify-stdlib-out.py` models a case's exit status from `main`'s
       ; tail when that tail is one, and this program's status comes from
@@ -83,6 +74,4 @@
       ; tripwire for the trap being removed - if `vecPop` ever starts
       ; answering 0 again, this line runs and the golden says so.
       (printlnLit (strCStr "UNREACHABLE: the empty pop returned"))
-    }
-  )
-)
+    }))

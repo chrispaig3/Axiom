@@ -144,14 +144,11 @@
 (hole Three 9 9)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
-(fn (main) (+ (b2i (== (sTwo T2) 1)) (+ (* 2 (b2i (== (sThree T3) 2))) (+ (* 4 (b2i (== (sBare TB) 4))) (+ (* 8 (b2i (== (lZero Z0) 8))) (+ (* 16 (b2i (== (lSome S1) 64))) (+ (* 32 (b2i (== (pickTwo T2) 16))) (* 64 (b2i (== (hThree T3) 32))))))))))
+(fn (main)
+  (+ (b2i (== (sTwo T2) 1)) (+ (* 2 (b2i (== (sThree T3) 2))) (+ (* 4 (b2i (== (sBare TB) 4))) (+ (* 8 (b2i (== (lZero Z0) 8))) (+ (* 16 (b2i (== (lSome S1) 64))) (+ (* 32 (b2i (== (pickTwo T2) 16))) (* 64 (b2i (== (hThree T3) 32))))))))))

@@ -13,9 +13,9 @@
 ; build. `tests/diagnostics/severity.policy` records that reasoning.
 ;@axiom:deprecated(use vecLen instead)
 (pub :: oldLen (-> Int Int))
-
-(pub fn (oldLen v) 0)
+(pub fn (oldLen v)
+  0)
 
 (:: main Int)
-
-(fn (main) (oldLen 7))
+(fn (main)
+  (oldLen 7))

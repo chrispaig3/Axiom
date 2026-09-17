@@ -25,5 +25,5 @@
 (cross D1 D2)
 
 (:: main Int)
-
-(fn (main) (tagD1 B Y))
+(fn (main)
+  (tagD1 B Y))

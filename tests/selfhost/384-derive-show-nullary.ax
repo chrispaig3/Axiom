@@ -32,7 +32,6 @@
 ; it keeps the shape that exercised the bug rather than the rendering
 ; that would not.
 (import IO)
-
 (import Str)
 
 (macro deriveCtorName ((deriveCtorName T)
@@ -59,14 +58,11 @@
 (deriveCtorName Mixed)
 
 (:: bit (-> Bool Int Int))
-
 (fn (bit b w)
   (if b
     w
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
-(fn (main) (+ (bit (strEq (showColour Red) "Red") 1) (+ (bit (strEq (showColour Green) "Green") 2) (+ (bit (strEq (showColour Blue) "Blue") 4) (+ (bit (strEq (showMixed First) "First") 8) (+ (bit (strEq (showMixed (Mid 7)) "Mid") 16) (bit (strEq (showMixed Last) "Last") 32)))))))
+(fn (main)
+  (+ (bit (strEq (showColour Red) "Red") 1) (+ (bit (strEq (showColour Green) "Green") 2) (+ (bit (strEq (showColour Blue) "Blue") 4) (+ (bit (strEq (showMixed First) "First") 8) (+ (bit (strEq (showMixed (Mid 7)) "Mid") 16) (bit (strEq (showMixed Last) "Last") 32)))))))

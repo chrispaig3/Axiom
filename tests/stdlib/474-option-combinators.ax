@@ -37,24 +37,17 @@
 ;      `(Option Int)`; the whole pipeline runs without a `match` at the
 ;      call site, which is the DX claim this file is the evidence for.
 (import IO)
-
 (import Err)
-
 (import Str)
-
 (import Vec)
 
 (:: doubleIt (-> Int (Option Int)))
-
 (fn (doubleIt n)
   (if (> n 100)
     None
-    (Some (* n 2))
-  )
-)
+    (Some (* n 2))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -68,31 +61,48 @@
       (println (isNone some7))
       (println (isSome none0))
       (println (isNone none0))
-
       ; --- 2. optUnwrapOr, and Some 0 is not an absence ---
       (println (optUnwrapOr some7 99))
       (println (optUnwrapOr none0 99))
       (println (optUnwrapOr some0 99))
-
       ; --- 3. optMap, including a change of type ---
-      (println (optUnwrapOr (optMap some7 (lambda (x) (* x 3))) 0))
-      (println (isNone (optMap none0 (lambda (x) (* x 3)))))
-      (println (optUnwrapOr
-        (optMap some7 (lambda (x) (strConcat "n=" (fmtInt x))))        "none"
-      ))
-
+      (println
+        (optUnwrapOr
+          (optMap
+            some7
+            (lambda (x) (* x 3)))
+          0))
+      (println
+        (isNone
+          (optMap
+            none0
+            (lambda (x) (* x 3)))))
+      (println
+        (optUnwrapOr
+          (optMap
+            some7
+            (lambda (x) (strConcat "n=" (fmtInt x))))
+          "none"))
       ; --- 4. optAndThen, all three combinations ---
       (println (optUnwrapOr (optAndThen some7 doubleIt) 0))
       (println (isNone (optAndThen (Some 500) doubleIt)))
       (println (isNone (optAndThen none0 doubleIt)))
-
       ; --- 5. optOr takes the first present of two ---
       (println (optUnwrapOr (optOr some7 (Some 42)) 0))
       (println (optUnwrapOr (optOr none0 (Some 42)) 0))
       (println (isNone (optOr none0 None)))
-
       ; --- 6. composing with a real producer, no match at the call ---
-      (println (optUnwrapOr (optMap (strFind "hello world" "world" 0) (lambda (i) (+ i 1))) 0))
-      (println (optUnwrapOr (optMap (strFind "hello world" "zebra" 0) (lambda (i) (+ i 1))) 0))
+      (println
+        (optUnwrapOr
+          (optMap
+            (strFind "hello world" "world" 0)
+            (lambda (i) (+ i 1)))
+          0))
+      (println
+        (optUnwrapOr
+          (optMap
+            (strFind "hello world" "zebra" 0)
+            (lambda (i) (+ i 1)))
+          0))
       0
     }))

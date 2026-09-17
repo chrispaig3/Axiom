@@ -35,20 +35,20 @@
 ; producer stays AX3010 when the body does not support it - the split
 ; is per-effect, not a blanket softening of the check.
 (:: quiet (-> Int Int))
-
 ;@axiom:effect(div)
-(fn (quiet n) n)
+(fn (quiet n)
+  n)
 
 (:: diverges (-> Int Int))
-
 ;@axiom:effect(div)
-(fn (diverges n) (diverges n))
+(fn (diverges n)
+  (diverges n))
 
 (:: honest (-> Int Int))
-
 ;@axiom:effect(mut)
-(fn (honest n) n)
+(fn (honest n)
+  n)
 
 (:: main Int)
-
-(fn (main) (quiet 1))
+(fn (main)
+  (quiet 1))

@@ -1,6 +1,5 @@
 ; expect 42
 (:: main Int)
-
 (fn (main)
   (let (
     (a 1)
@@ -10,7 +9,4 @@
       (a (+ a b))
       (c (* a 14))
     )
-      c
-    )
-  )
-)
+      c)))

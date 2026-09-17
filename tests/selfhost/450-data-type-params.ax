@@ -8,9 +8,6 @@
   (N9))
 
 (:: main Int)
-
 (fn (main)
   (match 44
-    (a a)
-  )
-)
+    (a a)))

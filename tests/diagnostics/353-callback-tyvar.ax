@@ -48,49 +48,37 @@
 ; it"; the other arm was silent, and this checked OK and exited 139.
 ; Measured 2026-08-25, and it is the second 139 in this file.
 (:: demand (-> (-> a Int) Int))
-
 (fn (demand f)
   (f
-    (cast a 42)
-  )
-)
+    (cast a 42)))
 
 (:: witnessed (-> (-> a b) a b))
-
-(fn (witnessed f x) (f x))
+(fn (witnessed f x)
+  (f x))
 
 ;@axiom:raw
 (:: declared (-> (-> a Int) Int))
-
 (fn (declared f)
   (f
-    (cast a 42)
-  )
-)
+    (cast a 42)))
 
 (:: alsoResult (-> (-> a Int) a))
-
 (fn (alsoResult f)
-  (cast a 42)
-)
+  (cast a 42))
 
 (:: divDemand (-> (-> a Int) a))
-
 (fn (divDemand f)
   {
     (f
-      (cast a 42)
-    )
+      (cast a 42))
     (let ((mut i 0))
       {
         (while true
           (set i (+ i 1)))
         (cast a i)
-      }
-    )
-  }
-)
+      })
+  })
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

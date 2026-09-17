@@ -57,6 +57,6 @@
 (pair alpha beta quiet loud)
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (+ (alpha 1) (+ (beta 2) (+ (quiet 3) (loud 4)))))
+(fn (main)
+  (+ (alpha 1) (+ (beta 2) (+ (quiet 3) (loud 4)))))

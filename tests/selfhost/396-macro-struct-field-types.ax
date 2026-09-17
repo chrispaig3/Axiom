@@ -48,25 +48,10 @@
   (f : Float))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (b (struct Bare 7 2.5))
     (p (struct Param 7 2.5))
     (h (struct Hand 7 2.5))
   )
-    (+
-      (* b.n 3)
-      (+
-        (__floatToInt (* b.f b.f))
-        (+
-          (* p.n 5)
-          (+
-            (__floatToInt (* p.f p.f))
-            (- h.n (__floatToInt h.f))
-          )
-        )
-      )
-    )
-  )
-)
+    (+ (* b.n 3) (+ (__floatToInt (* b.f b.f)) (+ (* p.n 5) (+ (__floatToInt (* p.f p.f)) (- h.n (__floatToInt h.f))))))))

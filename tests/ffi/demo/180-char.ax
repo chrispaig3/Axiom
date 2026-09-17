@@ -18,13 +18,9 @@
 ; A Rust `u64` is the word's 64 bits read unsigned, no range check
 ; either way: `(wrapU64 -1)` hands Rust `u64::MAX`, which wraps to 0.
 (import IO)
-
 (import Fmt)
-
 (import Str)
-
 (import Vec)
-
 (import Demo)
 
 ; A `Char` as the code-point word `fromChars` reads.
@@ -34,8 +30,8 @@
 ; at an argument root, where `MM-VAL-22` measures the evidence word
 ; classified 0.
 (:: codePoint (-> Char Int))
-
-(fn (codePoint c) (cast Int c))
+(fn (codePoint c)
+  (cast Int c))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -46,8 +42,7 @@
       (let (
         (next (cast Int (nextChar 'a')))
         (code (charCode
-          (cast Char 233)
-        ))
+          (cast Char 233)))
         (chars (charsOf "hi"))
         (joined (fromChars cs))
         (none (charsOf ""))
@@ -55,18 +50,18 @@
         (six (wrapU64 5))
       )
         (if (&&
-          (== next 98)          (&&
-            (== code 233)            (&&
-              (== (vecLen chars) 2)              (&&
-                (== (vecGet chars 1) 105)                (&&
+          (== next 98)
+          (&&
+            (== code 233)
+            (&&
+              (== (vecLen chars) 2)
+              (&&
+                (== (vecGet chars 1) 105)
+                (&&
                   (==
-                    (cast Int (cast Char (vecGet chars 0)))                    104
-                  )                  (&& (strEq joined "ok") (&& (== (vecLen none) 0) (&& (== wrapped 0) (== six 6))))
-                )
-              )
-            )
-          )
-        )
+                    (cast Int (cast Char (vecGet chars 0)))
+                    104)
+                  (&& (strEq joined "ok") (&& (== (vecLen none) 0) (&& (== wrapped 0) (== six 6)))))))))
           {
             (println "char and u64: agree")
             0
@@ -81,10 +76,6 @@
             (println (fmtInt wrapped))
             (println (fmtInt six))
             1
-          }
-        )
-      )
-    }
-  )
-)
+          }))
+    }))
 ; expect 0

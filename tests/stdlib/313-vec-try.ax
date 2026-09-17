@@ -28,44 +28,32 @@
 ; NOT good. This is not a deprecation; it is the second accessor for
 ; the case the first now refuses.
 (import IO)
-
 (import Vec)
 
 (:: say (-> Int String Int))
-
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))
-  )
-)
+    (printlnLit (strCStr (strConcat "FAIL " label)))))
 
 (:: isNone (-> (Option Int) Int))
-
 (fn (isNone o)
   (match o
     ((Some x) 0)
-    ((None) 1)
-  )
-)
+    ((None) 1)))
 
 (:: someIs (-> (Option Int) Int Int))
-
 (fn (someIs o want)
   (match o
     ((Some x)
       (if (== x want)
         1
-        0
-      )
+        0)
     )
-    ((None) 0)
-  )
-)
+    ((None) 0)))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((v vecNew))
@@ -96,24 +84,18 @@
       ; What remains here is the half that was always the point:
       ; `vecTry` tells the two apart, and it is now the only reader
       ; that can be asked about an index nobody has checked.
-      (say
-        (someIs (vecTry v 0) 0)        "the stored zero is Some 0, not an absence"
-      )
+      (say (someIs (vecTry v 0) 0) "the stored zero is Some 0, not an absence")
       (say
         (if (== (someIs (vecTry v 0) 0) 1)
           (if (== (isNone (vecTry v 2)) 1)
             1
-            0
-          )
-          0
-        )        "vecTry tells those two apart"
-      )
+            0)
+          0)
+        "vecTry tells those two apart")
       ; And it keeps up as the vector grows, so the bound is read rather
       ; than remembered from when the accessor was written.
       (vecPush v 9)
       (say (someIs (vecTry v 2) 9) "what was past the end is readable once pushed")
       (say (isNone (vecTry v 3)) "the end moved with it")
       0
-    }
-  )
-)
+    }))

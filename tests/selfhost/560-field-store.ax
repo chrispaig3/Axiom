@@ -7,12 +7,9 @@
   (step : Int))
 
 (:: main Int)
-
 (fn (main)
   (let ((c (C4 10 5)))
     {
       (set c.n 40)
       (+ c.n c.step)
-    }
-  )
-)
+    }))

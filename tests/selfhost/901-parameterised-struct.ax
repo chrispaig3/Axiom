@@ -33,7 +33,6 @@
 ;       the value's own type, called through `.field`. This is what
 ;       replaces a trait.
 (import Str)
-
 (import Fmt)
 
 (struct Pair (a b)
@@ -44,28 +43,22 @@
   (render : (-> a String)))
 
 (:: showInt (ShowOf Int))
-
-(fn (showInt) (ShowOf fmtInt))
+(fn (showInt)
+  (ShowOf fmtInt))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 (fn (main)
-  (let ((p (Pair 7 "seven")) (c showInt))
-    (+
-      ; 4 - the two parameters are independent: `fst` is an Int the
-      ; arithmetic below accepts, `snd` a String only strLen accepts.
-      (* 4 (b2i (&& (== p.fst 7) (== (strLen p.snd) 5))))
-      ; 8 - the capability answers through its field
-      (* 8 (b2i (strEq ((c.render) 7) "7")))
-    )
+  (let (
+    (p (Pair 7 "seven"))
+    (c showInt)
   )
-)
+    (+ (* 4 (b2i (&& (== p.fst 7) (== (strLen p.snd) 5)))) (* 8 (b2i (strEq (c.render 7) "7"))))))
+; 4 - the two parameters are independent: `fst` is an Int the
+; arithmetic below accepts, `snd` a String only strLen accepts.
+; 8 - the capability answers through its field

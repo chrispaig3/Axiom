@@ -19,67 +19,67 @@
 ;                                                      -> AX3049 alone:
 ;                 a cast found refutes the claim whatever the walk
 ;                 could not close
-(data Meters (MkM Int))
+(data Meters
+  (MkM Int))
 
-(struct Box (f : (-> Int Int)))
+(struct Box
+  (f : (-> Int Int)))
 
 (:: unwrap (-> Meters Int))
-
-(fn (unwrap m) (cast Int m))
+(fn (unwrap m)
+  (cast Int m))
 
 (:: viaUnwrap (-> Meters Int))
-
-(fn (viaUnwrap m) (unwrap m))
+(fn (viaUnwrap m)
+  (unwrap m))
 
 ;@axiom:restrict(no-cast:deep)
 (:: deepCaller (-> Meters Int))
-
-(fn (deepCaller m) (unwrap m))
+(fn (deepCaller m)
+  (unwrap m))
 
 ;@axiom:restrict(no-cast:deep)
 (:: deepFar (-> Meters Int))
-
-(fn (deepFar m) (viaUnwrap m))
+(fn (deepFar m)
+  (viaUnwrap m))
 
 ;@axiom:restrict(no-cast:deep)
 (:: deepLocal (-> Meters Int))
-
-(fn (deepLocal m) (+ (cast Int m) (unwrap m)))
+(fn (deepLocal m)
+  (+
+    (cast Int m)
+    (unwrap m)))
 
 (:: plain (-> Meters Int))
-
 (fn (plain m)
   (match m
-    ((MkM v) v))
-)
+    ((MkM v) v)))
 
 ;@axiom:restrict(no-cast:deep)
 (:: deepClean (-> Meters Int))
-
-(fn (deepClean m) (plain m))
+(fn (deepClean m)
+  (plain m))
 
 ;@axiom:restrict(no-cast)
 (:: shallow (-> Meters Int))
-
-(fn (shallow m) (unwrap m))
+(fn (shallow m)
+  (unwrap m))
 
 ;@axiom:restrict(no-cast:deep)
 (:: deepPartial (-> Box Int Int))
-
-(fn (deepPartial b n) ((b.f) n))
+(fn (deepPartial b n)
+  (b.f n))
 
 ;@axiom:restrict(no-cast:deep)
 (:: deepRefuted (-> Box Meters Int))
-
-(fn (deepRefuted b m) (+ ((b.f) 1) (unwrap m)))
+(fn (deepRefuted b m)
+  (+ (b.f 1) (unwrap m)))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (m (MkM 7))
-    (b (Box (lambda (x) x)))
+    (b (Box
+      (lambda (x) x)))
   )
-    (+ (deepCaller m) (+ (deepFar m) (+ (deepLocal m) (+ (deepClean m) (+ (shallow m) (+ (deepPartial b 1) (deepRefuted b m)))))))
-  )
-)
+    (+ (deepCaller m) (+ (deepFar m) (+ (deepLocal m) (+ (deepClean m) (+ (shallow m) (+ (deepPartial b 1) (deepRefuted b m)))))))))

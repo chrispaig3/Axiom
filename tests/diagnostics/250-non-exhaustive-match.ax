@@ -4,22 +4,16 @@
   (Blue))
 
 (:: two (-> Int Int))
-
 (fn (two n)
   (match Red
-    ((Red) 1)
-  )
-)
+    ((Red) 1)))
 
 (:: one (-> Int Int))
-
 (fn (one n)
   (match Red
     ((Green x) x)
-    ((Blue) 3)
-  )
-)
+    ((Blue) 3)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

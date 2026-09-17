@@ -34,7 +34,6 @@
 ;      mechanisms - `emitTailJump`'s loop and `musttail` - are seen
 ;      beside each other in one file.
 (import IO)
-
 (import Str)
 
 ; --- 1. matched prototypes ---
@@ -45,16 +44,12 @@
 (fn (ev i acc)
   (if (>= i 10000000)
     acc
-    (od (+ i 1) (+ acc 1))
-  )
-)
+    (od (+ i 1) (+ acc 1))))
 
 (fn (od i acc)
   (if (>= i 10000000)
     acc
-    (ev (+ i 1) (+ acc 1))
-  )
-)
+    (ev (+ i 1) (+ acc 1))))
 
 ; --- 2. through a let body and a match arm ---
 (:: evL (-> Int Int Int))
@@ -65,20 +60,14 @@
   (let ((j (+ i 1)))
     (if (>= i 10000000)
       acc
-      (odM j (+ acc 1))
-    )
-  )
-)
+      (odM j (+ acc 1)))))
 
 (fn (odM i acc)
   (match (if (>= i 10000000)
     None
-    (Some i)
-  )
+    (Some i))
     ((Some k) (evL (+ k 1) (+ acc 1)))
-    (_ acc)
-  )
-)
+    (_ acc)))
 
 ; --- 3. a three-way cycle ---
 (:: cyA (-> Int Int Int))
@@ -90,23 +79,17 @@
 (fn (cyA i acc)
   (if (>= i 9000000)
     acc
-    (cyB (+ i 1) (+ acc 1))
-  )
-)
+    (cyB (+ i 1) (+ acc 1))))
 
 (fn (cyB i acc)
   (if (>= i 9000000)
     acc
-    (cyC (+ i 1) (+ acc 1))
-  )
-)
+    (cyC (+ i 1) (+ acc 1))))
 
 (fn (cyC i acc)
   (if (>= i 9000000)
     acc
-    (cyA (+ i 1) (+ acc 1))
-  )
-)
+    (cyA (+ i 1) (+ acc 1))))
 
 ; --- 4. mismatched arity: a plain call, and still correct ---
 (:: ev2 (-> Int Int Int))
@@ -116,16 +99,12 @@
 (fn (ev2 i acc)
   (if (>= i 2000)
     acc
-    (od3 (+ i 1) (+ acc 1) 7)
-  )
-)
+    (od3 (+ i 1) (+ acc 1) 7)))
 
 (fn (od3 i acc k)
   (if (>= i 2000)
     acc
-    (ev2 (+ i 1) (+ acc k))
-  )
-)
+    (ev2 (+ i 1) (+ acc k))))
 
 ; --- 5. an owned temporary handed over: a plain call ---
 (:: evS (-> Int String Int))
@@ -135,31 +114,22 @@
 (fn (evS i s)
   (if (>= i 2000)
     (strLen s)
-    (odS (+ i 1) (strConcat s "x"))
-  )
-)
+    (odS (+ i 1) (strConcat s "x"))))
 
 (fn (odS i s)
   (if (>= i 2000)
     (strLen s)
-    (evS (+ i 1) (strConcat s "y"))
-  )
-)
+    (evS (+ i 1) (strConcat s "y"))))
 
 ; --- 6. a self tail call in a let body ---
 (:: selfLet (-> Int Int Int))
-
 (fn (selfLet i acc)
   (let ((j (+ i 1)))
     (if (>= i 10000000)
       acc
-      (selfLet j (+ acc 1))
-    )
-  )
-)
+      (selfLet j (+ acc 1)))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -170,5 +140,4 @@
     (println (evS 0 ""))
     (println (selfLet 0 0))
     0
-  }
-)
+  })

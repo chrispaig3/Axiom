@@ -13,19 +13,17 @@
 ;
 ; Driven by scripts/check-repl-history.sh.
 (import Str)
-
 (import Sys)
-
 (import replhist)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
-  (let ((h (histOpen (if (strEq (sysEnv "HIST_INTERACTIVE") "1")
-    1
-    0
-  ))))
+  (let ((h 
+    (histOpen
+      (if (strEq (sysEnv "HIST_INTERACTIVE") "1")
+        1
+        0))))
     {
       (histRecord h "(+ 1 2)")
       (histRecord h "(fn (f x)\n  (if (> x 0)\n    1 0))")
@@ -39,6 +37,4 @@
       (histRecord h "(- 9 5)")
       (histClose h)
       (+ (* 10 (histPersist h)) (histLen h))
-    }
-  )
-)
+    }))

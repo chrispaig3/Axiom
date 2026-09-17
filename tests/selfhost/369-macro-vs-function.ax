@@ -11,9 +11,9 @@
 (import QualMac)
 
 (:: qdbl (-> Int Int))
-
-(fn (qdbl n) (* n 3))
+(fn (qdbl n)
+  (* n 3))
 
 (:: main Int)
-
-(fn (main) (qdbl 5))
+(fn (main)
+  (qdbl 5))

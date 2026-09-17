@@ -1,8 +1,8 @@
 (:: pure (-> Int Int))
-
 ;@axiom:pur
-(fn (pure x) x)
+(fn (pure x)
+  x)
 
 (:: main Int)
-
-(fn (main) (pure 1))
+(fn (main)
+  (pure 1))

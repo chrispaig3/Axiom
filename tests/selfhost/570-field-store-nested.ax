@@ -9,12 +9,9 @@
   (i : I5))
 
 (:: main Int)
-
 (fn (main)
   (let ((o (O5 (I5 1))))
     {
       (set o.i.v 42)
       o.i.v
-    }
-  )
-)
+    }))

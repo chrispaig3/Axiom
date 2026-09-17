@@ -10,7 +10,7 @@
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Circle, Dot[0m
   [1;34m--> [0m366-match-fix-shapes.ax:31:10
 [1;34m   |[0m
-[1;34m31 |[0m   (match s))
+[1;34m31 |[0m   (match s
 [1;34m   |[0m          [1;31m^ this `match` does not cover: Circle, Dot[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~>[0m
@@ -19,13 +19,13 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 [1;31merror[AX3005][0m[1m: non-exhaustive pattern match: missing Circle[0m
-  [1;34m--> [0m366-match-fix-shapes.ax:34:18
+  [1;34m--> [0m366-match-fix-shapes.ax:36:10
 [1;34m   |[0m
-[1;34m34 |[0m (fn (h s) (match s ((Dot) 0)))
-[1;34m   |[0m                  [1;31m^ this `match` does not cover: Circle[0m
+[1;34m36 |[0m   (match s
+[1;34m   |[0m          [1;31m^ this `match` does not cover: Circle[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0madd the missing arms, each a `todo` until it is written[1;35m ~>[0m
-           [1;35m                   ((Circle _) (todo "Circle"))[0m
+           [1;35m    ((Circle _) (todo "Circle"))[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3005` for a full explanation
 
 compilation failed due to 3 previous errors

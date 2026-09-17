@@ -20,15 +20,11 @@
 ; spelling: retain and release operate on a WORD, not on a `String`.
 ; The declaration in `Demo.ax` says `Foreign` for exactly that reason.
 (import IO)
-
 (import Fmt)
-
 (import Str)
-
 (import Demo)
 
 (pub :: churn (-> Int Int Int))
-
 ;@axiom:effect(io)
 (pub fn (churn i acc)
   (if (>= i 500)
@@ -36,26 +32,18 @@
     (let ((s (strConcat "abc" "de")))
       (let ((n 
         (strKeep
-          (cast Foreign s)
-        )
-      ))
+          (cast Foreign s))))
         (let ((back strRecall))
           {
             strDrop
             (churn
-              (+ i 1)              (+
-                acc                (if (== back n)
+              (+ i 1)
+              (+
+                acc
+                (if (== back n)
                   1
-                  0
-                )
-              )
-            )
-          }
-        )
-      )
-    )
-  )
-)
+                  0)))
+          })))))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -68,8 +56,5 @@
       {
         (println (fmtInt ok))
         1
-      }
-    )
-  )
-)
+      })))
 ; expect 0

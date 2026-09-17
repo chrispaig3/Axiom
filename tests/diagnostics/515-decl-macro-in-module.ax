@@ -45,5 +45,5 @@
    (fn (nm) 5)))
 
 (:: main Int)
-
-(fn (main) (+ (+ (+ (+ touch insideModule) hiddenInside) alsoExported) fromEntryMacro))
+(fn (main)
+  (+ (+ (+ (+ touch insideModule) hiddenInside) alsoExported) fromEntryMacro))

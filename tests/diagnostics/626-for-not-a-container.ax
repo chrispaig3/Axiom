@@ -27,11 +27,10 @@
 (import IO)
 
 (:: vecLen (-> (Vec Int) Int))
-
-(fn (vecLen z) 99)
+(fn (vecLen z)
+  99)
 
 (:: overAnInt (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (overAnInt n)
   (for x n
@@ -43,5 +42,5 @@
     (println 1)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

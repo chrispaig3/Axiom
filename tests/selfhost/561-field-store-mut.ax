@@ -29,16 +29,13 @@
   (inn : Inner))
 
 (:: bumpInner (-> Outer Int))
-
 (fn (bumpInner o)
   {
     (set o.inn.v (+ o.inn.v 1))
     0
-  }
-)
+  })
 
 (:: main Int)
-
 (fn (main)
   (let (
     (m (M 7 2))
@@ -49,6 +46,4 @@
       (set o.inn.v 9)
       (bumpInner o)
       (+ (+ m.a m.b) o.inn.v)
-    }
-  )
-)
+    }))

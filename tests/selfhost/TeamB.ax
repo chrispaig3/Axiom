@@ -7,9 +7,6 @@
   (port : Int))
 
 (pub :: bPort Int)
-
 (pub fn (bPort)
   (let ((c (Config 3 99)))
-    c.port
-  )
-)
+    c.port))

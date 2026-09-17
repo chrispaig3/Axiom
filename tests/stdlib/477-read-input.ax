@@ -32,93 +32,70 @@
 ; negated errno for `Err` - so the golden's numbers are claims the
 ; verifier derives from this file rather than from the golden.
 (import IO)
-
 (import Err)
-
 (import Str)
-
 (import Sys)
 
 ; The line's length, -1 for `None`, and -errno for `Err`.
 (:: shape (-> (Result (Option String) Error) Int))
-
 (fn (shape r)
   (match r
     ((Ok (Some s)) (strLen s))
     ((Ok (None)) (- 0 1))
-    ((Err e) (- 0 (errCode e)))
-  )
-)
+    ((Err e) (- 0 (errCode e)))))
 
 ; The line in brackets, so an empty one and a trailing space show.
 (:: text (-> (Result (Option String) Error) String))
-
 (fn (text r)
   (match r
     ((Ok (Some s)) (strConcat (strConcat "[" s) "]"))
     ((Ok (None)) "none")
-    ((Err e) (strConcat "err: " (errMessage e)))
-  )
-)
+    ((Err e) (strConcat "err: " (errMessage e)))))
 
 ; The line itself, or "" - for a comparison rather than a print.
 (:: lineOf (-> (Result (Option String) Error) String))
-
 (fn (lineOf r)
   (match r
     ((Ok (Some s)) s)
     ((Ok (None)) "")
-    ((Err _) "")
-  )
-)
+    ((Err _) "")))
 
 (:: step (-> (Result (Option String) Error) Int))
-
 ;@axiom:effect(io)
 (fn (step r)
   {
     (println (shape r))
     (println (text r))
     0
-  }
-)
+  })
 
 (:: shapeAll (-> (Result String Error) Int))
-
 (fn (shapeAll r)
   (match r
     ((Ok s) (strLen s))
-    ((Err e) (- 0 (errCode e)))
-  )
-)
+    ((Err e) (- 0 (errCode e)))))
 
 (:: textAll (-> (Result String Error) String))
-
 (fn (textAll r)
   (match r
     ((Ok s) (strConcat (strConcat "[" s) "]"))
-    ((Err e) (strConcat "err: " (errMessage e)))
-  )
-)
+    ((Err e) (strConcat "err: " (errMessage e)))))
 
 (:: stepAll (-> (Result String Error) Int))
-
 ;@axiom:effect(io)
 (fn (stepAll r)
   {
     (println (shapeAll r))
     (println (textAll r))
     0
-  }
-)
+  })
 
 ; A hundred bytes, so three of them cross 128 and 256.
 (:: hundred String)
-
-(fn (hundred) "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789")
+(fn (hundred)
+  "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789")
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -133,10 +110,8 @@
       (step (readLine stdin))  ; 5
       (step (readLine stdin))  ; -1
       (step (readLine stdin))  ; -1
-
       ; --- 2. readAll on the exhausted descriptor ---
       (stepAll (readAll stdin))  ; 0
-
       ; --- 3. a descriptor this program opened ---
       (writeFile path (strConcat "first line\n" (strConcat long "\nsecond\nlast without newline")))
       (match (sysOpenPath (strCStr path) oRdonly)
@@ -147,22 +122,17 @@
               {
                 (println (shape r))  ; 300
                 (println (strEq (lineOf r) long))
-              }
-            )
+              })
             (stepAll (readAll fd))  ; 27
             (step (readLine fd))  ; -1
             (sysCloseFd fd)
             0
           }
         )
-        ((Err _) (println "open failed"))
-      )
+        ((Err _) (println "open failed")))
       (removeFile path)
-
       ; --- 4. a descriptor nothing opened ---
       (step (readLine 999))  ; -9
       (stepAll (readAll 999))  ; -9
       0
-    }
-  )
-)
+    }))

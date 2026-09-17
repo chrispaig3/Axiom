@@ -57,96 +57,97 @@
 ;      unconditionally would make this line 131076 and would be
 ;      handing back a share the store never took.
 (import IO)
-
 (import Str)
 
-(data Two (a b) (Mk a b))
+(data Two (a b)
+  (Mk a b))
 
 ; the shape word sits one word above the count, at `p - 8`
 (:: shapeOf (-> Int Int))
-
-(fn (shapeOf p) (__load64 (- p 16) 1))
+(fn (shapeOf p)
+  (__load64 (- p 16) 1))
 
 (:: payloadRc (-> Int Int))
-
-(fn (payloadRc p) (__load64 (- (__load64 p 1) 16) 0))
+(fn (payloadRc p)
+  (__load64 (- (__load64 p 1) 16) 0))
 
 (:: fieldRc (-> Int Int Int))
-
-(fn (fieldRc p j) (__load64 (- (__load64 p j) 16) 0))
+(fn (fieldRc p j)
+  (__load64 (- (__load64 p j) 16) 0))
 
 ; --- 1, 2: the same value at the same type, two ways ---
 (:: wrap (-> a (Option a)))
-
-(fn (wrap x) (Some x))
+(fn (wrap x)
+  (Some x))
 
 (:: viaLam (-> String (Option String)))
-
-(fn (viaLam s) ((lambda (x) (Some x)) s))
+(fn (viaLam s)
+  ((lambda (x) (Some x))
+    s))
 
 ; --- 3: two reference fields, built outside any lambda ---
 (:: mkPlain (-> a b (Two a b)))
-
-(fn (mkPlain x y) (Mk x y))
+(fn (mkPlain x y)
+  (Mk x y))
 
 ; --- 3: field 0 is the lambda's argument, field 1 a capture ---
 (:: mkLam1 (-> String String (Two String String)))
-
-(fn (mkLam1 s t) ((lambda (x) (Mk x t)) s))
+(fn (mkLam1 s t)
+  ((lambda (x) (Mk x t))
+    s))
 
 ; --- 4: both fields lambda arguments, at depths 1 and 0 ---
 (:: mkLam2 (-> String String (Two String String)))
-
-(fn (mkLam2 s t) (((lambda (x) (lambda (y) (Mk x y))) s) t))
+(fn (mkLam2 s t)
+  ((lambda (x)
+    (lambda (y) (Mk x y))
+  )
+    s
+    t))
 
 ; --- 5: the same lambda shape over a word payload ---
 (:: viaLamInt (-> Int (Option Int)))
-
-(fn (viaLamInt n) ((lambda (x) (Some x)) n))
+(fn (viaLamInt n)
+  ((lambda (x) (Some x))
+    n))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     ; --- 1, 2: outside a lambda, then inside one ---
     (let ((a (strConcat "ab" "cd")))
-      (let ((p (cast Int (wrap a))))
+      (let ((p 
+        (cast Int (wrap a))))
         {
           (println (shapeOf p))
           (println (payloadRc p))
-        }
-      )
-    )
+        }))
     (let ((b (strConcat "ab" "cd")))
-      (let ((p (cast Int (viaLam b))))
+      (let ((p 
+        (cast Int (viaLam b))))
         {
           (println (shapeOf p))
           (println (payloadRc p))
-        }
-      )
-    )
+        }))
     ; --- 3: two reference fields, plain then one lambda deep ---
     (let ((c (strConcat "ef" "gh")))
       (let ((d (strConcat "ij" "kl")))
         {
-          (println (shapeOf
-            (cast Int (mkPlain c d))
-          ))
-          (println (shapeOf
-            (cast Int (mkLam1 c d))
-          ))
+          (println
+            (shapeOf
+              (cast Int (mkPlain c d))))
+          (println
+            (shapeOf
+              (cast Int (mkLam1 c d))))
           ; --- 4: two lambdas deep, both fields lambda arguments ---
-          (println (shapeOf
-            (cast Int (mkLam2 c d))
-          ))
-        }
-      )
-    )
+          (println
+            (shapeOf
+              (cast Int (mkLam2 c d))))
+        }))
     ; --- 5: a word payload through the same lambda stays LEAF ---
-    (println (shapeOf
-      (cast Int (viaLamInt 7))
-    ))
+    (println
+      (shapeOf
+        (cast Int (viaLamInt 7))))
     0
-  }
-)
+  })

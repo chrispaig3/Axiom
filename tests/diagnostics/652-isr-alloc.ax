@@ -10,15 +10,15 @@
 (import Str)
 
 (:: tick Int)
-
 ;@axiom:isr
-(fn (tick) (strLen (strConcat "a" "b")))
+(fn (tick)
+  (strLen (strConcat "a" "b")))
 
 (:: clean Int)
-
 ;@axiom:isr
-(fn (clean) 0)
+(fn (clean)
+  0)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

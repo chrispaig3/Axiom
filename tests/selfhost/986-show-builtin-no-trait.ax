@@ -24,7 +24,6 @@
 ;   "None"                4
 ;                         59
 (import Fmt)
-
 (import Str)
 
 (data Colour
@@ -38,9 +37,9 @@
 ; a bare `None` is `(Option _t)`, which has no renderer; the
 ; signature is what names the element type
 (:: noneInt (Option Int))
-
-(fn (noneInt) None)
+(fn (noneInt)
+  None)
 
 (:: main Int)
-
-(fn (main) (+ (strLen (format 123)) (+ (strLen (format "abcd")) (+ (strLen (format true)) (+ (strLen (format 1.5)) (+ (strLen (format 'x')) (+ (strLen (format Green)) (+ (strLen (format (Pair 1 "x"))) (+ (strLen (format (Some Green))) (strLen (format noneInt)))))))))))
+(fn (main)
+  (+ (strLen (format 123)) (+ (strLen (format "abcd")) (+ (strLen (format true)) (+ (strLen (format 1.5)) (+ (strLen (format 'x')) (+ (strLen (format Green)) (+ (strLen (format (Pair 1 "x"))) (+ (strLen (format (Some Green))) (strLen (format noneInt)))))))))))

@@ -4,9 +4,9 @@
 (type Count = Int)
 
 (:: h (-> Count Int))
-
-(fn (h c) c)
+(fn (h c)
+  c)
 
 (:: main Int)
-
-(fn (main) (h 42))
+(fn (main)
+  (h 42))

@@ -32,11 +32,9 @@
 ; exited 70 in silence - which is what this tree did until now - fails
 ; on the stderr.
 (import IO)
-
 (import Mem)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -55,5 +53,4 @@
     ; primitive and therefore a moved seed - this line runs, stdout gains
     ; a line, and the golden says so.
     (printlnLit (strCStr "UNREACHABLE: the allocation was satisfied"))
-  }
-)
+  })

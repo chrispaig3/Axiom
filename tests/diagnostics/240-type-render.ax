@@ -2,22 +2,20 @@
   (Wrap a))
 
 (:: want (-> (Box Int) Int))
-
-(fn (want b) 0)
+(fn (want b)
+  0)
 
 (:: give (-> (Box Bool) Int))
-
-(fn (give b) (want b))
+(fn (give b)
+  (want b))
 
 (:: beyond (-> Int Int))
-
 (fn (beyond a p q)
   {
     (p 1)
     (q 2)
-  }
-)
+  })
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

@@ -1,7 +1,7 @@
 [1;31merror[AX3058][0m[1m: region `r` is already open: a nested region cannot reuse an enclosing region's name[0m
-  [1;34m--> [0m630-region-name-shadowed.ax:24:15
+  [1;34m--> [0m630-region-name-shadowed.ax:23:15
 [1;34m   |[0m
-[1;34m24 |[0m       (region r 0))
+[1;34m23 |[0m       (region r
 [1;34m   |[0m               [1;31m^ `r` is already the name of an enclosing region[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mnothing can refer to a region by name yet; when a `@r` in type position can, this is the ambiguity it must not meet

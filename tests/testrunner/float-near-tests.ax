@@ -9,16 +9,16 @@
 (import Test)
 
 (:: testFloatNearWithinTolerance Int)
-
 ;@axiom:effect(io)
-(fn (testFloatNearWithinTolerance) (assertFloatNear "close enough" 3.14159 3.14158 0.001))
+(fn (testFloatNearWithinTolerance)
+  (assertFloatNear "close enough" 3.14159 3.14158 0.001))
 
 (:: testFloatNearAtTheBoundary Int)
-
 ;@axiom:effect(io)
-(fn (testFloatNearAtTheBoundary) (assertFloatNear "diff equals epsilon" 1.0 1.5 0.5))
+(fn (testFloatNearAtTheBoundary)
+  (assertFloatNear "diff equals epsilon" 1.0 1.5 0.5))
 
 (:: testFloatNearCatchesARealMismatch Int)
-
 ;@axiom:effect(io)
-(fn (testFloatNearCatchesARealMismatch) (assertFloatNear "too far" 1.0 2.0 0.001))
+(fn (testFloatNearCatchesARealMismatch)
+  (assertFloatNear "too far" 1.0 2.0 0.001))

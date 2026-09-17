@@ -1,9 +1,5 @@
 (:: main Int)
-
 (fn (main)
   (let ((f 
-    (lambda () 42)
-  ))
-    f
-  )
-)
+    (lambda () 42)))
+    f))

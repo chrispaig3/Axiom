@@ -71,5 +71,5 @@
 (pair Wide)
 
 (:: main Int)
-
-(fn (main) (idxK39 K39))
+(fn (main)
+  (idxK39 K39))

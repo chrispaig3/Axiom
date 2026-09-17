@@ -1,2 +1,2 @@
-E AX3014 350-ambiguous-name.ax:9:6-9 ambiguous-name "ambiguous name `dup`: defined in AmbA, AmbB" #"`dup` could mean more than one definition" ?"qualify the reference: `AmbA::dup` or `AmbB::dup`"
-E AX3014 350-ambiguous-name.ax:9:25-28 ambiguous-name "ambiguous name `dup`: defined in AmbA, AmbB" #"`dup` could mean more than one definition" ?"qualify the reference: `AmbA::dup` or `AmbB::dup`"
+E AX3014 350-ambiguous-name.ax:7:6-9 ambiguous-name "ambiguous name `dup`: defined in AmbA, AmbB" #"`dup` could mean more than one definition" ?"qualify the reference: `AmbA::dup` or `AmbB::dup`"
+E AX3014 350-ambiguous-name.ax:8:14-17 ambiguous-name "ambiguous name `dup`: defined in AmbA, AmbB" #"`dup` could mean more than one definition" ?"qualify the reference: `AmbA::dup` or `AmbB::dup`"

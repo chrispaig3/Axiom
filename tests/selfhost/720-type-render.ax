@@ -22,25 +22,18 @@
 ; (AX2004) - `tests/diagnostics/946-removed-tuple-type.axbad` pins
 ; the refusal, so this fixture must not spell one.
 (import Str)
-
 (import Vec)
-
 (import Mem)
-
 (import core)
-
 (import lexer)
-
 (import parser)
-
 (import typecheck)
 
 (:: renderSigAt (-> (Vec Int) Int String))
-
-(fn (renderSigAt decls i) (tyRender (nodeTy (vecGet decls i))))
+(fn (renderSigAt decls i)
+  (tyRender (nodeTy (vecGet decls i))))
 
 (:: main Int)
-
 (fn (main)
   (let ((src (strConcat (strConcat (strConcat "(:: apply (-> (-> Int Int) Int Int))\n" "(:: pick (-> (Maybe Int) (* Any) Int))\n") (strConcat "(:: unit (-> () Int))\n" "(:: main Int)\n")) "(:: pf (-> String Int))\n")))
     (let ((pr (parseModule (lex src))))
@@ -55,19 +48,8 @@
                   (if (strEq (renderSigAt decls 3) "Int")
                     (if (strEq (renderSigAt decls 4) "(String -> Int)")
                       42
-                      13
-                    )
-                    12
-                  )
-                  11
-                )
-                10
-              )
-              9
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                      13)
+                    12)
+                  11)
+                10)
+              9)))))))

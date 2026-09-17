@@ -32,14 +32,11 @@
 (deriveEq Color)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
-(fn (main) (+ (* 100 (b2i (eqColor Red Red))) (+ (* 10 (b2i (eqColor Green Blue))) (b2i (eqColor Blue Blue)))))
+(fn (main)
+  (+ (* 100 (b2i (eqColor Red Red))) (+ (* 10 (b2i (eqColor Green Blue))) (b2i (eqColor Blue Blue)))))

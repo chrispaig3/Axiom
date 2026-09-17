@@ -8,13 +8,10 @@
 ; past the largest Int. Both are `None` here, while the two extreme
 ; values that DO fit are `Some`.
 (import IO)
-
 (import Str)
-
 (import Fmt)
 
 (:: eq (-> String String String Int))
-
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
@@ -25,12 +22,9 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 (:: eqInt (-> String Int Int Int))
-
 ;@axiom:effect(io)
 (fn (eqInt name got want)
   (if (== got want)
@@ -41,23 +35,17 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 ; An `Option Int` as text, so a `None` and a `Some` are both one
 ; string the checks compare.
 (:: optText (-> (Option Int) String))
-
 (fn (optText o)
   (match o
     ((None) "None")
-    ((Some v) (strConcat "Some " (fmtInt v)))
-  )
-)
+    ((Some v) (strConcat "Some " (fmtInt v)))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; --- strLower ------------------------------------------------
@@ -94,5 +82,4 @@
     (eq "the value that wrapped to 5 in Rpc.ax is None" (optText (strParseInt "18446744073709551621")) "None")
     (eq "a thousand nines is None, not a wrap" (optText (strParseInt "99999999999999999999999999999999")) "None")
     0
-  }
-)
+  })

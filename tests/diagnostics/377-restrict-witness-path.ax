@@ -41,76 +41,74 @@
 
 ;@axiom:restrict(no-io)
 (:: viaCap (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (viaCap n)
-  (let ((c (EmitOf (lambda (v) { (__syscall3 1 1 0 0) 1 }))))
-    ((c.emit) n)
-  )
-)
+  (let ((c 
+    (EmitOf
+      (lambda (v)
+        {
+          (__syscall3 1 1 0 0)
+          1
+        }
+      ))))
+    (c.emit n)))
 
 ;@axiom:restrict(no-io)
 (:: viaModule (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (viaModule n) (leafWrite n))
+(fn (viaModule n)
+  (leafWrite n))
 
 ;@axiom:restrict(no-io)
 (:: viaBuiltin (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (viaBuiltin n) (+ n __argc))
+(fn (viaBuiltin n)
+  (+ n __argc))
 
 (:: makes (-> Int Int))
-
 (fn (makes n)
-  (let ((p (alloc Int 1)))
-    n
-  )
-)
+  (let ((p 
+    (alloc Int 1)))
+    n))
 
 ;@axiom:restrict(no-alloc)
 (:: viaForm (-> Int Int))
-
-(fn (viaForm n) (makes n))
+(fn (viaForm n)
+  (makes n))
 
 ;@axiom:restrict(no-alloc)
 (:: ownForm (-> Int Int))
-
 (fn (ownForm n)
-  (let ((p (alloc Int 1)))
-    n
-  )
-)
+  (let ((p 
+    (alloc Int 1)))
+    n))
 
 (:: shout (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (shout n)
   {
     (__syscall3 1 1 0 0)
     n
-  }
-)
+  })
 
 (:: apply (-> (-> Int Int) Int Int))
-
-(fn (apply f x) (f x))
+(fn (apply f x)
+  (f x))
 
 ;@axiom:restrict(no-io)
 (:: viaCallback (-> Int Int))
-
 ;@axiom:effect(io)
-(fn (viaCallback n) (apply shout n))
+(fn (viaCallback n)
+  (apply shout n))
 
 ;@axiom:restrict(no-io,no-alloc)
 (:: quiet (-> Int Int))
-
-(fn (quiet n) (apply (lambda (x) (+ x 1)) n))
+(fn (quiet n)
+  (apply
+    (lambda (x) (+ x 1))
+    n))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
-  (+ (viaCap 1) (+ (viaModule 2) (+ (viaBuiltin 3) (+ (viaForm 4) (+ (ownForm 5) (+ (viaCallback 6) (quiet 7)))))))
-)
+  (+ (viaCap 1) (+ (viaModule 2) (+ (viaBuiltin 3) (+ (viaForm 4) (+ (ownForm 5) (+ (viaCallback 6) (quiet 7))))))))

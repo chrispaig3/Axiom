@@ -26,40 +26,33 @@
 ; worth writing down.
 (import IO)
 (import Sys)
-
 (import Err)
 (import Mem)
 
 (:: say (-> Int String Int))
-
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
     (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))
-  )
-)
+    (printlnLit (strCStr (strConcat "FAIL " label)))))
 
 ; How many bytes in [from, to) are non-zero.
 (:: nonZero (-> Int Int Int Int))
-
 (fn (nonZero buf from to)
   (let ((mut i from))
     (let ((mut n 0))
       {
         (while (< i to)
           {
-            (if (!= (memGetByte buf i) 0) (set n (+ n 1)) 0)
+            (if (!= (memGetByte buf i) 0)
+              (set n (+ n 1))
+              0)
             (set i (+ i 1))
           })
         n
-      }
-    )
-  )
-)
+      })))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((a (memAlloc 1000)))
@@ -67,27 +60,51 @@
       {
         ; A zero-length request is 0 and makes no syscall, so a caller
         ; computing a length need not special-case an empty one.
-        (say (if (isOk (sysRandomBytes a 0)) 1 0) "a zero-length request succeeds")
         (say
-          (if (== (nonZero a 0 1000) 0) 1 0)
+          (if (isOk (sysRandomBytes a 0))
+            1
+            0)
+          "a zero-length request succeeds")
+        (say
+          (if (== (nonZero a 0 1000) 0)
+            1
+            0)
           "a zero-length request wrote nothing")
         ; One chunk, comfortably under the cap.
-        (say (if (isOk (sysRandomBytes b 32)) 1 0) "a short request succeeds")
-        (say (if (> (nonZero b 0 32) 0) 1 0) "a short request filled its buffer")
+        (say
+          (if (isOk (sysRandomBytes b 32))
+            1
+            0)
+          "a short request succeeds")
+        (say
+          (if (> (nonZero b 0 32) 0)
+            1
+            0)
+          "a short request filled its buffer")
         ; THE CASE THIS FILE IS FOR: 1000 bytes is four chunks on both
         ; platforms, so it only succeeds if the loop advances correctly.
-        (say (if (isOk (sysRandomBytes a 1000)) 1 0) "a request spanning four chunks succeeds")
         (say
-          (if (> (nonZero a 0 256) 0) 1 0)
+          (if (isOk (sysRandomBytes a 1000))
+            1
+            0)
+          "a request spanning four chunks succeeds")
+        (say
+          (if (> (nonZero a 0 256) 0)
+            1
+            0)
           "the first chunk is filled")
         ; The tail is the half a broken loop leaves behind: a loop that
         ; stalls, or that stops after one call, gets this far and no
         ; further, and `memAlloc`'s zeroing promise makes that visible.
         (say
-          (if (> (nonZero a 256 1000) 0) 1 0)
+          (if (> (nonZero a 256 1000) 0)
+            1
+            0)
           "the region past the first chunk is filled too")
         (say
-          (if (> (nonZero a 768 1000) 0) 1 0)
+          (if (> (nonZero a 768 1000) 0)
+            1
+            0)
           "the last chunk is filled")
         ; And it is not a constant. Two draws into the same buffer must
         ; differ somewhere; if they do not, the call is answering
@@ -97,7 +114,9 @@
             (unwrapOr (sysRandomBytes b 64) 0)
             (unwrapOr (sysRandomBytes c 64) 0)
             (say
-              (if (!= (memCmp b c 64) 0) 1 0)
+              (if (!= (memCmp b c 64) 0)
+                1
+                0)
               "two draws differ")
           })
         0

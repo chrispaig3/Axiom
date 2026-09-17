@@ -41,39 +41,31 @@
 ; the reasons above, and 32, 16 and 4 - every term that asks whether
 ; the payload came BACK - are exactly what the bit adds.
 (import Str)
-
 (import Mem)
 
 (data Box
   (MkBox String))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: wide (-> Int String))
-
-(fn (wide n) (strDup "0123456789abcdef0123456789abcdef0123456789abcdef"))
+(fn (wide n)
+  (strDup "0123456789abcdef0123456789abcdef0123456789abcdef"))
 
 (:: spin (-> Int Int))
-
 (fn (spin n)
   (if (<= n 0)
     0
     {
       (MkBox (wide n))
       (spin (- n 1))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 (fn (main)
   ; --- 32: the loop is flat -----------------------------------
   ; The probe allocates 200 bytes because the loop does not.
@@ -95,55 +87,40 @@
         {
           (spin 1000)
           (let ((b2 (memAlloc 200)))
-            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096)))))
-          )
+            (set acc (+ acc (* 32 (b2i (< (- b2 b1) 4096))))))
           (set steps (+ steps 1))
-        }
-      )
+        })
       ; --- 16: one dead string hands its payload back -------------
       (let ((d (wide 0)))
         (let ((ba (strData d)))
           {
             (__release
-              (cast Int d)
-            )
+              (cast Int d))
             (set acc (+ acc (* 16 (b2i (== (memAlloc 49) ba)))))
             (set steps (+ steps 1))
-          }
-        )
-      )
+          }))
       ; --- 8 and 4: the slice holds the parent up -----------------
       (let ((p (strDup "abcdefgh")))
         (let ((s (strSlice p 2 3)))
           (let ((pd (strData p)))
             {
               (__release
-                (cast Int p)
-              )
+                (cast Int p))
               (set acc (+ acc (* 8 (b2i (== (strByte s 0) 99)))))
               (__release
-                (cast Int s)
-              )
+                (cast Int s))
               (set acc (+ acc (* 4 (b2i (== (memAlloc 9) pd)))))
               (set steps (+ steps 1))
-            }
-          )
-        )
-      )
+            })))
       ; --- 2: owner 0 releases harmlessly -------------------------
       (let ((u (strWrap (__addr "unowned") 7)))
         {
           (__release
-            (cast Int u)
-          )
+            (cast Int u))
           (set acc (+ acc (* 2 (b2i (== (strLen "unowned") 7)))))
           (set steps (+ steps 1))
-        }
-      )
+        })
       (if (== steps 4)
         (+ acc 1)
-        acc
-      )
-    }
-  )
-)
+        acc)
+    }))

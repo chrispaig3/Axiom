@@ -20,7 +20,6 @@
 ; This case is the matrix rather than three regression tests, because the
 ; property is about the representation and not about any one type.
 (import IO)
-
 (import Fmt)
 
 ; ------------------------------------------------------------------
@@ -34,7 +33,6 @@
   (CStr String))
 
 (pub :: describe (-> Cell Int))
-
 ;@axiom:effect(io)
 (pub fn (describe c)
   (match c
@@ -43,19 +41,14 @@
       (println
         (if b
           1
-          0
-        )
-      )
+          0))
     )
     ((CChar ch)
       (println
-        (cast Int ch)
-      )
+        (cast Int ch))
     )
     ((CFloat f) (println (fmtFloatPrec f 2)))
-    ((CStr s) (println s))
-  )
-)
+    ((CStr s) (println s))))
 
 ; Several kinds in one constructor, so field offsets are exercised too -
 ; a widening bug that only showed up in the first field would be missed
@@ -64,7 +57,6 @@
   (Mk Int Bool Char Float String))
 
 (pub :: unpack (-> Mixed Int))
-
 ;@axiom:effect(io)
 (pub fn (unpack m)
   (match m
@@ -74,19 +66,14 @@
         (println
           (if b
             1
-            0
-          )
-        )
+            0))
         (println
-          (cast Int ch)
-        )
+          (cast Int ch))
         (println (fmtFloatPrec f 2))
         (println s)
         0
       }
-    )
-  )
-)
+    )))
 
 ; ------------------------------------------------------------------
 ; Every kind in a `struct` field
@@ -99,7 +86,6 @@
   (label : String))
 
 (pub :: showRec (-> Rec Int))
-
 ;@axiom:effect(io)
 (pub fn (showRec r)
   {
@@ -107,20 +93,15 @@
     (println
       (if r.on
         1
-        0
-      )
-    )
+        0))
     (println
-      (cast Int r.initial)
-    )
+      (cast Int r.initial))
     (println (fmtFloatPrec r.ratio 2))
     (println r.label)
     0
-  }
-)
+  })
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; --- one kind per constructor ---
@@ -133,14 +114,19 @@
     (describe (CStr "cell"))  ; cell
     ; --- all kinds in one constructor ---
     (unpack (Mk
-      9      true      'Z'      1.25      "mixed"
-    ))
+      9
+      true
+      'Z'
+      1.25
+      "mixed"))
     ; 9 1 90 1.25 mixed
     ; --- all kinds in one struct ---
     (showRec (Rec
-      3      false      'q'      0.5      "rec"
-    ))
+      3
+      false
+      'q'
+      0.5
+      "rec"))
     ; 3 0 113 0.50 rec
     0
-  }
-)
+  })

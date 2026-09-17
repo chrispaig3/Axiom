@@ -44,9 +44,7 @@
 ; The unfixed compiler refuses the whole file at `ModDerive.ax`'s
 ; first invocation, AX3027, exit 1.
 (import Pre)
-
 (import Str)
-
 (import ModDerive)
 
 ; the entry file's own derive, over its own type: the surface that
@@ -60,8 +58,8 @@
 ; an entry-file function whose name collides with the module's
 ; generated one; the module's is `ModDerive$eqSignal`, so both exist
 (:: eqSignal (-> Signal Signal Bool))
-
-(fn (eqSignal a b) false)
+(fn (eqSignal a b)
+  false)
 
 ; the same collision one level up: BOTH sides generated. The module
 ; invoked `mkMark` on its own type and so did this file, so
@@ -82,21 +80,15 @@
 (mkTag Local)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 (fn (main)
   (let (
-    (mine (ModDerive::eqSignal
-      Red      Red
-    ))
+    (mine (ModDerive::eqSignal Red Red))
     (shown (== (aritySignal Amber) 0))
     (local (== (localSum Green) 1))
     (ours (eqSignal Red Red))
@@ -105,20 +97,16 @@
     (lib (== tagLocal 7))
   )
     (+
-      (b2i mine)      (+
-        (* 2 (b2i shown))        (+
-          (* 4 (b2i local))          (+
+      (b2i mine)
+      (+
+        (* 2 (b2i shown))
+        (+
+          (* 4 (b2i local))
+          (+
             (*
-              8              (b2i
+              8
+              (b2i
                 (if ours
                   false
-                  true
-                )
-              )
-            )            (+ (* 32 (b2i entry)) (+ (* 64 (b2i slot)) (* 128 (b2i lib))))
-          )
-        )
-      )
-    )
-  )
-)
+                  true)))
+            (+ (* 32 (b2i entry)) (+ (* 64 (b2i slot)) (* 128 (b2i lib))))))))))

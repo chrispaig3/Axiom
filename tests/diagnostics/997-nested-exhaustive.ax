@@ -19,43 +19,31 @@
   (MCons a (MyList a)))
 
 (:: partial (-> (Option (Option Int)) Int))
-
 (fn (partial o)
   (match o
     ((Some (Some x)) 1)
-    ((None) 0)
-  )
-)
+    ((None) 0)))
 
 (:: deep (-> (Option (Option Int)) Int))
-
 (fn (deep o)
   (match o
     ((Some (Some x)) (+ x 1))
     ((Some (None)) 1)
-    ((None) 0)
-  )
-)
+    ((None) 0)))
 
 (:: two (-> (MyList Int) Int))
-
 (fn (two l)
   (match l
     ((MCons h (MCons h2 t)) 2)
-    ((MNil) 0)
-  )
-)
+    ((MNil) 0)))
 
 (:: both (-> (MyList Int) Int))
-
 (fn (both l)
   (match l
     ((MCons h (MCons h2 t)) 2)
     ((MCons h (MNil)) 1)
-    ((MNil) 0)
-  )
-)
+    ((MNil) 0)))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

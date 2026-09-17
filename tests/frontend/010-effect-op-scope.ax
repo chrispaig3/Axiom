@@ -13,29 +13,22 @@
 ; it was written: the operation `sz` below is never invoked as an
 ; operation, so no handler is needed and AX3053 does not arise; every
 ; `sz` here resolves to the binding that shadows it.
-(effect Sz (
-  sz :: (-> Int Int)
-))
+(effect Sz
+  (sz :: (-> Int Int)))
 
 (:: viaParam (-> (-> Int Int) Int))
-
-(fn (viaParam sz) (sz 5))
+(fn (viaParam sz)
+  (sz 5))
 
 (:: main Int)
-
 (fn (main)
   (if (==
     (+
       (let ((sz 
-        (lambda (q) 7)
-      ))
-        (sz 5)
-      )      (viaParam
-        (lambda (q) 7)
-      )
-    )    14
-  )
+        (lambda (q) 7)))
+        (sz 5))
+      (viaParam
+        (lambda (q) 7)))
+    14)
     42
-    1
-  )
-)
+    1))

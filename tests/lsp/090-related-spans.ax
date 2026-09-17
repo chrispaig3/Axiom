@@ -7,9 +7,9 @@
 ; editor is shown every secondary the terminal shows would otherwise be
 ; a comparison of two empty lists on every fixture in the corpus.
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)
 
 (:: main Int)
-
-(fn (main) 1)
+(fn (main)
+  1)

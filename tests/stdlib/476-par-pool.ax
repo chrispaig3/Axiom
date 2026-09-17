@@ -48,19 +48,13 @@
 ; Width 3 against 8 submissions, so the pool genuinely blocks and reaps
 ; mid-run rather than spawning everything at once.
 (import IO)
-
 (import Sys)
-
 (import Str)
-
 (import Fmt)
-
 (import Vec)
-
 (import Par)
 
 (pub :: sh3 (-> String (Vec String)))
-
 (pub fn (sh3 script)
   (let ((v vecNew))
     {
@@ -68,18 +62,15 @@
       (vecPush v "-c")
       (vecPush v script)
       v
-    }
-  )
-)
+    }))
 
 ; `sleep 0.0N; exit CODE`, with the sleep DESCENDING as the code
 ; ascends, so completion order is the reverse of submit order.
 (pub :: staggered (-> Int (Vec String)))
-
-(pub fn (staggered i) (sh3 (strConcat (strConcat "sleep 0.0" (fmtInt (- 8 i))) (strConcat "; exit " (fmtInt (+ i 10))))))
+(pub fn (staggered i)
+  (sh3 (strConcat (strConcat "sleep 0.0" (fmtInt (- 8 i))) (strConcat "; exit " (fmtInt (+ i 10))))))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   (let (
@@ -102,12 +93,10 @@
           (while (< k (vecLen res))
             {
               (println
-                (cast Int (vecGet res k))
-              )
+                (cast Int (vecGet res k)))
               (set k (+ k 1))
             })
-        }
-      )
+        })
       ; Term 2: an argument that is a SLICE, not a literal. "exit 23" is
       ; carved out of a longer string, so its bytes do not end where the
       ; `String` does.
@@ -119,10 +108,8 @@
           (vecPush c2 (sh3 (strSlice long 2 7)))
           (println "slice argument")
           (println
-            (cast Int (vecGet (parRunAll c2 2) 0))
-          )
-        }
-      )
+            (cast Int (vecGet (parRunAll c2 2) 0)))
+        })
       ; Term 3: a program that does not exist keeps its own slot, and
       ; answers negative rather than 127.
       (let (
@@ -139,21 +126,15 @@
               (println "missing program")
               (println (vecLen r3))
               (println
-                (cast Int (vecGet r3 0))
-              )
+                (cast Int (vecGet r3 0)))
               (println
                 (if (< (vecGet r3 1) 0)
                   "negative"
-                  "NOT-NEGATIVE"
-                )
-              )
+                  "NOT-NEGATIVE"))
               (println
-                (cast Int (vecGet r3 2))
-              )
-            }
-          )
-        }
-      )
+                (cast Int (vecGet r3 2)))
+            })
+        })
       ; Term 4: an Axiom closure over a captured Vec, no exec at all.
       ; The multipliers are the parent's; each task reads its own slot
       ; out of the child's copy of them.
@@ -169,8 +150,9 @@
             })
           (let (
             (r4 (parMapWords
-              (lambda (t) (vecGet muls t))              6              3
-            ))
+              (lambda (t) (vecGet muls t))
+              6
+              3))
             (mut q 0)
           )
             {
@@ -178,15 +160,10 @@
               (while (< q (vecLen r4))
                 {
                   (println
-                    (cast Int (vecGet r4 q))
-                  )
+                    (cast Int (vecGet r4 q)))
                   (set q (+ q 1))
                 })
-            }
-          )
-        }
-      )
+            })
+        })
       0
-    }
-  )
-)
+    }))

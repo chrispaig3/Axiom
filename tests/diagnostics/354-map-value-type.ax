@@ -27,29 +27,22 @@
 ; tests/diagnostics/483-map-handle-not-int.ax is where that rule is
 ; tested on purpose.
 (import Map)
-
 (import Str)
 
 (:: mixed (-> Map Int))
-
 (fn (mixed n)
   {
     (mapInsert n 1 100000000)
-    (strLen
-      (mapGet n 1 "absent")
-    )
-  }
-)
+    (strLen (mapGet n 1 "absent"))
+  })
 
 (:: honest (-> Map Int))
-
 (fn (honest n)
   {
     (mapInsert n 1 100000000)
     (mapGet n 1 (- 0 1))
-  }
-)
+  })
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

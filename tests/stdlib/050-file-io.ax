@@ -1,11 +1,9 @@
 ; Round-trip a file through the syscall layer: open, write, close,
 ; reopen, read to EOF, close.
 (import IO)
-
 (import Err)
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   (let ((path (__addr "axiom-stdlib-test.tmp")))
@@ -21,14 +19,13 @@
               ; no newline of its own, and no rendering: this is
               ; the primitive, and `print` no longer exists
               (writeStr stdout contents)
-              (println (match (strFindByte contents 10 0) ((None) (- 0 1)) ((Some i) i)))
+              (println
+                (match (strFindByte contents 10 0)
+                  ((None) (- 0 1))
+                  ((Some i) i)))
               (println (strSlice contents 0 8))
               (println (strLen (readFileLit (__addr "no-such-file-here"))))
               0
-            }
-          )
+            })
         }
-      )
-    )
-  )
-)
+      ))))

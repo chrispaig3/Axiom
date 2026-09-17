@@ -27,20 +27,14 @@
 (mkbox (A) (B))
 
 (:: unwrapA (-> BoxA Int))
-
 (fn (unwrapA b)
   (match b
-    ((MkA x) x)
-  )
-)
+    ((MkA x) x)))
 
 (:: unwrapB (-> BoxB Int))
-
 (fn (unwrapB b)
   (match b
-    ((MkB x) x)
-  )
-)
+    ((MkB x) x)))
 
 (macro mkone ((mkone n v)
   (:: (syntax/join one n) Int)
@@ -53,5 +47,5 @@
 (gen2 (Two 2) (Three 3))
 
 (:: main Int)
-
-(fn (main) (+ (+ (+ (codeA 1) (codeB 2)) (+ (unwrapA (MkA 3)) (unwrapB (MkB 4)))) (+ oneTwo oneThree)))
+(fn (main)
+  (+ (+ (+ (codeA 1) (codeB 2)) (+ (unwrapA (MkA 3)) (unwrapB (MkB 4)))) (+ oneTwo oneThree)))

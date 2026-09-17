@@ -57,42 +57,31 @@
 (macro (useHelper v) (helper v))
 
 (:: helper (-> Int Int))
-
-(fn (helper x) (* x 10))
+(fn (helper x)
+  (* x 10))
 
 (:: shadowed Int)
-
 (fn (shadowed)
   (let ((helper 
-    (lambda (y) 0)
-  ))
-    (useHelper 4)
-  )
-)
+    (lambda (y) 0)))
+    (useHelper 4)))
 
 (:: shadowedTwice Int)
-
 (fn (shadowedTwice)
   (let ((helper 
-    (lambda (y) 1)
-  ))
-    (+ (useHelper 1) (useHelper 2))
-  )
-)
+    (lambda (y) 1)))
+    (+ (useHelper 1) (useHelper 2))))
 
 (:: safe Int)
-
-(fn (safe) (useHelper 4))
+(fn (safe)
+  (useHelper 4))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
-(fn (main) (+ (b2i (== shadowed 40)) (+ (* 2 (b2i (== shadowedTwice 30))) (+ (* 32 (b2i (== safe 40))) (* 95 (b2i (== (helper 9) 90)))))))
+(fn (main)
+  (+ (b2i (== shadowed 40)) (+ (* 2 (b2i (== shadowedTwice 30))) (+ (* 32 (b2i (== safe 40))) (* 95 (b2i (== (helper 9) 90)))))))

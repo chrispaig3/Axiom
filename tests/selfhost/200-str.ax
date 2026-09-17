@@ -10,9 +10,6 @@
 (import Str)
 
 (:: main Int)
-
 (fn (main)
   (let ((s (strFromLit (__addr "hello"))))
-    (+ (strLen s) 37)
-  )
-)
+    (+ (strLen s) 37)))

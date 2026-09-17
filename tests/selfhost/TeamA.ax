@@ -8,9 +8,6 @@
   (retries : Int))
 
 (pub :: aPort Int)
-
 (pub fn (aPort)
   (let ((c (Config 7 1)))
-    c.port
-  )
-)
+    c.port))

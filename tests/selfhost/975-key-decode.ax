@@ -38,18 +38,13 @@
 ; multi-byte character comes from `utf8FromChar`, so the fixture's
 ; bytes are the encoder's own and not a second opinion about them.
 (import Str)
-
 (import Mem)
-
 (import Utf8)
-
 (import Vec)
-
 (import Tui.Keys)
 
 ; ESC followed by `rest`.
 (:: esc (-> String String))
-
 (fn (esc rest)
   (let ((n (strLen rest)))
     (let ((s (strAlloc (+ n 1))))
@@ -57,72 +52,53 @@
         (memPutByte (strData s) 0 27)
         (memCopy (+ (strData s) 1) (strData rest) n)
         s
-      }
-    )
-  )
-)
+      })))
 
 ; 1 when scanning `s` at offset 0, with every byte valid, answers
 ; exactly this event.
 (:: chk (-> String Int Int Int Int Int))
-
 (fn (chk s k c m u)
   (let ((ev (keyScan s (strLen s) 0)))
     (if (&& (== ev.kind k) (&& (== ev.cp c) (&& (== ev.mods m) (== ev.used u))))
       1
-      0
-    )
-  )
-)
+      0)))
 
 ; The same, for a buffer whose VALID length is shorter than the String
 ; - which is the truncated-read case, and the one a scanner written in
 ; the lexer's read-until-0 idiom gets wrong: `strByte` answers 0 out
 ; of range, and byte 0 is Ctrl-@, a perfectly plausible key.
 (:: chkLen (-> String Int Int Int Int Int Int))
-
 (fn (chkLen s len k c m u)
   (let ((ev (keyScan s len 0)))
     (if (&& (== ev.kind k) (&& (== ev.cp c) (&& (== ev.mods m) (== ev.used u))))
       1
-      0
-    )
-  )
-)
+      0)))
 
 ; What a prefix means once nothing more has arrived.
 (:: chkRes (-> String Int Int Int Int))
-
 (fn (chkRes s len k u)
   (let ((ev (keyResolve s len 0)))
     (if (&& (== ev.kind k) (== ev.used u))
       1
-      0
-    )
-  )
-)
+      0)))
 
 ; Scanning at a non-zero offset, which is how the reader consumes a
 ; buffer holding more than one keystroke.
 (:: chkAt (-> String Int Int Int Int Int Int))
-
 (fn (chkAt s off k c m u)
   (let ((ev (keyScan s (strLen s) off)))
     (if (&& (== ev.kind k) (&& (== ev.cp c) (&& (== ev.mods m) (== ev.used u))))
       1
-      0
-    )
-  )
-)
+      0)))
 
 ; The kind a case produces, for the distinct-kind floor.
 (:: kindOf (-> String Int))
-
-(fn (kindOf s) (let ((ev (keyScan s (strLen s) 0))) ev.kind))
+(fn (kindOf s)
+  (let ((ev (keyScan s (strLen s) 0)))
+    ev.kind))
 
 ; How many distinct values a Vec holds.
 (:: distinct (-> (Vec Int) Int))
-
 (fn (distinct v)
   (let (
     (n (vecLen v))
@@ -141,25 +117,19 @@
                 {
                   (if (== (vecGet v j) (vecGet v i))
                     (set dup 1)
-                    0
-                  )
+                    0)
                   (set j (+ j 1))
                 })
               (if (== dup 0)
                 (set d (+ d 1))
-                0
-              )
-            }
-          )
+                0)
+            })
           (set i (+ i 1))
         })
       d
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (kinds vecNew)
@@ -194,74 +164,302 @@
   )
     {
       ; ---- ordinary bytes ---------------------------------------
-      (set n (+ n (chk "a" KEY_CHAR 97 0 1)))
-      (set n (+ n (chk (strFromByte 1) KEY_CTRL 65 0 1)))
-      (set n (+ n (chk (strFromByte 0) KEY_CTRL 64 0 1)))
+      (set n (+ n (chk
+        "a"
+        KEY_CHAR
+        97
+        0
+        1)))
+      (set n (+ n (chk
+        (strFromByte 1)
+        KEY_CTRL
+        65
+        0
+        1)))
+      (set n (+ n (chk
+        (strFromByte 0)
+        KEY_CTRL
+        64
+        0
+        1)))
       ; Enter is CR in raw mode, and LF when something pastes into a
       ; terminal that was left with ICRNL on. A REPL that ignored LF
       ; would swallow every line of such a paste.
-      (set n (+ n (chk (strFromByte 13) KEY_ENTER 0 0 1)))
-      (set n (+ n (chk (strFromByte 10) KEY_ENTER 0 0 1)))
-      (set n (+ n (chk (strFromByte 9) KEY_TAB 0 0 1)))
-      (set n (+ n (chk (strFromByte 127) KEY_BACKSPACE 0 0 1)))
-      (set n (+ n (chk (strFromByte 8) KEY_BACKSPACE 0 0 1)))
+      (set n (+ n (chk
+        (strFromByte 13)
+        KEY_ENTER
+        0
+        0
+        1)))
+      (set n (+ n (chk
+        (strFromByte 10)
+        KEY_ENTER
+        0
+        0
+        1)))
+      (set n (+ n (chk
+        (strFromByte 9)
+        KEY_TAB
+        0
+        0
+        1)))
+      (set n (+ n (chk
+        (strFromByte 127)
+        KEY_BACKSPACE
+        0
+        0
+        1)))
+      (set n (+ n (chk
+        (strFromByte 8)
+        KEY_BACKSPACE
+        0
+        0
+        1)))
       ; ---- CSI navigation ---------------------------------------
-      (set n (+ n (chk up KEY_UP 0 0 3)))
-      (set n (+ n (chk down KEY_DOWN 0 0 3)))
-      (set n (+ n (chk right KEY_RIGHT 0 0 3)))
-      (set n (+ n (chk left KEY_LEFT 0 0 3)))
-      (set n (+ n (chk home KEY_HOME 0 0 3)))
-      (set n (+ n (chk endk KEY_END 0 0 3)))
-      (set n (+ n (chk del KEY_DELETE 0 0 4)))
-      (set n (+ n (chk home2 KEY_HOME 0 0 4)))
-      (set n (+ n (chk pgup KEY_PGUP 0 0 4)))
-      (set n (+ n (chk f5 KEY_FN 5 0 5)))
+      (set n (+ n (chk
+        up
+        KEY_UP
+        0
+        0
+        3)))
+      (set n (+ n (chk
+        down
+        KEY_DOWN
+        0
+        0
+        3)))
+      (set n (+ n (chk
+        right
+        KEY_RIGHT
+        0
+        0
+        3)))
+      (set n (+ n (chk
+        left
+        KEY_LEFT
+        0
+        0
+        3)))
+      (set n (+ n (chk
+        home
+        KEY_HOME
+        0
+        0
+        3)))
+      (set n (+ n (chk
+        endk
+        KEY_END
+        0
+        0
+        3)))
+      (set n (+ n (chk
+        del
+        KEY_DELETE
+        0
+        0
+        4)))
+      (set n (+ n (chk
+        home2
+        KEY_HOME
+        0
+        0
+        4)))
+      (set n (+ n (chk
+        pgup
+        KEY_PGUP
+        0
+        0
+        4)))
+      (set n (+ n (chk
+        f5
+        KEY_FN
+        5
+        0
+        5)))
       ; ---- modifiers, both spellings ----------------------------
-      (set n (+ n (chk cleft KEY_LEFT 0 MOD_CTRL 6)))
-      (set n (+ n (chk aright KEY_RIGHT 0 MOD_ALT 6)))
+      (set n (+ n (chk
+        cleft
+        KEY_LEFT
+        0
+        MOD_CTRL
+        6)))
+      (set n (+ n (chk
+        aright
+        KEY_RIGHT
+        0
+        MOD_ALT
+        6)))
       ; `ESC[5D` is urxvt's and older xterm's bare-modifier form. A
       ; decoder that read only the `1;m` spelling answers plain Left
       ; here, and Ctrl-Left silently becomes a character motion.
-      (set n (+ n (chk uleft KEY_LEFT 0 MOD_CTRL 4)))
-      (set n (+ n (chk cdel KEY_DELETE 0 MOD_CTRL 6)))
+      (set n (+ n (chk
+        uleft
+        KEY_LEFT
+        0
+        MOD_CTRL
+        4)))
+      (set n (+ n (chk
+        cdel
+        KEY_DELETE
+        0
+        MOD_CTRL
+        6)))
       ; ---- SS3, which is what a terminal left in DECCKM sends ----
-      (set n (+ n (chk ss3up KEY_UP 0 0 3)))
-      (set n (+ n (chk ss3f1 KEY_FN 1 0 3)))
+      (set n (+ n (chk
+        ss3up
+        KEY_UP
+        0
+        0
+        3)))
+      (set n (+ n (chk
+        ss3f1
+        KEY_FN
+        1
+        0
+        3)))
       ; ---- the escape prefix ------------------------------------
-      (set n (+ n (chk altb KEY_CHAR 98 MOD_ALT 2)))
+      (set n (+ n (chk
+        altb
+        KEY_CHAR
+        98
+        MOD_ALT
+        2)))
       ; ESC ESC is ONE Escape per press, so mashing the key cannot
       ; build a prefix; whatever follows decodes on the next call.
-      (set n (+ n (chk escesc KEY_ESCAPE 0 0 1)))
-      (set n (+ n (chk escescleft KEY_ESCAPE 0 0 1)))
-      (set n (+ n (chkAt escescleft 1 KEY_LEFT 0 0 3)))
+      (set n (+ n (chk
+        escesc
+        KEY_ESCAPE
+        0
+        0
+        1)))
+      (set n (+ n (chk
+        escescleft
+        KEY_ESCAPE
+        0
+        0
+        1)))
+      (set n (+ n (chkAt
+        escescleft
+        1
+        KEY_LEFT
+        0
+        0
+        3)))
       ; ---- well-formed and unbound: consumed WHOLE --------------
       ; Each of these arrives unsolicited from a real terminal. A
       ; decoder that matched known sequences instead of parsing the
       ; grammar types them into the user's line one byte at a time.
-      (set n (+ n (chk mouse KEY_NONE 0 0 11)))
-      (set n (+ n (chk cpr KEY_NONE 0 0 8)))
-      (set n (+ n (chk da KEY_NONE 0 0 7)))
-      (set n (+ n (chk paste KEY_NONE 0 0 6)))
-      (set n (+ n (chk osc KEY_NONE 0 0 6)))
+      (set n (+ n (chk
+        mouse
+        KEY_NONE
+        0
+        0
+        11)))
+      (set n (+ n (chk
+        cpr
+        KEY_NONE
+        0
+        0
+        8)))
+      (set n (+ n (chk
+        da
+        KEY_NONE
+        0
+        0
+        7)))
+      (set n (+ n (chk
+        paste
+        KEY_NONE
+        0
+        0
+        6)))
+      (set n (+ n (chk
+        osc
+        KEY_NONE
+        0
+        0
+        6)))
       ; ---- multi-byte characters --------------------------------
       ; The three values Utf8.ax's own header states, so the fixture
       ; agrees with an independent statement of the answer.
-      (set n (+ n (chk eacute KEY_CHAR 233 0 2)))
-      (set n (+ n (chk cjk KEY_CHAR 19990 0 3)))
-      (set n (+ n (chk emoji KEY_CHAR 128512 0 4)))
+      (set n (+ n (chk
+        eacute
+        KEY_CHAR
+        233
+        0
+        2)))
+      (set n (+ n (chk
+        cjk
+        KEY_CHAR
+        19990
+        0
+        3)))
+      (set n (+ n (chk
+        emoji
+        KEY_CHAR
+        128512
+        0
+        4)))
       ; A stray continuation byte begins nothing: advance one, never
       ; invent a character.
-      (set n (+ n (chk (strFromByte 169) KEY_NONE 0 0 1)))
+      (set n (+ n (chk
+        (strFromByte 169)
+        KEY_NONE
+        0
+        0
+        1)))
       ; ---- TRUNCATED. All seven must be KEY_MORE, and a scanner
       ; that trusted `strByte`'s 0-out-of-range - reading a short
       ; buffer as Ctrl-@, a real key - fails all seven at once.
-      (set n (+ n (chkLen eacute 1 KEY_MORE 0 0 0)))
-      (set n (+ n (chkLen cjk 2 KEY_MORE 0 0 0)))
-      (set n (+ n (chkLen emoji 3 KEY_MORE 0 0 0)))
-      (set n (+ n (chkLen left 1 KEY_MORE 0 0 0)))
-      (set n (+ n (chkLen left 2 KEY_MORE 0 0 0)))
-      (set n (+ n (chkLen cleft 5 KEY_MORE 0 0 0)))
-      (set n (+ n (chkLen osc 4 KEY_MORE 0 0 0)))
+      (set n (+ n (chkLen
+        eacute
+        1
+        KEY_MORE
+        0
+        0
+        0)))
+      (set n (+ n (chkLen
+        cjk
+        2
+        KEY_MORE
+        0
+        0
+        0)))
+      (set n (+ n (chkLen
+        emoji
+        3
+        KEY_MORE
+        0
+        0
+        0)))
+      (set n (+ n (chkLen
+        left
+        1
+        KEY_MORE
+        0
+        0
+        0)))
+      (set n (+ n (chkLen
+        left
+        2
+        KEY_MORE
+        0
+        0
+        0)))
+      (set n (+ n (chkLen
+        cleft
+        5
+        KEY_MORE
+        0
+        0
+        0)))
+      (set n (+ n (chkLen
+        osc
+        4
+        KEY_MORE
+        0
+        0
+        0)))
       ; ---- RESOLVED, once nothing more arrived ------------------
       ; A lone ESC is the Escape key; any longer prefix is line noise
       ; and is dropped whole. `used` is never 0, which is the
@@ -277,7 +475,12 @@
       ; `1 - score`. A comparator that had degenerated to "always
       ; agree" LOSES a point here instead of gaining one, so it
       ; cannot reach the expected total from the wrong side.
-      (set n (+ n (- 1 (chk left KEY_RIGHT 0 0 3))))
+      (set n (+ n (- 1 (chk
+        left
+        KEY_RIGHT
+        0
+        0
+        3))))
       ; ---- the distinct-kind floor ------------------------------
       (vecPush kinds (kindOf up))
       (vecPush kinds (kindOf down))
@@ -299,8 +502,5 @@
       ; sum. It cannot satisfy this.
       (if (< (distinct kinds) 11)
         1
-        n
-      )
-    }
-  )
-)
+        n)
+    }))

@@ -3,13 +3,10 @@
   (Green))
 
 (:: helper (-> Int Int))
-
-(fn (helper x) x)
+(fn (helper x)
+  x)
 
 (:: main Int)
-
 (fn (main)
   (let ((count 1))
-    (+ (helpr count) (+ cound Gren))
-  )
-)
+    (+ (helpr count) (+ cound Gren))))

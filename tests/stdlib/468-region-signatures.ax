@@ -31,9 +31,7 @@
 ; `restrict(no-escape)` on `lookup` and `count` is a checked claim
 ; that holds, and stays silent.
 (import IO)
-
 (import Vec)
-
 (import Str)
 
 (struct Cell
@@ -41,22 +39,18 @@
 
 ;@axiom:restrict(no-escape)
 (:: lookup (-> (Vec String @r) Int (String @r)))
-
-(fn (lookup t i) (vecGet t i))
+(fn (lookup t i)
+  (vecGet t i))
 
 (data Pair
   (Pair String String))
 
 (:: left (-> (Pair @r) (String @r)))
-
 (fn (left p)
   (match p
-    ((Pair a b) a)
-  )
-)
+    ((Pair a b) a)))
 
 (:: longest (-> (Vec String @r) (String @r)))
-
 (fn (longest t)
   (let (
     (a (vecGet t 0))
@@ -64,27 +58,21 @@
   )
     (if (> (strLen a) (strLen b))
       a
-      b
-    )
-  )
-)
+      b)))
 
 ;@axiom:restrict(no-escape)
 (:: count (-> (Vec String @r) Int))
-
-(fn (count t) (vecLen t))
+(fn (count t)
+  (vecLen t))
 
 (:: keep (-> (Cell @r) (String @r) Int))
-
 (fn (keep c s)
   {
     (set c.s s)
     0
-  }
-)
+  })
 
 (:: describe (-> (Vec String) Cell Int))
-
 ;@axiom:effect(io)
 (fn (describe t c)
   {
@@ -92,11 +80,9 @@
     (println (count t))
     (println c.s)
     0
-  }
-)
+  })
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -112,6 +98,4 @@
       (println (longest t))
       (describe t c)
       0
-    }
-  )
-)
+    }))

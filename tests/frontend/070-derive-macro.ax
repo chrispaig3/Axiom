@@ -20,10 +20,7 @@
 (deriveEq Sig)
 
 (:: main Int)
-
 (fn (main)
   (if (eqSig Hi Hi)
     42
-    0
-  )
-)
+    0))

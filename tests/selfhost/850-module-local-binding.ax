@@ -22,14 +22,11 @@
 (import Shadowed)
 
 (:: helper (-> Int Int))
-
-(fn (helper x) (+ x 1))
+(fn (helper x)
+  (+ x 1))
 
 (:: main Int)
-
 (fn (main)
   (if (== (+ (+ (viaOwn 4) (helper 4)) (viaImport 4)) 149)
     42
-    1
-  )
-)
+    1))

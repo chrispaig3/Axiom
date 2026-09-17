@@ -15,7 +15,6 @@
 ; which is what keeps `(- x)` meaning what it always did. Both spellings
 ; are below, because the fix is only correct if it distinguishes them.
 (:: main Int)
-
 (fn (main)
   ; binding position: was already a literal
   ; argument position: was three arguments
@@ -27,6 +26,4 @@
     (z (- 0 -4))
     (w -5)
   )
-    (+ x (+ y (+ z (+ w 46))))
-  )
-)
+    (+ x (+ y (+ z (+ w 46))))))

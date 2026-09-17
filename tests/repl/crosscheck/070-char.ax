@@ -1,22 +1,18 @@
 (import IO)
-
 (import Str)
-
 (import Mem)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (let ((s (strAlloc 1)))
       {
         (memPutByte
-          (strData s)          0          (cast Int 'Z')
-        )
+          (strData s)
+          0
+          (cast Int 'Z'))
         (println s)
-      }
-    )
+      })
     0
-  }
-)
+  })

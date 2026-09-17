@@ -5,5 +5,5 @@
 (import TeamB)
 
 (:: main Int)
-
-(fn (main) bPort)
+(fn (main)
+  bPort)

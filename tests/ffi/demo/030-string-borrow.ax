@@ -8,7 +8,6 @@
 ; The borrow is valid for the CALL and no longer: ARC may release the
 ; block the moment the call returns.
 (import IO)
-
 (import Fmt)
 
 (pub extern "axiom_demo"
@@ -22,6 +21,5 @@
     ; wrong: `data` may be null and `len` 0.
     (println (fmtInt (countVowels "")))
     0
-  }
-)
+  })
 ; expect 0

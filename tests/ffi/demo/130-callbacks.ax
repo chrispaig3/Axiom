@@ -18,18 +18,16 @@
 ; borrowed for the call (MM-LIFE-2c event 1); Rust takes no share and
 ; releases none.
 (import IO)
-
 (import Fmt)
-
 (import Demo)
 
 (pub :: triple (-> Int Int))
-
-(pub fn (triple x) (* x 3))
+(pub fn (triple x)
+  (* x 3))
 
 (pub :: plus (-> Int Int Int))
-
-(pub fn (plus a b) (+ a b))
+(pub fn (plus a b)
+  (+ a b))
 
 ;@axiom:effect(io)
 (pub fn (main)
@@ -40,15 +38,19 @@
   (let ((k 10))
     (let (
       (lam (applyTwice
-        (lambda (x) (+ x k))        1
-      ))
+        (lambda (x) (+ x k))
+        1))
       (top (applyTwice triple 2))
       (fold (fold3
-        (lambda (a b) (plus a b))        1        2        3
-      ))
+        (lambda (a b) (plus a b))
+        1
+        2
+        3))
       (foldLam (fold3
-        (lambda (a b) (* a b))        2        3        4
-      ))
+        (lambda (a b) (* a b))
+        2
+        3
+        4))
     )
       (if (&& (== lam 21) (&& (== top 18) (&& (== fold 6) (== foldLam 24))))
         {
@@ -61,9 +63,5 @@
           (println (fmtInt fold))
           (println (fmtInt foldLam))
           1
-        }
-      )
-    )
-  )
-)
+        }))))
 ; expect 0

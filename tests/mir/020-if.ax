@@ -10,79 +10,57 @@
 (import IO)
 
 (:: probeLt (-> Int Int))
-
 (fn (probeLt n)
   (if (< n 10)
     1
-    0
-  )
-)
+    0))
 
 (:: probeLe (-> Int Int))
-
 (fn (probeLe n)
   (if (<= n 10)
     2
-    0
-  )
-)
+    0))
 
 (:: probeGt (-> Int Int))
-
 (fn (probeGt n)
   (if (> n 10)
     4
-    0
-  )
-)
+    0))
 
 (:: probeGe (-> Int Int))
-
 (fn (probeGe n)
   (if (>= n 10)
     8
-    0
-  )
-)
+    0))
 
 (:: probeEq (-> Int Int))
-
 (fn (probeEq n)
   (if (== n 10)
     16
-    0
-  )
-)
+    0))
 
 (:: probeNe (-> Int Int))
-
 (fn (probeNe n)
   (if (!= n 10)
     32
-    0
-  )
-)
+    0))
 
 (:: probe (-> Int Int))
-
-(fn (probe n) (+ (probeLt n) (+ (probeLe n) (+ (probeGt n) (+ (probeGe n) (+ (probeEq n) (probeNe n)))))))
+(fn (probe n)
+  (+ (probeLt n) (+ (probeLe n) (+ (probeGt n) (+ (probeGe n) (+ (probeEq n) (probeNe n)))))))
 
 (:: emit (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (emit k)
   (if (>= k 20)
     0
     {
       (let ((v (probe k)))
-        (println "{v}")
-      )
+        (println "{v}"))
       (emit (+ k 1))
-    }
-  )
-)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (emit 0))
+(fn (main)
+  (emit 0))

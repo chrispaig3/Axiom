@@ -7,9 +7,9 @@
   (y : Int))
 
 (:: area (-> Int Int))
-
-(fn (area p) 0)
+(fn (area p)
+  0)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

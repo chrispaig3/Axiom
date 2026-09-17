@@ -45,55 +45,56 @@
 ; is a pointer whose block has been handed to someone else, and what
 ; happens next depends on who got it.
 (import Str)
-
 (import Vec)
 
 (struct Holder
   (mut name : String))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 ; One probe, parameterised by which of a curried lambda's arguments is
 ; the one that came out of the struct field. `pick` names it so the
 ; reader can see the four cases differ in exactly that.
 (:: parkedByte (-> Int Int))
-
 (fn (parkedByte pick)
   (let ((log vecNew))
     (let ((h (Holder (strDup "alice"))))
       {
         (if (== pick 0)
-          ((lambda (a b) (vecPush log a)) h.name 0)
+          ((lambda (a b) (vecPush log a))
+            h.name
+            0)
           (if (== pick 1)
-            ((lambda (a b) (vecPush log b)) 0 h.name)
+            ((lambda (a b) (vecPush log b))
+              0
+              h.name)
             (if (== pick 2)
-              ((lambda (a b c) (vecPush log a)) h.name 0 1)
-              ((lambda (a b c) (vecPush log b)) 0 h.name 1)
-            )
-          )
-        )
+              ((lambda (a b c) (vecPush log a))
+                h.name
+                0
+                1)
+              ((lambda (a b c) (vecPush log b))
+                0
+                h.name
+                1))))
         ; Event 5: the field's only counted share goes.
         (set h.name (strDup "bob"))
         ; Allocated after it, so a freed block is handed back here and
         ; the read below sees these bytes instead.
         (strDup "zzzzz")
         (strByte (vecGetStr log 0) 0)
-      }
-    )
-  )
-)
+      })))
 
 (:: main Int)
-
 (fn (main)
-  (let ((mut acc 0) (mut steps 0))
+  (let (
+    (mut acc 0)
+    (mut steps 0)
+  )
     {
       ; 2 - the outer parameter of two
       (set acc (+ acc (* 2 (b2i (== (parkedByte 0) 97)))))
@@ -109,8 +110,5 @@
       (set steps (+ steps 1))
       (if (== steps 4)
         (+ acc 1)
-        acc
-      )
-    }
-  )
-)
+        acc)
+    }))

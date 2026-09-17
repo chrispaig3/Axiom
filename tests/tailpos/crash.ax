@@ -26,35 +26,25 @@
 ; `ulimit -s 512`, where it still fails and both controls still pass -
 ; milliseconds instead of seconds, which is why this is gateable at all.
 (import Str)
-
 (import IO)
 
 (:: step (-> Int (Option String)))
-
 (fn (step n)
   (if (== n 0)
     None
-    (Some "x")
-  )
-)
+    (Some "x")))
 
 (:: run (-> Int Int Int))
-
 (fn (run n acc)
   (match (step n)
     ((Some s) (run (- n 1) (+ acc (strLen s))))
-    ((None) acc)
-  )
-)
+    ((None) acc)))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     (let ((v (run 20000 0)))
-      (println "{v}")
-    )
+      (println "{v}"))
     0
-  }
-)
+  })

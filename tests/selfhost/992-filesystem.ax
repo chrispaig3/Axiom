@@ -20,13 +20,10 @@
 ; anyone actually asks it, "is it there" and "how big", are `open` and
 ; `lseek`, which this module already had.
 (import Sys)
-
 (import Err)
-
 (import Str)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   ; not there to begin with, and a size query on it fails
@@ -38,35 +35,28 @@
     {
       (if (sysFileExists d)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       (if (isErr (sysFileSize d))
         (set n (+ n 1))
-        0
-      )
+        0)
       ; created
       (if (isOk (sysMkdir d sysDirMode))
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysFileExists d)
         (set n (+ n 1))
-        0
-      )
+        0)
       ; creating it again is EEXIST, not silence
       (if (isErr (sysMkdir d sysDirMode))
         (set n (+ n 1))
-        0
-      )
+        0)
       ; removed, and gone
       (if (isOk (sysRmdir d))
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysFileExists d)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       ; a file with known contents has a known size. Written and
       ; removed here rather than pointed at a path in the tree,
       ; because a fixture that depends on where it was run from is a
@@ -74,20 +64,14 @@
       (unwrapOr (sysWriteFile f "hello") 0)
       (if (== (unwrapOr (sysFileSize f) 0) 5)
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (isOk (sysUnlink f))
         (set n (+ n 1))
-        0
-      )
+        0)
       (if (sysFileExists f)
         0
-        (set n (+ n 1))
-      )
+        (set n (+ n 1)))
       (if (== n 10)
         42
-        1
-      )
-    }
-  )
-)
+        1)
+    }))

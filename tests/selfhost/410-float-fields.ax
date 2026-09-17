@@ -6,13 +6,10 @@
   (Mk Float Float))
 
 (:: area (-> P Float))
-
 (fn (area p)
   (match p
-    ((Mk w h) (* w h))
-  )
-)
+    ((Mk w h) (* w h))))
 
 (:: main Int)
-
-(fn (main) (__floatToInt (area (Mk 6.5 4.0))))
+(fn (main)
+  (__floatToInt (area (Mk 6.5 4.0))))

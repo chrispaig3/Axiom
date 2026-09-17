@@ -19,7 +19,5 @@
     {
       (println "float: DISAGREE")
       1
-    }
-  )
-)
+    }))
 ; expect 0

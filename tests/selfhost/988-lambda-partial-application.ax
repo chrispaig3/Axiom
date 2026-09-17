@@ -38,40 +38,52 @@
 (struct Box
   (f : (-> Int Int)))
 
-(:: mkAdder (-> Int (-> Int Int)))
-
-(fn (mkAdder n) ((lambda (x y) (+ x y)) n))
+(:: mkAdder (-> Int Int Int))
+(fn (mkAdder n)
+  ((lambda (x y) (+ x y))
+    n))
 
 (:: bit (-> Bool Int Int))
-
 (fn (bit ok w)
   (if ok
     w
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (mut acc 0)
-    (sub1 ((lambda (x y) (- x y)) 10))
-    (dig1 ((lambda (x y z) (+ (* 100 x) (+ (* 10 y) z))) 1))
-    (cap (let ((n 10)) ((lambda (x y) (+ n (- x y))) 5)))
+    (sub1 ((lambda (x y) (- x y))
+      10))
+    (dig1 ((lambda (x y z) (+ (* 100 x) (+ (* 10 y) z)))
+      1))
+    (cap (let ((n 10))
+      ((lambda (x y) (+ n (- x y)))
+        5)))
     (esc (mkAdder 40))
-    (box (Box ((lambda (x y) (+ x y)) 5)))
-    (hole ((lambda (x y) (- x y)) 50 _))
+    (box (Box
+      ((lambda (x y) (+ x y))
+        5)))
+    (hole ((lambda (x y) (- x y))
+      50
+      _))
   )
     {
       (set acc (+ acc (bit (== (sub1 3) 7) 1)))
-      (set acc (+ acc (bit (== ((dig1 2) 3) 123) 2)))
+      (set acc (+ acc (bit (== (dig1 2 3) 123) 2)))
       (set acc (+ acc (bit (== (cap 2) 13) 4)))
       (set acc (+ acc (bit (== (esc 2) 42) 8)))
       (set acc (+ acc (bit (== (box.f 3) 8) 16)))
       (set acc (+ acc (bit (== (hole 8) 42) 32)))
-      (set acc (+ acc (bit (== (((lambda (x y z) (+ x (+ y z))) 1 2) 3) 6) 64)))
+      (set acc (+
+        acc
+        (bit
+          (==
+            ((lambda (x y z) (+ x (+ y z)))
+              1
+              2
+              3)
+            6)
+          64)))
       acc
-    }
-  )
-)
+    }))

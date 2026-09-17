@@ -18,43 +18,30 @@
   (TC Int))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: spin (-> Int Int Int Int))
-
 (fn (spin n v acc)
   (if (<= n 0)
     acc
     (spin
-      (- n 1)      v      (+
-        acc        (match (cast T3 v)
+      (- n 1)
+      v
+      (+
+        acc
+        (match (cast T3 v)
           ((TA) 1)
           ((TB) 2)
-          ((TC k) k)
-        )
-      )
-    )
-  )
-)
+          ((TC k) k))))))
 
 (:: main Int)
-
 (fn (main)
   (let ((v 
-    (cast Int (TC 5))
-  ))
+    (cast Int (TC 5))))
     (let ((h1 (__alloc 8)))
       (let ((r (spin 1000 v 0)))
         (let ((h2 (__alloc 8)))
-          (+ (* 2 (b2i (== r 5000))) (b2i (< (- h2 h1) 4096)))
-        )
-      )
-    )
-  )
-)
+          (+ (* 2 (b2i (== r 5000))) (b2i (< (- h2 h1) 4096))))))))

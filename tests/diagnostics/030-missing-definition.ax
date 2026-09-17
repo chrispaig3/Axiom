@@ -1,5 +1,5 @@
 (:: ghost (-> Int Int))
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

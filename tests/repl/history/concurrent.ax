@@ -8,11 +8,8 @@
 ;
 ; Driven by scripts/check-repl-history.sh.
 (import Str)
-
 (import Sys)
-
 (import diag)
-
 (import replhist)
 
 ; `HIST_PAD=1` makes every entry about 260 bytes instead of about 16,
@@ -21,39 +18,39 @@
 ; file rather than appending to it. The tag stays the first thing after
 ; `(entry`, so the gate reads provenance the same way in both arms.
 (:: padFor (-> String String))
-
 (fn (padFor on)
   (if (strEq on "1")
     " 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-    ""
-  )
-)
+    ""))
 
 (:: tagRecord (-> Int String String Int Int Int))
-
 ;@axiom:effect(io)
 (fn (tagRecord h tag pad i limit)
   (if (>= i limit)
     0
     {
       (histRecord h (strConcat (strConcat "(entry " tag) (strConcat " " (strConcat (decStr i) (strConcat pad ")")))))
-      (tagRecord h tag pad (+ i 1) limit)
-    }
-  )
-)
+      (tagRecord
+        h
+        tag
+        pad
+        (+ i 1)
+        limit)
+    }))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((h (histOpen 1)))
     {
-      (tagRecord h (strDup (sysEnv "HIST_TAG")) (padFor (sysEnv "HIST_PAD")) 0 200)
+      (tagRecord
+        h
+        (strDup (sysEnv "HIST_TAG"))
+        (padFor (sysEnv "HIST_PAD"))
+        0
+        200)
       (histClose h)
       (if (== (histPersist h) 1)
         42
-        7
-      )
-    }
-  )
-)
+        7)
+    }))

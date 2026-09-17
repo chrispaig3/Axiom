@@ -13,14 +13,12 @@
 ; primitive that computes until `MM-EXEC-9a`'s row for it was closed.
 ; This was the only fixture in the tree the correction moved.
 (import IO)
-
 (import Vec)
 
 (effect Console
   (log :: (-> String Int)))
 
 (:: churn (-> Int Int))
-
 (fn (churn n)
   (if (== n 0)
     0
@@ -29,28 +27,26 @@
         (vecPush v 1)
         (vecPush v 2)
         (churn (- n 1))
-      }
-    )
-  )
-)
+      })))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
-    (handle {
-      (churn 200000)
-      (log "still alive")
-      0
-    } (Console IO Alloc Mut) (lambda (s)
+    (handle
       {
-        ; No `cast String`: the handler is checked against `log`'s
-        ; arrow, so `s` IS a String and `show` selects on it.
-        (println s)
+        (churn 200000)
+        (log "still alive")
         0
       }
-    ))
+      (Console IO Alloc Mut)
+      (lambda (s)
+        {
+          ; No `cast String`: the handler is checked against `log`'s
+          ; arrow, so `s` IS a String and `show` selects on it.
+          (println s)
+          0
+        }
+      ))
     0
-  }
-)
+  })

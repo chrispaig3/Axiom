@@ -31,7 +31,6 @@
 ; `scripts/check-recover.sh`; it is named here because this is the
 ; fixture whose shape produces it.
 (import IO)
-
 (import Str)
 
 ; `shout` performs `log` with no handler anywhere, which is the trap
@@ -44,43 +43,43 @@
   (log :: (-> String Int)))
 
 (:: zero Int)
-
-(fn (zero) 0)
+(fn (zero)
+  0)
 
 (:: shout (-> Int Int))
-
-(fn (shout x) (log "nobody home"))
+(fn (shout x)
+  (log "nobody home"))
 
 (:: nested (-> Int Int))
-
 (fn (nested x)
-  (handle {
-    (log "reached the inner handler")
-    (/ 1 zero)
-  } (Console) (lambda (s) 0))
-)
+  (handle
+    {
+      (log "reached the inner handler")
+      (/ 1 zero)
+    }
+    (Console)
+    (lambda (s) 0)))
 
 (:: underHandler (-> Int Int))
-
 (fn (underHandler x)
-  (handle (let (
-    (n (__axiom_recover
-      __axiom_arena_mark      (lambda (y) (nested y))
-    ))
-    (l (log "the outer handler is still installed"))
-  )
-    (+ (* n 10) l)
-  ) (Console Alloc) (lambda (s) 7))
-)
+  (handle
+    (let (
+      (n (__axiom_recover
+        __axiom_arena_mark
+        (lambda (y) (nested y))))
+      (l (log "the outer handler is still installed"))
+    )
+      (+ (* n 10) l))
+    (Console Alloc)
+    (lambda (s) 7)))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
     (inside (__axiom_recover
-      __axiom_arena_mark      (lambda (x) (shout x))
-    ))
+      __axiom_arena_mark
+      (lambda (x) (shout x))))
     (after (underHandler 0))
   )
     {
@@ -97,6 +96,4 @@
       ; trap outside a recovery point ever stops stopping the program,
       ; stdout gains a line and the golden says so.
       (printlnLit (strCStr "UNREACHABLE: the trap outside a recovery point returned"))
-    }
-  )
-)
+    }))

@@ -4,5 +4,5 @@
 ; Modules sit beside the cases and are told apart by name:
 ; digit-prefixed is a case and must declare `; expect N`.
 (pub :: deepFn (-> Int Int))
-
-(pub fn (deepFn n) (* n 100))
+(pub fn (deepFn n)
+  (* n 100))

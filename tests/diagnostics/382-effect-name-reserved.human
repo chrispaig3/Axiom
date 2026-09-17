@@ -17,10 +17,10 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3054` for a full explanation
 
 [1;31merror[AX3016][0m[1m: unknown effect `Err`[0m
-  [1;34m--> [0m382-effect-name-reserved.ax:57:37
+  [1;34m--> [0m382-effect-name-reserved.ax:60:6
 [1;34m   |[0m
-[1;34m57 |[0m (fn (viaErr n) (cast Int (handle n (Err) 0)))
-[1;34m   |[0m                                     [1;31m^^^ no effect named `Err` is declared[0m
+[1;34m60 |[0m     (Err)
+[1;34m   |[0m      [1;31m^^^ no effect named `Err` is declared[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mdeclare it with `(effect Name (op :: sig))`, import the module that does, or fix the spelling
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3016` for a full explanation

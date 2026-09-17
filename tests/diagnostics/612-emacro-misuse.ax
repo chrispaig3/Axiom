@@ -12,5 +12,5 @@
 (esimp)
 
 (:: main Int)
-
-(fn (main) (esimp 1 2 3))
+(fn (main)
+  (esimp 1 2 3))

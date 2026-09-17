@@ -14,16 +14,16 @@
 ;
 ; THE TAG IS ON THE `fn` AND NOT THE `::`, deliberately.
 ; `check-restrictions.sh` section 1 rewrites every blank line above a
-; column-0 `fn` in this directory into `;@axiom:restrict(no-foreign)`
-; and requires the AXSYM rows to match afterwards but for one
-; `#restrict=` field. A tag on the signature leaves that blank line in
-; place, so the sweep adds a SECOND field and the comparison sees a row
-; that moved; a tag on the `fn` occupies the line the sweep would have
-; used, and the row is the same either way.
+; column-0 `(::` or `fn` in this directory into
+; `;@axiom:restrict(no-foreign)` and requires the AXSYM rows to match
+; afterwards but for one `#restrict=` field - except where a declaration
+; already carries one, which the sweep leaves alone. A second tag above
+; the signature would add a SECOND field and the comparison would see a
+; row that moved; the tag on the `fn` tells the sweep this declaration
+; is already claimed, and the row is the same either way.
 (import Err)
 
 (:: sumTo (-> Int Int))
-
 ;@axiom:restrict(no-wrap)
 (fn (sumTo n)
   (let ((mut acc 0))
@@ -31,15 +31,13 @@
       (for i 1 n
         (set acc (unwrapOr (addChecked acc i) 0)))
       acc
-    }
-  )
-)
+    }))
 
 (:: scaled (-> Float Float))
-
 ;@axiom:restrict(no-wrap)
-(fn (scaled x) (* (+ x 1.0) 2.0))
+(fn (scaled x)
+  (* (+ x 1.0) 2.0))
 
 (:: main Int)
-
-(fn (main) (+ (sumTo 11) (__floatToInt (scaled 1.5))))
+(fn (main)
+  (+ (sumTo 11) (__floatToInt (scaled 1.5))))

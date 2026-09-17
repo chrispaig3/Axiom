@@ -17,11 +17,13 @@
 (import IO)
 
 (:: main Int)
-
 (fn (main)
   {
     (region r
-      (region r 0))
-    (region s 1)
-    (region s 2)
+      (region r
+        0))
+    (region s
+      1)
+    (region s
+      2)
   })

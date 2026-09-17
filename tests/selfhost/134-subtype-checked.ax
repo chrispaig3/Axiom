@@ -26,63 +26,45 @@
 (subtype NonNeg is Int range 0)
 
 (:: takePos (-> Positive Int))
-
-(fn (takePos x) x)
+(fn (takePos x)
+  x)
 
 (:: mkPos (-> Int Positive))
-
-(fn (mkPos n) n)
+(fn (mkPos n)
+  n)
 
 (:: main Int)
-
 (fn (main)
   (+
     (if (==
       (cast Positive 5)
-      5
-    )
+      5)
       1
-      0
-    )
+      0)
     (+
       (if (== (takePos 7) 7)
         2
-        0
-      )
+        0)
       (+
         (if (== (mkPos 4) 4)
           4
-          0
-        )
+          0)
         (+
           (if (==
             (cast Int (cast Positive 6))
-            6
-          )
+            6)
             8
-            0
-          )
+            0)
           (+
             (if (==
               (cast NonNeg 0)
-              0
-            )
+              0)
               16
-              0
-            )
+              0)
             (if (==
               (+
                 (cast Positive 3)
-                (cast Positive 4)
-              )
-              7
-            )
+                (cast Positive 4))
+              7)
               32
-              0
-            )
-          )
-        )
-      )
-    )
-  )
-)
+              0)))))))

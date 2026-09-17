@@ -58,24 +58,18 @@
 (defRange Bounds Int)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: main Int)
-
 (fn (main)
   (+
-    (* 20 (b2i (eqMode OffMode OffMode)))    (+
-      (* 10 (b2i (eqMode OffMode OnMode)))      (+
-        (* 5 (b2i (eqLevel OnLevel OnLevel)))        (spanBounds
-          (struct Bounds 3 10)
-        )
-      )
-    )
-  )
-)
+    (* 20 (b2i (eqMode OffMode OffMode)))
+    (+
+      (* 10 (b2i (eqMode OffMode OnMode)))
+      (+
+        (* 5 (b2i (eqLevel OnLevel OnLevel)))
+        (spanBounds
+          (struct Bounds 3 10))))))

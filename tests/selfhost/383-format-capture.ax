@@ -50,8 +50,6 @@
 ;     where it measured the padding wrapping a CAPTURED rendering;
 ;     what survives the capture is the composition.
 (import IO)
-
-
 (import Str)
 
 ; The two hijacks. Each signature is deliberately type-COMPATIBLE with
@@ -59,38 +57,35 @@
 ; would prove nothing about the silent one this file was written to
 ; catch.
 (:: show (-> a String))
-
-(fn (show x) "xyz")
+(fn (show x)
+  "xyz")
 
 (:: strConcat (-> String String String))
-
-(fn (strConcat a b) "HIJACKED")
+(fn (strConcat a b)
+  "HIJACKED")
 
 (:: bit (-> Bool Int Int))
-
 (fn (bit b w)
   (if b
     w
-    0
-  )
-)
+    0))
 
 ; 1: the hole does not go through this file's `show`. 2 is `fmtInt` on
 ;    42; 3 would be `xyz`.
 (:: capture (-> Int Int))
-
-(fn (capture n) (strLen (format "{n}")))
+(fn (capture n)
+  (strLen (format "{n}")))
 
 ; 2: and `show` is nonetheless a function this file can call.
 (:: direct (-> Int Int))
-
-(fn (direct n) (strLen (show n)))
+(fn (direct n)
+  (strLen (show n)))
 
 ; 3: the literal run's join does not go through this file's
 ;    `strConcat` either. 4 is `n=42`; 8 would be `HIJACKED`.
 (:: captureCat (-> Int Int))
-
-(fn (captureCat n) (strLen (format "n={n}")))
+(fn (captureCat n)
+  (strLen (format "n={n}")))
 
 ; 4: a SPECIFIER is undisturbed by either hijack - the padding is
 ;    `Fmt`'s and it wraps the rendering rather than replacing it.
@@ -98,13 +93,10 @@
 ;    measured the capture feeding the padding; the composition is what
 ;    survives the capture's removal.
 (:: captureWidth (-> Int Int))
-
-(fn (captureWidth n) (strLen (format "{n:>6}")))
+(fn (captureWidth n)
+  (strLen (format "{n:>6}")))
 
 (:: main Int)
-
 (fn (main)
   (let ((n 42))
-    (+ (bit (== (capture n) 2) 4) (+ (bit (== (direct n) 3) 8) (+ (bit (== (captureCat n) 4) 16) (bit (== (captureWidth n) 6) 32))))
-  )
-)
+    (+ (bit (== (capture n) 2) 4) (+ (bit (== (direct n) 3) 8) (+ (bit (== (captureCat n) 4) 16) (bit (== (captureWidth n) 6) 32))))))

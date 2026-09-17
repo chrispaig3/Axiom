@@ -9,15 +9,12 @@
   (Cons Int L))
 
 (:: sum (-> L Int))
-
 (fn (sum l)
   (match l
     ((Nil) 0)
     ((Cons h (Cons h2 t)) (+ h (+ (* 10 h2) (sum t))))
-    ((Cons h t) (+ h (sum t)))
-  )
-)
+    ((Cons h t) (+ h (sum t)))))
 
 (:: main Int)
-
-(fn (main) (sum (Cons 1 (Cons 2 (Cons 3 Nil)))))
+(fn (main)
+  (sum (Cons 1 (Cons 2 (Cons 3 Nil)))))

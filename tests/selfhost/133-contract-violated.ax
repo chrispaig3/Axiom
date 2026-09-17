@@ -29,12 +29,11 @@
 ; result, so the call it wraps is not in tail position, measured on
 ; `(fn (loopB n acc) ...)` whose `let`-wrapped twin emits `call i64
 ; @loopB` where the bare one emits a loop.
-
 ;@axiom:pre((> n 0))
 (:: half (-> Int Int))
-
-(fn (half n) (/ n 2))
+(fn (half n)
+  (/ n 2))
 
 (:: main Int)
-
-(fn (main) (half 0))
+(fn (main)
+  (half 0))

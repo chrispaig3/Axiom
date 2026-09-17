@@ -32,13 +32,13 @@
   (y : Int))
 
 (:: bad (-> a Int))
-
-(fn (bad x) (+ x 1))
+(fn (bad x)
+  (+ x 1))
 
 (:: promised (-> a b a))
-
-(fn (promised x y) y)
+(fn (promised x y)
+  y)
 
 (:: main Int)
-
-(fn (main) (bad (Pt 3 4)))
+(fn (main)
+  (bad (Pt 3 4)))

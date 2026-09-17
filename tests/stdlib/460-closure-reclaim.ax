@@ -39,7 +39,6 @@
 ; comparison being what says the ablation restored the defect rather
 ; than broke something else.
 (import Str)
-
 (import Vec)
 
 (effect Two
@@ -49,86 +48,94 @@
   (bad3 :: (-> String Int Int Int)))
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 ; Under one BLOCK of drift over the whole run, and the same chunk
 ; throughout - `370-error-propagation.ax`'s own threshold. The point is
 ; per-application cost: 1,428 applications leaking one 32-byte record
 ; each move the bump 45,664 bytes, which is eleven blocks past this.
 (:: flat (-> Int Int Bool))
-
 (fn (flat m1 m2)
-  (&&
-    (== (__load64 m2 2) (__load64 m1 2))
-    (< (- (__load64 m2 0) (__load64 m1 0)) 4096)
-  )
-)
+  (&& (== (__load64 m2 2) (__load64 m1 2)) (< (- (__load64 m2 0) (__load64 m1 0)) 4096)))
 
 (:: loopC2 (-> (-> String Int Int) Int Int))
-
 (fn (loopC2 h n)
-  (let ((mut i 1) (mut acc 0))
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
     {
       (while (<= i n)
         {
-          (set acc (+ acc (if (== (% i 7) 0) (h "malformed" 0) i)))
+          (set acc (+
+            acc
+            (if (== (% i 7) 0)
+              (h "malformed" 0)
+              i)))
           (set i (+ i 1))
         })
       acc
-    }
-  )
-)
+    }))
 
 (:: loopC3 (-> (-> String Int Int Int) Int Int))
-
 (fn (loopC3 h n)
-  (let ((mut i 1) (mut acc 0))
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
     {
       (while (<= i n)
         {
-          (set acc (+ acc (if (== (% i 7) 0) (h "malformed" 0 1) i)))
+          (set acc (+
+            acc
+            (if (== (% i 7) 0)
+              (h "malformed" 0 1)
+              i)))
           (set i (+ i 1))
         })
       acc
-    }
-  )
-)
+    }))
 
 (:: loopC1 (-> (-> String Int) Int Int))
-
 (fn (loopC1 h n)
-  (let ((mut i 1) (mut acc 0))
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
     {
       (while (<= i n)
         {
-          (set acc (+ acc (if (== (% i 7) 0) (h "malformed") i)))
+          (set acc (+
+            acc
+            (if (== (% i 7) 0)
+              (h "malformed")
+              i)))
           (set i (+ i 1))
         })
       acc
-    }
-  )
-)
+    }))
 
 (:: loop2 (-> Int Int))
-
 (fn (loop2 n)
-  (let ((mut i 1) (mut acc 0))
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
     {
       (while (<= i n)
         {
-          (set acc (+ acc (if (== (% i 7) 0) (bad2 "malformed" 0) i)))
+          (set acc (+
+            acc
+            (if (== (% i 7) 0)
+              (bad2 "malformed" 0)
+              i)))
           (set i (+ i 1))
         })
       acc
-    }
-  )
-)
+    }))
 
 ; A PARKED ARGUMENT SURVIVES THE APPLICATION, AND THE REASON CHANGED
 ; ON 2026-08-30. The term is the same; what makes it true is not.
@@ -168,7 +175,6 @@
 ; over-applied path, which are UNMEASURED rather than known safe.
 ; `docs/memory-model.md` MM-LIFE-2g carries the detail.
 (:: parked (-> (Vec String) Int))
-
 (fn (parked box)
   {
     ((lambda (m)
@@ -176,12 +182,12 @@
         (vecPush box m)
         0
       }
-    ) (strConcat "abcdefgh" "ijklmnop"))
+    )
+      (strConcat "abcdefgh" "ijklmnop"))
     ; Allocated AFTER the application, so a freed block would be
     ; handed back here and the read below would see these bytes.
     (strLen (strConcat "xy" "z"))
-  }
-)
+  })
 
 ; TERM 128 IS THE OTHER FRAME'S RELEASE, and it is worth reading beside
 ; term 64. Term 64 releases the argument from the application's own
@@ -213,17 +219,27 @@
 (struct Session
   (mut name : String))
 
-(:: mkLogger (-> (Vec String) (-> String Int)))
-
-(fn (mkLogger log) (lambda (s) { (vecPush log s) 0 }))
+(:: mkLogger (-> (Vec String) String Int))
+(fn (mkLogger log)
+  (lambda (s)
+    {
+      (vecPush log s)
+      0
+    }
+  ))
 
 (:: main Int)
-
 (fn (main)
-  (let ((mut acc 0) (mut steps 0))
+  (let (
+    (mut acc 0)
+    (mut steps 0)
+  )
     {
       ; 32 - a two-argument closure chain
-      (let ((h2 (lambda (m) (lambda (d) d))))
+      (let ((h2 
+        (lambda (m)
+          (lambda (d) d)
+        )))
         (let ((a1 __axiom_arena_mark))
           (let ((r (loopC2 h2 10000)))
             (let ((a2 __axiom_arena_mark))
@@ -233,14 +249,25 @@
               }))))
       ; 16 - the same chain reached through an effect operation
       (let ((b1 __axiom_arena_mark))
-        (let ((r (handle (loop2 10000) (Two Alloc) (lambda (m) (lambda (d) d)))))
+        (let ((r 
+          (handle
+            (loop2 10000)
+            (Two Alloc)
+            (lambda (m)
+              (lambda (d) d)
+            ))))
           (let ((b2 __axiom_arena_mark))
             {
               (set acc (+ acc (* 16 (b2i (flat b1 b2)))))
               (set steps (+ steps 1))
             })))
       ; 8 - three deep, two intermediates a call
-      (let ((h3 (lambda (m) (lambda (d) (lambda (e) e)))))
+      (let ((h3 
+        (lambda (m)
+          (lambda (d)
+            (lambda (e) e)
+          )
+        )))
         (let ((c1 __axiom_arena_mark))
           (let ((r (loopC3 h3 10000)))
             (let ((c2 __axiom_arena_mark))
@@ -249,8 +276,16 @@
                 (set steps (+ steps 1))
               }))))
       ; 4 - and the chains still answer what the handler says
-      (let ((ha (lambda (m) (lambda (d) 5))))
-        (let ((hb (lambda (m) (lambda (d) (lambda (e) 6)))))
+      (let ((ha 
+        (lambda (m)
+          (lambda (d) 5)
+        )))
+        (let ((hb 
+          (lambda (m)
+            (lambda (d)
+              (lambda (e) 6)
+            )
+          )))
           {
             ; 21 is the sum of the six iterations that do not apply; the
             ; seventh adds what the handler answered.
@@ -258,12 +293,24 @@
             (set steps (+ steps 1))
           }))
       ; 2 - a one-argument application builds no intermediate
-      (let ((h1 (lambda (m) 0)))
+      (let ((h1 
+        (lambda (m) 0)))
         (let ((d1 __axiom_arena_mark))
           (let ((r (loopC1 h1 10000)))
             (let ((d2 __axiom_arena_mark))
               {
-                (set acc (+ acc (* 2 (b2i (&& (flat d1 d2) (== (loopC1 (lambda (m) 9) 7) 30))))))
+                (set acc (+
+                  acc
+                  (*
+                    2
+                    (b2i
+                      (&&
+                        (flat d1 d2)
+                        (==
+                          (loopC1
+                            (lambda (m) 9)
+                            7)
+                          30))))))
                 (set steps (+ steps 1))
               }))))
       ; 64 - a parked argument survives the application. The closure
@@ -291,8 +338,5 @@
             })))
       (if (== steps 7)
         (+ acc 1)
-        acc
-      )
-    }
-  )
-)
+        acc)
+    }))

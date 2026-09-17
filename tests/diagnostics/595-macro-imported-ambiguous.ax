@@ -21,9 +21,8 @@
 ; is left, and it is a CHECKER refusal rather than an expansion one,
 ; which is why this file can carry it alone.
 (import AmbMac)
-
 (import AmbA)
 
 (:: main Int)
-
-(fn (main) (useDup 4))
+(fn (main)
+  (useDup 4))

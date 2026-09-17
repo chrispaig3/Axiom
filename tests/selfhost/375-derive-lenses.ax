@@ -36,5 +36,5 @@
 (deriveLenses Point)
 
 (:: main Int)
-
-(fn (main) (+ (getX (withY (withX (Point 1 2) 30) 4)) (getY (withY (withX (Point 1 2) 30) 4))))
+(fn (main)
+  (+ (getX (withY (withX (Point 1 2) 30) 4)) (getY (withY (withX (Point 1 2) 30) 4))))

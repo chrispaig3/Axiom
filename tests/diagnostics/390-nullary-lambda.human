@@ -1,7 +1,7 @@
 [1;31merror[AX3008][0m[1m: a lambda with no parameters can never be called[0m
- [1;34m--> [0m390-nullary-lambda.ax:5:6
+ [1;34m--> [0m390-nullary-lambda.ax:4:6
 [1;34m  |[0m
-[1;34m5 |[0m     (lambda () 42)
+[1;34m4 |[0m     (lambda () 42)))
 [1;34m  |[0m      [1;31m^^^^^^ this lambda takes no parameters[0m
 [1;34m  |[0m
  [1;34m = [0m[1mnote: [0m`(f)` and `f` are the same expression, so no syntax applies a nullary closure; it used to evaluate to the closure record's address

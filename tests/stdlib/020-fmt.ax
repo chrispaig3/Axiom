@@ -2,7 +2,6 @@
 (import IO)
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   {
@@ -32,5 +31,4 @@
     (println (fmtPadLeft (fmtInt 42) 6))
     (println (fmtPadLeft (fmtInt 1234567) 3))
     0
-  }
-)
+  })

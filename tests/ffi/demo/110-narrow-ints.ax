@@ -14,9 +14,7 @@
 ; it. The range edges are exercised instead: 255 is the largest `u8`,
 ; and -2147483648 the smallest `i32`.
 (import IO)
-
 (import Fmt)
-
 (import Demo)
 
 ;@axiom:effect(io)
@@ -38,8 +36,5 @@
         (println (fmtInt b))
         (println (fmtInt z))
         1
-      }
-    )
-  )
-)
+      })))
 ; expect 0

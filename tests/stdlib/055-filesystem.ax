@@ -19,17 +19,12 @@
 ; directories holding them - because a fixture that leaves litter in
 ; its working directory is a fixture every later case runs over.
 (import IO)
-
 (import Err)
-
 (import Path)
-
 (import Str)
-
 (import Vec)
 
 (:: eq (-> String String String Int))
-
 ;@axiom:effect(io)
 (fn (eq name got want)
   (if (strEq got want)
@@ -40,12 +35,9 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 (:: eqInt (-> String Int Int Int))
-
 ;@axiom:effect(io)
 (fn (eqInt name got want)
   (if (== got want)
@@ -56,12 +48,9 @@
     {
       (println "FAIL {name} got={got} want={want}")
       1
-    }
-  )
-)
+    }))
 
 (:: yes (-> String Bool Int))
-
 ;@axiom:effect(io)
 (fn (yes name got)
   (if got
@@ -72,12 +61,9 @@
     {
       (println "FAIL {name} got={got} want=true")
       1
-    }
-  )
-)
+    }))
 
 (:: no (-> String Bool Int))
-
 ;@axiom:effect(io)
 (fn (no name got)
   (if got
@@ -88,32 +74,23 @@
     {
       (println "ok   {name}")
       0
-    }
-  )
-)
+    }))
 
 ; The names in a Vec, joined with `,` - one string to compare a whole
 ; listing against, so a missing or extra entry is one failing check
 ; rather than a length check that passes and a content check that does
 ; not exist.
 (:: joined (-> (Vec Int) Int String String))
-
 (fn (joined v i acc)
   (if (>= i (vecLen v))
     acc
-    (let ((name 
-      (vecGetStr v i)
-    ))
-
+    (let ((name (vecGetStr v i)))
       (joined
-        v        (+ i 1)        (if (== i 0)
+        v
+        (+ i 1)
+        (if (== i 0)
           name
-          (strConcat (strConcat acc ",") name)
-        )
-      )
-    )
-  )
-)
+          (strConcat (strConcat acc ",") name))))))
 
 (:: main Int)
 
@@ -125,13 +102,10 @@
 ; for a SIZE of 2 would have been written identically. Here the two
 ; live in different arms.
 (:: codeOf (-> (Result Int Error) Int))
-
 (fn (codeOf r)
   (match r
     ((Ok v) 0)
-    ((Err e) (errCode e))
-  )
-)
+    ((Err e) (errCode e))))
 
 ;@axiom:effect(io)
 (fn (main)
@@ -181,13 +155,14 @@
       (set bad (+ bad (eqInt "readErrno on a directory" (readErrno d) 21)))
       (set bad (+ bad (eqInt "readErrno on nothing" (readErrno "fs055/nope") 2)))
       (set bad (+
-        bad        (eqInt
-          "empty file is readable"          {
+        bad
+        (eqInt
+          "empty file is readable"
+          {
             (unwrapOr (writeFile "fs055/empty" "") 0)
             (readErrno "fs055/empty")
-          }          0
-        )
-      ))
+          }
+          0)))
       (set bad (+ bad (eq "empty file reads empty" (readFile "fs055/empty") "")))
       ; and the distinction `fileExists` cannot make on its own
       (set bad (+ bad (yes "file exists" (fileExists f))))
@@ -271,6 +246,4 @@
       (println "checks {n}")
       (println "failures {bad}")
       bad
-    }
-  )
-)
+    }))

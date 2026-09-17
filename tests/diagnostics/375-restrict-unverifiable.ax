@@ -23,54 +23,50 @@
 ; through a restriction instead of a purity claim.
 (import IO)
 
-(struct Box (f : (-> Int Int)))
+(struct Box
+  (f : (-> Int Int)))
 
 (:: shout (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (shout n)
   {
     (println "shout")
     n
-  }
-)
+  })
 
 ;@axiom:restrict(no-io)
 (:: viaField (-> Box Int Int))
-
-(fn (viaField b n) ((b.f) n))
+(fn (viaField b n)
+  (b.f n))
 
 ;@axiom:restrict(no-io)
-(:: handoff (-> Int (-> Int Int)))
-
-(fn (handoff k) shout)
+(:: handoff (-> Int Int Int))
+(fn (handoff k)
+  shout)
 
 ;@axiom:restrict(no-io)
 (:: leaks (-> Box Int Int))
-
 ;@axiom:effect(io)
 (fn (leaks b n)
   {
     (println "leak")
-    ((b.f) n)
-  }
-)
+    (b.f n)
+  })
 
 ;@axiom:restrict(no-cast)
 (:: casts (-> Box Int Int))
-
-(fn (casts b n) (+ ((b.f) n) (cast Int b)))
+(fn (casts b n)
+  (+
+    (b.f n)
+    (cast Int b)))
 
 ;@axiom:restrict(no-cast)
 (:: clean (-> Box Int Int))
-
-(fn (clean b n) ((b.f) n))
+(fn (clean b n)
+  (b.f n))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((b (Box shout)))
-    (+ (viaField b 1) (+ ((handoff 2) 3) (+ (leaks b 4) (+ (casts b 5) (clean b 6)))))
-  )
-)
+    (+ (viaField b 1) (+ (handoff 2 3) (+ (leaks b 4) (+ (casts b 5) (clean b 6)))))))

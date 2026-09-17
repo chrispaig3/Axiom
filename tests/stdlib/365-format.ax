@@ -17,12 +17,9 @@
 ; so, because a dropped specifier prints the unpadded value and the
 ; golden holds the padded one.
 (import Str)
-
 (import IO)
 
-
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; --- interpolation, and the four Show instances -------------
@@ -94,8 +91,7 @@
           (println "plain={plain} lit={lit} val={val}")
           ; a format result is an ordinary String: it interpolates
           (println "nested=[{row}]")
-        }
-      )
+        })
       ; --- there is no `print`, and nothing needs one --------------
       ; A line assembled from pieces is one format string, so the four
       ; calls this replaces are one call and one syscall. `writeStr` is
@@ -104,6 +100,4 @@
       (writeStr stdout "raw, no newline: ")
       (println "{n}")  ; raw, no newline: 42
       0
-    }
-  )
-)
+    }))

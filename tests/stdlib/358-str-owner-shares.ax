@@ -30,26 +30,20 @@
 ; the two the fix adds. (Both counts are one LOWER than when this was
 ; written, for the reason term 8 states.)
 (import Sys)
-
 (import Err)
-
 (import Str)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 (:: ownerCount (-> String Int))
-
-(fn (ownerCount s) (__load64 (- (strOwner s) 16) 0))
+(fn (ownerCount s)
+  (__load64 (- (strOwner s) 16) 0))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -64,34 +58,24 @@
         {
           (if (== (strLen got) 5)
             (set acc (+ acc 32))
-            0
-          )
+            0)
           (if (!= (strOwner got) 0)
             (set acc (+ acc 16))
-            0
-          )
+            0)
           (if (== (ownerCount got) 1)
             (set acc (+ acc 8))
-            0
-          )
+            0)
           (let ((sl (strSlice got 1 3)))
             (if (== (ownerCount sl) 2)
               (set acc (+ acc 4))
-              0
-            )
-          )
+              0))
           (set steps (+ steps 1))
-        }
-      )
+        })
       (if (isOk (sysUnlink f))
         (set acc (+ acc 2))
-        0
-      )
+        0)
       (if (== steps 2)
         (set acc (+ acc 1))
-        0
-      )
+        0)
       acc
-    }
-  )
-)
+    }))

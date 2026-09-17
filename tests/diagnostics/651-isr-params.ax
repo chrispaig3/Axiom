@@ -8,14 +8,14 @@
 ; the control - the same body without the tag checks clean, proving
 ; the refusal is the claim and not the code.
 (:: tick (-> Int Int))
-
 ;@axiom:isr
-(fn (tick n) n)
+(fn (tick n)
+  n)
 
 (:: plain (-> Int Int))
-
-(fn (plain n) n)
+(fn (plain n)
+  n)
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)

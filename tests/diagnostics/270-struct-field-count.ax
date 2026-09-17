@@ -3,5 +3,5 @@
   (y : Int))
 
 (:: main Int)
-
-(fn (main) (+ (P 1) (P 1 2 3)))
+(fn (main)
+  (+ (P 1) (P 1 2 3)))

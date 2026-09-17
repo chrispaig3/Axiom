@@ -18,5 +18,5 @@
 (deriveLocalEq Veiled)
 
 (:: main Int)
-
-(fn (main) privTouch)
+(fn (main)
+  privTouch)

@@ -1,23 +1,23 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected Box Int, found Box Bool[0m
-  [1;34m--> [0m240-type-render.ax:10:20
+  [1;34m--> [0m240-type-render.ax:10:9
 [1;34m   |[0m
-[1;34m10 |[0m (fn (give b) (want b))
-[1;34m   |[0m                    [1;31m^ this has type `Box Bool`, expected `Box Int`[0m
+[1;34m10 |[0m   (want b))
+[1;34m   |[0m         [1;31m^ this has type `Box Bool`, expected `Box Int`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected function type, found _a[0m
+  [1;34m--> [0m240-type-render.ax:15:6
+[1;34m   |[0m
+[1;34m15 |[0m     (p 1)
+[1;34m   |[0m      [1;31m^ this has type `_a`, expected `function type`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected function type, found _a[0m
   [1;34m--> [0m240-type-render.ax:16:6
 [1;34m   |[0m
-[1;34m16 |[0m     (p 1)
-[1;34m   |[0m      [1;31m^ this has type `_a`, expected `function type`[0m
-[1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
-
-[1;31merror[AX3004][0m[1m: type mismatch: expected function type, found _a[0m
-  [1;34m--> [0m240-type-render.ax:17:6
-[1;34m   |[0m
-[1;34m17 |[0m     (q 2)
+[1;34m16 |[0m     (q 2)
 [1;34m   |[0m      [1;31m^ this has type `_a`, expected `function type`[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation

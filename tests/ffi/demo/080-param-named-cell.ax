@@ -12,11 +12,8 @@
 ; same name through a wrapper that DOES allocate an out-cell. Both must
 ; see the caller's value.
 (import IO)
-
 (import Fmt)
-
 (import Str)
-
 (import Demo)
 
 ;@axiom:effect(io)
@@ -35,9 +32,5 @@
           (println (fmtInt doubled))
           (println shouted)
           1
-        }
-      )
-    )
-  )
-)
+        }))))
 ; expect 0

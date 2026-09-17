@@ -64,22 +64,18 @@
 ; the two `try!` sites, which is the diagnostic the fix exists to
 ; remove.
 (import Err)
-
 (import Str)
 
 (:: b2i (-> Bool Int))
-
 (fn (b2i x)
   (if x
     1
-    0
-  )
-)
+    0))
 
 ; a two-step fallible chain written with the form
 (:: chain (-> Int (Result Int Error)))
-
-(fn (chain n) (try! a (divChecked 100 n) (try! b (divChecked a 2) (Ok (+ b 1)))))
+(fn (chain n)
+  (try! a (divChecked 100 n) (try! b (divChecked a 2) (Ok (+ b 1)))))
 
 ; Term 256's subject: the polymorphic scrutinee is a PARAMETER, so
 ; nothing at this site fixes `a` - and the arm still reads three
@@ -87,57 +83,44 @@
 ; in `Err` is written the other way round, through `errContextOf`, so
 ; without this function the tree contains no program that asks.
 (:: reContext (-> (Result a Error) String (Result a Error)))
-
 (fn (reContext r ctx)
   (match r
     ((Ok x) (Ok x))
-    ((Err y) (Err (Error y.code y.message ctx)))
-  )
-)
+    ((Err y) (Err (Error y.code y.message ctx)))))
 
 (:: codeOf (-> (Result Int Error) Int))
-
 (fn (codeOf r)
   (match r
     ((Ok x) 0)
-    ((Err e) (errCode e))
-  )
-)
+    ((Err e) (errCode e))))
 
 (:: valueOr (-> (Result Int Error) Int Int))
-
 (fn (valueOr r d)
   (match r
     ((Ok x) x)
-    ((Err e) d)
-  )
-)
+    ((Err e) d)))
 
 ; mapErr's target type: a different error type entirely, which is what
 ; ERR-TYPE-3 leaves in place of a `From` instance
 (:: toCode (-> Error Int))
-
-(fn (toCode e) (+ 100 e.code))
+(fn (toCode e)
+  (+ 100 e.code))
 
 (:: double (-> Int (Result Int Error)))
-
-(fn (double n) (Ok (* n 2)))
+(fn (double n)
+  (Ok (* n 2)))
 
 (:: inc (-> Int Int))
-
-(fn (inc n) (+ n 1))
+(fn (inc n)
+  (+ n 1))
 
 (:: textOf (-> (Result Int Error) String))
-
 (fn (textOf r)
   (match r
     ((Ok x) "")
-    ((Err e) (errorText e))
-  )
-)
+    ((Err e) (errorText e))))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (mut acc 0)
@@ -153,49 +136,32 @@
       (set acc (+ acc (* 16 (b2i (&& (== (valueOr (chain 10) 0) 6) (== (codeOf (chain 0)) errDivideByZero))))))
       (set steps (+ steps 1))
       (set acc (+
-        acc        (*
-          8          (b2i
+        acc
+        (*
+          8
+          (b2i
             (&&
               (==
                 (match (mapErr (divChecked 1 0) toCode)
                   ((Ok x) 0)
-                  ((Err c) c)
-                )                101
-              )              (== (valueOr (andThen (divChecked 12 3) double) 0) 8)
-            )
-          )
-        )
-      ))
+                  ((Err c) c))
+                101)
+              (== (valueOr (andThen (divChecked 12 3) double) 0) 8))))))
       (set steps (+ steps 1))
       (set acc (+
-        acc        (*
-          4          (b2i
+        acc
+        (*
+          4
+          (b2i
             (&&
-              (== (valueOr (okOr (Some 7) (mkError 9 "absent")) 0) 7)              (match (toOption (divChecked 1 0))
+              (== (valueOr (okOr (Some 7) (mkError 9 "absent")) 0) 7)
+              (match (toOption (divChecked 1 0))
                 ((Some x) false)
-                ((None) true)
-              )
-            )
-          )
-        )
-      ))
+                ((None) true)))))))
       (set steps (+ steps 1))
-      (set acc (+
-        acc        (*
-          2          (b2i
-            (&&
-              (strEq (textOf (withContext (divChecked 1 0) "reading the manifest")) "divided by zero while reading the manifest")              (&&
-                (== (codeOf (reContext (divChecked 1 0) "reading the manifest")) errDivideByZero)                (strEq (textOf (reContext (divChecked 1 0) "reading the manifest")) (textOf (withContext (divChecked 1 0) "reading the manifest")))
-              )
-            )
-          )
-        )
-      ))
+      (set acc (+ acc (* 2 (b2i (&& (strEq (textOf (withContext (divChecked 1 0) "reading the manifest")) "divided by zero while reading the manifest") (&& (== (codeOf (reContext (divChecked 1 0) "reading the manifest")) errDivideByZero) (strEq (textOf (reContext (divChecked 1 0) "reading the manifest")) (textOf (withContext (divChecked 1 0) "reading the manifest")))))))))
       (set steps (+ steps 1))
       (if (== steps 7)
         (+ acc 1)
-        acc
-      )
-    }
-  )
-)
+        acc)
+    }))

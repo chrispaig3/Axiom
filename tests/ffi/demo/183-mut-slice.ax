@@ -9,11 +9,8 @@
 ; back as the same words, so the classifier refuses it and says to
 ; take `&[T]` and return a `Vec<T>`.
 (import IO)
-
 (import Fmt)
-
 (import Vec)
-
 (import Demo)
 
 ;@axiom:effect(io)
@@ -51,10 +48,6 @@
             (println (fmtInt c2))
             (println (fmtInt zero))
             1
-          }
-        )
-      )
-    }
-  )
-)
+          }))
+    }))
 ; expect 0

@@ -11,11 +11,9 @@
 ; answering a short request. Measured on the shape below, written
 ; naively: 39,841 of 40,000 bytes wrong on the first round.
 (import IO)
-
 (import Mem)
 
 (pub :: paint (-> Int Int Int))
-
 (pub fn (paint p n)
   (let ((mut i 0))
     {
@@ -25,13 +23,10 @@
           (set i (+ i 1))
         })
       p
-    }
-  )
-)
+    }))
 
 ; How many of `n` bytes at `p` are NOT what `paint` wrote.
 (pub :: wrong (-> Int Int Int))
-
 (pub fn (wrong p n)
   (let (
     (mut i 0)
@@ -42,30 +37,23 @@
         {
           (if (== (memGetByte p i) (% (+ i 7) 251))
             0
-            (set bad (+ bad 1))
-          )
+            (set bad (+ bad 1)))
           (set i (+ i 1))
         })
       bad
-    }
-  )
-)
+    }))
 
 (pub :: burn (-> Int Int))
-
 (pub fn (burn n)
   (if (<= n 0)
     0
     {
       (memAlloc 65536)
       (burn (- n 1))
-    }
-  )
-)
+    }))
 
 ; N rounds of: allocate a little garbage, reclaim, keep the block.
 (pub :: churn (-> Int Int Int Int Int))
-
 (pub fn (churn m live bytes n)
   (let (
     (mut k live)
@@ -79,12 +67,9 @@
           (set i (+ i 1))
         })
       k
-    }
-  )
-)
+    }))
 
 (pub :: main Int)
-
 ;@axiom:effect(io)
 (pub fn (main)
   ; --- the destination overlaps the source, 500 times over ---
@@ -97,9 +82,7 @@
         (m __axiom_arena_mark)
         (live (paint (memAlloc 40000) 40000))
       )
-        (wrong (churn m live 40000 500) 40000)
-      )
-    )
+        (wrong (churn m live 40000 500) 40000)))
     ; 0
     ; --- across a chunk boundary ---
     ;
@@ -113,9 +96,7 @@
         (junk (burn 40))
         (kept (__axiom_arena_reset_keeping m2 live2 4096))
       )
-        (wrong kept 4096)
-      )
-    )
+        (wrong kept 4096)))
     ; 0
     ; --- when the kept block cannot fit in the marked chunk ---
     ;
@@ -128,9 +109,7 @@
         (big (paint (memAlloc 2097152) 2097152))
         (kept3 (__axiom_arena_reset_keeping m3 big 2097152))
       )
-        (wrong kept3 2097152)
-      )
-    )
+        (wrong kept3 2097152)))
     ; 0
     ; --- and the zeroing promise still holds around it ---
     ;
@@ -144,10 +123,7 @@
         (kept4 (__axiom_arena_reset_keeping m4 live4 1024))
         (fresh (memAlloc 4096))
       )
-        (+ (+ (memGetByte fresh 0) (memGetByte fresh 2048)) (wrong kept4 1024))
-      )
-    )
+        (+ (+ (memGetByte fresh 0) (memGetByte fresh 2048)) (wrong kept4 1024))))
     ; 0
     0
-  }
-)
+  })

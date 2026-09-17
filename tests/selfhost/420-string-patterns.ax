@@ -5,14 +5,11 @@
 ; built at run time, which is where comparing the interned header's
 ; ADDRESS (the rule until 2026-08-21) answered 0 for equal text.
 (:: f (-> String Int))
-
 (fn (f s)
   (match s
     ("hi" 40)
-    (x 2)
-  )
-)
+    (x 2)))
 
 (:: main Int)
-
-(fn (main) (+ (f "hi") (f "yo")))
+(fn (main)
+  (+ (f "hi") (f "yo")))

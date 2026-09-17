@@ -28,10 +28,14 @@
 
 (:: g (-> Shape Int))
 (fn (g s)
-  (match s))
+  (match s
+))
 
 (:: h (-> Shape Int))
-(fn (h s) (match s ((Dot) 0)))
+(fn (h s)
+  (match s
+    ((Dot) 0)))
 
 (:: main Int)
-(fn (main) (+ (f (Some (Some 1))) (+ (g (Dot)) (h (Dot)))))
+(fn (main)
+  (+ (f (Some (Some 1))) (+ (g (Dot)) (h (Dot)))))

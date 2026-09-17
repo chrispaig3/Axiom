@@ -32,7 +32,6 @@
   (no : Int))
 
 (:: main Int)
-
 (fn (main)
   (let (
     (p (P 0 0))
@@ -43,6 +42,4 @@
       (set o.inn.v 2)
       (set p.no 3)
       (+ p.ok o.inn.v)
-    }
-  )
-)
+    }))

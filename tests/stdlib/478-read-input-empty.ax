@@ -14,35 +14,25 @@
 ; anywhere in the tree to resolve under `tests/`, and this one is
 ; the one fixture name that must NOT.
 (import IO)
-
 (import Err)
-
 (import Str)
-
 (import Sys)
 
 ; The line's length, -1 for `None`, and -errno for `Err`.
 (:: shape (-> (Result (Option String) Error) Int))
-
 (fn (shape r)
   (match r
     ((Ok (Some s)) (strLen s))
     ((Ok (None)) (- 0 1))
-    ((Err e) (- 0 (errCode e)))
-  )
-)
+    ((Err e) (- 0 (errCode e)))))
 
 (:: shapeAll (-> (Result String Error) Int))
-
 (fn (shapeAll r)
   (match r
     ((Ok s) (strLen s))
-    ((Err e) (- 0 (errCode e)))
-  )
-)
+    ((Err e) (- 0 (errCode e)))))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
@@ -50,5 +40,4 @@
     (println (shapeAll (readAll stdin)))  ; 0
     (println (shape (readLine stdin)))  ; -1
     0
-  }
-)
+  })

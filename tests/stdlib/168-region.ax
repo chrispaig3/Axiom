@@ -45,9 +45,7 @@
 ;      Keywords rule of docs/reference.md - so it is a parameter name
 ;      here.
 (import IO)
-
 (import Mem)
-
 (import Str)
 
 (effect Console
@@ -58,73 +56,70 @@
 ; above `before`'s. A region that reclaimed nothing would answer 0 by
 ; tens of KiB.
 (:: reclaimed (-> Int Int Int))
-
 (fn (reclaimed before after)
   (if (<= (- (memGetWord after 0) (memGetWord before 0)) 48)
     1
-    0
-  )
-)
+    0))
 
 (:: burn (-> Int Int))
-
 (fn (burn n)
   (if (<= n 0)
     0
     {
-      (region r (memSet (memAlloc 65536) 7 65536))
+      (region r
+        (memSet (memAlloc 65536) 7 65536))
       (burn (- n 1))
-    }
-  )
-)
+    }))
 
 ; Term 9: a region per frame, `n` frames deep, answering the depth.
 (:: deep (-> Int Int))
-
 (fn (deep n)
   (if (<= n 0)
     0
-    (region r (+ 1 (deep (- n 1))))
-  )
-)
+    (region r
+      (+ 1 (deep (- n 1))))))
 
 ; Term 10: `region` in parameter position.
 (:: twice (-> Int Int))
-
-(fn (twice region) (+ region region))
+(fn (twice region)
+  (+ region region))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     ; --- 1. the value passes through ---
-    (println (region r (+ 1 2)))
+    (println
+      (region r
+        (+ 1 2)))
     ; --- 2. the waterline comes back ---
     (let ((m1 __axiom_arena_mark))
-      (let ((v (region r
-        {
-          (memSet (memAlloc 65536) 1 65536)
-          (memSet (memAlloc 65536) 2 65536)
-          7
-        })))
+      (let ((v 
+        (region r
+          {
+            (memSet (memAlloc 65536) 1 65536)
+            (memSet (memAlloc 65536) 2 65536)
+            7
+          })))
         (let ((m2 __axiom_arena_mark))
           {
             (println v)
             (println (reclaimed m1 m2))
-          }
-        )
-      )
-    )
+          })))
     ; --- 3. two thousand regions, one waterline ---
     (let ((m3 __axiom_arena_mark))
       {
         (burn 2000)
         (println (reclaimed m3 __axiom_arena_mark))
-      }
-    )
+      })
     ; --- 4. nesting ---
-    (println (region a (region b (+ 1 (region c 2)))))
+    (println
+      (region a
+        (region b
+          (+
+            1
+            (region c
+              2)))))
     ; --- 5. a scalar store to an outer binding ---
     (let ((mut n 0))
       {
@@ -133,30 +128,48 @@
             (memAlloc 64)
             (set n (+ n 5))
           })
-        (region r (set n (* n 2)))
+        (region r
+          (set n (* n 2)))
         (println n)
-      }
-    )
+      })
     ; --- 6. Bool, Char and 0 leave by value ---
-    (println (if (region r true) 1 0))
-    (println (region r 'x'))
-    (println (region r 0))
-    ; --- 7. a String dies with its region; its length does not ---
-    (println (region r (let ((s (strConcat "abc" "de"))) (strLen s))))
-    ; --- 8. a region inside a live handle's extent ---
-    (handle {
+    (println
+      (if (region r
+        true)
+        1
+        0))
+    (println
       (region r
+        'x'))
+    (println
+      (region r
+        0))
+    ; --- 7. a String dies with its region; its length does not ---
+    (println
+      (region r
+        (let ((s (strConcat "abc" "de")))
+          (strLen s))))
+    ; --- 8. a region inside a live handle's extent ---
+    (handle
+      {
+        (region r
+          {
+            (memAlloc 4096)
+            (log "inside the region")
+          })
+        (log "after the region")
+        0
+      }
+      (Console IO Alloc Mut)
+      (lambda (s)
         {
-          (memAlloc 4096)
-          (log "inside the region")
-        })
-      (log "after the region")
-      0
-    } (Console IO Alloc Mut) (lambda (s) { (println s) 0 }))
+          (println s)
+          0
+        }
+      ))
     ; --- 9. ten thousand frames, one region each ---
     (println (deep 10000))
     ; --- 10. `region` off the head is a name ---
     (println (twice 21))
     0
-  }
-)
+  })

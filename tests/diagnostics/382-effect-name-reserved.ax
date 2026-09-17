@@ -47,15 +47,19 @@
   (log :: (-> String Int)))
 
 (:: viaConsole (-> Int Int))
-
 (fn (viaConsole n)
-  (cast Int (handle (log "covered") (Console) (lambda (s) 0)))
-)
+  (cast Int (handle
+    (log "covered")
+    (Console)
+    (lambda (s) 0))))
 
 (:: viaErr (-> Int Int))
-
-(fn (viaErr n) (cast Int (handle n (Err) 0)))
+(fn (viaErr n)
+  (cast Int (handle
+    n
+    (Err)
+    0)))
 
 (:: main Int)
-
-(fn (main) (+ (viaConsole 1) (viaErr 2)))
+(fn (main)
+  (+ (viaConsole 1) (viaErr 2)))

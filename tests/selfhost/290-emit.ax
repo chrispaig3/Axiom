@@ -1,18 +1,12 @@
 ; expect 42
 (import Str)
-
 (import Vec)
-
 (import Mem)
-
 (import lexer)
-
 (import parser)
-
 (import codegen)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let ((pr (parseModule (lex "(fn (f) 1)"))))
@@ -21,9 +15,4 @@
       (let ((out (emitModule (memGetWordVec pr 1) "darwin-aarch64")))
         (if (> (strLen out) 10)
           42
-          8
-        )
-      )
-    )
-  )
-)
+          8)))))

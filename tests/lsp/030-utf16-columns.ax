@@ -1,7 +1,7 @@
 (:: f (-> String Int Int))
-
-(fn (f a b) b)
+(fn (f a b)
+  b)
 
 (:: main Int)
-
-(fn (main) (f "é😀" zzz))
+(fn (main)
+  (f "é😀" zzz))

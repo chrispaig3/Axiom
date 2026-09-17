@@ -28,15 +28,11 @@
 ; is `tests/diagnostics/354-map-value-type.ax`, because a program
 ; that does not compile cannot be a golden that prints.
 (import Map)
-
 (import IO)
-
 (import Fmt)
-
 (import Str)
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -54,6 +50,4 @@
       (println (fmtInt (mapGet ints 99 (- 0 7))))
       (println (mapGetStr strs 99 "missing"))
       0
-    }
-  )
-)
+    }))

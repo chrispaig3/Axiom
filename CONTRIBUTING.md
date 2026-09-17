@@ -177,10 +177,11 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-16, `axiom fmt --check` over every one of the 662 `.ax` files
-in the repository answers `is already formatted` for 71 of them and
-`needs formatting` for 591. Two of the 591 are deliberate and are named
-below; the other 589 are fixtures and tests that stay as they are, and
+2026-09-17, `axiom fmt --check` over every one of the 662 `.ax` files
+in the repository answers `is already formatted` for 659 of them and
+`needs formatting` for 3. Two of the 3 are deliberate and are named
+below; the third is `examples/batch-fallible/batch-fallible.ax`, a
+program that stays as it is until someone edits it, and
 that same sweep is
 what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
@@ -250,14 +251,25 @@ onto the last content line instead of standing alone, `fn` heads stand
 alone above their bodies, `handle` operands go one per line, imports
 group without blank lines, `::` sticks to its `fn`, and nullary calls
 keep their parens — the same shapes the corpus golden's re-bless note
-names. Measured 2026-09-16 with the rebuilt compiler, the sweep answers
+names. Measured 2026-09-16 with the rebuilt compiler, the sweep answered
 71 and 591: `self_host` and `stdlib` were reformatted into the new form
 in the same change that moved it, so the 61 files there are fixed
-points; what remains unformatted is `tests`, whose fixtures are
+points; what remained unformatted was `tests`, whose fixtures are
 inputs to be transformed or spans to be pinned rather than programs
 to be tidied. One file arrived with the change itself —
 `tests/diagnostics/644-parallel-thunk-shape.ax`, HEAD's AX3064 fixture —
-and it needs formatting like almost everything else in that directory.
+and it needed formatting like almost everything else in that directory.
+
+That remainder is now formatted too, measured 2026-09-17: the 589
+`tests/**/*.ax` files the formatter accepts were reformatted in place
+into the new normal form, and their `axdl`, `human` and `json` goldens,
+the LSP goldens, and `tests/fmt/corpus-fmt.golden` were re-blessed from
+the same binary — the overlapping-hashes check holding at 69 of 69, so
+the re-bless re-keys edited files rather than moving the formatter.
+What stays unformatted is the two deliberate fixtures named below, plus
+the one example program named above. `tests/fmt/parity/*.axp` and the
+`*.axbad` refusal cases stay as they are beside them: they are the
+inputs the formatter is pinned to refuse, not programs to tidy.
 
 Over that tree, at its then 636 files, the previous printer answered
 498 and 136, and the 89 files that stopped being formatted did not

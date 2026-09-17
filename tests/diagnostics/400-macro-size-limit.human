@@ -1,8 +1,8 @@
 [1;31merror[AX3024][0m[1m: macro expansion produced more than the limit of 2000000 forms[0m
- [1;34m--> [0m400-macro-size-limit.ax:5:85
+ [1;34m--> [0m400-macro-size-limit.ax:5:76
 [1;34m  |[0m
-[1;34m5 |[0m (fn (main) (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m 1)))))))))))))))))))))))))))
-[1;34m  |[0m                                                                                     [1;31m^[0m
+[1;34m5 |[0m   (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m (m 1)))))))))))))))))))))))))))
+[1;34m  |[0m                                                                            [1;31m^[0m
 [1;34m  |[0m
  [1;34m--> [0m400-macro-size-limit.ax:1:9
 [1;34m  |[0m

@@ -20,12 +20,9 @@
 ; is the case that reported against the ENTRY file's bytes until the
 ; unit stamp reached these two emitters.
 (pub :: handBump (-> Thing Int))
-
 (pub fn (handBump v)
   (let ((tmp 1))
     {
       (set tmp 2)
       tmp
-    }
-  )
-)
+    }))

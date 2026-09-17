@@ -41,36 +41,40 @@
 ; fails on the status, and one that exited 76 in silence fails on the
 ; stderr.
 (import IO)
-
 (import Mem)
 
 (effect Console
   (log :: (-> String Int)))
 
 (:: main Int)
-
 ;@axiom:effect(io)
 (fn (main)
   {
     ; --- LEGAL: the mark is taken inside the extent ---
-    (handle {
-      (let ((m __axiom_arena_mark))
+    (handle
+      {
+        (let ((m __axiom_arena_mark))
+          {
+            (memAlloc 64)
+            (__axiom_arena_reset m)
+            (log "inner mark, reset inside the extent")
+          })
+        0
+      }
+      (Console IO Alloc Mut)
+      (lambda (s)
         {
-          (memAlloc 64)
-          (__axiom_arena_reset m)
-          (log "inner mark, reset inside the extent")
+          (println s)
+          0
         }
-      )
-      0
-    } (Console IO Alloc Mut) (lambda (s) { (println s) 0 }))
+      ))
     ; --- LEGAL: no handle in scope at all ---
     (let ((m2 __axiom_arena_mark))
       {
         (memAlloc 64)
         (__axiom_arena_reset m2)
         (println "no handle in scope")
-      }
-    )
+      })
     ; --- ILLEGAL: the mark predates the extent ---
     ;
     ; `m3` is taken before the `handle`, so the evidence record the
@@ -78,17 +82,23 @@
     ; The reset reclaims it and the `log` below would dispatch through
     ; it. This is where the process ends.
     (let ((m3 __axiom_arena_mark))
-      (handle {
-        (__axiom_arena_reset m3)
-        (log "dispatched through a freed evidence record")
-        0
-      } (Console IO Alloc Mut) (lambda (s) { (println s) 0 }))
-    )
+      (handle
+        {
+          (__axiom_arena_reset m3)
+          (log "dispatched through a freed evidence record")
+          0
+        }
+        (Console IO Alloc Mut)
+        (lambda (s)
+          {
+            (println s)
+            0
+          }
+        )))
     ; NOT REACHED, and deliberately not a bare numeral: this program's
     ; status comes from the trap rather than from its last expression,
     ; and this line is the tripwire for the check being removed - if a
     ; reset past a live handle is ever accepted again, this runs and
     ; the golden says so.
     (printlnLit (strCStr "UNREACHABLE: the reset past a live handle was accepted"))
-  }
-)
+  })

@@ -10,59 +10,46 @@
   (ICons Int IList))
 
 (:: sumList (-> IList Int))
-
 (fn (sumList l)
   (match l
     ((ICons h t) (+ h (sumList t)))
-    ((INil) 0)
-  )
-)
+    ((INil) 0)))
 
 (:: pairSum (-> IList Int))
-
 (fn (pairSum l)
   (match l
     ((ICons a (ICons b t)) (+ (+ a b) (pairSum t)))
     ((ICons a (INil)) a)
-    ((INil) 0)
-  )
-)
+    ((INil) 0)))
 
 (data Wrap
   (W IList Int))
 
 (:: unwrapLen (-> Wrap Int))
-
 (fn (unwrapLen w)
   (match w
-    ((W l k) (+ (sumList l) k))
-  )
-)
+    ((W l k) (+ (sumList l) k))))
 
 (:: main Int)
-
 (fn (main)
   (let ((three (ICons 1 (ICons 2 (ICons 3 INil)))))
     (+
-      (sumList three)      (+
-        (pairSum three)        (+
-          (unwrapLen (W three 10))          (+
-            (unwrapLen (W INil 12))            (+
+      (sumList three)
+      (+
+        (pairSum three)
+        (+
+          (unwrapLen (W three 10))
+          (+
+            (unwrapLen (W INil 12))
+            (+
               (if (==
-                (cast Int INil)                (cast Int INil)
-              )
+                (cast Int INil)
+                (cast Int INil))
                 ; 6
                 ; 6
                 ; 16
                 ; 12
                 1  ; 1
-                0
-              )              (sumList INil)
-            )
-          )
-        )
-      )
-    )
-  )
-)
+                0)
+              (sumList INil))))))))
 ; 0 -> total 41

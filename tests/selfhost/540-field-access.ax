@@ -8,9 +8,6 @@
   (y : Int))
 
 (:: main Int)
-
 (fn (main)
   (let ((p (Pt 3 9)))
-    (+ p.x p.y)
-  )
-)
+    (+ p.x p.y)))

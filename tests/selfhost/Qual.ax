@@ -10,5 +10,5 @@
   (b : Int))
 
 (pub :: twice (-> Int Int))
-
-(pub fn (twice x) (* x 2))
+(pub fn (twice x)
+  (* x 2))

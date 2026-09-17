@@ -27,8 +27,8 @@
 (entryMk fromEntryMacro)
 
 (pub :: touch Int)
-
 ; The module's own call to its own generated private declaration -
 ; which must keep working, since privacy is about what leaves the
 ; module and this call does not.
-(pub fn (touch) (+ 1 hiddenInside))
+(pub fn (touch)
+  (+ 1 hiddenInside))

@@ -1,24 +1,24 @@
 [1;31merror[AX3011][0m[1m: effect mismatch: unhandled effect `Ask`[0m
-  [1;34m--> [0m320-unhandled-effect.ax:16:12
+  [1;34m--> [0m320-unhandled-effect.ax:16:6
 [1;34m   |[0m
-[1;34m16 |[0m   (handle (mid n) (IO) (lambda (v) 0))
-[1;34m   |[0m            [1;31m^^^[0m
+[1;34m16 |[0m     (mid n)
+[1;34m   |[0m      [1;31m^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
 
 [1;31merror[AX3011][0m[1m: effect mismatch: unhandled effect `IO`[0m
-  [1;34m--> [0m320-unhandled-effect.ax:23:12
+  [1;34m--> [0m320-unhandled-effect.ax:24:6
 [1;34m   |[0m
-[1;34m23 |[0m   (handle (syscaller n) (Alloc) (lambda (v) 0))
-[1;34m   |[0m            [1;31m^^^^^^^^^[0m
+[1;34m24 |[0m     (syscaller n)
+[1;34m   |[0m      [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
 
 [1;31merror[AX3011][0m[1m: effect mismatch: unhandled effect `Alloc`[0m
-  [1;34m--> [0m320-unhandled-effect.ax:29:20
+  [1;34m--> [0m320-unhandled-effect.ax:32:8
 [1;34m   |[0m
-[1;34m29 |[0m   (handle (handle (ask n) (Ask) (lambda (v) 0)) (IO) (lambda (v) 0))
-[1;34m   |[0m                    [1;31m^^^[0m
+[1;34m32 |[0m       (ask n)
+[1;34m   |[0m        [1;31m^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
 

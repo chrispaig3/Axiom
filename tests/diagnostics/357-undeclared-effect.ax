@@ -28,50 +28,40 @@
 ; AX3042 is only for one that made no claim at all, so no declaration
 ; ever draws both.
 (import IO)
-
 (import Vec)
 
 (:: leaks (-> Int Int))
-
 (fn (leaks n)
   {
     (println "out")
     n
-  }
-)
+  })
 
 (:: declares (-> Int Int))
-
 ;@axiom:effect(io)
 (fn (declares n)
   {
     (println "out")
     n
-  }
-)
+  })
 
 (:: builds (-> Int Int))
-
 (fn (builds n)
   (let ((v vecNew))
     {
       (vecPush v n)
       (vecLen v)
-    }
-  )
-)
+    }))
 
 (:: lies (-> Int Int))
-
 ;@axiom:pure
 (fn (lies n)
   {
     (println "out")
     n
-  }
-)
+  })
 
 (:: main Int)
-
 ;@axiom:effect(io)
-(fn (main) (declares 1))
+(fn (main)
+  (declares 1))

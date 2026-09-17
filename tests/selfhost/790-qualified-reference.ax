@@ -13,14 +13,7 @@
 (import Mem)
 
 (:: main Int)
-
 (fn (main)
-  (if (>
-    (Mem::memAlloc
-      64
-    )    0
-  )
+  (if (> (Mem::memAlloc 64) 0)
     42
-    1
-  )
-)
+    1))

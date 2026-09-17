@@ -17,21 +17,21 @@
 (import Str)
 
 (:: pick (-> (String @s) (String @r) (String @r)))
-
-(fn (pick a b) a)
+(fn (pick a b)
+  a)
 
 (:: fresh (-> (String @r) (String @r)))
-
-(fn (fresh a) (strConcat a "x"))
+(fn (fresh a)
+  (strConcat a "x"))
 
 (:: same (-> (String @r) (String @r)))
-
-(fn (same a) a)
+(fn (same a)
+  a)
 
 (:: orphan (-> Int (String @q)))
-
-(fn (orphan n) "x")
+(fn (orphan n)
+  "x")
 
 (:: main Int)
-
-(fn (main) 0)
+(fn (main)
+  0)
