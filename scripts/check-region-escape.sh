@@ -169,12 +169,10 @@ import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
 old = """(pub fn (rgnCheckAll tc)
-  (if (== (rgnProgramUsesRegions tc) 0)
-    0
+  (if (== (rgnProgramUsesRegions tc) 1)
     {"""
 new = """(pub fn (rgnCheckAll tc)
-  (if (== 0 0)
-    0
+  (if (== 0 1)
     {"""
 if s.count(old) != 1:
     sys.exit("the ablation matched %d times, wanted 1" % s.count(old))

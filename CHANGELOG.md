@@ -16,6 +16,48 @@ its changelog too.
 
 ## Unreleased
 
+### S4 slice 2b: the trigger without the report — `self_host/typecheck.ax`
+
+The facts the coming call-result witness needs have to be computed
+for a region program that names no `@r`, and the ~14s fixpoint cannot
+run for every program to get them. TC word 39 (`rgnHasForm`) is set
+by `checkRegion` as a side effect of the S2 walk that already visits
+every region form, so `rgnCheckAll` reads it in O(1) with no
+additional body scan — checker-set during that walk rather than
+parser-set, because the parser has no TC to set and changing
+`parseModuleWith`'s shape touches every caller. ORed with the `@r`
+test: `@r` present means ensure facts plus the reporting pass, as
+before; a region form with no `@r` means ensure facts for the coming
+witness and no reporting pass; neither means 0. No report when only
+the form is present, because reporting there double-reports every S2
+shape (AX3059 with AX3060 on `631`, measured 2026-09-12); the
+callee-mediated hole stays open, pinned, and stated. Truncated still
+means the witness abstains. Measured on a baseline built the same
+way: `emit-llvm self_host/main.ax` byte-identical (389,450 lines
+both ways), 2.6s against 2.6s; `631` still draws only its three
+AX3059s; `479` checks OK. Held by `check-region-escape.sh`,
+`check-region-reclaim.sh` and `check-diagnostics.sh` showing no
+change, which is what a trigger alone must show.
+
+### `MM-PAR-6` held by refusal — `docs/memory-model.md`
+
+The normative section still said what a thread may capture "is not
+yet checked" and the no-cross-thread-reference clause "NOT held",
+both false since `AX3064` closed its indirection half on 2026-09-11
+and its opaque-thunk half on 2026-09-16. Every spawn thunk shape the
+checker can see is either scanned or refused — a literal lambda for
+captures, a frame-local arrow-typed name at the name, a conditional,
+a match, a `let` and a brace block walked to every lambda they can
+answer, a call result and a field at the shape — so no unrefused
+capture reaches a thread. The typed precision the design's §3.2
+describes, `MM-RGN-3` over sibling regions accepting what it proves
+safe, waits for S4; what holds now is the safety half, by refusal.
+`docs/reference.md` and `docs/status.md` already said so; the
+specification said the opposite in two places and now agrees with
+them. Held by `scripts/check-parallel.sh` section 11 (four refusals,
+three controls) and `scripts/check-diagnostics.sh` over the whole
+corpus.
+
 ### Editor-only lint Hints in the language server — `tests/lsp/100-` through `103-lint-*.ax`
 
 Three Hints the server walks the raw parse tree for and `axiom check`

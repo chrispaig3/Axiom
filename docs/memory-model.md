@@ -3734,7 +3734,14 @@ that spawns none is byte-identical to what the compiler emitted before
 the form existed, on every target: `scripts/check-thread-local.sh`
 holds the OFF path, `scripts/check-parallel.sh` measures the deltas.
 There is still no scheduler and no async; what a join hands back is a
-word; and what a thread may capture is not yet checked - `MM-PAR-6`
+word; and what a thread may capture is refused as `AX3064` at the
+occurrence - a literal-lambda thunk is scanned for captures, a thunk
+that is a frame-local name of arrow type is refused outright, a
+conditional, a match, a `let` and a brace block are walked to every
+lambda they can answer, and a call result and a field are refused at
+the shape, because their captures are not visible where the spawn
+stands (`tests/diagnostics/642`, `643` and `644`;
+`scripts/check-parallel.sh` section 11) - `MM-PAR-6`
 below says which of its clauses hold.
 
 **The atomics clause is withdrawn, and only that clause.** Since
@@ -3955,13 +3962,17 @@ this allocator's design cannot absorb.
 - **combination in argument order** - holds by construction: the
   parser joins in the order written, and a child's completion order is
   not observable through the form.
-- **no cross-thread reference, values copied or moved** - NOT held. A
-  binding's expression may capture any name in scope, and under
-  threads a captured heap value is shared with the parent, its count
-  touched from two threads with no fence. The rule that refuses this
-  is `MM-RGN-3` over sibling regions (the design's §3.2), which is why
-  the process lowering - where the same program is safe by `MM-PAR-3`
-  - is the default and threads are opt-in.
+- **no cross-thread reference, values copied or moved** - HELD BY
+  REFUSAL (`AX3064`), closed 2026-09-11 (the indirection half: a thunk
+  that is a frame-local name of arrow type) and 2026-09-16 (the
+  opaque-thunk half: a conditional, a match, a `let` and a brace block
+  walked to every lambda they can answer, a call result and a field
+  refused at the shape). Every shape the checker can see is either
+  scanned or refused, so no unrefused capture reaches a thread. The
+  typed precision the design's §3.2 describes - `MM-RGN-3` over sibling
+  regions ACCEPTING captures it proves safe - waits for S4 with
+  everything else. The process lowering - where the same program is
+  safe by `MM-PAR-3` - stays the default and threads stay opt-in.
 
 ---
 

@@ -2208,7 +2208,8 @@
   (regions : (Vec Int))
   (pairSites : Int)
   (floatOps : (Vec Int))
-  (subtypes : (Vec Int)))
+  (subtypes : (Vec Int))
+  (rgnHasForm : Int))
 
 ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
 ; walked, and word 28 was `implIdx`, every `impl` declaration
@@ -2377,6 +2378,15 @@
 ; The TYPE-name index, or 0 before it is built. Appended, for the
 ; reason every field before it was: every reader indexes this record
 ; by position. See the type namespace section.
+; Whether any `(region r ...)` form has been checked, 1 once seen and
+; 0 until then. Set by `checkRegion` as a side effect of the S2 walk
+; that already visits every region form, so `rgnCheckAll` reads it in
+; O(1) with no additional body scan. Appended, for the reason every
+; field before it was. The design note calls this slice 2b's
+; parser-set bit; it is checker-set during the existing walk instead,
+; because the parser has no TC to set and changing `parseModuleWith`'s
+; PResult shape touches every caller, while the S2 walk already sees
+; every form exactly once.
 (pub :: tcFns (-> Int Int))
 (pub fn (tcFns tc)
   (memGetWord tc 0))
@@ -2943,7 +2953,8 @@
           vecNew
           0
           vecNew
-          vecNew))))
+          vecNew
+          0))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
           ; The builtin `Option` went into `datas` before this record
@@ -6992,6 +7003,9 @@
 (pub fn (checkRegion tc e)
   (let ((name (nodeAName e)))
     {
+      ; S4 slice 2b's trigger bit: a region form has been checked. O(1),
+      ; set here because this walk already visits every such form.
+      (memSetWord tc 39 1)
       (if (>= (rgFind tc name) 0)
         (emitRegionShadow tc name (nodeC e))
         0)
@@ -21877,13 +21891,25 @@
 ; ---- the driver ----
 (pub :: rgnCheckAll (-> Int Int))
 (pub fn (rgnCheckAll tc)
-  (if (== (rgnProgramUsesRegions tc) 0)
-    0
+  (if (== (rgnProgramUsesRegions tc) 1)
     {
       (rgnEnsureFacts tc)
       (rgnPass tc (memGetWordVec tc 10) 0 1)
       0
-    }))
+    }
+    ; S4 slice 2b: a region form with no `@r` still gets its facts for
+    ; the coming witness, but no reporting pass. Reporting here would
+    ; double-report every S2 shape (AX3059 with AX3060 on 631, measured
+    ; 2026-09-12); the callee-mediated hole stays open, pinned, and
+    ; stated until one of the two ways out lands. Truncated still means
+    ; the witness abstains: `rgnEnsureFacts` records it on words 28/33
+    ; and the future elision keeps every release.
+    (if (== (memGetWord tc 39) 1)
+      {
+        (rgnEnsureFacts tc)
+        0
+      }
+      0)))
 
 ; The facts fixpoint, run once per module and on first demand - the
 ; region pass demands it, and so does a `restrict(no-escape)` claim

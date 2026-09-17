@@ -600,6 +600,26 @@ a body scan on every check. That is slice 2b's shape: a parser-set
 bit, ORed with the `@r` test, with truncated still meaning the
 witness abstains and codegen keeps every release.
 
+**Slice 2b, BUILT 2026-09-17 - the trigger, without the report.** TC
+word 39 (`rgnHasForm`) is set by `checkRegion` as a side effect of
+the S2 walk that already visits every region form, so `rgnCheckAll`
+reads it in O(1) with no additional body scan. It is checker-set
+during that walk rather than parser-set, because the parser has no TC
+to set and changing `parseModuleWith`'s PResult shape touches every
+caller, while the S2 walk already sees every form exactly once.
+ORed with the `@r` test: `@r` present means ensure facts plus the
+reporting pass, as before; a region form with no `@r` means ensure
+facts for the coming witness and no reporting pass; neither means 0.
+No report when only the form is present, because reporting there
+double-reports every S2 shape (AX3059 with AX3060 on 631, measured
+2026-09-12); the callee-mediated hole below stays open, pinned, and
+stated. Truncated still means the witness abstains:
+`rgnEnsureFacts` records it on words 28/33 and the future elision
+keeps every release. Measured on a baseline built the same way:
+`emit-llvm self_host/main.ax` byte-identical (389,450 lines both
+ways), 2.6s against 2.6s; 631 still draws only its three AX3059s;
+479 checks OK.
+
 **The adjacent hole, recorded and not fixed here.** A
 callee-mediated store of a fresh construction into an outer cell
 from inside an UN-annotated region is unchecked: `rgnCheckAll` runs
