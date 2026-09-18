@@ -51,16 +51,14 @@
 #      that moved anything else broke the program instead of
 #      restoring the traffic. Cost: one extra compiler build, the
 #      price `check-region-scope.sh` pays for the same reason.
-#   5. THE ADJACENT HOLE, BEHAVING IDENTICALLY. A callee-mediated
+#   5. THE ADJACENT HOLE, CLOSED AND PINNED. A callee-mediated
 #      store of a fresh construction into an outer cell from inside
-#      a region is unchecked today (`rgnCheckAll` runs only under
-#      `@r` signatures): it checks OK and reads back wrong, with
-#      every gate green. That hole is NOT this slice - the reset
-#      frees unconditionally, so eliding changes nothing there - and
-#      this check pins that it changes nothing: the probe built by
-#      this compiler and by the ablated one prints the same bytes
-#      with the same exit. If both refuse to build (the day the
-#      checker learns the shape) that is identical too, and passes.
+#      a region used to check OK and read back wrong, with
+#      every gate green. S3's reporting walk now runs for
+#      region-form programs too, and refuses the probe under both
+#      compilers: the probe built by this compiler and by the ablated
+#      one is refused identically. If the hole ever reopened so both
+#      built again, identical answers would still pass.
 #      Recorded in the design note's S4 subsection, not fixed here.
 #
 # What this gate does NOT cover, stated rather than left to be
@@ -300,14 +298,15 @@ fi
 
 # ---------------------------------------------------------------
 echo
-echo "== 5. the adjacent hole behaves identically either way =="
+echo "== 5. the adjacent hole, closed, refuses identically either way =="
 # ---------------------------------------------------------------
 # A callee-mediated store of a fresh construction into an outer cell
-# from inside a region is unchecked today and reads back wrong. NOT
-# this slice: the reset frees unconditionally, so the elision cannot
-# change the outcome - and this pins that it does not. If both
-# compilers refuse to build (the day the checker learns the shape)
-# that refusal is itself identical, and passes.
+# from inside a region was the adjacent hole: unchecked, reading back
+# wrong, every gate green. S3's reporting walk closes it - both
+# compilers refuse the probe, which is what passes here. The elision
+# cannot change the outcome either way, since the reset frees
+# unconditionally; if the hole ever reopened, identical answers under
+# both compilers would still pass.
 cat > "$work/evil.ax" <<'AX'
 (import IO)
 

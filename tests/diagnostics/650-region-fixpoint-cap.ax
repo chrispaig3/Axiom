@@ -1,25 +1,28 @@
-; The region fixpoint has a round cap, and reaching it is not proof.
+; The region fixpoint is bounded by the program, not by a constant.
 ;
-; `rgnRounds` walks every `fn` until no fact moves, or until 40 rounds
-; have passed. Both outcomes used to answer 0, so `restrictNoEscape`
-; could not tell a claim the walk PROVED from one it ABANDONED - and it
-; read the abandoned one as a silence, which is what a proven claim
-; looks like.
+; `rgnRounds` walks every `fn` until no fact moves, with the bound at
+; `(vecLen decls) + 1`. Before 2026-09-17 the bound was a bare 40, and
+; both outcomes answered 0, so `restrictNoEscape` could not tell a
+; claim the walk PROVED from one it ABANDONED - and it read the
+; abandoned one as a silence, which is what a proven claim looks
+; like.
 ;
-; MEASURED before the fix, on this exact shape: a chain of depth 38 was
-; refused with AX3049 and a chain of depth 39 was ACCEPTED IN SILENCE,
-; on a leaf that provably stores a fresh allocation into its parameter.
+; MEASURED before that fix, on this exact shape: a chain of depth 38
+; was refused with AX3049 and a chain of depth 39 was ACCEPTED IN
+; SILENCE, on a leaf that provably stores a fresh allocation into its
+; parameter.
 ;
 ; DECLARATION ORDER IS WHY THIS HID. `rgnPass` walks the declaration
 ; list in order, so when a callee is declared ABOVE its caller the facts
 ; travel the whole chain in one pass and any depth converges in two.
 ; This file declares each callee BELOW its caller, so exactly one level
-; propagates per pass and the chain outruns the cap. Written the other
-; way round, this same program is refused at any depth.
+; propagates per pass - past the old cap, within the new bound.
+; Written the other way round, this same program is refused at any
+; depth, under either bound.
 ;
-; So: `top` gets AX3051, a warning - the claim is unproven, not
-; disproven - and `topStrict` gets AX3057, because `strict` means an
-; unproven claim is refused.
+; So, since the fix: `top` gets AX3049, refuted - the claim is
+; disproven, through `f42` - and `topStrict` gets AX3049 too, because
+; there is nothing unproven left for `strict` to refuse.
 (import Vec)
 (import Str)
 

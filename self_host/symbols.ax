@@ -1189,10 +1189,13 @@
 ; it is `rgnEnsureFacts` over 4,095 symbols. That is a flag, never a
 ; default.
 ;
-; WHY `#mir-truncated` IS NOT OPTIONAL. `rgnRounds` caps at 40 rounds
-; and, until this release, returned in silence; a chain deeper than
-; the cap stops propagating before the fixpoint converges and the
-; facts that come out are an UNDER-approximation. `#mir-escapes=` is
+; WHY `#mir-truncated` IS NOT OPTIONAL. `rgnRounds` capped at 40 rounds
+; until 2026-09-17 and, before that, returned in silence; a chain deeper
+; than the cap stops propagating before the fixpoint converges and the
+; facts that come out are an UNDER-approximation. The bound is the
+; program's own size now, so the truncation is a net no program
+; reaches - but the key stays, because a net removed is a silence
+; reintroduced the day a walk stops converging for a new reason. `#mir-escapes=` is
 ; therefore a lower bound in exactly the sense `#effects=` is, and it
 ; gets the same treatment `#effects-incomplete` gets: its own meta,
 ; saying something about the LIST rather than naming a member of it.

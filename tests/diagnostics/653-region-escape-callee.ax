@@ -1,0 +1,43 @@
+; MM-RGN-3 over an UN-annotated region, through a callee
+; (docs/memory-model-v2-design.md §4). S2's scope check cannot see a
+; store a callee makes through its parameter, so before this fix the
+; program below checked OK and read back wrong with every gate green
+; (the adjacent hole S4's gates pinned as identical-either-way). S3's
+; reporting walk now runs for region-form programs too, and refuses
+; the call with AX3060 naming the parameter and the store path.
+; Direct stores keep their single AX3059 (631), which this file does
+; not repeat: S2 records its refused store spans and S3 suppresses
+; the same-store double.
+(import IO)
+
+(data Box
+  (MkBox Int))
+
+(struct Cell
+  (mut b : Box))
+
+(:: evil (-> Cell Box Int))
+(fn (evil c x)
+  {
+    (set c.b x)
+    0
+  })
+
+(:: getInner (-> Box Int))
+(fn (getInner o)
+  (match o
+    ((MkBox x) x)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((c (Cell (MkBox 0))))
+    {
+      (region r
+        {
+          (evil c (MkBox 1))
+          0
+        })
+      (println (getInner c.b))
+      0
+    }))

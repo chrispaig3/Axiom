@@ -50,8 +50,14 @@
 #
 #   4. THE ABLATION. The tree is copied, `rgTyScalar` in
 #      self_host/typecheck.ax is made to answer 1 for every type - the
-#      refusal still exists, still runs, and never fires - and a
-#      compiler is built from it. The program check 3 refuses then
+#      refusal still exists, still runs, and never fires - and S3's
+#      region-form reporting is silenced the same way (its report
+#      flag back to 0 on the region-form branch, the rule still
+#      running beside the stamp walk and answering nothing). Both
+#      blinds are needed since the callee-mediated fix: S2's
+#      blindness alone no longer accepts the probe, because S3 sees
+#      the store through the facts rather than the scalar test - and
+#      a compiler is built from it. The program check 3 refuses then
 #      compiles, runs, and prints the NEXT allocation's bytes where it
 #      meant to print its own: `hello world`, stored into an outer
 #      binding from inside a region and read after a fresh string of
@@ -215,7 +221,7 @@ fi
 # ---------------------------------------------------------------
 # 4. the ablation: accept everything, and read freed memory
 # ---------------------------------------------------------------
-echo "== 4. ablation: rgTyScalar answering 1 lets a program read freed memory =="
+echo "== 4. ablation: both guards blinded lets a program read freed memory =="
 cat > "$work/esc.ax" <<'EOF'
 (import IO)
 
@@ -274,6 +280,24 @@ while depth > 0:
     k += 1
 new = head + "  1\n)\n"
 open(p, "w", encoding="utf-8").write(s[:i] + new + s[k:].lstrip("\n"))
+# Second blind, same discipline: S3's region-form reporting would
+# refuse the probe through the facts (AX3060) with S2's scalar test
+# blinded, so the ablation silences that branch's report flag too -
+# the walk still runs, still stamps, and diagnoses nothing. Anchored
+# on the tc39 branch, and only it: the `@r` branch above keeps its
+# reporting. Read fresh: the first splice moved every index after
+# it, so offsets computed before the re-read would land mid-line.
+s = open(p, encoding="utf-8").read()
+branch = "(if (== (memGetWord tc 39) 1)"
+b = s.find(branch)
+if b < 0:
+    sys.exit("the tc39 branch moved, wanted 1")
+call = "(rgnPass tc (memGetWordVec tc 10) 0 1)"
+c = s.find(call, b)
+if c < 0:
+    sys.exit("the tc39 report-1 walk moved, wanted 1")
+s = s[:c] + "(rgnPass tc (memGetWordVec tc 10) 0 0)" + s[c+len(call):]
+open(p, "w", encoding="utf-8").write(s)
 PY
 checks=$((checks + 1))
 if [[ $? -ne 0 ]]; then

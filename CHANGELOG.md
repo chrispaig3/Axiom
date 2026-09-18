@@ -16,6 +16,52 @@ its changelog too.
 
 ## Unreleased
 
+### The region fixpoint is bounded by the program, not by 40 — `scripts/check-mir-projection.sh`
+
+`rgnRounds` capped at a bare 40 rounds, so a call chain deeper than
+that stopped propagating before converging - and, until the silence
+fix, the walk treated the under-approximation as final: measured
+2026-09-03, `restrict(no-escape)` on the head of a generated chain
+was refused at depth 39 and accepted at 40 and beyond, a claim the
+analysis could itself refute one round later. The bound is
+`(vecLen decls) + 1` now, as `inferEffects` passes it: a chain is
+never longer than the declaration list holding it, so every real
+program converges and the cap is the safety net it always was. The
+truncation machinery stays exactly as it is - word 28 goes to 2,
+`#mir-truncated` prints, `restrictNoEscape` stays unverifiable on an
+abandoned fixpoint - a net no program reaches. The gate that watched
+the old boundary watches the new behavior instead: no sentinel at
+depth 5 or 60, with the escape carried all the way to `f0`'s row at
+60 (the propagation the old cap cut off), plus a benign chain the
+f0-escape assertion must stay red on. The worklist over
+`callersIdxBuild` stays future work: it buys speed on adversarial
+declaration orders, and this buys correctness on every order. No new
+top-level function; converged modules stop early, so the fixpoint
+costs what it cost. Calls no new gate.
+
+### The adjacent hole is closed: S3 reports region-form programs — `tests/diagnostics/653-region-escape-callee.ax`
+
+A callee-mediated store of a fresh value into an outer cell from an
+un-annotated region checked OK and read back wrong with every gate
+green (`rgnCheckAll` reported only under `@r` signatures). The facts
+were already computed for the witness; only the diagnostics were
+gated. S3's reporting walk now runs for region-form programs too,
+and refuses the call with a precise AX3060 naming the parameter and
+the store path. The double-report this used to cause (AX3059 with
+AX3060 on 631) is suppressed, not retired: S2 records its refused
+store spans on a new TC word and the reporting walk skips those
+spans - one vector both passes share, exact-span match, each shape
+keeping its diagnostic. No code retired, no S2 count re-derived, and
+the fixpoint still runs only where a region form or `@r` asks for
+it. `631` keeps its three AX3059s (two rows re-blessed for the
+help text, which no longer calls the callee-mediated store the
+program's obligation); the six S4 gates' evil probes, written for
+the day both compilers refuse, take the refusal arm; and
+`scripts/check-region-scope.sh`'s ablation blinds both guards now, since
+S2's blindness alone no longer accepts the probe. Calls no new
+gate; the count sites still state seventy-seven gates, and the
+battery still has ninety-three.
+
 ### S4 slice 4, scrutinee path: fresh match scrutinees are reset-reclaimed — `scripts/check-region-scrutinee.sh`
 
 The last position holding a birth the earlier slices cannot see: a

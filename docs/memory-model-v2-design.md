@@ -773,31 +773,40 @@ bringing all eight back. Both ablations are path-specific on
 purpose - ablating the shared stamp would restore traffic the
 walker under test never owned.
 
-**The adjacent hole, recorded and not fixed here.** A
-callee-mediated store of a fresh construction into an outer cell
-from inside an UN-annotated region is unchecked: `rgnCheckAll` runs
-only under `@r` signatures, so the program checks OK and reads back
-wrong (measured: stores 1, reads 0 after reuse, every gate green -
-the textual half is what S2's AX3059 refuses). The elision is
-outcome-identical there, because the reset frees unconditionally,
-and the gate pins that identity rather than the wrongness: the
-probe built by both compilers prints the same bytes with the same
-exit. S3's "over EVERY body" overclaims until this closes; the fix
-belongs to the checker, not to this slice.
+**The adjacent hole, CLOSED 2026-09-17.** A callee-mediated store
+of a fresh construction into an outer cell from inside an
+UN-annotated region used to check OK and read back wrong (measured:
+stored 1, read 0 after reuse, every gate green). S3's reporting
+walk now runs for region-form programs too - the facts were already
+computed for the witness, only the diagnostics were gated - and
+refuses the call with a precise AX3060 naming the parameter and the
+store path (`tests/diagnostics/653-region-escape-callee.ax`). S2
+records its refused store spans on TC word 41 and the reporting
+walk suppresses the same-store double, so each shape still draws
+exactly one diagnostic: 631 keeps its three AX3059s, the evil shape
+draws one AX3060, and the six S4 gates' evil probes - written for
+the day both compilers refuse - take the refusal arm. The elision
+stays outcome-identical there, because the reset frees
+unconditionally. S3's "over EVERY body" holds now, including the
+bodies no signature annotates.
 
 **Why the fix is not "run `rgnCheckAll` everywhere", measured
-2026-09-12.** Forcing the trigger on (one line) refuses the evil
-shape with a precise AX3060 - and is silent across self_host,
-stdlib and 558 test files EXCEPT `tests/diagnostics/631`, where it
-adds two AX3060s on top of the two AX3059s S2 already draws at
-52:16 and 58:18. Same store, two diagnostics: the S3 walk covers
-the textual shapes S2 owns, so a universal trigger double-reports
-every one of them. The ways out are retiring AX3059 into the walk
-(a diagnostic code retired, the S2 gate's counts re-derived, the
-fixpoint paid on every program) or suppressing one finding where
-the other fires (span coordination this tree has refused to build
-twice) - neither is this slice, and neither is free. Until one
-lands the hole above stays open, pinned, and stated.
+2026-09-12 - and what landed instead.** Forcing the trigger on (one
+line) refuses the evil shape with a precise AX3060 - and is silent
+across self_host, stdlib and 558 test files EXCEPT
+`tests/diagnostics/631`, where it adds two AX3060s on top of the two
+AX3059s S2 already draws at 52:16 and 58:18. Same store, two
+diagnostics: the S3 walk covers the textual shapes S2 owns, so a
+universal trigger double-reports every one of them. The ways out
+were retiring AX3059 into the walk (a diagnostic code retired, the
+S2 gate's counts re-derived, the fixpoint paid on every program) or
+suppressing one finding where the other fires. What landed is the
+second, in its smallest form: not span coordination between two
+walk architectures, but S2 recording the spans it refused and S3
+skipping those spans - one vector on the TC record both passes
+already share, an exact-span match, each shape keeping its own
+diagnostic. No code retired, no S2 count re-derived, and the
+fixpoint still runs only where a region form or `@r` asks for it.
 
 **S3 as built, 2026-09-03 — what it is and what it is not.** Every
 signature may name regions, `(Vec String @r)`, and the rule of §2.3 is

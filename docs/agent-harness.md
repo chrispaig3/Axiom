@@ -470,13 +470,15 @@ row is the summary being interprocedural rather than local.
 This is a *lower bound*, and it says so in the stream rather than in a
 document. `#mir-incomplete` is the per-row admission — this body called
 something the walk could not resolve — and `#mir-truncated` is the
-whole-module one: the facts fixpoint stopped at `rgnRounds`' 40-round
-cap instead of converging. That cap is reached, and until this release
-it was silent: measured 2026-09-03 on a generated chain whose leaf
+whole-module one: the facts fixpoint stopped at `rgnRounds`' round cap
+instead of converging. That cap was a bare 40, reached and until this
+release silent: measured 2026-09-03 on a generated chain whose leaf
 stores a fresh allocation into its parameter, `restrict(no-escape)` on
-the head is refused at depth 39 and **accepted** at depth 40.
-`scripts/check-mir-projection.sh` pins the sentinel to that boundary,
-and `docs/mir-design.md` §4.1 is the record of it.
+the head is refused at depth 39 and **accepted** at depth 40. Since
+2026-09-17 the bound is the program's own size and every depth refuses;
+`scripts/check-mir-projection.sh` pins absence at depth 5 and at depth
+60 with the escape on `f0`'s row, and `docs/mir-design.md` §4.1 is the
+record of it.
 
 `--mir` is off by default for the same reason `--calls` is, and for a
 second one: it *forces* a walk that otherwise never runs. Measured

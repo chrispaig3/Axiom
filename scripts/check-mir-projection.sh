@@ -60,16 +60,20 @@
 #
 #   THE SENTINELS ARE REAL. `#mir-truncated` says the module's facts
 #   fixpoint stopped at `rgnRounds`' round cap instead of converging,
-#   which makes every row on the page a lower bound. That cap is a bare
-#   40 and it is reached: measured 2026-09-03 on generated chains
+#   which makes every row on the page a lower bound. That cap was a
+#   bare 40 and it was reached: measured 2026-09-03 on generated chains
 #   f0 -> ... -> fN whose leaf stores a fresh allocation into its
-#   parameter, `check` reports AX3049 at depth 39 and prints OK at depth
-#   40, accepting a `restrict(no-escape)` claim the analysis can itself
-#   refute one round later. This gate pins the sentinel to that
-#   boundary: present at depth 41, absent at depth 5. It is the only
-#   thing in the tree that watches the cap at all, and when the region
-#   workstream replaces the constant with `inferEffects`' bound, these
-#   two assertions are what say whether it worked.
+#   parameter, `check` reported AX3049 at depth 39 and printed OK at
+#   depth 40, accepting a `restrict(no-escape)` claim the analysis could
+#   itself refute one round later. The bound is the program's own size
+#   since 2026-09-17 (`len(decls)+1`, as `inferEffects` passes it), so
+#   a chain - never longer than the declaration list holding it -
+#   always converges, and the sentinel is a net no program reaches.
+#   This gate pins that instead: absent at depth 5, absent at depth 60
+#   with the escape carried all the way to f0's row (the propagation
+#   the old cap cut off), and the recording path still punished when
+#   forged. It is the only thing in the tree that watches the cap at
+#   all.
 #
 # WHY IT RUNS WITHOUT `--builtins`. A builtin has no body and therefore
 # no facts; `symMirMetas` skips it and the record would carry no
@@ -85,7 +89,8 @@
 #   2. TOTALITY - a record deleted for a row that has one.
 #   3. SILENCE - both guards removed at once (see above); one alone is
 #      not enough and leaves this gate green.
-#   4. SENTINEL - the depth-41 assertion run against the depth-5 output.
+#   4. SENTINEL - the f0-escape assertion run against a chain whose
+#      leaf stores nothing.
 
 set -euo pipefail
 
@@ -322,12 +327,13 @@ PY
 
 echo
 echo "== the sentinels: #mir-truncated tracks rgnRounds' round cap =="
-# The cap is a bare 40 in `rgnRounds`. A chain deeper than it stops
-# propagating before the fixpoint converges, and the facts that come out
-# are an under-approximation - so the sentinel is what stops the
-# projection publishing a lower bound as a guarantee. Both directions
-# are asserted: a shallow program must NOT carry it, or the sentinel is
-# noise, and a deep one must, or it is decoration.
+# The bound is the program's own size (`len(decls)+1`), so a chain -
+# never longer than the declaration list holding it - always
+# converges, and the sentinel is a net no program reaches. Both
+# directions are asserted: a shallow program must NOT carry it, or
+# the sentinel is noise, and a 60-deep chain must neither carry it
+# nor lose the escape on the way up - f0's row proving the
+# propagation the old bare-40 cap cut off.
 mkchain() {
   local depth="$1" out="$2" i
   { printf '(import Mem)\n\n'
@@ -343,27 +349,26 @@ mkchain() {
   } > "$out"
 }
 mkchain 5  "$work/d5.ax"
-mkchain 41 "$work/d41.ax"
+mkchain 60 "$work/d60.ax"
 ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" \
     "$axc" --diagnostic-format=ai symbols --mir d5.ax ) > "$work/d5.axsym"
 ( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" \
-    "$axc" --diagnostic-format=ai symbols --mir d41.ax ) > "$work/d41.axsym"
+    "$axc" --diagnostic-format=ai symbols --mir d60.ax ) > "$work/d60.axsym"
 
 t5=$(grep -c '#mir-truncated' "$work/d5.axsym" || true)
-t41=$(grep -c '#mir-truncated' "$work/d41.axsym" || true)
+t60=$(grep -c '#mir-truncated' "$work/d60.axsym" || true)
 if (( t5 != 0 )); then
   echo "FAIL: a call chain of depth 5 reported #mir-truncated on $t5 rows. The"
   echo "      fixpoint converges long before the cap at that depth, so the"
   echo "      sentinel is firing unconditionally and says nothing."
   exit 1
 fi
-if (( t41 == 0 )); then
-  echo "FAIL: a call chain of depth 41 reported no #mir-truncated. rgnRounds caps"
-  echo "      at 40 rounds and returns in silence; measured 2026-09-03, this"
-  echo "      exact program has \`restrict(no-escape)\` ACCEPTED on f0 at depth 40"
-  echo "      and refused at 39. Either the cap moved - in which case move this"
-  echo "      assertion with it and say what the new bound is - or the sentinel"
-  echo "      stopped being recorded, and the projection is publishing an"
+if (( t60 != 0 )); then
+  echo "FAIL: a call chain of depth 60 reported #mir-truncated on $t60 rows. The"
+  echo "      bound is the program's own size, so a chain converges at any"
+  echo "      depth it can be written at; the sentinel firing means the"
+  echo "      bound stopped being the program's size, or the fixpoint stopped"
+  echo "      converging, and the projection is publishing an"
   echo "      under-approximation as a guarantee."
   exit 1
 fi
@@ -376,7 +381,17 @@ if ! grep -q '#mir-escapes=p' "$work/d5.axsym"; then
   grep '^F f' "$work/d5.axsym" | head -6 | sed 's/^/     /'
   exit 1
 fi
-echo "ok   absent at depth 5 ($(grep -c '#mir-escapes=p' "$work/d5.axsym") rows carry the escape), present on $t41 rows at depth 41"
+# And all the way up the deep chain: f0's row must carry the escape the
+# old cap never let it reach. A fixpoint that converges without
+# propagating is a walk that agreed with itself too early.
+if ! grep '^F f0 ' "$work/d60.axsym" | grep -q '#mir-escapes=p'; then
+  echo "FAIL: the depth-60 chain stores a fresh allocation at its leaf and"
+  echo "      f0's row does not say so. The bound may have moved, or the"
+  echo "      walk may converge before the facts arrive."
+  grep '^F f0 ' "$work/d60.axsym" | sed 's/^/     /'
+  exit 1
+fi
+echo "ok   absent at depth 5 ($(grep -c '#mir-escapes=p' "$work/d5.axsym") rows carry the escape), absent at depth 60 with the escape on f0's row"
 
 echo
 echo "== negative probes: every assertion can go red =="
@@ -466,12 +481,27 @@ if ! grep -q '#mir-' "$work/leaky.axsym"; then
 fi
 echo "ok   silence looks for a token that a forged stream really carries"
 
-# 4. THE SENTINEL assertion, pointed at the wrong depth.
-if (( $(grep -c '#mir-truncated' "$work/d5.axsym" || true) != 0 )); then
-  echo "FAIL: unreachable"
+# 4. THE F0-ESCAPE assertion, pointed at a chain that stores nothing.
+{ printf '(import Mem)\n\n'
+  for (( i = 0; i < 60; i++ )); do
+    printf '(:: g%d (-> Int Int))\n\n' "$i"
+    if (( i == 59 )); then
+      printf '(fn (g%d p) 0)\n\n' "$i"
+    else
+      printf '(fn (g%d p) (g%d p))\n\n' "$i" "$(( i + 1 ))"
+    fi
+  done
+  printf '(:: main Int)\n\n(fn (main) 0)\n'
+} > "$work/d60benign.ax"
+( cd "$work" && AXIOM_STDLIB="$repo_root/stdlib" \
+    "$axc" --diagnostic-format=ai symbols --mir d60benign.ax ) > "$work/d60benign.axsym"
+if grep '^F g0 ' "$work/d60benign.axsym" | grep -q '#mir-escapes=p'; then
+  echo "FAIL: a chain whose leaf stores nothing carries #mir-escapes=p on g0 -"
+  echo "      the f0-escape assertion above would pass on a program that"
+  echo "      computes no escape, so it proves nothing about propagation."
   exit 1
 fi
-echo "ok   the sentinel assertion distinguishes depth 5 from depth 41"
+echo "ok   the f0-escape assertion is red on a chain that stores nothing"
 
 echo
 echo "ok   check-mir-projection: $rows rows, $withmir summaries, all four properties"

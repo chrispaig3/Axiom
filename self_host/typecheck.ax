@@ -2210,7 +2210,8 @@
   (floatOps : (Vec Int))
   (subtypes : (Vec Int))
   (rgnHasForm : Int)
-  (rgnStamping : Int))
+  (rgnStamping : Int)
+  (rgnRefused : (Vec Int)))
 
 ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
 ; walked, and word 28 was `implIdx`, every `impl` declaration
@@ -2394,6 +2395,12 @@
 ; while facts are still moving, so the report value cannot distinguish
 ; them; this word can. Appended, for the reason every field before it
 ; was.
+; The spans where S2 refused a store (AX3059 shapes b/c), so S3's
+; reporting walk can suppress the same-store double (AX3060) while
+; reporting everything S2 cannot see - a store hidden behind a call.
+; S2 runs during `tcWalkDecls`, S3 after it, same TC, so the set is
+; complete before the first suppression is asked. Appended, for the
+; reason every field before it was.
 (pub :: tcFns (-> Int Int))
 (pub fn (tcFns tc)
   (memGetWord tc 0))
@@ -2962,7 +2969,8 @@
           vecNew
           vecNew
           0
-          0))))
+          0
+          vecNew))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
           ; The builtin `Option` went into `datas` before this record
@@ -6940,6 +6948,17 @@
 (pub :: emitRegionStoreEscape (-> Int String String Int Int Int))
 (pub fn (emitRegionStoreEscape tc rname bname ty span)
   {
+    ; The span joins the refused set S3's reporting walk suppresses:
+    ; S2 owns the direct store, so S3 reporting the same store would
+    ; draw the same refusal twice (AX3059 with AX3060 on 631). A zero
+    ; span is not recorded - it renders nowhere, so nothing printable
+    ; can collide with it.
+    (if (!= span 0)
+      {
+        (vecPush (memGetWordVec tc 41) span)
+        0
+      }
+      0)
     (emitDiag tc (diagSetLabel (mkDiagNote
       SEV_ERROR
       "AX3059"
@@ -6949,7 +6968,7 @@
       0
       0
       "a reference allocated inside the region would outlive it: store a scalar, or bind the target inside the region"
-      "a store is the one escape channel a scope check can see; a call that stores the value for you is the program's obligation (docs/memory-model.md MM-ALLOC-16) until typed regions") "this store leaves the region"))
+      "a store is the one escape channel a scope check can see; a call that stores the value for you is refused too, where the facts walk sees it") "this store leaves the region"))
     0
   })
 
@@ -20917,30 +20936,48 @@
     0
     (if (== bad 0)
       0
-      (let (
-        (v (/ (- bad 1) 64))
-        (t (% (- bad 1) 64))
-        (capBad (rgnCaptureBad rc valNode (% (- bad 1) 64)))
-      )
-        (if (== capBad 0)
-          (emitDiag (rgnTc rc) (mkDiag
-            SEV_ERROR
-            "AX3060"
-            "region-escape"
-            span
-            (strConcat (strConcat (strConcat (strConcat (rgnOriginTextComma rc v) " is stored into ") into) (strConcat ", which lives in " (rgnRidText rc t))) how)
-            0
-            0
-            "MM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region"))
-          (emitDiag (rgnTc rc) (mkDiag
-            SEV_ERROR
-            "AX3062"
-            "region-capture"
-            span
-            (strConcat (strConcat (strConcat (strConcat (strConcat "the closure captures `" (rgnCaptureFor rc valNode (/ (- capBad 1) 64))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64)))) (strConcat ", and is stored into " into)) (strConcat (strConcat ", which lives in " (rgnRidText rc t)) how))
-            0
-            0
-            "MM-RGN-3 for a closure: a lambda's region is the region it is created in AND the region of everything it captures, because its record holds a reference to each capture. It may be stored only where every capture outlives the place. Capture a copy made in the place's region, or stop capturing the short-lived value")))))))
+      ; S2 refused this exact store already (AX3059): reporting it
+      ; again as AX3060 would draw the same refusal twice (631).
+      ; set holds S2's store spans, so a callee-mediated store - no
+      ; S2 finding anywhere near it - still reports. Inlined loop,
+      ; nothing allocated: no new top-level function moves the
+      ; effect-distribution pins.
+      (let ((mut i 0))
+        (let ((mut hit 0))
+          (let ((w 
+            (while (< i (vecLen (memGetWordVec (rgnTc rc) 41)))
+              {
+                (if (== (vecGet (memGetWordVec (rgnTc rc) 41) i) span)
+                  (set hit 1)
+                  0)
+                (set i (+ i 1))
+              })))
+            (if (== hit 1)
+              0
+              (let (
+                (v (/ (- bad 1) 64))
+                (t (% (- bad 1) 64))
+                (capBad (rgnCaptureBad rc valNode (% (- bad 1) 64)))
+              )
+                (if (== capBad 0)
+                  (emitDiag (rgnTc rc) (mkDiag
+                    SEV_ERROR
+                    "AX3060"
+                    "region-escape"
+                    span
+                    (strConcat (strConcat (strConcat (strConcat (rgnOriginTextComma rc v) " is stored into ") into) (strConcat ", which lives in " (rgnRidText rc t))) how)
+                    0
+                    0
+                    "MM-RGN-3 (docs/memory-model-v2-design.md): a value may be stored only into a place its own region OUTLIVES, because the place is still readable after the value's region has been reclaimed. A region named in a signature (`@r`) outlives the function's own region and is unordered against another name; the function's own region is its caller's. Keep the value in the region of the place it is stored into - allocate it there, or copy it there - or widen the place's annotation to the value's region"))
+                  (emitDiag (rgnTc rc) (mkDiag
+                    SEV_ERROR
+                    "AX3062"
+                    "region-capture"
+                    span
+                    (strConcat (strConcat (strConcat (strConcat (strConcat "the closure captures `" (rgnCaptureFor rc valNode (/ (- capBad 1) 64))) "`, which lives in ") (rgnRidText rc (rgnOriginRid rc (/ (- capBad 1) 64)))) (strConcat ", and is stored into " into)) (strConcat (strConcat ", which lives in " (rgnRidText rc t)) how))
+                    0
+                    0
+                    "MM-RGN-3 for a closure: a lambda's region is the region it is created in AND the region of everything it captures, because its record holds a reference to each capture. It may be stored only where every capture outlives the place. Capture a copy made in the place's region, or stop capturing the short-lived value")))))))))))
 
 ; ---- the environment ----
 (pub :: rgnBind (-> Int String Int Int Int))
@@ -22029,20 +22066,23 @@
       (memSetWord tc 40 0)
       0
     }
-    ; S4 slice 2b: a region form with no `@r` still gets its facts for
-    ; the coming witness, but no reporting pass. Reporting here would
-    ; double-report every S2 shape (AX3059 with AX3060 on 631, measured
-    ; 2026-09-12); the callee-mediated hole stays open, pinned, and
-    ; stated until one of the two ways out lands. Truncated still means
-    ; the witness abstains: `rgnEnsureFacts` records it on words 28/33
-    ; and the stamp walk below stamps nothing. The report-0 walk
-    ; stamps without diagnosing, which is the whole of what slice 2
-    ; needs from a program with nothing annotated.
+    ; A region form with no `@r` gets its facts for the witness, and
+    ; since this fix its reporting pass too: a store hidden behind a
+    ; call is invisible to S2's scope check, and only the facts walk
+    ; can refuse it. Reporting here used to double-report every S2
+    ; shape (AX3059 with AX3060 on 631, measured 2026-09-12); S2 now
+    ; records its refused store spans on TC word 41 and `rgnEmitEscape`
+    ; suppresses the same-store double, so each shape draws exactly
+    ; one diagnostic. Truncated still means the witness abstains:
+    ; `rgnEnsureFacts` records it on words 28/33 and the stamp walk
+    ; below stamps nothing.
+    ; (Reporting on truncated facts can under-report a deep chain -
+    ; the fixpoint's round cap is the next fix, not this one.)
     (if (== (memGetWord tc 39) 1)
       {
         (rgnEnsureFacts tc)
         (memSetWord tc 40 1)
-        (rgnPass tc (memGetWordVec tc 10) 0 0)
+        (rgnPass tc (memGetWordVec tc 10) 0 1)
         (memSetWord tc 40 0)
         0
       }
@@ -22060,42 +22100,46 @@
       (memSetWord tc 28 1)
       ; Word 33 is the fixpoint's own verdict: 1 when it gave up. Kept
       ; beside word 28 ("has run") because "ran" and "converged" are
-      ; different facts and only one of them licenses a silence.
-      (memSetWord tc 33 (rgnRounds tc (memGetWordVec tc 10) 0))
+      ; different facts and only one of them licenses a silence. The
+      ; bound is the program's own size, as `inferEffects` passes it:
+      ; a monotone chain over N functions needs up to N rounds, so
+      ; `len+1` converges every real program and the cap below is the
+      ; safety net it always was, not a number any program reaches.
+      (let ((decls (memGetWordVec tc 10)))
+        (memSetWord tc 33 (rgnRounds tc decls 0 (+ (vecLen decls) 1))))
       0
     }))
 
-; THE ROUND CAP IS A TRUNCATION, AND IT IS NOW RECORDED.
+; THE ROUND CAP WAS A TRUNCATION, AND THE BOUND IS THE PROGRAM NOW.
 ;
-; 40 is a bare constant, not a bound derived from the program. A
+; 40 was a bare constant, not a bound derived from the program. A
 ; monotone chain fixpoint over N functions needs up to N rounds, so a
-; call chain deeper than the cap stops propagating BEFORE it has
-; converged - and the facts that come out are an under-approximation
-; the walk then treats as final.
+; call chain deeper than the cap stopped propagating BEFORE it had
+; converged - and the facts that came out were an under-approximation
+; the walk then treated as final.
 ;
 ; Measured 2026-09-03 on generated chains f0 -> f1 -> ... -> fN whose
 ; leaf does `(memSetWord p 0 (memAlloc 8))`, with
-; `restrict(no-escape)` on f0: `check` reports AX3049 at depths 5, 20,
-; 30, 38 and 39, and prints `OK` at 40, 41, 42 and 60. The bisect is
-; exact - depth 39 refuses, depth 40 accepts a claim the analysis can
+; `restrict(no-escape)` on f0: `check` reported AX3049 at depths 5, 20,
+; 30, 38 and 39, and printed `OK` at 40, 41, 42 and 60. The bisect was
+; exact - depth 39 refused, depth 40 accepted a claim the analysis can
 ; itself refute one round later. Timing confirms saturation rather
 ; than convergence: 0.05s at depth 5, 0.11s at 20, 0.24s at 39, and
 ; 0.24s at 60, linear in rounds and then flat.
 ;
-; FIXING THE CAP IS THE REGION WORKSTREAM'S JOB, not this line's:
-; `inferEffects` above passes `limit = (vecLen decls) + 1`, runs
-; forward and reverse, and switches to a worklist over
-; `callersIdxBuild` after round 1, and that is the shape this wants.
-; What is fixed HERE is the silence. Word 28 goes to 2 when the cap
-; was reached, so that a tool republishing these facts can say the
-; walk stopped early instead of publishing a lower bound as a
-; guarantee - `axiom symbols --mir` prints `#mir-truncated`, and
-; `scripts/check-mir-projection.sh` asserts the sentinel appears at
-; depth 41 and does not appear at depth 5.
+; Fixed the way `inferEffects` is fixed: the bound is `(vecLen decls)
+; + 1`, so every chain the program can write converges - a chain is
+; never longer than the declaration list holding it. The truncation
+; machinery below stays exactly as it is (word 28 goes to 2, word 33
+; carries 1, `#mir-truncated` prints): a net, not a number any program
+; reaches, and the gate that watched the old boundary now watches a
+; 60-deep chain converge instead. The worklist over `callersIdxBuild`
+; stays future work: it buys speed on adversarial declaration orders,
+; and this buys correctness on every order.
 ;
 ; The value is 2 rather than a second word because every reader of
 ; word 28 asks `!= 0`; 2 is still "done".
-(pub :: rgnRounds (-> Int (Vec Int) Int Int))
+(pub :: rgnRounds (-> Int (Vec Int) Int Int Int))
 ; Answers 0 when the facts CONVERGED and 1 when the round cap was
 ; reached with facts still moving. Both used to answer 0, so a caller
 ; could not tell a proven claim from an abandoned one - and
@@ -22105,8 +22149,8 @@
 ; ACCEPTED, on a body that provably stores a fresh allocation into its
 ; parameter. Declaration order is why this hid so long - the same chain
 ; written leaf-first converges in two passes at any depth.
-(pub fn (rgnRounds tc decls round)
-  (if (>= round 40)
+(pub fn (rgnRounds tc decls round limit)
+  (if (>= round limit)
     ; The cap was reached with facts still moving. TWO consumers need
     ; to know, and both are set here so they cannot drift: word 28
     ; becomes 2, which `rgnTruncated` reads for AXIR's
@@ -22120,7 +22164,7 @@
     }
     (if (== (rgnPass tc decls 0 0) 0)
       0
-      (rgnRounds tc decls (+ round 1)))))
+      (rgnRounds tc decls (+ round 1) limit))))
 
 ; Whether the facts fixpoint stopped at its round cap rather than
 ; converging. Read by the AXSYM/AXIR projection, which must not

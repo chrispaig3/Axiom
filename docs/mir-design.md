@@ -216,39 +216,43 @@ does not have — the AXTAG forgery hole's shape, arriving through the
 compiler's own front door instead of through a forged tag.
 
 `#mir-truncated` is the sharper of the two, because the truncation it
-reports is real and was silent. `rgnRounds` caps at **40 rounds** and,
-until this release, returned with no diagnostic on the truncating
-branch. A monotone chain fixpoint over N functions needs up to N rounds,
-so a call chain deeper than the cap stops propagating before it has
-converged. Measured 2026-09-03 on generated chains `f0 -> f1 -> … -> fN`
-whose leaf does `(memSetWord p 0 (memAlloc 8))`, with
-`restrict(no-escape)` on `f0`:
+reports was real and was silent. `rgnRounds` capped at **40 rounds**
+until 2026-09-17, and before that returned with no diagnostic on the
+truncating branch. A monotone chain fixpoint over N functions needs up
+to N rounds, so a call chain deeper than the cap stopped propagating
+before it had converged. Measured 2026-09-03 on generated chains
+`f0 -> f1 -> … -> fN` whose leaf does `(memSetWord p 0 (memAlloc 8))`,
+with `restrict(no-escape)` on `f0`:
 
-| depth | `axiom check` |
+| depth | `axiom check`, under the old cap |
 | --- | --- |
 | 5, 20, 30, 38, 39 | `AX3049` — refused |
 | 40, 41, 42, 60 | `OK` — **accepted** |
 
-The bisect is exact: depth 39 refuses, depth 40 accepts a claim the
+The bisect was exact: depth 39 refused, depth 40 accepted a claim the
 analysis can itself refute one round later. Timing confirms saturation
 rather than convergence — 0.05s at depth 5, 0.11s at 20, 0.24s at 39,
-and 0.24s at 60: linear in rounds, then flat.
+and 0.24s at 60: linear in rounds, then flat. Since 2026-09-17 the
+bound is `(vecLen decls) + 1`, as `inferEffects` passes it, so every
+depth in that table is refused and the sentinel is a net no program
+reaches.
 
-**Fixing the cap is the region workstream's job, not this one's.**
-`inferEffects` in the same file is the shape it wants: it passes
-`limit = (vecLen decls) + 1`, runs forward and reverse passes, and
-switches to a worklist over `callersIdxBuild` after round 1 — a bound
-that cannot truncate a monotone chain fixpoint. What this workstream
-fixed is the **silence**: `rgnRounds` now records the truncation, and
-`check-mir-projection.sh` pins the sentinel to the boundary (present at
-depth 41, absent at depth 5). That is the only assertion in the tree
-that watches the cap at all, and when the constant is replaced it is
-what will say whether the replacement worked.
+**Fixing the cap was the region workstream's job, and the bound half
+landed there.** `inferEffects` in the same file is the shape it wants:
+it passes `limit = (vecLen decls) + 1`, runs forward and reverse
+passes, and switches to a worklist over `callersIdxBuild` after round
+1 — a bound that cannot truncate a monotone chain fixpoint, with the
+worklist still to come for adversarial declaration orders. What the
+silence fix recorded stays: `rgnRounds` records a truncation it never
+reaches, and `check-mir-projection.sh` pins absence at depth 5 and at
+depth 60 with the escape carried all the way to `f0`'s row. That is
+the only assertion in the tree that watches the cap at all, and it is
+what said the replacement worked.
 
 Measured on real code the sentinel is not noise: `axiom symbols --mir`
-over `self_host/main.ax` reports **0** truncated rows out of 4,114, with
-4,023 carrying a summary, 1,157 an escaping parameter and 1,854 the
-per-row `#mir-incomplete`.
+over `self_host/main.ax` reports **0** truncated rows out of 4,541 -
+the sentinel fires nowhere on real code - with 1,322 rows carrying an
+escaping parameter and 2,061 the per-row `#mir-incomplete`.
 
 ## 5. The AXDL half: shipped 2026-09-04
 
