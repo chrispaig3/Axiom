@@ -110,8 +110,18 @@
 # and keep this header. A re-bless satisfies this file and nothing else: the
 # gate's preservation check reads these same cases against their own source
 # bytes, and the rebuild half never reads a golden at all.
-### 010-unbalanced.axp (exit 1)
+### 010-unbalanced.axp (exit 0)
+(fn (f)
+  (+ 1 2))
+### 012-unclosed-nested.axp (exit 0)
+(fn (f)
+  (let ((x 1))
+    (+ x 2)))
+### 014-unclosed-brace.axp (exit 0)
+(fn (f)
+  (+ 1 2))
 ### 020-mismatched-closer.axp (exit 1)
+### 022-stray-closer.axp (exit 1)
 ### 030-stray-atom.axp (exit 1)
 ### 040-bad-escape.axp (exit 1)
 ### 050-int-overflow.axp (exit 1)

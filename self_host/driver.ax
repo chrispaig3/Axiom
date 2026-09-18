@@ -1906,7 +1906,7 @@
           (if (strEq c "emit-llvm")
             "axiom emit-llvm - print the generated LLVM IR\n\nUSAGE:\n  axiom emit-llvm <FILE> [-o <PATH>]\n\n  --output <PATH>  write the IR to PATH instead of stdout\n  -o <PATH>        short for --output\n\nA module with no `main` is fine here: no executable is produced.\n"
             (if (strEq c "fmt")
-              "axiom fmt - format a source file in place\n\nUSAGE:\n  axiom fmt <FILE> [--check]\n\n  --check   report whether FILE is formatted and exit 1 if it is not,\n            WITHOUT writing to it\n\nThe formatter verifies before it writes: the output must re-parse, keep\nevery comment, and be a fixed point. A refusal leaves FILE untouched.\n"
+              "axiom fmt - format a source file in place\n\nUSAGE:\n  axiom fmt <FILE> [--check]\n\n  --check   report whether FILE is formatted and exit 1 if it is not,\n            WITHOUT writing to it\n\nThe formatter verifies before it writes: the output must re-parse, keep\nevery comment, and be a fixed point. A file whose only defect is missing closing parens is completed first, so saving mid-function closes it. A refusal leaves FILE untouched.\n"
               (if (strEq c "explain")
                 "axiom explain - describe a diagnostic code\n\nUSAGE:\n  axiom explain <CODE>\n  axiom explain --list\n\nCODE may be written `AX3001`, `3001` or `ax-3001`.\n\n  --list    list every known code instead\n"
                 (if (strEq c "symbols")

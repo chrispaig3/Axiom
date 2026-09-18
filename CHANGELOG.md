@@ -16,6 +16,26 @@ its changelog too.
 
 ## Unreleased
 
+### The formatter closes what you left open — `tests/fmt/parity.golden`
+
+Saving mid-function used to meet a refusal: `readForms` failed on
+the unclosed group and `fmt` left the file untouched with exit 1.
+`fmtOnce` now finishes the file first when missing closers are its
+only defect - exactly the closers the open groups need, in LIFO
+order, before a line comment running to end-of-file rather than
+inside it - and formats from there, through the same rescan,
+comments and fixed-point verification as any other input. A stray
+closer, a mismatched one, or a prefix with nothing after it still
+refuses, and a refusal still writes nothing. Inlined into `fmtOnce`
+(no new top-level function), terminating by construction: the
+completed text is balanced, so a second failure finds an empty
+stack. `textDocument/formatting` inherits it - the editor's save
+writes what the command would have written - while `check`, `build`
+and every code action still read through the real parser, which
+refuses as before. `010-unbalanced.axp` flips from refused to
+completed in the parity bank beside new nested, brace and
+stray-closer cases. Calls no new gate.
+
 ### The region fixpoint is bounded by the program, not by 40 — `scripts/check-mir-projection.sh`
 
 `rgnRounds` capped at a bare 40 rounds, so a call chain deeper than

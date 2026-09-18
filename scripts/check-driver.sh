@@ -1047,7 +1047,7 @@ else
   # "Axiom <version>" from the one literal in build.ax since 0.4.3, so
   # the source copy to hold the binary to is that literal.
   ver_check "the version literal" "self_host/build.ax" \
-    "$(grep -oE '\(pub fn \(axiomVersion\) "[0-9]+\.[0-9]+\.[0-9]+"\)' "$repo_root/self_host/build.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    "$(grep -oE -A1 '\(pub fn \(axiomVersion\)' "$repo_root/self_host/build.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   ver_check "the LSP serverInfo" "self_host/lsp.ax" \
     "$(grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"' "$repo_root/self_host/lsp.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   ver_check "the crate version" "rust/Cargo.toml" \

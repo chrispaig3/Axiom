@@ -8236,11 +8236,12 @@
 ; `fmtFormat` is the function `axiom fmt` runs, so what the editor
 ; writes is byte for byte what the command would have written - the
 ; gate formats a copy of its document with the command and holds the
-; edit's text equal to the file. A refusal - a document that does not
-; parse, or an output the formatter could not prove a fixed point - is
-; null, the protocol's "nothing to do here" and what a half-typed file
-; gets; an already-formatted document is an empty list, so the client
-; writes nothing. Pure: the formatter takes a string and answers one.
+; edit's text equal to the file. A refusal - a document no completion
+; can save, or an output the formatter could not prove a fixed point -
+; is null, the protocol's "nothing to do here" and what a half-typed
+; file gets past its parens; an already-formatted document is an empty
+; list, so the client writes nothing. Pure: the formatter takes a string
+; and answers one.
 ; ------------------------------------------------------------------
 (pub :: lspFormatting (-> String Int))
 (pub fn (lspFormatting src)

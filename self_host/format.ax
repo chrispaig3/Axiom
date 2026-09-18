@@ -5279,7 +5279,83 @@
             (if (==
               (cast Int forms)
               0)
-              (cast Int (FRes 0 ""))
+              ; Unclosed groups are completed, everything else is
+              ; refused. A file whose only defect is missing closers -
+              ; the shape an editor holds mid-function - is finished
+              ; with exactly the closers its open groups need, in LIFO
+              ; order, and formatted from there; the completed text
+              ; goes through the same rescan, comments and fixed-point
+              ; verification below as any other input. The closers go
+              ; before a line comment that runs to end-of-file, never
+              ; inside it - appending past one would leave the groups
+              ; open again, recursing without end. A stray closer, a
+              ; mismatched one, or a prefix with nothing after it
+              ; completes to nothing, so those still refuse - and a
+              ; refusal still writes nothing. Inlined loop over the
+              ; token vector (which `fscan` already built), nothing
+              ; allocated but the stack and the completed string: no
+              ; new top-level function moves the effect-distribution
+              ; pins. Terminates: the completed text is balanced, so a
+              ; second failure finds an empty stack and refuses.
+              (let ((toks (fsToksVec sc)))
+                (let ((st vecNew))
+                  (let ((mut i 0))
+                    (let ((mut bad 0))
+                      {
+                        (while (&& (== bad 0) (< i (vecLen toks)))
+                          {
+                            (let ((k (ftKind (vecGet toks i))))
+                              (if (|| (== k FT_LPAREN) (|| (== k FT_LBRACK) (== k FT_LBRACE)))
+                                {
+                                  (vecPush st (closerFor k))
+                                  0
+                                }
+                                (if (isCloser k)
+                                  (if (== (vecLen st) 0)
+                                    (set bad 1)
+                                    (if (!= (vecGet st (- (vecLen st) 1)) k)
+                                      (set bad 1)
+                                      {
+                                        (vecPop st)
+                                        0
+                                      }))
+                                  0)))
+                            (set i (+ i 1))
+                          })
+                        (if (|| (== bad 1) (== (vecLen st) 0))
+                          (cast Int (FRes 0 ""))
+                          (let ((mut ins (strLen src)))
+                            (let ((coms (fsComsVec sc)))
+                              (let ((mut ci 0))
+                                {
+                                  (while (< ci (vecLen coms))
+                                    {
+                                      (let ((c (vecGet coms ci)))
+                                        (if (&& (== (fcEnd c) (strLen src)) (&& (== (strByte src (fcStart c)) 59) (< (fcStart c) ins)))
+                                          (set ins (fcStart c))
+                                          0))
+                                      (set ci (+ ci 1))
+                                    })
+                                  (let ((mut out (strSlice src 0 ins)))
+                                    (let ((mut j (- (vecLen st) 1)))
+                                      {
+                                        (while (>= j 0)
+                                          {
+                                            (let ((ck (vecGet st j)))
+                                              (set out (strConcat
+                                                out
+                                                (if (== ck FT_RPAREN)
+                                                  ")"
+                                                  (if (== ck FT_RBRACK)
+                                                    "]"
+                                                    "}")))))
+                                            (set j (- j 1))
+                                          })
+                                        (set out (strConcat out (strSlice src ins (- (strLen src) ins))))
+                                        (fmtOnce out)
+                                      }))
+                                }))))
+                      }))))
               (let ((out (fmtPrint src forms (fsComs sc) (lineStarts src))))
                 (if (== (foBad out) 1)
                   (cast Int (FRes 0 ""))
@@ -5308,7 +5384,10 @@
 ; Format with stage0's three-part verification: the output must
 ; rescan and re-read, must carry exactly the comments the input
 ; carried, and must be a fixed point of a second pass. Refusal is the
-; only alternative to a faithful rewrite.
+; only alternative to a faithful rewrite - except unclosed groups,
+; which are completed first (see `fmtOnce`): the completed text goes
+; through this same verification, so what it proves, it proves about
+; the file as written plus its missing closers.
 ;
 ; A leading byte order mark is lifted off before the scan and put
 ; back on the result - the one subcommand that still refused a BOM
