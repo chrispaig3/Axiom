@@ -1078,9 +1078,9 @@ makes collision **impossible rather than unlikely**, on both sides:
   survives codegen's register naming with nothing to escape — measured:
   `llc` accepts `%tmp.1`.
 
-**MAC-HYG-3a (H, defective).** The property that makes `MAC-HYG-3` sound
+**MAC-HYG-3a (H; closed 2026-09-18).** The property that makes `MAC-HYG-3` sound
 — that a renamed binder cannot be spelled in source — makes it unusable
-in a diagnostic, and it reaches one anyway:
+in a diagnostic, and it reached one anyway:
 
 ```scheme refused
 (macro (m x) (let ((tmpvar x)) (+ tmpvarr 1)))    ; note the typo
@@ -1092,18 +1092,26 @@ E AX3001 leak.ax:2:13-14 undefined-variable "undefined variable `tmpvarr`"
   ?2:13-14:"a similarly named binding `tmpvar.0` is in scope; did you mean this?"~>"tmpvar.0"
 ```
 
-The suggestion is **machine-applicable**: the `~>` field offers
-`tmpvar.0` as a replacement, and a tool that applies it writes a token
-the lexer refuses (`AX2001`). The span is the invocation's, so the edit
-would also land in the wrong file's text.
+The suggestion was **machine-applicable**: the `~>` field offered
+`tmpvar.0` as a replacement, and a tool that applied it wrote a token
+the lexer refuses (`AX2001`). The span was the invocation's, so the edit
+would also have landed in the wrong file's text.
 
 A conforming implementation **MUST** render a renamed binder under its
 original spelling in every diagnostic, and **MUST NOT** emit one inside
 a `~>` replacement — the general form of which is `MAC-TOOL-5`, and
 the `~>` half of it holds since 2026-08-15: a diagnostic carrying an
-expansion frame loses its machine-applicable replacements. What
-remains defective here is the *rendering* — the message still quotes
-`tmpvar.0` rather than `tmpvar`.
+expansion frame loses its machine-applicable replacements. The rendering
+half holds since 2026-09-18: `offerScope` strips at the first `.` and
+`#` before offering a scope candidate, so the distance, the stored best
+and the suggestion are all the original spelling; `emitAX3012`,
+`emitSetOnParam` and `emitSetCaptured` render the same stripped spelling
+in the message, the label, the helps and the replacement (disarmed in an
+expansion by `MAC-TOOL-5`, intact by hand). `tests/diagnostics/654`
+pins the suggestion (`tmpvar`, no `~>`, with the hand-written `count`
+control keeping its `~>"count"`); `tests/diagnostics/580` draws `tmp`
+where it drew `tmp.1`/`tmp.0`. Inlined at the four sites, so no new
+top-level function moves the effect-distribution pins.
 
 **MAC-HYG-4 (H).** Nodes are **rebuilt**, never mutated. Returning a
 template's own node would make one node reachable from every call site,
@@ -2787,20 +2795,20 @@ tense, so it is not rediscovered:
 |---|---|---|---|
 | Language | LANG-1…12, LANG-14 (multi-rule over BOTH forms — declarations via `macro` since 2026-08-15 and expressions via `emacro` since 2026-09-14 — selected by a pattern MATCH in rule order since 2026-08-16, with arity surviving inside the match as a pre-filter), LANG-15 (all six pattern kinds), LANG-16 (v1–v5: bare-name, nested-pattern, arm/ctor, declaration and ctor-pattern splices), LANG-17 (literal identifiers, canonical-spelling comparison), LANG-18 | — | LANG-13 |
 | Expansion | EXP-1…17 (module-side invocation landed 2026-08-15) | — | — |
-| Hygiene | HYG-1…8 (HYG-8's four holes are all closed, the last two on 2026-08-16; HYG-3a held-but-defective) | HYG-9 | — |
+| Hygiene | HYG-1…8 (HYG-8's four holes are all closed, the last two on 2026-08-16; HYG-3a closed 2026-09-18) | HYG-9 | — |
 | Capabilities | CAP-1…4, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`type`/`effect`/invocation/iteration templates — the kind list closed 2026-08-15, and `impl` left it with the construct in 0.6.0), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5's capture CLOSED in 0.7.4) | — | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…6 | — | — |
 | Diagnostics | DIAG-1…5 (DIAG-5's second snippet landed 2026-08-15) | — | — |
 | Tooling | TOOL-1…6 (TOOL-6 held-but-defective) | — | — |
 
-Three rules in the Holds column are held-but-defective, each with the
+Two rules in the Holds column are held-but-defective, each with the
 defect stated inline where it is defined —
 `MAC-EXP-8` (the over-application diagnostic anchors at the expansion,
-not the surplus argument), `MAC-HYG-3a` (a renamed binder is still RENDERED under its
-gensym spelling; the `~>` half of that defect closed with
-`MAC-TOOL-5` on 2026-08-15), and
+not the surplus argument) and
 `MAC-TOOL-6` (`fmt` rewrites what `check` refuses to lex).
+`MAC-HYG-3a` was the third until 2026-09-18, when scope suggestions and
+the `AX3012` family learned to render the original spelling.
 `MAC-EXP-11a`, `MAC-EXP-14a` and `MAC-CAP-3a` were the fourth, fifth
 and sixth until 2026-09-14, when the node budget learned to count only
 expansion-produced nodes, template literals learned the invocation's
@@ -2864,7 +2872,8 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/diagnostics/525-syntax-reserved.axbad` | CAP-6's reservation — syntax/ spellings outside a template, including the one-paren-short near-miss (`.axbad`: the formatter must not learn these shapes) |
 | `tests/diagnostics/485-qualified-private-macro.ax` | LANG-12's `AX3023` route for a qualified private macro |
 | `tests/diagnostics/490-expansion-backtrace.ax` | DIAG-4 — one frame and a nested two, spans verified against the macro's own file |
-| `tests/diagnostics/580-expansion-fix-suppressed.ax` | TOOL-5 — the same two diagnostics from a macro and by hand: the expansion pair keeps its help text and loses its `~>`, the hand-written pair keeps both |
+| `tests/diagnostics/580-expansion-fix-suppressed.ax` | TOOL-5 — the same two diagnostics from a macro and by hand: the expansion pair keeps its help text and loses its `~>`, the hand-written pair keeps both; since 2026-09-18 the expansion `AX3012` pair also renders `tmp` (HYG-3a), not `tmp.1`/`tmp.0` |
+| `tests/diagnostics/654-macro-hygiene-suggestion.ax` | HYG-3a — a typo beside a renamed binder suggests the original spelling (`tmpvar`, no `~>`), with the hand-written control keeping its `~>"count"` |
 | `tests/selfhost/363-macro-shadowing.ax` (3) | EXP-5 |
 | `tests/selfhost/364-macro-definition-site.ax` (157) | HYG-6, HYG-7 |
 | `tests/selfhost/365-macro-pattern-literal.ax` (95) | HYG-5 |
@@ -2962,10 +2971,12 @@ in full. What remains is narrower, and stated rather than implied:
    (`AX3020`). The table's templates are expressions too, which the
    rule form does not take — `emacro` takes one expression per rule,
    and the table wants rewriting, not just dispatch.
-3. **The three held-but-defective renders** in §11: `MAC-EXP-8`'s anchor,
-   `MAC-HYG-3a`'s gensym spelling, and `MAC-TOOL-6`'s `fmt`/`check`
+3. **The two held-but-defective renders** in §11: `MAC-EXP-8`'s anchor
+   and `MAC-TOOL-6`'s `fmt`/`check`
    disagreement — plus `MAC-EXP-14c`'s spanless nodes, which no
-   invocation-span rule can reach.
+   invocation-span rule can reach. `MAC-HYG-3a`'s gensym spelling was
+   the third until 2026-09-18, when suggestions and the `AX3012`
+   family learned the original spelling.
 
 Everything else this list once scheduled has landed, and two of its
 price estimates are worth keeping because they were measured and

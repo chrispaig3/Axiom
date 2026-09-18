@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### Renamed binders render under their original spelling — `tests/diagnostics/654-macro-hygiene-suggestion.ax`
+
+A typo beside a macro-introduced binder suggested a name no source
+can spell: `(m 5)` over `(macro (m x) (let ((tmpvar x)) (+ tmpvarr 1)))`
+drew `a similarly named binding 'tmpvar.0' is in scope`, with the
+gensym counter in the text. `offerScope` now strips at the first `.`
+and `#` before offering a scope candidate - so the distance, the
+stored best and the suggestion are all the original spelling - and
+`emitAX3012`, `emitSetOnParam` and `emitSetCaptured` render the same
+stripped spelling in the message, the label, the helps and the
+replacement. The `~>` half was already held by `MAC-TOOL-5` (a
+diagnostic with an expansion frame loses its replacement); what closes
+here is the rendering half of `MAC-HYG-3a`. `654` pins the suggestion
+(`tmpvar`, no `~>`, with the hand-written `count` control keeping its
+`~>"count"`); `580` draws `tmp` where it drew `tmp.1`/`tmp.0`. Inlined
+at the four sites (no new top-level function), so the
+effect-distribution pins do not move. Calls no new gate.
+
 ### The formatter closes what you left open — `tests/fmt/parity.golden`
 
 Saving mid-function used to meet a refusal: `readForms` failed on

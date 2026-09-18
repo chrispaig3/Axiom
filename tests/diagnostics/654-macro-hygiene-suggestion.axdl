@@ -1,0 +1,2 @@
+E AX3001 654-macro-hygiene-suggestion.ax:10:7-8 undefined-variable "undefined variable `tmpvarr`" #"no binding named `tmpvarr` in scope" ?"a similarly named binding `tmpvar` is in scope; did you mean this?" &654-macro-hygiene-suggestion.ax:7:9-10:"m"
+E AX3001 654-macro-hygiene-suggestion.ax:10:32-37 undefined-variable "undefined variable `cound`" #"no binding named `cound` in scope" ?10:32-37:"a similarly named binding `count` is in scope; did you mean this?"~>"count"

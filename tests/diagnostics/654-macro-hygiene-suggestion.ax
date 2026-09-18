@@ -1,0 +1,10 @@
+; MAC-HYG-3a: a renamed binder renders under its original spelling.
+; `(m 5)` expands `(let ((tmpvar x)) ...)` with `tmpvar` renamed to
+; `tmpvar.0`, which no source can spell. The typo `tmpvarr` suggests
+; `tmpvar`, not `tmpvar.0`, and carries no `~>` (MAC-TOOL-5: the fix
+; is disarmed inside an expansion). The hand-written pair keeps its
+; `~>"count"`.
+(macro (m x) (let ((tmpvar x)) (+ tmpvarr 1)))
+(:: main Int)
+(fn (main)
+  (+ (m 5) (let ((count 1)) (+ cound 1))))
