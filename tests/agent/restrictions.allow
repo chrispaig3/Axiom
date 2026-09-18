@@ -63,6 +63,7 @@ colCount self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOf self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 compares tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
+compares tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
 confined tests/diagnostics/369-axtag-known-keys.ax no-io ok
 control tests/diagnostics/376-restrict-unknown-name.ax no-io ok
 count tests/stdlib/468-region-signatures.ax no-escape ok
@@ -80,6 +81,7 @@ deepPartial tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep unverifi
 deepRefuted tests/diagnostics/378-restrict-no-cast-deep.ax no-cast:deep violated
 delegates tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 delegates tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
+delegates tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
 diagAddFixHelp self_host/diag.ax no-io,no-foreign ok
 diagAddHelp self_host/diag.ax no-io,no-foreign ok
 diagAddNote self_host/diag.ax no-io,no-foreign ok
@@ -117,11 +119,14 @@ diagVecAt self_host/diag.ax no-io,no-foreign ok
 direct tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
 dispatch tests/diagnostics/649-restrict-no-escape.ax no-escape unverifiable
 dispatchStrict tests/diagnostics/649-restrict-no-escape.ax no-escape,strict unproven
+divides tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
 emitToken self_host/lexer.ax no-io,no-foreign ok
 entry tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
+fhalf tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
 findNewline self_host/lexer.ax no-io,no-alloc,no-foreign ok
 floats tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
+floats tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
 fmtDigits stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 fmtFloat stdlib/Fmt.ax no-io,no-foreign ok
 fmtFloatAbs stdlib/Fmt.ax no-io,no-foreign ok
@@ -143,6 +148,7 @@ fmtPadZerosLeft stdlib/Fmt.ax no-io,no-foreign ok
 fmtSpan self_host/diag.ax no-io,no-foreign ok
 fmtSpanIx self_host/diag.ax no-io,no-foreign ok
 fmtSpanParts self_host/diag.ax no-io,no-foreign ok
+half tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
 handRolled tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 hardAlloc tests/diagnostics/393-restrict-strict.ax no-alloc,strict unproven
@@ -201,6 +207,7 @@ hlSpanEnd self_host/replhl.ax no-io,no-alloc,no-foreign ok
 hlSpanStart self_host/replhl.ax no-io,no-alloc,no-foreign ok
 honest tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 honest tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
+honest tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
 httpAvail stdlib/Http.ax no-io,no-alloc,no-foreign ok
 httpContentType stdlib/Http.ax no-io,no-foreign ok
 httpEscapeAt stdlib/Http.ax no-io,no-alloc,no-foreign ok
@@ -356,6 +363,7 @@ named tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated
+nested tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
 none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 orderDiags self_host/diag.ax no-io,no-foreign ok
 ownForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
@@ -399,6 +407,7 @@ scanStringEnd self_host/lexer.ax no-io,no-alloc,no-foreign ok
 sevSigil self_host/diag.ax no-io,no-alloc,no-foreign ok
 sgrForSev self_host/style.ax no-io,no-alloc,no-foreign ok
 shallow tests/diagnostics/378-restrict-no-cast-deep.ax no-cast ok
+shifts tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
 sigTagged tests/diagnostics/371-restrict-no-io.ax no-io violated
 skipBlockComment self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipCharBody self_host/lexer.ax no-io,no-alloc,no-foreign ok
@@ -463,8 +472,8 @@ termWsRows stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
 tokenKind self_host/core.ax no-io,no-alloc,no-foreign ok
 tokenLexeme self_host/core.ax no-io,no-alloc,no-foreign ok
 tokenSpan self_host/core.ax no-io,no-alloc,no-foreign ok
-top tests/diagnostics/650-region-fixpoint-cap.ax no-escape unverifiable
-topStrict tests/diagnostics/650-region-fixpoint-cap.ax no-escape,strict unproven
+top tests/diagnostics/650-region-fixpoint-cap.ax no-escape violated
+topStrict tests/diagnostics/650-region-fixpoint-cap.ax no-escape,strict violated
 tuiCat stdlib/Tui/Edit.ax no-io,no-foreign ok
 tuiVisLen stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
 twice tests/diagnostics/376-restrict-unknown-name.ax no-io,no-io ok

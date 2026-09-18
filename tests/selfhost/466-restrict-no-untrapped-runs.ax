@@ -1,0 +1,36 @@
+; expect 6
+; `restrict(no-untrapped)` over a body that divides integers through
+; the checked call and a body that divides floats raw, run rather than
+; only checked. Raw `/` on `Int` would be refused with no fix but the
+; checked one; `/` on `Float` lowers to `fdiv` with no integer trap to
+; require, while the fix the diagnostic would name - `divChecked`,
+; `(-> Int Int (Result Int Error))` - does not typecheck against one.
+;
+; A RUN and not a check, because the exemption is a checker change on
+; nodes the emitter also reads: 7 divided checked is 3, and 7.0
+; halved raw truncates to 3.
+;
+; THE TAG IS ON THE `fn` AND NOT THE `::`, deliberately.
+; `check-restrictions.sh` section 1 rewrites every blank line above a
+; column-0 `(::` or `fn` in this directory into
+; `;@axiom:restrict(no-foreign)` and requires the AXSYM rows to match
+; afterwards but for one `#restrict=` field - except where a declaration
+; already carries one, which the sweep leaves alone. A second tag above
+; the signature would add a SECOND field and the comparison would see a
+; row that moved; the tag on the `fn` tells the sweep this declaration
+; is already claimed, and the row is the same either way.
+(import Err)
+
+(:: half (-> Int Int))
+;@axiom:restrict(no-untrapped)
+(fn (half n)
+  (unwrapOr (divChecked n 2) 0))
+
+(:: fhalf (-> Float Float))
+;@axiom:restrict(no-untrapped)
+(fn (fhalf x)
+  (/ x 2.0))
+
+(:: main Int)
+(fn (main)
+  (+ (half 7) (__floatToInt (fhalf 7.0))))

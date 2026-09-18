@@ -11,20 +11,20 @@
   [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
 
-[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp.1`[0m
+[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp`[0m
   [1;34m--> [0m580-expansion-fix-suppressed.ax:49:7
 [1;34m   |[0m
 [1;34m49 |[0m   (+ (bumpIt n) (callIt n)))
-[1;34m   |[0m       [1;31m^^^^^^ `tmp.1` cannot be assigned[0m
+[1;34m   |[0m       [1;31m^^^^^^ `tmp` cannot be assigned[0m
 [1;34m49 |[0m   (+ (bumpIt n) (callIt n)))
-[1;34m   |[0m       [1;36m------ `tmp.1` is bound here[0m
+[1;34m   |[0m       [1;36m------ `tmp` is bound here[0m
 [1;34m   |[0m
   [1;34m--> [0m580-expansion-fix-suppressed.ax:35:9
 [1;34m   |[0m
 [1;34m35 |[0m (macro (bumpIt v) (let ((tmp 1))
 [1;34m   |[0m         [1;36m^^^^^^ in this expansion of `bumpIt`[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp.1 ...)`
+  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp ...)`
   [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
 
@@ -64,20 +64,20 @@
   [1;34m = [0m[1;32mhelp: [0ma similarly named binding `helper` is in scope; did you mean this?[1;35m ~> helper[0m
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp.0`[0m
+[1;31merror[AX3012][0m[1m: cannot assign to immutable binding `tmp`[0m
   [1;34m--> [0mBumpMod.ax:16:2
 [1;34m   |[0m
 [1;34m16 |[0m (mkBump Thing)
-[1;34m   |[0m  [1;31m^^^^^^ `tmp.0` cannot be assigned[0m
+[1;34m   |[0m  [1;31m^^^^^^ `tmp` cannot be assigned[0m
 [1;34m16 |[0m (mkBump Thing)
-[1;34m   |[0m  [1;36m------ `tmp.0` is bound here[0m
+[1;34m   |[0m  [1;36m------ `tmp` is bound here[0m
 [1;34m   |[0m
   [1;34m--> [0mBumpMod.ax:7:12
 [1;34m   |[0m
 [1;34m 7 |[0m (pub macro mkBump ((mkBump T)
 [1;34m   |[0m            [1;36m^^^^^^ in this expansion of `mkBump`[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp.0 ...)`
+  [1;34m = [0m[1;32mhelp: [0mdeclare it mutable: `(mut tmp ...)`
   [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
 

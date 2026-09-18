@@ -1,0 +1,97 @@
+; `restrict(no-untrapped)`: no `/`, `%`, `<<` or `>>` head in THIS
+; body. LOCAL, like `no-cast` and `no-wrap` - the controls are what
+; pin that:
+;
+;   `divides`    writes `(/ a b)`                    -> AX3049 AT THE
+;                OPERATOR - the span covers `/`, not the name
+;   `nested`     a `%` and a `<<`, inside a `let`      -> two AX3049s,
+;                inside an `if`                          the walk
+;                                                         reaching
+;                                                         every form
+;   `shifts`     a `>>`                               -> AX3049 at the
+;                                                         operator
+;   `delegates`  calls `halve`, which divides          -> silent: a
+;                                                         callee's
+;                                                         arithmetic is
+;                                                         the callee's
+;                                                         claim to make
+;   `compares`   writes `(< a b)` and `(== a b)`      -> silent: a
+;                                                         comparison is
+;                                                         not an
+;                                                         untrapped
+;                                                         operator
+;   `honest`     calls `divChecked`, unwraps the      -> silent: the
+;                `Result`                                 sanctioned
+;                                                         path
+;   `floats`     `/` on `Float` operands               -> silent: that
+;                                                         lowers to
+;                                                         `fdiv`, which
+;                                                         has no integer
+;                                                         trap to
+;                                                         require
+;
+; Four operators in three bodies are four diagnostics: each has its own
+; span, and the fix is where the span is - exactly
+; `373-restrict-no-cast.ax`'s own rule, because `no-untrapped` is
+; `wrapScanInto`'s walk with a different head predicate.
+(import Err)
+
+(:: halve (-> Int Int))
+(fn (halve n)
+  (/ n 2))
+
+;@axiom:restrict(no-untrapped)
+(:: divides (-> Int Int Int))
+(fn (divides a b)
+  (/ a b))
+
+;@axiom:restrict(no-untrapped)
+(:: nested (-> Int Int Int Int))
+(fn (nested a b c)
+  (if (> a 0)
+    (let ((d (% a b)))
+      (<< d c))
+    0))
+
+;@axiom:restrict(no-untrapped)
+(:: shifts (-> Int Int Int))
+(fn (shifts a n)
+  (>> a n))
+
+;@axiom:restrict(no-untrapped)
+(:: delegates (-> Int Int))
+(fn (delegates n)
+  (halve n))
+
+;@axiom:restrict(no-untrapped)
+(:: compares (-> Int Int Bool))
+(fn (compares a b)
+  (if (< a b)
+    true
+    (== a b)))
+
+;@axiom:restrict(no-untrapped)
+(:: honest (-> Int Int Int))
+(fn (honest a b)
+  (unwrapOr (divChecked a b) 0))
+
+;@axiom:restrict(no-untrapped)
+(:: floats (-> Float Float Float))
+(fn (floats a b)
+  (/ a b))
+
+(:: main Int)
+(fn (main)
+  (+
+    (divides 7 2)
+    (+
+      (nested 9 4 1)
+      (+
+        (shifts 8 1)
+        (+
+          (delegates 6)
+          (+
+            (if (compares 1 2)
+              1
+              0)
+            (+ (honest 7 2) (__floatToInt (floats 7.0 2.0)))))))))

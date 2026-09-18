@@ -269,6 +269,89 @@ fi
 
 # --------------------------------------------------------------------
 echo
+echo "== \`setup\` and \`teardown\` run around every test =="
+# --------------------------------------------------------------------
+# `setup-tests.ax`: a `setup` hook appending "s" and a `teardown` hook
+# appending "t" around two tests appending "1" and "2" to one log, so
+# each test asserts the prefix the hooks before it must have written.
+# Had either hook not run, an assertion would fail - which is what
+# makes the golden evidence rather than a transcript.
+set +e
+hookout="$(axiom_test suite/setup-tests.ax)"; rc=$?
+set -e
+if (( rc == 0 )); then ok "setup-tests.ax exits 0"; else bad "setup-tests.ax exits $rc, expected 0"; echo "$hookout" | sed 's/^/     /'; fi
+
+if diff -u "$fixtures/setup-tests.out" <(printf '%s\n' "$hookout") > "$work/setup.diff"; then
+  ok "its report is the golden, byte for byte"
+else
+  bad "setup-tests.ax report differs from tests/testrunner/setup-tests.out"
+  sed 's/^/     /' "$work/setup.diff"
+fi
+
+# The claims the golden encodes, restated so a re-blessed golden cannot
+# quietly lose them: both tests ran, in order, which is only possible
+# when setup ran before the first and teardown closed it before the
+# second's setup.
+if printf '%s\n' "$hookout" | grep -qx "ok   testFirstSeesSetup" \
+   && printf '%s\n' "$hookout" | grep -qx "ok   testSecondSeesTeardown"; then
+  ok "both tests passed in declaration order, so both hooks ran per test"
+else
+  bad "a hook-guarded test did not pass - a hook did not run"
+  printf '%s\n' "$hookout" | sed 's/^/     /'
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== a trapping \`teardown\` fails its test, and only its test =="
+# --------------------------------------------------------------------
+# `teardown-fails.ax`: one passing test closed by a teardown that
+# divides by zero. The failure belongs to the test it closed, so the
+# report is one FAIL at status 72 and the exit is 1 - teardown runs
+# inside the test's own recovery point, not outside it.
+set +e
+tdout="$(axiom_test suite/teardown-fails.ax)"; rc=$?
+set -e
+if (( rc == 1 )); then ok "teardown-fails.ax exits 1"; else bad "teardown-fails.ax exits $rc, expected 1"; fi
+
+if diff -u "$fixtures/teardown-fails.out" <(printf '%s\n' "$tdout") > "$work/teardown.diff"; then
+  ok "its report is the golden, byte for byte"
+else
+  bad "teardown-fails.ax report differs from tests/testrunner/teardown-fails.out"
+  sed 's/^/     /' "$work/teardown.diff"
+fi
+
+if printf '%s\n' "$tdout" | grep -qx "FAIL testClosesBadly - division by zero (status 72)"; then
+  ok "the teardown's trap is reported on the test it closed, at status 72"
+else
+  bad "the teardown failure was not reported as its test's failure"
+  printf '%s\n' "$tdout" | sed 's/^/     /'
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== a \`setup\` hook with parameters is refused by name =="
+# --------------------------------------------------------------------
+# `setup-arity-tests.ax` mirrors `arity-tests.ax` for the hook: a
+# `setup` taking a parameter would never be run correctly, so the file
+# is refused naming the hook and its arity, and nothing in it runs.
+set +e
+saout="$(axiom_test suite/setup-arity-tests.ax)"; rc=$?
+set -e
+if (( rc != 0 )) \
+   && printf '%s\n' "$saout" | grep -q 'setup' \
+   && printf '%s\n' "$saout" | grep -q 'takes 1 parameter'; then
+  ok "setup-arity-tests.ax is refused, naming setup and its arity"
+else
+  bad "setup-arity-tests.ax exited $rc without naming the hook: $saout"
+fi
+if printf '%s\n' "$saout" | grep -q '^ok '; then
+  bad "the file was refused and something still ran"
+else
+  ok "nothing ran in the refused file"
+fi
+
+# --------------------------------------------------------------------
+echo
 echo "== --filter narrows the set, and narrows it to the right one =="
 # --------------------------------------------------------------------
 set +e

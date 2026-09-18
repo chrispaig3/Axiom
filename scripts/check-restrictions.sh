@@ -35,7 +35,8 @@
 #      comparison to notice.
 #
 #   2. THE FIXTURES ANSWER, AND THE CONTROLS ARE SILENT. Each of
-#      `tests/diagnostics/371`-`379`, `383`, `393` and `394` must draw
+#      `tests/diagnostics/371`-`379`, `383`, `393`, `394` and `396`
+#      must draw
 #      the restriction code
 #      its header promises, and no diagnostic of any code may name a
 #      control declaration - `pureMath`, `delegates`, `native`,
@@ -47,11 +48,12 @@
 #      to watch go red that is not a golden comparison.
 #
 #   3. A PLANTED VIOLATION IS REFUSED. A clean program carrying every
-#      restriction, satisfied, is written here; then seven copies, each
+#      restriction, satisfied, is written here; then eight copies, each
 #      with one violation planted - a `println` under `no-io`, a
 #      `vecNew` under `no-alloc`, a `cast` under `no-cast`, an `extern`
 #      call under `no-foreign`, a self-call under `no-recursion`, a raw
-#      `+` under `no-wrap`, a name that is not a restriction - and
+#      `+` under `no-wrap`, a raw `/` under `no-untrapped`, a name that
+#      is not a restriction - and
 #      each copy must draw exactly one restriction diagnostic, of the
 #      code and on the declaration the plant names. The `no-cast`
 #      plant additionally requires the span to cover the word `cast`
@@ -83,16 +85,19 @@
 #      collation order, for the locale reason `check-agent-policy.sh`
 #      records.
 #
-#   6. NO-WRAP'S TWO EXEMPTIONS ARE NARROW. `no-wrap` matches an
+#   6. THE SPELLING EXEMPTIONS ARE NARROW. `no-wrap` matches an
 #      operator's SPELLING, and two things wearing those spellings
 #      cannot wrap: the three on `Float` operands, which lower to
 #      `fadd`/`fsub`/`fmul`, and the `for` keyword's own counter bump,
 #      which the parser writes beneath a guard that bounds it. Both
 #      were refused until 2026-09-04 - the `for` one naming a `+` the
 #      source does not contain, at a span covering the word `for` -
-#      and neither refusal had a fix that could be taken. A program
-#      using both must check OK; the probe builds a compiler with each
-#      exemption's predicate scoped to a constant and requires BOTH
+#      and neither refusal had a fix that could be taken. `no-untrapped`
+#      shares the float arm: `/` on `Float` operands lowers to `fdiv`
+#      with no integer trap to require, and `divChecked` does not
+#      typecheck against one. A program
+#      using all three must check OK; the probe builds a compiler with each
+#      exemption's predicate scoped to a constant and requires ALL THREE
 #      declarations to draw AX3049 again, which is what says each arm
 #      does its own work rather than one covering for the other.
 
@@ -378,6 +383,7 @@ fixture_expectations() {
 383-restrict-no-wrap     AX3049 3 delegates compares honest
 393-restrict-strict      AX3057 3 provable strictOnly lexStrict
 394-restrict-no-wrap-exempt AX3049 3 counts iterates floats
+396-restrict-no-untrapped AX3049 4 delegates compares honest floats
 EXP
 }
 
@@ -407,7 +413,7 @@ fixtures_answer() {
 }
 
 if fixtures_answer "$axc"; then
-  ok "371-379, 383, 393 draw their codes and every control is silent"
+  ok "371-379, 383, 393, 394, 396 draw their codes and every control is silent"
 else
   bad "a restriction fixture did not answer as its header promises (above)"
 fi
@@ -458,7 +464,12 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 
 (fn (quietWrap n) (unwrapOr (addChecked n 1) 0))
 
-;@axiom:restrict(no-io,no-alloc,no-cast,no-foreign,no-recursion,no-wrap)
+;@axiom:restrict(no-untrapped)
+(:: quietUntrapped (-> Int Int))
+
+(fn (quietUntrapped n) (unwrapOr (divChecked n 2) 0))
+
+;@axiom:restrict(no-io,no-alloc,no-cast,no-foreign,no-recursion,no-wrap,no-untrapped)
 (:: quietAll (-> Int Int))
 
 (fn (quietAll n) n)
@@ -466,7 +477,7 @@ cat > "$work/plant/clean.ax" <<'CLEAN'
 (:: main Int)
 
 ;@axiom:effect(io)
-(fn (main) (+ (quietIo 1) (+ (quietAlloc 2) (+ (quietCast 3) (+ (quietForeign 4) (+ (quietRec 5) (+ (quietWrap 7) (quietAll 6))))))))
+(fn (main) (+ (quietIo 1) (+ (quietAlloc 2) (+ (quietCast 3) (+ (quietForeign 4) (+ (quietRec 5) (+ (quietWrap 7) (+ (quietUntrapped 8) (quietAll 6)))))))))
 CLEAN
 
 ( cd "$work/plant" && "$axc" --diagnostic-format=ai check clean.ax ) > "$work/plant/clean.out" 2> "$work/plant/clean.err" || true
@@ -508,6 +519,7 @@ plant no-foreign 's/^\(import Vec\)$/(import Vec)\n\n(pub extern "axiom_demo"\n 
 plant unknown    's/^;\@axiom:restrict\(no-cast\)$/;\@axiom:restrict(no-cast,no-fo)/' AX3052 quietCast
 plant no-recursion 's/^\(fn \(quietRec n\) \(quietCast n\)\)$/(fn (quietRec n) (if (<= n 0) 0 (quietRec (- n 1))))/' AX3049 quietRec
 plant no-wrap    's/^\(fn \(quietWrap n\) \(unwrapOr \(addChecked n 1\) 0\)\)$/(fn (quietWrap n) (+ n 1))/' AX3049 quietWrap
+plant no-untrapped 's/^\(fn \(quietUntrapped n\) \(unwrapOr \(divChecked n 2\) 0\)\)$/(fn (quietUntrapped n) (\/ n 2))/' AX3049 quietUntrapped
 
 # The local rule's span: the `no-cast` plant's diagnostic must cover
 # the word `cast` in the line it points at, not the declaration.
@@ -701,7 +713,7 @@ else
 fi
 
 echo
-echo "== 6. no-wrap's two exemptions are narrow, and each is load-bearing =="
+echo "== 6. the spelling exemptions are narrow, and each is load-bearing =="
 # `no-wrap` matches a SPELLING, and two things wearing those spellings
 # cannot wrap: the three operators on `Float` operands, which lower to
 # `fadd`/`fsub`/`fmul`, and the `for` keyword's own counter bump, which
@@ -711,18 +723,23 @@ echo "== 6. no-wrap's two exemptions are narrow, and each is load-bearing =="
 # `addChecked` is `(-> Int Int (Result Int Error))`, which does not
 # typecheck against a `Float`. The `for` one additionally named a `+`
 # the source does not contain, at a span covering the word `for`.
+# `no-untrapped` shares the float arm for its own spelling reason:
+# `/` on `Float` operands lowers to `fdiv` with no integer trap to
+# require, and `divChecked` does not typecheck against one either.
 #
 # An exemption is a SILENCE, and a silence is only a claim when
 # something can make it speak - so this section is two halves. The
-# program below must check OK here; and against a compiler whose two
+# program below must check OK here; and against a compiler whose three
 # exemption arms have been scoped to constants it must draw AX3049 on
-# BOTH declarations, which is what says each arm is separately doing
+# ALL THREE declarations, which is what says each arm is separately doing
 # work rather than one covering for the other.
 #
-# `tests/diagnostics/394-restrict-no-wrap-exempt.ax` holds the same
+# `tests/diagnostics/394-restrict-no-wrap-exempt.ax` holds the `no-wrap`
 # pair beside the cases that keep them narrow - a hand-written loop
 # counter, arithmetic in a loop's body, and a `Float` `+` nested inside
-# an `Int` one - and section 2 asserts the three that must still fire.
+# an `Int` one - and `tests/diagnostics/396-restrict-no-untrapped.ax`
+# holds the `no-untrapped` float silence beside the four operators that
+# must still fire; section 2 asserts all of them.
 mkdir -p "$work/exempt"
 cat > "$work/exempt/exempt.ax" <<'EXEMPT'
 (import Err)
@@ -749,20 +766,25 @@ cat > "$work/exempt/exempt.ax" <<'EXEMPT'
 
 (fn (floaty a b) (* (+ a b) (- a b)))
 
+;@axiom:restrict(no-untrapped)
+(:: floatDiv (-> Float Float Float))
+
+(fn (floatDiv a b) (/ a b))
+
 (:: main Int)
 
-(fn (main) (+ (loops (vecPush vecNew 4)) (__floatToInt (floaty 2.0 1.0))))
+(fn (main) (+ (loops (vecPush vecNew 4)) (+ (__floatToInt (floaty 2.0 1.0)) (__floatToInt (floatDiv 7.0 2.0)))))
 EXEMPT
 
 ( cd "$work/exempt" && "$axc" --diagnostic-format=ai check exempt.ax ) > "$work/exempt/out" 2> "$work/exempt/err" || true
 if [[ "$(restriction_lines "$work/exempt/err" | wc -l | tr -d ' ')" == 0 && "$(cat "$work/exempt/out")" == "OK" ]]; then
-  ok "a \`for\` of either shape and \`Float\` arithmetic satisfy no-wrap: no restriction diagnostic, checks OK"
+  ok "a \`for\` of either shape and \`Float\` arithmetic satisfy no-wrap and no-untrapped: no restriction diagnostic, checks OK"
 else
   bad "the exempt program drew a restriction diagnostic, or did not check OK"
   cut -c1-140 "$work/exempt/err" | head -5 | sed 's/^/     /'
 fi
 
-# The negative: both arms scoped to a constant, so neither exemption
+# The negative: all three arms scoped to a constant, so no exemption
 # can fire. Built from a copy; the tree is untouched.
 mkdir -p "$work/exabl"
 cp -R "$repo_root/self_host" "$work/exabl/self_host"
@@ -771,28 +793,31 @@ import sys
 p = sys.argv[1]
 s = open(p).read()
 # Each arm's PREDICATE becomes a constant that is never 1, so its
-# `then` - the skip - is unreachable and every `+`, `-` and `*` the
-# scan found is reported again. The count is asserted so the ablation
-# cannot silently become two arms, or none.
-arms = ['                            (if (== (isForBump e) 1)\n',
-        '        (if (== (tcFloatOpIn tc (spineHead w)) 1)\n']
-for a in arms:
-    assert s.count(a) == 1, (a.strip(), s.count(a))
-    indent = a[:len(a) - len(a.lstrip())]
-    s = s.replace(a, indent + '(if (== 2 1)\n', 1)
+# `then` - the skip - is unreachable and every operator the scans
+# found is reported again. The `for`-bump arm occurs once; the float
+# arm occurs twice - once per restriction sharing it - and both copies
+# are scoped. Each count is asserted so the ablation cannot silently
+# become more arms, or none.
+forbump = '                            (if (== (isForBump e) 1)\n'
+floatop = '        (if (== (tcFloatOpIn tc (spineHead w)) 1)\n'
+assert s.count(forbump) == 1, ('for-bump', s.count(forbump))
+assert s.count(floatop) == 2, ('float', s.count(floatop))
+s = s.replace(forbump, forbump[:len(forbump) - len(forbump.lstrip())] + '(if (== 2 1)\n', 1)
+s = s.replace(floatop, floatop[:len(floatop) - len(floatop.lstrip())] + '(if (== 2 1)\n')
 open(p, 'w').write(s)
 PY
 if grep -q '(if (== 2 1)' "$work/exabl/self_host/typecheck.ax"; then
   if "$axiom" build --input "$work/exabl/self_host/main.ax" --output "$work/exabl/axc" > "$work/exabl/build.log" 2>&1; then
     ( cd "$work/exempt" && "$work/exabl/axc" --diagnostic-format=ai check exempt.ax ) > /dev/null 2> "$work/exempt/abl.err" || true
     restriction_lines "$work/exempt/abl.err" > "$work/exempt/abl.hits"
-    got_for=0; got_flt=0
+    got_for=0; got_flt=0; got_fdiv=0
     grep -q '`loops`' "$work/exempt/abl.hits" && got_for=1
     grep -q '`floaty`' "$work/exempt/abl.hits" && got_flt=1
-    if (( got_for == 1 && got_flt == 1 )); then
-      ok "negative probe: with both exemption arms scoped to a constant, \`loops\` and \`floaty\` each draw AX3049 again ($(wc -l < "$work/exempt/abl.hits" | tr -d ' ') rows)"
+    grep -q '`floatDiv`' "$work/exempt/abl.hits" && got_fdiv=1
+    if (( got_for == 1 && got_flt == 1 && got_fdiv == 1 )); then
+      ok "negative probe: with all three exemption arms scoped to a constant, \`loops\`, \`floaty\` and \`floatDiv\` each draw AX3049 again ($(wc -l < "$work/exempt/abl.hits" | tr -d ' ') rows)"
     else
-      bad "negative probe: the ablated compiler reported for=$got_for float=$got_flt - an exemption that fires nowhere is a check that cannot fail"
+      bad "negative probe: the ablated compiler reported for=$got_for float=$got_flt floatDiv=$got_fdiv - an exemption that fires nowhere is a check that cannot fail"
       cut -c1-140 "$work/exempt/abl.hits" | sed 's/^/     /'
     fi
   else

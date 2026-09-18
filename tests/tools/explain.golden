@@ -1836,7 +1836,7 @@ it cross-checks `symbols --calls` hop for hop; the last hop is where
 the effect enters (a syscall primitive, an `extern`, `__alloc`), or
 the function whose own body holds the `alloc` form, said so. The tag
 takes a comma-separated list: `no-cast`, `no-cast:deep`, `no-io`,
-`no-alloc`, `no-foreign`, `no-recursion`, `no-wrap`.
+`no-alloc`, `no-foreign`, `no-recursion`, `no-wrap`, `no-untrapped`.
 
 `no-recursion` is a cycle, which is global by definition - a
 depth-first walk over the same graph - and the path is the walk from
@@ -1896,6 +1896,8 @@ the keyword's own span: that `+` is not in the body's bytes, the guard
 bounds it below `INT_MAX`, and a loop counter cannot be a `Result`. A
 loop written out by hand is still refused, because the author wrote
 that operator.
+
+`no-untrapped` is LEXICAL for the same reason: on `Int` operands `/` and `%` trap on a zero divisor but are undefined on the single `INT_MIN / -1` corner, and `<<` and `>>` are undefined on an out-of-range shift amount with no runtime check at all. `stdlib/Err.ax` has the checked alternative for each - `divChecked`, `remChecked`, `shlChecked`, `shrChecked`, every one `(-> Int Int (Result Int Error))` - and calling one pulls `Alloc` into the row exactly as the `no-wrap` alternatives do. `/` on `Float` operands lowers to `fdiv` and is not refused, for the same reason the `no-wrap` float spellings are not.
 
 This is an ERROR with no warning stage, for the argument that made
 AX3010 one: a restriction is a claim the author WROTE, and a build
@@ -2016,8 +2018,8 @@ limit of the ANALYSIS rather than a defect in the program. It is
 AX3037's argument at one remove - a
 `(handle ((b.f) 7) ...)` over a pure `b.f` is a correct program, and
 refusing it would make dispatch through a stored function unwriteable
-rather than unverified. `no-cast` and `no-wrap` never draw this: a
-cast or a wrapping operator is lexical and is checked whether or not
+rather than unverified. `no-cast`, `no-wrap` and `no-untrapped` never draw this: a
+cast, a wrapping operator or an untrapped operator is lexical and is checked whether or not
 a call resolved. `no-cast:deep` draws it
 only when no cast was found in this body or the closure the walk
 could enumerate - a cast found refutes the claim whatever else the
@@ -2032,7 +2034,7 @@ a code that becomes answerable leaves it.
 AX3052 - a name inside `restrict(...)` that is not a restriction
 
 The restrictions this compiler checks are `no-cast`, `no-cast:deep`,
-`no-io`, `no-alloc`, `no-foreign`, `no-recursion` and `no-wrap`,
+`no-io`, `no-alloc`, `no-foreign`, `no-recursion`, `no-wrap` and `no-untrapped`,
 comma-separated inside one `restrict(...)`; a `restrict` naming
 nothing draws this too. `no-cast:deep` is a name of its own, not a
 modifier: `no-cast` is local by design and the closure is opted into

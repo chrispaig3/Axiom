@@ -636,7 +636,7 @@ Both NID and AXTAG are now implemented.
   one an agent must re-read the warnings of. A claim it is not in a
   position to check is `AX3037`, which remains a warning. A
   `restrict(no-io | no-alloc | no-foreign | no-cast | no-cast:deep |
-  no-recursion | no-wrap | no-escape)` claim is checked against the same
+  no-recursion | no-wrap | no-untrapped | no-escape)` claim is checked against the same
   effect row, the call graph, or the region facts: a violation is `AX3049`, an error, whose message renders
   the path of resolved calls to where the effect enters, or the cycle; a claim over a row the walk could not close is
   `AX3051`, a warning; a name that is not a restriction is `AX3052`,

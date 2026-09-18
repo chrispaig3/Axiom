@@ -1927,7 +1927,7 @@ distance from `pure` is not evidence about anything.
 does not do something, answered from analysis the checker already
 performs and used to throw away. The list is CLOSED - a name outside
 it is `AX3052`, an error, because inside the one key the compiler has
-said it checks an unknown name is a claim and not metadata. Eight
+said it checks an unknown name is a claim and not metadata. Nine
 restrictions are checked:
 
 | Restriction | Decided by | Scope |
@@ -1940,6 +1940,7 @@ restrictions are checked:
 | `no-recursion` | no cycle in the call graph reachable from this declaration | transitive |
 | `strict` | a MODIFIER: an unsettleable claim in this set is `AX3057` (error), not `AX3051` (warning) | — |
 | `no-wrap` | no *integer* `+`, `-` or `*` head in this body | LOCAL |
+| `no-untrapped` | no *integer* `/`, `%`, `<<` or `>>` head in this body | LOCAL |
 | `no-escape` | nothing this body allocates flows into any of its parameters, read off the region facts ([Region Annotations](#region-annotations)); refuted through a named callee (`vecPush` grows its argument), unverifiable over a call the walk cannot resolve | transitive |
 
 Every transitive violation names its path. The checker walks the call
@@ -1965,7 +1966,7 @@ compiler's stack need dynamically: a region under `no-recursion` is
 one whose stack need is bounded by its depth rather than by its input,
 the same property from the static side.
 
-Three are transitive by construction and two are not, and the
+Three are transitive by construction and three are not, and the
 difference is not a policy choice. `no-io` and `no-alloc` read the
 effect row, which is already a transitive fixpoint (effects are
 inferred transitively, above): a function calling an IO-performing
@@ -1994,6 +1995,16 @@ body that switches to one pulls `Alloc` into its own effect row
 (constructing the `Result` allocates), which is why `no-wrap` cannot
 be satisfied together with `no-alloc` or `pure` by a body that needs
 arithmetic - `docs/checked-arithmetic-design.md` is the design note.
+`no-untrapped` is lexical for the same reason: on `Int` operands `/`
+and `%` trap on a zero divisor but are undefined on the single
+`INT_MIN / -1` corner, and `<<` and `>>` are undefined on an
+out-of-range shift amount with no runtime check at all.
+`stdlib/Err.ax`'s `divChecked`, `remChecked`, `shlChecked` and
+`shrChecked` are the checked alternative, every one
+`(-> Int Int (Result Int Error))`, with the same `Alloc` price and the
+same tension against `no-alloc` and `pure`. `/` on `Float` operands
+lowers to `fdiv` and is not refused, for the same reason the `no-wrap`
+float spellings are not.
 
 Being lexical, it matches a *spelling*, and two things wearing those
 spellings cannot wrap. Neither is refused, and
@@ -4124,6 +4135,33 @@ passing one:
 A `--filter` that matches nothing is a failure for the same reason an
 empty file is. The gate is `scripts/check-test-runner.sh`, whose
 fixtures are `tests/testrunner/`.
+
+### Setup and Teardown
+
+A file may declare two hooks — a zero-argument `setup` and a
+zero-argument `teardown`, each an ordinary top-level `fn` of exactly
+that name. Each runs around **every** test, inside that test's own
+recovery point: setup, then the test, then teardown, in that order.
+
+```scheme
+(:: setup Int)
+;@axiom:effect(io)
+(fn (setup)
+  (unwrapOr (appendFile "hook-log.txt" "s") 0))
+```
+
+A hook that traps therefore fails the test it opened or closed rather
+than ending the run (`tests/testrunner/teardown-fails.ax` pins a
+teardown that divides by zero: one `FAIL` at status 72, exit 1), and a
+file declaring neither hook emits exactly the driver it always did.
+`tests/testrunner/setup-tests.ax` pins the order end to end — two
+tests asserting the log prefixes `"s"` and `"s1ts"`, which only the
+full `setup, test, teardown, setup, test` chain can have written.
+
+The third anti-silence rule reads the way the first two do: a `setup`
+or `teardown` that **takes parameters** is refused by name rather
+than passed over (`tests/testrunner/setup-arity-tests.ax`), because a
+hook that would never run correctly is a hook-shaped silence.
 
 ### Assertions Take a Label First
 

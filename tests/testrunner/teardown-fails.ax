@@ -1,0 +1,16 @@
+; A `teardown` that traps. The failure belongs to the test it
+; closed, so that test FAILs and the run exits 1: teardown runs
+; inside the test's own recovery point, not outside it.
+(import Test)
+
+(:: testClosesBadly Int)
+;@axiom:effect(io)
+(fn (testClosesBadly)
+  {
+    (assertEq "the test itself holds" 1 1)
+    0
+  })
+
+(:: teardown Int)
+(fn (teardown)
+  (/ 1 0))

@@ -166,6 +166,8 @@ ledNew Edit.ax Alloc,Mut
 ledRangeStr Edit.ax Alloc,Mut
 ledRefresh Edit.ax Alloc,Mut
 ledRefreshFull Edit.ax Alloc,Mut
+ledRefreshFullPainted Edit.ax Alloc,Mut
+ledRefreshPainted Edit.ax Alloc,Mut
 ledRefreshWindow Edit.ax Alloc,Mut
 ledReset Edit.ax Mut
 ledResize Edit.ax Mut

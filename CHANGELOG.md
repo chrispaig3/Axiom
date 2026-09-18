@@ -16,6 +16,67 @@ its changelog too.
 
 ## Unreleased
 
+### `restrict(no-untrapped)` refuses raw `/`, `%`, `<<` and `>>` — `tests/diagnostics/396-restrict-no-untrapped.ax`
+
+`docs/checked-arithmetic-design.md` scoped `no-wrap` to `+`, `-` and
+`*` on purpose and named this the follow-up: `/` and `%` trap on a
+zero divisor today (exit 72) but are undefined on the single
+`INT_MIN / -1` corner, and `<<` and `>>` are undefined on an
+out-of-range shift amount with no runtime check at all. The checked
+alternative for each already ships and is already gated
+(`divChecked`, `remChecked`, `shlChecked`, `shrChecked`, every one
+`(-> Int Int (Result Int Error))`, `tests/stdlib/312-checked-arithmetic.ax`);
+what was missing was the claim that forces a boundary body to use
+them. `checkOneRestrict` gains the ninth arm, `untrappedScanInto`
+and its four walkers duplicate `wrapScanInto`'s with the predicate
+swapped to `isUntrappedOp`, and the violation is `AX3049` at the
+operator with the checked call named per operator. LOCAL like
+`no-cast` and `no-wrap`, for the same reason: the untrapped use is an
+act this body performs, not a fact the effect row carries. The float
+exemption is shared with `no-wrap` rather than duplicated — `/` on
+`Float` operands lowers to `fdiv`, and `divChecked` does not
+typecheck against one — so `checkNumeric` records those heads on the
+same word-37 list and `check-restrictions.sh` §6 now scopes all three
+arms (the `for`-bump plus one float arm per restriction) and requires
+`loops`, `floaty` and `floatDiv` to each go red. `396` pins the four
+operators with the `delegates`/`compares`/`honest` locality controls
+and the float silence; `tests/selfhost/466` runs the checked divide
+and the float divide to exit 6. Nine new functions here and one with
+the hooks move the effect-distribution pins re-derived rather than
+retuned (exactly `Alloc,Mut` 2,177 → 2,185, pure 1,687 → 1,689;
+added 10 across both entries, removed 0, changed 0 — every IO bucket
+frozen). Also
+re-blessed here because the help texts moved: `375`, `376`, `378`,
+`391`, `393` and `649` — and, drifted at HEAD before this change and
+corrected along the way rather than left red: the `.human`/`.json`
+renders for `580`, `631` and `650` (their `.axdl` goldens were
+current, the renders were not), the missing renders for `653` and
+`654`, the `symbols-zoo` trio (line drift since the tree reformat),
+and the two painted `Edit.ax` rows in `stdlib-effects.allow`. Calls no new gate.
+
+### `setup` and `teardown` hooks for `axiom test` — `tests/testrunner/setup-tests.ax`
+
+A test file repeats its init in every test or couples its tests
+through execution order, because the runner offered no hook: the one
+gap `docs/status.md` still named after `;@axiom:expect` closed it.
+A zero-argument `setup` and/or `teardown` now runs around every test
+inside that test's own recovery point — setup, test, teardown, in
+that order — so a hook that traps fails the test it opened or closed
+rather than ending the run, and a file declaring neither emits
+byte-for-byte the driver it always emitted. `testHookKind` finds the
+hooks by exact name (answering absent, present, or arity + 1, so a
+hook that takes parameters is refused naming its arity exactly as a
+`test` with parameters is); `testCallLines` threads two flags and
+emits bare-name calls (`{ setup testFoo teardown 0 }` — juxtaposition
+in a brace block IS application, so the applied spelling reads as one
+spine and drew `AX3004` the first time). `setup-tests.ax` pins the
+order end to end over one pid-named log (both prefixes asserted, so a
+skipped hook fails loudly), `teardown-fails.ax` pins a trapping
+teardown as its test's `FAIL` at status 72, and
+`setup-arity-tests.ax` pins the refusal. One new function
+(`testHookKind`, pure — the other half of pure's 1,687 → 1,689 beside
+`isUntrappedOp`). Calls no new gate.
+
 ### The printer refuses all four prefix markers — `tests/fmt/parity/230-backtick-refused.axp`
 
 `axiom fmt` formatted what `axiom check` refuses: a backtick and a

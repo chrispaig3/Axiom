@@ -1,0 +1,51 @@
+; `setup` and `teardown` run around EVERY test, inside its recovery
+; point. The hooks and the tests share one append-only log, so each
+; test asserts the prefix the hooks before it must have written:
+;
+;   `testFirstSeesSetup`     reads "s"    -> setup ran before it
+;   `testSecondSeesTeardown` reads "s1ts" -> test one ran, teardown
+;                                           closed it, setup opened
+;                                           this one
+;
+; The log is named for the driver's own pid, so two runs in one
+; directory never read each other's bytes. `teardown` appends and
+; never truncates, which is what makes the second test's prefix a
+; proof of the whole chain rather than of its own setup alone.
+(import Test)
+(import IO)
+(import Sys)
+(import Fmt)
+(import Str)
+
+(:: logPath String)
+;@axiom:effect(io)
+(fn (logPath)
+  (strConcat (strConcat "hook-log-" (fmtInt sysGetPid)) ".txt"))
+
+(:: setup Int)
+;@axiom:effect(io)
+(fn (setup)
+  (unwrapOr (appendFile (logPath) "s") 0))
+
+(:: teardown Int)
+;@axiom:effect(io)
+(fn (teardown)
+  (unwrapOr (appendFile (logPath) "t") 0))
+
+(:: testFirstSeesSetup Int)
+;@axiom:effect(io)
+(fn (testFirstSeesSetup)
+  {
+    (assertStrEq "setup ran before the first test" "s" (readFile (logPath)))
+    (unwrapOr (appendFile (logPath) "1") 0)
+    0
+  })
+
+(:: testSecondSeesTeardown Int)
+;@axiom:effect(io)
+(fn (testSecondSeesTeardown)
+  {
+    (assertStrEq "teardown closed the first test and setup opened this one" "s1ts" (readFile (logPath)))
+    (unwrapOr (appendFile (logPath) "2") 0)
+    0
+  })

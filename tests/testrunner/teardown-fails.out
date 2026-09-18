@@ -1,0 +1,3 @@
+FAIL testClosesBadly - division by zero (status 72)
+
+1 test(s), 1 failed

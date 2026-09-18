@@ -1,0 +1,14 @@
+; A `setup` hook that takes a parameter. `axiom test` must REFUSE
+; this file by name rather than skip the hook: a hook that would
+; never run correctly reads exactly like no hook at all, which is
+; the silence this runner refuses everywhere else.
+(import Test)
+
+(:: setup (-> Int Int))
+(fn (setup n)
+  (* n 2))
+
+(:: testSomething Int)
+;@axiom:effect(io)
+(fn (testSomething)
+  (assertEq "one and one" 2 (+ 1 1)))

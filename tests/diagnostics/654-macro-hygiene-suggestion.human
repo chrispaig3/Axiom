@@ -1,0 +1,24 @@
+[1;31merror[AX3001][0m[1m: undefined variable `tmpvarr`[0m
+  [1;34m--> [0m654-macro-hygiene-suggestion.ax:10:7
+[1;34m   |[0m
+[1;34m10 |[0m   (+ (m 5) (let ((count 1)) (+ cound 1))))
+[1;34m   |[0m       [1;31m^ no binding named `tmpvarr` in scope[0m
+[1;34m   |[0m
+  [1;34m--> [0m654-macro-hygiene-suggestion.ax:7:9
+[1;34m   |[0m
+[1;34m 7 |[0m (macro (m x) (let ((tmpvar x)) (+ tmpvarr 1)))
+[1;34m   |[0m         [1;36m^ in this expansion of `m`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `tmpvar` is in scope; did you mean this?
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `cound`[0m
+  [1;34m--> [0m654-macro-hygiene-suggestion.ax:10:32
+[1;34m   |[0m
+[1;34m10 |[0m   (+ (m 5) (let ((count 1)) (+ cound 1))))
+[1;34m   |[0m                                [1;31m^^^^^ no binding named `cound` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `count` is in scope; did you mean this?[1;35m ~> count[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 2 previous errors

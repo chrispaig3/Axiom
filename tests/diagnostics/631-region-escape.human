@@ -14,7 +14,7 @@
 [1;34m51 |[0m           (set out (strConcat "a" "b"))
 [1;34m   |[0m                [1;31m^^^ this store leaves the region[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is the program's obligation (docs/memory-model.md MM-ALLOC-16) until typed regions
+  [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is refused too, where the facts walk sees it
   [1;34m = [0m[1;32mhelp: [0ma reference allocated inside the region would outlive it: store a scalar, or bind the target inside the region
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3059` for a full explanation
 
@@ -24,7 +24,7 @@
 [1;34m57 |[0m           (set b.s (strConcat "c" "d"))
 [1;34m   |[0m                  [1;31m^ this store leaves the region[0m
 [1;34m   |[0m
-  [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is the program's obligation (docs/memory-model.md MM-ALLOC-16) until typed regions
+  [1;34m = [0m[1mnote: [0ma store is the one escape channel a scope check can see; a call that stores the value for you is refused too, where the facts walk sees it
   [1;34m = [0m[1;32mhelp: [0ma reference allocated inside the region would outlive it: store a scalar, or bind the target inside the region
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3059` for a full explanation
 
