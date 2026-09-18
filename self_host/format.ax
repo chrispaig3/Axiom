@@ -3182,21 +3182,19 @@
             (fpP p (fnText src (fnKid n 1)))
           }
           (if (== k FN_PREFIX)
-            ; `,@` is refused: stage0's parser has an `ESplice` arm the
-            ; lexer never feeds - probed, `,@c` is "expected expression,
-            ; found `@`" in every position - so printing it would accept
-            ; a program stage0 refuses.
-            (let ((tk (ftKind (fnTok n))))
-              (if (== tk FT_COMMAAT)
-                (fpBad p)
-                {
-                  (if (== tk FT_QUOTE)
-                    (fpP p "'")
-                    (if (== tk FT_BACKTICK)
-                      (fpP p "`")
-                      (fpP p ",")))
-                  (fpExpr p (fnKid n 0))
-                }))
+            ; All four prefix markers are refused: stage0 refuses each
+            ; in every position - the backtick with AX1001, `'`, `,`
+            ; and `,@` with AX2001 - so printing any of them would
+            ; accept a program stage0 refuses (MAC-TOOL-6). `,@` was
+            ; the first, refused here since the self-hosted printer
+            ; was written (probed, `,@c` is "expected expression,
+            ; found `@`"); the backtick and the bare comma reached
+            ; the printer the same way until 2026-09-18, and the
+            ; quote reached it before a paren (`'(f x)` formatted
+            ; while `'x` refused only by the fixed-point accident of
+            ; rescanning as a char literal). `tests/fmt/parity/230`,
+            ; `231` and `232` pin one refusal each.
+            (fpBad p)
             (if (== k FN_BRACK)
               (if (== (fnLen n) 0)
                 (fpP p "[]")

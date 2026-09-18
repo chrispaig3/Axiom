@@ -2427,9 +2427,9 @@ not. Nothing outside an expansion moves, which the fixture asserts by
 carrying the same two diagnostics twice, once from a macro and once
 written by hand (`tests/diagnostics/580-expansion-fix-suppressed.ax`).
 
-**MAC-TOOL-6 (H, defective).** `axiom fmt` **MUST NOT** disagree with
-`axiom check` about what lexes. It does today — the formatter carries
-backtick and `,@` token kinds the compiler's lexer does not, and treats
+**MAC-TOOL-6 (H; closed 2026-09-18).** `axiom fmt` **MUST NOT** disagree with
+`axiom check` about what lexes. It did - the formatter carried
+backtick and `,@` token kinds the compiler's lexer does not, and treated
 `'`, `` ` ``, `,` and `,@` as prefix tokens attaching to the following
 form. Measured on `(fn (main) `(+ 1 2))`:
 
@@ -2445,6 +2445,17 @@ system specifically because `` ` `` and `,@` are the obvious spellings
 for any future quotation form, and the formatter has already claimed
 them with semantics nobody specified. Any change under `MAC-LANG-16`
 inherits the discrepancy and **MUST** resolve it rather than add to it.
+
+Closed by refusing all four prefix markers in `fpExpr`'s `FN_PREFIX`
+arm (`fpBad`, the printer's existing refusal): the backtick and the
+bare comma reached the printer and formatted until 2026-09-18, the
+quote reached it before a paren (`'(f x)` formatted while `'x`
+refused only by the fixed-point accident of rescanning as a char
+literal), and `,@` never did. `tests/fmt/parity/230`, `231` and `232`
+pin one refusal each - every one formatted before and refused after,
+with `check` refusing all three - beside `060`, which refused already
+through its `,@`. Inlined in the existing arm, so no new top-level
+function moves the effect-distribution pins.
 
 ---
 
@@ -2800,15 +2811,16 @@ tense, so it is not rediscovered:
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…6 | — | — |
 | Diagnostics | DIAG-1…5 (DIAG-5's second snippet landed 2026-08-15) | — | — |
-| Tooling | TOOL-1…6 (TOOL-6 held-but-defective) | — | — |
+| Tooling | TOOL-1…6 (TOOL-6 closed 2026-09-18) | — | — |
 
-Two rules in the Holds column are held-but-defective, each with the
+One rule in the Holds column is held-but-defective, with the
 defect stated inline where it is defined —
 `MAC-EXP-8` (the over-application diagnostic anchors at the expansion,
-not the surplus argument) and
-`MAC-TOOL-6` (`fmt` rewrites what `check` refuses to lex).
-`MAC-HYG-3a` was the third until 2026-09-18, when scope suggestions and
-the `AX3012` family learned to render the original spelling.
+not the surplus argument).
+`MAC-HYG-3a` was the second until 2026-09-18, when scope suggestions and
+the `AX3012` family learned to render the original spelling, and
+`MAC-TOOL-6` was the third until 2026-09-18, when the printer learned
+to refuse all four prefix markers.
 `MAC-EXP-11a`, `MAC-EXP-14a` and `MAC-CAP-3a` were the fourth, fifth
 and sixth until 2026-09-14, when the node budget learned to count only
 expansion-produced nodes, template literals learned the invocation's
@@ -2887,6 +2899,7 @@ convention; the list, not any one entry, is the argument for gating.
 | `tests/selfhost/370-pre-import.ax` (42) | INT-1 — `stdlib/Pre.ax` erases entirely into rewrites |
 | `tests/selfhost/MacScope.ax` | the cross-module helper HYG-6 needs |
 | `tests/fmt/parity/060-splice-refused.axp` | the backtick refusal LANG-16 would flip |
+| `tests/fmt/parity/230-backtick-refused.axp`, `231-comma-refused.axp`, `232-quote-refused.axp` | TOOL-6 — one refusal per prefix marker, each formatted before 2026-09-18 and refused after, with `check` refusing all three |
 | `scripts/check-degenerate.sh` | SAFE-4 (four empty-form macro cases) |
 | `scripts/check-diagnostics.sh` | every `tests/diagnostics/` case above, byte for byte against its checked-in AXDL golden, plus a silence sweep whose floor over `tests/selfhost/` is 150 files |
 | `scripts/check-tree-sitter.sh` | INT-6 — `grammar.js`'s `macro_declaration` must parse every `.ax` in the repository |
@@ -2971,12 +2984,13 @@ in full. What remains is narrower, and stated rather than implied:
    (`AX3020`). The table's templates are expressions too, which the
    rule form does not take — `emacro` takes one expression per rule,
    and the table wants rewriting, not just dispatch.
-3. **The two held-but-defective renders** in §11: `MAC-EXP-8`'s anchor
-   and `MAC-TOOL-6`'s `fmt`/`check`
-   disagreement — plus `MAC-EXP-14c`'s spanless nodes, which no
+3. **The one held-but-defective render** in §11: `MAC-EXP-8`'s anchor
+   — plus `MAC-EXP-14c`'s spanless nodes, which no
    invocation-span rule can reach. `MAC-HYG-3a`'s gensym spelling was
-   the third until 2026-09-18, when suggestions and the `AX3012`
-   family learned the original spelling.
+   the second until 2026-09-18, when suggestions and the `AX3012`
+   family learned the original spelling, and `MAC-TOOL-6`'s
+   `fmt`/`check` disagreement was the third until 2026-09-18, when
+   the printer learned to refuse all four prefix markers.
 
 Everything else this list once scheduled has landed, and two of its
 price estimates are worth keeping because they were measured and

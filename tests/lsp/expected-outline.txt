@@ -9,11 +9,13 @@
 #
 # Columns:  fixture  kind  container  anchor
 #
-# `kind` is the LSP `SymbolKind` NAME - Function, Enum, Struct,
+# `kind` is the LSP `SymbolKind` NAME - Function, Enum, Struct, Class,
 # EnumMember, Field - and drive.py maps it to the protocol's integer
-# itself (12, 10, 23, 22, 8). The names are the protocol's, not this
+# itself (12, 10, 23, 5, 22, 8). The names are the protocol's, not this
 # compiler's: writing 12 here would be copying down whatever the server
-# happens to emit.
+# happens to emit. Class is a `type` alias - the protocol has no
+# TypeAlias kind, so the server collapses it the way it collapses a
+# macro to Function.
 #
 # `container` is the NAME of the symbol this one is a child of, or `-`
 # for a top-level symbol. It was added 2026-09-03, when the outline
@@ -76,6 +78,7 @@
 060-outline.ax             Field       P          y
 060-outline.ax             Function    -          2@area
 060-outline.ax             Function    -          2@main
+060-outline.ax             Class       -          Score
 070-warning-only.ax        Function    -          2@pure
 070-warning-only.ax        Function    -          2@main
 080-many-diagnostics.ax    Function    -          2@pure

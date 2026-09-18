@@ -1325,18 +1325,23 @@
 ; exactly what it answered before 2026-09-03: the name span, with no
 ; children.
 ; ------------------------------------------------------------------
-; LSP SymbolKind. Function 12, Enum 10, Struct 23.
+; LSP SymbolKind. Function 12, Enum 10, Struct 23, Class 5 for a
+; `type` alias: the protocol has no kind for one, and a macro is a
+; Function for the same reason - `lspComplKind` collapses it the same
+; way for completion.
 (pub :: lspSymKind (-> Int Int))
 (pub fn (lspSymKind tag)
   (if (== tag TAG_D_DATA)
     10
     (if (== tag TAG_D_STRUCT)
       23
-      12)))
+      (if (== tag TAG_D_ALIAS)
+        5
+        12))))
 
 (pub :: lspWantsSymbol (-> Int Bool))
 (pub fn (lspWantsSymbol tag)
-  (|| (== tag TAG_D_FN) (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_MACRO)))))
+  (|| (== tag TAG_D_FN) (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (|| (== tag TAG_D_MACRO) (== tag TAG_D_ALIAS))))))
 
 ; LSP SymbolKind for what a declaration holds INSIDE it: EnumMember 22
 ; for a `data`'s constructors - the kind `workspace/symbol` already
@@ -2585,7 +2590,8 @@
     }))
 
 ; LSP CompletionItemKind. Function 3, Keyword 14, Enum 13, EnumMember
-; 20, Struct 22. A macro is a Function: the protocol has no kind for
+; 20, Struct 22, Class 7 for a `type` alias: the protocol's completion
+; kinds have no alias either. A macro is a Function: the protocol has no kind for
 ; one, and `lspSymKind` collapses it the same way for the outline.
 (pub :: lspComplKind (-> Int Int))
 (pub fn (lspComplKind tag)
@@ -2593,7 +2599,9 @@
     13
     (if (== tag TAG_D_STRUCT)
       22
-      3)))
+      (if (== tag TAG_D_ALIAS)
+        7
+        3))))
 
 (pub :: lspComplItem (-> String Int String Int))
 (pub fn (lspComplItem label kind detail)
@@ -8341,7 +8349,12 @@
 ; invocation becomes its first product - and NAV's occurrence walk
 ; over a rewritten list would anchor binders at bytes a product
 ; copied from its template. It is pushed last so a client that shows
-; actions in the order sent keeps the compiler's fixes first.
+; actions in the order sent keeps the compiler's fixes first. THREE
+; MORE STILL, added 2026-09-18 at the LINT ASSISTS banner below: a
+; `nolint` suppression on every live Hint, a simplification of the
+; `if` the bool lint names, and an `unhandled(trap)` acknowledge on
+; AX3053 - the lint two run the same walk the publish path runs,
+; the third the same diagnostic list as the import.
 ; ------------------------------------------------------------------
 (pub :: lspCodeAction (-> String String Int Int))
 ;@axiom:effect(io)
@@ -8418,6 +8431,21 @@
                             path
                             (memGetWordVec ex 0)
                             (memGetWordVec ex 1))
+                          (lspLintAssists
+                            out
+                            src
+                            uri
+                            ix
+                            decls
+                            want)
+                          (lspUnhandledAssists
+                            out
+                            ds
+                            src
+                            uri
+                            ix
+                            want
+                            decls)
                           0
                         }))))
                 (if (== extract 0)
@@ -8710,6 +8738,282 @@
 ; reports `` `b` is private to module `M` `` - and the honest edit is
 ; then the import list's, offered under the import title.
 ;
+; LINT ASSISTS - `quickfix` suppressions on the editor-only Hints,
+; a `refactor.rewrite` simplifying the `if` one of them names, and a
+; `quickfix` acknowledging AX3053 - added 2026-09-18 and described
+; here rather than at each site.
+;
+; A Hint carries no machine fix - there is nothing to apply, only a
+; style to quiet or an arm that never runs - so these are the
+; server's own, like the import and `pub` assists above, and they
+; hang off the same primitive: the lint RECORDS, run fresh inside
+; this request over the same declaration list the publish path
+; lints (`lspCheckDoc` expands before it walks, here as there), so
+; an assist is offered exactly where its Hint is drawn and nowhere
+; else. No record grows a field for them: the suppressor needs the
+; owner the record already names, and the rewrite needs the
+; condition span the record already points at, with the `if` form
+; recovered from the bytes (`lspEnclosingOpens`/`lspFormEnd`, the
+; byte questions `selectionRange` is built on).
+;
+; SUPPRESS `code` ON `owner`: `;@axiom:nolint(code)` on its own line
+; directly above the owner declaration's first line - the placement
+; `tests/lsp/103-lint-nolint.ax` pins three ways. Suppression is BY
+; NAME (the map `lspLintSuppBuild` builds), so either half of a
+; `::`/`fn` pair would do; the first same-named declaration wins.
+; Offered once per (owner, code): two unread bindings in one body
+; would otherwise answer two identical actions. Suppressed records
+; never reach this walk - an assist for a Hint the client cannot
+; see would be an edit with no visible reason.
+;
+; SIMPLIFY TO `c`: `(if c true false)` answers `c`, so the rewrite
+; replaces the whole `if` form with the condition's own bytes. The
+; lint's own guards are the action's: a bare-name condition, the
+; booleans unrebound, and the dead-branch check first (an
+; `(if true true false)` draws one Hint, and it is not this one's) -
+; all decided by the record's existence on this same source, which
+; is why nothing here re-verifies the arms. A dead branch gets no
+; rewrite: the live arm is an arbitrary expression and only some
+; nodes carry spans, so a rewrite that fires for names and goes
+; missing for calls would be a second rule to explain; the
+; suppressor covers those sites.
+;
+; TREAT UNHANDLED `E` AS A DELIBERATE ABORT: `;@axiom:unhandled(trap)`
+; above this document's `(effect E ...)` declaration, for an AX3053
+; whose effect is declared HERE. The tag's value is always the
+; literal `trap` (`docs/reference.md`, `unhandled(trap)`), so the
+; diagnostic's message is read for the effect NAME only, and an
+; effect from another module gets no action: a tag into a file the
+; request did not name is the cross-file edit `prepareRename`
+; refuses to make. Skipped where the declaration already carries an
+; `unhandled` tag of any value - `unhandled(abort)` still reports,
+; and a second tag line would be a guess about which one the author
+; meant.
+; ------------------------------------------------------------------
+; The lint walk's live records over this request's source: the same
+; records `lspLintDoc` publishes, minus the suppressed ones, so an
+; assist is never offered for a Hint the client cannot see.
+(pub :: lspLintRecs (-> String (Vec Int) (Vec Int)))
+(pub fn (lspLintRecs src decls)
+  (let (
+    (lx (lspLintContext src))
+    (mut i 0)
+  )
+    {
+      (lspLintSuppBuild lx decls)
+      (while (< i (vecLen decls))
+        {
+          (lspLintWalkDecl lx (vecGet decls i))
+          (set i (+ i 1))
+        })
+      (let (
+        (all (memGetWordVec lx 3))
+        (live vecNew)
+        (mut j 0)
+      )
+        {
+          (while (< j (vecLen all))
+            (let ((r (vecGet all j)))
+              {
+                (if (lspLintSuppressed lx (memGetWordStr r 3) (memGetWordStr r 1))
+                  0
+                  {
+                    (vecPush live r)
+                    0
+                  })
+                (set j (+ j 1))
+              }))
+          live
+        })
+    }))
+
+; The owner declaration a suppressor tags: the first declaration of
+; that name with a span, or 0. Suppression is by name, so which
+; same-named half wins does not matter; the lint's span is in any
+; case inside the owner's body, which follows every same-named head.
+(pub :: lspLintOwnerDecl (-> (Vec Int) String Int Int))
+(pub fn (lspLintOwnerDecl decls owner i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (strEq (nodeAName d) owner) (!= (nodeSpan d) 0))
+        d
+        (lspLintOwnerDecl decls owner (+ i 1))))))
+
+; Both lint assists for every live record the request meets.
+(pub :: lspLintAssists (-> Int String String (Vec Int) (Vec Int) Int Int))
+(pub fn (lspLintAssists out src uri ix decls want)
+  (let (
+    (recs (lspLintRecs src decls))
+    (seen vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen recs))
+        (let ((r (vecGet recs i)))
+          {
+            (let ((sp (memGetWord r 0)))
+              (if (lspSpanMeets sp want)
+                {
+                  (lspNolintOffer out src uri ix decls want (memGetWordStr r 1) (memGetWordStr r 3) sp (memGetWordStr r 2) seen)
+                  (if (strEq (memGetWordStr r 1) (lintBoolIf))
+                    (lspBoolIfOffer out src uri ix sp (memGetWordStr r 2) seen)
+                    0)
+                  0
+                }
+                0))
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
+; One suppression per (owner, code): the tag line above the owner
+; declaration's first line. No action when the owner is nowhere to
+; be found, which a macro-generated name would be.
+(pub :: lspNolintOffer (-> Int String String (Vec Int) (Vec Int) Int String String Int String (Vec String) Int))
+(pub fn (lspNolintOffer out src uri ix decls want code owner sp msg seen)
+  (let ((key (strConcat owner (strConcat "$" code))))
+    (if (>= (strVecIdx seen key) 0)
+      0
+      (let ((d (lspLintOwnerDecl decls owner 0)))
+        (if (== d 0)
+          0
+          {
+            (vecPush seen key)
+            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat (strConcat "Suppress `" code) "` on `") (strConcat owner "`")))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspLintJson src ix sp code msg))) "edit" (lspFixInsert uri src ix (lineStartOf src (spanStart (nodeSpan d))) (strConcat (strConcat ";@axiom:nolint(" code) ")\n"))))
+            0
+          })))))
+
+; The `if` form simplified to its condition: the whole form goes,
+; the condition's own bytes stay. The opener is the innermost one
+; enclosing the condition the record points at - a bare name, so
+; nothing but `(if ` stands between them - and the `(if` bytes are
+; checked rather than assumed. No action on a spanless form, which
+; is the precision rule wearing work clothes.
+(pub :: lspBoolIfOffer (-> Int String String (Vec Int) Int String (Vec String) Int))
+(pub fn (lspBoolIfOffer out src uri ix sp msg seen)
+  (let ((opens (lspEnclosingOpens src (spanStart sp))))
+    (if (== (vecLen opens) 0)
+      0
+      (let ((o (vecGet opens (- (vecLen opens) 1))))
+        (let ((key (strConcat "if$" (decStr o))))
+          (if (>= (strVecIdx seen key) 0)
+            0
+            (if (|| (|| (>= (+ o 2) (strLen src)) (!= (strByte src o) 40)) (|| (!= (strByte src (+ o 1)) 105) (!= (strByte src (+ o 2)) 102)))
+              0
+              (let ((e (lspFormEnd src o)))
+                (if (<= e o)
+                  0
+                  (let ((cond (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))))
+                    (if (== (strLen cond) 0)
+                      0
+                      {
+                        (vecPush seen key)
+                        (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Simplify to `" cond) "`"))) "kind" (jsonStr "refactor.rewrite")) "diagnostics" (jsonArrPush jsonArr (lspLintJson src ix sp (lintBoolIf) msg))) "edit" (lspEditJson uri (lspRangeIx src ix (mkSpan o e)) cond)))
+                        0
+                      })))))))))))
+
+; The effect NAME an AX3053 message names - the backticked name after
+; `effect `, in either message shape - or "". A quote that never
+; closes, or no `effect ` at all, is not parsed further: no action
+; rather than a tag for the wrong effect.
+(pub :: lspEffectQuoted (-> String String))
+(pub fn (lspEffectQuoted msg)
+  (let (
+    (n (strLen msg))
+    (mut i 0)
+    (mut out "")
+  )
+    {
+      (while (&& (== (strLen out) 0) (< i n))
+        {
+          (if (&& (<= (+ i 8) n) (&& (== (strByte msg i) 101) (&& (== (strByte msg (+ i 1)) 102) (&& (== (strByte msg (+ i 2)) 102) (&& (== (strByte msg (+ i 3)) 101) (&& (== (strByte msg (+ i 4)) 99) (&& (== (strByte msg (+ i 5)) 116) (&& (== (strByte msg (+ i 6)) 32) (== (strByte msg (+ i 7)) 96)))))))))
+            (let ((mut j (+ i 8)))
+              {
+                (while (&& (< j n) (isIdentChar (strByte msg j)))
+                  (set j (+ j 1)))
+                (if (&& (> j (+ i 8)) (&& (< j n) (== (strByte msg j) 96)))
+                  {
+                    (set out (strSlice msg (+ i 8) (- j (+ i 8))))
+                    0
+                  }
+                  0)
+              })
+            0)
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; This document's `(effect E ...)` declaration, or 0. Only this
+; document's: an effect from another module gets no action, for the
+; reason the banner gives.
+(pub :: lspFindEffect (-> (Vec Int) String Int Int))
+(pub fn (lspFindEffect decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_EFFECT) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
+        d
+        (lspFindEffect decls name (- i 1))))))
+
+; Whether the declaration already carries a tag of that key, by the
+; tag content's head - `unhandled(abort)` starts with `unhandled`.
+(pub :: lspDeclHasTagKey (-> Int String Bool))
+(pub fn (lspDeclHasTagKey d key)
+  (if (== (memGetWord d 7) 0)
+    false
+    (let (
+      (tags (memGetWordVec d 7))
+      (mut i 0)
+      (mut out false)
+    )
+      {
+        (while (< i (vecLen tags))
+          {
+            (if (strStartsWith (memGetWordStr (vecGet tags i) 1) key)
+              (set out true)
+              false)
+            (set i (+ i 1))
+          })
+        out
+      })))
+
+; One acknowledge per AX3053 the request meets, where this document
+; declares the effect and carries no `unhandled` tag on it.
+(pub :: lspUnhandledAssists (-> Int (Vec Int) String String (Vec Int) Int (Vec Int) Int))
+(pub fn (lspUnhandledAssists out ds src uri ix want decls)
+  (let (
+    (n (vecLen ds))
+    (seen vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((d (vecGet ds i)))
+          {
+            (if (&& (== (diagUnit d) 0) (&& (strEq (diagCode d) "AX3053") (lspSpanMeets (diagSpan d) want)))
+              (let ((eff (lspEffectQuoted (diagMsg d))))
+                (if (== (strLen eff) 0)
+                  0
+                  (if (>= (strVecIdx seen eff) 0)
+                    0
+                    (let ((ed (lspFindEffect decls eff (- (vecLen decls) 1))))
+                      (if (== ed 0)
+                        0
+                        (if (lspDeclHasTagKey ed "unhandled")
+                          0
+                          {
+                            (vecPush seen eff)
+                            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Treat unhandled `" eff) "` as a deliberate abort"))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "edit" (lspFixInsert uri src ix (lineStartOf src (spanStart (nodeSpan ed))) ";@axiom:unhandled(trap)\n")))
+                            0
+                          }))))))
+              0)
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
 ; EXTRACT TO `let` - `refactor.extract`, on a range and no diagnostic.
 ; The range, trimmed of whitespace, must be EXACTLY one item of the
 ; document - a form to its closer, a brace block, a literal or an

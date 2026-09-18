@@ -13,3 +13,5 @@
 (:: main Int)
 (fn (main)
   0)
+
+(type Score = Int)

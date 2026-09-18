@@ -120,7 +120,7 @@ OUTLINE_FLOOR = 10
 # whatever the server under test happens to emit.
 LSP_SEVERITY = {"E": 1, "W": 2, "H": 4}
 LSP_SYMBOL_KIND = {"Function": 12, "Enum": 10, "Struct": 23,
-                   "EnumMember": 22, "Field": 8}
+                   "Class": 5, "EnumMember": 22, "Field": 8}
 
 
 def frame(obj):
@@ -3859,13 +3859,16 @@ else:
 shutil.rmtree(FIXDIR, ignore_errors=True)
 
 # ---------------------------------------------------------------------
-# CODE ACTIONS, THE THREE ASSISTS THE COMPILER DOES NOT WRITE: an
+# CODE ACTIONS, THE ASSISTS THE COMPILER DOES NOT WRITE: an
 # import for a name another module declares (on AX3001), `pub` for a
-# name a module keeps private (on AX3023), and an extraction to a
-# `let` (on a range, with no diagnostic). A helper module and five
-# documents written HERE, into a temp directory the server resolves
-# imports from, with every expected edit DERIVED from their bytes and
-# every applied result handed back to the compiler's own commands:
+# name a module keeps private (on AX3023), an extraction to a
+# `let` (on a range, with no diagnostic), a `nolint` suppression on
+# every live lint Hint, a simplification of the `if` the bool lint
+# names, and an `unhandled(trap)` acknowledge on AX3053. A helper
+# module and seven documents written HERE, into a temp directory the
+# server resolves imports from, with every expected edit DERIVED from
+# their bytes and every applied result handed back to the compiler's
+# own commands:
 #
 #   * on `(shout 1)` in a document with no import at all, the import
 #     quickfix must insert `(import CaHelper (shout))` as the FIRST
@@ -3897,7 +3900,21 @@ shutil.rmtree(FIXDIR, ignore_errors=True)
 #     `if` is the statement. On `tick 3` (two items), `(tick n)` (a
 #     branch of an `if`), `(+ y 2)` (its `y` bound inside the
 #     statement), the `+` head, an empty range and an unparseable
-#     document: no extraction.
+#     document: no extraction;
+#   * on the bool-if condition, the unread binding and the dead
+#     literal, one `nolint` suppression each - the tag above the
+#     owner's `::` line - plus, on the condition alone, the
+#     simplification to the condition itself; on the dead literal no
+#     rewrite, since a live arm has no exact span. A whole-document
+#     range answers all four, each once. Applied, the three tags
+#     check clean and reopen silent, and the simplified program runs
+#     to the same exit 11 as the original;
+#   * on the undischarged `main`, the acknowledge alone - for the
+#     effect declared in the document without a tag; the
+#     wrongly-tagged sibling and the imported effect draw nothing.
+#     Applied, `check` and the reopen keep the Fx and Sloppy warnings
+#     and lose only the Zap one, and the program still traps 71 both
+#     ways.
 # ---------------------------------------------------------------------
 CADIR = tempfile.mkdtemp(prefix="axiom-ca-")
 CA_HELPER = """; The module the assists reach into.
@@ -3956,10 +3973,55 @@ CA_EXTRACT = """(import IO)
   (- (+ (tick 3) (keep 4)) 10)
 })
 """
+CA_LINT = """; Shapes for the lint assists: a bool-if to simplify, an unused
+; let and a dead branch to suppress. `main` threads all three into
+; its answer, so the run below proves the rewrite changes nothing.
+(:: isYes (-> Bool Bool))
+(fn (isYes ok) (if ok true false))
+
+(:: countDown (-> Int Int))
+(fn (countDown n) (let ((waste n)) 0))
+
+(:: pickTrue (-> Bool Int))
+(fn (pickTrue flag) (if true 1 2))
+
+(:: main Int)
+(fn (main) (+ (if (isYes true) 10 0) (+ (countDown 5) (pickTrue false))))
+"""
+CA_FX_HELPER = """; The module whose effect the unhandled assist must NOT touch:
+; its operation reaches `main` undischarged, and the tag would have
+; to go into this file, which the request did not name.
+(pub effect Fx
+  (fxFire :: (-> Int Int)))
+
+(pub :: fxBoom (-> Int Int))
+(pub fn (fxBoom n) (fxFire n))
+"""
+CA_UNHANDLED = """(import CaFx)
+
+(effect Zap
+  (fire :: (-> Int Int)))
+
+;@axiom:unhandled(abort)
+(effect Sloppy
+  (slip :: (-> Int Int)))
+
+(:: boom (-> Int Int))
+(fn (boom n) (fire n))
+
+(:: viaSloppy (-> Int Int))
+(fn (viaSloppy n) (slip n))
+
+(:: main Int)
+(fn (main) (+ (boom 1) (+ (viaSloppy 1) (fxBoom 1))))
+"""
 CA_DOCS = {"ca-import.ax": CA_IMPORT, "ca-listed.ax": CA_LISTED, "ca-after.ax": CA_AFTER,
-           "ca-public.ax": CA_PUBLIC, "ca-extract.ax": CA_EXTRACT}
+           "ca-public.ax": CA_PUBLIC, "ca-extract.ax": CA_EXTRACT,
+           "ca-lint.ax": CA_LINT, "ca-unhandled.ax": CA_UNHANDLED}
 HELPER_FILE = "CaHelper.ax"
 open(os.path.join(CADIR, HELPER_FILE), "w", encoding="utf-8").write(CA_HELPER)
+FX_HELPER_FILE = "CaFx.ax"
+open(os.path.join(CADIR, FX_HELPER_FILE), "w", encoding="utf-8").write(CA_FX_HELPER)
 for ca_name, ca_text in CA_DOCS.items():
     open(os.path.join(CADIR, ca_name), "w", encoding="utf-8").write(ca_text)
 
@@ -4002,6 +4064,30 @@ EX_TWO = locate(CA_EXTRACT, "tick 3", 1)
 EX_BRANCH = locate(CA_EXTRACT, "(tick n)", 1)
 EX_BOUND = locate(CA_EXTRACT, "(+ y 2)", 1)
 EX_HEAD = locate_in(CA_EXTRACT, "(+ (tick 3)", "+")
+ISYES_FN = cut(CA_LINT, "(fn (", " ok) (if")
+ISYES_COND = locate_in(CA_LINT, "(if ok true false)", "ok")
+ISYES_FORM = locate(CA_LINT, "(if ok true false)", 1)
+ISYES_SIG_LINE = locate(CA_LINT, "(:: " + ISYES_FN, 1)["line"]
+COUNT_FN = cut(CA_LINT, "(fn (", " n) (let ((waste n)) 0))")
+WASTE = locate(CA_LINT, "waste", 1)
+COUNT_SIG_LINE = locate(CA_LINT, "(:: " + COUNT_FN, 1)["line"]
+PICK_FN = cut(CA_LINT, "(fn (", " flag) (if true 1 2))")
+DEAD_LIT = locate_in(CA_LINT, "(if true 1 2)", "true")
+PICK_SIG_LINE = locate(CA_LINT, "(:: " + PICK_FN, 1)["line"]
+LINT_LINES = CA_LINT.split("\n")
+LINT_WHOLE = {"start": {"line": 0, "character": 0},
+              "end": {"line": len(LINT_LINES) - 1, "character": u16(LINT_LINES[-1])}}
+SUPPRESS_BOOL = f"Suppress `lint-bool-if` on `{ISYES_FN}`"
+SUPPRESS_LET = f"Suppress `lint-unused-let` on `{COUNT_FN}`"
+SUPPRESS_DEAD = f"Suppress `lint-dead-branch` on `{PICK_FN}`"
+SIMPLIFY_TITLE = "Simplify to `ok`"
+ZAP_LINE = locate(CA_UNHANDLED, "(effect Zap", 1)["line"]
+ACK_TITLE = "Treat unhandled `Zap` as a deliberate abort"
+ACK_TEXT = ";@axiom:unhandled(trap)\n"
+# The AX3053 spans sit on `main`, whose row is undischarged - not on
+# the calls - so the acknowledge is asked at the `fn` name, where it
+# answers alone (a name in head position draws no extraction).
+UNHANDLED_MAIN = locate_in(CA_UNHANDLED, "(fn (main)", "main")
 
 
 def ca_fresh(src):
@@ -4025,7 +4111,9 @@ PUB_WHOLE = {"start": {"line": 0, "character": 0},
 for what, text in (("public fn name", SHOUT), ("second public fn name", WHISPER),
                    ("private fn name", QUIET), ("stdlib name", STRLEN),
                    ("statement", EX_STMT), ("if statement", IF_STMT),
-                   ("fresh binder", EX_NAME)):
+                   ("fresh binder", EX_NAME),
+                   ("bool-if fn", ISYES_FN), ("unused-let fn", COUNT_FN),
+                   ("dead-branch fn", PICK_FN)):
     if not text.strip():
         sys.exit(f"FAIL: the derived {what} is empty - every assist assertion "
                  f"resting on it would compare nothing against nothing")
@@ -4068,6 +4156,11 @@ ca_session = b"".join(frame(m) for m in [
     ca_req(13, "ca-extract.ax", rng(EX_BOUND)),
     ca_req(14, "ca-extract.ax", rng(EX_HEAD)),
     ca_req(15, "ca-extract.ax", point(EX_CALL)),
+    ca_req(20, "ca-lint.ax", rng(ISYES_COND)),
+    ca_req(21, "ca-lint.ax", rng(WASTE)),
+    ca_req(22, "ca-lint.ax", rng(DEAD_LIT)),
+    ca_req(23, "ca-lint.ax", LINT_WHOLE),
+    ca_req(24, "ca-unhandled.ax", rng(UNHANDLED_MAIN)),
     {"jsonrpc": "2.0", "method": "textDocument/didChange",
      "params": {"textDocument": {"uri": ca_uri("ca-extract.ax"), "version": 2},
                 "contentChanges": [{"text": CA_EXTRACT + "\n("}]}},
@@ -4131,6 +4224,15 @@ def ca_check(path):
     if p.returncode == 0 and not p.stderr:
         return ""
     return f"exit {p.returncode}: {p.stderr.decode('utf-8', 'replace')[:300]}"
+
+
+def ca_check_full(path):
+    """`check`'s exit status and its whole diagnostic stream: the
+    acknowledge must silence exactly one warning of three, which does
+    not fit in `ca_check`'s 300 bytes."""
+    p = subprocess.run([stage1, "--diagnostic-format=ai", "check", path],
+                       capture_output=True, cwd=os.path.dirname(path))
+    return p.returncode, p.stderr.decode("utf-8", "replace")
 
 
 def ca_run(path):
@@ -4203,6 +4305,28 @@ elif any(ca_actions(rid, "refactor.extract") for rid in (11, 12, 13, 14, 15)):
              str({rid: cres(rid) for rid in (11, 12, 13, 14, 15) if ca_actions(rid, "refactor.extract")})[:400])
 elif cres(16) != []:
     cawhy = f"codeAction on the unparseable extract document answered {cres(16)!r:.200}, want []"
+# --- lint assists ----------------------------------------------------------
+# `Extract to `let`` sits beside the bool-if pair and the dead-branch
+# suppression because a lone condition and a lone literal are each
+# exactly one extractable item; the unread binder is in a binding
+# list, where extraction refuses. The assertions name it where it
+# belongs rather than pretending the request meets only the lint.
+elif [a.get("title") for a in cres(20) or []] != [SUPPRESS_BOOL, SIMPLIFY_TITLE, "Extract to `let`"]:
+    cawhy = f"the request on the bool-if condition answered {[a.get('title') for a in cres(20) or []]}, want the suppression, the simplification and the extraction"
+elif [a.get("kind") for a in cres(20) or []] != ["quickfix", "refactor.rewrite", "refactor.extract"]:
+    cawhy = f"the bool-if actions are kinds {[a.get('kind') for a in cres(20) or []]}, want quickfix, refactor.rewrite and refactor.extract"
+elif [d.get("code") for d in (ca_actions(20, "quickfix", SUPPRESS_BOOL)[0].get("diagnostics") or [])] != ["lint-bool-if"]:
+    cawhy = f"the suppression carries {ca_actions(20, 'quickfix', SUPPRESS_BOOL)[0].get('diagnostics')!r:.200}, want one lint-bool-if"
+elif [a.get("title") for a in cres(21) or []] != [SUPPRESS_LET]:
+    cawhy = f"the request on the unread binding answered {[a.get('title') for a in cres(21) or []]}, want only its suppression"
+elif [a.get("title") for a in cres(22) or []] != [SUPPRESS_DEAD, "Extract to `let`"]:
+    cawhy = f"the request on the dead literal answered {[a.get('title') for a in cres(22) or []]}, want its suppression beside the extraction"
+elif "refactor.rewrite" in [a.get("kind") for a in cres(22) or []]:
+    cawhy = f"the dead branch drew a rewrite: {[a.get('title') for a in cres(22) or []]} - a live arm has no exact span to write back"
+elif [a.get("title") for a in cres(23) or []] != [SUPPRESS_BOOL, SIMPLIFY_TITLE, SUPPRESS_LET, SUPPRESS_DEAD]:
+    cawhy = f"a whole-document range answered {[a.get('title') for a in cres(23) or []]}, want the three suppressions and the one simplification, each once"
+elif [a.get("title") for a in cres(24) or []] != [ACK_TITLE]:
+    cawhy = f"the request on the undischarged `main` answered {[a.get('title') for a in cres(24) or []]}, want only the Zap acknowledge: Sloppy already carries a tag and Fx lives in another file"
 
 # The applied results, handed to the compiler.
 CADIR2 = tempfile.mkdtemp(prefix="axiom-ca2-")
@@ -4248,6 +4372,117 @@ if not cawhy:
     elif run1 != run0:
         cawhy = (f"the extracted program printed {run1[0]!r:.200} and exited {run1[1]}, where the original "
                  f"printed {run0[0]!r:.200} and exited {run0[1]}; the extracted text was:\n{extracted}")
+if not cawhy:
+    lint_uri = ca_uri("ca-lint.ax")
+    unhandled_uri = ca_uri("ca-unhandled.ax")
+
+    def ca_title_changes(rid, title, uri):
+        acts = ca_actions(rid, "quickfix", title) + ca_actions(rid, "refactor.rewrite", title)
+        if len(acts) != 1:
+            return None
+        return ((acts[0].get("edit") or {}).get("changes") or {}).get(uri) or []
+
+    # The exact edits, derived from the documents' own bytes: three tag
+    # inserts at the owners' first lines, and the `if` form for `ok`.
+    sup_bool = ca_title_changes(20, SUPPRESS_BOOL, lint_uri)
+    sup_let = ca_title_changes(21, SUPPRESS_LET, lint_uri)
+    sup_dead = ca_title_changes(22, SUPPRESS_DEAD, lint_uri)
+    simp = ca_title_changes(20, SIMPLIFY_TITLE, lint_uri)
+    ack = ca_title_changes(24, ACK_TITLE, unhandled_uri)
+    want_sup_bool = [{"range": {"start": {"line": ISYES_SIG_LINE, "character": 0},
+                                "end": {"line": ISYES_SIG_LINE, "character": 0}},
+                      "newText": ";@axiom:nolint(lint-bool-if)\n"}]
+    want_sup_let = [{"range": {"start": {"line": COUNT_SIG_LINE, "character": 0},
+                               "end": {"line": COUNT_SIG_LINE, "character": 0}},
+                     "newText": ";@axiom:nolint(lint-unused-let)\n"}]
+    want_sup_dead = [{"range": {"start": {"line": PICK_SIG_LINE, "character": 0},
+                                "end": {"line": PICK_SIG_LINE, "character": 0}},
+                      "newText": ";@axiom:nolint(lint-dead-branch)\n"}]
+    want_simp = [{"range": rng(ISYES_FORM), "newText": "ok"}]
+    want_ack = [{"range": {"start": {"line": ZAP_LINE, "character": 0},
+                           "end": {"line": ZAP_LINE, "character": 0}},
+                 "newText": ACK_TEXT}]
+    if sup_bool != want_sup_bool:
+        cawhy = f"the bool-if suppression edits {sup_bool!r:.300}, want the tag above the `::` line"
+    elif sup_let != want_sup_let:
+        cawhy = f"the unused-let suppression edits {sup_let!r:.300}, want the tag above the `::` line"
+    elif sup_dead != want_sup_dead:
+        cawhy = f"the dead-branch suppression edits {sup_dead!r:.300}, want the tag above the `::` line"
+    elif simp != want_simp:
+        cawhy = f"the simplification edits {simp!r:.300}, want the `if` form at {rng(ISYES_FORM)} replaced by `ok`"
+    elif ack != want_ack:
+        cawhy = f"the acknowledge edits {ack!r:.300}, want the tag above the `(effect Zap` line"
+if not cawhy:
+    lint_suppressed = apply_edits(CA_LINT, sup_bool + sup_let + sup_dead)
+    lint_simplified = apply_edits(CA_LINT, simp)
+    unhandled_fixed = apply_edits(CA_UNHANDLED, ack)
+    for ca_name, ca_text in (("ca-lint-fixed.ax", lint_suppressed),
+                             ("ca-lint-simplified.ax", lint_simplified),
+                             ("ca-unhandled-fixed.ax", unhandled_fixed)):
+        open(os.path.join(CADIR, ca_name), "w", encoding="utf-8").write(ca_text)
+    # The suppressed document must check clean; the original is clean
+    # too (Hints never fail a build), so cleanness proves nothing
+    # about the tags - the reopen below does, by requiring silence.
+    if ca_check(os.path.join(CADIR, "ca-lint-fixed.ax")):
+        cawhy = f"the suppressed lint document does not check clean; the text was:\n{lint_suppressed}"
+    elif ca_check(os.path.join(CADIR, "ca-lint-simplified.ax")):
+        cawhy = f"the simplified lint document does not check clean; the text was:\n{lint_simplified}"
+    elif ca_check(os.path.join(CADIR, "ca-unhandled.ax")) == "":
+        cawhy = "the unhandled document checks silent, so the acknowledge would have nothing to kill"
+    else:
+        fixed_st, fixed_report = ca_check_full(os.path.join(CADIR, "ca-unhandled-fixed.ax"))
+        if fixed_st != 0 or "effect `Zap`" in fixed_report or "effect `Fx`" not in fixed_report or \
+                "effect `Sloppy`" not in fixed_report:
+            cawhy = (f"the acknowledge must silence exactly the Zap warning; the fixed document reports (exit {fixed_st}: {fixed_report[:300]}); "
+                     f"the text was:\n{unhandled_fixed}")
+if not cawhy:
+    run_lint0 = ca_run(os.path.join(CADIR, "ca-lint.ax"))
+    run_lint1 = ca_run(os.path.join(CADIR, "ca-lint-simplified.ax"))
+    run_un0 = ca_run(os.path.join(CADIR, "ca-unhandled.ax"))
+    run_un1 = ca_run(os.path.join(CADIR, "ca-unhandled-fixed.ax"))
+    if run_lint0[1] != 11:
+        cawhy = f"the original lint document exits {run_lint0[1]}, want 11 - the run the rewrite is compared against is not the one the document describes"
+    elif run_lint1 != run_lint0:
+        cawhy = (f"the simplified program exited {run_lint1[1]} with {run_lint1[0]!r:.100}, where the original "
+                 f"exited {run_lint0[1]} with {run_lint0[0]!r:.100}; the text was:\n{lint_simplified}")
+    elif run_un0[1] != 71 or run_un1[1] != 71:
+        cawhy = f"the unhandled program exits {run_un0[1]}/{run_un1[1]} before/after the tag, want the 71 trap both ways"
+if not cawhy:
+    # Reopen the fixed documents: every Hint the suppressions name
+    # must be gone, and the acknowledged warning with it.
+    reopen = b"".join(frame(m) for m in [
+        fixreq(101, "initialize", {}),
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": ca_uri("ca-lint-fixed.ax"), "languageId": "axiom",
+                                     "version": 1, "text": lint_suppressed}}},
+        {"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": ca_uri("ca-unhandled-fixed.ax"), "languageId": "axiom",
+                                     "version": 1, "text": unhandled_fixed}}},
+        fixreq(102, "shutdown", None),
+        {"jsonrpc": "2.0", "method": "exit", "params": None},
+    ])
+    rp = subprocess.run([stage1, "lsp"], input=reopen, capture_output=True, cwd=CADIR)
+    rmsgs, rtail = unframe(rp.stdout)
+    pubs = {}
+    for m in rmsgs:
+        if m.get("method") == "textDocument/publishDiagnostics":
+            pubs[m["params"]["uri"]] = m["params"]["diagnostics"]
+    if rp.returncode != 0:
+        cawhy = f"the reopen server exited {rp.returncode}: {rp.stderr[:200]!r}"
+    elif rtail:
+        cawhy = f"{len(rtail)} trailing bytes after the last frame of the reopen"
+    elif pubs.get(ca_uri("ca-lint-fixed.ax"), None) != []:
+        cawhy = f"the suppressed document still publishes {pubs.get(ca_uri('ca-lint-fixed.ax'))!r:.300}"
+    else:
+        un_pubs = pubs.get(ca_uri("ca-unhandled-fixed.ax"), None)
+        un_msgs = [(d.get("message") or "") for d in un_pubs] if un_pubs is not None else None
+        if un_msgs is None:
+            cawhy = "the acknowledged document published no diagnostics notification at all"
+        elif any("effect `Zap`" in m for m in un_msgs) or \
+                not any("effect `Fx`" in m for m in un_msgs) or \
+                not any("effect `Sloppy`" in m for m in un_msgs):
+            cawhy = (f"the reopen must publish the Fx and Sloppy warnings without the Zap one; "
+                     f"it published {[d.get('code') for d in un_pubs]!r:.300}")
 
 if cawhy:
     print(f"FAIL code-action-assists: {cawhy}")
@@ -4265,7 +4500,13 @@ else:
           f"over the whole `if`; the extracted program prints the same {len(run0[0])} bytes "
           f"and exits {run0[1]}; nothing for two items, a branch, a captured binder, a head, "
           f"an empty range or an unparseable document)")
-    passed += 3
+    print(f"ok   lint-assists (one `nolint` suppression per live Hint plus `Simplify to `ok``; "
+          f"no rewrite for the dead branch; applied, the document reopens silent and the "
+          f"simplified program exits {run_lint1[1]} like the original)")
+    print(f"ok   unhandled-assist (one acknowledge for the untagged local effect, none for the "
+          f"wrongly-tagged sibling or the imported one; applied, only the Zap warning goes "
+          f"silent and the program still traps {run_un1[1]} both ways)")
+    passed += 5
 shutil.rmtree(CADIR, ignore_errors=True)
 shutil.rmtree(CADIR2, ignore_errors=True)
 # =====================================================================

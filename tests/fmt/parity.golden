@@ -1,7 +1,7 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 57 cases: 32 rewrites and 25 refusals, which is why this
+# it formatted at all. 63 cases: 35 rewrites and 28 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
 #
@@ -48,6 +48,14 @@
 # parameter, `let` binder, pattern and argument position is an ordinary
 # identifier and prints as one. Regenerating this file for them moved no
 # other case's bytes.
+#
+# THREE CASES WERE ADDED for MAC-TOOL-6 (2026-09-18). 230, 231 and 232
+# pin one refusal each - a backtick, a bare comma and a quote in
+# expression position, every one of which `check` refuses (AX1001 for
+# the backtick, AX2001 for the other two) and every one of which the
+# old printer formatted. 060 already refused, but only through the
+# `,@` beside its backtick; these three are the markers alone.
+# Regenerating this file for them moved no other case's bytes.
 #
 # TWO CASES CHANGED SIDES on 2026-08-28, the other way round from the three
 # below, and for the same reason - this file records what the formatter DID,
@@ -317,3 +325,6 @@
 ### 222-qualified-head-inline.axp (exit 0)
 (fn (f v)
   (println (Vec::vecLen v)))
+### 230-backtick-refused.axp (exit 1)
+### 231-comma-refused.axp (exit 1)
+### 232-quote-refused.axp (exit 1)

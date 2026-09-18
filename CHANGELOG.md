@@ -16,6 +16,54 @@ its changelog too.
 
 ## Unreleased
 
+### The printer refuses all four prefix markers — `tests/fmt/parity/230-backtick-refused.axp`
+
+`axiom fmt` formatted what `axiom check` refuses: a backtick and a
+bare comma in expression position rewrote cleanly where `check`
+answers AX1001 and AX2001, and a quote before a paren (`'(f x)`)
+formatted while a quote before a name refused only by the accident
+of rescanning as a char literal. Only `,@` was refused on purpose.
+`fpExpr`'s `FN_PREFIX` arm now answers `fpBad` for every marker -
+the printer's existing refusal, inlined in the existing arm with no
+new top-level function - so the two subcommands refuse the same
+files. `230`, `231` and `232` pin one refusal each, every one
+formatted before and refused after with `check` refusing all
+three, beside `060`, which refused already through its `,@`. The
+parity bank's header count moves 57 to 63 with them; it already
+read 60, since the three layout cases of 2026-09-04 never moved
+it. Closes MAC-TOOL-6. Calls no new gate.
+
+### `type` aliases join the outline — `tests/lsp/060-outline.ax`
+
+`documentSymbol` listed every `fn`, `data`, `struct` and macro but
+no `type` alias, while the navigation table resolved aliases and
+`workspace/symbol` shared the outline's kinds - two views of one
+document disagreeing, the class of drift the constructors fix of
+2026-09-03 closed. `lspWantsSymbol` now takes `TAG_D_ALIAS` too, so
+the outline, the workspace search, completion and go-to-definition
+agree; the alias renders as Class, the protocol having no TypeAlias
+kind (a macro is a Function for the same reason). `060` gains a
+`(type Score = Int)` and the manifest a `Class` row, with
+`drive.py` mapping the new name. Calls no new gate.
+
+### Three assists hang off the lints and AX3053 — `tests/lsp/drive.py`
+
+A Hint carried no way out: the editor drew the squiggle and the
+author typed the fix by hand. `Suppress RULE on F` writes the
+`nolint` tag above the declaration, once per declaration and rule
+and only where the Hint is drawn; `Simplify to C` rewrites
+`(if c true false)` to its condition, with the lint's own guards
+as the edit (a dead branch draws no rewrite - a live arm has no
+exact span - and the suppressor covers those sites); and `Treat
+unhandled E as a deliberate abort` writes
+`;@axiom:unhandled(trap)` above this document's own effect
+declaration, never into another file and never beside an
+`unhandled` tag already there. The code-action session holds all
+three: the exact edits from the documents' bytes, the suppressions
+reopening silent, the simplified program exiting 11 like the
+original, and the acknowledge silencing exactly the one warning
+while the program still traps 71 both ways. Calls no new gate.
+
 ### Renamed binders render under their original spelling — `tests/diagnostics/654-macro-hygiene-suggestion.ax`
 
 A typo beside a macro-introduced binder suggested a name no source

@@ -720,10 +720,12 @@ link, not an error; `resolveProvider` is false.
 
 **`textDocument/documentSymbol`.** The outline: every `fn` and
 `macro` as `Function`, every `data` as `Enum`, every `struct` as
-`Struct`, straight off the parse tree with no checker running — a file
-with a type error still has an outline, and a file that does not parse
-has an empty one. A `::` signature is not listed beside its `fn`, and
-neither is a `type` alias.
+`Struct`, and every `type` alias as `Class` — the protocol has no
+`TypeAlias` kind, so the server collapses it the way it collapses a
+macro to `Function` — straight off the parse tree with no checker
+running — a file with a type error still has an outline, and a file
+that does not parse has an empty one. A `::` signature is not listed beside its `fn`, and
+neither is an `effect` declaration.
 
 `range` is the whole top-level form and `selectionRange` is the name
 inside it. Both used to be the name, which the protocol permits and an
@@ -754,7 +756,8 @@ parent, and the source at `selectionRange` spelling the symbol's name.
 
 **`workspace/symbol`.** Every declaration the OPEN documents can see
 — their own and every module each imports — whose bare name holds the
-query, case-folded, with constructors as `EnumMember` and the module
+query, case-folded, with constructors as `EnumMember`, aliases as
+`Class`, and the module
 as `containerName` for an imported one; a declaration reached twice
 through two open documents is listed once. The workspace this server
 knows is the document store: it does not walk a directory, so a module
@@ -790,7 +793,7 @@ Whole-document formatting is the one answer this server gives.
 compiler attaches to a diagnostic in the range — a help carrying a
 fix span, exactly what AXDL prints after `~>` — as a preferred action,
 so a code that gains a fix in `typecheck.ax` gains a quickfix without
-a line changing in `lsp.ax`; and two the server writes itself. *Import
+a line changing in `lsp.ax`; and five the server writes itself. *Import
 `name` from `Mod`*, on an AX3001 whose reference is a bare name: every
 module the resolver could reach — the entry file's directory,
 `axiom.pkg`'s `depend` and `crate` directories, `AXIOM_PATH`,
@@ -841,6 +844,26 @@ the `pub ` edits and requires `check` to answer OK; and runs the
 extracted program to require the same output and exit status as the
 original, on a document whose extracted call performs a side effect
 exactly once.
+
+Three more assists hang off the editor-only lints and AX3053.
+*Suppress `RULE` on `F`*, on every live Hint: `;@axiom:nolint(RULE)`
+on its own line above the declaration, once per declaration and
+rule — two unread bindings in one body answer two suppressions
+with different owners, not two copies of one action — and never
+for a Hint the client cannot see, since suppressed records never
+reach the assist walk. *Simplify to `c`*, on the boolean lint
+alone: the whole `(if c true false)` for the condition's own
+bytes, with the lint's own guards as the edit's (a dead branch
+draws no rewrite, because a live arm has no exact span to write
+back). *Treat unhandled `E` as a deliberate abort*, on an AX3053
+whose effect this document declares: `;@axiom:unhandled(trap)`
+above the `(effect E ...)` line — never into another file, and
+never beside an `unhandled` tag of any value already there. The
+gate holds all three beside the older assists: the exact edits
+derived from the documents' bytes, the suppressions reopening
+silent, the simplified program exiting 11 like the original, and
+the acknowledge silencing exactly the one warning while the
+program still traps 71 both ways.
 
 **`textDocument/codeLens`.** A `▶ Run` lens over `(fn (main) ...)`
 when `main` takes no parameters — that is what `axiom run` runs — and
@@ -944,6 +967,25 @@ the declaration ([reference.md](reference.md), AXTAG Keys):
 `;@axiom:nolint(all)` quiets all three. `tests/lsp/100-` through
 `103-lint-*.ax` pin the three rules and the opt-out, each with the
 controls that keep it from being a blanket refusal.
+
+Each Hint carries its own way out, as a code action. `Suppress
+RULE on F` writes the `nolint` tag above the declaration - the
+same placement `103` pins - and is offered once per declaration
+and rule, only where the Hint is drawn: a suppressed record never
+reaches the assist walk, so there is no action for a Hint the
+client cannot see. `Simplify to C` rewrites `(if c true false)`
+to its condition; it is the lint's own guards as an edit, so a
+dead branch draws no rewrite (a live arm has no exact span to
+write back) and the suppressor covers those sites. On AX3053,
+`Treat unhandled E as a deliberate abort` writes
+`;@axiom:unhandled(trap)` above this document's own `(effect E
+...)` declaration - never into another file, and never beside an
+`unhandled` tag of any value already there. The gate holds all
+three in `tests/lsp/drive.py`'s code-action session: the exact
+edits derived from the documents' bytes, the suppressions reopening
+silent, the simplified program exiting 11 like the original, and
+the acknowledge silencing exactly the one warning while the
+program still traps 71 both ways.
 
 ## Highlighting
 
