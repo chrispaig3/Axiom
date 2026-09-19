@@ -2843,8 +2843,8 @@ how you declare two dependencies, so that one is allowed).
 ```
 $ axiom check app.ax ; echo $?
 error: ./axiom.pkg:2: unknown key `dependd`
-       The manifest's keys are `name`, `version`, `depend` and `crate`,
-       and `#` starts a comment. An unknown key used to be ignored, which
+       The manifest's keys are `name`, `version`, `depend`, `crate`, `opt`
+       and `main`, and `#` starts a comment. An unknown key used to be ignored, which
        made a misspelled `depend` report as every module it would have
        provided going missing - one at a time, naming this file never.
 3
@@ -2898,19 +2898,112 @@ file you wrote, and [the search order](#the-search-order-stated-exactly)
 above documents it.
 
 **What this is not**, said out loud so nobody has to discover it: there
-is no registry, no lockfile, no version constraint and no fetching. A
-dependency is a path on this machine, a `crate` included. Each of those
-is a policy decision that wants a maintainer to make it, and a half-made
-one is worse than the mechanism it would rest on
-([compatibility.md](compatibility.md) §4 records it among the things not
-promised). A lockfile in particular is not a step toward a fetcher:
-while every dependency is a path the user already controls, a digest
-over one closes no surface and changes on every edit of their own
-vendored code. And the compiler **will not run another project's build
-system** unless the command line asks it to.
+is no lockfile, no version constraint, and no fetching by the
+compiler. The registry is a URL, not an index: a `depend` names a git
+location outright (see below), so there is nothing to publish to and
+no constraint to resolve — and a manifest line still never runs
+another project's network, for the same reason it never runs another
+project's build system. A lockfile in particular is not a step toward
+a fetcher: while every checkout is a directory the user already
+controls, a digest over one closes no surface. And the compiler
+**will not run another project's build system** unless the command
+line asks it to.
 `scripts/check-packages.sh` is the gate — 42 checks, whose negative
 probe removes the manifest and requires the same program to stop
 resolving, so nothing else can be what found the module.
+
+### Projects
+
+`axiom new` starts one: a directory holding a hello-world program and
+a manifest that names it.
+
+```
+$ axiom new hello
+Created new Axiom project in `hello` (Main.ax, axiom.pkg)
+$ cd hello
+$ axiom run
+Hello from Axiom! 🚀
+$ axiom build
+Build successful: hello
+```
+
+`Main.ax` is the entry by convention and `axiom.pkg` carries `name`
+and `version 0.1.0`:
+
+```
+# axiom.pkg
+name     hello
+version  0.1.0
+```
+
+With no file operand, `run` compiles and runs the project's entry
+and `build` writes the executable under the manifest's `name` — the
+same default a file build already had, so `axiom build` with nothing
+else writes `hello` in the working directory. A bare operand is
+always a file, never a program argument: in a project directory,
+program arguments follow `--`, as in `axiom run -- --port 8080`.
+With no manifest anywhere above the working directory both commands
+report exactly what they always did (`build/run needs an input
+file`), so a tree that never had a project reads as before.
+
+The entry is the manifest's `main` where one is written, else
+`Main.ax` beside the nearest manifest:
+
+```
+# axiom.pkg
+name     hello
+version  0.1.0
+main     src/App.ax
+```
+
+A manifest whose entry names no file that exists is refused naming
+the manifest and the file it wants, before anything is compiled.
+
+`opt` is the project's default optimisation level, honoured where
+`--opt` is silent; the flag wins wherever it speaks:
+
+```
+# axiom.pkg
+name     hello
+version  0.1.0
+opt      2
+```
+
+An `opt` outside 0–3, or a second `name`, `version`, `opt` or `main`,
+is refused at the manifest with its line number, like every other
+line that cannot mean what it says.
+
+### Registry dependencies
+
+A `depend` may name a git URL instead of a directory. The URL is
+where the dependency lives; it is read from a checkout the manifest
+derives deterministically — `.axiom/deps/<slug>/` under the
+manifest's own directory, where the slug is the URL without its
+scheme, without one trailing `/` or `.git`, and with every other
+foreign byte a `-`:
+
+```
+# axiom.pkg
+name     hello
+version  0.1.0
+depend   https://github.com/example/axiom-greeter.git
+```
+
+```
+$ axiom build
+error: ./axiom.pkg names a dependency directory that is not there:
+       ./.axiom/deps/github.com-example-axiom-greeter/
+       `depend` names a DIRECTORY of modules, resolved against the
+       manifest's own directory.
+       `https://github.com/example/axiom-greeter.git` is a registry dependency: check it out with
+       git clone https://github.com/example/axiom-greeter.git ./.axiom/deps/github.com-example-axiom-greeter/
+```
+
+The compiler never fetches: a checked-in line may not run another
+project's network. Once the checkout is there the directory joins
+the search path exactly like a vendored `depend`, pairwise overlap
+included, and a URL that stops resolving is the same refusal a
+deleted directory always was.
 
 ---
 

@@ -368,8 +368,11 @@ else
 fi
 
 # No arguments at all: usage, not a complaint about a file nobody named.
+# The negative grep names the old default-filename complaint
+# (`cannot read input: in.ax`), not the bare substring: the project
+# help legitimately speaks of `Main.ax`.
 "$s1" >n.out 2>n.err; rc=$?
-if [[ $rc != 0 ]] && grep -q 'USAGE' n.err && ! grep -q 'in\.ax' n.err; then
+if [[ $rc != 0 ]] && grep -q 'USAGE' n.err && ! grep -q 'cannot read input' n.err; then
   ok "a bare invocation prints usage and fails"
 else
   bad "a bare invocation (rc=$rc) said: $(head -1 n.err)"
@@ -618,7 +621,7 @@ fi
 
 # ---------------------------------------------------------------
 # Help, from anywhere, on stdout, exit 0.
-for c in build check run test emit-llvm fmt explain symbols repl lsp; do
+for c in build check run new test emit-llvm fmt explain symbols repl lsp; do
   "$s1" $c --help >h.out 2>h.err; rc=$?
   if [[ $rc == 0 ]] && grep -q "axiom $c" h.out; then
     ok "\`$c --help\` prints $c's help"
@@ -631,7 +634,7 @@ done
 # be read and discarded, printing the general usage - while the COMMANDS
 # block promised this exact spelling. A usage text documenting behaviour
 # the binary lacks is the same defect as an unconstructed diagnostic code.
-for c in build fmt symbols; do
+for c in build new fmt symbols; do
   "$s1" help $c >hc.out 2>&1
   grep -q "axiom $c" hc.out \
     && ok "\`help $c\` answers for $c" || bad "\`help $c\` printed the general usage"
@@ -652,7 +655,7 @@ for f in --input --output -o --target --opt --heap-ceiling --emit-llvm --check -
          --list --no-banner --filter --diagnostic-format --help --version; do
   grep -q -- "$f" full-help.txt || missing="$missing $f"
 done
-for c in build check run test emit-llvm fmt explain symbols repl lsp version help; do
+for c in build check run new test emit-llvm fmt explain symbols repl lsp version help; do
   grep -q -- "  $c" full-help.txt || missing="$missing cmd:$c"
 done
 [[ -z "$missing" ]] && ok "every accepted flag and command appears in --help" \
@@ -1240,6 +1243,71 @@ if command -v lld-link > /dev/null 2>&1 && command -v llvm-dlltool > /dev/null 2
     && ok "the host build still links through cc, with no .exe and without consulting lld-link" \
     || bad "the host build after the Windows split"
 fi
+
+# ---------------------------------------------------------------
+# Projects: `new` scaffolds, `run`/`build` read the manifest.
+#
+# `axiom new hello1` writes hello1/Main.ax (hello world) and
+# hello1/axiom.pkg (`name hello1`, `version 0.1.0`). Inside the
+# project, `axiom run` runs the entry with no file operand and
+# `axiom build` writes the executable under the manifest's `name`.
+# Program arguments follow `--`; a bare operand is always a file.
+mkdir -p proj && cd proj
+"$s1" new hello1 >new.out 2>new.err; rc=$?
+if [[ $rc == 0 ]] && [[ -f hello1/Main.ax ]] && [[ -f hello1/axiom.pkg ]] \
+  && grep -q 'Hello from Axiom' hello1/Main.ax \
+  && grep -q '^name     hello1$' hello1/axiom.pkg \
+  && grep -q '^version  0.1.0$' hello1/axiom.pkg; then
+  ok "\`new\` scaffolds Main.ax and axiom.pkg (name, 0.1.0)"
+else
+  bad "\`new hello1\` (rc=$rc): $(head -1 new.err)"
+fi
+# A second operand is not a second name; no name is a usage error;
+# a bad name names the rule; an existing project is refused.
+"$s1" new hello1 extra >n2.err 2>&1; rc=$?
+[[ $rc == 2 ]] && ok "\`new\` with two operands is a usage error" \
+  || bad "\`new hello1 extra\` (rc=$rc)"
+"$s1" new >n0.err 2>&1; rc=$?
+[[ $rc == 2 ]] && grep -q 'needs a project name' n0.err \
+  && ok "\`new\` with no name is a usage error" || bad "\`new\` bare (rc=$rc)"
+"$s1" new 'bad name!' >nb.err 2>&1; rc=$?
+[[ $rc == 2 ]] && grep -q 'not a package name' nb.err \
+  && ok "\`new\` refuses a bad name with the rule" || bad "\`new 'bad name!'\` (rc=$rc)"
+"$s1" new hello1 >nx.err 2>&1; rc=$?
+[[ $rc == 1 ]] && grep -q 'already holds an Axiom project' nx.err \
+  && ok "\`new\` refuses an existing project" || bad "\`new hello1\` again (rc=$rc)"
+cd hello1
+"$s1" run >run.out 2>run.err; rc=$?
+if [[ $rc == 0 ]] && grep -q 'Hello from Axiom' run.out; then
+  ok "\`run\` with no file runs the project entry"
+else
+  bad "\`run\` in a project (rc=$rc): $(head -1 run.err)"
+fi
+"$s1" build >build.out 2>build.err; rc=$?
+if [[ $rc == 0 ]] && [[ -x hello1 ]] && [[ "$(./hello1)" == *"Hello from Axiom"* ]]; then
+  ok "\`build\` with no file writes the executable under the manifest name"
+else
+  bad "\`build\` in a project (rc=$rc): $(head -1 build.err)"
+fi
+# The manifest's `opt` is honoured; a bad one is refused with its line.
+printf 'name     hello1\nversion  0.1.0\nopt      9\n' >axiom.pkg
+"$s1" build >nopt.err 2>&1; rc=$?
+[[ $rc == 3 ]] && grep -q '`opt` is not an optimisation level' nopt.err \
+  && ok "a bad manifest \`opt\` is refused with its line" || bad "bad \`opt\` (rc=$rc)"
+printf 'name     hello1\nversion  0.1.0\nmain     Else.ax\n' >axiom.pkg
+"$s1" run >nmain.err 2>&1; rc=$?
+[[ $rc == 1 ]] && grep -q 'names no entry file' nmain.err \
+  && ok "a manifest entry that is missing names the manifest and the file" \
+  || bad "missing entry (rc=$rc)"
+# A registry dependency with no checkout names the clone that fills it.
+printf 'name     hello1\nversion  0.1.0\ndepend   https://github.com/example/axiom-greeter.git\n' >axiom.pkg
+"$s1" build >nurl.err 2>&1; rc=$?
+if [[ $rc == 3 ]] && grep -q 'git clone https://github.com/example/axiom-greeter.git' nurl.err; then
+  ok "a missing registry checkout names the clone that fills it"
+else
+  bad "URL depend with no checkout (rc=$rc)"
+fi
+cd "$work"
 
 echo
 echo "$passed passed, $failed failed"

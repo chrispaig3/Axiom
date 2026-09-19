@@ -177,8 +177,8 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-18, `axiom fmt --check` over every one of the 678 `.ax` files
-in the repository answers `is already formatted` for 673 of them and
+2026-09-19, `axiom fmt --check` over every one of the 682 `.ax` files
+in the repository answers `is already formatted` for 677 of them and
 `needs formatting` for 5. Two of the 5 are deliberate and are named
 below; the third is `examples/batch-fallible/batch-fallible.ax`, a
 program that stays as it is until someone edits it; the fourth is
