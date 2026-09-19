@@ -1048,9 +1048,12 @@ else
   }
   # The REPL banner, `axiom version` and `--help` all compose their
   # "Axiom <version>" from the one literal in build.ax since 0.4.3, so
-  # the source copy to hold the binary to is that literal.
+  # the source copy to hold the binary to is that literal. No `-o` on
+  # the first grep: GNU grep drops `-A` context under `-o` while BSD
+  # keeps it, so the version on the NEXT line was invisible on Linux
+  # and the check failed there while green here (measured 2026-09-19).
   ver_check "the version literal" "self_host/build.ax" \
-    "$(grep -oE -A1 '\(pub fn \(axiomVersion\)' "$repo_root/self_host/build.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    "$(grep -A1 -F '(pub fn (axiomVersion)' "$repo_root/self_host/build.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   ver_check "the LSP serverInfo" "self_host/lsp.ax" \
     "$(grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"' "$repo_root/self_host/lsp.ax" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   ver_check "the crate version" "rust/Cargo.toml" \

@@ -82,16 +82,23 @@ else
 fi
 "$axc" --diagnostic-format=ai emit-llvm "$work/cast3.ax" -o "$work/cast3.ll" >/dev/null 2>&1
 "$axc" --diagnostic-format=ai emit-llvm "$work/cast4.ax" -o "$work/cast4.ll" >/dev/null 2>&1
-rel3="$(rg -c 'call void @axiom_release' "$work/cast3.ll" || true)"
-rel4="$(rg -c 'call void @axiom_release' "$work/cast4.ll" || true)"
-rel3="${rel3:-0}"
-rel4="${rel4:-0}"
-if [ "$rel4" -lt "$rel3" ]; then
-  ok "cast at arg root drops a release ($rel3 -> $rel4): leak direction holds, MM-VAL-22 current"
-elif [ "$rel4" -eq "$rel3" ]; then
-  bad "releases now equal ($rel3 == $rel4): MM-VAL-22 may be FIXED - update docs/cast-arg-root.md and delete or repurpose this gate"
+# `grep -c`, not `rg -c`: the Linux image carries no ripgrep and a
+# missing counter reads as 0 == 0 - the fixed defect - on exactly
+# the leg that never saw the tool. (Measured 2026-09-19.)
+if [[ ! -f "$work/cast3.ll" || ! -f "$work/cast4.ll" ]]; then
+  bad "emit-llvm produced no IR for the probes; counting releases would compare nothing"
 else
-  bad "cast version releases MORE ($rel3 -> $rel4): over-release direction, possible premature free - investigate immediately"
+  rel3="$(grep -c 'call void @axiom_release' "$work/cast3.ll" || true)"
+  rel4="$(grep -c 'call void @axiom_release' "$work/cast4.ll" || true)"
+  rel3="${rel3:-0}"
+  rel4="${rel4:-0}"
+  if [ "$rel4" -lt "$rel3" ]; then
+    ok "cast at arg root drops a release ($rel3 -> $rel4): leak direction holds, MM-VAL-22 current"
+  elif [ "$rel4" -eq "$rel3" ]; then
+    bad "releases now equal ($rel3 == $rel4): MM-VAL-22 may be FIXED - update docs/cast-arg-root.md and delete or repurpose this gate"
+  else
+    bad "cast version releases MORE ($rel3 -> $rel4): over-release direction, possible premature free - investigate immediately"
+  fi
 fi
 
 echo "--- 3. AX3040 rule still pinned ---"
