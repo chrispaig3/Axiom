@@ -103,7 +103,8 @@
 # `stdlib/Json.ax` - `jpHexVal`'s lowercase-hex branch, `(- b 97)` to
 # `(- b 96)`, so every lowercase digit of a `\uXXXX` escape decodes one
 # too high and a surrogate pair stops being one - and re-blessing
-# `340-json.out` and `340-json.exit` from that build made this gate print
+# `340-json.out` from that build (340-json exits 0, so it carries no
+# `.exit` file) made this gate print
 # "37 of 37 cases match their golden" and "all checks passed", exit 0,
 # with a checked-in golden that reads "FAIL surrogate pair length got=6
 # want=4" and "failures 2". Measured, in a full-tree copy: EXIT=0.
