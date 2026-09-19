@@ -52,8 +52,11 @@ else
   bad "a plain build reports: $plain"
 fi
 # And the literal is in the source, spelled the way the stamper looks
-# for it. A rename here silently produces `unstamped` releases.
-if grep -q '(pub fn (axiomBuildId) "unstamped")' "$repo_root/self_host/build.ax"; then
+# for it. A rename here silently produces `unstamped` releases. The
+# match is two lines - the formatter split `(pub fn (axiomBuildId)`
+# from its `"unstamped")` in 2026-09-16 and every single-line pattern
+# written before that stopped matching, on every platform at once.
+if grep -A1 -Fx '(pub fn (axiomBuildId)' "$repo_root/self_host/build.ax" | grep -qFx '  "unstamped")'; then
   ok "self_host/build.ax holds the literal build-stamped.sh rewrites"
 else
   bad "self_host/build.ax no longer holds that literal"
@@ -167,7 +170,7 @@ echo "== stamping does not modify the tree =="
 # The rewrite happens in a copy. If it ever happened in place, every
 # build after the first would report `-dirty` and
 # `check-fmt-selfhost.sh` would format the rewrite into the repository.
-if grep -q '(pub fn (axiomBuildId) "unstamped")' "$repo_root/self_host/build.ax"; then
+if grep -A1 -Fx '(pub fn (axiomBuildId)' "$repo_root/self_host/build.ax" | grep -qFx '  "unstamped")'; then
   ok "self_host/build.ax still says \`unstamped\` after a stamped build"
 else
   bad "a stamped build rewrote self_host/build.ax in the tree"

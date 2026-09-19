@@ -28,7 +28,11 @@
 
 # --- readers: print every version the file states, one per line -------
 ax_version()   { grep -oE 'Axiom [0-9]+\.[0-9]+\.[0-9]+ (\(build|- REPL)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-axv_version()  { grep -oE -A1 '\(pub fn \(axiomVersion\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+axv_version()  { grep -A1 -F '(pub fn (axiomVersion)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
+# No `-o` on the first grep: GNU grep drops `-A` context under `-o`
+# while BSD keeps it, so the version on the next line was invisible
+# on Linux (measured 2026-09-19: check-version failed every Tests
+# leg there while green here). `-A1 -F` reads identically on both.
 lsp_version()  { grep -oE '"version" \(jsonStr "[0-9]+\.[0-9]+\.[0-9]+"\)' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 toml_version() { grep -oE '^version = "[0-9]+\.[0-9]+\.[0-9]+"|version = "[0-9]+\.[0-9]+\.[0-9]+" }' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
 json_version() { grep -oE '"version": "[0-9]+\.[0-9]+\.[0-9]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }

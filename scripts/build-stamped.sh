@@ -90,12 +90,15 @@ fi
 # The literal this replaces is declared in `self_host/build.ax` and is
 # asserted to be there before anything is copied: a `sed` that matches
 # nothing is a build that silently ships `unstamped`, which is the one
-# outcome this script exists to prevent.
+# outcome this script exists to prevent. Two lines, not one: the
+# formatter split the declaration from its value in 2026-09-16, so the
+# guard joins them with `N` exactly the way `axv_replace` already does
+# for `axiomVersion` in version-sites.sh.
 src="$repo_root/self_host/build.ax"
 [[ -f "$src" ]] || { echo "FAIL: $src is missing" >&2; exit 1; }
-if ! grep -q '(pub fn (axiomBuildId) "unstamped")' "$src"; then
+if ! grep -A1 -Fx '(pub fn (axiomBuildId)' "$src" | grep -qFx '  "unstamped")'; then
   echo "FAIL: self_host/build.ax no longer holds the literal this rewrites." >&2
-  echo "      Looked for: (pub fn (axiomBuildId) \"unstamped\")" >&2
+  echo "      Looked for: (pub fn (axiomBuildId) on one line, \`  \"unstamped\")\` on the next" >&2
   exit 1
 fi
 # ...and the id must not contain a `\`, `&` or `"`, which would either
@@ -108,7 +111,7 @@ esac
 
 tree="$work/self_host"
 cp -R "$repo_root/self_host" "$tree"
-sed "s|(pub fn (axiomBuildId) \"unstamped\")|(pub fn (axiomBuildId) \"$id\")|" \
+sed "/(pub fn (axiomBuildId)/{N;s/\"unstamped\")/\"$id\")/;}" \
   "$src" > "$tree/build.ax"
 
 echo "== building a compiler stamped \"$id\" =="
