@@ -1,0 +1,13 @@
+ok   empty length
+ok   pushed length
+ok   bool element
+ok   num element
+ok   str element
+ok   write array
+ok   push non-array
+ok   negative index
+ok   past end
+ok   bool of num
+ok   str of num
+checks 13
+failures 0

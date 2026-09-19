@@ -1,0 +1,77 @@
+; Json.ax mutation: building arrays by hand and reading them back.
+;
+; `tests/stdlib/340-json.ax` covers parsing and serialisation, but the
+; CONSTRUCTORS and mutators - `jsonArr`, `jsonBool`, `jsonNum`,
+; `jsonStr`, `jsonArrPush` and the typed readers - reached the tree
+; exercised only through the LSP gate's small well-formed messages.
+; These are the cases that gate could not reach: push-then-readback,
+; push onto a non-array (ignored, the value survives), out-of-range
+; reads (answer 0/empty), and a write of a hand-built array.
+(import Str)
+(import IO)
+(import Json)
+
+(:: eq (-> String String String Int))
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: eqInt (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (eqInt name got want)
+  (if (== got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut bad 0)
+    (mut n 0)
+  )
+    {
+      (let ((arr (jsonArr)))
+        {
+          (set bad (+ bad (eqInt "empty length" (jsonArrLen arr) 0)))
+          (jsonArrPush arr (jsonBool 1))
+          (jsonArrPush arr (jsonNum 42))
+          (jsonArrPush arr (jsonStr "x"))
+          (set bad (+ bad (eqInt "pushed length" (jsonArrLen arr) 3)))
+          (set bad (+ bad (eqInt "bool element" (jsonBoolVal (jsonArrGet arr 0)) 1)))
+          (set bad (+ bad (eqInt "num element" (jsonInt (jsonArrGet arr 1)) 42)))
+          (set bad (+ bad (eq "str element" (jsonStrVal (jsonArrGet arr 2)) "x")))
+          (set bad (+ bad (eq "write array" (jsonWrite arr) "[true,42,\"x\"]")))
+          (set n (+ n 8))
+        })
+      ; A push onto a non-array is ignored: the number survives it.
+      (set bad (+ bad (eqInt "push non-array" (jsonInt (jsonArrPush (jsonNum 7) (jsonNum 8))) 7)))
+      (set n (+ n 1))
+      ; Out-of-range and mistyped reads answer the absence marker.
+      (let ((arr2 (jsonArr)))
+        {
+          (jsonArrPush arr2 (jsonNum 1))
+          (set bad (+ bad (eqInt "negative index" (jsonArrGet arr2 (- 0 1)) 0)))
+          (set bad (+ bad (eqInt "past end" (jsonArrGet arr2 1) 0)))
+          (set bad (+ bad (eqInt "bool of num" (jsonBoolVal (jsonArrGet arr2 0)) 0)))
+          (set bad (+ bad (eq "str of num" (jsonStrVal (jsonArrGet arr2 0)) "")))
+          (set n (+ n 4))
+        })
+      (println "checks {n}")
+      (println "failures {bad}")
+      bad
+    }))

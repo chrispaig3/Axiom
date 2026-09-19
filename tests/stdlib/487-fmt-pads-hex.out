@@ -1,0 +1,10 @@
+ok   center even
+ok   center odd right
+ok   center wide kept
+ok   right
+ok   right wide kept
+ok   hex upper ff
+ok   hex upper zero
+ok   hex upper deadbeef
+checks 8
+failures 0

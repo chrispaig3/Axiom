@@ -1,0 +1,73 @@
+; Vec.ax typed pushes: a reference pushed through a generic spine.
+;
+; `vecPush` over a word scalar needs no help, but a `String` or a
+; nested `Vec` pushed through `(Vec a)` arrives as an `Int` handle
+; with the reference bit cleared - `vecPushStr` and `vecPushVec`
+; take the share explicitly (`__retainref`) and pair it with the
+; cast, in one place, behind a signature that says what crosses.
+; A missing share here is a block freed under a live `Vec`; these
+; cases pin the round trip (push, length, typed read-back) and the
+; unaffected plain-`Int` path beside it.
+(import Str)
+(import IO)
+(import Vec)
+
+(:: eq (-> String String String Int))
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: eqInt (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (eqInt name got want)
+  (if (== got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut bad 0)
+    (mut n 0)
+  )
+    {
+      (let ((v (vecPushStr (vecPushStr vecNew "a") "bc")))
+        {
+          (set bad (+ bad (eqInt "str length" (vecLen v) 2)))
+          (set bad (+ bad (eq "str first" (vecGetStr v 0) "a")))
+          (set bad (+ bad (eq "str second" (vecGetStr v 1) "bc")))
+          (set n (+ n 3))
+        })
+      (let ((inner (vecPush vecNew 7)))
+        (let ((outer (vecPushVec vecNew inner)))
+          {
+            (set bad (+ bad (eqInt "nested outer length" (vecLen outer) 1)))
+            (set bad (+ bad (eqInt "nested round trip" (vecGet (vecGetVec outer 0) 0) 7)))
+            (set bad (+ bad (eqInt "inner intact" (vecGet inner 0) 7)))
+            (set n (+ n 3))
+          }))
+      (let ((nums (vecPush (vecPush vecNew 1) 2)))
+        {
+          (set bad (+ bad (eqInt "int length" (vecLen nums) 2)))
+          (set bad (+ bad (eqInt "int second" (vecGet nums 1) 2)))
+          (set n (+ n 2))
+        })
+      (println "checks {n}")
+      (println "failures {bad}")
+      bad
+    }))
