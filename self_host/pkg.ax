@@ -440,9 +440,12 @@
 ; directory: for now, a git URL. The registry is a URL on purpose -
 ; there is no index to publish to and no lockfile to resolve, so the
 ; manifest says exactly where its dependency lives, byte for byte.
+; `file://` names a local repository and exists so the fetch is
+; testable with no network: a gate builds a repository in a scratch
+; directory and depends on it through its own path.
 (pub :: pkgIsUrl (-> String Bool))
 (pub fn (pkgIsUrl v)
-  (|| (strStartsWith v "https://") (|| (strStartsWith v "http://") (|| (strStartsWith v "git@") (|| (strStartsWith v "ssh://") (strStartsWith v "git://"))))))
+  (|| (strStartsWith v "https://") (|| (strStartsWith v "http://") (|| (strStartsWith v "git@") (|| (strStartsWith v "ssh://") (|| (strStartsWith v "git://") (strStartsWith v "file://")))))))
 
 ; A URL's deterministic checkout segment: the scheme gone, one
 ; trailing `/` gone, one trailing `.git` gone, and every byte outside
@@ -465,7 +468,9 @@
           (strSlice url 6 (- (strLen url) 6))
           (if (strStartsWith url "git://")
             (strSlice url 6 (- (strLen url) 6))
-            url))))))
+            (if (strStartsWith url "file://")
+              (strSlice url 7 (- (strLen url) 7))
+              url)))))))
 
 (pub :: pkgStripSlash (-> String String))
 (pub fn (pkgStripSlash s)
@@ -506,6 +511,26 @@
 (pub :: pkgDepCheckout (-> String String String))
 (pub fn (pkgDepCheckout base url)
   (strConcat (strConcat (pathWithSlash base) ".axiom/deps/") (strConcat (pkgDepSlug url) "/")))
+
+; Every registry (`depend` URL) value in an already-read manifest,
+; in file order: what `fetch` checks out and nothing else.
+(pub :: pkgFetchUrls (-> String (Vec Int)))
+(pub fn (pkgFetchUrls text)
+  (pkgFetchUrlsFrom (pkgValues text "depend") 0 vecNew))
+
+(pub :: pkgFetchUrlsFrom (-> (Vec Int) Int (Vec Int) (Vec Int)))
+(pub fn (pkgFetchUrlsFrom vs i out)
+  (if (>= i (vecLen vs))
+    out
+    {
+      (let ((v (vecGetStr vs i)))
+        (if (pkgIsUrl v)
+          (vecPush
+            out
+            (cast Int v))
+          (cast (Vec Int) 0)))
+      (pkgFetchUrlsFrom vs (+ i 1) out)
+    }))
 
 ; The hint a missing dependency directory carries when it is a URL
 ; dependency's checkout: the URL and the clone that fills it.

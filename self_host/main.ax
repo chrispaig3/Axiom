@@ -1366,6 +1366,116 @@
             ""
           })))))
 
+; `axiom fetch`: check out the manifest's registry dependencies.
+;
+; For every `depend` URL without a checkout, `git clone`s it into
+; `.axiom/deps/<slug>/` beside the manifest; a checkout already
+; there is reported and left alone. Local `depend` directories are
+; not its business - `build` verifies those - and a manifest with
+; no URLs answers that there is nothing to fetch. `git` missing or
+; a clone failing dies naming both, exit 4, the native-tool code.
+(pub :: fetchCmd Int)
+;@axiom:effect(io)
+(pub fn (fetchCmd)
+  (let ((p (positionalIndex operandStart)))
+    (if (>= p 0)
+      (usageError (cat3 "error: `axiom fetch` takes no operands, but `" (sysArg p) "` was given\n"))
+      (let ((mf (pkgFindManifest "")))
+        (if (== (strLen mf) 0)
+          (die "error: no axiom.pkg at or above the working directory\n" 1)
+          (let ((text (sysReadFile (strData mf))))
+            {
+              (pkgCheckLines text mf)
+              (fetchUrls (pkgFetchUrls text) (pathDir mf) 0)
+            }))))))
+
+(pub :: fetchUrls (-> (Vec Int) String Int Int))
+;@axiom:effect(io)
+(pub fn (fetchUrls urls base i)
+  (if (>= i (vecLen urls))
+    (if (== i 0)
+      {
+        (replOut "nothing to fetch: no registry dependencies\n")
+        0
+      }
+      0)
+    (let ((url (vecGetStr urls i)))
+      (let ((dest (pkgDepCheckout base url)))
+        (if (isDir dest)
+          {
+            (replOut (cat3 "present " dest "\n"))
+            (fetchUrls urls base (+ i 1))
+          }
+          {
+            (replOut (cat3 "fetching " dest "\n"))
+            (if (!= (mkdirParents dest) 0)
+              (die (cat2 (cat2 "error: could not create directory `" dest) "`\n") 4)
+              (let ((rc (fetchClone url dest)))
+                (if (< rc 0)
+                  (die "error: `git` was not found on PATH; install git and try again\n" 4)
+                  (if (!= rc 0)
+                    (die (cat2 (cat2 "error: cloning `" url) (cat2 "` failed (git exited " (cat2 (decStr rc) ")\n"))) 4)
+                    (fetchUrls urls base (+ i 1))))))
+          })))))
+
+; `git clone URL DEST`, answering git's exit code, or a negative
+; errno when git could not be started at all (`runTool`'s contract:
+; callers tell the two apart by sign).
+(pub :: fetchClone (-> String String Int))
+;@axiom:effect(io)
+(pub fn (fetchClone url dest)
+  (let ((args vecNew))
+    {
+      (vecPush
+        args
+        (cast Int "clone"))
+      (vecPush
+        args
+        (cast Int url))
+      (vecPush
+        args
+        (cast Int dest))
+      (runTool "git" args)
+    }))
+
+; Every directory on the way to `path`, itself included: `git clone`
+; needs the parent to exist and the manifest's `.axiom/deps/` rarely
+; does on a fresh checkout. Answers 0; an intermediate that exists
+; is not an error, anything else is.
+(pub :: mkdirParents (-> String Int))
+;@axiom:effect(io)
+(pub fn (mkdirParents path)
+  (mkdirPrefixes (pkgStripSlash path) 0))
+
+(pub :: mkdirPrefixes (-> String Int Int))
+;@axiom:effect(io)
+(pub fn (mkdirPrefixes path i)
+  (if (>= i (strLen path))
+    (mkdirOne path)
+    (if (== (strByte path i) 47)
+      (let ((rc (mkdirOne (strSlice path 0 i))))
+        (if (!= rc 0)
+          rc
+          (mkdirPrefixes path (+ i 1))))
+      (mkdirPrefixes path (+ i 1)))))
+
+(pub :: mkdirOne (-> String Int))
+;@axiom:effect(io)
+(pub fn (mkdirOne dir)
+  ; `strDup` before `strCStr`: a prefix is a SLICE sharing its bytes
+  ; with the whole path and stopping at no NUL, so the raw pointer
+  ; would name garbage past the slice - `fillArgv` in driver.ax
+  ; copies for the same reason.
+  (if (== (strLen dir) 0)
+    0
+    (if (isDir dir)
+      0
+      (if (isErr (sysMkdir (strCStr (strDup dir)) sysDirMode))
+        (if (isDir dir)
+          0
+          1)
+        0))))
+
 (pub :: runSubcommand (-> String Int))
 ;@axiom:effect(io)
 (pub fn (runSubcommand cmd)
@@ -1836,7 +1946,9 @@
                           testMain
                           (if (strEq cmd "new")
                             newProjectCmd
-                            (die "error: unknown subcommand\n" 1)))))))))))))))
+                            (if (strEq cmd "fetch")
+                              fetchCmd
+                              (die "error: unknown subcommand\n" 1))))))))))))))))
 
 ; A diagnostic code the way stage0's `lookup` normalises one: ASCII
 ; whitespace trimmed, a leading `AX` (any case) stripped, leading
