@@ -1163,7 +1163,7 @@
                                     (let ((rc (buildToExecutable
                                       ir
                                       base
-                                      optLevelArg
+                                      (optLevelArg (pathDir file))
                                       0
                                       (effectiveLinkArgs ir (pathDir file) linkArgsOf))))
                                       {
@@ -1285,6 +1285,87 @@
                   (cat3 "error: unknown command `" w "`\n")
                   (cat2 (cat3 "error: unknown command `" w "`\n") (cat3 "       did you mean `" near "`?\n")))))))))))
 
+; `axiom new NAME`: start a project.
+;
+; NAME/ is made - or reused when it exists and is empty - holding
+; Main.ax, the hello-world program, and axiom.pkg carrying
+; `name NAME` and `version 0.1.0`. Every refusal names what is
+; wrong: no name, a second operand, a NAME no package may carry, a
+; project already there, a directory that is not empty, or a write
+; that failed.
+(pub :: newProjectCmd Int)
+;@axiom:effect(io)
+(pub fn (newProjectCmd)
+  (let ((p1 (positionalIndex operandStart)))
+    (if (< p1 0)
+      (usageError "error: `axiom new` needs a project name\n")
+      (let ((p2 (positionalIndex (+ p1 1))))
+        (if (>= p2 0)
+          (usageError (cat3 "error: `axiom new` takes one project name, but `" (sysArg p2) "` was also given\n"))
+          (let ((name (sysArg p1)))
+            (if (pkgNameOk name)
+              (newProject name)
+              (usageError (cat3 "error: `" name "` is not a package name\n       A package name is letters, digits, `.`, `-` and `_`, and is neither `.` nor `..`.\n")))))))))
+
+(pub :: newProject (-> String Int))
+;@axiom:effect(io)
+(pub fn (newProject name)
+  (let ((mf (pathJoin name "axiom.pkg")))
+    (let ((mainf (pathJoin name "Main.ax")))
+      (if (sysFileExists (strCStr mf))
+        (die (cat2 (cat2 "error: `" name) "` already holds an Axiom project (`axiom.pkg` exists)\n") 1)
+        (if (isDir name)
+          (if (> (vecLen (listDir name)) 0)
+            (die (cat2 (cat2 "error: `" name) "` exists and is not empty\n") 1)
+            (newProjectWrite name mf mainf))
+          (if (isErr (sysMkdir (strCStr name) sysDirMode))
+            (die (cat2 (cat2 "error: could not create directory `" name) "`\n") 4)
+            (newProjectWrite name mf mainf)))))))
+
+(pub :: newProjectWrite (-> String String String Int))
+;@axiom:effect(io)
+(pub fn (newProjectWrite name mf mainf)
+  (if (isErr (sysWriteFile (strCStr mainf) newProjectMain))
+    (die (cat2 (cat2 "error: could not write `" mainf) "`\n") 4)
+    (if (isErr (sysWriteFile (strCStr mf) (newProjectManifest name)))
+      (die (cat2 (cat2 "error: could not write `" mf) "`\n") 4)
+      {
+        (replOut (cat3 "Created new Axiom project in `" name "` (Main.ax, axiom.pkg)\n"))
+        0
+      })))
+
+(pub :: newProjectMain String)
+(pub fn (newProjectMain)
+  "(import IO)\n\n(:: main Int)\n;@axiom:effect(io)\n(fn (main)\n  {\n    (println \"Hello from Axiom! 🚀\")\n    0\n  })\n")
+
+(pub :: newProjectManifest (-> String String))
+(pub fn (newProjectManifest name)
+  (strConcat (pkg3 "name     " name "\nversion  0.1.0\n") "# `depend` names a directory of modules (or a git URL to check out\n# under `.axiom/deps/`), `crate` a native crate directory, `opt` the\n# default optimisation level (0-3) and `main` the entry file.\n# depend  vendor/lib\n# opt     1\n"))
+
+; The manifest-mode entry file for `build` and `run`: the manifest's
+; `main` resolved against the manifest's own directory, else `Main.ax`
+; beside the nearest manifest at or above the working directory.
+; Answers "" only when no manifest is around at all - the caller then
+; reports its own "needs an input file", so a tree that never had a
+; project reads exactly as before. A manifest whose entry is missing
+; dies naming the manifest and the file it wants.
+(pub :: manifestEntryOrEmpty String)
+;@axiom:effect(io)
+(pub fn (manifestEntryOrEmpty)
+  (let ((mf (pkgFindManifest "")))
+    (if (== (strLen mf) 0)
+      ""
+      (let ((f (pkgEntryFile "")))
+        (if (sysFileExists (strCStr f))
+          f
+          ; `die` answers `Int` and the entry answers `String`: an
+          ; `if` whose arms disagree is a type error, so the refusal
+          ; sequences behind a string it never reaches.
+          {
+            (die (cat2 (cat4 "error: the project manifest `" mf "` names no entry file that exists (want `" f) (cat2 "`)" "\n       Set `main` to move it, or write `Main.ax` beside the manifest.\n")) 1)
+            ""
+          })))))
+
 (pub :: runSubcommand (-> String Int))
 ;@axiom:effect(io)
 (pub fn (runSubcommand cmd)
@@ -1360,7 +1441,16 @@
             ; accepted for `--input` too, because a compiler that insists on a
             ; flag for the one argument it always needs is a compiler people
             ; wrap in a shell script.
-            (let ((inp inputOperand))
+            ; With no FILE the project's entry builds instead: the
+            ; manifest's `main`, else `Main.ax` beside the nearest
+            ; `axiom.pkg` - and the executable takes the manifest's
+            ; `name` through the default below, so `axiom build` with
+            ; nothing else writes `<name>` in the working directory.
+            (let ((inp 
+              (let ((v inputOperand))
+                (if (> (strLen v) 0)
+                  v
+                  manifestEntryOrEmpty))))
               (if (== (strLen inp) 0)
                 (die "error: build needs an input file\n" 1)
                 ; `-o` is the short form of `--output` here as well as under
@@ -1419,7 +1509,7 @@
                       (buildToExecutable
                         ir
                         outp
-                        optLevelArg
+                        (optLevelArg (pathDir inp))
                         (if (hasFlagAnywhere cmd "--emit-llvm")
                           1
                           0)
@@ -1659,6 +1749,10 @@
                       ; else written there would be read by the client as a frame.
                       lspMain
                       (if (strEq cmd "run")
+                        ; With no FILE the project's entry runs instead -
+                        ; and a bare operand is always a FILE, never an
+                        ; argument, so program arguments follow `--` in
+                        ; manifest mode (`axiom run -- --port 8080`).
                         (let ((f runInputOperand))
                           (if (== (strLen f) 0)
                             (die "error: run needs an input file\n" 1)
@@ -1720,7 +1814,7 @@
                                   (let ((rc (buildToExecutable
                                     ir
                                     base
-                                    optLevelArg
+                                    (optLevelArg (pathDir f))
                                     0
                                     (effectiveLinkArgs ir (pathDir f) linkArgsOf))))
                                     (if (!= rc 0)
@@ -1740,7 +1834,9 @@
                           ; it does not share is `run`'s argument
                           ; forwarding - see `testArgv`.
                           testMain
-                          (die "error: unknown subcommand\n" 1))))))))))))))
+                          (if (strEq cmd "new")
+                            newProjectCmd
+                            (die "error: unknown subcommand\n" 1)))))))))))))))
 
 ; A diagnostic code the way stage0's `lookup` normalises one: ASCII
 ; whitespace trimmed, a leading `AX` (any case) stripped, leading
@@ -1891,13 +1987,37 @@
 ; `scripts/check-driver.sh` pins both, numerically: the two probe
 ; programs answer different numbers, so the exit status IS which file
 ; the compiler chose.
+;
+; With neither spelling naming a file, the project's entry runs
+; instead (`runManifestMode`): the manifest's `main`, else `Main.ax`
+; beside the nearest manifest - and a bare operand after `--` is a
+; PROGRAM argument there, never a file, so `axiom run -- --port`
+; runs the project with `--port` rather than reading a file of
+; that name.
 (pub :: runInputOperand String)
 ;@axiom:effect(io)
 (pub fn (runInputOperand)
-  (let ((p (positionalIndex operandStart)))
-    (if (< p 0)
-      (flagValue "--input" 1)
-      (sysArg p))))
+  (if (runManifestMode)
+    manifestEntryOrEmpty
+    (let ((p (positionalIndex operandStart)))
+      (if (< p 0)
+        (flagValue "--input" 1)
+        (sysArg p)))))
+
+; Manifest mode: no `--input`, and no bare operand outside `--`'s
+; reach. A bare operand anywhere before `--` - or with no `--` at
+; all - is a FILE, exactly as it always was; only its absence hands
+; the choice to the manifest.
+(pub :: runManifestMode Bool)
+;@axiom:effect(io)
+(pub fn (runManifestMode)
+  (if (> (strLen (flagValue "--input" 1)) 0)
+    false
+    (let ((p (positionalIndex operandStart)))
+      (if (< p 0)
+        true
+        (let ((dd (dashDashIndex operandStart)))
+          (&& (>= dd 0) (> p dd)))))))
 
 ;@axiom:effect(io)
 (pub fn (inputArgSkipping bare)
@@ -1959,14 +2079,22 @@
 (pub :: runArgv (-> String Int))
 ;@axiom:effect(io)
 (pub fn (runArgv name)
+  ; In manifest mode the operands after `--` are PROGRAM arguments -
+  ; `runInputOperand` read the first of them as nothing, so starting
+  ; past the file operand would drop it. Everything from `--` onward
+  ; is forwarded instead (`fillRunArgv` drops the marker itself).
   (let (
+    (dd (dashDashIndex operandStart))
+    (p (positionalIndex operandStart))
     (first (+ (positionalIndex operandStart) 1))
     (n sysArgc)
   )
     (let ((extra 
-      (if (< (positionalIndex operandStart) 0)
+      (if (< p 0)
         n
-        first)))
+        (if (&& (>= dd 0) (> p dd))
+          (+ dd 1)
+          first))))
       (let ((v (memAlloc (* (+ (- n extra) 2) 8))))
         {
           (memSetWord v 0 (strCStr (strDup name)))

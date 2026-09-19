@@ -271,12 +271,15 @@
       (strSlice t 0 i)
     }))
 
-; The four keys a manifest may write. A closed set on purpose: the
+; The six keys a manifest may write. A closed set on purpose: the
 ; format has no version field of its own, so a key it does not know is
-; a typo rather than a message from the future.
+; a typo rather than a message from the future. `opt` is the project's
+; default optimisation level and `main` its entry file; both are read
+; where the command line is silent, and both are refused here when they
+; cannot mean what they say.
 (pub :: pkgKnownKey (-> String Bool))
 (pub fn (pkgKnownKey k)
-  (|| (strEq k "name") (|| (strEq k "version") (|| (strEq k "depend") (strEq k "crate")))))
+  (|| (strEq k "name") (|| (strEq k "version") (|| (strEq k "depend") (|| (strEq k "crate") (|| (strEq k "opt") (strEq k "main")))))))
 
 (pub :: pkgUncomment (-> String String))
 (pub fn (pkgUncomment line)
@@ -352,6 +355,12 @@
 ; Every value of `key` in an ALREADY-READ manifest, resolved against
 ; `base`. Split from the function above so that `pkgSearchDirs` can ask
 ; for two keys over one read - see its comment for why that matters.
+;
+; A `depend` value that is a git URL resolves to its deterministic
+; checkout (`.axiom/deps/<slug>/`) rather than against `base` - the
+; URL is where the dependency lives, the checkout is where it is
+; read from, and `pkgVerify` refuses the latter with the clone that
+; fills it when it is not there.
 (pub :: pkgDirsIn (-> String String String (Vec Int)))
 (pub fn (pkgDirsIn text base key)
   (let ((raw (pkgValues text key)))
@@ -365,11 +374,17 @@
           {
             (vecPush
               out
-              (cast Int (pathWithSlash (pkgResolve base (vecGetStr raw i)))))
+              (cast Int (pkgResolveDep text base key (vecGetStr raw i))))
             (set i (+ i 1))
           })
         out
       })))
+
+(pub :: pkgResolveDep (-> String String String String String))
+(pub fn (pkgResolveDep text base key v)
+  (if (&& (strEq key "depend") (pkgIsUrl v))
+    (pkgDepCheckout base v)
+    (pathWithSlash (pkgResolve base v))))
 
 ; `DIR/axiom/` for each directory in `dirs`.
 (pub :: pkgAxiomSub (-> (Vec Int) (Vec Int)))
@@ -421,6 +436,93 @@
     p
     (strConcat (pathWithSlash base) p)))
 
+; A `depend` value that names a registry location rather than a
+; directory: for now, a git URL. The registry is a URL on purpose -
+; there is no index to publish to and no lockfile to resolve, so the
+; manifest says exactly where its dependency lives, byte for byte.
+(pub :: pkgIsUrl (-> String Bool))
+(pub fn (pkgIsUrl v)
+  (|| (strStartsWith v "https://") (|| (strStartsWith v "http://") (|| (strStartsWith v "git@") (|| (strStartsWith v "ssh://") (strStartsWith v "git://"))))))
+
+; A URL's deterministic checkout segment: the scheme gone, one
+; trailing `/` gone, one trailing `.git` gone, and every byte outside
+; `[A-Za-z0-9._-]` a `-`. Flat by construction - no `/` survives, so
+; the segment cannot escape the directory that holds it - and stable,
+; so two manifests naming one URL name one checkout.
+(pub :: pkgDepSlug (-> String String))
+(pub fn (pkgDepSlug url)
+  (pkgSlugBytes (pkgStripDotGit (pkgStripSlash (pkgStripScheme url))) 0))
+
+(pub :: pkgStripScheme (-> String String))
+(pub fn (pkgStripScheme url)
+  (if (strStartsWith url "https://")
+    (strSlice url 8 (- (strLen url) 8))
+    (if (strStartsWith url "http://")
+      (strSlice url 7 (- (strLen url) 7))
+      (if (strStartsWith url "git@")
+        (strSlice url 4 (- (strLen url) 4))
+        (if (strStartsWith url "ssh://")
+          (strSlice url 6 (- (strLen url) 6))
+          (if (strStartsWith url "git://")
+            (strSlice url 6 (- (strLen url) 6))
+            url))))))
+
+(pub :: pkgStripSlash (-> String String))
+(pub fn (pkgStripSlash s)
+  (if (&& (> (strLen s) 0) (== (strByte s (- (strLen s) 1)) 47))
+    (strSlice s 0 (- (strLen s) 1))
+    s))
+
+(pub :: pkgStripDotGit (-> String String))
+(pub fn (pkgStripDotGit s)
+  (if (&& (> (strLen s) 4) (strEq (strSlice s (- (strLen s) 4) 4) ".git"))
+    (strSlice s 0 (- (strLen s) 4))
+    s))
+
+(pub :: pkgSlugBytes (-> String Int String))
+(pub fn (pkgSlugBytes s i)
+  (if (>= i (strLen s))
+    ""
+    (let ((b (strByte s i)))
+      (strConcat
+        (if (pkgIsSlugByte b)
+          (strSlice s i 1)
+          "-")
+        (pkgSlugBytes s (+ i 1))))))
+
+(pub :: pkgIsSlugByte (-> Int Bool))
+(pub fn (pkgIsSlugByte b)
+  (|| (strIsAlpha b) (|| (strIsDigit b) (|| (== b 46) (|| (== b 45) (== b 95))))))
+
+; Where a URL dependency lives: `.axiom/deps/<slug>/` under the
+; manifest's own directory, with a trailing slash like every other
+; resolved dependency directory.
+;
+; The compiler never fetches. A manifest is a checked-in file that
+; arrives with a clone, and a line in one may not run another
+; project's network - the same rule that keeps a manifest `crate`
+; from running cargo. A URL whose checkout is not there is refused
+; with the path and the clone that fills it (see `pkgUrlHint`).
+(pub :: pkgDepCheckout (-> String String String))
+(pub fn (pkgDepCheckout base url)
+  (strConcat (strConcat (pathWithSlash base) ".axiom/deps/") (strConcat (pkgDepSlug url) "/")))
+
+; The hint a missing dependency directory carries when it is a URL
+; dependency's checkout: the URL and the clone that fills it.
+; Answers "" for a plain directory, so the refusal reads as before.
+(pub :: pkgUrlHint (-> String String String String))
+(pub fn (pkgUrlHint text base dir)
+  (pkgUrlHintVals (pkgValues text "depend") base dir 0))
+
+(pub :: pkgUrlHintVals (-> (Vec Int) String String Int String))
+(pub fn (pkgUrlHintVals vs base dir i)
+  (if (>= i (vecLen vs))
+    ""
+    (let ((v (vecGetStr vs i)))
+      (if (&& (pkgIsUrl v) (strEq (pkgDepCheckout base v) dir))
+        (strConcat (pkg3 "       `" v "` is a registry dependency: check it out with\n") (pkg4 "       git clone " v " " (strConcat dir "\n")))
+        (pkgUrlHintVals vs base dir (+ i 1))))))
+
 ; The `name` the manifest at or above `entryDir` declares, or "".
 ;
 ; This is what `axiom build` writes to when the command line says
@@ -438,6 +540,58 @@
     (if (== (strLen mf) 0)
       ""
       (pkgValue (sysReadFile (strData mf)) "name"))))
+
+; An `opt` value is one byte, `0` through `3`: the same four levels
+; `--opt` honours, refused in the same words. Single byte, so no
+; multi-digit value and no flag spelling can reach the emitter.
+(pub :: pkgOptOk (-> String Bool))
+(pub fn (pkgOptOk s)
+  (if (== (strLen s) 1)
+    (let ((c (strByte s 0)))
+      (&& (>= c 48) (<= c 51)))
+    false))
+
+; The project's default optimisation level: the manifest's `opt`, or
+; -1 when the manifest says nothing. The command line wins wherever
+; it speaks; this is what `build`, `run` and `test` build at when it
+; does not. Read AFTER `pkgVerify` wherever it is spent - an invalid
+; `opt` exits 3 there, so the -1/level answer here is always honoured.
+(pub :: pkgOpt (-> String Int))
+;@axiom:effect(io)
+(pub fn (pkgOpt entryDir)
+  (let ((mf (pkgFindManifest entryDir)))
+    (if (== (strLen mf) 0)
+      (- 0 1)
+      (let ((v (pkgValue (sysReadFile (strData mf)) "opt")))
+        (if (== (strLen v) 0)
+          (- 0 1)
+          (- (strByte v 0) 48))))))
+
+; The manifest's entry file: its `main`, or "". The caller answers
+; `Main.ax` beside the manifest when this is empty, so a project that
+; follows the convention writes no key at all.
+(pub :: pkgMainEntry (-> String String))
+;@axiom:effect(io)
+(pub fn (pkgMainEntry entryDir)
+  (let ((mf (pkgFindManifest entryDir)))
+    (if (== (strLen mf) 0)
+      ""
+      (pkgValue (sysReadFile (strData mf)) "main"))))
+
+; The project file for a manifest-mode invocation: the manifest's
+; `main` resolved against the manifest's own directory, else
+; `Main.ax` beside it, or "" when no manifest is found at all.
+(pub :: pkgEntryFile (-> String String))
+;@axiom:effect(io)
+(pub fn (pkgEntryFile dir)
+  (let ((mf (pkgFindManifest dir)))
+    (if (== (strLen mf) 0)
+      ""
+      (let ((base (pathDir mf)))
+        (let ((m (pkgValue (sysReadFile (strData mf)) "main")))
+          (if (> (strLen m) 0)
+            (pkgResolve base m)
+            (strConcat (pathWithSlash base) "Main.ax")))))))
 
 ; A package name is letters, digits, `.`, `-` and `_`, and is not `.`
 ; or `..`. Deliberately narrower than the filesystem: the name is spent
@@ -489,13 +643,15 @@
 ; Four refusals, all of them the same shape - the file, the line, and
 ; what the line would have had to be:
 ;
-;   1. A key that is not `name`, `version`, `depend` or `crate`.
+;   1. A key that is not `name`, `version`, `depend`, `crate`,
+;      `opt` or `main`.
 ;   2. A key with no value.
-;   3. A second `name` or `version`. The first wins in `pkgValue`, so
-;      the second is a line the file contains and the compiler ignores.
-;      `depend` and `crate` are exempt: repeating either is how you
-;      declare two.
+;   3. A second `name`, `version`, `opt` or `main`. The first wins in
+;      `pkgValue`, so the second is a line the file contains and the
+;      compiler ignores. `depend` and `crate` are exempt: repeating
+;      either is how you declare two.
 ;   4. A `name` that is not a file name, since it is spent as one.
+;   5. An `opt` that is not one of `0`, `1`, `2`, `3`.
 (pub :: pkgCheckLines (-> String String Int))
 ;@axiom:effect(io)
 (pub fn (pkgCheckLines text mf)
@@ -505,6 +661,8 @@
     (mut i 0)
     (mut sawName 0)
     (mut sawVersion 0)
+    (mut sawOpt 0)
+    (mut sawMain 0)
   )
     {
       (while (< i n)
@@ -536,8 +694,27 @@
                             (set sawVersion 1)
                             0
                           }
-                          0)))
-                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version`, `depend` and `crate`,\n" "       and `#` starts a comment. An unknown key used to be ignored, which\n" "       made a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n"))))))))
+                          (if (strEq k "opt")
+                            {
+                              (if (> sawOpt 0)
+                                (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`opt` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                                0)
+                              (set sawOpt 1)
+                              (if (pkgOptOk v)
+                                0
+                                (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`opt` is not an optimisation level: `" v "`\n") (pkg3 "       The manifest's `opt` is the project's default, honoured where\n" "       `--opt` is silent; it answers one of `0`, `1`, `2` or `3`.\n" ""))))
+                              0
+                            }
+                            (if (strEq k "main")
+                              {
+                                (if (> sawMain 0)
+                                  (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`main` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                                  0)
+                                (set sawMain 1)
+                                0
+                              }
+                              0)))))
+                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version`, `depend`, `crate`, `opt`\n" "       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n" "       made a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n"))))))))
           (set i (+ i 1))
         })
       0
@@ -579,27 +756,28 @@
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
       0
-      (let ((_lines (pkgCheckLines (sysReadFile (strData mf)) mf)))
-        (let ((dirs (pkgDependDirs entryDir)))
-          (let (
-            (n (vecLen dirs))
-            (mut i 0)
-          )
-            {
-              (while (< i n)
-                {
-                  (if (sysIsDir (strCStr (vecGetStr dirs i)))
-                    0
-                    (pkgDie (pkg4 (pkg3 "error: " mf " names a dependency directory that is not there:\n") (pkg3 "       " (vecGetStr dirs i) "\n") "       `depend` names a DIRECTORY of modules, resolved against the\n" "       manifest's own directory.\n")))
-                  (set i (+ i 1))
-                })
-              (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
-              ; The pairwise check runs over the depend directories AND
-              ; every crate's `axiom/` together, because they land in one
-              ; search path and a clash between two of them is the same
-              ; wrong answer whichever key declared them.
-              (pkgCheckOverlap (pkgConcatDirs dirs (pkgCrateAxiomDirs entryDir)) mf 0)
-            }))))))
+      (let ((text (sysReadFile (strData mf))))
+        (let ((_lines (pkgCheckLines text mf)))
+          (let ((dirs (pkgDependDirs entryDir)))
+            (let (
+              (n (vecLen dirs))
+              (mut i 0)
+            )
+              {
+                (while (< i n)
+                  {
+                    (if (sysIsDir (strCStr (vecGetStr dirs i)))
+                      0
+                      (pkgDie (pkg4 (pkg3 "error: " mf " names a dependency directory that is not there:\n") (pkg3 "       " (vecGetStr dirs i) "\n") "       `depend` names a DIRECTORY of modules, resolved against the\n" (strConcat "       manifest's own directory.\n" (pkgUrlHint text (pathDir mf) (vecGetStr dirs i))))))
+                    (set i (+ i 1))
+                  })
+                (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
+                ; The pairwise check runs over the depend directories AND
+                ; every crate's `axiom/` together, because they land in one
+                ; search path and a clash between two of them is the same
+                ; wrong answer whichever key declared them.
+                (pkgCheckOverlap (pkgConcatDirs dirs (pkgCrateAxiomDirs entryDir)) mf 0)
+              })))))))
 
 ; `a` then `b`, in order, in a NEW Vec - the caller is still holding
 ; both of them, and `pkgCrateAxiomDirs`' answer is also what
