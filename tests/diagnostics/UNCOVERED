@@ -1,0 +1,77 @@
+# Diagnostic codes with no primary `.axdl` fixture.
+#
+# Every code the compiler constructs must be listed by `axiom explain`
+# (`scripts/check-doc-drift.sh` holds that in both directions), and every
+# code a `check` build can emit should have a primary golden pinning its
+# code, span, severity and exit status (`scripts/check-diagnostics.sh`).
+# The ten codes below satisfy the first and not the second: they are
+# real construction sites, and no `.axdl` golden names one of them as
+# its primary diagnostic.
+#
+# This is a hole in the corpus and it is written down rather than left
+# to be discovered. It is compared as a SET, not a count: an eleventh
+# code without a primary fixture fails the gate, and closing a hole is
+# this file losing a line and `tests/diagnostics/` gaining a fixture.
+# Measured 2026-09-19: 81 constructed, 71 with a primary golden.
+#
+# Each entry names the construction site, why no `.axdl` fixture pins
+# it, and what DOES cover the path today (a different suite, or
+# nothing - where nothing covers it, it says so).
+
+# AX3022 (self_host/expand.ax:4296). A macro `set!`-target refusal.
+# No primary golden; appears only inside AX3035's message
+# (tests/diagnostics/590-macro-binder-target.axdl:1). Needs a negative
+# macro fixture. Alternative coverage: NONE - the refusal path is
+# unpinned.
+AX3022
+
+# AX3044 (self_host/typecheck.ax:5047). Type-namespace ambiguity.
+# Needs a two-module fixture; the diagnostics harness runs single-file
+# cases. scripts/check-type-namespace.sh exercises the path but pins
+# no code/span/severity. Alternative coverage: PARTIAL (gate, no golden).
+AX3044
+
+# AX4001 (self_host/main.ax:564). Missing entry point. A driver-level
+# refusal (no `main`), not a `check` diagnostic - the diagnostics
+# harness asserts check-shaped exits. Alternative coverage: NONE at the
+# diagnostics level.
+AX4001
+
+# AX4002 (self_host/codegen.ax:5098). Mentioned only inside AX3012's
+# message (tests/diagnostics/465-set-on-parameter.axdl:1).
+# Alternative coverage: NONE as a primary code.
+AX4002
+
+# AX4003 (self_host/driver.ax:248). A failing native tool (`opt`).
+# Needs a toolchain-ablation harness, not a source fixture; mentioned
+# in tests/selfhost/362-macro-coverage.ax comments only.
+# Alternative coverage: NONE as a golden.
+AX4003
+
+# AX4004 (self_host/driver.ax:1534,1773). Ungrounded extern symbol.
+# Covered by tests/ffi/probe-ungrounded/*.axbad via
+# scripts/check-ffi.sh, which is a refusal probe, not a diagnostics
+# golden pinning code+span+severity+exit. Alternative coverage:
+# PARTIAL (FFI probes, no .axdl).
+AX4004
+
+# AX4005 (self_host/driver.ax:1469). Extern declaration shape mismatch.
+# Same shape as AX4004: FFI probes, no .axdl.
+# Alternative coverage: PARTIAL (FFI probes, no .axdl).
+AX4005
+
+# AX4006 (self_host/main.ax:602). Target/capability refusal
+# (e.g. --threads under --heap-ceiling, freebsd thread lowering).
+# Driver-level, needs flag-matrix harness. Alternative coverage: NONE
+# as a golden.
+AX4006
+
+# AX4007 (self_host/main.ax:645). Windows-spawn warning path.
+# Driver-level, platform-gated. Alternative coverage: NONE as a golden.
+AX4007
+
+# AX5001 (self_host/codegen.ax:6352, self_host/lsp.ax:520). Unresolvable
+# import. Covered by tests/lsp/040-missing-import.golden (LSP surface),
+# not by a check-surface .axdl. Alternative coverage: PARTIAL (LSP
+# golden, no .axdl).
+AX5001
