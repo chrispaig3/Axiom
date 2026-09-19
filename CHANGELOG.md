@@ -16,6 +16,22 @@ its changelog too.
 
 ## Unreleased
 
+### The cast-at-argument-root leak is pinned — `scripts/check-cast-arg-root.sh`
+
+A `cast` at an argument root launders a word past the evidence walk
+(`evStampFill` classifies it 0 outright), so codegen emits no
+retain/release for it: the temporary's release is gone, a leak rather
+than an early free (`docs/memory-model.md` MM-VAL-22). The fix is a
+migration to return-position casts under honest types (MM-VAL-23),
+which is a design note rather than a gate change — so this gate
+ratchets what can be ratcheted meanwhile: the user-level `(cast`
+census (326 over `stdlib/`, `tests/` and `examples/`), the release
+probe that pins the direction (one release without the cast, none
+with it), and the AX3040 rule the migration is measured in, with the
+measurement and the rejected one-liners written down in
+`docs/cast-arg-root.md`. Calls `gate_build_axc`, so the count sites
+state seventy-eight gates; the battery has ninety-five.
+
 ### `restrict(no-untrapped)` refuses raw `/`, `%`, `<<` and `>>` — `tests/diagnostics/396-restrict-no-untrapped.ax`
 
 `docs/checked-arithmetic-design.md` scoped `no-wrap` to `+`, `-` and
@@ -206,8 +222,8 @@ program's obligation); the six S4 gates' evil probes, written for
 the day both compilers refuse, take the refusal arm; and
 `scripts/check-region-scope.sh`'s ablation blinds both guards now, since
 S2's blindness alone no longer accepts the probe. Calls no new
-gate; the count sites still state seventy-seven gates, and the
-battery still has ninety-three.
+gate; the count sites still state seventy-eight gates, and the
+battery still has ninety-five.
 
 ### S4 slice 4, scrutinee path: fresh match scrutinees are reset-reclaimed — `scripts/check-region-scrutinee.sh`
 
@@ -239,8 +255,8 @@ regions summed); the gate counts eight releases gone with an IR
 diff of those eight lines and nothing else, peak RSS 99% across
 300,000 regions of fresh scrutinees, and an ablation of the
 scrutinee spend bringing all eight back. Calls `gate_build_axc`,
-so the count sites state seventy-seven gates; the battery has
-ninety-three.
+so the count sites state seventy-eight gates; the battery has
+ninety-five.
 
 ### S4 slice 3, scope-end path: `let`-bound fresh joins are reset-reclaimed — `scripts/check-region-phi-let.sh`
 
@@ -263,7 +279,7 @@ bound fresh joins, and an ablation of the scope-end join spend
 bringing all eight back. Both phi gates ablate path-specifically -
 ablating the shared stamp would restore traffic the walker under
 test never owned. Calls `gate_build_axc`, so the count sites state
-seventy-seven gates; the battery has ninety-three.
+seventy-eight gates; the battery has ninety-five.
 
 ### S4 slice 3, args path: fresh joins handed to a call are reset-reclaimed — `scripts/check-region-phi.sh`
 
@@ -293,7 +309,7 @@ those seven lines and nothing else, peak RSS 99% across 300,000
 regions of fresh joins, and an ablation of the args-path join spend
 bringing all seven back. The scope-end path is the sibling entry
 above. Calls `gate_build_axc`, so the count sites state
-seventy-seven gates; the battery has ninety-three.
+seventy-eight gates; the battery has ninety-five.
 
 ### S4 slice 2, scope-end path: `let`-bound fresh results are reset-reclaimed — `scripts/check-region-fresh-let.sh`
 
@@ -315,8 +331,8 @@ across 300,000 regions of bound fresh calls, and an ablation of the
 scope-end spend bringing all eight back. Both sibling gates ablate
 path-specifically now - ablating the shared stamp would restore
 traffic the walker under test never owned. Calls `gate_build_axc`,
-so the count sites state seventy-seven gates; the battery has
-ninety-three.
+so the count sites state seventy-eight gates; the battery has
+ninety-five.
 
 ### S4 slice 2, args path: fresh call results handed to a call are reset-reclaimed — `scripts/check-region-fresh.sh`
 
@@ -346,8 +362,8 @@ releases gone with an IR diff of those seven lines and nothing
 else, peak RSS 100% across 300,000 regions of fresh calls, and an
 ablation of the args-path spend bringing all seven back. The
 scope-end path is the sibling entry above. Calls `gate_build_axc`,
-so the count sites state seventy-seven gates; the battery has
-ninety-three.
+so the count sites state seventy-eight gates; the battery has
+ninety-five.
 
 ### S4 slice 2b: the trigger without the report — `self_host/typecheck.ax`
 
@@ -668,7 +684,7 @@ into an outer cell from an un-annotated region is unchecked
 (`rgnCheckAll` runs only under `@r`) and reads back wrong with every
 gate green - the elision is outcome-identical there, and the gate
 pins the identity. Calls `gate_build_axc`, so the six count sites
-state seventy-seven gates; the battery has ninety-three.
+state seventy-eight gates; the battery has ninety-five.
 
 ## 0.7.5 — 2026-09-11
 
