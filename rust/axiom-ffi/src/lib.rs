@@ -951,12 +951,16 @@ pub mod __private {
     ) -> Vec<&'a str> {
         unsafe {
             // SAFETY: `str_words` aborts unless `word` is a live `Vec` for
-            // the call, and this function's `# Safety` is what says its
-            // elements are Strings - `AxStr::from_raw`'s contract. Note that,
-            // unlike `list_words`, nothing here re-checks an element for 0:
-            // the promise carries it.
+            // the call; each element is checked for 0 below before
+            // `AxStr::from_raw`, mirroring `list_words`, so address 0 is
+            // never dereferenced.
             let mut out = Vec::new();
             for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
+                if s == 0 {
+                    abort(format_args!(
+                        "`{func}`: argument {idx} (`{name}`: &[&str]) element {k} is not a String: 0"
+                    ));
+                }
                 match AxStr::from_raw(s).as_str() {
                     Ok(v) => out.push(v),
                     Err(_) => abort(format_args!("{}", utf8_element_message(func, idx, k))),
@@ -977,11 +981,18 @@ pub mod __private {
         name: &str,
     ) -> Result<Vec<&'a str>, String> {
         unsafe {
-            // SAFETY: as `strs_strict`, including its reliance on the
-            // caller's promise for the elements; the `Err` return changes
-            // only what invalid UTF-8 costs, not which words are read.
+            // SAFETY: as `strs_strict`; a zero element is a violated
+            // precondition, but this shape has an `Err` channel so it
+            // answers `Err` rather than aborting. Only UTF-8 failure
+            // used `Err` before; a 0 word dereferenced address 0 (QA P0
+            // §3 F13).
             let mut out = Vec::new();
             for (k, &s) in str_words(word, func, idx, name).iter().enumerate() {
+                if s == 0 {
+                    return Err(alloc::format!(
+                        "`{func}`: argument {idx} (`{name}`: &[&str]) element {k} is not a String: 0"
+                    ));
+                }
                 match AxStr::from_raw(s).as_str() {
                     Ok(v) => out.push(v),
                     Err(_) => return Err(utf8_element_message(func, idx, k)),
@@ -998,13 +1009,21 @@ pub mod __private {
     /// `word` must be 0 or a live Axiom `Vec` of Strings for the call.
     pub unsafe fn strs_lossy(word: AxWord, func: &str, idx: usize, name: &str) -> Vec<String> {
         unsafe {
-            // SAFETY: as `strs_strict` - `str_words` checks the vector, the
-            // caller's `# Safety` covers its String elements - and each
-            // string is copied out of the borrowed bytes before returning.
-            str_words(word, func, idx, name)
-                .iter()
-                .map(|&s| String::from_utf8_lossy(AxStr::from_raw(s).as_bytes()).into_owned())
-                .collect()
+            // SAFETY: as `strs_strict` - `str_words` checks the vector and
+            // each element is checked for 0 before `AxStr::from_raw` - and
+            // each string is copied out of the borrowed bytes before
+            // returning.
+            let words = str_words(word, func, idx, name);
+            let mut out = Vec::with_capacity(words.len());
+            for (k, &s) in words.iter().enumerate() {
+                if s == 0 {
+                    abort(format_args!(
+                        "`{func}`: argument {idx} (`{name}`: &[&str]) element {k} is not a String: 0"
+                    ));
+                }
+                out.push(String::from_utf8_lossy(AxStr::from_raw(s).as_bytes()).into_owned());
+            }
+            out
         }
     }
 
@@ -1207,3 +1226,48 @@ pub extern "C" fn axffi_abi_version() -> i64 {
 /// the same three statuses - because no representation a version-2
 /// crate already uses moved.
 pub const ABI_VERSION: i64 = 2;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axiom_abi::{AxStrRepr, AxVecRepr, AxWord};
+
+    #[test]
+    fn strs_fallible_zero_element_returns_err_not_ub() {
+        let storage = [0i64];
+        // Build the Vec repr on the heap so its address is stable.
+        let repr = Box::new(AxVecRepr {
+            len: 1,
+            cap: 1,
+            data: storage.as_ptr(),
+        });
+        let word = &*repr as *const AxVecRepr as AxWord;
+        // SAFETY: `word` names the live repr above for this call.
+        let r = unsafe { __private::strs_fallible(word, "f", 0, "xs") };
+        assert!(r.is_err());
+        let msg = r.unwrap_err();
+        assert!(msg.contains("is not a String: 0"), "msg was: {msg}");
+        let _ = repr;
+    }
+
+    #[test]
+    fn strs_fallible_valid_element_borrows() {
+        let bytes = [104u8, 105u8];
+        let srepr = AxStrRepr {
+            len: 2,
+            data: bytes.as_ptr(),
+            owner: 0,
+        };
+        let sword = &srepr as *const AxStrRepr as AxWord;
+        let storage = [sword];
+        let vrepr = AxVecRepr {
+            len: 1,
+            cap: 1,
+            data: storage.as_ptr(),
+        };
+        let word = &vrepr as *const AxVecRepr as AxWord;
+        // SAFETY: all reprs above outlive this call.
+        let r = unsafe { __private::strs_fallible(word, "f", 0, "xs") };
+        assert_eq!(r, Ok(alloc::vec!["hi"]));
+    }
+}
