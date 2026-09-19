@@ -121,7 +121,6 @@
 ; this file about how Darwin's carry-flag convention is normalised in
 ; the backend. `-errno` is always negative, and no successful result of
 ; any syscall this library exposes ever is.
-; The errno behind a failed result, or 0 if it did not fail.
 ; ------------------------------------------------------------------
 ; File I/O utilities
 ; ------------------------------------------------------------------
@@ -138,6 +137,7 @@
 ; and both are above this line.
 (import Fmt)
 
+; The errno behind a failed result, or 0 if it did not fail.
 (pub :: sysResult (-> String Int (Result Int Error)))
 (pub fn (sysResult op n)
   (if (< n 0)

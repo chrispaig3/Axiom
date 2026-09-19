@@ -431,7 +431,7 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `sysResult` | value | `(-> String Int (Result Int Error))` | `Alloc` | write(fd, buf, count) -> bytes written, or a negative/errno result. A raw syscall answer turned into a `Result`. |
+| `sysResult` | value | `(-> String Int (Result Int Error))` | `Alloc` | The errno behind a failed result, or 0 if it did not fail. |
 | `stdin` | value | `Int` |  |  |
 | `stdout` | value | `Int` |  |  |
 | `stderr` | value | `Int` |  |  |

@@ -145,6 +145,8 @@
   (mut pcols : Int)
   (wordChars : String))
 
+; The kill ring, created once per session and outliving every line.
+;
 ; 0 none, 1 forward, 2 backward. Consecutive kills in the same
 ; direction accumulate into ONE ring entry, which is what makes
 ; three Ctrl-K presses yank back as one run.
@@ -160,7 +162,6 @@
 ; The extra ASCII bytes that count as word characters, beyond
 ; letters, digits and `_`. See `ledIsWord`: this is where the
 ; CALLER'S language enters, and the only place it does.
-; The kill ring, created once per session and outliving every line.
 ;
 ; `vecNewRef`, not `vecNew`: the ring owns `String` handles, and
 ; Vec.ax is explicit that a reference stored in a leaf vector is
