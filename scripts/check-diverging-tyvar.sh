@@ -135,7 +135,10 @@ fi
 # number, `panic` is entered, and the program must stop there - with
 # the status `panic` chose and the message it wrote, not with a
 # fabricated value flowing back to a caller.
-sed 's/(fn (main) (pick 7))/(fn (main) (pick (- 0 1)))/' "$src" > "$work/976neg.ax"
+# The fixture went through the stacked-closer reformat, so the anchor
+# joins `main`'s two lines before substituting; the `;}` keeps BSD sed
+# honest where GNU accepts either.
+sed '/(fn (main)$/{N;s/(pick 7)/(pick (- 0 1))/;}' "$src" > "$work/976neg.ax"
 if cmp -s "$src" "$work/976neg.ax"; then
   bad "the diverging-path probe changed nothing - its anchor has moved"
 else
