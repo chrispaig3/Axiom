@@ -17,10 +17,10 @@
 #   1  THE DIAGNOSTIC REGISTRY, BOTH WAYS. Every code with a
 #      construction site outside explain.ax is listed by
 #      `explain --list`, and every listed code has a construction site.
-#      It is 51/51 today - and the count is stated here only because a
-#      reader wants a scale; the gate computes it, which is the whole
-#      point. This line said 39/39, then 47/47, each time going stale
-#      inside a week, in the file whose subject is exactly that. `check-tools-selfhost.sh` already checks
+#      No count is stated here: this line said 39/39, then 47/47, then
+#      51/51, each time going stale inside a week, in the file whose
+#      subject is exactly that - the gate computes it, which is the
+#      whole point. `check-tools-selfhost.sh` already checks
 #      emitted -> listed, which is weaker in the direction that
 #      matters: a code CONSTRUCTED but never reached by a corpus
 #      fixture escapes it, and AX4001 sat in the table with no
@@ -435,7 +435,7 @@ for doc in PROSE_DOCS:
     # `tests/fmt/parity/170-empty-tuple.axp` matched as `...ax` and was
     # reported missing, which is a gate finding its own bug and calling
     # it drift. Caught on this gate's first run.
-    found = set(re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden)(?![\w])",
+    found = set(re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json|in|allow|axir|bad|err|exit|hist|lines|markers|mir|optstable|pending|policy|repl|session)(?![\w])",
                            open(doc, encoding="utf-8").read()))
     # CHANGELOG.md is the one document that describes the PAST, and it
     # is append-only: an entry for 0.3.0 saying a rule was pinned by a
@@ -456,6 +456,12 @@ for doc in PROSE_DOCS:
         historical |= found
     else:
         named |= found
+# A convention template, not a path: CHANGELOG.md documents the stdin
+# convention as `tests/stdlib/NNN-name.in`, which no commit ever adds
+# because it names every future fixture at once. The sweep's boundary
+# reports it missing, which is the gate finding its own bug and
+# calling it drift (cf. the axp boundary note above).
+historical.discard("tests/stdlib/NNN-name.in")
 # The floor is a population count, so it moves when the corpus moves -
 # and it has to be re-derived deliberately, because the failure it
 # guards against (a doc quietly stopping citing its fixtures) and the
@@ -545,17 +551,22 @@ for root, dirs, files in os.walk("."):
             text = open(path, encoding="utf-8", errors="ignore").read()
         except OSError:
             continue
-        for p in re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json|in)(?![\w])",
+        for p in re.findall(r"tests/[\w./-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json|in|allow|axir|bad|err|exit|hist|lines|markers|mir|optstable|pending|policy|repl|session)(?![\w])",
                             text):
             # Every naming file, not the first: a deleted fixture is
             # named by as many comments as explained it, and a report
             # that stops at one is a gate you have to run four times.
             src_named.setdefault(p, []).append(path)
 # Placeholders rather than paths: two message templates with the case
-# name spliced in at run time, and the REPL's own `:load` example.
+# name spliced in at run time, the REPL's own `:load` example, the
+# mir printer's `NAME.mir` template (scripts/check-mir.sh), and the
+# stdin-convention template (CHANGELOG.md), which this file itself
+# names in the historical-discard note above.
 for placeholder in ("tests/diagnostics/NAME.human",
                     "tests/stdlib/NAME.out",
-                    "tests/selfhost/x.ax"):
+                    "tests/selfhost/x.ax",
+                    "tests/mir/NAME.mir",
+                    "tests/stdlib/NNN-name.in"):
     src_named.pop(placeholder, None)
 if len(src_named) < 64:
     print(f"FAIL paths: only {len(src_named)} tests/ paths named across the sources; floor is 64")
@@ -592,7 +603,7 @@ tests_index = set()
 for root, dirs, files in os.walk("tests"):
     tests_index.update(files)
 bare_pat = re.compile(
-    r"(?<![\w/.-])(\d{3}-[\w-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json|in))(?![\w])")
+    r"(?<![\w/.-])(\d{3}-[\w-]+\.(?:axbad|axp|ax|py|sh|out|golden|axdl|human|json|in|allow|axir|bad|err|exit|hist|lines|markers|mir|optstable|pending|policy|repl|session))(?![\w])")
 bare_named = {}
 for root, dirs, files in os.walk("."):
     dirs[:] = [d for d in dirs
