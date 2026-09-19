@@ -270,9 +270,18 @@ PY
   printf '%s' "$?"
 }
 
-# The checker half: `cast`'s surplus goes unstamped again.
+# The checker half: `cast`'s surplus goes unstamped again. The needle
+# is the multi-line call the formatter writes; a single-line spelling
+# fails the verbatim match and proves nothing (measured 2026-09-19,
+# when both needles below matched zero times and the gate went red
+# without testing anything).
 rc_b="$(ablate_and_run checker self_host/typecheck.ax \
-  '(checkCastArgs tc args e 1 (vecLen args))' \
+  '      (checkCastArgs
+        tc
+        args
+        e
+        1
+        (vecLen args))' \
   '(checkArgsFromIndex tc args 1)')" || rc_b=""
 if [[ -z "$rc_b" ]]; then
   bad "could not ablate the checker half - nothing was proven"
@@ -288,8 +297,19 @@ fi
 
 # The emitter half: `emitApplyChain` passes `vecNew` again, which is
 # what it did until 2026-08-31, and takes BOTH of its callers with it.
+# Same verbatim-match note as the checker half above. The needle ends
+# at the call's own paren and leaves the enclosing `fn`'s paren in
+# place, as the original single-line needle did.
 rc_a="$(ablate_and_run emitter self_host/codegen.ax \
-  '(emitApplyChainOwned args cg rec i 0 evs snode 0)' \
+  '  (emitApplyChainOwned
+    args
+    cg
+    rec
+    i
+    0
+    evs
+    snode
+    0)' \
   '(emitApplyChainOwned args cg rec i 0 vecNew snode 0)')" || rc_a=""
 if [[ -z "$rc_a" ]]; then
   bad "could not ablate the emitter half - nothing was proven"

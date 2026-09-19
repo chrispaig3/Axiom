@@ -1,0 +1,45 @@
+; Fmt.ax padding and uppercase hex: the specifier helpers.
+;
+; `fmtPadCenter`, `fmtPadRight` and `fmtHexUpper` reached the tree
+; exercised only through golden mentions, with no assertion on what
+; they answer. The centring rule is the point - an odd remainder goes
+; RIGHT, Rust's `{:^}` convention - beside the hex digits and the
+; already-wide input both pads hand back unchanged.
+(import Str)
+(import IO)
+(import Fmt)
+
+(:: eq (-> String String String Int))
+;@axiom:effect(io)
+(fn (eq name got want)
+  (if (strEq got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut bad 0)
+    (mut n 0)
+  )
+    {
+      (set bad (+ bad (eq "center even" (fmtPadCenter "ab" 6) "  ab  ")))
+      (set bad (+ bad (eq "center odd right" (fmtPadCenter "ab" 5) " ab  ")))
+      (set bad (+ bad (eq "center wide kept" (fmtPadCenter "abcdef" 3) "abcdef")))
+      (set bad (+ bad (eq "right" (fmtPadRight "ab" 5) "ab   ")))
+      (set bad (+ bad (eq "right wide kept" (fmtPadRight "abcdef" 3) "abcdef")))
+      (set bad (+ bad (eq "hex upper ff" (fmtHexUpper 255) "FF")))
+      (set bad (+ bad (eq "hex upper zero" (fmtHexUpper 0) "0")))
+      (set bad (+ bad (eq "hex upper deadbeef" (fmtHexUpper 3735928559) "DEADBEEF")))
+      (set n (+ n 8))
+      (println "checks {n}")
+      (println "failures {bad}")
+      bad
+    }))

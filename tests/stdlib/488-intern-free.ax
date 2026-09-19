@@ -1,0 +1,51 @@
+; Intern.ax teardown: freeing hands back the table and its strings.
+;
+; `internFree` had zero references anywhere under `tests/` - the only
+; reclaim path in the tree with no witness at all. The contract is the
+; one `Vec.vecFree` and `Map.mapFree` keep: hand back the slot table,
+; the `Vec`, and one share of every string in it, and answer 0. Past
+; the answer the handle is dead - nothing here touches it again - and
+; a second, live interner proves the free took nothing global with it.
+(import IO)
+(import Intern)
+
+(:: eqInt (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (eqInt name got want)
+  (if (== got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut bad 0)
+    (mut n 0)
+  )
+    {
+      (let ((it (internNew)))
+        {
+          (set bad (+ bad (eqInt "first id" (internIntern it "alpha") 0)))
+          (set bad (+ bad (eqInt "second id" (internIntern it "beta") 1)))
+          (set bad (+ bad (eqInt "count before free" (internCount it) 2)))
+          (set bad (+ bad (eqInt "free answers zero" (internFree it) 0)))
+          (set n (+ n 4))
+        })
+      (let ((it2 (internNew)))
+        {
+          (set bad (+ bad (eqInt "fresh first id" (internIntern it2 "gamma") 0)))
+          (set bad (+ bad (eqInt "fresh count" (internCount it2) 1)))
+          (set bad (+ bad (eqInt "free answers zero" (internFree it2) 0)))
+          (set n (+ n 3))
+        })
+      (println "checks {n}")
+      (println "failures {bad}")
+      bad
+    }))

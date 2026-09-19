@@ -1,0 +1,10 @@
+ok   str length
+ok   str first
+ok   str second
+ok   nested outer length
+ok   nested round trip
+ok   inner intact
+ok   int length
+ok   int second
+checks 8
+failures 0

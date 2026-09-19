@@ -448,6 +448,7 @@ docs/generics-design.md
 docs/mir-design.md
 docs/status.md
 docs/embedded-proposal.md
+docs/cast-arg-root.md
 DOCS
 }
 
