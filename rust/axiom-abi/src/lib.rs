@@ -213,28 +213,35 @@ impl<'a> AxStr<'a> {
     /// Length in BYTES, excluding the NUL terminator - not a character
     /// count. Axiom stores it in the header, so this is a load rather
     /// than a scan, and a NUL inside the bytes does not shorten it.
+    /// Clamped at 0: the header's `len` is a signed word and a negative
+    /// one would otherwise become an enormous `usize` (QA P0 §3 F12).
+    /// Mirrors `AxVec::len`.
     #[inline]
     pub fn len(self) -> usize {
-        self.repr().len as usize
+        self.repr().len.max(0) as usize
     }
 
     /// Whether the string is zero bytes long. Read from the header's
     /// length, so an empty `String` and a `String` of NULs are told
-    /// apart the way Axiom tells them apart.
+    /// apart the way Axiom tells them apart. A corrupt negative length
+    /// reads as empty rather than non-empty.
     #[inline]
     pub fn is_empty(self) -> bool {
-        self.repr().len == 0
+        self.len() == 0
     }
 
     /// The bytes, borrowed. Zero-copy: this is the exact pointer Axiom
-    /// holds, not a duplicate.
+    /// holds, not a duplicate. A non-positive length or null data
+    /// borrows as empty; a negative length must never become a huge
+    /// `usize` slice length.
     #[inline]
     pub fn as_bytes(self) -> &'a [u8] {
         let r = self.repr();
-        if r.len == 0 || r.data.is_null() {
+        if r.len <= 0 || r.data.is_null() {
             return &[];
         }
-        // SAFETY: Axiom guarantees `len` readable bytes at `data`.
+        // SAFETY: Axiom guarantees `len` readable bytes at `data`, and
+        // the guard above rules out the negative-len / null-data cases.
         unsafe { slice::from_raw_parts(r.data, r.len as usize) }
     }
 
@@ -657,5 +664,62 @@ impl<'a> AxVec<'a> {
             // plus this function's own makes the exclusive borrow sound.
             slice::from_raw_parts_mut(r.data as *mut i64, r.len as usize)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn str_handle(repr: &AxStrRepr) -> AxStr<'_> {
+        // SAFETY: test-only; the repr outlives the view within the test.
+        unsafe { AxStr::from_raw(repr as *const AxStrRepr as AxWord) }
+    }
+
+    #[test]
+    fn len_clamps_negative_to_zero() {
+        let bytes = [104u8, 105u8];
+        let repr = AxStrRepr {
+            len: -1,
+            data: bytes.as_ptr(),
+            owner: 0,
+        };
+        assert_eq!(str_handle(&repr).len(), 0);
+        assert!(str_handle(&repr).is_empty());
+    }
+
+    #[test]
+    fn as_bytes_negative_len_returns_empty() {
+        let bytes = [104u8, 105u8];
+        let repr = AxStrRepr {
+            len: -5,
+            data: bytes.as_ptr(),
+            owner: 0,
+        };
+        assert_eq!(str_handle(&repr).as_bytes(), &[] as &[u8]);
+    }
+
+    #[test]
+    fn as_bytes_null_data_returns_empty() {
+        let repr = AxStrRepr {
+            len: 3,
+            data: core::ptr::null(),
+            owner: 0,
+        };
+        assert_eq!(str_handle(&repr).as_bytes(), &[] as &[u8]);
+    }
+
+    #[test]
+    fn len_and_bytes_positive_still_work() {
+        let bytes = [104u8, 105u8];
+        let repr = AxStrRepr {
+            len: 2,
+            data: bytes.as_ptr(),
+            owner: 0,
+        };
+        let s = str_handle(&repr);
+        assert_eq!(s.len(), 2);
+        assert!(!s.is_empty());
+        assert_eq!(s.as_bytes(), &bytes[..]);
     }
 }
