@@ -621,7 +621,7 @@ fi
 
 # ---------------------------------------------------------------
 # Help, from anywhere, on stdout, exit 0.
-for c in build check run new test emit-llvm fmt explain symbols repl lsp; do
+for c in build check run new fetch test emit-llvm fmt explain symbols repl lsp; do
   "$s1" $c --help >h.out 2>h.err; rc=$?
   if [[ $rc == 0 ]] && grep -q "axiom $c" h.out; then
     ok "\`$c --help\` prints $c's help"
@@ -634,7 +634,7 @@ done
 # be read and discarded, printing the general usage - while the COMMANDS
 # block promised this exact spelling. A usage text documenting behaviour
 # the binary lacks is the same defect as an unconstructed diagnostic code.
-for c in build new fmt symbols; do
+for c in build new fetch fmt symbols; do
   "$s1" help $c >hc.out 2>&1
   grep -q "axiom $c" hc.out \
     && ok "\`help $c\` answers for $c" || bad "\`help $c\` printed the general usage"
@@ -655,7 +655,7 @@ for f in --input --output -o --target --opt --heap-ceiling --emit-llvm --check -
          --list --no-banner --filter --diagnostic-format --help --version; do
   grep -q -- "$f" full-help.txt || missing="$missing $f"
 done
-for c in build check run new test emit-llvm fmt explain symbols repl lsp version help; do
+for c in build check run new fetch test emit-llvm fmt explain symbols repl lsp version help; do
   grep -q -- "  $c" full-help.txt || missing="$missing cmd:$c"
 done
 [[ -z "$missing" ]] && ok "every accepted flag and command appears in --help" \
@@ -1308,6 +1308,36 @@ else
   bad "URL depend with no checkout (rc=$rc)"
 fi
 cd "$work"
+
+# ---------------------------------------------------------------
+# `fetch` checks the URLs out, offline, through `file://`.
+#
+# A scratch git repository stands in for the registry: no network,
+# just `git clone` from a local path, which is the same code path a
+# foreign URL takes. `git` missing skips rather than fails - the
+# compiler is buildable with no Rust toolchain and testable with no
+# git either.
+if ! command -v git >/dev/null 2>&1; then
+  echo "SKIP fetch round trip (no git on PATH)"
+else
+  mkdir -p fetchrepo/greeter-lib fetchapp
+  ( cd fetchrepo/greeter-lib && git init -q . \
+    && git config user.email fetch@test.t && git config user.name fetch \
+    && printf '(pub :: greet (-> String String))\n(pub fn (greet name)\n  "hi")\n' >Greeter.ax \
+    && git add -A && git commit -qm lib )
+  url="file://$work/fetchrepo/greeter-lib"
+  ( cd fetchapp && printf 'name     fetchapp\nversion  0.1.0\ndepend   %s\n' "$url" >axiom.pkg \
+    && printf '(import IO)\n(import Greeter)\n(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (println (greet "you")) 0 })\n' >Main.ax \
+    && "$s1" fetch >fetch.out 2>fetch.err; rc=$? \
+    && [[ $rc == 0 ]] && grep -q '^fetching ' fetch.out \
+    && "$s1" fetch >fetch2.out 2>&1 && grep -q '^present ' fetch2.out \
+    && "$s1" build >build.out 2>&1 && [[ -x fetchapp ]] && [[ "$(./fetchapp)" == "hi" ]] \
+    && ok "\`fetch\` clones a registry URL, is idempotent, and the project builds against it" \
+    || bad "fetch round trip (rc=$rc): $(head -1 fetch.err)" )
+  ( cd fetchapp && "$s1" fetch extra >fx.err 2>&1; rc=$?
+    [[ $rc == 2 ]] && ok "\`fetch\` with an operand is a usage error" \
+      || bad "\`fetch extra\` (rc=$rc)" )
+fi
 
 echo
 echo "$passed passed, $failed failed"

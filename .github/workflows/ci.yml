@@ -742,6 +742,15 @@ jobs:
       - name: The AXDL corpus, and every span against the fixtures
         run: ./scripts/check-diagnostics.sh
 
+      # Set equality is not reachability: a diagnostic the compiler
+      # constructs but no fixture fires stays green in both the
+      # registry check and the span floor. This gate holds
+      # constructed == primary goldens + tests/diagnostics/UNCOVERED
+      # as sets, so a new code without a fixture fails until it gains
+      # one or an UNCOVERED line with a reason.
+      - name: Every constructed diagnostic has a primary golden or an UNCOVERED line
+        run: ./scripts/check-diagnostic-coverage.sh
+
       # `;@axiom:restrict(...)` is a claim the checker refuses when the
       # analysis it already performed contradicts it. The gate tags every
       # fn of 168 corpus programs restricted and requires identical IR,
@@ -1005,6 +1014,16 @@ jobs:
       # did not.
       - name: A closure chain's intermediate record is reclaimed, and one word in each walker is what does it
         run: ./scripts/check-closure-reclaim.sh
+
+      # A `cast` at an argument root launders a word past the evidence
+      # walk, so codegen emits no retain/release for it - the leak
+      # direction, never an early free. The fix is a migration to
+      # return-position casts (MM-VAL-23), so this gate ratchets what
+      # can be ratcheted meanwhile: the user-level `(cast` census and
+      # the release-count probe that pins the direction, plus the
+      # AX3040 rule the migration is measured in.
+      - name: Casts at argument roots are counted and still leak, never free early
+        run: ./scripts/check-cast-arg-root.sh
 
       # What an `Option` costs, counted rather than timed.
       # `docs/unboxed-sums-design.md` measures the wrapper at 11.86 ns

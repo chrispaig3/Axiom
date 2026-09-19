@@ -2999,8 +2999,24 @@ error: ./axiom.pkg names a dependency directory that is not there:
        git clone https://github.com/example/axiom-greeter.git ./.axiom/deps/github.com-example-axiom-greeter/
 ```
 
-The compiler never fetches: a checked-in line may not run another
-project's network. Once the checkout is there the directory joins
+The compiler never fetches on its own: a checked-in line may not run
+another project's network. `axiom fetch` is the explicit ask — for
+every `depend` URL in the nearest manifest, it clones the checkout
+when none is there and leaves a checkout already there alone:
+
+```
+$ axiom fetch
+fetching ./.axiom/deps/github.com-example-axiom-greeter/
+$ axiom fetch
+present ./.axiom/deps/github.com-example-axiom-greeter/
+$ axiom build
+Build successful: hello
+```
+
+`fetch` takes no operands and needs `git` on PATH. A `file://` URL
+names a local repository and clones from disk, which is how the
+round trip is gated with no network (`scripts/check-driver.sh`).
+Once the checkout is there the directory joins
 the search path exactly like a vendored `depend`, pairwise overlap
 included, and a URL that stops resolving is the same refusal a
 deleted directory always was.
