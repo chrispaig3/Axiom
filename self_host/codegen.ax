@@ -11264,15 +11264,18 @@
 (pub fn (emitModule decls target)
   ; Expansion, for the same reason every other path runs it: this
   ; one reaches EMISSION, so without it a macro invocation is
-  ; emitted as a call to a symbol nothing defines. Its
-  ; diagnostics are discarded because this entry point has no
-  ; renderer and no units to render against - it is the
-  ; convenience form, and a caller that wants diagnostics uses
-  ; the pipeline in `main.ax` that has them.
+  ; emitted as a call to a symbol nothing defines. A pass that
+  ; REFUSED does not hand its output to the next one (main.ax):
+  ; expansion errors used to be discarded here because this entry
+  ; point has no renderer and no units to render against, which
+  ; emitted code for a refused program. Instead it dies naming the
+  ; failure; a caller that wants the diagnostics uses the pipeline
+  ; in `main.ax` that has them. Warnings alone still emit, as there.
   (let (
     (tcode (checkedTargetCode target))
     (bares vecNew)
     (fulls vecNew)
+    (eds vecNew)
   )
     (let ((allDecls (resolveImports
       decls
@@ -11286,13 +11289,18 @@
         (expandProgram
           allDecls
           allDecls
-          vecNew
+          eds
           vecNew
           (cast (Vec Int) 0)
           (cast (Vec String) 0)
           (cast (Vec String) 0)
           (cast (Vec Int) 0))
-        (emitResolved allDecls bares fulls tcode)
+        (if (> (countErrorDiags eds) 0)
+          {
+            (dieImport "error: macro expansion failed; emitModule emits no code for a refused module (check/build it through the main pipeline for diagnostics): " target)
+            "unreachable"
+          }
+          (emitResolved allDecls bares fulls tcode))
       })))
 
 ; The target's numeric code, refusing an unknown name rather than
