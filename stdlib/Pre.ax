@@ -69,24 +69,11 @@
         0
       }))))
 
-;; cond2 — two-condition branching plus else
-;; (cond2 t1 b1 t2 b2 els) -> (if t1 b1 (if t2 b2 els))
-(pub macro (cond2 t1 b1 t2 b2 els) (if t1
-  b1
-  (if t2
-    b2
-    els)))
-
-;; cond3 — three-condition branching plus else
-;; (cond3 t1 b1 t2 b2 t3 b3 els) -> (if t1 b1 (if t2 b2 (if t3 b3 els)))
-(pub macro (cond3 t1 b1 t2 b2 t3 b3 els) (if t1
-  b1
-  (if t2
-    b2
-    (if t3
-      b3
-      els))))
-
+;; Variadic branching is the `if` statement itself: `(if t1 b1 t2 b2
+;; ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`,
+;; built by the parser. The fixed-arity `cond2`/`cond3` helpers that
+;; used to stand here are gone with the `cond` keyword (AX2004):
+;; spell the nesting with `if`.
 ;; deriveEq — structural equality for a data type, derived at the
 ;; point of use: `(deriveEq Color)` generates `eqColor : Color ->
 ;; Color -> Bool`, one match arm per constructor, answered from the

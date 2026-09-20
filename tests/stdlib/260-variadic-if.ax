@@ -1,0 +1,71 @@
+; Variadic `if` - multi-way branching without a new keyword.
+;
+; `(if t1 b1 t2 b2 ... els)` IS the nested chain
+; `(if t1 b1 (if t2 b2 ... els))`: `parseIfExpr` builds it, so the
+; checker joins each pair the way written `if`s join and the emitter
+; walks plain `if`s. There is no second set of branch rules to learn,
+; which is what the old `cond` carried - and what it cost: clause
+; bodies were never joined against each other, only a real `else`
+; against the last clause, so the same program could check under
+; `cond` and fail as nested `if`s.
+;
+; The one thing the rewrite asks of the source is an explicit else.
+; `cond` with no `else` fell through to 0; a variadic `if` always
+; ends in its else operand, so `noElse` below writes the 0 it used
+; to get for free. The tail-call case at the bottom comes along for
+; the same reason it always has: `if` already detects a self tail
+; call in either branch, so the chain inherits it.
+(import IO)
+
+(pub :: classify (-> Int Int))
+(pub fn (classify n)
+  (if (< n 0)
+    1
+    (== n 0)
+    2
+    (< n 10)
+    3
+    4))
+
+; A branch body may be a sequence, like any other body position.
+(pub :: sequenced (-> Int Int))
+(pub fn (sequenced n)
+  (if (> n 0)
+    {
+      (+ n 1)
+      (* n 10)
+    }
+    0))
+
+; No clause matched: the else answers 0, written out - a variadic
+; `if` always ends in its else operand, where `cond` fell through
+; to 0 with no `else` at all.
+(pub :: noElse (-> Int Int))
+(pub fn (noElse n)
+  (if (> n 100)
+    7
+    0))
+
+; A self tail call in an `if` branch must still be a jump, not a frame.
+; Three million iterations is well past the 60,000-80,000 frames an 8 MiB
+; stack holds, so this would crash rather than merely run slowly.
+(pub :: countdown (-> Int Int Int))
+(pub fn (countdown n acc)
+  (if (<= n 0)
+    acc
+    (countdown (- n 1) (+ acc 1))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (println (classify (- 0 5)))  ; 1
+    (println (classify 0))  ; 2
+    (println (classify 5))  ; 3
+    (println (classify 99))  ; 4
+    (println (sequenced 4))  ; 40
+    (println (noElse 1))  ; 0: no test matched, else answers
+    (println (noElse 200))  ; 7
+    (println (countdown 3000000 0))  ; 3000000
+    0
+  })

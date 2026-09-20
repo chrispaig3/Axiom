@@ -2515,8 +2515,8 @@
 ; pinned. Instantiating a DECLARED signature mints "the type the caller
 ; chose for `a` at this call", and two uses of one binding have to
 ; agree about that or a container can be written at `Int` and read at
-; `String`. Every other use - a `cond` with no arms yet, a pattern
-; binder, a missing parameter type - mints "not known", and pinning
+; `String`. Every other use - a pattern binder, a missing
+; parameter type - mints "not known", and pinning
 ; THAT reports an error where the checker simply has no information.
 ;
 ; Measured: without the split, `(fn (untyped x) x)` applied to an `Int`
@@ -6013,8 +6013,8 @@
 ;
 ; The tails of a form are the positions its value can come from: the
 ; last expression of a block, both arms of an `if`, every arm of a
-; `match`, every clause body and the else of a `cond`, the body of a
-; `let` or a `handle`. Everything else is its own tail.
+; `match`, the body of a `let` or a `handle`. Everything else is its
+; own tail.
 ;
 ; THREE WAYS TO NEVER RETURN, and the third one is what the
 ; repository's own control fixture needed. A call to `sysExitWith` is
@@ -6067,33 +6067,26 @@
                   names
                   depth
                   0)
-                (if (== tag TAG_E_COND)
-                  (if (== (divCondOk
-                    decls
-                    (nodeAVec e)
-                    names
-                    depth
-                    0) 1)
+                ; `cond` is AX2004: the parser builds none, so a
+                ; divergingly-tailed one cannot reach this walk.
+                (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                  ; A loop whose test cannot become false. Only a
+                  ; CONSTANT test is read: `(while true ...)` and
+                  ; `(while 1 ...)` are the two spellings of "forever",
+                  ; and deciding it for a computed test is the halting
+                  ; problem. A loop this cannot prove endless is simply
+                  ; not a diverging tail, which is the safe direction.
+                  ; A region diverges exactly when its body does.
+                  (if (== tag TAG_E_REGION)
                     (divTailOk decls (nodeB e) names depth)
-                    0)
-                  (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
-                    ; A loop whose test cannot become false. Only a
-                    ; CONSTANT test is read: `(while true ...)` and
-                    ; `(while 1 ...)` are the two spellings of "forever",
-                    ; and deciding it for a computed test is the halting
-                    ; problem. A loop this cannot prove endless is simply
-                    ; not a diverging tail, which is the safe direction.
-                    ; A region diverges exactly when its body does.
-                    (if (== tag TAG_E_REGION)
+                    (divConstTrue (nodeA e)))
+                  (if (== tag TAG_E_APP)
+                    (if (strEq (divHeadName e) "cast")
+                      ; The value being coerced. `(cast a x)` parses as
+                      ; `((cast a) x)`, so it is this node's argument.
                       (divTailOk decls (nodeB e) names depth)
-                      (divConstTrue (nodeA e)))
-                    (if (== tag TAG_E_APP)
-                      (if (strEq (divHeadName e) "cast")
-                        ; The value being coerced. `(cast a x)` parses as
-                        ; `((cast a) x)`, so it is this node's argument.
-                        (divTailOk decls (nodeB e) names depth)
-                        (divCall decls (divHeadName e) names depth))
-                      0)))))))))))
+                      (divCall decls (divHeadName e) names depth))
+                    0))))))))))
 
 ; Does calling `name` never return?
 ;
@@ -6156,19 +6149,6 @@
       (divArmsOk
         decls
         arms
-        names
-        depth
-        (+ i 1))
-      0)))
-
-(pub :: divCondOk (-> (Vec Int) (Vec Int) (Vec a) Int Int Int))
-(pub fn (divCondOk decls cls names depth i)
-  (if (>= i (vecLen cls))
-    1
-    (if (== (divTailOk decls (nodeB (vecGet cls i)) names depth) 1)
-      (divCondOk
-        decls
-        cls
         names
         depth
         (+ i 1))
@@ -7079,23 +7059,21 @@
               (spanOf (nodeA e))
               (if (== tag TAG_E_MATCH)
                 (spanOf (nodeA e))
-                (if (== tag TAG_E_COND)
+                ; `cond` is AX2004: the parser builds none, so no
+                ; span is ever read off one.
+                (if (== tag TAG_E_BEGIN)
                   (if (== (vecLen (nodeAVec e)) 0)
                     0
-                    (spanOf (nodeA (vecGet (nodeAVec e) 0))))
-                  (if (== tag TAG_E_BEGIN)
-                    (if (== (vecLen (nodeAVec e)) 0)
-                      0
-                      (spanOf (vecGet (nodeAVec e) 0)))
-                    ; A handle's span is its BODY's, and recursively so - stage0's
-                    ; `Expr::span()` takes the first field of an EHandle exactly
-                    ; as it takes the function side of an EApp. Nested handles
-                    ; therefore all report at the innermost body, and without
-                    ; this arm the node's own zero span suppressed every
-                    ; diagnostic anchored at a handle whose body is another one.
-                    (if (== tag TAG_E_HANDLE)
-                      (spanOf (nodeA e))
-                      (nodeSpan e))))))))))))
+                    (spanOf (vecGet (nodeAVec e) 0)))
+                  ; A handle's span is its BODY's, and recursively so - stage0's
+                  ; `Expr::span()` takes the first field of an EHandle exactly
+                  ; as it takes the function side of an EApp. Nested handles
+                  ; therefore all report at the innermost body, and without
+                  ; this arm the node's own zero span suppressed every
+                  ; diagnostic anchored at a handle whose body is another one.
+                  (if (== tag TAG_E_HANDLE)
+                    (spanOf (nodeA e))
+                    (nodeSpan e)))))))))))
 
 ; ------------------------------------------------------------------
 ; Diagnostic emission helpers. EVERY emission guards its anchor: a
@@ -7646,57 +7624,58 @@
                           }))
                       (if (== tag TAG_E_IF)
                         (checkIf tc e)
-                        (if (== tag TAG_E_COND)
-                          (checkCond tc e)
-                          (if (== tag TAG_E_BEGIN)
-                            (checkExprSeq tc (nodeAVec e) 0 mkUnitTy)
-                            (if (== tag TAG_E_MATCH)
-                              (checkMatch tc e)
-                              (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
-                                (if (== tag TAG_E_REGION)
-                                  (checkRegion tc e)
-                                  {
-                                    (checkCondBool tc (nodeA e))
-                                    (checkExprSeq tc (nodeBVec e) 0 mkUnitTy)
-                                    mkIntTy
-                                  })
-                                (if (== tag TAG_E_SET)
-                                  (checkSet tc e)
-                                  (if (== tag TAG_E_SETF)
-                                    (checkSetField tc e)
-                                    (if (== tag TAG_E_FIELD)
-                                      (checkField tc e)
-                                      (if (== tag TAG_E_HANDLE)
-                                        (checkHandle tc e)
-                                        (if (== tag TAG_E_STRUCTCON)
-                                          (checkStructConNode tc e)
-                                          ; `(alloc Type [count])` types `*mut Type` and evaluates
-                                          ; nothing - stage0's IR generator has no case for it. The
-                                          ; count, when present, is still an expression stage0 walks,
-                                          ; so a diagnostic inside it is reported.
-                                          (if (== tag TAG_E_ALLOC)
+                        ; `cond` is AX2004 (see `checkIf`: the variadic
+                        ; `if` desugars before this pass), so no arm
+                        ; checks one.
+                        (if (== tag TAG_E_BEGIN)
+                          (checkExprSeq tc (nodeAVec e) 0 mkUnitTy)
+                          (if (== tag TAG_E_MATCH)
+                            (checkMatch tc e)
+                            (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                              (if (== tag TAG_E_REGION)
+                                (checkRegion tc e)
+                                {
+                                  (checkCondBool tc (nodeA e))
+                                  (checkExprSeq tc (nodeBVec e) 0 mkUnitTy)
+                                  mkIntTy
+                                })
+                              (if (== tag TAG_E_SET)
+                                (checkSet tc e)
+                                (if (== tag TAG_E_SETF)
+                                  (checkSetField tc e)
+                                  (if (== tag TAG_E_FIELD)
+                                    (checkField tc e)
+                                    (if (== tag TAG_E_HANDLE)
+                                      (checkHandle tc e)
+                                      (if (== tag TAG_E_STRUCTCON)
+                                        (checkStructConNode tc e)
+                                        ; `(alloc Type [count])` types `*mut Type` and evaluates
+                                        ; nothing - stage0's IR generator has no case for it. The
+                                        ; count, when present, is still an expression stage0 walks,
+                                        ; so a diagnostic inside it is reported.
+                                        (if (== tag TAG_E_ALLOC)
+                                          {
+                                            (if (!= (nodeB e) 0)
+                                              (checkExprH tc (nodeB e) 0)
+                                              0)
+                                            (mkTPtr (nodeA e) 1)
+                                          }
+                                          ; A subtype range check: a=value expr, b=bounds
+                                          ; Vec, c=message; the ty slot carries the
+                                          ; target subtype, which is the answer.
+                                          (if (== tag TAG_E_SUBCHECK)
                                             {
-                                              (if (!= (nodeB e) 0)
-                                                (checkExprH tc (nodeB e) 0)
+                                              (checkExprH tc (nodeA e) 0)
+                                              (checkSubtypeBounds tc (nodeBVec e) 0)
+                                              (if (!= (nodeC e) 0)
+                                                (checkExprH tc (nodeC e) 0)
                                                 0)
-                                              (mkTPtr (nodeA e) 1)
+                                              (let ((tt (nodeTy e)))
+                                                (if (!= tt 0)
+                                                  tt
+                                                  mkSilentWild))
                                             }
-                                            ; A subtype range check: a=value expr, b=bounds
-                                            ; Vec, c=message; the ty slot carries the
-                                            ; target subtype, which is the answer.
-                                            (if (== tag TAG_E_SUBCHECK)
-                                              {
-                                                (checkExprH tc (nodeA e) 0)
-                                                (checkSubtypeBounds tc (nodeBVec e) 0)
-                                                (if (!= (nodeC e) 0)
-                                                  (checkExprH tc (nodeC e) 0)
-                                                  0)
-                                                (let ((tt (nodeTy e)))
-                                                  (if (!= tt 0)
-                                                    tt
-                                                    mkSilentWild))
-                                              }
-                                              mkSilentWild)))))))))))))))))))))))
+                                            mkSilentWild))))))))))))))))))))))
 
 (pub :: checkExprSeq (-> Int (Vec Int) Int Int Int))
 (pub fn (checkExprSeq tc v i last)
@@ -7735,33 +7714,11 @@
         }))
   })
 
-; `cond`: every clause's test must be Bool; clause bodies are NEVER
-; joined against each other; only a real `else` is compared, against
-; the LAST clause's type; the result is the last clause's type -
-; stage0's ECond, probed.
-(pub :: checkCond (-> Int Int Int))
-(pub fn (checkCond tc e)
-  (let ((resTy (checkCondClauses tc (nodeAVec e) 0 (freshTVar tc 0))))
-    (if (== (nodeB e) 0)
-      resTy
-      (let ((elseTy (checkExprH tc (nodeB e) 0)))
-        {
-          (if (&& (== (tyIsErr resTy) 0) (&& (== (tyIsErr elseTy) 0) (== (tyCompat resTy elseTy) 0)))
-            (emitMismatchTy tc resTy elseTy (spanOf (nodeB e)))
-            0)
-          resTy
-        }))))
-
-(pub :: checkCondClauses (-> Int (Vec Int) Int Int Int))
-(pub fn (checkCondClauses tc clauses i resTy)
-  (if (>= i (vecLen clauses))
-    resTy
-    (let ((cl (vecGet clauses i)))
-      {
-        (checkCondBool tc (nodeA cl))
-        (checkCondClauses tc clauses (+ i 1) (checkExprH tc (nodeB cl) 0))
-      })))
-
+; `cond` is AX2004: no arm checks one. A variadic `if` reaches
+; `checkIf` as the nested chain `parseIfExpr` built, so every branch
+; joins pairwise exactly as written `if`s do; the laxer join `cond`
+; had (clause bodies never compared, only a real `else` against the
+; last clause) goes with it.
 (pub :: checkLam (-> Int Int Int))
 (pub fn (checkLam tc e)
   ; A lambda with no parameters can never be called, so it is
@@ -8659,9 +8616,9 @@
       (capReport tc acc 0 vecNew)
     }))
 
-; One spawn thunk's structure. The condition of an `if`, the tests of
-; a `cond` and all but the last of a brace block run in the parent
-; and choose nothing the child holds, so they are not walked; the
+; One spawn thunk's structure. The condition of an `if` and all but
+; the last of a brace block run in the parent and choose nothing the
+; child holds, so they are not walked; the
 ; branches, the bodies and the last are the closure. A `let`'s value
 ; is walked BEFORE its name is bound, as `capScanInto` walks it: the
 ; value cannot see the binding, and the body can. A match
@@ -8712,88 +8669,54 @@
                   acc
                   done)
               }
-              (if (== tag TAG_E_COND)
+              ; `cond` is AX2004: the parser builds none, so no arm
+              ; walks one. A variadic `if` arrives as nested `if`s
+              ; and walks through the arm above.
+              (if (== tag TAG_E_MATCH)
                 {
-                  (capWalkCondBodies
+                  (capScanInto (nodeA e) bound acc)
+                  (capWalkMatchArms
                     tc
-                    (nodeAVec e)
+                    (nodeBVec e)
                     0
                     bound
                     acc
                     done)
-                  (capWalkThunk
-                    tc
-                    (nodeB e)
-                    bound
-                    acc
-                    done)
                 }
-                (if (== tag TAG_E_MATCH)
-                  {
-                    (capScanInto (nodeA e) bound acc)
-                    (capWalkMatchArms
-                      tc
-                      (nodeBVec e)
+                (if (== tag TAG_E_BEGIN)
+                  (let ((v (nodeAVec e)))
+                    (if (== (vecLen v) 0)
                       0
+                      (capWalkThunk
+                        tc
+                        (vecGet v (- (vecLen v) 1))
+                        bound
+                        acc
+                        done)))
+                  (if (== tag TAG_E_SET)
+                    (capWalkThunk
+                      tc
+                      (nodeB e)
                       bound
                       acc
                       done)
-                  }
-                  (if (== tag TAG_E_BEGIN)
-                    (let ((v (nodeAVec e)))
-                      (if (== (vecLen v) 0)
-                        0
-                        (capWalkThunk
-                          tc
-                          (vecGet v (- (vecLen v) 1))
-                          bound
-                          acc
-                          done)))
-                    (if (== tag TAG_E_SET)
+                    (if (== tag TAG_E_HANDLE)
                       (capWalkThunk
                         tc
-                        (nodeB e)
+                        (nodeA e)
                         bound
                         acc
                         done)
-                      (if (== tag TAG_E_HANDLE)
+                      (if (== tag TAG_E_REGION)
                         (capWalkThunk
                           tc
-                          (nodeA e)
+                          (nodeB e)
                           bound
                           acc
                           done)
-                        (if (== tag TAG_E_REGION)
-                          (capWalkThunk
-                            tc
-                            (nodeB e)
-                            bound
-                            acc
-                            done)
-                          (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_QUOTE) (|| (== tag TAG_E_STRUCTCON) (|| (== tag TAG_E_ALLOC) (|| (== tag TAG_E_WHILE) (== tag TAG_E_SETF)))))))))
-                            0
-                            (capOpaqueOnce tc e tag done)))))))))))))))
-
-; Every `cond` body in turn; the tests chose the body in the parent.
-(pub :: capWalkCondBodies (-> Int (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) Int))
-(pub fn (capWalkCondBodies tc cls i bound acc done)
-  (if (>= i (vecLen cls))
-    0
-    {
-      (capWalkThunk
-        tc
-        (nodeB (vecGet cls i))
-        bound
-        acc
-        done)
-      (capWalkCondBodies
-        tc
-        cls
-        (+ i 1)
-        bound
-        acc
-        done)
-    }))
+                        (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_FLT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_CHAR) (|| (== tag TAG_E_QUOTE) (|| (== tag TAG_E_STRUCTCON) (|| (== tag TAG_E_ALLOC) (|| (== tag TAG_E_WHILE) (== tag TAG_E_SETF)))))))))
+                          0
+                          (capOpaqueOnce tc e tag done))))))))))))))
 
 ; Every match arm's body under its own pattern's binders, as
 ; `capScanArms` binds them.
@@ -8997,14 +8920,14 @@
                                   (capScanIn (nodeA e) bound acc)
                                   (if (== tag TAG_E_STRUCTCON)
                                     (capScanVec (nodeBVec e) 0 bound acc)
-                                    (if (== tag TAG_E_COND)
-                                      (capScanCond (nodeAVec e) 0 bound acc)
-                                      (if (== tag TAG_E_MATCH)
-                                        {
-                                          (capScanIn (nodeA e) bound acc)
-                                          (capScanArms (nodeBVec e) 0 bound acc)
-                                        }
-                                        0))))))))))))))))
+                                    ; `cond` is AX2004: the parser builds
+                                    ; none, so no arm scans one.
+                                    (if (== tag TAG_E_MATCH)
+                                      {
+                                        (capScanIn (nodeA e) bound acc)
+                                        (capScanArms (nodeBVec e) 0 bound acc)
+                                      }
+                                      0)))))))))))))))
         acc
       })))
 
@@ -9025,17 +8948,6 @@
       (capScanIn (vecGet v i) bound acc)
       (capScanVec v (+ i 1) bound acc)
     }))
-
-(pub :: capScanCond (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
-(pub fn (capScanCond cls i bound acc)
-  (if (>= i (vecLen cls))
-    0
-    (let ((c (vecGet cls i)))
-      {
-        (capScanIn (nodeA c) bound acc)
-        (capScanIn (nodeB c) bound acc)
-        (capScanCond cls (+ i 1) bound acc)
-      })))
 
 ; Each arm's PATTERN binds, and only inside that arm's body.
 (pub :: capScanArms (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
@@ -12169,32 +12081,27 @@
                                     bound
                                     acc)
                                 }
-                                (if (== tag TAG_E_COND)
-                                  (walkEffectsCond
-                                    tc
-                                    (nodeAVec e)
-                                    0
-                                    bound
-                                    acc)
-                                  (if (== tag TAG_E_MATCH)
-                                    {
-                                      ; A match whose scrutinee is a direct
-                                      ; call the emitter answers in two
-                                      ; registers is recorded BEFORE the
-                                      ; scrutinee is walked, so the call
-                                      ; below is charged no box.
-                                      (if (== (tcPairMatchOK tc e bound) 1)
-                                        (tcSiteAdd tc (nodeA e))
-                                        0)
-                                      (walkEffects tc (nodeA e) bound acc)
-                                      (walkEffectsArms
-                                        tc
-                                        (nodeBVec e)
-                                        0
-                                        bound
-                                        acc)
-                                    }
-                                    0))))))))))))))))))
+                                ; `cond` is AX2004: the parser builds
+                                ; none, so no arm walks one's effects.
+                                (if (== tag TAG_E_MATCH)
+                                  {
+                                    ; A match whose scrutinee is a direct
+                                    ; call the emitter answers in two
+                                    ; registers is recorded BEFORE the
+                                    ; scrutinee is walked, so the call
+                                    ; below is charged no box.
+                                    (if (== (tcPairMatchOK tc e bound) 1)
+                                      (tcSiteAdd tc (nodeA e))
+                                      0)
+                                    (walkEffects tc (nodeA e) bound acc)
+                                    (walkEffectsArms
+                                      tc
+                                      (nodeBVec e)
+                                      0
+                                      bound
+                                      acc)
+                                  }
+                                  0)))))))))))))))))
 
 (pub :: walkEffectsVec (-> Int (Vec Int) Int Int (Vec a) Int))
 (pub fn (walkEffectsVec tc v i bound acc)
@@ -12209,22 +12116,6 @@
         bound
         acc)
     }))
-
-(pub :: walkEffectsCond (-> Int (Vec Int) Int Int (Vec a) Int))
-(pub fn (walkEffectsCond tc cls i bound acc)
-  (if (>= i (vecLen cls))
-    0
-    (let ((c (vecGet cls i)))
-      {
-        (walkEffects tc (nodeA c) bound acc)
-        (walkEffects tc (nodeB c) bound acc)
-        (walkEffectsCond
-          tc
-          cls
-          (+ i 1)
-          bound
-          acc)
-      })))
 
 ; A match arm binds its pattern's variables, which must shadow.
 (pub :: walkEffectsArms (-> Int (Vec Int) Int Int (Vec a) Int))
@@ -18174,14 +18065,14 @@
                               (castScanIn (nodeA e) acc)
                               (if (== tag TAG_E_STRUCTCON)
                                 (castScanVec (nodeBVec e) 0 acc)
-                                (if (== tag TAG_E_COND)
-                                  (castScanCond (nodeAVec e) 0 acc)
-                                  (if (== tag TAG_E_MATCH)
-                                    {
-                                      (castScanIn (nodeA e) acc)
-                                      (castScanArms (nodeBVec e) 0 acc)
-                                    }
-                                    0))))))))))))))
+                                ; `cond` is AX2004: the parser builds
+                                ; none, so no arm scans one for casts.
+                                (if (== tag TAG_E_MATCH)
+                                  {
+                                    (castScanIn (nodeA e) acc)
+                                    (castScanArms (nodeBVec e) 0 acc)
+                                  }
+                                  0)))))))))))))
         acc
       })))
 
@@ -18202,17 +18093,6 @@
       (castScanIn (vecGet v i) acc)
       (castScanVec v (+ i 1) acc)
     }))
-
-(pub :: castScanCond (-> (Vec Int) Int (Vec Int) Int))
-(pub fn (castScanCond cls i acc)
-  (if (>= i (vecLen cls))
-    0
-    (let ((c (vecGet cls i)))
-      {
-        (castScanIn (nodeA c) acc)
-        (castScanIn (nodeB c) acc)
-        (castScanCond cls (+ i 1) acc)
-      })))
 
 (pub :: castScanArms (-> (Vec Int) Int (Vec Int) Int))
 (pub fn (castScanArms arms i acc)
@@ -18417,14 +18297,14 @@
                               (wrapScanIn (nodeA e) acc)
                               (if (== tag TAG_E_STRUCTCON)
                                 (wrapScanVec (nodeBVec e) 0 acc)
-                                (if (== tag TAG_E_COND)
-                                  (wrapScanCond (nodeAVec e) 0 acc)
-                                  (if (== tag TAG_E_MATCH)
-                                    {
-                                      (wrapScanIn (nodeA e) acc)
-                                      (wrapScanArms (nodeBVec e) 0 acc)
-                                    }
-                                    0))))))))))))))
+                                ; `cond` is AX2004: the parser builds
+                                ; none, so no arm scans one for wraps.
+                                (if (== tag TAG_E_MATCH)
+                                  {
+                                    (wrapScanIn (nodeA e) acc)
+                                    (wrapScanArms (nodeBVec e) 0 acc)
+                                  }
+                                  0)))))))))))))
         acc
       })))
 
@@ -18445,17 +18325,6 @@
       (wrapScanIn (vecGet v i) acc)
       (wrapScanVec v (+ i 1) acc)
     }))
-
-(pub :: wrapScanCond (-> (Vec Int) Int (Vec Int) Int))
-(pub fn (wrapScanCond cls i acc)
-  (if (>= i (vecLen cls))
-    0
-    (let ((c (vecGet cls i)))
-      {
-        (wrapScanIn (nodeA c) acc)
-        (wrapScanIn (nodeB c) acc)
-        (wrapScanCond cls (+ i 1) acc)
-      })))
 
 (pub :: wrapScanArms (-> (Vec Int) Int (Vec Int) Int))
 (pub fn (wrapScanArms arms i acc)
@@ -18605,14 +18474,14 @@
                               (untrappedScanIn (nodeA e) acc)
                               (if (== tag TAG_E_STRUCTCON)
                                 (untrappedScanVec (nodeBVec e) 0 acc)
-                                (if (== tag TAG_E_COND)
-                                  (untrappedScanCond (nodeAVec e) 0 acc)
-                                  (if (== tag TAG_E_MATCH)
-                                    {
-                                      (untrappedScanIn (nodeA e) acc)
-                                      (untrappedScanArms (nodeBVec e) 0 acc)
-                                    }
-                                    0))))))))))))))
+                                ; `cond` is AX2004: the parser builds
+                                ; none, so no arm scans one for traps.
+                                (if (== tag TAG_E_MATCH)
+                                  {
+                                    (untrappedScanIn (nodeA e) acc)
+                                    (untrappedScanArms (nodeBVec e) 0 acc)
+                                  }
+                                  0)))))))))))))
         acc
       })))
 
@@ -18633,17 +18502,6 @@
       (untrappedScanIn (vecGet v i) acc)
       (untrappedScanVec v (+ i 1) acc)
     }))
-
-(pub :: untrappedScanCond (-> (Vec Int) Int (Vec Int) Int))
-(pub fn (untrappedScanCond cls i acc)
-  (if (>= i (vecLen cls))
-    0
-    (let ((c (vecGet cls i)))
-      {
-        (untrappedScanIn (nodeA c) acc)
-        (untrappedScanIn (nodeB c) acc)
-        (untrappedScanCond cls (+ i 1) acc)
-      })))
 
 (pub :: untrappedScanArms (-> (Vec Int) Int (Vec Int) Int))
 (pub fn (untrappedScanArms arms i acc)
@@ -21395,40 +21253,34 @@
                         (| mb mc)
                       }))
                 }
-                (if (== tag TAG_E_COND)
-                  (rgnCondClauses
-                    rc
-                    (nodeAVec e)
-                    0
-                    0
-                    e
-                    1
-                    (nodeB e))
-                  (if (== tag TAG_E_BEGIN)
-                    (rgnSeq rc (nodeAVec e) 0 0)
-                    (if (== tag TAG_E_MATCH)
-                      (rgnMatch rc e)
-                      (if (== tag TAG_E_WHILE)
-                        (rgnWhile rc e)
-                        (if (== tag TAG_E_SET)
-                          (rgnSet rc e)
-                          (if (== tag TAG_E_SETF)
-                            (rgnSetField rc e)
-                            (if (== tag TAG_E_FIELD)
-                              (rgnExpr rc (nodeA e))
-                              (if (== tag TAG_E_HANDLE)
-                                (let ((b (rgnExpr rc (nodeA e))))
-                                  {
-                                    (rgnExpr rc (nodeC e))
-                                    b
-                                  })
-                                (if (== tag TAG_E_STRUCTCON)
-                                  (| (memGetWord rc 7) (rgnArgsUnion rc (nodeBVec e) 0 0))
-                                  (if (== tag TAG_E_ALLOC)
-                                    (memGetWord rc 7)
-                                    (if (== tag TAG_E_REGION)
-                                      (rgnRegionForm rc e)
-                                      0)))))))))))))))))))
+                ; `cond` is AX2004: the parser builds none, so no
+                ; arm region-checks one. A variadic `if` arrives as
+                ; nested `if`s and walks the `if` arm like any other.
+                (if (== tag TAG_E_BEGIN)
+                  (rgnSeq rc (nodeAVec e) 0 0)
+                  (if (== tag TAG_E_MATCH)
+                    (rgnMatch rc e)
+                    (if (== tag TAG_E_WHILE)
+                      (rgnWhile rc e)
+                      (if (== tag TAG_E_SET)
+                        (rgnSet rc e)
+                        (if (== tag TAG_E_SETF)
+                          (rgnSetField rc e)
+                          (if (== tag TAG_E_FIELD)
+                            (rgnExpr rc (nodeA e))
+                            (if (== tag TAG_E_HANDLE)
+                              (let ((b (rgnExpr rc (nodeA e))))
+                                {
+                                  (rgnExpr rc (nodeC e))
+                                  b
+                                })
+                              (if (== tag TAG_E_STRUCTCON)
+                                (| (memGetWord rc 7) (rgnArgsUnion rc (nodeBVec e) 0 0))
+                                (if (== tag TAG_E_ALLOC)
+                                  (memGetWord rc 7)
+                                  (if (== tag TAG_E_REGION)
+                                    (rgnRegionForm rc e)
+                                    0))))))))))))))))))
 
 (pub :: rgnVar (-> Int Int Int))
 (pub fn (rgnVar rc e)
@@ -21475,41 +21327,6 @@
     (if (>= i (vecLen v))
       acc
       (rgnArgsUnion rc v (+ i 1) (| acc (rgnExpr rc (vecGet v i)))))))
-
-(pub :: rgnCondClauses (-> Int (Vec Int) Int Int Int Int Int Int))
-(pub fn (rgnCondClauses rc clauses i acc cnode allok elsenode)
-  (if (>= i (vecLen clauses))
-    ; The `else` walks here, last, exactly where `rgnExpr` walked it
-    ; before - clauses in order, then `else` - so moving it inside
-    ; changes no side-effect order and no diagnostic. With every arm
-    ; walked the join stamp decides with full knowledge: every clause
-    ; body stamped, a real `else` present and stamped, at least one
-    ; clause (a bare `(else ...)` is just `else` - write the call),
-    ; and the call stamp's own guards.
-    (let ((em (rgnExpr rc elsenode)))
-      {
-        (if (&& (== (memGetWord (rgnTc rc) 40) 1) (&& (== (memGetWord (rgnTc rc) 28) 1) (&& (== (nodeResWord cnode) 0) (&& (!= i 0) (&& (== allok 1) (&& (!= elsenode 0) (== (nodeResWord elsenode) 2)))))))
-          (setNodeResWord cnode 2)
-          0)
-        (| acc em)
-      })
-    (let ((cl (vecGet clauses i)))
-      {
-        (rgnExpr rc (nodeA cl))
-        (let ((cb (rgnExpr rc (nodeB cl))))
-          (let ((ok 
-            (if (&& (== allok 1) (&& (!= (nodeB cl) 0) (== (nodeResWord (nodeB cl)) 2)))
-              1
-              0)))
-            (rgnCondClauses
-              rc
-              clauses
-              (+ i 1)
-              (| acc cb)
-              cnode
-              ok
-              elsenode)))
-      })))
 
 ; A loop body is walked twice: a `set` late in the body widens a
 ; binding a read early in the body already answered for, and the

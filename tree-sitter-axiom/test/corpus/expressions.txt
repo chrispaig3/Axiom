@@ -55,14 +55,12 @@ let with several bindings
         (identifier)))))
 
 ================================================================
-if and cond
+if with three operands, and with five
 ================================================================
 
 (:: f (-> Int Int))
 (fn (f n)
-  (cond
-    ((< n 0) (if true 1 2))
-    (else 0)))
+  (if (< n 0) (if true 1 2) (== n 0) 3 0))
 
 ----------------------------------------------------------------
 
@@ -75,18 +73,21 @@ if and cond
   (function_definition
     (identifier)
     (identifier)
-    (cond_expression
-      (cond_clause
-        (application
-          (identifier)
-          (identifier)
-          (integer_literal))
-        (if_expression
-          (boolean_literal)
-          (integer_literal)
-          (integer_literal)))
-      (cond_clause
-        (integer_literal)))))
+    (if_expression
+      (application
+        (identifier)
+        (identifier)
+        (integer_literal))
+      (if_expression
+        (boolean_literal)
+        (integer_literal)
+        (integer_literal))
+      (application
+        (identifier)
+        (identifier)
+        (integer_literal))
+      (integer_literal)
+      (integer_literal))))
 
 ================================================================
 match with nested constructor patterns and a wildcard

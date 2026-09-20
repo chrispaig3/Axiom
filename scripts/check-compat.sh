@@ -435,13 +435,10 @@ probe "a signature changes" "CHANGED F unwrapOr" Err.ax \
 # constant, so the probe needs no import and stays inside `Err.ax`.
 probe "an effect row widens" "WIDENED F isErr" Err.ax \
   '(pub :: isErr (-> (Result a e) Bool))
-
 (pub fn (isErr r)
   (match r
     ((Ok x) false)
-    ((Err y) true)
-  )
-)' ';@axiom:effect(io)
+    ((Err y) true)))' ';@axiom:effect(io)
 (pub :: isErr (-> (Result a e) Bool))
 
 (pub fn (isErr r)

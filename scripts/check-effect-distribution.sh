@@ -42,6 +42,27 @@
 # `Mut`-anywhere still rounds to 94%. The required/ambient line did
 # not move; the pins did, by the delta above and no more.
 #
+# RE-PINNED 2026-09-20: `cond`/`cond2`/`cond3` are removed (AX2004)
+# and the variadic `if` takes their place, deleting the cond
+# machinery from every pass. Diffed trunk-today against the branch
+# `symbols --calls` row by row over `self_host/main.ax`, each side
+# measured by a compiler built from its own tree: added 1
+# (`parseIfTail`, exactly `Alloc,Mut`), removed 37, changed 0. The
+# removed read 32 exactly-`Alloc,Mut` (the cond walkers, checkers
+# and lowerers: `checkCond`, `lowerConds`, `fpCond`, `parseCondExpr`
+# and their clause helpers), one exactly-`Alloc` (`condBodyOf`), and
+# four pure (`clausesNamePrim`, `kwCond`, `kwElse`,
+# `tplClausesHaveRepeat`) - so exactly-`Alloc,Mut` moves 2197 to
+# 2166, exactly-`Alloc` 120 to 119, and `pure` 1693 to 1689, which
+# is the old pin again by arithmetic, not by standing still. The
+# `Alloc,IO,Mut` pin moves 381 to 396 with NONE of it from this
+# diff: trunk-today already measures 396 (drift since the September
+# 18 pin, from other work), the branch measures 396 too, and the
+# row diff moves no function into or out of any IO bucket - every
+# IO bucket is frozen by this change. `Mut`-anywhere reads 93.8%,
+# still 94%. The required/ambient line did not move; the pins did,
+# by the delta above and no more.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -71,10 +92,10 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2185 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 381 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2166 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 396 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 123 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 120 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc')" 119 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 39 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 19 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 4 "IO,Mut"

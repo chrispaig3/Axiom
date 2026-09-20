@@ -4178,44 +4178,25 @@
                                         isp)
                                       0
                                       isp)
-                                    (if (== tag TAG_E_COND)
-                                      (mkNodeAt
-                                        TAG_E_COND
-                                        (substCondClauses
-                                          (nodeAVec tpl)
-                                          params
-                                          args
-                                          ren
-                                          env
-                                          isp)
-                                        (if (== (nodeB tpl) 0)
-                                          0
-                                          (substTpl
-                                            (nodeB tpl)
-                                            params
-                                            args
-                                            ren
-                                            env
-                                            isp))
+                                    ; `cond` is AX2004, so no template holds
+                                    ; one: the refusal below owns the arm.
+                                    ; --- the refusal ------------------------------------------
+                                    ; Reached only by a tag added to the parser and not to this
+                                    ; function. Returning `tpl` here is what made eight separate
+                                    ; miscompiles silent; refusing is what stops the ninth.
+                                    {
+                                      (expEmit env (mkDiagNote
+                                        SEV_ERROR
+                                        "AX3021"
+                                        "macro-template-unsupported"
+                                        isp
+                                        "this macro template contains a form the expander cannot substitute into"
                                         0
-                                        isp)
-                                      ; --- the refusal ------------------------------------------
-                                      ; Reached only by a tag added to the parser and not to this
-                                      ; function. Returning `tpl` here is what made eight separate
-                                      ; miscompiles silent; refusing is what stops the ninth.
-                                      {
-                                        (expEmit env (mkDiagNote
-                                          SEV_ERROR
-                                          "AX3021"
-                                          "macro-template-unsupported"
-                                          isp
-                                          "this macro template contains a form the expander cannot substitute into"
-                                          0
-                                          0
-                                          "rewrite the template without this form, or add a case for it to `substTpl` in self_host/expand.ax"
-                                          "the expansion was refused rather than emitted, because substituting nothing here would silently leave the template's own identifiers in the generated code"))
-                                        (mkEInt 0)
-                                      })))))))))))))))))))
+                                        0
+                                        "rewrite the template without this form, or add a case for it to `substTpl` in self_host/expand.ax"
+                                        "the expansion was refused rather than emitted, because substituting nothing here would silently leave the template's own identifiers in the generated code"))
+                                      (mkEInt 0)
+                                    }))))))))))))))))))
 
 ; A lambda's parameter list is a Vec of NAMES. Each is a binder the
 ; template introduces and is renamed - unless it is a MACRO parameter,
@@ -4864,53 +4845,6 @@
           (+ j 1))
       })))
 
-; A `cond` clause is a TAG_M_ARM holding a TEST and a body. It binds
-; nothing, so no renaming happens here - the shape is shared with a
-; match arm but the meaning is not.
-(pub :: substCondClauses (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int)))
-(pub fn (substCondClauses cls params args ren env isp)
-  (substCondClausesIn
-    cls
-    params
-    args
-    ren
-    env
-    isp
-    vecNew
-    0))
-
-(pub :: substCondClausesIn (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int (Vec Int) Int (Vec Int)))
-(pub fn (substCondClausesIn cls params args ren env isp acc i)
-  (if (>= i (vecLen cls))
-    acc
-    (let ((cl (vecGet cls i)))
-      (substCondClausesIn
-        cls
-        params
-        args
-        ren
-        env
-        isp
-        (vecPush acc (mkNodeAt
-          TAG_M_ARM
-          (substTpl
-            (nodeA cl)
-            params
-            args
-            ren
-            env
-            isp)
-          (substTpl
-            (nodeB cl)
-            params
-            args
-            ren
-            env
-            isp)
-          0
-          isp))
-        (+ i 1)))))
-
 ; ------------------------------------------------------------------
 ; Application spines.
 ;
@@ -4918,10 +4852,10 @@
 ; spine's, collected left to right. The emit-time expander flattened
 ; the spine before it ever consulted the macro table, which is why
 ; `((m a) b)` handed BOTH a and b to a one-parameter `m` and the outer
-; application vanished. The spine is still flattened here - Pre.ax's
-; `cond3` is a seven-deep spine and has to keep working - but a spine
-; longer than the macro's arity now re-applies the surplus to the
-; expansion instead of dropping it.
+; application vanished. The spine is still flattened here - a
+; seven-argument call is a seven-deep spine and has to keep working -
+; but a spine longer than the macro's arity now re-applies the surplus
+; to the expansion instead of dropping it.
 ; ------------------------------------------------------------------
 ; ------------------------------------------------------------------
 ; The walk over ORDINARY code. Its two jobs are to find macro
@@ -5094,20 +5028,13 @@
                                       (expandArms (nodeBVec e) env bs)
                                       0
                                       sp)
-                                    (if (== tag TAG_E_COND)
-                                      (mkNodeAt
-                                        TAG_E_COND
-                                        (expandCondClauses (nodeAVec e) env bs)
-                                        (if (== (nodeB e) 0)
-                                          0
-                                          (expandExpr (nodeB e) env bs))
-                                        0
-                                        sp)
-                                      ; Anything else has no expression children to walk - a pattern
-                                      ; node reached out of position, or a tag this pass does not
-                                      ; recognise. Unlike a TEMPLATE, ordinary code holds no
-                                      ; parameter references, so passing it through is safe.
-                                      e)))))))))))))))))))
+                                    ; Anything else has no expression children to walk - a pattern
+                                    ; node reached out of position, or a tag this pass does not
+                                    ; recognise. Unlike a TEMPLATE, ordinary code holds no
+                                    ; parameter references, so passing it through is safe.
+                                    ; (`cond` is AX2004: the parser builds
+                                    ; none, so no arm walks one.)
+                                    e))))))))))))))))))
 
 (pub :: expPushNames (-> (Vec Int) (Vec Int) Int Int))
 (pub fn (expPushNames ns bs i)
@@ -5260,40 +5187,25 @@
       (expPatBindersVec ps bs (+ i 1))
     }))
 
-(pub :: expandCondClauses (-> (Vec Int) Int (Vec Int) (Vec Int)))
-(pub fn (expandCondClauses cls env bs)
-  (expandCondClausesIn
-    cls
-    env
-    bs
-    vecNew
-    0))
-
-(pub :: expandCondClausesIn (-> (Vec Int) Int (Vec Int) (Vec Int) Int (Vec Int)))
-(pub fn (expandCondClausesIn cls env bs acc i)
-  (if (>= i (vecLen cls))
-    acc
-    (let ((cl (vecGet cls i)))
-      (expandCondClausesIn
-        cls
-        env
-        bs
-        (vecPush acc (mkNodeAt
-          TAG_M_ARM
-          (expandExpr (nodeA cl) env bs)
-          (expandExpr (nodeB cl) env bs)
-          0
-          (nodeSpan cl)))
-        (+ i 1)))))
-
 ; ------------------------------------------------------------------
 ; A bare identifier. A zero-parameter macro is invoked this way -
 ; `(five)` erases its parens and arrives here - so the name is looked
 ; up, but only after the bound set has had its say.
+;
+; The bound set does NOT have its say over a reference the template
+; owns: word 10 (`nodeDefScope`) marks a free identifier `substTpl`
+; resolved at the macro's definition site, and a caller's `let` of
+; the same spelling is a different variable rather than a rebinding
+; of it. Letting it win here is what made a helper - or a recursive
+; self-call - invoked from a template stop expanding the moment the
+; caller bound the name: the unexpanded call survived to codegen,
+; where `check` had said OK and `opt` died on a symbol nothing
+; defined. `checkVar` and `emitVar` already skip locals for a stamped
+; reference; this walk is the third resolver and asks the same bit.
 ; ------------------------------------------------------------------
 (pub :: expandVarRef (-> Int Int (Vec Int) Int))
 (pub fn (expandVarRef e env bs)
-  (if (== (expBound bs (nodeAName e)) 1)
+  (if (&& (== (expBound bs (nodeAName e)) 1) (== (nodeDefScope e) 0))
     e
     (let ((mac (expFindMacro env (nodeAName e))))
       (if (== mac 0)
@@ -5337,7 +5249,10 @@
   (let ((head (spineHead e)))
     (if (!= (nodeTag head) TAG_E_VAR)
       (expandAppOrHole e env bs)
-      (if (== (expBound bs (nodeAName head)) 1)
+      ; A head the template owns (word 10, see `expandVarRef`) is
+      ; looked up even when the caller binds the spelling: it is the
+      ; macro's own helper or self-call, not the caller's variable.
+      (if (&& (== (expBound bs (nodeAName head)) 1) (== (nodeDefScope head) 0))
         (expandAppOrHole e env bs)
         (let ((mac (expFindMacro env (nodeAName head))))
           (if (== mac 0)
@@ -7721,13 +7636,9 @@
                                     (if (== (tplExprHasRepeat (nodeA e)) 1)
                                       1
                                       (tplArmsHaveRepeat (nodeBVec e) 0))
-                                    (if (== tag TAG_E_COND)
-                                      (if (== (tplClausesHaveRepeat (nodeAVec e) 0) 1)
-                                        1
-                                        (if (== (nodeB e) 0)
-                                          0
-                                          (tplExprHasRepeat (nodeB e))))
-                                      0)))))))))))))))))))
+                                    ; `cond` is AX2004: no template holds
+                                    ; one, so nothing here repeats one.
+                                    0))))))))))))))))))
 
 (pub :: tplVecHasRepeat (-> (Vec Int) Int Int))
 (pub fn (tplVecHasRepeat es i)
@@ -7751,17 +7662,6 @@
           (if (== (tplExprHasRepeat (nodeB arm)) 1)
             1
             (tplArmsHaveRepeat arms (+ i 1))))))))
-
-(pub :: tplClausesHaveRepeat (-> (Vec Int) Int Int))
-(pub fn (tplClausesHaveRepeat cls i)
-  (if (>= i (vecLen cls))
-    0
-    (let ((cl (vecGet cls i)))
-      (if (== (tplExprHasRepeat (nodeA cl)) 1)
-        1
-        (if (== (tplExprHasRepeat (nodeB cl)) 1)
-          1
-          (tplClausesHaveRepeat cls (+ i 1)))))))
 
 ; One spliced declaration's siblings, drained through the same push
 ; discipline the single-declaration path below uses: the template's

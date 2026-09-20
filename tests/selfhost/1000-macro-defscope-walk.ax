@@ -1,0 +1,38 @@
+; expect 32
+; The expansion walk honors the definition-site stamp.
+;
+; A template-owned reference - a helper call, or a recursive self-call
+; - is resolved where the macro was written, not where it is invoked:
+; `substTpl` stamps every template free identifier (word 10), and the
+; walk (`expandApp`, `expandVarRef`) looks the macro up even when the
+; caller binds the same spelling. Letting the caller's `let` win made
+; the invocation stop expanding: the unexpanded call survived a check
+; that said OK, and `opt` died on a symbol nothing defined.
+;
+;   entry  this file's own helper pair, invoked under a shadowing
+;          local: 5 + 1.
+;   module `DefScopeWalk.pick3`, a recursive self-call, invoked
+;          qualified under a shadowing local: the else branch.
+;   helper `DefScopeWalk.viaHelper`, whose template calls the
+;          module's own `addOne`, invoked under a shadowing local.
+(import DefScopeWalk)
+
+(emacro inner ((inner x) (+ x 1)))
+
+(emacro outer ((outer x) (inner x)))
+
+(:: main Int)
+(fn (main)
+  (+
+    (+
+      (let ((inner 100))
+        (outer 5))
+      (let ((pick3 99))
+        (DefScopeWalk::pick3
+          (== 1 2)
+          10
+          (== 1 1)
+          20
+          30)))
+    (let ((addOne 1000))
+      (DefScopeWalk::viaHelper 5))))

@@ -172,13 +172,13 @@
             ((Yes) (mkBox 11))
             ((No) (mkBox 12)))
           0)))
-    ; --- 9. cond join: the release goes ---
+    ; --- 9. if join: the release goes ---
     (println
       (region r
         (usePhi
-          (cond
-            ((== 1 1) (mkBox 13))
-            (else (mkBox 14)))
+          (if (== 1 1)
+            (mkBox 13)
+            (mkBox 14))
           0)))
     ; --- 10. the waterline comes back, releases elided ---
     (let ((m1 __axiom_arena_mark))

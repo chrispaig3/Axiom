@@ -581,9 +581,10 @@ so a pattern `+` meaning the Prelude operator does not match an
 invocation whose `+` the call site declared itself - the shadow
 veto that makes this binding comparison rather than spelling
 comparison - while a qualified `Pre::+` matches although the
-spellings differ. The `else` in a `cond`-shaped macro must be
+spellings differ. The `else` a branching macro dispatches on must be
 *the* `else` the macro means, not any identifier a caller happened
-to name `else`. A literal binds nothing, never allocates a
+to name `else` — the case that motivated literals, back when `cond`
+gave every clause list one. A literal binds nothing, never allocates a
 parameter slot, and makes its rule refutable; a declared literal
 no pattern spells is `AX3066` at the macro's own line.
 What scope sets would add on top is narrow and stated: renamed
@@ -901,8 +902,10 @@ invocation", and for seven node kinds **there is no such span**. A span
 is a two-word record of half-open byte offsets into one source text,
 carrying no line, no column and no file identity; a node's span is an
 **anchor token** — a head, a keyword, a binder name — never the extent
-of the form; and `if`, `{}` blocks, `match`, `while`, `cond`, `handle`
-and match arms carry **no span at all**.
+of the form; and `if`, `{}` blocks, `match`, `while`, `handle`
+and match arms carry **no span at all**. (`cond` was on this list
+until the keyword was removed; a variadic `if` is nested `if`s, so
+the position rule is unchanged.)
 
 So a macro invoked in one of those positions has nothing to inherit, and
 any rule phrased as "the expansion inherits the span of the form it
@@ -1373,9 +1376,11 @@ IR's determinism (`MAC-EXP-12`).
 ### 4.1 What substitution already gives
 
 **MAC-CAP-1 (H).** Every form a template can contain has a substitution
-case: application, `if`, `cond`, `match` and its arms, `let`, `let mut`,
+case: application, `if`, `match` and its arms, `let`, `let mut`,
 `set`, `while`, field access, field store, struct construction, lambda,
-block, `alloc`, `handle`, and every literal. Lists and tuples need no
+block, `alloc`, `handle`, and every literal. (`cond` was on this list
+until the keyword was removed; a variadic `if` substitutes as the
+nested `if`s it is.) Lists and tuples need no
 case, because `[T]` and tuple types are *type* nodes — a list-shaped
 value is a constructor application (`MM-VAL-13`).
 
@@ -2355,7 +2360,7 @@ that the output parses and means what the tree meant, and the gate
 holds the first half by reopening the rendering as a document and
 requiring an outline of exactly the generated name; the second was
 measured on a template holding a mutable `let`, a block, `set`,
-`while`, `match`, `cond`, a two-parameter lambda, struct construction,
+`while`, `match`, a two-parameter lambda, struct construction,
 field access, an escaped string, a char, a float, a negative literal
 and a generated `data`, `type` and `struct` — `check` on the rendering
 reported exactly the diagnostics it reported on the template. Two
@@ -2506,8 +2511,9 @@ plausible code.
 ; stdlib/Pre.ax, in full — the whole of the current facility
 (pub macro (when test body)   (if test body 0))
 (pub macro (unless test body) (if test 0 body))
-(pub macro (cond2 t1 b1 t2 b2 els)       (if t1 b1 (if t2 b2 els)))
-(pub macro (cond3 t1 b1 t2 b2 t3 b3 els) (if t1 b1 (if t2 b2 (if t3 b3 els))))
+; variadic branching needs no macro: (if t1 b1 t2 b2 ... els) is the
+; nested chain, built by the parser. (The fixed-arity cond2/cond3 that
+; stood here left with the `cond` keyword.)
 ```
 
 A guarded accumulator, showing hygiene doing its job — the template's

@@ -1,0 +1,1 @@
+E AX2004 1001-top-level-cond-removed.ax:8:2-6 removed-construct "`cond` is no longer part of Axiom" #"`cond` was removed" ?"run `axiom explain AX2004`"

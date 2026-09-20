@@ -733,6 +733,17 @@
 0.7.6  M  value       REMOVED with stdlib/Html.ax
 0.7.6  M  width       REMOVED with stdlib/Html.ax
 
+# 0.7.6 - the `cond` keyword is removed (AX2004) and the variadic `if`
+# takes its place: `(if t1 b1 t2 b2 ... els)` is the nested chain
+# `(if t1 b1 (if t2 b2 ... els))`, built by the parser, with no new
+# keyword and no second set of branch rules. The fixed-arity
+# `cond2`/`cond3` helpers go with it: spell the nesting with `if`.
+# (The keyword itself is not a symbol-map entry, so only the two
+# helpers are declared here; the AX2004 diagnostic carries the
+# migration advice.)
+0.7.6  M  cond2       REMOVED: use (if t1 b1 t2 b2 ... els)
+0.7.6  M  cond3       REMOVED: use (if t1 b1 t2 b2 ... els)
+
 # 0.7.6 - SUBTYPE-ADOPT-1: `strFromByte` takes a `Byte`.
 # `strFromByte` stored only the low eight bits, so a caller with 256
 # or more got a silently truncated byte. Its parameter is

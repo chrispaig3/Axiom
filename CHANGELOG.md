@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+### `cond` is removed; `if` is variadic — `tests/selfhost/710-variadic-if-tco.ax`, `tests/stdlib/260-variadic-if.ax`
+
+`(if t1 b1 t2 b2 ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, built by the parser — one tag, no new keyword, no second set of branch rules. The `cond` keyword is `AX2004` in expression position and at the top level (`axiom explain AX2004` carries the migration advice), the `cond2`/`cond3` prelude helpers are gone (`compat/BREAKING`, `0.7.6 M cond2`, `0.7.6 M cond3`), and every in-tree use is rewritten (`tests/stdlib/482`/`483`/`484-region-*.ax`, `tests/selfhost/370-pre-import.ax`, the `fmt` zoo and parity bank). One deliberate semantic change: `cond` never joined clause bodies, while `if` joins its branches, so migrated branches of different types report `AX3004`. The `710` TCO case moves unchanged in spirit — there is no lowering pre-pass left to order, which is the shape that used to break.
+
+The expansion walk honors the definition-site stamp (`self_host/expand.ax`, `expandApp`/`expandVarRef`): a template-owned reference — a helper call or a recursive self-call — expands even when the caller binds the same spelling. Before, the caller's `let` won, the unexpanded call survived a check that said OK, and `opt` died on a symbol nothing defined (`tests/selfhost/1000-macro-defscope-walk.ax`).
+
+The formatter refuses a file whose string never closes instead of recursing without end (`self_host/format.ax`, `fmtOnce`): the closer-completion appended `)` inside the unterminated literal, the groups stayed open, and the process grew until the OOM killer took it (`scripts/check-degenerate.sh`, `unterminated-string`).
+
 ### The cast-at-argument-root leak is pinned — `scripts/check-cast-arg-root.sh`
 
 A `cast` at an argument root launders a word past the evidence walk

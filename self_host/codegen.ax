@@ -1265,43 +1265,37 @@
                 (if (== (tailOwned cg (nodeB e) params env) 1)
                   (tailOwned cg (nodeC e) params env)
                   0)
-                (if (== tg TAG_E_COND)
-                  (if (== (tailOwnedClauses
+                ; `cond` is AX2004: the parser builds none, so no
+                ; arm asks after one's tails. A variadic `if`
+                ; arrives as nested `if`s and walks the arm above.
+                (if (== tg TAG_E_MATCH)
+                  (tailOwnedArms
                     cg
-                    (nodeAVec e)
+                    (nodeBVec e)
                     params
                     env
-                    0) 1)
-                    (tailOwned cg (nodeB e) params env)
                     0)
-                  (if (== tg TAG_E_MATCH)
-                    (tailOwnedArms
-                      cg
-                      (nodeBVec e)
-                      params
-                      env
-                      0)
-                    (if (== tg TAG_E_BEGIN)
-                      (if (== (vecLen (nodeAVec e)) 0)
-                        1
-                        (tailOwned cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1)) params env))
-                      (if (== tg TAG_E_LET)
-                        (tailOwned cg (nodeC e) params (envWith env (nodeAName e) (tailOwned cg (nodeB e) params env)))
-                        (if (== tg TAG_E_LETM)
-                          ; a mutable slot may be reassigned to anything
-                          (tailOwned cg (nodeC e) params (envWith env (nodeAName e) 0))
-                          (if (== tg TAG_E_SET)
-                            ; `(set k v)` evaluates to `v`, as owned as `v` is
-                            (tailOwned cg (nodeB e) params env)
-                            (if (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (|| (== tg TAG_E_STRUCTCON) (== tg TAG_E_REGION))))
-                              ; words, and a keyword construction born at count 1;
-                              ; a `region`'s value is a scalar by the checker's
-                              ; rule (AX3059), so it is a word too
-                              1
-                              (if (== tg TAG_E_ALLOC)
-                                ; `(alloc T n)` is raw memory at count 0 - see `__alloc`
-                                0
-                                0))))))))))))))))
+                  (if (== tg TAG_E_BEGIN)
+                    (if (== (vecLen (nodeAVec e)) 0)
+                      1
+                      (tailOwned cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1)) params env))
+                    (if (== tg TAG_E_LET)
+                      (tailOwned cg (nodeC e) params (envWith env (nodeAName e) (tailOwned cg (nodeB e) params env)))
+                      (if (== tg TAG_E_LETM)
+                        ; a mutable slot may be reassigned to anything
+                        (tailOwned cg (nodeC e) params (envWith env (nodeAName e) 0))
+                        (if (== tg TAG_E_SET)
+                          ; `(set k v)` evaluates to `v`, as owned as `v` is
+                          (tailOwned cg (nodeB e) params env)
+                          (if (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (|| (== tg TAG_E_STRUCTCON) (== tg TAG_E_REGION))))
+                            ; words, and a keyword construction born at count 1;
+                            ; a `region`'s value is a scalar by the checker's
+                            ; rule (AX3059), so it is a word too
+                            1
+                            (if (== tg TAG_E_ALLOC)
+                              ; `(alloc T n)` is raw memory at count 0 - see `__alloc`
+                              0
+                              0)))))))))))))))
 
 ; An application's ownership, by its head.
 (pub :: tailOwnedApp (-> Int Int (Vec Int) (Vec Int) Int))
@@ -1368,19 +1362,6 @@
         cg
         e
         n_
-        params
-        env
-        (+ i 1))
-      0)))
-
-(pub :: tailOwnedClauses (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int))
-(pub fn (tailOwnedClauses cg cls params env i)
-  (if (>= i (vecLen cls))
-    1
-    (if (== (tailOwned cg (nodeB (vecGet cls i)) params env) 1)
-      (tailOwnedClauses
-        cg
-        cls
         params
         env
         (+ i 1))
@@ -1839,42 +1820,37 @@
             (flowMaskApp cg e params env)
             (if (== tg TAG_E_IF)
               (| (flowMask cg (nodeB e) params env) (flowMask cg (nodeC e) params env))
-              (if (== tg TAG_E_COND)
-                (| (flowMaskClauses
+              ; `cond` is AX2004: the parser builds none, so no arm
+              ; masks one. A variadic `if` arrives as nested `if`s.
+              (if (== tg TAG_E_MATCH)
+                (flowMaskArms
                   cg
-                  (nodeAVec e)
+                  (nodeBVec e)
                   params
                   env
-                  0) (flowMask cg (nodeB e) params env))
-                (if (== tg TAG_E_MATCH)
-                  (flowMaskArms
-                    cg
-                    (nodeBVec e)
-                    params
-                    env
-                    (flowMask cg (nodeA e) params env)
-                    0)
-                  (if (== tg TAG_E_BEGIN)
-                    (if (== (vecLen (nodeAVec e)) 0)
-                      0
-                      (flowMask cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1)) params env))
-                    (if (== tg TAG_E_LET)
-                      (flowMask cg (nodeC e) params (envWith env (nodeAName e) (letFlag cg (nodeB e) params env)))
-                      (if (== tg TAG_E_LETM)
-                        (flowMask cg (nodeC e) params (envWith env (nodeAName e) (mutFlag
-                          cg
-                          (nodeAName e)
-                          (nodeB e)
-                          (nodeC e)
-                          params
-                          env)))
-                        (if (== tg TAG_E_HANDLE)
-                          ; the body's value, or the handler's
-                          (| (flowMask cg (nodeA e) params env) (flowMask cg (nodeC e) params env))
-                          (if (== tg TAG_E_SET)
-                            ; `(set k v)` evaluates to `v`
-                            (flowMask cg (nodeB e) params env)
-                            0))))))))))))))
+                  (flowMask cg (nodeA e) params env)
+                  0)
+                (if (== tg TAG_E_BEGIN)
+                  (if (== (vecLen (nodeAVec e)) 0)
+                    0
+                    (flowMask cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1)) params env))
+                  (if (== tg TAG_E_LET)
+                    (flowMask cg (nodeC e) params (envWith env (nodeAName e) (letFlag cg (nodeB e) params env)))
+                    (if (== tg TAG_E_LETM)
+                      (flowMask cg (nodeC e) params (envWith env (nodeAName e) (mutFlag
+                        cg
+                        (nodeAName e)
+                        (nodeB e)
+                        (nodeC e)
+                        params
+                        env)))
+                      (if (== tg TAG_E_HANDLE)
+                        ; the body's value, or the handler's
+                        (| (flowMask cg (nodeA e) params env) (flowMask cg (nodeC e) params env))
+                        (if (== tg TAG_E_SET)
+                          ; `(set k v)` evaluates to `v`
+                          (flowMask cg (nodeB e) params env)
+                          0)))))))))))))
 
 ; Parameter i as it arrives: a typed reference or a type variable in
 ; the arrival form; a parameter declared a machine word (`Int`) is a
@@ -2157,17 +2133,6 @@
         mask
         (+ i 1)))))
 
-(pub :: flowMaskClauses (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int))
-(pub fn (flowMaskClauses cg cls params env i)
-  (if (>= i (vecLen cls))
-    0
-    (| (flowMask cg (nodeB (vecGet cls i)) params env) (flowMaskClauses
-      cg
-      cls
-      params
-      env
-      (+ i 1)))))
-
 (pub :: flowMaskArms (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 (pub fn (flowMaskArms cg arms params env scrut i)
   (if (>= i (vecLen arms))
@@ -2244,80 +2209,85 @@
                 cell)
               (branchLeave cell)
             }
-            (if (== tg TAG_E_COND)
+            ; `cond` is AX2004: the parser builds none, so no arm
+            ; stashes one. A variadic `if` arrives as nested `if`s.
+            (if (== tg TAG_E_MATCH)
               {
-                (flowStashesClauses
+                (flowStashes
+                  cg
+                  (nodeA e)
+                  params
+                  env
+                  cell)
+                (flowStashesArms
+                  cg
+                  (nodeBVec e)
+                  params
+                  env
+                  cell
+                  (flowMask cg (nodeA e) params env)
+                  0)
+              }
+              (if (== tg TAG_E_BEGIN)
+                (flowStashesVec
                   cg
                   (nodeAVec e)
                   params
                   env
                   cell
                   0)
-                (branchEnter cell)
-                (flowStashes
-                  cg
-                  (nodeB e)
-                  params
-                  env
-                  cell)
-                (branchLeave cell)
-              }
-              (if (== tg TAG_E_MATCH)
-                {
-                  (flowStashes
-                    cg
-                    (nodeA e)
-                    params
-                    env
-                    cell)
-                  (flowStashesArms
-                    cg
-                    (nodeBVec e)
-                    params
-                    env
-                    cell
-                    (flowMask cg (nodeA e) params env)
-                    0)
-                }
-                (if (== tg TAG_E_BEGIN)
-                  (flowStashesVec
-                    cg
-                    (nodeAVec e)
-                    params
-                    env
-                    cell
-                    0)
-                  (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
-                    (if (== tg TAG_E_REGION)
-                      ; a `region` body runs exactly once: transparent
+                (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                  (if (== tg TAG_E_REGION)
+                    ; a `region` body runs exactly once: transparent
+                    (flowStashes
+                      cg
+                      (nodeB e)
+                      params
+                      env
+                      cell)
+                    ; the condition runs once more than the body, and the
+                    ; body may never run: two regions
+                    {
+                      (branchEnter cell)
+                      (flowStashes
+                        cg
+                        (nodeA e)
+                        params
+                        env
+                        cell)
+                      (branchLeave cell)
+                      (branchEnter cell)
+                      (flowStashesVec
+                        cg
+                        (nodeBVec e)
+                        params
+                        env
+                        cell
+                        0)
+                      (branchLeave cell)
+                    })
+                  (if (== tg TAG_E_LET)
+                    {
                       (flowStashes
                         cg
                         (nodeB e)
                         params
                         env
                         cell)
-                      ; the condition runs once more than the body, and the
-                      ; body may never run: two regions
-                      {
-                        (branchEnter cell)
-                        (flowStashes
-                          cg
-                          (nodeA e)
-                          params
-                          env
-                          cell)
-                        (branchLeave cell)
-                        (branchEnter cell)
-                        (flowStashesVec
-                          cg
-                          (nodeBVec e)
-                          params
-                          env
-                          cell
-                          0)
-                        (branchLeave cell)
-                      })
-                    (if (== tg TAG_E_LET)
+                      (flowStashes
+                        cg
+                        (nodeC e)
+                        params
+                        (envWith env (nodeAName e) (letFlag cg (nodeB e) params env))
+                        cell)
+                    }
+                    (if (== tg TAG_E_LETM)
+                      ; a `mut` slot is frame storage: it dies with the frame,
+                      ; so what is put in it is parked only where a lambda
+                      ; captures the slot's value (`lamCaptureMask`, through
+                      ; the alias recorded here). Counted as a park, every
+                      ; `(let ((mut t s)) ...)` marked `s` stashed, and a loop
+                      ; never gave the slot's share back
                       {
                         (flowStashes
                           cg
@@ -2329,44 +2299,45 @@
                           cg
                           (nodeC e)
                           params
-                          (envWith env (nodeAName e) (letFlag cg (nodeB e) params env))
-                          cell)
-                      }
-                      (if (== tg TAG_E_LETM)
-                        ; a `mut` slot is frame storage: it dies with the frame,
-                        ; so what is put in it is parked only where a lambda
-                        ; captures the slot's value (`lamCaptureMask`, through
-                        ; the alias recorded here). Counted as a park, every
-                        ; `(let ((mut t s)) ...)` marked `s` stashed, and a loop
-                        ; never gave the slot's share back
-                        {
-                          (flowStashes
+                          (envWith env (nodeAName e) (mutFlag
                             cg
+                            (nodeAName e)
                             (nodeB e)
-                            params
-                            env
-                            cell)
-                          (flowStashes
-                            cg
                             (nodeC e)
                             params
-                            (envWith env (nodeAName e) (mutFlag
+                            env))
+                          cell)
+                      }
+                      (if (== tg TAG_E_SET)
+                        (flowStashes
+                          cg
+                          (nodeB e)
+                          params
+                          env
+                          cell)
+                        (if (== tg TAG_E_SETF)
+                          {
+                            (flowStashes
                               cg
-                              (nodeAName e)
-                              (nodeB e)
+                              (nodeA e)
+                              params
+                              env
+                              cell)
+                            (flowStashes
+                              cg
                               (nodeC e)
                               params
-                              env))
-                            cell)
-                        }
-                        (if (== tg TAG_E_SET)
-                          (flowStashes
-                            cg
-                            (nodeB e)
-                            params
-                            env
-                            cell)
-                          (if (== tg TAG_E_SETF)
+                              env
+                              cell)
+                            ; a reference field retains (event 5); a word field parks
+                            (if (== (fieldReadIsScalar cg e) 1)
+                              (stashAdd cell (parkForms (flowMask cg (nodeC e) params env)))
+                              0)
+                          }
+                          (if (== tg TAG_E_HANDLE)
+                            ; the body in this region; the handler in one of its own -
+                            ; a `handle` naming only built-in effects never evaluates
+                            ; it (B is the Vec of effect names, not a node)
                             {
                               (flowStashes
                                 cg
@@ -2374,64 +2345,42 @@
                                 params
                                 env
                                 cell)
+                              (branchEnter cell)
                               (flowStashes
                                 cg
                                 (nodeC e)
                                 params
                                 env
                                 cell)
-                              ; a reference field retains (event 5); a word field parks
-                              (if (== (fieldReadIsScalar cg e) 1)
-                                (stashAdd cell (parkForms (flowMask cg (nodeC e) params env)))
-                                0)
+                              (branchLeave cell)
                             }
-                            (if (== tg TAG_E_HANDLE)
-                              ; the body in this region; the handler in one of its own -
-                              ; a `handle` naming only built-in effects never evaluates
-                              ; it (B is the Vec of effect names, not a node)
-                              {
-                                (flowStashes
-                                  cg
-                                  (nodeA e)
-                                  params
-                                  env
-                                  cell)
-                                (branchEnter cell)
-                                (flowStashes
-                                  cg
-                                  (nodeC e)
-                                  params
-                                  env
-                                  cell)
-                                (branchLeave cell)
-                              }
-                              (if (== tg TAG_E_LAM)
-                                ; a capture of a PARAMETER takes a share (event 4's
-                                ; exception, `emitLambda`); a capture of a local that
-                                ; aliases one takes none, and parks it
-                                (stashAdd cell (parkForms (lamCaptureMask cg (nodeB e) params env)))
-                                (if (== tg TAG_E_STRUCTCON)
-                                  (let ((entry (lookupType (memGetWordVec cg 3) (nodeAName e))))
-                                    {
-                                      (flowStashesVec
+                            (if (== tg TAG_E_LAM)
+                              ; a capture of a PARAMETER takes a share (event 4's
+                              ; exception, `emitLambda`); a capture of a local that
+                              ; aliases one takes none, and parks it
+                              (stashAdd cell (parkForms (lamCaptureMask cg (nodeB e) params env)))
+                              (if (== tg TAG_E_STRUCTCON)
+                                (let ((entry (lookupType (memGetWordVec cg 3) (nodeAName e))))
+                                  {
+                                    (flowStashesVec
+                                      cg
+                                      (nodeBVec e)
+                                      params
+                                      env
+                                      cell
+                                      0)
+                                    (if (== entry 0)
+                                      0
+                                      (flowStashesFieldsVec
                                         cg
+                                        entry
                                         (nodeBVec e)
                                         params
                                         env
                                         cell
-                                        0)
-                                      (if (== entry 0)
-                                        0
-                                        (flowStashesFieldsVec
-                                          cg
-                                          entry
-                                          (nodeBVec e)
-                                          params
-                                          env
-                                          cell
-                                          0))
-                                    })
-                                  0)))))))))))))))))
+                                        0))
+                                  })
+                                0))))))))))))))))
 
 ; The region cell: word 0 the stashes pending in the open region
 ; (a child's, already netted against the child's own counts, joins
@@ -2654,81 +2603,71 @@
                         params
                         env
                         0)
-                      (if (== tg TAG_E_COND)
-                        (| (setFlowsClauses
+                      ; `cond` is AX2004: the parser builds none, so
+                      ; no arm flows one. A variadic `if` arrives as
+                      ; nested `if`s.
+                      (if (== tg TAG_E_MATCH)
+                        (| (setFlows
                           cg
                           name
-                          (nodeAVec e)
+                          (nodeA e)
+                          params
+                          env) (setFlowsArms
+                          cg
+                          name
+                          (nodeBVec e)
                           params
                           env
-                          0) (setFlows
-                          cg
-                          name
-                          (nodeB e)
-                          params
-                          env))
-                        (if (== tg TAG_E_MATCH)
-                          (| (setFlows
-                            cg
-                            name
-                            (nodeA e)
-                            params
-                            env) (setFlowsArms
-                            cg
-                            name
-                            (nodeBVec e)
-                            params
-                            env
-                            (flowMask cg (nodeA e) params env)
-                            0))
-                          (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
-                            (if (== tg TAG_E_REGION)
-                              (setFlows
-                                cg
-                                name
-                                (nodeB e)
-                                params
-                                env)
-                              (| (setFlows
-                                cg
-                                name
-                                (nodeA e)
-                                params
-                                env) (setFlowsVec
+                          (flowMask cg (nodeA e) params env)
+                          0))
+                        (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                          (if (== tg TAG_E_REGION)
+                            (setFlows
+                              cg
+                              name
+                              (nodeB e)
+                              params
+                              env)
+                            (| (setFlows
+                              cg
+                              name
+                              (nodeA e)
+                              params
+                              env) (setFlowsVec
+                              cg
+                              name
+                              (nodeBVec e)
+                              params
+                              env
+                              0)))
+                          (if (== tg TAG_E_LAM)
+                            (setFlows
+                              cg
+                              name
+                              (nodeB e)
+                              params
+                              env)
+                            (if (== tg TAG_E_STRUCTCON)
+                              (setFlowsVec
                                 cg
                                 name
                                 (nodeBVec e)
                                 params
                                 env
-                                0)))
-                            (if (== tg TAG_E_LAM)
-                              (setFlows
-                                cg
-                                name
-                                (nodeB e)
-                                params
-                                env)
-                              (if (== tg TAG_E_STRUCTCON)
-                                (setFlowsVec
+                                0)
+                              (if (== tg TAG_E_HANDLE)
+                                (| (setFlows
                                   cg
                                   name
-                                  (nodeBVec e)
+                                  (nodeA e)
                                   params
-                                  env
-                                  0)
-                                (if (== tg TAG_E_HANDLE)
-                                  (| (setFlows
-                                    cg
-                                    name
-                                    (nodeA e)
-                                    params
-                                    env) (setFlows
-                                    cg
-                                    name
-                                    (nodeC e)
-                                    params
-                                    env))
-                                  0)))))))))))))))))
+                                  env) (setFlows
+                                  cg
+                                  name
+                                  (nodeC e)
+                                  params
+                                  env))
+                                0))))))))))))))))
 
 (pub :: setFlowsVec (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int))
 (pub fn (setFlowsVec cg name v params env i)
@@ -2750,33 +2689,6 @@
         params
         env
         (+ i 1))))))
-
-(pub :: setFlowsClauses (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int))
-(pub fn (setFlowsClauses cg name cls params env i)
-  (if (==
-    (cast Int cls)
-    0)
-    0
-    (if (>= i (vecLen cls))
-      0
-      (let ((c (vecGet cls i)))
-        (| (| (setFlows
-          cg
-          name
-          (nodeA c)
-          params
-          env) (setFlows
-          cg
-          name
-          (nodeB c)
-          params
-          env)) (setFlowsClauses
-          cg
-          name
-          cls
-          params
-          env
-          (+ i 1)))))))
 
 (pub :: setFlowsArms (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 (pub fn (setFlowsArms cg name arms params env scrut i)
@@ -2869,40 +2781,6 @@
         (flowStashesVec
           cg
           v
-          params
-          env
-          cell
-          (+ i 1))
-      })))
-
-(pub :: flowStashesClauses (-> Int (Vec Int) (Vec Int) (Vec Int) Int Int Int))
-(pub fn (flowStashesClauses cg cls params env cell i)
-  (if (>= i (vecLen cls))
-    0
-    ; the TEST is a region of its own: it runs whenever the
-    ; clauses before it failed, whether or not this body runs,
-    ; so a count in the body licenses no park in the test
-    (let ((c (vecGet cls i)))
-      {
-        (branchEnter cell)
-        (flowStashes
-          cg
-          (nodeA c)
-          params
-          env
-          cell)
-        (branchLeave cell)
-        (branchEnter cell)
-        (flowStashes
-          cg
-          (nodeB c)
-          params
-          env
-          cell)
-        (branchLeave cell)
-        (flowStashesClauses
-          cg
-          cls
           params
           env
           cell
@@ -3400,8 +3278,8 @@
 ; handing it back means something? A direct construction; a call to a
 ; signed global whose result is a reference, applied to exactly its
 ; arity (a surplus argument applies the closure it answers, whose
-; result nothing signed); and the joins over `if`, `cond`, `match`,
-; `let` and a block. A match here is only as owned as its arms, and
+; result nothing signed); and the joins over `if`, `match`, `let`
+; and a block. A match here is only as owned as its arms, and
 ; an arm answering a binder is not.
 (pub :: valueOwnedRef (-> Int Int Int))
 (pub fn (valueOwnedRef cg e)
@@ -3444,27 +3322,18 @@
                 (if (== (valueOwnedRef cg (nodeB e)) 1)
                   (valueOwnedRef cg (nodeC e))
                   0)
-                (if (== tg TAG_E_COND)
-                  (if (== (valueOwnedRefClauses cg (nodeAVec e) 0) 1)
-                    (valueOwnedRef cg (nodeB e))
-                    0)
-                  (if (== tg TAG_E_MATCH)
-                    (valueOwnedRefArms cg (nodeBVec e) 0)
-                    (if (== tg TAG_E_LET)
-                      (valueOwnedRef cg (nodeC e))
-                      (if (== tg TAG_E_BEGIN)
-                        (if (== (vecLen (nodeAVec e)) 0)
-                          0
-                          (valueOwnedRef cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1))))
-                        0))))))))))))
-
-(pub :: valueOwnedRefClauses (-> Int (Vec Int) Int Int))
-(pub fn (valueOwnedRefClauses cg cls i)
-  (if (>= i (vecLen cls))
-    1
-    (if (== (valueOwnedRef cg (nodeB (vecGet cls i))) 1)
-      (valueOwnedRefClauses cg cls (+ i 1))
-      0)))
+                ; `cond` is AX2004: the parser builds none, so no
+                ; arm asks after one's value. A variadic `if`
+                ; arrives as nested `if`s.
+                (if (== tg TAG_E_MATCH)
+                  (valueOwnedRefArms cg (nodeBVec e) 0)
+                  (if (== tg TAG_E_LET)
+                    (valueOwnedRef cg (nodeC e))
+                    (if (== tg TAG_E_BEGIN)
+                      (if (== (vecLen (nodeAVec e)) 0)
+                        0
+                        (valueOwnedRef cg (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1))))
+                      0)))))))))))
 
 (pub :: valueOwnedRefArms (-> Int (Vec Int) Int Int))
 (pub fn (valueOwnedRefArms cg arms i)
@@ -5589,12 +5458,10 @@
                               (if (== (exprNamesPrim nm (nodeA e)) 1)
                                 1
                                 (armsNamePrim nm (nodeBVec e) 0))
-                              (if (== tg TAG_E_COND)
-                                (if (== (clausesNamePrim nm (nodeAVec e) 0) 1)
-                                  1
-                                  (exprNamesPrim nm (nodeB e)))
-                                ; INT, STR, FLT, CHAR, QUOTE: leaves
-                                0))))))))))))))))
+                              ; `cond` is AX2004: the parser builds
+                              ; none, so no arm names one.
+                              ; INT, STR, FLT, CHAR, QUOTE: leaves
+                              0)))))))))))))))
 
 (pub :: exprsNamePrim (-> String (Vec Int) Int Int))
 (pub fn (exprsNamePrim nm v i)
@@ -5608,8 +5475,7 @@
         1
         (exprsNamePrim nm v (+ i 1))))))
 
-; A match arm's word b is its body; a cond clause's words a and b are
-; its test and its body.
+; A match arm's word b is its body.
 (pub :: armsNamePrim (-> String (Vec Int) Int Int))
 (pub fn (armsNamePrim nm v i)
   (if (==
@@ -5621,21 +5487,6 @@
       (if (== (exprNamesPrim nm (nodeB (vecGet v i))) 1)
         1
         (armsNamePrim nm v (+ i 1))))))
-
-(pub :: clausesNamePrim (-> String (Vec Int) Int Int))
-(pub fn (clausesNamePrim nm v i)
-  (if (==
-    (cast Int v)
-    0)
-    0
-    (if (>= i (vecLen v))
-      0
-      (let ((cl (vecGet v i)))
-        (if (== (exprNamesPrim nm (nodeA cl)) 1)
-          1
-          (if (== (exprNamesPrim nm (nodeB cl)) 1)
-            1
-            (clausesNamePrim nm v (+ i 1))))))))
 
 ; Does the program want the THREAD lowering: `__thread_spawn` by name,
 ; or `__par_spawn` (every `parallel`) under `--threads`.
@@ -11578,8 +11429,9 @@
 ; growth mode the self-hosting record calls meeting a distant limit as an
 ; unrelated-looking failure, this time in frames rather than bytes.
 ; A missed tag here under-emits and llc refuses the undefined
-; register LOUDLY; `cond` answers 1 unconditionally because its
-; lowering happens per-declaration and a lambda body may carry one.
+; register LOUDLY. (`cond` used to answer 1 unconditionally because
+; its lowering happened per-declaration; it is AX2004 now, so no
+; body carries one.)
 (pub :: bodyHasMatch (-> Int Int))
 (pub fn (bodyHasMatch e)
   (if (== e 0)
@@ -11587,58 +11439,58 @@
     (let ((tg (nodeTag e)))
       (if (== tg TAG_E_MATCH)
         1
-        (if (== tg TAG_E_COND)
-          1
-          (if (== tg TAG_E_APP)
-            (if (== (bodyHasMatch (nodeA e)) 1)
+        ; `cond` is AX2004: the parser builds none, so no body
+        ; hides a match inside one.
+        (if (== tg TAG_E_APP)
+          (if (== (bodyHasMatch (nodeA e)) 1)
+            1
+            (bodyHasMatch (nodeB e)))
+          (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+            (if (== (bodyHasMatch (nodeB e)) 1)
               1
-              (bodyHasMatch (nodeB e)))
-            (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
-              (if (== (bodyHasMatch (nodeB e)) 1)
+              (bodyHasMatch (nodeC e)))
+            (if (== tg TAG_E_IF)
+              (if (== (bodyHasMatch (nodeA e)) 1)
                 1
-                (bodyHasMatch (nodeC e)))
-              (if (== tg TAG_E_IF)
-                (if (== (bodyHasMatch (nodeA e)) 1)
+                (if (== (bodyHasMatch (nodeB e)) 1)
                   1
-                  (if (== (bodyHasMatch (nodeB e)) 1)
-                    1
-                    (bodyHasMatch (nodeC e))))
-                (if (== tg TAG_E_BEGIN)
-                  (bodyHasMatchVec (nodeAVec e))
-                  (if (== tg TAG_E_SET)
-                    (bodyHasMatch (nodeB e))
-                    (if (== tg TAG_E_SETF)
-                      (if (== (bodyHasMatch (nodeA e)) 1)
-                        1
-                        (bodyHasMatch (nodeC e)))
-                      ; A `while`'s word 2 is its body VECTOR, not a node. Handed to
-                      ; the node walk it read a Vec header as a tag and answered 0,
-                      ; so a match inside a loop body got no scratch and `opt`
-                      ; refused the undefined `%__scr.h` - loudly, as the comment
-                      ; above promises, and in the program rather than the compiler
-                      ; (the QA sweep's refutation pass, 2026-08-21).
-                      (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
-                        (if (== tg TAG_E_REGION)
-                          (bodyHasMatch (nodeB e))
-                          (if (== (bodyHasMatch (nodeA e)) 1)
-                            1
-                            (bodyHasMatchVec (nodeBVec e))))
-                        (if (== tg TAG_E_FIELD)
-                          (bodyHasMatch (nodeA e))
-                          (if (== tg TAG_E_LAM)
-                            (bodyHasMatch (nodeC e))
-                            (if (== tg TAG_E_STRUCTCON)
-                              (bodyHasMatchVec (nodeBVec e))
-                              (if (== tg TAG_E_ALLOC)
-                                (bodyHasMatch (nodeA e))
-                                (if (== tg TAG_E_HANDLE)
-                                  ; the body (A) and the handler (C); B is the Vec of effect
-                                  ; names, not a node - walked as one, it read a Vec header
-                                  ; as a tag and the body's `match` got no scratch word
-                                  (if (== (bodyHasMatch (nodeA e)) 1)
-                                    1
-                                    (bodyHasMatch (nodeC e)))
-                                  0)))))))))))))))))
+                  (bodyHasMatch (nodeC e))))
+              (if (== tg TAG_E_BEGIN)
+                (bodyHasMatchVec (nodeAVec e))
+                (if (== tg TAG_E_SET)
+                  (bodyHasMatch (nodeB e))
+                  (if (== tg TAG_E_SETF)
+                    (if (== (bodyHasMatch (nodeA e)) 1)
+                      1
+                      (bodyHasMatch (nodeC e)))
+                    ; A `while`'s word 2 is its body VECTOR, not a node. Handed to
+                    ; the node walk it read a Vec header as a tag and answered 0,
+                    ; so a match inside a loop body got no scratch and `opt`
+                    ; refused the undefined `%__scr.h` - loudly, as the comment
+                    ; above promises, and in the program rather than the compiler
+                    ; (the QA sweep's refutation pass, 2026-08-21).
+                    (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                      (if (== tg TAG_E_REGION)
+                        (bodyHasMatch (nodeB e))
+                        (if (== (bodyHasMatch (nodeA e)) 1)
+                          1
+                          (bodyHasMatchVec (nodeBVec e))))
+                      (if (== tg TAG_E_FIELD)
+                        (bodyHasMatch (nodeA e))
+                        (if (== tg TAG_E_LAM)
+                          (bodyHasMatch (nodeC e))
+                          (if (== tg TAG_E_STRUCTCON)
+                            (bodyHasMatchVec (nodeBVec e))
+                            (if (== tg TAG_E_ALLOC)
+                              (bodyHasMatch (nodeA e))
+                              (if (== tg TAG_E_HANDLE)
+                                ; the body (A) and the handler (C); B is the Vec of effect
+                                ; names, not a node - walked as one, it read a Vec header
+                                ; as a tag and the body's `match` got no scratch word
+                                (if (== (bodyHasMatch (nodeA e)) 1)
+                                  1
+                                  (bodyHasMatch (nodeC e)))
+                                0))))))))))))))))
 
 (pub :: bodyHasMatchVec (-> (Vec Int) Int))
 (pub fn (bodyHasMatchVec xs)
@@ -11662,148 +11514,7 @@
       })))
 
 ; ------------------------------------------------------------------
-; Function definition.
-; ------------------------------------------------------------------
-; ------------------------------------------------------------------
-; Lower every TAG_E_COND in an expression tree to the nested-if chain
-; the parser used to build at parse time, IN PLACE - parents keep
-; their pointers, and the rewrite runs before `tailCallsSelf` so a
-; tail self-call inside a cond clause still gets its loop. The fold is
-; the old parser desugar verbatim: clauses right to left around the
-; else body, `(mkEInt 0)` when there is none, so emission is
-; bit-identical to the parse-time desugar this replaces.
-; ------------------------------------------------------------------
-(pub :: lowerConds (-> Int Int))
-(pub fn (lowerConds e)
-  (if (== e 0)
-    0
-    (let ((tag (nodeTag e)))
-      (if (== tag TAG_E_COND)
-        (let ((chain 
-          (condChainAt
-            (nodeAVec e)
-            (- (vecLen (nodeAVec e)) 1)
-            (if (== (nodeB e) 0)
-              (mkEInt 0)
-              (lowerConds (nodeB e))))))
-          {
-            (memSetWord e 0 (nodeTag chain))
-            (memSetWord e 1 (nodeA chain))
-            (memSetWord e 2 (nodeB chain))
-            (memSetWord e 3 (nodeC chain))
-            (memSetWord e 4 (nodeSpan chain))
-            e
-          })
-        (if (== tag TAG_E_APP)
-          {
-            (lowerConds (nodeA e))
-            (lowerConds (nodeB e))
-            e
-          }
-          (if (== tag TAG_E_LAM)
-            {
-              (lowerConds (nodeB e))
-              e
-            }
-            (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
-              {
-                (lowerConds (nodeB e))
-                (lowerConds (nodeC e))
-                e
-              }
-              (if (== tag TAG_E_IF)
-                {
-                  (lowerConds (nodeA e))
-                  (lowerConds (nodeB e))
-                  (lowerConds (nodeC e))
-                  e
-                }
-                (if (== tag TAG_E_BEGIN)
-                  {
-                    (lowerCondsVec (nodeAVec e) 0)
-                    e
-                  }
-                  (if (== tag TAG_E_MATCH)
-                    {
-                      (lowerConds (nodeA e))
-                      (lowerCondsArms (nodeBVec e) 0)
-                      e
-                    }
-                    (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
-                      (if (== tag TAG_E_REGION)
-                        {
-                          (lowerConds (nodeB e))
-                          e
-                        }
-                        {
-                          (lowerConds (nodeA e))
-                          (lowerCondsVec (nodeBVec e) 0)
-                          e
-                        })
-                      (if (== tag TAG_E_SET)
-                        {
-                          (lowerConds (nodeB e))
-                          e
-                        }
-                        (if (== tag TAG_E_SETF)
-                          {
-                            (lowerConds (nodeA e))
-                            (lowerConds (nodeC e))
-                            e
-                          }
-                          (if (== tag TAG_E_FIELD)
-                            {
-                              (lowerConds (nodeA e))
-                              e
-                            }
-                            (if (== tag TAG_E_HANDLE)
-                              {
-                                (lowerConds (nodeA e))
-                                (lowerConds (nodeC e))
-                                e
-                              }
-                              (if (== tag TAG_E_STRUCTCON)
-                                {
-                                  (lowerCondsVec (nodeBVec e) 0)
-                                  e
-                                }
-                                (if (== tag TAG_E_ALLOC)
-                                  {
-                                    (lowerConds (nodeA e))
-                                    e
-                                  }
-                                  e)))))))))))))))))
-
-(pub :: condChainAt (-> (Vec Int) Int Int Int))
-(pub fn (condChainAt clauses i acc)
-  (if (< i 0)
-    acc
-    (let ((cl (vecGet clauses i)))
-      (condChainAt clauses (- i 1) (mkEIf (lowerConds (nodeA cl)) (lowerConds (nodeB cl)) acc)))))
-
-(pub :: lowerCondsVec (-> (Vec Int) Int Int))
-(pub fn (lowerCondsVec v i)
-  (if (>= i (vecLen v))
-    0
-    {
-      (lowerConds (vecGet v i))
-      (lowerCondsVec v (+ i 1))
-    }))
-
-; Arm PATTERNS are left alone: a cond form in pattern position is
-; nonsense the emitter has always treated as match-everything, and
-; lowering it would only change which nonsense it is.
-(pub :: lowerCondsArms (-> (Vec Int) Int Int))
-(pub fn (lowerCondsArms arms i)
-  (if (>= i (vecLen arms))
-    0
-    {
-      (lowerConds (nodeB (vecGet arms i)))
-      (lowerCondsArms arms (+ i 1))
-    }))
-
-; ------------------------------------------------------------------
-; EMITTING FROM THE MID-LEVEL IR.
+; Function definition: emitting from the mid-level IR.
 ;
 ; `self_host/mir.ax` holds an IR, a lowering into it, a printer and a
 ; verifier, and until now nothing in the compiler imported any of
@@ -12294,12 +12005,14 @@
   ; emitted from `mLowerFn`'s lowering and
   ; everything else from the walk, byte for byte
   ; the same either way. See `mirEmitOrWalk`.
+  ; `cond` is AX2004: the parser builds none, so no pre-pass
+  ; lowers one. A variadic `if` arrives as nested `if`s.
   (let (
     (name (if (strEq (nodeAName node) "main")
       "__axiom_user_main"
       (nodeAName node)))
     (params (nodeBVec node))
-    (body (lowerConds (nodeC node)))
+    (body (nodeC node))
   )
     (let (
       (paramStr (emitParams params cg 0))
@@ -12486,96 +12199,59 @@
                   self
                   acc)
               }
-              (if (== tg TAG_E_COND)
-                {
-                  (collectTailsClauses
-                    cg
-                    (nodeAVec e)
-                    params
-                    env
-                    self
-                    acc
-                    0)
-                  (collectTails
-                    cg
-                    (nodeB e)
-                    params
-                    env
-                    self
-                    acc)
-                }
-                (if (== tg TAG_E_MATCH)
-                  (collectTailsArms
-                    cg
-                    (nodeBVec e)
-                    params
-                    env
-                    self
-                    acc
-                    0)
-                  (if (== tg TAG_E_BEGIN)
-                    (if (== (vecLen (nodeAVec e)) 0)
-                      0
-                      (collectTails
-                        cg
-                        (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1))
-                        params
-                        env
-                        self
-                        acc))
-                    (if (== tg TAG_E_LET)
+              ; `cond` is AX2004: the parser builds none, so no
+              ; arm collects one's tails. A variadic `if` arrives
+              ; as nested `if`s and walks the arm above.
+              (if (== tg TAG_E_MATCH)
+                (collectTailsArms
+                  cg
+                  (nodeBVec e)
+                  params
+                  env
+                  self
+                  acc
+                  0)
+                (if (== tg TAG_E_BEGIN)
+                  (if (== (vecLen (nodeAVec e)) 0)
+                    0
+                    (collectTails
+                      cg
+                      (vecGet (nodeAVec e) (- (vecLen (nodeAVec e)) 1))
+                      params
+                      env
+                      self
+                      acc))
+                  (if (== tg TAG_E_LET)
+                    (collectTails
+                      cg
+                      (nodeC e)
+                      params
+                      (envWith env (nodeAName e) (tailOwned cg (nodeB e) params env))
+                      self
+                      acc)
+                    (if (== tg TAG_E_LETM)
                       (collectTails
                         cg
                         (nodeC e)
                         params
-                        (envWith env (nodeAName e) (tailOwned cg (nodeB e) params env))
+                        (envWith env (nodeAName e) 0)
                         self
                         acc)
-                      (if (== tg TAG_E_LETM)
-                        (collectTails
-                          cg
-                          (nodeC e)
-                          params
-                          (envWith env (nodeAName e) 0)
-                          self
-                          acc)
-                        (if (== tg TAG_E_SET)
-                          ; `(set k v)` answers `v`: a leaf when `v` is borrowed
-                          (if (== (tailOwned cg e params env) 1)
+                      (if (== tg TAG_E_SET)
+                        ; `(set k v)` answers `v`: a leaf when `v` is borrowed
+                        (if (== (tailOwned cg e params env) 1)
+                          0
+                          {
+                            (vecPush acc e)
                             0
-                            {
-                              (vecPush acc e)
-                              0
-                            })
-                          (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (|| (== tg TAG_E_LAM) (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (|| (== tg TAG_E_STRUCTCON) (== tg TAG_E_REGION)))))))))
+                          })
+                        (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (|| (== tg TAG_E_LAM) (|| (== tg TAG_E_WHILE) (|| (== tg TAG_E_SETF) (|| (== tg TAG_E_STRUCTCON) (== tg TAG_E_REGION)))))))))
+                          0
+                          ; a shape the walk does not know answers borrowed
+                          {
+                            (vecPush acc e)
                             0
-                            ; a shape the walk does not know answers borrowed
-                            {
-                              (vecPush acc e)
-                              0
-                            }))))))))))))))
-
-(pub :: collectTailsClauses (-> Int (Vec Int) (Vec Int) (Vec Int) String (Vec Int) Int Int))
-(pub fn (collectTailsClauses cg cls params env self acc i)
-  (if (>= i (vecLen cls))
-    0
-    {
-      (collectTails
-        cg
-        (nodeB (vecGet cls i))
-        params
-        env
-        self
-        acc)
-      (collectTailsClauses
-        cg
-        cls
-        params
-        env
-        self
-        acc
-        (+ i 1))
-    }))
+                          })))))))))))))
 
 (pub :: collectTailsArms (-> Int (Vec Int) (Vec Int) (Vec Int) String (Vec Int) Int Int))
 (pub fn (collectTailsArms cg arms params env self acc i)
@@ -14604,7 +14280,7 @@
     (fl (memGetWord cg 14))
   )
     (let ((cgR 
-      (if (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag scrutExpr) TAG_E_APP) (|| (== (nodeTag scrutExpr) TAG_E_IF) (|| (== (nodeTag scrutExpr) TAG_E_COND) (== (nodeTag scrutExpr) TAG_E_MATCH)))) (== (nodeResWord scrutExpr) 2)))
+      (if (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag scrutExpr) TAG_E_APP) (|| (== (nodeTag scrutExpr) TAG_E_IF) (== (nodeTag scrutExpr) TAG_E_MATCH))) (== (nodeResWord scrutExpr) 2)))
         cg
         (emitReleaseOf cg sv))))
       {
@@ -14993,58 +14669,55 @@
       ; A char literal is its codepoint word; emission is an integer's.
       (if (== tag TAG_E_CHAR)
         (emitInt node cg)
-        ; A cond that reached emission without passing the emitFnDef
-        ; pre-pass - a macro template is the one road here - lowers on the
-        ; fly to the same if-chain and re-dispatches.
-        (if (== tag TAG_E_COND)
-          (emitExpr (lowerConds node) cg)
-          (if (== tag TAG_E_FLT)
-            (emitFlt node cg)
-            (if (== tag TAG_E_VAR)
-              (emitVar node cg)
-              (if (== tag TAG_E_APP)
-                (emitApp node cg)
-                (if (== tag TAG_E_LET)
-                  (emitLet node cg)
-                  (if (== tag TAG_E_IF)
-                    (emitIf node cg)
-                    (if (== tag TAG_E_BEGIN)
-                      (emitBegin node cg)
-                      (if (== tag TAG_E_STR)
-                        (emitStrExpr node cg)
-                        (if (== tag TAG_E_MATCH)
-                          (emitMatch node cg)
-                          (if (== tag TAG_E_LETM)
-                            (emitLetM node cg)
-                            (if (== tag TAG_E_SET)
-                              (emitSet node cg)
-                              (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
-                                (if (== tag TAG_E_REGION)
-                                  (emitRegion node cg)
-                                  (emitWhile node cg))
-                                (if (== tag TAG_E_FIELD)
-                                  (emitField node cg)
-                                  (if (== tag TAG_E_SETF)
-                                    (emitSetF node cg)
-                                    (if (== tag TAG_E_LAM)
-                                      (emitLambda node cg)
-                                      (if (== tag TAG_E_STRUCTCON)
-                                        (emitStructConExpr node cg)
-                                        (if (== tag TAG_E_HANDLE)
-                                          (emitHandle node cg)
-                                          ; `(alloc Type [count])` allocates nothing. stage0's IR generator
-                                          ; has no EAlloc case, so the form falls to its catch-all constant
-                                          ; 0; emitting a real allocation here would be stage1 doing more
-                                          ; than the compiler it must agree with.
-                                          (if (== tag TAG_E_ALLOC)
-                                            {
-                                              (memSetWord cg 2 (constStr 0))
-                                              (memSetWord cg 14 0)
-                                              cg
-                                            }
-                                            (if (== tag TAG_E_SUBCHECK)
-                                              (emitPrimSubtypeCheck node cg)
-                                              (emitDefault cg))))))))))))))))))))))))
+        ; `cond` is AX2004: the parser builds none, so no arm
+        ; emits one. A variadic `if` arrives as nested `if`s.
+        (if (== tag TAG_E_FLT)
+          (emitFlt node cg)
+          (if (== tag TAG_E_VAR)
+            (emitVar node cg)
+            (if (== tag TAG_E_APP)
+              (emitApp node cg)
+              (if (== tag TAG_E_LET)
+                (emitLet node cg)
+                (if (== tag TAG_E_IF)
+                  (emitIf node cg)
+                  (if (== tag TAG_E_BEGIN)
+                    (emitBegin node cg)
+                    (if (== tag TAG_E_STR)
+                      (emitStrExpr node cg)
+                      (if (== tag TAG_E_MATCH)
+                        (emitMatch node cg)
+                        (if (== tag TAG_E_LETM)
+                          (emitLetM node cg)
+                          (if (== tag TAG_E_SET)
+                            (emitSet node cg)
+                            (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                              (if (== tag TAG_E_REGION)
+                                (emitRegion node cg)
+                                (emitWhile node cg))
+                              (if (== tag TAG_E_FIELD)
+                                (emitField node cg)
+                                (if (== tag TAG_E_SETF)
+                                  (emitSetF node cg)
+                                  (if (== tag TAG_E_LAM)
+                                    (emitLambda node cg)
+                                    (if (== tag TAG_E_STRUCTCON)
+                                      (emitStructConExpr node cg)
+                                      (if (== tag TAG_E_HANDLE)
+                                        (emitHandle node cg)
+                                        ; `(alloc Type [count])` allocates nothing. stage0's IR generator
+                                        ; has no EAlloc case, so the form falls to its catch-all constant
+                                        ; 0; emitting a real allocation here would be stage1 doing more
+                                        ; than the compiler it must agree with.
+                                        (if (== tag TAG_E_ALLOC)
+                                          {
+                                            (memSetWord cg 2 (constStr 0))
+                                            (memSetWord cg 14 0)
+                                            cg
+                                          }
+                                          (if (== tag TAG_E_SUBCHECK)
+                                            (emitPrimSubtypeCheck node cg)
+                                            (emitDefault cg)))))))))))))))))))))))
 
 ; ------------------------------------------------------------------
 ; The effect system: dynamic handlers by evidence passing.
@@ -17836,8 +17509,8 @@
       ; callee-mediated hole is outcome-identical either way (the
       ; reset frees unconditionally), as slice 1's gate pins.
       ; S4 slice 3, args path: a join whose every arm the witness
-      ; proved fresh (`nodeResWord` 2 - an `if`, `cond` or `match`
-      ; whose arm value nodes all carry the stamp) answers whichever
+      ; proved fresh (`nodeResWord` 2 - an `if` or `match` whose
+      ; arm value nodes all carry the stamp) answers whichever
       ; arm it took, so the single join release is the same
       ; binary-only traffic. Same depth gate, same `argOwnedRelease`
       ; still saying 1, same inlining so no new top-level function
@@ -17845,7 +17518,7 @@
       ; is a fresh join bound by `let` - that walker is the sibling
       ; slice, and this one leaves it exactly alone.
       (let ((a (vecGet args i)))
-        (if (|| (== (isRegionCoveredCon cg a) 1) (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag a) TAG_E_APP) (|| (== (nodeTag a) TAG_E_IF) (|| (== (nodeTag a) TAG_E_COND) (== (nodeTag a) TAG_E_MATCH)))) (== (nodeResWord a) 2))))
+        (if (|| (== (isRegionCoveredCon cg a) 1) (&& (!= (pairSlot cg 9) 0) (&& (|| (== (nodeTag a) TAG_E_APP) (|| (== (nodeTag a) TAG_E_IF) (== (nodeTag a) TAG_E_MATCH))) (== (nodeResWord a) 2))))
           (releaseOwnedArgs
             cg
             fnName
@@ -19785,7 +19458,7 @@
                         ; its spending conditional, same pending vector
                         ; for the tail-jump path.
                         (if (&& (== releasable 1) (!= (memGetWord cgB 31) 1))
-                          (if (&& (!= (pairSlot cgB 9) 0) (&& (|| (== (nodeTag valExpr) TAG_E_APP) (|| (== (nodeTag valExpr) TAG_E_IF) (|| (== (nodeTag valExpr) TAG_E_COND) (== (nodeTag valExpr) TAG_E_MATCH)))) (== (nodeResWord valExpr) 2)))
+                          (if (&& (!= (pairSlot cgB 9) 0) (&& (|| (== (nodeTag valExpr) TAG_E_APP) (|| (== (nodeTag valExpr) TAG_E_IF) (== (nodeTag valExpr) TAG_E_MATCH))) (== (nodeResWord valExpr) 2)))
                             cgB
                             (let (
                               (res (strDup (memGetWordStr cgB 2)))
@@ -20049,72 +19722,88 @@
                             0
                             root)
                           0)))
-                    (if (== tg TAG_E_COND)
-                      (if (== (escapesCondTests
+                    ; `cond` is AX2004: the parser builds none, so no
+                    ; arm asks after one's escapes. A variadic `if`
+                    ; arrives as nested `if`s.
+                    (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+                      ; the initialiser inherits the position: `(let ((t s)) t)`
+                      ; makes the binding the let's value through an alias - and
+                      ; an alias that may hold (part of) the block is then asked
+                      ; the same question under its own name, in the same
+                      ; position, so `(let ((t s)) (set r t))` in a statement is
+                      ; seen for the stash it is. An initialiser that can only
+                      ; be a machine word - an operator's answer, a scalar
+                      ; field - aliases nothing and is exempt.
+                      ; The initialiser is walked in ARGUMENT position: it is
+                      ; not the let's value, its binder is, and the alias step
+                      ; below carries whatever reaches the binder on to the
+                      ; body - `(let ((t b.f)) t)` escapes through `t`, while
+                      ; `(let ((t b.f)) (strLen t))` no longer does.
+                      (if (== (escapes
                         cg
                         name
-                        (nodeAVec e)
-                        root
-                        0) 1)
+                        (nodeB e)
+                        0
+                        root) 1)
                         1
-                        (if (== (escapesArms
+                        (if (== (escapes
                           cg
                           name
-                          (nodeAVec e)
+                          (nodeC e)
                           vp
-                          0
                           root) 1)
                           1
+                          (if (== (mayAlias cg name (nodeB e) root) 1)
+                            (escapes
+                              cg
+                              (nodeAName e)
+                              (nodeC e)
+                              vp
+                              root)
+                            0)))
+                      (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                        (if (== tg TAG_E_REGION)
                           (escapes
                             cg
                             name
                             (nodeB e)
                             vp
-                            root)))
-                      (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
-                        ; the initialiser inherits the position: `(let ((t s)) t)`
-                        ; makes the binding the let's value through an alias - and
-                        ; an alias that may hold (part of) the block is then asked
-                        ; the same question under its own name, in the same
-                        ; position, so `(let ((t s)) (set r t))` in a statement is
-                        ; seen for the stash it is. An initialiser that can only
-                        ; be a machine word - an operator's answer, a scalar
-                        ; field - aliases nothing and is exempt.
-                        ; The initialiser is walked in ARGUMENT position: it is
-                        ; not the let's value, its binder is, and the alias step
-                        ; below carries whatever reaches the binder on to the
-                        ; body - `(let ((t b.f)) t)` escapes through `t`, while
-                        ; `(let ((t b.f)) (strLen t))` no longer does.
-                        (if (== (escapes
-                          cg
-                          name
-                          (nodeB e)
-                          0
-                          root) 1)
-                          1
+                            root)
                           (if (== (escapes
                             cg
                             name
-                            (nodeC e)
-                            vp
+                            (nodeA e)
+                            0
                             root) 1)
                             1
-                            (if (== (mayAlias cg name (nodeB e) root) 1)
-                              (escapes
-                                cg
-                                (nodeAName e)
-                                (nodeC e)
-                                vp
-                                root)
-                              0)))
-                        (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
-                          (if (== tg TAG_E_REGION)
+                            (escapesSeq
+                              cg
+                              name
+                              (nodeBVec e)
+                              0
+                              0
+                              root)))
+                        (if (== tg TAG_E_SET)
+                          ; a slot store takes no share - of what REACHES the slot:
+                          ; the binding itself, a word of it, not a length or a sum
+                          ; computed from it (`(set k (strLen s))` beside a self
+                          ; tail call kept every iteration's string). And the value
+                          ; is walked in argument position for what it PARKS on the
+                          ; way: a lambda capturing the binding, a constructor's
+                          ; word field, a callee that stashes it
+                          (if (!= (bindingFlow cg name (nodeB e)) 0)
+                            1
                             (escapes
                               cg
                               name
                               (nodeB e)
-                              vp
-                              root)
+                              0
+                              root))
+                          (if (== tg TAG_E_SETF)
+                            ; `(set b.f v)` retains v into a REFERENCE field (event 5),
+                            ; so the base is a borrow and the value walks in argument
+                            ; position; a WORD field takes a `cast`, which parks the
+                            ; value uncounted - that mention escapes
                             (if (== (escapes
                               cg
                               name
@@ -20122,50 +19811,15 @@
                               0
                               root) 1)
                               1
-                              (escapesSeq
-                                cg
-                                name
-                                (nodeBVec e)
-                                0
-                                0
-                                root)))
-                          (if (== tg TAG_E_SET)
-                            ; a slot store takes no share - of what REACHES the slot:
-                            ; the binding itself, a word of it, not a length or a sum
-                            ; computed from it (`(set k (strLen s))` beside a self
-                            ; tail call kept every iteration's string). And the value
-                            ; is walked in argument position for what it PARKS on the
-                            ; way: a lambda capturing the binding, a constructor's
-                            ; word field, a callee that stashes it
-                            (if (!= (bindingFlow cg name (nodeB e)) 0)
-                              1
-                              (escapes
-                                cg
-                                name
-                                (nodeB e)
-                                0
-                                root))
-                            (if (== tg TAG_E_SETF)
-                              ; `(set b.f v)` retains v into a REFERENCE field (event 5),
-                              ; so the base is a borrow and the value walks in argument
-                              ; position; a WORD field takes a `cast`, which parks the
-                              ; value uncounted - that mention escapes
-                              (if (== (escapes
-                                cg
-                                name
-                                (nodeA e)
-                                0
-                                root) 1)
-                                1
-                                (if (== (fieldReadIsScalar cg e) 1)
-                                  (mentions name (nodeC e))
-                                  (escapes
-                                    cg
-                                    name
-                                    (nodeC e)
-                                    0
-                                    root)))
-                              (mentions name e))))))))))))))))
+                              (if (== (fieldReadIsScalar cg e) 1)
+                                (mentions name (nodeC e))
+                                (escapes
+                                  cg
+                                  name
+                                  (nodeC e)
+                                  0
+                                  root)))
+                            (mentions name e)))))))))))))))
 
 (pub :: escapesSeq (-> Int String (Vec Int) Int Int Int Int))
 (pub fn (escapesSeq cg name v vp i root)
@@ -20194,8 +19848,8 @@
           (+ i 1)
           root)))))
 
-; A match arm or cond clause: word 2 is the body, and it inherits the
-; position. An arm PATTERN cannot mention an outer binding as a value.
+; A match arm's word 2 is its body, and it inherits the position.
+; An arm PATTERN cannot mention an outer binding as a value.
 (pub :: escapesArms (-> Int String (Vec Int) Int Int Int Int))
 (pub fn (escapesArms cg name v vp i root)
   (if (==
@@ -20319,28 +19973,6 @@
             0
             1)
           1)))))
-
-(pub :: escapesCondTests (-> Int String (Vec Int) Int Int Int))
-(pub fn (escapesCondTests cg name cls root i)
-  (if (==
-    (cast Int cls)
-    0)
-    0
-    (if (>= i (vecLen cls))
-      0
-      (if (== (escapes
-        cg
-        name
-        (nodeA (vecGet cls i))
-        0
-        root) 1)
-        1
-        (escapesCondTests
-          cg
-          name
-          cls
-          root
-          (+ i 1))))))
 
 (pub :: mayAliasArgs (-> Int String Int Int Int Int Int))
 (pub fn (mayAliasArgs cg name e n_ root i)
@@ -20555,7 +20187,9 @@
                     (boundWithin name (nodeA e))
                     (if (== tg TAG_E_SET)
                       (boundWithin name (nodeB e))
-                      (if (|| (== tg TAG_E_BEGIN) (== tg TAG_E_COND))
+                      ; `cond` is AX2004: the parser builds none,
+                      ; so no arm walks one's vector.
+                      (if (== tg TAG_E_BEGIN)
                         (boundWithinVec name (nodeAVec e) 0)
                         (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
                           (if (== tg TAG_E_REGION)
@@ -20577,8 +20211,7 @@
         1
         (boundWithinVec name v (+ i 1))))))
 
-; An arm binds its pattern's names; a cond clause binds nothing, and
-; its word 1 is a condition `boundWithin` walks like any expression.
+; An arm binds its pattern's names.
 (pub :: boundWithinArms (-> String (Vec Int) Int Int))
 (pub fn (boundWithinArms name v i)
   (if (==
@@ -20814,24 +20447,22 @@
                     (mentions name (nodeB e))
                     (if (== tg TAG_E_BEGIN)
                       (mentionsVec name (nodeAVec e) 0)
-                      (if (== tg TAG_E_COND)
-                        (if (== (mentionsVec name (nodeAVec e) 0) 1)
+                      ; `cond` is AX2004: the parser builds none, so
+                      ; no arm mentions one.
+                      (if (== tg TAG_E_MATCH)
+                        (if (== (mentions name (nodeA e)) 1)
                           1
-                          (mentions name (nodeB e)))
-                        (if (== tg TAG_E_MATCH)
-                          (if (== (mentions name (nodeA e)) 1)
-                            1
-                            (mentionsArms name (nodeBVec e) 0))
-                          (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
-                            (if (== tg TAG_E_REGION)
-                              (mentions name (nodeB e))
-                              (if (== (mentions name (nodeA e)) 1)
-                                1
-                                (mentionsVec name (nodeBVec e) 0)))
-                            (if (== tg TAG_E_LAM)
-                              ; a capture takes no share, so any mention counts
-                              (mentions name (nodeB e))
-                              1)))))))))))))))
+                          (mentionsArms name (nodeBVec e) 0))
+                        (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                          (if (== tg TAG_E_REGION)
+                            (mentions name (nodeB e))
+                            (if (== (mentions name (nodeA e)) 1)
+                              1
+                              (mentionsVec name (nodeBVec e) 0)))
+                          (if (== tg TAG_E_LAM)
+                            ; a capture takes no share, so any mention counts
+                            (mentions name (nodeB e))
+                            1))))))))))))))
 
 (pub :: mentionsVec (-> String (Vec Int) Int Int))
 (pub fn (mentionsVec name v i)

@@ -78,10 +78,6 @@
         "named": true
       },
       {
-        "type": "cond_expression",
-        "named": true
-      },
-      {
         "type": "for_expression",
         "named": true
       },
@@ -374,58 +370,6 @@
         "types": [
           {
             "type": "_type",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "cond_clause",
-    "named": true,
-    "fields": {
-      "body": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "_expression",
-            "named": true
-          }
-        ]
-      },
-      "else": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "else",
-            "named": false
-          }
-        ]
-      },
-      "test": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "_expression",
-            "named": true
-          }
-        ]
-      }
-    }
-  },
-  {
-    "type": "cond_expression",
-    "named": true,
-    "fields": {
-      "clause": {
-        "multiple": true,
-        "required": false,
-        "types": [
-          {
-            "type": "cond_clause",
             "named": true
           }
         ]
@@ -2561,10 +2505,6 @@
   {
     "type": "ellipsis",
     "named": true
-  },
-  {
-    "type": "else",
-    "named": false
   },
   {
     "type": "emacro",
