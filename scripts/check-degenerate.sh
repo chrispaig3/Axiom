@@ -183,13 +183,17 @@ deg empty-ascribe 1 <<'AXEOF'
 (:: main Int)
 (fn (main) (:: () Int))
 AXEOF
-deg empty-cond-test 1 <<'AXEOF'
+deg even-if-operands 1 <<'AXEOF'
 (:: main Int)
-(fn (main) (cond (() 1) (else 2)))
+(fn (main) (if true 1 false 2))
 AXEOF
-deg empty-cond-body 1 <<'AXEOF'
+deg variadic-if-ok 0 <<'AXEOF'
 (:: main Int)
-(fn (main) (cond (true ()) (else 2)))
+(fn (main) (if true 1 false 2 3))
+AXEOF
+deg cond-removed 1 <<'AXEOF'
+(:: main Int)
+(fn (main) (cond (else 2)))
 AXEOF
 deg empty-lambda-body 1 <<'AXEOF'
 (:: main Int)
@@ -270,7 +274,7 @@ deg empty-match-arms 0 <<'AXEOF'
 (:: main Int)
 (fn (main) (match 1))
 AXEOF
-deg empty-cond 0 <<'AXEOF'
+deg bare-cond-removed 1 <<'AXEOF'
 (:: main Int)
 (fn (main) (cond))
 AXEOF

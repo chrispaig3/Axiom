@@ -1,0 +1,50 @@
+; expect 42
+; A self tail call inside a variadic `if` branch is a jump, not a call.
+;
+; A variadic `(if t1 b1 t2 b2 ... els)` IS the nested chain
+; `(if t1 b1 (if t2 b2 ... els))` - `parseIfExpr` builds it, so by the
+; time the tail-call analysis walks the tree there is nothing but
+; `if`s to see. There is no lowering pre-pass to order before or
+; after `tailCallsSelf`, which is the shape that used to break: the
+; old `cond` kept a structural node for the checker and codegen
+; lowered it back to the chain in a pre-pass that had to run BEFORE
+; the analysis, and a lowering that ran after it shipped as a silent
+; stack overflow at two million frames.
+;
+;   countdown  two million iterations in constant stack, the self call
+;              in a branch body.
+;   classify   a variadic `if` whose else carries the tail call - the
+;              chain's last hop is the else body.
+;   pick       variadic `if` used as a plain value, no recursion, every
+;              branch result observed.
+(:: countdown (-> Int Int Int))
+(fn (countdown n acc)
+  (if (== n 0)
+    acc
+    (countdown (- n 1) (+ acc 1))))
+
+(:: classify (-> Int Int Int))
+(fn (classify n acc)
+  (if (== n 0)
+    acc
+    (== n 1)
+    (+ acc 100)
+    (classify (- n 2) (+ acc 1))))
+
+(:: pick (-> Int Int))
+(fn (pick n)
+  (if (== n 1)
+    10
+    (== n 2)
+    20
+    30))
+
+(:: main Int)
+(fn (main)
+  (if (== (countdown 2000000 0) 2000000)
+    (if (== (classify 400001 0) 200100)
+      (if (== (+ (pick 1) (+ (pick 2) (pick 9))) 60)
+        42
+        11)
+      10)
+    7))

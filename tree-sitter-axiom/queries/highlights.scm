@@ -129,11 +129,13 @@
   "effect"
 ] @keyword.type
 
+; `else` left with `cond`: it was only ever the else-clause marker
+; (`cond_clause`'s `field('else', ...)`), never a keyword of its own,
+; so with that rule gone the token is gone too and an `else` is an
+; ordinary identifier, highlighted as one.
 [
   "if"
-  "cond"
   "match"
-  "else"
 ] @keyword.conditional
 
 ; The two loop heads. `while` was missing from this file before `for`

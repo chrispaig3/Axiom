@@ -70,7 +70,9 @@ const BUILTIN_EFFECTS = new Set(['Pure', 'IO', 'Alloc', 'Mut', 'Div'])
 
 const KEYWORD_FUNCTION = new Set(['fn', 'define', 'lambda'])
 const KEYWORD_TYPE = new Set(['data', 'struct', 'type', 'subtype', 'effect'])
-const KEYWORD_CONDITIONAL = new Set(['if', 'cond', 'match', 'else'])
+// `else` left with `cond`: it was only ever the else-clause marker,
+// never a keyword of its own, so it is an ordinary identifier now.
+const KEYWORD_CONDITIONAL = new Set(['if', 'match'])
 const KEYWORD_PLAIN = new Set([
   'let', 'handle', 'where', 'pub', 'import', 'set', 'while', 'for', 'extern',
   'macro', 'emacro',
@@ -87,7 +89,7 @@ const KEYWORD_MODIFIER = new Set(['alloc', 'sizeof', 'alignof', 'cast', 'mut'])
 // trait and impl. `region` was on it until 2026-09-03.
 const REMOVED = new Set([
   'union', 'foreign', 'deriving',
-  'linear', 'consume', 'begin', 'trait', 'impl',
+  'linear', 'consume', 'begin', 'trait', 'impl', 'cond',
 ])
 
 const DELIMITERS = new Set(['::', '->', ':', '=', '!', ','])

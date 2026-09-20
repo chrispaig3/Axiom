@@ -1,7 +1,7 @@
 # The refusal bank: what `axiom fmt` does to each tests/fmt/parity/*.axp case.
 #
 # One `### <case> (exit N)` line per case, followed by the formatted bytes when
-# it formatted at all. 63 cases: 35 rewrites and 28 refusals, which is why this
+# it formatted at all. 65 cases: 35 rewrites and 30 refusals, which is why this
 # file can tell a formatter that always succeeds from one that always refuses -
 # check-fmt-selfhost.sh requires both outcomes to be present.
 #
@@ -75,6 +75,17 @@
 # identifiers that now print; 194 (`mut` at a binding head, the marker), 196
 # (`consume`) and 197 (`begin`) are the refusals the parser shares - and 196
 # and 197 were REWRITES before, output `check` refuses with AX2004.
+#
+# THREE CASES TURNED OVER for the `cond` removal. 174 was `(cond (else 9))`,
+# exit 0: the only-else `cond` the old printer laid out. There is no
+# only-else `if` - an `if` always ends in its else operand after at least
+# one test and branch - so 174 is the same file number with new content,
+# `(if a b c d e)`, pinning the variadic layout flat, one operand per
+# line. 177 (`(if a b c d)`) pins the other half: an even operand count
+# has no final else, `fpIf` answers `fpBad`, and the file is untouched.
+# 178 keeps the old 174 bytes under a new number to pin the refusal: a
+# `(cond ...)` reaches `fpIsRefusedHead` like `consume` and `begin`.
+# Regenerating for them moved no other case's bytes.
 #
 # THREE CASES CHANGED SIDES on 2026-08-09, and the reason is worth recording
 # here because this file is what recorded the wrong answer:
@@ -206,14 +217,19 @@
 (fn (f v)
   (match v
 ))
-### 174-cond-only-else.axp (exit 0)
+### 174-if-five-operands.axp (exit 0)
 (fn (f n)
-  (cond
-    (else 9)))
+  (if a
+    b
+    c
+    d
+    e))
 ### 175-empty-data.axp (exit 0)
 (data Empty)
 ### 176-empty-pattern.axp (exit 1)
 ### 176-vt-ff-whitespace.axp (exit 1)
+### 177-if-four-operands.axp (exit 1)
+### 178-cond-refused.axp (exit 1)
 ### 180-pub-import.axp (exit 0)
 (import Mem)
 

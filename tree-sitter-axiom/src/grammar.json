@@ -1718,6 +1718,10 @@
         {
           "type": "STRING",
           "value": "impl"
+        },
+        {
+          "type": "STRING",
+          "value": "cond"
         }
       ]
     },
@@ -2544,10 +2548,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "cond_expression"
-        },
-        {
-          "type": "SYMBOL",
           "name": "match_expression"
         },
         {
@@ -3027,79 +3027,6 @@
           "content": {
             "type": "SYMBOL",
             "name": "_expression"
-          }
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        }
-      ]
-    },
-    "cond_expression": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "STRING",
-          "value": "cond"
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "FIELD",
-            "name": "clause",
-            "content": {
-              "type": "SYMBOL",
-              "name": "cond_clause"
-            }
-          }
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        }
-      ]
-    },
-    "cond_clause": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "FIELD",
-              "name": "test",
-              "content": {
-                "type": "SYMBOL",
-                "name": "_expression"
-              }
-            },
-            {
-              "type": "FIELD",
-              "name": "else",
-              "content": {
-                "type": "STRING",
-                "value": "else"
-              }
-            }
-          ]
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "FIELD",
-            "name": "body",
-            "content": {
-              "type": "SYMBOL",
-              "name": "_expression"
-            }
           }
         },
         {

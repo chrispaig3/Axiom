@@ -823,7 +823,7 @@ hoisted above is the innermost enclosing item that is a direct child
 of a `{ }` block, else the fn body; it becomes `(let ((x E)) S')` with
 `x` for `E`, where `x` is `extracted` or the first `extractedN` the
 document does not spell. It is refused wherever hoisting would change
-how often or whether `E` runs — under a `lambda`, `while`, `cond` or
+how often or whether `E` runs — under a `lambda`, `while` or
 `handle`, in a branch of an `if` or an arm of a `match` (the test and
 the scrutinee are fine), in a head position or a binding list, and
 past the first operand of a `for`: the container, or a range's start,

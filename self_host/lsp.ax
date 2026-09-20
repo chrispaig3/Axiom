@@ -785,9 +785,11 @@
 ; the same bytes.
 (pub :: lspLintUse (-> Int String Int))
 (pub fn (lspLintUse lx name)
-  (let ((scope (memGetWordVec lx 1))
-        (idxs (memGetWordVec lx 6))
-        (mut i (- (vecLen scope) 1)))
+  (let (
+    (scope (memGetWordVec lx 1))
+    (idxs (memGetWordVec lx 6))
+    (mut i (- (vecLen scope) 1))
+  )
     {
       (while (>= i 0)
         (if (strEq (vecGetStr scope i) name)
@@ -803,9 +805,11 @@
 ; `true` from reading as the boolean.
 (pub :: lspLintScopeHas (-> Int String Bool))
 (pub fn (lspLintScopeHas lx name)
-  (let ((scope (memGetWordVec lx 1))
-        (mut i (- (vecLen scope) 1))
-        (mut found false))
+  (let (
+    (scope (memGetWordVec lx 1))
+    (mut i (- (vecLen scope) 1))
+    (mut found false)
+  )
     {
       (while (>= i 0)
         (if (strEq (vecGetStr scope i) name)
@@ -823,10 +827,12 @@
 ; publishes.
 (pub :: lspLintPop (-> Int Int Int))
 (pub fn (lspLintPop lx n)
-  (let ((scope (memGetWordVec lx 1))
-        (idxs (memGetWordVec lx 6))
-        (binders (memGetWordVec lx 2))
-        (mut i 0))
+  (let (
+    (scope (memGetWordVec lx 1))
+    (idxs (memGetWordVec lx 6))
+    (binders (memGetWordVec lx 2))
+    (mut i 0)
+  )
     {
       (while (< i n)
         (let ((idx (vecGet idxs (- (vecLen idxs) 1))))
@@ -873,8 +879,10 @@
 (pub fn (lspLintIf lx e)
   (let ((t (nodeA e)))
     (if (== (nodeTag t) TAG_E_VAR)
-      (let ((cn (nodeAName t))
-            (sp (nodeSpan t)))
+      (let (
+        (cn (nodeAName t))
+        (sp (nodeSpan t))
+      )
         (if (== sp 0)
           0
           (if (lspLintPlainName cn)
@@ -972,18 +980,6 @@
     (let ((a (lspLintPat lx (vecGet pats i))))
       (+ a (lspLintPatVec lx pats (+ i 1))))))
 
-; `cond` clauses are (test, body) pairs and bind nothing.
-(pub :: lspLintClauses (-> Int (Vec Int) Int Int))
-(pub fn (lspLintClauses lx clauses i)
-  (if (>= i (vecLen clauses))
-    0
-    (let ((c (vecGet clauses i)))
-      {
-        (lspLintWalk lx (nodeA c))
-        (lspLintWalk lx (nodeB c))
-        (lspLintClauses lx clauses (+ i 1))
-      })))
-
 (pub :: lspLintWalkVec (-> Int (Vec Int) Int Int))
 (pub fn (lspLintWalkVec lx xs i)
   (if (>= i (vecLen xs))
@@ -1022,7 +1018,13 @@
             (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
               {
                 (lspLintWalk lx (nodeB e))
-                (lspLintPush lx (nodeAName e) (nodeSpan e) (if (lspLintLetOk (nodeAName e) (nodeSpan e)) 1 0))
+                (lspLintPush
+                  lx
+                  (nodeAName e)
+                  (nodeSpan e)
+                  (if (lspLintLetOk (nodeAName e) (nodeSpan e))
+                    1
+                    0))
                 (lspLintWalk lx (nodeC e))
                 (lspLintPop lx 1)
               }
@@ -1047,35 +1049,33 @@
                         (lspLintWalk lx (nodeA e))
                         (lspLintArms lx (nodeBVec e) 0)
                       }
-                      (if (== tag TAG_E_COND)
-                        {
-                          (lspLintClauses lx (nodeAVec e) 0)
-                          (lspLintWalk lx (nodeB e))
-                        }
-                        (if (== tag TAG_E_SET)
-                          ; The target is not marked: only reads keep
-                          ; a binding alive, so a `set!` with no read
-                          ; anywhere is still a dead binding. The
-                          ; value follows the target in the source
-                          ; and in this list.
-                          (lspLintWalk lx (nodeB e))
-                          (if (== tag TAG_E_FIELD)
-                            (lspLintWalk lx (nodeA e))
-                            (if (== tag TAG_E_SETF)
-                              {
-                                (lspLintWalk lx (nodeA e))
-                                (lspLintWalk lx (nodeC e))
-                              }
-                              (if (== tag TAG_E_STRUCTCON)
-                                (lspLintWalkVec lx (nodeBVec e) 0)
-                                (if (== tag TAG_E_ALLOC)
-                                  (lspLintWalk lx (nodeB e))
-                                  (if (== tag TAG_E_HANDLE)
-                                    {
-                                      (lspLintWalk lx (nodeA e))
-                                      (lspLintWalk lx (nodeC e))
-                                    }
-                                    0))))))))))))))))))
+                      ; `cond` is AX2004: the parser builds none, so
+                      ; no arm lints one. A variadic `if` arrives as
+                      ; nested `if`s and walks the `if` arm.
+                      (if (== tag TAG_E_SET)
+                        ; The target is not marked: only reads keep
+                        ; a binding alive, so a `set!` with no read
+                        ; anywhere is still a dead binding. The
+                        ; value follows the target in the source
+                        ; and in this list.
+                        (lspLintWalk lx (nodeB e))
+                        (if (== tag TAG_E_FIELD)
+                          (lspLintWalk lx (nodeA e))
+                          (if (== tag TAG_E_SETF)
+                            {
+                              (lspLintWalk lx (nodeA e))
+                              (lspLintWalk lx (nodeC e))
+                            }
+                            (if (== tag TAG_E_STRUCTCON)
+                              (lspLintWalkVec lx (nodeBVec e) 0)
+                              (if (== tag TAG_E_ALLOC)
+                                (lspLintWalk lx (nodeB e))
+                                (if (== tag TAG_E_HANDLE)
+                                  {
+                                    (lspLintWalk lx (nodeA e))
+                                    (lspLintWalk lx (nodeC e))
+                                  }
+                                  0)))))))))))))))))
 
 ; One declaration: a fresh scope under its own name, its parameters
 ; bound over its body. Macro bodies are not entered - templates are
@@ -1091,8 +1091,10 @@
       (memSetWord lx 6 vecNew)
       (memSetWord lx 5 (nodeAName d))
       (if (== tag TAG_D_FN)
-        (let ((params (nodeBVec d))
-              (mut i 0))
+        (let (
+          (params (nodeBVec d))
+          (mut i 0)
+        )
           {
             (while (< i (vecLen params))
               {
@@ -1146,20 +1148,25 @@
 ; rule, which is also what lets a value hold parens of its own.
 (pub :: lspLintTagCodes (-> Int String String Int))
 (pub fn (lspLintTagCodes lx owner content)
-  (let ((op (match (strFindByte content 40 0)
-              ((None) (- 0 1))
-              ((Some k) k))))
+  (let ((op 
+    (match (strFindByte content 40 0)
+      ((None) (- 0 1))
+      ((Some k) k))))
     (if (< op 0)
       0
       (if (strEq (strSlice content 0 op) "nolint")
         (let ((val (strSlice content (+ op 1) (- (ctCloseAt content) (+ op 1)))))
           (let ((parts (strSplit val 44)))
-            (let ((codes vecNew)
-                  (mut i 0))
+            (let (
+              (codes vecNew)
+              (mut i 0)
+            )
               {
                 (while (< i (vecLen parts))
                   {
-                    (vecPush codes (cast Int (strTrim (vecGetStr parts i))))
+                    (vecPush
+                      codes
+                      (cast Int (strTrim (vecGetStr parts i))))
                     (set i (+ i 1))
                   })
                 (lspLintSuppAdd lx owner codes 0)
@@ -1173,11 +1180,13 @@
 (pub fn (lspLintSuppAdd lx owner codes i)
   (if (>= i (vecLen codes))
     0
-    (let ((code (vecGetStr codes i))
-          (owners (memGetWordVec lx 4))
-          (codevecs (memGetWordVec lx 7))
-          (mut j 0)
-          (mut at (- 0 1)))
+    (let (
+      (code (vecGetStr codes i))
+      (owners (memGetWordVec lx 4))
+      (codevecs (memGetWordVec lx 7))
+      (mut j 0)
+      (mut at (- 0 1))
+    )
       {
         (while (< j (vecLen owners))
           {
@@ -1191,7 +1200,9 @@
             {
               (vecPush v code)
               (vecPush owners owner)
-              (vecPush codevecs (cast Int v))
+              (vecPush
+                codevecs
+                (cast Int v))
               0
             })
           {
@@ -1207,16 +1218,20 @@
 ; it failed to quiet rather than as a verdict about the tag.
 (pub :: lspLintSuppressed (-> Int String String Bool))
 (pub fn (lspLintSuppressed lx owner code)
-  (let ((owners (memGetWordVec lx 4))
-        (codevecs (memGetWordVec lx 7))
-        (mut j 0)
-        (mut out false))
+  (let (
+    (owners (memGetWordVec lx 4))
+    (codevecs (memGetWordVec lx 7))
+    (mut j 0)
+    (mut out false)
+  )
     {
       (while (< j (vecLen owners))
         {
           (if (strEq (vecGetStr owners j) owner)
-            (let ((codes (vecGetVec codevecs j))
-                  (mut k 0))
+            (let (
+              (codes (vecGetVec codevecs j))
+              (mut k 0)
+            )
               {
                 (while (< k (vecLen codes))
                   {
@@ -1245,15 +1260,22 @@
 ; Publish every unsuppressed record into `out`.
 (pub :: lspLintFlush (-> Int Int String (Vec Int) Int))
 (pub fn (lspLintFlush lx out src ix)
-  (let ((recs (memGetWordVec lx 3))
-        (mut i 0))
+  (let (
+    (recs (memGetWordVec lx 3))
+    (mut i 0)
+  )
     {
       (while (< i (vecLen recs))
         (let ((r (vecGet recs i)))
           {
             (if (lspLintSuppressed lx (memGetWordStr r 3) (memGetWordStr r 1))
               0
-              (jsonArrPush out (lspLintJson src ix (memGetWord r 0) (memGetWordStr r 1) (memGetWordStr r 2))))
+              (jsonArrPush out (lspLintJson
+                src
+                ix
+                (memGetWord r 0)
+                (memGetWordStr r 1)
+                (memGetWordStr r 2))))
             (set i (+ i 1))
           }))
       0
@@ -1266,8 +1288,10 @@
 ; author wrote.
 (pub :: lspLintDoc (-> Int String (Vec Int) (Vec Int) Int))
 (pub fn (lspLintDoc out src ix decls)
-  (let ((lx (lspLintContext src))
-        (mut i 0))
+  (let (
+    (lx (lspLintContext src))
+    (mut i 0)
+  )
     {
       (lspLintSuppBuild lx decls)
       (while (< i (vecLen decls))
@@ -2561,6 +2585,12 @@
     {
       (vecPush v "alloc")
       (vecPush v "begin")
+      ; `cond` is AX2004 but still offered: this menu mirrors what the
+      ; parser dispatches on (`drive.py` derives it from parser.ax's
+      ; `kwEq` callsites), and the parser still takes `cond` - to a
+      ; refusal with migration advice, the way `begin` and `consume`
+      ; below are offered and refused. A variadic `if` and `match`
+      ; cover what it did.
       (vecPush v "cond")
       (vecPush v "consume")
       (vecPush v "data")
@@ -4401,42 +4431,40 @@
                         (lspNavWalk nv (nodeA e))
                         (lspNavWalkArms nv (nodeBVec e) 0)
                       }
-                      (if (== tag TAG_E_COND)
+                      ; `cond` is AX2004: the parser builds none, so
+                      ; no arm navigates one. A variadic `if` arrives
+                      ; as nested `if`s.
+                      (if (== tag TAG_E_SET)
+                        ; The target is a WRITE, resolved as a
+                        ; read would be; the value follows it in
+                        ; the source and in this list.
                         {
-                          (lspNavWalkClauses nv (nodeAVec e) 0)
+                          (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_WRITE)
                           (lspNavWalk nv (nodeB e))
                         }
-                        (if (== tag TAG_E_SET)
-                          ; The target is a WRITE, resolved as a
-                          ; read would be; the value follows it in
-                          ; the source and in this list.
-                          {
-                            (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_WRITE)
-                            (lspNavWalk nv (nodeB e))
-                          }
-                          (if (== tag TAG_E_FIELD)
-                            ; A field name is not a variable; the
-                            ; base is.
-                            (lspNavWalk nv (nodeA e))
-                            (if (== tag TAG_E_SETF)
+                        (if (== tag TAG_E_FIELD)
+                          ; A field name is not a variable; the
+                          ; base is.
+                          (lspNavWalk nv (nodeA e))
+                          (if (== tag TAG_E_SETF)
+                            {
+                              (lspNavWalk nv (nodeA e))
+                              (lspNavWalk nv (nodeC e))
+                            }
+                            (if (== tag TAG_E_STRUCTCON)
                               {
-                                (lspNavWalk nv (nodeA e))
-                                (lspNavWalk nv (nodeC e))
+                                (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_READ)
+                                (lspNavWalkVec nv (nodeBVec e))
                               }
-                              (if (== tag TAG_E_STRUCTCON)
-                                {
-                                  (lspNavRef nv (nodeAName e) (nodeSpan e) NAV_READ)
-                                  (lspNavWalkVec nv (nodeBVec e))
-                                }
-                                (if (== tag TAG_E_ALLOC)
-                                  (lspNavWalk nv (nodeB e))
-                                  (if (== tag TAG_E_HANDLE)
-                                    {
-                                      (lspNavWalk nv (nodeA e))
-                                      (lspNavWalkEffects nv (nodeBVec e) 0)
-                                      (lspNavWalk nv (nodeC e))
-                                    }
-                                    0))))))))))))))))))
+                              (if (== tag TAG_E_ALLOC)
+                                (lspNavWalk nv (nodeB e))
+                                (if (== tag TAG_E_HANDLE)
+                                  {
+                                    (lspNavWalk nv (nodeA e))
+                                    (lspNavWalkEffects nv (nodeBVec e) 0)
+                                    (lspNavWalk nv (nodeC e))
+                                  }
+                                  0)))))))))))))))))
 
 (pub :: lspNavWalkVec (-> Int (Vec Int) Int))
 (pub fn (lspNavWalkVec nv xs)
@@ -4605,19 +4633,6 @@
             }
             0))
         (lspNavWalkArms nv arms (+ i 1))
-      })))
-
-; `cond` clauses are (test, body) pairs in TAG_M_ARM nodes and bind
-; nothing.
-(pub :: lspNavWalkClauses (-> Int (Vec Int) Int Int))
-(pub fn (lspNavWalkClauses nv clauses i)
-  (if (>= i (vecLen clauses))
-    0
-    (let ((c (vecGet clauses i)))
-      {
-        (lspNavWalk nv (nodeA c))
-        (lspNavWalk nv (nodeB c))
-        (lspNavWalkClauses nv clauses (+ i 1))
       })))
 
 ; The effects a `handle` names, as references to effects - a namespace
@@ -7237,105 +7252,85 @@
                           fns
                           locals
                           (nodeBVec e)
-                          0
                           rs
                           re)
                       }
-                      (if (== tag TAG_E_COND)
-                        {
-                          (lspViewHintsArms
-                            out
-                            src
-                            ix
-                            fns
-                            locals
-                            (nodeAVec e)
-                            1
-                            rs
-                            re)
+                      ; `cond` is AX2004: the parser builds none, so
+                      ; no arm hints one. A variadic `if` arrives as
+                      ; nested `if`s.
+                      (if (== tag TAG_E_SET)
+                        (lspViewHintsExpr
+                          out
+                          src
+                          ix
+                          fns
+                          locals
+                          (nodeB e)
+                          rs
+                          re)
+                        (if (== tag TAG_E_FIELD)
                           (lspViewHintsExpr
                             out
                             src
                             ix
                             fns
                             locals
-                            (nodeB e)
+                            (nodeA e)
                             rs
                             re)
-                        }
-                        (if (== tag TAG_E_SET)
-                          (lspViewHintsExpr
-                            out
-                            src
-                            ix
-                            fns
-                            locals
-                            (nodeB e)
-                            rs
-                            re)
-                          (if (== tag TAG_E_FIELD)
-                            (lspViewHintsExpr
-                              out
-                              src
-                              ix
-                              fns
-                              locals
-                              (nodeA e)
-                              rs
-                              re)
-                            (if (== tag TAG_E_SETF)
-                              {
-                                (lspViewHintsExpr
-                                  out
-                                  src
-                                  ix
-                                  fns
-                                  locals
-                                  (nodeA e)
-                                  rs
-                                  re)
-                                (lspViewHintsExpr
-                                  out
-                                  src
-                                  ix
-                                  fns
-                                  locals
-                                  (nodeC e)
-                                  rs
-                                  re)
-                              }
-                              (if (== tag TAG_E_ALLOC)
-                                (lspViewHintsExpr
-                                  out
-                                  src
-                                  ix
-                                  fns
-                                  locals
-                                  (nodeB e)
-                                  rs
-                                  re)
-                                (if (== tag TAG_E_HANDLE)
-                                  {
-                                    (lspViewHintsExpr
-                                      out
-                                      src
-                                      ix
-                                      fns
-                                      locals
-                                      (nodeA e)
-                                      rs
-                                      re)
-                                    (lspViewHintsExpr
-                                      out
-                                      src
-                                      ix
-                                      fns
-                                      locals
-                                      (nodeC e)
-                                      rs
-                                      re)
-                                  }
-                                  0)))))))))))))))))
+                          (if (== tag TAG_E_SETF)
+                            {
+                              (lspViewHintsExpr
+                                out
+                                src
+                                ix
+                                fns
+                                locals
+                                (nodeA e)
+                                rs
+                                re)
+                              (lspViewHintsExpr
+                                out
+                                src
+                                ix
+                                fns
+                                locals
+                                (nodeC e)
+                                rs
+                                re)
+                            }
+                            (if (== tag TAG_E_ALLOC)
+                              (lspViewHintsExpr
+                                out
+                                src
+                                ix
+                                fns
+                                locals
+                                (nodeB e)
+                                rs
+                                re)
+                              (if (== tag TAG_E_HANDLE)
+                                {
+                                  (lspViewHintsExpr
+                                    out
+                                    src
+                                    ix
+                                    fns
+                                    locals
+                                    (nodeA e)
+                                    rs
+                                    re)
+                                  (lspViewHintsExpr
+                                    out
+                                    src
+                                    ix
+                                    fns
+                                    locals
+                                    (nodeC e)
+                                    rs
+                                    re)
+                                }
+                                0))))))))))))))))
 
 (pub :: lspViewHintsVec (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 (pub fn (lspViewHintsVec out src ix fns locals xs rs re)
@@ -7361,10 +7356,11 @@
         0
       })))
 
-; The arms of a `match` (bodies alone - the pattern is not a call) or
-; of a `cond` (`withTest` 1: the test is an expression too).
-(pub :: lspViewHintsArms (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int Int))
-(pub fn (lspViewHintsArms out src ix fns locals arms withTest rs re)
+; The arms of a `match` (bodies alone - the pattern is not a call).
+; (`cond` clauses used to walk here too, tests included; `cond` is
+; AX2004 now, so the flag that distinguished them is gone with it.)
+(pub :: lspViewHintsArms (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspViewHintsArms out src ix fns locals arms rs re)
   (if (==
     (cast Int arms)
     0)
@@ -7375,28 +7371,15 @@
           (let ((arm (vecGet arms i)))
             {
               (if (== (nodeTag arm) TAG_M_ARM)
-                {
-                  (if (== withTest 1)
-                    (lspViewHintsExpr
-                      out
-                      src
-                      ix
-                      fns
-                      locals
-                      (nodeA arm)
-                      rs
-                      re)
-                    0)
-                  (lspViewHintsExpr
-                    out
-                    src
-                    ix
-                    fns
-                    locals
-                    (nodeB arm)
-                    rs
-                    re)
-                }
+                (lspViewHintsExpr
+                  out
+                  src
+                  ix
+                  fns
+                  locals
+                  (nodeB arm)
+                  rs
+                  re)
                 0)
               (set i (+ i 1))
             }))
@@ -8855,9 +8838,27 @@
             (let ((sp (memGetWord r 0)))
               (if (lspSpanMeets sp want)
                 {
-                  (lspNolintOffer out src uri ix decls want (memGetWordStr r 1) (memGetWordStr r 3) sp (memGetWordStr r 2) seen)
+                  (lspNolintOffer
+                    out
+                    src
+                    uri
+                    ix
+                    decls
+                    want
+                    (memGetWordStr r 1)
+                    (memGetWordStr r 3)
+                    sp
+                    (memGetWordStr r 2)
+                    seen)
                   (if (strEq (memGetWordStr r 1) (lintBoolIf))
-                    (lspBoolIfOffer out src uri ix sp (memGetWordStr r 2) seen)
+                    (lspBoolIfOffer
+                      out
+                      src
+                      uri
+                      ix
+                      sp
+                      (memGetWordStr r 2)
+                      seen)
                     0)
                   0
                 }
@@ -8880,7 +8881,17 @@
           0
           {
             (vecPush seen key)
-            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat (strConcat "Suppress `" code) "` on `") (strConcat owner "`")))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspLintJson src ix sp code msg))) "edit" (lspFixInsert uri src ix (lineStartOf src (spanStart (nodeSpan d))) (strConcat (strConcat ";@axiom:nolint(" code) ")\n"))))
+            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat (strConcat "Suppress `" code) "` on `") (strConcat owner "`")))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspLintJson
+              src
+              ix
+              sp
+              code
+              msg))) "edit" (lspFixInsert
+              uri
+              src
+              ix
+              (lineStartOf src (spanStart (nodeSpan d)))
+              (strConcat (strConcat ";@axiom:nolint(" code) ")\n"))))
             0
           })))))
 
@@ -8909,7 +8920,12 @@
                       0
                       {
                         (vecPush seen key)
-                        (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Simplify to `" cond) "`"))) "kind" (jsonStr "refactor.rewrite")) "diagnostics" (jsonArrPush jsonArr (lspLintJson src ix sp (lintBoolIf) msg))) "edit" (lspEditJson uri (lspRangeIx src ix (mkSpan o e)) cond)))
+                        (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Simplify to `" cond) "`"))) "kind" (jsonStr "refactor.rewrite")) "diagnostics" (jsonArrPush jsonArr (lspLintJson
+                          src
+                          ix
+                          sp
+                          (lintBoolIf)
+                          msg))) "edit" (lspEditJson uri (lspRangeIx src ix (mkSpan o e)) cond)))
                         0
                       })))))))))))
 
@@ -9005,7 +9021,12 @@
                           0
                           {
                             (vecPush seen eff)
-                            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Treat unhandled `" eff) "` as a deliberate abort"))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "edit" (lspFixInsert uri src ix (lineStartOf src (spanStart (nodeSpan ed))) ";@axiom:unhandled(trap)\n")))
+                            (jsonArrPush out (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr (strConcat (strConcat "Treat unhandled `" eff) "` as a deliberate abort"))) "kind" (jsonStr "quickfix")) "diagnostics" (jsonArrPush jsonArr (lspDiagJson d src ix uri))) "edit" (lspFixInsert
+                              uri
+                              src
+                              ix
+                              (lineStartOf src (spanStart (nodeSpan ed)))
+                              ";@axiom:unhandled(trap)\n")))
                             0
                           }))))))
               0)
@@ -9943,7 +9964,9 @@
             ; plain expressions; the body from element 3 on is.
             (if (strEq head "parallel")
               (>= k 3)
-              (if (|| (strEq head "fn") (|| (strEq head "lambda") (|| (strEq head "while") (|| (strEq head "cond") (|| (strEq head "handle") (|| (strEq head "quote") (|| (strEq head "pub") (strStartsWith head "syntax/"))))))))
+              ; `cond` is AX2004: the parser refuses one, so a document
+              ; this predicate reads never carries the head - no arm.
+              (if (|| (strEq head "fn") (|| (strEq head "lambda") (|| (strEq head "while") (|| (strEq head "handle") (|| (strEq head "quote") (|| (strEq head "pub") (strStartsWith head "syntax/")))))))
                 false
                 true))))))))
 
@@ -11179,38 +11202,39 @@
 
 ; The second half of the dispatch: the forms a body meets less often.
 (pub :: lspRenderExprMore (-> Int Int Int String))
+; `cond` is AX2004: the parser builds none, so no arm renders one.
+; A variadic `if` arrives as nested `if`s and renders through the
+; `if` arm of `lspRenderExpr`.
 (pub fn (lspRenderExprMore e tag ind)
-  (if (== tag TAG_E_COND)
-    (lspRenderCond e ind)
-    (if (== tag TAG_E_SET)
-      (lspRenderForm (lspParts3 "set" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
-      (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
-        (if (== tag TAG_E_REGION)
-          (lspRenderForm (lspParts3 "region" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
-          (strConcat (strConcat (strConcat "(while " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")"))
-        (if (== tag TAG_E_FIELD)
-          (strConcat (strConcat (lspRenderExpr (nodeA e) ind) ".") (nodeBName e))
-          (if (== tag TAG_E_SETF)
-            (lspRenderForm (lspParts3 "set" (strConcat (strConcat (lspRenderExpr (nodeA e) (+ ind 2)) ".") (nodeBName e)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
-            (if (== tag TAG_E_STRUCTCON)
-              (lspRenderForm (lspPartsExprs (lspParts2 "struct" (lspRenderName (nodeAName e))) (nodeBVec e) 0 (+ ind 2)) ind)
-              (if (== tag TAG_E_ALLOC)
-                (if (== (nodeB e) 0)
-                  (lspRenderForm (lspParts2 "alloc" (lspRenderType (nodeA e))) ind)
-                  (lspRenderForm (lspParts3 "alloc" (lspRenderType (nodeA e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind))
-                (if (== tag TAG_E_HANDLE)
-                  (lspRenderHandle e ind)
-                  (if (== tag TAG_E_QUOTE)
-                    (lspRenderForm (lspParts2 "quote" (lspRenderExpr (nodeA e) (+ ind 2))) ind)
-                    (if (== tag TAG_P_CON0)
-                      (strConcat (strConcat "(" (lspRenderName (nodeAName e))) ")")
-                      (if (== tag TAG_P_CONNAMED)
-                        (lspRenderConNamed e ind)
-                        (if (== tag TAG_M_FOR)
-                          (lspRenderSynFor e ind)
-                          (if (== tag TAG_M_ARM)
-                            (lspRenderArm e ind)
-                            (strConcat (strConcat "(syntax/unrenderable " (decStr tag)) ")")))))))))))))))
+  (if (== tag TAG_E_SET)
+    (lspRenderForm (lspParts3 "set" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
+    (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+      (if (== tag TAG_E_REGION)
+        (lspRenderForm (lspParts3 "region" (lspRenderName (nodeAName e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind)
+        (strConcat (strConcat (strConcat "(while " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")"))
+      (if (== tag TAG_E_FIELD)
+        (strConcat (strConcat (lspRenderExpr (nodeA e) ind) ".") (nodeBName e))
+        (if (== tag TAG_E_SETF)
+          (lspRenderForm (lspParts3 "set" (strConcat (strConcat (lspRenderExpr (nodeA e) (+ ind 2)) ".") (nodeBName e)) (lspRenderExpr (nodeC e) (+ ind 2))) ind)
+          (if (== tag TAG_E_STRUCTCON)
+            (lspRenderForm (lspPartsExprs (lspParts2 "struct" (lspRenderName (nodeAName e))) (nodeBVec e) 0 (+ ind 2)) ind)
+            (if (== tag TAG_E_ALLOC)
+              (if (== (nodeB e) 0)
+                (lspRenderForm (lspParts2 "alloc" (lspRenderType (nodeA e))) ind)
+                (lspRenderForm (lspParts3 "alloc" (lspRenderType (nodeA e)) (lspRenderExpr (nodeB e) (+ ind 2))) ind))
+              (if (== tag TAG_E_HANDLE)
+                (lspRenderHandle e ind)
+                (if (== tag TAG_E_QUOTE)
+                  (lspRenderForm (lspParts2 "quote" (lspRenderExpr (nodeA e) (+ ind 2))) ind)
+                  (if (== tag TAG_P_CON0)
+                    (strConcat (strConcat "(" (lspRenderName (nodeAName e))) ")")
+                    (if (== tag TAG_P_CONNAMED)
+                      (lspRenderConNamed e ind)
+                      (if (== tag TAG_M_FOR)
+                        (lspRenderSynFor e ind)
+                        (if (== tag TAG_M_ARM)
+                          (lspRenderArm e ind)
+                          (strConcat (strConcat "(syntax/unrenderable " (decStr tag)) ")"))))))))))))))
 
 (pub :: lspParts2 (-> String String (Vec String)))
 (pub fn (lspParts2 a b)
@@ -11373,8 +11397,8 @@
 (pub fn (lspRenderMatch e ind)
   (strConcat (strConcat (strConcat "(match " (lspRenderExpr (nodeA e) (+ ind 2))) (lspRenderLines (nodeBVec e) (+ ind 2))) ")"))
 
-; One arm, `(pattern body)` - a `match` arm or a `cond` clause - with
-; the body on its own line when it spans lines.
+; One arm, `(pattern body)` - a `match` arm - with the body on its
+; own line when it spans lines.
 (pub :: lspRenderArm (-> Int Int String))
 (pub fn (lspRenderArm arm ind)
   (let (
@@ -11388,18 +11412,6 @@
           (strConcat "\n" (lspPad (+ ind 2)))
           " "))
       (strConcat body ")"))))
-
-; `(cond (test body) ... (else body))`; `(else ...)` only when the
-; node has one, as `parseCondClauses` stores it.
-(pub :: lspRenderCond (-> Int Int String))
-(pub fn (lspRenderCond e ind)
-  (strConcat
-    (strConcat "(cond" (lspRenderLines (nodeAVec e) (+ ind 2)))
-    (strConcat
-      (if (== (nodeB e) 0)
-        ""
-        (strConcat (strConcat (strConcat "\n" (lspPad (+ ind 2))) "(else ") (strConcat (lspRenderExpr (nodeB e) (+ ind 4)) ")")))
-      ")")))
 
 ; `(handle body (Effect...) handler)`, the effect list left out when
 ; it is empty - the parser reads it as optional.

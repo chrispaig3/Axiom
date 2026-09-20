@@ -56,8 +56,6 @@
   (if_expression)
   (while_expression)
   (set_expression)
-  (cond_expression)
-  (cond_clause)
   (match_expression)
   (match_arm)
   (syntax_for_arm)

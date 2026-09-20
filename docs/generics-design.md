@@ -578,8 +578,8 @@ rather than a hope.**
    two different jobs and only one may be pinned. Instantiating a
    declared signature mints "the type the caller chose for `a` here",
    and two uses of one binding must agree about that. Every other use
-   {D} a `cond` with no arms yet, a pattern binder, a missing
-   parameter type {D} mints "not known", and pinning THAT reports an
+   {D} a pattern binder, a missing parameter type {D} mints
+   "not known", and pinning THAT reports an
    error where the checker simply has no information. The two are
    separated by name: `_iN` binds, `_tN` does not, and the empty-named
    `mkSilentWild` never does.

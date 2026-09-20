@@ -259,7 +259,7 @@ echo "ok   the probe imports $modcount stdlib modules and lists $rows declaratio
 # reason it is empty. Measured 2026-08-23 with `symbols` over a probe
 # importing all 19.
 cat > "$work/rowless.exempt" <<'ROWLESS'
-Pre    macros only - `when`, `unless`, `cond2`, `deriveShow`. A macro is
+Pre    macros only - `when`, `unless`, `deriveShow`. A macro is
 Pre    expanded into its caller and has no declaration of its own to
 Pre    carry an effect row.
 ROWLESS

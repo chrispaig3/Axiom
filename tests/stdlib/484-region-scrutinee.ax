@@ -132,12 +132,12 @@
           ((Yes) (mkBox 11))
           ((No) (mkBox 12)))
           ((MkBox x) x))))
-    ; --- 4. fresh cond scrutinee: the release goes ---
+    ; --- 4. fresh if scrutinee: the release goes ---
     (println
       (region r
-        (match (cond
-          ((== 1 1) (mkBox 13))
-          (else (mkBox 14)))
+        (match (if (== 1 1)
+          (mkBox 13)
+          (mkBox 14))
           ((MkBox x) x))))
     ; --- 5. reader scrutinee: the release stays ---
     (println

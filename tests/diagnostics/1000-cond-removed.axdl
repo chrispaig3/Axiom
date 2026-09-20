@@ -1,0 +1,1 @@
+E AX2004 1000-cond-removed.ax:10:4-8 removed-construct "`cond` is no longer part of Axiom" #"`cond` was removed" ?"run `axiom explain AX2004`"

@@ -1,7 +1,7 @@
 # axiom explain, every code and every spelling.
 # AX1001-AX5001 were materialized from the Rust compiler at commit 1041f11 on
 # 2026-08-08; AX3018 and above (macros, visibility, limits, traits, effects, the
-# FFI boundary, type soundness) postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. AX3010 was REWRITTEN on 2026-08-25 when it was PROMOTED from a warning to an ERROR: its captured text described a mismatch an agent could correct at leisure, and it now refuses the build. On 2026-09-04 twenty more were EXPANDED - AX1002-AX1005, AX2001-AX2003, AX3001-AX3009, AX3011 and AX4001-AX4003, every one under sixty words against a median of 166 - each to what the code means, why the compiler fires it, a program that draws it (run through the tree's compiler with --diagnostic-format=ai before it was written in), the fix, and the neighbouring codes; AX1002's captured text had also said a string ends at the end of its line, and the lexer reads to the next quote or the end of the file. Those twenty-two are the codes in the AX1001-AX5001 range that are no longer the 2026-08-08 bytes.
+# FFI boundary, type soundness) postdate it and originate in self_host/explain.ax. The list COLOUR is RECONSTRUCTED, not captured. AX2004 was REWRITTEN on 2026-08-18 when the `extern` FFI landed: its captured text said generated code links no C library, which stopped being true for a program that binds a std Rust crate. AX3010 was REWRITTEN on 2026-08-25 when it was PROMOTED from a warning to an ERROR: its captured text described a mismatch an agent could correct at leisure, and it now refuses the build. On 2026-09-04 twenty more were EXPANDED - AX1002-AX1005, AX2001-AX2003, AX3001-AX3009, AX3011 and AX4001-AX4003, every one under sixty words against a median of 166 - each to what the code means, why the compiler fires it, a program that draws it (run through the tree's compiler with --diagnostic-format=ai before it was written in), the fix, and the neighbouring codes; AX1002's captured text had also said a string ends at the end of its line, and the lexer reads to the next quote or the end of the file. Those twenty-two are the codes in the AX1001-AX5001 range that are no longer the 2026-08-08 bytes. AX2004 was EXPANDED on 2026-09-20 for the `cond` removal: the `cond` paragraph (what the variadic `if` covers, the rewrite, the one deliberate join change) and `cond` joining the AX2001 neighbour list.
 ### explain --list
 [1;96mKnown Axiom diagnostic codes:[0m
   [93mAX1001[0m  unexpected character  (unexpected-char)
@@ -225,7 +225,7 @@ Give the parser the token it names, or close the form it is inside.
 The neighbours: the file ending while a form is still open is
 AX2002; a form that is well delimited and still breaks a rule with no
 expectation to name is AX2003; a keyword from an earlier version of
-the language - `begin`, `union` - is AX2004, deliberately, so that
+the language - `begin`, `union`, `cond` - is AX2004, deliberately, so that
 old source gets an explanation rather than an unexpected token; and a
 form nested past the parser's limit is AX2005.
 
@@ -347,6 +347,10 @@ which is exactly what `(begin a b c)` meant, and a `fn` body already
 sequences - so the wrapper is usually just deletable. It is reserved
 rather than left as an ordinary name because an ordinary name draws
 `AX3001 undefined variable begin`, which names no replacement.
+
+`cond` is gone because the variadic `if` covers it with no new keyword and no second set of branch rules: `(if t1 b1 t2 b2 ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, built by the parser, so a variadic `if` checks and emits exactly as the nested `if`s it desugars to. Rewrite `(cond (t1 b1) (t2 b2) ... (else els))` as `(if t1 b1 t2 b2 ... els)`, and a `cond` with no `else` by adding the else the nesting always needed - `(if t1 b1 ... 0)` where there is no better answer. A single clause `(cond (t b))` is an `if` with an explicit else for the same reason. `match` takes what dispatches on a value rather than a sequence of tests, and `&&`/`||` take what folds tests with no branches at all. The `cond2`/`cond3` helpers are gone from `Pre.ax` with it: spell the nesting with `if`.
+
+One semantic change comes with the rewrite, and it is deliberate. `cond` never joined clause bodies against each other - only a real `else` against the last clause - while `if` joins its two branches, so a variadic `if` joins each pair. Code that checked under `cond` with branches of different types now reports AX3004 at the branch that disagrees, the way the equivalent nested `if`s always have. Give the branches one type.
 
 `region` was on this list until 2026-09-03 and is a keyword again:
 `(region r body)` brackets an allocation scope whose memory is

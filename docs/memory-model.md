@@ -118,7 +118,7 @@ are:
 | Form | Non-strict positions |
 |---|---|
 | `(if c t e)` | `t` and `e` — exactly one is evaluated |
-| `(cond ...)` | every arm but the selected one |
+| `(if t1 b1 t2 b2 ... els)` | every branch but the selected one — a variadic `if` is the nested chain, so each pair is strict in its test and non-strict in its branch |
 | `(match s arms)` | every arm but the selected one |
 | `(&& a b)`, `(\|\| a b)` | `b`, when `a` decides the answer |
 | `(while c body)` | `body`, zero or more times |
@@ -152,7 +152,8 @@ stores into them, and control branches back to a loop header. No
 Axiom's codegen, not delegated to LLVM. Measured: a self-recursive loop
 of 5,000,000 iterations answers correctly. **Every tail position
 counts**: the last expression of a `{ }` block, both arms of an `if`,
-every arm of a `match` and of a `cond` (lowered to `if` first), and the
+every arm of a `match` and every branch of a variadic `if` (which is
+the nested chain, so every branch tail qualifies), and the
 body of a `let` — the last since 2026-08-22, and measured again on
 2026-09-03 at `--opt 0` with ten million iterations through each
 (`tests/stdlib/467-mutual-tail.ax` term 6 for the `let` body;
@@ -162,7 +163,7 @@ of `&&`/`||`.
 
 The tail positions recognised are exactly: the expression itself, both
 arms of an `if`, the last expression of a `{}` block, every `match` arm,
-every `cond` clause, and — since 2026-08-22 — **the body of a `let`**
+every branch of a variadic `if`, and — since 2026-08-22 — **the body of a `let`**
 (and of a `mut` binding; not a `while` body or an `&&`/`||` operand). The
 `let` body was excluded for two defects that following stage0's
 omission avoided: a `mut` binding inside the loop re-ran its `alloca`
@@ -2522,7 +2523,7 @@ graph (`inferOwnership`, `inferFlows` in codegen.ax):
 - **Who releases it.** Event 3 releases a `let` bound to any OWNED
   reference value — a direct construction, a call to a
   reference-returning global applied at its arity, joined over `if`,
-  `cond`, `match`, `let` and a block — unless the walk below says it
+  `match`, `let` and a block — unless the walk below says it
   escapes. An owned value discarded in statement position is released
   on the spot. An owned temporary passed to a global whose result is a
   word or a reference is released once the call returns; one stored
@@ -2572,12 +2573,12 @@ graph (`inferOwnership`, `inferFlows` in codegen.ax):
   arithmetic and `&&`/`||` pass their position to their operands. The word-taking heads look THROUGH a
   reference-returning call or a construction to its arguments —
   `(strOwner (strSlice s 1 3))` is the owner of `s`. And the count
-  pairs with the stash per PATH: every `if` arm, `cond` test, `cond`
-  body, `while` condition, `while` body, `match` arm, right operand
+  pairs with the stash per PATH: every `if` test, every `if` branch,
+  `while` condition, `while` body, `match` arm, right operand
   of `&&`/`||`, and `handle` handler is a region, and a count cancels
   a stash in its own region or one it encloses, never a sibling's,
-  never the test it does not dominate — a `cond` test parks on the
-  false path where its body's count never runs, and a `handle`
+  never the test it does not dominate — an `if` test parks on the
+  false path where its branch's count never runs, and a `handle`
   naming only built-in effects never evaluates its handler. A
   temporary is not released past a callee that stashes or answers
   it, and the escape walk treats such an argument as the binding

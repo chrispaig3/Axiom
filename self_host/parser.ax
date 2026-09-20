@@ -352,14 +352,13 @@
 (pub fn (TAG_E_SUBCHECK)
   56)
 
-; A `cond` form, kept structural rather than desugared at parse time:
-; stage0's checker treats `cond` unlike nested `if` (clause bodies are
-; never joined against each other; only a real `else` is compared, and
-; only against the LAST clause - probed), so a checker over the
-; desugared tree over-reports. Word 1 is a Vec of clause nodes
-; (TAG_M_ARM: a=test, b=body), word 2 the else body or 0 for none.
-; Codegen lowers this to the same nested-if chain the parser used to
-; build, in a pre-pass that runs before TCO analysis.
+; 31 was TAG_E_COND, the `cond` form, and is not reused: the tag
+; numbers are the AST's wire format between this file and its four
+; readers, and a retired one left vacant costs nothing while a recycled
+; one turns a stale reader into a silent misparse rather than a crash.
+; `cond` is AX2004 in `parseInner` now, so no node carries it. Its
+; place is the variadic `if` - `(if t1 b1 t2 b2 ... els)`, desugared
+; to the nested chain right in `parseIfExpr` - and `match`.
 (pub :: TAG_E_COND Int)
 (pub fn (TAG_E_COND)
   31)
@@ -2070,14 +2069,6 @@
 (pub fn (kwPub)
   "pub")
 
-(pub :: kwCond String)
-(pub fn (kwCond)
-  "cond")
-
-(pub :: kwElse String)
-(pub fn (kwElse)
-  "else")
-
 (pub :: kwEq (-> String String Bool))
 (pub fn (kwEq name lit)
   (strEq name lit))
@@ -2100,7 +2091,7 @@
     (if (peekIs tokens pos TK_IDENT)
       (let ((kw (vecGet tokens pos)))
         (let ((name (tokenLexeme kw)))
-          (if (|| (kwEq name "union") (|| (kwEq name "foreign") (|| (kwEq name "trait") (kwEq name "impl"))))
+          (if (|| (kwEq name "union") (|| (kwEq name "foreign") (|| (kwEq name "trait") (|| (kwEq name "impl") (kwEq name "cond")))))
             ; Reserved, not unknown. Falling through to the
             ; unknown-declaration refusal below would report a
             ; generic syntax error and lose the migration advice
@@ -4440,8 +4431,14 @@
                   (parseIfExpr tokens (advance pos))
                   (if (kwEq name kwMatch)
                     (parseMatchExpr tokens (advance pos))
-                    (if (kwEq name kwCond)
-                      (parseCondExpr tokens (advance pos))
+                    ; `cond` is REMOVED, not parsed. A variadic `if`
+                    ; takes its place - `(if t1 b1 t2 b2 ... els)` -
+                    ; and `match` takes the rest. The keyword stays
+                    ; reserved so old source gets `AX2004` with that
+                    ; advice instead of an application of an undefined
+                    ; variable, the way `begin` and `consume` do below.
+                    (if (kwEq name "cond")
+                      (pErrRemoved pos "cond")
                       (if (kwEq name "while")
                         (parseWhileExpr tokens (advance pos))
                         ; `for` is a KEYWORD and not a macro, and `stdlib/Pre.ax`'s `range`
@@ -5170,72 +5167,6 @@
     (pErrExp pos "the name of a `mut` binding, or a field path")))
 
 ; ------------------------------------------------------------------
-; Parse (cond (test body...) ... (else body...)) STRUCTURALLY: a
-; TAG_E_COND node whose word 1 is a Vec of clause pairs (TAG_M_ARM:
-; a=test, b=body) and word 2 the else body, or 0 for none.
-;
-; It used to desugar to a chain of `if` right here, but stage0's
-; checker treats `cond` unlike nested `if`: clause bodies are never
-; joined against each other, only a real `else` is compared - and only
-; against the LAST clause - and a `cond` with no `else` is never
-; compared at all (probed; `(cond ((f) true))` is silent where the
-; desugared `(if (f) true 0)` would join Bool against Int). Codegen
-; lowers this node to the exact same if-chain the parser used to
-; build, in a pre-pass that runs before TCO analysis, so emission is
-; bit-identical.
-;
-; `else` is not a token: it is an ordinary identifier recognised by
-; name here, so it stays usable as a variable everywhere else.
-; ------------------------------------------------------------------
-(pub :: parseCondExpr (-> (Vec Int) Int Int))
-(pub fn (parseCondExpr tokens pos)
-  (parseCondClauses tokens pos vecNew))
-
-(pub :: parseCondClauses (-> (Vec Int) Int (Vec Int) Int))
-(pub fn (parseCondClauses tokens pos clauses)
-  (if (peekIs tokens pos TK_RPAREN)
-    (pOk (mkNode TAG_E_COND clauses 0 0) (advance pos))
-    (if (peekIs tokens pos TK_LPAREN)
-      (let ((inPos (advance pos)))
-        (if (&& (peekIs tokens inPos TK_IDENT) (kwEq (tokenLexeme (vecGet tokens inPos)) kwElse))
-          ; (else body...) - the chain's tail; the clause list must
-          ; end here, so the cond's own rparen follows.
-          (let ((bodyR (parseExprList tokens (advance inPos) vecNew)))
-            (if (== (memGetWord bodyR 0) 0)
-              bodyR
-              (let (
-                (body (condBodyOf (memGetWordVec bodyR 1)))
-                (afterClause (memGetWord bodyR 2))
-              )
-                (if (peekIs tokens afterClause TK_RPAREN)
-                  (pOk (mkNode TAG_E_COND clauses body 0) (advance afterClause))
-                  (pErr afterClause)))))
-          (let ((testR (parseExpr tokens inPos)))
-            (if (== (memGetWord testR 0) 0)
-              testR
-              (let (
-                (test (memGetWord testR 1))
-                (bodyR (parseExprList tokens (memGetWord testR 2) vecNew))
-              )
-                (if (== (memGetWord bodyR 0) 0)
-                  bodyR
-                  {
-                    (vecPush clauses (mkNode TAG_M_ARM test (condBodyOf (memGetWordVec bodyR 1)) 0))
-                    (parseCondClauses tokens (memGetWord bodyR 2) clauses)
-                  }))))))
-      (pErr pos))))
-
-; A clause body of several expressions is a block; of one, itself; of
-; none, 0.
-(pub :: condBodyOf (-> (Vec Int) Int))
-(pub fn (condBodyOf exprs)
-  (if (== (vecLen exprs) 0)
-    (mkEInt 0)
-    (if (== (vecLen exprs) 1)
-      (vecGet exprs 0)
-      (mkEBegin exprs))))
-
-; ------------------------------------------------------------------
 ; Parse (fn (args...) body) as lambda expression.
 ;
 ; A lambda of SEVERAL parameters is several lambdas, built here, the
@@ -5433,7 +5364,20 @@
         (- i 1)))))
 
 ; ------------------------------------------------------------------
-; Parse (if test then else)
+; Parse (if test then else), variadically: (if t1 b1 t2 b2 ... els)
+; is the right-nested chain (if t1 b1 (if t2 b2 ... els)), built here
+; the way a multi-parameter lambda is curried a few forms down - one
+; tag, no new keyword, no new type rule. The checker and the emitter
+; meet only the nested chain, so a variadic `if` checks and emits
+; exactly as the nested `if`s it desugars to; `cond`'s laxer join
+; (clause bodies never compared) goes with `cond`.
+;
+; The arity falls out of the grammar rather than a count: after each
+; pair the next expression is either the final else (a `)` follows)
+; or the next test. An even number of operands therefore fails exactly
+; where a missing operand always has - `(if t b e x)` at the `)`,
+; wanting an expression the way `(if t)` does - and every shorter
+; shape fails where it always has.
 ; ------------------------------------------------------------------
 (pub :: parseIfExpr (-> (Vec Int) Int Int))
 (pub fn (parseIfExpr tokens pos)
@@ -5447,20 +5391,32 @@
         (let ((thenR (parseExpr tokens afterTest)))
           (if (== (memGetWord thenR 0) 0)
             thenR
-            (let (
-              (thenEx (memGetWord thenR 1))
-              (afterThen (memGetWord thenR 2))
-            )
-              (let ((elseR (parseExpr tokens afterThen)))
-                (if (== (memGetWord elseR 0) 0)
-                  elseR
-                  (let (
-                    (elseEx (memGetWord elseR 1))
-                    (afterElse (memGetWord elseR 2))
-                  )
-                    (if (peekIs tokens afterElse TK_RPAREN)
-                      (pOk (mkEIf test thenEx elseEx) (advance afterElse))
-                      (pErr afterElse))))))))))))
+            (parseIfTail tokens (memGetWord thenR 2) test (memGetWord thenR 1))))))))
+
+; The tail of an `if` after one test and its branch: the next
+; expression is the final else when the closing paren follows it, and
+; the next test otherwise, whose own branch is parsed and the tail
+; recursed. One `TAG_E_IF` per pair, right-nested - the fold is the
+; desugar, so there is no second representation for any later pass
+; to learn.
+(pub :: parseIfTail (-> (Vec Int) Int Int Int Int))
+(pub fn (parseIfTail tokens pos test thenEx)
+  (let ((eR (parseExpr tokens pos)))
+    (if (== (memGetWord eR 0) 0)
+      eR
+      (let (
+        (e (memGetWord eR 1))
+        (afterE (memGetWord eR 2))
+      )
+        (if (peekIs tokens afterE TK_RPAREN)
+          (pOk (mkEIf test thenEx e) (advance afterE))
+          (let ((thenR (parseExpr tokens afterE)))
+            (if (== (memGetWord thenR 0) 0)
+              thenR
+              (let ((tailR (parseIfTail tokens (memGetWord thenR 2) e (memGetWord thenR 1))))
+                (if (== (memGetWord tailR 0) 0)
+                  tailR
+                  (pOk (mkEIf test thenEx (memGetWord tailR 1)) (memGetWord tailR 2)))))))))))
 
 ; ------------------------------------------------------------------
 ; Parse (match scrutinee (pat body) ...)

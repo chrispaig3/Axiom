@@ -1,0 +1,10 @@
+[1;31merror[AX2004][0m[1m: `cond` is no longer part of Axiom[0m
+  [1;34m--> [0m1000-cond-removed.ax:10:4
+[1;34m   |[0m
+[1;34m10 |[0m   (cond ((== 1 1) 1) (else 0)))
+[1;34m   |[0m    [1;31m^^^^ `cond` was removed[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2004` for a full explanation
+
+compilation failed due to 1 previous error

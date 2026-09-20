@@ -1,0 +1,10 @@
+; `cond` was removed (AX2004): the keyword stays reserved so old
+; source gets migration advice instead of an application of an
+; undefined variable. The variadic `if` covers it -
+; `(if t1 b1 t2 b2 ... els)` is the nested chain - and `axiom explain
+; AX2004` carries the rewrite, including the one deliberate semantic
+; change (a variadic `if` joins each pair where `cond` never joined
+; clause bodies).
+(:: main Int)
+(fn (main)
+  (cond ((== 1 1) 1) (else 0)))

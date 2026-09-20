@@ -288,8 +288,7 @@ which was the retired Rust compiler's lexer rule, and refused
 | `for` | Loop over a range, `(for i lo hi body)`, or over a `(Vec a)`, `(for x xs body)` — one keyword, [two shapes](#for--the-counted-loop-and-the-container-loop), since 2026-09-03 |
 | `region` | Bracket an allocation scope: `(region r body)` reclaims everything `body` allocated when it ends and answers `body`'s value ([Regions](#regions), since 2026-09-03) |
 | `parallel` | Run bindings beside the caller and join them in the order written — processes by default, threads under `--threads` ([`parallel`](#parallel--bindings-that-run-beside-the-caller)) |
-| `if` | Conditional expression |
-| `cond` | Multi-branch conditional |
+| `if` | Conditional expression, variadic: `(if t1 b1 t2 b2 ... els)` |
 | `match` | Pattern matching |
 | `data` | Algebraic data type |
 | `struct` | Product type with named fields |
@@ -1126,17 +1125,19 @@ You can also write `let` bindings sequentially:
 
 `if` is an expression — it returns a value. Both branches are required.
 
-### `cond` — Multi-Branch Conditional
+`if` is also variadic: `(if t1 b1 t2 b2 ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, built by the parser, so it checks and emits exactly as the nested `if`s it desugars to:
 
 ```scheme
 (:: classify (-> Int String))
 (fn (classify n)
-  (cond ((< n 0) "negative")
-        ((== n 0) "zero")
-        ((> n 0) "positive")))
+  (if (< n 0) "negative" (== n 0) "zero" "positive"))
 ```
 
-Each branch is a `(test body)` pair. The first matching branch wins. An optional `else` clause can be added as the last argument.
+An `if` always ends in its else operand — write it out. `match` takes what dispatches on a value rather than a sequence of tests, and `&&`/`||` take what folds tests with no branches at all.
+
+### `cond` — removed
+
+`cond` was removed (the compiler reports `AX2004` with migration advice; run `axiom explain AX2004`). Rewrite `(cond (t1 b1) (t2 b2) ... (else els))` as the variadic `if` above, adding the explicit else a `cond` with no `else` used to get for free. One deliberate semantic change comes with the rewrite: `cond` never joined clause bodies against each other, while `if` joins its two branches, so a variadic `if` joins each pair — branches that checked under `cond` with different types report `AX3004` until they agree.
 
 ---
 
@@ -3560,7 +3561,7 @@ requires the result to be byte-identical.
 
 | Module | Provides |
 |---|---|
-| `Pre` | the prelude macros: `when`, `unless`, `cond2`, `cond3` (conditional macros), `deriveEq`, `deriveShow`, `deriveArity`, `showOr` |
+| `Pre` | the prelude macros: `when`, `unless` (conditional macros), `deriveEq`, `deriveShow`, `deriveArity`, `showOr` |
 | `Mem` | raw memory: `memAlloc`, `memAllocMapped`, `memMarkArray`/`memMarkLeaf`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
 | `Str` | the byte view of a `Str`: `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strSplit`, `strCStr`. String *literals* are already `Str` values — see [String Literals Are `Str` Values](#string-literals-are-str-values) |
 | `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
@@ -4417,7 +4418,7 @@ Use `--opt 2` for anything that iterates over a large input.
 | | Depth at `--opt 0` |
 |---|---|
 | `while` | Unbounded — it is a real loop. 10⁷ iterations in constant stack (`tests/selfhost/500-while-mut.ax`) |
-| **Self** tail recursion | Unbounded — the loop is built by Axiom's own codegen at every `--opt` level, in every tail position: a `{ }` block's last expression, an `if` or `cond` or `match` arm, and a `let` body (`memory-model.md` MM-EXEC-6b; `tests/stdlib/467-mutual-tail.ax` term 6 runs ten million through a `let` body at `--opt 0`) |
+| **Self** tail recursion | Unbounded — the loop is built by Axiom's own codegen at every `--opt` level, in every tail position: a `{ }` block's last expression, an `if` or `match` arm (a variadic `if` is the nested chain, so every branch tail qualifies), and a `let` body (`memory-model.md` MM-EXEC-6b; `tests/stdlib/467-mutual-tail.ax` term 6 runs ten million through a `let` body at `--opt 0`) |
 | **Mutual** tail recursion | Unbounded when the two prototypes match and nothing is owed after the call — the emitter marks it `musttail`, LLVM's guaranteed tail call, at every `--opt` level (MM-EXEC-6c; `467-mutual-tail.ax` terms 1–3 under a 512 KiB stack, `scripts/check-tail-calls.sh`). **Bounded** for a callee of a different arity, or a call handing over an owned temporary such as `(od (+ i 1) (strConcat s "x"))`: those stay plain calls and are flattened only by LLVM at `--opt 1`+, when at all |
 | **Non-tail** recursion | **Bounded** by the machine stack: measured on an 8176 KiB stack, **174,000–175,000** frames at `--opt 0` and **260,000–262,000** at `--opt 1`, beyond which the process dies with SIGSEGV, status 139 (`memory-model.md` MM-EXEC-6d) |
 

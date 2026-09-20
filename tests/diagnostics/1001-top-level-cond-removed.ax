@@ -1,0 +1,8 @@
+; `cond` stays reserved at the top level too, so a stray `(cond ...)`
+; outside any function reports AX2004 rather than falling through to
+; a declaration-macro invocation no macro named `cond` resolves
+; (AX3027 naming no replacement).
+(:: main Int)
+(fn (main) 0)
+
+(cond ((== 1 1) 1))

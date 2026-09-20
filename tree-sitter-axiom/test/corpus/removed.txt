@@ -51,3 +51,34 @@ foreign binding is consumed as one removed form
   (function_definition
     (identifier)
     (integer_literal)))
+
+================================================================
+cond is consumed as one removed form
+================================================================
+
+(cond
+  ((< n 0) 1)
+  (else 0))
+(:: main Int)
+(fn (main) 0)
+
+----------------------------------------------------------------
+
+(source_file
+  (removed_form
+    (removed_keyword)
+    (application
+      (application
+        (identifier)
+        (identifier)
+        (integer_literal))
+      (integer_literal))
+    (application
+      (identifier)
+      (integer_literal)))
+  (type_signature
+    (identifier)
+    (builtin_type))
+  (function_definition
+    (identifier)
+    (integer_literal)))

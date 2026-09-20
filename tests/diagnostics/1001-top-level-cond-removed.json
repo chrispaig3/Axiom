@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2004","slug":"removed-construct","message":"`cond` is no longer part of Axiom","file":"1001-top-level-cond-removed.ax","span":{"start":{"line":8,"col":2},"end":{"line":8,"col":6},"char_start":267,"char_end":271},"label":"`cond` was removed","related":[],"notes":[],"help":["run `axiom explain AX2004`"],"expansion":[]}

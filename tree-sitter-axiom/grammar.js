@@ -701,7 +701,11 @@ module.exports = grammar({
     // already listed them as removed. Two highlighters disagreeing
     // about the language is the defect; the compiler reports `AX2004`,
     // so `@error` is what both should say.
-    removed_keyword: _ => choice('union', 'trait', 'impl'),
+    // `cond` joined this rail when the keyword was removed (AX2004):
+    // the variadic `if` covers it, so an editor must paint `(cond …)`
+    // as an error the way the compiler reports it, not as the
+    // conditional the `cond_expression` rule used to say it was.
+    removed_keyword: _ => choice('union', 'trait', 'impl', 'cond'),
     _removed_foreign: _ => 'foreign',
 
     // -----------------------------------------------------------------
@@ -910,7 +914,6 @@ module.exports = grammar({
       $.region_expression,
       $.parallel_expression,
       $.set_expression,
-      $.cond_expression,
       $.match_expression,
       $.handle_expression,
       $.alloc_expression,
@@ -1026,17 +1029,6 @@ module.exports = grammar({
     // differs, not the set of programs accepted.
     set_expression: $ => seq(
       '(', 'set', field('target', $.identifier), field('value', $._expression), ')',
-    ),
-
-    cond_expression: $ => seq(
-      '(', 'cond', repeat(field('clause', $.cond_clause)), ')',
-    ),
-
-    cond_clause: $ => seq(
-      '(',
-      choice(field('test', $._expression), field('else', 'else')),
-      repeat(field('body', $._expression)),
-      ')',
     ),
 
     match_expression: $ => seq(
