@@ -64,8 +64,7 @@ in `scripts/lib/gate.sh`.
 
 ## Project Structure
 
-This is the one copy of the tree; README's structure section is the
-short form of it.
+This is the one copy of the tree.
 
 ```
 axiom/
@@ -84,19 +83,28 @@ axiom/
 │   ├── rustbind.ax       the Rust module `--emit-rust-binding` writes for an archive
 │   ├── main.ax           the CLI entry point and subcommand dispatch
 │   ├── format.ax  repl.ax  symbols.ax  explain.ax  lsp.ax
-│   └── Host.<target>.ax  the host triple and syscall ABI, chosen at compile time
+│   ├── replcomp.ax  replhist.ax  replhl.ax
+│   │                     the REPL's completion, history and highlighting
+│   ├── mir.ax  mireval.ax  the mid-level IR and its evaluator (test-only:
+│   │                     no compiler module imports `mireval`)
+│   ├── axir.ax  pkg.ax  build.ax
+│   │                     the `.axir` record form, the package manifest, the build id
+│   └── Host.<target>.ax  the host triple and syscall ABI, one file per
+│                         target, chosen at compile time
 ├── bootstrap/          the compiler's own LLVM IR, one file per target — how a
 │                       clean checkout builds a compiler with no compiler
-├── stdlib/             standard library, in Axiom (Pre, Mem, Str, Vec, Map, Fmt,
-│                       Intern, Sys, IO, Path, Json, Rpc, Utf8, Show, Err, Par,
-│                       Ffi), plus Sys/Platform.<target>.ax
+├── stdlib/             standard library, in Axiom (Pre, Mem, Str, Utf8, Vec,
+│                       Map, Fmt, Err, Fallible, Intern, Sys, Path, IO, Ffi,
+│                       Json, Rpc, Par, Http, Test, Agent.Tags, Tui.Keys,
+│                       Tui.Edit, Tui.Term), plus Sys/Platform.<target>.ax
 ├── rust/               the FFI's Rust side, a cargo workspace: axiom-ffi,
 │                       axiom-ffi-macros, axiom-ffi-classify, axiom-abi,
 │                       axiom-bindgen, and examples/. Nothing in the compiler's
 │                       own build path reads it
 ├── tree-sitter-axiom/  editor grammar for highlighting and structural editing
-├── tests/              stdlib/ selfhost/ diagnostics/ frontend/ fmt/ repl/ lsp/
-│                       tools/ ffi/ docs/
+├── tests/              stdlib/ selfhost/ diagnostics/ frontend/ fmt/ repl/
+│                       lsp/ tools/ ffi/ docs/ axir/ mir/ net/ region/
+│                       replcomp/ ddc/ compat/ tailpos/ testrunner/ agent/
 ├── scripts/            the gates, and lib/gate.sh, the preamble they share
 ├── docs/               reference.md, memory-model.md, macro-system.md,
 │                       diagnostics.md, error-model.md, ffi.md, lsp.md
@@ -105,20 +113,31 @@ axiom/
 
 ### Module dependency flow
 
-Dependencies flow in one direction — no module knows about a downstream one:
+Dependencies flow one way — no module knows about a downstream one —
+but the shape is a DAG, not a chain:
 
-```
-core → lexer → parser → expand → typecheck → codegen → driver → main
-```
+- `core` imports no compiler module; `lexer` imports `core`;
+  `parser` imports `lexer`.
+- `expand` reads `parser` and `namespace`; `typecheck` reads `parser`.
+- `codegen` reads `parser`, `namespace` and `expand` — never
+  `typecheck`: emission reads the AST and the mangled namespace, not
+  the checker's judgements.
+- `driver` reads `parser` and `codegen`; `main` imports the CLI-closed
+  set (`namespace` reaches it through `expand`/`codegen`, and
+  `mir`/`mireval` stand outside it).
+- `symbols`, `axir`, `lsp` and `repl`/`replcomp`/`replhist`/`replhl`
+  are side tools reading the stages above, not links in a chain.
 
 - The lexer must not know about types.
 - The parser must not know about effects.
 - The emitter must not know about semantic analysis.
 
-`diag.ax` sits beside all of them: every stage constructs diagnostics,
-and none of them renders one. `style.ax` sits beside `render.ax` alone,
-and `diag.ax` does not import it — that is what keeps escape codes out
-of AXDL, AXSYM and JSON. `namespace.ax` sits beside `expand.ax` and
+`diag.ax` sits beside all of them: every stage but the lexer
+constructs diagnostics, and none of them renders one. `style.ax` is
+imported only along the human renderer path (`render.ax`,
+`repl.ax`, `replcomp.ax`, `replhl.ax`, `main.ax`), and `diag.ax`
+does not import it — that is what keeps escape codes out of AXDL,
+AXSYM and JSON. `namespace.ax` sits beside `expand.ax` and
 `codegen.ax`, because both need the same answer about what a bare name
 reaches and the import graph will not let either of them own it.
 
@@ -177,8 +196,8 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-19, `axiom fmt --check` over every one of the 682 `.ax` files
-in the repository answers `is already formatted` for 677 of them and
+2026-09-19, `axiom fmt --check` over every one of the 685 `.ax` files
+in the repository answers `is already formatted` for 680 of them and
 `needs formatting` for 5. Two of the 5 are deliberate and are named
 below; the third is `examples/batch-fallible/batch-fallible.ax`, a
 program that stays as it is until someone edits it; the fourth is
@@ -188,68 +207,12 @@ is on the same terms; the fifth is
 needing formatting with the binder-rendering change and stays that
 way because its spans are pinned — and
 that same sweep is
-what names them. No gate does: `check-fmt-selfhost.sh` formats a COPY
+what names them. No gate does: `check-fmt.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
 committed file has drifted out of the normal form — and it fails if
 more than 60 files stop being covered by `tests/fmt/corpus-fmt.golden`.
-The 634 was 636 earlier the same day, and the split moved with it
-rather than beside it, twice. Two fixtures for the new descriptor
-readers arrived — `477-read-input.ax` needs formatting and
-`478-read-input-empty.ax` does not — taking 636/411/225 to 638/412/226;
-then `stdlib/Html.ax`, its two fixtures and the web example were
-deleted, and of those four files three needed formatting and the
-fourth — one of the two `Html` fixtures — did not, taking it to
-634/411/223. Then the eight `tests/ddc/` fixtures for the diverse
-double-compile gate arrived, each measured formatted on its own with
-`axiom fmt --check`, taking it to 642/419/223. Then the two subtype
-fixtures arrived — `134-subtype-checked.ax` and
-`135-subtype-violated.ax`, each measured formatted on its own with
-`axiom fmt --check` — taking it to 644/421/223. Then the
-`parallel`-capture indirection fixture arrived —
-`643-parallel-capture-hop.ax`, measured formatted on its own with
-`axiom fmt --check` — taking it to 645/422/223. Then the MIR cast
-fixture arrived — `110-cast.ax`, measured formatted on its own with
-`axiom fmt --check` — taking it to 646/423/223. Then the MIR boolean
-fixture arrived — `111-bool.ax`, measured formatted on its own with
-`axiom fmt --check` — taking it to 647/424/223. Then the two ISR
-fixtures arrived — `651-isr-params.ax` and `652-isr-alloc.ax`, each
-measured formatted on its own with `axiom fmt --check` — taking it
-to 649/426/223. Then the `pathClean` fixture arrived —
-`469-path-clean.ax`, measured formatted on its own with
-`axiom fmt --check` — taking it to 650/427/223. Then the S4 slice-1
-fixture arrived — `479-region-reclaim.ax`, measured formatted on its
-own with `axiom fmt --check` — taking it to 651/428/223. Then the nested-repeat
-fixture arrived — `397-nested-repeat.ax`, measured formatted on its
-own with `axiom fmt --check` — taking it to 652/429/223. Then the two
-test-runner fixtures arrived — `float-near-tests.ax` and
-`xfail-tests.ax`, each measured formatted on its own with
-`axiom fmt --check` — taking it to 654/431/223. Then the
-arm-ctor-splice fixture arrived — `398-arm-ctor-splice.ax`, measured
-needing formatting on its own with `axiom fmt --check` (its
-`(mkdata (Cat) (Dog))` invocation is the form under test, and the
-formatter collapses it to bare names) — taking it to 655/431/224.
-Then the decl-splice fixture arrived — `399-decl-splice.ax`, measured
-needing formatting on its own with `axiom fmt --check` (its
-`(mkbox (A) (B))` invocation is the form under test, and the
-formatter collapses it the same way) — taking it to 656/431/225.
-Then the literal-dispatch fixtures arrived — `402-literal-dispatch.ax`,
-its `LitLib.ax` helper and `611-macro-literal.ax`, each measured
-formatted on its own with `axiom fmt --check` — taking it to
-659/434/225. (An early draft spelled the unbound keyword `%%`;
-the formatter refuses any `(%% ...)` application on either
-compiler, old or new, so the fixture spells it `otherwise`.)
-Then the expression-rule fixtures arrived — `403-expr-rule-macro.ax`
-and `612-emacro-misuse.ax`, each measured formatted on its own with
-`axiom fmt --check` — taking it to 661/434/227. (`612`'s bare
-`(esimp)` in declaration position exposed a formatter hole: a
-singleton `(m)` unwrapped to bare `m`, which at top level is not a
-declaration at all, so the file was refused outright. `fpDecl` now
-keeps the parens there; expression-position `(x)` still unwraps, as
-it should.)
-Each of those thirty-two files was measured on its own with
-`axiom fmt --check`, which reads and does not rewrite. A total that
-moves while the two numbers under it do not is the drift this
-paragraph is about, so it is re-derived here rather than adjusted.
+Every fixture arrival is measured the same way - `axiom fmt --check` on the new file alone, which reads and does not rewrite - and the running total used to be re-derived here with every one. The per-file practice stays; the running ledger does not: the current total lives at the top of this section, re-derived rather than adjusted.
+
 
 Then the normal form moved, deliberately and all at once: closers stack
 onto the last content line instead of standing alone, `fn` heads stand
@@ -347,11 +310,11 @@ the same build.
 | Add a type-checking rule | `self_host/typecheck.ax` |
 | Change LLVM emission | `self_host/codegen.ax` |
 | Add a CLI command | `self_host/main.ax`, and `self_host/driver.ax` for `build` |
-| Add a diagnostic code | `mkDiag` at the site that detects it — `lexer.ax`, `parser.ax`, `typecheck.ax`, `expand.ax`, `codegen.ax` or `driver.ax` — plus `self_host/explain.ax` for its long-form text |
+| Add a diagnostic code | `mkDiag` at the site that detects it — `parser.ax`, `typecheck.ax`, `expand.ax`, `codegen.ax` or `driver.ax` (the lexer raises through the parser) — plus `self_host/explain.ax` for its long-form text |
 | Change how diagnostics look | `self_host/render.ax` (human) and `self_host/style.ax` (its palette) — AXDL and JSON are in `self_host/diag.ax` |
 | Work on the formatter, REPL, `symbols`, or the language server | `self_host/{format,repl,symbols,lsp}.ax` |
 | Work on the Rust FFI | `self_host/rustbind.ax` and the crates under `rust/` — [docs/ffi.md](docs/ffi.md) |
-| Add a stdlib function | `stdlib/` — `Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`, `Rpc`, `Utf8`, `Show`, `Err`, `Par`, `Ffi` |
+| Add a stdlib function | `stdlib/` — `Pre`, `Mem`, `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`, `Path`, `IO`, `Ffi`, `Json`, `Rpc`, `Par`, `Http`, `Test`, `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term` |
 | Add a new syntax feature | `tree-sitter-axiom/grammar.js` + parser + ast + lexer |
 
 ---

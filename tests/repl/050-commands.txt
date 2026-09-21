@@ -1,4 +1,5 @@
 :help
+?
 :zzz
 :type (+ 1 2)
 :type

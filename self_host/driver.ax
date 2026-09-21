@@ -1868,8 +1868,8 @@
 ; Argument parsing.
 ; ------------------------------------------------------------------
 (pub :: isSubcommand (-> String Bool))
-(pub fn (isSubcommand s)
-  (|| (strEq s "build") (|| (strEq s "lsp") (|| (strEq s "check") (|| (strEq s "run") (|| (strEq s "test") (|| (strEq s "emit-llvm") (|| (strEq s "fmt") (|| (strEq s "explain") (|| (strEq s "symbols") (|| (strEq s "repl") (|| (strEq s "new") (|| (strEq s "fetch") (|| (strEq s "version") (|| (strEq s "--version") (|| (strEq s "-V") (|| (strEq s "help") (|| (strEq s "--help") (strEq s "-h")))))))))))))))))))
+(pub fn (isSubcommand a)
+  (|| (strEq a "build") (|| (strEq a "lsp") (|| (strEq a "check") (|| (strEq a "run") (|| (strEq a "test") (|| (strEq a "emit-llvm") (|| (strEq a "fmt") (|| (strEq a "explain") (|| (strEq a "symbols") (|| (strEq a "repl") (|| (strEq a "new") (|| (strEq a "fetch") (|| (strEq a "version") (|| (strEq a "--version") (|| (strEq a "-V") (|| (strEq a "help") (|| (strEq a "--help") (strEq a "-h")))))))))))))))))))
 
 ; `--help` has to be recognised as a subcommand rather than parsed as a
 ; flag: the scan that lets global options precede a subcommand skips

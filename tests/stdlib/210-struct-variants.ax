@@ -91,7 +91,7 @@
 ; Field access by name on a DATA value is legal only when every
 ; constructor is fieldful: no value can be an immediate tag, so the
 ; unguarded load always reads a block. On a type with a nullary
-; constructor - this file's `Shape` - it is refused (AX3008), because
+; constructor - this file's `Shape` - it is refused (AX3070), because
 ; `(radius (Point))` was a measured SIGSEGV after a clean `check`
 ; (docs/memory-model.md MM-VAL-9a). Until 2026-08-14 `radius` below
 ; WAS that unguarded spelling, "on a value whose constructor is

@@ -500,6 +500,65 @@ elif [[ "$selfclean" == 0 ]]; then
 fi
 
 # ---------------------------------------------------------------
+# The depth trio is linked by number, not only by comment.
+#
+# `parseMaxDepth` (parser.ax) and `expMaxWalk` (expand.ax) are
+# deliberately the same number: expansion must not produce a program
+# the parser would have refused, and a macro that nests deeper than
+# the parser allows overflows the stack the parser's limit exists to
+# protect. `expDepthLimit` is a different number on purpose (macro
+# recursion depth, 128) and is pinned so a change to it is deliberate
+# rather than drift. A comment at each site states the same; this
+# section holds the equality the comments claim, with an ablation
+# proving the comparison can fail.
+# ---------------------------------------------------------------
+echo
+echo "--- the parser and expander depth limits agree ---"
+depth_of() { # <file> <fn> -> the number its body answers
+  grep -A1 "(pub fn ($2)" "$1" | tail -n 1 | tr -d '[:space:])'
+}
+parse_depth="$(depth_of self_host/parser.ax parseMaxDepth)"
+walk_depth="$(depth_of self_host/expand.ax expMaxWalk)"
+rec_depth="$(depth_of self_host/expand.ax expDepthLimit)"
+if ! [[ "$parse_depth" =~ ^[0-9]+$ && "$walk_depth" =~ ^[0-9]+$ && "$rec_depth" =~ ^[0-9]+$ ]]; then
+  echo "FAIL depths: the extractor stopped matching (parse=$parse_depth walk=$walk_depth rec=$rec_depth)"
+  failed=$((failed + 1))
+elif [[ "$parse_depth" != "$walk_depth" ]]; then
+  echo "FAIL depths: parseMaxDepth=$parse_depth but expMaxWalk=$walk_depth - expansion must not out-nest the parser"
+  failed=$((failed + 1))
+elif [[ "$rec_depth" != "128" ]]; then
+  echo "FAIL depths: expDepthLimit=$rec_depth, want 128 - a deliberate change updates this gate with it"
+  failed=$((failed + 1))
+else
+  echo "ok   depths: parseMaxDepth=$parse_depth equals expMaxWalk, expDepthLimit=$rec_depth"
+  passed=$((passed + 1))
+fi
+# The ablation: the comparison must be able to fail. A copy of
+# expand.ax with expMaxWalk bumped by one must read as a mismatch.
+cp self_host/expand.ax "$work/expand-abl.ax"
+python3 - "$work/expand-abl.ax" <<'PY'
+import sys
+p = sys.argv[1]
+lines = open(p, encoding='utf-8').read().split('\n')
+for i, l in enumerate(lines):
+    if l.strip() == '(pub fn (expMaxWalk)':
+        cur = lines[i + 1].strip()
+        assert cur.endswith(')') and cur[:-1].strip().isdigit(), repr(lines[i + 1])
+        lines[i + 1] = '  %d)' % (int(cur[:-1].strip()) + 1)
+        break
+else:
+    sys.exit('expMaxWalk body not found')
+open(p, 'w', encoding='utf-8').write('\n'.join(lines))
+PY
+if [[ "$(depth_of "$work/expand-abl.ax" expMaxWalk)" == "$parse_depth" ]]; then
+  echo "FAIL depths ablation: expand.ax with expMaxWalk bumped still matched parseMaxDepth"
+  failed=$((failed + 1))
+else
+  echo "ok   depths ablation: a bumped expMaxWalk is refused"
+  passed=$((passed + 1))
+fi
+
+# ---------------------------------------------------------------
 # Refusal cases. Single-sided: each one names a program the compiler
 # must not accept, and the sweep above is the positive control that
 # keeps "must not accept" from being satisfied by refusing everything.

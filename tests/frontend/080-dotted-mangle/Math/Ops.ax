@@ -1,0 +1,3 @@
+(pub :: square (-> Int Int))
+(pub fn (square x)
+  (* x x))

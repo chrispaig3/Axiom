@@ -119,7 +119,7 @@ listed="$("$axc" explain --list 2>/dev/null | grep -oE 'AX[0-9]{4}' | sort -u)"
 nc="$(printf '%s\n' "$constructed" | grep -c .)"
 nl="$(printf '%s\n' "$listed" | grep -c .)"
 if (( nc < 45 )); then
-  echo "FAIL: only $nc constructed codes found; the floor is 45 (51 today; the grep stopped matching)"
+  echo "FAIL: only $nc constructed codes found; the floor is 45 (84 today; the grep stopped matching)"
   failed=$((failed+1))
 fi
 orphan="$(comm -23 <(printf '%s\n' "$constructed") <(printf '%s\n' "$listed") | tr '\n' ' ')"

@@ -956,7 +956,7 @@ br i1 %c5, label %immediate, label %boxed
 
 **MM-VAL-9a (H).** The guard is emitted by `match` and **not** by field
 access, so field access on a `data` type **with a nullary constructor**
-is **refused** (`AX3008`): a value of such a type may be an immediate
+is **refused** (`AX3070`): a value of such a type may be an immediate
 tag, and the unguarded load would dereference a small integer. On a
 `data` type whose every constructor is fieldful the access stays legal
 — no value can be an immediate — and
@@ -965,7 +965,7 @@ tag, and the unguarded load would dereference a small integer. On a
 
 ```scheme refused
 (data T () (E) (N { v : Int }))
-(fn (main) (let ((x (E))) x.v))     ; AX3008 since 2026-08-14
+(fn (main) (let ((x (E))) x.v))     ; AX3070 since 2026-09-21 (AX3008 since 2026-08-14)
 ```
 
 Until then that program was `check: OK, run: exit 139` — a SIGSEGV
@@ -1004,7 +1004,7 @@ compile-time mapping to positions, honoured by patterns in any order.
 Field *access* by name is available on a `struct` type, and on a `data`
 type only when every constructor is fieldful — no value can then be an
 immediate, so the load always reads a block. On a type with a nullary
-constructor it is refused (`AX3008`, `MM-VAL-9a`); a field name that no
+constructor it is refused (`AX3070`, `MM-VAL-9a`); a field name that no
 type declares is `AX3007`.
 
 **MM-VAL-12 (R).** There are **no first-class continuations**, and none
@@ -4271,7 +4271,7 @@ document.
 Seven rows left this table on 2026-08-14, each fixed and pinned by
 the fixture its rule names: `MM-ALLOC-8`'s silent duplicate symbol
 (now `AX3026` at `check`), `MM-VAL-9a`'s unguarded field access (now
-`AX3008` on any `data` type with a nullary constructor),
+`AX3070` on any `data` type with a nullary constructor),
 `MM-VAL-9b`'s literal-match fall-through (now `AX3005`),
 `MM-MUT-1a`'s parameter/capture `set` (now `AX3012` in the checker,
 where `AX4002` had been catching it after the fact), `MM-VAL-3c`'s

@@ -22,7 +22,6 @@
   [93mAX3005[0m  non-exhaustive pattern match  (non-exhaustive-match)
   [93mAX3006[0m  duplicate definition  (duplicate-definition)
   [93mAX3007[0m  field not found  (field-not-found)
-  [93mAX3008[0m  semantic error  (semantic-error)
   [93mAX3009[0m  constructor arity mismatch  (constructor-arity-mismatch)
   [93mAX3010[0m  agent metadata mismatch  (axtag-mismatch)
   [93mAX3011[0m  effect mismatch  (effect-mismatch)
@@ -77,6 +76,10 @@
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
   [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
   [93mAX3066[0m  a literal a rule declares and never uses  (macro-literal)
+  [93mAX3067[0m  a `struct` built with the wrong number of fields  (struct-arity-mismatch)
+  [93mAX3068[0m  a `lambda` with no parameters, which can never be called  (nullary-lambda)
+  [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
+  [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -286,9 +289,9 @@ lands here, the defect is in the parser's expectation text rather
 than in your program, and is worth reporting with the form.
 
 The neighbours are AX2001 (the parser can say what it wanted), AX2002
-(it wanted anything and found the end of the file), and AX3008, this
-code's twin one stage later - a rule the CHECKER enforces with no
-code of its own.
+(it wanted anything and found the end of the file), and AX3067
+through AX3070, this code's counterparts one stage later - rules the
+CHECKER enforces with numbers of their own.
 
 ### explain AX2004
 AX2004 - removed language construct
@@ -565,7 +568,8 @@ Read the expected type and decide which side is wrong. When the
 context is a signature you wrote, the signature is often the side
 that is wrong - the body knows what it computes.
 
-The neighbours: AX3007 and AX3008 for a struct's fields; AX3009 for a
+The neighbours: AX3007 for a field that does not exist and AX3067 for
+a struct's field count; AX3009 for a
 constructor's arity; AX3040 for a signature whose type variable
 appears only in the result, which is not a mismatch but a type the
 callee cannot have produced; AX3047 for `u64` and its relatives in
@@ -670,43 +674,12 @@ type the compiler resolved for the value - which is the thing to
 check when the name is spelled right, because a value of a different
 struct than the one you meant has different fields.
 
-Fix the name, or the value. Two codes sit beside this one: AX3008
-for a `struct` built with the wrong number of fields, and for a
+Fix the name, or the value. Two codes sit beside this one: AX3067
+for a `struct` built with the wrong number of fields, and AX3070 for a
 field read on a `data` type that has a nullary constructor beside a
 fielded one (the value may be a bare tag with no fields to read, so
 the read is refused in favour of a `match`); and AX3012 for a `set`
 into a field the declaration does not mark `mut`.
-
-### explain AX3008
-AX3008 - semantic error
-
-A rule the checker enforces was broken in a way that has no code of
-its own; the message carries the rule. The diagnostics corpus draws
-it for four shapes, and a program is most likely to meet the first:
-
-    (struct Point
-      (x : Int)
-      (y : Int))
-
-    (:: main Int)
-
-    (fn (main) { (Point 1) 0 })
-
-The four: a `struct` built with the wrong number of fields (`expects
-2 field(s), found 1`), the shape above; a `lambda` with no
-parameters, which can never be called, because `(f)` and `f` are the
-same expression; `sizeof` or `alignof` given more than the one type
-each takes; and a field read `.v` on a `data` type with a nullary
-constructor beside a fielded one, because the value may be an
-immediate tag with no fields to read - match on it instead, and read
-the field in the arm that has it.
-
-Each message states its rule; read that rather than the code. AX2003
-is this code's twin one stage earlier, the parser's rule with no
-number of its own. The specific codes nearby: AX3007 for a field
-that does not exist, AX3009 for a `data` constructor's arity (a
-`struct`'s arity is here, a constructor's is there), and AX3004 for
-a type that does not fit.
 
 ### explain AX3009
 AX3009 - constructor arity mismatch
@@ -741,7 +714,7 @@ matches a `Green` too, and every arm after it is dead.
 
 The neighbours: AX3003 for a constructor no `data` declares, AX3005
 for a `match` whose arms are all well-formed and still miss a case,
-and AX3008 for a `struct` built with the wrong field count.
+and AX3067 for a `struct` built with the wrong field count.
 
 ### explain AX3010
 AX3010 - agent metadata mismatch
@@ -2454,6 +2427,44 @@ A `(literals ...)` header reserves its members across the rule list's patterns: 
 
 Spell it in a pattern, or drop it from the header.
 
+### explain AX3067
+AX3067 - a `struct` built with the wrong number of fields
+
+A `struct` construction answers one value per field the declaration gives it, so writing fewer or more is refused where the value is built:
+
+    (struct Point
+      (x : Int)
+      (y : Int))
+
+    (:: main Int)
+
+    (fn (main) { (Point 1) 0 })
+
+The message states both counts - `expects 2 field(s), found 1` - and the span is the constructor.
+
+Count the declaration's fields and write one argument each. A `data` constructor written with the wrong number of fields is AX3009; a field that does not exist is AX3007; a value of the wrong type in a field is AX3004.
+
+### explain AX3068
+AX3068 - a `lambda` with no parameters, which can never be called
+
+`(f)` and `f` are the same expression, so no syntax applies a nullary closure: a `lambda` with no parameters is a value nothing can call, and calling it is refused where it stands.
+
+Give it a parameter, or write a top-level `(fn (name) body)` - a bare reference to a nullary function does call it.
+
+### explain AX3069
+AX3069 - `sizeof` or `alignof` given more than the one type each takes
+
+`sizeof` and `alignof` take one TYPE and answer a constant, so a surplus argument has nowhere to go: the emitter used to drop it in silence and `(sizeof Int 99)` answered 8. `cast` is exempt - its result is routinely a function value, and a surplus argument there is an application of it.
+
+Remove the extra argument.
+
+### explain AX3070
+AX3070 - a field read on a `data` type with a nullary constructor beside a fielded one
+
+Under MM-VAL-8 a nullary constructor IS its tag, so a value of such a type may be an immediate tag with no fields to read: an unguarded load dereferences a small integer. The read is refused in favour of a `match`, which emits the immediate-or-address guard that field access cannot.
+
+Match on the value instead, and read the field in the arm that has it. A field that does not exist on the type is AX3007.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2785,7 +2796,6 @@ run `axiom explain --list` to see all known codes
   [93mAX3005[0m  non-exhaustive pattern match  (non-exhaustive-match)
   [93mAX3006[0m  duplicate definition  (duplicate-definition)
   [93mAX3007[0m  field not found  (field-not-found)
-  [93mAX3008[0m  semantic error  (semantic-error)
   [93mAX3009[0m  constructor arity mismatch  (constructor-arity-mismatch)
   [93mAX3010[0m  agent metadata mismatch  (axtag-mismatch)
   [93mAX3011[0m  effect mismatch  (effect-mismatch)
@@ -2840,6 +2850,10 @@ run `axiom explain --list` to see all known codes
   [93mAX3064[0m  a concurrent binding capturing a reference its parent also holds  (parallel-capture)
   [93mAX3065[0m  an AXTAG key the compiler derives and writes itself  (axtag-key-reserved)
   [93mAX3066[0m  a literal a rule declares and never uses  (macro-literal)
+  [93mAX3067[0m  a `struct` built with the wrong number of fields  (struct-arity-mismatch)
+  [93mAX3068[0m  a `lambda` with no parameters, which can never be called  (nullary-lambda)
+  [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
+  [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

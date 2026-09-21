@@ -340,6 +340,10 @@ unsafe impl GlobalAlloc for AxiomAlloc {
         unsafe { self.alloc(layout) }
     }
 
+    // Deliberately a no-op: the Axiom heap is a bump allocator with no
+    // free, reclaimed by reference counting on the Axiom side, so there
+    // is nothing for `dealloc` to hand back. A `std`-mode reader
+    // expecting reclamation here should read MM-ALLOC-8 instead.
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
 }
 

@@ -1286,7 +1286,7 @@
                       ""
                       (removedHelp exp))
                     (removedRationale exp))
-                  ; NO LABEL, deliberately, and the same for AX3008, AX3011,
+                  ; NO LABEL, deliberately, and the same for AX3067-AX3070, AX3011,
                   ; AX3017 and AX3010. stage0 set a primary label on all
                   ; twenty-seven of its diagnostics, but for these five the
                   ; label WAS the heading - `message.clone()` at the call site -
@@ -4998,7 +4998,7 @@
 ; (struct Name field...) - struct construction in expression position,
 ; stage0's parse_struct_con. The node carries the NAME'S span because
 ; every diagnostic stage0 produces about this form anchors there:
-; AX3002 when the name resolves to no struct, AX3008 on a field-count
+; AX3002 when the name resolves to no struct, AX3067 on a field-count
 ; mismatch (`expr.span()` of an EStructCon is its name's), and only a
 ; field's own AX3004 anchors at an argument.
 ; ------------------------------------------------------------------
@@ -5881,6 +5881,11 @@
 ; exit 1 - on the grounds that the parser carried no diagnostic payload.
 ; It carries one now (`PResult`'s `code` slot, added by the parse-error
 ; port), so the refusal says which token it is refusing and why.
+;
+; The number is shared with expansion's `expMaxWalk`
+; (`self_host/expand.ax`), deliberately the same: expansion must not
+; produce a program this limit would have refused.
+; `scripts/check-diagnostics.sh` holds the equality.
 ; ------------------------------------------------------------------
 (pub :: parseMaxDepth Int)
 (pub fn (parseMaxDepth)

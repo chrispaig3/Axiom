@@ -332,6 +332,11 @@ def predict(session):
         line = raw.strip()
         if line == "" or line.startswith(";"):
             continue
+        if line == "?":
+            # A bare `?` is `:help` by the REPL's own advertisement:
+            # one command's unpredictable output, like the banner.
+            out.append((CHATTER, "the :help banner"))
+            continue
         if line.startswith(":"):
             word = line.split()[0]
             rest = line[len(word):].strip()

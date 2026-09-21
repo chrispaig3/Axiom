@@ -83,6 +83,12 @@ for src in tests/frontend/*.ax; do
   swept=$((swept + 1))
   ok=1
   cp "$src" "$work/$name.ax"
+  # A fixture with a same-named directory beside it carries helper
+  # modules: dotted imports resolve beside the entry file, so the
+  # directory's contents join the work dir the entry runs from.
+  if [[ -d "tests/frontend/$name" ]]; then
+    cp -r "tests/frontend/$name/." "$work/"
+  fi
 
   ann="$(head -1 "$src")"
   want_exit=""
@@ -204,6 +210,24 @@ PY
       echo "FAIL $name (ran to exit $run_st, expected $want_exit)"
       [[ $run_st -gt 128 ]] && echo "    killed by signal $((run_st - 128))"
       sed 's/^/    /' "$work/$name.run.err" | head -3
+      ok=0
+    fi
+  fi
+
+  # 7. the emitted IR keeps the pinned spelling. Opt-in per fixture:
+  # a `; llvm-contains TEXT` second line requires TEXT in the
+  # `emit-llvm` output as a fixed string, so a future quoting or
+  # mangling change moves a pin deliberately rather than silently.
+  llvm_want=""
+  if [[ "$(sed -n '2p' "$src")" == "; llvm-contains "* ]]; then
+    llvm_want="$(sed -n '2p' "$src")"
+    llvm_want="${llvm_want#"; llvm-contains "}"
+  fi
+  if [[ -n "$llvm_want" && $ok -eq 1 ]]; then
+    ( cd "$work" && "$axc" emit-llvm "$name.ax" >"$work/$name.pin.ll" 2>"$work/$name.pin.err" )
+    if ! grep -Fq "$llvm_want" "$work/$name.pin.ll"; then
+      echo "FAIL $name (emit-llvm output does not contain \`$llvm_want\`)"
+      sed 's/^/    /' "$work/$name.pin.err" | head -3
       ok=0
     fi
   fi

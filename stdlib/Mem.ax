@@ -363,6 +363,12 @@
 ; now hand back its own share without freeing a block this word still
 ; points at, which is the precondition every remaining ownership
 ; event was waiting on.
+;
+; The `__retainref` above is the whole point of this wrapper: a raw
+; `__store64` of a reference-typed value creates a share the release
+; walk never counted, so the owner's release frees a block this word
+; still names. Store references through here (or `Ffi.ax`'s handle
+; close path), never with a bare `__store64`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memSetWord (-> Int Int a Int))
 (pub fn (memSetWord addr index value)

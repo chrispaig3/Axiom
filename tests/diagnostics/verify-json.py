@@ -31,7 +31,9 @@ WHAT IS DERIVED, per diagnostic:
     would leave every ASCII case passing and exactly the non-ASCII ones
     wrong - which is the same trap `060-nonascii-earlier-line` and
     `070-nonascii-same-line` were added to the AXDL corpus for.
-  * `label` from the AXDL's `#` field, `related` from `^`, `notes` from
+  * `label` from the AXDL's `#` field - and absent when the line has
+    none, the way a spanless diagnostic carries neither `span` nor
+    `label` - `related` from `^`, `notes` from
     `!`, `help` from `?`, `expansion` from `&` - one object per frame,
     `{"macro": name}` plus `file`/`line`/`col` when the AXDL field
     carries the macro declaration's location (`&file:L:C-C:"name"`).
@@ -226,11 +228,13 @@ def derive(f, fixtures, lines):
         'help': [text for _sp, text, _fix in f['helps']],
         'expansion': list(f['frames']),
     }
-    # A spanless diagnostic carries neither key - the renderer emits the
-    # pair or neither, and so does this.
+    # A spanless diagnostic carries neither key, and a spanned one
+    # without a `#` field carries no `label` either - the renderer
+    # emits the key only where AXDL prints `#`, and so does this.
     if f['span'] is not None:
         want['span'] = span_obj(lines, f['span'])
-        want['label'] = f['label'] or ''
+        if f['label'] is not None:
+            want['label'] = f['label']
     return want
 
 

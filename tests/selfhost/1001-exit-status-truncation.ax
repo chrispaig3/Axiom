@@ -1,0 +1,6 @@
+; expect 44
+; MM-EXEC-11: a program's answer is observed as its exit status, which
+; is the low 8 bits of `main`'s result. 300 answers 44.
+(:: main Int)
+(fn (main)
+  300)

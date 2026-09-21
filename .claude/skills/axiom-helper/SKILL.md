@@ -79,12 +79,14 @@ axiom/
 └── docs/          # docs/diagnostics.md is the AXDL/AXSYM reference
 ```
 
-README.md's *Compiler structure* table is the normative per-module
-description of `self_host/`; read it rather than re-deriving one. Three
-modules it omits: `expand.ax` (macro expansion, its own pass, between
-import resolution and the checker), `namespace.ax` (how a bare name
-reaches a definition and which names may leave a module), and `style.ax`
-(the ANSI colour, which only the human renderer imports).
+CONTRIBUTING.md's *Project Structure* table is the normative per-module
+description of `self_host/`; read it rather than re-deriving one. It
+covers `expand.ax` (macro expansion, its own pass, between import
+resolution and the checker), `namespace.ax` (how a bare name reaches
+a definition and which names may leave a module), `style.ax` (the ANSI
+colour, which only the human renderer path imports), and the side
+tools (`symbols`, `axir`, `lsp`, `repl*`, `mir`) the linear
+"pipeline" shorthand leaves out.
 
 The compiler pipeline is:
 
@@ -94,12 +96,14 @@ Source (.ax) → lexer.ax → parser.ax → expand.ax → typecheck.ax
 ```
 
 Module dependencies flow one way, and the `(import ...)` lines are the
-proof: `core` imports no compiler module; `lexer` imports `core`;
-`parser` imports `lexer`; `expand`, `typecheck` and `codegen` import
-`parser`; `driver` imports `codegen`; `main` imports everything. The
-lexer does not know about types, and `codegen.ax` does not import
-`typecheck.ax` — emission reads the AST and the mangled namespace, not
-the checker's judgements.
+proof - but the shape is a DAG, not a chain: `core` imports no
+compiler module; `lexer` imports `core`; `parser` imports `lexer`;
+`expand` reads `parser` and `namespace`; `typecheck` reads `parser`;
+`codegen` reads `parser`, `namespace` and `expand` (never `typecheck`);
+`driver` reads `parser` and `codegen`; `main` imports the CLI-closed
+set. The lexer does not know about types, and `codegen.ax` does not
+import `typecheck.ax` — emission reads the AST and the mangled
+namespace, not the checker's judgements.
 
 ## 3. Correctness patterns
 
@@ -251,9 +255,10 @@ message itself.
 
 ### 4.2 Standard library and FFI safety
 
-Axiom has a standard library written in Axiom (`stdlib/`: `Sys`, `Mem`,
-`Str`, `Fmt`, `IO`, `Vec`, `Map`, `Json`, `Path`, `Utf8`, `Err`, `Ffi`,
-`Intern`, `Show`, `Pre`, `Par`, `Rpc`), built on the freestanding
+Axiom has a standard library written in Axiom (`stdlib/`: `Pre`, `Mem`,
+`Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`, `Sys`,
+`Path`, `IO`, `Ffi`, `Json`, `Rpc`, `Par`, `Http`, `Test`,
+`Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term`), built on the freestanding
 primitives `__syscall0`-`__syscall6`, `__load8`/`__store8`,
 `__load64`/`__store64`, `__alloc`, and `__addr`. Use it: `(import IO)`
 and `println`. Generated code calls no libc function, and
@@ -263,8 +268,10 @@ executable.
 
 **The FFI is `extern`, and it is never `foreign`.** `foreign` was
 removed and remains a reserved word reporting `AX2004` with migration
-advice, alongside `union` and `region` - never write one and never
-suggest one. It is not a synonym for the new form: `foreign` named one
+advice, alongside `union` - never write one and never
+suggest one. (`region` was on this list until 2026-09-03 and is a
+checked scope again: `(region r body)`, a top-level `(region ...)`
+refused as `AX3027`.) It is not a synonym for the new form: `foreign` named one
 symbol and emitted a call the module never declared, which is why it
 never linked.
 
@@ -331,9 +338,10 @@ backend's `mmap`-backed bump allocator. **The allocator is not
 overridable.** Defining `axiom_alloc` yourself is refused outright with
 `AX3026` (`reserved-runtime-name`) — the backend emits its own definition
 unconditionally, and before that refusal existed the build died in `opt`
-as a duplicate symbol after `check` had said OK. `union`, `region` and
-`foreign` have been removed from the language - all three are still
-reserved words and report `AX2004`. C is reachable only through an
+as a duplicate symbol after `check` had said OK. `union` and
+`foreign` have been removed from the language - both are still
+reserved words and report `AX2004`. (`region` was removed with them
+and returned on 2026-09-03 as a checked scope.) C is reachable only through an
 `extern` block, and a Rust crate that is `no_std` reaches it without
 importing any libc symbol at all - measured, `nm -u` on such an
 executable is empty.
@@ -530,20 +538,20 @@ There is no `printf` and no `print` — probed, both are `AX3001`. `IO`'s
 :time <expr>          — Time an expression
 ```
 
-Only lines beginning with `:` are dispatched as commands. The REPL's own
-`:help` text advertises a bare `?` as a synonym; it is not one, and `?`
-is read as an expression and fails to parse.
+Only lines beginning with `:` are dispatched as commands, plus a bare
+`?`, which answers like `:help`.
 
 The REPL compiles to native code, not interpretation: declarations
 accumulate as source text, and each expression is wrapped in a generated
 module, compiled through the driver's own `llc`/`cc` invocations, run,
 and its output reprinted as `result ...`.
 
-There is **no line editing and no history**. The REPL reads plain lines,
-with no readline layer, so arrow keys, in-place editing and a history
-file do not exist and nothing is saved between sessions — its `:help`
-text says otherwise. The editor-grade interface is the LSP's job
-(`self_host/lsp.ax`, `axiom lsp`).
+Line editing and history exist on a TTY (arrows, history across
+sessions, completion, highlighting) and not on a pipe: piped input
+reads plain lines, so arrow keys and in-place editing do not exist
+there and nothing is saved between piped sessions. The `:help` text
+says which surface it is talking about. The editor-grade interface is
+the LSP's job (`self_host/lsp.ax`, `axiom lsp`).
 
 ### 5.6 Diagnostic code lookup workflow
 

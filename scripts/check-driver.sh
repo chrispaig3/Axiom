@@ -649,10 +649,15 @@ done
 # have already diverged once - `repl` was dispatched but missing from
 # COMMANDS, and `--check`, `--builtins`, `--list` and `--no-banner` were
 # accepted but documented nowhere.
+#
+# The list below is every flag `flagArity` in driver.ax accepts, minus
+# `--gc`, which is accepted only to be refused by name. When a flag is
+# added to `flagArity`, it is added here in the same change.
 "$s1" --help >full-help.txt 2>&1
 missing=""
-for f in --input --output -o --target --opt --heap-ceiling --emit-llvm --check --builtins \
-         --list --no-banner --filter --diagnostic-format --help --version; do
+for f in --input --output -o --target --opt --heap-ceiling --link-lib --link-search --crate \
+         --emit-rust-binding --filter --diagnostic-format --emit-llvm --emit-staticlib --threads \
+         --check --builtins --calls --mir --axir --list --no-banner --help -h --version -V; do
   grep -q -- "$f" full-help.txt || missing="$missing $f"
 done
 for c in build check run new fetch test emit-llvm fmt explain symbols repl lsp version help; do
@@ -678,7 +683,11 @@ done
 # multi-line body into its neighbours and read nothing of a one-line
 # one (measured while writing this: 27 words against 12). `flagArity`
 # answers two questions and only the first is mirrored, so its range
-# ends at the `1` that arm answers with.
+# ends at the `1` that arm answers with - and that cut keeps the `(if`
+# wrapper of the `(if COND 1 ...)` shape, which `valueFlag` never had:
+# the comparison strips one leading `(if` from the driver side, which
+# is the whole of the normalisation, so a reordering or a renamed flag
+# still fails it.
 argv_chain() { # <file> <fn> [end-re] -> the defn, whitespace-stripped
   python3 - "$1" "$2" "${3:-}" <<'PY'
 import re, sys
@@ -733,14 +742,27 @@ while True:
     j += 1
 body = t[j + 1:]
 assert body.endswith(")"), body[-40:]
-print(re.sub(r"\s+", "", body[:-1]))
+# A split extraction ends mid-definition at the cut, so its last
+# character is the cut's own close paren, not the function's to drop:
+# `flagArity`'s range ends at the `1` that arm answers with, keeping
+# the condition's final `)`. A whole-definition extraction ends at the
+# function, whose final close is the function's own.
+if endre:
+    print(re.sub(r"\s+", "", body))
+else:
+    print(re.sub(r"\s+", "", body[:-1]))
 PY
 }
-if [[ "$(argv_chain self_host/driver.ax flagArity '
-    1')" != "$(argv_chain self_host/codegen.ax valueFlag)" ]]; then
+drv_chain="$(argv_chain self_host/driver.ax flagArity '
+    1')"
+# See the comment above: the extractor keeps `flagArity`'s `(if`
+# wrapper, which the mirrored `valueFlag` never had. Strip exactly
+# that prefix before comparing, and nothing else.
+drv_chain="${drv_chain#(if}"
+code_chain="$(argv_chain self_host/codegen.ax valueFlag)"
+if [[ "$drv_chain" != "$code_chain" ]]; then
   bad "valueFlag in codegen.ax differs from flagArity's arity-1 arm in driver.ax:"
-  diff <(argv_chain self_host/driver.ax flagArity '
-    1') <(argv_chain self_host/codegen.ax valueFlag) | sed 's/^/     /' | head -n 6
+  diff <(printf '%s' "$drv_chain") <(printf '%s' "$code_chain") | sed 's/^/     /' | head -n 6
 else
   ok "codegen's valueFlag mirrors driver's value flags exactly"
 fi

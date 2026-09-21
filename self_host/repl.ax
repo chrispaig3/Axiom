@@ -1803,11 +1803,11 @@
 
 ; ------------------------------------------------------------------
 ; Colon commands - stage0's surface exactly, minus what is recorded
-; divergent. Note `?` is advertised by stage0's help and DEAD in its
-; dispatch (only `:`-prefixed lines reach handle_command), so it is
-; not implemented here either: reproducing the help text reproduces
-; the advertisement, and reproducing the dispatch reproduces the
-; bug.
+; divergent. `?` was advertised by stage0's help and DEAD in its
+; dispatch (only `:`-prefixed lines reach handle_command), and this
+; file reproduced both halves until 2026-09-21: the help line keeps
+; `?` so the dispatch `replColon` answers it with `replHelp` like
+; `:help` and `:h`.
 ; ------------------------------------------------------------------
 (pub :: replHelp Int)
 ;@axiom:effect(io)
@@ -2204,7 +2204,7 @@
         (w (cmdWord line))
         (rest (cmdRest line))
       )
-        (if (|| (strEq w ":help") (strEq w ":h"))
+        (if (|| (strEq w ":help") (|| (strEq w ":h") (strEq w "?")))
           replHelp
           (if (|| (strEq w ":quit") (|| (strEq w ":q") (strEq w ":exit")))
             {
@@ -2442,7 +2442,13 @@
                                 0
                               }
                               0)
-                            (if (== (strByte line 0) 58)
+                            ; A `:` line is a colon command; a bare `?`
+                            ; is `:help` by its own advertisement (58 is
+                            ; `:`, 63 is `?`). Anything else starting
+                            ; with `?` cannot be an expression - `?` is
+                            ; no identifier byte - so routing the whole
+                            ; line to `replColon` mistakes nothing.
+                            (if (|| (== (strByte line 0) 58) (== (strByte line 0) 63))
                               (if (replColonBuffers (cmdWord line) (cmdRest line))
                                 ; An expression command whose argument does
                                 ; not yet balance (`:type (fn ...`): later

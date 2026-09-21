@@ -1101,6 +1101,20 @@ prove it is not vacuous. `scripts/check-doc-drift.sh` checks
 constructed-against-listed in **both** directions, so listing one early
 turns the gate red.
 
+`AX3008` was SPLIT on 2026-09-21 into `AX3067`–`AX3070`, and `AX3008`
+itself is retired and **MUST NOT** be reused, like `AX3032` before it.
+The catch-all `semantic-error` covered four shapes with unrelated
+remedies - a `struct` built with the wrong field count
+(`struct-arity-mismatch`), a parameterless `lambda` applied
+(`nullary-lambda`), a surplus argument to `sizeof`/`alignof`
+(`sizeof-arity`), and a field read on a `data` type with a nullary
+constructor beside a fielded one (`unsafe-field-access`) - so `grep
+AX3008` conflated a miscount, a non-call, a discarded argument and an
+unsafe load. Each keeps its old message verbatim; only the code and
+slug change, and the four corpus fixtures (`270`, `390`, `395`,
+`480`) are their primaries. Taken from the free end, above the
+reserved block, by this section's own rule.
+
 **ERR-DIAG-3 (P). Poisoning, not cascading.** Where a check on an error
 type fails, propagate `TError` and guard downstream comparisons, so one
 mistake draws one diagnostic. Reach for a group key only when a real

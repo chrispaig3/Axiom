@@ -1,4 +1,4 @@
-[1;33mwarning[AX3038][0m[1m: handled effects cannot be checked: the body calls a value the compiler could not resolve[0m
+[1;33mwarning[AX3038][0m[1m: handled-effects list cannot be checked: the body calls a value the compiler could not resolve[0m
   [1;34m--> [0m450-effect-op-arity.ax:31:6
 [1;34m   |[0m
 [1;34m31 |[0m     (two 3 4 5)

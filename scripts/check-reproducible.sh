@@ -28,8 +28,19 @@ gate_build_axc axc
 
 status=0
 
-for case_file in tests/stdlib/*.ax; do
-  name="$(basename "$case_file" .ax)"
+# The standard library exercises the emitter's everyday shapes; the
+# compiler's own entry file exercises it at self-host scale (14.9 MB
+# of IR), where a nondeterminism keyed on table size would hide from
+# the smaller cases. A nondeterminism triggered only by compiler
+# sources used to pass this gate.
+for case_file in tests/stdlib/*.ax self_host/main.ax; do
+  # `main.ax` would collide with a stdlib case of the same name in
+  # `$work`, so its pair is prefixed.
+  if [[ "$case_file" == self_host/* ]]; then
+    name="selfhost-$(basename "$case_file" .ax)"
+  else
+    name="$(basename "$case_file" .ax)"
+  fi
   # Separate processes, not one process twice: per-process hash seeds are
   # the whole point of the check.
   "$axc" emit-llvm "$case_file" -o "$work/$name.a.ll" > /dev/null

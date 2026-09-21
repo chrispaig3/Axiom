@@ -11,9 +11,9 @@ F memCmpFrom stdlib/Mem.ax:286:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @4
 F memGetWord stdlib/Mem.ax:314:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #calls=__load64
 F memGetWordStr stdlib/Mem.ax:327:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
 F memGetWordVec stdlib/Mem.ax:338:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #calls=Mem$memGetWord
-F memSetWord stdlib/Mem.ax:367:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__retainref,__store64
-F memGetByte stdlib/Mem.ax:379:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #calls=__load8
-F memPutByte stdlib/Mem.ax:384:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__store8
+F memSetWord stdlib/Mem.ax:373:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__retainref,__store64
+F memGetByte stdlib/Mem.ax:385:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #calls=__load8
+F memPutByte stdlib/Mem.ax:390:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=__store8
 F vecDefaultCap stdlib/Vec.ax:81:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
 F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecDefaultCap,Vec$vecWithCapacity
 F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecBuild

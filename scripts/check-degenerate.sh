@@ -263,7 +263,7 @@ AXEOF
 # Refused, not accepted, since 2026-08-10: a lambda with no parameters
 # can never be called - `(f)` and `f` are the same expression - so this
 # used to check clean and evaluate to the closure record's ADDRESS. A
-# clean AX3008 is the outcome this bank exists to prefer; what it pins
+# clean AX3068 is the outcome this bank exists to prefer; what it pins
 # either way is that the empty parameter list does not take the
 # compiler down.
 deg empty-lambda-params 1 <<'AXEOF'

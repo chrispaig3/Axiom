@@ -3,8 +3,11 @@
 ;
 ; This module exists because two passes need the same answers and the
 ; import graph will not let them share a file. Import resolution
-; (codegen.ax) mangles a module's declarations to `Mod$name` and
-; records which of them are exported; declaration-macro expansion
+; (codegen.ax) mangles a module's declarations to `<dotted-path>$<bare>`
+; (`Math.Ops`' `square` is `@Math.Ops$square` in the emitted LLVM -
+; `.` is legal in an LLVM identifier; entry-file declarations stay
+; bare and `extern` items are unrenamed) and records which of them
+; are exported; declaration-macro expansion
 ; (expand.ax) generates declarations in a module AFTER that pass has
 ; run and has to put them in the same namespace by the same rules
 ; (macro-system.md MAC-EXP-16). `codegen` imports `expand`, so the

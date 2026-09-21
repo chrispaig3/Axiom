@@ -18,6 +18,26 @@ Tips:
   • Unbalanced input continues on the next line; two blank lines abort the entry
   • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it
 
+
+Available Commands:
+  :help, :h, ?     Show this help message
+  :quit, :q, :exit      Exit the REPL
+  :type, :t <expr>  Show the type of an expression
+  :load, :l <file>  Load a file into the REPL
+  :reset, :r        Reset the REPL state
+  :defs, :d       Show all definitions in scope
+  :llvm <expr>  Show generated LLVM IR
+  :time <expr>  Time expression evaluation
+
+Tips:
+  • Define functions: (define (add x y) (+ x y))
+  • Type signatures: (:: add (-> Int Int Int))
+  • Data types: (data Maybe (a) (Nothing) (Just a))
+  • Expressions are evaluated and results shown
+  • Use ; for line comments
+  • Unbalanced input continues on the next line; two blank lines abort the entry
+  • No history or line editing; Ctrl+D ends the session, Ctrl+C kills it
+
 Error: Unknown command ':zzz'. Type :help for available commands.
 (+ 1 2) : Int
 Error: Usage: :type <expression>

@@ -18,9 +18,10 @@
 ; port would have chained this compiler to std's internals. Both
 ; compilers now use FNV-1a 64, which is four lines in either language.
 ;
-; This module deliberately imports nothing from typecheck.ax: the
-; fact COLLECTION walks checker tables and lives with them; this file
-; is the rendering half, testable against cached stage0 output alone.
+; Fact collection walks the checker's tables and lives beside them,
+; so this module imports `typecheck.ax` (and `expand.ax` for
+; `expGenOf`); this file is the rendering half, testable against
+; cached stage0 output alone.
 (import Pre (range))
 (import Mem)
 (import Str)

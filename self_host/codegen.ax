@@ -6008,7 +6008,7 @@
 ; gives.
 (pub :: cgSubcommand (-> String Bool))
 (pub fn (cgSubcommand a)
-  (|| (strEq a "build") (|| (strEq a "lsp") (|| (strEq a "check") (|| (strEq a "run") (|| (strEq a "test") (|| (strEq a "emit-llvm") (|| (strEq a "fmt") (|| (strEq a "explain") (|| (strEq a "symbols") (|| (strEq a "repl") (|| (strEq a "version") (|| (strEq a "--version") (|| (strEq a "-V") (|| (strEq a "help") (|| (strEq a "--help") (strEq a "-h")))))))))))))))))
+  (|| (strEq a "build") (|| (strEq a "lsp") (|| (strEq a "check") (|| (strEq a "run") (|| (strEq a "test") (|| (strEq a "emit-llvm") (|| (strEq a "fmt") (|| (strEq a "explain") (|| (strEq a "symbols") (|| (strEq a "repl") (|| (strEq a "new") (|| (strEq a "fetch") (|| (strEq a "version") (|| (strEq a "--version") (|| (strEq a "-V") (|| (strEq a "help") (|| (strEq a "--help") (strEq a "-h")))))))))))))))))))
 
 (pub :: cgSubcommandIndex Int)
 ;@axiom:effect(io)
@@ -17004,7 +17004,14 @@
 
 ; `(__addr "text")` is the only way a literal's bytes reach the program.
 ; The literal is interned into the module's string table and referenced
-; by the global the table will emit.
+; by the global the table will emit. A NON-literal argument takes the
+; other arm below and evaluates like any expression: the answer is the
+; value's address, not interned bytes, and nothing checks that the
+; caller meant bytes. Every use in this repository spells the literal
+; (`grep -rn '__addr' stdlib/ tests/`); a call with anything else is a
+; program obligation, and refusing it statically is open work, not a
+; rule - the checker types `__addr` as `(-> String Int)` and any
+; `String` expression satisfies that today.
 (pub :: emitPrimAddr (-> (Vec Int) Int Int))
 ;@axiom:effect(io)
 (pub fn (emitPrimAddr args cg)

@@ -7738,8 +7738,8 @@
       (if (== (vecLen params) 0)
         (emitDiag tc (diagSetLabel (mkDiagNote
           SEV_ERROR
-          "AX3008"
-          "semantic-error"
+          "AX3068"
+          "nullary-lambda"
           (nodeSpan e)
           "a lambda with no parameters can never be called"
           0
@@ -10897,8 +10897,8 @@
         (> (vecLen args) 1))
         (emitDiag tc (diagSetLabel (mkDiagNote
           SEV_ERROR
-          "AX3008"
-          "semantic-error"
+          "AX3069"
+          "sizeof-arity"
           (spanOf (vecGet args 1))
           (strConcat (strConcat "`" hname) "` takes one type and answers a constant, so this argument has nowhere to go")
           0
@@ -11183,7 +11183,7 @@
     (checkArgsFromIndex tc args 0)))
 
 ; Struct construction: the head names a struct (any module - stage0
-; ignores the module here). Wrong field count is AX3008 with the
+; ignores the module here). Wrong field count is AX3067 with the
 ; ARGUMENTS UNCHECKED and a poisoned result; the right count checks
 ; every argument against its field's declared type, reporting each
 ; mismatch and keeping the struct type as the result.
@@ -11220,8 +11220,8 @@
               (let ((msg (strConcat (strConcat (strConcat (strConcat (strConcat "struct `" (bareOf (memGetWordStr ent 0))) "` expects ") (decStr (vecLen fields))) " field(s), found ") (decStr (vecLen args)))))
                 (mkDiag
                   SEV_ERROR
-                  "AX3008"
-                  "semantic-error"
+                  "AX3067"
+                  "struct-arity-mismatch"
                   span
                   msg
                   0
@@ -14027,7 +14027,7 @@
       "AX3038"
       "effect-unverifiable"
       span
-      "handled effects cannot be checked: the body calls a value the compiler could not resolve"
+      "handled-effects list cannot be checked: the body calls a value the compiler could not resolve"
       0
       0
       "name the function at the call, or widen the handled list: an unresolved call may perform any effect, and reaching one with no handler aborts the process"))
@@ -14543,8 +14543,8 @@
   {
     (emitDiag tc (diagSetLabel (mkDiagNote
       SEV_ERROR
-      "AX3008"
-      "semantic-error"
+      "AX3070"
+      "unsafe-field-access"
       span
       (strConcat (strConcat (strConcat (strConcat "field access `." fname) "` is unsafe on `") tyname) "`: the type has a nullary constructor, so a value may be an immediate tag with no fields to read")
       0
@@ -16832,17 +16832,21 @@
               0
               eff
               (bsEparamsVec sc)))
+          ; The signature's claims first (above), the function's own
+          ; minus the contents already checked, so one claim draws one
+          ; diagnostic no matter which declarations carry it.
           (if (==
             (cast Int own)
             0)
             0
-            (checkAxtagsFrom
+            (checkAxtagsFromSkipping
               tc
               d
               own
               0
               eff
-              (bsEparamsVec sc)))
+              (bsEparamsVec sc)
+              sig))
           ; `restrict(...)` on either declaration, as a union - the
           ; same two sets, read once more for a different kind of
           ; claim. Runs on the same `eff` AX3010 and AX3042 read.
@@ -19257,6 +19261,51 @@
         (if (== (nameMatches name (nodeAName d)) 1)
           (memGetWord d 7)
           (sigAxtagsFrom tagged name (+ i 1)))))))
+
+; A tag content the signature's set already carries. `checkAxtags`
+; checks the signature's tags first, so the function's own walk skips
+; what it would only repeat: a `;@axiom:pure` above BOTH the `::`
+; and the `fn` drew every verdict twice, byte-identical down to the
+; span, and the summary counted two errors for one wrong claim
+; (tests/diagnostics/355-tag-over-approximated.axdl, before this).
+; Different claims are still each checked - only the content already
+; answered is skipped - which is the union-then-check-once rule
+; `restrictSplit` keeps with `strInVec`.
+(pub :: axtagContentSeen (-> (Vec Int) String Int Int))
+(pub fn (axtagContentSeen tags content i)
+  (if (== (cast Int tags) 0)
+    0
+    (if (>= i (vecLen tags))
+      0
+      (if (strEq (memGetWordStr (vecGet tags i) 1) content)
+        1
+        (axtagContentSeen tags content (+ i 1))))))
+
+; `checkAxtagsFrom`, skipping the contents already checked from
+; another set. The signature's walk passes 0 and checks everything;
+; the function's own walk passes the signature's set.
+(pub :: checkAxtagsFromSkipping (-> Int Int (Vec Int) Int (Vec a) (Vec Int) (Vec Int) Int))
+(pub fn (checkAxtagsFromSkipping tc d tags i eff eparams skip)
+  (if (>= i (vecLen tags))
+    0
+    {
+      (if (== (axtagContentSeen skip (memGetWordStr (vecGet tags i) 1) 0) 1)
+        0
+        (checkOneAxtag
+          tc
+          d
+          (memGetWordStr (vecGet tags i) 1)
+          eff
+          eparams))
+      (checkAxtagsFromSkipping
+        tc
+        d
+        tags
+        (+ i 1)
+        eff
+        eparams
+        skip)
+    }))
 
 (pub :: checkAxtagsFrom (-> Int Int (Vec Int) Int (Vec a) (Vec Int) Int))
 (pub fn (checkAxtagsFrom tc d tags i eff eparams)

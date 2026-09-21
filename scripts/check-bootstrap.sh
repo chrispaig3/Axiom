@@ -41,7 +41,7 @@
 #                 re-bless: every byte compared is recomputed from
 #                 self_host/ on the run.
 #
-#   the corpus    the cases of tests/selfhost/ (151 today, floor 135),
+#   the corpus    the cases of tests/selfhost/ (179 today, floor 135),
 #                 built end to end by
 #                 stage3 and RUN, each checked against the exit status
 #                 a human wrote on the case's own first line
@@ -88,9 +88,9 @@
 # the corpus answers, the memory ceiling, the running program - is
 # recomputed, and the corpus answers are not derived from a compiler at
 # all. A wrong compiler that re-blessed every golden in this repository
-# would still have to answer 26 different numbers correctly on 90
-# programs, print `self-hosted` from a 91st, and reproduce itself
-# exactly twice.
+# would still have to answer 61 different numbers correctly on 179
+# programs, print `self-hosted` from the inline probe below, and
+# reproduce itself exactly twice.
 #
 # `$axiom` is provisioned the way every other gate provisions it, and
 # is used here for one thing only: a third witness on the zoo golden.
@@ -480,7 +480,7 @@ for case_file in "$repo_root"/tests/selfhost/[0-9]*.ax; do
   fi
 done
 
-# Floors. 157 cases carrying 53 distinct expectations today; a sweep
+# Floors. 179 cases carrying 61 distinct expectations today; a sweep
 # that reads fewer than 60, or one whose expectations collapse to a
 # handful of values, has lost its corpus or its parser - and either
 # reads exactly like a compiler that answers everything correctly.
@@ -492,7 +492,7 @@ if (( swept < 135 )); then
   fail "the sweep ran only $swept cases; the floor is 135 - tests/selfhost/ moved or the glob broke"
 fi
 if (( distinct < 45 )); then
-  fail "the $swept cases carry only $distinct distinct expected statuses; the floor is 45 (50 today) - a compiler that answers one number would pass"
+  fail "the $swept cases carry only $distinct distinct expected statuses; the floor is 45 (61 today) - a compiler that answers one number would pass"
 fi
 if (( corpus_failed > 0 )); then
   fail "$corpus_failed of $swept conformance cases disagree with the status their own source declares"

@@ -5236,8 +5236,18 @@
 (pub fn (fzText r)
   (memGetWordStr r 1))
 
-(pub :: fmtOnce (-> String Int))
-(pub fn (fmtOnce src)
+(pub :: fmtOnce (-> String Int Int))
+(pub fn (fmtOnce src allowComplete)
+  ; `allowComplete` bounds the missing-closer completion below to ONE
+  ; round: the completed text is formatted with 0, so a second failure
+  ; refuses instead of completing again. Completion converges when the
+  ; only defect is missing closers, but an unterminated string literal
+  ; swallows every appended closer into itself - `(fn (main) "abc`
+  ; became `(fn (main) "abc)))))...`, one `)` per round, never
+  ; balancing - and the loop grew the string until the process died
+  ; (measured: `fmt --check` spinning past 90 s on three lines,
+  ; SIGKILL under the degenerate bank). A bound, not a shape check,
+  ; because any non-converging defect deserves the same refusal.
   (let ((sc (fscan src)))
     (if (== (fscanHasError sc) 1)
       (cast Int (FRes 0 ""))
@@ -5255,6 +5265,10 @@
             (if (==
               (cast Int forms)
               0)
+              (if (== allowComplete 0)
+                ; The completed text, failing again: completion had its
+                ; round and the file is broken another way. Refuse.
+                (cast Int (FRes 0 ""))
               ; Unclosed groups are completed, everything else is
               ; refused. A file whose only defect is missing closers -
               ; the shape an editor holds mid-function - is finished
@@ -5271,8 +5285,12 @@
               ; token vector (which `fscan` already built), nothing
               ; allocated but the stack and the completed string: no
               ; new top-level function moves the effect-distribution
-              ; pins. Terminates: the completed text is balanced, so a
-              ; second failure finds an empty stack and refuses.
+              ; pins. Terminates by construction, not by balance: the
+              ; completed text is formatted with completion disallowed
+              ; (`allowComplete` above), so a second failure refuses
+              ; rather than completing again. Balance alone does not
+              ; terminate it - an unterminated string swallows every
+              ; appended closer and the stack never empties.
               (let ((toks (fsToksVec sc)))
                 (let ((st vecNew))
                   (let ((mut i 0))
@@ -5374,10 +5392,10 @@
                                             (set j (- j 1))
                                           })
                                         (set out (strConcat out (strSlice src ins (- (strLen src) ins))))
-                                        (fmtOnce out)
+                                        (fmtOnce out 0)
                                       }))
                                 }))))
-                      }))))
+                      })))))
               (let ((out (fmtPrint src forms (fsComs sc) (lineStarts src))))
                 (if (== (foBad out) 1)
                   (cast Int (FRes 0 ""))
@@ -5431,11 +5449,11 @@
 
 (pub :: fmtFormatBody (-> String Int))
 (pub fn (fmtFormatBody src)
-  (let ((r1 (fmtOnce src)))
+  (let ((r1 (fmtOnce src 1)))
     (if (== (fzOk r1) 0)
       r1
       (let ((t1 (fzText r1)))
-        (let ((r2 (fmtOnce t1)))
+        (let ((r2 (fmtOnce t1 0)))
           (if (== (fzOk r2) 0)
             (cast Int (FRes 0 ""))
             (if (if (strEq (fzText r2) t1)

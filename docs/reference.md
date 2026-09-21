@@ -1464,7 +1464,7 @@ understanding what was meant:
 
 `(Point :x 1 :y 2)` stops earlier still, at the colon, with `AX2001`
 "expected expression, found `:`". Handing over the wrong *number* of
-fields is `AX3008` at the constructor — "struct `Point` expects 2
+fields is `AX3067` at the constructor — "struct `Point` expects 2
 field(s), found 1" — trailed by an `AX3004` cascade wherever the
 half-built value is used; the wrong *type* in a field is a plain
 `AX3004` at the offending argument.

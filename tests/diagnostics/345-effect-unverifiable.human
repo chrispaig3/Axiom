@@ -10,7 +10,7 @@
   [1;34m = [0m[1;32mhelp: [0minstall one - `(handle BODY (E) HANDLER)` around the call - or, if an unhandled operation of this effect is a deliberate abort as `Assert`'s is, write `;@axiom:unhandled(trap)` above its `effect` declaration
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3053` for a full explanation
 
-[1;33mwarning[AX3038][0m[1m: handled effects cannot be checked: the body calls a value the compiler could not resolve[0m
+[1;33mwarning[AX3038][0m[1m: handled-effects list cannot be checked: the body calls a value the compiler could not resolve[0m
   [1;34m--> [0m345-effect-unverifiable.ax:49:6
 [1;34m   |[0m
 [1;34m49 |[0m     (b.f 7)

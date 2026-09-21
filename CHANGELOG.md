@@ -16,6 +16,31 @@ its changelog too.
 
 ## Unreleased
 
+### `AX3008` is split four ways, AXTAG double-reports are one report, and `fmt` terminates — `tests/diagnostics/270-*.axdl`
+
+`AX3008 semantic-error` covered four shapes with unrelated remedies, so
+`grep AX3008` conflated a miscount, a non-call, a discarded argument
+and an unsafe load. Each keeps its message verbatim under its own code
+— `AX3067 struct-arity-mismatch`, `AX3068 nullary-lambda`,
+`AX3069 sizeof-arity`, `AX3070 unsafe-field-access` — and `AX3008`
+itself is retired and must not be reused, like `AX3032` before it
+(`docs/error-model.md` records the spending; `tests/tools/explain.golden`
+is regenerated; `tests/diagnostics/UNCOVERED` reads 84 constructed, 74
+primary). In the same change, a `;@axiom:pure` above both the `::` and
+the `fn` drew every AXTAG verdict twice, byte-identical down to the
+span, and the summary counted two errors for one wrong claim: the
+function's own walk now skips contents the signature's walk already
+checked — the union-then-check-once rule `restrictSplit` already kept —
+so `tests/diagnostics/355-tag-over-approximated.axdl` carries two lines
+where it carried four (`scripts/check-diagnostics.sh`,
+`scripts/check-render-selfhost.sh` with `tests/diagnostics/verify-json.py`
+holding every `.json` golden against its `.axdl`). And the formatter's
+missing-closer completion, which appended closers inside an
+unterminated string one `)` per round and never balanced — `fmt
+--check` spinning past 90 s on three lines, SIGKILL under
+`scripts/check-degenerate.sh` on the pristine tree — is bounded to one
+round by construction (`fmtOnce` takes `allowComplete`; a second
+failure refuses), so the degenerate bank passes 88 of 88.
 ### `cond` is removed; `if` is variadic — `tests/selfhost/710-variadic-if-tco.ax`, `tests/stdlib/260-variadic-if.ax`
 
 `(if t1 b1 t2 b2 ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, built by the parser — one tag, no new keyword, no second set of branch rules. The `cond` keyword is `AX2004` in expression position and at the top level (`axiom explain AX2004` carries the migration advice), the `cond2`/`cond3` prelude helpers are gone (`compat/BREAKING`, `0.7.6 M cond2`, `0.7.6 M cond3`), and every in-tree use is rewritten (`tests/stdlib/482`/`483`/`484-region-*.ax`, `tests/selfhost/370-pre-import.ax`, the `fmt` zoo and parity bank). One deliberate semantic change: `cond` never joined clause bodies, while `if` joins its branches, so migrated branches of different types report `AX3004`. The `710` TCO case moves unchanged in spirit — there is no lowering pre-pass left to order, which is the shape that used to break.

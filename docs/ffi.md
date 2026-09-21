@@ -117,7 +117,11 @@ axiom build --input p.ax --output p --crate /path/to/mycrate && ./p
 build --release` when `libaxiom_mycrate.a` is missing, searches
 `DIR/axiom/` for the generated module and `DIR/target/release` (or the
 workspace's, one or two levels up) for the archive, and links it
-because the generated `extern` block names it (§12). The module name is
+because the generated `extern` block names it (§12). With neither tool
+on `PATH` nothing happens: no module is generated and no archive is
+built, and the missing module or archive is refused below as `AX5001`
+or `AX4004` - those two errors are the signal, not a stalled build.
+The module name is
 the package name in CamelCase — each `-`/`_`-separated piece
 capitalised, an `axiom-` prefix dropped: `axiom-my-crate` → `MyCrate`,
 `mycrate` → `Mycrate` — or the stem of the one `.ax` already in

@@ -1,2 +1,2 @@
-E AX3008 270-struct-field-count.ax:7:7-8 semantic-error "struct `P` expects 2 field(s), found 1"
-E AX3008 270-struct-field-count.ax:7:13-14 semantic-error "struct `P` expects 2 field(s), found 3"
+E AX3067 270-struct-field-count.ax:7:7-8 struct-arity-mismatch "struct `P` expects 2 field(s), found 1"
+E AX3067 270-struct-field-count.ax:7:13-14 struct-arity-mismatch "struct `P` expects 2 field(s), found 3"

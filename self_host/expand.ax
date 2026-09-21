@@ -376,6 +376,11 @@
 ; the language server simply never answered. The budget is far above
 ; any real macro (the whole of `stdlib/Pre.ax` expands to depth 1) and
 ; far below where the wait becomes indistinguishable from a hang.
+;
+; `expMaxWalk` answers the parser's `parseMaxDepth`
+; (`self_host/parser.ax`), deliberately the same number;
+; `scripts/check-diagnostics.sh` holds the equality, and pins
+; `expDepthLimit` above at 128 besides it.
 (pub :: expMaxWalk Int)
 (pub fn (expMaxWalk)
   1024)

@@ -1,0 +1,11 @@
+; expect 9
+; llvm-contains Math.Ops$square
+; A dotted import mangles to `<dotted-path>$<bare>`: `Math.Ops`'
+; `square` is `@Math.Ops$square` in the emitted LLVM. `.` is legal
+; in an LLVM identifier, so this links; a future quoting change must
+; move this pin deliberately.
+(import Math.Ops (square))
+
+(:: main Int)
+(fn (main)
+  (square 3))

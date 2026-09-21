@@ -137,11 +137,12 @@ kept assigning a fresh placeholder type after the failure and reused it
 as if it were real. That placeholder would then fail *other* type checks,
 producing 2-3 more "errors" that were really just echoes of the first one.
 
-Axiom's type checker now propagates a `TypeId::TError` **poison** type
+Axiom's type checker now propagates a `TAG_T_ERR` **poison** type
 after reporting a failure, and every downstream check treats a poisoned
-type as "already explained, don't check again" (`is_error()` guards at
-every type-mismatch construction site in `self_host/typecheck.ax`). This is the actual,
-exercised mechanism behind every cascade fix today.
+type as "already explained, don't check again" (`tyIsErr` guards at
+every type-mismatch construction site in `self_host/typecheck.ax`, with
+`tyCompat` testing for poison before it tests for type variables).
+This is the actual, exercised mechanism behind every cascade fix today.
 
 The Rust compiler additionally carried a `group` key and an
 `axiom_errors::dedup` pass that dropped every diagnostic after the first
@@ -154,9 +155,9 @@ site rather than ahead of one.
 
 The second suppression that IS exercised is spanlessness: a node with no
 span suppresses its diagnostic rather than pointing it somewhere wrong.
-There are ten `span == 0` guards in `self_host/typecheck.ax` and
-they are the reason a diagnostic never lands on line 1 column 1 by
-accident.
+Sixteen `(== span 0)` guards in `self_host/typecheck.ax` (plus
+`(!= span 0)` emission guards and `spanOf` checks) are the reason a
+diagnostic never lands on line 1 column 1 by accident.
 
 Concretely, this:
 
@@ -585,7 +586,10 @@ obvious immediately. See `self_host/parser.ax`'s type-variable parsing and
 1. Pick the next free number in the appropriate range: `AX1xxx`
    lexical, `AX2xxx` parse, `AX3xxx` semantic (macro expansion
    included), `AX4xxx` IR lowering, codegen and the native toolchain,
-   `AX5xxx` module resolution.
+   `AX5xxx` module resolution. A new code goes above the reserved
+   block, never into it: `docs/error-model.md` keeps a Proposed table
+   of numbers it has not built, and `scripts/check-doc-drift.sh`
+   fails a proposal whose number the compiler has already spent.
 2. Construct it with `mkDiag` - or `mkDiagFix` when the help is
    machine-applicable and should render as `?LOC:"msg"~>"replacement"` -
    at the site that detects the condition. That site is one of
@@ -595,15 +599,19 @@ obvious immediately. See `self_host/parser.ax`'s type-variable parsing and
    severity, the code, a kebab-case slug, a span, a message and a help.
 3. Write its long-form text into `self_host/explain.ax`, so
    `axiom explain AX....` answers. This is enforced:
-   `scripts/check-tools-selfhost.sh` cross-checks every code the
-   diagnostics corpus emits against `explain --list`, so a new
-   diagnostic cannot ship undocumented.
+   `scripts/check-doc-drift.sh` holds constructed against listed in
+   both directions, so a code with a construction site and no entry
+   fails it - and `scripts/check-diagnostic-coverage.sh` requires
+   either a primary golden in `tests/diagnostics/` or a row in
+   `tests/diagnostics/UNCOVERED`. (`scripts/check-tools-selfhost.sh`
+   cross-checks the weaker direction, every code the corpus emits
+   against `explain --list`.)
 4. If the new error can be a downstream consequence of another, prefer
    poisoning: propagate the error type from the failing check rather
    than a fresh placeholder, and guard later comparisons, so one mistake
    draws one diagnostic rather than a cascade.
-5. Add a case to `tests/diagnostics/` with its `.axdl` and `.human`
-   goldens - `.axbad` if it deliberately does not parse, because the
+5. Add a case to `tests/diagnostics/` with its `.axdl`, `.human` and
+   `.json` goldens - `.axbad` if it deliberately does not parse, because the
    formatter and grammar gates sweep every `*.ax` and require it to
    parse. Bless with `AXIOM_BLESS=1 scripts/check-diagnostics.sh NNN`,
    then prove the case is not vacuous by checking it FAILS against a
