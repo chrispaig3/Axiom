@@ -196,13 +196,12 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-19, `axiom fmt --check` over every one of the 685 `.ax` files
-in the repository answers `is already formatted` for 680 of them and
-`needs formatting` for 5. Two of the 5 are deliberate and are named
-below; the third is `examples/batch-fallible/batch-fallible.ax`, a
-program that stays as it is until someone edits it; the fourth is
-`self_host/lsp.ax`, which this change does not touch and leaves as it
-is on the same terms; the fifth is
+2026-09-21, `axiom fmt --check` over every one of the 687 `.ax` files
+in the repository answers `is already formatted` for 683 of them and
+`needs formatting` for 4. All 4 are deliberate and are named here:
+`tests/fmt/syntax-zoo.ax` and `tests/diagnostics/940-long-line.ax`,
+whose text is the fixture; `examples/batch-fallible/batch-fallible.ax`,
+a program that stays as it is until someone edits it; and
 `tests/diagnostics/654-macro-hygiene-suggestion.ax`, which arrived
 needing formatting with the binder-rendering change and stays that
 way because its spans are pinned — and

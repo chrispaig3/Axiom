@@ -40,7 +40,16 @@ unterminated string one `)` per round and never balanced — `fmt
 --check` spinning past 90 s on three lines, SIGKILL under
 `scripts/check-degenerate.sh` on the pristine tree — is bounded to one
 round by construction (`fmtOnce` takes `allowComplete`; a second
-failure refuses), so the degenerate bank passes 88 of 88.
+failure refuses), so the degenerate bank passes 89 of 89. Merged onto
+the variadic-`if` trunk, which independently fixed the same formatter
+hang by refusing an unterminated string before completion (both halves
+stand: the shape check refuses that shape, the bound terminates every
+other non-converging one); its `cond`-removal fixtures arrived as
+`.ax` and are renamed `.axbad`, the convention every other
+`AX2004`-at-parse fixture keeps, which `scripts/check-fmt.sh`
+requires. The two new helpers move the effect-distribution pins by
+exactly their own rows (`scripts/check-effect-distribution.sh`,
+re-pinned 2026-09-21 with the row-by-row diff: added 2, removed 0).
 ### `cond` is removed; `if` is variadic — `tests/selfhost/710-variadic-if-tco.ax`, `tests/stdlib/260-variadic-if.ax`
 
 `(if t1 b1 t2 b2 ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, built by the parser — one tag, no new keyword, no second set of branch rules. The `cond` keyword is `AX2004` in expression position and at the top level (`axiom explain AX2004` carries the migration advice), the `cond2`/`cond3` prelude helpers are gone (`compat/BREAKING`, `0.7.6 M cond2`, `0.7.6 M cond3`), and every in-tree use is rewritten (`tests/stdlib/482`/`483`/`484-region-*.ax`, `tests/selfhost/370-pre-import.ax`, the `fmt` zoo and parity bank). One deliberate semantic change: `cond` never joined clause bodies, while `if` joins its branches, so migrated branches of different types report `AX3004`. The `710` TCO case moves unchanged in spirit — there is no lowering pre-pass left to order, which is the shape that used to break.

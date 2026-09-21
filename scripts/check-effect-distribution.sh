@@ -63,6 +63,19 @@
 # still 94%. The required/ambient line did not move; the pins did,
 # by the delta above and no more.
 #
+# RE-PINNED 2026-09-21: one AXTAG check reads once per claim instead
+# of once per tagged declaration. Diffed c56e6756 against the working
+# tree `symbols --calls` row by row over `self_host/main.ax`, each side
+# measured by a compiler built from its own tree: added 2, removed 0.
+# The added are the union-then-check-once helpers themselves -
+# `axtagContentSeen`, pure, and `checkAxtagsFromSkipping`, exactly
+# `Alloc,Mut` - and the two non-positional changes move no bucket
+# (`checkAxtags` calls the skipping walk now, same row;
+# `fmtOnce` gains its completion bound as a parameter, same row).
+# So exactly-`Alloc,Mut` moves 2166 to 2167 and `pure` 1689 to 1690,
+# every IO bucket frozen again. The required/ambient line did not
+# move; the pins did, by the delta above and no more.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -92,14 +105,14 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2166 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2167 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 396 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 123 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 119 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 39 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 19 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 4 "IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1689 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1690 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 

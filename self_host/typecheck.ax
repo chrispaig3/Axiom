@@ -19273,7 +19273,9 @@
 ; `restrictSplit` keeps with `strInVec`.
 (pub :: axtagContentSeen (-> (Vec Int) String Int Int))
 (pub fn (axtagContentSeen tags content i)
-  (if (== (cast Int tags) 0)
+  (if (==
+    (cast Int tags)
+    0)
     0
     (if (>= i (vecLen tags))
       0

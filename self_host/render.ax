@@ -1479,8 +1479,11 @@
               ; The label rides the span: AXDL prints `#"..."` only where
               ; one exists, so JSON carries `"label"` only there too -
               ; a consumer distinguishes "no label" from "empty label".
-              (strConcat (strConcat "\"span\":" (jsonSpan src ix span))
-                (if (== (cast Int (diagLabel d)) 0)
+              (strConcat
+                (strConcat "\"span\":" (jsonSpan src ix span))
+                (if (==
+                  (cast Int (diagLabel d))
+                  0)
                   ","
                   (strConcat (strConcat ",\"label\":\"" (jsonEsc (diagLabel d))) "\",")))))
           (strConcat (strConcat "\"related\":" (jsonRelatedArray
