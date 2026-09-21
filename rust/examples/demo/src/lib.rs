@@ -106,6 +106,102 @@ pub fn counter_try_new(start: i64) -> Result<Counter, String> {
     }
 }
 
+// 6a. A reentrant `Drop`: a destructor that calls back into the
+// runtime while its own release is still in flight.
+//
+// The release walk zeroes the handle's words BEFORE the indirect
+// call into the destructor, and tracks dead lists per invocation,
+// so a Rust `Drop` that re-enters `axiom_retain`/`axiom_release`
+// is an ordinary call rather than reentrancy into a half-torn
+// structure. This type proves it: each value shares one stashed
+// heap word - a real Axiom block, retained, never anything Rust
+// built itself (`axiom_alloc` answers a raw block with no header,
+// and retaining one reads a count that is not there) - and its
+// `Drop` retains that word once more and releases it twice, while
+// the outer release holds the value itself. A walker that confused
+// the reentrant call with the outer one would double-free (exit
+// 139) or lose a share; a leak would show the same way, in the
+// counters. The stash discipline is `axffi_str_keep`'s: seed and
+// discharge pair 1:1 around the values that share the word.
+// Relaxed atomics, like `COUNTERS_DROPPED` above: MM-PAR-1, no
+// threads.
+static REENTRANT_SEED: AtomicI64 = AtomicI64::new(0);
+static REENTRANT_DROPS: AtomicI64 = AtomicI64::new(0);
+static REENTRANT_RETAINS: AtomicI64 = AtomicI64::new(0);
+
+#[axiom_opaque]
+pub struct Reentrant {
+    kept: axiom_ffi::AxWord,
+}
+
+impl Drop for Reentrant {
+    fn drop(&mut self) {
+        unsafe {
+            axiom_ffi::axiom_retain(self.kept);
+            REENTRANT_RETAINS.fetch_add(1, Ordering::Relaxed);
+            axiom_ffi::axiom_release(self.kept);
+            axiom_ffi::axiom_release(self.kept);
+        }
+        REENTRANT_DROPS.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Retain a heap word for future `Reentrant`s to share. Answers 0.
+/// The stashed share is released by `axffi_reentrant_discharge`,
+/// so the Axiom side never manages it - but the word must be live
+/// across the call, by the borrow rule section 8 states.
+///
+/// # Safety
+/// `seed` must be a live Axiom heap word.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn axffi_reentrant_seed(seed: axiom_ffi::AxWord) -> i64 {
+    unsafe {
+        axiom_ffi::axiom_retain(seed);
+        REENTRANT_SEED.store(seed, Ordering::Relaxed);
+        0
+    }
+}
+
+/// Release the stashed share. Pairs 1:1 with `seed`.
+///
+/// # Safety
+/// Must not be called twice for one `seed`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn axffi_reentrant_discharge() -> i64 {
+    unsafe {
+        let w = REENTRANT_SEED.swap(0, Ordering::Relaxed);
+        if w != 0 {
+            axiom_ffi::axiom_release(w);
+        }
+        0
+    }
+}
+
+/// A `Reentrant` sharing the stashed word, retained for it. Call
+/// `axffi_reentrant_seed` first; like `str_keep`'s recall, this is
+/// only valid inside the pairing.
+#[axiom_export]
+pub fn reentrant_new() -> Reentrant {
+    unsafe {
+        let w = REENTRANT_SEED.load(Ordering::Relaxed);
+        axiom_ffi::axiom_retain(w);
+        Reentrant { kept: w }
+    }
+}
+
+/// How many `Reentrant` destructors have run - the observable half,
+/// like `counters_dropped` above.
+#[axiom_export]
+pub fn reentrant_drops() -> i64 {
+    REENTRANT_DROPS.load(Ordering::Relaxed)
+}
+
+/// How many of those destructors performed the reentrant retain.
+#[axiom_export]
+pub fn reentrant_retains() -> i64 {
+    REENTRANT_RETAINS.load(Ordering::Relaxed)
+}
+
 // 6b. `Option`. Status 2 is `None`; the wrapper answers `(Option Int)`.
 #[axiom_export]
 pub fn maybe(n: i64) -> Option<i64> {

@@ -1,0 +1,67 @@
+; A Rust `Drop` that re-enters the runtime while its own release is
+; still in flight.
+;
+; The release walk zeroes a handle's words BEFORE the indirect call
+; into its destructor, and tracks dead lists per invocation, so a
+; `Drop` that calls back into `axiom_retain`/`axiom_release` is an
+; ordinary call rather than reentrancy into a half-torn structure.
+; Each `Reentrant` shares one stashed heap word - a real Axiom block,
+; retained, never anything Rust built itself - and its `Drop`
+; retains that word once more and releases it twice, while the outer
+; release holds the value itself. A walker that confused the
+; reentrant call with the outer one would double-free (exit 139) or
+; lose a share; a leak would show the same way, in the counters.
+;
+; Each iteration builds one `Reentrant` through `mkR` and drops it on
+; the way out of the `let`: 100 Rust values freed through reentrant
+; destructors, none closed by hand. `mkR` takes an argument because a
+; bare nullary call's cell is never released - a pre-existing
+; ownership leak for every nullary reference-returning call, filed
+; separately with repros, in the safe (leaking) direction - while a
+; 1-argument owned call releases at let-exit as MM-LIFE-2c event 3
+; requires. The seed string is built, not literal, so the shared
+; block is a counted one and the protocol is real.
+(import IO)
+(import Fmt)
+(import Str)
+(import Demo)
+
+(pub :: mkR (-> Int Reentrant))
+;@axiom:effect(io)
+(fn (mkR tag)
+  (reentrantNew))
+
+(pub :: dropLoop (-> Int Int))
+;@axiom:effect(io)
+(pub fn (dropLoop i)
+  (if (>= i 100)
+    0
+    (let ((r (mkR i)))
+      (dropLoop (+ i 1)))))
+
+;@axiom:effect(io)
+(pub fn (main)
+  (let ((seed (strConcat "ab" "cd")))
+    {
+      (reentrantSeed
+        (cast Foreign seed))
+      (dropLoop 0)
+      (let (
+        (drops reentrantDrops)
+        (retains reentrantRetains)
+      )
+        {
+          reentrantDischarge
+          (if (&& (== drops 100) (== retains 100))
+            {
+              (println "reentrant drop: agree")
+              0
+            }
+            {
+              (println (fmtInt drops))
+              (println (fmtInt retains))
+              1
+            })
+        })
+    }))
+; expect 0

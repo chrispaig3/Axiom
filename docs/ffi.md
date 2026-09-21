@@ -536,6 +536,10 @@ after it would abort). `400-arc-retain.ax` churns 500 strings
 through `axiom_retain`/`axiom_release` from the Rust side;
 `410-foreign-not-walked.ax` and `420-null-foreign.ax` pin that a bare
 `Foreign` field — including 0 — is skipped by the release walk.
+`430-reentrant-drop.ax` proves the re-entrant half: 100 `Reentrant`
+values freed through a Rust `Drop` that retains the shared word once
+more and releases it twice while the outer release still holds the
+value, and the drops and retains counters both answer 100.
 
 ---
 
@@ -1179,7 +1183,8 @@ narrow ints, 120 bytes param, 130 callbacks, 140 vec, 200/210/220
 differential int/float/string
 (Axiom and Rust compute the same answer), 300 arity sweep (arity 0 is
 the one distinct emitter path), 310 ABI version, 400 ARC retain, 410
-foreign not walked, 420 null foreign; `tests/ffi/nostd/010-fnv1a.ax`;
+foreign not walked, 420 null foreign, 430 reentrant drop;
+`tests/ffi/nostd/010-fnv1a.ax`;
 `tests/ffi/probe-ungrounded/*.axbad`. The Rust side has its own, run in
 CI beside this gate as `cargo test --workspace --exclude axiom-host`
 (the host example is excluded because it links an archive this gate

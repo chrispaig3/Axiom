@@ -4126,6 +4126,10 @@ handle with no close call anywhere, and one explicit `counterClose` on
 a handle still held makes 201; the emitted `@axiom_release` carries the
 `foreign:` arm (`grep foreign: <out>.ll` after `--emit-llvm`).
 `tests/ffi/demo/410` and `420` pin the converse for `Foreign`.
+`tests/ffi/demo/430-reentrant-drop.ax` is the evidence for the
+re-entrancy clause above: 100 values freed through a `Drop` that calls
+back into `axiom_retain`/`axiom_release` mid-release, with the drops
+and retains counters agreeing at 100.
 
 ---
 

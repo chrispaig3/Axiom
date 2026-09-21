@@ -61,6 +61,12 @@
   (pointsScaleRaw :: (-> Int Int Int Int) (symbol "axffi_points_scale"))
   (pointsTryRaw :: (-> Int Int Int) (symbol "axffi_points_try"))
   (rangeVecRaw :: (-> Int Int Int) (symbol "axffi_range_vec"))
+  (reentrantDischarge :: Int (symbol "axffi_reentrant_discharge"))
+  (reentrantDropFn :: Int (symbol "axffi_reentrant_drop_fn"))
+  (reentrantDrops :: Int (symbol "axffi_reentrant_drops"))
+  (reentrantNewRaw :: Foreign (symbol "axffi_reentrant_new"))
+  (reentrantRetains :: Int (symbol "axffi_reentrant_retains"))
+  (reentrantSeed :: (-> Foreign Int) (symbol "axffi_reentrant_seed"))
   (shoutRaw :: (-> String Int Int) (symbol "axffi_shout"))
   (splitWordsRaw :: (-> String Int Int) (symbol "axffi_split_words"))
   (strDrop :: Int (symbol "axffi_str_drop"))
@@ -118,6 +124,16 @@
 (pub fn (counterClose c)
   (match c
     ((Counter __h) (ffiHandleClose __h))))
+
+; `Reentrant` is a Rust value held through a `Handle`: when the last
+; reference dies the handle runs `axffi_reentrant_drop`.
+(pub data Reentrant
+  (Reentrant Handle))
+
+(pub :: reentrantClose (-> Reentrant Int))
+(pub fn (reentrantClose c)
+  (match c
+    ((Reentrant __h) (ffiHandleClose __h))))
 
 (pub :: bytesOf (-> String String))
 ;@axiom:effect(io)
@@ -538,6 +554,15 @@
       (ffiCellFree __c)
       __v
     }))
+
+(pub :: reentrantNew Reentrant)
+;@axiom:effect(io)
+(pub fn (reentrantNew)
+  (let (
+    (__p (cast Int reentrantNewRaw))
+    (__h (ffiHandleNew __p reentrantDropFn))
+  )
+    (Reentrant __h)))
 
 (pub :: shout (-> String String))
 ;@axiom:effect(io)
