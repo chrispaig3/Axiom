@@ -1,11 +1,13 @@
 # Embedded Axiom — a proposal
 
 <!-- STATUS, at the top where a reader stops: this document is a
-     PROPOSAL, and three of its numbered items are now built. 4.6
-     shipped in 0.7.5; 4.1 and 4.2 ship here. Each is struck in section
-     8's table and rewritten in place to say what landed and what the
-     proposal got wrong about it. 4.3, 4.4, 4.5 and the section 6
-     reference port are still proposals, and nothing in them exists.
+     PROPOSAL, and seven of its eight numbered items are now built -
+     everything except the section 6 reference port, whose blink
+     fixture and QEMU gate leg have landed while the port itself
+     (items 1-3: the target row, the platform module, the linker
+     script and reset vector) has not. Each shipped item is struck in
+     section 8's table and rewritten in place to say what landed and
+     what the proposal got wrong about it.
      Sections 2 and 3 are MEASUREMENTS taken on 2026-09-03 against the
      tree at that commit, with the command beside each, and they are
      the reason the proposal is worth writing.
@@ -389,25 +391,26 @@ The deliverable is four files and a gate:
    trapping, which the ERR-ADOPT work has already made expressible.
 3. A linker script and a reset vector that sets `sp` and branches to
    `main`.
-4. A blink fixture in a new embedded test directory — the smallest
-   program that proves the loop: initialise, allocate, write a byte to
-   the UART, reclaim, exit. (Described rather than named, on purpose.
-   `check-doc-drift.sh` resolves every fixture path and every bare
-   `NNN-name.ext` a document mentions, and it refused two spellings of
-   this line before this one: a document may not name a file that does
-   not exist. That is the gate working, and it is why section 8's
-   *proposed* rows name a gate rather than a path.)
-5. `scripts/check-embedded.sh` — which now EXISTS, for 4.1 and 4.2,
-   and does none of the QEMU half. What it establishes today is that
-   the two values a port must set are per-target values, that setting
-   them changes the emitted program in the ways they claim, and that a
-   program built with them set runs and traps correctly on the host.
-   What the port adds to it is the device: build the four files above,
-   run under `qemu-system-aarch64 -nographic -machine virt`, and assert
-   the exact bytes on the UART and the exit status. The ablation this
-   line asked for is already there and already runs on every gate
-   invocation rather than being a drill — a program too large for the
-   reserved region must exit 70, against a control that exits 0.
+4. `tests/embedded/blink.ax` and its oversized twin
+   `tests/embedded/blink-oom.ax` — the smallest programs that prove
+   the loop: initialise, allocate, write to the UART, reclaim, exit.
+   (This line described the fixture rather than naming it until the
+   files existed: `check-doc-drift.sh` resolves every fixture path a
+   document mentions, and it refused two spellings of this line before
+   the descriptive one. A document may not name a file that does not
+   exist; now that they do, they are named.)
+5. `scripts/check-embedded.sh`, A10 — the QEMU half, which EXISTS now
+   and waits on items 1-3. It builds the fixtures above for
+   `baremetal-aarch64`, boots each under `qemu-system-aarch64 -machine
+   virt -nographic`, and asserts the exact bytes on the UART and the
+   exit status: blink's UART must equal its hosted stdout byte for byte
+   at exit 0, and the oversized twin must exit with the status
+   `tests/stdlib/314-out-of-memory.exit` pins against a control that
+   exits 0. The guest's status reaches the process through a
+   semihosting SYS_EXIT (`hlt #0xf000`, x0 = 0x18, reason 0x20026 and
+   the status in two 64-bit words), which is the exit contract the
+   port's item 3 implements. Until the target exists the leg skips
+   loudly on the probe, as it does where QEMU is not installed.
 
 ## 7. Out of scope, deliberately
 
@@ -437,7 +440,7 @@ A row is done when the gate named beside it is green in CI.
 | 4.5 | ISR entry form | `check-isr.sh` | **done** |
 | 4.6 | static stack bound from the call graph | `check-stack-bound.sh` | **done** |
 | 4.7 | bounded heaps on hosted targets | `check-embedded.sh` (A7, `ceiling` ablation) | **done** |
-| 6 | the QEMU reference port | `check-embedded.sh` | proposed |
+| 6 | the QEMU reference port | `check-embedded.sh` (A10) | fixture + leg landed, port pending |
 
 **4.6 was done first**, for the reason it was ranked first: every other
 item is mechanical once the constants move, while the stack bound is the
