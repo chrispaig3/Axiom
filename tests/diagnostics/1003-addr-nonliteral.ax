@@ -1,0 +1,6 @@
+; `__addr` answers a literal's bytes; a non-literal argument has no
+; interned bytes. AX3072.
+(:: main Int)
+(fn (main)
+  (let ((s "held"))
+    (__addr s)))

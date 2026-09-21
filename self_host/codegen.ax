@@ -17004,14 +17004,13 @@
 
 ; `(__addr "text")` is the only way a literal's bytes reach the program.
 ; The literal is interned into the module's string table and referenced
-; by the global the table will emit. A NON-literal argument takes the
-; other arm below and evaluates like any expression: the answer is the
-; value's address, not interned bytes, and nothing checks that the
-; caller meant bytes. Every use in this repository spells the literal
-; (`grep -rn '__addr' stdlib/ tests/`); a call with anything else is a
-; program obligation, and refusing it statically is open work, not a
-; rule - the checker types `__addr` as `(-> String Int)` and any
-; `String` expression satisfies that today.
+; by the global the table will emit. A NON-literal argument is refused
+; upstream as AX3072 (`addr-nonliteral`): it would evaluate like any
+; expression and answer the value's address, not interned bytes.
+; Every use in this repository spells the literal
+; (`grep -rn '__addr' stdlib/ tests/`); what follows is what a literal
+; takes, and the other arm is now unreachable from checked programs
+; rather than a quiet wrong answer.
 (pub :: emitPrimAddr (-> (Vec Int) Int Int))
 ;@axiom:effect(io)
 (pub fn (emitPrimAddr args cg)

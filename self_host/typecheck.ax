@@ -9266,6 +9266,35 @@
         "store through `memSetWord`, which retains first - or `Ffi.ax`'s handle paths for handles"
         "a raw `__store64` writes the word and nothing else; the release walk never counted a share it cannot see") (strConcat (strConcat "storing `" (tyRender oty)) "`"))))))
 
+; `__addr` of anything but a string literal.
+;
+; `(__addr "text")` is the only spelling with interned bytes behind
+; it: the literal is entered in the module's string table and the
+; answer is the table's global. A non-literal argument reaches the
+; emitter, which evaluates it like any expression and answers the
+; value's address - the header, not bytes - so a caller asking for
+; bytes gets an address it never asked for, silently. Every use in
+; this repository spells the literal; the rule makes that
+; universal. Runs beside the `__store64` refusal above, and only at
+; the root of a complete application, for the same reason.
+(pub :: checkAddrLitRefusal (-> Int Int Int Int))
+(pub fn (checkAddrLitRefusal tc e arg)
+  (if (== (nodeTag arg) TAG_E_STR)
+    0
+    (let ((sp (spanOf arg)))
+      (if (== sp 0)
+        0
+        (emitDiag tc (diagSetLabel (mkDiagNote
+          SEV_ERROR
+          "AX3072"
+          "addr-nonliteral"
+          sp
+          "`__addr` answers a literal's bytes: a non-literal argument has no interned bytes, and the address it yields is the value's header, not its text"
+          0
+          0
+          "spell the literal - `(__addr \"text\")` - or read bytes out of a value with `strData`"
+          "the emitter evaluates a non-literal like any expression, so what comes back is an address the caller never asked for") "not a literal"))))))
+
 (pub :: checkApp (-> Int Int Int Int))
 (pub fn (checkApp tc e inHead)
   ; The hole rewrite happens FIRST: if the head is `format#`, the
@@ -9405,12 +9434,20 @@
                                 ; here - after this level's argument is
                                 ; checked, so the operand below was checked
                                 ; exactly once, by the normal flow - and
-                                ; only at the spine root, so one store
-                                ; draws one diagnostic. A side check: the
-                                ; arms below decide this application's
-                                ; type exactly as they did before.
-                                (if (&& (== inHead 0) (&& (== headIsVar 1) (strEq hname "__store64")))
+                                ; only at the root of a complete store, so
+                                ; one store draws one diagnostic. A side
+                                ; check: the arms below decide this
+                                ; application's type exactly as they did
+                                ; before.
+                                (if (&& (== inHead 0) (&& (== headIsVar 1) (&& (strEq hname "__store64") (== (spineArgs e 0) 3))))
                                   (checkStoreWordRefusal tc e (nodeB e))
+                                  0)
+                                ; `__addr` of anything but a literal, refused
+                                ; in the same place and for the same reason:
+                                ; only the root of a complete application,
+                                ; decided below exactly as before.
+                                (if (&& (== inHead 0) (&& (== headIsVar 1) (&& (strEq hname "__addr") (== (spineArgs e 0) 1))))
+                                  (checkAddrLitRefusal tc e (nodeB e))
                                   0)
                                 (if (== (nodeTag funcTy) TAG_T_ARR)
                                   {

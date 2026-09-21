@@ -81,6 +81,7 @@
   [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
   [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
+  [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2473,6 +2474,13 @@ AX3071 - a bare `__store64` of a reference that takes no share
 
 Store through `memSetWord`, which retains first (`stdlib/Mem.ax`), or `Ffi.ax`'s handle paths for handles. Only what the checker can see is refused: a variable it resolves, or a literal, whose class is a reference. A call result, a field, or any shape whose type is not in hand at the store is skipped, as is anything poisoned already - missing those is the status quo, and an `Int` smuggled through a word-sized channel stays invisible the way it always has.
 
+### explain AX3072
+AX3072 - `__addr` of anything but a string literal
+
+`(__addr "text")` is the only spelling with interned bytes behind it: the literal is entered in the module's string table and the answer is the table's global. A non-literal argument reaches the emitter, which evaluates it like any expression and answers the value's address - the header, not bytes - so a caller asking for bytes gets an address it never asked for, silently.
+
+Spell the literal, or read bytes out of a value with `strData` (`stdlib/Str.ax`). Every use in this repository spells the literal; the rule makes that universal.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2863,6 +2871,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
   [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
+  [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

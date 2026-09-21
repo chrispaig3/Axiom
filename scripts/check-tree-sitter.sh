@@ -189,7 +189,7 @@ done < <(cd "$repo_root" && git ls-files -- '*.ax' | sed 's|^|../|' | sort)
 # A FLOOR, not a non-emptiness test. `-eq 0` was the guard here, and it
 # is satisfied by garbage: when the substitution above broke, `sources`
 # held 30 lines of this script's own comment and the guard was happy.
-# The tree has 687 `.ax` files today; 600 is a floor that a real
+# The tree has 688 `.ax` files today; 600 is a floor that a real
 # deletion campaign would have to cross deliberately and that no
 # malfunction of the enumeration can drift under.
 if [[ "${#sources[@]}" -lt 600 ]]; then

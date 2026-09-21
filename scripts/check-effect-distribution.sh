@@ -84,6 +84,12 @@
 # other bucket frozen, which is what the gate itself reports. The
 # required/ambient line did not move; the pin did, by that delta.
 #
+# RE-PINNED 2026-09-21 (3): the `__addr`-of-nonliteral refusal adds
+# one function, `checkAddrLitRefusal`, reading exactly `Alloc,Mut`
+# (its diagnostic), and moves nothing else - so exactly-`Alloc,Mut`
+# moves 2172 to 2173, every other bucket frozen. The
+# required/ambient line did not move.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -113,7 +119,7 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2172 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2173 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 396 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 123 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 119 "exactly Alloc"

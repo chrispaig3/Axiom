@@ -1,0 +1,11 @@
+[1;31merror[AX3072][0m[1m: `__addr` answers a literal's bytes: a non-literal argument has no interned bytes, and the address it yields is the value's header, not its text[0m
+ [1;34m--> [0m1003-addr-nonliteral.ax:6:13
+[1;34m  |[0m
+[1;34m6 |[0m     (__addr s)))
+[1;34m  |[0m             [1;31m^ not a literal[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0mthe emitter evaluates a non-literal like any expression, so what comes back is an address the caller never asked for
+ [1;34m = [0m[1;32mhelp: [0mspell the literal - `(__addr "text")` - or read bytes out of a value with `strData`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3072` for a full explanation
+
+compilation failed due to 1 previous error

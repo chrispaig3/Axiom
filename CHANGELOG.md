@@ -16,6 +16,16 @@ its changelog too.
 
 ## Unreleased
 
+### `__addr` of a non-literal is refused — `tests/diagnostics/1003-addr-nonliteral.ax`
+
+`(__addr "text")` is the only spelling with interned bytes behind it;
+a non-literal argument reaches the emitter, which evaluates it like
+any expression and answers the value's header instead of bytes - a
+silent wrong answer. The new `AX3072 addr-nonliteral` is an error at
+the argument, and every use in the tree already spells the literal, so
+the silence sweep stays silent. `tests/diagnostics/UNCOVERED` reads 86
+constructed, 76 primary.
+
 ### A bare `__store64` of a reference is refused — `tests/diagnostics/1002-unretained-store.ax`
 
 `__store64` writes the word and nothing else: it takes no share of

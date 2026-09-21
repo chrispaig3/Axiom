@@ -1121,6 +1121,11 @@ share, so the owner's release frees a block the stored word still
 names (`tests/diagnostics/1002-unretained-store.ax`). From the free
 end as well, leaving `AX3043`, `AX3045` and `AX3046` proposed.
 
+`AX3072` was spent the same day by `addr-nonliteral`: `__addr` of
+anything but a string literal, which has no interned bytes behind it
+(`tests/diagnostics/1003-addr-nonliteral.ax`). From the free end as
+well.
+
 **ERR-DIAG-3 (P). Poisoning, not cascading.** Where a check on an error
 type fails, propagate `TError` and guard downstream comparisons, so one
 mistake draws one diagnostic. Reach for a group key only when a real
