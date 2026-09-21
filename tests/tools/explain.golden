@@ -80,6 +80,7 @@
   [93mAX3068[0m  a `lambda` with no parameters, which can never be called  (nullary-lambda)
   [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
   [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
+  [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2465,6 +2466,13 @@ Under MM-VAL-8 a nullary constructor IS its tag, so a value of such a type may b
 
 Match on the value instead, and read the field in the arm that has it. A field that does not exist on the type is AX3007.
 
+### explain AX3071
+AX3071 - a bare `__store64` of a reference that takes no share
+
+`__store64` writes the word and nothing else: it takes no share of the stored value. Storing a reference - a `String`, a `data` or `struct` value, a closure - without retaining it leaves a share the release walk never counted, and the owner's release frees a block the stored word still names.
+
+Store through `memSetWord`, which retains first (`stdlib/Mem.ax`), or `Ffi.ax`'s handle paths for handles. Only what the checker can see is refused: a variable it resolves, or a literal, whose class is a reference. A call result, a field, or any shape whose type is not in hand at the store is skipped, as is anything poisoned already - missing those is the status quo, and an `Int` smuggled through a word-sized channel stays invisible the way it always has.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2854,6 +2862,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3068[0m  a `lambda` with no parameters, which can never be called  (nullary-lambda)
   [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
   [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
+  [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

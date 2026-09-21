@@ -76,6 +76,14 @@
 # every IO bucket frozen again. The required/ambient line did not
 # move; the pins did, by the delta above and no more.
 #
+# RE-PINNED 2026-09-21 (2): the `__store64`-of-reference refusal adds
+# five functions and moves nothing else. `checkStoreWordRefusal`,
+# `storeOperandTy`, `storeVarTy`, `storeCastOperand` and
+# `emitStoreWordUnretained` all read exactly `Alloc,Mut` (vectors and
+# diagnostics) - five new functions, one bucket up by five, every
+# other bucket frozen, which is what the gate itself reports. The
+# required/ambient line did not move; the pin did, by that delta.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -105,7 +113,7 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2167 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 2172 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 396 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 123 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 119 "exactly Alloc"

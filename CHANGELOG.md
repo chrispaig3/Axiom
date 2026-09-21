@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### A bare `__store64` of a reference is refused — `tests/diagnostics/1002-unretained-store.ax`
+
+`__store64` writes the word and nothing else: it takes no share of
+the stored value, so a reference stored without retaining leaves a
+share the release walk never counted, and the owner's release frees a
+block the stored word still names. The new `AX3071 unretained-store`
+is an error at the stored value, naming its type, and it fires only
+for what the checker can see - a variable it resolves silently, or a
+literal, through any depth of `cast`, whose class is a reference
+(`evClassOf` 1, the notion the release walk trusts). A direct
+uncast reference is still `AX3004`'s alone; a call result, a field,
+poison and the unclassifiable are skipped, which is the status quo
+for those shapes and not a regression. The fix it names is
+`memSetWord`, which retains first. Every `__store64` in the tree
+stores a scalar or goes through `memSetWord`/`Ffi.ax`, so the
+silence sweep stays silent; `tests/diagnostics/UNCOVERED` reads 85
+constructed, 75 primary.
+
 ### `AX3008` is split four ways, AXTAG double-reports are one report, and `fmt` terminates — `tests/diagnostics/270-*.axdl`
 
 `AX3008 semantic-error` covered four shapes with unrelated remedies, so

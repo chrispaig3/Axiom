@@ -1115,6 +1115,12 @@ slug change, and the four corpus fixtures (`270`, `390`, `395`,
 `480`) are their primaries. Taken from the free end, above the
 reserved block, by this section's own rule.
 
+`AX3071` was spent on 2026-09-21 by `unretained-store`: a bare
+`__store64` of a reference-typed value through `cast`, which takes no
+share, so the owner's release frees a block the stored word still
+names (`tests/diagnostics/1002-unretained-store.ax`). From the free
+end as well, leaving `AX3043`, `AX3045` and `AX3046` proposed.
+
 **ERR-DIAG-3 (P). Poisoning, not cascading.** Where a check on an error
 type fails, propagate `TError` and guard downstream comparisons, so one
 mistake draws one diagnostic. Reach for a group key only when a real

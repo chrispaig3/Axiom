@@ -1,0 +1,12 @@
+; A bare `__store64` of a reference takes no share: the stored word
+; names a block whose release the walk never counted. AX3071.
+(:: main Int)
+(fn (main)
+  (let ((s "held"))
+    {
+      (__store64
+        (__alloc 16)
+        0
+        (cast Int s))
+      0
+    }))

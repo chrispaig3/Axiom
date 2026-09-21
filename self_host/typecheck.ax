@@ -9145,6 +9145,127 @@
 ; silently; a silent wildcard stays silent; anything else is
 ; "expected function type".
 ; ------------------------------------------------------------------
+; A bare `__store64` of a reference-typed value through `cast`.
+;
+; `__store64` takes no share: it writes the word and nothing else,
+; so storing a reference without retaining it leaves a share the
+; release walk never counted, and the owner's release frees a block
+; this word still names. The named wrapper is `memSetWord`, which
+; retains first (`stdlib/Mem.ax`); `Ffi.ax`'s handle paths are its
+; only other legitimate writers, and every use in this repository
+; stores a scalar or goes through one of them.
+;
+; Runs at the spine root after this level's argument is checked, so
+; the operand below was checked exactly once, by the normal flow -
+; this arm reads types, it never checks. Only the cast-headed shape
+; is read: a direct (uncast) reference against `Int` is AX3004's,
+; decided below. Only what the checker can SEE is refused: a
+; variable resolved without diagnostics (or a literal, whose type
+; is its tag), and only a reference class (`evClassOf` 1, the same
+; notion the release walk trusts). A call result, a field, poison,
+; the untyped and the unclassifiable are skipped: missing those is
+; the status quo, not a regression, and refusing them would need a
+; type this site cannot honestly name.
+(pub :: checkStoreWordRefusal (-> Int Int Int Int))
+(pub fn (checkStoreWordRefusal tc e val)
+  (if (!= (nodeTag val) TAG_E_APP)
+    0
+    (if (strEq (divHeadName val) "cast")
+      (let ((oty (storeOperandTy tc (storeCastOperand val))))
+        (if (==
+          (cast Int oty)
+          0)
+          0
+          (if (== (tyIsErr oty) 1)
+            0
+            (if (!= (evClassOf tc oty) 1)
+              0
+              (emitStoreWordUnretained tc e val oty)))))
+      0)))
+
+; Through nested casts to the original value: `(cast Int (cast Int
+; s))` stores `s`'s block all the same, so one level is not enough.
+; Stops at surplus - `((cast Int f) x)` stores the application of
+; the cast result, whose type the cast target already names, and
+; that application node is not a shape below judgment calls. Always
+; descends to a strict subnode, so it terminates with the source.
+(pub :: storeCastOperand (-> Int Int))
+(pub fn (storeCastOperand v)
+  (if (!= (nodeTag v) TAG_E_APP)
+    v
+    (if (strEq (divHeadName v) "cast")
+      (let ((args (spineArgVec v vecNew)))
+        (if (!= (vecLen args) 2)
+          v
+          (storeCastOperand (vecGet args 1))))
+      v)))
+
+; The type of a store operand this site may judge: a variable
+; resolved the way `checkVar` resolves it but silently (a name
+; nothing declares already drew its diagnostic from the normal
+; flow, and this arm adds none), or a literal, whose type is its
+; tag. Anything else is 0 - not a type, but the absence of an
+; answer this site may act on.
+(pub :: storeOperandTy (-> Int Int Int))
+(pub fn (storeOperandTy tc op)
+  (let ((tag (nodeTag op)))
+    (if (== tag TAG_E_VAR)
+      (storeVarTy tc op)
+      (if (== tag TAG_E_INT)
+        mkIntTy
+        (if (== tag TAG_E_FLT)
+          mkFloatTy
+          (if (== tag TAG_E_CHAR)
+            mkCharTy
+            (if (== tag TAG_E_STR)
+              mkStringTy
+              0)))))))
+
+; `checkVar`'s resolution without its diagnostics: the local scope
+; (never for a template-owned reference, which resolves where the
+; template was written), then the function table, then the
+; constructors. `true` and `false` are Bool spellings, not names,
+; and a miss is 0 rather than a second AX3001.
+(pub :: storeVarTy (-> Int Int Int))
+(pub fn (storeVarTy tc v)
+  (let ((name (nodeAName v)))
+    (if (|| (strEq name "true") (strEq name "false"))
+      0
+      (if (== (nodeDefScope v) 1)
+        (let ((ent (findFnEnt tc name)))
+          (if (!= ent 0)
+            (memGetWord ent 1)
+            (let ((ctor (findCtor tc name)))
+              (if (!= ctor 0)
+                (memGetWord ctor 3)
+                0))))
+        (let ((fr (scopeFindFrame tc name)))
+          (if (!= fr 0)
+            (sEntTy fr)
+            (let ((ent (findFnEnt tc name)))
+              (if (!= ent 0)
+                (memGetWord ent 1)
+                (let ((ctor (findCtor tc name)))
+                  (if (!= ctor 0)
+                    (memGetWord ctor 3)
+                    0))))))))))
+
+(pub :: emitStoreWordUnretained (-> Int Int Int Int Int))
+(pub fn (emitStoreWordUnretained tc e val oty)
+  (let ((sp (spanOf val)))
+    (if (== sp 0)
+      0
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR
+        "AX3071"
+        "unretained-store"
+        sp
+        (strConcat (strConcat "storing a `" (tyRender oty)) "` with a bare `__store64` takes no share: the owner's release frees a block this word still names")
+        0
+        0
+        "store through `memSetWord`, which retains first - or `Ffi.ax`'s handle paths for handles"
+        "a raw `__store64` writes the word and nothing else; the release walk never counted a share it cannot see") (strConcat (strConcat "storing `" (tyRender oty)) "`"))))))
+
 (pub :: checkApp (-> Int Int Int Int))
 (pub fn (checkApp tc e inHead)
   ; The hole rewrite happens FIRST: if the head is `format#`, the
@@ -9280,6 +9401,17 @@
                                     (if (< c 0)
                                       0
                                       c)))
+                                ; A bare `__store64` of a reference, refused
+                                ; here - after this level's argument is
+                                ; checked, so the operand below was checked
+                                ; exactly once, by the normal flow - and
+                                ; only at the spine root, so one store
+                                ; draws one diagnostic. A side check: the
+                                ; arms below decide this application's
+                                ; type exactly as they did before.
+                                (if (&& (== inHead 0) (&& (== headIsVar 1) (strEq hname "__store64")))
+                                  (checkStoreWordRefusal tc e (nodeB e))
+                                  0)
                                 (if (== (nodeTag funcTy) TAG_T_ARR)
                                   {
                                     (if (== (tyCompat argTy (nodeA funcTy)) 0)
