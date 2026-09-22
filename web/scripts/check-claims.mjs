@@ -44,10 +44,17 @@ const CLAIMS = [
     // into the page. `node_modules` is excluded for the same reason it
     // is excluded from the Linux harness's tar: a nested copy of
     // somebody else's tree is not this tree.
+    //
+    // `.muse/` joins the exclusion for the same reason on 2026-09-22:
+    // the harness moved its worktrees from `.claude/worktrees/` to
+    // `.muse/worktrees/`, the exclusion did not follow, and the count
+    // read 4,158 against a real 697 - the exact miscount this comment
+    // warns about, wearing a new directory.
     derive: () =>
       sh(
         "find . -name '*.ax' -not -path './.git/*'" +
-          " -not -path './.claude/*' -not -path '*/node_modules/*' | wc -l",
+          " -not -path './.claude/*' -not -path './.muse/*'" +
+          " -not -path '*/node_modules/*' | wc -l",
       ),
     format: (n) => String(Number(n)),
   },
