@@ -937,10 +937,11 @@ done
 (( prob )) || note "seven targets write their traps (15 apiece here), and none is silent"
 
 # The default has one spelling, held the way A2 holds 4.1's: a second
-# spelling is a target that cannot choose silence.
+# spelling is a target that cannot choose silence. 2026-09-21: the
+# formatter's normal-form move split the row's body onto its own line.
+nrow=$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().count("(pub fn (targetTrapSilent t)\n  0)"))' "$src_root/self_host/codegen.ax" || true)
 checks=$((checks + 1))
 prob=0
-nrow=$(grep -c '^(pub fn (targetTrapSilent t) 0)$' "$src_root/self_host/codegen.ax" || true)
 [[ "$nrow" == "1" ]] || { bad "targetTrapSilent's default is spelled $nrow times, not once"; prob=1; }
 (( prob )) || note "the silent strategy is one row, off unless a target asks"
 

@@ -144,7 +144,13 @@ ABLATIONS = {
 
 
 def replace_defn(src, name, newline, label):
-    """Replace a one-line `(pub fn (<name> t) ...)` outright.
+    """Replace a `(pub fn (<name> t) ...)` outright, one line or two.
+
+    2026-09-21: the formatter's normal-form move split the target-table
+    rows' one-line bodies across two lines. The anchor stays on the
+    header (exact whole-line match, exactly once) and the replacement
+    takes the header plus its single indented body line; anything else
+    aborts as loudly as before.
 
     ANCHORED ON THE HEADER, NOT ON THE VALUE, and that is not tidiness.
     The `chunk` ablation rewrites `targetArenaChunkBytes`'s body to
@@ -155,15 +161,17 @@ def replace_defn(src, name, newline, label):
     the header makes the two independent, which is what lets a drill
     that changes this row still be drilled.
     """
-    prefix = "(pub fn (%s t) " % name
+    header = "(pub fn (%s t)" % name
     lines = src.split("\n")
-    hits = [i for i, l in enumerate(lines) if l.startswith(prefix)]
+    hits = [i for i, l in enumerate(lines) if l == header]
     if len(hits) != 1:
-        die("%s did not apply - %d lines begin `%s`, not one.\n"
-            "       This edit replaces a ONE-LINE definition; if that row has "
-            "grown\n       a multi-line body, re-anchor it rather than "
-            "loosening the match." % (label, len(hits), prefix))
-    lines[hits[0]] = newline
+        die("%s did not apply - %d lines are exactly `%s`, not one.\n"
+            "       Re-anchor it on the row's current spelling rather than "
+            "loosening the match." % (label, len(hits), header))
+    if hits[0] + 1 >= len(lines) or not lines[hits[0] + 1].startswith("  "):
+        die("%s found the header but no single indented body line under it; "
+            "re-anchor it rather than guessing." % label)
+    lines[hits[0]:hits[0] + 2] = [newline]
     return "\n".join(lines)
 
 

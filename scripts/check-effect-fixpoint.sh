@@ -160,17 +160,22 @@ echo "== 2. and answers the same thing =="
 abl="$work/tree"
 mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/"
-seam='(pub fn (nextFrontier next decls) next)'
-n_seam="$(grep -c -F -x "$seam" "$abl/self_host/typecheck.ax" || true)"
+# 2026-09-21: the formatter's normal-form move split `nextFrontier`'s
+# one-line body across two lines. The rule is unchanged, so the
+# sentinel follows the spelling: the whole two-line definition,
+# counted exactly.
+seam_old='(pub fn (nextFrontier next decls)
+  next)'
+seam_new='(pub fn (nextFrontier next decls)
+  (allIndexes (vecLen decls)))'
+n_seam="$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().count(sys.argv[2]))' "$abl/self_host/typecheck.ax" "$seam_old" || true)"
 if [[ "$n_seam" != 1 ]]; then
   bad "self_host/typecheck.ax holds $n_seam copies of the ablation seam; this gate expects exactly 1"
 else
-  python3 - "$abl/self_host/typecheck.ax" <<'PY'
+  python3 - "$abl/self_host/typecheck.ax" "$seam_old" "$seam_new" <<'PY'
 import sys
-p = sys.argv[1]
+p, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
 s = open(p, encoding="utf-8").read()
-old = "(pub fn (nextFrontier next decls) next)"
-new = "(pub fn (nextFrontier next decls) (allIndexes (vecLen decls)))"
 assert s.count(old) == 1
 open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY
