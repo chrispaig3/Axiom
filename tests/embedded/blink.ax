@@ -1,0 +1,36 @@
+; docs/embedded-proposal.md section 6's reference-port probe: the
+; smallest program that proves the loop on a device - initialise,
+; allocate, write to the UART, reclaim, exit.
+;
+; `scripts/check-embedded.sh` (A10) builds this for the host and for
+; `baremetal-aarch64`, boots the second under `qemu-system-aarch64
+; -machine virt`, and requires the UART bytes to equal the host's
+; stdout byte for byte with the same exit status. Every line below
+; is load-bearing in that comparison:
+;
+;   LED ON   the first byte out: boot reached `main`
+;   42       allocated, written and read back inside a region
+;   LED OFF  still alive after the region's reset reclaimed it
+;
+; The region is the reclaim half: `MM-RGN-1` rolls the waterline back
+; when the body ends, so the 64 bytes die in one pointer move. The
+; read-back answers through the reset by value, which is what proves
+; the reset did not eat what the body returned.
+(import IO)
+(import Mem)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "LED ON")
+    (println
+      (region r
+        (let ((p (memAlloc 64)))
+          {
+            (memSetWord p 0 42)
+            (memGetWord p 0)
+          })))
+    (println "LED OFF")
+    0
+  })

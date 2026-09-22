@@ -19550,7 +19550,7 @@
             0
             0))
         )
-          (let ((at
+          (let ((at 
             (if (== (strLen src) 0)
               (- 0 1)
               (effectTagInsertAt src (spanStart (nodeSpan d))))))

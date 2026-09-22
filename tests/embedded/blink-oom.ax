@@ -1,0 +1,34 @@
+; The oversized ablation beside `blink.ax`: the same loop asking for
+; far more than any statically reserved region holds - 20,000 blocks
+; of 512 bytes is 10,240,000 bytes, which fits `mmap`'s megabytes and
+; overflows a 32 KiB arena three hundred times over. Under QEMU it
+; must trap with `MM-ALLOC-7`'s status 70 and the arena's sentence on
+; the UART; on the host the identical source prints the sum and exits
+; 0, so the 70 is the region's verdict and not the program's.
+;
+; The loop is a `while`, not the recursive chain `check-embedded.sh`'s
+; A6 probe uses. Two thousand frames fit a hosted stack; twenty
+; thousand do not fit a device's, and a guest that died by stack
+; exhaustion would trap with the wrong status for the wrong reason.
+; The sum of 1..20000 is 200010000, and it is wrong if any block was
+; handed out twice.
+(import IO)
+(import Mem)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((mut i 20000))
+    (let ((mut acc 0))
+      {
+        (println "OOM PROBE")
+        (while (> i 0)
+          (let ((p (memAlloc 512)))
+            {
+              (memSetWord p 0 i)
+              (set acc (+ acc (memGetWord p 0)))
+              (set i (- i 1))
+            }))
+        (println acc)
+        0
+      })))

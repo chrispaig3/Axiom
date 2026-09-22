@@ -895,7 +895,10 @@ jobs:
       # table changed, and the target given a 256 KiB static arena has
       # to build a program that RUNS - same answer as the `mmap` build,
       # and status 70 when it outgrows the region against a control that
-      # exits 0. Costs one extra compiler build.
+      # exits 0. Costs one extra compiler build. A10 is the reference
+      # port's device leg: the blink fixture for `baremetal-aarch64`,
+      # booted under QEMU with its UART bytes and exit status asserted -
+      # skipping loudly until the port lands and where QEMU is absent.
       - name: The arena's chunk size is a target constant and mmap is one of two strategies
         run: ./scripts/check-embedded.sh
 

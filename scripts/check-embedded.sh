@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------
 # The arena's - and now the trap path's - assumptions about a hosted
-# operating system, removed and gated. docs/embedded-proposal.md 4.1,
-# 4.2 and 4.3, and the gate its section 8 names for all three rows.
+# operating system, removed and gated, plus the reference port's
+# device leg. docs/embedded-proposal.md 4.1, 4.2, 4.3 and 6, and the
+# gate its section 8 names for all four rows.
 #
 # WHAT THE THREE ITEMS ARE. The emitted allocator asked the kernel for a
 # MEGABYTE the first time a program allocated, and `mmap` was the only
@@ -123,6 +124,14 @@
 #       silent on the host, suppresses exactly the lines A8 counts and
 #       no others; both binaries exit 72, the tree's naming the
 #       division on fd 2 and the silent one's fd 2 empty.
+#   A10 SECTION 6 - BLINK UNDER QEMU. The fixtures in
+#       `tests/embedded/` built for `baremetal-aarch64` and booted
+#       under `qemu-system-aarch64 -machine virt`: blink's UART bytes
+#       must equal the host build's stdout byte for byte with the
+#       same exit status, and the oversized ablation must exit with
+#       the status `tests/stdlib/314-out-of-memory.exit` pins against
+#       a control that exits 0. Skips loudly when the target has not
+#       landed or QEMU is not on PATH, and for no other reason.
 #
 # ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
 # directory, breaks ONE thing in `codegen.ax` there, builds every
@@ -147,13 +156,12 @@
 #             targets stop emitting their trap writes      -> A8
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
-# discovered: section 6's QEMU reference port. There is no bare-metal
-# TARGET in the tree - no triple, no `Sys/Platform.baremetal-*.ax`, no
-# linker script - so nothing here executes on a device. What it does
-# establish is that the three things the port needs from the COMPILER
-# are per-target values a port can set, that setting them changes the
-# emitted program in the ways they claim to, and that a program built
-# with them set runs and traps correctly. 4.4 and 4.5 remain proposed.
+# discovered: the port itself. There is no bare-metal TARGET in the
+# tree yet - no triple, no `Sys/Platform.baremetal-*.ax`, no linker
+# script - so A10's device leg skips until section 6's items 1-3 land.
+# What it establishes once they do is the device half: the UART bytes,
+# the exit status, and the 70. 4.4 and 4.5 are done under their own
+# gates (`check-nostd-subset.sh`, `check-isr.sh`).
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
@@ -937,12 +945,18 @@ done
 (( prob )) || note "seven targets write their traps (15 apiece here), and none is silent"
 
 # The default has one spelling, held the way A2 holds 4.1's: a second
-# spelling is a target that cannot choose silence. 2026-09-21: the
-# formatter's normal-form move split the row's body onto its own line.
-nrow=$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().count("(pub fn (targetTrapSilent t)\n  0)"))' "$src_root/self_host/codegen.ax" || true)
+# spelling is a target that cannot choose silence. The row is two lines
+# in the current normal form (`fn` heads stand alone), so the check
+# reads the header and the line under it as one spelling.
 checks=$((checks + 1))
 prob=0
-[[ "$nrow" == "1" ]] || { bad "targetTrapSilent's default is spelled $nrow times, not once"; prob=1; }
+spell="$(grep -A1 '^(pub fn (targetTrapSilent t)$' "$src_root/self_host/codegen.ax")"
+want="$(printf '(pub fn (targetTrapSilent t)\n  0)')"
+if [[ "$spell" != "$want" ]]; then
+  bad "targetTrapSilent's default is not the one spelling - a second spelling
+     is a target that cannot choose silence: [$spell]"
+  prob=1
+fi
 (( prob )) || note "the silent strategy is one row, off unless a target asks"
 
 # ---------------------------------------------------------------------
@@ -1008,6 +1022,195 @@ fi
 (( prob )) || note "status 72 out of both, the sentence out of one and zero bytes out of the other"
 fi
 
+# ---------------------------------------------------------------------
+echo "== A10. section 6: the blink fixture runs under QEMU =="
+# ---------------------------------------------------------------------
+# The reference port's device leg, docs/embedded-proposal.md section 6:
+# the blink fixture built for `baremetal-aarch64` and booted under
+# `qemu-system-aarch64 -machine virt`, its UART bytes and its exit
+# status asserted - plus the oversized ablation, a program too large
+# for the reserved region, which must exit with the status
+# tests/stdlib/314-out-of-memory.exit pins against a control that
+# exits 0.
+#
+# THE CONTRACT THIS LEG NEEDS FROM THE PORT (section 6 items 1-3), so
+# a red here names which half broke it:
+#
+#   * `--target baremetal-aarch64` is accepted, and `build` for it
+#     links one aarch64 ELF: the linker script places it in `virt`
+#     RAM and the reset vector sets sp and branches to `main`.
+#   * `println` and the trap sentences reach the PL011 UART at
+#     0x09000000, observable on stdio under `-nographic`.
+#   * the guest's exit status N surfaces as the qemu process's own
+#     status N, through a semihosting SYS_EXIT - `hlt #0xf000` with
+#     x0 = 0x18 and x1 pointing at two words, reason 0x20026
+#     (`ADP_Stopped_ApplicationExit`) and the status. That is the
+#     shape rust-embedded/qemu-exit's AArch64 backend uses, and the
+#     flags below are what the shape needs: `-semihosting` with
+#     `target=native`, `-monitor none` so stdio carries the UART and
+#     nothing else, `-no-reboot` so a faulting guest exits instead of
+#     resetting. Measured against hand-built guests: subcodes 0, 5
+#     and 70 surface as 0, 5 and 70 with the UART bytes exact and
+#     qemu's stderr empty - and the block is two 64-bit words,
+#     because two 32-bit ones read the reason as 0x4600020026 and
+#     every nonzero status came back 1.
+#
+# TWO SKIPS, both loud. The target does not exist until section 6's
+# items 1-3 land: the probe is an `emit-llvm`, and exit 3 naming
+# `unknown target` is the ONLY answer that skips - any other failure
+# is the port's, and fails. And QEMU is a host tool no runner image
+# promises: without `qemu-system-aarch64` on PATH the device is
+# untestable here, as `check-ffi.sh` is without cargo, and the leg
+# says so instead of passing over hardware it never booted.
+#
+# NO ABLATION DRILL, and the absence is load-bearing rather than lazy:
+# every drill in `embedded-patch.py` anchors on a string in
+# `codegen.ax`, and the port's emission - the UART writer, the exit
+# door - is not in this tree yet, so there is nothing to anchor on.
+# The comparisons prove themselves meanwhile: an empty UART fails
+# blink against its 17 hosted bytes, and a status that never leaves 0
+# fails the 70. The merge that lands the port owes this leg a drill
+# anchored on its emission.
+bm_target=baremetal-aarch64
+blink="$repo_root/tests/embedded/blink.ax"
+blinkoom="$repo_root/tests/embedded/blink-oom.ax"
+oompin="$repo_root/tests/stdlib/314-out-of-memory.exit"
+[[ -f "$blink" ]] || abort "$blink is gone; section 6's fixture has no probe."
+[[ -f "$blinkoom" ]] || abort "$blinkoom is gone; the oversized ablation has no probe."
+[[ -f "$oompin" ]] || abort "$oompin is gone; the exit-70 pin has no file."
+want_oom="$(cat "$oompin")"
+case "$want_oom" in ''|*[!0-9]*) abort "$oompin answers [$want_oom], not a status" ;; esac
+
+# One build, host or device. `--target` parses after the subcommand as
+# well as before it, so the device builds read as `build` flags
+# beside `--opt`.
+build_bm() {  # build_bm <tag> <source> [extra flags...]
+  local tag="$1" src="$2"; shift 2
+  "$axc" --diagnostic-format=ai build --input "$src" --output "$work/$tag" "$@" --opt 1 \
+    > "$work/$tag.build.log" 2>&1
+}
+# An aarch64 ELF and nothing else: magic, little-endian, EM_AARCH64
+# (183) at offset 18. The guard that names "linked for the wrong
+# machine" before qemu names it as a hung boot.
+is_aarch64_elf() {
+  python3 - "$1" <<'PY'
+import sys
+d = open(sys.argv[1], 'rb').read(20)
+ok = len(d) == 20 and d[:4] == b'\x7fELF' and d[5] == 1 and d[18] == 183 and d[19] == 0
+sys.exit(0 if ok else 1)
+PY
+}
+# Boot under QEMU and print the guest's status - or TIMEOUT, when the
+# guest never exits. The timeout is generous because a hung guest
+# spins host CPU under TCG until it is killed; a healthy one is out
+# in seconds. `python3` because macOS ships no `timeout(1)` and the
+# gate runs on macos-14 too.
+qemu_run() {  # qemu_run <elf> <uart_out> <qemu_err>
+  python3 - "$1" "$2" "$3" <<'PY'
+import subprocess, sys
+elf, out, err = sys.argv[1], sys.argv[2], sys.argv[3]
+cmd = ["qemu-system-aarch64", "-machine", "virt", "-cpu", "cortex-a72",
+       "-nographic", "-monitor", "none", "-no-reboot",
+       "-semihosting", "-semihosting-config", "enable=on,target=native",
+       "-kernel", elf]
+try:
+    p = subprocess.run(cmd, stdout=open(out, "wb"), stderr=open(err, "wb"), timeout=120)
+    print(p.returncode)
+except subprocess.TimeoutExpired:
+    print("TIMEOUT")
+PY
+}
+
+# The probe exercises target resolution and nothing else, so its
+# failure modes are the target's. The accepted-target list is printed
+# with the skip, so a port that landed under another NAME shows up as
+# a mismatch in every log rather than as a quiet wait.
+if ! emit "$axc" "$bm_target" "$work/min.ax" "$work/bm.probe.ll" --diagnostic-format=ai; then
+  checks=$((checks + 1))
+  if grep -q 'unknown target' "$work/emit.log" 2>/dev/null; then
+    echo "     the tree's compiler answers [$(head -1 "$work/emit.log")]"
+    note "$bm_target is not a target this compiler knows - section 6 items 1-3
+     have not landed, and A10 waits for them rather than failing over a port
+     that is not there"
+  else
+    bad "$bm_target failed to emit for a reason that is not 'unknown target':"
+    sed 's/^/       /' "$work/emit.log" | head -6
+  fi
+elif ! command -v qemu-system-aarch64 >/dev/null 2>&1; then
+  checks=$((checks + 1))
+  note "qemu-system-aarch64 is not on PATH: the device leg is untestable here, and says so"
+else
+checks=$((checks + 1))
+prob=0
+echo "     device leg live: $bm_target under $(qemu-system-aarch64 --version 2>/dev/null | head -1)"
+build_bm blink.host "$blink" \
+  || { bad "blink does not build for the host:"; sed 's/^/       /' "$work/blink.host.build.log" | head -6; prob=1; }
+build_bm blink.bm "$blink" --target="$bm_target" \
+  || { bad "blink emits for $bm_target but does not build - the link half of the port:"; sed 's/^/       /' "$work/blink.bm.build.log" | head -6; prob=1; }
+build_bm blinkoom.host "$blinkoom" \
+  || { bad "the oversized probe does not build for the host:"; sed 's/^/       /' "$work/blinkoom.host.build.log" | head -6; prob=1; }
+build_bm blinkoom.bm "$blinkoom" --target="$bm_target" \
+  || { bad "the oversized probe emits for $bm_target but does not build:"; sed 's/^/       /' "$work/blinkoom.bm.build.log" | head -6; prob=1; }
+if (( prob == 0 )); then
+  is_aarch64_elf "$work/blink.bm" \
+    || { bad "the $bm_target blink is not an aarch64 ELF - qemu -kernel would boot bytes for another machine"; prob=1; }
+  is_aarch64_elf "$work/blinkoom.bm" \
+    || { bad "the $bm_target oversized probe is not an aarch64 ELF"; prob=1; }
+fi
+if (( prob == 0 )); then
+  note "blink and its oversized twin build for the host and the device, and the device pair are aarch64 ELFs"
+  checks=$((checks + 1))
+  prob=0
+  "$work/blink.host" > "$work/blink.host.out" 2> "$work/blink.host.err"; host_blink_st=$?
+  printf 'LED ON\n42\nLED OFF\n' > "$work/blink.want"
+  st_uart="$(qemu_run "$work/blink.bm" "$work/blink.uart" "$work/blink.qemu.err")"
+  echo "     blink: host exit $host_blink_st, device exit $st_uart"
+  [[ "$host_blink_st" == "0" ]] \
+    || { bad "hosted blink exits $host_blink_st, not 0 - the control moved"; prob=1; }
+  cmp -s "$work/blink.host.out" "$work/blink.want" \
+    || { bad "hosted blink prints [$(tr '\n' ' ' < "$work/blink.host.out")], not [LED ON 42 LED OFF]"; prob=1; }
+  case "$st_uart" in
+    0) ;;
+    TIMEOUT) bad "blink never exited under QEMU in 120s - the guest hung past its semihosting door:"; head -c 300 "$work/blink.qemu.err" | sed 's/^/       /'; prob=1 ;;
+    *) bad "blink under QEMU exits $st_uart, not 0:"; head -c 300 "$work/blink.qemu.err" | sed 's/^/       /'; prob=1 ;;
+  esac
+  if ! cmp -s "$work/blink.host.out" "$work/blink.uart" 2>/dev/null; then
+    bad "the UART bytes are not the hosted bytes:"
+    { echo "--- host:"; od -A x -t x1 "$work/blink.host.out" 2>/dev/null; echo "--- uart:"; od -A x -t x1 "$work/blink.uart" 2>/dev/null; } | head -12 | sed 's/^/       /'
+    prob=1
+  fi
+  nlit=$(grep -o '"LED [A-Z]*"' "$blink" | wc -l | tr -d ' ')
+  [[ "$nlit" == "2" ]] \
+    || { bad "blink.ax carries $nlit LED literals, not 2 - the payload anchor moved"; prob=1; }
+  while IFS= read -r lit; do
+    lit="${lit%\"}"; lit="${lit#\"}"
+    grep -Fq -- "$lit" "$work/blink.uart" \
+      || { bad "the UART bytes lack [$lit], which blink.ax spells"; prob=1; }
+  done < <(grep -o '"LED [A-Z]*"' "$blink")
+  (( prob )) || note "device exit 0, UART bytes equal 17 hosted bytes, both LED literals on the wire"
+  checks=$((checks + 1))
+  prob=0
+  "$work/blinkoom.host" > "$work/blinkoom.host.out" 2> "$work/blinkoom.host.err"; host_oom_st=$?
+  printf 'OOM PROBE\n200010000\n' > "$work/blinkoom.want"
+  st_oom="$(qemu_run "$work/blinkoom.bm" "$work/blinkoom.uart" "$work/blinkoom.qemu.err")"
+  echo "     oversized: host exit $host_oom_st, device exit $st_oom, pin $want_oom"
+  [[ "$host_oom_st" == "0" ]] && cmp -s "$work/blinkoom.host.out" "$work/blinkoom.want" \
+    || { bad "the control - hosted oversized - answered [$host_oom_st $(tr '\n' ' ' < "$work/blinkoom.host.out")], not [0 OOM PROBE 200010000],
+     so a $want_oom from the device would be the program's verdict, not the region's"; prob=1; }
+  case "$st_oom" in
+    "$want_oom") ;;
+    TIMEOUT) bad "the oversized probe never exited under QEMU in 120s:"; head -c 300 "$work/blinkoom.qemu.err" | sed 's/^/       /'; prob=1 ;;
+    *) bad "the oversized probe under QEMU exits $st_oom, not $want_oom - exhausting the
+     region must trap with MM-ALLOC-7's status, the pin $oompin names:"; head -c 300 "$work/blinkoom.qemu.err" | sed 's/^/       /'; prob=1 ;;
+  esac
+  grep -q 'out of memory (arena exhausted)' "$work/blinkoom.uart" 2>/dev/null \
+    || { bad "the device trap printed no sentence naming the arena:"; head -c 300 "$work/blinkoom.uart" 2>/dev/null | sed 's/^/       /'; prob=1; }
+  grep -q 'OOM PROBE' "$work/blinkoom.uart" 2>/dev/null \
+    || { bad "the UART carries no boot line - the guest died before main"; prob=1; }
+  (( prob )) || note "device exit $want_oom with the arena's sentence on the UART, control 0"
+fi
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-embedded: $failed of $checks checks failed"
@@ -1015,5 +1218,6 @@ if (( failed > 0 )); then
 fi
 echo "check-embedded: $checks checks - the arena's chunk size is a target constant,"
 echo "                mmap is one of two strategies, and traps write or stay silent"
-echo "                per target, with every supported target emitting the bytes it"
-echo "                emitted before any of the three was true"
+echo "                per target - and where the bare-metal port and QEMU are both"
+echo "                present, blink boots under QEMU with its UART bytes, its exit"
+echo "                status and the oversized 70 asserted"
