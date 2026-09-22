@@ -12,31 +12,26 @@
 ; reentrant call with the outer one would double-free (exit 139) or
 ; lose a share; a leak would show the same way, in the counters.
 ;
-; Each iteration builds one `Reentrant` through `mkR` and drops it on
-; the way out of the `let`: 100 Rust values freed through reentrant
-; destructors, none closed by hand. `mkR` takes an argument because a
-; bare nullary call's cell is never released - a pre-existing
-; ownership leak for every nullary reference-returning call, filed
-; separately with repros, in the safe (leaking) direction - while a
-; 1-argument owned call releases at let-exit as MM-LIFE-2c event 3
-; requires. The seed string is built, not literal, so the shared
-; block is a counted one and the protocol is real.
+; Each iteration builds one `Reentrant` through a bare nullary call
+; and drops it on the way out of the `let`: 100 Rust values freed
+; through reentrant destructors, none closed by hand. A nullary call
+; parses as its bare head (`parseArgs` answers the head unchanged when
+; no argument follows), and the cell it answers is released at
+; let-exit like any owned call result - MM-LIFE-2c event 3, asked
+; through `valueOwnedRef`'s `VAR` arm (issue #35). The seed string is
+; built, not literal, so the shared block is a counted one and the
+; protocol is real.
 (import IO)
 (import Fmt)
 (import Str)
 (import Demo)
-
-(pub :: mkR (-> Int Reentrant))
-;@axiom:effect(io)
-(fn (mkR tag)
-  (reentrantNew))
 
 (pub :: dropLoop (-> Int Int))
 ;@axiom:effect(io)
 (pub fn (dropLoop i)
   (if (>= i 100)
     0
-    (let ((r (mkR i)))
+    (let ((r (reentrantNew)))
       (dropLoop (+ i 1)))))
 
 ;@axiom:effect(io)

@@ -147,6 +147,12 @@
 # pure (552 to 553). Neither line moves, and every IO bucket is
 # frozen again.
 #
+# RE-PINNED 2026-09-22 (5): the consume summary for issue #35. One
+# added, none removed, none changed - the new row read off `symbols`
+# by name: `fnConsumeMask` reads `Alloc,Mut,Unsafe` beside its
+# siblings `fnStashMask` and `fnRetMask`, so that bucket moves 2191 to
+# 2192. Neither line moves, and every other bucket is frozen again.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -183,7 +189,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2191 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2192 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1143 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 123 "Mut,Unsafe"

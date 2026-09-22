@@ -1,0 +1,83 @@
+; Map.ax teardown: a free hands the block back exactly once.
+;
+; `mapFree` CONSUMES its argument - the body's `__release` ends the
+; caller's share - so a let-bound map passed to it takes no scope-end
+; release (`fnConsumeMask`, MM-LIFE-2c event 3's consume half). A free
+; followed by a second, scope-end release corrupts the header count,
+; and the corruption accumulates: 100 build-and-free iterations in
+; each spelling (sized and nullary) must still exit 0. The sized
+; spelling double-freed on trunk (issue #35); the nullary spelling's
+; leak masked it there.
+(import IO)
+(import Map)
+
+(:: eqInt (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (eqInt name got want)
+  (if (== got want)
+    {
+      (println "ok   {name}")
+      0
+    }
+    {
+      (println "FAIL {name} got={got} want={want}")
+      1
+    }))
+
+(:: buildFreeSized (-> Int Int))
+(fn (buildFreeSized n)
+  (let ((m (mapWithCapacityRefVals 32)) (mut i 0))
+    {
+      (while (< i n)
+        { (mapInsert m i (strDup "hello world hello world")) (set i (+ i 1)) })
+      (mapFree m)
+    }))
+
+(:: buildFreeNullary (-> Int Int))
+(fn (buildFreeNullary n)
+  (let ((m mapNewRefVals) (mut i 0))
+    {
+      (while (< i n)
+        { (mapInsert m i (strDup "hello world hello world")) (set i (+ i 1)) })
+      (mapFree m)
+    }))
+
+(:: loop (-> Int Int Int))
+(fn (loop sized n)
+  (if (== n 0)
+    0
+    {
+      (if (== sized 1)
+        (buildFreeSized 32)
+        (buildFreeNullary 32))
+      (loop sized (- n 1))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mut bad 0)
+    (mut n 0)
+  )
+    {
+      (let ((m (mapWithCapacityRefVals 32)))
+        {
+          (mapInsert m 0 (strDup "hello world hello world"))
+          (set bad (+ bad (eqInt "sized count" (mapLen m) 1)))
+          (set bad (+ bad (eqInt "sized free answers zero" (mapFree m) 0)))
+          (set n (+ n 2))
+        })
+      (let ((m mapNewRefVals))
+        {
+          (mapInsert m 0 (strDup "hello world hello world"))
+          (set bad (+ bad (eqInt "nullary count" (mapLen m) 1)))
+          (set bad (+ bad (eqInt "nullary free answers zero" (mapFree m) 0)))
+          (set n (+ n 2))
+        })
+      (loop 1 100)
+      (loop 0 100)
+      (println "checks {n}")
+      (println "failures {bad}")
+      bad
+    }))

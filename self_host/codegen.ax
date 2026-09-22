@@ -677,7 +677,8 @@
   (owned : Int)
   (arity : Int)
   (stash : Int)
-  (ret : Int))
+  (ret : Int)
+  (consume : Int))
 
 (pub :: scanFloatSigs (-> (Vec Int) (Vec Int) Int (Vec Int)))
 (pub fn (scanFloatSigs decls sigs i)
@@ -697,6 +698,7 @@
                 (cgTakesEvidence (nodeTy d))
                 1
                 (- 0 1)
+                0
                 0
                 0)))
             0
@@ -740,6 +742,7 @@
                   0
                   1
                   (arrowArity (nodeB f))
+                  0
                   0
                   0)))
               0
@@ -1627,12 +1630,19 @@
                   (let (
                     (st (| (memGetWord e 7) (| st0 (arrivalToWord st0))))
                     (rt (| (memGetWord e 8) (flowMask cg (nodeC d) (nodeBVec d) vecNew)))
+                    ; what the open region consumed, net of its counts,
+                    ; widened to the word half like the stash summary:
+                    ; a parameter released on any path is consumed on
+                    ; every path the caller can reason about
+                    (co0 (& (memGetWord cell 3) (^ (memGetWord cell 1) (- 0 1))))
+                    (co (| (memGetWord e 9) (| co0 (arrivalToWord co0))))
                   )
-                    (if (&& (== st (memGetWord e 7)) (== rt (memGetWord e 8)))
+                    (if (&& (== st (memGetWord e 7)) (&& (== rt (memGetWord e 8)) (== co (memGetWord e 9))))
                       (inferFlowsPass cg decls (+ i 1) changed)
                       {
                         (memSetWord e 7 st)
                         (memSetWord e 8 rt)
+                        (memSetWord e 9 co)
                         (inferFlowsPass cg decls (+ i 1) 1)
                       })))
               })))))))
@@ -1796,6 +1806,25 @@
     (if (== e 0)
       0
       (memGetWord e 8))))
+
+; The parameters this function CONSUMES - releases a share of, so the
+; caller must not hand it back. `mapFree`'s `(__release (cast Int m))`
+; is the shape: the body's release ends the caller's share exactly as
+; a park would, but a park keeps the slot's share alive for the stash
+; while a release leaves nothing - so this is its own summary beside
+; `stash`, not a bit in it. `releaseRefParamSlotsFrom` reads the
+; stash mask to SKIP the slot's return-path release, and skipping it
+; for a consumed parameter would leak the entry retain; the consume
+; mask is read only where a caller-side release is decided
+; (`argOwnedRelease`, `callEscapesArg`), where parked and consumed
+; agree. An `extern` item consumes nothing: the boundary contract
+; borrows every argument.
+(pub :: fnConsumeMask (-> Int String Int))
+(pub fn (fnConsumeMask cg name)
+  (let ((e (findFSigCg cg (mangledForCg cg name))))
+    (if (== e 0)
+      0
+      (memGetWord e 9))))
 
 ; The mask of parameters whose reference may be (part of) `e`'s
 ; value, in the form it has here. `env` is a flat name/mask vector
@@ -2385,17 +2414,25 @@
 ; The region cell: word 0 the stashes pending in the open region
 ; (a child's, already netted against the child's own counts, joins
 ; its parent's on leave), word 1 the counts taken in the open region,
-; word 2 a stack of the enclosing regions' (stash, count) pairs. A
-; count cancels a stash when the count's region encloses the stash's:
-; the same arm, or any region around it - that is every path the
-; stash runs on.
+; word 2 a stack of the enclosing regions' (stash, count) pairs, and
+; word 3 the CONSUMES pending in the open region - the parameters a
+; `__release` in the region ends the caller's share of. A count
+; cancels a stash when the count's region encloses the stash's: the
+; same arm, or any region around it - that is every path the stash
+; runs on. A count cancels a consume the same way and for a better
+; reason: a retain paired with the release leaves the share intact,
+; so the caller still owes its own. Word 3 rides the same
+; enter/leave scoping as word 0, and nothing but a release ever
+; writes it, so the final net reads it against word 1 exactly as
+; `regionNet` reads word 0.
 (pub :: regionNew Int)
 (pub fn (regionNew)
-  (let ((cell (memAlloc 24)))
+  (let ((cell (memAlloc 32)))
     {
       (memSetWord cell 0 0)
       (memSetWord cell 1 0)
       (memSetWord cell 2 vecNew)
+      (memSetWord cell 3 0)
       cell
     }))
 
@@ -2739,8 +2776,10 @@
     {
       (vecPush stk (memGetWord cell 0))
       (vecPush stk (memGetWord cell 1))
+      (vecPush stk (memGetWord cell 3))
       (memSetWord cell 0 0)
       (memSetWord cell 1 0)
+      (memSetWord cell 3 0)
       0
     }))
 
@@ -2752,14 +2791,26 @@
   )
     (let ((n (vecLen stk)))
       (let (
-        (outerStash (vecGet stk (- n 2)))
-        (outerCount (vecGet stk (- n 1)))
+        (outerStash (vecGet stk (- n 3)))
+        (outerCount (vecGet stk (- n 2)))
+        (outerConsume (vecGet stk (- n 1)))
+        ; read before the overwrites below: the branch's own words,
+        ; not the outer region's
+        (branchConsume (memGetWord cell 3))
+        (branchCount (memGetWord cell 1))
       )
         {
           (vecPop stk)
           (vecPop stk)
+          (vecPop stk)
           (memSetWord cell 0 (| outerStash net))
           (memSetWord cell 1 outerCount)
+          ; the branch's consumes netted against the branch's counts,
+          ; like the stashes: a retain paired with the release leaves
+          ; the share intact. A release with no paired retain is a
+          ; may-consume on every path through the branch, so it joins
+          ; the outer region unconditionally.
+          (memSetWord cell 3 (| outerConsume (& branchConsume (^ branchCount (- 0 1)))))
           0
         }))))
 
@@ -2893,21 +2944,39 @@
                       (if (>= n_ 1)
                         (countedAdd cell (parkForms (countFlow cg (spineArgAt e 0) params env)))
                         0)
-                      ; `__axiom_recover` CALLS the closure it is
-                      ; handed, which is the same claim `__call_word`
-                      ; makes about an address, so it takes the same
-                      ; conservative answer.
-                      (if (|| (strEq n "__call_word") (strEq n "__axiom_recover"))
-                        ; a function reached by address may park
-                        ; what it is handed
-                        (stashAdd cell (parkForms (flowMaskAll
-                          cg
-                          e
-                          n_
-                          params
-                          env
-                          0)))
-                        0))))
+                      ; `__release` ends the caller's share of whatever
+                      ; it is given: a release of a parameter is a
+                      ; CONSUME, recorded in the cell's word 3 rather
+                      ; than its stash word - the return path reads the
+                      ; stash word to skip the slot's release, and a
+                      ; consumed parameter's slot is still owed
+                      ; (`fnConsumeMask`). Whatever form the operand
+                      ; arrives in is widened by `parkForms`, as a park
+                      ; is: the readers check the arrival and owner
+                      ; bits, and a saturated bit over-approximates
+                      ; toward the leak, the safe direction.
+                      (if (strEq n "__release")
+                        (if (>= n_ 1)
+                          {
+                            (memSetWord cell 3 (| (memGetWord cell 3) (parkForms (flowMask cg (spineArgAt e 0) params env))))
+                            0
+                          }
+                          0)
+                        ; `__axiom_recover` CALLS the closure it is
+                        ; handed, which is the same claim `__call_word`
+                        ; makes about an address, so it takes the same
+                        ; conservative answer.
+                        (if (|| (strEq n "__call_word") (strEq n "__axiom_recover"))
+                          ; a function reached by address may park
+                          ; what it is handed
+                          (stashAdd cell (parkForms (flowMaskAll
+                            cg
+                            e
+                            n_
+                            params
+                            env
+                            0)))
+                          0)))))
                 (if (|| (>= (envFlagOf env n) 0) (>= (paramIndexIn params n 0) 0))
                   (stashAdd cell (parkForms (flowMaskAll
                     cg
@@ -2917,14 +2986,30 @@
                     env
                     0)))
                   (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
-                    (stashAdd cell (stashSel
-                      cg
-                      e
-                      n_
-                      params
-                      env
-                      (fnStashMask cg n)
-                      0))
+                    {
+                      (stashAdd cell (stashSel
+                        cg
+                        e
+                        n_
+                        params
+                        env
+                        (fnStashMask cg n)
+                        0))
+                      ; and what the callee CONSUMES, by the same
+                      ; selection: a summary's consume bit for a
+                      ; parameter ends the share handed there,
+                      ; transitively, so the caller's own summary
+                      ; inherits it (`fnConsumeMask`)
+                      (memSetWord cell 3 (| (memGetWord cell 3) (stashSel
+                        cg
+                        e
+                        n_
+                        params
+                        env
+                        (fnConsumeMask cg n)
+                        0)))
+                      0
+                    }
                     (let ((entry (lookupType (memGetWordVec cg 3) n)))
                       (if (== entry 0)
                         ; an effect operation, or a name nothing signed
@@ -3278,9 +3363,11 @@
 ; handing it back means something? A direct construction; a call to a
 ; signed global whose result is a reference, applied to exactly its
 ; arity (a surplus argument applies the closure it answers, whose
-; result nothing signed); and the joins over `if`, `match`, `let`
-; and a block. A match here is only as owned as its arms, and
-; an arm answering a binder is not.
+; result nothing signed) - spelled with arguments OR bare: `(f)` with
+; no arguments parses as the head alone, so a nullary call is a `VAR`
+; node and is owned on the same terms; and the joins over `if`,
+; `match`, `let` and a block. A match here is only as owned as its
+; arms, and an arm answering a binder is not.
 (pub :: valueOwnedRef (-> Int Int Int))
 (pub fn (valueOwnedRef cg e)
   (if (== e 0)
@@ -3300,7 +3387,23 @@
               (if (isLocalValue cg (nodeAName e))
                 0
                 1)
-              0)
+              ; a bare reference to a nullary function is a CALL, not a
+              ; use: `parseArgs` answers the head unchanged when no
+              ; argument follows, and `emitVar` emits `call i64 @...()`
+              ; for it. It is owned exactly when the same call spelled
+              ; with arguments is - a signed global whose declared
+              ; result is a reference - with the arity half answered by
+              ; `isNullaryFnCg` itself, the predicate emission asks
+              ; before emitting the call, so the two cannot disagree
+              ; about which spellings call. A bare reference to a
+              ; multi-parameter function answers its closure record
+              ; instead, and keeps the 0 it always got (issue #35).
+              (let ((n (nodeAName e)))
+                (if (|| (isCastName n) (|| (isPrimName n) (isLocalValue cg n)))
+                  0
+                  (if (&& (== (fnResultClass cg n) 2) (isNullaryFnCg cg (mangledForCg cg n)))
+                    1
+                    0))))
             (if (== tg TAG_E_APP)
               (let ((hd (spineHead e)))
                 (if (!= (nodeTag hd) TAG_E_VAR)
@@ -17953,13 +18056,15 @@
 ; call left where a `musttail` was sound is only a missed guarantee.
 ;
 ; The callee parks nothing of a typed arrival there, and answers no
-; part of it that the caller now holds instead - and an immediate
-; (`Nil`) or a static literal has nothing to give back.
+; part of it that the caller now holds instead - and consumes nothing
+; of it either (`fnConsumeMask`: a share the callee ends is not the
+; caller's to hand back) - and an immediate (`Nil`) or a static
+; literal has nothing to give back.
 (pub :: argOwnedRelease (-> Int String (Vec Int) Int Int))
 (pub fn (argOwnedRelease cg fnName args i)
   (let ((cls (fnResultClass cg fnName)))
     (if (|| (== cls 0) (== cls 2))
-      (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0))))))
+      (if (&& (== (valueOwnedRef cg (vecGet args i)) 1) (&& (== (isStaticSentinelNode cg (vecGet args i)) 0) (&& (== (isNullaryConNode cg (vecGet args i)) 0) (&& (== (& (fnStashMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (&& (== (& (fnConsumeMask cg fnName) (| (paramBit i) (ownerBit i))) 0) (|| (== cls 2) (== (& (fnRetMask cg fnName) (anyBit i)) 0)))))))
         1
         0)
       0)))
@@ -19959,8 +20064,10 @@
 ; masks (`inferFlows`, `callEscapesArg`): an argument mentioning the
 ; binding escapes when the callee stashes that parameter - parks it
 ; uncounted through a `cast` into a word field, a slot, a raw store,
-; a capture, or a stashing callee - and, in VALUE position, when the
-; callee's result is a word that may be part of it. A callee whose
+; a capture, or a stashing callee - or consumes it, a `__release` of
+; the parameter ending the caller's share (`mapFree`, `fnConsumeMask`)
+; - and, in VALUE position, when the callee's result is a word that
+; may be part of it. A callee whose
 ; result is a counted reference answers a share of its own (event 2,
 ; `borrowedTailLeaves`), so `(fn (ident s) s)` hands back a retained
 ; `s` and the argument's share is untouched. Only a GLOBAL with a
@@ -20427,7 +20534,12 @@
                 ; handed
                 (if (|| (strEq n "__call_word") (strEq n "__axiom_recover"))
                   (mentionsArgs name e n_ 0)
-                  0))
+                  ; a `__release` of the binding ends its share: the
+                  ; caller must not hand it back, exactly as if a
+                  ; consuming callee had taken it
+                  (if (strEq n "__release")
+                    (mentionsArgs name e n_ 0)
+                    0)))
               (if (|| (!= (lookupSym cg n) 0) (|| (>= (paramIndexOf cg n) 0) (== (boundWithin n root) 1)))
                 (mentionsArgs name e n_ 0)
                 (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
@@ -20437,14 +20549,17 @@
                   ; aliases, and a word the callee answers of a parameter
                   ; it cast aliases the typed argument just the same:
                   ; `(fn (asWord s) (cast Int s))` handed back a pointer
-                  ; into a `let` this walk then released
+                  ; into a `let` this walk then released. The CONSUME
+                  ; mask rides beside the stash mask: an argument the
+                  ; callee ends is gone, so it escapes whatever the
+                  ; position, and the scope-end release stays off it.
                   (argsEscapeByMask
                     cg
                     name
                     e
                     n_
                     (|
-                      (fnStashMask cg n)
+                      (| (fnStashMask cg n) (fnConsumeMask cg n))
                       (if (&& (== vp 1) (!= (fnResultClass cg n) 2))
                         (bothForms (fnRetMask cg n))
                         0))

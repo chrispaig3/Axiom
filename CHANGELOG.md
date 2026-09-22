@@ -16,6 +16,42 @@ its changelog too.
 
 ## Unreleased
 
+### A nullary call's answer is owned, and a free consumes — issue #35
+
+A call with no arguments parses as its bare head (`parseArgs` answers
+the head unchanged), so `(reentrantNew)` reached event 3 as a `VAR`
+node and `valueOwnedRef` answered borrowed for everything but a
+nullary constructor: the cell leaked, in the safe direction, for
+every nullary reference-returning call. The `VAR` arm now asks the
+same question the `APP` arm asks - a signed global whose declared
+result is a reference - with the arity half answered by
+`isNullaryFnCg` itself, the predicate emission asks before emitting
+the call, so the two cannot disagree about which spellings call.
+`tests/ffi/demo/430-reentrant-drop.ax` binds the bare call now (no
+`mkR` wrapper) and counts 100 drops through 100 reentrant
+destructors.
+
+Closing the leak exposed the hole it masked: a callee that
+`__release`s its parameter - `Map.mapFree`, `Vec.vecFree`,
+`Intern.internFree` - CONSUMES the caller's share, and no mask
+recorded it, so an owned binding passed to one was released twice:
+once by the free, once at scope end. On trunk the one-argument
+spelling already double-freed (silently at small scale, SIGSEGV at a
+thousand iterations); the nullary spelling was balanced only by the
+leak above. `FSig` carries a third summary beside `stash` and `ret`
+- `consume`, the parameters a `__release` in the body may end -
+computed in the same fixpoint over a widened region cell, read where
+a caller-side release is decided (`argOwnedRelease`,
+`callEscapesArg`) and never on the return path, whose slot release a
+consumed parameter still owes. Held by `scripts/check-ffi.sh` (430),
+`scripts/run-stdlib-tests.sh` and `scripts/check-stdlib-selfhost.sh`
+(`tests/stdlib/489-map-free.ax`: functional checks plus 100
+build-and-free iterations in each spelling - trunk exits 138 in the
+sized loop), `scripts/check-container-reclaim.sh` (the `chain` arm,
+which the half-fixed compiler segfaulted), and the re-pin in
+`scripts/check-effect-distribution.sh` (`fnConsumeMask` joins
+`Alloc,Mut,Unsafe`, 2191 to 2192, every other bucket frozen).
+
 ### Raw memory has an effect, and using it undeclared is refused — `tests/diagnostics/1004-undeclared-unsafe.ax`
 
 The six raw-memory primitives — `__load8`, `__store8`, `__load64`,

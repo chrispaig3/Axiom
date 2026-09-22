@@ -2278,6 +2278,19 @@ zero), or deliberately neither:
 7. **`handle` releases its evidence record at exit**, closing
    `MM-ALLOC-9a`'s sixteen bytes per loop entry.
 
+A callee that ends a parameter's share CONSUMES it, and neither event
+1 nor event 3 applies to the handoff: `Map.mapFree`'s `(__release
+(cast Int m))` ends the caller's share, so a `let`-bound map passed
+to it takes no scope-end release, and an owned temporary handed to it
+is not released after the call. The shape is `FSig.consume`
+(`self_host/codegen.ax`, `fnConsumeMask`), computed in the flow
+fixpoint beside `stash` and read everywhere a caller-side release is
+decided - and never on the return path, whose slot release a consumed
+parameter still owes. Without it the free and the scope end release
+twice: silent at small scale, a segfault at a thousand iterations
+(issue #35, `tests/stdlib/489-map-free.ax`,
+`scripts/check-container-reclaim.sh`'s `chain` arm).
+
 A conforming implementation **MAY** cancel a retain against a release
 it can pair statically. The licence costs nothing observable: a
 conforming program observes no address (`MM-EXEC-12`), so reclamation
