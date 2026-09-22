@@ -33,6 +33,7 @@ The exit status is 0 when the patch applied and 1 when it did not, and
 the message begins with `ABORT:` either way it fails, because that is
 what the runner greps for.
 """
+import re
 import sys
 
 
@@ -48,10 +49,15 @@ def die(msg):
 # --------------------------------------------------------------------
 ABLATIONS = {
     # Every target answers 4 KiB, so the supported targets stop emitting
-    # the allocator they have always emitted.
+    # the allocator they have always emitted. Anchored on the row's
+    # current body (baremetal grew the `t == 7` arm over four lines, so
+    # the pre-baremetal one-line body is gone); the VARIANT edit does
+    # not anchor on the body at all - see `replace_defn`.
     "chunk": (
         """(pub fn (targetArenaChunkBytes t)
-  1048576)""",
+  (if (== t 7)
+    4096
+    1048576))""",
         "(pub fn (targetArenaChunkBytes t) 4096)",
         "A1 - the supported targets' emitted chunk",
     ),
@@ -145,7 +151,7 @@ ABLATIONS = {
 
 
 def replace_defn(src, name, newline, label):
-    """Replace a target-table row outright, in either of its two shapes.
+    """Replace a target-table row outright, whatever its body has grown to.
 
     ANCHORED ON THE HEADER, NOT ON THE VALUE, and that is not tidiness.
     The `chunk` ablation rewrites `targetArenaChunkBytes`'s body to
@@ -156,12 +162,15 @@ def replace_defn(src, name, newline, label):
     the header makes the two independent, which is what lets a drill
     that changes this row still be drilled.
 
-    The two shapes are the normal form's two lines - the header on its
-    own line, the body under it - and the one-line form a drill leaves
-    behind when it rewrote the row first. Anything else is a row that
-    grew, which needs re-anchoring: the two-line arm refuses a body
-    that does not end the definition, so a longer row fails here
-    rather than leaving its tail behind in the scratch tree.
+    The row's end is found by balancing parentheses from the header
+    line, so a body that grew - baremetal's `t == 7` arm spread the
+    chunk row over four lines, and the old two-line arm then replaced
+    the header plus one line and left `4096` orphaned in the scratch
+    tree (AX2001, red for the wrong reason) - is replaced whole. The
+    one-line form a drill leaves behind balances on its own line and
+    takes the same path. A row whose parentheses never balance is a
+    row that needs re-anchoring, and fails here rather than leaving
+    its tail behind.
     """
     header = "(pub fn (%s t)" % name
     lines = src.split("\n")
@@ -169,19 +178,28 @@ def replace_defn(src, name, newline, label):
             if l == header or l.startswith(header + " ")]
     if len(hits) != 1:
         die("%s did not apply - %d lines open `%s`, not one.\n"
-            "       This edit replaces the row's two-line normal form or the\n"
-            "       one-line form a drill leaves behind; anything else is a\n"
-            "       row that grew, which needs re-anchoring rather than a\n"
-            "       looser match." % (label, len(hits), header))
+            "       This edit replaces the row whole, from its header to\n"
+            "       its balancing close paren; anything else is a row\n"
+            "       that needs re-anchoring rather than a looser match."
+            % (label, len(hits), header))
     i = hits[0]
-    if lines[i] == header:
-        if i + 1 >= len(lines) or not lines[i + 1].endswith(")"):
-            die("%s did not apply - the line under `%s` is not the row's body.\n"
-                "       A row that grew past two lines needs re-anchoring."
-                % (label, header))
-        lines[i:i + 2] = [newline]
-    else:
-        lines[i] = newline
+    depth = 0
+    j = None
+    for k in range(i, len(lines)):
+        code = re.sub(r'"(?:[^"\\]|\\.)*"', '""', lines[k].split(";", 1)[0])
+        for ch in code:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+        if depth == 0:
+            j = k
+            break
+    if j is None:
+        die("%s did not apply - the row under `%s` never balances.\n"
+            "       A row that grew past a balanced definition needs\n"
+            "       re-anchoring." % (label, header))
+    lines[i:j + 1] = [newline]
     return "\n".join(lines)
 
 

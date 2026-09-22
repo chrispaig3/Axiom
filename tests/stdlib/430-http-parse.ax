@@ -182,9 +182,9 @@
             0
             0
             1)
-          (if (isErr (netBind lsn addr))
-            (die "bind failed" 1)
-            0)
+          (match (netBind lsn addr)
+            ((Err e) (die (strConcat "bind failed: errno=" (fmtInt (errCode e))) 1))
+            ((Ok _) 0))
           (netListen lsn 16)
           (netSetNonBlocking lsn)
           ; --- a whole request, at three read granularities ----------

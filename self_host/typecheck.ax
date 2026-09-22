@@ -2757,6 +2757,12 @@
       (regFn fns "__syscall6" (mkIntArrow 7))
       (regFn fns "__load8" (mkIntArrow 2))
       (regFnEff fns "__store8" (mkIntArrow 3) (builtinEff "Mut"))
+      ; `__store8v` stores with LLVM `volatile`: the middle end keeps
+      ; every store and their order, which is what MMIO needs and what
+      ; `__store8` must not promise (a volatile store is never folded,
+      ; which would pessimize every ordinary byte store). Same shape
+      ; and row as `__store8` in every other respect.
+      (regFnEff fns "__store8v" (mkIntArrow 3) (builtinEff "Mut"))
       (regFn fns "__load64" (mkIntArrow 2))
       ; `(__call_word fn arg)`: call a C function `i64 (i64)` by its
       ; ADDRESS - the destructor word of a foreign-form block
@@ -13273,9 +13279,11 @@
 
 ; The raw-memory primitives are the Unsafe ones: a load or store at an
 ; address the type system does not bound, the allocator everything
-; goes through, and `__addr` of a literal. Six names, and the set is
-; closed by construction - nothing else reads or writes memory the
-; checker cannot see. `walkCallHead` adds `Unsafe` at a call to one,
+; goes through, and `__addr` of a literal. Seven names - `__store8v`
+; is `__store8` with LLVM `volatile`, for MMIO a middle end must not
+; delete - and the set is closed by construction: nothing else reads
+; or writes memory the checker cannot see. `walkCallHead` adds
+; `Unsafe` at a call to one,
 ; alongside whatever `Mut` or `Alloc` its seeded row already carries,
 ; and `graphSeeds` answers them the way it answers a syscall for `IO`.
 (pub :: isUnsafePrim (-> String Int))
@@ -13284,15 +13292,17 @@
     1
     (if (strEq n "__store8")
       1
-      (if (strEq n "__load64")
+      (if (strEq n "__store8v")
         1
-        (if (strEq n "__store64")
+        (if (strEq n "__load64")
           1
-          (if (strEq n "__alloc")
+          (if (strEq n "__store64")
             1
-            (if (strEq n "__addr")
+            (if (strEq n "__alloc")
               1
-              0)))))))
+              (if (strEq n "__addr")
+                1
+                0))))))))
 
 ; ------------------------------------------------------------------
 ; The walk's scope. `names` is the shadow list - one entry per `let`,

@@ -6554,9 +6554,23 @@
             phase)
           (let ((name (memGetWordStr first 1)))
             (if (seenHas seen name)
+              ; A repeat import of an already-merged module. The
+              ; declarations are in `acc` and are NOT spliced again
+              ; (diamond-safe, merged exactly once) - but the
+              ; import's name list still widens what the module
+              ; exports, or the second list is dead text and the
+              ; checker's remedy ("add the name to the import's
+              ; list", AX3023) is a lie the author already obeyed.
               (resolveDeclsPhase
                 decls
-                acc
+                (resolveRepeatImport
+                  name
+                  first
+                  idx
+                  bares
+                  fulls
+                  mods
+                  acc)
                 seen
                 (+ i 1)
                 modName
@@ -6574,11 +6588,13 @@
                 ; The import's name list, recorded against
                 ; the module it filtered. A module is merged
                 ; exactly once (the `seen` test above), so
-                ; there is exactly one filter per module -
-                ; and phase D needs it, because a
-                ; declaration a macro generates INSIDE this
-                ; module does not exist yet when the filter
-                ; is applied here (MAC-EXP-16).
+                ; there is exactly one merge per module - but
+                ; the recorded filter is the UNION of every
+                ; import's list (see `resolveRepeatImport`),
+                ; because phase D needs it: a declaration a
+                ; macro generates INSIDE this module does not
+                ; exist yet when the filter is applied here
+                ; (MAC-EXP-16).
                 (let (
                   (modDecls (parseModuleOrDieUnit name tcode entryDir units))
                   (subFilter (let ((ns (nodeBVec first)))
@@ -6678,6 +6694,21 @@
               0)))
             {
               (memSetWord first 8 modName)
+              ; The written `pub`, recorded BEFORE the verdict below
+              ; destroys it. Word 5 is `nodeVis` ("written `pub`")
+              ; only until the next line runs; a repeat import's
+              ; union and the checker's `exportedFromModule` both
+              ; need the original answer afterwards, and this is
+              ; the only point in the pipeline that still has it.
+              ; The name is still bare here - `mangleDecl` renames
+              ; below - which is the spelling `modPubsFor` is asked.
+              (if (&&
+                (!=
+                  (cast Int modName)
+                  0)
+                (== (nodeVis first) 1))
+                (modPubsAdd mods modName (nodeAName first))
+                0)
               ; From here on word 5 answers "may a reference from
               ; outside this module name it", not "was it written
               ; `pub`". The entry file's own declarations are all
@@ -6706,6 +6737,185 @@
                 units
                 phase)
             }))))))
+
+; A repeat import of an already-merged module: widen what the module
+; exports by the names THIS import's list adds, and answer `acc`.
+; The declarations stay exactly where the first import put them -
+; merged exactly once - so this walk only flips verdicts, from "left
+; out" to "exported", for declarations the module itself made public.
+; A name the module never declared, or one it declared private, is
+; left alone: the checker's `checkImportNames` still reports those
+; against this import's own span, with the module's `pub` names as
+; its witness (namespace.ax, `modPubsFor`).
+;
+; The recorded filter widens too (same union), because phase D
+; applies it to macro-made declarations that did not exist while
+; either import ran (MAC-EXP-16) - the recorded answer has to cover
+; every list, not the first one.
+(pub :: resolveRepeatImport (-> String Int Int (Vec String) (Vec String) (Vec Int) (Vec Int) (Vec Int)))
+(pub fn (resolveRepeatImport mod imp idx bares fulls mods acc)
+  (let ((sub (nodeBVec imp)))
+    (if (||
+      (==
+        (cast Int sub)
+        0)
+      (== (vecLen sub) 0))
+      ; A bare repeat import names everything, so the union is the
+      ; module's whole public surface and the recorded filter goes
+      ; back to "named nothing" (which `filterKeeps` reads as full).
+      {
+        (modFilterWiden
+          mods
+          mod
+          (cast (Vec String) 0))
+        (repeatExportNew
+          acc
+          mod
+          (modPubsFor mods mod)
+          idx
+          bares
+          fulls
+          0)
+      }
+      ; The cast is the handle/opaque split `modFilterRecord` lives
+      ; with: `mods` is a Vec of pair handles, and `modFilterFor`
+      ; spells it `(Vec (Vec Int))` for expansion's `(Vec a)` reader.
+      (let ((old 
+        (modFilterFor
+          (cast (Vec (Vec Int)) mods)
+          mod)))
+        (if (==
+          (cast Int old)
+          0)
+          ; The first import was already full: everything public is
+          ; exported and there is nothing to add. Validation of this
+          ; list's names is the checker's (`checkImportNames`), which
+          ; walks every import node whether or not it merged one.
+          acc
+          (let ((delta (repeatDelta
+            old
+            sub
+            (modPubsFor mods mod)
+            vecNew
+            0)))
+            (if (== (vecLen delta) 0)
+              acc
+              {
+                (modFilterWiden mods mod (repeatUnion old delta))
+                (repeatExportNew
+                  acc
+                  mod
+                  delta
+                  idx
+                  bares
+                  fulls
+                  0)
+              })))))))
+
+; The names in `sub` the recorded filter does not already keep,
+; intersected with the module's `pub` names: exactly the verdicts a
+; repeat import may flip. A private name, or one the module never
+; declared, never reaches `delta`, so it can never be exported here.
+(pub :: repeatDelta (-> (Vec String) (Vec String) (Vec String) (Vec String) Int (Vec String)))
+(pub fn (repeatDelta old sub pubs delta i)
+  (if (>= i (vecLen sub))
+    delta
+    (let ((n (vecGetStr sub i)))
+      {
+        (if (seenHasIn pubs n 0)
+          (if (seenHasIn old n 0)
+            0
+            {
+              (vecPush delta n)
+              0
+            })
+          0)
+        (repeatDelta
+          old
+          sub
+          pubs
+          delta
+          (+ i 1))
+      })))
+
+; A fresh Vec holding `old` plus every name in `delta`: the recorded
+; filter's widening. Fresh rather than pushed onto `old`, because
+; `old` may BE the first import node's own list (`resolveDeclsPhase`
+; records it unwidened) and widening must not rewrite that node.
+(pub :: repeatUnion (-> (Vec String) (Vec String) (Vec String)))
+(pub fn (repeatUnion old delta)
+  (repeatUnionIn
+    old
+    delta
+    vecNew
+    0
+    0))
+
+(pub :: repeatUnionIn (-> (Vec String) (Vec String) (Vec String) Int Int (Vec String)))
+(pub fn (repeatUnionIn old delta acc i j)
+  (if (>= i (vecLen old))
+    (if (>= j (vecLen delta))
+      acc
+      {
+        (vecPush acc (vecGetStr delta j))
+        (repeatUnionIn
+          old
+          delta
+          acc
+          i
+          (+ j 1))
+      })
+    {
+      (vecPush acc (vecGetStr old i))
+      (repeatUnionIn
+        old
+        delta
+        acc
+        (+ i 1)
+        j)
+    }))
+
+; Flip the verdicts in `acc` for the module's declarations named in
+; `delta`: word 5 goes from "left out" to "exported", and an `fn`
+; records its bare name the way the first import's splice did
+; (`mangleDecl`'s exported arm). First-writer-wins still holds -
+; `mangleRecord` no-ops on a claimed bare slot, so the entry file
+; keeps a name it defined itself. Every other declaration kind needs
+; only the flip: signatures rename without recording, `extern` items
+; record regardless of visibility, and the rest record nothing.
+(pub :: repeatExportNew (-> (Vec Int) String (Vec String) Int (Vec String) (Vec String) Int (Vec Int)))
+(pub fn (repeatExportNew acc mod delta idx bares fulls i)
+  (if (>= i (vecLen acc))
+    acc
+    {
+      (let ((d (vecGet acc i)))
+        (if (&& (!= (nodeModule d) 0) (strEq (nodeModuleName d) mod))
+          (let ((bare (bareOf (nodeAName d))))
+            (if (seenHasIn delta bare 0)
+              (if (== (nodeVis d) 0)
+                {
+                  (memSetWord d 5 1)
+                  (if (== (nodeTag d) TAG_D_FN)
+                    (mangleRecord
+                      idx
+                      bares
+                      fulls
+                      bare
+                      (nodeAName d))
+                    0)
+                }
+                0)
+              0))
+          0))
+      (repeatExportNew
+        acc
+        mod
+        delta
+        idx
+        bares
+        fulls
+        (+ i 1))
+    }))
 
 ; ------------------------------------------------------------------
 ; Targets.
@@ -7299,7 +7509,7 @@
 ; hosted target; non-zero is the PL011 data register's physical
 ; address, and `emitRuntimeWrite` calls `@__axiom_uart_write` - emitted
 ; once by `emitBaremetalRuntime`, volatile stores, one byte per store -
-; instead of writing fd 2. 2415919104 is 0x09000000, the `virt`
+; instead of writing fd 2. 150994944 is 0x09000000, the `virt`
 ; machine's UART0; QEMU drains it to stdio faster than a trap writes,
 ; so no flag wait is emitted - a real board's wait belongs in the
 ; helper beside the store, not at the call sites. Read at EMISSION
@@ -7308,7 +7518,7 @@
 (pub :: targetUartBase (-> Int Int))
 (pub fn (targetUartBase t)
   (if (== t 7)
-    2415919104
+    150994944
     0))
 
 ; The EFFECTIVE static-arena size: the build's ceiling when one was
@@ -7678,6 +7888,39 @@
     (emitRuntimeWrite cg "%nsp" "37")
     (emitLine cg "  call void @__axiom_backtrace()")
     (emitRuntimeExit cg "74")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  })
+
+; The reset vector: QEMU's `-kernel` jumps to the ELF entry with an
+; UNDEFINED stack, so the first instruction sets `sp` from the
+; linker's `__stack_top` (8 KiB over `.bss`, the device stack the
+; stdlib's UART loop assumes) and the last parks in `wfi` if the
+; semihosting call ever returns. `naked` comes BEFORE `section` -
+; the other order does not parse - and a frame would store through
+; the stack before it exists, which is what `naked` refuses. NOT
+; `#0`: `frame-pointer="all"` would rebuild the frame `naked`
+; refuses. The `hlt` + exit-block shape is `emitBaremetalExit`'s,
+; with the reason for a clean return (131110, 0x20026,
+; ADP_Stopped_ApplicationExit) and the status `main` answered; the
+; trap path writes the same block with its own reason. Emitted only
+; beside `@main`, never into an archive: `_start` names `main`, and
+; a host linking the archive has its own entry.
+(pub :: emitBaremetalStart (-> Int Int))
+(pub fn (emitBaremetalStart cg)
+  {
+    (emitLine cg "@__stack_top = external global i8, align 16")
+    (emitLine cg "define void @_start() naked section \".text.boot\" {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %sp = ptrtoint ptr @__stack_top to i64")
+    (emitLine cg "  call void asm sideeffect \"mov sp, $0\", \"r,~{memory}\"(i64 %sp)")
+    (emitLine cg "  %st = call i64 @main(i64 0, i64 0)")
+    (emitLine cg "  store i64 131110, ptr @__axiom_exit_block")
+    (emitLine cg "  store i64 %st, ptr getelementptr ([2 x i64], ptr @__axiom_exit_block, i64 0, i64 1)")
+    (emitLine cg "  call void asm sideeffect \"hlt 0xf000\", \"{x0},{x1},~{x0},~{x1},~{memory}\"(i64 24, i64 ptrtoint (ptr @__axiom_exit_block to i64))")
+    (emitLine cg "  call void asm sideeffect \"1: wfi\\0Ab 1b\", \"\"()")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     (emitLine cg "")
@@ -8319,6 +8562,14 @@
           (emitLine cg "")
         }
         (emitWinEntry cg)))
+    ; The reset vector beside `@main`, on the bare target only: an
+    ; archive must not carry it (`_start` names `main`, and the host
+    ; linking the archive answers that name itself).
+    (if cgStaticlib
+      0
+      (if (== (memGetWord cg 26) 7)
+        (emitBaremetalStart cg)
+        0))
     ; 4.2's region, before the bump pointer that will point into it.
     ; Nothing is emitted here on a target whose arena comes from the
     ; kernel, which is every supported one.
@@ -9915,6 +10166,15 @@
           ; `main`, or `mainCRTStartup` on Windows. The linker starts
           ; the program here and no IR of ours calls it.
           (pruneMark ctx (targetEntryName (memGetWord cg 26)))
+          ; `_start`, on the bare target only, for the same reason:
+          ; the linker script's ENTRY starts the program here and no
+          ; IR of ours calls it. Marked only where it is emitted
+          ; (see `emitBaremetalStart`); where it was never emitted
+          ; there is no define by that name and the mark retains
+          ; nothing.
+          (if (== (memGetWord cg 26) 7)
+            (pruneMark ctx "_start")
+            0)
           ; The C ABI a linked host calls. All three are `pub` in
           ; `rust/axiom_ffi` and `rust/examples/demo/src/lib.rs` states
           ; their external linkage as a contract - so they are roots in
@@ -16142,55 +16402,57 @@
                   true
                   (if (strEq nm "__store8")
                     true
-                    (if (strEq nm "__addr")
+                    (if (strEq nm "__store8v")
                       true
-                      (if (strEq nm "__intToFloat")
+                      (if (strEq nm "__addr")
                         true
-                        (if (strEq nm "__floatToInt")
+                        (if (strEq nm "__intToFloat")
                           true
-                          (if (strEq nm "__argc")
+                          (if (strEq nm "__floatToInt")
                             true
-                            (if (strEq nm "__argv")
+                            (if (strEq nm "__argc")
                               true
-                              ; The arena watermark pair. Their absence here was not a missing
-                              ; feature but a miscompile: `(__axiom_arena_mark)` is a bare
-                              ; reference, so it fell through to the ordinary variable path and
-                              ; emitted `%__axiom_arena_mark`, a value nothing defines, which llc
-                              ; rejects. stage0 carries a comment about hitting the identical bug.
-                              (if (strEq nm "__axiom_recover")
+                              (if (strEq nm "__argv")
                                 true
-                                (if (strEq nm "__axiom_arena_mark")
+                                ; The arena watermark pair. Their absence here was not a missing
+                                ; feature but a miscompile: `(__axiom_arena_mark)` is a bare
+                                ; reference, so it fell through to the ordinary variable path and
+                                ; emitted `%__axiom_arena_mark`, a value nothing defines, which llc
+                                ; rejects. stage0 carries a comment about hitting the identical bug.
+                                (if (strEq nm "__axiom_recover")
                                   true
-                                  (if (strEq nm "__axiom_arena_reset")
+                                  (if (strEq nm "__axiom_arena_mark")
                                     true
-                                    (if (strEq nm "__axiom_arena_reset_keeping")
+                                    (if (strEq nm "__axiom_arena_reset")
                                       true
-                                      ; Not spellable in source: `checkNumeric` rewrites `==`/`!=` into
-                                      ; these when it can see that BOTH operands are `String`. They are
-                                      ; primitives rather than a `Str` call because the rewrite must work
-                                      ; in a program that never imported `Str`.
-                                      (if (strEq nm "__streq")
+                                      (if (strEq nm "__axiom_arena_reset_keeping")
                                         true
-                                        (if (strEq nm "__strne")
+                                        ; Not spellable in source: `checkNumeric` rewrites `==`/`!=` into
+                                        ; these when it can see that BOTH operands are `String`. They are
+                                        ; primitives rather than a `Str` call because the rewrite must work
+                                        ; in a program that never imported `Str`.
+                                        (if (strEq nm "__streq")
                                           true
-                                          (if (strEq nm "__call_word")
+                                          (if (strEq nm "__strne")
                                             true
-                                            ; `(__contract cond "message")` - the run-time
-                                            ; half of a `;@axiom:pre(...)` / `post(...)`,
-                                            ; written by `expLowerContracts` and by nothing
-                                            ; else. A primitive rather than a call because
-                                            ; there is no function to reach: it is a compare,
-                                            ; a branch and a trap. A name this misses is an
-                                            ; `@__contract` nothing defines - measured, and
-                                            ; exactly what the arena pair's note above
-                                            ; records for its own omission.
-                                            (if (strEq nm "__contract")
+                                            (if (strEq nm "__call_word")
                                               true
-                                              (if (isParPrimName nm)
+                                              ; `(__contract cond "message")` - the run-time
+                                              ; half of a `;@axiom:pre(...)` / `post(...)`,
+                                              ; written by `expLowerContracts` and by nothing
+                                              ; else. A primitive rather than a call because
+                                              ; there is no function to reach: it is a compare,
+                                              ; a branch and a trap. A name this misses is an
+                                              ; `@__contract` nothing defines - measured, and
+                                              ; exactly what the arena pair's note above
+                                              ; records for its own omission.
+                                              (if (strEq nm "__contract")
                                                 true
-                                                (if (isAtomicPrimName nm)
+                                                (if (isParPrimName nm)
                                                   true
-                                                  (isSyscallName nm))))))))))))))))))))))))))
+                                                  (if (isAtomicPrimName nm)
+                                                    true
+                                                    (isSyscallName nm)))))))))))))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -16256,40 +16518,42 @@
                 (if (strEq fnName "__load64")
                   (emitPrimLoad args cg 8)
                   (if (strEq fnName "__store64")
-                    (emitPrimStore args cg 8)
+                    (emitPrimStore args cg 8 0)
                     (if (strEq fnName "__load8")
                       (emitPrimLoad args cg 1)
                       (if (strEq fnName "__store8")
-                        (emitPrimStore args cg 1)
-                        (if (strEq fnName "__addr")
-                          (emitPrimAddr args cg)
-                          (if (strEq fnName "__indexTrap")
-                            (emitPrimIndexTrap cg)
-                            (if (strEq fnName "__argc")
-                              (emitPrimArgc cg)
-                              (if (strEq fnName "__argv")
-                                (emitPrimArgv args cg)
-                                (if (strEq fnName "__axiom_recover")
-                                  (emitPrimRecover args cg)
-                                  (if (strEq fnName "__axiom_arena_mark")
-                                    (emitPrimArenaMark cg)
-                                    (if (strEq fnName "__axiom_arena_reset")
-                                      (emitPrimArenaReset args cg)
-                                      (if (strEq fnName "__axiom_arena_reset_keeping")
-                                        (emitPrimArenaResetKeeping args cg)
-                                        (if (strEq fnName "__streq")
-                                          (emitPrimStrEq args cg 1)
-                                          (if (strEq fnName "__strne")
-                                            (emitPrimStrEq args cg 0)
-                                            (if (strEq fnName "__call_word")
-                                              (emitPrimCallWord args cg)
-                                              (if (strEq fnName "__contract")
-                                                (emitPrimContract args cg)
-                                                (if (isParPrimName fnName)
-                                                  (emitPrimPar fnName args cg)
-                                                  (if (isAtomicPrimName fnName)
-                                                    (emitPrimAtomic fnName args cg)
-                                                    (emitPrimSyscall args cg)))))))))))))))))))))))))))
+                        (emitPrimStore args cg 1 0)
+                        (if (strEq fnName "__store8v")
+                          (emitPrimStore args cg 1 1)
+                          (if (strEq fnName "__addr")
+                            (emitPrimAddr args cg)
+                            (if (strEq fnName "__indexTrap")
+                              (emitPrimIndexTrap cg)
+                              (if (strEq fnName "__argc")
+                                (emitPrimArgc cg)
+                                (if (strEq fnName "__argv")
+                                  (emitPrimArgv args cg)
+                                  (if (strEq fnName "__axiom_recover")
+                                    (emitPrimRecover args cg)
+                                    (if (strEq fnName "__axiom_arena_mark")
+                                      (emitPrimArenaMark cg)
+                                      (if (strEq fnName "__axiom_arena_reset")
+                                        (emitPrimArenaReset args cg)
+                                        (if (strEq fnName "__axiom_arena_reset_keeping")
+                                          (emitPrimArenaResetKeeping args cg)
+                                          (if (strEq fnName "__streq")
+                                            (emitPrimStrEq args cg 1)
+                                            (if (strEq fnName "__strne")
+                                              (emitPrimStrEq args cg 0)
+                                              (if (strEq fnName "__call_word")
+                                                (emitPrimCallWord args cg)
+                                                (if (strEq fnName "__contract")
+                                                  (emitPrimContract args cg)
+                                                  (if (isParPrimName fnName)
+                                                    (emitPrimPar fnName args cg)
+                                                    (if (isAtomicPrimName fnName)
+                                                      (emitPrimAtomic fnName args cg)
+                                                      (emitPrimSyscall args cg))))))))))))))))))))))))))))
 
 ; `(__contract cond "message")` - the run-time half of a
 ; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
@@ -17085,11 +17349,14 @@
                             cg5
                           })))))))))))))
 
-(pub :: emitPrimStore (-> (Vec Int) Int Int Int))
+(pub :: emitPrimStore (-> (Vec Int) Int Int Int Int))
 ;@axiom:effect(io)
-(pub fn (emitPrimStore args cg width)
+(pub fn (emitPrimStore args cg width vol)
   ; A byte store needs the value narrowed first; a word store
-  ; takes it as it stands.
+  ; takes it as it stands. `vol` is 1 for `__store8v`, whose
+  ; `volatile` keeps every store against a middle end that would
+  ; otherwise delete MMIO writes it can prove are never read; it is
+  ; 0 for the ordinary stores, which must stay foldable.
   (let (
     (cg1 (emitExpr (vecGet args 0) cg))
     (base (strDup (memGetWordStr cg1 2)))
@@ -17110,7 +17377,18 @@
                   val
                   (narrowByte cg5 val))))
                 {
-                  (emitLine cg5 (cat4 (cat3 "  store " ty " ") sv (cat2 ", ptr " gr) ""))
+                  (emitLine
+                    cg5
+                    (cat4
+                      (cat3
+                        (if (== vol 1)
+                          "  store volatile "
+                          "  store ")
+                        ty
+                        " ")
+                      sv
+                      (cat2 ", ptr " gr)
+                      ""))
                   (memSetWord cg5 2 (constStr 0))
                   cg5
                 }))))))))

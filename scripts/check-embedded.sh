@@ -1074,7 +1074,7 @@ echo "== A10. section 6: the blink fixture runs under QEMU =="
 # `codegen.ax`, and the port's emission - the UART writer, the exit
 # door - is not in this tree yet, so there is nothing to anchor on.
 # The comparisons prove themselves meanwhile: an empty UART fails
-# blink against its 17 hosted bytes, and a status that never leaves 0
+# blink against its 18 hosted bytes, and a status that never leaves 0
 # fails the 70. The merge that lands the port owes this leg a drill
 # anchored on its emission.
 bm_target=baremetal-aarch64
@@ -1193,7 +1193,7 @@ if (( prob == 0 )); then
     grep -Fq -- "$lit" "$work/blink.uart" \
       || { bad "the UART bytes lack [$lit], which blink.ax spells"; prob=1; }
   done < <(grep -o '"LED [A-Z]*"' "$blink")
-  (( prob )) || note "device exit 0, UART bytes equal 17 hosted bytes, both LED literals on the wire"
+  (( prob )) || note "device exit 0, UART bytes equal 18 hosted bytes, both LED literals on the wire"
   checks=$((checks + 1))
   prob=0
   "$work/blinkoom.host" > "$work/blinkoom.host.out" 2> "$work/blinkoom.host.err"; host_oom_st=$?

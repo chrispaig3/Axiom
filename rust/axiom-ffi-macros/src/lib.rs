@@ -682,12 +682,12 @@ fn expand_shim(
                     (Utf8::Lossy, _) => prologue.push(quote! {
                         // SAFETY: the caller is generated Axiom glue, which
                         // holds the String live across the call.
-                        let #w = unsafe { ::axiom_ffi::__private::str_lossy(#w) };
+                        let #w = unsafe { ::axiom_ffi::__private::str_lossy(#w, #name_str, #idx, #pname) };
                         let #w: &str = &#w;
                     }),
                     (Utf8::Strict, true) => prologue.push(quote! {
                         let #w: &str = match unsafe {
-                            ::axiom_ffi::__private::str_fallible(#w, #name_str, #idx)
+                            ::axiom_ffi::__private::str_fallible(#w, #name_str, #idx, #pname)
                         } {
                             Ok(s) => s,
                             Err(m) => return ::axiom_ffi::__private::err_into(cell, m),
@@ -695,7 +695,7 @@ fn expand_shim(
                     }),
                     (Utf8::Strict, false) => prologue.push(quote! {
                         let #w: &str = unsafe {
-                            ::axiom_ffi::__private::str_strict(#w, #name_str, #idx)
+                            ::axiom_ffi::__private::str_strict(#w, #name_str, #idx, #pname)
                         };
                     }),
                 }
@@ -731,7 +731,7 @@ fn expand_shim(
             }
             Param::Bytes => {
                 prologue.push(quote! {
-                    let #w: &[u8] = unsafe { ::axiom_ffi::__private::bytes(#w) };
+                    let #w: &[u8] = unsafe { ::axiom_ffi::__private::bytes(#w, #name_str, #idx, #pname) };
                 });
                 call_args.push(quote! { #w });
             }

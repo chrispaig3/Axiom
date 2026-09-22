@@ -127,6 +127,26 @@
 # `targetUartBase` is pure, so that count moves 551 to 552. Every IO
 # bucket frozen again; neither line moves.
 #
+# RE-PINNED 2026-09-22 (3): repeat selective imports union. Eleven
+# added, none removed, none changed - each new row read off `symbols`
+# by name: `resolveRepeatImport`, `repeatDelta`, `repeatUnion`,
+# `repeatUnionIn`, `repeatExportNew`, `modPubsAdd`, `modPubsAddIn`
+# read `Alloc,Mut,Unsafe` (2183 to 2190); `modPubsFor`,
+# `modPubsForIn` read exactly `Unsafe` (1140 to 1142);
+# `modFilterWiden`, `modFilterWidenIn` read `Mut,Unsafe` (121 to
+# 123). Neither line moves: `Unsafe` stays ambient and inferred, and
+# every IO bucket is frozen again.
+#
+# RE-PINNED 2026-09-22 (4): the baremetal link half lands after the
+# union pin. Three added, none removed, none changed - each new row
+# read off `symbols` by name: `emitBaremetalStart` reads
+# `Alloc,Mut,Unsafe` (2190 to 2191), beside its sibling emitters
+# `emitBaremetalExit` and `emitBaremetalRuntime`; `irTargetIsBaremetal`
+# reads exactly `Unsafe` (1142 to 1143), a string reader like the
+# `__load8` wrappers; `baremetalLinkScript` answers a literal and is
+# pure (552 to 553). Neither line moves, and every IO bucket is
+# frozen again.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -163,15 +183,15 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2183 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1140 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2191 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1143 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 121 "Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 123 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 49 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 552 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 553 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 

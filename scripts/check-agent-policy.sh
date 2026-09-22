@@ -725,6 +725,7 @@ failed_prim=0
 prim_case "__alloc"                     "(__alloc n)"                          "Alloc,Unsafe"
 prim_case "__store64"                   "(__store64 n 0 42)"                   "Mut,Unsafe"
 prim_case "__store8"                    "(__store8 n 0 42)"                    "Mut,Unsafe"
+prim_case "__store8v"                   "(__store8v n 0 42)"                   "Mut,Unsafe"
 prim_case "__argc"                      "(__argc)"                             "IO"
 prim_case "__argv"                      "(__argv n)"                           "IO"
 prim_case "__axiom_arena_mark"          "(__axiom_arena_mark)"                 "Alloc"
@@ -761,7 +762,7 @@ prim_case "__load64 (control)"          "(__load64 n 0)"                       "
 prim_case "__load8 (control)"           "(__load8 n 0)"                        "Unsafe"
 # `__atomic_load` is the control among the atomics. It stays silent
 # while the plain `__load64` reports `Unsafe`: the `Unsafe`
-# registration covers the six raw spellings and nothing else, and an
+# registration covers the seven raw spellings and nothing else, and an
 # effect on every primitive would make these controls agree with
 # anything. It must stay silent, or the four above are measuring the
 # prefix `__atomic` and not the write.

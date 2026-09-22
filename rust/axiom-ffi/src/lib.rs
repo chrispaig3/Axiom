@@ -413,16 +413,23 @@ pub mod __private {
     }
 
     /// A `&str` argument of an infallible shim: invalid UTF-8 aborts.
+    /// A 0 word is no `String` at all and aborts rather than reading
+    /// address 0, mirroring `words`.
     ///
     /// # Safety
-    /// `word` must be a live Axiom `String` for the call.
+    /// `word` must be 0 or a live Axiom `String` for the call.
     #[inline]
-    pub unsafe fn str_strict<'a>(word: AxWord, func: &str, idx: usize) -> &'a str {
+    pub unsafe fn str_strict<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a str {
         unsafe {
-            // SAFETY: `AxStr::from_raw` needs a live Axiom `String` for all
-            // of `'a`, which is exactly what this function's `# Safety` asks
-            // of the caller - generated glue, whose argument is borrowed for
-            // the call and no longer (C1).
+            // SAFETY: the `word == 0` test below rules out address 0, and
+            // this function's `# Safety` makes any other word a live
+            // `String` for the call - `AxStr::from_raw`'s contract, whose
+            // argument is borrowed for the call and no longer (C1).
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &str) is not a String: 0"
+                ));
+            }
             match AxStr::from_raw(word).as_str() {
                 Ok(s) => s,
                 Err(_) => abort(format_args!("{}", utf8_message(func, idx))),
@@ -431,49 +438,81 @@ pub mod __private {
     }
 
     /// A `&str` argument of a fallible shim: invalid UTF-8 is `Err`.
+    /// A 0 word is no `String` at all and aborts rather than reading
+    /// address 0, mirroring `words`: a broken caller is not a data
+    /// error the callee can report.
     ///
     /// # Safety
-    /// `word` must be a live Axiom `String` for the call.
+    /// `word` must be 0 or a live Axiom `String` for the call.
     #[inline]
     pub unsafe fn str_fallible<'a>(
         word: AxWord,
         func: &str,
         idx: usize,
+        name: &str,
     ) -> Result<&'a str, String> {
         unsafe {
-            // SAFETY: as `str_strict`: the caller promises a live Axiom
-            // `String` for the call, which is `AxStr::from_raw`'s whole
-            // requirement; only the UTF-8 failure path differs.
+            // SAFETY: as `str_strict`: the `word == 0` test below rules
+            // out address 0, and the caller promises any other word is a
+            // live Axiom `String` for the call, which is
+            // `AxStr::from_raw`'s whole requirement; only the UTF-8
+            // failure path differs.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &str) is not a String: 0"
+                ));
+            }
             AxStr::from_raw(word)
                 .as_str()
                 .map_err(|_| utf8_message(func, idx))
         }
     }
 
-    /// A `&str` argument under `utf8 = "lossy"`.
+    /// A `&str` argument under `utf8 = "lossy"`. A 0 word is no
+    /// `String` at all and aborts rather than reading address 0,
+    /// mirroring `words`.
     ///
     /// # Safety
-    /// `word` must be a live Axiom `String` for the call.
+    /// `word` must be 0 or a live Axiom `String` for the call.
     #[inline]
-    pub unsafe fn str_lossy<'a>(word: AxWord) -> alloc::borrow::Cow<'a, str> {
+    pub unsafe fn str_lossy<'a>(
+        word: AxWord,
+        func: &str,
+        idx: usize,
+        name: &str,
+    ) -> alloc::borrow::Cow<'a, str> {
         unsafe {
-            // SAFETY: as `str_strict`; `as_bytes` reads the `len` and `data`
-            // words of a `String` the caller promised is live for the call.
+            // SAFETY: as `str_strict`; `as_bytes` reads the `len` and
+            // `data` words of a `String` the caller promised is live
+            // for the call, and the `word == 0` test below ruled out
+            // address 0 first.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &str) is not a String: 0"
+                ));
+            }
             String::from_utf8_lossy(AxStr::from_raw(word).as_bytes())
         }
     }
 
-    /// A `&[u8]` argument.
+    /// A `&[u8]` argument: the live bytes of an Axiom `String`. A 0 word
+    /// is no `String` at all and aborts rather than reading address 0.
     ///
     /// # Safety
-    /// `word` must be a live Axiom `String` for the call.
+    /// `word` must be 0 or a live Axiom `String` for the call.
     #[inline]
-    pub unsafe fn bytes<'a>(word: AxWord) -> &'a [u8] {
+    pub unsafe fn bytes<'a>(word: AxWord, func: &str, idx: usize, name: &str) -> &'a [u8] {
         unsafe {
-            // SAFETY: the caller promises a live Axiom `String` for the call
-            // (this function's `# Safety`), which is `from_raw`'s contract;
-            // the bytes handed back are the block's own, borrowed for the
-            // call (C1), not a copy.
+            // SAFETY: the `word == 0` test below rules out address 0, and
+            // this function's `# Safety` makes any other word a live
+            // Axiom `String` for the call, which is `from_raw`'s
+            // contract; the bytes handed back are the block's own,
+            // borrowed for the call (C1), not a copy.
+            if word == 0 {
+                abort(format_args!(
+                    "`{func}`: argument {idx} (`{name}`: &[u8]) is not a String: 0"
+                ));
+            }
             AxStr::from_raw(word).as_bytes()
         }
     }

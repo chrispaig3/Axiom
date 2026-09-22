@@ -150,7 +150,7 @@ listed="$work/mods.listed"
 intree="$work/mods.tree"
 python3 "$helper" modules "$axc" "$work" | LC_ALL=C sort > "$listed"
 (cd "$repo_root" && find stdlib -name '*.ax' -type f) \
-    | grep -vE 'stdlib/Sys/Platform\.(linux-|freebsd|windows)' | LC_ALL=C sort > "$intree"
+    | grep -vE 'stdlib/Sys/Platform\.(linux-|freebsd|windows|baremetal-aarch64)' | LC_ALL=C sort > "$intree"
 if diff -q "$listed" "$intree" > /dev/null; then
   ok "the module list and stdlib/ agree, $(grep -c . "$listed") modules"
 else

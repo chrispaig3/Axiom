@@ -408,7 +408,7 @@ ordered atomic load and the runtime's own bookkeeping.
 |---|---|---|
 | calls `__alloc` | 2026-08-23 | `Alloc` |
 | calls a **trait method** whose implementation does I/O — the construct was removed in 0.6.0 | 2026-08-23 | the fixpoint unioned **every** implementation of the method, because the rewrite that selects one ran elsewhere and this walk could not say which; the effect reached the caller and its callers — definite with a single implementation, and `#effects-possible=` with more than one |
-| calls `__store8`/`__store64` — writes arbitrary memory | 2026-08-25 | `Mut` |
+| calls `__store8`/`__store64`/`__store8v` — writes arbitrary memory | 2026-08-25 | `Mut` |
 | reads `__argc`/`__argv` — the process command line | 2026-08-25 | `IO` |
 | calls the arena primitives | 2026-08-25 | `Alloc` |
 | applies a `data`/`struct` **constructor** of arity >= 1 | 2026-08-31 | `Alloc`. A nullary constructor stays silent, and allocates nothing to be silent about |

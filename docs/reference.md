@@ -2407,7 +2407,7 @@ the choice.
 | `Alloc` | Heap **machinery**, not strictly allocation: a call reaching `__alloc` — every `Vec`/`Map`/`Str` growth, every `memAlloc` — and, since 2026-08-25, the three arena primitives, because a reset ends every block allocated since a mark. `handle` contributes it too, for installing evidence, which allocates nothing either. The `(alloc T)` keyword contributes it and was the only contributor until 2026-08-23, which had it exactly inverted (`memory-model.md` MM-EXEC-9a) |
 | `Mut` | Mutable heap state: `(set base.field v)`, and the `__store8`/`__store64` primitives it lowers to — the second half arrived 2026-08-25 (`memory-model.md` MM-EXEC-9a), which is why `vecPush` and `mapInsert` carry it. Since 2026-08-29 the atomic writers `__atomic_store`/`__atomic_add`/`__atomic_cas` and `__fence` carry it too; `__atomic_load` deliberately does not, for `__load64`'s reason. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
 | `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is reported **unverifiable** (`AX3037`, a warning) rather than unsupported, even over a body that plainly does not terminate — a claim the compiler never looks for is a fact about the analysis, not the body. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
-| `Unsafe` | Raw memory: the six primitives `__load8`, `__store8`, `__load64`, `__store64`, `__alloc` and `__addr` — a load or store at an address the type system does not bound, the allocator everything goes through, and `__addr` of a literal. Inferred ambiently like `Alloc` and `Mut` since 2026-09-21 (`memory-model.md` MM-EXEC-9a); declared with `;@axiom:effect(unsafe)`, which a body calling one of the six MUST carry since 2026-09-22 (`AX3073`) — lexical, so a wrapper's callers inherit the row and draw nothing themselves |
+| `Unsafe` | Raw memory: the seven primitives `__load8`, `__store8`, `__store8v`, `__load64`, `__store64`, `__alloc` and `__addr` — a load or store at an address the type system does not bound, the allocator everything goes through, and `__addr` of a literal. `__store8v` stores with LLVM `volatile`, for MMIO a middle end must not delete; same shape and row as `__store8` otherwise. Inferred ambiently like `Alloc` and `Mut` since 2026-09-21 (`memory-model.md` MM-EXEC-9a); declared with `;@axiom:effect(unsafe)`, which a body calling one of the seven MUST carry since 2026-09-22 (`AX3073`) — lexical, so a wrapper's callers inherit the row and draw nothing themselves |
 
 There were **six** until 2026-08-30. `Err` was accepted as a sixth
 built-in name — a handle list could write it — and nothing in the
@@ -2422,7 +2422,7 @@ always drawn, and `Err` is an ordinary name again — `(effect Err ...)`
 declares an ordinary effect ([error-model.md](error-model.md) records
 the retirement beside the `AX3054` it shipped with). There are **six**
 again since 2026-09-21: `Unsafe` joined the table as raw memory's
-effect (row above), inferred at the six primitives and, since
+effect (row above), inferred at the seven primitives and, since
 2026-09-22, required of the body that calls one (`AX3073`).
 
 ### Declaring an Effect Type
@@ -3432,6 +3432,7 @@ The standard library is built on these low-level primitives, and so is any code 
 |---|---|
 | `(__syscall0 n)` ... `(__syscall6 n a1 ... a6)` | Raw syscall. Returns the result, or `-errno` on failure, on every platform |
 | `(__load8 base i)` / `(__store8 base i v)` | Byte at `base + i` |
+| `(__store8v base i v)` | Byte at `base + i`, stored with LLVM `volatile`: the middle end keeps every store and their order, which is what memory-mapped registers need and what `__store8` must not promise. Same shape and effect row as `__store8` in every other respect |
 | `(__load64 base i)` / `(__store64 base i v)` | Machine word at `base + i * 8` |
 | `(__atomic_load p)` / `(__atomic_store p v)` / `(__atomic_add p v)` / `(__atomic_cas p expected new)` / `__fence` | Sequentially consistent atomics on the machine word at **byte address** `p` (the address itself, not `base + i * 8`): a load; a store; an add that answers the word **before** it; a compare-and-swap that answers the word it found, so it stored `new` iff the answer equals `expected`; and a full fence. A store and the fence answer 0. The four that write or order carry `Mut`; the load computes, as `__load64` does. No thread exists for them to synchronise with (`memory-model.md` MM-PAR-1); `tests/stdlib/440-atomics.ax` pins their single-threaded meaning |
 | `(__alloc bytes)` | Address of `bytes` fresh zeroed bytes |

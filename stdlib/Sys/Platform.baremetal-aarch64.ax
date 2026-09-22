@@ -30,8 +30,9 @@
 ; the UART in place of the HANDLEs. Descriptors 1 and 2 are the UART;
 ; any other value is refused. None of the three shims claims
 ; `effect(io)`, because the walk cannot see a store to a memory-mapped
-; register: `__store8` is `Mut`, not `IO`, and claiming `io` over it
-; is AX3010. The POSIX modules are untagged for the same reason - a
+; register: `__store8v` is `Mut`, not `IO` (its row matches `__store8`
+; in every respect but the emitted `volatile`), and claiming `io` over
+; it is AX3010. The POSIX modules are untagged for the same reason - a
 ; constant performs nothing - so this module tags nothing either.
 ;
 ; `Err` for the `(Result Int Error)` the two descriptor calls answer;
@@ -373,18 +374,18 @@
 ; is one byte on the host's stdio. Not `pub`: the raw addresses stay
 ; inside this file, so the public surface of every platform module is
 ; one set of names (`check-stdlib-api.sh`), and this address is this
-; target's alone. 2415919104 is 0x09000000.
+; target's alone. 150994944 is 0x09000000.
 (:: uartBase Int)
 (fn (uartBase)
-  2415919104)
+  150994944)
 
-; Store `count` bytes from `buf` to the UART, one `__store8` per byte.
+; Store `count` bytes from `buf` to the UART, one `__store8v` per byte.
 ; Iterative: a loop that recursed would stand `count` frames deep, and
-; the stack on-device is 8 KiB of `.bss`. Each store is separated from
-; the next by a load through the caller's own pointer, which LLVM must
-; assume may alias the UART - that load is what keeps the stores
-; ordered and unmerged at every opt level. The trap path does not rely
-; on this argument: its helper is IR the emitter writes directly
+; the stack on-device is 8 KiB of `.bss`. The `v` is the whole point:
+; a volatile store is never merged with its neighbours nor deleted as
+; never-read, so the bytes survive every opt level without relying on
+; an aliasing load to fence them. The trap path does not rely on this
+; argument either: its helper is IR the emitter writes directly
 ; (`emitBaremetalRuntime`), with volatile stores.
 (:: uartWriteLoop (-> Int Int Int))
 ;@axiom:effect(unsafe)
@@ -396,7 +397,7 @@
     {
       (while (< i count)
         {
-          (__store8 u 0 (__load8 buf i))
+          (__store8v u 0 (__load8 buf i))
           (set i (+ i 1))
         })
       0

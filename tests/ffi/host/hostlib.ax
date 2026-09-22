@@ -190,6 +190,7 @@
   x)
 
 (:: upperInto (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (upperInto src dst n i)
   (if (>= i n)
     0

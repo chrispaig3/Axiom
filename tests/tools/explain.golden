@@ -2486,7 +2486,7 @@ Spell the literal, or read bytes out of a value with `strData` (`stdlib/Str.ax`)
 ### explain AX3073
 AX3073 - a function touches raw memory and does not declare it
 
-The body calls a raw-memory primitive - `__load8`, `__store8`, `__load64`, `__store64`, `__alloc` or `__addr` - and the declaration says nothing about it.
+The body calls a raw-memory primitive - `__load8`, `__store8`, `__store8v`, `__load64`, `__store64`, `__alloc` or `__addr` - and the declaration says nothing about it.
 
 Write `;@axiom:effect(unsafe)` above the declaration: on a line of its own, directly above the `fn` (below the `::` signature when there is one).
 

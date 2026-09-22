@@ -31,7 +31,7 @@
 #      checked against a list `grep` derives from the sources, which is
 #      a second source. A generator that dropped a module would pass 1
 #      by being re-blessed and fails here.
-#   3. The five `Sys/Platform.*.ax` files declare the same public
+#   3. The six `Sys/Platform.*.ax` files declare the same public
 #      names. The document carries one of them, so this is what makes
 #      that safe rather than darwin-flavoured - and it is what holds
 #      the Windows module, which is functions over kernel32 rather
@@ -99,7 +99,7 @@ done <<< "$mod_list"
 tree_unlisted=""
 while IFS= read -r m; do
   case "$m" in
-      stdlib/Sys/Platform.linux-*|stdlib/Sys/Platform.freebsd.ax|stdlib/Sys/Platform.windows.ax) continue ;;
+      stdlib/Sys/Platform.linux-*|stdlib/Sys/Platform.freebsd.ax|stdlib/Sys/Platform.windows.ax|stdlib/Sys/Platform.baremetal-aarch64.ax) continue ;;
   esac
   printf '%s\n' "$mod_list" | grep -qx "$m" || tree_unlisted="$tree_unlisted $m"
 done < <(cd "$repo_root" && find stdlib -name '*.ax' -type f | LC_ALL=C sort)
@@ -371,7 +371,7 @@ fi
 
 # --------------------------------------------------------------------
 echo
-echo "== the four Sys/Platform files declare the same names =="
+echo "== the six Sys/Platform files declare the same names =="
 # --------------------------------------------------------------------
 # The reference carries the darwin one. That is only safe while the
 # the platform files agree, and nothing else in the tree checks that they do. The
@@ -381,7 +381,7 @@ echo "== the four Sys/Platform files declare the same names =="
 plat_names() { sed -nE 's/^\(pub (:: |macro |data |struct |trait |type )\(?([A-Za-z0-9_!?*+/<>=-]+).*/\2/p' "$1" | LC_ALL=C sort; }
 plat_ok=1
 plat_names "$repo_root/stdlib/Sys/Platform.darwin.ax" > "$work/plat.darwin"
-  for other in linux-aarch64 linux-x86_64 freebsd windows; do
+  for other in linux-aarch64 linux-x86_64 freebsd windows baremetal-aarch64; do
   plat_names "$repo_root/stdlib/Sys/Platform.$other.ax" > "$work/plat.$other"
   if ! diff -q "$work/plat.darwin" "$work/plat.$other" >/dev/null; then
     bad "Sys/Platform.darwin.ax and Sys/Platform.$other.ax declare different names"
@@ -389,7 +389,7 @@ plat_names "$repo_root/stdlib/Sys/Platform.darwin.ax" > "$work/plat.darwin"
     plat_ok=0
   fi
 done
-(( plat_ok )) && ok "all five Platform files declare the same $(grep -c . "$work/plat.darwin") names"
+(( plat_ok )) && ok "all six Platform files declare the same $(grep -c . "$work/plat.darwin") names"
 
 # --------------------------------------------------------------------
 echo

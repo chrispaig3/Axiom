@@ -1,0 +1,23 @@
+; expect 42
+; A repeat import WIDENS what its module exports. `(import M (alpha))`
+; followed by `(import M (beta))` exports both names, not just the
+; first list: the module is still merged exactly once (diamond-safe),
+; and only the verdicts widen. Before the union, the second list was
+; dead text - the module's `beta` stayed unexported and the checker's
+; own remedy ("add the name to the import's list", AX3023) was a lie
+; the author had already obeyed.
+;
+;   (alpha 2)  20 - the first list's name, unmoved.
+;   (beta 2)   22 - the second list's name, newly exported.
+;
+; 20 + 22 = 42. A name the module keeps private stays refused when
+; named in a second list (still AX3023); that half is probed, not
+; pinned, because a case that fails to compile has no exit status.
+(import RepeatSel (alpha))
+(import RepeatSel (beta))
+
+(:: main Int)
+(fn (main)
+  (if (== (+ (alpha 2) (beta 2)) 42)
+    42
+    1))
