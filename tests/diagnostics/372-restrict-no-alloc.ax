@@ -7,7 +7,9 @@
 ;   `direct`  writes `(alloc Int 1)` itself           -> AX3049
 ;   `sums`    arithmetic only                         -> silent
 ;   `reads`   loads a word through a primitive        -> silent:
-;             `__load64` performs nothing, and the tag is on the `fn`
+;             `__load64` performs `Unsafe`, not `Alloc`, and the
+;             `effect(unsafe)` tag answers AX3073; the restrict tag
+;             is on the `fn`
 (import Str)
 
 ;@axiom:restrict(no-alloc)
@@ -29,6 +31,7 @@
 
 (:: reads (-> Int Int))
 ;@axiom:restrict(no-alloc)
+;@axiom:effect(unsafe)
 (fn (reads p)
   (__load64 p 0))
 

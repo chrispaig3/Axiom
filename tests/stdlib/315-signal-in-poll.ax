@@ -36,7 +36,9 @@
 (import IO)
 (import Sys)
 (import Err)
+(import Fmt)
 (import Mem)
+(import Str)
 
 (:: say (-> Int String Int))
 ;@axiom:effect(io)
@@ -86,7 +88,9 @@
                             0
                             0
                             1)
-                          (netBind lsn addr)
+                          (match (netBind lsn addr)
+                            ((Err e) (die (strConcat "bind failed: errno=" (fmtInt (errCode e))) 1))
+                            ((Ok _) 0))
                           (netListen lsn 16)
                           (netSetNonBlocking lsn)
                           (say

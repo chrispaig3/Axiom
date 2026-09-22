@@ -42,28 +42,28 @@ See [reference.md](reference.md) for the language, and
 | `axsymNewline` | value | `Int` |  |  |
 | `axsymPercent` | value | `Int` |  |  |
 | `axsymIsKind` | value | `(-> Int Bool)` |  | The six KIND letters, and deliberately only those: they are disjoint from AXDL's `E`/`W`/`N`/`H` severity sigils, so a line's first byte says which notation produced it even in a concatenated stream. A seventh kind added to the compiler must be added here, and a line whose first byte is unknown is answered `None` rather than guessed at - a reader that guesses turns a compiler change into silently wrong data. |
-| `axsymTrimEnd` | value | `(-> String String)` | `Alloc,Mut` | Trailing spaces off the end of a slice. The head field is taken as the bytes before the opening quote, which includes the space that separated the location from it. |
+| `axsymTrimEnd` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | Trailing spaces off the end of a slice. The head field is taken as the bytes before the opening quote, which includes the space that separated the location from it. |
 | `axsymEscapable` | value | `(-> Int Bool)` |  | The bytes `saAxMeta` escapes on the way out, restated here because this is the other end of the same wire: space and every control byte (`< 33`), `"`, `#`, `%` and DEL. Anything else is left alone, so a UTF-8 tag value survives. |
 | `axsymHexVal` | value | `(-> Int (Option Int))` |  | One hex digit's value, or `None`. Both cases are accepted: the emitter writes upper, and a reader that took only what one emitter happens to write is pinned to that emitter rather than to the notation. Absence, not failure - `docs/error-model.md` ERR-REC-3 - and `Option` is built in, so this costs the module no import. |
-| `axsymPctAt` | value | `(-> String Int (Option Int))` | `Alloc` | The byte a `%XX` at `i` stands for, or `None` where there is no complete escape. STRICT, and that is the point: only the bytes `saAxSafe` escapes decode, so a literal `%` standing in a value the COMPILER built - a rendered type, a generated `Trait#Type#method` name - is never mistaken for an escape. `%41` stays `%41`. |
-| `axsymUnpct` | value | `(-> String String)` | `Alloc,Mut` | A meta key or value with its escapes undone. The `strFindByte` guard is not an optimisation for its own sake: no AXTAG in this repository contains a byte that is escaped, so every token on every line in the corpus takes the first arm and is returned as it arrived, allocating nothing and copying nothing. |
-| `axsymUnpctFrom` | value | `(-> String Int String String)` | `Alloc,Mut` |  |
-| `axsymMeta` | value | `(-> String Meta)` | `Alloc,Mut` | `#key=value` or a bare `#key`, with the leading `#` already dropped. Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG key is everything from `;@axiom:` to the newline, so a key can carry a space or a `#` just as a value can. |
-| `axsymMetaScan` | value | `(-> String Int Int (Vec Meta) (Vec Meta))` | `Alloc,Mut` | The metadata section, from `at` to the end of the line. A token opens at a `#` whose previous byte is a space, and runs to the byte before the next such `#`. `i` walks; `start` is the open token's first byte, or -1 before the first `#` is seen. |
-| `axsymLine` | value | `(-> String (Option Sym))` | `Alloc,Mut` | One line. `None` for a blank line, for a line whose first byte is not a KIND letter, and for a line with no quoted type - which together are every non-AXSYM line a caller might feed in, including the `compilation failed` trailer and AXDL diagnostics on the same stream. |
-| `axsymBuild` | value | `(-> String Int Int (Option Sym))` | `Alloc,Mut` | The three fields either side of the quoted type, once its bounds are known. Split out because the arms above are a refusal ladder and this is the one path that answers a symbol. |
-| `axsymNid` | value | `(-> String String)` | `Alloc,Mut` | The `@<nid>` between the type and the metadata, empty when absent. It is bounded by the next space rather than by the end, because the metadata follows it on the same line. |
-| `axsymParse` | value | `(-> String (Vec Sym))` | `Alloc,Mut` | A whole AXSYM stream. Lines that are not AXSYM are skipped, so the caller may pass the compiler's output unfiltered. |
-| `axsymParseFrom` | value | `(-> (Vec Int) Int (Vec Sym) (Vec Sym))` | `Alloc,Mut` |  |
-| `symTag` | value | `(-> Sym String String)` |  | The value of the LAST `#key` on the line, or empty. Empty is also what a bare flag answers, so a caller distinguishing "absent" from "present with no value" wants `symHasTag`. |
-| `symTagFrom` | value | `(-> (Vec Meta) String Int String)` |  |  |
-| `symTagLastIdx` | value | `(-> (Vec Meta) String Int Int Int)` |  | The index of the last `#key` at or after `i`, or -1. Carried in an accumulator rather than compared on the way out of the recursion, because a bare flag's value is empty and "" cannot tell a later match from no match at all. |
-| `symHasTag` | value | `(-> Sym String Bool)` |  |  |
-| `symHasTagFrom` | value | `(-> (Vec Meta) String Int Bool)` |  |  |
-| `symEffects` | value | `(-> Sym String)` |  | The effect row the CHECKER derived - not what the author claimed. Empty when the declaration performs none. |
-| `symDerivedPure` | value | `(-> Sym Bool)` |  | True when the checker derived no effects at all. This is a statement about the ANALYSIS, not a guarantee about the program: an effect reached through a function value in memory is not in the row, and a built-in effect named by an enclosing `handle` is subtracted from it. A policy that treats this as proof of purity is reading a lower bound as an upper one. |
-| `symAgentTag` | value | `(-> Sym String String)` | `Alloc,Mut` | The `agent:*` namespace, which the compiler records and does not check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`. |
-| `symHasAgentTag` | value | `(-> Sym String Bool)` | `Alloc,Mut` |  |
+| `axsymPctAt` | value | `(-> String Int (Option Int))` | `Alloc,Unsafe` | The byte a `%XX` at `i` stands for, or `None` where there is no complete escape. STRICT, and that is the point: only the bytes `saAxSafe` escapes decode, so a literal `%` standing in a value the COMPILER built - a rendered type, a generated `Trait#Type#method` name - is never mistaken for an escape. `%41` stays `%41`. |
+| `axsymUnpct` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | A meta key or value with its escapes undone. The `strFindByte` guard is not an optimisation for its own sake: no AXTAG in this repository contains a byte that is escaped, so every token on every line in the corpus takes the first arm and is returned as it arrived, allocating nothing and copying nothing. |
+| `axsymUnpctFrom` | value | `(-> String Int String String)` | `Alloc,Mut,Unsafe` |  |
+| `axsymMeta` | value | `(-> String Meta)` | `Alloc,Mut,Unsafe` | `#key=value` or a bare `#key`, with the leading `#` already dropped. Both halves are unescaped, because `saAxMeta` escapes both: an AXTAG key is everything from `;@axiom:` to the newline, so a key can carry a space or a `#` just as a value can. |
+| `axsymMetaScan` | value | `(-> String Int Int (Vec Meta) (Vec Meta))` | `Alloc,Mut,Unsafe` | The metadata section, from `at` to the end of the line. A token opens at a `#` whose previous byte is a space, and runs to the byte before the next such `#`. `i` walks; `start` is the open token's first byte, or -1 before the first `#` is seen. |
+| `axsymLine` | value | `(-> String (Option Sym))` | `Alloc,Mut,Unsafe` | One line. `None` for a blank line, for a line whose first byte is not a KIND letter, and for a line with no quoted type - which together are every non-AXSYM line a caller might feed in, including the `compilation failed` trailer and AXDL diagnostics on the same stream. |
+| `axsymBuild` | value | `(-> String Int Int (Option Sym))` | `Alloc,Mut,Unsafe` | The three fields either side of the quoted type, once its bounds are known. Split out because the arms above are a refusal ladder and this is the one path that answers a symbol. |
+| `axsymNid` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The `@<nid>` between the type and the metadata, empty when absent. It is bounded by the next space rather than by the end, because the metadata follows it on the same line. |
+| `axsymParse` | value | `(-> String (Vec Sym))` | `Alloc,Mut,Unsafe` | A whole AXSYM stream. Lines that are not AXSYM are skipped, so the caller may pass the compiler's output unfiltered. |
+| `axsymParseFrom` | value | `(-> (Vec Int) Int (Vec Sym) (Vec Sym))` | `Alloc,Mut,Unsafe` |  |
+| `symTag` | value | `(-> Sym String String)` | `Unsafe` | The value of the LAST `#key` on the line, or empty. Empty is also what a bare flag answers, so a caller distinguishing "absent" from "present with no value" wants `symHasTag`. |
+| `symTagFrom` | value | `(-> (Vec Meta) String Int String)` | `Unsafe` |  |
+| `symTagLastIdx` | value | `(-> (Vec Meta) String Int Int Int)` | `Unsafe` | The index of the last `#key` at or after `i`, or -1. Carried in an accumulator rather than compared on the way out of the recursion, because a bare flag's value is empty and "" cannot tell a later match from no match at all. |
+| `symHasTag` | value | `(-> Sym String Bool)` | `Unsafe` |  |
+| `symHasTagFrom` | value | `(-> (Vec Meta) String Int Bool)` | `Unsafe` |  |
+| `symEffects` | value | `(-> Sym String)` | `Unsafe` | The effect row the CHECKER derived - not what the author claimed. Empty when the declaration performs none. |
+| `symDerivedPure` | value | `(-> Sym Bool)` | `Unsafe` | True when the checker derived no effects at all. This is a statement about the ANALYSIS, not a guarantee about the program: an effect reached through a function value in memory is not in the row, and a built-in effect named by an enclosing `handle` is subtracted from it. A policy that treats this as proof of purity is reading a lower bound as an upper one. |
+| `symAgentTag` | value | `(-> Sym String String)` | `Alloc,Mut,Unsafe` | The `agent:*` namespace, which the compiler records and does not check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`. |
+| `symHasAgentTag` | value | `(-> Sym String Bool)` | `Alloc,Mut,Unsafe` |  |
 
 ## `Err`
 
@@ -81,7 +81,7 @@ See [reference.md](reference.md) for the language, and
 | `errCode` | value | `(-> Error Int)` |  |  |
 | `errMessage` | value | `(-> Error String)` |  |  |
 | `errContext` | value | `(-> Error String)` |  |  |
-| `errorText` | value | `(-> Error String)` | `Alloc,Mut` | The rendering `main` writes to fd 2 (ERR-REC-4), and the one a program builds a longer report out of. A plain function rather than a format hole: a rendering is chosen from a concrete type, so a value reached through a type variable is AX3025, and every caller here has a concrete `Error` in hand anyway. |
+| `errorText` | value | `(-> Error String)` | `Alloc,Mut,Unsafe` | The rendering `main` writes to fd 2 (ERR-REC-4), and the one a program builds a longer report out of. A plain function rather than a format hole: a rendering is chosen from a concrete type, so a value reached through a type variable is AX3025, and every caller here has a concrete `Error` in hand anyway. |
 | `isOk` | value | `(-> (Result a e) Bool)` |  |  |
 | `isErr` | value | `(-> (Result a e) Bool)` |  |  |
 | `unwrapOr` | value | `(-> (Result a e) a a)` |  |  |
@@ -133,19 +133,19 @@ See [reference.md](reference.md) for the language, and
 | `ffiStatusOk` | value | `Int` |  |  |
 | `ffiStatusErr` | value | `Int` |  |  |
 | `ffiStatusNone` | value | `Int` |  |  |
-| `ffiHandleNew` | value | `(-> Int Int Handle)` | `Alloc,Mut` | A fresh Handle over `ptr`, to be destroyed by the C function at `dropFn` (`i64 (i64)`). The block is born free-floating and adopted by this function's own answer (event 2), exactly as `strWrapOwned` adopts a header - so the caller holds one share. |
-| `ffiHandlePtr` | value | `(-> Handle Int)` |  | The Rust pointer, 0 once the handle is closed. |
-| `ffiHandleLive` | value | `(-> Handle Bool)` |  |  |
-| `ffiHandleClose` | value | `(-> Handle Int)` | `Mut` | Destroy the Rust value NOW, once: the destructor runs and the pointer is zeroed, so a second close and the handle's own death do nothing. |
-| `ffiCellNew` | value | `Int` | `Alloc` | A two-word out-cell, zeroed, held by one share the wrapper gives back with `ffiCellFree`. |
-| `ffiCellNewN` | value | `(-> Int Int)` | `Alloc` | An out-cell of `n` words (at least two: a status' message is `{ptr, len}`), for a record that crosses as its fields (one word each, in declaration order) or any payload wider than two words. |
-| `ffiWordAt` | value | `(-> Int Int Int)` |  | Word `i` of a Rust-owned word buffer: what a generated wrapper reads a record's fields or a list's lengths through before freeing it. The same read as `ffiCellWord`, kept under its own name because the two describe different things to a reader of the generated module - one is Rust's buffer, one is the cell the wrapper allocated - and written in terms of it so there is one load. |
+| `ffiHandleNew` | value | `(-> Int Int Handle)` | `Alloc,Mut,Unsafe` | A fresh Handle over `ptr`, to be destroyed by the C function at `dropFn` (`i64 (i64)`). The block is born free-floating and adopted by this function's own answer (event 2), exactly as `strWrapOwned` adopts a header - so the caller holds one share. |
+| `ffiHandlePtr` | value | `(-> Handle Int)` | `Unsafe` | The Rust pointer, 0 once the handle is closed. |
+| `ffiHandleLive` | value | `(-> Handle Bool)` | `Unsafe` |  |
+| `ffiHandleClose` | value | `(-> Handle Int)` | `Mut,Unsafe` | Destroy the Rust value NOW, once: the destructor runs and the pointer is zeroed, so a second close and the handle's own death do nothing. |
+| `ffiCellNew` | value | `Int` | `Alloc,Unsafe` | A two-word out-cell, zeroed, held by one share the wrapper gives back with `ffiCellFree`. |
+| `ffiCellNewN` | value | `(-> Int Int)` | `Alloc,Unsafe` | An out-cell of `n` words (at least two: a status' message is `{ptr, len}`), for a record that crosses as its fields (one word each, in declaration order) or any payload wider than two words. |
+| `ffiWordAt` | value | `(-> Int Int Int)` | `Unsafe` | Word `i` of a Rust-owned word buffer: what a generated wrapper reads a record's fields or a list's lengths through before freeing it. The same read as `ffiCellWord`, kept under its own name because the two describe different things to a reader of the generated module - one is Rust's buffer, one is the cell the wrapper allocated - and written in terms of it so there is one load. |
 | `ffiCellFree` | value | `(-> Int Int)` |  |  |
-| `ffiCellWord` | value | `(-> Int Int Int)` |  |  |
-| `ffiBytesToStr` | value | `(-> Int Int String)` | `Alloc,Mut` | Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc` reserves len+1 and zeroes it, so the NUL terminator is already there. Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after. |
-| `ffiWordsToVec` | value | `(-> Int Int (Vec Int))` | `Alloc,Mut` | A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n` words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`. |
-| `ffiStrsToVec` | value | `(-> Int Int (Vec String))` | `Alloc,Mut` | A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p` points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT free the Rust side: the wrapper calls `ffiFreeStrList`. |
-| `ffiWordListsToVec` | value | `(-> Int Int (Vec (Vec Int)))` | `Alloc,Mut` | A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list. Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`. |
+| `ffiCellWord` | value | `(-> Int Int Int)` | `Unsafe` |  |
+| `ffiBytesToStr` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc` reserves len+1 and zeroes it, so the NUL terminator is already there. Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after. |
+| `ffiWordsToVec` | value | `(-> Int Int (Vec Int))` | `Alloc,Mut,Unsafe` | A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n` words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`. |
+| `ffiStrsToVec` | value | `(-> Int Int (Vec String))` | `Alloc,Mut,Unsafe` | A Rust `Vec<String>` copied into an Axiom `Vec` of Strings: `p` points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT free the Rust side: the wrapper calls `ffiFreeStrList`. |
+| `ffiWordListsToVec` | value | `(-> Int Int (Vec (Vec Int)))` | `Alloc,Mut,Unsafe` | A Rust `Vec<Vec<T>>` of word scalars copied into an Axiom `Vec` of `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list. Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`. |
 
 ## `Fmt`
 
@@ -154,15 +154,15 @@ See [reference.md](reference.md) for the language, and
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `fmtIntWidth` | value | `(-> Int Int)` |  | Decimal digits in `n`, counting a leading `-` and treating 0 as one digit. |
-| `fmtInt` | value | `(-> Int String)` | `Alloc,Mut` | `n` in base 10 as a `Str`. |
-| `fmtHex` | value | `(-> Int String)` | `Alloc,Mut` |  |
-| `fmtPadLeft` | value | `(-> String Int String)` | `Alloc,Mut` | `s` padded on the left with spaces to at least `width` bytes. |
-| `fmtPadRight` | value | `(-> String Int String)` | `Alloc,Mut` | `s` padded on the right with spaces to at least `width` bytes. |
-| `fmtPadCenter` | value | `(-> String Int String)` | `Alloc,Mut` | `s` centred in `width` bytes. An odd remainder goes to the RIGHT, which is the convention Rust's `{:^}` uses and the one that makes a column of centred labels line up with a left-aligned header. |
-| `fmtPadZerosLeft` | value | `(-> String Int String)` | `Alloc,Mut` | `s` padded on the left with ZEROS to at least `width` bytes, with a leading sign kept in front of them: `-7` at width 4 is `-007` and not `00-7`. That is the whole reason this is not `fmtPadLeft` with a different byte, and it is why the format specifier `{n:04}` can be one call rather than a sign test at every call site. |
-| `fmtHexUpper` | value | `(-> Int String)` | `Alloc,Mut` | Uppercase hexadecimal, for the `{n:X}` specifier. Same digits as `fmtHex`, and deliberately a separate function rather than a flag: the specifier picks one at expansion time, so a branch would be a runtime test of a compile-time constant. |
-| `fmtFloat` | value | `(-> Float String)` | `Alloc,Mut` | `x` with six decimal places. |
-| `fmtFloatPrec` | value | `(-> Float Int String)` | `Alloc,Mut` | `x` with `places` decimal places, rounded half away from zero. |
+| `fmtInt` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | `n` in base 10 as a `Str`. |
+| `fmtHex` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` |  |
+| `fmtPadLeft` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` padded on the left with spaces to at least `width` bytes. |
+| `fmtPadRight` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` padded on the right with spaces to at least `width` bytes. |
+| `fmtPadCenter` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` centred in `width` bytes. An odd remainder goes to the RIGHT, which is the convention Rust's `{:^}` uses and the one that makes a column of centred labels line up with a left-aligned header. |
+| `fmtPadZerosLeft` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` padded on the left with ZEROS to at least `width` bytes, with a leading sign kept in front of them: `-7` at width 4 is `-007` and not `00-7`. That is the whole reason this is not `fmtPadLeft` with a different byte, and it is why the format specifier `{n:04}` can be one call rather than a sign test at every call site. |
+| `fmtHexUpper` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | Uppercase hexadecimal, for the `{n:X}` specifier. Same digits as `fmtHex`, and deliberately a separate function rather than a flag: the specifier picks one at expansion time, so a branch would be a runtime test of a compile-time constant. |
+| `fmtFloat` | value | `(-> Float String)` | `Alloc,Mut,Unsafe` | `x` with six decimal places. |
+| `fmtFloatPrec` | value | `(-> Float Int String)` | `Alloc,Mut,Unsafe` | `x` with `places` decimal places, rounded half away from zero. |
 
 ## `Http`
 
@@ -174,29 +174,29 @@ See [reference.md](reference.md) for the language, and
 | `httpMaxBody` | value | `Int` |  | The largest `Content-Length` `httpRead` accepts, in bytes: 8 MiB. Larger is 413, and so is a value the parser cannot represent. |
 | `httpReadCap` | value | `Int` |  | The reader's initial buffer, in bytes: 2 KiB, which holds a browser's request head with a few cookies in one read (measured in the header); the buffer doubles up to `httpMaxHead` when a head does not fit. |
 | `HttpReader` | struct |  |  | A buffered reader over a socket: the descriptor, a buffer whose `strLen` is its capacity, how much of it holds data, and how far the parser has consumed. Bytes between `consumed` and `filled` are the request in progress. |
-| `httpReaderNew` | value | `(-> Int HttpReader)` | `Alloc,Mut` | A reader over `fd` with the default buffer. |
-| `httpReaderWith` | value | `(-> Int Int HttpReader)` | `Alloc,Mut` | A reader over `fd` whose buffer starts at `cap` bytes (at least 1). A capacity of 1 makes every `read` answer one byte, which is how tests/stdlib/430-http-parse.ax drives the refill loop through every boundary a slow peer could put a read on, deterministically and in one process. |
+| `httpReaderNew` | value | `(-> Int HttpReader)` | `Alloc,Mut,Unsafe` | A reader over `fd` with the default buffer. |
+| `httpReaderWith` | value | `(-> Int Int HttpReader)` | `Alloc,Mut,Unsafe` | A reader over `fd` whose buffer starts at `cap` bytes (at least 1). A capacity of 1 makes every `read` answer one byte, which is how tests/stdlib/430-http-parse.ax drives the refill loop through every boundary a slow peer could put a read on, deterministically and in one process. |
 | `HttpReq` | struct |  |  | One parsed request. `path` is percent-decoded with the query stripped; `query` is the raw bytes after `?` (empty when there were none); `hnames` and `hvals` are parallel `Vec`s of Strings, the names ASCII-lowercased, so `httpHeader` needs one spelling; `body` is exactly `Content-Length` bytes, or empty. Every String here is a COPY, never a slice of the reader's buffer, which a later fill may move. |
-| `httpHeader` | value | `(-> HttpReq String String String)` | `Alloc,Mut` | The value of header `name` (any case; compared lowercased), or `dflt` when the request did not carry it. A header sent twice answers its first value. |
-| `httpHasHeader` | value | `(-> HttpReq String Bool)` | `Alloc,Mut` | Whether the request carried header `name`, in any case. |
-| `httpDecode` | value | `(-> String Bool String)` | `Alloc,Mut` | `s` percent-decoded: every `%XX` with two hex digits becomes the byte `XX`, and when `plusSpace` is set every `+` becomes a space - the rule for a query string, and not for a path. A `%` that does not start a valid escape is kept as it is rather than refused, so a caller that must refuse one compares the answer with the input. Also answers `s` itself when there is nothing to decode. |
-| `httpQueryParam` | value | `(-> HttpReq String String String)` | `Alloc,Mut` | The value of query parameter `name`, decoded (`%XX` and `+`), or `dflt` when the query does not carry it. `?q=a%20b&x=1` answers `a b` for `q` and `1` for `x`; a pair with no `=` has the empty value. |
-| `httpRead` | value | `(-> HttpReader (Result HttpReq Error))` | `Alloc,IO,Mut` | Read one whole request from the reader: refill until the head has ended, parse it, then read exactly `Content-Length` bytes of body. The refusals answer an `Error` whose CODE is the HTTP status to write back: 400 for a malformed head or a peer that closed early, 413 for a body above `httpMaxBody` or a length the parser cannot hold, 431 for a head above `httpMaxHead`, 501 for `Transfer-Encoding` (chunked bodies are not read), 505 for a version that is not HTTP/1.x. |
-| `httpStatusText` | value | `(-> Int String)` |  | The reason phrase for a status, or `Unknown` for one this module does not name. |
-| `httpContentType` | value | `(-> String String)` | `Alloc,Mut` | The `Content-Type` for a file name, by its extension: `.html`, `.css`, `.js`, `.svg`, `.png`, `.ico`, `.txt` and `.json` are named, and everything else is `application/octet-stream` - deliberately not `text/html`, which is the stored-XSS route for an unknown file. |
-| `httpRespondRaw` | value | `(-> Int Int String Int Int Int)` | `Alloc,IO,Mut` | Write a whole response to `fd`: the head for `status` and `ctype` with `Content-Length: len`, then the `len` bytes at `addr`. Every write goes through `sysWriteAllFd`. Takes an address and a length rather than a String so that a body holding a NUL byte - a PNG - is written whole; `strCStr` would stop at the NUL. Answers what the body's `sysWriteAllFd` answered, the head's when that one failed. |
-| `httpRespond` | value | `(-> Int Int String String Int)` | `Alloc,IO,Mut` | Write a whole response whose body is the String `body`: `httpRespondRaw` over its bytes and its byte count. |
-| `httpFail` | value | `(-> Int Int String Int)` | `Alloc,IO,Mut` | A plain-text refusal or error page: `status` with its reason phrase and `why` as the body, so a curl user reads the reason on the terminal. Answers `status`. |
+| `httpHeader` | value | `(-> HttpReq String String String)` | `Alloc,Mut,Unsafe` | The value of header `name` (any case; compared lowercased), or `dflt` when the request did not carry it. A header sent twice answers its first value. |
+| `httpHasHeader` | value | `(-> HttpReq String Bool)` | `Alloc,Mut,Unsafe` | Whether the request carried header `name`, in any case. |
+| `httpDecode` | value | `(-> String Bool String)` | `Alloc,Mut,Unsafe` | `s` percent-decoded: every `%XX` with two hex digits becomes the byte `XX`, and when `plusSpace` is set every `+` becomes a space - the rule for a query string, and not for a path. A `%` that does not start a valid escape is kept as it is rather than refused, so a caller that must refuse one compares the answer with the input. Also answers `s` itself when there is nothing to decode. |
+| `httpQueryParam` | value | `(-> HttpReq String String String)` | `Alloc,Mut,Unsafe` | The value of query parameter `name`, decoded (`%XX` and `+`), or `dflt` when the query does not carry it. `?q=a%20b&x=1` answers `a b` for `q` and `1` for `x`; a pair with no `=` has the empty value. |
+| `httpRead` | value | `(-> HttpReader (Result HttpReq Error))` | `Alloc,IO,Mut,Unsafe` | Read one whole request from the reader: refill until the head has ended, parse it, then read exactly `Content-Length` bytes of body. The refusals answer an `Error` whose CODE is the HTTP status to write back: 400 for a malformed head or a peer that closed early, 413 for a body above `httpMaxBody` or a length the parser cannot hold, 431 for a head above `httpMaxHead`, 501 for `Transfer-Encoding` (chunked bodies are not read), 505 for a version that is not HTTP/1.x. |
+| `httpStatusText` | value | `(-> Int String)` | `Unsafe` | The reason phrase for a status, or `Unknown` for one this module does not name. |
+| `httpContentType` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The `Content-Type` for a file name, by its extension: `.html`, `.css`, `.js`, `.svg`, `.png`, `.ico`, `.txt` and `.json` are named, and everything else is `application/octet-stream` - deliberately not `text/html`, which is the stored-XSS route for an unknown file. |
+| `httpRespondRaw` | value | `(-> Int Int String Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Write a whole response to `fd`: the head for `status` and `ctype` with `Content-Length: len`, then the `len` bytes at `addr`. Every write goes through `sysWriteAllFd`. Takes an address and a length rather than a String so that a body holding a NUL byte - a PNG - is written whole; `strCStr` would stop at the NUL. Answers what the body's `sysWriteAllFd` answered, the head's when that one failed. |
+| `httpRespond` | value | `(-> Int Int String String Int)` | `Alloc,IO,Mut,Unsafe` | Write a whole response whose body is the String `body`: `httpRespondRaw` over its bytes and its byte count. |
+| `httpFail` | value | `(-> Int Int String Int)` | `Alloc,IO,Mut,Unsafe` | A plain-text refusal or error page: `status` with its reason phrase and `why` as the body, so a curl user reads the reason on the terminal. Answers `status`. |
 | `HttpHandler` | struct |  |  | A handler: a function of the socket and the request, answering an Int the dispatcher passes back. Held in a struct because the router keeps handlers in a `Vec` of words. Written as `(HttpHandler (lambda (fd r) (page fd r)))` around a signed `fn`. |
 | `HttpRouter` | struct |  |  | The routing table: exact routes as three parallel `Vec`s (method, path, handler cell), static prefixes as two (URL prefix, directory), and the handler for a path nothing matched. |
-| `routerNew` | value | `HttpRouter` | `Alloc,IO,Mut` | An empty router whose not-found handler writes a plain-text 404. `IO`, because the checker charges a function with the effects of the lambda it builds, and the default handler writes. |
-| `routeAdd` | value | `(-> HttpRouter String String HttpHandler Int)` | `Alloc,Mut` | Route `method` (`GET`, `POST`, ...) at exactly `path` to `h`. Routes are tried in the order they were added. Answers the route's index. |
-| `routeStatic` | value | `(-> HttpRouter String String Int)` | `Alloc,Mut` | Serve GET requests under URL `prefix` (write it with its trailing slash: `/static/`) from the files under directory `dir`. Answers the mapping's index. |
+| `routerNew` | value | `HttpRouter` | `Alloc,IO,Mut,Unsafe` | An empty router whose not-found handler writes a plain-text 404. `IO`, because the checker charges a function with the effects of the lambda it builds, and the default handler writes. |
+| `routeAdd` | value | `(-> HttpRouter String String HttpHandler Int)` | `Alloc,Mut,Unsafe` | Route `method` (`GET`, `POST`, ...) at exactly `path` to `h`. Routes are tried in the order they were added. Answers the route's index. |
+| `routeStatic` | value | `(-> HttpRouter String String Int)` | `Alloc,Mut,Unsafe` | Serve GET requests under URL `prefix` (write it with its trailing slash: `/static/`) from the files under directory `dir`. Answers the mapping's index. |
 | `routeNotFound` | value | `(-> HttpRouter HttpHandler Int)` | `Mut` | Replace the not-found handler. |
-| `httpPathSafe` | value | `(-> String Bool)` |  | Whether a request path may reach the filesystem or a route at all: it starts with `/`, holds no NUL and no `\`, and has no empty segment (`//`) and no `..` segment. Decided on the DECODED path, so `%2e%2e` is `..` here. |
-| `httpServeFile` | value | `(-> Int HttpReq String String Int)` | `Alloc,IO,Mut` | Serve the file that `req`'s path names under `prefix` out of `dir` to `fd`: 400 when the path is unsafe, 404 when the rest of the path is empty or names nothing or a directory, otherwise 200 with the content type of its extension and its bytes written whole. The path is checked before the filesystem is touched. |
-| `routeDispatch` | value | `(-> HttpRouter Int HttpReq Int)` | `Alloc,IO,Mut` | Answer `req` on `fd`: an unsafe path is 400 before anything else is consulted; then the exact routes, in order; then the static prefixes, for GET (405 otherwise); then 405 when the path has a route for another method; then the not-found handler. Answers what the handler answered. |
-| `httpServeOne` | value | `(-> HttpRouter Int Int)` | `Alloc,IO,Mut` | One connection, start to finish: read the request off `fd`, and either dispatch it or write the parser's refusal back with the status the error carries. Answers the handler's answer, or the status written for a refusal. The caller owns the socket - it set it blocking, and it closes it - and the arena scope around this call is the caller's too. |
+| `httpPathSafe` | value | `(-> String Bool)` | `Unsafe` | Whether a request path may reach the filesystem or a route at all: it starts with `/`, holds no NUL and no `\`, and has no empty segment (`//`) and no `..` segment. Decided on the DECODED path, so `%2e%2e` is `..` here. |
+| `httpServeFile` | value | `(-> Int HttpReq String String Int)` | `Alloc,IO,Mut,Unsafe` | Serve the file that `req`'s path names under `prefix` out of `dir` to `fd`: 400 when the path is unsafe, 404 when the rest of the path is empty or names nothing or a directory, otherwise 200 with the content type of its extension and its bytes written whole. The path is checked before the filesystem is touched. |
+| `routeDispatch` | value | `(-> HttpRouter Int HttpReq Int)` | `Alloc,IO,Mut,Unsafe` | Answer `req` on `fd`: an unsafe path is 400 before anything else is consulted; then the exact routes, in order; then the static prefixes, for GET (405 otherwise); then 405 when the path has a route for another method; then the not-found handler. Answers what the handler answered. |
+| `httpServeOne` | value | `(-> HttpRouter Int Int)` | `Alloc,IO,Mut,Unsafe` | One connection, start to finish: read the request off `fd`, and either dispatch it or write the parser's refusal back with the status the error carries. Answers the handler's answer, or the status written for a refusal. The caller owns the socket - it set it blocking, and it closes it - and the arena scope around this call is the caller's too. |
 
 ## `IO`
 
@@ -204,32 +204,32 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `writeStr` | value | `(-> Int String Int)` | `Alloc,IO` | Write all of `s` to `fd`, returning the number of bytes written or a negative errno. |
-| `printlnLit` | value | `(-> Int Int)` | `Alloc,IO` |  |
+| `writeStr` | value | `(-> Int String Int)` | `Alloc,IO,Unsafe` | Write all of `s` to `fd`, returning the number of bytes written or a negative errno. |
+| `printlnLit` | value | `(-> Int Int)` | `Alloc,IO,Unsafe` |  |
 | `println` | macro |  |  |  |
 | `eprintln` | macro |  |  |  |
-| `readFileLit` | value | `(-> Int String)` | `Alloc,IO,Mut` | The whole contents of the file at NUL-terminated path `cstr`, or an empty `Str` if it cannot be opened. |
-| `readFile` | value | `(-> String String)` | `Alloc,IO,Mut` |  |
-| `ioResult` | value | `(-> (Result Int Error) String String (Result Int Error))` | `Alloc,Mut` | A `Sys` answer re-wrapped with the path this layer knows. |
-| `writeFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Write `s` to `path`, creating it or TRUNCATING what is there. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. |
-| `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
-| `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the file `path`. Answers 0, or a negative errno. |
-| `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Move `old` to `new`, answering 0 or a negative errno. |
-| `copyFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut` | Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is created or truncated. |
-| `fileExists` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names something that can be opened for reading - a directory included. `isDir` separates them. |
-| `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
-| `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | The size of `path` in bytes, or a negative errno. |
-| `readErrno` | value | `(-> String Int)` | `Alloc,IO,Mut` | 0 when `path` can be read as a file, otherwise the errno saying why not: 2 missing, 13 not permitted, 21 a directory. |
-| `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
-| `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
-| `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
-| `listDir` | value | `(-> String (Vec Int))` | `Alloc,IO,Mut` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
-| `cwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this is two different syscalls underneath, and why it stopped answering `""` for every distinct reason it can fail. |
+| `readFileLit` | value | `(-> Int String)` | `Alloc,IO,Mut,Unsafe` | The whole contents of the file at NUL-terminated path `cstr`, or an empty `Str` if it cannot be opened. |
+| `readFile` | value | `(-> String String)` | `Alloc,IO,Mut,Unsafe` |  |
+| `ioResult` | value | `(-> (Result Int Error) String String (Result Int Error))` | `Alloc,Mut,Unsafe` | A `Sys` answer re-wrapped with the path this layer knows. |
+| `writeFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Write `s` to `path`, creating it or TRUNCATING what is there. Answers `(Ok bytes)`, or `(Err e)` whose code is the errno. |
+| `appendFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Add `s` to the end of `path`, creating it if absent. Answers the `(Ok bytes)`, or `(Err e)` whose code is the errno. |
+| `removeFile` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Remove the file `path`. Answers 0, or a negative errno. |
+| `renamePath` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Move `old` to `new`, answering 0 or a negative errno. |
+| `copyFile` | value | `(-> String String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Copy `src` onto `dst`, answering `(Ok bytes)` or `(Err e)`. `dst` is created or truncated. |
+| `fileExists` | value | `(-> String Bool)` | `Alloc,IO,Mut,Unsafe` | True when `path` names something that can be opened for reading - a directory included. `isDir` separates them. |
+| `isDir` | value | `(-> String Bool)` | `Alloc,IO,Mut,Unsafe` | True when `path` names a directory. |
+| `fileSize` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | The size of `path` in bytes, or a negative errno. |
+| `readErrno` | value | `(-> String Int)` | `Alloc,IO,Mut,Unsafe` | 0 when `path` can be read as a file, otherwise the errno saying why not: 2 missing, 13 not permitted, 21 a directory. |
+| `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
+| `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
+| `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
+| `listDir` | value | `(-> String (Vec Int))` | `Alloc,IO,Mut,Unsafe` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
+| `cwd` | value | `(Result String Error)` | `Alloc,IO,Mut,Unsafe` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this is two different syscalls underneath, and why it stopped answering `""` for every distinct reason it can fail. |
 | `exit` | value | `(-> Int Int)` | `IO` |  |
-| `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut` | Print `s` to standard error and exit with `code`. Never returns. |
-| `todo` | value | `(-> String a)` | `Alloc,IO,Mut` | Exit 70 with `todo: <what>` on standard error; types as any result and never returns. |
-| `readLine` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: fd 0: errno 9`. |
-| `readAll` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
+| `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut,Unsafe` | Print `s` to standard error and exit with `code`. Never returns. |
+| `todo` | value | `(-> String a)` | `Alloc,IO,Mut,Unsafe` | Exit 70 with `todo: <what>` on standard error; types as any result and never returns. |
+| `readLine` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut,Unsafe` | One line of `fd` without its newline: `(Ok (Some line))`; `(Ok None)` at end of input when nothing was read; `(Err e)` whose code is the errno, its message `readLine: fd 0: errno 9`. |
+| `readAll` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | Everything left on `fd` to end of input: `(Ok s)`, `(Ok "")` when nothing arrived, or `(Err e)` whose code is the errno. |
 
 ## `Intern`
 
@@ -237,15 +237,15 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `internSlotOf` | value | `(-> String Int Int)` |  | The slot `s` probes first, in [0, cap). |
-| `internNew` | value | `Int` | `Alloc,Mut` | `internDefaultCap` is a *slot* count, so it is passed straight to `internAllocTable` and not through `internWithCapacity`, which takes a *string* count and doubles it. Routing it through the latter would make a fresh interner 128 slots while its own documentation said 64. |
-| `internWithCapacity` | value | `(-> Int Int)` | `Alloc,Mut` | An interner sized so `want` distinct strings fit without rehashing. |
+| `internSlotOf` | value | `(-> String Int Int)` | `Unsafe` | The slot `s` probes first, in [0, cap). |
+| `internNew` | value | `Int` | `Alloc,Mut,Unsafe` | `internDefaultCap` is a *slot* count, so it is passed straight to `internAllocTable` and not through `internWithCapacity`, which takes a *string* count and doubles it. Routing it through the latter would make a fresh interner 128 slots while its own documentation said 64. |
+| `internWithCapacity` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` | An interner sized so `want` distinct strings fit without rehashing. |
 | `internFree` | value | `(-> Int Int)` |  | Hand `it` back: the slot table, the `Vec`, and one share of every string in it. Answers 0, as `Vec.vecFree` and `Map.mapFree` do. |
-| `internCap` | value | `(-> Int Int)` |  |  |
-| `internCount` | value | `(-> Int Int)` |  | How many distinct strings have been interned. Ids are exactly 0..internCount-1, with no gaps - that is what "dense" means here, and it is what lets a caller size a side table by `internCount` and index it by id. |
-| `internLookup` | value | `(-> Int Int String)` | `Alloc,Mut` | The string with id `id`, or an empty `Str` if `id` was never handed out. |
-| `internFind` | value | `(-> Int String (Option Int))` |  | The id of a string equal in content to `s`, or `None`. |
-| `internIntern` | value | `(-> Int String Int)` | `Alloc,Mut` | The id for `s`, interning it if its content is new. |
+| `internCap` | value | `(-> Int Int)` | `Unsafe` |  |
+| `internCount` | value | `(-> Int Int)` | `Unsafe` | How many distinct strings have been interned. Ids are exactly 0..internCount-1, with no gaps - that is what "dense" means here, and it is what lets a caller size a side table by `internCount` and index it by id. |
+| `internLookup` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | The string with id `id`, or an empty `Str` if `id` was never handed out. |
+| `internFind` | value | `(-> Int String (Option Int))` | `Unsafe` | The id of a string equal in content to `s`, or `None`. |
+| `internIntern` | value | `(-> Int String Int)` | `Alloc,Mut,Unsafe` | The id for `s`, interning it if its content is new. |
 
 ## `Json`
 
@@ -253,27 +253,27 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `jsonNull` | value | `Int` | `Alloc,Mut` |  |
-| `jsonBool` | value | `(-> Int Int)` | `Alloc,Mut` |  |
-| `jsonNum` | value | `(-> Int Int)` | `Alloc,Mut` | A number from an integer. The raw text is rendered from the value, so `jsonNumText` is total for constructed values as well as parsed ones. |
-| `jsonStr` | value | `(-> String Int)` | `Alloc,Mut` |  |
-| `jsonArr` | value | `Int` | `Alloc,Mut` |  |
-| `jsonObj` | value | `Int` | `Alloc,Mut` |  |
-| `jsonIsNull` | value | `(-> Int Bool)` |  |  |
-| `jsonBoolVal` | value | `(-> Int Int)` |  |  |
-| `jsonInt` | value | `(-> Int Int)` |  | The integer value of a number, 0 for anything else. 0 is a real number, so a caller that must distinguish absence tests `jsonTag` first - the same contract `Utf8`'s -1 sentinel documents. |
-| `jsonNumText` | value | `(-> Int String)` |  |  |
-| `jsonStrVal` | value | `(-> Int String)` |  |  |
-| `jsonArrLen` | value | `(-> Int Int)` |  |  |
-| `jsonArrGet` | value | `(-> Int Int Int)` |  |  |
-| `jsonArrPush` | value | `(-> Int Int Int)` | `Alloc,Mut` |  |
-| `jsonObjLen` | value | `(-> Int Int)` |  |  |
-| `jsonObjPut` | value | `(-> Int String Int Int)` | `Alloc,Mut` | The ONLY writer of the two parallel vecs, so they cannot desync. A repeated key appends rather than replacing, which is what a JSON reader that preserves what it was sent should do; `jsonGet` answers the first, matching the usual last-writer-loses reading being avoided here deliberately - LSP never sends duplicates, and inventing a replacement policy would be inventing behaviour no test can pin. |
-| `jsonGet` | value | `(-> Int String Int)` |  | The value for `key`, or 0 when there is none. 0 is not a valid value pointer, so it is an unambiguous absence marker AT THIS LAYER - but `jsonTag` reports 0 as `JNULL`, so `jsonIsNull` cannot tell an absent member from one explicitly set to null. A caller that must distinguish the two tests against 0 directly, which is what `lsp.ax`'s dispatch does to tell a request from a notification: an absent `id` means notification, and a null `id` is a different thing the protocol does not let you answer the same way. |
-| `jsonGetInt` | value | `(-> Int String Int)` |  |  |
-| `jsonGetStr` | value | `(-> Int String String)` |  |  |
-| `jsonWrite` | value | `(-> Int String)` | `Alloc,Mut` |  |
-| `jsonParse` | value | `(-> String Int)` | `Alloc,Mut` | Parse a whole document: one value, then nothing but whitespace. Answers 0 on any error, which is why every accessor tolerates 0. |
+| `jsonNull` | value | `Int` | `Alloc,Mut,Unsafe` |  |
+| `jsonBool` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` |  |
+| `jsonNum` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` | A number from an integer. The raw text is rendered from the value, so `jsonNumText` is total for constructed values as well as parsed ones. |
+| `jsonStr` | value | `(-> String Int)` | `Alloc,Mut,Unsafe` |  |
+| `jsonArr` | value | `Int` | `Alloc,Mut,Unsafe` |  |
+| `jsonObj` | value | `Int` | `Alloc,Mut,Unsafe` |  |
+| `jsonIsNull` | value | `(-> Int Bool)` | `Unsafe` |  |
+| `jsonBoolVal` | value | `(-> Int Int)` | `Unsafe` |  |
+| `jsonInt` | value | `(-> Int Int)` | `Unsafe` | The integer value of a number, 0 for anything else. 0 is a real number, so a caller that must distinguish absence tests `jsonTag` first - the same contract `Utf8`'s -1 sentinel documents. |
+| `jsonNumText` | value | `(-> Int String)` | `Unsafe` |  |
+| `jsonStrVal` | value | `(-> Int String)` | `Unsafe` |  |
+| `jsonArrLen` | value | `(-> Int Int)` | `Unsafe` |  |
+| `jsonArrGet` | value | `(-> Int Int Int)` | `Unsafe` |  |
+| `jsonArrPush` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` |  |
+| `jsonObjLen` | value | `(-> Int Int)` | `Unsafe` |  |
+| `jsonObjPut` | value | `(-> Int String Int Int)` | `Alloc,Mut,Unsafe` | The ONLY writer of the two parallel vecs, so they cannot desync. A repeated key appends rather than replacing, which is what a JSON reader that preserves what it was sent should do; `jsonGet` answers the first, matching the usual last-writer-loses reading being avoided here deliberately - LSP never sends duplicates, and inventing a replacement policy would be inventing behaviour no test can pin. |
+| `jsonGet` | value | `(-> Int String Int)` | `Unsafe` | The value for `key`, or 0 when there is none. 0 is not a valid value pointer, so it is an unambiguous absence marker AT THIS LAYER - but `jsonTag` reports 0 as `JNULL`, so `jsonIsNull` cannot tell an absent member from one explicitly set to null. A caller that must distinguish the two tests against 0 directly, which is what `lsp.ax`'s dispatch does to tell a request from a notification: an absent `id` means notification, and a null `id` is a different thing the protocol does not let you answer the same way. |
+| `jsonGetInt` | value | `(-> Int String Int)` | `Unsafe` |  |
+| `jsonGetStr` | value | `(-> Int String String)` | `Unsafe` |  |
+| `jsonWrite` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` |  |
+| `jsonParse` | value | `(-> String Int)` | `Alloc,Mut,Unsafe` | Parse a whole document: one value, then nothing but whitespace. Answers 0 on any error, which is why every accessor tolerates 0. |
 
 ## `Map`
 
@@ -284,29 +284,29 @@ See [reference.md](reference.md) for the language, and
 | `mapHashPrime` | value | `Int` |  | 2^31 - 1, a Mersenne prime. No longer used by `mapHash` itself; kept because `Intern`'s polynomial string hash reduces modulo it, and a prime modulus is what makes that polynomial hash sound. |
 | `mapHash` | value | `(-> Int Int)` |  | Hash `key` to a value in [0, 2^63). |
 | `mapSlotOf` | value | `(-> Int Int Int)` |  | The slot `key` probes first, in [0, cap). |
-| `mapNew` | value | `Map` | `Alloc,Mut` | An empty `Map` with `mapDefaultCap` slots. |
-| `mapNewRefVals` | value | `Map` | `Alloc,Mut` | An empty `Map` whose VALUES it owns a share of: the value array carries the array form, so `mapFree` releases every value in it. Keys stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s key parameter is `Int`, not a type variable. |
-| `mapWithCapacity` | value | `(-> Int Map)` | `Alloc,Mut` | An empty `Map` sized so that `want` entries fit without rehashing. |
-| `mapWithCapacityRefVals` | value | `(-> Int Map)` | `Alloc,Mut` | `mapWithCapacity`'s owning twin. See `mapNewRefVals`. |
+| `mapNew` | value | `Map` | `Alloc,Mut,Unsafe` | An empty `Map` with `mapDefaultCap` slots. |
+| `mapNewRefVals` | value | `Map` | `Alloc,Mut,Unsafe` | An empty `Map` whose VALUES it owns a share of: the value array carries the array form, so `mapFree` releases every value in it. Keys stay `Int`s and stay a leaf, which is what they are - `mapInsert`'s key parameter is `Int`, not a type variable. |
+| `mapWithCapacity` | value | `(-> Int Map)` | `Alloc,Mut,Unsafe` | An empty `Map` sized so that `want` entries fit without rehashing. |
+| `mapWithCapacityRefVals` | value | `(-> Int Map)` | `Alloc,Mut,Unsafe` | `mapWithCapacity`'s owning twin. See `mapNewRefVals`. |
 | `mapRoundUpPow2` | value | `(-> Int Int)` |  | `n` rounded up to a power of two, at least `mapDefaultCap`. |
 | `mapFree` | value | `(-> Map Int)` |  | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. |
 | `mapLen` | value | `(-> Map Int)` |  |  |
 | `mapCap` | value | `(-> Map Int)` |  |  |
 | `mapUsed` | value | `(-> Map Int)` |  | Slots that are live or tombstoned. Exposed because it is the number that explains a rehash, and a test that could not see it would have to infer growth from timing. |
 | `mapOwnsVals` | value | `(-> Map Bool)` |  | Whether this table owns a share of every value it holds - the `mapNewRefVals` half. Word 6 of the header, and not a test of the value array's shape word: see `mapAllocTable`. |
-| `mapKeyAt` | value | `(-> Map Int Int)` |  | Read the key, or the value, out of slot `i`. |
-| `mapValAt` | value | `(-> Map Int Int)` |  | The value in slot `i`. See `mapKeyAt` above for the bounds rule and why `mapStateAt` is not exported beside these two. |
+| `mapKeyAt` | value | `(-> Map Int Int)` | `Unsafe` | Read the key, or the value, out of slot `i`. |
+| `mapValAt` | value | `(-> Map Int Int)` | `Unsafe` | The value in slot `i`. See `mapKeyAt` above for the bounds rule and why `mapStateAt` is not exported beside these two. |
 | `mapNextSlot` | value | `(-> Int Int Int)` |  | The next slot after `i`. |
-| `mapHas` | value | `(-> Map Int Bool)` |  |  |
-| `mapGet` | value | `(-> Map Int Int Int)` |  | The value for `key`, or `dflt` if `key` is absent. |
-| `mapGetStr` | value | `(-> Map Int String String)` |  | The value for `key` read as a `String`, or `dflt` if `key` is absent. |
-| `mapInsert` | value | `(-> Map Int a Int)` | `Alloc,Mut` | Insert or overwrite, growing first if the load factor demands it. |
-| `mapRemove` | value | `(-> Map Int Int)` | `Mut` | Delete `key`. Answers 0; see `mapInsert` for why no mutator here answers the handle. |
-| `mapLiveFrom` | value | `(-> Map Int (Option Int))` | `Alloc` | The first live slot at or after `i`, or `None` when the table has no live slot from there on. `(mapLiveFrom m 0)` starts an iteration; `(mapLiveFrom m (+ prev 1))` continues one. |
-| `mapKeys` | value | `(-> Map (Vec Int))` | `Alloc,Mut` | Every live key, and every live value, in one shared slot order: the `j`th key and the `j`th value came out of the same slot, so the two vectors zip. Both are freshly allocated and the caller owns them. |
-| `mapValues` | value | `(-> Map (Vec Int))` | `Alloc,Mut` | Every live value, in the same slot order `mapKeys` uses, so the two vectors zip element for element. |
-| `mapSumVals` | value | `(-> Map Int)` |  | The sum of every live value. |
-| `mapSumKeys` | value | `(-> Map Int)` |  | The sum of every live key. Together with `mapSumVals` and `mapLen` this pins down a small map's contents well enough to test with. |
+| `mapHas` | value | `(-> Map Int Bool)` | `Unsafe` |  |
+| `mapGet` | value | `(-> Map Int Int Int)` | `Unsafe` | The value for `key`, or `dflt` if `key` is absent. |
+| `mapGetStr` | value | `(-> Map Int String String)` | `Unsafe` | The value for `key` read as a `String`, or `dflt` if `key` is absent. |
+| `mapInsert` | value | `(-> Map Int a Int)` | `Alloc,Mut,Unsafe` | Insert or overwrite, growing first if the load factor demands it. |
+| `mapRemove` | value | `(-> Map Int Int)` | `Mut,Unsafe` | Delete `key`. Answers 0; see `mapInsert` for why no mutator here answers the handle. |
+| `mapLiveFrom` | value | `(-> Map Int (Option Int))` | `Alloc,Unsafe` | The first live slot at or after `i`, or `None` when the table has no live slot from there on. `(mapLiveFrom m 0)` starts an iteration; `(mapLiveFrom m (+ prev 1))` continues one. |
+| `mapKeys` | value | `(-> Map (Vec Int))` | `Alloc,Mut,Unsafe` | Every live key, and every live value, in one shared slot order: the `j`th key and the `j`th value came out of the same slot, so the two vectors zip. Both are freshly allocated and the caller owns them. |
+| `mapValues` | value | `(-> Map (Vec Int))` | `Alloc,Mut,Unsafe` | Every live value, in the same slot order `mapKeys` uses, so the two vectors zip element for element. |
+| `mapSumVals` | value | `(-> Map Int)` | `Unsafe` | The sum of every live value. |
+| `mapSumKeys` | value | `(-> Map Int)` | `Unsafe` | The sum of every live key. Together with `mapSumVals` and `mapLen` this pins down a small map's contents well enough to test with. |
 
 ## `Mem`
 
@@ -314,19 +314,19 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `memAlloc` | value | `(-> Int Int)` | `Alloc` | Mem - raw memory operations, in Axiom. |
-| `memAllocMapped` | value | `(-> Int Int Int)` | `Alloc,Mut` | The same allocation, declaring which of the block's words hold REFERENCES: bit i of `map` says payload word i is a handle to another counted block, so releasing this block releases that one too (docs/memory-model.md MM-LIFE-2d, the record form). |
-| `memMarkArray` | value | `(-> Int Int Int)` | `Mut` | The ARRAY FORM: payload words 0..n-1 of this block are handles to other counted blocks, so releasing it releases all of them, and `n` is the caller's ELEMENT count (docs/memory-model.md MM-LIFE-2d names the two forms; the array form landed 2026-08-24 and took its own length 2026-09-03). |
-| `memMarkLeaf` | value | `(-> Int Int)` | `Mut` | The inverse, and it is not symmetry for its own sake: it is what a container's GROWTH needs. Doubling a buffer copies the elements to a new block WITHOUT retaining them - the shares move - so releasing the old block while it still reads as an array would spend every share twice. Clearing the bit first makes the old block a leaf, and its release then reclaims the block and touches nothing it used to hold. |
-| `memCopy` | value | `(-> Int Int Int Int)` | `Mut` | THERE IS NO `memIsArray`, AND THE REASON IS A MEASURED CRASH. |
-| `memSet` | value | `(-> Int Int Int Int)` | `Mut` | Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`. |
-| `memCmp` | value | `(-> Int Int Int Int)` |  | Compare `count` bytes. 0 if equal, otherwise the signed difference of the first differing byte pair (so the result orders like `memcmp`). |
-| `memGetWord` | value | `(-> Int Int Int)` |  | The word at `index`. A word is what it is: an integer, or a handle, or a reference whose type this layer does not know. It answers `Int` because that is the truth about a machine word - it used to answer a type variable, which let the CALLER name any type at all and get it, including a reference, which then dereferenced. See `AX3040`. |
-| `memGetWordStr` | value | `(-> Int Int String)` |  | The String view, for the typed accessors built on this layer - `tokenLexeme`, `diagCode`, and the several dozen others whose own signature says `String` and whose body is one word read. |
-| `memGetWordVec` | value | `(-> Int Int (Vec a))` |  | The `Vec` view of the word at `index`. A `Vec` is a handle - one word, exactly what `memGetWord` answers - so this reinterprets and converts nothing. The cast is HERE, at a return inside a signature that carries the type, for the reason `memGetWordStr` gives: a cast at an argument root classifies that value's evidence 0 and drops its retain or its release (docs/memory-model.md MM-VAL-22, measured). |
-| `memSetWord` | value | `(-> Int Int a Int)` | `Mut` | Storing a word here is the moment a value can leave the type system's sight: `(cast Int value)` erases whatever `value` was, and the machine word that lands in `addr` is indistinguishable from an integer forever after. That is the whole of MM-LIFE-2c's co-ownership blocker, and the fix is one line - the store takes a SHARE of what it is about to hide. |
-| `memGetByte` | value | `(-> Int Int Int)` |  |  |
-| `memPutByte` | value | `(-> Int Int Int Int)` | `Mut` |  |
+| `memAlloc` | value | `(-> Int Int)` | `Alloc,Unsafe` | Mem - raw memory operations, in Axiom. |
+| `memAllocMapped` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | The same allocation, declaring which of the block's words hold REFERENCES: bit i of `map` says payload word i is a handle to another counted block, so releasing this block releases that one too (docs/memory-model.md MM-LIFE-2d, the record form). |
+| `memMarkArray` | value | `(-> Int Int Int)` | `Mut,Unsafe` | The ARRAY FORM: payload words 0..n-1 of this block are handles to other counted blocks, so releasing it releases all of them, and `n` is the caller's ELEMENT count (docs/memory-model.md MM-LIFE-2d names the two forms; the array form landed 2026-08-24 and took its own length 2026-09-03). |
+| `memMarkLeaf` | value | `(-> Int Int)` | `Mut,Unsafe` | The inverse, and it is not symmetry for its own sake: it is what a container's GROWTH needs. Doubling a buffer copies the elements to a new block WITHOUT retaining them - the shares move - so releasing the old block while it still reads as an array would spend every share twice. Clearing the bit first makes the old block a leaf, and its release then reclaims the block and touches nothing it used to hold. |
+| `memCopy` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | THERE IS NO `memIsArray`, AND THE REASON IS A MEASURED CRASH. |
+| `memSet` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` | Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`. |
+| `memCmp` | value | `(-> Int Int Int Int)` | `Unsafe` | Compare `count` bytes. 0 if equal, otherwise the signed difference of the first differing byte pair (so the result orders like `memcmp`). |
+| `memGetWord` | value | `(-> Int Int Int)` | `Unsafe` | The word at `index`. A word is what it is: an integer, or a handle, or a reference whose type this layer does not know. It answers `Int` because that is the truth about a machine word - it used to answer a type variable, which let the CALLER name any type at all and get it, including a reference, which then dereferenced. See `AX3040`. |
+| `memGetWordStr` | value | `(-> Int Int String)` | `Unsafe` | The String view, for the typed accessors built on this layer - `tokenLexeme`, `diagCode`, and the several dozen others whose own signature says `String` and whose body is one word read. |
+| `memGetWordVec` | value | `(-> Int Int (Vec a))` | `Unsafe` | The `Vec` view of the word at `index`. A `Vec` is a handle - one word, exactly what `memGetWord` answers - so this reinterprets and converts nothing. The cast is HERE, at a return inside a signature that carries the type, for the reason `memGetWordStr` gives: a cast at an argument root classifies that value's evidence 0 and drops its retain or its release (docs/memory-model.md MM-VAL-22, measured). |
+| `memSetWord` | value | `(-> Int Int a Int)` | `Mut,Unsafe` | Storing a word here is the moment a value can leave the type system's sight: `(cast Int value)` erases whatever `value` was, and the machine word that lands in `addr` is indistinguishable from an integer forever after. That is the whole of MM-LIFE-2c's co-ownership blocker, and the fix is one line - the store takes a SHARE of what it is about to hide. |
+| `memGetByte` | value | `(-> Int Int Int)` | `Unsafe` |  |
+| `memPutByte` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  |
 
 ## `Par`
 
@@ -334,10 +334,10 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `parMapWords` | value | `(-> (-> Int Int) Int Int (Vec Int))` | `Alloc,IO,Mut` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering the results in SUBMIT order. |
-| `parArgvVector` | value | `(-> (Vec String) Int)` | `Alloc,Mut` | A NULL-terminated array of char* from a Vec of `String`, which is the shape `execve` and `posix_spawn` both take. |
-| `parRunOne` | value | `(-> (Vec String) (Result Int Error))` | `Alloc,IO,Mut` | Run one argv - element 0 is the program, looked up on `PATH` the way `sysRunPath` does it. |
-| `parRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,IO,Mut` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
+| `parMapWords` | value | `(-> (-> Int Int) Int Int (Vec Int))` | `Alloc,IO,Mut,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering the results in SUBMIT order. |
+| `parArgvVector` | value | `(-> (Vec String) Int)` | `Alloc,Mut,Unsafe` | A NULL-terminated array of char* from a Vec of `String`, which is the shape `execve` and `posix_spawn` both take. |
+| `parRunOne` | value | `(-> (Vec String) (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run one argv - element 0 is the program, looked up on `PATH` the way `sysRunPath` does it. |
+| `parRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,IO,Mut,Unsafe` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
 
 ## `Path`
 
@@ -345,17 +345,17 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `pathLastSlash` | value | `(-> String (Option Int))` |  | The last `/` in `p`, or `None`. Everything below is a decision about this one index. `compat/SENTINELS`'s direction rule is "absence wants `Option`", and this is the primitive every caller in this file goes through - `pathExtIndex` is the one exception, and it goes straight to the raw `-1` helper below because it needs the sentinel back in arithmetic (`(+ slash 1)` is 0, correctly, when there is no slash at all), not a value to branch on. |
-| `pathDir` | value | `(-> String String)` | `Alloc,Mut` | Everything up to and INCLUDING the last `/`, or "" when `p` names something in the working directory. |
-| `pathBase` | value | `(-> String String)` | `Alloc,Mut` | Everything after the last `/` - the file name on its own, or `p` entire when there is no separator. |
-| `pathWithSlash` | value | `(-> String String)` | `Alloc,Mut` | A directory name that ends in `/`, so concatenation forms a path. |
-| `pathJoin` | value | `(-> String String String)` | `Alloc,Mut` | `dir` and `name` as one path, with exactly one `/` between them. |
-| `pathExtIndex` | value | `(-> String (Option Int))` |  | The index of the extension's `.` within `p`, or `None`. |
-| `pathExt` | value | `(-> String String)` | `Alloc,Mut` | The extension INCLUDING its dot (`".ax"`), or "" when there is none. |
-| `pathStem` | value | `(-> String String)` | `Alloc,Mut` | The base name with its extension removed: `"src/main.ax"` is `"main"`. What a driver names an output after. |
-| `pathReplaceExt` | value | `(-> String String String)` | `Alloc,Mut` | `p` with its extension replaced by `ext`, which carries its own dot. `(pathReplaceExt "build/main.ax" ".ll")` is `"build/main.ll"`, and a path with no extension simply gains one. |
-| `pathIsAbsolute` | value | `(-> String Bool)` |  | True when `p` starts at the root. A relative path is resolved against the working directory, which is why `Sys.sysGetCwd` exists. |
-| `pathClean` | value | `(-> String String)` | `Alloc,Mut` | `p`, lexically simplified to the shortest path naming the same location: doubled `/`s collapse, a `.` segment is dropped, and a real segment is cancelled by the `..` that immediately follows it. Nothing here touches the filesystem - a symlink component is resolved exactly as if it were an ordinary name, which is what makes this a STRING operation and not a `Sys` one. Same rules as Go's `path.Clean` or Python's `posixpath.normpath`. |
+| `pathLastSlash` | value | `(-> String (Option Int))` | `Unsafe` | The last `/` in `p`, or `None`. Everything below is a decision about this one index. `compat/SENTINELS`'s direction rule is "absence wants `Option`", and this is the primitive every caller in this file goes through - `pathExtIndex` is the one exception, and it goes straight to the raw `-1` helper below because it needs the sentinel back in arithmetic (`(+ slash 1)` is 0, correctly, when there is no slash at all), not a value to branch on. |
+| `pathDir` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | Everything up to and INCLUDING the last `/`, or "" when `p` names something in the working directory. |
+| `pathBase` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | Everything after the last `/` - the file name on its own, or `p` entire when there is no separator. |
+| `pathWithSlash` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | A directory name that ends in `/`, so concatenation forms a path. |
+| `pathJoin` | value | `(-> String String String)` | `Alloc,Mut,Unsafe` | `dir` and `name` as one path, with exactly one `/` between them. |
+| `pathExtIndex` | value | `(-> String (Option Int))` | `Unsafe` | The index of the extension's `.` within `p`, or `None`. |
+| `pathExt` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The extension INCLUDING its dot (`".ax"`), or "" when there is none. |
+| `pathStem` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | The base name with its extension removed: `"src/main.ax"` is `"main"`. What a driver names an output after. |
+| `pathReplaceExt` | value | `(-> String String String)` | `Alloc,Mut,Unsafe` | `p` with its extension replaced by `ext`, which carries its own dot. `(pathReplaceExt "build/main.ax" ".ll")` is `"build/main.ll"`, and a path with no extension simply gains one. |
+| `pathIsAbsolute` | value | `(-> String Bool)` | `Unsafe` | True when `p` starts at the root. A relative path is resolved against the working directory, which is why `Sys.sysGetCwd` exists. |
+| `pathClean` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | `p`, lexically simplified to the shortest path naming the same location: doubled `/`s collapse, a `.` segment is dropped, and a real segment is cancelled by the `..` that immediately follows it. Nothing here touches the filesystem - a symlink component is resolved exactly as if it were an ordinary name, which is what makes this a STRING operation and not a `Sys` one. Same rules as Go's `path.Clean` or Python's `posixpath.normpath`. |
 
 ## `Pre`
 
@@ -366,7 +366,7 @@ See [reference.md](reference.md) for the language, and
 | `when` | macro |  |  | Axiom standard prelude — macros and utilities. |
 | `unless` | macro |  |  | ;; unless — evaluate body unless test is true ;; (unless test body) -> (if test 0 body) |
 | `range` | macro |  |  | ;; range — the counted loop: `(range i 0 n body)` is `0..n` ;; (range i lo hi body) -> `body` once per `i` in [lo, hi), ascending, ;; with both ends read ONCE. |
-| `deriveEq` | macro |  |  | ;; deriveEq — structural equality for a data type, derived at the ;; point of use: `(deriveEq Color)` generates `eqColor : Color -> ;; Color -> Bool`, one match arm per constructor, answered from the ;; declaration list at expansion time (macro-system.md MAC-CAP-5/9). ;; The nullary form: works for any sum of nullary constructors, which ;; is the enum case. Fieldful sums want the impl form written where ;; the Eq trait is in scope — see macro-system.md section 10.2. |
+| `deriveEq` | macro |  |  | ;; Variadic branching is the `if` statement itself: `(if t1 b1 t2 b2 ;; ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, ;; built by the parser. The fixed-arity `cond2`/`cond3` helpers that ;; used to stand here are gone with the `cond` keyword (AX2004): ;; spell the nesting with `if`. ;; deriveEq — structural equality for a data type, derived at the ;; point of use: `(deriveEq Color)` generates `eqColor : Color -> ;; Color -> Bool`, one match arm per constructor, answered from the ;; declaration list at expansion time (macro-system.md MAC-CAP-5/9). ;; The nullary form: works for any sum of nullary constructors, which ;; is the enum case. Fieldful sums want the impl form written where ;; the Eq trait is in scope — see macro-system.md section 10.2. |
 | `deriveShow` | macro |  |  | ;; deriveShow — the constructor's own name, as a String, for any ;; `data` type: `(deriveShow Shape)` generates `showShape : Shape -> ;; String`. This is what `syntax/name` exists for (macro-system.md ;; MAC-CAP-5), and the only way to get a constructor's spelling into ;; a running program: a tag is an integer at run time and the name ;; lives only in the declaration list the expander reads. ;; ;; Fieldful constructors are matched and their fields ignored - ;; `(syntax/binders C f)` supplies exactly arity-of-C binders, so one ;; template covers arities 0, 1 and n without an arity test. Rendering ;; the FIELDS would need each field's type to pick a printer, and a ;; macro cannot see a type (MAC-CAP-7); a program that wants that ;; writes the arm itself. |
 | `deriveArity` | macro |  |  | ;; deriveArity — how many fields the value's constructor carries: ;; `(deriveArity Shape)` generates `arityShape : Shape -> Int`. The ;; count is `syntax/arity`'s answer, folded to a literal per arm, and ;; it is not derivable any other way at run time: a heap block records ;; its tag, never its field count (memory-model.md MM-VAL-6). |
 | `showOr` | macro |  |  | ;; showOr — `(showOr T x fallback)` renders `x` with the type's ;; derived `showT` when the program has one, and answers `fallback` ;; when it does not. `syntax/defined` decides that at expansion time ;; and the losing branch is DELETED rather than compiled, which is ;; the whole point: the branch that names `showT` is only well-typed ;; in a program that derived it, so a runtime `if` over both arms ;; would be AX3001 in every program that did not. |
@@ -377,13 +377,13 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `rdNew` | value | `(-> Int Int)` | `Alloc,Mut` |  |
-| `rdBuf` | value | `(-> Int String)` |  |  |
-| `rdFilled` | value | `(-> Int Int)` |  |  |
-| `rdConsumed` | value | `(-> Int Int)` |  |  |
-| `rdReseat` | value | `(-> Int Int Int Int)` | `Alloc,Mut` | Re-seat a reader on freshly allocated storage, carrying `u` bytes of not-yet-consumed input from `addr`. |
-| `rpcRead` | value | `(-> Int String)` | `Alloc,IO,Mut` | Read one whole message and answer its body. An empty Str means the stream ended or broke - the caller stops, which is what an LSP does when its client goes away without saying `exit`. |
-| `rpcWrite` | value | `(-> Int String Int)` | `Alloc,IO,Mut` | Frame `body` and write it. |
+| `rdNew` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` |  |
+| `rdBuf` | value | `(-> Int String)` | `Unsafe` |  |
+| `rdFilled` | value | `(-> Int Int)` | `Unsafe` |  |
+| `rdConsumed` | value | `(-> Int Int)` | `Unsafe` |  |
+| `rdReseat` | value | `(-> Int Int Int Int)` | `Alloc,Mut,Unsafe` | Re-seat a reader on freshly allocated storage, carrying `u` bytes of not-yet-consumed input from `addr`. |
+| `rpcRead` | value | `(-> Int String)` | `Alloc,IO,Mut,Unsafe` | Read one whole message and answer its body. An empty Str means the stream ended or broke - the caller stops, which is what an LSP does when its client goes away without saying `exit`. |
+| `rpcWrite` | value | `(-> Int String Int)` | `Alloc,IO,Mut,Unsafe` | Frame `body` and write it. |
 
 ## `Str`
 
@@ -391,36 +391,36 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `strWrap` | value | `(-> Int Int String)` | `Alloc,Mut` | Wrap `len` bytes at `bytes` as a `Str` without copying. |
-| `strWrapOwned` | value | `(-> Int Int Int String)` | `Alloc,Mut` | The same, naming the block that OWNS the bytes (MM-LIFE-2d's `Str` half): word 2 holds the handle whose death should free them, or 0 when no such block exists - a literal's bytes are loader-resident, a syscall's are the kernel's, and an interior wrap over an arena keep block belongs to the arena. A slice inherits its parent's owner rather than naming the parent, so the chain is one hop deep however many times a slice is sliced, and the address counted is never interior. |
-| `strAlloc` | value | `(-> Int String)` | `Alloc,Mut` | A `Str` over freshly allocated, zeroed space for `len` bytes. |
-| `strFromLit` | value | `(-> Int String)` | `Alloc,Mut` | A `Str` sharing the bytes at a NUL-terminated address. |
-| `cstrLen` | value | `(-> Int Int Int)` |  | Length of NUL-terminated bytes at `addr`, scanning from `i`. |
-| `strLen` | value | `(-> String Int)` |  |  |
-| `strData` | value | `(-> String Int)` |  |  |
-| `strOwner` | value | `(-> String Int)` |  | The block owning this string's bytes, or 0 for bytes no block owns (a literal's, a syscall buffer's, an arena keep block's interior). |
-| `strByte` | value | `(-> String Int Int)` |  | The byte at `i`, or 0 when `i` is out of range. |
-| `strCStr` | value | `(-> String Int)` |  | The bytes of `s` as a NUL-terminated address, for handing to a syscall. |
-| `strIsEmpty` | value | `(-> String Bool)` |  |  |
-| `strCmp` | value | `(-> String String Int)` |  | 0 when equal; otherwise negative if `a` sorts before `b`, positive if after - lexicographic by unsigned byte, with a shorter prefix sorting first. |
-| `strEq` | value | `(-> String String Bool)` |  | Equality, which is NOT `strCmp a b == 0` even though it answers the same thing. `strCmp` must produce an ORDERING, so it memcmps the shared prefix before it ever looks at the lengths - and equality does not need the ordering. Two strings of different lengths are unequal whatever their bytes say, so checking the length first turns the commonest case, a miss, into two word loads and a compare. |
-| `strSlice` | value | `(-> String Int Int String)` | `Alloc,Mut` | The `count` bytes of `s` starting at `start`, sharing `s`'s storage. |
-| `strDup` | value | `(-> String String)` | `Alloc,Mut` | An owned, NUL-terminated copy of `s`. |
-| `strConcat` | value | `(-> String String String)` | `Alloc,Mut` |  |
-| `strFindByte` | value | `(-> String Int Int (Option Int))` |  | Index of the first `byte` at or after `from`, or `None`. |
-| `strStartsWith` | value | `(-> String String Bool)` |  |  |
+| `strWrap` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | Wrap `len` bytes at `bytes` as a `Str` without copying. |
+| `strWrapOwned` | value | `(-> Int Int Int String)` | `Alloc,Mut,Unsafe` | The same, naming the block that OWNS the bytes (MM-LIFE-2d's `Str` half): word 2 holds the handle whose death should free them, or 0 when no such block exists - a literal's bytes are loader-resident, a syscall's are the kernel's, and an interior wrap over an arena keep block belongs to the arena. A slice inherits its parent's owner rather than naming the parent, so the chain is one hop deep however many times a slice is sliced, and the address counted is never interior. |
+| `strAlloc` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | A `Str` over freshly allocated, zeroed space for `len` bytes. |
+| `strFromLit` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | A `Str` sharing the bytes at a NUL-terminated address. |
+| `cstrLen` | value | `(-> Int Int Int)` | `Unsafe` | Length of NUL-terminated bytes at `addr`, scanning from `i`. |
+| `strLen` | value | `(-> String Int)` | `Unsafe` |  |
+| `strData` | value | `(-> String Int)` | `Unsafe` |  |
+| `strOwner` | value | `(-> String Int)` | `Unsafe` | The block owning this string's bytes, or 0 for bytes no block owns (a literal's, a syscall buffer's, an arena keep block's interior). |
+| `strByte` | value | `(-> String Int Int)` | `Unsafe` | The byte at `i`, or 0 when `i` is out of range. |
+| `strCStr` | value | `(-> String Int)` | `Unsafe` | The bytes of `s` as a NUL-terminated address, for handing to a syscall. |
+| `strIsEmpty` | value | `(-> String Bool)` | `Unsafe` |  |
+| `strCmp` | value | `(-> String String Int)` | `Unsafe` | 0 when equal; otherwise negative if `a` sorts before `b`, positive if after - lexicographic by unsigned byte, with a shorter prefix sorting first. |
+| `strEq` | value | `(-> String String Bool)` | `Unsafe` | Equality, which is NOT `strCmp a b == 0` even though it answers the same thing. `strCmp` must produce an ORDERING, so it memcmps the shared prefix before it ever looks at the lengths - and equality does not need the ordering. Two strings of different lengths are unequal whatever their bytes say, so checking the length first turns the commonest case, a miss, into two word loads and a compare. |
+| `strSlice` | value | `(-> String Int Int String)` | `Alloc,Mut,Unsafe` | The `count` bytes of `s` starting at `start`, sharing `s`'s storage. |
+| `strDup` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | An owned, NUL-terminated copy of `s`. |
+| `strConcat` | value | `(-> String String String)` | `Alloc,Mut,Unsafe` |  |
+| `strFindByte` | value | `(-> String Int Int (Option Int))` | `Unsafe` | Index of the first `byte` at or after `from`, or `None`. |
+| `strStartsWith` | value | `(-> String String Bool)` | `Unsafe` |  |
 | `strIsDigit` | value | `(-> Int Bool)` |  |  |
 | `strIsAlpha` | value | `(-> Int Bool)` |  |  |
 | `strIsSpace` | value | `(-> Int Bool)` |  | Space, tab, LF, CR - and nothing else. Not `char::is_whitespace`: VT and FF are AX1001 to this language's lexer, and a formatter that skipped them turned a refused file into an accepted one. |
 | `strHexVal` | value | `(-> Int (Option Int))` |  | The value of a hex digit, or `None`. Stated as the VALUE and not as a predicate because the value is what every caller needed: the JSON parser's `\uXXXX` escape and the language server's percent-decoding each carried a byte-identical copy of this ladder under its own name, while the predicate here had no caller at all. |
 | `strIsHexDigit` | value | `(-> Int Bool)` |  |  |
-| `strSplit` | value | `(-> String Int (Vec Int))` | `Alloc,Mut` | Every segment of `s` between occurrences of `byte`, in order, as a Vec of Str handles. Empty segments are KEPT: a `PATH` entry of "" means the working directory, and a caller that wants them dropped can drop them, while a caller that needs them cannot get them back. `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58` answers two - the same rule as splitting on a separator anywhere else, and the one that makes the segment count equal the separator count plus one. |
-| `strSplitFrom` | value | `(-> String Int Int (Vec Int) Int)` | `Alloc,Mut` |  |
-| `strFromByte` | value | `(-> Byte String)` | `Alloc,Mut` | A one-byte `Str` holding `b`. The compiler driver and the JSON encoder each had this three-line allocate-and-store under a private name; it is a `Str` constructor, so it lives with the others. |
-| `strLower` | value | `(-> String String)` | `Alloc,Mut` | `s` with every ASCII upper-case byte lowered, or `s` itself when it has none - so a header name already in the form a table wants is not copied. Bytes above 127 pass through untouched: this is the ASCII fold a case-insensitive header table needs, not a Unicode case mapping. |
-| `strFind` | value | `(-> String String Int (Option Int))` |  | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. `no-alloc` came off on 2026-08-31: the `(Some found)` answer allocates. Accepted until then because a constructor contributed nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign` are unchanged. |
-| `strTrim` | value | `(-> String String)` | `Alloc,Mut` | `s` without the `strIsSpace` bytes at either end, as a SLICE that shares `s`'s storage - so it is not NUL-terminated unless it ends where `s` does, exactly as `strSlice` says. A string that is all space trims to "". |
-| `strParseInt` | value | `(-> String (Option Int))` |  | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
+| `strSplit` | value | `(-> String Int (Vec Int))` | `Alloc,Mut,Unsafe` | Every segment of `s` between occurrences of `byte`, in order, as a Vec of Str handles. Empty segments are KEPT: a `PATH` entry of "" means the working directory, and a caller that wants them dropped can drop them, while a caller that needs them cannot get them back. `strSplit "" 58` answers one empty segment, and `strSplit "a:" 58` answers two - the same rule as splitting on a separator anywhere else, and the one that makes the segment count equal the separator count plus one. |
+| `strSplitFrom` | value | `(-> String Int Int (Vec Int) Int)` | `Alloc,Mut,Unsafe` |  |
+| `strFromByte` | value | `(-> Byte String)` | `Alloc,Mut,Unsafe` | A one-byte `Str` holding `b`. The compiler driver and the JSON encoder each had this three-line allocate-and-store under a private name; it is a `Str` constructor, so it lives with the others. |
+| `strLower` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | `s` with every ASCII upper-case byte lowered, or `s` itself when it has none - so a header name already in the form a table wants is not copied. Bytes above 127 pass through untouched: this is the ASCII fold a case-insensitive header table needs, not a Unicode case mapping. |
+| `strFind` | value | `(-> String String Int (Option Int))` | `Unsafe` | The index of the first occurrence of `needle` in `s` at or after `from`, or `None`. An empty needle is found at `from` whenever `from` is inside `s` or at its end, which is the rule that makes `(strFind s "" (strLen s))` answer `(Some (strLen s))` rather than nothing. `no-alloc` came off on 2026-08-31: the `(Some found)` answer allocates. Accepted until then because a constructor contributed nothing to the effect row (`MM-EXEC-9a`). `no-io` and `no-foreign` are unchanged. |
+| `strTrim` | value | `(-> String String)` | `Alloc,Mut,Unsafe` | `s` without the `strIsSpace` bytes at either end, as a SLICE that shares `s`'s storage - so it is not NUL-terminated unless it ends where `s` does, exactly as `strSlice` says. A string that is all space trims to "". |
+| `strParseInt` | value | `(-> String (Option Int))` | `Unsafe` | The decimal integer `s` spells - an optional `-`, then one or more ASCII digits and nothing else - or `None`: for an empty string, a sign alone, any other byte, and any value outside the 64-bit range. |
 | `format` | macro |  |  | `format` — a String, built at compile time from a literal's runs and holes, or the hole lowering applied to anything else. |
 
 ## `Sys`
@@ -441,11 +441,11 @@ See [reference.md](reference.md) for the language, and
 | `sysExitWith` | value | `(-> Int Int)` | `IO` |  |
 | `sysFailed` | value | `(-> Int Bool)` |  |  |
 | `sysErrno` | value | `(-> Int Int)` |  |  |
-| `sysReadFile` | value | `(-> Int String)` | `Alloc,IO,Mut` | Open, read entire contents, close.  Returns an empty string on any error (missing file, permission, etc.). |
+| `sysReadFile` | value | `(-> Int String)` | `Alloc,IO,Mut,Unsafe` | Open, read entire contents, close.  Returns an empty string on any error (missing file, permission, etc.). |
 | `sysArgc` | value | `Int` | `IO` | How many arguments the process received, including the program name. |
-| `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut` | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
-| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
-| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
+| `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut,Unsafe` | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
+| `sysWriteFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Unsafe` | Write `s` to `path`, creating or truncating it. Answers the number of bytes written, or a negative errno from whichever step failed. |
+| `sysAppendFile` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Unsafe` | Append `s` to `path`, creating it if it is not there. Answers the number of bytes written, or a negative errno. |
 | `sysRename` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Rename `old` to `new`, answering 0 or `-errno`. Both are NUL-terminated char* - `strCStr`. |
 | `sysUnlink` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Remove `path`. Answers 0, or `-errno`. |
 | `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
@@ -453,68 +453,68 @@ See [reference.md](reference.md) for the language, and
 | `sysRmdir` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Remove the empty directory `path`. Answers 0, or `-errno`. |
 | `sysFileExists` | value | `(-> Int Bool)` | `Alloc,IO` | 1 when `path` names something that can be opened for reading. |
 | `sysFileSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
-| `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
-| `sysIsDir` | value | `(-> Int Bool)` | `Alloc,IO,Mut` | True when `path` names a directory. |
-| `sysReadDir` | value | `(-> Int (Vec Int))` | `Alloc,IO,Mut` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |
-| `sysGetCwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno the kernel refused with. |
-| `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut` | The value of the environment variable `name`, or "" when it is unset. |
-| `sysEnvp` | value | `Int` | `Alloc,IO,Mut` | A NULL-terminated copy of the process's own environment vector, in the form a child expects. |
-| `sysSpawn` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Start `path` with argument vector `argv` and environment `envp`. `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means no child exists, which is what a caller must not confuse with a child that started and failed. |
-| `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` | Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)` carries the errno of a wait that could not be performed. |
+| `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut,Unsafe` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
+| `sysIsDir` | value | `(-> Int Bool)` | `Alloc,IO,Mut,Unsafe` | True when `path` names a directory. |
+| `sysReadDir` | value | `(-> Int (Vec Int))` | `Alloc,IO,Mut,Unsafe` | Every name in the directory `path`, as a Vec of owned `Str` - `.` and `..` INCLUDED, in whatever order the filesystem gives them. |
+| `sysGetCwd` | value | `(Result String Error)` | `Alloc,IO,Mut,Unsafe` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno the kernel refused with. |
+| `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut,Unsafe` | The value of the environment variable `name`, or "" when it is unset. |
+| `sysEnvp` | value | `Int` | `Alloc,IO,Mut,Unsafe` | A NULL-terminated copy of the process's own environment vector, in the form a child expects. |
+| `sysSpawn` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Start `path` with argument vector `argv` and environment `envp`. `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means no child exists, which is what a caller must not confuse with a child that started and failed. |
+| `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)` carries the errno of a wait that could not be performed. |
 | `sysExitCode` | value | `(-> Int Int)` |  | The exit code carried by a wait status, for a child that exited normally. |
 | `sysTermSignal` | value | `(-> Int Int)` |  | The signal that killed a child, or 0 if it exited normally. |
-| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `path` to completion and answer its exit code. |
-| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `name`, searching `PATH` for it when it contains no slash. |
+| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run `path` to completion and answer its exit code. |
+| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run `name`, searching `PATH` for it when it contains no slash. |
 | `sysGetPid` | value | `Int` | `IO` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
-| `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
-| `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
+| `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
+| `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
 | `netSocketTcp` | value | `(Result Int Error)` | `Alloc,IO` | A TCP socket, as `(Result Int Error)`. |
 | `netSocketTcp6` | value | `(Result Int Error)` | `Alloc,IO` | The same over IPv6. Its own name rather than a family parameter, because the family is not a runtime choice at this layer: a caller already picked a builder when it made the address, and a socket whose family disagrees with the address it is given fails at `bind` and not here. |
 | `netAddr4Bytes` | value | `Int` |  | How many bytes an address of each family occupies, and how big a buffer that must take either has to be. |
 | `netAddr6Bytes` | value | `Int` |  |  |
 | `netAddrMaxBytes` | value | `Int` |  | What `netAcceptFrom` wants, which is the larger of the two: a caller does not get to know the peer's family until it has the peer. |
-| `netAddr4` | value | `(-> Int Int Int Int Int Int Int)` | `Mut` | Write an IPv4 `sockaddr_in` into `buf`, which must hold 16 bytes, and answer `buf`. The four octets are given in reading order, so 127.0.0.1 is `127 0 0 1`. |
-| `netAddr6` | value | `(-> Int Int Int Int Int Int Int Int Int Int Int)` | `Mut` | Write an IPv6 `sockaddr_in6` into `buf`, which must hold `netAddr6Bytes`, and answer `buf`. |
-| `netAddrFamily` | value | `(-> Int Int)` |  | The address family in a `sockaddr` - `afInet`, `afInet6`, or whatever else the kernel wrote there. |
-| `netAddrPort` | value | `(-> Int Int)` |  | The port in a `sockaddr`, decoded from network order. This one does NOT branch on the platform or the family: both layouts diverge in the four bytes before it and agree from byte 2 on, so `sin_port` and `sin6_port` are the same two bytes in the same place. |
-| `netAddrSize` | value | `(-> Int Int)` |  | How many bytes of `addr` a syscall must be given, read off the family the buffer carries. This is what `netBind` and `netConnect` pass, and the reason neither of them takes a length. |
-| `netBind` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Bind a socket to an address built by `netAddr4` or `netAddr6`. |
+| `netAddr4` | value | `(-> Int Int Int Int Int Int Int)` | `Mut,Unsafe` | Write an IPv4 `sockaddr_in` into `buf`, which must hold 16 bytes, and answer `buf`. The four octets are given in reading order, so 127.0.0.1 is `127 0 0 1`. |
+| `netAddr6` | value | `(-> Int Int Int Int Int Int Int Int Int Int Int)` | `Mut,Unsafe` | Write an IPv6 `sockaddr_in6` into `buf`, which must hold `netAddr6Bytes`, and answer `buf`. |
+| `netAddrFamily` | value | `(-> Int Int)` | `Unsafe` | The address family in a `sockaddr` - `afInet`, `afInet6`, or whatever else the kernel wrote there. |
+| `netAddrPort` | value | `(-> Int Int)` | `Unsafe` | The port in a `sockaddr`, decoded from network order. This one does NOT branch on the platform or the family: both layouts diverge in the four bytes before it and agree from byte 2 on, so `sin_port` and `sin6_port` are the same two bytes in the same place. |
+| `netAddrSize` | value | `(-> Int Int)` | `Unsafe` | How many bytes of `addr` a syscall must be given, read off the family the buffer carries. This is what `netBind` and `netConnect` pass, and the reason neither of them takes a length. |
+| `netBind` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Bind a socket to an address built by `netAddr4` or `netAddr6`. |
 | `netListen` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Answers `(Result Int Error)`; `Ok 0` on success. |
 | `netAccept` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Accept a connection, answering `Ok` the new socket or `Err` the errno - `(Result Int Error)` since 2026-09-03; a would-block answer is `Err` carrying EAGAIN, which `netWouldBlock` still recognises from the negated code - and throw the peer's address away. `netAcceptFrom` below keeps it; this is the form for a caller that does not want the buffer, and it passes NULL for both of `accept`'s out-parameters. |
-| `netAcceptFrom` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new socket or a negative errno, exactly as `netAccept` does, and fills `addr` with the peer's `sockaddr`, which `netAddrFamily`, `netAddrPort` and `netAddrText` read. |
-| `netAddrLenRead` | value | `(-> Int Int)` |  | The length the kernel wrote back into a `netAcceptFrom` cell - 16 for a v4 peer, 28 for a v6 one - as normalised by `netAcceptFrom`. It is the REAL length of the peer's address, which is not necessarily how much of it arrived: Linux and Darwin copy what fits and report the whole size, FreeBSD reports the copied size and `netAcceptFrom` reads the whole one back off the BSD length byte, so a value larger than the `cap` that went in means the address was cut short on every target. `netAcceptFrom` acts on that itself; a caller reads this to log the family it could not store. |
-| `netAddrText` | value | `(-> Int String)` | `Alloc,Mut` | Render an address as text: a dotted quad for `afInet`, RFC 5952 form for `afInet6`. |
-| `netAddrTextPort` | value | `(-> Int String)` | `Alloc,Mut` | The same, with the port, in the form a URL authority uses: `127.0.0.1:80` and `[::1]:80`. |
+| `netAcceptFrom` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new socket or a negative errno, exactly as `netAccept` does, and fills `addr` with the peer's `sockaddr`, which `netAddrFamily`, `netAddrPort` and `netAddrText` read. |
+| `netAddrLenRead` | value | `(-> Int Int)` | `Unsafe` | The length the kernel wrote back into a `netAcceptFrom` cell - 16 for a v4 peer, 28 for a v6 one - as normalised by `netAcceptFrom`. It is the REAL length of the peer's address, which is not necessarily how much of it arrived: Linux and Darwin copy what fits and report the whole size, FreeBSD reports the copied size and `netAcceptFrom` reads the whole one back off the BSD length byte, so a value larger than the `cap` that went in means the address was cut short on every target. `netAcceptFrom` acts on that itself; a caller reads this to log the family it could not store. |
+| `netAddrText` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | Render an address as text: a dotted quad for `afInet`, RFC 5952 form for `afInet6`. |
+| `netAddrTextPort` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | The same, with the port, in the form a URL authority uses: `127.0.0.1:80` and `[::1]:80`. |
 | `netSetBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Take a descriptor OUT of non-blocking mode, preserving the other flags it carries. The counterpart of `netSetNonBlocking`, and what a caller that handles one connection synchronously wants from `netAccept`'s result. |
-| `netConnect` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Connect to an address built by `netAddr4` or `netAddr6`. The length comes off the family in the buffer for the same reason `netBind`'s does, and was the same literal 16. |
+| `netConnect` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Connect to an address built by `netAddr4` or `netAddr6`. The length comes off the family in the buffer for the same reason `netBind`'s does, and was the same literal 16. |
 | `netShutdown` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Answers `(Result Int Error)`; `Ok 0` on success. |
-| `netSetOptInt` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Set an integer-valued socket option. The value crosses as four bytes in the host's own order, which is what the kernel reads an `int` option as - unlike an address, this one is NOT network order. That is `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the same reason. |
+| `netSetOptInt` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Set an integer-valued socket option. The value crosses as four bytes in the host's own order, which is what the kernel reads an `int` option as - unlike an address, this one is NOT network order. That is `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the same reason. |
 | `netSetNonBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Put a descriptor into non-blocking mode, preserving the flags it already carries - a bare `F_SETFL` of the one flag would clear the access mode with it. |
 | `netWouldBlock` | value | `(-> Int Bool)` |  | Whether a negative answer means "nothing to take yet" rather than a broken socket. This is the whole reason `eAgain` is a capability: the number is 35 on Darwin and 11 on Linux, so an event loop written against a literal runs correctly on the machine it was written on. |
 | `netPollBufBytes` | value | `(-> Int Int)` |  | How many bytes an event buffer for `n` events needs on this platform. |
 | `netPollCreate` | value | `(Result Int Error)` | `Alloc,IO` | A readiness descriptor, as `(Result Int Error)`. |
-| `netPollAddRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes. |
-| `netPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Answers `(Result Int Error)`; `Ok 0` on success. |
-| `netPollWait` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Wait for readiness, answering `Ok` how many events landed in `buf` or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched directly by every wake loop so the wake itself builds no block. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
-| `netPollFdAt` | value | `(-> Int Int Int)` |  | The descriptor named by event `i` of a buffer `netPollWait` filled. |
+| `netPollAddRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Watch `fd` for readability. `rec` is scratch of `pollEventSize` bytes. |
+| `netPollDelRead` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Answers `(Result Int Error)`; `Ok 0` on success. |
+| `netPollWait` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for readiness, answering `Ok` how many events landed in `buf` or `Err` the errno - `(Result Int Error)` since 2026-09-03, matched directly by every wake loop so the wake itself builds no block. A NEGATIVE `timeoutMs` BLOCKS INDEFINITELY, which is what a server's accept loop wants; zero polls and returns at once. |
+| `netPollFdAt` | value | `(-> Int Int Int)` | `Unsafe` | The descriptor named by event `i` of a buffer `netPollWait` filled. |
 | `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
-| `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
-| `netSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
-| `netPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
+| `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
+| `netSignalOpen` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Watch the signals in `mask` on the readiness descriptor `pfd`, and answer a HANDLE to pass back to `netPollSignalAt` - the signal descriptor on Linux, and 0 on the BSDs, which need none. |
+| `netPollSignalAt` | value | `(-> Int Int Int Int (Option Int))` | `IO,Unsafe` | The signal named by event `i`, or `None` when that event is not a signal at all. `sigHandle` is what `netSignalOpen` answered and `scratch` is caller scratch of at least `sigInfoSize` bytes. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Send a signal, which is how a test raises one against itself. |
 | `sysForkProcess` | value | `Int` | `IO` | Duplicating this process |
 | `sysTermStateBytes` | value | `Int` |  | How many bytes a saved terminal state occupies, which is how large the buffer a caller hands `sysTermSave`, `sysTermRaw` and `sysTermRestore` must be. 72, 36 or 44 depending on the target; 0 where there is no `termios` at all. |
 | `sysTermSizeBytes` | value | `Int` |  | The bytes `sysTermSize` writes. 8 on every target that has one; see the section header for why this number is here and not in `Sys.Platform`. |
-| `sysIsatty` | value | `(-> Int Bool)` | `Alloc,IO` | True when `fd` is a terminal. |
+| `sysIsatty` | value | `(-> Int Bool)` | `Alloc,IO,Unsafe` | True when `fd` is a terminal. |
 | `sysTermSave` | value | `(-> Int Int Int)` | `IO` | Read `fd`'s current terminal attributes into `save`, which must hold `sysTermStateBytes` bytes. 0 on success, or a negative result. |
 | `sysTermRestore` | value | `(-> Int Int Int)` | `IO` | Write `state` back to `fd` as its terminal attributes: 0, or a negative result. |
-| `sysTermRaw` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut` | Put `fd` into raw mode, having first saved its current state into `save` (`sysTermStateBytes` bytes, owned by the caller). 0, or a negative result. |
+| `sysTermRaw` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Put `fd` into raw mode, having first saved its current state into `save` (`sysTermStateBytes` bytes, owned by the caller). 0, or a negative result. |
 | `sysTermSize` | value | `(-> Int Int Int)` | `IO` | Read `fd`'s window size into `buf` (`sysTermSizeBytes` bytes): 0, or a negative result. `sysTermRows` and `sysTermCols` read the answer back out. |
-| `sysTermRows` | value | `(-> Int Int)` |  | Rows out of a buffer `sysTermSize` filled. `ws_row` is an `unsigned short` at offset 0 on every target, little-endian. |
-| `sysTermCols` | value | `(-> Int Int)` |  | Columns: `ws_col`, the second `unsigned short`. |
-| `sysReadAllFd` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut` | Read `fd` to end of input: `Ok` the whole stream, `Ok ""` when nothing arrived, or `Err` carrying the errno of the `read` that failed. |
-| `sysReadLineFd` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut` | One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at end of input when nothing was read, or `Err` carrying the errno. |
+| `sysTermRows` | value | `(-> Int Int)` | `Unsafe` | Rows out of a buffer `sysTermSize` filled. `ws_row` is an `unsigned short` at offset 0 on every target, little-endian. |
+| `sysTermCols` | value | `(-> Int Int)` | `Unsafe` | Columns: `ws_col`, the second `unsigned short`. |
+| `sysReadAllFd` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | Read `fd` to end of input: `Ok` the whole stream, `Ok ""` when nothing arrived, or `Err` carrying the errno of the `read` that failed. |
+| `sysReadLineFd` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut,Unsafe` | One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at end of input when nothing was read, or `Err` carrying the errno. |
 
 ## `Sys.Platform`
 
@@ -635,13 +635,13 @@ See [reference.md](reference.md) for the language, and
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `Assert` | effect |  |  | The effect a failed assertion performs. |
-| `assertEq` | value | `(-> String Int Int Int)` | `Alloc,Assert,IO,Mut` | Two `Int`s are equal. |
-| `assertNe` | value | `(-> String Int Int Int)` | `Alloc,Assert,IO,Mut` | Two `Int`s are not equal - for the property that a value CHANGED, where naming what it changed to would pin something the test does not mean to pin. |
-| `assertStrEq` | value | `(-> String String String Int)` | `Alloc,Assert,IO,Mut` | Two `String`s are equal, by bytes. |
-| `assertTrue` | value | `(-> String Bool Int)` | `Alloc,Assert,IO,Mut` | A `Bool` is true. |
-| `assertFalse` | value | `(-> String Bool Int)` | `Alloc,Assert,IO,Mut` | A `Bool` is false. Not `(assertTrue label (! b))`, because Axiom has no `!` and `(== b false)` at the call site is what this exists to keep out of the test. |
-| `assertFloatNear` | value | `(-> String Float Float Float Int)` | `Alloc,Assert,IO,Mut` | Two `Float`s are equal within `epsilon` - the tolerance none of the assertions above need, because comparing a COMPUTED float against an exact literal is comparing against rounding error, not against the answer: `(assertEq "" 3 (+ 1 2))`'s `Int` analogue would never be wrong this way, and a `Float` one routinely is. `epsilon` is the caller's to choose rather than a default picked here, because how near is near enough depends on the computation, not on this module. |
-| `testFail` | value | `(-> String Int)` | `Alloc,Assert,IO,Mut` | Fail unconditionally: the branch that must not be reached, and the case a test has not written yet. `(testFail "todo: the empty input")` reads as a failure rather than as a passing test with nothing in it, which is what an empty test body is. |
+| `assertEq` | value | `(-> String Int Int Int)` | `Alloc,Assert,IO,Mut,Unsafe` | Two `Int`s are equal. |
+| `assertNe` | value | `(-> String Int Int Int)` | `Alloc,Assert,IO,Mut,Unsafe` | Two `Int`s are not equal - for the property that a value CHANGED, where naming what it changed to would pin something the test does not mean to pin. |
+| `assertStrEq` | value | `(-> String String String Int)` | `Alloc,Assert,IO,Mut,Unsafe` | Two `String`s are equal, by bytes. |
+| `assertTrue` | value | `(-> String Bool Int)` | `Alloc,Assert,IO,Mut,Unsafe` | A `Bool` is true. |
+| `assertFalse` | value | `(-> String Bool Int)` | `Alloc,Assert,IO,Mut,Unsafe` | A `Bool` is false. Not `(assertTrue label (! b))`, because Axiom has no `!` and `(== b false)` at the call site is what this exists to keep out of the test. |
+| `assertFloatNear` | value | `(-> String Float Float Float Int)` | `Alloc,Assert,IO,Mut,Unsafe` | Two `Float`s are equal within `epsilon` - the tolerance none of the assertions above need, because comparing a COMPUTED float against an exact literal is comparing against rounding error, not against the answer: `(assertEq "" 3 (+ 1 2))`'s `Int` analogue would never be wrong this way, and a `Float` one routinely is. `epsilon` is the caller's to choose rather than a default picked here, because how near is near enough depends on the computation, not on this module. |
+| `testFail` | value | `(-> String Int)` | `Alloc,Assert,IO,Mut,Unsafe` | Fail unconditionally: the branch that must not be reached, and the case a test has not written yet. `(testFail "todo: the empty input")` reads as a failure rather than as a passing test with nothing in it, which is what an empty test body is. |
 
 ## `Tui.Edit`
 
@@ -655,64 +655,64 @@ See [reference.md](reference.md) for the language, and
 | `LED_ABORT` | value | `Int` |  | Ctrl-C: abandon this line. NOT end of session - see the header of `term.ax` for why, and for why it cannot leave the terminal raw. |
 | `LED_RING_MAX` | value | `Int` |  | How many kills the ring remembers. |
 | `LineEd` | struct |  |  |  |
-| `ledRingNew` | value | `(Vec String)` | `Alloc,Mut` | The kill ring, created once per session and outliving every line. |
-| `ledNew` | value | `(-> (Vec String) String LineEd)` | `Alloc,Mut` | One editor over a session's ring, with the caller's word set. The gap vectors are `vecNew` (leaf) because their elements are CODE POINTS: Vec.ax's comment says a leaf block is exactly right for Ints and costs nothing. |
-| `ledReset` | value | `(-> LineEd String Int Int Int)` | `Mut` | Prepare for the next physical line. Keeps both vectors' capacity. |
+| `ledRingNew` | value | `(Vec String)` | `Alloc,Mut,Unsafe` | The kill ring, created once per session and outliving every line. |
+| `ledNew` | value | `(-> (Vec String) String LineEd)` | `Alloc,Mut,Unsafe` | One editor over a session's ring, with the caller's word set. The gap vectors are `vecNew` (leaf) because their elements are CODE POINTS: Vec.ax's comment says a leaf block is exactly right for Ints and costs nothing. |
+| `ledReset` | value | `(-> LineEd String Int Int Int)` | `Mut,Unsafe` | Prepare for the next physical line. Keeps both vectors' capacity. |
 | `ledFree` | value | `(-> LineEd Int)` |  | Hand the two gap vectors back. For session end and for a test harness, which builds hundreds; see the struct's comment for why nothing else needs it. |
-| `ledLen` | value | `(-> LineEd Int)` |  |  |
-| `ledCursor` | value | `(-> LineEd Int)` |  | The cursor, as a code-point index. It IS `(vecLen left)`. |
-| `ledCpAt` | value | `(-> LineEd Int Int)` |  | Code point `i` of the logical buffer, or 0 out of range. |
-| `ledRangeStr` | value | `(-> LineEd Int Int String)` | `Alloc,Mut` | `cnt` code points from `s`, as a String. |
-| `ledSnapshot` | value | `(-> LineEd String)` | `Alloc,Mut` | The whole buffer. This is the value handed to `replMain`, and it is the ONLY place the gap representation becomes a String - which is what keeps `replTrim`, `replParenDepth` and `replDispatch` taking exactly what they take today. |
-| `ledInsert` | value | `(-> LineEd Int Int)` | `Alloc,Mut` | Insert one code point before the cursor. 1 if it went in. |
-| `ledInsertStr` | value | `(-> LineEd String Int)` | `Alloc,Mut` | Decode a String and insert every code point; answers how many went in. Steps with `utf8Next`, never `utf8CharAt` in a rising loop - Utf8.ax's own comment records that as the quadratic mistake. |
-| `ledSetStr` | value | `(-> LineEd String Int)` | `Alloc,Mut` | Replace the buffer, cursor at the end. What history and completion need: one call to put a whole line in. |
-| `ledBackspace` | value | `(-> LineEd Int)` | `Mut` |  |
-| `ledDelete` | value | `(-> LineEd Int)` | `Mut` |  |
-| `ledLeft` | value | `(-> LineEd Int)` | `Alloc,Mut` | Every motion is one code point moved from one gap vector to the other. O(1) per character; nothing re-derives the cursor. |
-| `ledRight` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledHome` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledEnd` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledIsWord` | value | `(-> LineEd Int Bool)` |  |  |
-| `ledNotWord` | value | `(-> LineEd Int Bool)` |  | The complement, as a function because Axiom has no `!` - stdlib's `assertFalse` carries the same note for the same reason. |
-| `ledWordLeft` | value | `(-> LineEd Int)` | `Alloc,Mut` | readline's rule: skip a run of non-word characters, then a run of word characters. Answers how many code points were crossed. |
-| `ledWordRight` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledWordRightSpan` | value | `(-> LineEd Int)` |  | How many code points a forward word kill would take, WITHOUT moving the cursor - the backward kills can move and then pop, because a leftward motion pushes exactly what it crossed onto `right`, but a forward one has nowhere to put it back. |
-| `ledKillPush` | value | `(-> LineEd String Int Int)` | `Alloc,Mut` |  |
+| `ledLen` | value | `(-> LineEd Int)` | `Unsafe` |  |
+| `ledCursor` | value | `(-> LineEd Int)` | `Unsafe` | The cursor, as a code-point index. It IS `(vecLen left)`. |
+| `ledCpAt` | value | `(-> LineEd Int Int)` | `Unsafe` | Code point `i` of the logical buffer, or 0 out of range. |
+| `ledRangeStr` | value | `(-> LineEd Int Int String)` | `Alloc,Mut,Unsafe` | `cnt` code points from `s`, as a String. |
+| `ledSnapshot` | value | `(-> LineEd String)` | `Alloc,Mut,Unsafe` | The whole buffer. This is the value handed to `replMain`, and it is the ONLY place the gap representation becomes a String - which is what keeps `replTrim`, `replParenDepth` and `replDispatch` taking exactly what they take today. |
+| `ledInsert` | value | `(-> LineEd Int Int)` | `Alloc,Mut,Unsafe` | Insert one code point before the cursor. 1 if it went in. |
+| `ledInsertStr` | value | `(-> LineEd String Int)` | `Alloc,Mut,Unsafe` | Decode a String and insert every code point; answers how many went in. Steps with `utf8Next`, never `utf8CharAt` in a rising loop - Utf8.ax's own comment records that as the quadratic mistake. |
+| `ledSetStr` | value | `(-> LineEd String Int)` | `Alloc,Mut,Unsafe` | Replace the buffer, cursor at the end. What history and completion need: one call to put a whole line in. |
+| `ledBackspace` | value | `(-> LineEd Int)` | `Mut,Unsafe` |  |
+| `ledDelete` | value | `(-> LineEd Int)` | `Mut,Unsafe` |  |
+| `ledLeft` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` | Every motion is one code point moved from one gap vector to the other. O(1) per character; nothing re-derives the cursor. |
+| `ledRight` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledHome` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledEnd` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledIsWord` | value | `(-> LineEd Int Bool)` | `Unsafe` |  |
+| `ledNotWord` | value | `(-> LineEd Int Bool)` | `Unsafe` | The complement, as a function because Axiom has no `!` - stdlib's `assertFalse` carries the same note for the same reason. |
+| `ledWordLeft` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` | readline's rule: skip a run of non-word characters, then a run of word characters. Answers how many code points were crossed. |
+| `ledWordRight` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledWordRightSpan` | value | `(-> LineEd Int)` | `Unsafe` | How many code points a forward word kill would take, WITHOUT moving the cursor - the backward kills can move and then pop, because a leftward motion pushes exactly what it crossed onto `right`, but a forward one has nowhere to put it back. |
+| `ledKillPush` | value | `(-> LineEd String Int Int)` | `Alloc,Mut,Unsafe` |  |
 | `ledRingIdx` | value | `(-> LineEd Int)` |  | Which ring entry a yank would take. Read by the test harness, and by whatever eventually shows the kill ring; the ring itself is the session's `Vec` and is already reachable. |
-| `ledKillToEnd` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledKillToStart` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledKillWordLeft` | value | `(-> LineEd Int)` | `Alloc,Mut` | Move left over the word, then pop what the motion pushed onto `right` - the run the cursor just crossed is exactly the top `moved` entries of that vector. |
-| `ledKillWordRight` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledYank` | value | `(-> LineEd Int)` | `Alloc,Mut` |  |
-| `ledYankPop` | value | `(-> LineEd Int)` | `Alloc,Mut` | Alt-y. Valid only immediately after a yank or another yank-pop, which `yankLen > 0` is exactly: every other key zeroes it in `ledApply`, so pressed cold this is a refusal that changes nothing. |
-| `tuiVisLen` | value | `(-> String Int)` |  | The DISPLAY WIDTH of a string: no `ESC [ ... m` sequence counted, and no UTF-8 continuation byte counted. |
-| `tuiCat` | value | `(-> (Vec String) String)` | `Alloc,Mut` | Every fragment in `v`, concatenated, in ONE allocation. |
+| `ledKillToEnd` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledKillToStart` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledKillWordLeft` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` | Move left over the word, then pop what the motion pushed onto `right` - the run the cursor just crossed is exactly the top `moved` entries of that vector. |
+| `ledKillWordRight` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledYank` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledYankPop` | value | `(-> LineEd Int)` | `Alloc,Mut,Unsafe` | Alt-y. Valid only immediately after a yank or another yank-pop, which `yankLen > 0` is exactly: every other key zeroes it in `ledApply`, so pressed cold this is a refusal that changes nothing. |
+| `tuiVisLen` | value | `(-> String Int)` | `Unsafe` | The DISPLAY WIDTH of a string: no `ESC [ ... m` sequence counted, and no UTF-8 continuation byte counted. |
+| `tuiCat` | value | `(-> (Vec String) String)` | `Alloc,Mut,Unsafe` | Every fragment in `v`, concatenated, in ONE allocation. |
 | `ledCharCols` | value | `(-> Int Int)` |  | The display width of one code point. 1 for everything - see the header. The single place a wcwidth table would land. |
-| `ledColsBefore` | value | `(-> LineEd Int Int)` |  | The columns the first `k` code points occupy. O(k), and it is the only reason `ledCharCols` is a function rather than a `1` written in four formulas: with a wcwidth table this stays correct and nothing else changes. |
+| `ledColsBefore` | value | `(-> LineEd Int Int)` | `Unsafe` | The columns the first `k` code points occupy. O(k), and it is the only reason `ledCharCols` is a function rather than a `1` written in four formulas: with a wcwidth table this stays correct and nothing else changes. |
 | `ledCols` | value | `(-> LineEd Int)` |  | The width to compute with: the terminal's, or 80 when it answered something a division cannot use. A pty that has never been sized reports 0 columns with a SUCCESSFUL ioctl (Sys.ax says so), and dividing by it is the bug that report cannot make. |
-| `ledContentCols` | value | `(-> LineEd Int)` |  |  |
-| `ledRowOf` | value | `(-> LineEd Int Int)` |  |  |
-| `ledColOf` | value | `(-> LineEd Int Int)` |  |  |
-| `ledRowsUsed` | value | `(-> LineEd Int)` |  |  |
-| `ledCup` | value | `(-> Int Int String)` | `Alloc,Mut` | `ESC [ n <final>`, or "" when n < 1 so a zero-distance move costs no bytes. 65 A up, 66 B down, 67 C forward, 68 D back. |
-| `ledClearScreen` | value | `(-> Int String)` | `Alloc,Mut` | `ESC [ H ESC [ 2 J` - cursor home, erase the whole screen. Ctrl-L. |
-| `ledEraseRow` | value | `(-> Int String)` | `Alloc,Mut` | `ESC [ 0 K` - erase from the cursor to the end of the row. Spelled out rather than routed through `ledCup`, which refuses n < 1 and would answer "" - an erase that emits nothing is a redraw that leaves the old line's tail on the screen. |
-| `ledEraseOld` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | Erase what the previous refresh drew and leave the cursor at column 0 of the first row. |
-| `ledRefreshFull` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | The multi-row repaint. |
-| `ledRefreshWindow` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` |  |
-| `ledRefresh` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut` | The one dispatcher, so the choice between the two repaints lives in exactly one place. |
-| `ledRefreshFullPainted` | value | `(-> LineEd (Vec String) String Int)` | `Alloc,Mut` |  |
-| `ledRefreshPainted` | value | `(-> LineEd (Vec String) String Int)` | `Alloc,Mut` | Like `ledRefresh`, but the full repaint draws `painted` - the caller's rendering of the current buffer - instead of the plain snapshot. See `ledRefreshFullPainted` for the width contract that makes the cursor land correctly. |
+| `ledContentCols` | value | `(-> LineEd Int)` | `Unsafe` |  |
+| `ledRowOf` | value | `(-> LineEd Int Int)` | `Unsafe` |  |
+| `ledColOf` | value | `(-> LineEd Int Int)` | `Unsafe` |  |
+| `ledRowsUsed` | value | `(-> LineEd Int)` | `Unsafe` |  |
+| `ledCup` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | `ESC [ n <final>`, or "" when n < 1 so a zero-distance move costs no bytes. 65 A up, 66 B down, 67 C forward, 68 D back. |
+| `ledClearScreen` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | `ESC [ H ESC [ 2 J` - cursor home, erase the whole screen. Ctrl-L. |
+| `ledEraseRow` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | `ESC [ 0 K` - erase from the cursor to the end of the row. Spelled out rather than routed through `ledCup`, which refuses n < 1 and would answer "" - an erase that emits nothing is a redraw that leaves the old line's tail on the screen. |
+| `ledEraseOld` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut,Unsafe` | Erase what the previous refresh drew and leave the cursor at column 0 of the first row. |
+| `ledRefreshFull` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut,Unsafe` | The multi-row repaint. |
+| `ledRefreshWindow` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledRefresh` | value | `(-> LineEd (Vec String) Int)` | `Alloc,Mut,Unsafe` | The one dispatcher, so the choice between the two repaints lives in exactly one place. |
+| `ledRefreshFullPainted` | value | `(-> LineEd (Vec String) String Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledRefreshPainted` | value | `(-> LineEd (Vec String) String Int)` | `Alloc,Mut,Unsafe` | Like `ledRefresh`, but the full repaint draws `painted` - the caller's rendering of the current buffer - instead of the plain snapshot. See `ledRefreshFullPainted` for the width contract that makes the cursor land correctly. |
 | `ledResize` | value | `(-> LineEd Int Int Int)` | `Mut` | Called with the terminal's current size before every refresh. When the width changed we cannot know how the terminal reflowed the text it already holds, so `rows` and `curRow` are reset rather than used: refusing to compute motions from a stale width beats computing them wrongly, and one more keystroke fully repairs the line. 1 when it changed. |
-| `ledApply` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut` |  |
+| `ledApply` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut,Unsafe` |  |
 | `ledIsKillKey` | value | `(-> KeyEv Bool)` |  |  |
 | `ledIsYankKey` | value | `(-> KeyEv Bool)` |  |  |
 | `ledByWord` | value | `(-> KeyEv Bool)` |  | A motion key carrying Ctrl or Alt is the WORD variant. Terminals disagree about which modifier they send for Ctrl-Left - xterm sends MOD_CTRL, several send MOD_ALT, and Alt-b is the same motion by another name - so both are accepted rather than one being picked. |
-| `ledDispatch` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut` |  |
-| `ledNavKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut` | Arrows, Home and End - and the keys this effort deliberately leaves alone. Up and Down belong to the HISTORY effort and Tab to COMPLETION; they are decoded, they arrive here, and they do nothing. Adding them is a branch beside these, not a change to the decoder. |
-| `ledCharKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut` | A printable key, or an Alt-<letter> word command. Alt-b/f/d/y are the bindings every terminal can produce, where Ctrl-Left and Alt-Delete are the ones only some can. |
-| `ledCtrlKey` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut` | The control keys. readline's letters, and only the ones this effort owns: Ctrl-N and Ctrl-P are history's and are left unbound so that effort can take them without moving anything here. |
+| `ledDispatch` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut,Unsafe` |  |
+| `ledNavKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut,Unsafe` | Arrows, Home and End - and the keys this effort deliberately leaves alone. Up and Down belong to the HISTORY effort and Tab to COMPLETION; they are decoded, they arrive here, and they do nothing. Adding them is a branch beside these, not a change to the decoder. |
+| `ledCharKey` | value | `(-> LineEd KeyEv Int)` | `Alloc,Mut,Unsafe` | A printable key, or an Alt-<letter> word command. Alt-b/f/d/y are the bindings every terminal can produce, where Ctrl-Left and Alt-Delete are the ones only some can. |
+| `ledCtrlKey` | value | `(-> LineEd KeyEv (Vec String) Int)` | `Alloc,Mut,Unsafe` | The control keys. readline's letters, and only the ones this effort owns: Ctrl-N and Ctrl-P are history's and are left unbound so that effort can take them without moving anything here. |
 
 ## `Tui.Keys`
 
@@ -747,22 +747,22 @@ See [reference.md](reference.md) for the language, and
 | `keyStrMax` | value | `Int` |  | And of an OSC/DCS string body. |
 | `KeyEv` | struct |  |  |  |
 | `keyScanCtrl` | value | `(-> Int KeyEv)` | `Alloc` |  |
-| `keyCsiEnd` | value | `(-> String Int Int Int)` |  |  |
-| `keyCsiParam` | value | `(-> String Int Int Int Int)` |  |  |
-| `keyCsiPrivate` | value | `(-> String Int Int Bool)` |  | A CSI whose first parameter byte is `<`, `=`, `>` or `?` is a private form: a mouse report, a device-attributes reply, a mode report. None of them is a keystroke. |
+| `keyCsiEnd` | value | `(-> String Int Int Int)` | `Unsafe` |  |
+| `keyCsiParam` | value | `(-> String Int Int Int Int)` | `Unsafe` |  |
+| `keyCsiPrivate` | value | `(-> String Int Int Bool)` | `Unsafe` | A CSI whose first parameter byte is `<`, `=`, `>` or `?` is a private form: a mouse report, a device-attributes reply, a mode report. None of them is a keystroke. |
 | `keyTildeKind` | value | `(-> Int Int)` |  | The key a `~`-final CSI names, from its first parameter. |
 | `keyTildeFn` | value | `(-> Int Int)` |  | F1..F12 out of a `~`-final parameter, or 0 for one that names none. |
 | `keyFinalKind` | value | `(-> Int Int)` |  | The key a letter-final CSI or SS3 names. |
-| `keyFromCsi` | value | `(-> String Int Int Int KeyEv)` | `Alloc` |  |
-| `keyFromSs3` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
-| `keyStrEnd` | value | `(-> String Int Int Int)` |  |  |
-| `keyScanUtf8` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` |  |
-| `keyScan` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` |  |
-| `keyScanEsc` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` | The escape path. See the header for the case list. |
-| `keyScanCsi` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
-| `keyScanStr` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
-| `keyScanAlt` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut` | ESC <anything else> is Alt-that-key: decode the key at off+1 and OR MOD_ALT into it. `used` grows by the ESC. |
-| `keyResolve` | value | `(-> String Int Int KeyEv)` | `Alloc` |  |
+| `keyFromCsi` | value | `(-> String Int Int Int KeyEv)` | `Alloc,Unsafe` |  |
+| `keyFromSs3` | value | `(-> String Int Int KeyEv)` | `Alloc,Unsafe` |  |
+| `keyStrEnd` | value | `(-> String Int Int Int)` | `Unsafe` |  |
+| `keyScanUtf8` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut,Unsafe` |  |
+| `keyScan` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut,Unsafe` |  |
+| `keyScanEsc` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut,Unsafe` | The escape path. See the header for the case list. |
+| `keyScanCsi` | value | `(-> String Int Int KeyEv)` | `Alloc,Unsafe` |  |
+| `keyScanStr` | value | `(-> String Int Int KeyEv)` | `Alloc,Unsafe` |  |
+| `keyScanAlt` | value | `(-> String Int Int KeyEv)` | `Alloc,Mut,Unsafe` | ESC <anything else> is Alt-that-key: decode the key at off+1 and OR MOD_ALT into it. `used` grows by the ESC. |
+| `keyResolve` | value | `(-> String Int Int KeyEv)` | `Alloc,Unsafe` |  |
 
 ## `Tui.Term`
 
@@ -773,17 +773,17 @@ See [reference.md](reference.md) for the language, and
 | `termBufBytes` | value | `Int` |  | One `read` takes up to this much. Large enough that a pasted line arrives in one syscall, which is what makes the redraw coalescing below turn a paste into roughly one repaint. |
 | `keyEscTimeoutMs` | value | `Int` |  | How long to wait for the rest of an escape sequence before deciding there is no rest. |
 | `KeyIn` | struct |  |  |  |
-| `mkKeyIn` | value | `(-> Int Int KeyIn)` | `Alloc,IO,Mut` | A reader over `fd`. `active` 0 builds the inert shape: no poll descriptor, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
+| `mkKeyIn` | value | `(-> Int Int KeyIn)` | `Alloc,IO,Mut,Unsafe` | A reader over `fd`. `active` 0 builds the inert shape: no poll descriptor, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
 | `keyInPending` | value | `(-> KeyIn Int)` |  | Bytes read but not yet consumed. The redraw coalescing asks this. |
-| `keyInFill` | value | `(-> KeyIn Int Int)` | `Alloc,IO,Mut` |  |
-| `keyNext` | value | `(-> KeyIn KeyEv)` | `Alloc,IO,Mut` |  |
-| `termReadSize` | value | `(-> KeyIn Int)` | `IO,Mut` | Refresh `kin.ws` from the terminal. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. |
-| `termWsCols` | value | `(-> KeyIn Int)` |  | Columns, or 80. A pty that has never been sized answers 0 with a SUCCESSFUL ioctl - Sys.ax states it - so the fallback is on the VALUE and not only on the return code. |
-| `termWsRows` | value | `(-> KeyIn Int)` |  |  |
-| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on fd 0, saving into `kin.save`. 0, or negative. `keepSignals` 0: see the header. |
+| `keyInFill` | value | `(-> KeyIn Int Int)` | `Alloc,IO,Mut,Unsafe` |  |
+| `keyNext` | value | `(-> KeyIn KeyEv)` | `Alloc,IO,Mut,Unsafe` |  |
+| `termReadSize` | value | `(-> KeyIn Int)` | `IO,Mut,Unsafe` | Refresh `kin.ws` from the terminal. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. |
+| `termWsCols` | value | `(-> KeyIn Int)` | `Unsafe` | Columns, or 80. A pty that has never been sized answers 0 with a SUCCESSFUL ioctl - Sys.ax states it - so the fallback is on the VALUE and not only on the return code. |
+| `termWsRows` | value | `(-> KeyIn Int)` | `Unsafe` |  |
+| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut,Unsafe` | Enter raw mode on fd 0, saving into `kin.save`. 0, or negative. `keepSignals` 0: see the header. |
 | `termRawLeave` | value | `(-> KeyIn Int)` | `IO` |  |
-| `termFlush` | value | `(-> (Vec String) Int)` | `Alloc,IO,Mut` |  |
-| `termEditLoop` | value | `(-> KeyIn LineEd String (Option String))` | `Alloc,IO,Mut` |  |
+| `termFlush` | value | `(-> (Vec String) Int)` | `Alloc,IO,Mut,Unsafe` |  |
+| `termEditLoop` | value | `(-> KeyIn LineEd String (Option String))` | `Alloc,IO,Mut,Unsafe` |  |
 
 ## `Utf8`
 
@@ -793,16 +793,16 @@ See [reference.md](reference.md) for the language, and
 |---|---|---|---|---|
 | `utf8IsCont` | value | `(-> Int Bool)` |  | Is `b` a continuation byte, `10xxxxxx`? |
 | `utf8SeqLen` | value | `(-> Int Int)` |  | How many bytes the sequence beginning with lead byte `b` occupies. |
-| `utf8DecodeAt` | value | `(-> String Int (Option Int))` |  | The code point whose encoding begins at byte offset `i`, or `None` when there is none there. |
-| `utf8Next` | value | `(-> String Int Int)` |  | The byte offset of the character after the one beginning at `i`, clamped to the byte length - `utf8Offset` clamps, and two stepping functions that disagree about the end of a string is a trap. |
-| `utf8Len` | value | `(-> String Int)` |  | The number of code points in `s`. |
-| `utf8Offset` | value | `(-> String Int Int)` |  | The byte offset at which character `n` begins, or the byte length of `s` when there are fewer than `n` characters. |
-| `utf8CharAt` | value | `(-> String Int (Option Int))` |  | Character `n` of `s`, counting from 0. `None` past the end, the same answer `utf8DecodeAt` gives a byte it cannot decode and for the same reason. The tail call FORWARDS `utf8DecodeAt`'s two registers as they arrive (`pairFwdOK`), so this keeps `no-alloc` on the same terms. |
-| `utf8Slice` | value | `(-> String Int Int String)` | `Alloc,Mut` | `count` characters of `s` beginning at character `start`, as a `Str` sharing the original's bytes - the character-indexed counterpart of `strSlice`. |
+| `utf8DecodeAt` | value | `(-> String Int (Option Int))` | `Unsafe` | The code point whose encoding begins at byte offset `i`, or `None` when there is none there. |
+| `utf8Next` | value | `(-> String Int Int)` | `Unsafe` | The byte offset of the character after the one beginning at `i`, clamped to the byte length - `utf8Offset` clamps, and two stepping functions that disagree about the end of a string is a trap. |
+| `utf8Len` | value | `(-> String Int)` | `Unsafe` | The number of code points in `s`. |
+| `utf8Offset` | value | `(-> String Int Int)` | `Unsafe` | The byte offset at which character `n` begins, or the byte length of `s` when there are fewer than `n` characters. |
+| `utf8CharAt` | value | `(-> String Int (Option Int))` | `Unsafe` | Character `n` of `s`, counting from 0. `None` past the end, the same answer `utf8DecodeAt` gives a byte it cannot decode and for the same reason. The tail call FORWARDS `utf8DecodeAt`'s two registers as they arrive (`pairFwdOK`), so this keeps `no-alloc` on the same terms. |
+| `utf8Slice` | value | `(-> String Int Int String)` | `Alloc,Mut,Unsafe` | `count` characters of `s` beginning at character `start`, as a `Str` sharing the original's bytes - the character-indexed counterpart of `strSlice`. |
 | `utf8Replacement` | value | `Int` |  | U+FFFD REPLACEMENT CHARACTER, what a code point that cannot be encoded becomes. |
 | `utf8Width` | value | `(-> Int Int)` |  | How many bytes code point `cp` occupies when encoded - counting what `utf8FromChar` will actually write, so the two never disagree. |
-| `utf8FromChar` | value | `(-> Int String)` | `Alloc,Mut` | A freshly allocated `Str` holding `cp` alone. |
-| `utf8Valid` | value | `(-> String Bool)` |  | Is every byte of `s` part of a well-formed UTF-8 sequence? |
+| `utf8FromChar` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | A freshly allocated `Str` holding `cp` alone. |
+| `utf8Valid` | value | `(-> String Bool)` | `Unsafe` | Is every byte of `s` part of a well-formed UTF-8 sequence? |
 
 ## `Vec`
 
@@ -810,27 +810,27 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `vecNew` | value | `(Vec a)` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity. |
-| `vecWithCapacity` | value | `(-> Int (Vec a))` | `Alloc,Mut` | An empty `Vec` that can hold at least `cap` elements without growing. |
-| `vecWithCapacityRef` | value | `(-> Int (Vec a))` | `Alloc,Mut` | The same, with an ARRAY-FORM data block: every element is a handle this vector owns a share of. See the module comment. |
-| `vecNewRef` | value | `(Vec a)` | `Alloc,Mut` | An empty `Vec` with `vecDefaultCap` capacity, owning its elements. |
+| `vecNew` | value | `(Vec a)` | `Alloc,Mut,Unsafe` | An empty `Vec` with `vecDefaultCap` capacity. |
+| `vecWithCapacity` | value | `(-> Int (Vec a))` | `Alloc,Mut,Unsafe` | An empty `Vec` that can hold at least `cap` elements without growing. |
+| `vecWithCapacityRef` | value | `(-> Int (Vec a))` | `Alloc,Mut,Unsafe` | The same, with an ARRAY-FORM data block: every element is a handle this vector owns a share of. See the module comment. |
+| `vecNewRef` | value | `(Vec a)` | `Alloc,Mut,Unsafe` | An empty `Vec` with `vecDefaultCap` capacity, owning its elements. |
 | `vecFree` | value | `(-> (Vec a) Int)` |  | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. |
-| `vecOwnsRefs` | value | `(-> (Vec a) Bool)` |  | Whether this vector owns a share of every element it holds - the `vecNewRef` half of the module comment. It is word 3 of the header and not a test of the data block's shape word: see `vecBuild`. |
-| `vecLen` | value | `(-> (Vec a) Int)` |  |  |
-| `vecCap` | value | `(-> (Vec a) Int)` |  |  |
-| `vecGet` | value | `(-> (Vec a) Int a)` |  | The element at `i`. REFUSES an index outside `0 .. (vecLen v) - 1`. |
-| `vecTry` | value | `(-> (Vec a) Int (Option a))` | `Alloc` | The element at `i`, or `None` when there is no element at `i`. |
-| `vecGetStr` | value | `(-> (Vec a) Int String)` |  |  |
-| `vecGetVec` | value | `(-> (Vec a) Int (Vec b))` |  | The element at `i` read back as a CONTAINER. |
-| `vecPushStr` | value | `(-> (Vec a) String (Vec a))` | `Alloc,Mut` | Append a `String` to a vector of WORDS, keeping the share. |
-| `vecPushVec` | value | `(-> (Vec a) (Vec b) (Vec a))` | `Alloc,Mut` | The same for a nested container. A `Vec` handle is a counted block too, so it needs the same explicit share for the same reason. |
-| `vecSet` | value | `(-> (Vec a) Int a (Vec a))` | `Mut` | Overwrite the element at `i`. Returns the handle. |
-| `vecPush` | value | `(-> (Vec a) a (Vec a))` | `Alloc,Mut` | Append `x`. Returns the handle - the same one, with this representation; see the module comment for why it is returned anyway. |
-| `vecPop` | value | `(-> (Vec a) a)` | `Mut` | Remove and return the last element. REFUSES an empty vector. |
-| `vecLast` | value | `(-> (Vec a) a)` |  | The last element without removing it. REFUSES an empty vector. |
-| `vecClear` | value | `(-> (Vec a) (Vec a))` | `Mut` | Drop every element, keeping the capacity. Returns the handle. |
-| `vecSum` | value | `(-> (Vec Int) Int)` |  | The sum of every element. |
-| `vecHash` | value | `(-> (Vec Int) Int)` |  | A position-sensitive digest of the whole vector. |
-| `vecSort` | value | `(-> (Vec a) (Vec a))` | `Mut` | Sort ascending, in place, by machine word. Answers the vector. |
-| `vecSortBy` | value | `(-> (Vec a) (-> Int Int Int) (Vec a))` | `Mut` | The same, ordered by a caller's comparison rather than by the word. |
+| `vecOwnsRefs` | value | `(-> (Vec a) Bool)` | `Unsafe` | Whether this vector owns a share of every element it holds - the `vecNewRef` half of the module comment. It is word 3 of the header and not a test of the data block's shape word: see `vecBuild`. |
+| `vecLen` | value | `(-> (Vec a) Int)` | `Unsafe` |  |
+| `vecCap` | value | `(-> (Vec a) Int)` | `Unsafe` |  |
+| `vecGet` | value | `(-> (Vec a) Int a)` | `Unsafe` | The element at `i`. REFUSES an index outside `0 .. (vecLen v) - 1`. |
+| `vecTry` | value | `(-> (Vec a) Int (Option a))` | `Alloc,Unsafe` | The element at `i`, or `None` when there is no element at `i`. |
+| `vecGetStr` | value | `(-> (Vec a) Int String)` | `Unsafe` |  |
+| `vecGetVec` | value | `(-> (Vec a) Int (Vec b))` | `Unsafe` | The element at `i` read back as a CONTAINER. |
+| `vecPushStr` | value | `(-> (Vec a) String (Vec a))` | `Alloc,Mut,Unsafe` | Append a `String` to a vector of WORDS, keeping the share. |
+| `vecPushVec` | value | `(-> (Vec a) (Vec b) (Vec a))` | `Alloc,Mut,Unsafe` | The same for a nested container. A `Vec` handle is a counted block too, so it needs the same explicit share for the same reason. |
+| `vecSet` | value | `(-> (Vec a) Int a (Vec a))` | `Mut,Unsafe` | Overwrite the element at `i`. Returns the handle. |
+| `vecPush` | value | `(-> (Vec a) a (Vec a))` | `Alloc,Mut,Unsafe` | Append `x`. Returns the handle - the same one, with this representation; see the module comment for why it is returned anyway. |
+| `vecPop` | value | `(-> (Vec a) a)` | `Mut,Unsafe` | Remove and return the last element. REFUSES an empty vector. |
+| `vecLast` | value | `(-> (Vec a) a)` | `Unsafe` | The last element without removing it. REFUSES an empty vector. |
+| `vecClear` | value | `(-> (Vec a) (Vec a))` | `Mut,Unsafe` | Drop every element, keeping the capacity. Returns the handle. |
+| `vecSum` | value | `(-> (Vec Int) Int)` | `Unsafe` | The sum of every element. |
+| `vecHash` | value | `(-> (Vec Int) Int)` | `Unsafe` | A position-sensitive digest of the whole vector. |
+| `vecSort` | value | `(-> (Vec a) (Vec a))` | `Mut,Unsafe` | Sort ascending, in place, by machine word. Answers the vector. |
+| `vecSortBy` | value | `(-> (Vec a) (-> Int Int Int) (Vec a))` | `Mut,Unsafe` | The same, ordered by a caller's comparison rather than by the word. |
 

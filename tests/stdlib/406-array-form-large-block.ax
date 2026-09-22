@@ -86,6 +86,7 @@
     0))
 
 (:: countOf (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (countOf h)
   (__load64 (- h 16) 0))
 
@@ -148,6 +149,7 @@
 ; holds a share of it; the question is whether releasing the block
 ; spends that share.
 (:: rawArrayShares (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (rawArrayShares nwords)
   (let (
     (s (strDup "raw"))

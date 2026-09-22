@@ -1180,6 +1180,7 @@
     (+ 55 n)))
 
 (pub :: jsonUesc (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (jsonUesc b)
   (let ((s (strAlloc 6)))
     {

@@ -64,14 +64,17 @@
 
 ; the shape word sits one word above the count, at `p - 8`
 (:: shapeOf (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (shapeOf p)
   (__load64 (- p 16) 1))
 
 (:: payloadRc (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (payloadRc p)
   (__load64 (- (__load64 p 1) 16) 0))
 
 (:: fieldRc (-> Int Int Int))
+;@axiom:effect(unsafe)
 (fn (fieldRc p j)
   (__load64 (- (__load64 p j) 16) 0))
 

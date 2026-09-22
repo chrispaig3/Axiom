@@ -66,6 +66,7 @@
     }))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   ; --- 32: the loop is flat -----------------------------------
   ; The probe allocates 200 bytes because the loop does not.

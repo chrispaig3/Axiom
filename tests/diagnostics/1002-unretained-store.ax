@@ -1,6 +1,9 @@
 ; A bare `__store64` of a reference takes no share: the stored word
 ; names a block whose release the walk never counted. AX3071.
+; Tagged `effect(unsafe)` so this golden pins AX3071 alone; AX3073's
+; own primary is 1004.
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((s "held"))
     {

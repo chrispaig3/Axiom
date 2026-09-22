@@ -209,24 +209,21 @@ python3 - "$abl/self_host/codegen.ax" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
+# 2026-09-21: the formatter's normal-form move folded the tail's
+# stray closers up (`0)))` on one line). The predicate is unchanged,
+# so the ablation follows the spelling and flips the same `1` to `0`.
 old = """(pub fn (isStaticSentinelNode cg e)
   (if (== e 0)
     0
     (if (== (nodeTag e) TAG_E_STR)
       1
-      0
-    )
-  )
-)"""
+      0)))"""
 new = """(pub fn (isStaticSentinelNode cg e)
   (if (== e 0)
     0
     (if (== (nodeTag e) TAG_E_STR)
       0
-      0
-    )
-  )
-)"""
+      0)))"""
 if s.count(old) != 1:
     sys.exit("the ablation matched %d times, wanted 1" % s.count(old))
 open(p, "w", encoding="utf-8").write(s.replace(old, new))

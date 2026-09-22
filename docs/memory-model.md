@@ -394,18 +394,21 @@ whose whole job is to enumerate was short by one for as long as the
 sentence pointing at it existed.
 
 **The five that closed, and what each was.** All but one were the same
-defect: a primitive that PERFORMS something, registered like `__load64`,
-which computes. `scripts/check-agent-policy.sh` asserts the mapping one
-primitive at a time, with `__load64`, `__load8` and `__retain` as the
-controls that must stay silent — a population golden cannot hold this
-rule, because re-blessing it after a regression makes the gate agree
-with whatever the compiler now says.
+defect: a primitive that PERFORMS something, registered as computing.
+`scripts/check-agent-policy.sh` asserts the mapping one primitive at a
+time, with `__atomic_load` and `__retain` as the controls that must
+stay silent — a population golden cannot hold this rule, because
+re-blessing it after a regression makes the gate agree with whatever
+the compiler now says. The loads were controls here until 2026-09-21,
+when `Unsafe` inference gave raw reads their own effect: `__load64`
+and `__load8` report `Unsafe` now, and the silent set narrowed to the
+ordered atomic load and the runtime's own bookkeeping.
 
 | Row | Closed | Now |
 |---|---|---|
 | calls `__alloc` | 2026-08-23 | `Alloc` |
 | calls a **trait method** whose implementation does I/O — the construct was removed in 0.6.0 | 2026-08-23 | the fixpoint unioned **every** implementation of the method, because the rewrite that selects one ran elsewhere and this walk could not say which; the effect reached the caller and its callers — definite with a single implementation, and `#effects-possible=` with more than one |
-| calls `__store8`/`__store64` — writes arbitrary memory | 2026-08-25 | `Mut` |
+| calls `__store8`/`__store64`/`__store8v` — writes arbitrary memory | 2026-08-25 | `Mut` |
 | reads `__argc`/`__argv` — the process command line | 2026-08-25 | `IO` |
 | calls the arena primitives | 2026-08-25 | `Alloc` |
 | applies a `data`/`struct` **constructor** of arity >= 1 | 2026-08-31 | `Alloc`. A nullary constructor stays silent, and allocates nothing to be silent about |
@@ -3760,8 +3763,8 @@ global of the emitted runtime is touched by one, and `MM-PAR-3`'s
 by-construction argument stands as written. The four that write or
 order carry `Mut` (`MM-EXEC-9a`, asserted primitive by primitive in
 `scripts/check-agent-policy.sh`); `__atomic_load` deliberately does
-not, as `__load64` does not, and is the control that keeps the other
-four discriminating. They are the first phase of `MM-PAR-6`'s
+not - the one silent read left after `__load64` joined `Unsafe` - and
+is the control that keeps the other four discriminating. They are the first phase of `MM-PAR-6`'s
 obligation being discharged; the rest of this rule — the price, and
 that it is chosen against — is unchanged until that obligation is.
 

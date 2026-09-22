@@ -19,6 +19,7 @@
 ; The unfixed compiler has no __retain primitive - this fixture is
 ; AX3001 there, exit 1.
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (h (__alloc 24))

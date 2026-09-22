@@ -637,6 +637,7 @@
 ; another, but the compiler's own modules do not import `Fmt` and this
 ; pass must not depend on codegen.
 (pub :: expFmtInt (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (expFmtInt n)
   (if (< n 10)
     (let ((ch (strAlloc 1)))

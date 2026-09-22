@@ -281,6 +281,14 @@
 (pub fn (irTargetIsWindows ir)
   (>= (strFindSub ir "target triple = \"x86_64-pc-windows-msvc\"" 0) 0))
 
+; `aarch64-unknown-none-elf`: the bare target's triple, read off the
+; IR the way `irTargetIsWindows` reads its own. The link below is
+; `ld.lld`'s for exactly this triple and `cc`'s for everything else,
+; so the two cannot disagree about which linker a target takes.
+(pub :: irTargetIsBaremetal (-> String Bool))
+(pub fn (irTargetIsBaremetal ir)
+  (>= (strFindSub ir "target triple = \"aarch64-unknown-none-elf\"" 0) 0))
+
 ; `<dir>/lib<name>.a`, or `<dir>/<name>.lib` where the link is
 ; lld-link's: both the auto-link probe and the grounding pass spell an
 ; archive's path through here, so the two cannot disagree about what a
@@ -342,9 +350,23 @@
 ; quo rather than one more. `--emit-staticlib` is refused there for
 ; now: `ar` has no place in a Windows link and `llvm-lib` is a later
 ; phase, and saying so beats half-supporting it (Q11).
-(pub :: assembleAndLink (-> String String String Int (Vec Int) Bool Int))
+; The port's linker script, written beside the object at link time.
+; QEMU's `-kernel` loads the ELF's segments at their physical
+; addresses, so `.text.boot` - and with it `_start`, the ENTRY -
+; must sit in RAM: `virt` maps it at 0x40000000. `KEEP` because
+; nothing calls `_start` and a `--gc-sections` future must not eat
+; the entry; `__stack_top` 8 KiB over `.bss`, the device stack the
+; stdlib's UART loop assumes and the reset vector sets. A generated
+; file rather than a checked-in one: the installed compiler carries
+; its port with it, and `check-embedded.sh` A10 boots what this
+; writes.
+(pub :: baremetalLinkScript String)
+(pub fn (baremetalLinkScript)
+  "ENTRY(_start)\nSECTIONS {\n  . = 0x40000000;\n  .text.boot : { KEEP(*(.text.boot)) }\n  .text : { *(.text*) }\n  .rodata : { *(.rodata*) }\n  .data : { *(.data*) }\n  .bss : { *(.bss*) *(COMMON) }\n  . = ALIGN(16);\n  __stack_top = . + 0x2000;\n}\n")
+
+(pub :: assembleAndLink (-> String String String Int (Vec Int) Bool Bool Int))
 ;@axiom:effect(io)
-(pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs isWin)
+(pub fn (assembleAndLink llPath objPath outPath optLevel linkArgs isWin isBaremetal)
   (let ((lvl 
     (if (> optLevel 3)
       3
@@ -410,69 +432,112 @@
                         "lld-link failed")
                       "lld-link links a windows-x86_64 executable; it ships with LLVM's lld (`brew install lld`, `apt-get install lld`, choco's llvm) - put it on PATH, and put a `kernel32.lib` on a `--link-search` directory")
                     0))))
-            (if cgStaticlib
-              ; `--emit-staticlib`: the object is ARCHIVED, not linked -
-              ; a Rust (or C) host links it, and its `pub fn`s are the
-              ; host's `extern "C"` symbols (docs/ffi.md, the other
-              ; direction). The module was emitted without the `@main`
-              ; wrapper, so the host's own `main` is the only one.
-              (let ((arArgs 
-                (let ((v vecNew))
+            (if isBaremetal
+              ; The bare target links an ELF for QEMU's `-kernel`, not
+              ; a hosted executable: `ld.lld` with the port's linker
+              ; script, no C runtime and nothing dynamic. A bare
+              ; archive is refused the way a Windows one is: the host
+              ; that would link it does not exist yet.
+              (if cgStaticlib
+                (toolFailDiag "`--emit-staticlib` is not supported for baremetal-aarch64 yet" "the baremetal link is ld.lld's and `ar` has no place in it; an archive for a device host is a later phase of the baremetal track")
+                (let ((ldPath (cat2 outPath ".ld")))
+                  (if (isErr (sysWriteFile (strCStr ldPath) (baremetalLinkScript)))
+                    (toolFailDiag "could not write linker script" "check that the output directory exists and is writable")
+                    (let ((ldArgs 
+                      (let ((v vecNew))
+                        {
+                          (vecPush
+                            v
+                            (cast Int "-T"))
+                          (vecPush
+                            v
+                            (cast Int ldPath))
+                          (vecPush
+                            v
+                            (cast Int objPath))
+                          (appendLinkArgs v linkArgs 0)
+                          (vecPush
+                            v
+                            (cast Int "-o"))
+                          (vecPush
+                            v
+                            (cast Int outPath))
+                          v
+                        })))
+                      (let ((rcl (runTool "ld.lld" ldArgs)))
+                        {
+                          (unwrapOr (sysUnlink (strCStr ldPath)) 0)
+                          (if (!= rcl 0)
+                            (toolFailDiag
+                              (if (< rcl 0)
+                                "could not run `ld.lld`"
+                                "ld.lld failed")
+                              "ld.lld links a baremetal-aarch64 executable; it ships with LLVM's lld (`brew install llvm`, `apt-get install lld`) - put it on PATH")
+                            0)
+                        })))))
+              (if cgStaticlib
+                ; `--emit-staticlib`: the object is ARCHIVED, not linked -
+                ; a Rust (or C) host links it, and its `pub fn`s are the
+                ; host's `extern "C"` symbols (docs/ffi.md, the other
+                ; direction). The module was emitted without the `@main`
+                ; wrapper, so the host's own `main` is the only one.
+                (let ((arArgs 
+                  (let ((v vecNew))
+                    {
+                      (vecPush
+                        v
+                        (cast Int "rcs"))
+                      (vecPush
+                        v
+                        (cast Int outPath))
+                      (vecPush
+                        v
+                        (cast Int objPath))
+                      v
+                    })))
                   {
-                    (vecPush
+                    (unwrapOr (sysUnlink (strCStr outPath)) 0)
+                    (let ((rc3 (runTool "ar" arArgs)))
+                      (if (!= rc3 0)
+                        (toolFailDiag
+                          (if (< rc3 0)
+                            "could not run `ar`"
+                            "ar failed")
+                          "`ar` writes the static archive; put it on PATH (it ships with every C toolchain)")
+                        0))
+                  })
+                ; The FFI's link inputs, in DECLARATION
+                ; ORDER. `check-reproducible.sh` compares
+                ; bytes, and an unordered link line would
+                ; flip them run to run.
+                ;
+                ; Before `--link-lib`, this vector was
+                ; three entries and the language could not
+                ; name an external symbol, so there was
+                ; nothing for a `-l` to resolve.
+                (let ((ccArgs 
+                  (let ((v vecNew))
+                    {
+                      (vecPush
+                        v
+                        (cast Int objPath))
+                      (appendLinkArgs v linkArgs 0)
+                      (vecPush
+                        v
+                        (cast Int "-o"))
+                      (vecPush
+                        v
+                        (cast Int outPath))
                       v
-                      (cast Int "rcs"))
-                    (vecPush
-                      v
-                      (cast Int outPath))
-                    (vecPush
-                      v
-                      (cast Int objPath))
-                    v
-                  })))
-                {
-                  (unwrapOr (sysUnlink (strCStr outPath)) 0)
-                  (let ((rc3 (runTool "ar" arArgs)))
-                    (if (!= rc3 0)
+                    })))
+                  (let ((rc2 (runTool "cc" ccArgs)))
+                    (if (!= rc2 0)
                       (toolFailDiag
-                        (if (< rc3 0)
-                          "could not run `ar`"
-                          "ar failed")
-                        "`ar` writes the static archive; put it on PATH (it ships with every C toolchain)")
-                      0))
-                })
-              ; The FFI's link inputs, in DECLARATION
-              ; ORDER. `check-reproducible.sh` compares
-              ; bytes, and an unordered link line would
-              ; flip them run to run.
-              ;
-              ; Before `--link-lib`, this vector was
-              ; three entries and the language could not
-              ; name an external symbol, so there was
-              ; nothing for a `-l` to resolve.
-              (let ((ccArgs 
-                (let ((v vecNew))
-                  {
-                    (vecPush
-                      v
-                      (cast Int objPath))
-                    (appendLinkArgs v linkArgs 0)
-                    (vecPush
-                      v
-                      (cast Int "-o"))
-                    (vecPush
-                      v
-                      (cast Int outPath))
-                    v
-                  })))
-                (let ((rc2 (runTool "cc" ccArgs)))
-                  (if (!= rc2 0)
-                    (toolFailDiag
-                      (if (< rc2 0)
-                        "could not run `cc`"
-                        "cc failed")
-                      "a C compiler drives the link step; put `cc` on PATH")
-                    0))))))))))
+                        (if (< rc2 0)
+                          "could not run `cc`"
+                          "cc failed")
+                        "a C compiler drives the link step; put `cc` on PATH")
+                      0)))))))))))
 
 ; ------------------------------------------------------------------
 ; `--crate DIR`, the whole of it: before the program is compiled, each
@@ -680,6 +745,7 @@
     ""))
 
 (pub :: dashesToUnderscores (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (dashesToUnderscores s)
   (let (
     (out (strDup s))
@@ -766,6 +832,7 @@
 
 ; `my-crate_name` -> `MyCrateName`.
 (pub :: camelOf (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (camelOf s)
   (let (
     (out (strAlloc (strLen s)))
@@ -1796,6 +1863,7 @@
       ; beside `<out>.exe` rather than `<out>.exe.ll`.
       (let (
         (isWin (irTargetIsWindows ir))
+        (isBaremetal (irTargetIsBaremetal ir))
         (llPath (cat2 outPath ".ll"))
         (objPath (cat2 outPath ".o"))
         (optPath (cat2 outPath ".opt.ll"))
@@ -1818,7 +1886,8 @@
                   exePath
                   optLevel
                   linkArgs
-                  isWin)))
+                  isWin
+                  isBaremetal)))
                   {
                     (unwrapOr (sysUnlink (strCStr objPath)) 0)
                     (if (!= (strCmp toAssemble llPath) 0)

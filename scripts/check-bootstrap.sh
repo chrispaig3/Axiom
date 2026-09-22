@@ -797,7 +797,25 @@ floor=8192       # 8 MiB
 # has set; the slice is responsible for it, and the next reader who
 # finds the same margin should move the ceiling rather than assume the
 # linear shape is back.
-ceiling=622592   # 608 MiB, over a measured 549
+#
+# 608 -> 672 MiB on 2026-09-22, at the repeat-import union. The gate
+# failed at 609 against the 608 ceiling, so the split the 09-07 entry
+# runs was re-run on `emit-llvm self_host/main.ax`, in KiB, three runs
+# each (peak varies ~2 MiB run to run, which dwarfs the delta below):
+#
+#   the PRISTINE compiler on HEAD's source      624,512
+#   the UNION compiler on HEAD's source         624,624   +112 KiB
+#
+# The breach predates the union: the pristine tree already peaks above
+# 622,592, and the union's own delta is 112 KiB - noise against the
+# run-to-run variance. Both compilers emit byte-identical IR on this
+# input, so the resolver change perturbs no code path the peak walks;
+# the growth since the 09-07 pin is the slices between, not an
+# accumulator this change added (its fresh allocations are one small
+# Vec per repeat import with a non-empty delta, and this input's only
+# repeat selective import names what the first list already kept).
+# 672 leaves 10.2% over the measured 610, the same margin 608 set.
+ceiling=688128   # 672 MiB, over a measured 610
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi

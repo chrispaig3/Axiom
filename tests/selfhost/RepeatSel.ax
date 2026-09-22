@@ -1,0 +1,9 @@
+; A module imported twice with two different name lists, for
+; `931-repeat-selective-import.ax`. See that file for what it pins.
+(pub :: alpha (-> Int Int))
+(pub fn (alpha n)
+  (+ n 18))
+
+(pub :: beta (-> Int Int))
+(pub fn (beta n)
+  (* n 11))

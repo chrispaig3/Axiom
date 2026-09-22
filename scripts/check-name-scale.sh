@@ -429,16 +429,13 @@ old = """(pub fn (mangleIdxHas idx bares name)
     (mangleIdxSync idx bares)
     (match (internFind (memGetWord idx 0) name)
       ((Some _) true)
-      ((None) false)
-    )
-  }
-)"""
+      ((None) false))
+  })"""
 new = """(pub fn (mangleIdxHas idx bares name)
   {
     (mangleIdxSync idx bares)
     (mangleScanIn bares name 0)
-  }
-)
+  })
 
 (pub :: mangleScanIn (-> (Vec String) String Int Bool))
 
@@ -447,10 +444,7 @@ new = """(pub fn (mangleIdxHas idx bares name)
     false
     (if (strEq (vecGetStr bares i) bare)
       true
-      (mangleScanIn bares bare (+ i 1))
-    )
-  )
-)"""
+      (mangleScanIn bares bare (+ i 1)))))"""
 n = s.count(old)
 if n != 1:
     sys.exit("the mangleIdxHas ablation matched %d times, wanted 1" % n)
@@ -513,12 +507,9 @@ s = open(p).read()
 old = '''(pub fn (fnEntVisibleExact tc privs name curMod)
   (if (== (memGetWord tc 20) 0)
     (findFnEntVisibleExact privs (tcFnsVec tc) name curMod)
-    (fnIdxGetVisible (memGetWordVec tc 20) privs name curMod)
-  )
-)'''
+    (fnIdxGetVisible (memGetWordVec tc 20) privs name curMod)))'''
 new = '''(pub fn (fnEntVisibleExact tc privs name curMod)
-  (findFnEntVisibleExact privs (tcFnsVec tc) name curMod)
-)'''
+  (findFnEntVisibleExact privs (tcFnsVec tc) name curMod))'''
 n = s.count(old)
 if n != 1:
     sys.exit("the fnEntVisibleExact ablation matched %d times, wanted 1" % n)

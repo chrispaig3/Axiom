@@ -744,18 +744,21 @@ decision that table records rather than a gap.
   **That second gap closed the same day, in `AX3042`.** `checkAxtags`
   opened with `(if (&& (== own 0) (== sig 0)) 0 ...)`, so a declaration
   that volunteered no tag was never asked what it performed; that one
-  line WAS the opt-in. Silence is now the claim *"performs no IO"* and
-  is checked like any other, so effects are enforced for every
-  function. Only `IO` is **required** — measured 2026-09-08 and pinned
-  by `scripts/check-effect-distribution.sh`, 174 of
-  the 406 effectful stdlib functions perform exactly `Alloc,Mut`, so
+  line WAS the opt-in. Silence is now the claim *"performs no IO"*
+  and *"touches no raw memory"* and is checked like any other, so
+  effects are enforced for every function. `IO` is the one effect
+  **required** transitively — measured 2026-09-22 and pinned
+  by `scripts/check-effect-distribution.sh`, 180 of
+  the 564 effectful stdlib functions perform exactly `Alloc,Mut,Unsafe`, so
   requiring a declaration on those distinguishes nothing from nothing,
-  and both stay ambient. (This said "only `IO` is declarable", which is
+  and both stay ambient. `Unsafe` is required too, but lexically
+  (`AX3073`): only the body calling the primitive must declare it.
+  (This said "only `IO` is declarable", which is
   a different and false claim: `;@axiom:effect(mut)` over a body that
   writes a field checks **OK**, and over one that does not it is
   `AX3010`, an error. `Alloc`, `Mut` and every custom effect are
   declarable and checked; `IO` is the one whose absence is itself a
-  claim.) §"Effect rows in signatures" below is therefore about
+  claim every function up the call chain must answer.) §"Effect rows in signatures" below is therefore about
   putting effects in *types*, which is a different and still-open
   question from whether they are enforced.
 

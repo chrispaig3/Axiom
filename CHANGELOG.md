@@ -16,6 +16,42 @@ its changelog too.
 
 ## Unreleased
 
+### Raw memory has an effect, and using it undeclared is refused — `tests/diagnostics/1004-undeclared-unsafe.ax`
+
+The six raw-memory primitives — `__load8`, `__store8`, `__load64`,
+`__store64`, `__alloc`, `__addr` — infer the `Unsafe` effect now, the
+sixth built-in after `IO`, `Pure`, `Alloc`, `Mut` and `Div`: ambiently
+and transitively like `Alloc` and `Mut`, checked against
+`;@axiom:pure` and `restrict(no-unsafe)`. And the declaration is
+required: a function whose own body calls one of the six without
+`;@axiom:effect(unsafe)` is the new `AX3073 undeclared-unsafe`, an
+error at the first call in source order, reported once per
+declaration. Lexical, not transitive like `AX3042` — a transitive
+rule would tag 3,910 of the 4,021 effectful functions in this tree,
+so the obligation sits where the primitive is called and wrappers
+contain it (48 tags across `self_host/` and `stdlib/`).
+Unannotated unsafe code fails to compile. Held by
+`scripts/check-diagnostics.sh` (1004 is the primary, and the silence
+sweep over the compiler's own source), the re-pin in
+`scripts/check-effect-distribution.sh` (2175 to 2181 in
+`Alloc,Mut,Unsafe`, every other bucket frozen), and
+`scripts/check-doc-drift.sh` in both directions on the new code.
+`tests/diagnostics/UNCOVERED` reads 87 constructed, 77 primary.
+
+### Blink boots under QEMU - `tests/embedded/blink.ax`, `scripts/check-embedded.sh` (A10)
+
+Section 6 of `docs/embedded-proposal.md` gains its fixtures and its
+device leg ahead of the port they wait on: `tests/embedded/blink.ax`
+(initialise, allocate, write, reclaim, exit) and the oversized twin
+`tests/embedded/blink-oom.ax`, built for `baremetal-aarch64` and
+booted under `qemu-system-aarch64 -machine virt` with the UART bytes
+and the exit status asserted - blink byte-identical to its hosted
+stdout at exit 0, the twin at the status
+`tests/stdlib/314-out-of-memory.exit` pins against a control that
+exits 0. The leg skips loudly until the target lands and where QEMU
+is absent; the guest-to-process status contract is semihosting
+SYS_EXIT, measured 0/5/70 through hand-built guests first.
+
 ### `__addr` of a non-literal is refused — `tests/diagnostics/1003-addr-nonliteral.ax`
 
 `(__addr "text")` is the only spelling with interned bytes behind it;

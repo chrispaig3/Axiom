@@ -7,7 +7,7 @@
   [1;34m = [0m[1;32mhelp: [0mname the function at the call, or drop the claim: an unresolved call may perform anything
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3037` for a full explanation
 
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs Alloc, IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `liar`: `pure` claim contradicted: body performs Alloc, IO, Unsafe[0m
   [1;34m--> [0m355-tag-over-approximated.ax:47:6
 [1;34m   |[0m
 [1;34m47 |[0m (fn (liar n)

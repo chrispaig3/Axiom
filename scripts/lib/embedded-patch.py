@@ -33,6 +33,7 @@ The exit status is 0 when the patch applied and 1 when it did not, and
 the message begins with `ABORT:` either way it fails, because that is
 what the runner greps for.
 """
+import re
 import sys
 
 
@@ -48,9 +49,15 @@ def die(msg):
 # --------------------------------------------------------------------
 ABLATIONS = {
     # Every target answers 4 KiB, so the supported targets stop emitting
-    # the allocator they have always emitted.
+    # the allocator they have always emitted. Anchored on the row's
+    # current body (baremetal grew the `t == 7` arm over four lines, so
+    # the pre-baremetal one-line body is gone); the VARIANT edit does
+    # not anchor on the body at all - see `replace_defn`.
     "chunk": (
-        "(pub fn (targetArenaChunkBytes t) 1048576)",
+        """(pub fn (targetArenaChunkBytes t)
+  (if (== t 7)
+    4096
+    1048576))""",
         "(pub fn (targetArenaChunkBytes t) 4096)",
         "A1 - the supported targets' emitted chunk",
     ),
@@ -76,9 +83,7 @@ ABLATIONS = {
         """(pub fn (targetArenaGrainBytes t)
   (if (< (targetArenaChunkBytes t) 65536)
     (targetArenaChunkBytes t)
-    65536
-  )
-)""",
+    65536))""",
         """(pub fn (targetArenaGrainBytes t) 65536)""",
         "A4 - the grain moving with the chunk",
     ),
@@ -93,10 +98,10 @@ ABLATIONS = {
     "strategy": (
         """  (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
     (emitArenaCarve cg sizeExpr)
-  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
+    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
         """  (if (> (arenaStaticBytes (memGetWord cg 26)) 999999999999)
     (emitArenaCarve cg sizeExpr)
-  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
+    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
         "A5 - the emitted program containing one strategy and not the other",
     ),
     # The carve never advances its cursor, so every chunk is the same
@@ -120,7 +125,8 @@ ABLATIONS = {
     # `effect(io)` tag would fail the build on AX3010 instead - red
     # for the wrong reason, hiding whether A7 can fail.
     "ceiling": (
-        """(pub fn (heapCeilingBytes) (ceilingScan 1))""",
+        """(pub fn (heapCeilingBytes)
+  (ceilingScan 1))""",
         """(pub fn (heapCeilingBytes) (if (argHas "--never-a-flag" 1) 1 0))""",
         "A7 - the flag reaching the emitter at all",
     ),
@@ -136,7 +142,8 @@ ABLATIONS = {
     # Every target is silent, so the supported targets stop emitting
     # the trap writes they have always emitted. Aims at A8.
     "allsilent": (
-        "(pub fn (targetTrapSilent t) 0)",
+        """(pub fn (targetTrapSilent t)
+  0)""",
         "(pub fn (targetTrapSilent t) 1)",
         "A8 - the supported targets' emitted trap writes",
     ),
@@ -144,7 +151,7 @@ ABLATIONS = {
 
 
 def replace_defn(src, name, newline, label):
-    """Replace a one-line `(pub fn (<name> t) ...)` outright.
+    """Replace a target-table row outright, whatever its body has grown to.
 
     ANCHORED ON THE HEADER, NOT ON THE VALUE, and that is not tidiness.
     The `chunk` ablation rewrites `targetArenaChunkBytes`'s body to
@@ -154,16 +161,45 @@ def replace_defn(src, name, newline, label):
     drill HAD applied; it was the variant that could not. Anchoring on
     the header makes the two independent, which is what lets a drill
     that changes this row still be drilled.
+
+    The row's end is found by balancing parentheses from the header
+    line, so a body that grew - baremetal's `t == 7` arm spread the
+    chunk row over four lines, and the old two-line arm then replaced
+    the header plus one line and left `4096` orphaned in the scratch
+    tree (AX2001, red for the wrong reason) - is replaced whole. The
+    one-line form a drill leaves behind balances on its own line and
+    takes the same path. A row whose parentheses never balance is a
+    row that needs re-anchoring, and fails here rather than leaving
+    its tail behind.
     """
-    prefix = "(pub fn (%s t) " % name
+    header = "(pub fn (%s t)" % name
     lines = src.split("\n")
-    hits = [i for i, l in enumerate(lines) if l.startswith(prefix)]
+    hits = [i for i, l in enumerate(lines)
+            if l == header or l.startswith(header + " ")]
     if len(hits) != 1:
-        die("%s did not apply - %d lines begin `%s`, not one.\n"
-            "       This edit replaces a ONE-LINE definition; if that row has "
-            "grown\n       a multi-line body, re-anchor it rather than "
-            "loosening the match." % (label, len(hits), prefix))
-    lines[hits[0]] = newline
+        die("%s did not apply - %d lines open `%s`, not one.\n"
+            "       This edit replaces the row whole, from its header to\n"
+            "       its balancing close paren; anything else is a row\n"
+            "       that needs re-anchoring rather than a looser match."
+            % (label, len(hits), header))
+    i = hits[0]
+    depth = 0
+    j = None
+    for k in range(i, len(lines)):
+        code = re.sub(r'"(?:[^"\\]|\\.)*"', '""', lines[k].split(";", 1)[0])
+        for ch in code:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+        if depth == 0:
+            j = k
+            break
+    if j is None:
+        die("%s did not apply - the row under `%s` never balances.\n"
+            "       A row that grew past a balanced definition needs\n"
+            "       re-anchoring." % (label, header))
+    lines[i:j + 1] = [newline]
     return "\n".join(lines)
 
 

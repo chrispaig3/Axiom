@@ -365,6 +365,13 @@
           pair
           (cast Int name))
         (vecPush pair filter)
+        ; The module's `pub` names, filled in as its declarations are
+        ; spliced (see `modPubsAdd`). A pair rather than a second
+        ; table, because the two answers belong to the same module
+        ; and a parallel pair is one push away from desyncing.
+        (vecPush
+          pair
+          (cast Int vecNew))
         (vecPush
           mods
           (cast Int pair))
@@ -393,3 +400,95 @@
         name)
         (vecGet pair 1)
         (modFilterForIn mods name (+ i 1))))))
+
+; The module's `pub` names, in declaration order - the third element
+; of its `mods` pair. The resolver reads `nodeVis` BEFORE it
+; overwrites word 5 with the import's verdict (codegen.ax,
+; `resolveDeclsPhase`), so without this the written `pub` is gone by
+; the time anyone asks who is public and who was merely filtered out:
+; the checker's `exportedFromModule` for a repeat import's list, and
+; the repeat import itself when it widens what the module exports.
+(pub :: modPubsFor (-> (Vec Int) String (Vec String)))
+(pub fn (modPubsFor mods name)
+  (if (==
+    (cast Int mods)
+    0)
+    (cast (Vec String) 0)
+    (modPubsForIn mods name 0)))
+
+(pub :: modPubsForIn (-> (Vec Int) String Int (Vec String)))
+(pub fn (modPubsForIn mods name i)
+  (if (>= i (vecLen mods))
+    (cast (Vec String) 0)
+    ; The pair travels as a handle (`modFilterRecord` stores it
+    ; `cast Int`), so it is cast back to a Vec to read, exactly as
+    ; `expModsVec` retypes the same table for expansion.
+    (let ((pair 
+      (cast (Vec Int) (vecGet mods i))))
+      (if (strEq
+        (cast String (vecGet pair 0))
+        name)
+        (cast (Vec String) (vecGet pair 2))
+        (modPubsForIn mods name (+ i 1))))))
+
+; Record one written-`pub` name against its module. Called while the
+; module's declarations are spliced, when `nodeVis` still answers the
+; question (see above) - afterwards word 5 is the import's verdict
+; and the answer is unrecoverable. No-op when the module has no pair,
+; which is the entry file: module 0 is never imported, so nothing
+; ever unions against it.
+(pub :: modPubsAdd (-> (Vec Int) String String Int))
+(pub fn (modPubsAdd mods name pubName)
+  (if (==
+    (cast Int mods)
+    0)
+    0
+    (modPubsAddIn mods name pubName 0)))
+
+(pub :: modPubsAddIn (-> (Vec Int) String String Int Int))
+(pub fn (modPubsAddIn mods name pubName i)
+  (if (>= i (vecLen mods))
+    0
+    (let ((pair 
+      (cast (Vec Int) (vecGet mods i))))
+      (if (strEq
+        (cast String (vecGet pair 0))
+        name)
+        {
+          (vecPush
+            (cast (Vec String) (vecGet pair 2))
+            pubName)
+          0
+        }
+        (modPubsAddIn mods name pubName (+ i 1))))))
+
+; Replace the module's recorded filter with its widening. A repeat
+; import names names the first import did not, and phase D applies
+; this filter to declarations that did not exist while either import
+; ran (MAC-EXP-16) - so the recorded answer has to be the UNION,
+; not the first import's list.
+(pub :: modFilterWiden (-> (Vec Int) String (Vec String) Int))
+(pub fn (modFilterWiden mods name widened)
+  (if (==
+    (cast Int mods)
+    0)
+    0
+    (modFilterWidenIn mods name widened 0)))
+
+(pub :: modFilterWidenIn (-> (Vec Int) String (Vec String) Int Int))
+(pub fn (modFilterWidenIn mods name widened i)
+  (if (>= i (vecLen mods))
+    0
+    (let ((pair 
+      (cast (Vec Int) (vecGet mods i))))
+      (if (strEq
+        (cast String (vecGet pair 0))
+        name)
+        {
+          (memSetWord
+            (cast Int pair)
+            1
+            (cast Int widened))
+          0
+        }
+        (modFilterWidenIn mods name widened (+ i 1))))))

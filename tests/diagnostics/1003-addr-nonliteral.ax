@@ -1,6 +1,9 @@
 ; `__addr` answers a literal's bytes; a non-literal argument has no
 ; interned bytes. AX3072.
+; Tagged `effect(unsafe)` so this golden pins AX3072 alone; AX3073's
+; own primary is 1004.
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((s "held"))
     (__addr s)))

@@ -1126,6 +1126,15 @@ anything but a string literal, which has no interned bytes behind it
 (`tests/diagnostics/1003-addr-nonliteral.ax`). From the free end as
 well.
 
+`AX3073` was spent on 2026-09-22 by `undeclared-unsafe`: a function
+whose own body calls a raw-memory primitive (`__load8`, `__store8`,
+`__store8v`, `__load64`, `__store64`, `__alloc`, `__addr`) and carries no
+`;@axiom:effect(unsafe)` (`tests/diagnostics/1004-undeclared-unsafe.ax`).
+Lexical where `AX3042` is transitive: the obligation sits at the call
+site, so a caller inherits `Unsafe` in its row and draws nothing
+itself. An error from its first day, like `AX3042` - unannotated
+unsafe code fails to compile. From the free end as well.
+
 **ERR-DIAG-3 (P). Poisoning, not cascading.** Where a check on an error
 type fails, propagate `TError` and guard downstream comparisons, so one
 mistake draws one diagnostic. Reach for a group key only when a real

@@ -63,6 +63,7 @@
     0))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (s (strDup "arc"))

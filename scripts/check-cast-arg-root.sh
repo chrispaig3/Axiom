@@ -41,14 +41,17 @@ gate_build_axc axc
 echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
-# Baseline 326 measured 2026-09-19; the ratchet is <=, so removing
-# casts always passes and adding one must update this number with a
-# reason.
+# Baseline 329 measured 2026-09-21 (was 326 on 2026-09-19): two casts
+# arrived with the AX3071 unretained-store refusal probes and one with
+# the 430 reentrant-drop fixture's Foreign stash - all three probe the
+# ownership rules at the boundary casts exist for, which is the
+# MM-VAL-23 reason. The ratchet is <=, so removing casts always passes
+# and adding one must update this number with a reason.
 cast_count="$(rg --no-filename -o '\(cast ' stdlib/ tests/ examples/ 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$cast_count" -le 326 ]; then
-  ok "user-level (cast count $cast_count <= 326)"
+if [ "$cast_count" -le 329 ]; then
+  ok "user-level (cast count $cast_count <= 329)"
 else
-  bad "user-level (cast count $cast_count > 326): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 329): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"

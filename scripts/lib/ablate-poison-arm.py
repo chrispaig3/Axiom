@@ -13,8 +13,11 @@ import sys
 
 p = sys.argv[1]
 s = open(p).read()
-old = '        {\n          (setNodeBinderTy\n            arg            (cast Int "")\n          )\n          0\n        }'
-new = '        {\n          (setNodeBinderTy\n            arg            now\n          )\n          0\n        }'
+# 2026-09-21: the formatter's normal-form move split the aligned
+# `arg (cast Int "")` pair across two lines and folded the stray `)`
+# up. The arm is unchanged, so the anchor follows the spelling.
+old = '        {\n          (setNodeBinderTy\n            arg\n            (cast Int ""))\n          0\n        }'
+new = '        {\n          (setNodeBinderTy\n            arg\n            now)\n          0\n        }'
 if s.count(old) != 1:
     sys.stderr.write("the poison arm is not where this expects it (%d matches)\n" % s.count(old))
     sys.exit(1)

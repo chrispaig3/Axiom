@@ -2757,6 +2757,12 @@
       (regFn fns "__syscall6" (mkIntArrow 7))
       (regFn fns "__load8" (mkIntArrow 2))
       (regFnEff fns "__store8" (mkIntArrow 3) (builtinEff "Mut"))
+      ; `__store8v` stores with LLVM `volatile`: the middle end keeps
+      ; every store and their order, which is what MMIO needs and what
+      ; `__store8` must not promise (a volatile store is never folded,
+      ; which would pessimize every ordinary byte store). Same shape
+      ; and row as `__store8` in every other respect.
+      (regFnEff fns "__store8v" (mkIntArrow 3) (builtinEff "Mut"))
       (regFn fns "__load64" (mkIntArrow 2))
       ; `(__call_word fn arg)`: call a C function `i64 (i64)` by its
       ; ADDRESS - the destructor word of a foreign-form block
@@ -7487,12 +7493,12 @@
         d
         (findEffectDeclFrom effs n (+ i 1))))))
 
-; The five built-in effect names a handle list may name, plus the
+; The six built-in effect names a handle list may name, plus the
 ; lowercase `alloc` the checker also answers for. stage0 lexed
 ; `IO`/`Pure`/`Mut`/`Div` as keyword tokens and special-cased `Alloc`
 ; and `alloc` out of the identifier path, so none of them is ever a
 ; `Custom` effect - and only `Custom` entries are subject to AX3016 and
-; AX3017.
+; AX3017. `Unsafe` is the sixth, inferred at the raw-memory primitives.
 ;
 ; `Err` WAS A SIXTH AND IS NOT ONE. It was accepted here, which made
 ; `(handle 5 (Err) 0)` check clean, and nothing in the compiler ever
@@ -7522,7 +7528,9 @@
             1
             (if (strEq n "alloc")
               1
-              0)))))))
+              (if (strEq n "Unsafe")
+                1
+                0))))))))
 
 ; AX3054: an effect declared with a built-in effect's name.
 ;
@@ -7559,7 +7567,7 @@
         (strConcat (strConcat "`" (nodeAName d)) "` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in")
         0
         0
-        "choose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, and `alloc` is a second spelling of one of them") (strConcat (strConcat "`" (nodeAName d)) "` is a built-in effect"))))))
+        "choose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, and `alloc` is a second spelling of one of them") (strConcat (strConcat "`" (nodeAName d)) "` is a built-in effect"))))))
 
 (pub :: isCastLike (-> String Int))
 (pub fn (isCastLike n)
@@ -12661,6 +12669,13 @@
               (effAdd acc (builtinEff "Alloc"))
               0)
             (effUnion acc (memGetWordVec ent 5) 0)
+            ; A raw-memory primitive performs `Unsafe` alongside whatever
+            ; `Mut` or `Alloc` its seeded row already carries: `regFnEff`
+            ; holds one effect, so the second is added here, where the
+            ; row is read.
+            (if (== (isUnsafePrim n) 1)
+              (effAdd acc (builtinEff "Unsafe"))
+              0)
             ; Instantiate the callee's transparent positions
             ; with what this call passes there.
             (instantiateEparams
@@ -12947,6 +12962,15 @@
             (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
               (effUnionPossible acc (memGetWordVec ent 5) 0)
               (effUnion acc (memGetWordVec ent 5) 0))
+            ; A raw-memory primitive named without being called carries
+            ; `Unsafe` the way its seeded row carries `Mut` or `Alloc`:
+            ; possible where the row arrives possible, definite where
+            ; it arrives definite.
+            (if (== (isUnsafePrim n) 1)
+              (if (&& (== mark 1) (== (tyIsArrow (memGetWord ent 1)) 1))
+                (effAdd acc (effPossibleOf (builtinEff "Unsafe")))
+                (effAdd acc (builtinEff "Unsafe")))
+              0)
             ; A pair function reached by NAME is reached through `@F`,
             ; the boxing wrapper: a nullary one called by its bare name
             ; boxes here, definitely; an arrow-typed one taken as a
@@ -13250,6 +13274,33 @@
             (if (strEq n "__syscall5")
               1
               (if (strEq n "__syscall6")
+                1
+                0))))))))
+
+; The raw-memory primitives are the Unsafe ones: a load or store at an
+; address the type system does not bound, the allocator everything
+; goes through, and `__addr` of a literal. Seven names - `__store8v`
+; is `__store8` with LLVM `volatile`, for MMIO a middle end must not
+; delete - and the set is closed by construction: nothing else reads
+; or writes memory the checker cannot see. `walkCallHead` adds
+; `Unsafe` at a call to one,
+; alongside whatever `Mut` or `Alloc` its seeded row already carries,
+; and `graphSeeds` answers them the way it answers a syscall for `IO`.
+(pub :: isUnsafePrim (-> String Int))
+(pub fn (isUnsafePrim n)
+  (if (strEq n "__load8")
+    1
+    (if (strEq n "__store8")
+      1
+      (if (strEq n "__store8v")
+        1
+        (if (strEq n "__load64")
+          1
+          (if (strEq n "__store64")
+            1
+            (if (strEq n "__alloc")
+              1
+              (if (strEq n "__addr")
                 1
                 0))))))))
 
@@ -14115,7 +14166,7 @@
 ; so a mistake inside either expression is reported before AX3016 on
 ; a misspelled effect beside it.
 ;
-; Only CUSTOM effects are subject to these checks. The six built-in
+; Only CUSTOM effects are subject to these checks. The seven built-in
 ; names never become `Custom` in stage0's parser, so they are skipped
 ; here rather than looked up and refused.
 ;
@@ -16967,7 +17018,8 @@
   ; absence is the point. `(if (&& (== own 0) (== sig 0)) 0 ...)`
   ; stood here and made the whole effect system opt-in: a function
   ; that volunteered no tag was never asked what it performed, so
-  ; silence meant "not checked". Silence now means "performs no IO",
+  ; silence meant "not checked". Silence now means "performs no IO,
+  ; and its own code touches no raw memory",
   ; which is a claim like any other and is checked like one. The
   ; effects are therefore collected for EVERY function, not only for
   ; the ones that volunteered.
@@ -17029,7 +17081,10 @@
           ; right or wrong. This arm is for the one that made none.
           (if (|| (== (axtagsClaimAny sig) 1) (== (axtagsClaimAny own) 1))
             0
-            (checkUndeclaredIO tc d eff))
+            {
+              (checkUndeclaredIO tc d eff)
+              (checkUndeclaredUnsafe tc d (nodeC d))
+            })
           0
         }))))
 
@@ -17038,11 +17093,12 @@
 ; something, answered from analysis the checker already performs and
 ; used to throw away.
 ;
-; The value is a comma-separated list of restriction names. Eight are
+; The value is a comma-separated list of restriction names. Nine are
 ; checked here:
 ;
 ;   no-io        `IO` is not in the effect row                 transitive
 ;   no-alloc     `Alloc` is not in the effect row              transitive
+;   no-unsafe    `Unsafe` is not in the effect row             transitive
 ;   no-foreign   no call-graph path reaches an `extern` item   transitive
 ;   no-cast      no `cast` head in THIS body                   local
 ;   no-cast:deep no `cast` head in this body or any reachable  transitive,
@@ -17493,11 +17549,13 @@
           1
           (if (strEq r "no-cast:deep")
             1
-            ; `no-escape` reads the region facts, a fixpoint over
-            ; every callee's stores (stage S3, `restrictNoEscape`).
-            (if (strEq r "no-escape")
+            (if (strEq r "no-unsafe")
               1
-              0)))))))
+              ; `no-escape` reads the region facts, a fixpoint over
+              ; every callee's stores (stage S3, `restrictNoEscape`).
+              (if (strEq r "no-escape")
+                1
+                0))))))))
 
 ; The effect-transparent parameters by NAME, backticked and comma
 ; joined. `FnEnt` word 6 holds indices, and `symbols` renders them the
@@ -17554,24 +17612,31 @@
         r
         eff
         "Alloc")
-      (if (strEq r "no-cast")
-        (restrictNoCast tc d r (nodeC d))
-        (if (strEq r "no-cast:deep")
-          (restrictNoCastDeep tc d r eff)
-          (if (strEq r "no-foreign")
-            (restrictNoForeign tc d r eff)
-            (if (strEq r "no-recursion")
-              (restrictNoRecursion tc d r eff)
-              (if (strEq r "no-wrap")
-                (restrictNoWrap tc d r (nodeC d))
-                (if (strEq r "no-untrapped")
-                  (restrictNoUntrapped tc d r (nodeC d))
-                  (if (strEq r "no-escape")
-                    (restrictNoEscape tc d r)
-                    (emitRestrictUnknown tc d r)))))))))))
+      (if (strEq r "no-unsafe")
+        (restrictEffect
+          tc
+          d
+          r
+          eff
+          "Unsafe")
+        (if (strEq r "no-cast")
+          (restrictNoCast tc d r (nodeC d))
+          (if (strEq r "no-cast:deep")
+            (restrictNoCastDeep tc d r eff)
+            (if (strEq r "no-foreign")
+              (restrictNoForeign tc d r eff)
+              (if (strEq r "no-recursion")
+                (restrictNoRecursion tc d r eff)
+                (if (strEq r "no-wrap")
+                  (restrictNoWrap tc d r (nodeC d))
+                  (if (strEq r "no-untrapped")
+                    (restrictNoUntrapped tc d r (nodeC d))
+                    (if (strEq r "no-escape")
+                      (restrictNoEscape tc d r)
+                      (emitRestrictUnknown tc d r))))))))))))
 
-; `no-io` and `no-alloc`: the effect row, read per direction as the
-; header explains.
+; `no-io`, `no-alloc` and `no-unsafe`: the effect row, read per
+; direction as the header explains.
 (pub :: restrictEffect (-> Int Int String (Vec a) String Int))
 (pub fn (restrictEffect tc d r eff e)
   (if (== (effDefinite eff (builtinEff e)) 1)
@@ -17934,6 +17999,9 @@
 ;           row carries it (`__argc`, `__argv`);
 ;   Alloc   a builtin whose seeded row carries it (`__alloc`, the
 ;           arena primitives);
+;   Unsafe  a raw-memory primitive - its row carries `Mut` or `Alloc`
+;           but never `Unsafe` itself, `walkCallHead` adds that at the
+;           call site, so `isUnsafePrim` and not the row is the test;
 ;   cast    a function other than the start (`depth` > 0; the start's
 ;           own casts are reported at their spans by the local walk)
 ;           whose declaration's body holds a `cast` head.
@@ -17949,9 +18017,11 @@
         0)
       (if (&& (strEq kind "IO") (|| (== (isSyscallPrim (memGetWordStr ent 0)) 1) (== (memGetWord ent 4) 2)))
         1
-        (if (&& (== (memGetWord ent 3) 1) (== (effIn (memGetWordVec ent 5) (graphEffKey kind)) 1))
+        (if (&& (strEq kind "Unsafe") (== (isUnsafePrim (memGetWordStr ent 0)) 1))
           1
-          0)))))
+          (if (&& (== (memGetWord ent 3) 1) (== (effIn (memGetWordVec ent 5) (graphEffKey kind)) 1))
+            1
+            0))))))
 
 ; A function whose row carries the effect while NO callee seeds or
 ; carries it: the effect came from a form in its own body - `(alloc T
@@ -18275,6 +18345,116 @@
       {
         (castScanIn (nodeB a) acc)
         (castScanArms arms (+ i 1) acc)
+      })))
+
+; Every raw-memory-primitive application under `e`, in source order,
+; pushed into `acc`; answers `acc`. `castScanInto`'s twin, predicate
+; swapped from "head named `cast`" to "head named a raw-memory
+; primitive" (`isUnsafePrim`), collecting the sites AX3073 refuses -
+; the row is the wrong input for that question, because the row is
+; transitive and the obligation is lexical. Duplicated rather than
+; shared for the reason `wrapScanInto` gives: this file already
+; hand-duplicates a full tree walk per collected fact.
+(pub :: unsafeScanInto (-> Int (Vec Int) (Vec Int)))
+(pub fn (unsafeScanInto e acc)
+  (if (== e 0)
+    acc
+    (let ((tag (nodeTag e)))
+      {
+        (if (== tag TAG_E_APP)
+          (let ((head (spineHead e)))
+            {
+              (if (== (nodeTag head) TAG_E_VAR)
+                (if (== (isUnsafePrim (nodeAName head)) 1)
+                  {
+                    (vecPush acc e)
+                    0
+                  }
+                  0)
+                {
+                  (unsafeScanInto head acc)
+                  0
+                })
+              (unsafeScanVec (spineArgVec e vecNew) 0 acc)
+            })
+          (if (== tag TAG_E_ALLOC)
+            (unsafeScanIn (nodeB e) acc)
+            (if (== tag TAG_E_SETF)
+              {
+                (unsafeScanIn (nodeA e) acc)
+                (unsafeScanIn (nodeC e) acc)
+              }
+              (if (== tag TAG_E_HANDLE)
+                {
+                  (unsafeScanIn (nodeA e) acc)
+                  (unsafeScanIn (nodeC e) acc)
+                }
+                (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                  {
+                    (unsafeScanIn (nodeB e) acc)
+                    (unsafeScanIn (nodeC e) acc)
+                  }
+                  (if (== tag TAG_E_LAM)
+                    (unsafeScanIn (nodeB e) acc)
+                    (if (== tag TAG_E_IF)
+                      {
+                        (unsafeScanIn (nodeA e) acc)
+                        (unsafeScanIn (nodeB e) acc)
+                        (unsafeScanIn (nodeC e) acc)
+                      }
+                      (if (== tag TAG_E_BEGIN)
+                        (unsafeScanVec (nodeAVec e) 0 acc)
+                        (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                          (if (== tag TAG_E_REGION)
+                            (unsafeScanIn (nodeB e) acc)
+                            {
+                              (unsafeScanIn (nodeA e) acc)
+                              (unsafeScanVec (nodeBVec e) 0 acc)
+                            })
+                          (if (== tag TAG_E_SET)
+                            (unsafeScanIn (nodeB e) acc)
+                            (if (== tag TAG_E_FIELD)
+                              (unsafeScanIn (nodeA e) acc)
+                              (if (== tag TAG_E_STRUCTCON)
+                                (unsafeScanVec (nodeBVec e) 0 acc)
+                                ; `cond` is AX2004: the parser builds
+                                ; none, so no arm scans one for raw-memory
+                                ; calls.
+                                (if (== tag TAG_E_MATCH)
+                                  {
+                                    (unsafeScanIn (nodeA e) acc)
+                                    (unsafeScanArms (nodeBVec e) 0 acc)
+                                  }
+                                  0)))))))))))))
+        acc
+      })))
+
+; `unsafeScanInto` for effect, answering 0 - the arms above sequence
+; several of these in a block.
+(pub :: unsafeScanIn (-> Int (Vec Int) Int))
+(pub fn (unsafeScanIn e acc)
+  {
+    (unsafeScanInto e acc)
+    0
+  })
+
+(pub :: unsafeScanVec (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (unsafeScanVec v i acc)
+  (if (>= i (vecLen v))
+    0
+    {
+      (unsafeScanIn (vecGet v i) acc)
+      (unsafeScanVec v (+ i 1) acc)
+    }))
+
+(pub :: unsafeScanArms (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (unsafeScanArms arms i acc)
+  (if (>= i (vecLen arms))
+    0
+    (let ((a (vecGet arms i)))
+      {
+        (unsafeScanIn (nodeB a) acc)
+        (unsafeScanArms arms (+ i 1) acc)
       })))
 
 ; `no-wrap`: every `+`, `-` or `*` head in this body, each reported at
@@ -18772,7 +18952,7 @@
       (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat ")` and " why))
       0
       0
-      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked")))))
+      "a restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked")))))
 
 ; AX3049 at the CAST, for the local one: it has a span, and the fix
 ; is where the span is.
@@ -18880,7 +19060,7 @@
           (strConcat (strConcat (strConcat (strConcat "`" (bareOf (nodeAName d))) "` claims `restrict(") r) (strConcat (strConcat ")`, and `" r) "` names no restriction")))
         0
         0
-        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-foreign`, `no-recursion`, `no-wrap`, `no-untrapped` and `no-escape`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"))))
+        "the restrictions this compiler checks are `no-cast`, `no-cast:deep`, `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-recursion`, `no-wrap`, `no-untrapped` and `no-escape`, comma-separated inside one `restrict(...)`. The list is closed, so a name outside it is not metadata - it is a claim in the one place the compiler has said it checks, and it would otherwise read like a guarantee and buy silence"))))
 
 ; ==================================================================
 ; `;@axiom:pre(...)` and `;@axiom:post(...)`: AX3050, the static half.
@@ -18933,8 +19113,9 @@
 ; matters. The vocabulary a predicate needs is allocation-free
 ; already - measured from `symbols --calls` over `self_host/main.ax`:
 ; `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord`
-; all render `#restrict=no-io,no-alloc,no-foreign` with no `#effects=`
-; at all, while `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`.
+; all render `#restrict=no-io,no-alloc,no-foreign` with `#effects=Unsafe`
+; and nothing else (a read, which `effDropUnsafe` exempts),
+; while `strConcat`, `fmtInt` and `vecNew` carry `Alloc,Mut`.
 ; A contract may compare, index, measure and test; it may not build.
 ;
 ; ONLY A DEFINITE EFFECT IS REFUSED. An effect that reaches the row
@@ -19053,10 +19234,40 @@
       (vecPushStr ps "result")
       (memSetWord sc 1 ps)
       (vecPush (bsCallableVec sc) (tyIsCallable resTy))
-      (let ((did (effDefiniteOnly (collectEffects tc p sc))))
+      (let ((did (effDropUnsafe (effDefiniteOnly (collectEffects tc p sc)))))
         (if (== (vecLen did) 0)
           0
           (emitContractMalformed tc t (contractSpanOf t) (strConcat (strConcat (strConcat (strConcat "is the `" (contractKeyOf t)) "` on `") (strConcat (bareOf (nodeAName d)) "` and performs ")) (effJoin did)))))
+    }))
+
+; The row without `Unsafe`: what a contract is refused for. A contract
+; may compare, index, measure and test, and that vocabulary - `vecLen`,
+; `vecGet`, `strLen`, `strEq`, `strByte`, `memGetWord` - reads raw
+; memory to do it, so every one of those carries definite `Unsafe` and
+; refusing it would make a contract unwriteable. A read does not change
+; the program by being stated; a write still draws this code through
+; `Mut` (`memSetWord` carries both), an allocation through `Alloc`,
+; and outside reach through `IO`.
+(pub :: effDropUnsafe (-> (Vec Int) (Vec Int)))
+(pub fn (effDropUnsafe v)
+  (let ((out vecNew))
+    {
+      (effDropUnsafeInto out v 0)
+      out
+    }))
+
+(pub :: effDropUnsafeInto (-> (Vec Int) (Vec Int) Int Int))
+(pub fn (effDropUnsafeInto out v i)
+  (if (>= i (vecLen v))
+    0
+    {
+      (if (strEq (vecGetStr v i) (builtinEff "Unsafe"))
+        0
+        {
+          (vecPushStr out (vecGetStr v i))
+          0
+        })
+      (effDropUnsafeInto out v (+ i 1))
     }))
 
 ; The span a contract diagnostic points at: the EXPRESSION as written,
@@ -19168,20 +19379,25 @@
 ; AX3042: a body reaches the outside world and its declaration does
 ; not say so.
 ;
-; WHY ONLY `IO` IS REQUIRED, measured. Recounted 2026-08-30: of 3,421
-; functions in `self_host/` and `stdlib/`, 2,095 perform something and
-; 1,664 of those perform exactly `Alloc,Mut` - every function that
-; touches a String or a Vec, because allocating is what an expression
-; DOES here and `Mut` is set by writing any struct field. A declaration
-; required on those is 1,664 annotations that distinguish nothing from
-; nothing. `IO` is on 332, and each one of those says the thing a
-; caller actually needs to know: this reaches outside the process.
+; WHY ONLY `IO` IS REQUIRED TRANSITIVELY, measured. Recounted
+; 2026-08-30: of 3,421 functions in `self_host/` and `stdlib/`, 2,095
+; perform something and 1,664 of those perform exactly `Alloc,Mut` -
+; every function that touches a String or a Vec, because allocating is
+; what an expression DOES here and `Mut` is set by writing any struct
+; field. A declaration required on those is 1,664 annotations that
+; distinguish nothing from nothing. `IO` is on 332, and each one of
+; those says the thing a caller actually needs to know: this reaches
+; outside the process.
 ;
 ; REQUIRED is not DECLARABLE, and the documents said the second for a
 ; while. `;@axiom:effect(mut)` over a body that writes a field is
 ; accepted, and over one that does not it is `AX3010`. Alloc, Mut and
 ; every custom effect are declarable and checked; what is special about
-; `IO` is that its ABSENCE is a claim. `Alloc` and `Mut` stay
+; `IO` is that its ABSENCE is a claim every function up the call chain
+; must answer. `Unsafe` has joined since (2026-09-22, `AX3073`),
+; required LEXICALLY rather than transitively: silence means the body
+; touches no raw memory either, but only the body holding the
+; primitive is asked. `Alloc` and `Mut` stay
 ; ambient and stay INFERRED - `symbols` still reports them, and
 ; `handle`/`(Pure)` still measure them, so nothing that could observe
 ; them lost the ability to.
@@ -19290,6 +19506,71 @@
               (strEq (strSlice src (+ j 1) (- i j)) "fn")
             })))
     }))
+
+; AX3073: a body touches raw memory and its declaration does not say
+; so.
+;
+; LEXICAL, where AX3042 is transitive - and deliberately. A transitive
+; closure through `strData`, `strByte`, `memGetWord` and `memAlloc`
+; would tag 3,910 of the 4,021 effectful functions in this tree
+; (`scripts/check-effect-distribution.sh`); the obligation sits where
+; the primitive is CALLED instead,
+; the way AX3071 and AX3072 already refuse a prim call's shape rather
+; than its callers. A wrapper contains the unsafety: it declares
+; `effect(unsafe)`, and its callers inherit `Unsafe` in their rows -
+; checked against `;@axiom:pure` and `restrict(no-unsafe)` like any
+; other row member - without drawing this themselves.
+;
+; ONLY THE UNCLAIMED fire here, the way only the unclaimed draw
+; AX3042: a declaration that made ANY effect claim belongs to AX3010,
+; right or wrong. The same hole comes with it - `effect(io)` over a
+; body that also touches raw memory is silent, as `effect(alloc)`
+; over an IO body is silent for AX3042 - and for the same reason: the
+; claim half checks what is claimed, and the silence half checks
+; silence.
+;
+; Reported ONCE per declaration, at the first primitive call in source
+; order: `jsonEscapeFill` holds twenty-one sites, and per-site would
+; flood. The span is the call - an application's span is its head's,
+; so it covers the primitive's name - while the machine-applicable
+; fix lands at the declaration's line start, where the tag attaches.
+(pub :: checkUndeclaredUnsafe (-> Int Int Int Int))
+(pub fn (checkUndeclaredUnsafe tc d e)
+  (let ((hits (unsafeScanInto e vecNew)))
+    (if (== (vecLen hits) 0)
+      0
+      (emitUndeclaredUnsafe tc d (vecGet hits 0)))))
+
+(pub :: emitUndeclaredUnsafe (-> Int Int Int Int))
+(pub fn (emitUndeclaredUnsafe tc d prim)
+  (let ((sp (spanOf prim)))
+    (if (== sp 0)
+      0
+      (if (== (nodeSpan d) 0)
+        0
+        (let (
+          (src (tcEntrySrc tc))
+          (dg (mkDiag
+            SEV_ERROR
+            "AX3073"
+            "undeclared-unsafe"
+            sp
+            (strConcat (strConcat "`" (bareOf (nodeAName d))) "` touches raw memory and its declaration does not say so")
+            0
+            0
+            0))
+        )
+          (let ((at 
+            (if (== (strLen src) 0)
+              (- 0 1)
+              (effectTagInsertAt src (spanStart (nodeSpan d))))))
+            {
+              (if (< at 0)
+                (diagAddHelp dg "write `;@axiom:effect(unsafe)` above the declaration")
+                (diagAddFixHelp dg "write `;@axiom:effect(unsafe)` above the declaration" (mkSpan at at) ";@axiom:effect(unsafe)\n"))
+              (diagAddHelp dg "this fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so")
+              (emitDiag tc (diagSetLabel dg (nodeAName (spineHead prim))))
+            }))))))
 
 ; The AXTAGs on the `(:: name ...)` signature for `name`, or 0.
 ;
@@ -20179,7 +20460,7 @@
       (strConcat (strConcat (strConcat "AXTAG unverifiable on `" (bareOf (nodeAName d))) "`: ") (strConcat (strConcat "`effect(" val) ")` cannot be checked: nothing in the compiler infers that effect, so no body ever supplies it"))
       0
       0
-      "`Div` is spellable and never inferred - zero of this repository's 2,094 effectful rows carry it. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc and Mut"))))
+      "`Div` is spellable and never inferred - zero of this repository's 2,094 effectful rows carry it. The claim is recorded and nothing validates it. Divergence is not inferred because the cheapest sound rule - a self-call, or any `while` - marks most of a real program non-terminating; `(handle BODY (Pure) 0)` is the construct that does refuse, and it measures IO, Alloc, Mut and Unsafe"))))
 
 (pub :: axtagCouldExist (-> Int String Int))
 (pub fn (axtagCouldExist tc e)
@@ -20203,11 +20484,13 @@
         (builtinEff "Div")
         (if (strEq val "alloc")
           (builtinEff "Alloc")
-          (if (== (strLen val) 0)
-            ""
-            (axtagCustomOrBuiltinCI tc val)))))))
+          (if (strEq val "unsafe")
+            (builtinEff "Unsafe")
+            (if (== (strLen val) 0)
+              ""
+              (axtagCustomOrBuiltinCI tc val))))))))
 
-; A value that is not one of the four lowercase built-in spellings, in
+; A value that is not one of the five lowercase built-in spellings, in
 ; the order the two possibilities have to be tried.
 ;
 ; DECLARATIONS FIRST. `canonicalEffectName` already matches them
@@ -20243,7 +20526,9 @@
             (builtinEff "Div")
             (if (== (strEqCI val "alloc") 1)
               (builtinEff "Alloc")
-              (customEff canon))))))))
+              (if (== (strEqCI val "unsafe") 1)
+                (builtinEff "Unsafe")
+                (customEff canon)))))))))
 
 (pub :: canonicalEffectName (-> Int String String))
 (pub fn (canonicalEffectName tc val)

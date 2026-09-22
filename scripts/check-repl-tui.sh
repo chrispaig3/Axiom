@@ -140,7 +140,11 @@ done
 pcols="$(python3 - "$repo_root/self_host/repl.ax" <<'PYX'
 import re, sys
 src = open(sys.argv[1]).read()
-m = re.search(r'\(pub fn \(replPromptMain\) \(paint \w+ "([^"]*)"\)\)', src)
+# The normal form puts the single body form on its own line, so
+# the anchor must allow whitespace between the head and the body.
+# An anchor that forbids the newline fails on a formatted tree,
+# measured 2026-09-22 as -1, no match at all.
+m = re.search(r'\(pub fn \(replPromptMain\)\s+\(paint \w+ "([^"]*)"\)\)', src)
 print(len(m.group(1)) if m else -1)
 PYX
 )"

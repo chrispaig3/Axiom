@@ -111,6 +111,7 @@
     }))
 
 (:: measure (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (measure which)
   {
     (run which 1000)

@@ -5,7 +5,7 @@
 [1;34m   |[0m      [1;31m^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
-  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `viaModule` claims `restrict(no-io)` and the body performs IO: viaModule -> RestrictLeaf$leafWrite -> __syscall3[0m
@@ -16,7 +16,7 @@
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mRestrictLeaf$leafWrite (RestrictLeaf.ax:6:10-19)
   [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
-  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `viaBuiltin` claims `restrict(no-io)` and the body performs IO: viaBuiltin -> __argc[0m
@@ -26,7 +26,7 @@
 [1;34m   |[0m      [1;31m^^^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0m__argc (no declaration to point at)
-  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `viaForm` claims `restrict(no-alloc)` and the body performs Alloc: viaForm -> makes, in `makes`'s own body[0m
@@ -38,7 +38,7 @@
 [1;34m76 |[0m (fn (viaForm n)
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `ownForm` claims `restrict(no-alloc)` and the body performs Alloc in its own body (a constructor application, an `alloc` form, or a `handle` installing a handler)[0m
@@ -47,7 +47,7 @@
 [1;34m81 |[0m (fn (ownForm n)
 [1;34m   |[0m      [1;31m^^^^^^^[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 [1;31merror[AX3049][0m[1m: `viaCallback` claims `restrict(no-io)` and the body performs IO: viaCallback -> shout -> __syscall3[0m
@@ -60,7 +60,7 @@
 [1;34m    |[0m      [1;31m^^^^^^^^^^^[0m
 [1;34m    |[0m
    [1;34m = [0m[1mnote: [0m__syscall3 (no declaration to point at)
-   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
 
 compilation failed due to 6 previous errors
