@@ -850,7 +850,7 @@ signature so the import carries both.
 AX3016 - a handle list names an effect that is not declared
 
 The effects a `handle` expression may name are the built-ins
-(`IO`, `Alloc`, `Mut`, `Div`) and effects introduced by an
+(`IO`, `Alloc`, `Mut`, `Div`, `Unsafe`) and effects introduced by an
 `(effect Name (op :: sig) ...)` declaration in scope. This name
 is neither, so the handle could never intercept or scope
 anything - before this diagnostic it was accepted silently and
@@ -1939,7 +1939,8 @@ static:
 
 THE LAST ONE IS NOT A BLANKET REFUSAL, and that is measurable rather
 than asserted: `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and
-`memGetWord` all carry an EMPTY effect row, while `strConcat`,
+`memGetWord` all carry no effect but `Unsafe` (a read, which contracts
+do not refuse), while `strConcat`,
 `fmtInt` and `vecNew` carry `Alloc,Mut`. A contract may compare,
 index, measure and test; it may not build. Only a DEFINITE effect is
 refused - an effect that reaches the row only as possible arrived
@@ -2111,7 +2112,7 @@ promoting a check - that it refuses a program which works - has no
 instance here: the declaration is unusable in every direction, and
 the fix is a rename.
 
-The reserved names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, plus
+The reserved names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, plus
 `alloc`, a second spelling of `Alloc` the checker also answers for.
 They are read from `isBuiltinEffect`, the same function a handle list
 asks, so the refusal and the resolution cannot drift apart.

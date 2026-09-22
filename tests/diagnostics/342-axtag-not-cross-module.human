@@ -1,4 +1,4 @@
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `work`: `pure` claim contradicted: body performs Alloc, IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `work`: `pure` claim contradicted: body performs Alloc, IO, Unsafe[0m
  [1;34m--> [0mTagPure.ax:7:10
 [1;34m  |[0m
 [1;34m7 |[0m (pub fn (work n)

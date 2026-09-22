@@ -61,7 +61,7 @@
         (helper 1)
         0
       }
-      (Console IO Alloc)
+      (Console IO Alloc Unsafe)
       (lambda (s)
         {
           ; No `cast String`: the handler is checked against `log`'s

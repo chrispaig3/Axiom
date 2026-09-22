@@ -39,7 +39,7 @@
         (log "still alive")
         0
       }
-      (Console IO Alloc Mut)
+      (Console IO Alloc Mut Unsafe)
       (lambda (s)
         {
           ; No `cast String`: the handler is checked against `log`'s

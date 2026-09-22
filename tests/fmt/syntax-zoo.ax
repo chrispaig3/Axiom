@@ -123,7 +123,6 @@
 
 ; --- for, both shapes ----------------------------------------------
 (:: counted (-> (Vec Int) Int))
-;@axiom:pure
 (fn (counted xs)
   (let ((mut acc 0))
     {

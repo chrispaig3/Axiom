@@ -10,6 +10,7 @@
 (import Str)
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((s (strFromLit (__addr "hello"))))
     (+ (strLen s) 37)))

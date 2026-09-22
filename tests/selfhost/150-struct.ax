@@ -18,6 +18,7 @@
   (y : Int))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (P 40 2)))
     (+

@@ -58,6 +58,7 @@
 ; per-application cost: 1,428 applications leaking one 32-byte record
 ; each move the bump 45,664 bytes, which is eleven blocks past this.
 (:: flat (-> Int Int Bool))
+;@axiom:effect(unsafe)
 (fn (flat m1 m2)
   (&& (== (__load64 m2 2) (__load64 m1 2)) (< (- (__load64 m2 0) (__load64 m1 0)) 4096)))
 

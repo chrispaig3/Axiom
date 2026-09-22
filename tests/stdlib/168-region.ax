@@ -160,7 +160,7 @@
         (log "after the region")
         0
       }
-      (Console IO Alloc Mut)
+      (Console IO Alloc Mut Unsafe)
       (lambda (s)
         {
           (println s)

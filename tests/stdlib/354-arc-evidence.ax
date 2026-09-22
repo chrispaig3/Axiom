@@ -40,6 +40,7 @@
   (Some x))
 
 (:: boxShapeOf (-> a Int))
+;@axiom:effect(unsafe)
 (fn (boxShapeOf y)
   (__load64
     (-
@@ -60,6 +61,7 @@
     (evLoop (- n 1) x)))
 
 (:: viaThunk (-> a Int))
+;@axiom:effect(unsafe)
 (fn (viaThunk w)
   (let ((g mkBox))
     (__load64
@@ -75,6 +77,7 @@
     0))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (s (strDup "e"))

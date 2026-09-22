@@ -38,6 +38,7 @@
           ((TC k) k))))))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((v 
     (cast Int (TC 5))))

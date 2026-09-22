@@ -106,6 +106,7 @@
 
 ; 1 when the bump barely moved and the chunk is the same one.
 (:: flat (-> Int Int Int))
+;@axiom:effect(unsafe)
 (fn (flat m1 m2)
   (if (&& (== (__load64 m2 2) (__load64 m1 2)) (< (- (__load64 m2 0) (__load64 m1 0)) 4096))
     1
@@ -144,6 +145,7 @@
 ; 1 when the bump moved past a gap, or the chunk changed - a crossing
 ; IS growth for this direction.
 (:: grew (-> Int Int Int))
+;@axiom:effect(unsafe)
 (fn (grew m1 m2)
   (if (|| (!= (__load64 m2 2) (__load64 m1 2)) (> (- (__load64 m2 0) (__load64 m1 0)) 4096))
     1
@@ -239,7 +241,7 @@
         (let ((r 
           (cast Int (handle
             (totalB 10000)
-            (Fallible Alloc Mut)
+            (Fallible Alloc Mut Unsafe)
             fallibleSkip))))
           (let ((e2 __axiom_arena_mark))
             (println (flat e1 e2)))))

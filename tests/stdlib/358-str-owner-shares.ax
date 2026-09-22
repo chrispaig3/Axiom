@@ -40,6 +40,7 @@
     0))
 
 (:: ownerCount (-> String Int))
+;@axiom:effect(unsafe)
 (fn (ownerCount s)
   (__load64 (- (strOwner s) 16) 0))
 
