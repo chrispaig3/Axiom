@@ -147,13 +147,14 @@
 #             targets stop emitting their trap writes      -> A8
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
-# discovered: section 6's QEMU reference port. There is no bare-metal
-# TARGET in the tree - no triple, no `Sys/Platform.baremetal-*.ax`, no
-# linker script - so nothing here executes on a device. What it does
-# establish is that the three things the port needs from the COMPILER
-# are per-target values a port can set, that setting them changes the
-# emitted program in the ways they claim to, and that a program built
-# with them set runs and traps correctly. 4.4 and 4.5 remain proposed.
+# discovered: section 6's QEMU reference port. The bare-metal TARGET
+# is in the tree - triple, `Sys/Platform.baremetal-aarch64.ax`, linker
+# script - but nothing here executes on a device yet; that leg lands
+# separately. What it does establish is that the three things the port
+# needs from the COMPILER are per-target values a port can set, that
+# setting them changes the emitted program in the ways they claim to,
+# and that a program built with them set runs and traps correctly. 4.4
+# and 4.5 remain proposed.
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
@@ -279,11 +280,16 @@ for name, code in re.findall(r'\(strEq name "([a-z0-9_-]+)"\)\s*\n\s*(\d+)', bod
 PY
 )"
 n_codes=$(printf '%s\n' "$codes_raw" | grep -c . || true)
-if (( n_codes != 7 )); then
-  abort "read $n_codes target codes out of targetCode, expected 7 - the parse broke,
+if (( n_codes != 8 )); then
+  abort "read $n_codes target codes out of targetCode, expected 8 - the parse broke,
        and every assertion below is written in terms of those codes."
 fi
 code_of() { printf '%s\n' "$codes_raw" | awk -v n="$1" '$1==n{print $2}'; }
+# The eighth code is the bare-metal port's, and it is pinned here: the
+# seven loops below still cover the supported hosted targets only, so a
+# bare-metal row that moved a hosted target's bytes would pass them all.
+[[ "$(code_of baremetal-aarch64)" == "7" ]] \
+  || abort "baremetal-aarch64 is not code 7 in targetCode"
 
 # The host, so that A6 can LINK AND RUN what A5 emits.
 case "$(uname -s)" in
