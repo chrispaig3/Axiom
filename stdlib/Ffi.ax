@@ -58,6 +58,7 @@
 ; by this function's own answer (event 2), exactly as `strWrapOwned`
 ; adopts a header - so the caller holds one share.
 (pub :: ffiHandleNew (-> Int Int Handle))
+;@axiom:effect(unsafe)
 (pub fn (ffiHandleNew ptr dropFn)
   ; the foreign form: bit 0 of the shape word. `memAllocMapped`
   ; refuses to set it, by design - this module is the one reviewed
@@ -72,6 +73,7 @@
 
 ; The Rust pointer, 0 once the handle is closed.
 (pub :: ffiHandlePtr (-> Handle Int))
+;@axiom:effect(unsafe)
 (pub fn (ffiHandlePtr h)
   (__load64
     (cast Int h)
@@ -84,6 +86,7 @@
 ; Destroy the Rust value NOW, once: the destructor runs and the pointer
 ; is zeroed, so a second close and the handle's own death do nothing.
 (pub :: ffiHandleClose (-> Handle Int))
+;@axiom:effect(unsafe)
 (pub fn (ffiHandleClose h)
   (let (
     (p (ffiHandlePtr h))
@@ -144,6 +147,7 @@
   })
 
 (pub :: ffiCellWord (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (ffiCellWord c i)
   (__load64 c i))
 
@@ -172,6 +176,7 @@
     (ffiWordsInto v p n 0)))
 
 (:: ffiWordsInto (-> (Vec Int) Int Int Int (Vec Int)))
+;@axiom:effect(unsafe)
 (fn (ffiWordsInto v p n i)
   (if (>= i n)
     v
@@ -193,6 +198,7 @@
     (ffiStrsInto v p n 0)))
 
 (:: ffiStrsInto (-> (Vec String) Int Int Int (Vec String)))
+;@axiom:effect(unsafe)
 (fn (ffiStrsInto v p n i)
   (if (>= i n)
     v
@@ -216,6 +222,7 @@
     (ffiWordListsInto v p n 0)))
 
 (:: ffiWordListsInto (-> (Vec (Vec Int)) Int Int Int (Vec (Vec Int))))
+;@axiom:effect(unsafe)
 (fn (ffiWordListsInto v p n i)
   (if (>= i n)
     v

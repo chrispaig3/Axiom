@@ -17071,7 +17071,10 @@
           ; right or wrong. This arm is for the one that made none.
           (if (|| (== (axtagsClaimAny sig) 1) (== (axtagsClaimAny own) 1))
             0
-            (checkUndeclaredIO tc d eff))
+            {
+              (checkUndeclaredIO tc d eff)
+              (checkUndeclaredUnsafe tc d (nodeC d))
+            })
           0
         }))))
 
@@ -18334,6 +18337,116 @@
         (castScanArms arms (+ i 1) acc)
       })))
 
+; Every raw-memory-primitive application under `e`, in source order,
+; pushed into `acc`; answers `acc`. `castScanInto`'s twin, predicate
+; swapped from "head named `cast`" to "head named a raw-memory
+; primitive" (`isUnsafePrim`), collecting the sites AX3073 refuses -
+; the row is the wrong input for that question, because the row is
+; transitive and the obligation is lexical. Duplicated rather than
+; shared for the reason `wrapScanInto` gives: this file already
+; hand-duplicates a full tree walk per collected fact.
+(pub :: unsafeScanInto (-> Int (Vec Int) (Vec Int)))
+(pub fn (unsafeScanInto e acc)
+  (if (== e 0)
+    acc
+    (let ((tag (nodeTag e)))
+      {
+        (if (== tag TAG_E_APP)
+          (let ((head (spineHead e)))
+            {
+              (if (== (nodeTag head) TAG_E_VAR)
+                (if (== (isUnsafePrim (nodeAName head)) 1)
+                  {
+                    (vecPush acc e)
+                    0
+                  }
+                  0)
+                {
+                  (unsafeScanInto head acc)
+                  0
+                })
+              (unsafeScanVec (spineArgVec e vecNew) 0 acc)
+            })
+          (if (== tag TAG_E_ALLOC)
+            (unsafeScanIn (nodeB e) acc)
+            (if (== tag TAG_E_SETF)
+              {
+                (unsafeScanIn (nodeA e) acc)
+                (unsafeScanIn (nodeC e) acc)
+              }
+              (if (== tag TAG_E_HANDLE)
+                {
+                  (unsafeScanIn (nodeA e) acc)
+                  (unsafeScanIn (nodeC e) acc)
+                }
+                (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                  {
+                    (unsafeScanIn (nodeB e) acc)
+                    (unsafeScanIn (nodeC e) acc)
+                  }
+                  (if (== tag TAG_E_LAM)
+                    (unsafeScanIn (nodeB e) acc)
+                    (if (== tag TAG_E_IF)
+                      {
+                        (unsafeScanIn (nodeA e) acc)
+                        (unsafeScanIn (nodeB e) acc)
+                        (unsafeScanIn (nodeC e) acc)
+                      }
+                      (if (== tag TAG_E_BEGIN)
+                        (unsafeScanVec (nodeAVec e) 0 acc)
+                        (if (|| (== tag TAG_E_WHILE) (== tag TAG_E_REGION))
+                          (if (== tag TAG_E_REGION)
+                            (unsafeScanIn (nodeB e) acc)
+                            {
+                              (unsafeScanIn (nodeA e) acc)
+                              (unsafeScanVec (nodeBVec e) 0 acc)
+                            })
+                          (if (== tag TAG_E_SET)
+                            (unsafeScanIn (nodeB e) acc)
+                            (if (== tag TAG_E_FIELD)
+                              (unsafeScanIn (nodeA e) acc)
+                              (if (== tag TAG_E_STRUCTCON)
+                                (unsafeScanVec (nodeBVec e) 0 acc)
+                                ; `cond` is AX2004: the parser builds
+                                ; none, so no arm scans one for raw-memory
+                                ; calls.
+                                (if (== tag TAG_E_MATCH)
+                                  {
+                                    (unsafeScanIn (nodeA e) acc)
+                                    (unsafeScanArms (nodeBVec e) 0 acc)
+                                  }
+                                  0)))))))))))))
+        acc
+      })))
+
+; `unsafeScanInto` for effect, answering 0 - the arms above sequence
+; several of these in a block.
+(pub :: unsafeScanIn (-> Int (Vec Int) Int))
+(pub fn (unsafeScanIn e acc)
+  {
+    (unsafeScanInto e acc)
+    0
+  })
+
+(pub :: unsafeScanVec (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (unsafeScanVec v i acc)
+  (if (>= i (vecLen v))
+    0
+    {
+      (unsafeScanIn (vecGet v i) acc)
+      (unsafeScanVec v (+ i 1) acc)
+    }))
+
+(pub :: unsafeScanArms (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (unsafeScanArms arms i acc)
+  (if (>= i (vecLen arms))
+    0
+    (let ((a (vecGet arms i)))
+      {
+        (unsafeScanIn (nodeB a) acc)
+        (unsafeScanArms arms (+ i 1) acc)
+      })))
+
 ; `no-wrap`: every `+`, `-` or `*` head in this body, each reported at
 ; its own span - `wrapScanInto` is `castScanInto`'s twin, predicate
 ; swapped from "head named `cast`" to "head named a wrapping
@@ -19270,7 +19383,11 @@
 ; while. `;@axiom:effect(mut)` over a body that writes a field is
 ; accepted, and over one that does not it is `AX3010`. Alloc, Mut and
 ; every custom effect are declarable and checked; what is special about
-; `IO` is that its ABSENCE is a claim. `Alloc` and `Mut` stay
+; `IO` is that its ABSENCE is a claim every function up the call chain
+; must answer. `Unsafe` has joined since (2026-09-22, `AX3073`),
+; required LEXICALLY rather than transitively: silence means the body
+; touches no raw memory either, but only the body holding the
+; primitive is asked. `Alloc` and `Mut` stay
 ; ambient and stay INFERRED - `symbols` still reports them, and
 ; `handle`/`(Pure)` still measure them, so nothing that could observe
 ; them lost the ability to.
@@ -19379,6 +19496,71 @@
               (strEq (strSlice src (+ j 1) (- i j)) "fn")
             })))
     }))
+
+; AX3073: a body touches raw memory and its declaration does not say
+; so.
+;
+; LEXICAL, where AX3042 is transitive - and deliberately. A transitive
+; closure through `strData`, `strByte`, `memGetWord` and `memAlloc`
+; would tag 3,910 of the 4,021 effectful functions in this tree
+; (`scripts/check-effect-distribution.sh`); the obligation sits where
+; the primitive is CALLED instead,
+; the way AX3071 and AX3072 already refuse a prim call's shape rather
+; than its callers. A wrapper contains the unsafety: it declares
+; `effect(unsafe)`, and its callers inherit `Unsafe` in their rows -
+; checked against `;@axiom:pure` and `restrict(no-unsafe)` like any
+; other row member - without drawing this themselves.
+;
+; ONLY THE UNCLAIMED fire here, the way only the unclaimed draw
+; AX3042: a declaration that made ANY effect claim belongs to AX3010,
+; right or wrong. The same hole comes with it - `effect(io)` over a
+; body that also touches raw memory is silent, as `effect(alloc)`
+; over an IO body is silent for AX3042 - and for the same reason: the
+; claim half checks what is claimed, and the silence half checks
+; silence.
+;
+; Reported ONCE per declaration, at the first primitive call in source
+; order: `jsonEscapeFill` holds twenty-one sites, and per-site would
+; flood. The span is the call - an application's span is its head's,
+; so it covers the primitive's name - while the machine-applicable
+; fix lands at the declaration's line start, where the tag attaches.
+(pub :: checkUndeclaredUnsafe (-> Int Int Int Int))
+(pub fn (checkUndeclaredUnsafe tc d e)
+  (let ((hits (unsafeScanInto e vecNew)))
+    (if (== (vecLen hits) 0)
+      0
+      (emitUndeclaredUnsafe tc d (vecGet hits 0)))))
+
+(pub :: emitUndeclaredUnsafe (-> Int Int Int Int))
+(pub fn (emitUndeclaredUnsafe tc d prim)
+  (let ((sp (spanOf prim)))
+    (if (== sp 0)
+      0
+      (if (== (nodeSpan d) 0)
+        0
+        (let (
+          (src (tcEntrySrc tc))
+          (dg (mkDiag
+            SEV_ERROR
+            "AX3073"
+            "undeclared-unsafe"
+            sp
+            (strConcat (strConcat "`" (bareOf (nodeAName d))) "` touches raw memory and its declaration does not say so")
+            0
+            0
+            0))
+        )
+          (let ((at
+            (if (== (strLen src) 0)
+              (- 0 1)
+              (effectTagInsertAt src (spanStart (nodeSpan d))))))
+            {
+              (if (< at 0)
+                (diagAddHelp dg "write `;@axiom:effect(unsafe)` above the declaration")
+                (diagAddFixHelp dg "write `;@axiom:effect(unsafe)` above the declaration" (mkSpan at at) ";@axiom:effect(unsafe)\n"))
+              (diagAddHelp dg "this fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so")
+              (emitDiag tc (diagSetLabel dg (nodeAName (spineHead prim))))
+            }))))))
 
 ; The AXTAGs on the `(:: name ...)` signature for `name`, or 0.
 ;

@@ -1,0 +1,17 @@
+; A function that touches raw memory and does not declare it. AX3073.
+; Reported once, at the first primitive call in source order, though
+; this body holds two. `caller` is the lexical half: it calls `grab`
+; and inherits `Unsafe`, but draws nothing itself.
+(:: grab (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (grab p)
+  (__load64 p 0))
+
+(:: caller (-> Int Int))
+(fn (caller p)
+  (grab p))
+
+(:: main Int)
+(fn (main)
+  (let ((p (__alloc 16)))
+    (+ (__load64 p 0) (caller p))))

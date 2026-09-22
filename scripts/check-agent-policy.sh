@@ -45,6 +45,13 @@
 #      that starts allocating is still visible - it is only the
 #      author-claim requirement that is scoped.
 #
+#      `Unsafe` stays out of this check for the opposite reason: it IS
+#      required, but lexically (`AX3073`), and a row cannot show whether
+#      the primitive is called HERE or inherited from a callee - so an
+#      agreement check on rows would demand tags of transitive callers
+#      the design deliberately exempts. The compiler enforces the
+#      lexical half itself, at error severity, over this same library.
+#
 #   3. COMPLETENESS. No stdlib declaration may carry the
 #      `#effects-incomplete` meta.
 #

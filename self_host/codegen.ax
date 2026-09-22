@@ -3786,6 +3786,7 @@
     }))
 
 (pub :: joinLines (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (joinLines lines)
   (let (
     (out (strAlloc (joinSize lines)))
@@ -3911,6 +3912,7 @@
     (+ 55 n)))
 
 (pub :: hex2 (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (hex2 n)
   (let ((s (strAlloc 2)))
     {
@@ -3996,6 +3998,7 @@
 ; One byte as LLVM's `\XX`, the three characters `emitStringGlobals`
 ; divides by to recover the count.
 (pub :: escPut (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (escPut p o c)
   {
     (__store8 p o 92)
@@ -4495,6 +4498,7 @@
     }))
 
 (pub :: dotsToSlashes (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (dotsToSlashes p i n)
   (if (>= i n)
     0
@@ -20556,6 +20560,7 @@
 ; `mut` bindings in one function joined in 11.6 s by the suffix-
 ; copying form (quadratic, and one frame per binding)
 (pub :: joinAllocas (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (joinAllocas v)
   (let ((n (vecLen v)))
     (if (== n 0)

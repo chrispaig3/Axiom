@@ -82,6 +82,7 @@
   [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
+  [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -1669,7 +1670,7 @@ place a reader would otherwise have to open the callee to learn it.
 If the effect is not wanted there, the fix is to stop performing it
 rather than to stop saying so.
 
-ONLY `IO` IS REQUIRED, and the reason is a measurement. Of 3,421
+`IO` is the only effect required TRANSITIVELY, and the reason is a measurement. Of 3,421
 functions in this compiler and its standard library, 2,095 perform
 something and 1,664 of those perform exactly `Alloc,Mut` - every
 function that touches a String or a Vec, because allocating is what
@@ -1677,9 +1678,9 @@ an expression does here and `Mut` is set by writing any struct
 field. REQUIRED is not DECLARABLE: `;@axiom:effect(mut)` over a body
 that writes a field is accepted, and over one that does not it is
 AX3010. Alloc, Mut and every custom effect are declarable and
-checked - what is special about `IO` is that its ABSENCE is a claim.
+checked - what is special about `IO` is that its ABSENCE is a claim every function up the call chain must answer.
 A declaration required on those distinguishes nothing from
-nothing. `Alloc` and `Mut` stay ambient and stay inferred: `symbols`
+nothing. `Unsafe` is required too, but LEXICALLY (`AX3073`): only the body that calls the primitive must declare it, so the annotation sits where the unsafety is rather than on every `String` and `Vec` user a transitive rule would tag. `Alloc` and `Mut` stay ambient and stay inferred: `symbols`
 still reports them and `handle`/`(Pure)` still measure them.
 
 One shape does not draw this. IO that reaches the row only as
@@ -2482,6 +2483,17 @@ AX3072 - `__addr` of anything but a string literal
 
 Spell the literal, or read bytes out of a value with `strData` (`stdlib/Str.ax`). Every use in this repository spells the literal; the rule makes that universal.
 
+### explain AX3073
+AX3073 - a function touches raw memory and does not declare it
+
+The body calls a raw-memory primitive - `__load8`, `__store8`, `__load64`, `__store64`, `__alloc` or `__addr` - and the declaration says nothing about it.
+
+Write `;@axiom:effect(unsafe)` above the declaration: on a line of its own, directly above the `fn` (below the `::` signature when there is one).
+
+This fires where the primitive is CALLED, not up the call chain. A transitive refusal through `strData`, `strByte`, `memGetWord` and `memAlloc` would tag every `String` and `Vec` user in the program; the obligation sits at the call site instead, the way AX3071 and AX3072 already refuse a primitive call's shape. A wrapper contains the unsafety, and a caller inherits `Unsafe` in its row - checked against `;@axiom:pure` and `restrict(no-unsafe)` like any other effect - without drawing this itself.
+
+A declaration that made ANY effect claim belongs to AX3010 instead: this is the silence half, for the function that claimed nothing.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2873,6 +2885,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
+  [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

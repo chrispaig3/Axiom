@@ -1,19 +1,19 @@
-F memAlloc stdlib/Mem.ax:39:9-17 "(Int -> Int)" @0fd03fba89121d1d #restrict=no-io,no-foreign #effects=Alloc,Unsafe
-F memAllocMapped stdlib/Mem.ax:75:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F memMarkArray stdlib/Mem.ax:141:9-21 "(Int -> (Int -> Int))" @d007f6fd2106dcb2 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F memMarkLeaf stdlib/Mem.ax:175:9-20 "(Int -> Int)" @7d30ebb403b48901 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F memCopy stdlib/Mem.ax:222:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F memCopyFrom stdlib/Mem.ax:247:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F memSet stdlib/Mem.ax:261:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F memSetFrom stdlib/Mem.ax:266:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F memCmp stdlib/Mem.ax:281:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F memCmpFrom stdlib/Mem.ax:286:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F memGetWord stdlib/Mem.ax:314:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F memGetWordStr stdlib/Mem.ax:327:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F memGetWordVec stdlib/Mem.ax:338:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F memSetWord stdlib/Mem.ax:373:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F memGetByte stdlib/Mem.ax:385:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F memPutByte stdlib/Mem.ax:390:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F memAlloc stdlib/Mem.ax:39:9-17 "(Int -> Int)" @0fd03fba89121d1d #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe
+F memAllocMapped stdlib/Mem.ax:76:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe
+F memMarkArray stdlib/Mem.ax:143:9-21 "(Int -> (Int -> Int))" @d007f6fd2106dcb2 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
+F memMarkLeaf stdlib/Mem.ax:178:9-20 "(Int -> Int)" @7d30ebb403b48901 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
+F memCopy stdlib/Mem.ax:226:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F memCopyFrom stdlib/Mem.ax:251:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
+F memSet stdlib/Mem.ax:266:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F memSetFrom stdlib/Mem.ax:271:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
+F memCmp stdlib/Mem.ax:287:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F memCmpFrom stdlib/Mem.ax:292:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe
+F memGetWord stdlib/Mem.ax:321:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe
+F memGetWordStr stdlib/Mem.ax:335:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F memGetWordVec stdlib/Mem.ax:346:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F memSetWord stdlib/Mem.ax:381:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
+F memGetByte stdlib/Mem.ax:394:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe
+F memPutByte stdlib/Mem.ax:400:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
 F vecDefaultCap stdlib/Vec.ax:81:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
 F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
 F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
@@ -54,32 +54,32 @@ F strWrap stdlib/Str.ax:45:9-16 "(Int -> (Int -> String))" @23328120de2f4a36 #re
 F strWrapOwned stdlib/Str.ax:68:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe9929cdf4389f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
 F strAlloc stdlib/Str.ax:90:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
 F strFromLit stdlib/Str.ax:112:9-19 "(Int -> String)" @6206421c05dd1a83 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F cstrLen stdlib/Str.ax:118:9-16 "(Int -> (Int -> Int))" @4883f0a813371906 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strLen stdlib/Str.ax:128:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strData stdlib/Str.ax:139:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strOwner stdlib/Str.ax:148:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strByte stdlib/Str.ax:160:9-16 "(String -> (Int -> Int))" @b744777f3cb15078 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strCStr stdlib/Str.ax:173:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strIsEmpty stdlib/Str.ax:178:9-19 "(String -> Bool)" @a83222c0759c013b #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strCmp stdlib/Str.ax:189:9-15 "(String -> (String -> Int))" @7d1efca2bc01048e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strEq stdlib/Str.ax:223:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strSlice stdlib/Str.ax:244:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F strDup stdlib/Str.ax:269:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F strConcat stdlib/Str.ax:279:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F strFindByte stdlib/Str.ax:324:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strStartsWith stdlib/Str.ax:342:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F strIsDigit stdlib/Str.ax:371:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign
-F strIsAlpha stdlib/Str.ax:378:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign
-F strIsSpace stdlib/Str.ax:392:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
-F strHexVal stdlib/Str.ax:413:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign
-F strIsHexDigit stdlib/Str.ax:424:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign
-F strSplit stdlib/Str.ax:447:9-17 "(String -> (Int -> Vec Int))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F strSplitFrom stdlib/Str.ax:456:9-21 "(String -> (Int -> (Int -> (Vec Int -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F strFromByte stdlib/Str.ax:492:9-20 "(Byte -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F strLower stdlib/Str.ax:519:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #post=(%3D%3D%20(strLen%20result)%20(strLen%20s)) #effects=Alloc,Mut,Unsafe
-F strFind stdlib/Str.ax:559:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign #effects=Unsafe
-F strTrim stdlib/Str.ax:584:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F strParseInt stdlib/Str.ax:613:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign #effects=Unsafe
+F cstrLen stdlib/Str.ax:118:9-16 "(Int -> (Int -> Int))" @4883f0a813371906 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe
+F strLen stdlib/Str.ax:129:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strData stdlib/Str.ax:140:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strOwner stdlib/Str.ax:149:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strByte stdlib/Str.ax:161:9-16 "(String -> (Int -> Int))" @b744777f3cb15078 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe
+F strCStr stdlib/Str.ax:175:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strIsEmpty stdlib/Str.ax:180:9-19 "(String -> Bool)" @a83222c0759c013b #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strCmp stdlib/Str.ax:191:9-15 "(String -> (String -> Int))" @7d1efca2bc01048e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strEq stdlib/Str.ax:225:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strSlice stdlib/Str.ax:246:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F strDup stdlib/Str.ax:271:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F strConcat stdlib/Str.ax:281:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F strFindByte stdlib/Str.ax:326:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strStartsWith stdlib/Str.ax:344:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F strIsDigit stdlib/Str.ax:373:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign
+F strIsAlpha stdlib/Str.ax:380:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign
+F strIsSpace stdlib/Str.ax:394:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
+F strHexVal stdlib/Str.ax:415:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign
+F strIsHexDigit stdlib/Str.ax:426:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign
+F strSplit stdlib/Str.ax:449:9-17 "(String -> (Int -> Vec Int))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F strSplitFrom stdlib/Str.ax:458:9-21 "(String -> (Int -> (Int -> (Vec Int -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F strFromByte stdlib/Str.ax:494:9-20 "(Byte -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe
+F strLower stdlib/Str.ax:522:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #post=(%3D%3D%20(strLen%20result)%20(strLen%20s)) #effect=unsafe #effects=Alloc,Mut,Unsafe
+F strFind stdlib/Str.ax:563:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign #effects=Unsafe
+F strTrim stdlib/Str.ax:588:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F strParseInt stdlib/Str.ax:617:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign #effects=Unsafe
 F errDivideByZero stdlib/Err.ax:47:9-24 "Int" @029f54fed7ccc8c4
 F errOverflow stdlib/Err.ax:51:9-20 "Int" @d27666f207e5c0cc
 F errShiftTooWide stdlib/Err.ax:55:9-24 "Int" @6a505014b69f075b
@@ -285,7 +285,7 @@ S Holder tests/fmt/syntax-zoo.ax:256:9-15 "struct Holder" @39a2b36e5f606cfe #fie
 S RecTwin tests/fmt/syntax-zoo.ax:396:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:247:11-21 "Box Int" @ce5c1ba8305ca704
-M format stdlib/Str.ax:690:13-19 "macro format" @f0b2b594fd323246
+M format stdlib/Str.ax:694:13-19 "macro format" @f0b2b594fd323246
 M try! stdlib/Err.ax:423:13-17 "macro try!" @33e26f813784f1f9
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
 M defRecTwin tests/fmt/syntax-zoo.ax:388:8-18 "macro defRecTwin" @175bc52ff43ee048

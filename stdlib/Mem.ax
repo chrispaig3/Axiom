@@ -37,6 +37,7 @@
 ; `Map`, `Intern`, `Str` and `Vec` all do.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: memAlloc (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (memAlloc bytes)
   (__alloc bytes))
 
@@ -73,6 +74,7 @@
 ; no header, nothing stamped.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: memAllocMapped (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (memAllocMapped bytes map)
   (let ((h (__alloc bytes)))
     (if (== bytes 0)
@@ -142,6 +144,7 @@
 ; `n` is masked to 47 bits before it is shifted, so a count nobody can
 ; hold cannot push a 1 into bit 63 and make the shape word negative -
 ; `codegen.ax`'s `shapeBits` rests on that word being non-negative.
+;@axiom:effect(unsafe)
 (pub fn (memMarkArray h n)
   {
     (__store64 (- h 8) 0 (| (| (__load64 (- h 8) 0) 32768) (<< (& n 140737488355327) 16)))
@@ -173,6 +176,7 @@
 ; block a leaf, and a leaf has no map.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memMarkLeaf (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (memMarkLeaf h)
   {
     (__store64 (- h 8) 0 (& (__load64 (- h 8) 0) 32767))
@@ -245,6 +249,7 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memCopyFrom (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (memCopyFrom dst src count start)
   (let ((mut i start))
     {
@@ -264,6 +269,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memSetFrom (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (memSetFrom addr value count start)
   (let ((mut i start))
     {
@@ -284,6 +290,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: memCmpFrom (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (memCmpFrom a b count start)
   (let (
     (mut i start)
@@ -312,6 +319,7 @@
 ; including a reference, which then dereferenced. See `AX3040`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetWord (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (memGetWord addr index)
   (__load64 addr index))
 
@@ -371,6 +379,7 @@
 ; close path), never with a bare `__store64`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memSetWord (-> Int Int a Int))
+;@axiom:effect(unsafe)
 (pub fn (memSetWord addr index value)
   {
     (__retainref value)
@@ -383,11 +392,13 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memGetByte (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (memGetByte addr index)
   (__load8 addr index))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: memPutByte (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (memPutByte addr index value)
   {
     (__store8 addr index value)

@@ -446,6 +446,7 @@
 ; `lpNumberOfBytesWritten` may be NULL only when `lpOverlapped` is
 ; not, so the cell is not optional.
 (:: winCell Int)
+;@axiom:effect(unsafe)
 (fn (winCell)
   (__alloc 8))
 

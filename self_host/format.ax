@@ -1800,6 +1800,7 @@
   })
 
 (pub :: fpByte (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (fpByte p b)
   (let ((s (strAlloc 1)))
     {

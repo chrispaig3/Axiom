@@ -680,6 +680,7 @@
     ""))
 
 (pub :: dashesToUnderscores (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (dashesToUnderscores s)
   (let (
     (out (strDup s))
@@ -766,6 +767,7 @@
 
 ; `my-crate_name` -> `MyCrateName`.
 (pub :: camelOf (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (camelOf s)
   (let (
     (out (strAlloc (strLen s)))

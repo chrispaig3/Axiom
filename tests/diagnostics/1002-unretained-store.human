@@ -1,7 +1,7 @@
 [1;31merror[AX3071][0m[1m: storing a `String` with a bare `__store64` takes no share: the owner's release frees a block this word still names[0m
-  [1;34m--> [0m1002-unretained-store.ax:10:10
+  [1;34m--> [0m1002-unretained-store.ax:13:10
 [1;34m   |[0m
-[1;34m10 |[0m         (cast Int s))
+[1;34m13 |[0m         (cast Int s))
 [1;34m   |[0m          [1;31m^^^^ storing `String`[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0ma raw `__store64` writes the word and nothing else; the release walk never counted a share it cannot see

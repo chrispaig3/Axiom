@@ -1732,23 +1732,26 @@ not appear in function types. Untagged functions ARE policed: silence
 is the claim "performs no IO", and a body performing IO under it is
 `AX3042`, an error. Only `IO` is REQUIRED - `Alloc` and `Mut` are
 ambient, inferred and reported but never demanded, and the line was
-measured rather than chosen, and re-measured 2026-09-08
+measured rather than chosen, and re-measured 2026-09-22
 (`scripts/check-effect-distribution.sh` pins the whole histogram in
-two views): of the 4,271 declarations `symbols --calls
+two views): of the 4,572 declarations `symbols --calls
 self_host/main.ax` lists for the compiler and its standard library,
-2,700 perform something at all, and 2,037 of those perform exactly
-`Alloc,Mut` - which is every function that touches a `String` or a
-`Vec`. `Mut` anywhere is on 2,526 of the 2,700, so requiring
-it would be requiring a tag on 94% of everything that has an effect at
-all. The stdlib view agrees: 410 of 821 perform, 178 of those exactly
-`Alloc,Mut`, with two singletons carrying custom effects (`Assert`,
+4,021 perform something at all, and 2,181 of those perform exactly
+`Alloc,Mut,Unsafe` - which is every function that touches a `String` or a
+`Vec`. `Mut` anywhere is on 2,706 of the 4,021, so requiring
+it would be requiring a tag on 67% of everything that has an effect at
+all (down from 94% before `Unsafe` gave the loads their own effect: a
+load performs without `Mut`). The stdlib view agrees: 564 of 824 perform, 180 of those exactly
+`Alloc,Mut,Unsafe`, with two singletons carrying custom effects (`Assert`,
 `Fallible`) and 3 rows marked `#effects-incomplete`. `IO` is the one effect a caller cannot learn
 without opening the callee. `Alloc` and `Mut` are still DECLARABLE, and
 checked when declared:
 `;@axiom:effect(mut)` over a body that writes a field is accepted, and
 over one that does not it is `AX3010`. The same holds for a custom
 effect. What is special about `IO` is that its absence is itself a
-claim. `axiom symbols --diagnostic-format
+claim every function up the call chain must answer. `Unsafe` is
+required too, but lexically (`AX3073`): only the body calling the
+primitive must declare it. `axiom symbols --diagnostic-format
 ai` reports the inferred set as `#effects=...` beside any declared
 tags; the default `human` table has no metadata column and shows
 neither.
@@ -2404,6 +2407,7 @@ the choice.
 | `Alloc` | Heap **machinery**, not strictly allocation: a call reaching `__alloc` — every `Vec`/`Map`/`Str` growth, every `memAlloc` — and, since 2026-08-25, the three arena primitives, because a reset ends every block allocated since a mark. `handle` contributes it too, for installing evidence, which allocates nothing either. The `(alloc T)` keyword contributes it and was the only contributor until 2026-08-23, which had it exactly inverted (`memory-model.md` MM-EXEC-9a) |
 | `Mut` | Mutable heap state: `(set base.field v)`, and the `__store8`/`__store64` primitives it lowers to — the second half arrived 2026-08-25 (`memory-model.md` MM-EXEC-9a), which is why `vecPush` and `mapInsert` carry it. Since 2026-08-29 the atomic writers `__atomic_store`/`__atomic_add`/`__atomic_cas` and `__fence` carry it too; `__atomic_load` deliberately does not, for `__load64`'s reason. Plain `set` on a `mut` local is deliberately *not* `Mut` - a local's mutation is invisible outside its function, while a field store is visible through every alias of the value |
 | `Div` | Divergence (infinite loops). **Spellable, never inferred** — nothing in the compiler produces it, so a `;@axiom:effect(div)` claim is reported **unverifiable** (`AX3037`, a warning) rather than unsupported, even over a body that plainly does not terminate — a claim the compiler never looks for is a fact about the analysis, not the body. Inferring it needs a termination analysis this compiler does not have; the cheapest sound rule (self-call or any `while`) marks 65% of the compiler divergent and is false on almost all of them |
+| `Unsafe` | Raw memory: the six primitives `__load8`, `__store8`, `__load64`, `__store64`, `__alloc` and `__addr` — a load or store at an address the type system does not bound, the allocator everything goes through, and `__addr` of a literal. Inferred ambiently like `Alloc` and `Mut` since 2026-09-21 (`memory-model.md` MM-EXEC-9a); declared with `;@axiom:effect(unsafe)`, which a body calling one of the six MUST carry since 2026-09-22 (`AX3073`) — lexical, so a wrapper's callers inherit the row and draw nothing themselves |
 
 There were **six** until 2026-08-30. `Err` was accepted as a sixth
 built-in name — a handle list could write it — and nothing in the
@@ -2416,7 +2420,10 @@ reach, is a hole in a table rather than an effect. `(handle 5 (Err) 0)`
 now draws `AX3016`, which is what a list naming something undeclared has
 always drawn, and `Err` is an ordinary name again — `(effect Err ...)`
 declares an ordinary effect ([error-model.md](error-model.md) records
-the retirement beside the `AX3054` it shipped with).
+the retirement beside the `AX3054` it shipped with). There are **six**
+again since 2026-09-21: `Unsafe` joined the table as raw memory's
+effect (row above), inferred at the six primitives and, since
+2026-09-22, required of the body that calls one (`AX3073`).
 
 ### Declaring an Effect Type
 

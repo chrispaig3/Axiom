@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Ambient-effect distribution: the measurement behind "only IO is required".
+# Ambient-effect distribution: the measurement behind the required/ambient line.
 #
 # WHAT STANDS. `docs/reference.md` Effects: silence claims "performs no
-# IO" (`AX3042`), and a refuted claim is `AX3010`. `Alloc` and `Mut` are
-# ambient - inferred and reported but never demanded - and the line was
-# measured rather than chosen: requiring `Mut` would tag nearly every
-# effectful function, distinguishing nothing from nothing.
+# IO" (`AX3042`) and "touches no raw memory" (`AX3073`), and a refuted
+# claim is `AX3010`. `Alloc` and `Mut` are ambient - inferred and
+# reported but never demanded - and the line was measured rather than
+# chosen: requiring `Mut` would tag most effectful functions (67%,
+# down from 94% before `Unsafe` gave the loads their own effect),
+# distinguishing nothing from nothing. `Unsafe` is required
+# LEXICALLY: only the body calling the primitive must declare it,
+# because a transitive rule would tag 97% of everything that performs.
 #
 # WHAT THIS PINS. The full distribution of inferred effect rows, in two
 # views, because the claim "ambient" is a claim about a population:
@@ -99,6 +103,22 @@
 # across its split. The required/ambient line did not move: `Unsafe`
 # is ambient like `Alloc` and `Mut`, inferred and never required.
 #
+# RE-PINNED 2026-09-22: `AX3073` (`undeclared-unsafe`) joins the
+# checker with six functions, and the required/ambient line moves in
+# the lexical direction. `Unsafe` is required now - but only of the
+# body that calls the primitive, so the annotation sits at 48 sites
+# in this tree (measured by the sweep that placed them) rather than
+# on the 3,910 functions a transitive rule would tag. The six added
+# (`unsafeScanInto/In/Vec/Arms`, `checkUndeclaredUnsafe`,
+# `emitUndeclaredUnsafe`) read exactly `Alloc,Mut,Unsafe`, so that
+# bucket moves 2175 to 2181; every other bucket is unchanged and the
+# pins reconcile to the row count (4572), which is added 6, removed 0,
+# changed 0 by arithmetic. Every IO bucket frozen again.
+# `Mut`-anywhere reads 67% (2706 of 4021), down from 94%: the loads
+# that `Unsafe` inference gave their own effect perform without
+# `Mut`, so the denominator grew under it. The transitive line holds;
+# the lexical one is new.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -135,7 +155,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2175 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2181 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1140 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 121 "Mut,Unsafe"

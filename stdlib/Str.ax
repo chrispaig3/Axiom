@@ -116,6 +116,7 @@
 ; Length of NUL-terminated bytes at `addr`, scanning from `i`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: cstrLen (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (cstrLen addr i)
   (if (== (__load8 addr i) 0)
     i
@@ -158,6 +159,7 @@
 ; like an end-of-input sentinel, and NUL is already that sentinel here.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strByte (-> String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (strByte s i)
   (if (< i 0)
     0
@@ -490,6 +492,7 @@
 ; now traps with status 80 at the call boundary instead.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strFromByte (-> Byte String))
+;@axiom:effect(unsafe)
 (pub fn (strFromByte b)
   (let ((s (strAlloc 1)))
     {
@@ -517,6 +520,7 @@
 ;@axiom:restrict(no-io,no-foreign)
 ;@axiom:post((== (strLen result) (strLen s)))
 (pub :: strLower (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (strLower s)
   (let (
     (len (strLen s))

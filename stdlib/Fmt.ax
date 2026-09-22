@@ -74,6 +74,7 @@
 ; right to left.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtDigits (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (fmtDigits buf n at)
   (let ((digit (+ 48 (% n 10))))
     {
@@ -128,6 +129,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigits (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (fmtHexDigits buf n at)
   (let ((nibble (& n 15)))
     (let ((digit 
@@ -196,6 +198,7 @@
 ; one call rather than a sign test at every call site.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadZerosLeft (-> String Int String))
+;@axiom:effect(unsafe)
 (pub fn (fmtPadZerosLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -235,6 +238,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: fmtHexDigitsUpper (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (fmtHexDigitsUpper buf n at)
   (let ((nibble (& n 15)))
     (let ((digit 
