@@ -3786,6 +3786,7 @@
     }))
 
 (pub :: joinLines (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (joinLines lines)
   (let (
     (out (strAlloc (joinSize lines)))
@@ -3911,6 +3912,7 @@
     (+ 55 n)))
 
 (pub :: hex2 (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (hex2 n)
   (let ((s (strAlloc 2)))
     {
@@ -3996,6 +3998,7 @@
 ; One byte as LLVM's `\XX`, the three characters `emitStringGlobals`
 ; divides by to recover the count.
 (pub :: escPut (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (escPut p o c)
   {
     (__store8 p o 92)
@@ -4495,6 +4498,7 @@
     }))
 
 (pub :: dotsToSlashes (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (dotsToSlashes p i n)
   (if (>= i n)
     0
@@ -5253,7 +5257,7 @@
 
 ; Which targets can create a thread through the platform's pthread, and
 ; which can fork. `targetCode`'s numbering: darwin 0/1, linux 2/3,
-; freebsd 4/5, windows 6.
+; freebsd 4/5, windows 6, baremetal-aarch64 7.
 ;
 ; darwin and linux have a pthread AND the local-exec TLS a C runtime
 ; sets up for each new thread, and both are MEASURED - `Tests
@@ -5313,7 +5317,9 @@
             "freebsd-x86_64"
             (if (== t 5)
               "freebsd-aarch64"
-              "windows-x86_64")))))))
+              (if (== t 7)
+                "baremetal-aarch64"
+                "windows-x86_64"))))))))
 
 ; The per-target numbers the process lowering needs beside
 ; `targetMmapNum`/`targetExitNum`/`targetWriteNum`, each the one
@@ -6714,7 +6720,8 @@
 ; the 0x2000000 Unix class bit), the MAP_PRIVATE|MAP_ANON flag value,
 ; and the platform module suffixes. Codes: 0 darwin-aarch64,
 ; 1 darwin-x86_64, 2 linux-aarch64, 3 linux-x86_64, 4 freebsd-x86_64,
-; 5 freebsd-aarch64, 6 windows-x86_64; -1 is "unknown", refused
+; 5 freebsd-aarch64, 6 windows-x86_64, 7 baremetal-aarch64; -1 is
+; "unknown", refused
 ; loudly. A code is an index into nothing, only a name for these
 ; chains of `if`; 4-6 were assigned across two concurrent branches so
 ; that both landed without renumbering the other.
@@ -6749,7 +6756,9 @@
               5
               (if (strEq name "windows-x86_64")
                 6
-                (- 0 1)))))))))
+                (if (strEq name "baremetal-aarch64")
+                  7
+                  (- 0 1))))))))))
 
 (pub :: targetTriple (-> Int String))
 (pub fn (targetTriple t)
@@ -6780,7 +6789,9 @@
             ; `Platform.freebsd.ax` records that beside each.
             (if (== t 4)
               "x86_64-unknown-freebsd14.0"
-              "aarch64-unknown-freebsd14.0")))))))
+              (if (== t 7)
+                "aarch64-unknown-none-elf"
+                "aarch64-unknown-freebsd14.0"))))))))
 
 ; Does this target reach the kernel through an inline-asm syscall
 ; template? Every POSIX target does, and `targetSyscallAsm`,
@@ -6798,7 +6809,7 @@
 ; holds the two answers to each other for every target.
 (pub :: targetUsesSyscallAsm (-> Int Int))
 (pub fn (targetUsesSyscallAsm t)
-  (if (== t 6)
+  (if (|| (== t 6) (== t 7))
     0
     1))
 
@@ -6885,7 +6896,9 @@
               ; it: the Linux one reads a -errno the kernel never
               ; produces, and the Darwin one puts the number in x16,
               ; which FreeBSD does not read.
-              "\"svc #0\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}\"")))))))
+              (if (== t 7)
+                ""
+                "\"svc #0\\0Ab.cc 1f\\0Aneg x0, x0\\0A1:\", \"={x0},{x8},{x0},{x1},{x2},{x3},{x4},{x5},~{x1},~{x2},~{x3},~{x4},~{x5},~{x8},~{cc},~{memory}\""))))))))
 
 ; Whether a target code is an AArch64 one. The frame read, the
 ; recovery arm and the recovery jump are architecture questions, and
@@ -6894,7 +6907,7 @@
 ; stated once.
 (pub :: targetIsAArch64 (-> Int Bool))
 (pub fn (targetIsAArch64 t)
-  (|| (== t 0) (|| (== t 2) (== t 5))))
+  (|| (== t 0) (|| (== t 2) (|| (== t 5) (== t 7)))))
 
 ; Read the frame pointer. One instruction, and only two distinct
 ; strings for seven targets, because this is an architecture question
@@ -7023,11 +7036,14 @@
     ; allocatable only off Darwin. With `~{x18}` the pointer moves to
     ; x20, which the block already saves and restores. The predicate
     ; below is "AArch64 and x18 allocatable", which today is
-    ; linux-aarch64 and freebsd-aarch64; a `(== t 2)` here would ship
+    ; linux-aarch64, freebsd-aarch64 and baremetal-aarch64 - LLVM
+    ; reserves x18 on Darwin, Android, Fuchsia, Windows and OHOS, and
+    ; `aarch64-unknown-none-elf` is in none of those either; a `(== t 2)`
+    ; here would ship
     ; freebsd-aarch64 with exactly this bug, silently.
     (cat3
       "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr}"
-      (if (|| (== t 2) (== t 5))
+      (if (|| (== t 2) (|| (== t 5) (== t 7)))
         ",~{x18}"
         "")
       ",~{v0},~{v1},~{v2},~{v3},~{v4},~{v5},~{v6},~{v7},~{v8},~{v9},~{v10},~{v11},~{v12},~{v13},~{v14},~{v15},~{v16},~{v17},~{v18},~{v19},~{v20},~{v21},~{v22},~{v23},~{v24},~{v25},~{v26},~{v27},~{v28},~{v29},~{v30},~{v31},~{memory},~{cc}\"")
@@ -7172,7 +7188,9 @@
 ; makes.
 (pub :: targetArenaChunkBytes (-> Int Int))
 (pub fn (targetArenaChunkBytes t)
-  1048576)
+  (if (== t 7)
+    4096
+    1048576))
 
 ; What a request LARGER than one chunk is rounded up to. The refill
 ; path serves an oversized request with a chunk of its own, rounded to
@@ -7224,7 +7242,9 @@
 ; business; the process half is not.
 (pub :: targetArenaStaticBytes (-> Int Int))
 (pub fn (targetArenaStaticBytes t)
-  0)
+  (if (== t 7)
+    32768
+    0))
 
 ; Where that region begins, and it means two different things by
 ; design. ZERO: the emitter reserves the region as a zero-initialised
@@ -7264,11 +7284,32 @@
 ; single reader - the backtrace writer delegates to it - so every trap
 ; moves together and none can be half-silent.
 ;
-; A bare-metal target's row is `(if (== t <its code>) 1 0)`. That edit
-; is the whole of 4.3, and it is literally the edit the gate makes.
+; A bare-metal target's row would be `(if (== t <its code>) 1 0)` -
+; that edit is the whole of 4.3, and it is literally the edit the gate
+; makes - but the reference port does not take it: a part with a UART
+; reports its traps through `targetUartBase` below instead, and silence
+; stays the row of no target. The statuses are the whole report only
+; where there is nothing to write to.
 (pub :: targetTrapSilent (-> Int Int))
 (pub fn (targetTrapSilent t)
   0)
+
+; 4.3's SECOND door: the trap's write strategy where silence is not the
+; answer and there is no fd 2. Zero means "no UART", which is every
+; hosted target; non-zero is the PL011 data register's physical
+; address, and `emitRuntimeWrite` calls `@__axiom_uart_write` - emitted
+; once by `emitBaremetalRuntime`, volatile stores, one byte per store -
+; instead of writing fd 2. 2415919104 is 0x09000000, the `virt`
+; machine's UART0; QEMU drains it to stdio faster than a trap writes,
+; so no flag wait is emitted - a real board's wait belongs in the
+; helper beside the store, not at the call sites. Read at EMISSION
+; time, like the silent row: a UART program carries the call and no
+; branch, and a hosted program carries neither.
+(pub :: targetUartBase (-> Int Int))
+(pub fn (targetUartBase t)
+  (if (== t 7)
+    2415919104
+    0))
 
 ; The EFFECTIVE static-arena size: the build's ceiling when one was
 ; given, else the target table's row. One reader, so the table keeps
@@ -7324,7 +7365,9 @@
             ; `.freebsd.ax`, the arrangement Darwin already has.
             (if (== t 4)
               ".freebsd-x86_64.ax"
-              ".freebsd-aarch64.ax")))))))
+              (if (== t 7)
+                ".baremetal-aarch64.ax"
+                ".freebsd-aarch64.ax"))))))))
 
 ; `.windows.ax` and not `.windows-x86_64.ax` for the platform module,
 ; for the reason `Platform.darwin.ax` serves both Darwin targets: the
@@ -7339,7 +7382,9 @@
       ".darwin.ax"
       (if (|| (== t 4) (== t 5))
         ".freebsd.ax"
-        ".linux.ax"))))
+        (if (== t 7)
+          ".baremetal.ax"
+          ".linux.ax")))))
 
 ; ------------------------------------------------------------------
 ; The three things the emitted runtime asks the kernel for - a mapping,
@@ -7476,20 +7521,48 @@
 (pub fn (emitRuntimeWrite cg ptrExpr lenExpr)
   (if (== (targetTrapSilent (memGetWord cg 26)) 1)
     (emitLine cg "  ; trap message suppressed: the target asked for silent traps")
-    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
-      (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)")))
-      (let ((tag (strSlice ptrExpr 1 (- (strLen ptrExpr) 1))))
-        {
-          ; STD_ERROR_HANDLE is -12.
-          (emitLine cg (cat3 "  %" tag "_h = call i64 @GetStdHandle(i64 -12)"))
-          (emitLine cg (cat4 (cat3 "  call i64 @WriteFile(i64 %" tag "_h, i64 ") ptrExpr (cat3 ", i64 " lenExpr ", i64 ptrtoint (ptr @__axiom_win_written to i64), i64 0)") ""))
-        }))))
+    (if (> (targetUartBase (memGetWord cg 26)) 0)
+      (emitLine cg (cat4 "  call void @__axiom_uart_write(i64 " ptrExpr ", i64 " (cat2 lenExpr ")")))
+      (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
+        (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)")))
+        (let ((tag (strSlice ptrExpr 1 (- (strLen ptrExpr) 1))))
+          {
+            ; STD_ERROR_HANDLE is -12.
+            (emitLine cg (cat3 "  %" tag "_h = call i64 @GetStdHandle(i64 -12)"))
+            (emitLine cg (cat4 (cat3 "  call i64 @WriteFile(i64 %" tag "_h, i64 ") ptrExpr (cat3 ", i64 " lenExpr ", i64 ptrtoint (ptr @__axiom_win_written to i64), i64 0)") ""))
+          })))))
 
 (pub :: emitRuntimeExit (-> Int String Int))
 (pub fn (emitRuntimeExit cg status)
   (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
     (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) (cat3 ", i64 " status ", i64 0, i64 0, i64 0, i64 0, i64 0)")))
-    (emitLine cg (cat3 "  call i64 @ExitProcess(i64 " status ")"))))
+    (if (> (targetUartBase (memGetWord cg 26)) 0)
+      (emitBaremetalExit cg status)
+      (emitLine cg (cat3 "  call i64 @ExitProcess(i64 " status ")")))))
+
+; A trap's exit where there is no kernel to exit to: ARM semihosting
+; SYS_EXIT (0x18), reason ADP_Stopped_ApplicationExit (0x20026), with
+; the trap's own status in the block's second word. Under QEMU with
+; semihosting enabled the machine stops and answers that status, which
+; is what keeps the trap statuses - 70, 71, 72, 74, 79 - the whole
+; report on-device exactly as they are on a host. The `hlt` takes its
+; operands in x0/x1 by constraint, so no move is emitted; the `wfi`
+; loop after it is the backstop for a machine with semihosting off,
+; where the `hlt` faults instead of returning.
+;
+; No registers are allocated: both addresses are constant expressions,
+; so any number of exit sites may share one function. `status` is a
+; literal or a register, as at every other door.
+(pub :: emitBaremetalExit (-> Int String Int))
+(pub fn (emitBaremetalExit cg status)
+  {
+    (emitLine cg "  store i64 131110, ptr @__axiom_exit_block")
+    (emitLine cg (cat3 "  store i64 " status ", ptr getelementptr ([2 x i64], ptr @__axiom_exit_block, i64 0, i64 1)"))
+    (emitLine cg "  call void asm sideeffect \"hlt 0xf000\", \"{x0},{x1},~{x0},~{x1},~{memory}\"(i64 24, i64 ptrtoint (ptr @__axiom_exit_block to i64))")
+    (emitLine cg "  call void asm sideeffect \"1: wfi\\0Ab 1b\", \"\"()")
+    (emitLine cg "  unreachable")
+    cg
+  })
 
 ; The symbols the runtime itself declares on a target, so that
 ; `emitExternDeclares` does not declare one of them a second time when
@@ -7505,20 +7578,22 @@
   (let ((v vecNew))
     (if (== (targetUsesSyscallAsm t) 1)
       v
-      {
-        (vecPush v "VirtualAlloc")
-        (vecPush v "GetStdHandle")
-        (vecPush v "WriteFile")
-        (vecPush v "ExitProcess")
-        (if cgStaticlib
-          0
-          {
-            (vecPush v "GetCommandLineW")
-            (vecPush v "GetEnvironmentStringsW")
-            0
-          })
+      (if (== t 7)
         v
-      })))
+        {
+          (vecPush v "VirtualAlloc")
+          (vecPush v "GetStdHandle")
+          (vecPush v "WriteFile")
+          (vecPush v "ExitProcess")
+          (if cgStaticlib
+            0
+            {
+              (vecPush v "GetCommandLineW")
+              (vecPush v "GetEnvironmentStringsW")
+              0
+            })
+          v
+        }))))
 
 ; What a Windows module carries whether or not it has an entry: the
 ; four kernel32 declares the allocator, the arena and the three traps
@@ -7550,6 +7625,51 @@
     ; in the object without this line, `D _fltused` with it.
     (emitLine cg "@_fltused = global i32 1")
     (emitLine cg "@__axiom_win_written = internal global i64 0")
+    (emitLine cg "@__axiom_nosys_msg = private unnamed_addr constant [37 x i8] c\"axiom: no syscall ABI on this target\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_no_syscall() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 74)")
+    (emitLine cg "  %nsp = ptrtoint ptr @__axiom_nosys_msg to i64")
+    (emitRuntimeWrite cg "%nsp" "37")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "74")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  })
+
+; What a bare-metal module carries whether or not it has an entry: the
+; semihosting exit block `emitBaremetalExit` stores reason and status
+; through, the UART helper every trap writes through, and the trap a
+; `__syscallN` lowers to on a target that has no syscall ABI. The
+; no-syscall def is `emitWinRuntime`'s byte for byte - same message,
+; same status 74 - because the only difference between the two is which
+; door `emitRuntimeWrite` and `emitRuntimeExit` take, and that is asked
+; per target where it is used. The UART loop's store is VOLATILE: the
+; address never changes, so a plain store would be dead-store
+; elimination's to merge and a trap would report its last byte.
+(pub :: emitBaremetalRuntime (-> Int Int))
+(pub fn (emitBaremetalRuntime cg)
+  {
+    (emitLine cg "@__axiom_exit_block = internal global [2 x i64] zeroinitializer")
+    (emitLine cg "define internal void @__axiom_uart_write(i64 %ptr, i64 %len) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %i = phi i64 [ 0, %entry ], [ %in, %body ]")
+    (emitLine cg "  %more = icmp ult i64 %i, %len")
+    (emitLine cg "  br i1 %more, label %body, label %done")
+    (emitLine cg "body:")
+    (emitLine cg "  %a = add i64 %ptr, %i")
+    (emitLine cg "  %p = inttoptr i64 %a to ptr")
+    (emitLine cg "  %b = load i8, ptr %p")
+    (emitLine cg (cat3 "  store volatile i8 %b, ptr inttoptr (i64 " (fmtInt (targetUartBase (memGetWord cg 26))) " to ptr)"))
+    (emitLine cg "  %in = add i64 %i, 1")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
     (emitLine cg "@__axiom_nosys_msg = private unnamed_addr constant [37 x i8] c\"axiom: no syscall ABI on this target\\0A\"")
     (emitLine cg "define internal i64 @__axiom_no_syscall() #0 {")
     (emitLine cg "entry:")
@@ -8182,7 +8302,9 @@
     ; in an archive too.
     (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
       0
-      (emitWinRuntime cg))
+      (if (== (memGetWord cg 26) 7)
+        (emitBaremetalRuntime cg)
+        (emitWinRuntime cg)))
     (if cgStaticlib
       0
       (if (strEq (targetEntryName (memGetWord cg 26)) "main")
@@ -11164,7 +11286,7 @@
 (pub fn (checkedTargetCode target)
   (let ((tcode (targetCode target)))
     (if (< tcode 0)
-      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, or windows-x86_64): " target)
+      (dieImport "error: unknown target (want darwin-aarch64, darwin-x86_64, linux-aarch64, linux-x86_64, freebsd-x86_64, freebsd-aarch64, windows-x86_64, or baremetal-aarch64): " target)
       tcode)))
 
 ; Emission over an ALREADY-resolved declaration list. Separated from
@@ -20556,6 +20678,7 @@
 ; `mut` bindings in one function joined in 11.6 s by the suffix-
 ; copying form (quadratic, and one frame per binding)
 (pub :: joinAllocas (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (joinAllocas v)
   (let ((n (vecLen v)))
     (if (== n 0)

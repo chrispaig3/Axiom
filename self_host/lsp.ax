@@ -2915,6 +2915,7 @@
 ; interpret degrades to "no import directory" rather than to a refusal.
 ; ------------------------------------------------------------------
 (pub :: lspUriToPath (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (lspUriToPath uri)
   (let ((body 
     (if (strStartsWith uri "file://")
@@ -10852,6 +10853,7 @@
 ; `isIdentChar` refuses becomes `_`, so the rename stays visible and
 ; the text lexes.
 (pub :: lspDeHygiene (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (lspDeHygiene s)
   (if (lspAllIdentBytes s 0)
     s

@@ -427,8 +427,11 @@ python3 - "$abl/self_host/codegen.ax" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
-old = '(pub fn (trapFnAttrs) "noreturn cold #0")'
-new = '(pub fn (trapFnAttrs) "#0")'
+# 2026-09-21: the formatter's normal-form move split the one-line
+# body across two lines. The attribute is unchanged, so the ablation
+# follows the spelling.
+old = '(pub fn (trapFnAttrs)\n  "noreturn cold #0")'
+new = '(pub fn (trapFnAttrs)\n  "#0")'
 if s.count(old) != 1:
     sys.exit("the ablation matched %d times, wanted 1" % s.count(old))
 open(p, "w", encoding="utf-8").write(s.replace(old, new))

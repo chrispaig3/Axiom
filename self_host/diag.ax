@@ -1048,6 +1048,7 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: quoteHexDigit (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (quoteHexDigit n)
   (let ((s (strAlloc 1)))
     {

@@ -242,19 +242,34 @@ echo "== 4. and the type test is what does it (ablation) =="
 abl="$work/tree"
 mkdir -p "$abl"
 cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/"
-seam='      (if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= (cast Int acc) 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))'
-n_seam="$(grep -c -F -x "$seam" "$abl/self_host/typecheck.ax" || true)"
+# 2026-09-21: the formatter's normal-form move broke `escapeArgs`'s
+# condition across seven lines (the same move the 2026-09-01 note above
+# records for the annotation). The rule is unchanged - three conjuncts,
+# same `&&` nesting - so the sentinel follows the spelling: the whole
+# block, counted exactly, and the ablation drops exactly the callable
+# conjunct and nothing else.
+seam_old='      (if (&&
+        (== (escapeValue bound (vecGet args i)) 0)
+        (&&
+          (!=
+            (cast Int acc)
+            0)
+          (== (tyIsCallable (arrowParamTy cty i)) 1)))'
+seam_new='      (if (&&
+        (== (escapeValue bound (vecGet args i)) 0)
+          (!=
+            (cast Int acc)
+            0))'
+n_seam="$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read().count(sys.argv[2]))' "$abl/self_host/typecheck.ax" "$seam_old" || true)"
 checks=$((checks + 1))
 if [[ "$n_seam" != 1 ]]; then
   echo "FAIL: self_host/typecheck.ax holds $n_seam copies of the ablation seam; this gate expects exactly 1"
   failed=$((failed + 1))
 else
-  python3 - "$abl/self_host/typecheck.ax" <<'PY'
+  python3 - "$abl/self_host/typecheck.ax" "$seam_old" "$seam_new" <<'PY'
 import sys
-p = sys.argv[1]
+p, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
 s = open(p, encoding="utf-8").read()
-old = "(if (&& (== (escapeValue bound (vecGet args i)) 0) (&& (!= (cast Int acc) 0) (== (tyIsCallable (arrowParamTy cty i)) 1)))"
-new = "(if (&& (== (escapeValue bound (vecGet args i)) 0) (!= (cast Int acc) 0))"
 assert s.count(old) == 1
 open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY

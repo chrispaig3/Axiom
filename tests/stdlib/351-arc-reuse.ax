@@ -25,6 +25,7 @@
     0))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (h1 (__alloc 24))

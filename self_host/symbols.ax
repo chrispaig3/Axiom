@@ -41,6 +41,7 @@
 ; only by the effect-params index fallback, which no probed checker
 ; state can construct.
 (pub :: symsDigits (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (symsDigits n)
   (if (< n 10)
     (let ((s (strAlloc 1)))
@@ -85,6 +86,7 @@
 ; mask instead: an arithmetic shift sign-fills only ABOVE bit 3, and
 ; `& 15` keeps bits 0-3, so every nibble comes out true.
 (pub :: symHex16 (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (symHex16 h)
   (let (
     (out (strAlloc 16))

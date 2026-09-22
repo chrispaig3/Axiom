@@ -383,6 +383,7 @@
 ; A one-byte string holding `b`. Needed for the control characters
 ; Axiom's own string syntax cannot spell.
 (:: jsonEscapeFill (-> String String Int))
+;@axiom:effect(unsafe)
 (fn (jsonEscapeFill s out)
   (let (
     (mut k 0)

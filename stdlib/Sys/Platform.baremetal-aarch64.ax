@@ -1,0 +1,549 @@
+; Sys.Platform - bare metal on AArch64 (QEMU's `virt` machine).
+;
+; Selected by the `.baremetal-aarch64.ax` filename suffix when compiling
+; for `--target=baremetal-aarch64`.
+;
+; THIS IS THE THIRD KIND OF PLATFORM MODULE. The POSIX modules are
+; tables of integers and `Sys.ax` makes every kernel call itself; the
+; Windows module answers `usesSyscallAbi` 0 and does the work itself
+; over `extern "kernel32"` bindings. This module answers the same 0
+; and does the work itself over the PL011 UART at 0x09000000 - with no
+; `extern` block at all, because there is nothing on the device that
+; could provide one. `Sys.ax` calls `platformWriteFd`,
+; `platformReadFd` and `platformExitWith` where it would otherwise have
+; called `__syscallN`; what is NOT routed that way (files, processes,
+; sockets, the clock, entropy, signals) reaches its `__syscallN` arm,
+; which the compiler lowers here to a trap (`axiom: no syscall ABI on
+; this target`, status 74) rather than to an `svc` instruction no
+; kernel would answer. Loud, and on purpose - the Windows module's
+; phase-1 shape, with the UART where its console half is.
+;
+; THE DESCRIPTOR CALLS ANSWER `Err` RATHER THAN TRAPPING wherever the
+; answer fits in the type. There is no input device, so a read is
+; ENOSYS; descriptors other than 1 and 2 name nothing, so a write to
+; one is EBADF; there is no clock, so `clockHasMonotonic` is 0 and the
+; monotonic query answers ENOSYS without a syscall. What cannot fit -
+; an `open`, a `fork`, a `socket` - traps through `__syscallN` like
+; its Windows twin.
+;
+; THE WORD-WIDTH AND EFFECT RULES the Windows module states hold with
+; the UART in place of the HANDLEs. Descriptors 1 and 2 are the UART;
+; any other value is refused. None of the three shims claims
+; `effect(io)`, because the walk cannot see a store to a memory-mapped
+; register: `__store8` is `Mut`, not `IO`, and claiming `io` over it
+; is AX3010. The POSIX modules are untagged for the same reason - a
+; constant performs nothing - so this module tags nothing either.
+;
+; `Err` for the `(Result Int Error)` the two descriptor calls answer;
+; acyclic, as the five syscall-ABI files record.
+(import Err)
+
+(pub :: sysRead Int)
+(pub fn (sysRead)
+  0)
+
+(pub :: sysWrite Int)
+(pub fn (sysWrite)
+  0)
+
+(pub :: sysOpen Int)
+(pub fn (sysOpen)
+  0)
+
+(pub :: sysClose Int)
+(pub fn (sysClose)
+  0)
+
+(pub :: sysExit Int)
+(pub fn (sysExit)
+  0)
+
+(pub :: sysLseek Int)
+(pub fn (sysLseek)
+  0)
+
+(pub :: openNeedsDirFd Int)
+(pub fn (openNeedsDirFd)
+  0)
+
+(pub :: atFdCwd Int)
+(pub fn (atFdCwd)
+  0)
+
+(pub :: oRdonly Int)
+(pub fn (oRdonly)
+  0)
+
+(pub :: oWronlyCreateTrunc Int)
+(pub fn (oWronlyCreateTrunc)
+  577)
+
+(pub :: oWronlyCreateAppend Int)
+(pub fn (oWronlyCreateAppend)
+  1089)
+
+(pub :: seekEnd Int)
+(pub fn (seekEnd)
+  2)
+
+(pub :: seekSet Int)
+(pub fn (seekSet)
+  0)
+
+(pub :: spawnUsesPosixSpawn Int)
+(pub fn (spawnUsesPosixSpawn)
+  0)
+
+(pub :: sysFork Int)
+(pub fn (sysFork)
+  0)
+
+(pub :: sysForkArg Int)
+(pub fn (sysForkArg)
+  0)
+
+(pub :: sysExecve Int)
+(pub fn (sysExecve)
+  0)
+
+(pub :: sysWait4 Int)
+(pub fn (sysWait4)
+  0)
+
+(pub :: sysPosixSpawn Int)
+(pub fn (sysPosixSpawn)
+  0)
+
+(pub :: sysUnlinkNum Int)
+(pub fn (sysUnlinkNum)
+  0)
+
+(pub :: sysMkdirNum Int)
+(pub fn (sysMkdirNum)
+  0)
+
+(pub :: sysRmdirNum Int)
+(pub fn (sysRmdirNum)
+  0)
+
+(pub :: sysRenameNum Int)
+(pub fn (sysRenameNum)
+  0)
+
+(pub :: sysGetdentsNum Int)
+(pub fn (sysGetdentsNum)
+  0)
+
+(pub :: dirReadNeedsPosition Int)
+(pub fn (dirReadNeedsPosition)
+  0)
+
+(pub :: direntNameOffset Int)
+(pub fn (direntNameOffset)
+  19)
+
+(pub :: cwdUsesFcntlPath Int)
+(pub fn (cwdUsesFcntlPath)
+  0)
+
+(pub :: sysCwdNum Int)
+(pub fn (sysCwdNum)
+  0)
+
+(pub :: fGetPath Int)
+(pub fn (fGetPath)
+  0)
+
+(pub :: eExist Int)
+(pub fn (eExist)
+  17)
+
+(pub :: eIsDir Int)
+(pub fn (eIsDir)
+  21)
+
+(pub :: sysGetPidNum Int)
+(pub fn (sysGetPidNum)
+  0)
+
+(pub :: sysClockNum Int)
+(pub fn (sysClockNum)
+  0)
+
+(pub :: clockIsGettimeofday Int)
+(pub fn (clockIsGettimeofday)
+  0)
+
+(pub :: clockHasMonotonic Int)
+(pub fn (clockHasMonotonic)
+  0)
+
+(pub :: sysSocketNum Int)
+(pub fn (sysSocketNum)
+  0)
+
+(pub :: sysBindNum Int)
+(pub fn (sysBindNum)
+  0)
+
+(pub :: sysListenNum Int)
+(pub fn (sysListenNum)
+  0)
+
+(pub :: sysAcceptNum Int)
+(pub fn (sysAcceptNum)
+  0)
+
+(pub :: sysConnectNum Int)
+(pub fn (sysConnectNum)
+  0)
+
+(pub :: sysSetSockOptNum Int)
+(pub fn (sysSetSockOptNum)
+  0)
+
+(pub :: sysGetSockOptNum Int)
+(pub fn (sysGetSockOptNum)
+  0)
+
+(pub :: sysShutdownNum Int)
+(pub fn (sysShutdownNum)
+  0)
+
+(pub :: sysFcntlNum Int)
+(pub fn (sysFcntlNum)
+  0)
+
+(pub :: afInet Int)
+(pub fn (afInet)
+  2)
+
+(pub :: afInet6 Int)
+(pub fn (afInet6)
+  10)
+
+(pub :: sockStream Int)
+(pub fn (sockStream)
+  1)
+
+(pub :: solSocket Int)
+(pub fn (solSocket)
+  1)
+
+(pub :: soReuseAddr Int)
+(pub fn (soReuseAddr)
+  2)
+
+(pub :: soReusePort Int)
+(pub fn (soReusePort)
+  15)
+
+(pub :: soError Int)
+(pub fn (soError)
+  4)
+
+(pub :: fGetFl Int)
+(pub fn (fGetFl)
+  3)
+
+(pub :: fSetFl Int)
+(pub fn (fSetFl)
+  4)
+
+(pub :: oNonblock Int)
+(pub fn (oNonblock)
+  2048)
+
+(pub :: eAgain Int)
+(pub fn (eAgain)
+  11)
+
+(pub :: sockaddrHasLenByte Int)
+(pub fn (sockaddrHasLenByte)
+  0)
+
+(pub :: pollUsesKqueue Int)
+(pub fn (pollUsesKqueue)
+  0)
+
+(pub :: sysPollCreateNum Int)
+(pub fn (sysPollCreateNum)
+  0)
+
+(pub :: sysPollWaitNum Int)
+(pub fn (sysPollWaitNum)
+  0)
+
+(pub :: sysPollCtlNum Int)
+(pub fn (sysPollCtlNum)
+  0)
+
+(pub :: pollEventSize Int)
+(pub fn (pollEventSize)
+  12)
+
+(pub :: pollEventFdOffset Int)
+(pub fn (pollEventFdOffset)
+  4)
+
+(pub :: pollReadFilter Int)
+(pub fn (pollReadFilter)
+  1)
+
+(pub :: pollAddOp Int)
+(pub fn (pollAddOp)
+  1)
+
+(pub :: pollDelOp Int)
+(pub fn (pollDelOp)
+  2)
+
+(pub :: pollSigsetSize Int)
+(pub fn (pollSigsetSize)
+  8)
+
+(pub :: sysRandomNum Int)
+(pub fn (sysRandomNum)
+  0)
+
+(pub :: randomIsGetentropy Int)
+(pub fn (randomIsGetentropy)
+  0)
+
+(pub :: randomMaxChunk Int)
+(pub fn (randomMaxChunk)
+  256)
+
+(pub :: signalUsesSignalFd Int)
+(pub fn (signalUsesSignalFd)
+  1)
+
+(pub :: sysSigProcMaskNum Int)
+(pub fn (sysSigProcMaskNum)
+  0)
+
+(pub :: sigBlockHow Int)
+(pub fn (sigBlockHow)
+  0)
+
+(pub :: sigsetBytes Int)
+(pub fn (sigsetBytes)
+  8)
+
+(pub :: sysSignalFdNum Int)
+(pub fn (sysSignalFdNum)
+  0)
+
+(pub :: sigInfoSize Int)
+(pub fn (sigInfoSize)
+  128)
+
+(pub :: pollSignalFilter Int)
+(pub fn (pollSignalFilter)
+  0)
+
+(pub :: sysKillNum Int)
+(pub fn (sysKillNum)
+  0)
+
+(pub :: sigTerm Int)
+(pub fn (sigTerm)
+  15)
+
+(pub :: sigInt Int)
+(pub fn (sigInt)
+  2)
+
+(pub :: forkChildIsZero Int)
+(pub fn (forkChildIsZero)
+  1)
+
+(pub :: acceptNonblockFlag Int)
+(pub fn (acceptNonblockFlag)
+  2048)
+
+; ------------------------------------------------------------------
+; The capability, and the UART behind it.
+; ------------------------------------------------------------------
+(pub :: usesSyscallAbi Int)
+(pub fn (usesSyscallAbi)
+  0)
+
+; PL011 UART0's data register on QEMU's `virt` machine: one store here
+; is one byte on the host's stdio. Not `pub`: the raw addresses stay
+; inside this file, so the public surface of every platform module is
+; one set of names (`check-stdlib-api.sh`), and this address is this
+; target's alone. 2415919104 is 0x09000000.
+(:: uartBase Int)
+(fn (uartBase)
+  2415919104)
+
+; Store `count` bytes from `buf` to the UART, one `__store8` per byte.
+; Iterative: a loop that recursed would stand `count` frames deep, and
+; the stack on-device is 8 KiB of `.bss`. Each store is separated from
+; the next by a load through the caller's own pointer, which LLVM must
+; assume may alias the UART - that load is what keeps the stores
+; ordered and unmerged at every opt level. The trap path does not rely
+; on this argument: its helper is IR the emitter writes directly
+; (`emitBaremetalRuntime`), with volatile stores.
+(:: uartWriteLoop (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (uartWriteLoop buf count)
+  (let (
+    (u (uartBase))
+    (mut i 0)
+  )
+    {
+      (while (< i count)
+        {
+          (__store8 u 0 (__load8 buf i))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; write(fd, buf, count): `Ok` bytes written. Descriptors 1 and 2 are
+; the UART and a store there cannot fail, so the answer is always the
+; whole count; any other descriptor names nothing and is EBADF (9).
+(pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
+(pub fn (platformWriteFd fd buf count)
+  (if (|| (== fd 1) (== fd 2))
+    {
+      (uartWriteLoop buf count)
+      (Ok count)
+    }
+    (Err (mkError 9 "platformWriteFd"))))
+
+; read(fd, buf, count): ENOSYS (78), always. There is no input device
+; on the reference machine - no keyboard, no pipe, no semihosting
+; console - so there are no bytes to answer and no end of file to
+; report. The spelling is the one `sysNowMonotonic` uses for "this
+; platform cannot answer".
+(pub :: platformReadFd (-> Int Int Int (Result Int Error)))
+(pub fn (platformReadFd fd buf count)
+  (Err (mkError 78 "platformReadFd")))
+
+; exit(code): park the core. There is no supervisor to return a status
+; to mid-program - semihosting SYS_EXIT is an `hlt` sequence no Axiom
+; form emits - so this polls the UART forever and never answers. The
+; call in the loop is what keeps it a loop: LLVM may delete an empty
+; spin, and it may not delete a call. Returning from `main` is the
+; exit path; the reset vector reports that status.
+(pub :: platformExitWith (-> Int Int))
+(pub fn (platformExitWith code)
+  (uartPark code))
+
+(:: uartPark (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (uartPark code)
+  (let ((u (uartBase)))
+    (while true
+      (__load8 u 0))))
+
+; ------------------------------------------------------------------
+; The clock id `Sys.ax` hands to clock_gettime. A target with no
+; syscall ABI has no clock_gettime and no syscall table; `Sys.ax` asks `usesSyscallAbi`
+; before it reaches the `__syscall3` that would take this id, so the
+; value is never read on this target. It is declared because every
+; platform module declares one public surface (`check-stdlib-api.sh`),
+; and 0 is the answer that would be wrong loudest if it ever were read.
+; ------------------------------------------------------------------
+(pub :: clockMonotonicId Int)
+(pub fn (clockMonotonicId)
+  0)
+
+; --------------------------------------------------------------------
+; Terminals - UNIMPLEMENTED HERE, AND THAT IS THE ANSWER, NOT A GAP
+; SOMEBODY FORGOT.
+;
+; There is no terminal on the reference machine: no keyboard, no pty,
+; no window, only the UART's one-way bytes. So this module answers
+; `ttyUsesTermios` 0 and `Sys.ax` takes the branch that reports "not
+; supported on this target" - `sysIsatty` answers false, the raw-mode
+; pair answers -ENOSYS. The same shape as `clockHasMonotonic` here,
+; where the honest ENOSYS was preferred to a clock that does not run.
+;
+; The eighteen names below are 0 for the reason `clockMonotonicId` is:
+; every platform module declares one public surface
+; (`check-stdlib-api.sh`), and `ttyUsesTermios` 0 keeps every one of
+; them unread.
+; --------------------------------------------------------------------
+(pub :: ttyUsesTermios Int)
+(pub fn (ttyUsesTermios)
+  0)
+
+(pub :: sysIoctlNum Int)
+(pub fn (sysIoctlNum)
+  0)
+
+(pub :: tcGetAttrReq Int)
+(pub fn (tcGetAttrReq)
+  0)
+
+(pub :: tcSetAttrReq Int)
+(pub fn (tcSetAttrReq)
+  0)
+
+(pub :: tcWinSizeReq Int)
+(pub fn (tcWinSizeReq)
+  0)
+
+; 0 rather than a plausible size. `Sys.ax` allocates this many bytes
+; for a saved terminal state, and a caller that reached here would get
+; a zero-length buffer and the "unsupported" answer, not a short one it
+; could half-fill.
+(pub :: termiosBytes Int)
+(pub fn (termiosBytes)
+  0)
+
+(pub :: termiosFlagBytes Int)
+(pub fn (termiosFlagBytes)
+  0)
+
+(pub :: termiosCcOff Int)
+(pub fn (termiosCcOff)
+  0)
+
+(pub :: termiosVminIdx Int)
+(pub fn (termiosVminIdx)
+  0)
+
+(pub :: termiosVtimeIdx Int)
+(pub fn (termiosVtimeIdx)
+  0)
+
+(pub :: tiosEcho Int)
+(pub fn (tiosEcho)
+  0)
+
+(pub :: tiosIcanon Int)
+(pub fn (tiosIcanon)
+  0)
+
+(pub :: tiosIsig Int)
+(pub fn (tiosIsig)
+  0)
+
+(pub :: tiosIexten Int)
+(pub fn (tiosIexten)
+  0)
+
+(pub :: tiosBrkint Int)
+(pub fn (tiosBrkint)
+  0)
+
+(pub :: tiosIcrnl Int)
+(pub fn (tiosIcrnl)
+  0)
+
+(pub :: tiosIstrip Int)
+(pub fn (tiosIstrip)
+  0)
+
+(pub :: tiosIxon Int)
+(pub fn (tiosIxon)
+  0)
+
+(pub :: tiosOpost Int)
+(pub fn (tiosOpost)
+  0)

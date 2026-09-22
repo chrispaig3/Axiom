@@ -114,11 +114,11 @@
     (let (
       (skipTotal (cast Int (handle
         (sumRecords n k)
-        (Fallible Alloc Mut)
+        (Fallible Alloc Mut Unsafe)
         (fallibleCounting tally fallibleSkip))))
       (defaultTotal (cast Int (handle
         (sumRecords n k)
-        (Fallible Alloc Mut)
+        (Fallible Alloc Mut Unsafe)
         (fallibleDefault 1))))
       (malformed (fallibleCount tally))
     )

@@ -50,7 +50,8 @@ ABLATIONS = {
     # Every target answers 4 KiB, so the supported targets stop emitting
     # the allocator they have always emitted.
     "chunk": (
-        "(pub fn (targetArenaChunkBytes t) 1048576)",
+        """(pub fn (targetArenaChunkBytes t)
+  1048576)""",
         "(pub fn (targetArenaChunkBytes t) 4096)",
         "A1 - the supported targets' emitted chunk",
     ),
@@ -76,9 +77,7 @@ ABLATIONS = {
         """(pub fn (targetArenaGrainBytes t)
   (if (< (targetArenaChunkBytes t) 65536)
     (targetArenaChunkBytes t)
-    65536
-  )
-)""",
+    65536))""",
         """(pub fn (targetArenaGrainBytes t) 65536)""",
         "A4 - the grain moving with the chunk",
     ),
@@ -93,10 +92,10 @@ ABLATIONS = {
     "strategy": (
         """  (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
     (emitArenaCarve cg sizeExpr)
-  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
+    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
         """  (if (> (arenaStaticBytes (memGetWord cg 26)) 999999999999)
     (emitArenaCarve cg sizeExpr)
-  (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
+    (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)""",
         "A5 - the emitted program containing one strategy and not the other",
     ),
     # The carve never advances its cursor, so every chunk is the same
@@ -120,7 +119,8 @@ ABLATIONS = {
     # `effect(io)` tag would fail the build on AX3010 instead - red
     # for the wrong reason, hiding whether A7 can fail.
     "ceiling": (
-        """(pub fn (heapCeilingBytes) (ceilingScan 1))""",
+        """(pub fn (heapCeilingBytes)
+  (ceilingScan 1))""",
         """(pub fn (heapCeilingBytes) (if (argHas "--never-a-flag" 1) 1 0))""",
         "A7 - the flag reaching the emitter at all",
     ),
@@ -136,7 +136,8 @@ ABLATIONS = {
     # Every target is silent, so the supported targets stop emitting
     # the trap writes they have always emitted. Aims at A8.
     "allsilent": (
-        "(pub fn (targetTrapSilent t) 0)",
+        """(pub fn (targetTrapSilent t)
+  0)""",
         "(pub fn (targetTrapSilent t) 1)",
         "A8 - the supported targets' emitted trap writes",
     ),
@@ -144,7 +145,7 @@ ABLATIONS = {
 
 
 def replace_defn(src, name, newline, label):
-    """Replace a one-line `(pub fn (<name> t) ...)` outright.
+    """Replace a target-table row outright, in either of its two shapes.
 
     ANCHORED ON THE HEADER, NOT ON THE VALUE, and that is not tidiness.
     The `chunk` ablation rewrites `targetArenaChunkBytes`'s body to
@@ -154,16 +155,33 @@ def replace_defn(src, name, newline, label):
     drill HAD applied; it was the variant that could not. Anchoring on
     the header makes the two independent, which is what lets a drill
     that changes this row still be drilled.
+
+    The two shapes are the normal form's two lines - the header on its
+    own line, the body under it - and the one-line form a drill leaves
+    behind when it rewrote the row first. Anything else is a row that
+    grew, which needs re-anchoring: the two-line arm refuses a body
+    that does not end the definition, so a longer row fails here
+    rather than leaving its tail behind in the scratch tree.
     """
-    prefix = "(pub fn (%s t) " % name
+    header = "(pub fn (%s t)" % name
     lines = src.split("\n")
-    hits = [i for i, l in enumerate(lines) if l.startswith(prefix)]
+    hits = [i for i, l in enumerate(lines)
+            if l == header or l.startswith(header + " ")]
     if len(hits) != 1:
-        die("%s did not apply - %d lines begin `%s`, not one.\n"
-            "       This edit replaces a ONE-LINE definition; if that row has "
-            "grown\n       a multi-line body, re-anchor it rather than "
-            "loosening the match." % (label, len(hits), prefix))
-    lines[hits[0]] = newline
+        die("%s did not apply - %d lines open `%s`, not one.\n"
+            "       This edit replaces the row's two-line normal form or the\n"
+            "       one-line form a drill leaves behind; anything else is a\n"
+            "       row that grew, which needs re-anchoring rather than a\n"
+            "       looser match." % (label, len(hits), header))
+    i = hits[0]
+    if lines[i] == header:
+        if i + 1 >= len(lines) or not lines[i + 1].endswith(")"):
+            die("%s did not apply - the line under `%s` is not the row's body.\n"
+                "       A row that grew past two lines needs re-anchoring."
+                % (label, header))
+        lines[i:i + 2] = [newline]
+    else:
+        lines[i] = newline
     return "\n".join(lines)
 
 

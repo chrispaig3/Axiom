@@ -873,6 +873,7 @@
 ; at or above 128 are left alone: a UTF-8 file name is legal in a Rust
 ; comment and is not an escape.
 (pub :: rbCommentSafe (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (rbCommentSafe s)
   (let (
     (n (strLen s))
@@ -1680,6 +1681,7 @@
 ; the emitted set, neither of which exists yet; the `-` arm is left
 ; here as the start of that work, not as a licence to open the gate.
 (pub :: rbSnake (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (rbSnake s)
   (let (
     (out (strAlloc (* 2 (strLen s))))

@@ -4,7 +4,7 @@
 [1;34m40 |[0m (effect IO
 [1;34m   |[0m         [1;31m^^ `IO` is a built-in effect[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mchoose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, and `alloc` is a second spelling of one of them
+  [1;34m = [0m[1;32mhelp: [0mchoose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, and `alloc` is a second spelling of one of them
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3054` for a full explanation
 
 [1;31merror[AX3054][0m[1m: `alloc` names a built-in effect, and an effect declared with that name can never be handled: a handle list naming it reads as the built-in[0m
@@ -13,7 +13,7 @@
 [1;34m43 |[0m (effect alloc
 [1;34m   |[0m         [1;31m^^^^^ `alloc` is a built-in effect[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0mchoose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut` and `Div`, and `alloc` is a second spelling of one of them
+  [1;34m = [0m[1;32mhelp: [0mchoose another name - the built-in effect names are `IO`, `Pure`, `Alloc`, `Mut`, `Div` and `Unsafe`, and `alloc` is a second spelling of one of them
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3054` for a full explanation
 
 [1;31merror[AX3016][0m[1m: unknown effect `Err`[0m

@@ -409,6 +409,7 @@
 ; caller that must refuse one compares the answer with the input. Also
 ; answers `s` itself when there is nothing to decode.
 (pub :: httpDecode (-> String Bool String))
+;@axiom:effect(unsafe)
 (pub fn (httpDecode s plusSpace)
   (let (
     (len (strLen s))

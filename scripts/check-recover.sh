@@ -319,7 +319,7 @@ emit_abort_loop() {
       (memAlloc 4096)
       (log "inner")
       $bottom
-    }    (Console Alloc)    (lambda (s) 0)
+    }    (Console Alloc Unsafe)    (lambda (s) 0)
   )
 )
 
@@ -345,7 +345,7 @@ emit_abort_loop() {
         (println "{t}")
         0
       }
-    )    (Console Alloc IO Mut)    (lambda (s) 0)
+    )    (Console Alloc IO Mut Unsafe)    (lambda (s) 0)
   )
 )
 PROBE

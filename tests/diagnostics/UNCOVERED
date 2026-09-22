@@ -12,7 +12,7 @@
 # to be discovered. It is compared as a SET, not a count: an eleventh
 # code without a primary fixture fails the gate, and closing a hole is
 # this file losing a line and `tests/diagnostics/` gaining a fixture.
-# Measured 2026-09-21: 86 constructed, 76 with a primary golden.
+# Measured 2026-09-22: 87 constructed, 77 with a primary golden.
 #
 # Each entry names the construction site, why no `.axdl` fixture pins
 # it, and what DOES cover the path today (a different suite, or

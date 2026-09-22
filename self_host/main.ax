@@ -2005,6 +2005,7 @@
 ; and this takes an offset into any string; the same three lines, but
 ; importing render here for it would be a cycle through diag.)
 (pub :: explainNormalize (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (explainNormalize s)
   (let (
     (mut a 0)

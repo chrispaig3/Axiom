@@ -305,8 +305,15 @@ fi
 # missing from it and a trait implementation typed at the prompt was
 # read as an application.
 # ---------------------------------------------------------------------
+# 2026-09-21: the range used to end at the first bare-`)` line, which
+# worked while `isDeclLine`'s body closed on its own line. The
+# formatter's normal form has since joined it, so the range ran past
+# the boolean into `replDispatch`'s command arms - words the copy must
+# never hold, since they are not declaration heads - and the gate
+# compared 31 words against 12. The range now ends at the head block's
+# blank line, which is what the copy has always been a copy of.
 heads_of() {  # <file> <function name> -> the quoted words, sorted
-  sed -n "/pub fn ($2 /,/^)/p" "$1" \
+  sed -n "/pub fn ($2 /,/^$/p" "$1" \
     | grep -o '(strEq [a-z]* "[^"]*")' \
     | sed 's/.*"\(.*\)".*/\1/' \
     | LC_ALL=C sort

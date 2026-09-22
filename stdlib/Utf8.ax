@@ -241,6 +241,7 @@
 ; A freshly allocated `Str` holding `cp` alone.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: utf8FromChar (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (utf8FromChar cp0)
   (let (
     (cp (utf8Encodable cp0))

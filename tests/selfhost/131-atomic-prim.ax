@@ -34,6 +34,7 @@
     0))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (__alloc 16)))
     {

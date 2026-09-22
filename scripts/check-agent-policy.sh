@@ -45,6 +45,13 @@
 #      that starts allocating is still visible - it is only the
 #      author-claim requirement that is scoped.
 #
+#      `Unsafe` stays out of this check for the opposite reason: it IS
+#      required, but lexically (`AX3073`), and a row cannot show whether
+#      the primitive is called HERE or inherited from a callee - so an
+#      agreement check on rows would demand tags of transitive callers
+#      the design deliberately exempts. The compiler enforces the
+#      lexical half itself, at error severity, over this same library.
+#
 #   3. COMPLETENESS. No stdlib declaration may carry the
 #      `#effects-incomplete` meta.
 #
@@ -712,9 +719,12 @@ prim_case() {  # <name> <call> <wanted effect>
   fi
 }
 failed_prim=0
-prim_case "__alloc"                     "(__alloc n)"                          "Alloc"
-prim_case "__store64"                   "(__store64 n 0 42)"                   "Mut"
-prim_case "__store8"                    "(__store8 n 0 42)"                    "Mut"
+# Corrected 2026-09-21: `Unsafe` inference joined the rows, so the
+# raw-memory primitives report it alongside what they already did -
+# `__alloc` performs Alloc AND Unsafe, the stores Mut AND Unsafe.
+prim_case "__alloc"                     "(__alloc n)"                          "Alloc,Unsafe"
+prim_case "__store64"                   "(__store64 n 0 42)"                   "Mut,Unsafe"
+prim_case "__store8"                    "(__store8 n 0 42)"                    "Mut,Unsafe"
 prim_case "__argc"                      "(__argc)"                             "IO"
 prim_case "__argv"                      "(__argv n)"                           "IO"
 prim_case "__axiom_arena_mark"          "(__axiom_arena_mark)"                 "Alloc"
@@ -739,17 +749,22 @@ prim_case "__par_spawn"                 "(__par_spawn (lambda (x) x) n)"       "
 prim_case "__par_join"                  "(__par_join n)"                       "IO"
 prim_case "__thread_spawn"              "(__thread_spawn (lambda (x) x) n)"    "IO"
 prim_case "__proc_join"                 "(__proc_join n)"                      "IO"
-# THE CONTROLS, and they are what make the eight above mean anything. A
+# THE CONTROLS, and they are what make the rows above mean anything. A
 # registration that gave EVERY primitive an effect would satisfy all of
-# them and destroy the discrimination the whole mechanism is for. These
-# two compute, they are spelled exactly like the ones above, and they
-# must report nothing.
-prim_case "__load64 (control)"          "(__load64 n 0)"                       ""
-prim_case "__load8 (control)"           "(__load8 n 0)"                        ""
-# `__atomic_load` is the control among the atomics: it reads a word as
-# `__load64` does, and the atomic spelling changes the instruction's
-# ordering, not what the function performs. It must stay silent, or
-# the four above are measuring the prefix `__atomic` and not the write.
+# them and destroy the discrimination the whole mechanism is for. The
+# loads used to be two of these - spelled exactly like the reporting
+# primitives and silent - until `Unsafe` inference gave raw reads their
+# own effect (2026-09-21): `__load64` and `__load8` now report it.
+# What stays silent is still selective: the ordered atomic load and the
+# runtime's own retain/release bookkeeping, below.
+prim_case "__load64 (control)"          "(__load64 n 0)"                       "Unsafe"
+prim_case "__load8 (control)"           "(__load8 n 0)"                        "Unsafe"
+# `__atomic_load` is the control among the atomics. It stays silent
+# while the plain `__load64` reports `Unsafe`: the `Unsafe`
+# registration covers the six raw spellings and nothing else, and an
+# effect on every primitive would make these controls agree with
+# anything. It must stay silent, or the four above are measuring the
+# prefix `__atomic` and not the write.
 prim_case "__atomic_load (control)"     "(__atomic_load n)"                    ""
 # And `__retain`/`__release` are the deliberate omission `MM-EXEC-9a`
 # names: their writes are the runtime's own bookkeeping, and giving them

@@ -51,6 +51,7 @@
     0))
 
 (:: cnt (-> String Int))
+;@axiom:effect(unsafe)
 (fn (cnt s)
   (__load64
     (-

@@ -1,7 +1,7 @@
 [1;31merror[AX3072][0m[1m: `__addr` answers a literal's bytes: a non-literal argument has no interned bytes, and the address it yields is the value's header, not its text[0m
- [1;34m--> [0m1003-addr-nonliteral.ax:6:13
+ [1;34m--> [0m1003-addr-nonliteral.ax:9:13
 [1;34m  |[0m
-[1;34m6 |[0m     (__addr s)))
+[1;34m9 |[0m     (__addr s)))
 [1;34m  |[0m             [1;31m^ not a literal[0m
 [1;34m  |[0m
  [1;34m = [0m[1mnote: [0mthe emitter evaluates a non-literal like any expression, so what comes back is an address the caller never asked for
