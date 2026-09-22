@@ -399,18 +399,21 @@ The deliverable is four files and a gate:
    document mentions, and it refused two spellings of this line before
    the descriptive one. A document may not name a file that does not
    exist; now that they do, they are named.)
-5. `scripts/check-embedded.sh`, A10 — the QEMU half, which EXISTS now
-   and waits on items 1-3. It builds the fixtures above for
-   `baremetal-aarch64`, boots each under `qemu-system-aarch64 -machine
-   virt -nographic`, and asserts the exact bytes on the UART and the
-   exit status: blink's UART must equal its hosted stdout byte for byte
-   at exit 0, and the oversized twin must exit with the status
+5. `scripts/check-embedded.sh`, A10 — the QEMU half. Items 1-3
+   landed on 2026-09-22 (target-table row, `Platform` module,
+   `ld.lld` link with a generated script, `_start` reset vector, and
+   the one-line `Host` module), so the leg runs: it builds the
+   fixtures above for `baremetal-aarch64`, boots each under
+   `qemu-system-aarch64 -machine virt -nographic`, and asserts the
+   exact bytes on the UART and the exit status: blink's UART must
+   equal its hosted stdout byte for byte at exit 0, and the
+   oversized twin must exit with the status
    `tests/stdlib/314-out-of-memory.exit` pins against a control that
    exits 0. The guest's status reaches the process through a
    semihosting SYS_EXIT (`hlt #0xf000`, x0 = 0x18, reason 0x20026 and
    the status in two 64-bit words), which is the exit contract the
-   port's item 3 implements. Until the target exists the leg skips
-   loudly on the probe, as it does where QEMU is not installed.
+   port's item 3 implements. Where QEMU is not installed the leg
+   skips loudly on the probe.
 
 ## 7. Out of scope, deliberately
 
@@ -440,7 +443,7 @@ A row is done when the gate named beside it is green in CI.
 | 4.5 | ISR entry form | `check-isr.sh` | **done** |
 | 4.6 | static stack bound from the call graph | `check-stack-bound.sh` | **done** |
 | 4.7 | bounded heaps on hosted targets | `check-embedded.sh` (A7, `ceiling` ablation) | **done** |
-| 6 | the QEMU reference port | `check-embedded.sh` (A10) | fixture + leg landed, port pending |
+| 6 | the QEMU reference port | `check-embedded.sh` (A10) | **done** |
 
 **4.6 was done first**, for the reason it was ranked first: every other
 item is mechanical once the constants move, while the stack bound is the
