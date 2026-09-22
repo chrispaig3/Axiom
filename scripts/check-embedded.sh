@@ -156,12 +156,13 @@
 #             targets stop emitting their trap writes      -> A8
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
-# discovered: the port itself. There is no bare-metal TARGET in the
-# tree yet - no triple, no `Sys/Platform.baremetal-*.ax`, no linker
-# script - so A10's device leg skips until section 6's items 1-3 land.
-# What it establishes once they do is the device half: the UART bytes,
-# the exit status, and the 70. 4.4 and 4.5 are done under their own
-# gates (`check-nostd-subset.sh`, `check-isr.sh`).
+# discovered: the board itself. The bare-metal TARGET is in the tree -
+# triple, `Sys/Platform.baremetal-aarch64.ax`, linker script - and
+# A10 boots it under QEMU, UART bytes, exit status and the 70 all
+# asserted - but `qemu-system-aarch64 -machine virt` is an emulator
+# and not hardware, and where it is not on PATH the leg skips loudly.
+# 4.4 and 4.5 are done under their own gates
+# (`check-nostd-subset.sh`, `check-isr.sh`).
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
@@ -287,11 +288,16 @@ for name, code in re.findall(r'\(strEq name "([a-z0-9_-]+)"\)\s*\n\s*(\d+)', bod
 PY
 )"
 n_codes=$(printf '%s\n' "$codes_raw" | grep -c . || true)
-if (( n_codes != 7 )); then
-  abort "read $n_codes target codes out of targetCode, expected 7 - the parse broke,
+if (( n_codes != 8 )); then
+  abort "read $n_codes target codes out of targetCode, expected 8 - the parse broke,
        and every assertion below is written in terms of those codes."
 fi
 code_of() { printf '%s\n' "$codes_raw" | awk -v n="$1" '$1==n{print $2}'; }
+# The eighth code is the bare-metal port's, and it is pinned here: the
+# seven loops below still cover the supported hosted targets only, so a
+# bare-metal row that moved a hosted target's bytes would pass them all.
+[[ "$(code_of baremetal-aarch64)" == "7" ]] \
+  || abort "baremetal-aarch64 is not code 7 in targetCode"
 
 # The host, so that A6 can LINK AND RUN what A5 emits.
 case "$(uname -s)" in
