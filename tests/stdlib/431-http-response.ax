@@ -54,7 +54,7 @@
     ((Ok fd)
       {
         (httpRespond fd status ctype body)
-        (sysCloseFd fd)
+        (let ((_ (sysCloseFd fd))) 0)
         (sysReadFile (__addr "resp.tmp"))
       }
     )))
@@ -68,7 +68,7 @@
     ((Ok fd)
       {
         (httpFail fd status why)
-        (sysCloseFd fd)
+        (let ((_ (sysCloseFd fd))) 0)
         (sysReadFile (__addr "fail.tmp"))
       }
     )))

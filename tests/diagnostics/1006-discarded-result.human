@@ -1,0 +1,32 @@
+[1;33mwarning[AX3046][0m[1m: a `Result` is discarded here, in statement position[0m
+  [1;34m--> [0m1006-discarded-result.ax:29:6
+[1;34m   |[0m
+[1;34m29 |[0m     (dropIt 1)
+[1;34m   |[0m      [1;33m^^^^^^ unused `Result`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mmatch on it, propagate it with `try!`, or bind it to `_` if the discard is deliberate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3046` for a full explanation
+
+[1;33mwarning[AX3046][0m[1m: a `Result` is discarded here, in statement position[0m
+  [1;34m--> [0m1006-discarded-result.ax:31:8
+[1;34m   |[0m
+[1;34m31 |[0m       (closeIt x))
+[1;34m   |[0m        [1;33m^^^^^^^ unused `Result`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mmatch on it, propagate it with `try!`, or bind it to `_` if the discard is deliberate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3046` for a full explanation
+
+[1;33mwarning[AX3046][0m[1m: a `Result` is discarded here, in statement position[0m
+  [1;34m--> [0m1006-discarded-result.ax:32:6
+[1;34m   |[0m
+[1;34m32 |[0m     (prop v (dropIt 2) (Ok v))
+[1;34m   |[0m      [1;33m^^^^ unused `Result`[0m
+[1;34m   |[0m
+  [1;34m--> [0m1006-discarded-result.ax:12:9
+[1;34m   |[0m
+[1;34m12 |[0m (macro (prop v e body) (match e
+[1;34m   |[0m         [1;36m^^^^ in this expansion of `prop`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mmatch on it, propagate it with `try!`, or bind it to `_` if the discard is deliberate
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3046` for a full explanation
+

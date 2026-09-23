@@ -208,3 +208,13 @@ AX3053
 #          arm-tail rewrite the help names
 #          (`docs/error-model.md` ERR-PROP-3/4).
 AX3045
+# AX3046 `discarded-result` - a `Result`-typed expression in statement
+#          position, its value unused. A warning by DESIGN, like the
+#          three above: a deliberate discard - a close error ignored,
+#          an option set best-effort - is correct, and an error would
+#          refuse it alongside the accidents. The deliberate spelling
+#          is a wildcard binding: `(let ((_ (sysCloseFd fd))) 0)` reads
+#          the discard, and the warning stays off it. Ten such
+#          spellings in `stdlib/Sys.ax` are the evidence the exemption
+#          is real rather than hoped for.
+AX3046

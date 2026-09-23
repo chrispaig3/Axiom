@@ -12,7 +12,7 @@
       ((Ok fd)
         {
           (writeStr fd "line one\nline two\n")
-          (sysCloseFd fd)
+          (let ((_ (sysCloseFd fd))) 0)
           (let ((contents (readFileLit path)))
             {
               (println (strLen contents))

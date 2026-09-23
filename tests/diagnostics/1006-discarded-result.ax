@@ -1,0 +1,42 @@
+; A `Result` answered where no one reads it. AX3046.
+; One warning per discarded statement, on the call: `dropIt` bare,
+; the `closeIt` tail of a `let` (the binder is not the value), and a
+; macro expanding to a match answering a `Result` (the rule reads the
+; expanded shape, backtrace and all - the macro is local so the frame
+; stays in this file, as `try!`'s would not).
+; Matching the answer, binding it to `_`, answering a non-`Result`,
+; and a single-item block tail draw nothing: the first two read it,
+; the third is not one, and the fourth flows onward.
+(import Err)
+
+(macro (prop v e body) (match e
+  ((Err er) (Err er))
+  ((Ok v) body)))
+
+(:: dropIt (-> Int (Result Int Error)))
+(fn (dropIt fd)
+  (if (< fd 0)
+    (Err (mkError 1 "bad"))
+    (Ok fd)))
+
+(:: closeIt (-> Int (Result Int Error)))
+(fn (closeIt fd)
+  (dropIt fd))
+
+(:: main Int)
+(fn (main)
+  {
+    (dropIt 1)
+    (let ((x 1))
+      (closeIt x))
+    (prop v (dropIt 2) (Ok v))
+    (let ((_ (dropIt 3))) 0)
+    (match (dropIt 4)
+      ((Ok v) v)
+      ((Err _) 0))
+    (let ((r { (dropIt 5) }))
+      (match r
+        ((Ok v) v)
+        ((Err _) 0)))
+    0
+  })

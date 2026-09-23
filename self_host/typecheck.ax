@@ -7690,7 +7690,72 @@
   (if (>= i (vecLen v))
     last
     (let ((t (checkExprH tc (vecGet v i) 0)))
-      (checkExprSeq tc v (+ i 1) t))))
+      {
+        ; ERR-DIAG-2: a `Result` answered where no one reads it. Every
+        ; arm after this one runs whatever this one answered - which,
+        ; for a `Result`, is nothing: an `Err` here vanishes as
+        ; silently as a right answer. Only block sequences reach this
+        ; walk (`{ }` bodies and `while` bodies), which is exactly the
+        ; statement position the rule names; an `if` or `match` arm
+        ; answering a `Result` answers its whole `if` or `match`, and
+        ; what that answers is its own position's question.
+        (if (&& (< i (- (vecLen v) 1)) (== (isDiscardedResultTy t) 1))
+          (emitDiscardedResult tc (vecGet v i))
+          0)
+        (checkExprSeq tc v (+ i 1) t)
+      })))
+
+; A type that is nominally a `Result` and known - not a poisoned
+; unknown, which a diagnostic elsewhere already owns, and not a
+; variable, which may instantiate to anything.
+(pub :: isDiscardedResultTy (-> Int Int))
+(pub fn (isDiscardedResultTy t)
+  (if (|| (== t 0) (== (tyIsErr t) 1))
+    0
+    (if (!= (nodeTag t) TAG_T_CON)
+      0
+      (if (strEq (bareOf (nodeAName t)) "Result")
+        1
+        0))))
+
+; The span a discarded `Result` is reported at: through `let`
+; binders - whose span names the binder, not the value - to the tail
+; expression that answers it. Anything else anchors where it stands.
+; A descent that lands nowhere (a spanless tail) answers 0, and the
+; caller falls back to the statement's own span rather than going
+; quiet: the discard is real wherever it is pointed.
+(pub :: discardSpanOf (-> Int Int))
+(pub fn (discardSpanOf e)
+  (if (== e 0)
+    0
+    (let ((tg (nodeTag e)))
+      (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+        (let ((b (nodeC e)))
+          (if (== b 0)
+            (nodeSpan e)
+            (if (== (nodeTag b) TAG_E_BEGIN)
+              (let ((v (nodeAVec b)))
+                (if (== (vecLen v) 0)
+                  (nodeSpan e)
+                  (discardSpanOf (vecGet v (- (vecLen v) 1)))))
+              (discardSpanOf b))))
+        (nodeSpan e)))))
+
+(pub :: emitDiscardedResult (-> Int Int Int))
+(pub fn (emitDiscardedResult tc e)
+  (let ((sp (discardSpanOf e)))
+    (let ((at (if (== sp 0) (nodeSpan e) sp)))
+      (if (== at 0)
+        0
+        (emitDiag tc (diagSetLabel (mkDiag
+          SEV_WARNING
+          "AX3046"
+          "discarded-result"
+          at
+          "a `Result` is discarded here, in statement position"
+          0
+          ""
+          "match on it, propagate it with `try!`, or bind it to `_` if the discard is deliberate") "unused `Result`"))))))
 
 ; A condition must be Bool. Skipped when the condition is already
 ; poisoned; a wildcard passes through tyCompat.

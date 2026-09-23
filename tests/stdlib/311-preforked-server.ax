@@ -144,7 +144,7 @@
                                             ; other mode rather than
                                             ; reading and hoping.
                                             {
-                                              (netSetBlocking con)
+                                              (let ((_ (netSetBlocking con))) 0)
                                               (if (==
                                                 (match (sysReadFd con byte 1)
                                                   ((Ok k) k)
@@ -152,13 +152,13 @@
                                                 1)
                                                 (sysWriteAllFd con byte 1 0)
                                                 0)
-                                              (sysCloseFd con)
+                                              (let ((_ (sysCloseFd con))) 0)
                                               (set served (+ served 1))
                                             }))
                                       ))
                                     (set e (+ e 1))
                                   }))))))
-                      (sysCloseFd pfd)
+                      (let ((_ (sysCloseFd pfd))) 0)
                       served
                     }))
               ))))))))
@@ -178,12 +178,12 @@
               ((Err e) (die "socket() failed" 1))
               ((Ok lsn)
                 {
-                  (netSetOptInt
+                  (let ((_ (netSetOptInt
                     lsn
                     solSocket
                     soReuseAddr
                     1
-                    optb)
+                    optb))) 0)
                   (netAddr4
                     addr
                     port
@@ -194,12 +194,12 @@
                   (match (netBind lsn addr)
                     ((Err e) (die (strConcat "bind failed: errno=" (fmtInt (errCode e))) 1))
                     ((Ok _) 0))
-                  (netListen lsn 128)
-                  (netSetNonBlocking lsn)
+                  (let ((_ (netListen lsn 128))) 0)
+                  (let ((_ (netSetNonBlocking lsn))) 0)
                   ; Block BEFORE forking so every worker inherits the mask
                   ; and none of them can be killed by the shutdown signal
                   ; before it has installed its watch.
-                  (sysSignalBlock (sysSigBit sigTerm) setbuf)
+                  (let ((_ (sysSignalBlock (sysSigBit sigTerm) setbuf))) 0)
                   ; A child NEVER returns from here: it serves and exits,
                   ; or it would fall through and become a second copy of
                   ; this test.
@@ -272,7 +272,7 @@
                                             0
                                           }
                                           {
-                                            (sysCloseFd c)
+                                            (let ((_ (sysCloseFd c))) 0)
                                             0
                                           })
                                         (set sent (+ sent 1))
@@ -293,7 +293,7 @@
                                               (set good (+ good 1))
                                               0)
                                             0)
-                                          (sysCloseFd c)
+                                          (let ((_ (sysCloseFd c))) 0)
                                         })
                                       (set j (+ j 1))
                                     }))
@@ -304,13 +304,13 @@
                             0)
                           "every connection was echoed correctly")
                       }))
-                  (sysCloseFd lsn)
+                  (let ((_ (sysCloseFd lsn))) 0)
                   ; Say stop, once per worker, and only after every answer
                   ; is in - so no worker can leave while work remains.
                   (let ((mut k 0))
                     (while (< k (vecLen pids))
                       {
-                        (sysKill (vecGet pids k) sigTerm)
+                        (let ((_ (sysKill (vecGet pids k) sigTerm))) 0)
                         (set k (+ k 1))
                       }))
                   (let ((mut k2 0))

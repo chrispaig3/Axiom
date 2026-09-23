@@ -113,7 +113,7 @@
       ; --- 2. readAll on the exhausted descriptor ---
       (stepAll (readAll stdin))  ; 0
       ; --- 3. a descriptor this program opened ---
-      (writeFile path (strConcat "first line\n" (strConcat long "\nsecond\nlast without newline")))
+      (let ((_ (writeFile path (strConcat "first line\n" (strConcat long "\nsecond\nlast without newline"))))) 0)
       (match (sysOpenPath (strCStr path) oRdonly)
         ((Ok fd)
           {
@@ -125,12 +125,12 @@
               })
             (stepAll (readAll fd))  ; 27
             (step (readLine fd))  ; -1
-            (sysCloseFd fd)
+            (let ((_ (sysCloseFd fd))) 0)
             0
           }
         )
         ((Err _) (println "open failed")))
-      (removeFile path)
+      (let ((_ (removeFile path))) 0)
       ; --- 4. a descriptor nothing opened ---
       (step (readLine 999))  ; -9
       (stepAll (readAll 999))  ; -9

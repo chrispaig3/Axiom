@@ -346,8 +346,12 @@
         (match (sysReadAllFd fd)
           ((Ok got) got)
           ((Err _) ""))))
+        ; A close error is deliberately ignored: the bytes are already
+        ; in `s`, and there is nothing to do with it. The wildcard
+        ; binding is the discard made explicit (`AX3046` warns on a
+        ; bare `Result` in statement position).
         {
-          (sysCloseFd fd)
+          (let ((_ (sysCloseFd fd))) 0)
           s
         }))))
 
@@ -449,14 +453,15 @@
 (pub fn (sysWriteFile path s)
   (sysResult
     "sysWriteFile"
-    (let ((fd (sysOpenRaw path oWronlyCreateTrunc)))
+      (let ((fd (sysOpenRaw path oWronlyCreateTrunc)))
       (if (sysFailed fd)
         fd
         (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
           {
-            (sysCloseFd fd)
+            (let ((_ (sysCloseFd fd))) 0)
             n
           })))))
+
 
 ; Append `s` to `path`, creating it if it is not there. Answers the
 ; number of bytes written, or a negative errno.
@@ -476,14 +481,15 @@
 (pub fn (sysAppendFile path s)
   (sysResult
     "sysAppendFile"
-    (let ((fd (sysOpenRaw path oWronlyCreateAppend)))
+      (let ((fd (sysOpenRaw path oWronlyCreateAppend)))
       (if (sysFailed fd)
         fd
         (let ((n (sysWriteAllFd fd (strData s) (strLen s) 0)))
           {
-            (sysCloseFd fd)
+            (let ((_ (sysCloseFd fd))) 0)
             n
           })))))
+
 
 ; Rename `old` to `new`, answering 0 or `-errno`. Both are
 ; NUL-terminated char* - `strCStr`.
@@ -592,7 +598,7 @@
     (if (< fd 0)
       false
       {
-        (sysCloseFd fd)
+        (let ((_ (sysCloseFd fd))) 0)
         true
       })))
 
@@ -616,7 +622,7 @@
         fd
         (let ((n (sysSeek fd 0 seekEnd)))
           {
-            (sysCloseFd fd)
+            (let ((_ (sysCloseFd fd))) 0)
             n
           })))))
 
@@ -647,7 +653,7 @@
             ((Ok k) k)
             ((Err e) (- 0 (errCode e))))))
           {
-            (sysCloseFd fd)
+            (let ((_ (sysCloseFd fd))) 0)
             (if (< n 0)
               (sysErrno n)
               0)
@@ -737,7 +743,7 @@
           {
             (memSetWord pos 0 0)
             (sysReadDirLoop fd buf pos out)
-            (sysCloseFd fd)
+            (let ((_ (sysCloseFd fd))) 0)
             out
           })))))
 
@@ -872,7 +878,7 @@
           (Err (mkError (- 0 fd) "getcwd: open ."))
           (let ((rc (__syscall3 sysCwdNum fd fGetPath buf)))
             {
-              (sysCloseFd fd)
+              (let ((_ (sysCloseFd fd))) 0)
               (if (< rc 0)
                 (Err (mkError (- 0 rc) "getcwd"))
                 (Ok (strDup (strFromLit buf))))
@@ -1047,7 +1053,7 @@
           {
             (if (>= probe 0)
               {
-                (sysCloseFd probe)
+                (let ((_ (sysCloseFd probe))) 0)
                 0
               }
               0)
@@ -1305,7 +1311,7 @@
                     path
                     (+ end 1))
                   {
-                    (sysCloseFd fd)
+                    (let ((_ (sysCloseFd fd))) 0)
                     ; `Ok` here means the child RAN, whatever it
                     ; answered - a non-zero exit is this entry's
                     ; result and ends the walk. Only a spawn failure

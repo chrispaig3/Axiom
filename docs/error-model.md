@@ -1098,7 +1098,6 @@ what keeps it honest.
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3046` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning (was `AX3042` until that number was built as `undeclared-effect`) |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 
 Each needs, before it is listed: a construction site, `explain.ax`
@@ -1127,7 +1126,7 @@ reserved block, by this section's own rule.
 `__store64` of a reference-typed value through `cast`, which takes no
 share, so the owner's release frees a block the stored word still
 names (`tests/diagnostics/1002-unretained-store.ax`). From the free
-end as well, leaving `AX3043` and `AX3046` proposed.
+end as well, leaving `AX3043` proposed.
 
 `AX3072` was spent the same day by `addr-nonliteral`: `__addr` of
 anything but a string literal, which has no interned bytes behind it
@@ -1342,12 +1341,12 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
 | `ERR-REC-8` | **R, superseded 2026-09-09** | range-constrained subtypes refused as a type — decided 2026-09-08 (roadmap item 11, D2); SUPERSEDED: `(subtype N is Int range lo .. hi)` built 2026-09-09 (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal, and the re-measured counts |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3043`, `AX3046` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
+| `ERR-DIAG-2`, `3` | P | — `AX3043` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Twenty-one rules hold, eleven of them named by a fixture that carries an
+Twenty-two rules hold, eleven of them named by a fixture that carries an
 ablation — and one of those ten, `ERR-REC-2`, has a fixture that
 reaches two of its four operators, which the row says. What remains is
 `ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the migration

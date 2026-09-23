@@ -57,6 +57,7 @@
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)
+  [93mAX3046[0m  a Result-typed expression in statement position, its value unused  (discarded-result)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
@@ -1767,6 +1768,26 @@ What is not reported: a call to any other function, including mutual recursion t
 resolves local-first; and a scrutinee that did not check clean. The severity is recorded in
 tests/diagnostics/severity.policy with that reason.
 
+### explain AX3046
+AX3046 - a `Result` discarded without being matched
+
+A block answers its last expression and drops the rest, so a `Result`
+standing anywhere but last is read by no one: an `Err` there vanishes as silently
+as a right answer. The usual shape is a call kept for its effects - closing a descriptor,
+setting an option - whose fallible answer the author never looks at.
+
+Match on it, propagate it with `try!`, or bind it to `_` if the discard
+is deliberate: a wildcard binding is the discard made explicit, and the warning stays off it.
+Ten close-error ignores in `stdlib/Sys.ax` spell it that way.
+
+THIS IS A WARNING, and a deliberate discard is why. A program that drops an error on purpose
+is correct, and an error would refuse it alongside the accidents. What is reported is a
+`Result`-typed non-last block item - `{ }` bodies and `while` bodies,
+which is the statement position the rule names. What is not reported: an arm answering a
+`Result`, which answers its whole `if` or `match`; a tail value, which
+flows onward; and a poisoned item, which a diagnostic elsewhere already owns. The severity is
+recorded in tests/diagnostics/severity.policy with that reason.
+
 ### explain AX3047
 AX3047 - a C or Rust primitive type name in type position
 
@@ -2890,6 +2911,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)
+  [93mAX3046[0m  a Result-typed expression in statement position, its value unused  (discarded-result)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)

@@ -51,7 +51,7 @@
 (fn (frameOne label header body)
   (let ((path (__addr "axiom-rpc-framing.tmp")))
     {
-      (sysWriteFile path (strConcat (strConcat (strConcat "Content-Length: " header) "\r\n\r\n") body))
+      (let ((_ (sysWriteFile path (strConcat (strConcat (strConcat "Content-Length: " header) "\r\n\r\n") body)))) 0)
       (match (sysOpenPath path oRdonly)
         ((Err e) (die "open for read failed" 1))
         ((Ok fd)
@@ -66,7 +66,7 @@
                   got))
               )
                 {
-                  (sysCloseFd fd)
+                  (let ((_ (sysCloseFd fd))) 0)
                   (println "{label}: len={n} consumed={c} avail={a} body={shown}")
                   0
                 })))

@@ -16,6 +16,23 @@ its changelog too.
 
 ## Unreleased
 
+### A discarded `Result` warns — `AX3046`
+
+`ERR-DIAG-2`'s first proposal is held: a `Result`-typed non-last
+block item draws `discarded-result`, a warning with a help naming
+`try!`, matching, and the wildcard binding. An `Err` answered where
+no one reads it vanishes as silently as a right answer; ten
+close-error ignores in `stdlib/Sys.ax` now spell the discard
+explicitly as `(let ((_ ...)) 0)` - the same single release either
+way, measured byte-identical in the emitted IR. A shallow reading
+would call the ten rewrites churn; they are the exemption made
+honest, one site at a time, and eleven test fixtures needed the same
+spelling. Held by `tests/diagnostics/1006-discarded-result.ax`
+(three warnings; matching, `_`-binding, non-`Result` statements and
+tails silent), `tests/diagnostics/severity.policy`,
+`scripts/check-diagnostic-coverage.sh`, and
+`scripts/check-doc-drift.sh` in both directions on the new code.
+
 ### A self-recursive call in a `match` scrutinee warns — `AX3045`
 
 `ERR-PROP-4` is held: a call to the enclosing function standing in a

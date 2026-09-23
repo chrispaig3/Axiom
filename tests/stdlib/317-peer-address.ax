@@ -111,12 +111,12 @@
           ((Err e) (say 0 "a v4 listener socket is created"))
           ((Ok lsn)
             {
-              (netSetOptInt
+              (let ((_ (netSetOptInt
                 lsn
                 solSocket
                 soReuseAddr
                 1
-                optb)
+                optb))) 0)
               (netAddr4
                 srvAddr
                 base
@@ -129,18 +129,18 @@
                   1
                   0)
                 "a v4 listener binds with the length its family asks for")
-              (netListen lsn 16)
-              (netSetNonBlocking lsn)
+              (let ((_ (netListen lsn 16))) 0)
+              (let ((_ (netSetNonBlocking lsn))) 0)
               (match netSocketTcp
                 ((Err e) (say 0 "a v4 client socket is created"))
                 ((Ok cli)
                   {
-                    (netSetOptInt
+                    (let ((_ (netSetOptInt
                       cli
                       solSocket
                       soReuseAddr
                       1
-                      optb)
+                      optb))) 0)
                     (netAddr4
                       cliAddr
                       (+ base 1)
@@ -153,7 +153,7 @@
                         1
                         0)
                       "the client binds a source port this case chose")
-                    (netConnect cli srvAddr)
+                    (let ((_ (netConnect cli srvAddr))) 0)
                     ; ZERO, AND THE VALUE MATTERS. The point is to catch a
                     ; `netAcceptFrom` that never wrote the capacity in, and
                     ; only a sentinel BELOW the real length can: the kernel
@@ -193,7 +193,7 @@
                             1
                             0)
                           "the peer's port is the source port the client bound")
-                        (sysCloseFd con)
+                        (let ((_ (sysCloseFd con))) 0)
                       })
                     (sysCloseFd cli)
                   }
@@ -204,7 +204,7 @@
                 ((Err e) (say 0 "a second v4 client socket is created"))
                 ((Ok cli2)
                   {
-                    (netConnect cli2 srvAddr)
+                    (let ((_ (netConnect cli2 srvAddr))) 0)
                     (let ((con2 (acceptSoon lsn 1000)))
                       {
                         (say
@@ -212,7 +212,7 @@
                             1
                             0)
                           "netAccept still answers a socket with no buffer at all")
-                        (sysCloseFd con2)
+                        (let ((_ (sysCloseFd con2))) 0)
                       })
                     (sysCloseFd cli2)
                   }
@@ -230,12 +230,12 @@
                   1
                   0)
                 "socket(afInet6) answers a descriptor")
-              (netSetOptInt
+              (let ((_ (netSetOptInt
                 lsn6
                 solSocket
                 soReuseAddr
                 1
-                optb)
+                optb))) 0)
               (netAddr6
                 srvAddr
                 (+ base 2)
@@ -255,18 +255,18 @@
                   1
                   0)
                 "a v6 listener binds ::1 with sockaddr_in6's 28 bytes")
-              (netListen lsn6 16)
-              (netSetNonBlocking lsn6)
+              (let ((_ (netListen lsn6 16))) 0)
+              (let ((_ (netSetNonBlocking lsn6))) 0)
               (match netSocketTcp6
                 ((Err e) (say 0 "a v6 client socket is created"))
                 ((Ok cli6)
                   {
-                    (netSetOptInt
+                    (let ((_ (netSetOptInt
                       cli6
                       solSocket
                       soReuseAddr
                       1
-                      optb)
+                      optb))) 0)
                     (netAddr6
                       cliAddr
                       (+ base 3)
@@ -283,7 +283,7 @@
                         1
                         0)
                       "the v6 client binds a source port this case chose")
-                    (netConnect cli6 srvAddr)
+                    (let ((_ (netConnect cli6 srvAddr))) 0)
                     (memSet lenb 0 8)
                     (let ((con6 (acceptFromSoon lsn6 peer lenb 1000)))
                       {
@@ -312,7 +312,7 @@
                             1
                             0)
                           "and reads back as [::1]:<source port>")
-                        (sysCloseFd con6)
+                        (let ((_ (sysCloseFd con6))) 0)
                       })
                     (sysCloseFd cli6)
                   }
@@ -340,12 +340,12 @@
                 ((Err e) (say 0 "a third v6 client socket is created"))
                 ((Ok cli6b)
                   {
-                    (netSetOptInt
+                    (let ((_ (netSetOptInt
                       cli6b
                       solSocket
                       soReuseAddr
                       1
-                      optb)
+                      optb))) 0)
                     (netAddr6
                       cliAddr
                       (+ base 4)
@@ -357,8 +357,8 @@
                       0
                       0
                       1)
-                    (netBind cli6b cliAddr)
-                    (netConnect cli6b srvAddr)
+                    (let ((_ (netBind cli6b cliAddr))) 0)
+                    (let ((_ (netConnect cli6b srvAddr))) 0)
                     (memSet lenb 0 8)
                     (let ((con6b (acceptFromCapSoon
                       lsn6
@@ -382,7 +382,7 @@
                             0
                             1)
                           "and is not a stale or unspecified address")
-                        (sysCloseFd con6b)
+                        (let ((_ (sysCloseFd con6b))) 0)
                       })
                     (sysCloseFd cli6b)
                   }

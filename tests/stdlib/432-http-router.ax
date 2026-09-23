@@ -63,7 +63,7 @@
     ((Ok fd)
       {
         (routeDispatch rt fd r)
-        (sysCloseFd fd)
+        (let ((_ (sysCloseFd fd))) 0)
         (sysReadFile (__addr "out.tmp"))
       }
     )))
@@ -109,11 +109,11 @@
   ; unknown extension and a subdirectory, and a secret beside it
   (let ((rt routerNew))
     {
-      (makeDir "pub")
-      (makeDir "pub/sub")
-      (writeFile "pub/site.css" "body { margin: 0 }\n")
-      (writeFile "pub/blob.bin" "not html")
-      (writeFile "secret.txt" "the secret\n")
+      (let ((_ (makeDir "pub"))) 0)
+      (let ((_ (makeDir "pub/sub"))) 0)
+      (let ((_ (writeFile "pub/site.css" "body { margin: 0 }\n"))) 0)
+      (let ((_ (writeFile "pub/blob.bin" "not html"))) 0)
+      (let ((_ (writeFile "secret.txt" "the secret\n"))) 0)
       (routeAdd
         rt
         "GET"

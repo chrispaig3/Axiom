@@ -75,12 +75,12 @@
                       ((Err e) (say 0 "the listener is created"))
                       ((Ok lsn)
                         {
-                          (netSetOptInt
+                          (let ((_ (netSetOptInt
                             lsn
                             solSocket
                             soReuseAddr
                             1
-                            optb)
+                            optb))) 0)
                           (netAddr4
                             addr
                             port
@@ -91,8 +91,8 @@
                           (match (netBind lsn addr)
                             ((Err e) (die (strConcat "bind failed: errno=" (fmtInt (errCode e))) 1))
                             ((Ok _) 0))
-                          (netListen lsn 16)
-                          (netSetNonBlocking lsn)
+                          (let ((_ (netListen lsn 16))) 0)
+                          (let ((_ (netSetNonBlocking lsn))) 0)
                           (say
                             (if (isOk (netPollAddRead pfd lsn rec))
                               1
@@ -131,7 +131,7 @@
                                   ((Err e) (say 0 "a client socket is created"))
                                   ((Ok cli)
                                     {
-                                      (netConnect cli addr)
+                                      (let ((_ (netConnect cli addr))) 0)
                                       (let ((n 
                                         (match (netPollWait
                                           pfd
@@ -199,13 +199,13 @@
                                   })
                                 (if (> sh 0)
                                   {
-                                    (sysCloseFd sh)
+                                    (let ((_ (sysCloseFd sh))) 0)
                                     0
                                   }
                                   0)
                               }
                             ))
-                          (sysCloseFd lsn)
+                          (let ((_ (sysCloseFd lsn))) 0)
                           (sysCloseFd pfd)
                         }
                       ))

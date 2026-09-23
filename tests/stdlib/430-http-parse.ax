@@ -135,13 +135,13 @@
               (if (< con 0)
                 "ERR accept failed"
                 {
-                  (netSetBlocking con)
+                  (let ((_ (netSetBlocking con))) 0)
                   (sysWriteAllFd cli (strData request) (strLen request) 0)
-                  (netShutdown cli 1)
+                  (let ((_ (netShutdown cli 1))) 0)
                   (let ((text (resultText (httpRead (httpReaderWith con cap)))))
                     {
-                      (sysCloseFd con)
-                      (sysCloseFd cli)
+                      (let ((_ (sysCloseFd con))) 0)
+                      (let ((_ (sysCloseFd cli))) 0)
                       text
                     })
                 })))
@@ -169,12 +169,12 @@
       ((Err e) (die "socket() failed" 1))
       ((Ok lsn)
         {
-          (netSetOptInt
+          (let ((_ (netSetOptInt
             lsn
             solSocket
             soReuseAddr
             1
-            optb)
+            optb))) 0)
           (netAddr4
             addr
             port
@@ -185,8 +185,8 @@
           (match (netBind lsn addr)
             ((Err e) (die (strConcat "bind failed: errno=" (fmtInt (errCode e))) 1))
             ((Ok _) 0))
-          (netListen lsn 16)
-          (netSetNonBlocking lsn)
+          (let ((_ (netListen lsn 16))) 0)
+          (let ((_ (netSetNonBlocking lsn))) 0)
           ; --- a whole request, at three read granularities ----------
           (sameAtAllCaps lsn "GET with headers" "GET /items?x=1&y=2 HTTP/1.1\r\nHost: example.test\r\nAccept: */*\r\n\r\n" "GET /items query=x=1&y=2 HTTP/1.1 [host=example.test;accept=*/*;] body=")
           (sameAtAllCaps lsn "POST with a body" "POST /echo HTTP/1.1\r\nHost: h\r\nContent-Length: 11\r\nContent-Type: text/plain\r\n\r\nhello world" "POST /echo query= HTTP/1.1 [host=h;content-length=11;content-type=text/plain;] body=hello world")
@@ -231,7 +231,7 @@
               (eq "an absent parameter is the default" (httpQueryParam r "zz" "?") "?")
               (eq "httpHeader on a request with none is the default" (httpHeader r "host" "none") "none")
             })
-          (sysCloseFd lsn)
+            (let ((_ (sysCloseFd lsn))) 0)
           0
         }
       ))))

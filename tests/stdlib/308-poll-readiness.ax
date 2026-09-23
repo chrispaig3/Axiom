@@ -44,12 +44,12 @@
     ((Err e) (- 0 1))
     ((Ok fd)
       {
-        (netSetOptInt
+        (let ((_ (netSetOptInt
           fd
           solSocket
           soReuseAddr
           1
-          optb)
+          optb))) 0)
         (netAddr4
           addr
           port
@@ -62,7 +62,7 @@
           (if (isErr (netListen fd 16))
             (- 0 1)
             {
-              (netSetNonBlocking fd)
+              (let ((_ (netSetNonBlocking fd))) 0)
               fd
             }))
       }
@@ -150,7 +150,7 @@
                             0
                             0
                             1)
-                          (netConnect ca addr)
+                          (let ((_ (netConnect ca addr))) 0)
                           (let ((n 
                             (match (netPollWait
                               pfd
@@ -237,7 +237,7 @@
                                       0
                                       0
                                       1)
-                                    (netConnect cb addr)
+                                    (let ((_ (netConnect cb addr))) 0)
                                     (netAddr4
                                       addr
                                       (+ base 1)
@@ -245,7 +245,7 @@
                                       0
                                       0
                                       1)
-                                    (netConnect cc addr)
+                                    (let ((_ (netConnect cc addr))) 0)
                                     (let (
                                       (mut n2 (match (netPollWait
                                         pfd
@@ -283,7 +283,7 @@
                                             0)
                                           "both events decode at the right stride")
                                       })
-                                    (sysCloseFd cc)
+                                    (let ((_ (sysCloseFd cc))) 0)
                                     (sysCloseFd cb)
                                   }
                                 ))
@@ -296,8 +296,8 @@
                         1
                         0)
                       "a listener can be unregistered")
-                    (sysCloseFd la)
-                    (sysCloseFd lb)
+                    (let ((_ (sysCloseFd la))) 0)
+                    (let ((_ (sysCloseFd lb))) 0)
                     (say
                       (if (isOk (sysCloseFd pfd))
                         1
