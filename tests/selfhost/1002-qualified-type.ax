@@ -1,0 +1,32 @@
+; expect 40
+; `Mod::Name` in type position - bare, applied, and over a `String`
+; payload. `QTypeB` defines a second `Point` with a different layout,
+; so resolving `QTypeA::Point` to the wrong declaration answers wrong:
+; 7 + 22 + 8 + 3 = 40 pins all four reads.
+(import QTypeA)
+(import QTypeB)
+(import Str)
+
+(:: dist (-> QTypeA::Point Int))
+(fn (dist p)
+  (+ p.x p.y))
+
+(:: area (-> QTypeA::Shape Int))
+(fn (area s)
+  (match s
+    ((Circle r) r)
+    ((Box w h) (+ w h))))
+
+(:: unwrap (-> (QTypeA::Wrap Int) Int))
+(fn (unwrap w)
+  (match w
+    ((MkWrap n) n)))
+
+(:: msgLen (-> QTypeA::Msg Int))
+(fn (msgLen m)
+  (match m
+    ((MkMsg s) (strLen s))))
+
+(:: main Int)
+(fn (main)
+  (+ (dist QTypeA::origin) (+ (area (QTypeA::mkBox 10 12)) (+ (unwrap (QTypeA::mkWrap 8)) (msgLen (QTypeA::mkMsg "hey"))))))

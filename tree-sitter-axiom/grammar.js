@@ -717,6 +717,7 @@ module.exports = grammar({
       $.unit_type,
       $.type_variable,
       $.type_constructor,
+      $.qualified_type,
       $.region_type,
       $.function_type,
       $.list_type,
@@ -761,7 +762,10 @@ module.exports = grammar({
     // which does allow a zero-argument application.
     type_constructor: $ => choice(
       $.constructor_identifier,
-      seq('(', field('name', $.constructor_identifier), repeat(field('argument', $._type)),
+      // `(Mod::T U)`: a qualified head takes arguments like a bare one
+      // (`parseTypeParens` in self_host/parser.ax reads the head
+      // through the same qualified tail as a bare atom).
+      seq('(', field('name', choice($.constructor_identifier, $.qualified_type)), repeat(field('argument', $._type)),
           optional(field('region', $.region_annotation)), ')'),
     ),
 
@@ -962,6 +966,26 @@ module.exports = grammar({
     qualified_identifier: $ => prec(2, seq(
       field('module', $.identifier), '::', field('name', $.identifier),
     )),
+
+    // `Mod::Name` where a TYPE stands - the same spelling expressions
+    // use, answered by the same module-aware lookup.
+    //
+    // `constructor_identifier`, NOT `identifier`, for every name here,
+    // and that is load-bearing rather than tidiness. Admitting the
+    // general `identifier` token into `_type` states flips the keyword
+    // tie-break everywhere: `Int` in `(:: stdout Int)` parsed as a
+    // `type_constructor`, and 37 of the 44 corpus cases with it -
+    // measured, not argued. Modules and type names are capitalized by
+    // the language's own rule (a lowercase name in type position is a
+    // variable), so the narrower token loses nothing the compiler
+    // accepts. A dotted path (`Mod.Sub::Name`) spells its segments
+    // structurally for the same reason: no new token may enter these
+    // states.
+    qualified_type: $ => seq(
+      field('module', $.constructor_identifier),
+      repeat(seq('.', field('submodule', $.constructor_identifier))),
+      '::', field('name', $.constructor_identifier),
+    ),
 
     while_expression: $ => seq(
       '(', 'while',

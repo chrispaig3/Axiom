@@ -18727,11 +18727,19 @@
 
 (pub :: dataTyKnown (-> (Vec Int) String Int Int))
 (pub fn (dataTyKnown names n i)
+  ; `bareOf`: a qualified spelling names the same declaration its
+  ; bare spelling does, and data-ness is a property of the
+  ; declaration, not of the spelling. The widening can only turn a
+  ; silent leaf into a mapped reference, never the reverse: scalars
+  ; are decided before this is asked, and a struct sharing a data
+  ; type's bare name is a reference either way.
   (if (>= i (vecLen names))
     0
-    (if (strEq
+    (if (|| (strEq
       (cast String (vecGet names i))
-      n)
+      n) (strEq
+      (cast String (vecGet names i))
+      (bareOf n)))
       1
       (dataTyKnown names n (+ i 1)))))
 

@@ -16,6 +16,25 @@ its changelog too.
 
 ## Unreleased
 
+### `Mod::Name` in type position — `MAC-LANG-12` residue closed
+
+A qualified reference where a type stands parses now: `Mod::Name`
+and `Mod.Sub::Name`, bare and applied (`(Mod::T U)`), answered by
+the same module-aware lookup bare names use. Compatibility compares
+declarations rather than spellings, so `Err$Result` meets bare
+`Result` wherever both name one type - and nothing else changes,
+since different declarations still answer 0. A bare name two modules
+define still draws `AX3044`, and its help now names the qualified
+spelling that settles it (as `AX3014`'s always did) instead of
+claiming qualification does not parse. Held by
+`tests/selfhost/1002-qualified-type.ax` (struct fields, data match,
+applied and `String`-payload types across a deliberate collision,
+exit 40), the new `TeamC::Cfg` case in
+`scripts/check-type-namespace.sh`, and the `qualified_type` corpus
+case in `tree-sitter-axiom/test/corpus/declarations.txt`. The
+formatter prints the spelling it read, and a bare reference to a
+private type stays as silent as it was - existence-only, like bare.
+
 ### `main` may answer `(Result Int Error)` — `ERR-REC-4`
 
 A `main` answering `(Result Int Error)` no longer exits with its

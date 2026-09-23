@@ -3554,7 +3554,19 @@
                             })
                           (fpP p ")")
                         })))))))
-          (fpBad p))))))
+          ; `Mod::Name`, and `Mod.Sub::Name`, where a type stands: the
+          ; reader builds the same FN_QUAL chain expressions build, so
+          ; the printer answers the same way - the module path on the
+          ; left, `::`, the name. Without this arm a file using the
+          ; spelling was refused outright, though every other tool
+          ; already read it.
+          (if (== k FN_QUAL)
+            {
+              (fpQualLeft p (fnKid n 0))
+              (fpP p "::")
+              (fpP p (fnText (fpSrc p) (fnKid n 1)))
+            }
+            (fpBad p)))))))
 
 ; ------------------------------------------------------------------
 ; Patterns.

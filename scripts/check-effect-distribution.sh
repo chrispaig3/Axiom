@@ -177,6 +177,28 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-23 (8): `Mod::Name` in type position reads the
+# module-aware lookup. Three added, none removed, twenty-four
+# changed - each new row read off `symbols` by name: `parseTyQualChain`
+# and `parseQualifiedTyAtom` read `Alloc,Mut,Unsafe`, and so does the
+# declaration-identity check `tySameDecl`. The changed rows are the
+# transitive cost of answering resolution inside comparison:
+# `tyCompat` gains `Alloc` through `tySameDecl`'s table reads
+# (`Mut,Unsafe` to `Alloc,Mut,Unsafe`), and every transitive caller
+# follows - `tyCompatVec`, `tySubtypeOf`, `subtypeArgAction`,
+# `subtypeCompatAllows`, `paramClassOf`, `countFlow`, `tyvarSlotsFrom`,
+# `pairRetOK`, `ctorShapeConst`, `pairPayloadClass`, `lamShapeConst`,
+# `pairWordOnly`, `pairArgClassOK`, `curParamRefClass`, `lamCaptureMask`,
+# `mustFlow`, `lamShapeBits`, `shapeBits`, `paramFlowBit`,
+# `lamParamCaptures`, `fieldReadIsScalar` (which also gains `Mut`,
+# from `Alloc,Unsafe`), and `fldClass` with `dataTyKnown` (whose
+# `bareOf` read widens data-ness to qualified spellings). Every move
+# is a gain - `Alloc,Mut,Unsafe` 2202 to 2229 against `Unsafe` 1145
+# to 1127, `Mut,Unsafe` 123 to 118 and `Alloc,Unsafe` 49 to 48 - and
+# no row moves off `IO` or onto it: the required/ambient line sits
+# where it was measured, and the rows stay may-effects (the reads
+# happen only on a spelling mismatch).
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -213,11 +235,11 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2202 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1145 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2229 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1127 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 123 "Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 49 "Alloc,Unsafe"
+have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 118 "Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"

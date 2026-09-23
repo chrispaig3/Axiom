@@ -181,9 +181,14 @@ keep agreeing.
 Two residues, stated so nobody reads this as more than it is: two
 imported modules defining the same macro name still resolve a **bare**
 invocation last-wins with no `AX3014` — which `MAC-LANG-11` blesses as
-a language rule, and qualification now disambiguates on demand — and
-`Mod::name` in **type** position is still a parse error, which is a
-type-grammar gap, not a macro one.
+a language rule, and qualification now disambiguates on demand — and,
+until 2026-09-23, `Mod::name` in **type** position was a parse error.
+That second residue is closed: the type grammar takes the same
+`Mod::Name` and `Mod.Sub::Name` spellings expressions take, answered
+by the same module-aware lookup (`parseTyQualChain`,
+type-compatibility by declaration rather than by spelling), so a bare
+name both modules define still draws `AX3044` naming the qualified
+spelling that settles it.
 
 ### 1.4 The no-evaluation invariant
 

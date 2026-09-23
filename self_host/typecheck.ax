@@ -470,8 +470,25 @@
               1
             }))))))
 
-(pub :: tyCompat (-> Int Int Int))
-(pub fn (tyCompat a0 b0)
+(pub :: tyCompat (-> Int Int Int Int))
+; Do two `TAG_T_CON` spellings name one declaration? Resolved
+; through the same module-aware lookup bare names use, so a
+; qualified spelling meets the bare one exactly when they name the
+; same type - and a miss answers 0, which is today's behaviour for
+; every pair this does not join. No diagnostics: ambiguity and
+; privacy are refused where the reference stands, not where two
+; types are compared.
+(pub :: tySameDecl (-> Int Int Int Int))
+(pub fn (tySameDecl tc a b)
+  (let ((ea (tyFind tc TY_ANY (nodeAName a) 0))
+        (eb (tyFind tc TY_ANY (nodeAName b) 0)))
+    (if (|| (== ea 0) (== eb 0))
+      0
+      (if (== ea eb)
+        1
+        0))))
+
+(pub fn (tyCompat tc a0 b0)
   ; RESOLVE FIRST - a placeholder pinned by an earlier comparison must be read as what it was pinned TO
   (let (
     (a (tyResolve a0))
@@ -505,31 +522,43 @@
               ; string is a String now, everywhere, which is what
               ; MM-ALLOC-20's static half demanded and what MM-LIFE-2d's
               ; reference maps stand on.
-              (if (&& (strEq (nodeAName a) (nodeAName b)) (== (vecLen (nodeBVec a)) (vecLen (nodeBVec b))))
-                (tyCompatVec (nodeBVec a) (nodeBVec b) 0)
+              (if (== (vecLen (nodeBVec a)) (vecLen (nodeBVec b)))
+                (if (strEq (nodeAName a) (nodeAName b))
+                  (tyCompatVec tc (nodeBVec a) (nodeBVec b) 0)
+                  ; Different spellings of what may be one declaration:
+                  ; a qualified reference spells what its declaration
+                  ; carries, a bare one spells what its module wrote, and
+                  ; string equality cannot see they meet. Resolve both
+                  ; and compare declarations, so `Err$Result` meets bare
+                  ; `Result` wherever a bare name and a qualified one
+                  ; name the same type - and nothing else changes, since
+                  ; different declarations still answer 0 below.
+                  (if (== (tySameDecl tc a b) 1)
+                    (tyCompatVec tc (nodeBVec a) (nodeBVec b) 0)
+                    0))
                 0)
               (if (&& (== ta TAG_T_ARR) (== tb TAG_T_ARR))
-                (if (== (tyCompat (nodeA a) (nodeA b)) 1)
-                  (tyCompat (nodeB a) (nodeB b))
+                (if (== (tyCompat tc (nodeA a) (nodeA b)) 1)
+                  (tyCompat tc (nodeB a) (nodeB b))
                   0)
                 (if (&& (== ta TAG_T_TUP) (== tb TAG_T_TUP))
                   (if (== (vecLen (nodeAVec a)) (vecLen (nodeAVec b)))
-                    (tyCompatVec (nodeAVec a) (nodeAVec b) 0)
+                    (tyCompatVec tc (nodeAVec a) (nodeAVec b) 0)
                     0)
                   (if (&& (== ta TAG_T_LIST) (== tb TAG_T_LIST))
-                    (tyCompat (nodeA a) (nodeA b))
+                    (tyCompat tc (nodeA a) (nodeA b))
                     (if (&& (== ta TAG_T_PTR) (== tb TAG_T_PTR))
                       (if (== (nodeB a) (nodeB b))
-                        (tyCompat (nodeA a) (nodeA b))
+                        (tyCompat tc (nodeA a) (nodeA b))
                         0)
                       0)))))))))))
 
-(pub :: tyCompatVec (-> (Vec Int) (Vec Int) Int Int))
-(pub fn (tyCompatVec xs ys i)
+(pub :: tyCompatVec (-> Int (Vec Int) (Vec Int) Int Int))
+(pub fn (tyCompatVec tc xs ys i)
   (if (>= i (vecLen xs))
     1
-    (if (== (tyCompat (vecGet xs i) (vecGet ys i)) 1)
-      (tyCompatVec xs ys (+ i 1))
+    (if (== (tyCompat tc (vecGet xs i) (vecGet ys i)) 1)
+      (tyCompatVec tc xs ys (+ i 1))
       0)))
 
 ; Subtype table lookup. A `subtype` declaration names a new type whose
@@ -546,7 +575,7 @@
     (let ((base (tySubtypeBase tc b)))
       (if (== base 0)
         0
-        (if (== (tyCompat a base) 1)
+        (if (== (tyCompat tc a base) 1)
           1
           0)))))
 
@@ -632,17 +661,17 @@
                   (expBase (nodeB expDecl))
                   (actBase (nodeB actDecl))
                 )
-                  (if (== (tyCompat actBase expBase) 1)
+                  (if (== (tyCompat tc actBase expBase) 1)
                     2
-                    (if (== (tyCompat actual expBase) 1)
+                    (if (== (tyCompat tc actual expBase) 1)
                       2
                       0))))
               (let ((expBase (nodeB expDecl)))
-                (if (== (tyCompat actual expBase) 1)
+                (if (== (tyCompat tc actual expBase) 1)
                   2
                   0)))
             (if (!= actDecl 0)
-              (if (== (tyCompat (nodeB actDecl) expected) 1)
+              (if (== (tyCompat tc (nodeB actDecl) expected) 1)
                 1
                 0)
               0)))))))
@@ -654,7 +683,7 @@
 ; and wrap instead.
 (pub :: subtypeCompatAllows (-> Int Int Int Int))
 (pub fn (subtypeCompatAllows tc expected actual)
-  (if (== (tyCompat expected actual) 1)
+  (if (== (tyCompat tc expected actual) 1)
     1
     (if (!= (subtypeArgAction tc expected actual) 0)
       1
@@ -694,7 +723,7 @@
       0
       {
         (let ((bty (checkExprH tc (vecGet bounds i) 0)))
-          (if (&& (!= (tyIsErr bty) 1) (&& (!= (tyIsSilentWild bty) 1) (== (tyCompat bty mkIntTy) 0)))
+          (if (&& (!= (tyIsErr bty) 1) (&& (!= (tyIsSilentWild bty) 1) (== (tyCompat tc bty mkIntTy) 0)))
             (emitMismatchTy tc mkIntTy bty (spanOf (vecGet bounds i)))
             0))
         (checkSubtypeBounds tc bounds (+ i 1))
@@ -5030,13 +5059,15 @@
       })))
 
 ; AX3044, the type namespace's AX3014. A separate code rather than a
-; reuse, because the ESCAPE is different and a diagnostic's help is
+; reuse, because the ESCAPE used to differ and a diagnostic's help is
 ; the half a reader acts on: AX3014 says "write `Mod::name`", and in
-; type position that is a parse error (`parseTypeAtom` has no `::`
-; arm), so answering AX3014 here would hand the reader a fix that does
-; not compile.
+; type position that was a parse error (`parseTypeAtom` had no `::`
+; arm), so answering AX3014 here would have handed the reader a fix
+; that did not compile - and the help said to narrow the import
+; instead. Since `Mod::Name` parses in type position the help says
+; what AX3014's says, built by the same `joinQualified`.
 ;
-; What DOES work is narrowing the import: an import name list decides
+; What DOES still work is narrowing the import: an import name list decides
 ; `exported` in `resolveDeclsPhase`, which is what `collectPrivates`
 ; reads, so `(import TeamA (fromA))` leaves TeamA's `Config` invisible
 ; outside TeamA and the reference resolves by rule (c).
@@ -5056,7 +5087,7 @@
             (strConcat (strConcat (strConcat "ambiguous type `" (bareOf name)) "`: declared in ") (joinModules mods 0 ""))
             0
             0
-            "a type reference cannot be qualified - `Mod::Name` is an expression spelling and does not parse in type position - so narrow one of the imports to a name list that leaves this type behind, as in `(import TeamA (fromA))`, or rename one of the declarations") (strConcat (strConcat "`" (bareOf name)) "` could mean more than one declaration")))
+            (strConcat "qualify the reference: " (joinQualified mods (bareOf name) 0 ""))) (strConcat (strConcat "`" (bareOf name)) "` could mean more than one declaration")))
           1
         }))))
 
@@ -7763,7 +7794,7 @@
 (pub fn (checkCondBool tc cnd)
   (let ((cty (checkExprH tc cnd 0)))
     {
-      (if (&& (== (tyIsErr cty) 0) (== (tyCompat cty mkBoolTy) 0))
+      (if (&& (== (tyIsErr cty) 0) (== (tyCompat tc cty mkBoolTy) 0))
         (emitMismatch tc "Bool" (tyRender cty) (spanOf cnd))
         0)
       cty
@@ -7778,7 +7809,7 @@
     (let ((thenTy (checkExprH tc (nodeB e) 0)))
       (let ((elseTy (checkExprH tc (nodeC e) 0)))
         {
-          (if (&& (== (tyIsErr thenTy) 0) (&& (== (tyIsErr elseTy) 0) (== (tyCompat thenTy elseTy) 0)))
+          (if (&& (== (tyIsErr thenTy) 0) (&& (== (tyIsErr elseTy) 0) (== (tyCompat tc thenTy elseTy) 0)))
             (emitMismatchTy tc thenTy elseTy (spanOf (nodeC e)))
             0)
           (if (== (tyIsErr thenTy) 1)
@@ -9524,7 +9555,7 @@
                                   0)
                                 (if (== (nodeTag funcTy) TAG_T_ARR)
                                   {
-                                    (if (== (tyCompat argTy (nodeA funcTy)) 0)
+                                    (if (== (tyCompat tc argTy (nodeA funcTy)) 0)
                                       (let ((act (subtypeArgAction tc (nodeA funcTy) argTy)))
                                         (if (== act 1)
                                           0
@@ -11047,10 +11078,10 @@
               (mkNode TAG_T_ERR 0 0 0))
             (if (|| (== (tyIsFloatTy lt) 1) (== (tyIsFloatTy rt) 1))
               {
-                (if (&& (== (tyIsFloatTy lt) 0) (== (tyCompat lt mkFloatTy) 0))
+                (if (&& (== (tyIsFloatTy lt) 0) (== (tyCompat tc lt mkFloatTy) 0))
                   (emitMismatch tc "Float" (tyRender lt) (spanOf l))
                   0)
-                (if (&& (== (tyIsFloatTy rt) 0) (== (tyCompat rt mkFloatTy) 0))
+                (if (&& (== (tyIsFloatTy rt) 0) (== (tyCompat tc rt mkFloatTy) 0))
                   (emitMismatch tc "Float" (tyRender rt) (spanOf r))
                   0)
                 ; The one thing `restrict(no-wrap)` and
@@ -11064,7 +11095,7 @@
                 ; that is exactly the pair of tests above, so a
                 ; mixed-operand expression, which is a type error
                 ; here, is not also excused there.
-                (if (&& (|| (== (isWrapOp op) 1) (== (isUntrappedOp op) 1)) (&& (|| (== (tyIsFloatTy lt) 1) (== (tyCompat lt mkFloatTy) 1)) (|| (== (tyIsFloatTy rt) 1) (== (tyCompat rt mkFloatTy) 1))))
+                (if (&& (|| (== (isWrapOp op) 1) (== (isUntrappedOp op) 1)) (&& (|| (== (tyIsFloatTy lt) 1) (== (tyCompat tc lt mkFloatTy) 1)) (|| (== (tyIsFloatTy rt) 1) (== (tyCompat tc rt mkFloatTy) 1))))
                   (tcFloatOpAdd tc head)
                   0)
                 (if (== (isNumCmpOp op) 1)
@@ -14221,7 +14252,7 @@
       (if (== (nodeTag h) TAG_E_LAM)
         (checkLamAgainst tc h arrow)
         (checkExprH tc h 0))))
-      (if (== (tyCompat hty arrow) 0)
+      (if (== (tyCompat tc hty arrow) 0)
         (emitMismatchTy tc arrow hty (spanOf h))
         0))))
 
@@ -14558,7 +14589,7 @@
     0
     (let ((aty (checkExprH tc (vecGet args i) 0)))
       {
-        (if (== (tyCompat aty (vecGet insts i)) 0)
+        (if (== (tyCompat tc aty (vecGet insts i)) 0)
           (emitMismatchTy tc (vecGet insts i) aty (spanOf (vecGet args i)))
           0)
         (checkStructFieldsInst tc args insts (+ i 1))
@@ -14615,7 +14646,7 @@
           mkSilentWild
           (nodeTy (vecGet fields i)))))
         {
-          (if (== (tyCompat aty fty) 0)
+          (if (== (tyCompat tc aty fty) 0)
             (emitMismatchTy tc fty aty (spanOf (vecGet args i)))
             0)
           (checkStructFields tc args fields (+ i 1))
@@ -14927,7 +14958,7 @@
                       (nodeSpan e)
                       tc)
                     0)
-                  (if (== (tyCompat vty fty) 0)
+                  (if (== (tyCompat tc vty fty) 0)
                     (emitMismatchTy tc fty vty (spanOf (nodeC e)))
                     0)
                 })
@@ -14990,7 +15021,7 @@
                     0
                   }))))
               {
-                (if (&& (== suppressed 0) (&& (== (tyIsErr valTy) 0) (&& (== (tyIsErr (sEntTy ent)) 0) (== (tyCompat valTy (sEntTy ent)) 0))))
+                (if (&& (== suppressed 0) (&& (== (tyIsErr valTy) 0) (&& (== (tyIsErr (sEntTy ent)) 0) (== (tyCompat tc valTy (sEntTy ent)) 0))))
                   (emitMismatchTy tc (sEntTy ent) valTy (spanOf (nodeB e)))
                   0)
                 ; Inside a `region`, a store to a binding bound before
@@ -16562,7 +16593,7 @@
 (pub fn (checkLitPatternTy tc litTy scrutTy span)
   (if (|| (== scrutTy 0) (== span 0))
     0
-    (if (== (tyCompat litTy scrutTy) 1)
+    (if (== (tyCompat tc litTy scrutTy) 1)
       0
       {
         (emitMismatchTy tc litTy scrutTy span)
@@ -16601,7 +16632,12 @@
                 1
                 (if (!= (tcAliasFind tc (nodeAName scrutTy)) 0)
                   1
-                  0))
+                  ; different spellings of one declaration: a qualified
+                  ; scrutinee against bare constructor patterns, or the
+                  ; reverse. Resolved, never spelled-around.
+                  (if (== (tySameDecl tc scrutTy resTy) 1)
+                    1
+                    0)))
               0)))))))
 
 ; Each field the pattern names must be declared. AX3007's message and
@@ -19438,7 +19474,7 @@
           {
             (memSetWord tc 34 0)
             (scopeTrunc (tcScopeVec tc) mark)
-            (if (== (tyCompat mkBoolTy ty) 0)
+            (if (== (tyCompat tc mkBoolTy ty) 0)
               (emitContractMalformed tc t (contractSpanOf t) (strConcat (strConcat (strConcat (strConcat "is the `" (contractKeyOf t)) "` on `") (strConcat (bareOf (nodeAName d)) "` and has type `")) (strConcat (tyRender ty) "`, not `Bool`")))
               0)
             (checkContractPurity
@@ -21122,7 +21158,7 @@
                   ; (Int -> Int)` and its lenient direction goes red.
                   (if (== (tyHasSrcVar want) 1)
                     0
-                    (if (== (tyCompat want got) 0)
+                    (if (== (tyCompat tc want got) 0)
                       (if (== (subtypeCompatAllows tc want got) 1)
                         0
                         (emitMismatchTy tc want got (spanOf (nodeC d))))

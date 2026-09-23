@@ -518,3 +518,56 @@ expression-rule macro, selected by match
       rule_name: (identifier)
       parameter: (identifier)
       template: (identifier))))
+
+================================================================
+qualified type reference, bare and applied
+================================================================
+
+(:: getCode (-> Err::Result Int))
+(fn (getCode r) 0)
+
+(:: boxed (-> (Bx::Box Int) Int))
+(fn (boxed b) 0)
+
+(:: deep (-> Sys.Platform::T Int))
+(fn (deep x) 0)
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (type_signature
+    (identifier)
+    (function_type
+      (qualified_type
+        (constructor_identifier)
+        (constructor_identifier))
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (integer_literal))
+  (type_signature
+    (identifier)
+    (function_type
+      (type_constructor
+        (qualified_type
+          (constructor_identifier)
+          (constructor_identifier))
+        (builtin_type))
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (integer_literal))
+  (type_signature
+    (identifier)
+    (function_type
+      (qualified_type
+        (constructor_identifier)
+        (constructor_identifier)
+        (constructor_identifier))
+      (builtin_type)))
+  (function_definition
+    (identifier)
+    (identifier)
+    (integer_literal)))

@@ -372,6 +372,34 @@ cp "$work/two/TeamA.ax" "$work/two/TeamB.ax" "$work/esc/"
 printf '(import TeamA (aPort))\n(import TeamB)\n(:: pick (-> Config Int))\n(fn (pick c) c.port)\n(:: main Int)\n(fn (main) (pick (Config 3 99)))\n' > "$work/esc/narrow.ax"
 ok_exit esc narrow.ax 99 "\`(import TeamA (aPort))\` resolves the reference to TeamB"
 
+# And the escape the help text names since `Mod::Name` parses in type
+# position: qualification picks one declaration out of the collision,
+# and the field read proves WHICH one - `port` is first in TeamC and
+# second in TeamD, so resolving to the wrong module answers 99. A
+# help text naming a fix nobody checked is how this repository's
+# diagnostics have been wrong before, so this case runs the fix.
+mk qual
+cat > "$work/qual/TeamC.ax" <<'EOF'
+(pub struct Cfg
+  (port : Int)
+  (tag : Int))
+
+(pub :: mkC (-> Int Int Cfg))
+
+(pub fn (mkC a b) (Cfg a b))
+EOF
+cat > "$work/qual/TeamD.ax" <<'EOF'
+(pub struct Cfg
+  (tag : Int)
+  (port : Int))
+
+(pub :: mkD (-> Int Int Cfg))
+
+(pub fn (mkD a b) (Cfg a b))
+EOF
+printf '(import TeamC)\n(import TeamD)\n(:: pick (-> TeamC::Cfg Int))\n(fn (pick c) c.port)\n(:: main Int)\n(fn (main) (pick (TeamC::mkC 3 99)))\n' > "$work/qual/qual.ax"
+ok_exit qual qual.ax 3 "\`TeamC::Cfg\` resolves the reference to TeamC"
+
 # ---------------------------------------------------------------
 # 4. two aliases in one file
 # ---------------------------------------------------------------

@@ -236,6 +236,10 @@
         "named": true
       },
       {
+        "type": "qualified_type",
+        "named": true
+      },
+      {
         "type": "region_type",
         "named": true
       },
@@ -1611,6 +1615,42 @@
     }
   },
   {
+    "type": "qualified_type",
+    "named": true,
+    "fields": {
+      "module": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "constructor_identifier",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "constructor_identifier",
+            "named": true
+          }
+        ]
+      },
+      "submodule": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "constructor_identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "region_expression",
     "named": true,
     "fields": {
@@ -2184,6 +2224,10 @@
           {
             "type": "constructor_identifier",
             "named": true
+          },
+          {
+            "type": "qualified_type",
+            "named": true
           }
         ]
       },
@@ -2317,6 +2361,10 @@
   },
   {
     "type": "->",
+    "named": false
+  },
+  {
+    "type": ".",
     "named": false
   },
   {

@@ -1,0 +1,33 @@
+; A module whose struct, data and function are reached through
+; `QTypeA::` from `1002-qualified-type.ax` - including a parametric
+; type applied qualified, and a message type with a `String` payload
+; so qualified reference fields walk the same maps unqualified ones
+; do. It stands alone - the diagnostics sweep checks every file of
+; this tree on its own.
+(pub struct Point (x : Int) (y : Int))
+
+(pub data Shape
+  (Circle Int)
+  (Box Int Int))
+
+(pub data Wrap (a)
+  (MkWrap a))
+
+(pub data Msg
+  (MkMsg String))
+
+(pub :: origin Point)
+(pub fn (origin)
+  (Point 3 4))
+
+(pub :: mkBox (-> Int Int Shape))
+(pub fn (mkBox w h)
+  (Box w h))
+
+(pub :: mkWrap (-> Int (Wrap Int)))
+(pub fn (mkWrap n)
+  (MkWrap n))
+
+(pub :: mkMsg (-> String Msg))
+(pub fn (mkMsg s)
+  (MkMsg s))

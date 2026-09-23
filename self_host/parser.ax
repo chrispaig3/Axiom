@@ -2826,6 +2826,40 @@
       1
       0)))
 
+; At the `::`. Every further `::ident` extends the path; the LAST
+; segment is the name and the rest are the module. The type-side twin
+; of `parseQualifiedTail`: it answers the mangled spelling rather
+; than a node, so the bare atom below and the application head in
+; `parseTypeParens` share it.
+(pub :: parseTyQualChain (-> (Vec Int) Int (Vec String) Int))
+(pub fn (parseTyQualChain tokens pos chain)
+  (if (peekIs tokens pos TK_DOUBLE_COLON)
+    (if (peekIs tokens (advance pos) TK_IDENT)
+      {
+        (vecPush chain (tokenLexeme (vecGet tokens (advance pos))))
+        (parseTyQualChain tokens (advance (advance pos)) chain)
+      }
+      (pErr pos))
+    (pOk (mangledFromChain chain) pos)))
+
+; `Mod::Name`, and `Mod.Sub::Name`, where a TYPE stands. Only called
+; when the `::` is already confirmed ahead, so the tail always
+; consumes it; a missing name after the colons is a parse error, the
+; same answer the expression side gives.
+(pub :: parseQualifiedTyAtom (-> (Vec Int) Int Int))
+(pub fn (parseQualifiedTyAtom tokens pos)
+  (let ((chain
+    (let ((v vecNew))
+      {
+        (vecPush v (tokenLexeme (vecGet tokens pos)))
+        v
+      })))
+    (let ((afterDots (parseDottedChain tokens (advance pos) chain)))
+      (let ((qr (parseTyQualChain tokens afterDots chain)))
+        (if (== (memGetWord qr 0) 0)
+          qr
+          (pOk (mkTCon (memGetWordStr qr 1) vecNew) (memGetWord qr 2)))))))
+
 (pub :: parseTypeAtom (-> (Vec Int) Int Int))
 (pub fn (parseTypeAtom tokens pos)
   ; `[T]` is REFUSED, not parsed. The list type checked in signatures
@@ -2841,7 +2875,14 @@
       ; space lexes as one identifier here (stage1's `*` is an ident
       ; character) and lands in the TCon fallback - a recorded lexer
       ; gap; spell pointers `(* T)`.
-      (let ((s (tokenLexeme (vecGet tokens pos))))
+      ; `Mod::Name`, and `Mod.Sub::Name`: a qualified reference where
+      ; a type stands takes this branch, not the bare dispatch below.
+      ; The dotted lookahead spends nothing observable when the colons
+      ; do not follow - it walks a throwaway vector - so every other
+      ; spelling reaches that dispatch exactly as before.
+      (if (peekIs tokens (parseDottedChain tokens (advance pos) vecNew) TK_DOUBLE_COLON)
+        (parseQualifiedTyAtom tokens pos)
+        (let ((s (tokenLexeme (vecGet tokens pos))))
         (if (strEq s "*")
           (let ((r (parseTypeAtom tokens (advance pos))))
             (if (== (memGetWord r 0) 0)
@@ -2875,7 +2916,7 @@
                   (if (== (strLen (sizedTyMeant s)) 0)
                     (pOk (mkTVar s) (advance pos))
                     (pErrSizedTy pos s))
-                  (pOk (mkTCon s vecNew) (advance pos))))))))
+                  (pOk (mkTCon s vecNew) (advance pos)))))))))
       (if (peekIs tokens pos TK_LPAREN)
         (parseTypeParens tokens (advance pos))
         (pErrExp pos "type")))))
@@ -2977,12 +3018,28 @@
               0)))
           ; Type application: (Maybe Int), (Vec Float). A keyword head -
           ; (Int Bool) - is NOT an application; it falls through to the
-          ; tuple loop, stage0's rule.
+          ; tuple loop, stage0's rule. A qualified head - (Mod::T U) -
+          ; mangles the same way a bare atom does, then takes its
+          ; arguments through the same path.
           (let ((head (tokenLexeme (vecGet tokens pos))))
-            (let ((r (parseTypeAtomsRgn tokens (advance pos) vecNew)))
-              (if (== (memGetWord r 0) 0)
-                r
-                (pOk (tyWithRegion (mkTCon head (memGetWordVec r 1)) r) (memGetWord r 2)))))
+            (let ((chain
+              (let ((v vecNew))
+                {
+                  (vecPush v head)
+                  v
+                })))
+              (let ((hq (if (peekIs tokens (parseDottedChain tokens (advance pos) vecNew) TK_DOUBLE_COLON)
+                (let ((qr (parseTyQualChain tokens (parseDottedChain tokens (advance pos) chain) chain)))
+                  (if (== (memGetWord qr 0) 0)
+                    qr
+                    (pOk (memGetWordStr qr 1) (memGetWord qr 2))))
+                (pOk head (advance pos)))))
+                (if (== (memGetWord hq 0) 0)
+                  hq
+                  (let ((r (parseTypeAtomsRgn tokens (memGetWord hq 2) vecNew)))
+                    (if (== (memGetWord r 0) 0)
+                      r
+                      (pOk (tyWithRegion (mkTCon (memGetWordStr hq 1) (memGetWordVec r 1)) r) (memGetWord r 2))))))))
           (let ((r (parseTypeAtomsRgn tokens pos vecNew)))
             (if (== (memGetWord r 0) 0)
               r
