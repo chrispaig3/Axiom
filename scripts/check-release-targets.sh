@@ -134,7 +134,17 @@ else
   missing=""
   for t in $accepted; do
     [[ "$t" == windows-* ]] && continue
-    if ! printf '%s\n' $shipped $refused | grep -qx "$t"; then
+    # `grep -x` without `-q`, deliberately: `-q` exits on the first
+    # match, and under `set -o pipefail` a consumer that exits before
+    # the producer finishes turns the pipeline's status into the
+    # producer's SIGPIPE death (141) - so a target the list DOES
+    # contain reads as missing. That is exactly the failure CI showed
+    # on 2026-09-23: `darwin-x86_64` printed in the refused list two
+    # lines above the FAIL naming it as missing, with `line 137:
+    # printf: write error: Broken pipe` beside it. Without `-q` grep
+    # reads to EOF, the producer always completes, and the exit status
+    # is the match result alone. Same semantics, no race.
+    if ! printf '%s\n' $shipped $refused | grep -x "$t" >/dev/null; then
       missing="$missing $t"
     fi
   done
@@ -173,7 +183,7 @@ else
   targets_section="$(sed -n '/^### Targets/,/^## /p' "$readme")"
   gap=""; excused=""
   for t in $readme_supported; do
-    if printf '%s\n' $shipped | grep -qx "$t"; then continue; fi
+    if printf '%s\n' $shipped | grep -x "$t" >/dev/null; then continue; fi
     # TWO SPELLINGS, and missing the second was a real defect found on
     # 2026-08-30. A matrix target appears as `- name: linux-x86_64`,
     # but a target with a job of its own appears only in that job's
@@ -238,7 +248,7 @@ else
   # And the forbidden quadrant: shipped but not supported.
   ship_gap=""
   for t in $shipped; do
-    printf '%s\n' $readme_supported | grep -qx "$t" || ship_gap="$ship_gap $t"
+    printf '%s\n' $readme_supported | grep -x "$t" >/dev/null || ship_gap="$ship_gap $t"
   done
   if [[ -n "$ship_gap" ]]; then
     bad "built and attached but not in README's supported list:$ship_gap"
