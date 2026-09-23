@@ -8152,6 +8152,13 @@
     (emitLine cg "declare dllimport i64 @GetCommandLineW() #0")
     (emitLine cg "declare dllimport i64 @GetEnvironmentStringsW() #0")
     (emitLine cg "")
+    (if (== (mainReturnsResult cg) 1)
+      {
+        (emitLine cg "@__axiom_result_prefix = private unnamed_addr constant [7 x i8] c\"axiom: \"")
+        (emitLine cg "@__axiom_result_nl = private unnamed_addr constant [1 x i8] c\"\\0A\"")
+        (emitLine cg "")
+      }
+      0)
     ; UTF-16 code units before the NUL.
     (emitLine cg "define internal i64 @__axiom_win_wlen(i64 %p) #0 {")
     (emitLine cg "entry:")
@@ -8609,8 +8616,12 @@
     (emitLine cg "  store i64 %argc2, ptr @__axiom_argc")
     (emitLine cg "  store i64 %vec, ptr @__axiom_argv")
     (emitLine cg "  %r = call i64 @__axiom_user_main()")
-    (emitLine cg "  call i64 @ExitProcess(i64 %r)")
-    (emitLine cg "  unreachable")
+    (if (== (mainReturnsResult cg) 1)
+      (emitMainResultTail cg 1)
+      {
+        (emitLine cg "  call i64 @ExitProcess(i64 %r)")
+        (emitLine cg "  unreachable")
+      })
     (emitLine cg "}")
     (emitLine cg "")
     cg
@@ -8624,6 +8635,137 @@
 ; in the output defines it. This is the same `mmap`-backed bump
 ; allocator the Rust backend emits, parameterized by the target the
 ; driver named.
+; ------------------------------------------------------------------
+; ERR-REC-4: `main` answering `(Result Int Error)`.
+;
+; A `main` whose declared result is exactly `(Result Int Error)` -
+; nominally, with `errorText` in scope to render it - does not return
+; its answer as the exit status (a heap address truncated to a code).
+; The entry wrapper dispatches instead: an `Ok` payload answers as
+; the status, codes 1-69 staying the program's own, and an `Err`
+; writes `axiom: ` plus `errorText` to fd 2 and exits 70, beside the
+; runtime's own 71 and 72.
+;
+; Three narrow gates keep this to the shape the model blesses.
+; Anything else - another `Result` spelling, a missing `errorText`,
+; unresolvable constructors - takes the old path, which is today's
+; behaviour for those shapes and not a new silence:
+;
+;   the signature is STRUCTURALLY `(Result Int Error)` - bare names,
+;   exact arguments. A polymorphic spelling, an alias, another
+;   payload or another error type does not match;
+;   `errorText` resolves to a defined function TAKING `(-> Error
+;   String)` - the rendering the dispatch calls, so a same-named
+;   imposter with another arrow cannot be reached through it;
+;   `Ok` and `Err` both resolve to fielded constructors, so every
+;   answer is boxed with its tag at word 0 and its payload at word
+;   1 - nothing immediate is ever loaded as a pointer.
+;
+; The dispatch is emitted text reusing the trap family's doors
+; (`emitRuntimeWrite`, `emitRuntimeExit`), so every target answers
+; alike - UART included - and `errorText` stays live because the
+; call names it where the dead-code walk reads (`@main`'s own body).
+; ------------------------------------------------------------------
+; A nullary type constructor spelling `name`, bare or qualified.
+(pub :: isNamedConTy (-> Int String Int))
+(pub fn (isNamedConTy ty name)
+  (if (== ty 0)
+    0
+    (if (!= (nodeTag ty) TAG_T_CON)
+      0
+      (if (strEq (bareOf (nodeAName ty)) name)
+        (if (== (vecLen (nodeBVec ty)) 0)
+          1
+          0)
+        0))))
+
+; The exact signature this dispatch understands: `(Result Int Error)`.
+(pub :: isResultIntErrorTy (-> Int Int))
+(pub fn (isResultIntErrorTy ty)
+  (if (== ty 0)
+    0
+    (if (!= (nodeTag ty) TAG_T_CON)
+      0
+      (if (strEq (bareOf (nodeAName ty)) "Result")
+        (let ((args (nodeBVec ty)))
+          (if (!= (vecLen args) 2)
+            0
+            (if (== (isNamedConTy (vecGet args 0) "Int") 0)
+              0
+              (isNamedConTy (vecGet args 1) "Error"))))
+        0))))
+
+(pub :: mainReturnsResult (-> Int Int))
+(pub fn (mainReturnsResult cg)
+  ; the entry file's `main` under the spelling every lookup answers
+  ; for it
+  (let ((e (findFSigCg cg "__axiom_user_main")))
+    (if (== e 0)
+      0
+      (if (== (isResultIntErrorTy (memGetWord e 3)) 0)
+        0
+        (let ((ee (findFSigCg cg (mangledForCg cg "errorText"))))
+          (if (== ee 0)
+            0
+            ; the rendering takes an `Error` and answers a `String` -
+            ; anything else bearing the name is not this call
+            (let ((ety (memGetWord ee 3)))
+              (if (!= (nodeTag ety) TAG_T_ARR)
+                0
+                (if (|| (== (isNamedConTy (nodeA ety) "Error") 0) (== (isNamedConTy (nodeB ety) "String") 0))
+                  0
+                  (let ((okE (lookupType (memGetWordVec cg 3) "Ok"))
+                        (errE (lookupType (memGetWordVec cg 3) "Err")))
+                    (if (|| (== okE 0) (== errE 0))
+                      0
+                      (if (|| (!= (eArity okE) 1) (!= (eArity errE) 1))
+                        0
+                        1))))))))))))
+
+; The `@main` tail for a `Result` answer: `%r` holds the cell. `wind`
+; selects the `Ok` tail - `ExitProcess` on Windows, `ret` everywhere
+; else (the bare-metal `_start` reads `@main`'s answer the same way);
+; the `Err` tail is one sentence on fd 2 and status 70 on every
+; target, through the trap family's own doors.
+(pub :: emitMainResultTail (-> Int Int Int))
+(pub fn (emitMainResultTail cg wind)
+  (let ((okTag (eTag (lookupType (memGetWordVec cg 3) "Ok")))
+        (etext (llvmSym (mangledForCg cg "errorText"))))
+    {
+      (emitLine cg "  %mres_tp = inttoptr i64 %r to ptr")
+      (emitLine cg "  %mres_tag = load i64, ptr %mres_tp")
+      (emitLine cg (cat3 "  %mres_isok = icmp eq i64 %mres_tag, " (constStr okTag) ""))
+      (emitLine cg "  br i1 %mres_isok, label %.mres_ok, label %.mres_err")
+      (emitLine cg ".mres_ok:")
+      (emitLine cg "  %mres_outp = inttoptr i64 %r to ptr")
+      (emitLine cg "  %mres_outv = getelementptr i64, ptr %mres_outp, i64 1")
+      (emitLine cg "  %mres_out = load i64, ptr %mres_outv")
+      (if (== wind 1)
+        {
+          (emitLine cg "  call i64 @ExitProcess(i64 %mres_out)")
+          (emitLine cg "  unreachable")
+        }
+        (emitLine cg "  ret i64 %mres_out"))
+      (emitLine cg ".mres_err:")
+      (emitLine cg "  %mres_errp = inttoptr i64 %r to ptr")
+      (emitLine cg "  %mres_errv = getelementptr i64, ptr %mres_errp, i64 1")
+      (emitLine cg "  %mres_errh = load i64, ptr %mres_errv")
+      (emitLine cg (cat4 "  %mres_msg = call i64 @" etext "(i64 " "%mres_errh)"))
+      (emitLine cg "  %mres_slp = inttoptr i64 %mres_msg to ptr")
+      (emitLine cg "  %mres_sll = getelementptr i64, ptr %mres_slp, i64 0")
+      (emitLine cg "  %mres_len = load i64, ptr %mres_sll")
+      (emitLine cg "  %mres_sdp = getelementptr i64, ptr %mres_slp, i64 1")
+      (emitLine cg "  %mres_dat = load i64, ptr %mres_sdp")
+      (emitLine cg "  %mres_pre = ptrtoint ptr @__axiom_result_prefix to i64")
+      (emitRuntimeWrite cg "%mres_pre" "7")
+      (emitLine cg "  %mres_nlp = ptrtoint ptr @__axiom_result_nl to i64")
+      (emitRuntimeWrite cg "%mres_dat" "%mres_len")
+      (emitRuntimeWrite cg "%mres_nlp" "1")
+      (emitRuntimeExit cg "70")
+      (emitLine cg "  unreachable")
+      cg
+    }))
+
 ; ------------------------------------------------------------------
 (pub :: emitAllocator (-> Int Int))
 ;@axiom:effect(io)
@@ -8655,12 +8797,21 @@
       0
       (if (strEq (targetEntryName (memGetWord cg 26)) "main")
         {
+          (if (== (mainReturnsResult cg) 1)
+            {
+              (emitLine cg "@__axiom_result_prefix = private unnamed_addr constant [7 x i8] c\"axiom: \"")
+              (emitLine cg "@__axiom_result_nl = private unnamed_addr constant [1 x i8] c\"\\0A\"")
+              (emitLine cg "")
+            }
+            0)
           (emitLine cg "define i64 @main(i64 %argc, i64 %argv) #0 {")
           (emitLine cg "entry:")
           (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
           (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
           (emitLine cg "  %r = call i64 @__axiom_user_main()")
-          (emitLine cg "  ret i64 %r")
+          (if (== (mainReturnsResult cg) 1)
+            (emitMainResultTail cg 0)
+            (emitLine cg "  ret i64 %r"))
           (emitLine cg "}")
           (emitLine cg "")
         }

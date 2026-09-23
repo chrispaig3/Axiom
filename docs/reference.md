@@ -43,7 +43,9 @@ A friendly, comprehensive guide to the Axiom programming language — a function
 
 ## Hello, Axiom!
 
-Every Axiom program needs a `main` function that returns `Int`. Here is the smallest possible program:
+Every Axiom program needs a `main` function that returns `Int` - or a
+`(Result Int Error)` (see [Fallible `main`](#fallible-main) below).
+Here is the smallest possible program:
 
 ```scheme
 (import IO)
@@ -64,6 +66,27 @@ axiom run hello.ax
 ```
 
 That's it. No headers, no build system, no runtime. The `IO` module is part of Axiom's own standard library, which reaches the kernel through raw syscalls, so this program links and calls no C function. An `extern` block is the one door that changes that ([ffi.md](ffi.md)).
+
+### Fallible `main`
+
+A `main` answering `(Result Int Error)` reports failure the way the
+runtime reports its own: an `Ok` payload answers as the exit status,
+and an `Err` writes `axiom: ` plus the error's rendering to fd 2 and
+exits 70 - beside the runtime's 71 and 72
+([error-model.md](error-model.md), `ERR-REC-4`).
+
+```scheme
+(import Err)
+
+(:: main (Result Int Error))
+(fn (main)
+  (Err (mkError 7 "disk full")))
+```
+
+Running it prints `axiom: disk full` to fd 2 and exits 70. With
+context attached the sentence carries it: `axiom: disk full while
+saving records`. Exit codes 1-69 stay the program's own. Any other
+`main` shape keeps today's behaviour.
 
 ---
 

@@ -746,14 +746,20 @@ answer. That is `ERR-REC-7`, and `stdlib/Fallible.ax` ships it — the
 handler decides per record, it cannot abort, and the loop it serves
 never learns anything happened.
 
-**ERR-REC-4 (P). `main` renders an error and exits with a code
+**ERR-REC-4 (H, gated). `main` renders an error and exits with a code
 reserved for the purpose.** A `main` answering `(Result Int Error)`
 writes `axiom: {message}` — and `context` when it is non-empty — to fd
 2, and exits **70**. The number is chosen to sit beside the two the
 runtime already owns and below neither: 71 is the unhandled-operation
 trap and 72 is the division trap, so 70 completes the block and a
 reader who has seen one has seen the family. Exit codes 1–69 stay the
-program's own.
+program's own. Held by `tests/stdlib/490-main-result-ok.ax` (an `Ok`
+payload answers as the status) and
+`tests/stdlib/491-main-result-err.ax` (the sentence on fd 2 via
+`NAME.err`, status 70 via `NAME.exit`), run at `--opt` 0 and 2 by
+`scripts/check-stdlib-selfhost.sh` like every stdlib golden. The
+dispatch understands exactly `(Result Int Error)` with `errorText` in
+scope; any other `main` shape keeps today's behaviour.
 
 **ERR-REC-6 (H). A trap may be contained, and only a trap.** Since
 2026-08-24, `(__axiom_recover mark thunk)` arms a **recovery point** at
@@ -1337,7 +1343,8 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-1` | R | no unwinding exists |
 | `ERR-REC-2` | **H, gated** | `371-err-module.ax` terms 64 and 32; `312-checked-arithmetic.ax` boundary terms for all seven operators, pinned at `--opt` 0, 1, 2 and 3 by the case's `.optstable` marker in `scripts/run-stdlib-tests.sh` |
 | `ERR-REC-3` | R | handlers are tail-resumptive |
-| `ERR-REC-4`, `5` | P | — |
+| `ERR-REC-4` | **H, gated** | `tests/stdlib/490-main-result-ok.ax`, `491-main-result-err.ax` (+ `.out`/`.exit`/`.err`) |
+| `ERR-REC-5` | P | — |
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
 | `ERR-REC-8` | **R, superseded 2026-09-09** | range-constrained subtypes refused as a type — decided 2026-09-08 (roadmap item 11, D2); SUPERSEDED: `(subtype N is Int range lo .. hi)` built 2026-09-09 (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal, and the re-measured counts |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
@@ -1346,10 +1353,10 @@ term 2, which now carries both spellings and compares them.
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Twenty-two rules hold, eleven of them named by a fixture that carries an
+Twenty-three rules hold, eleven of them named by a fixture that carries an
 ablation — and one of those ten, `ERR-REC-2`, has a fixture that
 reaches two of its four operators, which the row says. What remains is
-`ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the migration
+`ERR-REC-5`, `ERR-DIAG-2`/`3` and the migration
 itself — and the document says so in every row rather than in a note at
 the end.
 

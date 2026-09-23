@@ -169,6 +169,14 @@
 # the span walker `discardSpanOf` reads exactly `Unsafe` (1144 to
 # 1145). Neither line moves, and every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-23 (7): `ERR-REC-4` (a `Result`-answering `main`
+# dispatches in the entry wrapper). Four added, none removed, none
+# changed - each new row read off `symbols` by name: the signature
+# matchers (`isNamedConTy`, `isResultIntErrorTy`), the predicate
+# (`mainReturnsResult`) and the tail emitter (`emitMainResultTail`)
+# all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
+# every other bucket is frozen again.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -205,7 +213,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2198 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2202 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1145 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 123 "Mut,Unsafe"

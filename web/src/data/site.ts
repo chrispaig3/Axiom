@@ -25,13 +25,13 @@ export interface Stat {
 export const STATS: Stat[] = [
   {
     key: 'lines',
-    n: '101,281',
+    n: '101,432',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
   {
     key: 'axfiles',
-    n: '700',
+    n: '702',
     label: '.ax files in the tree, every one parsed by the grammar gate',
     evidence: "git ls-files '*.ax' | wc -l",
   },

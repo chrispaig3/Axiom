@@ -1,0 +1,9 @@
+; A `main` answering `(Result Int Error)` with failure: `axiom:`
+; plus the rendering writes to fd 2, and the process exits 70 -
+; beside the runtime's own 71 and 72 (ERR-REC-4). The `.err` golden
+; holds the sentence; stdout stays empty.
+(import Err)
+
+(:: main (Result Int Error))
+(fn (main)
+  (withContext (Err (mkError 7 "disk full")) "saving records"))

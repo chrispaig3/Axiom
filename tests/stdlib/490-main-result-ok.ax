@@ -1,0 +1,8 @@
+; A `main` answering `(Result Int Error)` with success: the `Ok`
+; payload answers as the exit status, and codes 1-69 stay the
+; program's own (ERR-REC-4).
+(import Err)
+
+(:: main (Result Int Error))
+(fn (main)
+  (Ok 42))

@@ -16,6 +16,21 @@ its changelog too.
 
 ## Unreleased
 
+### `main` may answer `(Result Int Error)` — `ERR-REC-4`
+
+A `main` answering `(Result Int Error)` no longer exits with its
+answer's heap address truncated to a code. An `Ok` payload answers as
+the exit status, and an `Err` writes `axiom: ` plus `errorText` to fd
+2 and exits 70 - beside the runtime's 71 and 72, on every target
+through the trap family's own write/exit doors. The dispatch
+understands exactly `(Result Int Error)` with `errorText` in scope
+(a same-named imposter with another arrow, unresolvable
+constructors, and unboxed shapes all take the old path); an `Int`
+`main` emits byte-identical IR. Held by
+`tests/stdlib/490-main-result-ok.ax` (exit 42) and
+`tests/stdlib/491-main-result-err.ax` (the sentence via `NAME.err`,
+status 70 via `NAME.exit`).
+
 ### A discarded `Result` warns — `AX3046`
 
 `ERR-DIAG-2`'s first proposal is held: a `Result`-typed non-last
