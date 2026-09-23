@@ -196,3 +196,15 @@ AX3048
 #          so the one tag the standard library depends on cannot be
 #          deleted quietly.
 AX3053
+# AX3045 `recursion-in-scrutinee` - a self-recursive call in the
+#          scrutinee of a `match`. Evaluating the scrutinee runs
+#          before any arm, so the call is never in tail position and
+#          every nesting level holds a frame. A warning by DESIGN,
+#          like AX3048 and AX3053 above: a recursion that runs
+#          bounded is correct, and an error would refuse working
+#          programs to catch the ones that overflow - measured on
+#          the error model's pair at 32 bytes a call, SIGSEGV at
+#          262,144 nesting levels against 5,000,000 flat for the
+#          arm-tail rewrite the help names
+#          (`docs/error-model.md` ERR-PROP-3/4).
+AX3045

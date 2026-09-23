@@ -1,0 +1,46 @@
+; A self-recursive call in the scrutinee of a `match`. AX3045.
+; One warning per offending match, on the call: `total2` answers the
+; call bare, `nest` nests one deeper inside a larger scrutinee.
+; `total` is the arm-tail shape and draws nothing: the recursive call
+; stands in an arm, where it is a tail call. `queried` calls another
+; function in its scrutinee and draws nothing either: only the
+; enclosing function counts.
+(:: step (-> Int (Option Int)))
+(fn (step n)
+  (if (<= n 0)
+    (None)
+    (Some (- n 1))))
+
+(:: total (-> Int Int Int))
+(fn (total n acc)
+  (if (== n 0)
+    acc
+    (match (step n)
+      ((None) acc)
+      ((Some v) (total (- n 1) (+ acc v))))))
+
+(:: total2 (-> Int Int (Option Int)))
+(fn (total2 n acc)
+  (if (== n 0)
+    (Some acc)
+    (match (total2 (- n 1) (+ acc 1))
+      ((None) (None))
+      ((Some x) (Some x)))))
+
+(:: queried (-> Int Int))
+(fn (queried n)
+  (match (step n)
+    ((None) 0)
+    ((Some v) v)))
+
+(:: nest (-> Int Int))
+(fn (nest n)
+  (match (+ (nest n) 1)
+    (0 0)
+    (_ 1)))
+
+(:: main Int)
+(fn (main)
+  (match (total2 10 0)
+    ((None) 0)
+    ((Some x) (+ x (total 10 0)))))

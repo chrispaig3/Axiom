@@ -1,0 +1,18 @@
+[1;33mwarning[AX3045][0m[1m: `total2` calls itself here, in the scrutinee of a `match`[0m
+  [1;34m--> [0m1005-recursion-in-scrutinee.ax:26:13
+[1;34m   |[0m
+[1;34m26 |[0m     (match (total2 (- n 1) (+ acc 1))
+[1;34m   |[0m             [1;33m^^^^^^ recursive call to `total2`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mbind the scrutinee in a `let` and answer the recursive call from a match arm, where the self call is a tail call and the loop conversion fires
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3045` for a full explanation
+
+[1;33mwarning[AX3045][0m[1m: `nest` calls itself here, in the scrutinee of a `match`[0m
+  [1;34m--> [0m1005-recursion-in-scrutinee.ax:38:14
+[1;34m   |[0m
+[1;34m38 |[0m   (match (+ (nest n) 1)
+[1;34m   |[0m              [1;33m^^^^ recursive call to `nest`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mbind the scrutinee in a `let` and answer the recursive call from a match arm, where the self call is a tail call and the loop conversion fires
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3045` for a full explanation
+

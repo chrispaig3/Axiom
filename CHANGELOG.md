@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### A self-recursive call in a `match` scrutinee warns — `AX3045`
+
+`ERR-PROP-4` is held: a call to the enclosing function standing in a
+`match` scrutinee draws `recursion-in-scrutinee`, a warning with a
+help naming the arm-tail rewrite. Evaluating the scrutinee runs
+before any arm, so the call is never in tail position — 32 bytes of
+stack per nesting level, SIGSEGV at 262,144 against 5,000,000 flat
+for the arm shape (`docs/error-model.md` `ERR-PROP-3`). A shallow
+recursion is correct, so an error would refuse working programs; the
+warning costs a line and no build. Reported is any self-call at any
+depth of the scrutinee, whatever its type; not reported are calls to
+other functions, shadowed names, and poisoned scrutinees. Held by
+`tests/diagnostics/1005-recursion-in-scrutinee.ax` (two warnings;
+the safe shape, cross-function calls, shadowing spellings and a
+poisoned scrutinee silent), `tests/diagnostics/severity.policy`,
+`scripts/check-diagnostic-coverage.sh`, and
+`scripts/check-doc-drift.sh` in both directions on the new code.
+
 ### A nullary call's answer is owned, and a free consumes — issue #35
 
 A call with no arguments parses as its bare head (`parseArgs` answers

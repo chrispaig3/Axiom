@@ -153,6 +153,15 @@
 # siblings `fnStashMask` and `fnRetMask`, so that bucket moves 2191 to
 # 2192. Neither line moves, and every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-23: `AX3045` (`recursion-in-scrutinee`) walks
+# every match scrutinee for a self-call. Five added, none removed,
+# none changed - each new row read off `symbols` by name: the four
+# scrutinee walkers (`checkRecursionInScrutinee`, `selfCallIn`,
+# `selfCallInVec`, `selfCallInArms`) read `Alloc,Mut,Unsafe` (2192 to
+# 2196), and the name-vector scan `strsHasName` reads exactly `Unsafe`
+# (1143 to 1144). Neither line moves, and every other bucket is
+# frozen again.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -189,8 +198,8 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2192 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1143 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2196 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1144 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 123 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 49 "Alloc,Unsafe"

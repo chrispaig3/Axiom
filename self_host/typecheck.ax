@@ -15022,9 +15022,180 @@
 ; comes after everything in its match - probed order.
 ; ------------------------------------------------------------------
 (pub :: checkMatch (-> Int Int Int))
+; ERR-PROP-4: a self-recursive call in the scrutinee of a `match`.
+; Evaluating the scrutinee runs before any arm, so the call is never
+; in tail position: every nesting level holds a frame, and deep inputs
+; die of stack overflow (32 bytes a call, SIGSEGV at 262,144 nesting
+; levels against 5,000,000 flat for the arm-tail shape -
+; docs/error-model.md ERR-PROP-3). The walk reports the first such
+; call in pre-order, once per match, as a warning: a shallow
+; recursion is correct, and an error would refuse working programs.
+;
+; What counts is a CALL to the enclosing function - an application
+; whose spine head spells it, or, when the function takes no
+; parameters, a bare reference, which `parseArgs` leaves as the head
+; alone and `emitVar` emits as `call i64 @...()`. A bare reference to
+; a function that takes parameters is its closure record, not a call,
+; and stays silent. Shadowing is lexical: a `let`, `lambda`
+; parameter list or match pattern binding the name means the global
+; from there down, so the walk stops reporting under it (its
+; initialiser still counts - it evaluates outside the binding), and a
+; binding in the match's own scope means no occurrence can be the
+; global at all. Nodes from macro templates count: a generated
+; self-call holds its frame like a written one, and its span is the
+; invocation's. Tags the walk does not know answer 0 - a missed
+; exotic shape stays silent rather than misfiring.
+(pub :: selfCallIn (-> Int String String Int Int Int))
+(pub fn (selfCallIn e name bare nullary shadowed)
+  (if (|| (== e 0) (== shadowed 1))
+    0
+    (let ((tg (nodeTag e)))
+      (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (== tg TAG_E_CHAR))))
+        0
+        (if (== tg TAG_E_VAR)
+          (if (|| (strEq (nodeAName e) name) (strEq (nodeAName e) bare))
+            (if (== nullary 1)
+              e
+              0)
+            0)
+          (if (== tg TAG_E_APP)
+            (let ((hd (spineHead e)))
+              (if (&& (== (nodeTag hd) TAG_E_VAR) (|| (strEq (nodeAName hd) name) (strEq (nodeAName hd) bare)))
+                e
+                (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                  (if (!= a 0)
+                    a
+                    (selfCallIn (nodeB e) name bare nullary shadowed)))))
+            (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+              (let ((a (selfCallIn (nodeB e) name bare nullary shadowed)))
+                (if (!= a 0)
+                  a
+                  (if (|| (strEq (nodeAName e) name) (strEq (nodeAName e) bare))
+                    0
+                    (selfCallIn (nodeC e) name bare nullary shadowed))))
+              (if (== tg TAG_E_LAM)
+                (if (== (strsHasName (nodeAVec e) name bare 0) 1)
+                  0
+                  (selfCallIn (nodeB e) name bare nullary shadowed))
+                (if (== tg TAG_E_IF)
+                  (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                    (if (!= a 0)
+                      a
+                      (let ((b (selfCallIn (nodeB e) name bare nullary shadowed)))
+                        (if (!= b 0)
+                          b
+                          (selfCallIn (nodeC e) name bare nullary shadowed)))))
+                  (if (== tg TAG_E_BEGIN)
+                    (selfCallInVec (nodeAVec e) name bare nullary shadowed 0)
+                    (if (== tg TAG_E_MATCH)
+                      (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                        (if (!= a 0)
+                          a
+                          (selfCallInArms (nodeBVec e) name bare nullary shadowed 0)))
+                      (if (== tg TAG_E_FIELD)
+                        (selfCallIn (nodeA e) name bare nullary shadowed)
+                        (if (== tg TAG_E_SET)
+                          (selfCallIn (nodeB e) name bare nullary shadowed)
+                          (if (== tg TAG_E_SETF)
+                            (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                              (if (!= a 0)
+                                a
+                                (selfCallIn (nodeC e) name bare nullary shadowed)))
+                            (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
+                              (if (== tg TAG_E_REGION)
+                                (selfCallIn (nodeB e) name bare nullary shadowed)
+                                (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                                  (if (!= a 0)
+                                    a
+                                    (selfCallInVec (nodeBVec e) name bare nullary shadowed 0))))
+                              (if (== tg TAG_E_HANDLE)
+                                (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                                  (if (!= a 0)
+                                    a
+                                    (selfCallIn (nodeC e) name bare nullary shadowed)))
+                                (if (== tg TAG_E_STRUCTCON)
+                                  (selfCallInVec (nodeBVec e) name bare nullary shadowed 0)
+                                  (if (== tg TAG_E_ALLOC)
+                                    (if (== (nodeB e) 0)
+                                      0
+                                      (selfCallIn (nodeB e) name bare nullary shadowed))
+                                    (if (== tg TAG_E_SUBCHECK)
+                                      (let ((a (selfCallIn (nodeA e) name bare nullary shadowed)))
+                                        (if (!= a 0)
+                                          a
+                                          (let ((b (selfCallInVec (nodeBVec e) name bare nullary shadowed 0)))
+                                            (if (!= b 0)
+                                              b
+                                              (if (== (nodeC e) 0)
+                                                0
+                                                (selfCallIn (nodeC e) name bare nullary shadowed))))))
+                                      0)))))))))))))))))))
+
+; The first self-call across a vector of expressions, in order, or 0.
+(pub :: selfCallInVec (-> (Vec Int) String String Int Int Int Int))
+(pub fn (selfCallInVec v name bare nullary shadowed i)
+  (if (|| (== (cast Int v) 0) (>= i (vecLen v)))
+    0
+    (let ((a (selfCallIn (vecGet v i) name bare nullary shadowed)))
+      (if (!= a 0)
+        a
+        (selfCallInVec v name bare nullary shadowed (+ i 1))))))
+
+; The first self-call across match arms, in order, or 0. An arm whose
+; pattern binds the name shadows it for that arm's body only; the
+; scrutinee-side walk already ran above this.
+(pub :: selfCallInArms (-> (Vec Int) String String Int Int Int Int))
+(pub fn (selfCallInArms arms name bare nullary shadowed i)
+  (if (>= i (vecLen arms))
+    0
+    (let ((bs vecNew))
+      {
+        (patBinders (nodeA (vecGet arms i)) bs)
+        (let ((a (selfCallIn (nodeB (vecGet arms i)) name bare nullary (if (== (strsHasName bs name bare 0) 1) 1 shadowed))))
+          (if (!= a 0)
+            a
+            (selfCallInArms arms name bare nullary shadowed (+ i 1))))
+      })))
+
+; Whether a vector of name strings holds either spelling, or 0 for no
+; vector at all. The vector is `(Vec Int)` - names are words, read
+; with `vecGetStr` - whatever its elements were pushed as.
+(pub :: strsHasName (-> (Vec Int) String String Int Int))
+(pub fn (strsHasName v name bare i)
+  (if (|| (== (cast Int v) 0) (>= i (vecLen v)))
+    0
+    (if (|| (strEq (vecGetStr v i) name) (strEq (vecGetStr v i) bare))
+      1
+      (strsHasName v name bare (+ i 1)))))
+
+(pub :: checkRecursionInScrutinee (-> Int Int Int Int Int))
+(pub fn (checkRecursionInScrutinee tc e scrutTy errsBefore)
+  (let ((d (memGetWord tc 24)))
+    (if (|| (== d 0) (!= (nodeTag d) TAG_D_FN))
+      0
+      (let ((name (nodeAName d)))
+        (if (!= (scopeFindFrame tc name) 0)
+          0
+          (let ((found (selfCallIn (nodeA e) name (bareOf name) (if (== (vecLen (nodeBVec d)) 0) 1 0) 0)))
+            (if (|| (== found 0) (|| (!= errsBefore (countErrorDiags (tcOutVec tc))) (== (tyIsErr scrutTy) 1)))
+              0
+              (if (== (nodeSpan found) 0)
+                0
+                (emitDiag tc (diagSetLabel (mkDiag
+                  SEV_WARNING
+                  "AX3045"
+                  "recursion-in-scrutinee"
+                  (nodeSpan found)
+                  (strConcat (strConcat "`" (bareOf name)) "` calls itself here, in the scrutinee of a `match`")
+                  0
+                  ""
+                  "bind the scrutinee in a `let` and answer the recursive call from a match arm, where the self call is a tail call and the loop conversion fires") (strConcat (strConcat "recursive call to `" (bareOf name)) "`")))))))))))
+
 (pub fn (checkMatch tc e)
   (let (
+    (errsBefore (countErrorDiags (tcOutVec tc)))
     (scrutTy (checkExprH tc (nodeA e) 0))
+    (recWarn (checkRecursionInScrutinee tc e scrutTy errsBefore))
     (covered vecNew)
     (catchall (memAlloc 8))
   )

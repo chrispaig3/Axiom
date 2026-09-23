@@ -438,16 +438,25 @@ without checking, and is why this was checked first.
 Gated by `tests/stdlib/370-error-propagation.ax`, term 16, with the
 scrutinee shape run as its ablation.
 
-**ERR-PROP-4 (P). The compiler SHOULD diagnose a self-recursive call in
-the scrutinee of a `match` on its own return type.** Proposed
-`AX3045`, `recursion-in-scrutinee`, a **warning**, with a help naming
-the arm-tail rewrite. Today nothing says anything: the program compiles,
-runs, and dies on an input large enough, which is the failure mode
-`ERR-PROP-3` exists to prevent and the one a programmer is least
-equipped to see. This code is *proposed*, not allocated: it is not
-constructed anywhere, and `scripts/check-doc-drift.sh` checks
-construction against `explain --list` in both directions, so it must
-not be listed until it is built.
+**ERR-PROP-4 (H, gated). The compiler warns on a self-recursive call
+in the scrutinee of a `match`.** `AX3045`,
+`recursion-in-scrutinee`, a **warning**, with a help naming the
+arm-tail rewrite. The implemented condition is any call to the
+enclosing function at any depth of any match scrutinee in its body,
+whatever the scrutinee's own type is: a call nested in a larger
+scrutinee holds its frame identically, so the return-type clause the
+proposal carried would have excluded the same hazard one expression
+up. What is not reported is a call to any other function - mutual
+recursion through a scrutinee is the same hazard one call away, and
+the checker sees one declaration at a time - a name the match's own
+scope binds, or a scrutinee that did not check clean. Shallow
+recursions stay silent by staying correct: the warning costs a line
+of output and no build, and an error would refuse working programs.
+Gated by `tests/diagnostics/1005-recursion-in-scrutinee.ax` (two
+warnings: the bare call and one nested deeper; the arm-tail shape,
+a call to another function, shadowing spellings and a poisoned
+scrutinee all silent), `tests/diagnostics/severity.policy`, and
+`scripts/check-diagnostic-coverage.sh`.
 
 **ERR-PROP-5 (H). Higher-order propagation carries the callee's
 effects, not the error.** A combinator taking a fallible function
@@ -987,8 +996,8 @@ on 2026-08-29 by the `restrict(...)` AXTAG (`restriction-violated`, an
 error; `restriction-unverifiable`, a warning in the same policy file;
 `restriction-unknown`, an error - `docs/reference.md`, AXTAG Keys),
 `AX3050` was SPENT on 2026-08-31 by `contract-malformed` (the
-paragraph after next), `AX3043` and `AX3045` are still unspent and stay where
-they are, `AX3044` is the namespace pass's, and `AX3032` is retired and
+paragraph after next), `AX3043` is still unspent and stays where
+it is, `AX3044` is the namespace pass's, and `AX3032` is retired and
 **MUST NOT** be reused. `AX3055` was spent on 2026-08-29 by
 `effect-op-untyped` (an effect operation that declares no type - an
 error, because the handler check and the call's arity check both stand
@@ -1091,7 +1100,6 @@ what keeps it honest.
 |---|---|---|
 | `AX3046` | `discarded-result` | a `Result`-typed expression in statement position, its value unused — warning (was `AX3042` until that number was built as `undeclared-effect`) |
 | `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
-| `AX3045` | `recursion-in-scrutinee` | `ERR-PROP-4` — warning |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -1119,7 +1127,7 @@ reserved block, by this section's own rule.
 `__store64` of a reference-typed value through `cast`, which takes no
 share, so the owner's release frees a block the stored word still
 names (`tests/diagnostics/1002-unretained-store.ax`). From the free
-end as well, leaving `AX3043`, `AX3045` and `AX3046` proposed.
+end as well, leaving `AX3043` and `AX3046` proposed.
 
 `AX3072` was spent the same day by `addr-nonliteral`: `__addr` of
 anything but a string literal, which has no interned bytes behind it
@@ -1319,7 +1327,7 @@ term 2, which now carries both spellings and compares them.
 | `ERR-PROP-1` | H | the language having no other mechanism |
 | `ERR-PROP-2` | H | `#pure` accepted on INSPECT; refused on CONSTRUCT with `AX3010` since 2026-08-31 |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
-| `ERR-PROP-4` | P | — proposed `AX3045`, not constructed (`AX3041` was spent by the parser) |
+| `ERR-PROP-4` | **H, gated** | `tests/diagnostics/1005-recursion-in-scrutinee.ax` + `severity.policy` + `scripts/check-diagnostic-coverage.sh` |
 | `ERR-PROP-5` | H | effect inference, unchanged |
 | `ERR-MEM-1` | H | `fldClass`, `self_host/codegen.ax` |
 | `ERR-MEM-2` | **H, gated** | `370-error-propagation.ax` term 4 + ablation |
@@ -1334,15 +1342,15 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
 | `ERR-REC-8` | **R, superseded 2026-09-09** | range-constrained subtypes refused as a type — decided 2026-09-08 (roadmap item 11, D2); SUPERSEDED: `(subtype N is Int range lo .. hi)` built 2026-09-09 (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal, and the re-measured counts |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3043`, `AX3045`, `AX3046` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
+| `ERR-DIAG-2`, `3` | P | — `AX3043`, `AX3046` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Twenty rules hold, eleven of them named by a fixture that carries an
+Twenty-one rules hold, eleven of them named by a fixture that carries an
 ablation — and one of those ten, `ERR-REC-2`, has a fixture that
 reaches two of its four operators, which the row says. What remains is
-`ERR-PROP-4`, `ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the migration
+`ERR-REC-4`/`5`, `ERR-DIAG-2`/`3` and the migration
 itself — and the document says so in every row rather than in a note at
 the end.
 

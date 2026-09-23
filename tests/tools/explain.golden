@@ -56,6 +56,7 @@
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
+  [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
@@ -1737,6 +1738,35 @@ another are the same collision and are reported the same way: they
 share one namespace, which is what `(data Foo ...)` beside
 `(type Foo = Int)` in one file has always been refused for.
 
+### explain AX3045
+AX3045 - a self-recursive call in the scrutinee of a `match`
+
+Evaluating a `match` runs its scrutinee before any arm answers,
+so a call to the enclosing function standing in the scrutinee is never in tail position:
+every nesting level holds a frame while the scrutinee evaluates, and deep inputs die of
+stack overflow where the arm-tail shape runs flat. Measured on the error model's pair:
+the scrutinee shape costs 32 bytes a call and dies of SIGSEGV at 262,144 nesting levels,
+the arm shape completes 5,000,000 iterations with a flat stack (docs/error-model.md ERR-PROP-3).
+
+Bind the scrutinee in a `let` and answer the recursive call from a match arm:
+
+    (fn (total n acc)
+      (if (== n 0)
+        (Ok acc)
+        (let ((stepped (step n)))
+          (match stepped
+            ((Err e) (Err e))
+            ((Ok v) (total (- n 1) (+ acc v)))))))
+
+THIS IS A WARNING, and a shallow recursion is why. A self-call that runs bounded is correct,
+and an error would refuse working programs to catch the ones that overflow. What is reported is
+any call to the enclosing function at any depth of any match scrutinee in its body, whatever the
+scrutinee's own type is: a call nested in a larger scrutinee holds its frame identically.
+What is not reported: a call to any other function, including mutual recursion through a scrutinee
+- the checker sees one declaration at a time; a name the match's own scope binds, which
+resolves local-first; and a scrutinee that did not check clean. The severity is recorded in
+tests/diagnostics/severity.policy with that reason.
+
 ### explain AX3047
 AX3047 - a C or Rust primitive type name in type position
 
@@ -2859,6 +2889,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
+  [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)
   [93mAX3047[0m  a C or Rust primitive type name in type position  (sized-integer-type)
   [93mAX3048[0m  a reference to a deprecated name  (deprecated-name)
   [93mAX3049[0m  a restriction this declaration claimed, violated  (restriction-violated)
