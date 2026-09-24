@@ -4501,8 +4501,8 @@
                         ; `for` is a KEYWORD and not a macro, and `stdlib/Pre.ax`'s `range`
                         ; header records why: an expression macro has exactly ONE shape
                         ; (MAC-LANG-14 - the rule form's templates are DECLARATIONS), and
-                        ; `for` has two, `(for i lo hi body)` over a range and
-                        ; `(for x xs body)` over a container. Measured, they cannot even
+                        ; `for` has four, counted with its step and its element-index
+                        ; pair. Measured, range and container cannot even
                         ; coexist as two macros: `stdlib/Html.ax` exported its own
                         ; `(for x xs body)` and a program importing it beside a range `for`
                         ; resolved to Html's and answered `AX3001: undefined variable i`

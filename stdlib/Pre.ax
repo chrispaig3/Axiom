@@ -22,9 +22,9 @@
 ; one shape, and `(range i 0 n ...)` spells the range it means.
 ;
 ; NOT NAMED `for`, because `for` is a language KEYWORD as of 0.6.4
-; (`self_host/parser.ax`'s `parseForExpr`), covering both a range and
-; a container, and a macro cannot be that: one shape cannot serve
-; `(for i 0 n ..)` and `(for x xs ..)`. Measured before the keyword
+; (`self_host/parser.ax`'s `parseForExpr`), covering ranges, a step
+; and containers, and a macro cannot be that: one shape cannot serve
+; `(for i 0 n ..)`, `(for i 0 n 2 ..)` and `(for x xs ..)`. Measured before the keyword
 ; existed, they could not even coexist - `Html.ax` exported its own
 ; `(for x xs body)` over a `Vec`, and a program importing both resolved
 ; `for` to Html's and answered `AX3001: undefined variable i` in the

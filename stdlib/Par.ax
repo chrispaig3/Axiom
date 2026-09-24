@@ -114,11 +114,10 @@
       width))
     (hs vecNew)
     (out vecNew)
-    (mut i 0)
     (mut joined 0)
   )
     {
-      (while (< i n)
+      (for i 0 n
         {
           ; Block before spawning, not after, so at most `w` children
           ; are ever outstanding. `(- i joined)` is the count of
@@ -129,12 +128,14 @@
               (set joined (+ joined 1))
             })
           (vecPush hs (__proc_spawn f i))
-          (set i (+ i 1))
         })
       ; The drain. It joins the OLDEST outstanding first, which is what
       ; keeps `out` in submit order; joining the newest would answer the
       ; same multiset in a different order, and `check-parallel.sh`
-      ; ablates exactly that.
+      ; ablates exactly that. It CONTINUES the `joined` counter the
+      ; fill loop left off at - rejoining from 0 would join handles
+      ; twice - so this stays a `while`, not a `for`: `for` binds its
+      ; counter fresh.
       (while (< joined (vecLen hs))
         {
           (vecPush out (__proc_join (vecGet hs joined)))
@@ -157,17 +158,11 @@
 ; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches it.
 (pub :: parArgvVector (-> (Vec String) Int))
 (pub fn (parArgvVector argv)
-  (let (
-    (n (vecLen argv))
-    (mut i 0)
-  )
+  (let ((n (vecLen argv)))
     (let ((v (memAlloc (* 8 (+ n 1)))))
       {
-        (while (< i n)
-          {
-            (memSetWord v i (strCStr (strDup (vecGetStr argv i))))
-            (set i (+ i 1))
-          })
+        (for i 0 n
+          (memSetWord v i (strCStr (strDup (vecGetStr argv i)))))
         (memSetWord v n 0)
         v
       })))

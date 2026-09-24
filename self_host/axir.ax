@@ -185,10 +185,9 @@
   (let (
     (ff (memGetWordVec f 2))
     (mut from "")
-    (mut i 0)
   )
     {
-      (while (< i np)
+      (for i 0 np
         {
           (if (> i 0)
             (set from (strConcat from ","))
@@ -202,7 +201,6 @@
               (< i (vecLen ff)))
               (symsDigits (vecGet ff i))
               "0")))
-          (set i (+ i 1))
         })
       (if (== np 0)
         (set from "-")
@@ -297,23 +295,17 @@
 ; apart.
 (pub :: axirBlockLines (-> MBlock (Vec String) Int))
 (pub fn (axirBlockLines b out)
-  (let (
-    (mut ok 1)
-    (mut i 0)
-  )
+  (let ((mut ok 1))
     {
       (vecPushStr out (strConcat "blk " (strConcat (mirBB b.id) (strConcat (axirRegs b.params 0 "") "\n"))))
-      (while (< i (vecLen b.instrs))
-        {
-          (let ((s (axirOpLine (vecGet b.instrs i))))
-            (if (== (strLen s) 0)
-              (set ok 0)
-              {
-                (vecPushStr out (strConcat s "\n"))
-                0
-              }))
-          (set i (+ i 1))
-        })
+      (for i 0 (vecLen b.instrs)
+        (let ((s (axirOpLine (vecGet b.instrs i))))
+          (if (== (strLen s) 0)
+            (set ok 0)
+            {
+              (vecPushStr out (strConcat s "\n"))
+              0
+            })))
       (if (== (vecLen b.term) 1)
         (let ((s (axirTermLine (vecGet b.term 0))))
           (if (== (strLen s) 0)
@@ -339,26 +331,18 @@
   (let (
     (body vecNew)
     (mut ok 1)
-    (mut i 0)
   )
     {
-      (while (< i (vecLen f.blocks))
-        {
-          (if (== (axirBlockLines (vecGet f.blocks i) body) 0)
-            (set ok 0)
-            0)
-          (set i (+ i 1))
-        })
+      (for i 0 (vecLen f.blocks)
+        (if (== (axirBlockLines (vecGet f.blocks i) body) 0)
+          (set ok 0)
+          0))
       (if (== ok 1)
-        (let ((mut k 0))
-          {
-            (while (< k (vecLen body))
-              {
-                (vecPush parts (vecGetStr body k))
-                (set k (+ k 1))
-              })
-            0
-          })
+        {
+          (for k 0 (vecLen body)
+            (vecPush parts (vecGetStr body k)))
+          0
+        }
         0)
       ok
     }))

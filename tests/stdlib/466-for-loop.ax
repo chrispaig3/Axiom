@@ -1,12 +1,14 @@
-; `for`: the loop keyword, in both of its shapes.
+; `for`: the loop keyword, in all four of its shapes.
 ;
 ; `for` is a KEYWORD and not a macro, and `stdlib/Pre.ax`'s `range`
 ; header records why: an expression macro has exactly ONE shape
 ; (MAC-LANG-14, because the rule form's templates are DECLARATIONS),
-; and `for` has two - `(for i lo hi body)` over a range and
-; `(for x xs body)` over a container. The parser desugars both into
-; `let`/`while`/`set`, so no AST tag was added and no consumer of one
-; moved (`self_host/parser.ax`'s `parseForExpr`).
+; and `for` has four - `(for i lo hi body)` over a range,
+; `(for i lo hi step body)` stepped, `(for x xs body)` over a
+; container and `(for (x k) xs body)` with the index. The parser
+; desugars all four into `let`/`while`/`set`, so no AST tag was added
+; and no consumer of one moved (`self_host/parser.ax`'s
+; `parseForExpr`).
 ;
 ; The container half was blocked on an ELEMENT type until `Vec` became
 ; parameterised; this is item 6 of `docs/generics-design.md` §5 and

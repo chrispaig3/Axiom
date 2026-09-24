@@ -16,6 +16,30 @@ its changelog too.
 
 ## Unreleased
 
+### Hand-written loops migrate to `for`
+
+Fourteen `while` loops that the keyword subsumes now spell it: five
+in `stdlib/Json.ax` (length fill, escape measure and fill, array
+and object writers), two in `stdlib/Mem.ax` (`memCopyFrom`,
+`memSetFrom`), two in `stdlib/Par.ax` (the pool fill and `argv`
+vector - the DRAIN stays a `while`, and the commit message says
+why), one in `stdlib/Sys.ax` (the signal-descriptor walk), and four
+in `self_host/axir.ax`. Each migrated loop re-read its bound every
+iteration, stepped by exactly one, mutated nothing it measured and
+exited nowhere early; the `for` hoists the bound and drops the
+counter, byte-identical IR by the reference's own measurement. The
+drain keeps its `while` because it CONTINUES the fill loop's live
+`joined` counter - a `for` binds its counter fresh, and rebinding
+from zero rejoined handles twice (measured: SIGSEGV, exit 139,
+caught by `476-par-pool`). Prose follows the four shapes everywhere
+they were counted as two: reference Keywords table and `for`
+section, status Loops row, `Pre.ax`'s `range` header, 466's header,
+and the `for`-keyword comment in `parseForExpr`'s neighbourhood.
+Website samples and the remaining `while`s stay: the samples are
+already idiomatic, the `Http`/`Json` parsers stride
+data-dependently, and `range` keeps its own template so the keyword
+has something independent to agree with.
+
 ### `AX3022` gains its primary golden
 
 The macro `set`-target refusal had no primary fixture - it appeared

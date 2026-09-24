@@ -251,15 +251,11 @@
 (:: memCopyFrom (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
 (fn (memCopyFrom dst src count start)
-  (let ((mut i start))
-    {
-      (while (< i count)
-        {
-          (__store8 dst i (__load8 src i))
-          (set i (+ i 1))
-        })
-      dst
-    }))
+  {
+    (for i start count
+      (__store8 dst i (__load8 src i)))
+    dst
+  })
 
 ; Set `count` bytes at `addr` to `value` (low 8 bits). Returns `addr`.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
@@ -271,15 +267,11 @@
 (:: memSetFrom (-> Int Int Int Int Int))
 ;@axiom:effect(unsafe)
 (fn (memSetFrom addr value count start)
-  (let ((mut i start))
-    {
-      (while (< i count)
-        {
-          (__store8 addr i value)
-          (set i (+ i 1))
-        })
-      addr
-    }))
+  {
+    (for i start count
+      (__store8 addr i value))
+    addr
+  })
 
 ; Compare `count` bytes. 0 if equal, otherwise the signed difference of
 ; the first differing byte pair (so the result orders like `memcmp`).

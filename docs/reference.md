@@ -308,7 +308,7 @@ which was the retired Rust compiler's lexer rule, and refused
 | `mut` | Marks a `let` binding assignable |
 | `set` | Assign to a `mut` binding |
 | `while` | Loop while a condition holds |
-| `for` | Loop over a range, `(for i lo hi body)`, or over a `(Vec a)`, `(for x xs body)` — one keyword, [two shapes](#for--the-counted-loop-and-the-container-loop), since 2026-09-03 |
+| `for` | Loop over a range, `(for i lo hi body)`, stepped, `(for i lo hi step body)`, or over a `(Vec a)`, `(for x xs body)` and `(for (x k) xs body)` — one keyword, [four shapes](#for--the-counted-loop-and-the-container-loop), since 2026-09-03; index and step since 2026-09-23 |
 | `region` | Bracket an allocation scope: `(region r body)` reclaims everything `body` allocated when it ends and answers `body`'s value ([Regions](#regions), since 2026-09-03) |
 | `parallel` | Run bindings beside the caller and join them in the order written — processes by default, threads under `--threads` ([`parallel`](#parallel--bindings-that-run-beside-the-caller)) |
 | `if` | Conditional expression, variadic: `(if t1 b1 t2 b2 ... els)` |
