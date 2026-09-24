@@ -1,0 +1,1 @@
+E AX2001 632-for-zero-step.ax:6:24-25 unexpected-token "expected a nonzero step: a step of `0` never advances the counter, found `0`" #"found `0` here" ?"Axiom expected a nonzero step: a step of `0` never advances the counter at this position"

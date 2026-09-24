@@ -994,19 +994,23 @@ module.exports = grammar({
       ')',
     ),
 
-    // `(for i lo hi body)` and `(for x xs body)`, told apart by ARITY -
-    // three operands after the binder is the range, two is the
-    // container, and there is exactly one body expression in both
-    // (`self_host/parser.ax`'s `parseForExpr`). The optional third
-    // operand is what makes one rule cover both; a fourth is a parse
-    // error in the compiler (AX2001,
-    // `tests/diagnostics/625-for-shape.axbad`) and is simply not in this
-    // grammar's language either.
+    // `(for i lo hi body)`, `(for i lo hi step body)` and
+    // `(for x xs body)` with a plain or `(x i)` pair binder, told
+    // apart by ARITY - two operands after the binder is the container,
+    // three the range, four the stepped range, and there is exactly
+    // one body expression in all (`self_host/parser.ax`'s
+    // `parseForExpr`). A fifth is a parse error in the compiler
+    // (AX2001, `tests/diagnostics/625-for-shape.axbad`) and is simply
+    // not in this grammar's language either.
     for_expression: $ => seq(
       '(', 'for',
-      field('binder', $.identifier),
+      field('binder', choice(
+        $.identifier,
+        seq('(', $.identifier, $.identifier, ')'),
+      )),
       field('operand', $._expression),
       field('operand', $._expression),
+      optional(field('operand', $._expression)),
       optional(field('operand', $._expression)),
       ')',
     ),

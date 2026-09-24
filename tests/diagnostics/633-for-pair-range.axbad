@@ -1,0 +1,8 @@
+; An element-index binder `(x i)` takes the container shape only:
+; a range counts its own index, so there is nothing for `i` to bind
+; in `(for (e k) 0 5 ...)`. `.axbad` because a parse error stops the
+; file.
+(import Vec)
+
+(:: main Int)
+(fn (main) (for (e k) 0 5 e))

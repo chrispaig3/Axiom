@@ -275,6 +275,10 @@
       })
     (for x xs
       (println x))
+    (for (x k) xs
+      (println k))
+    (for i 0 10 2
+      (println i))
   })
 ### 199-for-arg-position.axp (exit 0)
 (:: g (-> Int Int))

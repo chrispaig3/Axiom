@@ -2676,11 +2676,13 @@
 
 ; `for` prints like `while`: the head line carries everything the loop
 ; is CONTROLLED by, and the body goes on its own indented line. Three
-; elements after the head is the container form `(for x xs body)`, four
-; is the range `(for i lo hi body)`, and nothing else is a `for` - the
-; parser discriminates the two by exactly this arity
+; elements after the head is the container form `(for x xs body)` -
+; with an element-index binder `(for (x i) xs body)`, which is still
+; one element - four is the range `(for i lo hi body)`, five the
+; stepped range `(for i lo hi step body)`, and nothing else is a
+; `for` - the parser discriminates the shapes by exactly this arity
 ; (`self_host/parser.ax`'s `parseForExpr`), and a printer that accepted
-; a fifth element would print something `check` then refuses.
+; a sixth element would print something `check` then refuses.
 ;
 ; This exists because the formatter is a SEPARATE grammar that never
 ; sees the parser's AST. Measured before it was written: a four-operand
@@ -2691,7 +2693,7 @@
 (pub :: fpFor (-> Int Int Int))
 (pub fn (fpFor p n)
   (let ((elems (fpExprElems n 1)))
-    (if (|| (< (vecLen elems) 3) (> (vecLen elems) 4))
+    (if (|| (< (vecLen elems) 3) (> (vecLen elems) 5))
       (fpBad p)
       (let ((o (fpOut p)))
         {
@@ -2699,10 +2701,16 @@
           (fpExpr p (vecGet elems 0))
           (fpP p " ")
           (fpExpr p (vecGet elems 1))
-          (if (== (vecLen elems) 4)
+          (if (> (vecLen elems) 3)
             {
               (fpP p " ")
               (fpExpr p (vecGet elems 2))
+            }
+            p)
+          (if (> (vecLen elems) 4)
+            {
+              (fpP p " ")
+              (fpExpr p (vecGet elems 3))
             }
             p)
           (fpP p "\n")

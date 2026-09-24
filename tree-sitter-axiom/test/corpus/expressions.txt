@@ -528,3 +528,44 @@ region annotations on a signature, a struct field and a variable
     (identifier)
     (identifier)
     (identifier)))
+
+================================================================
+for, new shapes: an element-index pair and a stepped range
+================================================================
+
+(:: main Int)
+(fn (main)
+  (let ((v vecNew))
+    {
+      (for (x k) v (println k))
+      (for i 0 10 2 (println i))
+    }))
+
+----------------------------------------------------------------
+
+(source_file
+  (type_signature
+    subject: (identifier)
+    type: (builtin_type))
+  (function_definition
+    name: (identifier)
+    body: (let_expression
+      binding: (let_binding
+        pattern: (identifier)
+        value: (identifier))
+      body: (block
+        body: (for_expression
+          binder: (identifier)
+          binder: (identifier)
+          operand: (identifier)
+          operand: (application
+            operand: (identifier)
+            operand: (identifier)))
+            body: (for_expression
+              binder: (identifier)
+              operand: (integer_literal)
+              operand: (integer_literal)
+              operand: (integer_literal)
+              operand: (application
+                operand: (identifier)
+                operand: (identifier)))))))

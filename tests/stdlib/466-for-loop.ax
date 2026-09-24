@@ -45,12 +45,24 @@
 ;  11. `for` is an ordinary identifier everywhere except the head of a
 ;      form - the rule `docs/reference.md`'s Keywords section states -
 ;      so it is a parameter name and a `let` binder here.
-;  12. THE ELEMENT READ IS QUALIFIED. The desugaring emits `Vec$vecGet`
+;   12. THE ELEMENT READ IS QUALIFIED. The desugaring emits `Vec$vecGet`
 ;      and `Vec$vecLen`, the mangled spelling of `Vec::vecGet` and
 ;      `Vec::vecLen`, so an entry file's own `vecLen` cannot capture it
 ;      (MAC-CAP-10.5's defect: a bare `strConcat` in a generated body
 ;      WAS captured, silently and wrongly). This file declares a
 ;      `vecLen` that answers 99; the loop must still run twice.
+;   13. An element-index pair `(for (e k) g ...)`: `k` counts 0, 1, 2
+;      beside the elements - (10+0)+(20+1)+(30+2) is 63.
+;   14. A stepped range `(for k 0 10 2 ...)`: 0+2+4+6+8 is 20.
+;   15. A negative step counts down to `hi`: 5+4+3+2+1 is 15. The
+;      three-operand range is unchanged by this: term 3's backwards
+;      `(for c 7 3 ...)` still runs zero times, and counting down
+;      spells the step.
+;   16. THE STEP IS READ ONCE, like both ends: a step expression with
+;      a side effect runs exactly once, and the loop still steps by
+;      the answered value.
+;   17. Index hygiene beside term 6: a caller's `i` bound around an
+;      indexed loop reads as the caller's after it.
 (import IO)
 (import Vec)
 (import Mem)
@@ -184,6 +196,49 @@
             (memSetWord acc 0 (+ (memGetWord acc 0) 1)))
           (println (memGetWord acc 0))  ; 2, not 99
           (println (vecLen g))  ; 99: this file's own vecLen really is in scope
+        })
+      ; --- 13. an element-index pair counts beside the elements ---
+      (let ((g vecNew))
+        {
+          (vecPush g 10)
+          (vecPush g 20)
+          (vecPush g 30)
+          (memSetWord acc 0 0)
+          (for (e k) g
+            (memSetWord acc 0 (+ (memGetWord acc 0) (+ e k))))
+          (println (memGetWord acc 0))  ; 63
+        })
+      ; --- 14. a stepped range ---
+      (memSetWord acc 0 0)
+      (for k 0 10 2
+        (memSetWord acc 0 (+ (memGetWord acc 0) k)))
+      (println (memGetWord acc 0))  ; 20
+      ; --- 15. a negative step counts down to hi ---
+      (memSetWord acc 0 0)
+      (for k 5 0 -1
+        (memSetWord acc 0 (+ (memGetWord acc 0) k)))
+      (println (memGetWord acc 0))  ; 15
+      ; --- 16. the step is read once ---
+      (let ((sc (memAlloc 8)))
+        {
+          (memSetWord sc 0 0)
+          (memSetWord acc 0 0)
+          (for k 0 6 {
+            (memSetWord sc 0 (+ (memGetWord sc 0) 1))
+            2
+          }
+            (memSetWord acc 0 (+ (memGetWord acc 0) k)))
+          (println (memGetWord sc 0))  ; 1: the step ran once
+          (println (memGetWord acc 0))  ; 6: 0+2+4
+        })
+      ; --- 17. a caller's i survives an indexed loop ---
+      (let ((g vecNew))
+        {
+          (vecPush g 1)
+          (vecPush g 2)
+          (for (e k) g
+            (memSetWord acc 0 (+ e k)))
+          (println i)  ; 111
         })
       0
     }))

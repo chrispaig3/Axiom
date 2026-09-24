@@ -1,0 +1,6 @@
+; A step of `0` never advances the counter, so the literal is
+; refused where it stands. A computed zero is not refused: the step
+; is an expression, and what an expression answers is a run-time
+; fact. `.axbad` because a parse error stops the file.
+(:: main Int)
+(fn (main) (for i 0 10 0 i))

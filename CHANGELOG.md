@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### `for` with an index and a step
+
+Two shapes join the loop keyword, told apart by arity as before: a
+container with its index `(for (x k) xs body)`, and a range with its
+step `(for i lo hi step body)`. A positive step counts up while
+below `hi`, a negative step counts down while above it, read off the
+bound step's sign; the three-operand range is unchanged (a backwards
+one still runs zero times), the step is bound beside the ends before
+the first iteration, and a literal step of `0` is refused where it
+stands. An element-index binder takes the container shape only, and
+the fifth-element and shortfall errors name all four shapes. The
+desugar stays `let`/`while`/`set` (one generalized tail shared by
+all four), the formatter prints the new heads like the old ones, and
+the grammar takes a pair binder and a fourth operand. Held by
+`tests/stdlib/466-for-loop.ax` terms 13–17, `625-for-shape`
+(re-cut: its old text is the valid step shape now),
+`632-for-zero-step` and `633-for-pair-range`.
+
 ### `if` names its missing operand
 
 A chain that stops where a pair is complete drew the generic

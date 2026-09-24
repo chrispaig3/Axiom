@@ -4647,16 +4647,18 @@
 
 ; ------------------------------------------------------------------
 ; (for i lo hi body) - the counted loop - and (for x xs body) - the
-; container loop. ONE keyword, TWO shapes, discriminated by ARITY.
+; container loop. ONE keyword, FOUR shapes, discriminated by ARITY.
 ;
 ; Arity is the only discriminator a parser has, because a parser knows
-; no types: three operands after the binder is the range, two is the
-; container. Exactly ONE body expression in both, and that is forced
-; rather than chosen - a variadic body would make `(for x xs a b)`
-; ambiguous with the range. `{ ... }` sequences several, which is what
-; `(range i lo hi body)` in `stdlib/Pre.ax` and the `(for x xs body)`
-; macro `stdlib/Html.ax` used to export already contracted for, so no
-; call site of either moves.
+; no types: two operands after the binder is the container, three is
+; the range, four the range with its step. The binder is a name, or an
+; element-index pair `(x i)` for the container shape only - a range
+; counts its own index. Exactly ONE body expression in all four, and
+; that is forced rather than chosen - a variadic body would make
+; `(for x xs a b)` ambiguous with the range. `{ ... }` sequences
+; several, which is what `(range i lo hi body)` in `stdlib/Pre.ax` and
+; the `(for x xs body)` macro `stdlib/Html.ax` used to export already
+; contracted for, so no call site of either moves.
 ;
 ; DESUGARED HERE, into nodes that already exist. A new AST tag would
 ; cost edits in `expand.ax` (substTpl and expandExpr), `typecheck.ax`,
@@ -4666,12 +4668,32 @@
 ;
 ;   (for i LO HI BODY)
 ;     => (let ((for$lo LO))
-;          (let ((for$hi HI))
+;          (let ((for$n HI))
 ;            (let ((mut for$i for$lo))
-;              { (while (< for$i for$hi)
+;              { (while (< for$i for$n)
 ;                  { (let ((i for$i)) BODY)
 ;                    (set for$i (+ for$i 1)) })
 ;                0 })))
+;
+;   (for i LO HI STEP BODY)
+;     => (let ((for$lo LO))
+;          (let ((for$hi HI))
+;            (let ((for$step STEP))
+;              (let ((mut for$i for$lo))
+;                { (while (if (> for$step 0) (< for$i for$hi) (> for$i for$hi))
+;                    { (let ((i for$i)) BODY)
+;                      (set for$i (+ for$i for$step)) })
+;                  0 }))))
+;
+; A positive step counts up to `hi`, a negative one down to it; the
+; direction is read off the bound step's sign once per iteration,
+; which is one comparison against the counter the loop already pays.
+; The three-operand range is unchanged by this: `(for c 7 3 ...)`
+; still runs zero times (466 term 3), and counting down spells the
+; step. A literal step of `0` is refused where it stands - it never
+; advances the counter - while a computed zero is the author's own
+; `while`-shaped footgun, exactly as a `while` whose condition never
+; changes is.
 ;
 ;   (for x XS BODY)
 ;     => (let ((for$v XS))
@@ -4682,8 +4704,13 @@
 ;                    (set for$i (+ for$i 1)) })
 ;                0 })))
 ;
+;   (for (x k) XS BODY)
+;     => the container, with `(let ((k for$i)) BODY)` inside the
+;        element `let`, so the index reads like any other binding -
+;        hover, rename and capture all follow the `let` they land on.
+;
 ; The range shape mirrors `range`'s template binding for binding, so
-; the macro and the keyword provably agree. Both answer 0.
+; the macro and the keyword provably agree. All four answer 0.
 ;
 ; BOTH ENDS ARE READ ONCE, before the loop. That is a CORRECTNESS
 ; property and not a speed one: the shape this replaces,
@@ -4697,8 +4724,8 @@
 ;
 ; HYGIENE WITHOUT A RENAMER. The parser has no gensym and does not need
 ; one: `$` is `AX1001 unexpected character` inside an identifier
-; (measured), so `for$lo`, `for$hi`, `for$v`, `for$i` and `for$n` are
-; names a user cannot write and therefore cannot capture. This is the
+; (measured), so `for$lo`, `for$hi`, `for$step`, `for$v`, `for$i` and
+; `for$n` are names a user cannot write and therefore cannot capture. This is the
 ; same trick `Mod$name` already uses for a qualified reference. Nesting
 ; is safe with fixed names because an inner `for`'s bindings are
 ; visible only inside the inner body, where nothing refers to the
@@ -4723,38 +4750,74 @@
 (pub :: parseForExpr (-> (Vec Int) Int Int Int))
 (pub fn (parseForExpr tokens pos kwSpan)
   (if (peekIs tokens pos TK_IDENT)
-    (let (
-      (bindTok (vecGet tokens pos))
-      (bindName (tokenLexeme bindTok))
-      (aR (parseExpr tokens (advance pos)))
-    )
-      (if (== (memGetWord aR 0) 0)
-        aR
-        (let ((bR (parseExpr tokens (memGetWord aR 2))))
-          (if (== (memGetWord bR 0) 0)
-            bR
-            ; Two operands and then `)` is the container; anything else
-            ; must be the range, and the range must then close.
-            (if (peekIs tokens (memGetWord bR 2) TK_RPAREN)
-              (pOk (mkForContainer
-                bindName
-                (tokenSpan bindTok)
-                (memGetWord aR 1)
-                (memGetWord bR 1)
-                kwSpan) (advance (memGetWord bR 2)))
-              (let ((cR (parseExpr tokens (memGetWord bR 2))))
-                (if (== (memGetWord cR 0) 0)
-                  cR
-                  (if (peekIs tokens (memGetWord cR 2) TK_RPAREN)
-                    (pOk (mkForRange
-                      bindName
-                      (tokenSpan bindTok)
-                      (memGetWord aR 1)
-                      (memGetWord bR 1)
-                      (memGetWord cR 1)
-                      kwSpan) (advance (memGetWord cR 2)))
-                    (pErrExp (memGetWord cR 2) "`)` - `for` takes ONE body: `(for x xs body)` or `(for i lo hi body)`, and `{ ... }` sequences several")))))))))
-    (pErrExp pos "the name to bind")))
+    (parseForOperands tokens (advance pos) 0 (tokenLexeme (vecGet tokens pos)) (tokenSpan (vecGet tokens pos)) "" 0 kwSpan)
+    (if (peekIs tokens pos TK_LPAREN)
+      ; An element-index pair `(x i)`: two identifiers and the close.
+      ; Parsed inline - five values do not fit `pOk`'s two slots - so
+      ; every misspelling below still knows the shape it was reaching
+      ; for.
+      (let ((xPos (advance pos)))
+        (if (peekIs tokens xPos TK_IDENT)
+          (let ((iPos (advance xPos)))
+            (if (peekIs tokens iPos TK_IDENT)
+              (let ((endPos (advance iPos)))
+                (if (peekIs tokens endPos TK_RPAREN)
+                  (parseForOperands tokens (advance endPos) 1 (tokenLexeme (vecGet tokens xPos)) (tokenSpan (vecGet tokens xPos)) (tokenLexeme (vecGet tokens iPos)) (tokenSpan (vecGet tokens iPos)) kwSpan)
+                  (pErrExp endPos "`)` to close the binder pair: `(for (x i) xs body)` binds the element to `x` and its index to `i`")))
+              (pErrExp iPos "the index name: `(for (x i) xs body)` binds the element to `x` and its index to `i`")))
+          (pErrExp xPos "the element name: `(for (x i) xs body)` binds the element to `x` and its index to `i`")))
+      (pErrExp pos "the name to bind, or an element-index pair `(x i)`"))))
+
+; The operands after the binder, in every arity. A shortfall AT the
+; closing paren draws the shape - the operand that is not there is the
+; shape's question to answer - while a genuinely broken operand keeps
+; the generic refusal, which is about the operand rather than the
+; loop. `isPair` is 1 for an `(x i)` binder, which takes the container
+; shape only: a range counts its own index.
+(pub :: parseForOperands (-> (Vec Int) Int Int String Int String Int Int Int))
+(pub fn (parseForOperands tokens pos isPair xName xSpan iName iSpan kwSpan)
+  (let ((aR (parseExpr tokens pos)))
+    (if (== (memGetWord aR 0) 0)
+      (if (peekIs tokens pos TK_RPAREN)
+        (pErrExp pos "the rest of the `for` shape: `(for x xs body)`, `(for (x i) xs body)`, `(for i lo hi body)` or `(for i lo hi step body)`, and `{ ... }` sequences several")
+        aR)
+      (let ((bR (parseExpr tokens (memGetWord aR 2))))
+        (if (== (memGetWord bR 0) 0)
+          (if (peekIs tokens (memGetWord aR 2) TK_RPAREN)
+            (pErrExp (memGetWord aR 2) "the rest of the `for` shape: `(for x xs body)`, `(for (x i) xs body)`, `(for i lo hi body)` or `(for i lo hi step body)`, and `{ ... }` sequences several")
+            bR)
+          (if (peekIs tokens (memGetWord bR 2) TK_RPAREN)
+            (pOk (if (== isPair 1)
+              (mkForContainerIndexed xName xSpan iName iSpan (memGetWord aR 1) (memGetWord bR 1) kwSpan)
+              (mkForContainer xName xSpan (memGetWord aR 1) (memGetWord bR 1) kwSpan)) (advance (memGetWord bR 2)))
+            (if (== isPair 1)
+              (pErrExp (memGetWord bR 2) "the container body: an element-index binder `(x i)` takes the container shape only `(for (x i) xs body)` - a range counts its own index")
+              (let ((cPos (memGetWord bR 2)))
+                (let ((cR (parseExpr tokens cPos)))
+                  (if (== (memGetWord cR 0) 0)
+                    (if (peekIs tokens cPos TK_RPAREN)
+                      (pErrExp cPos "the rest of the `for` shape: `(for x xs body)`, `(for (x i) xs body)`, `(for i lo hi body)` or `(for i lo hi step body)`, and `{ ... }` sequences several")
+                      cR)
+                    (if (peekIs tokens (memGetWord cR 2) TK_RPAREN)
+                      (pOk (mkForRange xName xSpan (memGetWord aR 1) (memGetWord bR 1) (memGetWord cR 1) kwSpan) (advance (memGetWord cR 2)))
+                      ; A fourth operand turns the body into a step and
+                      ; the shape wants one more: a literal step of `0`
+                      ; never advances the counter, so it is refused
+                      ; where it stands. A computed zero is not: the
+                      ; step is an expression, and what an expression
+                      ; answers is a run-time fact.
+                      (let ((step (memGetWord cR 1)))
+                        (if (&& (== (nodeTag step) TAG_E_INT) (== (nodeA step) 0))
+                          (pErrExp cPos "a nonzero step: a step of `0` never advances the counter")
+                          (let ((dPos (memGetWord cR 2)))
+                            (let ((dR (parseExpr tokens dPos)))
+                              (if (== (memGetWord dR 0) 0)
+                                (if (peekIs tokens dPos TK_RPAREN)
+                                  (pErrExp dPos "the rest of the `for` shape: `(for x xs body)`, `(for (x i) xs body)`, `(for i lo hi body)` or `(for i lo hi step body)`, and `{ ... }` sequences several")
+                                  dR)
+                                (if (peekIs tokens (memGetWord dR 2) TK_RPAREN)
+                                  (pOk (mkForRangeStep xName xSpan (memGetWord aR 1) (memGetWord bR 1) step (memGetWord dR 1) kwSpan) (advance (memGetWord dR 2)))
+                                  (pErrExp (memGetWord dR 2) "`)` - `for` takes `(for x xs body)`, `(for (x i) xs body)`, `(for i lo hi body)` or `(for i lo hi step body)`, and `{ ... }` sequences several"))))))))))))))))))
 
 ; A two-argument call, `(f a b)`, as the left spine an application
 ; already is. `mkEApp` copies the head's span, so the whole call
@@ -4778,32 +4841,59 @@
       v
     }))
 
-; The shared tail of both shapes: the `while` whose body binds the
-; user's name to the element and then bumps the counter, followed by
-; the `0` that is a `for`'s value.
+; The shared tail of all four shapes: the `while` whose body binds
+; the user's name to the element and then bumps the counter, followed
+; by the `0` that is a `for`'s value.
 ;
-; `bound` is a parameter rather than the fixed name `for$n` because it
-; is the one thing this file must be able to get WRONG in a reviewable
-; way. Both callers pass `(mkEVarAt "for$n" ...)`, a reference to a
-; binding made BEFORE the loop; passing the un-hoisted expression
-; instead - `hi` for the range, a fresh `(Vec$vecLen for$v)` for the
-; container - is the hand-written loop this keyword replaces, and it is
-; the ablation `tests/stdlib/466-for-loop.ax` terms 4 and 5 are written
-; to catch.
-(pub :: forWhileBody (-> String Int Int Int Int Int (Vec Int)))
-(pub fn (forWhileBody bindName bindSpan elem bound body kwSpan)
-  (forSeq2 (mkNode TAG_E_WHILE (mkForCall2 "<" (mkEVarAt "for$i" kwSpan) bound kwSpan) (forSeq2 (mkELetAt bindName elem body bindSpan) (mkNodeAt
+; `cond` and `bump` are parameters rather than fixed comparisons for
+; the same reason `bound` was one: this file must be able to get the
+; loop's control wrong in a reviewable way. Every caller builds them
+; from references to bindings made BEFORE the loop - `for$n` for the
+; plain shapes, `for$hi` and `for$step` for the stepped range - never
+; from the un-hoisted expressions, which is the hand-written loop this
+; keyword replaces, and the ablation `tests/stdlib/466-for-loop.ax`
+; terms 4 and 5 are written to catch.
+(pub :: forWhileBody (-> String Int Int Int Int Int Int (Vec Int)))
+(pub fn (forWhileBody bindName bindSpan elem cond bump body kwSpan)
+  (forSeq2 (mkNode TAG_E_WHILE cond (forSeq2 (mkELetAt bindName elem body bindSpan) (mkNodeAt
     TAG_E_SET
     "for$i"
-    (mkForCall2 "+" (mkEVarAt "for$i" kwSpan) (mkEInt 1) kwSpan)
+    bump
     0
     kwSpan)) 0) (mkEInt 0)))
+
+; The plain loop control both old shapes share: against `for$n`, up by
+; one. Built by the caller so the stepped range, whose control reads
+; two hoisted bindings instead of one, shares the tail below.
+(pub :: forUpByOne (-> Int (Vec Int)))
+(pub fn (forUpByOne kwSpan)
+  (forSeq2 (mkForCall2 "<" (mkEVarAt "for$i" kwSpan) (mkEVarAt "for$n" kwSpan) kwSpan) (mkForCall2 "+" (mkEVarAt "for$i" kwSpan) (mkEInt 1) kwSpan)))
 
 ; (for i LO HI BODY). `for$lo` and `for$n` are bound in source order and
 ; before the loop, so each end is computed ONCE.
 (pub :: mkForRange (-> String Int Int Int Int Int Int))
 (pub fn (mkForRange bindName bindSpan lo hi body kwSpan)
-  (mkELetAt "for$lo" lo (mkELetAt "for$n" hi (mkNodeAt
+  (let ((ctl (forUpByOne kwSpan)))
+    (mkELetAt "for$lo" lo (mkELetAt "for$n" hi (mkNodeAt
+      TAG_E_LETM
+      "for$i"
+      (mkEVarAt "for$lo" kwSpan)
+      (mkEBegin (forWhileBody
+        bindName
+        bindSpan
+        (mkEVarAt "for$i" kwSpan)
+        (vecGet ctl 0)
+        (vecGet ctl 1)
+        body
+        kwSpan))
+      kwSpan) kwSpan) kwSpan)))
+
+; (for i LO HI STEP BODY). `for$step` joins the hoisted bindings, bound
+; beside the ends in source order. The condition reads its sign: up
+; while below `hi`, down while above it.
+(pub :: mkForRangeStep (-> String Int Int Int Int Int Int Int))
+(pub fn (mkForRangeStep bindName bindSpan lo hi step body kwSpan)
+  (mkELetAt "for$lo" lo (mkELetAt "for$hi" hi (mkELetAt "for$step" step (mkNodeAt
     TAG_E_LETM
     "for$i"
     (mkEVarAt "for$lo" kwSpan)
@@ -4811,10 +4901,14 @@
       bindName
       bindSpan
       (mkEVarAt "for$i" kwSpan)
-      (mkEVarAt "for$n" kwSpan)
+      (mkEIf
+        (mkForCall2 ">" (mkEVarAt "for$step" kwSpan) (mkEInt 0) kwSpan)
+        (mkForCall2 "<" (mkEVarAt "for$i" kwSpan) (mkEVarAt "for$hi" kwSpan) kwSpan)
+        (mkForCall2 ">" (mkEVarAt "for$i" kwSpan) (mkEVarAt "for$hi" kwSpan) kwSpan))
+      (mkForCall2 "+" (mkEVarAt "for$i" kwSpan) (mkEVarAt "for$step" kwSpan) kwSpan)
       body
       kwSpan))
-    kwSpan) kwSpan) kwSpan))
+    kwSpan) kwSpan) kwSpan) kwSpan))
 
 ; (for x XS BODY). `for$v` holds the container so `XS` is evaluated once
 ; even when it is a call, and `for$n` its length so the bound is read
@@ -4832,18 +4926,40 @@
 ; holds the four rows.
 (pub :: mkForContainer (-> String Int Int Int Int Int))
 (pub fn (mkForContainer bindName bindSpan xs body kwSpan)
-  (mkELetAt "for$v" xs (mkNodeAt
-    TAG_E_LETM
-    "for$i"
-    (mkEInt 0)
-    (mkELetAt "for$n" (mkEApp (mkEVarAt "Vec$vecLen" kwSpan) (mkEVarAt "for$v" (nodeSpan xs))) (mkEBegin (forWhileBody
-      bindName
-      bindSpan
-      (mkForCall2 "Vec$vecGet" (mkEVarAt "for$v" kwSpan) (mkEVarAt "for$i" kwSpan) kwSpan)
-      (mkEVarAt "for$n" kwSpan)
-      body
-      kwSpan)) kwSpan)
-    kwSpan) kwSpan))
+  (let ((ctl (forUpByOne kwSpan)))
+    (mkELetAt "for$v" xs (mkNodeAt
+      TAG_E_LETM
+      "for$i"
+      (mkEInt 0)
+      (mkELetAt "for$n" (mkEApp (mkEVarAt "Vec$vecLen" kwSpan) (mkEVarAt "for$v" (nodeSpan xs))) (mkEBegin (forWhileBody
+        bindName
+        bindSpan
+        (mkForCall2 "Vec$vecGet" (mkEVarAt "for$v" kwSpan) (mkEVarAt "for$i" kwSpan) kwSpan)
+        (vecGet ctl 0)
+        (vecGet ctl 1)
+        body
+        kwSpan)) kwSpan)
+      kwSpan) kwSpan)))
+
+; (for (x k) XS BODY). The container with its index: the element `let`
+; outside, the index `let` inside, each carrying its own binder
+; token's span, so hover and rename land on the text the user wrote.
+(pub :: mkForContainerIndexed (-> String Int String Int Int Int Int Int))
+(pub fn (mkForContainerIndexed bindName bindSpan idxName idxSpan xs body kwSpan)
+  (let ((ctl (forUpByOne kwSpan)))
+    (mkELetAt "for$v" xs (mkNodeAt
+      TAG_E_LETM
+      "for$i"
+      (mkEInt 0)
+      (mkELetAt "for$n" (mkEApp (mkEVarAt "Vec$vecLen" kwSpan) (mkEVarAt "for$v" (nodeSpan xs))) (mkEBegin (forWhileBody
+        bindName
+        bindSpan
+        (mkForCall2 "Vec$vecGet" (mkEVarAt "for$v" kwSpan) (mkEVarAt "for$i" kwSpan) kwSpan)
+        (vecGet ctl 0)
+        (vecGet ctl 1)
+        (mkELetAt idxName (mkEVarAt "for$i" kwSpan) body idxSpan)
+        kwSpan)) kwSpan)
+      kwSpan) kwSpan)))
 
 ; ------------------------------------------------------------------
 ; (region r EXPR) - an allocation scope with a lexical extent, MM-RGN-1

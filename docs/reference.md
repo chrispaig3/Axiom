@@ -886,35 +886,62 @@ the binding is introduced, not where it is used.
 
 ### `for` — the counted loop and the container loop
 
-`for` is one keyword with two shapes, told apart by how many operands
+`for` is one keyword with four shapes, told apart by how many operands
 follow the binder:
 
 ```scheme
 (for i 0 n                 ; the RANGE: i over [0, n), ascending
   (set acc (+ acc i)))
 
+(for i 0 n 2               ; the STEPPED range: 0, 2, 4, ... below n
+  (set acc (+ acc i)))
+
+(for i 5 0 -1              ; a negative step counts DOWN to hi
+  (set acc (+ acc i)))
+
 (for x xs                  ; the CONTAINER: x over each element of a (Vec a)
   (println x))
+
+(for (x k) xs              ; the element WITH its index: k counts 0, 1, 2, ...
+  (println k))
 ```
 
 `(for i lo hi body)` runs `body` once per `i` in `[lo, hi)`; a range
 whose `hi` is at or below `lo` runs zero times, backwards included
-(`tests/stdlib/466-for-loop.ax`, terms 1–3). `(for x xs body)` runs
+(`tests/stdlib/466-for-loop.ax`, terms 1–3) — counting down spells
+the step. `(for i lo hi step body)` steps by `step` instead of 1: a
+positive step counts up while below `hi`, a negative step counts
+down while above it, and the direction is read off the bound step's
+sign (terms 14–15). The step is bound beside the ends before the
+first iteration, so a step expression with a side effect runs
+exactly once (term 16); a literal step of `0` is refused where it
+stands, since it never advances the counter
+(`tests/diagnostics/632-for-zero-step.axbad`). `(for x xs body)` runs
 `body` once per element of the `(Vec a)` `xs`, with `x` bound to the
 element at whatever type `a` is — a `(Vec String)` prints directly and
 so does a `(Vec Int)` (terms 7 and 8), which is the one case the two
 loop macros the HTML DSL (`stdlib/Html.ax`, itself deleted on
-2026-09-04) used to carry could not share. Both shapes
+2026-09-04) used to carry could not share. `(for (x k) xs body)`
+binds the element to `x` and its index, counting from 0, to `k`
+(term 13); both `let`s carry their binder token's span, so hover and
+rename land where they do for the plain shape, and a caller's own
+`i` bound around an indexed loop reads as the caller's after it
+(term 17). All four shapes
 evaluate to `0`, as `while` does, and nesting is an ordinary nesting of
 scopes (term 10, 3 × 4 = 12 with each counter its own).
 
 **Exactly one body expression, and that is forced rather than chosen.**
 A parser knows no types, so arity is the only discriminator it has:
-three operands after the binder is the range, two is the container. A
+four operands after the binder is the stepped range, three the
+range, two the container. A
 variadic body would make `(for x xs a b)` ambiguous with the range, so
-several expressions go in `{ ... }`, and a fifth element is a parse
-error that names both shapes rather than the one the parser happened
-to be attempting (`AX2001`, `tests/diagnostics/625-for-shape`).
+several expressions go in `{ ... }`, and a sixth element is a parse
+error that names all four shapes rather than the one the parser happened
+to be attempting (`AX2001`, `tests/diagnostics/625-for-shape`). An
+element-index binder `(x i)` takes the container shape only - a range
+counts its own index (`tests/diagnostics/633-for-pair-range`). A
+missing operand at the closing paren draws the shape instead of the
+generic want.
 
 **Both ends are read once, before the loop, and that is a correctness
 property.** The hand-written shape this replaces —
