@@ -63,7 +63,7 @@ export const HERO: Sample = {
     }))`,
 }
 
-// EIGHT RECIPES, AND EVERY ONE OF THEM RAN.
+// SEVEN RECIPES, AND EVERY ONE OF THEM RAN.
 //
 // The set these replaced were feature demos in costume: a function that
 // parsed the literal string "8080", a handler that logged
@@ -78,7 +78,7 @@ export const HERO: Sample = {
 //
 // The ORDER is an argument, not a menu: types twice - first sums,
 // then the shape of the data itself - then failure, then effects,
-// then data, then memory, then concurrency, then the machine
+// then data, then concurrency, then the machine
 // itself. It walks a reader from the thing every language has to
 // the thing only this one does, and lands on a tool.
 export const SAMPLES: Sample[] = [
@@ -335,38 +335,6 @@ export const SAMPLES: Sample[] = [
             (w (internLookup seen (vecGet ranked r)))
           )
             (println "{n:>4}  {w}"))))
-      0
-    }))`,
-  },
-  {
-    id: 'memory',
-    tab: 'ledger.ax',
-    title: "A region per row",
-    note: "Five rows and a hundred thousand rows cost the same memory. The program prints the arena to prove it.",
-    result: "5 rows, 10374 cents, arena +48 bytes",
-    docs: { label: "Memory Primitives", href: `${REF}#memory-primitives` },
-    code: `(import IO)
-(import Str)
-(import Vec)
-(import Err)
-(import Mem)
-
-(:: main Int)
-;@axiom:effect(io)
-(fn (main)
-  (let (
-    (rows (strSplit "coffee,450\\nbooks,2299\\nfuel,5410\\nlunch,1875\\nstamps,340" 10))
-    (n (vecLen rows))
-    (mut cents 0)
-    (mark __axiom_arena_mark)
-  )
-    {
-      (for i 0 n
-        (region r
-          (let ((cols (strSplit (vecGetStr rows i) 44)))
-            (set cents (+ cents (optUnwrapOr (strParseInt (vecGetStr cols 1)) 0))))))
-      (let ((held (- (memGetWord __axiom_arena_mark 0) (memGetWord mark 0))))
-        (println "{n} rows, {cents} cents, arena +{held} bytes"))
       0
     }))`,
   },
