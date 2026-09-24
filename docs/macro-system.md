@@ -937,6 +937,17 @@ operand is never resolved either (`MM-VAL-21`). A conforming
 implementation **SHOULD** diagnose a macro parameter appearing in one of
 these positions rather than pass its name through.
 
+Until 2026-09-23 nothing did, and this implementation now warns:
+a parameter in one of the four positions draws `AX3074`
+(`macro-parameter-name-position`) at the invocation, under the macro's
+expansion frame — a warning rather than a refusal, because refusing
+would break the templates that mean the literal spelling. A field
+name an enclosing `syntax/for` binds is exempt, since the iteration
+substitutes it. Held by
+`tests/diagnostics/1007-macro-param-name-position.ax` (five
+warnings, one per position, over a program that still checks clean;
+a literal field and a `syntax/for`-bound field draw nothing).
+
 The rule is uniform and deliberate. A template node's own span indexes
 the file the macro was *defined* in; a `Diag` carries one unit; so a
 diagnostic anchored at a template node would point at a real line of the

@@ -85,6 +85,7 @@
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
+  [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2545,6 +2546,15 @@ This fires where the primitive is CALLED, not up the call chain. A transitive re
 
 A declaration that made ANY effect claim belongs to AX3010 instead: this is the silence half, for the function that claimed nothing.
 
+### explain AX3074
+AX3074 - a macro parameter standing where the template keeps a name
+
+Four positions in a macro template keep the name they are written with rather than substituting the argument: the field of `.` and `set`, the type of a struct construction, `alloc`'s type operand, and `handle`'s effect list (docs/macro-system.md MAC-EXP-14b). A parameter standing in one is read as a literal name, and the argument it was given is evaluated and discarded - `(macro (getf s f) s.f)` invoked as `(getf p 0)` reads field `f`, not field `0`.
+
+THIS IS A WARNING, and the positions are why. Each is a name, not an expression, and keeping the spelling is deliberate - templates have always meant the literal there - so refusing would break programs that mean it. What the warning reports is the parameter, which promises a per-invocation choice the position cannot honour.
+
+To mean the literal name, give the parameter another name so the template says what it means. To choose a field per invocation, bind the name with an enclosing `syntax/for` over `syntax/fields` - a name the iteration binds substitutes, and the warning stays off it. The severity is recorded in tests/diagnostics/severity.policy with that reason.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -2939,6 +2949,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
+  [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

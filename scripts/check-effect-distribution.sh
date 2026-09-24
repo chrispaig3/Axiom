@@ -177,6 +177,19 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-23 (9): AX3074 warns on a macro parameter standing
+# where the template keeps a name (MAC-EXP-14b). Four added, none
+# removed, one changed - each new row read off `symbols` by name:
+# `expTyParamName`, `expTyVecParamName` and `expHandleParamName` read
+# exactly `Unsafe` (name comparisons and node-tag reads, no
+# allocation), and the emitter `expWarnNamePos` reads
+# `Alloc,Mut,Unsafe` through `expEmit` and the message build. The one
+# changed row is `substTpl`, which gains the four callees and stays
+# in `Alloc,Mut,Unsafe`. Every move is a gain - `Alloc,Mut,Unsafe`
+# 2230 against `Unsafe` 1130 - and no row moves off `IO` or onto it:
+# the required/ambient line sits where it was measured, and the new
+# rows are may-effects (a warning fires only on a parameter naming
+# the position).
 # RE-PINNED 2026-09-23 (8): `Mod::Name` in type position reads the
 # module-aware lookup. Three added, none removed, twenty-four
 # changed - each new row read off `symbols` by name: `parseTyQualChain`
@@ -235,8 +248,8 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2229 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1127 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2230 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1130 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 118 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"

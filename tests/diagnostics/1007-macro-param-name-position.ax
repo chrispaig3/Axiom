@@ -1,0 +1,42 @@
+; AX3074: a macro parameter standing where a template keeps a name.
+; Five warnings, one per unsubstituted position - the field of `.`
+; and `set`, a struct construction's type, `alloc`'s type operand,
+; `handle`'s effect list - and the program still checks clean: each
+; position is deliberate, so the diagnostic warns rather than
+; refuses. The argument each parameter was given is evaluated and
+; discarded; the NAME is what the expansion keeps, which is why every
+; parameter here shares its spelling with something real - field `x`
+; and `y`, struct `Point`, type `Int`, effect `Ask` - so each
+; expansion is well-typed and nothing but the warning reports.
+; Silent on purpose: `getx` names a literal field with no parameter
+; behind it, and `getall`'s `f` is bound by the enclosing
+; `syntax/for` - the iteration substitutes it, so there is nothing
+; verbatim to warn about.
+(struct Point (x : Int) (mut y : Int))
+(struct One (a : Int))
+
+(macro (getx s) s.x)
+(macro (getf s x) s.x)
+(macro (setf s y v) (set s.y v))
+(macro (mkpt Point x y) (struct Point x y))
+(macro (mkarr Int n) (alloc Int n))
+(macro (getall S s f) (One (syntax/for (f (syntax/fields S)) s.f)))
+
+(effect Ask
+  (ask :: (-> Int Int)))
+(macro (runask x Ask) (handle x (Ask) (lambda (p) p)))
+
+(:: main Int)
+(fn (main)
+  (let ((mut p (Point 1 2))
+        (o (One 7)))
+    {
+      (getx p)
+      (getf p 0)
+      (setf p 0 3)
+      (mkpt 0 4 5)
+      (mkarr 0 2)
+      (getall One o 0)
+      (runask 41 0)
+      0
+    }))

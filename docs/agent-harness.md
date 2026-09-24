@@ -105,7 +105,8 @@ is no executable.
 
 `tests/diagnostics/severity.policy` is a hand-maintained allowlist of
 the codes permitted to render as warnings: `AX3037`, `AX3038`,
-`AX3039`, `AX3045`, `AX3046`, `AX3048`, `AX3051` and `AX3053`.
+`AX3039`, `AX3045`, `AX3046`, `AX3048`, `AX3051`, `AX3053` and
+`AX3074`.
 
 `AX3037`, `AX3038`, `AX3039` and `AX3051` are the AXTAG family's
 UNANSWERABLE half, and that split is the whole rule for them - a claim

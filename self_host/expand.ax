@@ -3686,6 +3686,95 @@
       0
       isp) outArgs isp (+ i 1))))
 
+; ------------------------------------------------------------------
+; MAC-EXP-14b: a macro parameter standing where a template keeps a
+; NAME rather than substituting an expression. Four positions pass
+; their name through verbatim - the field of `.` and `set`, the type
+; of a struct construction, `alloc`'s type operand, the effect list
+; of `handle` - so a parameter there is read as a literal name and
+; its argument is evaluated and discarded. Deliberate, and silent:
+; AX3074 warns rather than refuses, at the invocation under the
+; macro's frame, because refusing would break the templates that
+; mean the literal spelling. A field name an enclosing `syntax/for`
+; iteration binds substitutes from the iteration (section 10.3's
+; getters), so that case stays quiet; the other three positions
+; consult no such binding, and anything naming a parameter warns.
+; ------------------------------------------------------------------
+(pub :: expWarnNamePos (-> (Vec Int) String Int Int Int String String Int))
+(pub fn (expWarnNamePos params name forShielded env isp position help)
+  (if (< (expParamIndex params name) 0)
+    0
+    (if (&& (== forShielded 1) (!= (cast Int (expForLookup env name)) 0))
+      0
+      (expEmit env (mkDiagNote
+        SEV_WARNING
+        "AX3074"
+        "macro-parameter-name-position"
+        isp
+        (strConcat (strConcat (strConcat "this macro's template uses its parameter `" name) (strConcat "` as " position)) ", which is kept as written rather than replaced by its argument")
+        0
+        0
+        help
+        "the field name, the struct type name, `alloc`'s type operand and `handle`'s effect list substitute nothing (macro-system.md MAC-EXP-14b)")))))
+
+; The first parameter name a TYPE node mentions, or null. Mirrors
+; `expSubstTy`'s traversal - constructor and variable names, both
+; sides of an arrow, tuple elements, list and pointer subjects -
+; because the question is what the verbatim passthrough keeps, and
+; that is exactly the set substitution would have rewritten. Any
+; other tag answers null: a shape substitution does not read is not
+; one it can miskeep.
+(pub :: expTyParamName (-> Int (Vec Int) String))
+(pub fn (expTyParamName t params)
+  (if (== t 0)
+    (cast String 0)
+    (let ((tag (nodeTag t)))
+      (if (== tag TAG_T_CON)
+        (let ((n (nodeAName t)))
+          (if (>= (expParamIndex params n) 0)
+            n
+            (expTyVecParamName (nodeBVec t) params 0)))
+        (if (== tag TAG_T_VAR)
+          (let ((n (nodeAName t)))
+            (if (>= (expParamIndex params n) 0)
+              n
+              (cast String 0)))
+          (if (== tag TAG_T_ARR)
+            (let ((l (expTyParamName (nodeA t) params)))
+              (if (!= (cast Int l) 0)
+                l
+                (expTyParamName (nodeB t) params)))
+            (if (== tag TAG_T_TUP)
+              (expTyVecParamName (nodeAVec t) params 0)
+              (if (== tag TAG_T_LIST)
+                (expTyParamName (nodeA t) params)
+                (if (== tag TAG_T_PTR)
+                  (expTyParamName (nodeA t) params)
+                  (cast String 0))))))))))
+
+(pub :: expTyVecParamName (-> (Vec Int) (Vec Int) Int String))
+(pub fn (expTyVecParamName v params i)
+  (if (|| (== (cast Int v) 0) (>= i (vecLen v)))
+    (cast String 0)
+    (let ((n (expTyParamName (vecGet v i) params)))
+      (if (!= (cast Int n) 0)
+        n
+        (expTyVecParamName v params (+ i 1))))))
+
+; The first parameter name a `handle` effect list mentions, or null.
+; The list holds spanned var nodes (the parser keeps one per name so
+; AX3016 can anchor at it); the warning anchors at the invocation
+; instead, because a template node's span indexes the defining file
+; and this diagnostic is reported against the invoking one.
+(pub :: expHandleParamName (-> (Vec Int) (Vec Int) Int String))
+(pub fn (expHandleParamName effs params i)
+  (if (>= i (vecLen effs))
+    (cast String 0)
+    (let ((e (vecGet effs i)))
+      (if (&& (== (nodeTag e) TAG_E_VAR) (>= (expParamIndex params (nodeAName e)) 0))
+        (nodeAName e)
+        (expHandleParamName effs params (+ i 1))))))
+
 ; A template literal rebuilt with the invocation's span
 ; (MAC-EXP-14a): keeping the defining file's byte offsets renders
 ; against the invoking file's line table. Every literal kind carries
@@ -4075,27 +4164,12 @@
                         ; field-name position stays verbatim, as it always has: the
                         ; name lives in word b as a bare string, and rewriting it
                         ; against params would change what existing templates mean.
+                        ; That silence is AX3074's (MAC-EXP-14b), warned below.
                         (if (== tag TAG_E_FIELD)
-                          (mkNodeAt
-                            TAG_E_FIELD
-                            (substTpl
-                              (nodeA tpl)
-                              params
-                              args
-                              ren
-                              env
-                              isp)
-                            (let ((fe (expForLookup env (nodeBName tpl))))
-                              (if (==
-                                (cast Int fe)
-                                0)
-                                (nodeBName tpl)
-                                fe))
-                            0
-                            isp)
-                          (if (== tag TAG_E_SETF)
+                          {
+                            (expWarnNamePos params (nodeBName tpl) 1 env isp "a field name" "rename the parameter to mean the literal field, or bind the field name with an enclosing `syntax/for`")
                             (mkNodeAt
-                              TAG_E_SETF
+                              TAG_E_FIELD
                               (substTpl
                                 (nodeA tpl)
                                 params
@@ -4109,35 +4183,44 @@
                                   0)
                                   (nodeBName tpl)
                                   fe))
-                              (substTpl
-                                (nodeC tpl)
-                                params
-                                args
-                                ren
-                                env
-                                isp)
+                              0
                               isp)
-                            (if (== tag TAG_E_STRUCTCON)
+                          }
+                          (if (== tag TAG_E_SETF)
+                            {
+                              (expWarnNamePos params (nodeBName tpl) 1 env isp "a field name" "rename the parameter to mean the literal field, or bind the field name with an enclosing `syntax/for`")
                               (mkNodeAt
-                                TAG_E_STRUCTCON
-                                (nodeA tpl)
-                                (substVec
-                                  (nodeBVec tpl)
+                                TAG_E_SETF
+                                (substTpl
+                                  (nodeA tpl)
                                   params
                                   args
                                   ren
                                   env
                                   isp)
-                                0
+                                (let ((fe (expForLookup env (nodeBName tpl))))
+                                  (if (==
+                                    (cast Int fe)
+                                    0)
+                                    (nodeBName tpl)
+                                    fe))
+                                (substTpl
+                                  (nodeC tpl)
+                                  params
+                                  args
+                                  ren
+                                  env
+                                  isp)
                                 isp)
-                              ; `alloc`'s word a is a TYPE node, which holds no parameter
-                              ; reference; its count is an expression.
-                              (if (== tag TAG_E_ALLOC)
+                            }
+                            (if (== tag TAG_E_STRUCTCON)
+                              {
+                                (expWarnNamePos params (nodeAName tpl) 0 env isp "a struct type name" "rename the parameter to mean the literal type")
                                 (mkNodeAt
-                                  TAG_E_ALLOC
+                                  TAG_E_STRUCTCON
                                   (nodeA tpl)
-                                  (substTpl
-                                    (nodeB tpl)
+                                  (substVec
+                                    (nodeBVec tpl)
                                     params
                                     args
                                     ren
@@ -4145,26 +4228,54 @@
                                     isp)
                                   0
                                   isp)
+                              }
+                              ; `alloc`'s word a is a TYPE node, which holds no parameter
+                              ; reference; its count is an expression.
+                              (if (== tag TAG_E_ALLOC)
+                                (let ((tn (expTyParamName (nodeA tpl) params)))
+                                  {
+                                    (if (== (cast Int tn) 0)
+                                      0
+                                      (expWarnNamePos params tn 0 env isp "an `alloc` type operand" "rename the parameter to mean the literal type"))
+                                    (mkNodeAt
+                                      TAG_E_ALLOC
+                                      (nodeA tpl)
+                                      (substTpl
+                                        (nodeB tpl)
+                                        params
+                                        args
+                                        ren
+                                        env
+                                        isp)
+                                      0
+                                      isp)
+                                  })
                                 ; `handle`'s word b is a Vec of EFFECT names, not values.
                                 (if (== tag TAG_E_HANDLE)
-                                  (mkNodeAt
-                                    TAG_E_HANDLE
-                                    (substTpl
-                                      (nodeA tpl)
-                                      params
-                                      args
-                                      ren
-                                      env
-                                      isp)
-                                    (nodeB tpl)
-                                    (substTpl
-                                      (nodeC tpl)
-                                      params
-                                      args
-                                      ren
-                                      env
-                                      isp)
-                                    isp)
+                                  (let ((en (expHandleParamName (nodeBVec tpl) params 0)))
+                                    {
+                                      (if (== (cast Int en) 0)
+                                        0
+                                        (expWarnNamePos params en 0 env isp "a handled effect name" "rename the parameter to mean the literal effect"))
+                                      (mkNodeAt
+                                        TAG_E_HANDLE
+                                        (substTpl
+                                          (nodeA tpl)
+                                          params
+                                          args
+                                          ren
+                                          env
+                                          isp)
+                                        (nodeB tpl)
+                                        (substTpl
+                                          (nodeC tpl)
+                                          params
+                                          args
+                                          ren
+                                          env
+                                          isp)
+                                        isp)
+                                    })
                                   (if (== tag TAG_E_MATCH)
                                     (mkNodeAt
                                       TAG_E_MATCH

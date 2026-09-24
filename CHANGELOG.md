@@ -16,6 +16,24 @@ its changelog too.
 
 ## Unreleased
 
+### A macro parameter where the template keeps a name — `MAC-EXP-14b`
+
+Four positions in a macro template keep the name they are written
+with rather than substituting the argument — the field of `.` and
+`set`, a struct construction's type, `alloc`'s type operand,
+`handle`'s effect list — so a parameter standing in one is read as
+a literal name while its argument is evaluated and discarded. That
+silence now draws `AX3074` (`macro-parameter-name-position`), a
+warning at the invocation under the macro's expansion frame. A
+warning rather than a refusal: each position is deliberately a
+name, and refusing would break the templates that mean the literal
+spelling. A field name an enclosing `syntax/for` binds stays quiet,
+since the iteration substitutes it. Held by
+`tests/diagnostics/1007-macro-param-name-position.ax` (five
+warnings, one per position, over a program that still checks
+clean), `tests/diagnostics/severity.policy`, diagnostic coverage,
+and doc-drift in both directions.
+
 ### `Mod::Name` in type position — `MAC-LANG-12` residue closed
 
 A qualified reference where a type stands parses now: `Mod::Name`
