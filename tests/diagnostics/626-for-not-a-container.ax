@@ -15,6 +15,11 @@
 ;      a pre-existing rule about inference without generalisation, and
 ;      the reason it is written down here is that a reader meeting this
 ;      diagnostic will otherwise attribute it to `for`.
+;   3  a `String`. `for` iterates `(Vec a)` directly, so the rows name
+;      the bytes idiom instead: `(for i 0 (strLen s) ... (strByte s i)
+;      ...)`.
+;   4  a `Map`. Same shape, the keys idiom: `(for k (mapKeys m) ...
+;      (mapGet m k default) ...)`.
 ;
 ; The file declares its OWN `vecLen`. That is the ablation this case
 ; exists to hold: the desugaring emits the MANGLED `Vec$vecLen` and
@@ -25,6 +30,7 @@
 ; same defect being real once: an entry file's own `strConcat` captured
 ; the format lowering's, silently and wrongly.
 (import IO)
+(import Map)
 
 (:: vecLen (-> (Vec Int) Int))
 (fn (vecLen z)
@@ -39,6 +45,18 @@
 ;@axiom:effect(io)
 (fn (overAnUndeclaredParam xs)
   (for x xs
+    (println 1)))
+
+(:: overAString (-> String Int))
+;@axiom:effect(io)
+(fn (overAString s)
+  (for c s
+    (println 1)))
+
+(:: overAMap (-> Map Int))
+;@axiom:effect(io)
+(fn (overAMap m)
+  (for k m
     (println 1)))
 
 (:: main Int)

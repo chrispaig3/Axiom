@@ -1,33 +1,73 @@
 [1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
-  [1;34m--> [0m626-for-not-a-container.ax:36:10
+  [1;34m--> [0m626-for-not-a-container.ax:42:10
 [1;34m   |[0m
-[1;34m36 |[0m   (for x n
+[1;34m42 |[0m   (for x n
 [1;34m   |[0m          [1;31m^ this has type `Int`, expected `Vec _a`[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto count, use the range: `(for i 0 n ...)` - a range counts, a container holds
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
-  [1;34m--> [0m626-for-not-a-container.ax:36:4
+  [1;34m--> [0m626-for-not-a-container.ax:42:4
 [1;34m   |[0m
-[1;34m36 |[0m   (for x n
+[1;34m42 |[0m   (for x n
 [1;34m   |[0m    [1;31m^^^ this has type `Int`, expected `Vec _a`[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto count, use the range: `(for i 0 n ...)` - a range counts, a container holds
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
-  [1;34m--> [0m626-for-not-a-container.ax:41:10
+  [1;34m--> [0m626-for-not-a-container.ax:47:10
 [1;34m   |[0m
-[1;34m41 |[0m   (for x xs
+[1;34m47 |[0m   (for x xs
 [1;34m   |[0m          [1;31m^^ this has type `Int`, expected `Vec _a`[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto count, use the range: `(for i 0 n ...)` - a range counts, a container holds
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Int[0m
-  [1;34m--> [0m626-for-not-a-container.ax:41:4
+  [1;34m--> [0m626-for-not-a-container.ax:47:4
 [1;34m   |[0m
-[1;34m41 |[0m   (for x xs
+[1;34m47 |[0m   (for x xs
 [1;34m   |[0m    [1;31m^^^ this has type `Int`, expected `Vec _a`[0m
 [1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto count, use the range: `(for i 0 n ...)` - a range counts, a container holds
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
 
-compilation failed due to 4 previous errors
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found String[0m
+  [1;34m--> [0m626-for-not-a-container.ax:53:10
+[1;34m   |[0m
+[1;34m53 |[0m   (for c s
+[1;34m   |[0m          [1;31m^ this has type `String`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto read bytes: `(for i 0 (strLen s) ... (strByte s i) ...)` - `for` iterates `(Vec a)` directly
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found String[0m
+  [1;34m--> [0m626-for-not-a-container.ax:53:4
+[1;34m   |[0m
+[1;34m53 |[0m   (for c s
+[1;34m   |[0m    [1;31m^^^ this has type `String`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto read bytes: `(for i 0 (strLen s) ... (strByte s i) ...)` - `for` iterates `(Vec a)` directly
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Map[0m
+  [1;34m--> [0m626-for-not-a-container.ax:59:10
+[1;34m   |[0m
+[1;34m59 |[0m   (for k m
+[1;34m   |[0m          [1;31m^ this has type `Map`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto visit entries: `(for k (mapKeys m) ... (mapGet m k default) ...)` - `for` iterates `(Vec a)` directly
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec _a, found Map[0m
+  [1;34m--> [0m626-for-not-a-container.ax:59:4
+[1;34m   |[0m
+[1;34m59 |[0m   (for k m
+[1;34m   |[0m    [1;31m^^^ this has type `Map`, expected `Vec _a`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mto visit entries: `(for k (mapKeys m) ... (mapGet m k default) ...)` - `for` iterates `(Vec a)` directly
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+compilation failed due to 8 previous errors

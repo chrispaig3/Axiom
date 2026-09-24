@@ -4923,7 +4923,8 @@
 ; rows carrying the SAME message at the SAME span read as a compiler bug
 ; rather than as two uses; measured, that is exactly what giving both
 ; `XS`'s span produced. `tests/diagnostics/626-for-not-a-container`
-; holds the four rows.
+; holds the eight rows: two per site over an `Int`, a `String` and a
+; `Map`, each pair naming what fits.
 (pub :: mkForContainer (-> String Int Int Int Int Int))
 (pub fn (mkForContainer bindName bindSpan xs body kwSpan)
   (let ((ctl (forUpByOne kwSpan)))

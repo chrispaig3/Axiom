@@ -983,7 +983,28 @@ underlines `n`: `AX3004 type mismatch: expected Vec _a, found Int`
 twice — once for its length, once per element — and the checker does
 not poison a binding after one bad use; the second row carries the
 keyword's span so the pair reads as two uses rather than as one report
-printed twice.
+printed twice. Each row's help names what fits the type in hand: the
+range for an `Int`, the bytes idiom for a `String`, the keys idiom
+for a `Map`.
+
+A `String` reads byte by byte over its length, and a `Map` visits
+through its keys vector - both are ranges the existing shapes
+already express, which is why neither is a fifth shape:
+
+```scheme
+(for i 0 (strLen s)                 ; bytes: "hi" is 104, 105
+  (doSomethingWith (strByte s i)))
+
+(for k (mapKeys m)                  ; entries: keys sum order-independently
+  (doSomethingWith k (mapGet m k default)))
+```
+
+Byte values are `Int`s, not characters: decoding multibyte text is
+`Utf8`'s job, and a loop that silently decoded would charge every
+iteration for it. `mapGet` takes the default to answer for a key
+that is not there; iterating `mapKeys` only ever asks about keys
+that are, so the default never answers and any value of the right
+type does (`tests/stdlib/466-for-loop.ax`, terms 18–19).
 
 **`for` is a keyword only at the head of a form**, like every word in
 the table above: it is a parameter name, a `let` binder and a pattern

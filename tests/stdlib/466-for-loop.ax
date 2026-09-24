@@ -63,8 +63,16 @@
 ;      the answered value.
 ;   17. Index hygiene beside term 6: a caller's `i` bound around an
 ;      indexed loop reads as the caller's after it.
+;   18. What does not fit a container, and what fits instead: a
+;      `String` reads byte by byte over its length - "hi" is
+;      104+105 - because `for` iterates `(Vec a)` directly and the
+;      bytes idiom is a range.
+;   19. A `Map` visits through its keys vector: keys plus values sum
+;      order-independently, so no iteration order is pinned.
 (import IO)
 (import Vec)
+(import Str)
+(import Map)
 (import Mem)
 
 ; Term 12's shadow. A bare `vecLen` in the desugaring would resolve
@@ -239,6 +247,21 @@
           (for (e k) g
             (memSetWord acc 0 (+ e k)))
           (println i)  ; 111
+        })
+      ; --- 18. a String reads byte by byte over a range ---
+      (memSetWord acc 0 0)
+      (for i 0 (strLen "hi")
+        (memSetWord acc 0 (+ (memGetWord acc 0) (strByte "hi" i))))
+      (println (memGetWord acc 0))  ; 209
+      ; --- 19. a Map visits through its keys, order-independently ---
+      (let ((m mapNew))
+        {
+          (mapInsert m 1 10)
+          (mapInsert m 2 20)
+          (memSetWord acc 0 0)
+          (for k (mapKeys m)
+            (memSetWord acc 0 (+ (memGetWord acc 0) (+ k (mapGet m k 0)))))
+          (println (memGetWord acc 0))  ; 33
         })
       0
     }))

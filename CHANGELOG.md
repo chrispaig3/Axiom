@@ -16,6 +16,22 @@ its changelog too.
 
 ## Unreleased
 
+### `for` over a non-`Vec` names what fits
+
+`(for x n body)` over an `Int` drew `expected Vec _a, found Int`
+twice and stopped there. Both rows now carry a help naming what
+fits the type in hand: the range for an `Int`, the bytes idiom
+`(for i 0 (strLen s) ... (strByte s i) ...)` for a `String`, the
+keys idiom `(for k (mapKeys m) ... (mapGet m k default) ...)` for a
+`Map`. The heads matched are the desugar's own `Vec$vecLen` and
+`Vec$vecGet` - spellings no program can write, owned on both ends
+the way `format#` is - and a variable that may still instantiate
+to a `Vec`, poison, or a `Vec` itself keeps the generic mismatch.
+`String` reads byte by byte (decoding is `Utf8`'s job, not the
+loop's), and `mapGet`'s default never answers over iterated keys.
+Held by `626-for-not-a-container` (eight rows: two per site over
+`Int`, `String` and `Map`) and `466-for-loop.ax` terms 18–19.
+
 ### `for` with an index and a step
 
 Two shapes join the loop keyword, told apart by arity as before: a

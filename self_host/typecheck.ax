@@ -7144,6 +7144,64 @@
       0
     }))
 
+; `emitMismatch` with a help line. Separate from it rather than a
+; flag on it: `mkDiagNote` with an empty note is not proven
+; byte-identical to `mkDiag`, and every AX3004 in the corpus pins
+; the difference.
+(pub :: emitMismatchHelp (-> Int String String Int String Int))
+(pub fn (emitMismatchHelp tc expected found span help)
+  (if (== span 0)
+    0
+    {
+      (emitDiag tc (diagSetLabel (mkDiag
+        SEV_ERROR
+        "AX3004"
+        "type-mismatch"
+        span
+        (strConcat (strConcat (strConcat "type mismatch: expected " expected) ", found ") found)
+        0
+        0
+        help) (strConcat (strConcat (strConcat (strConcat "this has type `" found) "`, expected `") expected) "`")))
+      0
+    }))
+
+; The `for` desugar's length and element reads name `Vec$vecLen` and
+; `Vec$vecGet` - spellings no program can write (`$` is AX1001 inside
+; an identifier), owned on both ends the way `format#` is. A concrete
+; non-`Vec` argument draws the tailored help naming what fits; a
+; variable that may still instantiate to a `Vec`, poison a diagnostic
+; elsewhere already owns, or a `Vec` itself falls through to the
+; generic mismatch below. Answers 1 when it emitted.
+(pub :: forVecMismatch (-> Int String Int Int Int Int Int))
+(pub fn (forVecMismatch tc hname headIsVar argTy wantArg span)
+  (if (== headIsVar 0)
+    0
+    (if (|| (strEq hname "Vec$vecLen") (strEq hname "Vec$vecGet"))
+      (if (|| (== (tyIsErr argTy) 1) (== (nodeTag argTy) TAG_T_VAR))
+        0
+        (if (&& (== (nodeTag argTy) TAG_T_CON) (strEq (bareOf (nodeAName argTy)) "Vec"))
+          0
+          (let ((bn (if (== (nodeTag argTy) TAG_T_CON) (bareOf (nodeAName argTy)) "")))
+            (let ((names vecNew))
+              {
+                (tyVarsInto wantArg names)
+                (tyVarsInto argTy names)
+                (let ((help (if (strEq bn "Int")
+                  "to count, use the range: `(for i 0 n ...)` - a range counts, a container holds"
+                  (if (strEq bn "String")
+                    "to read bytes: `(for i 0 (strLen s) ... (strByte s i) ...)` - `for` iterates `(Vec a)` directly"
+                    (if (strEq bn "Map")
+                      "to visit entries: `(for k (mapKeys m) ... (mapGet m k default) ...)` - `for` iterates `(Vec a)` directly"
+                      (cast String 0))))))
+                  (if (== (cast Int help) 0)
+                    0
+                    {
+                      (emitMismatchHelp tc (tyRenderIn wantArg names) (tyRenderIn argTy names) span help)
+                      1
+                    }))
+              }))))
+      0)))
+
 ; `tc`, not a bare `out`: a diagnostic carries the UNIT its span
 ; indexes, and these two pushed straight into the vector, so an
 ; `AX3012` raised while checking an imported MODULE's body was stamped
@@ -9571,7 +9629,16 @@
                                                   (memSetWord e 2 (mkSubtypeCheckNode (nodeB e) bh (nodeA funcTy) (spanOf (nodeB e))))
                                                   0
                                                 }))
-                                            (emitMismatchTy tc (nodeA funcTy) argTy (spanOf (nodeB e))))))
+                                            ; A `for` desugar's length or element read
+                                            ; against a concrete non-`Vec` names what
+                                            ; fits instead (forVecMismatch answers 1
+                                            ; when it emitted); anything else keeps
+                                            ; the generic mismatch, whose answer -
+                                            ; like this branch's - the `pinShape`
+                                            ; below decides.
+                                            (if (== (forVecMismatch tc hname headIsVar argTy (nodeA funcTy) (spanOf (nodeB e))) 1)
+                                              0
+                                              (emitMismatchTy tc (nodeA funcTy) argTy (spanOf (nodeB e)))))))
                                       0)
                                     ; The rest of the arrow, with this parameter's
                                     ; PLACEHOLDER pinned to the argument's type where the
