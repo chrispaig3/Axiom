@@ -16,6 +16,19 @@ its changelog too.
 
 ## Unreleased
 
+### `if` names its missing operand
+
+A chain that stops where a pair is complete drew the generic
+"expected expression, found `)`": `(if t)`, `(if t b)` and even
+`(if t1 b1 t2 b2)` all failed without naming the form. Each now
+draws `AX2001` with the `if` shape in the message - the test, the
+branch-and-else, or the else with "write it out, or continue with
+the next test" (reference.md's rule: an `if` always ends in its
+else operand). A genuinely broken operand anywhere else keeps the
+generic refusal, which is about the operand rather than the chain.
+Held by `627/628/629/624-if-*.axbad` (one malformed form per file,
+since a parse error stops the file).
+
 ### `agent:*` tags survive `fmt`, AXSYM and import — harness §7
 
 The compiler records the open `agent:*` namespace and re-emits it

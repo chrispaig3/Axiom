@@ -1,0 +1,10 @@
+[1;31merror[AX2001][0m[1m: expected the else operand: `if` takes test-branch pairs and a final else `(if t1 b1 t2 b2 ... els)` - write it out, or continue with the next test, found `)`[0m
+ [1;34m--> [0m629-if-missing-else.ax:5:27
+[1;34m  |[0m
+[1;34m5 |[0m (fn (main) (if (== 1 1) 41))
+[1;34m  |[0m                           [1;31m^ found `)` here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mAxiom expected the else operand: `if` takes test-branch pairs and a final else `(if t1 b1 t2 b2 ... els)` - write it out, or continue with the next test at this position
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2001` for a full explanation
+
+compilation failed due to 1 previous error

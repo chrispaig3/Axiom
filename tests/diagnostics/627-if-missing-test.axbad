@@ -1,0 +1,5 @@
+; `if` without its test: the chain never starts.
+; `.axbad` because a parse error stops the file, so each case in
+; this family carries exactly one malformed form (625-for-shape).
+(:: main Int)
+(fn (main) (if))

@@ -1,0 +1,5 @@
+; `if` with an even operand count: two complete pairs and no
+; else. Either the chain wants its else written out, or the next
+; test to continue it.
+(:: main Int)
+(fn (main) (if (== 1 1) 41 (== 2 2) 43))

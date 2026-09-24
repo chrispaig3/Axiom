@@ -5434,20 +5434,30 @@
 ; or the next test. An even number of operands therefore fails exactly
 ; where a missing operand always has - `(if t b e x)` at the `)`,
 ; wanting an expression the way `(if t)` does - and every shorter
-; shape fails where it always has.
+; shape fails where it always has. Where it fails, it fails NAMED:
+; a missing operand at a `)` draws the `if` shape rather than the
+; generic "expected expression", because `(if t b)` is not a broken
+; expression but a chain without its else - reference.md's rule, "an
+; `if` always ends in its else operand: write it out". A genuinely
+; broken operand anywhere else keeps the generic refusal, which is
+; about the operand rather than the chain.
 ; ------------------------------------------------------------------
 (pub :: parseIfExpr (-> (Vec Int) Int Int))
 (pub fn (parseIfExpr tokens pos)
   (let ((testR (parseExpr tokens pos)))
     (if (== (memGetWord testR 0) 0)
-      testR
+      (if (peekIs tokens pos TK_RPAREN)
+        (pErrExp pos "the test operand: `if` takes `(if test then else)`, variadically `(if t1 b1 t2 b2 ... els)`")
+        testR)
       (let (
         (test (memGetWord testR 1))
         (afterTest (memGetWord testR 2))
       )
         (let ((thenR (parseExpr tokens afterTest)))
           (if (== (memGetWord thenR 0) 0)
-            thenR
+            (if (peekIs tokens afterTest TK_RPAREN)
+              (pErrExp afterTest "the `then` branch and the else operand: `if` takes `(if test then else)`, variadically `(if t1 b1 t2 b2 ... els)`")
+              thenR)
             (parseIfTail tokens (memGetWord thenR 2) test (memGetWord thenR 1))))))))
 
 ; The tail of an `if` after one test and its branch: the next
@@ -5455,12 +5465,17 @@
 ; the next test otherwise, whose own branch is parsed and the tail
 ; recursed. One `TAG_E_IF` per pair, right-nested - the fold is the
 ; desugar, so there is no second representation for any later pass
-; to learn.
+; to learn. A `)` here ends the chain without its else, whatever the
+; depth: `(if t b)`, `(if t1 b1 t2 b2)`, and `(if t1 b1 t2)` all stop
+; where a pair is complete, so all three draw the shape rather than
+; the generic want.
 (pub :: parseIfTail (-> (Vec Int) Int Int Int Int))
 (pub fn (parseIfTail tokens pos test thenEx)
   (let ((eR (parseExpr tokens pos)))
     (if (== (memGetWord eR 0) 0)
-      eR
+      (if (peekIs tokens pos TK_RPAREN)
+        (pErrExp pos "the else operand: `if` takes test-branch pairs and a final else `(if t1 b1 t2 b2 ... els)` - write it out, or continue with the next test")
+        eR)
       (let (
         (e (memGetWord eR 1))
         (afterE (memGetWord eR 2))
