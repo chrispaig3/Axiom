@@ -17,6 +17,14 @@
 ; convention. The one overlap left is the catch-all `(identifier)
 ; @variable` at the end of the file, where the fallback is a strictly worse
 ; but still correct answer.
+;
+; Uppercased heads are constructors by the language's own naming rule -
+; the grammar reads them as `constructor_identifier` in type position
+; for the same reason - so a bare `(Point 1 2)` is a construction, not
+; a call. The two application-head rules below are disjoint by case
+; (`#match?` / `#not-match?` on the first letter) rather than by
+; priority, which is what keeps both answers stable under the two
+; overlap conventions above: no token matches both.
 
 ; ---------------------------------------------------------------
 ; Comments and metadata
@@ -69,6 +77,19 @@
 (function_definition name: (identifier) @function)
 (function_definition parameter: (identifier) @variable.parameter)
 
+; A macro's name is a function name of its own colour, and its
+; parameters bind like any other: a bare identifier in a rule pattern
+; binds (MAC-LANG-15), so only identifier elements are captured and a
+; literal or nested form keeps whatever colour it already had.
+(macro_declaration name: (identifier) @function.macro)
+(macro_declaration parameter: (identifier) @variable.parameter)
+(macro_rule rule_name: (identifier) @function.macro)
+(macro_rule parameter: (identifier) @variable.parameter)
+(emacro_declaration name: (identifier) @function.macro)
+(emacro_rule rule_name: (identifier) @function.macro)
+
+(lambda parameter: (identifier) @variable.parameter)
+
 (data_declaration name: (identifier) @type)
 (data_constructor name: (constructor_identifier) @constructor)
 
@@ -103,11 +124,25 @@
 
 ; The head of an application is the thing being called. Axiom has no
 ; operator syntax - `+` is an ordinary identifier in head position - so
-; this single rule is what makes both `(f x)` and `(+ 1 2)` highlight
-; sensibly, and it is why there is no operator pattern below.
+; these two rules are what make `(f x)`, `(+ 1 2)` and `(Point 1 2)`
+; highlight sensibly, and it is why there is no operator pattern below.
+; An upcased head is a constructor application; anything else is a call.
 (application
   .
-  (identifier) @function.call)
+  (identifier) @constructor
+  (#match? @constructor "^[A-Z]"))
+(application
+  .
+  (identifier) @function.call
+  (#not-match? @function.call "^[A-Z]"))
+
+; A qualified head calls out of its module: the module reads as one,
+; the name as the call it is.
+(application
+  .
+  (qualified_identifier
+    module: (identifier) @module
+    name: (identifier) @function.call))
 
 (struct_construction name: (identifier) @constructor)
 
