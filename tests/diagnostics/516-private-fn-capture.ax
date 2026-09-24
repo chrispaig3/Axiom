@@ -1,0 +1,10 @@
+; MAC-HYG-11: a template's free identifier naming a function its
+; module keeps private is refused AT THE INVOCATION, with AX3023,
+; not at the definition. `helper` resolves where `once` is defined
+; (same module, MAC-HYG-6/7), and the expansion carries it here,
+; where it does not exist. The mirror - a private *macro* - is
+; refused at the definition site instead (MAC-LANG-10).
+(import PrivMac)
+
+(:: main Int)
+(fn (main) (once 21))

@@ -222,6 +222,15 @@ for case_file in tests/diagnostics/*.ax tests/diagnostics/*.axbad; do
   fi
   colorless=$((colorless + 1))
 
+  # A severity sigil outside EWNH would be dropped by `axdl_only`
+  # above and blessed (or compared) without it. Refused before the
+  # bless for the same reason the span verifier refuses a bad span.
+  if ! gate_axdl_unknown_kind "$work/case.err"; then
+    echo "FAIL $name (an AXDL line kind outside EWNH - no filter may drop it silently)"
+    failed=$((failed + 1))
+    continue
+  fi
+
   if [[ "$bless" == 1 ]]; then
     printf '%s\n' "$got" > "$repo_root/$golden"
     echo "blessed $name"
@@ -371,7 +380,11 @@ for src in self_host/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax \
   # the class of report it exists to refuse.
   out="$(cd "$work" && ./axc --diagnostic-format=ai "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
   diags="$(axdl_only < "$work/sweep.err")"
-  if [[ -n "$diags" ]]; then
+  if ! gate_axdl_unknown_kind "$work/sweep.err"; then
+    echo "FAIL $src (an AXDL line kind outside EWNH on the compiler's own source)"
+    failed=$((failed + 1))
+    selfclean=1
+  elif [[ -n "$diags" ]]; then
     echo "FAIL $src (a diagnostic on the compiler's own source)"
     printf '%s\n' "$diags" | sed 's/^/    /'
     failed=$((failed + 1))
@@ -408,6 +421,25 @@ cp "$repo_root/tests/diagnostics/330-axtag-mismatch.ax" "$work/flipneg.ax"
 (cd "$work" && ./axc --diagnostic-format=ai "flipneg.ax" 2>"$work/flipneg.err" >/dev/null)
 if [[ -z "$(axdl_only < "$work/flipneg.err")" ]]; then
   echo "FAIL: the sweep pipeline is blind - a known-warning file produced no AXDL through it"
+  failed=$((failed + 1))
+fi
+if ! gate_axdl_unknown_kind "$work/flipneg.err"; then
+  echo "FAIL: the sweep pipeline emitted an AXDL line kind outside EWNH"
+  failed=$((failed + 1))
+fi
+
+# The unknown-kind assertion, negative-tested: a synthetic X-kind line
+# must trip it, and clean E/W lines must not. Without the first half a
+# helper that accepts everything would pass here, which is exactly the
+# failure this file's severity.policy section documents for goldens.
+printf 'X AX3001 probe.ax:1:1-2 unknown-kind "synthetic"\n' > "$work/kindneg.axdl"
+if gate_axdl_unknown_kind "$work/kindneg.axdl" >/dev/null 2>&1; then
+  echo "FAIL: gate_axdl_unknown_kind passed a synthetic X-kind line"
+  failed=$((failed + 1))
+fi
+printf 'E AX3001 probe.ax:1:1-2 undefined-variable "real"\nW AX3037 probe.ax:2:1-2 x "real"\n' > "$work/kindpos.axdl"
+if ! gate_axdl_unknown_kind "$work/kindpos.axdl" >/dev/null 2>&1; then
+  echo "FAIL: gate_axdl_unknown_kind tripped on E/W lines"
   failed=$((failed + 1))
 fi
 

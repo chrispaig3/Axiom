@@ -1405,6 +1405,31 @@ keep `tests/selfhost/361-macro-hygiene.ax` (143),
 (95) answering exactly those values, and **MUST NOT** change the emitted
 IR's determinism (`MAC-EXP-12`).
 
+**MAC-HYG-11 (H, 2026-09-24).** A template's free identifier that
+names a function its module keeps private is refused AT THE
+INVOCATION, with `AX3023`, not at the definition. `MAC-HYG-6` and
+`MAC-HYG-7` resolve every helper a template names at the definition
+site, and there the private name resolves fine - it is the same
+module. The expansion then carries that name into the caller's
+module, where it does not exist, and the visibility of a free
+identifier is judged where the macro is used. `MAC-LANG-10` is the
+mirror: a private *macro* is refused at the definition site.
+
+```scheme
+;; PrivMac.ax
+(pub macro (once x) (helper x))
+(fn (helper x) (* x 2))
+;; entry file
+(import PrivMac)
+(once 21)
+; E AX3023 `PrivMac::helper` is private to module `PrivMac`
+```
+
+`tests/diagnostics/516-private-fn-capture.ax` (with
+`tests/diagnostics/mods/PrivMac.ax`) pins the refusal at the
+invocation, under the macro's frame. §10.6's deleted-module
+retrospective is where the rule was found waiting to be numbered.
+
 ---
 
 ## 4. Capabilities
@@ -2814,9 +2839,10 @@ tense, so it is not rediscovered:
   private *macro* at the definition site, but a private *function*
   named by a template is refused at the invocation with `AX3023`
   `private-name`; the visibility of a free identifier is judged where
-  the macro is used. Not yet a numbered rule, and with the module gone
-  no library template exercises it, so it is recorded here rather
-  than left to be found again.
+  the macro is used. Numbered since 2026-09-24 as `MAC-HYG-11`, with
+  `tests/diagnostics/516-private-fn-capture.ax` pinning it; with the
+  module gone no library template exercises it, so the fixture is
+  what keeps it from being found again.
 - **`MAC-SAFE-1`** was applied in `el`/`elA`: the builder and the tag
   were each mentioned twice, so both were bound first.
 - **`MAC-LANG-13`** decided that escaping was a run-time function
@@ -2848,7 +2874,7 @@ tense, so it is not rediscovered:
 |---|---|---|---|
 | Language | LANG-1…12, LANG-14 (multi-rule over BOTH forms — declarations via `macro` since 2026-08-15 and expressions via `emacro` since 2026-09-14 — selected by a pattern MATCH in rule order since 2026-08-16, with arity surviving inside the match as a pre-filter), LANG-15 (all six pattern kinds), LANG-16 (v1–v5: bare-name, nested-pattern, arm/ctor, declaration and ctor-pattern splices), LANG-17 (literal identifiers, canonical-spelling comparison), LANG-18 | — | LANG-13 |
 | Expansion | EXP-1…17 (module-side invocation landed 2026-08-15) | — | — |
-| Hygiene | HYG-1…8 (HYG-8's four holes are all closed, the last two on 2026-08-16; HYG-3a closed 2026-09-18) | HYG-9 | — |
+| Hygiene | HYG-1…8 (HYG-8's four holes are all closed, the last two on 2026-08-16; HYG-3a closed 2026-09-18), HYG-11 | HYG-9 | — |
 | Capabilities | CAP-1…4, CAP-6, CAP-7, CAP-8 (`fn`/`::`/`data`/`struct`/`type`/`effect`/invocation/iteration templates — the kind list closed 2026-08-15, and `impl` left it with the construct in 0.6.0), CAP-9 (the deriving clause refuses), CAP-10 (format strings; 10.5's capture CLOSED in 0.7.4) | — | CAP-5 (replacement landed, and the table is now COMPLETE: join — in name, reference and argument position, nested to any depth — constructors, fields, same, for including its parallel form, binders, fold, name, arity, defined, format, formatln) |
 | Safety | SAFE-1…4 | — | SAFE-5 |
 | Integration | INT-1…6 | — | — |

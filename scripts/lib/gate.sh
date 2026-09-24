@@ -251,6 +251,26 @@ gate_sha() {
   fi
 }
 
+# gate_axdl_unknown_kind <file>: refuse an AXDL line kind no filter knows.
+#
+# Every `axdl_only`-shaped filter in the battery keeps `^[EWNH] ` lines
+# and drops the rest. `E` and `W` are what the corpus emits; `N` and
+# `H` are reserved and never emitted. A line shaped like a diagnostic
+# (`X AX3001 ...`) with a letter outside that set would therefore pass
+# every gate that filters before it compares - a gate reporting less
+# than it knows (docs/mir-design.md §5). This answers whether such a
+# line is present, printing it and returning nonzero when one is, so
+# the call sites read it beside the filters rather than through them.
+gate_axdl_unknown_kind() {
+  local f="$1" bad
+  bad="$(grep -E '^[A-Z] AX[0-9]{4} ' "$f" 2>/dev/null | grep -vE '^[EWNH] ' || true)"
+  if [[ -n "$bad" ]]; then
+    printf '%s\n' "$bad" | sed 's/^/    /'
+    return 1
+  fi
+  return 0
+}
+
 # gate_build_axc <varname> [output-path]
 #
 # Builds the compiler under test from the CURRENT `self_host/` sources

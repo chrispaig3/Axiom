@@ -1,0 +1,1 @@
+E AX3023 516-private-fn-capture.ax:10:13-17 private-name "`PrivMac::helper` is private to module `PrivMac`" #"`helper` is not exported by its module" ?"a name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too" &PrivMac.ax:6:13-17:"once"

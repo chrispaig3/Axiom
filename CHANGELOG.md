@@ -16,6 +16,43 @@ its changelog too.
 
 ## Unreleased
 
+### AXDL line kinds outside `EWNH` fail instead of filtering silent
+
+Every `axdl_only`-shaped filter keeps `^[EWNH] ` lines and drops the
+rest; a diagnostic with a new severity sigil would pass every gate
+that filters before it compares (docs/mir-design.md §5). The shared
+preamble gains `gate_axdl_unknown_kind`, wired into
+`check-diagnostics.sh` at all three stderr ingestions (each case
+before blessing, the silence sweep, the flipneg probe) with a
+synthetic X-kind negative probe beside them. Goldens can only gain
+such a line through a bless the case check now refuses.
+
+### `MAC-HYG-11`: a private function named by a template
+
+Recorded since the deleted `Html` module in macro-system §10.6 and
+never numbered: a template's free identifier naming a function its
+module keeps private resolves at the definition site and is refused
+at the invocation, with `AX3023`. The mirror (a private macro) was
+`MAC-LANG-10` at the definition site. Held by
+`tests/diagnostics/516-private-fn-capture.ax` (with
+`tests/diagnostics/mods/PrivMac.ax`).
+
+### `AX3043`: a reference smuggled through a field declared `Int`
+
+The error model's last proposal spends its number: a reference word
+in an `Int` slot is invisible to the release walk, which follows
+declared types, and leaks. The checker already refuses the direct
+shape (`AX3004`), so the warning reports the smuggled one - a
+`cast` laundering the operand's type while a variable it resolves,
+or a literal, stays a reference through any nesting of casts (the
+same rule `AX3071` follows for `__store64`). Struct fields and data
+payloads both answer, at the argument, and a direct mismatch is
+owned by the error beside it. Held by
+`tests/diagnostics/1008-error-payload-untyped.ax` (two warnings
+over a program that still checks clean), `severity.policy`,
+diagnostic coverage, and doc-drift in both directions. Old compiler
+says OK (non-vacuous).
+
 ### Hand-written loops migrate to `for`
 
 Fourteen `while` loops that the keyword subsumes now spell it: five

@@ -1,0 +1,15 @@
+[1;31merror[AX3023][0m[1m: `PrivMac::helper` is private to module `PrivMac`[0m
+  [1;34m--> [0m516-private-fn-capture.ax:10:13
+[1;34m   |[0m
+[1;34m10 |[0m (fn (main) (once 21))
+[1;34m   |[0m             [1;31m^^^^ `helper` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m--> [0mPrivMac.ax:6:13
+[1;34m   |[0m
+[1;34m 6 |[0m (pub macro (once x) (helper x))
+[1;34m   |[0m             [1;36m^^^^ in this expansion of `once`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+compilation failed due to 1 previous error

@@ -55,6 +55,7 @@
   [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
+  [93mAX3043[0m  a reference stored through a field declared `Int`  (error-payload-untyped)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)
   [93mAX3046[0m  a Result-typed expression in statement position, its value unused  (discarded-result)
@@ -1697,6 +1698,15 @@ the whole row, so every untagged function one hop above a `println`
 with a `{hole}` - four `show` implementations, all possible - checked
 clean and printed.
 
+### explain AX3043
+AX3043 - a reference stored through a field declared `Int`
+
+The release walk follows DECLARED types, so a reference word in an `Int` slot is invisible to reclamation and leaks: a `String` stored through a field declared `Int` is never released (docs/error-model.md ERR-TYPE-5/ERR-MEM-1). The type checker already refuses the direct shape - a `String` where an `Int` stands is `AX3004` - so what this reports is the smuggled one: a `cast` laundering the operand's type while the operand stays a reference.
+
+THIS IS A WARNING, and the cast is why. The program is well-typed, and an error would refuse a cast the author wrote on purpose alongside the leaks. What is reported is only what the checker can see: a variable it resolves, or a literal, read through any nesting of casts, whose class is a reference - the same rule `AX3071` follows for `__store64`. A call result, a field, or a poisoned operand is skipped, and a direct mismatch is owned by the error beside it. The severity is recorded in tests/diagnostics/severity.policy with that reason.
+
+Declare the field's real type.
+
 ### explain AX3044
 AX3044 - a bare type name is declared in more than one imported module
 
@@ -2919,6 +2929,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3040[0m  a type variable the caller chooses and the callee produces  (result-only-tyvar)
   [93mAX3041[0m  an `extern` block's library name that is not one  (extern-library-name)
   [93mAX3042[0m  a function performs IO and does not declare it  (undeclared-effect)
+  [93mAX3043[0m  a reference stored through a field declared `Int`  (error-payload-untyped)
   [93mAX3044[0m  a bare TYPE name is declared in more than one imported module  (ambiguous-type)
   [93mAX3045[0m  a self-recursive call in the scrutinee of a match  (recursion-in-scrutinee)
   [93mAX3046[0m  a Result-typed expression in statement position, its value unused  (discarded-result)

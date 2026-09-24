@@ -177,6 +177,17 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-24 (11): `AX3043` warns on a reference smuggled
+# through a field declared `Int` (error-model.md ERR-TYPE-5). One
+# added, none removed, three changed - the new row read off `symbols`
+# by name: `emitPayloadSmuggled` reads `Alloc,Mut,Unsafe` through
+# `emitDiag` and the message build. The three changed rows -
+# `checkStructFields`, `checkStructFieldsInst` and `checkApp`, which
+# gain the call - stay in `Alloc,Mut,Unsafe`. The move is a gain -
+# `Alloc,Mut,Unsafe` 2236 to 2237 - and no row moves off `IO` or onto
+# it: the required/ambient line sits where it was measured, and the
+# new row is may-effects (a warning fires only on a smuggled
+# reference).
 # RE-PINNED 2026-09-23 (10): the `for` shapes and their diagnostics.
 # Six added, none removed, four changed - each new row read off
 # `symbols` by name. The index/step commit added four, all
@@ -262,7 +273,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2236 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2237 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1130 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 118 "Mut,Unsafe"

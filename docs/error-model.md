@@ -1002,8 +1002,10 @@ on 2026-08-29 by the `restrict(...)` AXTAG (`restriction-violated`, an
 error; `restriction-unverifiable`, a warning in the same policy file;
 `restriction-unknown`, an error - `docs/reference.md`, AXTAG Keys),
 `AX3050` was SPENT on 2026-08-31 by `contract-malformed` (the
-paragraph after next), `AX3043` is still unspent and stays where
-it is, `AX3044` is the namespace pass's, and `AX3032` is retired and
+paragraph after next), `AX3043` was SPENT on 2026-09-24 by
+`error-payload-untyped` (a reference smuggled through a field
+declared `Int` - a warning, `tests/diagnostics/1008-error-payload-untyped.ax`),
+`AX3044` is the namespace pass's, and `AX3032` is retired and
 **MUST NOT** be reused. `AX3055` was spent on 2026-08-29 by
 `effect-op-untyped` (an effect operation that declares no type - an
 error, because the handler check and the call's arity check both stand
@@ -1104,7 +1106,6 @@ what keeps it honest.
 
 | Proposed | Slug | Condition |
 |---|---|---|
-| `AX3043` | `error-payload-untyped` | a payload field declared `Int` in a type whose constructor is applied to a reference — warning, `ERR-TYPE-5`/`ERR-MEM-1` |
 
 Each needs, before it is listed: a construction site, `explain.ax`
 text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
@@ -1132,7 +1133,8 @@ reserved block, by this section's own rule.
 `__store64` of a reference-typed value through `cast`, which takes no
 share, so the owner's release frees a block the stored word still
 names (`tests/diagnostics/1002-unretained-store.ax`). From the free
-end as well, leaving `AX3043` proposed.
+end as well, spending the last proposal: `AX3043` by
+`error-payload-untyped` on 2026-09-24.
 
 `AX3072` was spent the same day by `addr-nonliteral`: `__addr` of
 anything but a string literal, which has no interned bytes behind it
@@ -1348,7 +1350,7 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
 | `ERR-REC-8` | **R, superseded 2026-09-09** | range-constrained subtypes refused as a type — decided 2026-09-08 (roadmap item 11, D2); SUPERSEDED: `(subtype N is Int range lo .. hi)` built 2026-09-09 (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal, and the re-measured counts |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3043` not constructed; gated against collision (`AX3042` was, and renumbered `discarded-result`) |
+| `ERR-DIAG-2`, `3` | P | — `AX3043` constructed 2026-09-24 (`1008-error-payload-untyped.ax`); gated against collision (`AX3042` was, and renumbered `discarded-result`) |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
 | `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |

@@ -9428,6 +9428,59 @@
         "store through `memSetWord`, which retains first - or `Ffi.ax`'s handle paths for handles"
         "a raw `__store64` writes the word and nothing else; the release walk never counted a share it cannot see") (strConcat (strConcat "storing `" (tyRender oty)) "`"))))))
 
+; A reference smuggled through a field declared `Int`
+; (`error-model.md` ERR-TYPE-5/`ERR-MEM-1`, `AX3043`
+; `error-payload-untyped`). The release walk follows DECLARED types,
+; so a reference word in an `Int` slot is invisible to reclamation
+; and leaks. The type checker already refuses the direct shape - a
+; `String` where an `Int` stands is `AX3004` - so what reaches here
+; is the smuggled one: a `cast` laundering the operand's type while
+; the operand stays a reference. Only what the checker can SEE is
+; reported, exactly `AX3071`'s rule: a variable it resolves, or a
+; literal, read through any nesting of casts (`storeCastOperand`),
+; whose class is a reference (`evClassOf` 1). A call result, a
+; field, poison, or a variable are skipped the way they always have
+; been - missing those is the status quo, and a direct mismatch is
+; owned by the error beside it, which is why the call sites run this
+; only where compatibility already succeeded. THIS IS A WARNING: the
+; program is well-typed, and an error would refuse a cast the author
+; wrote on purpose alongside the leaks. Answers 1 when it emitted.
+(pub fn (emitPayloadSmuggled tc wantArg arg span)
+  (if (== wantArg 0)
+    0
+    (if (== (nodeTag wantArg) TAG_T_CON)
+      (if (strEq (bareOf (nodeAName wantArg)) "Int")
+        (if (if (== (nodeB wantArg) 0)
+          true
+          (== (vecLen (nodeBVec wantArg)) 0))
+          (let ((oty (storeOperandTy tc (storeCastOperand arg))))
+            (if (==
+              (cast Int oty)
+              0)
+              0
+              (if (== (tyIsErr oty) 1)
+                0
+                (if (== (evClassOf tc oty) 1)
+                  (if (== span 0)
+                    0
+                    {
+                      (emitDiag tc (diagSetLabel (mkDiagNote
+                        SEV_WARNING
+                        "AX3043"
+                        "error-payload-untyped"
+                        span
+                        (strConcat (strConcat "storing a `" (tyRender oty)) "` through a field declared `Int` hides it from the release walk, which follows declared types")
+                        0
+                        0
+                        "declare the field's real type"
+                        "an `Int` slot holding a reference is invisible to reclamation, and leaks (error-model.md ERR-TYPE-5/ERR-MEM-1)") (strConcat (strConcat "this holds a `" (tyRender oty)) "`")))
+                      1
+                    })
+                  0))))
+          0)
+        0)
+      0)))
+
 ; `__addr` of anything but a string literal.
 ;
 ; `(__addr "text")` is the only spelling with interned bytes behind
@@ -9639,7 +9692,17 @@
                                             (if (== (forVecMismatch tc hname headIsVar argTy (nodeA funcTy) (spanOf (nodeB e))) 1)
                                               0
                                               (emitMismatchTy tc (nodeA funcTy) argTy (spanOf (nodeB e)))))))
-                                      0)
+                                      ; Compatibility succeeded, so a direct
+                                      ; mismatch owns nothing here. A
+                                      ; data-constructor payload smuggled
+                                      ; through an `Int` field still warns
+                                      ; (AX3043): the head names a
+                                      ; constructor, and this level's
+                                      ; parameter is its payload's
+                                      ; declared type.
+                                      (if (&& (== headIsVar 1) (!= (rfindCtor tc hname) 0))
+                                        (emitPayloadSmuggled tc (nodeA funcTy) (nodeB e) (spanOf (nodeB e)))
+                                        0))
                                     ; The rest of the arrow, with this parameter's
                                     ; PLACEHOLDER pinned to the argument's type where the
                                     ; argument has one to offer (`pinArg`, 2026-08-21):
@@ -14658,7 +14721,7 @@
       {
         (if (== (tyCompat tc aty (vecGet insts i)) 0)
           (emitMismatchTy tc (vecGet insts i) aty (spanOf (vecGet args i)))
-          0)
+          (emitPayloadSmuggled tc (vecGet insts i) (vecGet args i) (spanOf (vecGet args i))))
         (checkStructFieldsInst tc args insts (+ i 1))
       })))
 
@@ -14715,7 +14778,10 @@
         {
           (if (== (tyCompat tc aty fty) 0)
             (emitMismatchTy tc fty aty (spanOf (vecGet args i)))
-            0)
+            ; Compatibility succeeded, so a direct mismatch owns
+            ; nothing here; a reference smuggled through an `Int`
+            ; field still warns (AX3043).
+            (emitPayloadSmuggled tc fty (vecGet args i) (spanOf (vecGet args i))))
           (checkStructFields tc args fields (+ i 1))
         }))))
 

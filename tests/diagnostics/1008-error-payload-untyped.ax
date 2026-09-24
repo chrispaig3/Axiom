@@ -1,0 +1,20 @@
+; AX3043: a reference smuggled through a field declared `Int`.
+; Two warnings - a struct field and a data payload - over a program
+; that still checks clean: the `cast` launders the operand's type
+; while the operand stays a `String`, and the release walk follows
+; declared types, so the word is invisible to reclamation. The
+; direct shape (a `String` where an `Int` stands) is `AX3004`, owned
+; by that error rather than doubled here; a cast of an `Int` draws
+; nothing, since there is no reference to hide.
+(struct Box (v : Int))
+(data E (Err Int))
+
+(:: main Int)
+(fn (main)
+  (let ((s "x"))
+    {
+      (let ((b (Box (cast Int s)))) 0)
+      (let ((e (Err (cast Int s)))) 0)
+      (let ((n (Box (cast Int 5)))) 0)
+      0
+    }))

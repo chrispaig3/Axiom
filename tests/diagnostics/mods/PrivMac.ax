@@ -1,0 +1,10 @@
+; A module exporting a macro whose template names a function it
+; keeps private, for the MAC-HYG-11 case. `helper` resolves at the
+; macro's own definition site - the same module - so the definition
+; is clean; the refusal comes at an outside invocation, where the
+; expanded name does not exist.
+(pub macro (once x) (helper x))
+
+(:: helper (-> Int Int))
+(fn (helper n)
+  (* n 2))

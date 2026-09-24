@@ -231,3 +231,15 @@ AX3046
 #          iteration binds substitutes, and the warning stays off it
 #          (`docs/macro-system.md` MAC-EXP-14b).
 AX3074
+# AX3043 `error-payload-untyped` - a reference smuggled through a
+#          field declared `Int`, via a `cast` that launders the
+#          operand's type. A warning by DESIGN, like the five above:
+#          the program is well-typed, and an error would refuse a cast
+#          the author wrote on purpose alongside the leaks. The
+#          deliberate spelling is the field's real type on the
+#          declaration. Only what the checker can see is reported - a
+#          variable it resolves, or a literal, read through casts -
+#          the same rule `AX3071` follows, and a direct mismatch is
+#          owned by the error beside it
+#          (`docs/error-model.md` ERR-TYPE-5/ERR-MEM-1).
+AX3043
