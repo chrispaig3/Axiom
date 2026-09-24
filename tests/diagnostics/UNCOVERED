@@ -4,7 +4,7 @@
 # (`scripts/check-doc-drift.sh` holds that in both directions), and every
 # code a `check` build can emit should have a primary golden pinning its
 # code, span, severity and exit status (`scripts/check-diagnostics.sh`).
-# The ten codes below satisfy the first and not the second: they are
+# The nine codes below satisfy the first and not the second: they are
 # real construction sites, and no `.axdl` golden names one of them as
 # its primary diagnostic.
 #
@@ -12,18 +12,12 @@
 # to be discovered. It is compared as a SET, not a count: an eleventh
 # code without a primary fixture fails the gate, and closing a hole is
 # this file losing a line and `tests/diagnostics/` gaining a fixture.
-# Measured 2026-09-22: 87 constructed, 77 with a primary golden.
+# Measured 2026-09-23: 90 constructed, 81 with a primary golden
+# (AX3022 retired by tests/diagnostics/591-macro-set-target.ax).
 #
 # Each entry names the construction site, why no `.axdl` fixture pins
 # it, and what DOES cover the path today (a different suite, or
 # nothing - where nothing covers it, it says so).
-
-# AX3022 (self_host/expand.ax:4296). A macro `set!`-target refusal.
-# No primary golden; appears only inside AX3035's message
-# (tests/diagnostics/590-macro-binder-target.axdl:1). Needs a negative
-# macro fixture. Alternative coverage: NONE - the refusal path is
-# unpinned.
-AX3022
 
 # AX3044 (self_host/typecheck.ax:5047). Type-namespace ambiguity.
 # Needs a two-module fixture; the diagnostics harness runs single-file

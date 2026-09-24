@@ -31,7 +31,7 @@ export const STATS: Stat[] = [
   },
   {
     key: 'axfiles',
-    n: '708',
+    n: '709',
     label: '.ax files in the tree, every one parsed by the grammar gate',
     evidence: "git ls-files '*.ax' | wc -l",
   },

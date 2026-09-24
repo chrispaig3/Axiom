@@ -16,6 +16,15 @@ its changelog too.
 
 ## Unreleased
 
+### `AX3022` gains its primary golden
+
+The macro `set`-target refusal had no primary fixture - it appeared
+only inside `AX3035`'s message, and the refusal path itself was
+unpinned. `tests/diagnostics/591-macro-set-target.ax` pins it: one
+refusal at the invocation under the macro's frame, and a well-formed
+twin with a variable argument drawing nothing in the same golden.
+`tests/diagnostics/UNCOVERED` retires the line (nine left).
+
 ### `for` over a non-`Vec` names what fits
 
 `(for x n body)` over an `Int` drew `expected Vec _a, found Int`

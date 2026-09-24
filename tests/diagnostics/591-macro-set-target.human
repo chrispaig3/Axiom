@@ -1,0 +1,16 @@
+[1;31merror[AX3022][0m[1m: a macro parameter used as the target of `set` was given something that is not a variable[0m
+  [1;34m--> [0m591-macro-set-target.ax:19:8
+[1;34m   |[0m
+[1;34m19 |[0m       (setit (+ x 1) 2)
+[1;34m   |[0m        [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m--> [0m591-macro-set-target.ax:13:9
+[1;34m   |[0m
+[1;34m13 |[0m (macro (setit t v) (set t v))
+[1;34m   |[0m         [1;36m^^^^^ in this expansion of `setit`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`set` assigns to a binding, so its target has to be a name; the argument here is an expression
+  [1;34m = [0m[1;32mhelp: [0mpass a variable name for this parameter, or rewrite the template so the parameter is not a `set` target
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3022` for a full explanation
+
+compilation failed due to 1 previous error

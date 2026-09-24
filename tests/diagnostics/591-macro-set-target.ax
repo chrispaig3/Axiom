@@ -1,0 +1,22 @@
+; AX3022: a macro parameter used as a `set` target was given
+; something that is not a variable.
+;
+; `(set name v)` names a binder rather than evaluating an expression:
+; a template binder answers its renamed name and a macro parameter
+; answers its argument's name, which exists only if the argument is
+; itself a plain identifier. A parameter standing in that position
+; can be handed any expression at all, so the case is real and is
+; refused rather than dropped - with poison, not the parameter's
+; name, so the template's own identifier never reaches the tree.
+; The well-formed twin (a variable argument) draws nothing: the
+; store lands on the caller's binding.
+(macro (setit t v) (set t v))
+
+(:: main Int)
+(fn (main)
+  (let ((mut x 1))
+    {
+      (setit (+ x 1) 2)
+      (setit x 3)
+      0
+    }))
