@@ -812,6 +812,26 @@ specifies what a macro author owes because of it.
   **SHOULD** anchor it at the surplus argument, which is the token the
   author can delete. That gap is `MAC-EXP-8`'s recorded defect.
 
+  The SHOULD stands, and this paragraph records why no implementation
+  has taken it up. `spanOf` answers an application with its function's
+  span - `self_host/typecheck.ax` walks to the callee - so spanning
+  the expander-built application at the surplus argument changes
+  nothing by itself: the walk never reads the stored span. Reading
+  the stored span instead would redefine every application anchor (a
+  `((if c f g) x)` reports at `c` today), and the checker cannot tell
+  a surplus application from any other after the fact: the callee is
+  arbitrary macro output, no whole-invocation span survives expansion,
+  and the frame join is pointer identity on the invocation span,
+  which a surplus application does not carry. The channels that could
+  carry the provenance - a new node tag, a borrowed word, a side
+  table ferried through every expand/check sequencing - are all
+  disproportionate to an anchor, and the cheap one regresses:
+  anchoring wherever the stored span differs from the callee's moves
+  a parameter-headed application `(app 5 6)` from its argument, which
+  the author can fix, to the invocation, which only names the macro.
+  Measured 2026-09-23 in a scratch tree; the render stays
+  held-but-defective.
+
 Both behaviours replace silent miscompiles: under-application used to
 leave the parameter's own name in the emitted IR (`add i64 40, %q`,
 rejected by `opt` as an undefined value), and over-application used to
