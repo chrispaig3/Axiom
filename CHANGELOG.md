@@ -16,6 +16,21 @@ its changelog too.
 
 ## Unreleased
 
+### `agent:*` tags survive `fmt`, AXSYM and import — harness §7
+
+The compiler records the open `agent:*` namespace and re-emits it
+without checking it; what nothing held is that nothing on the way
+drops one. `tests/tools/TagLib.ax` (a bare flag, a valued key with
+punctuation, a tag on a struct, and an untagged control) and its
+importer `TagLibImport.ax` now pin all three legs under
+`scripts/check-tools-selfhost.sh`: `fmt` keeps both files
+byte-identical, `symbols` re-emits all three keys, the importer's
+rows attribute them to the defining file, and a copy with one tag
+comment deleted loses exactly that key. The §7 table now says what
+holds: the laundering probe (`348`), the allowlist red probes, and
+the declaration-macro bounds were already gated and only the table
+was owed; the façade probe stays blocked on the façade itself.
+
 ### A macro parameter where the template keeps a name — `MAC-EXP-14b`
 
 Four positions in a macro template keep the name they are written

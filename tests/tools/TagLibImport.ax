@@ -1,0 +1,8 @@
+; The import leg of the `agent:*` survival section: `symbols` over
+; this file must re-emit `TagLib`'s tags against `TagLib.ax`'s path,
+; proving the tags crossed the import rather than being read locally.
+(import TagLib)
+
+(:: main Int)
+(fn (main)
+  (+ (quiet 1) (noisy 2)))

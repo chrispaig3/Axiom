@@ -797,12 +797,12 @@ Following the convention that a claim without a gate is a comment:
 
 | Claim | Gate |
 |---|---|
-| a laundered effect cannot pass a policy region | new negative probe beside `tests/diagnostics/severity.policy` |
-| the AST façade hands out no unmapped block | extend `tests/stdlib/374-arc-alias-field.ax`'s shape to every façade record |
-| `agent:*` tags survive `fmt`, AXSYM and import | fixture in `tests/tools/`, since `fmt --check` already refuses a non-canonical payload |
-| the policy allowlist can go red | negative probe, on `check-ffi.sh`'s model |
-| declaration-macro expansion is bounded | fixture that today is SIGKILLed |
-| the call graph explains the effect rows it sits beside | **`scripts/check-agent-calls.sh`** — containment, totality, grounding, and silence, each with a negative probe |
-| the edges themselves do not change unnoticed | **`tests/tools/symbols-zoo-calls.golden`**, cross-checked against the plain golden by stripping the key |
-| a published dataflow summary is the record's own words | **`scripts/check-mir-projection.sh`** — containment against the raw region words, totality on the header tuple, silence by default, and the truncation sentinel held to the depth it reports |
-| the record file survives its own reader, and that reader reads | **`scripts/check-mir-roundtrip.sh`** — round trip over the corpus, a non-normal file normalised to a fixed point, and a closed grammar with every malformed fixture refused |
+| a laundered effect cannot pass a policy region | held: `tests/diagnostics/348-handle-discharge.ax` refuses both shapes (§3.3's console session, pinned), with `scripts/check-agent-policy.sh` assertions 3–4 beside `tests/diagnostics/severity.policy` |
+| the AST façade hands out no unmapped block | blocked: the façade is itself owed (§5 ordering item 2) — there are no façade records to extend the probe to yet |
+| `agent:*` tags survive `fmt`, AXSYM and import | held: `tests/tools/TagLib.ax` + `TagLibImport.ax` under `scripts/check-tools-selfhost.sh`'s survival section (fmt byte-identical, three keys re-emitted, import attributed to the defining file, each key answering to its own comment) |
+| the policy allowlist can go red | held: `scripts/check-agent-policy.sh`'s negative probes (`every assertion can go red`, on `check-ffi.sh`'s model) |
+| declaration-macro expansion is bounded | held: `tests/diagnostics/401/402/406-decl-macro-*.ax` draw `AX3024` — the "today is SIGKILLed" premise is gone |
+| the call graph explains the effect rows it sits beside | held: **`scripts/check-agent-calls.sh`** — containment, totality, grounding, and silence, each with a negative probe |
+| the edges themselves do not change unnoticed | held: **`tests/tools/symbols-zoo-calls.golden`**, cross-checked against the plain golden by stripping the key |
+| a published dataflow summary is the record's own words | held: **`scripts/check-mir-projection.sh`** — containment against the raw region words, totality on the header tuple, silence by default, and the truncation sentinel held to the depth it reports |
+| the record file survives its own reader, and that reader reads | held: **`scripts/check-mir-roundtrip.sh`** — round trip over the corpus, a non-normal file normalised to a fixed point, and a closed grammar with every malformed fixture refused |

@@ -349,6 +349,73 @@ else
   echo "ok   every table row reconstructs from its AXSYM line ($(wc -l <"$work/zoo.out" | tr -d ' ') rows)"
 fi
 
+# ---------------------------------------------------------------
+# `agent:*` tags survive `fmt`, AXSYM and import
+# (docs/agent-harness.md §7). The compiler records the open `agent:*`
+# namespace and re-emits it without checking it; what this section
+# holds is that nothing on the way drops one. `fmt` runs over copies
+# in $work, so a formatter that ate a tag comment could never touch
+# the fixtures - and `--check` alone would only prove the input
+# canonical, not that the tag made it through, which is why the
+# section formats and compares bytes. (`fmt --check` takes one file;
+# a second filename on the line is silently unchecked, so the loop.)
+# ---------------------------------------------------------------
+echo "== symbols: agent:* tags survive fmt, AXSYM and import =="
+taglib="$repo_root/tests/tools/TagLib.ax"
+tagimp="$repo_root/tests/tools/TagLibImport.ax"
+cp "$taglib" "$tagimp" "$work/"
+for f in TagLib.ax TagLibImport.ax; do
+  if ! (cd "$work" && "$work/axc" fmt --check "$f" >/dev/null 2>&1); then
+    echo "FAIL symbols: tests/tools/$f is not fmt-canonical"
+    failed=$((failed + 1))
+  fi
+done
+(cd "$work" && "$work/axc" fmt TagLib.ax TagLibImport.ax >/dev/null 2>&1)
+if ! cmp -s "$taglib" "$work/TagLib.ax" || ! cmp -s "$tagimp" "$work/TagLibImport.ax"; then
+  echo "FAIL symbols: fmt rewrote a tag comment it should have kept"
+  failed=$((failed + 1))
+else
+  echo "ok   fmt keeps both fixtures byte-identical, tag comments included"
+fi
+(cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols "$taglib" 2>/dev/null) | norm >"$work/tags.out"
+for key in '#agent:readonly' '#agent:allowed=net,fs' '#agent:rewrite'; do
+  if ! grep -qF "$key" "$work/tags.out"; then
+    echo "FAIL symbols: $key missing from TagLib.ax's AXSYM"
+    failed=$((failed + 1))
+  fi
+done
+if ! grep -q '^F plain ' "$work/tags.out" || grep '^F plain ' "$work/tags.out" | grep -q '#agent:'; then
+  echo "FAIL symbols: the untagged control row is missing or carries a tag"
+  failed=$((failed + 1))
+else
+  echo "ok   AXSYM re-emits all three agent keys, and the untagged row carries none"
+fi
+(cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols "$tagimp" 2>/dev/null) | norm >"$work/tags-imp.out"
+if ! grep -qF 'F quiet tests/tools/TagLib.ax' "$work/tags-imp.out" \
+  || ! grep -qF '#agent:readonly' "$work/tags-imp.out" \
+  || ! grep -qF '#agent:allowed=net,fs' "$work/tags-imp.out"; then
+  echo "FAIL symbols: the importer's AXSYM does not re-emit TagLib's tags against TagLib.ax"
+  failed=$((failed + 1))
+else
+  echo "ok   the tags cross the import, attributed to the defining file"
+fi
+# Negative probe: the keys come from the comments, not from thin air.
+# A copy with one tag comment deleted must lose exactly that key and
+# keep the other two - and still check clean, since a comment is not
+# code.
+sed '/;@axiom:agent:readonly/d' "$taglib" >"$work/TagLib-stripped.ax"
+(cd "$neutral" && "$work/axc" --diagnostic-format=ai symbols "$work/TagLib-stripped.ax" 2>/dev/null) | norm >"$work/tags-stripped.out"
+if grep -qF '#agent:readonly' "$work/tags-stripped.out"; then
+  echo "FAIL symbols: #agent:readonly survived deleting its comment"
+  failed=$((failed + 1))
+elif ! grep -qF '#agent:allowed=net,fs' "$work/tags-stripped.out" \
+  || ! grep -qF '#agent:rewrite' "$work/tags-stripped.out"; then
+  echo "FAIL symbols: deleting one tag comment lost a key it should have kept"
+  failed=$((failed + 1))
+else
+  echo "ok   each key answers to its own comment and no other"
+fi
+
 echo '== symbols: exit status agrees with check, file by file =='
 # This was a checked-in manifest of the per-file exit status, and the
 # manifest was wrong for the corpus - it enumerated every `.ax` in the

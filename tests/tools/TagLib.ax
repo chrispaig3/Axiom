@@ -1,0 +1,25 @@
+; `agent:*` tags, carried by the compiler without being checked.
+; This module exists for `scripts/check-tools-selfhost.sh`'s survival
+; section: the tag comments must pass `fmt` byte-identical, and
+; `symbols` must re-emit them - for this module and, through
+; `TagLibImport.ax`, for an importer. `quiet` carries a bare flag,
+; `noisy` a value with punctuation in it, `Box` proves a tag rides a
+; non-function declaration too, and `plain` wears nothing, so a
+; matcher that fires everywhere fails the gate.
+;@axiom:agent:readonly
+(pub :: quiet (-> Int Int))
+(pub fn (quiet x)
+  x)
+
+;@axiom:agent:allowed(net,fs)
+(pub :: noisy (-> Int Int))
+(pub fn (noisy x)
+  x)
+
+;@axiom:agent:rewrite
+(pub struct Box
+  (f : (-> Int Int)))
+
+(:: plain (-> Int Int))
+(fn (plain x)
+  x)
