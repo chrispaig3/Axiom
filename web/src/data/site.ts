@@ -25,7 +25,7 @@ export interface Stat {
 export const STATS: Stat[] = [
   {
     key: 'lines',
-    n: '101,915',
+    n: '102,535',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
@@ -57,7 +57,7 @@ export const STATS: Stat[] = [
 export const FACTS: Stat[] = [
   {
     key: 'lspRequests',
-    n: '23',
+    n: '26',
     label: 'LSP requests the server answers',
     evidence:
       "every JSON-RPC method self_host/lsp.ax names, minus the four notifications",

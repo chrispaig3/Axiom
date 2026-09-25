@@ -2728,6 +2728,441 @@ else:
     passed += 2
 shutil.rmtree(CH_DIR, ignore_errors=True)
 
+# Still SECTION NAV TESTS, because self_host/lsp.ax's SECTION NAV owns
+# all three. Four documents written HERE, so no position below can drift
+# away from the text it describes, and EVERY expected answer is
+# computed from those documents' own bytes:
+#
+#   ThHelper.ax  a `data` and a `subtype` the main document imports.
+#   ThTypes.ax   imports ThHelper. Declares a `data`, a `struct`, an
+#                alias and two subtypes of `Int`, and uses them in
+#                signatures and in a `cast`.
+#   ThUser.ax    imports ThTypes and declares its own subtype, so the
+#                subtypes search has a second open document to find.
+#   ThBroken.ax  ThTypes with an unclosed paren: every one of the three
+#                must answer null without the session dying.
+#
+# WHAT MAKES THESE NON-VACUOUS, beyond deriving the positions:
+#
+#   * `supertypes` of a subtype is a builtin `Int` item ANCHORED at the
+#     base occurrence inside that subtype's own declaration - the `Int`
+#     of `is Int range`, found in the bytes here, not the word the
+#     cursor was on. A server that answered the declaration, or an
+#     anchor at the wrong `Int`, fails the range.
+#   * `subtypes` of `Int` is asked from TWO documents and must list the
+#     same four declarations in a DIFFERENT order each time - the
+#     item's own document first, then the others in open order. A
+#     server that searched one document, or none, or sorted by name,
+#     fails one of the two.
+#   * `subtypes` of `Shape` and `Positive` must be `[]`: the search ran
+#     (the `Int` checks prove it) and the base filter held. An edge
+#     from anything but a `subtype` - a constructor, a field, an
+#     alias target - would land here.
+#   * `references` on the `Positive` binder must find the binder, the
+#     signature use AND the `cast` target: the walk change this feature
+#     needed (a `subtype` is a declared name in both tables) pinned by
+#     the request that would split them.
+# ---------------------------------------------------------------------
+TH_DIR = tempfile.mkdtemp(prefix="axiom-lsp-typehier-")
+TH_HELPER = """; A data and a subtype another document imports.
+(pub data Hue (Red) (Green))
+
+(pub subtype Ink is Int range 0 .. 255)
+"""
+TH_TYPES = """(import ThHelper)
+
+; A local data, struct and alias: hierarchy roots with no edges.
+(pub data Shape (Dot) (Circle Int))
+
+(pub struct Box (top : Shape) (n : Int))
+
+(pub type Shapes = (Vec Shape))
+
+; Two subtypes, one bounded both sides.
+(pub subtype Positive is Int range 1 .. 10)
+
+(pub subtype NonNeg is Int range 0)
+
+(pub :: takePos (-> Positive Int))
+
+(pub fn (takePos x) x)
+
+(pub :: paint (-> Hue Ink Int))
+
+(pub fn (paint h i) i)
+
+(:: main Int)
+
+(fn (main) (+ (cast Positive 5) (takePos 7)))
+"""
+TH_USER = """(import ThTypes)
+
+; A second open document declaring its own subtype, so the subtypes
+; search has another file to find.
+(pub subtype Tiny is Int range 0 .. 1)
+
+(:: usePos Int)
+
+(fn (usePos) (takePos 3))
+"""
+TH_BROKEN = TH_TYPES + "\n("
+TH_DOCS = {"ThHelper.ax": TH_HELPER, "ThTypes.ax": TH_TYPES,
+           "ThUser.ax": TH_USER, "ThBroken.ax": TH_BROKEN}
+for _n, _t in TH_DOCS.items():
+    open(os.path.join(TH_DIR, _n), "w", encoding="utf-8").write(_t)
+
+
+def th_uri(name):
+    return "file://" + os.path.join(TH_DIR, name)
+
+
+H_TURI, M_TURI, U_TURI, BK_TURI = (th_uri(n) for n in
+                                  ("ThHelper.ax", "ThTypes.ax", "ThUser.ax",
+                                   "ThBroken.ax"))
+
+
+def th_item(src, uri, name, n, kind, detail):
+    """The TypeHierarchyItem the server must build for the type `name`:
+    `selectionRange` its n-th whole-identifier occurrence and `range`
+    the form that holds it - `ch_item` with a kind and a detail."""
+    at = ident_at(src, name, n)
+    return {"name": name, "kind": kind, "detail": detail, "uri": uri,
+            "range": ch_form(src, at), "selectionRange": rng(at)}
+
+
+def th_builtin(uri, at, name):
+    """The item for a builtin type: both ranges the word that named
+    it, since no declaration exists to point at."""
+    return {"name": name, "kind": 5, "detail": "builtin type", "uri": uri,
+            "range": rng(at), "selectionRange": rng(at)}
+
+
+def th_base_at(src, subtype):
+    """The base occurrence inside `(subtype NAME is BASE ...)`: the
+    identifier after `is`, with its spelling read out of the bytes so
+    the supertype's NAME is derived and not assumed."""
+    head = "subtype %s is " % subtype
+    i = src.find(head)
+    if i < 0:
+        raise LookupError("no `%s` in document" % head)
+    off = i + len(head)
+    m = re.match(r"[A-Za-z0-9_'!*+/<>=%&|^-]+", src[off:])
+    if not m:
+        raise LookupError("no base identifier after `%s`" % head)
+    ln, text, col = line_of(src, off)
+    start = u16(text[:col])
+    return {"line": ln, "start": start, "end": start + u16(m.group(0)),
+            "byte": off, "name": m.group(0)}
+
+
+# Every name below is counted by occurrence, so a comment spelling one
+# shifts the numbers silently - the rule the call-hierarchy block
+# states, applied to these documents.
+TH_INDEXED = ["Hue", "Ink", "Shape", "Box", "Shapes", "Positive", "NonNeg",
+              "takePos", "paint", "Tiny", "usePos", "Int", "Circle", "x"]
+for _label, _text in (("ThHelper.ax", TH_HELPER), ("ThTypes.ax", TH_TYPES),
+                      ("ThUser.ax", TH_USER)):
+    _bare = ch_strip_comments(_text)
+    for _nm in TH_INDEXED:
+        if ident_count(_text, _nm) != ident_count(_bare, _nm):
+            sys.exit(f"FAIL: a comment in {_label} spells `{_nm}` as a whole "
+                     f"identifier, which shifts every occurrence number the "
+                     f"type-hierarchy checks derive from it")
+# The shapes the checks turn on, asserted before any server runs.
+if ident_count(TH_TYPES, "Positive") != 3:
+    sys.exit("FAIL: ThTypes.ax spells `Positive` %d times; the prepare and "
+             "references checks need its binder, its signature use and its "
+             "cast target" % ident_count(TH_TYPES, "Positive"))
+if "(cast Positive 5)" not in TH_TYPES:
+    sys.exit("FAIL: ThTypes.ax no longer spells `(cast Positive 5)`, so the "
+             "references check cannot tell a walk that resolves cast targets "
+             "from one that leaves them `?Positive`")
+for _label, _text, _want in (("ThHelper.ax", TH_HELPER, 1),
+                             ("ThTypes.ax", TH_TYPES, 2),
+                             ("ThUser.ax", TH_USER, 1)):
+    _got = len(re.findall(r"^\(pub subtype ", _text, re.M))
+    if _got != _want:
+        sys.exit(f"FAIL: {_label} declares {_got} subtype(s), want {_want} - "
+                 f"the subtypes order checks count them")
+if ident_count(TH_TYPES, "x") != 2:
+    sys.exit("FAIL: ThTypes.ax spells whole-identifier `x` %d times; the "
+             "local-null check needs the takePos parameter and its read"
+             % ident_count(TH_TYPES, "x"))
+TH_POS_BIND = ident_at(TH_TYPES, "Positive", 1)
+TH_POS_SIG = ident_at(TH_TYPES, "Positive", 2)
+TH_POS_CAST = ident_at(TH_TYPES, "Positive", 3)
+TH_POS_BASE = th_base_at(TH_TYPES, "Positive")
+TH_NONNEG_BIND = ident_at(TH_TYPES, "NonNeg", 1)
+TH_NONNEG_BASE = th_base_at(TH_TYPES, "NonNeg")
+TH_SHAPE_BIND = ident_at(TH_TYPES, "Shape", 1)
+TH_SHAPE_FIELD = ident_at(TH_TYPES, "Shape", 2)
+TH_BOX_BIND = ident_at(TH_TYPES, "Box", 1)
+TH_SHAPES_BIND = ident_at(TH_TYPES, "Shapes", 1)
+TH_INK_USE = ident_at(TH_TYPES, "Ink", 1)
+TH_HUE_USE = ident_at(TH_TYPES, "Hue", 1)
+TH_INK_BASE = th_base_at(TH_HELPER, "Ink")
+TH_TINY_BASE = th_base_at(TH_USER, "Tiny")
+TH_TAKEPOS_CALL = ident_at(TH_TYPES, "takePos", 3)
+TH_CIRCLE = ident_at(TH_TYPES, "Circle", 1)
+TH_X_READ = ident_at(TH_TYPES, "x", 2)
+if TH_POS_BASE["name"] != "Int" or TH_INK_BASE["name"] != "Int" or \
+        TH_TINY_BASE["name"] != "Int" or TH_NONNEG_BASE["name"] != "Int":
+    sys.exit("FAIL: a subtype base read out of the bytes is not `Int` - the "
+             "supertype expectations below all name it")
+
+th_msgs = [ch_req(1, "initialize", {})]
+th_msgs += [{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+             "params": {"textDocument": {"uri": th_uri(n), "languageId": "axiom",
+                                         "version": 1, "text": t}}}
+            for n, t in TH_DOCS.items()]
+TH_PREP = {}
+_rid = 20
+for _label, _uri, _at in (("Positive binder", M_TURI, TH_POS_BIND),
+                          ("Positive in a signature", M_TURI, TH_POS_SIG),
+                          ("Positive in a cast", M_TURI, TH_POS_CAST),
+                          ("NonNeg binder", M_TURI, TH_NONNEG_BIND),
+                          ("Shape binder", M_TURI, TH_SHAPE_BIND),
+                          ("Shape in a field", M_TURI, TH_SHAPE_FIELD),
+                          ("Box binder", M_TURI, TH_BOX_BIND),
+                          ("Shapes binder", M_TURI, TH_SHAPES_BIND),
+                          ("imported Ink", M_TURI, TH_INK_USE),
+                          ("imported Hue", M_TURI, TH_HUE_USE),
+                          ("builtin Int at a base", M_TURI, TH_POS_BASE)):
+    TH_PREP[_label] = _rid
+    th_msgs.append(ch_req(_rid, "textDocument/prepareTypeHierarchy",
+                          ch_pos(_uri, _at)))
+    _rid += 1
+TH_PREP_NULL = {}
+for _what, _uri, _at in (("a `fn` name", M_TURI, TH_TAKEPOS_CALL),
+                         ("a constructor", M_TURI, TH_CIRCLE),
+                         ("a parameter read", M_TURI, TH_X_READ),
+                         ("a broken document", BK_TURI, TH_POS_BIND)):
+    TH_PREP_NULL[_what] = _rid
+    th_msgs.append(ch_req(_rid, "textDocument/prepareTypeHierarchy",
+                          ch_pos(_uri, _at)))
+    _rid += 1
+th_msgs.append(ch_req(_rid, "textDocument/prepareTypeHierarchy",
+                      {"textDocument": {"uri": M_TURI},
+                       "position": {"line": 0, "character": 1}}))
+TH_PREP_NULL["a keyword"] = _rid
+_rid += 1
+TH_REFS = _rid
+th_msgs.append({"jsonrpc": "2.0", "id": _rid, "method": "textDocument/references",
+                "params": {"textDocument": {"uri": M_TURI},
+                           "position": {"line": TH_POS_BIND["line"],
+                                        "character": TH_POS_BIND["start"]},
+                           "context": {"includeDeclaration": True}}})
+th_msgs.append(ch_req(90, "shutdown", None))
+th_msgs.append({"jsonrpc": "2.0", "method": "exit", "params": None})
+thp = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in th_msgs),
+                     capture_output=True, cwd=TH_DIR)
+thmsgs, thtail = unframe(thp.stdout)
+thresp = {m["id"]: m for m in thmsgs if "id" in m}
+thpubs = {}
+for m in thmsgs:
+    if m.get("method") == "textDocument/publishDiagnostics":
+        thpubs.setdefault(m["params"]["uri"], m["params"]["diagnostics"])
+thcaps = (thresp.get(1, {}).get("result") or {}).get("capabilities") or {}
+
+
+def thres(rid):
+    return thresp.get(rid, {}).get("result")
+
+
+def th_null(rid, what):
+    r = thresp.get(rid, {}).get("result", "unanswered")
+    if r is not None:
+        return f"{what} (request {rid}) answered {r!r:.160}, want null"
+    return ""
+
+
+IT_POSITIVE = th_item(TH_TYPES, M_TURI, "Positive", 1, 5, "subtype of Int")
+IT_NONNEG = th_item(TH_TYPES, M_TURI, "NonNeg", 1, 5, "subtype of Int")
+IT_SHAPE = th_item(TH_TYPES, M_TURI, "Shape", 1, 10, "data")
+IT_BOX = th_item(TH_TYPES, M_TURI, "Box", 1, 23, "struct")
+IT_SHAPES = th_item(TH_TYPES, M_TURI, "Shapes", 1, 5, "type")
+IT_INK = th_item(TH_HELPER, H_TURI, "Ink", 1, 5, "subtype of Int")
+IT_HUE = th_item(TH_HELPER, H_TURI, "Hue", 1, 10, "data")
+IT_TINY = th_item(TH_USER, U_TURI, "Tiny", 1, 5, "subtype of Int")
+IT_INT_T = th_builtin(M_TURI, TH_POS_BASE, "Int")
+IT_INT_H = th_builtin(H_TURI, TH_INK_BASE, "Int")
+IT_INT_U = th_builtin(U_TURI, TH_TINY_BASE, "Int")
+
+thwhy = ""
+if thp.returncode != 0:
+    thwhy = f"the server exited {thp.returncode}: {thp.stderr[:200]!r}"
+elif thtail:
+    thwhy = f"{len(thtail)} trailing bytes after the last frame"
+elif 90 not in thresp:
+    thwhy = "the session never answered shutdown - a request killed the server"
+elif thcaps.get("typeHierarchyProvider") is not True:
+    thwhy = (f"the server answers the typeHierarchy requests and does not advertise "
+             f"typeHierarchyProvider: capabilities were {sorted(thcaps)}")
+elif any(thpubs.get(u) for u in (H_TURI, M_TURI, U_TURI)):
+    thwhy = ("the type-hierarchy corpus does not check clean: " +
+             repr([(os.path.basename(u), thpubs.get(u)) for u in (H_TURI, M_TURI, U_TURI)
+                   if thpubs.get(u)])[:300])
+elif not thpubs.get(BK_TURI):
+    thwhy = "ThBroken.ax published no diagnostic, so it is not the unparseable document it is meant to be"
+if not thwhy:
+    for _label, _want in (("Positive binder", [IT_POSITIVE]),
+                          ("Positive in a signature", [IT_POSITIVE]),
+                          ("Positive in a cast", [IT_POSITIVE]),
+                          ("NonNeg binder", [IT_NONNEG]),
+                          ("Shape binder", [IT_SHAPE]),
+                          ("Shape in a field", [IT_SHAPE]),
+                          ("Box binder", [IT_BOX]),
+                          ("Shapes binder", [IT_SHAPES]),
+                          ("imported Ink", [IT_INK]),
+                          ("imported Hue", [IT_HUE]),
+                          ("builtin Int at a base", [IT_INT_T])):
+        _got = thres(TH_PREP[_label])
+        if _got != _want:
+            thwhy = (f"prepareTypeHierarchy on {_label} answered {_got!r:.300}, "
+                     f"want {_want!r:.300}")
+            break
+if not thwhy:
+    for _what, _rid in TH_PREP_NULL.items():
+        thwhy = th_null(_rid, f"prepareTypeHierarchy on {_what}")
+        if thwhy:
+            break
+if not thwhy:
+    _want_refs = [{"uri": M_TURI, "range": rng(a)}
+                  for a in (TH_POS_BIND, TH_POS_SIG, TH_POS_CAST)]
+    if thres(TH_REFS) != _want_refs:
+        thwhy = (f"references on the `Positive` binder answered {thres(TH_REFS)!r:.300}, "
+                 f"want the binder, the signature use and the cast target "
+                 f"{_want_refs!r:.300}")
+
+# --- supertypes and subtypes -------------------------------------------
+# A second session, whose items are the ones DERIVED above rather than
+# the ones the first session answered: what a client sends back is a
+# TypeHierarchyItem and nothing else, so the server must work from the
+# item's uri and name alone, and an item this gate built by hand is the
+# only way to prove that.
+IT_GHOST = dict(IT_POSITIVE, name="nosuchtype")
+IT_CLOSED = dict(IT_POSITIVE, uri=th_uri("ThClosed.ax"))
+IT_BROKEN = dict(IT_POSITIVE, uri=BK_TURI)
+
+th2 = [ch_req(1, "initialize", {})]
+th2 += [{"jsonrpc": "2.0", "method": "textDocument/didOpen",
+         "params": {"textDocument": {"uri": th_uri(n), "languageId": "axiom",
+                                     "version": 1, "text": t}}}
+        for n, t in TH_DOCS.items()]
+TH_SUP, TH_SUB = {}, {}
+_rid = 100
+for _label, _item in (("Positive", IT_POSITIVE), ("NonNeg", IT_NONNEG),
+                      ("Ink", IT_INK), ("Tiny", IT_TINY),
+                      ("Int here", IT_INT_T), ("Int in helper", IT_INT_H),
+                      ("Shape", IT_SHAPE), ("Box", IT_BOX), ("Shapes", IT_SHAPES)):
+    TH_SUP[_label] = _rid
+    th2.append(ch_req(_rid, "typeHierarchy/supertypes", {"item": _item}))
+    _rid += 1
+    TH_SUB[_label] = _rid
+    th2.append(ch_req(_rid, "typeHierarchy/subtypes", {"item": _item}))
+    _rid += 1
+TH_HIER_NULL = {}
+for _what, _item in (("an item nothing declares", IT_GHOST),
+                     ("an item in a document the server has not opened", IT_CLOSED),
+                     ("an item in a document that does not parse", IT_BROKEN)):
+    TH_HIER_NULL[_what + " (supertypes)"] = _rid
+    th2.append(ch_req(_rid, "typeHierarchy/supertypes", {"item": _item}))
+    _rid += 1
+    TH_HIER_NULL[_what + " (subtypes)"] = _rid
+    th2.append(ch_req(_rid, "typeHierarchy/subtypes", {"item": _item}))
+    _rid += 1
+th2.append(ch_req(90, "shutdown", None))
+th2.append({"jsonrpc": "2.0", "method": "exit", "params": None})
+thp2 = subprocess.run([stage1, "lsp"], input=b"".join(frame(m) for m in th2),
+                      capture_output=True, cwd=TH_DIR)
+thmsgs2, thtail2 = unframe(thp2.stdout)
+thresp2 = {m["id"]: m for m in thmsgs2 if "id" in m}
+
+
+def th2res(rid):
+    return thresp2.get(rid, {}).get("result")
+
+
+def th_brief(items):
+    return [(it.get("name"), os.path.basename(it.get("uri") or "")) for it in items]
+
+
+def th_list(rid, want, what):
+    got = th2res(rid)
+    if not isinstance(got, list):
+        return f"{what} (request {rid}) answered {got!r:.200}, want a list"
+    if got == want:
+        return ""
+    gb, wb = th_brief(got), th_brief(want)
+    if gb != wb:
+        return (f"{what} (request {rid}) answered {gb!r}, want {wb!r} - "
+                f"each entry is (type, file)")
+    for i, (g, w) in enumerate(zip(got, want)):
+        if g != w:
+            return (f"{what} (request {rid}) entry {i} names the right type in "
+                    f"the right file and differs in the item: {g!r:.250} "
+                    f"vs {w!r:.250}")
+    return f"{what} (request {rid}) answered {len(got)} entries, want {len(want)}"
+
+
+if not thwhy:
+    if thp2.returncode != 0:
+        thwhy = f"the hierarchy session exited {thp2.returncode}: {thp2.stderr[:200]!r}"
+    elif thtail2:
+        thwhy = f"{len(thtail2)} trailing bytes after the last frame of the hierarchy session"
+    elif 90 not in thresp2:
+        thwhy = "the hierarchy session never answered shutdown - a request killed the server"
+if not thwhy:
+    for _what, _rid, _want in (
+        ("supertypes of `Positive`", TH_SUP["Positive"], [IT_INT_T]),
+        ("supertypes of `NonNeg`", TH_SUP["NonNeg"],
+         [th_builtin(M_TURI, TH_NONNEG_BASE, "Int")]),
+        ("supertypes of the imported `Ink`", TH_SUP["Ink"], [IT_INT_H]),
+        ("supertypes of `Tiny`", TH_SUP["Tiny"], [IT_INT_U]),
+        ("supertypes of builtin `Int`", TH_SUP["Int here"], []),
+        ("supertypes of `Shape`", TH_SUP["Shape"], []),
+        ("supertypes of `Box`", TH_SUP["Box"], []),
+        ("supertypes of the alias `Shapes`", TH_SUP["Shapes"], []),
+        # The item's own document first, then the others in open order:
+        # the same four declarations in a different order per item.
+        ("subtypes of `Int` from ThTypes.ax", TH_SUB["Int here"],
+         [IT_POSITIVE, IT_NONNEG, IT_INK, IT_TINY]),
+        ("subtypes of `Int` from ThHelper.ax", TH_SUB["Int in helper"],
+         [IT_INK, IT_POSITIVE, IT_NONNEG, IT_TINY]),
+        ("subtypes of `Shape`", TH_SUB["Shape"], []),
+        ("subtypes of `Positive`", TH_SUB["Positive"], []),
+        ("subtypes of `Tiny`", TH_SUB["Tiny"], []),
+        ("subtypes of `Box`", TH_SUB["Box"], []),
+        ("subtypes of the alias `Shapes`", TH_SUB["Shapes"], []),
+    ):
+        thwhy = th_list(_rid, _want, _what)
+        if thwhy:
+            break
+if not thwhy:
+    for _what, _rid in TH_HIER_NULL.items():
+        got = thresp2.get(_rid, {}).get("result", "unanswered")
+        if got is not None:
+            thwhy = (f"{_what} answered {got!r:.160}, want null - `[]` would claim "
+                     f"the type has no supertypes, which a server that cannot read "
+                     f"the file has not earned")
+            break
+
+if thwhy:
+    print(f"FAIL nav-typehierarchy: {thwhy}")
+    failed += 1
+else:
+    print(f"ok   type-hierarchy (prepare on the `Positive` binder, its signature use "
+          f"and its cast target, on a `data`, a `struct`, an alias, two imported "
+          f"types and the builtin `Int` at a base; null on a `fn` name, a "
+          f"constructor, a local, a keyword and a broken document; supertypes of "
+          f"every subtype the builtin anchored at its own base; subtypes of `Int` "
+          f"the same four declarations in each item's own-document-first order, "
+          f"`[]` for the types nothing constrains; null for an item nothing "
+          f"declares, one unopened and one unparseable; references on the binder "
+          f"finding all three spellings)")
+    passed += 1
+shutil.rmtree(TH_DIR, ignore_errors=True)
+
 # =====================================================================
 # END SECTION NAV TESTS
 # =====================================================================

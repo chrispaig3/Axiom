@@ -3783,7 +3783,11 @@
 ; ------------------------------------------------------------------
 (pub :: lspNavDeclares (-> Int Bool))
 (pub fn (lspNavDeclares tag)
-  (|| (lspWantsSymbol tag) (== tag TAG_D_ALIAS)))
+  ; A `subtype` is a name a VALUE position can spell - `(cast
+  ; Positive 5)` - so its uses resolve to the declaration rather than
+  ; to `?Positive`, exactly as an alias's do. The outline is a
+  ; separate question and still does not list one.
+  (|| (lspWantsSymbol tag) (|| (== tag TAG_D_ALIAS) (== tag TAG_D_SUBTYPE))))
 
 (pub :: lspNavTopBuild (-> (Vec Int) (Vec Int)))
 (pub fn (lspNavTopBuild decls)
@@ -3870,7 +3874,7 @@
 
 (pub :: lspNavIsTypeTag (-> Int Bool))
 (pub fn (lspNavIsTypeTag tag)
-  (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (== tag TAG_D_ALIAS))))
+  (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (|| (== tag TAG_D_ALIAS) (== tag TAG_D_SUBTYPE)))))
 
 ; An entry is (name, key); a bucket is a Vec of entries or 0.
 (pub :: lspNavTopPut (-> (Vec Int) String String Int))
@@ -4246,7 +4250,12 @@
                   (lspNavDeclName nv d NAV_DECL)
                   (lspNavTypesAlias nv d)
                 }
-                (if (== tag TAG_D_MACRO)
+                (if (== tag TAG_D_SUBTYPE)
+                  {
+                    (lspNavDeclName nv d NAV_DECL)
+                    (lspNavTypesSubtype nv d)
+                  }
+                  (if (== tag TAG_D_MACRO)
                   (lspNavDeclName nv d NAV_DECL)
                   (if (== tag TAG_D_MACROCALL)
                     ; An invocation is a REFERENCE to the macro
@@ -4257,7 +4266,7 @@
                       (lspNavRef nv (nodeAName d) (nodeSpan d) NAV_READ)
                       (lspNavWalkVec nv (nodeBVec d))
                     }
-                    0)))))))
+                    0))))))))
     }))
 
 ; ------------------------------------------------------------------
@@ -4503,6 +4512,42 @@
                   (if (strEq (lspNavSpanText src sp) "=")
                     (set seenEq 1)
                     0))
+                (set i (+ i 1))
+              }))
+          0
+        }))))
+
+; `(subtype Positive is Int range LO .. HI)`: the identifiers between
+; `is` and `range` name the base type. The bounds after `range` are
+; VALUE expressions and are deliberately not walked - a name a bound
+; spells is a reference `references` will not find, which is a gap
+; with a name rather than a rule. (Bounds are usually literals, and
+; walking them as expressions would resolve against the empty
+; top-level scope, which is a second claim needing its own gate.)
+(pub :: lspNavTypesSubtype (-> Int Int Int))
+(pub fn (lspNavTypesSubtype nv d)
+  (if (== (nodeSpan d) 0)
+    0
+    (let (
+      (src (memGetWordStr nv 0))
+      (mut i 0)
+      (mut seenIs 0)
+      (mut done 0)
+    )
+      (let ((spans (lspNavIdents src (spanEnd (nodeSpan d)) (lspNavDeclEnd src d))))
+        {
+          (while (< i (vecLen spans))
+            (let ((sp (vecGet spans i)))
+              {
+                (if (== done 1)
+                  0
+                  (if (== seenIs 1)
+                    (if (strEq (lspNavSpanText src sp) "range")
+                      (set done 1)
+                      (lspNavTypeRef nv (lspNavSpanText src sp) sp))
+                    (if (strEq (lspNavSpanText src sp) "is")
+                      (set seenIs 1)
+                      0)))
                 (set i (+ i 1))
               }))
           0
@@ -6848,11 +6893,390 @@
               (lspChItem (memGetWordStr unit 1) (lspLineIndex (memGetWordStr unit 1)) (lspPathToUri (memGetWordStr unit 0)) d))))))))
 
 ; ------------------------------------------------------------------
+; ------------------------------------------------------------------
+; The TYPE hierarchy: `textDocument/prepareTypeHierarchy`,
+; `typeHierarchy/supertypes` and `typeHierarchy/subtypes`.
+;
+; WHAT AN EDGE IS HERE: a `subtype` derives from its BASE, and that
+; is the only edge the language has. The check runs at every
+; narrowing conversion and widening is free (`subtypeArgAction`), so
+; a `Positive` IS an `Int` in exactly the one direction the two
+; requests below answer. Constructors are VALUES, not types -
+; introduction forms, answered as documentSymbol children and by
+; `definition` - and a `struct` field is a member, not a derivation;
+; neither can stand in a TypeHierarchyItem, which denotes a TYPE. An
+; alias is transparent: the checker expands it, so `Age = Int` says
+; Age IS Int, symmetrically, and a parent/child direction over it
+; would be arbitrary. docs/lsp.md carries the survey this summarises.
+;
+; THE GRAPH TODAY IS TWO LEVELS, and the code below is written for
+; the general one. The checker refuses every base but bare `Int`
+; (`tcWalkDecls`, v1), so every chain bottoms at the builtin
+; immediately; when chaining lands, a base that names a declared
+; type resolves to that declaration by the same rule that resolves
+; it to a builtin item now, and `subtypes` of a declared type stops
+; answering `[]` without a line changing here.
+;
+; NODES are the four type declarations - `data`, `struct`, `type`,
+; `subtype` - plus the builtin type names (`typeKeywordCanon`'s set
+; and `Linear`, the membership `tyConKnown` answers). A builtin has
+; no declaration to point at, so its item is anchored at the WORD
+; that named it - `hover`'s rule for `range`, applied to an item -
+; and the follow-ups work from the item's NAME, never its anchor. A
+; declaration SHADOWS a builtin of the same spelling: resolution is
+; this document, then the imported modules, then the builtins, which
+; is `definition`'s order with one more fallback instead of `null`.
+;
+; WHAT IS DELIBERATELY NOT ANSWERED, because answering it would mean
+; guessing:
+;
+;   * A LOCAL, a constructor and an effect name are null: their keys
+;     (`@`, `Shape#Circle`, `!`) say they are not types. A `fn` the
+;     cursor names is null too, UNLESS a type shares its spelling -
+;     and then the TYPE is answered, because `prepare` resolves the
+;     spelling as a type. That over-answers exactly one shape - a
+;     value occurrence where a value and a type share a spelling -
+;     which `references` merges for the same reason, the two tables
+;     keying it alike.
+;   * AN ITEM NOTHING DECLARES is null, and null rather than `[]`:
+;     `[]` says "this type has no supertypes", which is a claim, and
+;     a server that cannot reach the subject has not earned it. The
+;     call hierarchy's rule, for its reason.
+;   * AN ITEM WHOSE DOCUMENT IS NOT OPEN is null either. `prepare`
+;     is generous - an imported type answers an item in its declaring
+;     file, like `definition` - but the follow-ups read the store,
+;     like incoming calls, so a closed file earns null on the second
+;     request.
+;
+; SUBTYPES ARE SEARCHED OVER THE OPEN DOCUMENTS AND NOTHING ELSE,
+; which is `references`'s rule and for its reason: the store is the
+; workspace. The item's own document first, in declaration order,
+; then the other open documents in the order they were opened.
+; ------------------------------------------------------------------
+; Whether a declaration tag denotes a TYPE.
+(pub :: lspThIsTypeTag (-> Int Bool))
+(pub fn (lspThIsTypeTag tag)
+  (|| (== tag TAG_D_DATA) (|| (== tag TAG_D_STRUCT) (|| (== tag TAG_D_ALIAS) (== tag TAG_D_SUBTYPE)))))
+
+; SymbolKind for a type declaration: Enum 10 for a `data`, Struct 23
+; for a `struct`, Class 5 for an alias and a subtype - the protocol
+; has no kind for either, for the reason `lspSymKind` gives.
+(pub :: lspThKind (-> Int Int))
+(pub fn (lspThKind tag)
+  (if (== tag TAG_D_DATA)
+    10
+    (if (== tag TAG_D_STRUCT)
+      23
+      5)))
+
+; The head the subtype `d` constrains: its base type's constructor
+; name, or "" when the base is not a bare-or-applied constructor -
+; an arrow, a tuple, nothing nominal to resolve.
+(pub :: lspThBaseHead (-> Int String))
+(pub fn (lspThBaseHead d)
+  (let ((b (nodeB d)))
+    (if (== b 0)
+      ""
+      (if (!= (nodeTag b) TAG_T_CON)
+        ""
+        (nodeAName b)))))
+
+; The `detail` a type item carries: the declaration kind, and for a
+; subtype the base it constrains.
+(pub :: lspThDetail (-> Int String))
+(pub fn (lspThDetail d)
+  (let ((tag (nodeTag d)))
+    (if (== tag TAG_D_DATA)
+      "data"
+      (if (== tag TAG_D_STRUCT)
+        "struct"
+        (if (== tag TAG_D_ALIAS)
+          "type"
+          (let ((h (lspThBaseHead d)))
+            (if (== (strLen h) 0)
+              "subtype"
+              (strConcat "subtype of " h))))))))
+
+; Whether `name` is a builtin type: exactly what the checker answers
+; without a declaration - `typeKeywordCanon`'s set plus `Linear`
+; (`tyConKnown`). Asked through the parser's own function, so the
+; membership cannot drift from the checker's.
+(pub :: lspThBuiltin (-> String Bool))
+(pub fn (lspThBuiltin name)
+  (if (!= (cast Int (typeKeywordCanon name)) 0)
+    true
+    (strEq name "Linear")))
+
+; The LAST type declaration of `name` in `decls` - `lspFindDecl`'s
+; rule, over the type kinds - or 0.
+(pub :: lspThFindType (-> (Vec Int) String Int Int))
+(pub fn (lspThFindType decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (lspThIsTypeTag (nodeTag d)) (&& (strEq (nodeAName d) name) (!= (nodeSpan d) 0)))
+        d
+        (lspThFindType decls name (- i 1))))))
+
+; The same over the MERGED declaration list: a name this document
+; imported, found mangled in the module that declares it.
+(pub :: lspThFindImportedType (-> (Vec Int) String Int Int))
+(pub fn (lspThFindImportedType decls name i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (lspThIsTypeTag (nodeTag d)) (&& (!= (nodeModule d) 0) (&& (strEq (bareOf (nodeAName d)) name) (!= (nodeSpan d) 0))))
+        d
+        (lspThFindImportedType decls name (- i 1))))))
+
+; A TypeHierarchyItem for declaration `d` of `src`, at `uri`.
+; `selectionRange` is the name, exactly as the outline publishes it,
+; and `range` is the whole form - `lspChItem`'s rule, for its reason.
+; The name is the BARE one, so an item out of an importing document
+; re-resolves in the file that declares it.
+(pub :: lspThItem (-> String (Vec Int) String Int Int))
+(pub fn (lspThItem src ix uri d)
+  (let ((fs (lspFormStart src (spanStart (nodeSpan d)))))
+    (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr (bareOf (nodeAName d)))) "kind" (jsonNum (lspThKind (nodeTag d)))) "detail" (jsonStr (lspThDetail d))) "uri" (jsonStr uri)) "range" (lspRangeIx src ix (mkSpan fs (lspFormEnd src fs)))) "selectionRange" (lspRangeIx src ix (nodeSpan d)))))
+
+; A TypeHierarchyItem for a BUILTIN type: no declaration exists, so
+; both ranges are the word that named it, and the follow-ups work
+; from the name alone. Class 5, for the reason `lspThKind` gives.
+(pub :: lspThBuiltinItem (-> String (Vec Int) String String Int Int))
+(pub fn (lspThBuiltinItem src ix uri name wsp)
+  (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr name)) "kind" (jsonNum 5)) "detail" (jsonStr "builtin type")) "uri" (jsonStr uri)) "range" (lspRangeIx src ix wsp)) "selectionRange" (lspRangeIx src ix wsp)))
+
+; The span at which the subtype declaration `d` spells its base HEAD -
+; the `Int` of `(subtype Positive is Int range 1 .. 10)` - or 0. The
+; first identifier after the `is` that spells `head`; the parse
+; guarantees both are there, so 0 is a shape this never answers on.
+(pub :: lspThBaseSpan (-> String Int String Int))
+(pub fn (lspThBaseSpan src d head)
+  (if (|| (== (nodeSpan d) 0) (== (strLen head) 0))
+    0
+    (let (
+      (spans (lspNavIdents src (spanEnd (nodeSpan d)) (lspNavDeclEnd src d)))
+      (mut i 0)
+      (mut seenIs 0)
+      (mut found 0)
+    )
+      {
+        (while (< i (vecLen spans))
+          (let ((sp (vecGet spans i)))
+            {
+              (if (!= found 0)
+                0
+                (if (== seenIs 1)
+                  (if (strEq (lspNavSpanText src sp) head)
+                    (set found sp)
+                    0)
+                  (if (strEq (lspNavSpanText src sp) "is")
+                    (set seenIs 1)
+                    0)))
+              (set i (+ i 1))
+            }))
+        found
+      })))
+
+; The item for a type an imported module declares, out of a resolved
+; `lspResolveFor` result: 0 when no module declares it as a type, or
+; when the resolver did not attribute the declaration to a unit.
+(pub :: lspThImportedItem (-> Int String Int))
+;@axiom:effect(io)
+(pub fn (lspThImportedItem r name)
+  (let (
+    (allDecls (memGetWordVec r 0))
+    (units (memGetWordVec r 1))
+  )
+    (let ((d (lspThFindImportedType allDecls name (- (vecLen allDecls) 1))))
+      (if (== d 0)
+        0
+        (let ((u (lspUnitOf units (nodeModule d))))
+          (if (< u 0)
+            0
+            (let ((unit (vecGet units u)))
+              (lspThItem (memGetWordStr unit 1) (lspLineIndex (memGetWordStr unit 1)) (lspPathToUri (memGetWordStr unit 0)) d))))))))
+
+; `textDocument/prepareTypeHierarchy`: the one item a hierarchy can be
+; rooted at here - the TYPE the cursor names, in this document, in an
+; imported module, or among the builtins. A local, a constructor, an
+; effect name, a value no type shares a spelling with, and a document
+; that does not parse are all null.
+(pub :: lspPrepareTypeHierarchy (-> String String Int Int))
+;@axiom:effect(io)
+(pub fn (lspPrepareTypeHierarchy src uri params)
+  (let ((decls (lspNavParse src)))
+    (if (==
+      (cast Int decls)
+      0)
+      jsonNull
+      (let (
+        (ix (lspLineIndex src))
+        (occs (lspNavOccurrences src decls))
+      )
+        (let ((o (lspNavAt occs (lspOffsetOf src ix (jsonGet params "position")))))
+          (if (== o 0)
+            jsonNull
+            (let (
+              (w (memGetWordStr o 0))
+              (key (memGetWordStr o 3))
+            )
+              ; A local, a constructor (`Shape#Circle`) and an effect
+              ; (`!E`) are never types; everything else resolves by
+              ; spelling, declaration before builtin.
+              (if (lspNavIsLocal key)
+                jsonNull
+                (match (strFindByte key 35 0)
+                  ((Some _) jsonNull)
+                  ((None)
+                    (if (&& (> (strLen key) 0) (== (strByte key 0) 33))
+                      jsonNull
+                      (let ((d (lspThFindType decls w (- (vecLen decls) 1))))
+                        (if (!= d 0)
+                          (jsonArrPush jsonArr (lspThItem src ix uri d))
+                          (let ((r (lspResolveFor (lspUriToPath uri) src decls)))
+                            (let ((item
+                              (if (<= r 0)
+                                0
+                                (lspThImportedItem r w))))
+                              (if (!= item 0)
+                                (jsonArrPush jsonArr item)
+                                (if (lspThBuiltin w)
+                                  (let ((wsp (memGetWord o 1)))
+                                    (if (== wsp 0)
+                                      jsonNull
+                                      (jsonArrPush jsonArr (lspThBuiltinItem src ix uri w wsp))))
+                                  jsonNull)))))))))))))))))
+
+; The item a hierarchy request carries, re-resolved from its (uri,
+; name): the document must be open, must parse, and must declare
+; `name` as a TYPE - or `name` is a builtin. Answers 0 when none of
+; those holds, and every caller turns that into null. Word 4 is the
+; declaration, or 0 for a builtin subject.
+(pub :: lspThSubject (-> Int (Vec String) (Vec a) Int))
+(pub fn (lspThSubject params uris texts)
+  (let ((item (jsonGet params "item")))
+    (let (
+      (uri (jsonGetStr item "uri"))
+      (name (jsonGetStr item "name"))
+    )
+      (let ((src (docText uris texts uri)))
+        (if (|| (== (strLen src) 0) (== (strLen name) 0))
+          0
+          (let ((decls (lspNavParse src)))
+            (if (==
+              (cast Int decls)
+              0)
+              0
+              (let ((d (lspThFindType decls name (- (vecLen decls) 1))))
+                (if (|| (!= d 0) (lspThBuiltin name))
+                  (let ((r (memAlloc 40)))
+                    {
+                      (memSetWord r 0 uri)
+                      (memSetWord r 1 name)
+                      (memSetWord r 2 src)
+                      (memSetWord r 3 decls)
+                      (memSetWord r 4 d)
+                      r
+                    })
+                  0)))))))))
+
+; `typeHierarchy/supertypes`: what this type derives from - the base
+; of a `subtype`, resolved declaration-before-builtin like `prepare`.
+; A `data`, `struct`, alias or builtin derives from nothing, which is
+; `[]` and not null: the subject resolved and the answer is empty.
+(pub :: lspSupertypes (-> Int (Vec String) (Vec a) Int))
+;@axiom:effect(io)
+(pub fn (lspSupertypes params uris texts)
+  (let ((s (lspThSubject params uris texts)))
+    (if (== s 0)
+      jsonNull
+      (let ((d (memGetWord s 4)))
+        (if (|| (== d 0) (!= (nodeTag d) TAG_D_SUBTYPE))
+          jsonArr
+          (let ((h (lspThBaseHead d)))
+            (if (== (strLen h) 0)
+              jsonArr
+              (let (
+                (uri (memGetWordStr s 0))
+                (src (memGetWordStr s 2))
+                (decls (memGetWordVec s 3))
+              )
+                (let ((dd (lspThFindType decls h (- (vecLen decls) 1))))
+                  (if (!= dd 0)
+                    (jsonArrPush jsonArr (lspThItem src (lspLineIndex src) uri dd))
+                    (let ((r (lspResolveFor (lspUriToPath uri) src decls)))
+                      (let ((item
+                        (if (<= r 0)
+                          0
+                          (lspThImportedItem r h))))
+                        (if (!= item 0)
+                          (jsonArrPush jsonArr item)
+                          (if (lspThBuiltin h)
+                            (let ((bsp (lspThBaseSpan src d h)))
+                              (if (== bsp 0)
+                                jsonArr
+                                (jsonArrPush jsonArr (lspThBuiltinItem src (lspLineIndex src) uri h bsp))))
+                            jsonArr))))))))))))))
+
+; `typeHierarchy/subtypes`: the `subtype` declarations constraining
+; this type - over the item's own document first, then every other
+; open document, each in declaration order. `[]` when the search ran
+; and found nothing; null when the subject did not resolve.
+(pub :: lspSubtypes (-> Int (Vec String) (Vec a) Int))
+(pub fn (lspSubtypes params uris texts)
+  (let ((s (lspThSubject params uris texts)))
+    (if (== s 0)
+      jsonNull
+      (let (
+        (uri (memGetWordStr s 0))
+        (name (memGetWordStr s 1))
+        (out jsonArr)
+        (mut i 0)
+      )
+        {
+          (lspThSubtypesIn out uri (memGetWordStr s 2) (memGetWordVec s 3) name)
+          (while (< i (vecLen uris))
+            {
+              (if (strEq (vecGetStr uris i) uri)
+                0
+                (let ((osrc (vecGetStr texts i)))
+                  (let ((odecls (lspNavParse osrc)))
+                    (if (==
+                      (cast Int odecls)
+                      0)
+                      0
+                      (lspThSubtypesIn out (vecGetStr uris i) osrc odecls name)))))
+              (set i (+ i 1))
+            })
+          out
+        }))))
+
+; Every `subtype` of `osrc` whose base head is `name`, as items at
+; `ouri`, in declaration order.
+(pub :: lspThSubtypesIn (-> Int String String (Vec Int) String Int))
+(pub fn (lspThSubtypesIn out ouri osrc odecls name)
+  (let (
+    (oix (lspLineIndex osrc))
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen odecls))
+        (let ((d (vecGet odecls i)))
+          {
+            (if (&& (== (nodeTag d) TAG_D_SUBTYPE) (&& (!= (nodeSpan d) 0) (strEq (lspThBaseHead d) name)))
+              (jsonArrPush out (lspThItem osrc oix ouri d))
+              0)
+            (set i (+ i 1))
+          }))
+      0
+    }))
+
 ; The section's three answers to the extension door.
 ; ------------------------------------------------------------------
 (pub :: lspNavHandles (-> String Bool))
 (pub fn (lspNavHandles method)
-  (|| (strEq method "textDocument/references") (|| (strEq method "textDocument/documentHighlight") (|| (strEq method "textDocument/prepareRename") (|| (strEq method "textDocument/rename") (|| (strEq method "textDocument/declaration") (|| (strEq method "textDocument/prepareCallHierarchy") (|| (strEq method "callHierarchy/incomingCalls") (strEq method "callHierarchy/outgoingCalls")))))))))
+  (|| (strEq method "textDocument/references") (|| (strEq method "textDocument/documentHighlight") (|| (strEq method "textDocument/prepareRename") (|| (strEq method "textDocument/rename") (|| (strEq method "textDocument/declaration") (|| (strEq method "textDocument/prepareCallHierarchy") (|| (strEq method "callHierarchy/incomingCalls") (|| (strEq method "callHierarchy/outgoingCalls") (|| (strEq method "textDocument/prepareTypeHierarchy") (|| (strEq method "typeHierarchy/supertypes") (strEq method "typeHierarchy/subtypes"))))))))))))
 
 (pub :: lspNavDispatch (-> String Int Int (Vec String) (Vec a) Int))
 ;@axiom:effect(io)
@@ -6891,14 +7315,24 @@
                   (lspReply id (lspIncomingCalls params uris texts))
                   (if (strEq method "callHierarchy/outgoingCalls")
                     (lspReply id (lspOutgoingCalls params uris texts))
-                    (lspError id (- 0 32601) (strConcat "method not found: " method))))))))))))
+                    ; The three type-hierarchy requests: `prepare`
+                    ; reads the requesting document, and the other two
+                    ; carry an ITEM and no `textDocument`, like the
+                    ; call-hierarchy pair above.
+                    (if (strEq method "textDocument/prepareTypeHierarchy")
+                      (lspReply id (lspPrepareTypeHierarchy src uri params))
+                      (if (strEq method "typeHierarchy/supertypes")
+                        (lspReply id (lspSupertypes params uris texts))
+                        (if (strEq method "typeHierarchy/subtypes")
+                          (lspReply id (lspSubtypes params uris texts))
+                          (lspError id (- 0 32601) (strConcat "method not found: " method)))))))))))))))
 
 ; `renameProvider` is an OBJECT: `prepareProvider: true` tells the
 ; client to ask `prepareRename` first, so an editor never opens a
 ; rename box on a name this server will refuse to rename.
 (pub :: lspNavCaps (-> Int Int))
 (pub fn (lspNavCaps caps)
-  (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "referencesProvider" (jsonBool 1)) "documentHighlightProvider" (jsonBool 1)) "renameProvider" (jsonObjPut jsonObj "prepareProvider" (jsonBool 1))) "declarationProvider" (jsonBool 1)) "callHierarchyProvider" (jsonBool 1)))
+  (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut (jsonObjPut caps "referencesProvider" (jsonBool 1)) "documentHighlightProvider" (jsonBool 1)) "renameProvider" (jsonObjPut jsonObj "prepareProvider" (jsonBool 1))) "declarationProvider" (jsonBool 1)) "callHierarchyProvider" (jsonBool 1)) "typeHierarchyProvider" (jsonBool 1)))
 
 ; ==================================================================
 ; END SECTION NAV

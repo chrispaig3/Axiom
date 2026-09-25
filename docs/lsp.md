@@ -568,6 +568,40 @@ strict subset. Derived in `tests/lsp/drive.py`'s `SECTION NAV TESTS`,
 whose five documents carry both confusable shapes and which refuses to
 run if either ever leaves them.
 
+**`textDocument/prepareTypeHierarchy`, `typeHierarchy/supertypes`
+and `typeHierarchy/subtypes`.** What this type derives from, and what
+derives from it. The graph has exactly one edge kind: a `subtype`
+derives from its BASE. That is a survey verdict, not an omission. A
+range check runs at every narrowing conversion and widening is free,
+so a `Positive` IS an `Int` in exactly one direction; constructors
+are VALUES, not types — introduction forms, answered as outline
+children and by `definition` — and a `struct` field is a member, not
+a derivation, so neither can stand in an item that denotes a type;
+and an alias is transparent, the checker expanding it, so a
+parent/child direction over `Age = Int` would be arbitrary. The graph
+today is therefore two levels — the checker refuses every base but
+bare `Int` — and the requests are written for the general one: a base
+that names a declared type resolves to that declaration by the same
+rule that resolves it to a builtin item now. Nodes are the four type
+declarations plus the builtin type names, a builtin item anchored at
+the word that named it since no declaration exists to point at, and a
+declaration shadows a builtin of the same spelling. `prepare` answers
+for a type named in this document or an imported one, `supertypes` of
+a subtype is its base (a `data`, `struct`, alias or builtin derives
+from nothing, which is `[]`), and `subtypes` searches the open
+documents — the item's own first, then the rest in open order — for
+`subtype` declarations constraining it. What it does not do: a local,
+a constructor, an effect name and a `fn` answer `null`, as does an
+item nothing declares or whose document is not open or does not
+parse — `[]` claims the type stands alone, which a server that cannot
+read the file has not earned. Derived in `SECTION NAV TESTS`, whose
+four documents derive every item from their own bytes: the supertype
+anchor is the `Int` of the subtype's own `is Int range`, the same
+four subtypes are listed in a different order per asking document,
+and `references` on the `Positive` binder finds the binder, the
+signature use and the `cast` target, which pins the walk change this
+needed.
+
 **`textDocument/references` and `textDocument/documentHighlight`.**
 Every occurrence of the same BINDING, not the same spelling: the
 walk records each occurrence with the key of what it resolves to, so

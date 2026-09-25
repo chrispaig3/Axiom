@@ -66,7 +66,7 @@
 # same module cut off mid-form, and of an empty document, with the one
 # obligation an editor needs before any other: an answer to every id,
 # no error, and a server still alive to say `shutdown`. It refuses to
-# run under twelve advertised providers, and it FAILS on a capability
+# run under thirteen advertised providers, and it FAILS on a capability
 # key it does not know how to build a request for, so a feature added
 # to lsp.ax and not to the sweep's table is a red gate rather than an
 # untested promise.
@@ -394,6 +394,37 @@
 # SAME range as `definition` (they are compared for inequality, since
 # one is the constructor and the other is the `data`). An
 # implementation that aliased either pair fails without any patch.
+#
+# TYPE HIERARCHY, three more ablations, 2026-09-25. Like the seven
+# above these touch no golden: the hierarchy block's requests are
+# written INTO drive.py's navigation session, not read from
+# tests/lsp/, so there is no *.golden a bless could satisfy. Each
+# patches self_host/lsp.ax in a scratch copy, builds a server with
+# scripts/build-shared-axc.sh, and runs this script clean with
+# AXIOM_AXC pointed at that build. Every one exits 1 with "43 passed,
+# 1 failed" and exactly one FAIL line, which is also the proof that
+# the change moved nothing else.
+#
+#   THE NAME SPAN, NOT THE BASE. `lspThBaseSpan`'s call site answers
+#   `(nodeSpan d)` - the subtype's own name - where it answered the
+#   base occurrence. Exit 1:
+#     "supertypes of `Positive` (request 100) entry 0 names the right
+#      type in the right file and differs in the item: ... 'character':
+#      13 ... vs ... 'character': 25 ..."
+#   - `Positive` where the `Int` of its own `is Int range` was asked
+#   for, twelve columns apart on the same line.
+#
+#   ONE DOCUMENT. The other-open-documents loop in `lspSubtypes`
+#   never runs - `(while (< i 0)` - so the search reads the item's
+#   own document and nothing else. Exit 1:
+#     "subtypes of `Int` from ThTypes.ax (request 109) answered
+#      [('Positive', 'ThTypes.ax'), ('NonNeg', 'ThTypes.ax')], want
+#      [..., ('Ink', 'ThHelper.ax'), ('Tiny', 'ThUser.ax')]"
+#
+#   NO BUILTIN FALLBACK. `prepare`'s `(lspThBuiltin w)` answers
+#   false, so a builtin asked about gets null. Exit 1:
+#     "prepareTypeHierarchy on builtin Int at a base answered None,
+#      want [{'name': 'Int', ...}]"
 #
 # DIAGNOSTIC FIDELITY, four more ablations, 2026-09-03. `lspDiagJson`
 # published range/severity/code/source/message and dropped the two
@@ -828,7 +859,7 @@ fi
 sweep=$(SERVER="$work/stage1" REPO="$repo_root" python3 - <<'PY'
 import json, os, subprocess, sys
 server=os.environ["SERVER"]; repo=os.environ["REPO"]
-FLOOR=12          # advertised providers, below which this sweep asserts nothing
+FLOOR=13          # advertised providers, below which this sweep asserts nothing
 STEP=97           # bytes between sampled positions
 def frame(o):
     b=json.dumps(o).encode(); return b"Content-Length: "+str(len(b)).encode()+b"\r\n\r\n"+b
@@ -891,6 +922,15 @@ def build(cap, name, uri, text, p, rid):
         return [("textDocument/prepareCallHierarchy",{**td,"position":p}),
                 ("callHierarchy/incomingCalls",{"item":item}),
                 ("callHierarchy/outgoingCalls",{"item":item})]
+    if name=="typeHierarchyProvider":
+        # Same shape as the call-hierarchy block above: `prepare` at the
+        # position, then the two item-carrying requests against a
+        # hand-built item the document may or may not declare.
+        item={"name":"main","kind":5,"uri":uri,
+              "range":{"start":p,"end":p},"selectionRange":{"start":p,"end":p}}
+        return [("textDocument/prepareTypeHierarchy",{**td,"position":p}),
+                ("typeHierarchy/supertypes",{"item":item}),
+                ("typeHierarchy/subtypes",{"item":item})]
     if name=="experimental":
         if isinstance(cap,dict) and cap.get("expandMacro"):
             return [("axiom/expandMacro",{**td,"position":p})]

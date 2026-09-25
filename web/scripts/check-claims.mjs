@@ -93,7 +93,7 @@ const CLAIMS = [
     // server answered twenty-three.
     derive: () => {
       const all = sh(
-        "grep -o '\"\\(textDocument\\|workspace\\|callHierarchy\\|completionItem\\|axiom\\)/[A-Za-z/]*\"' self_host/lsp.ax | sort -u",
+        "grep -o '\"\\(textDocument\\|workspace\\|callHierarchy\\|typeHierarchy\\|completionItem\\|axiom\\)/[A-Za-z/]*\"' self_host/lsp.ax | sort -u",
       )
         .split('\n')
         .filter(Boolean)
