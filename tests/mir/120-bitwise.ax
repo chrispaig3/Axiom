@@ -1,0 +1,35 @@
+; Every bitwise opcode, and no branch at all.
+;
+; One straight-line block. `and`, `or`, `xor`, `shl` and `ashr`
+; each appear once, and the whole function is a single `bb0` -
+; so this is the fixture whose .mir golden has no `condbr`, `br`
+; or block parameter in it. The final shift amount is a negative
+; arithmetic shift, `(>> -16 2)`, so the differential holds the
+; evaluator to `ashr` rather than `lshr` on a negative value.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+(fn (probe n)
+  (let ((a (& n 12)))
+    (let ((b (| a 3)))
+      (let ((c (^ b 10)))
+        (let ((d (<< c 2)))
+          (let ((e (>> d 1)))
+            (+ (^ e (>> -16 2)) n)))))))
+
+(:: emit (-> Int Int))
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}"))
+      (emit (+ k 1))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (emit 0))

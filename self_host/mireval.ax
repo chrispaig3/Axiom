@@ -62,25 +62,38 @@
       (- x y)
       (if (strEq nm "mul")
         (* x y)
-        ; TOTAL, and that is the load-bearing line in this file.
-        ; `/` and `%` are Axiom's own operators, which `codegen.ax`
-        ; guards when THIS module is compiled - so before the IR
-        ; carried a guard the evaluator trapped because its host
-        ; trapped, and a divide-by-zero fixture came out byte-identical
-        ; and exit-identical with the IR saying nothing about traps at
-        ; all. The differential was vacuous on exactly the case it now
-        ; exists to check. The `0` below is dead in any well-formed IR:
-        ; it is reachable only when the lowering has lost the guard,
-        ; which is precisely when the gate must go red.
-        (if (strEq nm "sdiv")
-          (if (== y 0)
-            0
-            (/ x y))
-          (if (strEq nm "srem")
-            (if (== y 0)
-              0
-              (% x y))
-            (mvalCmp nm x y)))))))
+        ; Bitwise, in MIR spellings like everything else here. `>>`
+        ; is arithmetic, because that is what `codegen.ax` emits for
+        ; it and what the walk path computes beside it.
+        (if (strEq nm "and")
+          (& x y)
+          (if (strEq nm "or")
+            (| x y)
+            (if (strEq nm "xor")
+              (^ x y)
+              (if (strEq nm "shl")
+                (<< x y)
+                (if (strEq nm "ashr")
+                  (>> x y)
+                  ; TOTAL, and that is the load-bearing line in this file.
+                  ; `/` and `%` are Axiom's own operators, which `codegen.ax`
+                  ; guards when THIS module is compiled - so before the IR
+                  ; carried a guard the evaluator trapped because its host
+                  ; trapped, and a divide-by-zero fixture came out byte-identical
+                  ; and exit-identical with the IR saying nothing about traps at
+                  ; all. The differential was vacuous on exactly the case it now
+                  ; exists to check. The `0` below is dead in any well-formed IR:
+                  ; it is reachable only when the lowering has lost the guard,
+                  ; which is precisely when the gate must go red.
+                  (if (strEq nm "sdiv")
+                    (if (== y 0)
+                      0
+                      (/ x y))
+                    (if (strEq nm "srem")
+                      (if (== y 0)
+                        0
+                        (% x y))
+                      (mvalCmp nm x y))))))))))))
 
 ; A comparison answers 1 or 0, which is what `codegen.ax`'s `icmp`
 ; result is widened to.

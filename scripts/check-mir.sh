@@ -99,7 +99,7 @@
 #      cycle is what the two tables exist to avoid - so it carries
 #      its own copy of `binopToLLVM` + `cmpToLLVM`.
 #      `mirtool optable` is the one place in the tree that imports
-#      both, and all eleven operators must agree. The twelfth row
+#      both, and all sixteen operators must agree. The seventeenth row
 #      must DISAGREE: `codegen.ax` answers "add" for a name it never
 #      expects to be handed, and `mir.ax` answers "", which is what
 #      makes the lowering refuse rather than emit a wrong opcode.
@@ -538,25 +538,31 @@ echo "--- 7. the operator table, against codegen.ax's ---"
 # ---------------------------------------------------------------
 "$tool" optable > "$work/optable" 2>&1
 n_rows="$(wc -l < "$work/optable" | tr -d ' ')"
-if [[ "$n_rows" == "12" ]]; then
-  ok "mirtool optable printed 12 rows"
+if [[ "$n_rows" == "17" ]]; then
+  ok "mirtool optable printed 17 rows"
 else
-  bad "mirtool optable printed $n_rows rows, expected 12"
-  sed 's/^/     /' "$work/optable" | head -14
+  bad "mirtool optable printed $n_rows rows, expected 17"
+  sed 's/^/     /' "$work/optable" | head -19
 fi
-disagree="$(awk -F'|' 'NR <= 11 && $2 != $3 { print $1 }' "$work/optable" | tr '\n' ' ')"
-if [[ -z "$disagree" && "$n_rows" == "12" ]]; then
-  ok "all eleven operators carry the spelling codegen.ax already emits"
+# Fields are counted from the END, not the start: the `|` operator's
+# own row is `||or|or`, four fields, so `$2 != $3` compares two halves
+# of the name and the row misreads as disagreeing with an empty name.
+# `mine` is always the second-to-last field and `cg` the last whatever
+# the name holds, because neither spelling ever contains a bar - and
+# the report prints the whole row, since `$1` of that row is empty.
+disagree="$(awk -F'|' 'NR <= 16 && $(NF-1) != $NF { print $0 }' "$work/optable" | tr '\n' ' ')"
+if [[ -z "$disagree" && "$n_rows" == "17" ]]; then
+  ok "all sixteen operators carry the spelling codegen.ax already emits"
 else
   bad "mir.ax and codegen.ax disagree on: $disagree"
   sed 's/^/     /' "$work/optable"
 fi
-# Row 12 is a name that is not an operator. The two MUST differ, or
+# Row 17 is a name that is not an operator. The two MUST differ, or
 # `mBinOp`'s refusal has been replaced by codegen's fall-through and
 # a mistyped call would lower to an `add`.
-last_mine="$(awk -F'|' 'NR == 12 { print $2 }' "$work/optable")"
-last_cg="$(awk -F'|' 'NR == 12 { print $3 }' "$work/optable")"
-if [[ "$n_rows" == "12" && -z "$last_mine" && "$last_cg" == "add" ]]; then
+last_mine="$(awk -F'|' 'NR == 17 { print $(NF-1) }' "$work/optable")"
+last_cg="$(awk -F'|' 'NR == 17 { print $NF }' "$work/optable")"
+if [[ "$n_rows" == "17" && -z "$last_mine" && "$last_cg" == "add" ]]; then
   ok "a non-operator: mir.ax answers nothing where codegen.ax answers 'add'"
 else
   bad "the non-operator row reads mir='$last_mine' codegen='$last_cg'; expected mir empty, codegen 'add'"

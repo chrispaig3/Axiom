@@ -197,8 +197,8 @@
 ; table drifts unless something reads both, and this mode is that
 ; something: it is the ONE place in the tree that imports `mir` and
 ; `codegen` together, and it prints, per operator, what each answers.
-; `check-mir.sh` requires the two columns to agree on all eleven, and
-; requires the twelfth row - a name that is not an operator - to
+; `check-mir.sh` requires the two columns to agree on all sixteen, and
+; requires the seventeenth row - a name that is not an operator - to
 ; DISAGREE, because that difference is deliberate: `codegen.ax`
 ; answers "add" for a name it was never going to be asked about,
 ; where `mBinOp` answers "" and the lowering refuses.
@@ -209,7 +209,9 @@
   ; Bar-separated, because `mBinOp` answers the EMPTY string
   ; for a non-operator and a space-separated row would let the
   ; reader's field splitting slide `cg` into `mine`'s column -
-  ; which is exactly how the twelfth row first read as agreeing.
+  ; which is exactly how the seventeenth row first read as agreeing.
+  ; The `|` operator's own row is therefore four fields, `||or|or`;
+  ; `check-mir.sh` counts from the end for exactly that row.
   (let ((mine (mBinOp nm)))
     {
       (println "{nm}|{mine}|{cg}")
@@ -231,6 +233,11 @@
     (opRow ">" (cmpToLLVM ">"))
     (opRow "<=" (cmpToLLVM "<="))
     (opRow ">=" (cmpToLLVM ">="))
+    (opRow "&" (binopToLLVM "&"))
+    (opRow "|" (binopToLLVM "|"))
+    (opRow "^" (binopToLLVM "^"))
+    (opRow "<<" (binopToLLVM "<<"))
+    (opRow ">>" (binopToLLVM ">>"))
     (opRow "notanoperator" (binopToLLVM "notanoperator"))
     0
   })

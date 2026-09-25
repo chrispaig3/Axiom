@@ -50,19 +50,22 @@
 ;
 ; THE SUBSET. `mLowerFn` lowers a function whose body is built from
 ; integer and boolean literals, variables, `let`, `if`, `begin` and
-; applications of the eleven arithmetic and comparison operators or
-; of a TOP-LEVEL function - plus `cast`, which erases: `(cast T v)`
-; answers v's register and emits nothing, exactly as the walk
-; evaluates it, except a `Float` destination, which re-enters float
-; arithmetic and stays refused. Anything else - a string, a match, a
-; lambda, a field access, an application whose head is a local -
-; makes it REFUSE the whole function. It never answers a partial one.
+; applications of the sixteen arithmetic, comparison and bitwise
+; operators or of a TOP-LEVEL function - plus `cast`, which erases:
+; `(cast T v)` answers v's register and emits nothing, exactly as the
+; walk evaluates it, except a `Float` destination, which re-enters
+; float arithmetic and stays refused. `&&` and `||` stay out with the
+; refusals although they read as binary operators, because the walk
+; short-circuits them and one instruction cannot. Anything else - a
+; string, a match, a lambda, a field access, an application whose
+; head is a local - makes it REFUSE the whole function. It never
+; answers a partial one.
 ;
 ; HOW MUCH THAT IS, measured with `tests/mir/mirtool.ax count` over
 ; `self_host/*.ax stdlib/*.ax stdlib/*/*.ax` and NOT taken from
-; anywhere else: 2,345 of 4,954 top-level functions lower end to end,
-; among them 321 of 728 in `codegen.ax`, 437 of 935 in
-; `typecheck.ax`, 129 of 321 in `parser.ax` and 137 of 279 in
+; anywhere else: 2,493 of 5,295 top-level functions lower end to end,
+; among them 312 of 731 in `codegen.ax`, 442 of 975 in
+; `typecheck.ax`, 130 of 338 in `parser.ax` and 153 of 330 in
 ; `expand.ax`. `check-mir.sh` recomputes the total every run, prints
 ; it, and holds a floor under it, so the day a lowering rule narrows
 ; itself to keep the differential green the count says so. The
@@ -450,7 +453,18 @@
                       "sle"
                       (if (strEq nm ">=")
                         "sge"
-                        ""))))))))))))
+                        (if (strEq nm "&")
+                          "and"
+                          (if (strEq nm "|")
+                            "or"
+                            (if (strEq nm "^")
+                              "xor"
+                              (if (strEq nm "<<")
+                                "shl"
+                                (if (strEq nm ">>")
+                                  ; Arithmetic, matching `codegen.ax` and stage0.
+                                  "ashr"
+                                  "")))))))))))))))))
 
 ; The head of a curried application spine. `TAG_E_APP` is
 ; left-nested with one argument per node, so `(f a b)` is
