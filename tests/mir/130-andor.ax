@@ -1,0 +1,42 @@
+; `&&` and `||` as control flow, with the short-circuit pinned by
+; a trap that must never fire.
+;
+; Both operators take both outcomes across k = 0..19, and both skip
+; a right-hand side that would divide by zero: n = 0 answers both
+; joins from the short arm, so a lowering that evaluated the rhs
+; eagerly would plant its `srem` guard on a zero divisor and the
+; evaluator would exit 72 beside a native 0. The differential is
+; what holds that, not the golden: the golden cannot see a branch
+; not taken.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+(fn (probe n)
+  (let ((a (&& (!= n 0) (== (% 50 n) 0))))
+    (let ((b (|| (== n 0) (== (% 100 n) 0))))
+      (let ((ai 
+        (if a
+          1
+          0)))
+        (let ((bi 
+          (if b
+            1
+            0)))
+          (+ (* ai 1000) (+ (* bi 100) n)))))))
+
+(:: emit (-> Int Int))
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}"))
+      (emit (+ k 1))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (emit 0))

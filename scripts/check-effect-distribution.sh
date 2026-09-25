@@ -177,6 +177,13 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-25 (14): MIR `&&`/`||` desugar and the closed
+# binop-spelling check. Three added, none removed, none changed - each
+# new row read off `symbols` by name: `mLowerAndOr` reads
+# `Alloc,Mut,Unsafe` through the block build, `mIsAndOr` and
+# `mIsBinSpelling` read exactly `Unsafe` as string tests. Every move
+# is a gain - `Alloc,Mut,Unsafe` 2277 to 2278, exactly `Unsafe` 1149
+# to 1151 - and no existing row moves buckets.
 # RE-PINNED 2026-09-25 (13): LSP value-shape hover (34 shape readers)
 # and type hierarchy (17 walkers and handlers) land together.
 # Fifty-one added, none removed, one narrowed - each new row read off
@@ -312,8 +319,8 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2277 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1149 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2278 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1151 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 399 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 118 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"

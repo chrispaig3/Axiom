@@ -54,16 +54,18 @@
 ; operators or of a TOP-LEVEL function - plus `cast`, which erases:
 ; `(cast T v)` answers v's register and emits nothing, exactly as the
 ; walk evaluates it, except a `Float` destination, which re-enters
-; float arithmetic and stays refused. `&&` and `||` stay out with the
-; refusals although they read as binary operators, because the walk
-; short-circuits them and one instruction cannot. Anything else - a
+; float arithmetic and stays refused. `&&` and `||` lower as the
+; control flow they are - the left side tested, the right side in one
+; arm only, the join answering 0/1 exactly as `emitAndOr`'s `phi`
+; does - because one instruction cannot short-circuit. Anything
+; else - a
 ; string, a match, a lambda, a field access, an application whose
 ; head is a local - makes it REFUSE the whole function. It never
 ; answers a partial one.
 ;
 ; HOW MUCH THAT IS, measured with `tests/mir/mirtool.ax count` over
 ; `self_host/*.ax stdlib/*.ax stdlib/*/*.ax` and NOT taken from
-; anywhere else: 2,493 of 5,295 top-level functions lower end to end,
+; anywhere else: 2,509 of 5,349 top-level functions lower end to end,
 ; among them 312 of 731 in `codegen.ax`, 442 of 975 in
 ; `typecheck.ax`, 130 of 338 in `parser.ax` and 153 of 330 in
 ; `expand.ax`. `check-mir.sh` recomputes the total every run, prints
@@ -466,6 +468,57 @@
                                   "ashr"
                                   "")))))))))))))))))
 
+; Short-circuit operators. These are NOT binops - `codegen.ax`
+; routes them before its operator table (`dispatchCall` reaches
+; `isAndOr` first) and so does `mLowerApp` below, before any
+; argument is lowered.
+(pub :: mIsAndOr (-> String Bool))
+(pub fn (mIsAndOr nm)
+  (|| (strEq nm "&&") (strEq nm "||")))
+
+; The spellings `mBinOp` answers, as a predicate the verifier
+; reads. The opcode NUMBER set is closed in `mvCheckInst`; this
+; closes the second axis, because a typo'd spelling sails through
+; the number check and then means two different things to the two
+; consumers - the evaluator answers 0 through `mvalCmp`'s
+; fall-through, and `mirEmitInsts` writes it verbatim into LLVM IR
+; where `llc` refuses it. Both are downstream of the verifier, so
+; the spelling is checked here. `check-mir.sh` ABLATION 7 corrupts
+; one row and requires exactly this complaint.
+(pub :: mIsBinSpelling (-> String Bool))
+(pub fn (mIsBinSpelling nm)
+  (if (strEq nm "add")
+    true
+    (if (strEq nm "sub")
+      true
+      (if (strEq nm "mul")
+        true
+        (if (strEq nm "sdiv")
+          true
+          (if (strEq nm "srem")
+            true
+            (if (strEq nm "eq")
+              true
+              (if (strEq nm "ne")
+                true
+                (if (strEq nm "slt")
+                  true
+                  (if (strEq nm "sgt")
+                    true
+                    (if (strEq nm "sle")
+                      true
+                      (if (strEq nm "sge")
+                        true
+                        (if (strEq nm "and")
+                          true
+                          (if (strEq nm "or")
+                            true
+                            (if (strEq nm "xor")
+                              true
+                              (if (strEq nm "shl")
+                                true
+                                (strEq nm "ashr")))))))))))))))))
+
 ; The head of a curried application spine. `TAG_E_APP` is
 ; left-nested with one argument per node, so `(f a b)` is
 ; `((f a) b)`; `parser.ax`'s `spineArgVec` flattens the arguments and
@@ -760,12 +813,21 @@
               (if (&& (== (nodeTag dst) TAG_E_VAR) (strEq (nodeAName dst) "Float"))
                 (- 0 1)
                 (mLower lc env (vecGet args 1)))))
-          (if (mLowArgs
-            lc
-            env
-            args
-            0
-            out)
+          ; `&&` and `||` dispatch on the HEAD, before any argument
+          ; is lowered. Short-circuit means the right-hand side must
+          ; not be evaluated in the current block, so it must not be
+          ; lowered there either - `mLowArgs` first would plant it
+          ; before the branch. There is no shadow check, mirroring
+          ; `dispatchCall`, which routes these names before its local
+          ; test: no binder can spell them.
+          (if (mIsAndOr nm)
+            (mLowerAndOr lc env nm args)
+            (if (mLowArgs
+              lc
+              env
+              args
+              0
+              out)
             (let ((bop (mBinOp nm)))
               (if (> (strLen bop) 0)
                 (if (== (vecLen out) 2)
@@ -799,7 +861,100 @@
                     out
                     0
                     0)))))
-            (- 0 1)))))))
+            (- 0 1))))))))
+
+; `&&` and `||` as the walk emits them: a test of the left side,
+; the right side lowered in one arm only, and a join answering 0/1.
+; `emitAndOr` answers `phi [zext (rhs != 0), short]` with the short
+; value 0 for `&&` and 1 for `||`, so the join below carries exactly
+; that - a `ne` against zero in the taken arm, the short constant in
+; the skipped one. Anything but exactly two arguments is surplus
+; application or a checker error, and refuses like the binop path.
+; Block discipline is `mLowerIf`'s: the join exists before either
+; arm is lowered, and each arm terminates the block it ENDED in.
+(pub :: mLowerAndOr (-> MLC (Vec MBind) String (Vec Int) Int))
+(pub fn (mLowerAndOr lc env nm args)
+  (if (!= (vecLen args) 2)
+    (- 0 1)
+    (let ((ra (mLower lc env (vecGet args 0))))
+      (if (< ra 0)
+        (- 0 1)
+        (let (
+          (isAnd (strEq nm "&&"))
+          (brhs (mlcBlock lc vecNew))
+          (bshort (mlcBlock lc vecNew))
+          (pj (mlcFresh lc))
+        )
+          (let ((bj (mlcBlock lc (mSingleton pj))))
+            {
+              (mlcTerm lc (MInst
+                MT_CONDBR
+                (- 0 1)
+                ra
+                0
+                ""
+                vecNew
+                (if isAnd brhs.id bshort.id)
+                (if isAnd bshort.id brhs.id)))
+              (set lc.cur brhs)
+              (let ((rb (mLower lc env (vecGet args 1))))
+                (if (< rb 0)
+                  (- 0 1)
+                  (let (
+                    (zero (mlcEmit lc (MInst
+                      MO_CONST
+                      (mlcFresh lc)
+                      0
+                      0
+                      ""
+                      vecNew
+                      0
+                      0)))
+                    (t (mlcEmit lc (MInst
+                      MO_BIN
+                      (mlcFresh lc)
+                      rb
+                      zero
+                      "ne"
+                      vecNew
+                      0
+                      0)))
+                  )
+                    {
+                      (mlcTerm lc (MInst
+                        MT_BR
+                        (- 0 1)
+                        0
+                        0
+                        ""
+                        (mSingleton t)
+                        bj.id
+                        0))
+                      (set lc.cur bshort)
+                      (let ((sv (mlcEmit lc (MInst
+                        MO_CONST
+                        (mlcFresh lc)
+                        (if isAnd 0 1)
+                        0
+                        ""
+                        vecNew
+                        0
+                        0))))
+                        {
+                          (mlcTerm lc (MInst
+                            MT_BR
+                            (- 0 1)
+                            0
+                            0
+                            ""
+                            (mSingleton sv)
+                            bj.id
+                            0))
+                          (set lc.cur bj)
+                          pj
+                        })
+                    })))
+            }))))))
 
 (pub :: mBindParams (-> MLC (Vec MBind) (Vec String) Int (Vec Int) Int))
 (pub fn (mBindParams lc env ps i out)
@@ -1291,6 +1446,9 @@
   (let ((what (mvWhere blk)))
     (if (== n.op MO_BIN)
       {
+        (if (mIsBinSpelling n.name)
+          0
+          (mvSay out (mcat3 what " holds binop spelling " (strConcat n.name ", which `mBinOp` never writes"))))
         (mvUse
           f
           dom

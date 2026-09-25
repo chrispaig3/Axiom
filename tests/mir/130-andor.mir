@@ -1,0 +1,71 @@
+fn probe(%0) {
+bb0:
+  %1 = const 0
+  %2 = ne %0, %1
+  condbr %2, bb1, bb2
+bb1:
+  %4 = const 50
+  trapz %0, bb4, bb5
+bb2:
+  %10 = const 0
+  br bb3(%10)
+bb3(%3):
+  %11 = const 0
+  %12 = eq %0, %11
+  condbr %12, bb7, bb6
+bb4:
+  trap __axiom_div_by_zero
+bb5:
+  %5 = srem %4, %0
+  %6 = const 0
+  %7 = eq %5, %6
+  %8 = const 0
+  %9 = ne %7, %8
+  br bb3(%9)
+bb6:
+  %14 = const 100
+  trapz %0, bb9, bb10
+bb7:
+  %20 = const 1
+  br bb8(%20)
+bb8(%13):
+  condbr %3, bb11, bb12
+bb9:
+  trap __axiom_div_by_zero
+bb10:
+  %15 = srem %14, %0
+  %16 = const 0
+  %17 = eq %15, %16
+  %18 = const 0
+  %19 = ne %17, %18
+  br bb8(%19)
+bb11:
+  %22 = const 1
+  br bb13(%22)
+bb12:
+  %23 = const 0
+  br bb13(%23)
+bb13(%21):
+  condbr %13, bb14, bb15
+bb14:
+  %25 = const 1
+  br bb16(%25)
+bb15:
+  %26 = const 0
+  br bb16(%26)
+bb16(%24):
+  %27 = const 1000
+  %28 = mul %21, %27
+  %29 = const 100
+  %30 = mul %24, %29
+  %31 = add %30, %0
+  %32 = add %28, %31
+  ret %32
+}
+fn main() {
+bb0:
+  %0 = const 0
+  %1 = call emit(%0)
+  ret %1
+}
+; not lowered: emit

@@ -148,6 +148,13 @@
 #      strings, not listed - while §3 stays silent, since the IR
 #      stays well formed with the wrong meaning.
 #
+#      ABLATION 7 corrupts one binop spelling: `%` lowers to `srex`,
+#      which no rule writes. §3 must name it on exactly the fixtures
+#      whose goldens carry an `srem` - derived from the goldens, not
+#      listed - and stay silent on the rest. Ablations 1 and 2 break
+#      operands and terminators; neither reaches what a binop is
+#      called, which is the second axis of the closed opcode set.
+#
 # AXIOM_BLESS=1 rewrites the §2 goldens and nothing else. It cannot
 # write `self_host/mir.ax`, the fixtures, `codegen.ax` or the corpus,
 # which is why §3 to §9 survive a bless.
@@ -613,9 +620,11 @@ elif which == "4":
     # every register is still defined exactly once, so ablations 1
     # and 2's checks say nothing; the only thing wrong with the
     # result is that the definition sits in a block which does not
-    # DOMINATE the use.
-    pat = re.compile(r"\(set lc\.cur bj\)(\s+)pj")
-    rep = r"(set lc.cur bj)\g<1>r1"
+    # DOMINATE the use. Scoped to `mLowerIf` by the function head:
+    # the `&&`/`||` desugar ends its own join the same way, and an
+    # unscoped seam matches both constructs instead of one.
+    pat = re.compile(r"(\(pub fn \(mLowerIf[\s\S]*?\(set lc\.cur bj\)\s+)pj")
+    rep = r"\g<1>r1"
 elif which == "5":
     # The cast erasure, removed: a conversion refuses instead of
     # answering its value's register. Every probe that casts goes
@@ -623,8 +632,11 @@ elif which == "5":
     # move while the verifier stays silent - nothing ill-formed is
     # produced, which is what distinguishes this drill from
     # ablations 2 and 4.
-    pat = re.compile(r"\(mLower\s+lc\s+env\s+\(vecGet\s+args\s+1\)\)")
-    rep = r"(- 0 1)"
+    # Scoped to `mLowerApp` by the function head: the `&&`/`||`
+    # desugar lowers its right-hand side through the same call shape,
+    # and an unscoped seam matches both instead of one.
+    pat = re.compile(r"(\(pub fn \(mLowerApp[\s\S]*?)\(mLower\s+lc\s+env\s+\(vecGet\s+args\s+1\)\)")
+    rep = r"\g<1>(- 0 1)"
 elif which == "6":
     # `true` lowered as 0: the boolean constant answers the wrong
     # value. Well-formed IR with the wrong meaning, so the goldens
@@ -635,6 +647,16 @@ elif which == "6":
     # backslash-escaped quote would land in the source as AX1001.)
     pat = re.compile(r"\(mlcFresh lc\)\s+1\s+0\s+\"\"")
     rep = "(mlcFresh lc)        0        0        " + chr(34) + chr(34)
+elif which == "7":
+    # One binop spelling corrupted: `%` lowers to `srex`, which no
+    # rule writes and no consumer reads. The seam names the `mBinOp`
+    # row, not the bare spelling: `srem` also appears in `mIsDivOp`
+    # and `mIsBinSpelling`, and those two keep the true set - which
+    # is what makes the verifier fire and the guard disappear. (Plain
+    # quotes, not `chr(34)`: single-quoted raw strings carry them
+    # through the quoted heredoc untouched.)
+    pat = re.compile(r'\(strEq nm "%"\)\s+"srem"')
+    rep = r'(strEq nm "%")  "srex"'
 else:
     sys.stderr.write("no such ablation: %s\n" % which)
     sys.exit(1)
@@ -1026,6 +1048,55 @@ else
     ok "ABLATION 6: every red is a wrong answer, not a crash"
   else
     bad "ABLATION 6: $crashed6 fixtures died instead of answering"
+  fi
+fi
+
+# --- ABLATION 7: a binop spelling corrupted ---
+# WITHOUT THIS, THE SPELLING AXIS IS UNPINNED. Ablations 1 and 2
+# break operands and terminators; neither touches what a binop is
+# CALLED. Which fixtures those are is derived from the CHECKED-IN
+# goldens - an `srem` in NAME.mir - not from a list written here,
+# for ablation 2's reason.
+if ! ablate 7; then
+  bad "ABLATION 7 could not be built"
+  sed 's/^/     /' "$work/abl7/build.log" 2>/dev/null | head -10
+else
+  a7="$work/abl7/mirtool"
+  n_srem=0
+  n_spoke7=0
+  n_named7=0
+  wrong7=""
+  for f in "${fixtures[@]}"; do
+    n="$(basename "$f" .ax)"
+    if grep -q 'srem' "tests/mir/$n.mir"; then
+      expect=speak
+    else
+      expect=silent
+    fi
+    [[ "$expect" == "speak" ]] && n_srem=$((n_srem + 1))
+    "$a7" verify "$f" > "$work/abl7.$n.verify" 2>&1
+    if [[ -s "$work/abl7.$n.verify" ]]; then
+      n_spoke7=$((n_spoke7 + 1))
+      grep -q 'srex' "$work/abl7.$n.verify" && n_named7=$((n_named7 + 1))
+      [[ "$expect" == "silent" ]] && wrong7="$wrong7 $n(silent-expected)"
+    else
+      [[ "$expect" == "speak" ]] && wrong7="$wrong7 $n(speak-expected)"
+    fi
+  done
+  if (( n_srem > 0 && n_srem < n_fix )); then
+    ok "$n_srem of $n_fix goldens carry an srem, so both expectations are exercised"
+  else
+    bad "$n_srem of $n_fix goldens carry an srem - one of the two expectations is empty"
+  fi
+  if [[ -z "$wrong7" ]]; then
+    ok "ABLATION 7: §3 names the corrupted spelling on every srem fixture and is silent about the rest"
+  else
+    bad "ABLATION 7: §3 answered wrongly for:$wrong7"
+  fi
+  if (( n_named7 == n_spoke7 && n_spoke7 > 0 )); then
+    ok "ABLATION 7: all $n_spoke7 complaints name the corrupted spelling, not a side effect"
+  else
+    bad "ABLATION 7: $n_named7 of $n_spoke7 complaints named the corrupted spelling"
   fi
 fi
 
