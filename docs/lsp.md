@@ -653,7 +653,17 @@ is on:
 constructor `Green` of `Colour`
 ```
 
-and the module below that when the `data` came from another file. A local answers from the walk: a parameter
+and the module below that when the `data` came from another file. A field reads the same way: `base.field` resolves as a path - the parameter's struct from the owning signature, a `let`'s from the constructor application its value builds - and the fence quotes the whole `struct` with one line naming the field, at the use and where it is declared:
+
+```text
+(struct Point (x : Int) (y : Int))
+
+field `x` of `struct Point`
+```
+
+Anything the path cannot resolve - a lambda parameter, a call
+result, a name from another module, a `data` payload, which is not
+a field - answers null rather than a guess. A local answers from the walk: a parameter
 of `bump` answers
 
 ```text

@@ -994,7 +994,7 @@ NAV = """(import NavHelper)
 (fn (helper) 3)
 
 (:: main Int)
-(fn (main) (+ (+ (tagColour) helper) (bump 1)))
+(fn (main) (let ((o (Point 1 2))) (+ (+ (tagColour) helper) (+ (bump 1) o.x))))
 """
 # A declaration taller than a tooltip. `lspClampLines` cuts a hover's
 # fence at 40 lines and says so in the fence's own comment syntax, and
@@ -1010,7 +1010,11 @@ FN_DECL = locate(NAV, "helper", 2)          # `(fn (helper) 3)`; 1 is the signat
 FN_USE = locate(NAV, "helper", 3)           # the call in `main`
 DATA_DECL = locate(NAV, "Colour", 1)        # `(data Colour (Red) (Green))`
 DATA_USE = locate(NAV, "Colour", 2)         # the macro argument
-STRUCT_DECL = locate(NAV, "Point", 1)       # `(struct Point ...)`
+STRUCT_DECL = locate(NAV, "Point", 1)          # `(struct Point ...)`
+FIELD_OX = locate(NAV, "o.x", 1)                # the field use
+FIELD_USE = {"line": FIELD_OX["line"], "start": FIELD_OX["start"] + 2, "end": FIELD_OX["start"] + 3}
+FIELD_DX = locate(NAV, "(x : Int)", 1)          # the field declaration
+FIELD_DECL = {"line": FIELD_DX["line"], "start": FIELD_DX["start"] + 1, "end": FIELD_DX["start"] + 2}
 BIG_DECL = locate(NAV, "Big", 1)            # `(data Big ...)`, taller than the clamp
 IMP_USE = locate(NAV, "bump", 1)            # the imported call
 BUMP_DECL = locate(NAVHELPER, "bump", 2)    # its `fn` name, in the OTHER file
@@ -1114,6 +1118,8 @@ nav_session = b"".join(frame(m) for m in [
     hov(13, IMP_USE),
     hov(14, NOTHING),
     hov(18, BIG_DECL),
+    hov(19, FIELD_USE),
+    hov(20, FIELD_DECL),
     # Two characters into `helper`: the prefix is the document's own
     # bytes, and every label must start with it.
     compl(15, FN_USE["line"], FN_USE["start"] + PREFIX_AT),
@@ -1245,6 +1251,13 @@ elif hover_says(11, [DATA_TEXT, DATA_DOC], DATA_USE):
     nwhy = "data hover: " + hover_says(11, [DATA_TEXT, DATA_DOC], DATA_USE)
 elif hover_says(12, [STRUCT_TEXT], STRUCT_DECL):
     nwhy = "struct hover: " + hover_says(12, [STRUCT_TEXT], STRUCT_DECL)
+# A field reads off the struct that declares it: the whole struct in
+# the fence, one line naming the field - at the use, where the base
+# is `let` to a construction, and at the declaration itself.
+elif hover_says(19, [STRUCT_TEXT, "field `x` of `struct Point`"], FIELD_USE):
+    nwhy = "field-use hover: " + hover_says(19, [STRUCT_TEXT, "field `x` of `struct Point`"], FIELD_USE)
+elif hover_says(20, [STRUCT_TEXT, "field `x` of `struct Point`"], FIELD_DECL):
+    nwhy = "field-decl hover: " + hover_says(20, [STRUCT_TEXT, "field `x` of `struct Point`"], FIELD_DECL)
 # The imported one is the whole shape at once: another file's bytes,
 # another file's paragraph, the module it came from, and a range in
 # THIS document.

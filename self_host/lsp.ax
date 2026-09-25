@@ -1897,8 +1897,187 @@
 ; declaration's span made an editor highlight a line three above the
 ; word being read - or, for an imported name, a span into a file the
 ; editor does not have open.
+; ------------------------------------------------------------------
+; Field hover: `base.field` uses and fields where they are declared.
+;
+; The word under the cursor is only the field, so both shapes resolve
+; as paths. A use reads the base left of the dot - a parameter takes
+; its struct from the owning signature (`nthParamTy`, the same reading
+; parameter hover already shows), a `let` from the constructor
+; application its value builds - and answers the field off the
+; struct's declaration. A declaration is found by span: the word sits
+; in a struct's field slot. Either way the fence quotes the whole
+; struct, the way a constructor hover quotes the whole `data`, with
+; one line naming the field; the range stays the word.
+;
+; What is NOT answered: a base no local binds, a base whose struct is
+; unknown at parse level (a lambda parameter, a call result, a name
+; from another module), a field no struct declares, and a `data`
+; payload, which is not a field. Each answers null rather than a
+; guess, and an unresolvable `base.field` falls through to the
+; ordinary word lookup rather than answering null outright.
+; ------------------------------------------------------------------
+(pub :: lspIsUpperStart (-> String Int))
+(pub fn (lspIsUpperStart s)
+  (if (== (strLen s) 0)
+    0
+    (let ((b (strByte s 0)))
+      (if (< b 65)
+        0
+        (if (> b 90)
+          0
+          1)))))
+
+; Left over identifier bytes from `off` (exclusive): the start of the
+; run ending just before `off`.
+(pub :: lspIdentStart (-> String Int Int))
+(pub fn (lspIdentStart src off)
+  (let ((mut s off))
+    {
+      (while (if (> s 0) (isIdentChar (strByte src (- s 1))) false)
+        (set s (- s 1)))
+      s
+    }))
+
+; The leftmost head of a spine: through applications to the callee.
+(pub :: lspSpineHead (-> Int Int))
+(pub fn (lspSpineHead v)
+  (if (== v 0)
+    0
+    (if (!= (nodeTag v) TAG_E_APP)
+      v
+      (lspSpineHead (nodeA v)))))
+
+; The struct declaration named `sname` that declares a field named
+; `fname`, or 0.
+(pub :: lspFindStructField (-> (Vec Int) String String Int))
+(pub fn (lspFindStructField decls sname fname)
+  (let ((d (lspFindTypeDecl decls sname (- (vecLen decls) 1))))
+    (if (== d 0)
+      0
+      (if (!= (nodeTag d) TAG_D_STRUCT)
+        0
+        (if (== (lspStructFieldNode (nodeBVec d) fname 0) 0)
+          0
+          d)))))
+
+(pub :: lspStructFieldNode (-> (Vec Int) String Int Int))
+(pub fn (lspStructFieldNode fs fname i)
+  (if (>= i (vecLen fs))
+    0
+    (let ((f (vecGet fs i)))
+      (if (strEq (nodeAName f) fname)
+        f
+        (lspStructFieldNode fs fname (+ i 1))))))
+
+; The struct behind a parameter: the `k`th arrow domain of the
+; owner's signature, when it names a bare constructor type.
+(pub :: lspFieldParamStruct (-> (Vec Int) String String Int String))
+(pub fn (lspFieldParamStruct decls owner name k)
+  (let ((sig (lspFindSig decls owner (- (vecLen decls) 1))))
+    (if (== sig 0)
+      (cast String 0)
+      (let ((t (nthParamTy (nodeTy sig) k 0)))
+        (if (== t 0)
+          (cast String 0)
+          (if (!= (nodeTag t) TAG_T_CON)
+            (cast String 0)
+            (let ((n (bareOf (nodeAName t))))
+              (if (== (lspIsUpperStart n) 1)
+                n
+                (cast String 0)))))))))
+
+; The struct behind a `let`: the constructor application the value
+; builds, when its head is an upcased name.
+(pub :: lspFieldValueStruct (-> Int String))
+(pub fn (lspFieldValueStruct v)
+  (if (== v 0)
+    (cast String 0)
+    (let ((h (lspSpineHead v)))
+      (if (== h 0)
+        (cast String 0)
+        (if (!= (nodeTag h) TAG_E_VAR)
+          (cast String 0)
+          (let ((n (nodeAName h)))
+            (if (== (lspIsUpperStart n) 1)
+              n
+              (cast String 0))))))))
+
+; The struct behind a base name at an offset: a parameter's declared
+; type, or a let's built value. Answers the bare name or null.
+(pub :: lspFieldBaseStruct (-> String (Vec Int) String Int String))
+(pub fn (lspFieldBaseStruct src decls base baseOff)
+  (let ((occs (lspNavOccurrences src decls)))
+    (let ((o (lspNavAt occs baseOff)))
+      (if (== o 0)
+        (cast String 0)
+        (let ((key (memGetWordStr o 3)))
+          (if (lspNavIsLocal key)
+            (let ((b (lspNavBinderOf occs key)))
+              (if (== b 0)
+                (cast String 0)
+                (let ((bkind (memGetWord b 4)))
+                  (if (== bkind NAV_B_PARAM)
+                    (lspFieldParamStruct decls (memGetWordStr b 5) (memGetWordStr b 0) (memGetWord b 6))
+                    (if (== bkind NAV_B_LET)
+                      (lspFieldValueStruct (memGetWord b 6))
+                      (cast String 0))))))
+            (cast String 0)))))))
+
+; A field use: `base.` ends where the word begins.
+(pub :: lspHoverFieldUse (-> String (Vec Int) String Int Int Int Int))
+(pub fn (lspHoverFieldUse src decls base baseOff wsp range)
+  (let ((w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp)))))
+    (let ((sn (lspFieldBaseStruct src decls base baseOff)))
+      (if (== (cast Int sn) 0)
+        0
+        (let ((d (lspFindStructField decls sn w)))
+          (if (== d 0)
+            0
+            (lspHoverAtNote src decls d range "" (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`")))))))))
+
+; A field declaration: the word sits in a struct's field slot.
+(pub :: lspHoverFieldDecl (-> String (Vec Int) Int Int Int))
+(pub fn (lspHoverFieldDecl src decls wsp range)
+  (let ((w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp)))))
+    (lspHoverFieldDeclIn decls src w (spanStart wsp) range (- (vecLen decls) 1))))
+
+(pub :: lspHoverFieldDeclIn (-> (Vec Int) String String Int Int Int Int))
+(pub fn (lspHoverFieldDeclIn decls src w off range i)
+  (if (< i 0)
+    0
+    (let ((d (vecGet decls i)))
+      (if (!= (nodeTag d) TAG_D_STRUCT)
+        (lspHoverFieldDeclIn decls src w off range (- i 1))
+        (if (== (lspFieldNodeAt (nodeBVec d) w off 0) 0)
+          (lspHoverFieldDeclIn decls src w off range (- i 1))
+          (lspHoverAtNote src decls d range "" (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`"))))))))
+
+(pub :: lspFieldNodeAt (-> (Vec Int) String Int Int Int))
+(pub fn (lspFieldNodeAt fs fname off i)
+  (if (>= i (vecLen fs))
+    0
+    (let ((f (vecGet fs i)))
+      (if (&& (strEq (nodeAName f) fname) (lspSpanHas (nodeSpan f) off))
+        f
+        (lspFieldNodeAt fs fname off (+ i 1))))))
+
+(pub :: lspHoverField (-> String (Vec Int) Int Int Int))
+(pub fn (lspHoverField src decls wsp range)
+  (let ((fs (spanStart wsp)))
+    (if (&& (!= fs 0) (== (strByte src (- fs 1)) 46))
+      (let ((bs (lspIdentStart src (- fs 1))))
+        (if (== bs (- fs 1))
+          0
+          (lspHoverFieldUse src decls (strSlice src bs (- (- fs 1) bs)) bs wsp range)))
+      (lspHoverFieldDecl src decls wsp range))))
 (pub :: lspHover (-> String String Int Int))
 ;@axiom:effect(io)
+; A field path is resolved as a path first: the word under the
+; cursor in `base.field` is only the field, and answering it as a
+; top-level name (or nothing) would be the wrong question. When the
+; path does not resolve, the word falls through to the ordinary
+; lookup below rather than answering null outright.
 (pub fn (lspHover src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -1917,10 +2096,13 @@
               (w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp))))
               (range (lspRangeIx src ix wsp))
             )
-              (let ((local (lspNavLocalHover src decls ix wsp)))
-                (if (!= local 0)
-                  local
-                  (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
+              (let ((fld (lspHoverField src decls wsp range)))
+                (if (!= fld 0)
+                  fld
+                  (let ((local (lspNavLocalHover src decls ix wsp)))
+                    (if (!= local 0)
+                      local
+                      (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
                     (if (!= d 0)
                       (lspHoverAt
                         src
@@ -1948,7 +2130,7 @@
                             dat
                             range
                             ""
-                            (lspCtorNote dat w)))))))))))))))
+                            (lspCtorNote dat w)))))))))))))))))
 
 ; The hover object for declaration `d`, whose spans index `dsrc` and
 ; whose signature - if it has one - is in `ddecls`. `range` names the
@@ -4521,7 +4703,11 @@
 ; A `let` binder scopes its BODY and not its value - a `let` is not
 ; recursive - so the value is walked before the name is pushed. The
 ; occurrence is emitted first because the name precedes the value in
-; the source, and the list is kept in source order.
+; the source, and the list is kept in source order. The binder's sixth
+; word carries the VALUE node (0 for every other binder kind, whose
+; sixth word is an index or unused): field hover reads a `let`-bound
+; base's type off the constructor the value builds, and no other
+; reader consults the word, so nothing else moves.
 (pub :: lspNavWalkLet (-> Int Int Int))
 (pub fn (lspNavWalkLet nv e)
   (let (
@@ -4535,7 +4721,7 @@
         (nodeSpan e)
         key
         NAV_B_LET
-        0)
+        (nodeB e))
       (lspNavWalk nv (nodeB e))
       (lspNavPush nv name key)
       (lspNavWalk nv (nodeC e))
