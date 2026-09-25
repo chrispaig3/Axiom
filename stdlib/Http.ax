@@ -408,6 +408,8 @@
 ; start a valid escape is kept as it is rather than refused, so a
 ; caller that must refuse one compares the answer with the input. Also
 ; answers `s` itself when there is nothing to decode.
+; The `unsafe` claim below is load-bearing: the body calls `__store8`
+; directly, so removing it draws `AX3073` (verified).
 (pub :: httpDecode (-> String Bool String))
 ;@axiom:effect(unsafe)
 (pub fn (httpDecode s plusSpace)
