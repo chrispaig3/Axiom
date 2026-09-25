@@ -177,6 +177,33 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-25 (13): LSP value-shape hover (34 shape readers)
+# and type hierarchy (17 walkers and handlers) land together.
+# Fifty-one added, none removed, one narrowed - each new row read off
+# `symbols` by name, and the narrowing is `lspNavColonAfter` losing
+# its dead `dbl` parameter with its `Unsafe` row unchanged.
+# Thirty-four read `Alloc,Mut,Unsafe`: `lspShapeApp`, `lspShapeArmBody`,
+# `lspShapeBegin`, `lspShapeBind`, `lspShapeBindAll`, `lspShapeBindVec`,
+# `lspShapeBuiltinTy`, `lspShapeCon`, `lspShapeConBuild`, `lspShapeCtorVar`,
+# `lspShapeField`, `lspShapeFieldTys`, `lspShapeJoin`, `lspShapeLetCode`,
+# `lspShapeMatch`, `lspShapeMatchIn`, `lspShapeOf`, `lspShapeOfBinder`,
+# `lspShapeSpine`, `lspShapeStructCon`, `lspShapeSubst`, `lspShapeSubstVec`,
+# `lspShapeTyParams`, `lspShapeUpCon`, `lspShapeVar`, `lspNavTypesSubtype`,
+# `lspSubtypes`, `lspThBaseSpan`, `lspThBuiltinItem`, `lspThDetail`,
+# `lspThFindImportedType`, `lspThItem`, `lspThSubject`, `lspThSubtypesIn`.
+# Twelve read exactly `Unsafe`: `lspShapeApplyArrow`, `lspShapeArrowArity`,
+# `lspShapeBindGet`, `lspShapeBindGetIn`, `lspShapeBuiltinRes`,
+# `lspShapeIsBad`, `lspShapeParamAt`, `lspShapeParamTy`,
+# `lspShapeQualified`, `lspThBaseHead`, `lspThBuiltin`, `lspThFindType`.
+# Three read `Alloc,IO,Mut,Unsafe`: `lspPrepareTypeHierarchy` and
+# `lspSupertypes` reach `lspResolveFor` (imported-module file reads) and
+# `lspThImportedItem` inherits it through `lspPathToUri` - the same
+# imported-module machinery every navigation request already reads, no
+# new IO source. Two are pure: `lspThIsTypeTag`, `lspThKind`.
+# Every move is a gain - `Alloc,Mut,Unsafe` 2243 to 2277, exactly
+# `Unsafe` 1137 to 1149, `Alloc,IO,Mut,Unsafe` 396 to 399, pure 553 to
+# 555 - and no EXISTING row moves buckets at all: the old-vs-new
+# `symbols` diff shows zero changed effect rows.
 # RE-PINNED 2026-09-25 (12): LSP hover reads struct fields, at the use
 # and where declared. Thirteen added, none removed, none changed - each
 # new row read off `symbols` by name. Seven read exactly `Unsafe`
@@ -285,15 +312,15 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2243 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1137 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2277 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1149 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 399 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 118 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 553 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 555 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
