@@ -56,13 +56,30 @@ Put this in `hello.ax`:
 ```scheme
 (import IO)
 
+(struct Mail
+  (msg : String)
+  (from : String)
+  (to : String))
+
+(:: sendMail (-> String String String Mail))
+(fn (sendMail m f t)
+  (let ((mail (Mail m f t)))
+    (mail)))
+
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  {
-    (println "Hello from Axiom! 🚀")
-    0
-  })
+  (let ((g (sendMail "Hello from Axiom!" "Chris Paige" "The World Wide Web")))
+    (let ((greeting g.msg))
+      (let ((from g.from))
+        (let ((to g.to))
+          {
+            (println "MSG: {greeting} 🚀")
+            (println "From: {from}")
+            (println "To: {to}")
+            0
+          })))))
+
 ```
 
 ```bash
