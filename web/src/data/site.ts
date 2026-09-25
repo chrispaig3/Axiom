@@ -1,4 +1,4 @@
-export const VERSION = '0.7.5'
+export const VERSION = '0.7.6'
 export const REPO = 'https://github.com/chrispaig3/Axiom'
 export const DOCS = `${REPO}/blob/trunk/docs`
 export const BLOB = `${REPO}/blob/trunk`

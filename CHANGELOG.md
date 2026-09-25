@@ -16,6 +16,99 @@ its changelog too.
 
 ## Unreleased
 
+<!-- Empty by design until the next change lands. The heading STAYS when a
+     release is cut: `scripts/check-gate-lib.sh` reads this file starting at
+     `## Unreleased` and takes the two sections below it, so removing the
+     heading makes the gate read NOTHING and fail - measured on the 0.7.0
+     tag, which is how this comment came to be here. -->
+
+## 0.7.6 — 2026-09-25
+
+### Hover shows a `let` value's type — `tests/lsp/drive.py`
+
+A `let`-bound name used to hover as its binding pair alone; it now
+answers the pair with the value's type underneath, from a `lspShape*`
+core that reads the raw tree the way the rest of the server does - no
+macro expansion and no pipeline, so the cost rule in `docs/lsp.md`
+holds with nothing to justify. The checker's builtin rows are a
+checked copy: `drive.py` reads `tcNew`'s own `regFn` rows out of
+`self_host/typecheck.ax` and fails if the server's table names
+anything else. Anything the shape cannot resolve answers null rather
+than a guess. Held by `scripts/check-lsp-selfhost.sh` (48 checks,
+13,936 sweep requests over 22 advertised providers).
+
+### Type hierarchy over the subtype graph — `tests/lsp/drive.py`
+
+`prepareTypeHierarchy`, `supertypes` and `subtypes`, advertised in
+capabilities. The only true hierarchy edge in Axiom is subtype to
+base - constructors are values, aliases are symmetric, traits do not
+exist - so the graph is exactly the `subtype` declarations and their
+base type-refs, which the occurrence walk now emits. The crash-sweep
+method table derives from advertised capabilities, so the new
+provider extended the sweep's request builders with it, and the
+thirteen re-blessed goldens differ by the capability line and its
+`Content-Length` ripple only. Held by
+`scripts/check-lsp-selfhost.sh`, with the survey verdict (one edge,
+not three) in `docs/lsp.md`.
+
+### Hover reads fields, at the use and where declared — `tests/lsp/drive.py`
+
+The word under the cursor in `base.field` is only the field, so a
+dotted position resolves as a path first: the base left of the dot,
+its struct, the field within it. Parameters take the struct from the
+owning signature; a `let` takes it from the constructor application
+its value builds (whose binder record now carries the value node).
+The fence quotes the whole struct with one line naming the field, the
+way constructor hover quotes the whole data. Anything unresolvable
+answers null, and an unresolvable path falls through to the word
+lookup. Held by `scripts/check-lsp-selfhost.sh`, with a
+mutation-tested assertion pinning both positions.
+
+### The MIR lowers the five bitwise operators — `tests/mir/120-bitwise.ax`
+
+`mBinOp` answers `and`/`or`/`xor`/`shl`/`ashr` (`>>` arithmetic,
+matching codegen and stage0), the evaluator reads them, and the
+optable seam goes 12 rows to 17 - with end-relative field parsing,
+because the `|` operator's own row is `||or|or`, which the old
+positional compare misread as a disagreement with an empty name.
+Eight more of the compiler's own functions take the IR emission path
+(280 to 288: `sysExitCode`, `utf8IsCont`, the `codegen` bit-part
+readers), byte-identical; the corpus lowered count moves nowhere,
+because every bitwise user also refuses for another reason -
+measured, old-vs-new sweep over all 63 modules, not assumed. `&&`
+and `||` stay out: the walk short-circuits them and one instruction
+cannot. Held by `scripts/check-mir.sh`, `check-mir-roundtrip.sh` and
+`check-mir-projection.sh`.
+
+### The MIR lowers `&&` and `||`, and the verifier closes the spelling axis — `tests/mir/130-andor.ax`
+
+Short-circuit operators desugar to the walk's own shape: the left
+side tested, the right side lowered in one arm only, the join
+answering 0/1 exactly as `emitAndOr`'s `phi` does - which is why the
+dispatch reads the head before any argument is lowered. Fixture 130
+pins both arms plus a divide guard behind each skip that must never
+fire: an eager lowering would exit 72 beside a native 0, and the
+differential holds that rather than the golden. Separately, the
+opcode NUMBER set was closed but the sixteen spellings were not, so a
+typo'd binop passed the verifier and evaluated to 0 in silence;
+`mIsBinSpelling` closes it, ABLATION 7 corrupts one row and requires
+exactly the spelling complaint on the three goldens carrying `srem`,
+and the seams ABLATIONs 4 and 5 match on are scoped by enclosing
+function, since the desugar ends its join the same way. Coverage
+2,509 of 5,349. Held by `scripts/check-mir.sh` (129 checks).
+
+### Effect-distribution pins re-derived, twice — `scripts/check-effect-distribution.sh`
+
+The LSP landings moved four buckets (fifty-one added functions: 34
+shape readers, 17 hierarchy walkers) and the MIR desugar two more
+(`mLowerAndOr`, `mIsAndOr`, `mIsBinSpelling`) - verified by diffing
+bucket membership between the old and new trees (added 54, removed
+0, changed 0: the one narrowing, `lspNavColonAfter` losing a dead
+parameter, keeps its row), so the required/ambient line itself did
+not move and the pins are re-derived rather than retuned. The three
+new `Alloc,IO,Mut,Unsafe` rows reach `lspResolveFor`, the same
+imported-module machinery every navigation request already reads.
+
 ### AXDL line kinds outside `EWNH` fail instead of filtering silent
 
 Every `axdl_only`-shaped filter keeps `^[EWNH] ` lines and drops the
@@ -948,7 +1041,8 @@ cases - comfortably within tolerance, exactly at the boundary, and far
 enough outside it that the assertion still catches a real mismatch, an
 assertion that always passes being worse than none - and
 `tests/agent/stdlib-effects.allow` and the generated
-`docs/stdlib-api.md` both carry the new name.
+`docs/stdlib-api.md` both carry the new name. Contributed by
+@JessicaTemplet.
 
 ### A test may be marked expected to fail — `scripts/check-test-runner.sh`
 
@@ -973,7 +1067,7 @@ control, a tagged assertion failure, a tagged division by zero, a
 tagged assertion that unexpectedly holds, and the tag read off a `::`
 signature - one real failure among the five, and the golden pins the
 exact `xfail`/`FAIL` line for each. Setup/teardown and running tests
-in parallel are still not here.
+in parallel are still not here. Contributed by @JessicaTemplet.
 
 ### A repeating pattern binds each binder to a sequence — `tests/selfhost/397-nested-repeat.ax`
 

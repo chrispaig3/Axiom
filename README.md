@@ -86,7 +86,7 @@ Put this in `hello.ax`:
 axiom run hello.ax                              # compile and run
 axiom build hello.ax -o hello                   # or keep the binary
 axiom explain AX3042                            # every code has a full explanation
-axiom repl                                      # Axiom 0.7.5 - REPL
+axiom repl                                      # Axiom 0.7.6 - REPL
 ```
 
 `IO` is Axiom's own standard library — that binary calls no C function, not

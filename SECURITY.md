@@ -19,7 +19,7 @@ naming one is a human decision this file will record when it happens.
 
 ## What is supported
 
-The supported release is **0.7.5**. Security fixes are made against the
+The supported release is **0.7.6**. Security fixes are made against the
 newest release and shipped as a new patch; earlier releases receive
 nothing, and there is no long-term-support branch.
 
