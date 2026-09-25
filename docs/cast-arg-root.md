@@ -46,7 +46,7 @@ Two candidate one-liners were considered and rejected:
 The real fix is MM-VAL-23: casts belong at a RETURN under an honest
 declared type (the `mapGet` -> `Int` + `mapGetStr` precedent). The
 1,223 AX3040 sites migrate that way; `scripts/check-cast-arg-root.sh`
-ratchets the user-level `(cast ` census (baseline 326, 2026-09-19,
+ratchets the user-level `(cast ` census (baseline 337, 2026-09-25,
 `stdlib/` + `tests/` + `examples/`, `self_host/` plumbing excluded) so
 the hole cannot widen silently while the migration runs.
 
