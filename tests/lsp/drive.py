@@ -1409,7 +1409,12 @@ NAV_MAIN = """(import RefHelper)
 
 (:: main Int)
 
-(fn (main) (+ (count 3) (+ (apply2) (radius (Circle 4)))))
+(fn (main)
+  (let ((c3 (count 3))
+        (dt (Dot))
+        (bx (Box (Dot) 7))
+        (tp bx.top))
+    (+ c3 (+ (apply2) (+ (radius (Circle 4)) (+ (radius tp) (match dt ((Dot) 0) (_ 1))))))))
 """
 NAV_USER = """(import NavMain)
 
@@ -1471,7 +1476,7 @@ def pair_text(src, byte):
 # and the check passes or fails for the wrong reason.
 NAV_COUNTS = {"ph": 4, "pw": 2, "area": 3, "acc": 4, "lx": 2, "rad": 3,
               "twice": 1, "Circle": 3, "count": 3, "surface": 0, "total": 0,
-              "Shape": 4, "Blob": 0}
+              "Shape": 4, "Blob": 0, "c3": 2, "dt": 2, "bx": 2, "tp": 2}
 for _n, _c in NAV_COUNTS.items():
     if ident_count(NAV_MAIN, _n) != _c:
         sys.exit(f"FAIL: NavMain.ax spells `{_n}` {ident_count(NAV_MAIN, _n)} "
@@ -1556,6 +1561,142 @@ for what, text in (("area signature", AREA_SIG), ("parameter type", PARAM_TYPE),
 if "ph" not in LET_TEXT or LET_TEXT.count("(") < 2:
     sys.exit(f"FAIL: the derived let pair {LET_TEXT!r} is not a `(name value)` pair")
 
+# The four `let`s in `main`: a `::` call, a nullary constructor, a
+# struct construction, and a field read - one per shape rule the
+# server answers. Binder first, read second; the pair each hover
+# must quote, cut from the document like `LET_TEXT`.
+ACC_TEXT = pair_text(NAV_MAIN, ACC[0]["byte"])
+C3 = idents(NAV_MAIN, "c3", 2)
+DT = idents(NAV_MAIN, "dt", 2)
+BX = idents(NAV_MAIN, "bx", 2)
+TP = idents(NAV_MAIN, "tp", 2)
+C3_TEXT = pair_text(NAV_MAIN, C3[0]["byte"])
+DT_TEXT = pair_text(NAV_MAIN, DT[0]["byte"])
+BX_TEXT = pair_text(NAV_MAIN, BX[0]["byte"])
+TP_TEXT = pair_text(NAV_MAIN, TP[0]["byte"])
+if "acc" not in ACC_TEXT or ACC_TEXT.count("(") < 1 or ACC_TEXT not in NAV_MAIN:
+    sys.exit(f"FAIL: the derived let pair for `acc` ({ACC_TEXT!r}) is not "
+             f"a `(mut acc v)` triple cut from NavMain.ax")
+for _name, _text in (("c3", C3_TEXT), ("dt", DT_TEXT), ("bx", BX_TEXT), ("tp", TP_TEXT)):
+    if not (_text.startswith(f"({_name} ") and _text.endswith(")") and _text in NAV_MAIN):
+        sys.exit(f"FAIL: the derived let pair for `{_name}` ({_text!r}) is not "
+                 f"a `(name value)` pair cut from NavMain.ax")
+# The result of `count`'s arrow, the `data` and `struct` names, and
+# the declared type of the `top` field - every type text a shape
+# hover below must show, each cut from the document that declares it.
+COUNT_SIG = between(NAV_MAIN, "(pub :: count", "\n\n(pub fn (count")
+COUNT_RESULT = COUNT_SIG[COUNT_SIG.rindex(" ") + 1:].rstrip(")")
+SHAPE_NAME = between(NAV_MAIN, "(pub data ", "\n").split()[2]
+BOX_NAME = between(NAV_MAIN, "(pub struct ", "\n").split()[2]
+_top = re.search(r"\(top : ([^)]+)\)", NAV_MAIN)
+TP_TYPE = _top.group(1) if _top else ""
+for _what, _text in (("count result", COUNT_RESULT), ("data name", SHAPE_NAME),
+                     ("struct name", BOX_NAME), ("field type", TP_TYPE)):
+    if not _text.strip() or _text not in NAV_MAIN:
+        sys.exit(f"FAIL: the derived {_what} ({_text!r}) is empty or not in "
+                 f"NavMain.ax - the shape hovers below rest on it")
+
+# The checker's builtin rows, derived from the checker rather than
+# written down.
+#
+# `self_host/lsp.ax` carries a copy of these rows - `lspShapeBuiltinRes`
+# answers a hover's `+` from it - and a hand-kept copy of another
+# module's table drifts. So the reference is `tcNew`'s own `regFn`
+# rows in self_host/typecheck.ax, and the check is an EQUALITY: the
+# hover on `ph`, whose value is `(+ ph 1)`, must carry the result the
+# checker's row for `+` types, and the copy in lsp.ax must name
+# exactly the operators the checker rows. A builtin the checker
+# retypes, adds or drops fails here until the server follows.
+TYPECHECK_AX = os.path.join(REPO, "self_host", "typecheck.ax")
+_tcsrc = open(TYPECHECK_AX, encoding="utf-8").read()
+
+
+def _one_form(s, i):
+    """One s-expression starting at `s[i]`: the form and the index past
+    it. Only atoms and balanced parens - the checker's type forms."""
+    while s[i].isspace():
+        i += 1
+    if s[i] == "(":
+        depth, j = 0, i
+        while True:
+            if s[j] == "(":
+                depth += 1
+            elif s[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    return s[i:j + 1], j + 1
+            j += 1
+    j = i
+    while j < len(s) and not s[j].isspace() and s[j] not in "()":
+        j += 1
+    return s[i:j], j
+
+
+def _tceval(text):
+    """A `tcNew` type form to ([params], result) type names. A type
+    variable renders `?name`, which collides with no real type - the
+    reference only ever equates the variable-free operator rows."""
+    text = text.strip()
+    if text in ("mkIntTy", "mkBoolTy", "mkStringTy", "mkFloatTy", "mkCharTy"):
+        return ([], {"mkIntTy": "Int", "mkBoolTy": "Bool",
+                     "mkStringTy": "String", "mkFloatTy": "Float",
+                     "mkCharTy": "Char"}[text])
+    if text.startswith('(mkTVar "') and text.endswith('")'):
+        return ([], "?" + text[len('(mkTVar "'):-2])
+    if text.startswith("(mkIntArrow ") and text.endswith(")"):
+        n = int(text[len("(mkIntArrow "):-1].strip())
+        return (["Int"] * n, "Int")
+    if text.startswith("(mkTArr ") and text.endswith(")"):
+        a, i = _one_form(text, len("(mkTArr "))
+        b, j = _one_form(text, i)
+        if text[j:].strip() != ")":
+            break_ok = False
+        else:
+            break_ok = True
+        pa, ra = _tceval(a)
+        pb, rb = _tceval(b)
+        first = ("(" + " ".join(pa + ["->", ra]) + ")") if pa else ra
+        if not break_ok:
+            sys.exit(f"FAIL: cannot read the checker type form {text!r} - "
+                     f"the builtin reference would be short")
+        return ([first] + pb, rb)
+    sys.exit(f"FAIL: cannot read the checker type form {text!r} in "
+             f"{TYPECHECK_AX} - the builtin reference would be short")
+
+
+CHECKER_BUILTINS = {}
+for _m in re.finditer(r'\(regFn fns "([^"]+)" ', _tcsrc):
+    _ty, _ = _one_form(_tcsrc, _m.end())
+    CHECKER_BUILTINS[_m.group(1)] = _tceval(_ty)
+_SHAPE_WANT = {}
+for _op in ["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"]:
+    _SHAPE_WANT[_op] = (["Int", "Int"], "Int")
+for _op in ["==", "!=", "<", ">", "<=", ">="]:
+    _SHAPE_WANT[_op] = (["Int", "Int"], "Bool")
+for _op in ["&&", "||"]:
+    _SHAPE_WANT[_op] = (["Bool", "Bool"], "Bool")
+for _op, _want in _SHAPE_WANT.items():
+    if CHECKER_BUILTINS.get(_op) != _want:
+        sys.exit(f"FAIL: the checker's row for `{_op}` is "
+                 f"{CHECKER_BUILTINS.get(_op)!r}, this file assumes {_want!r}")
+# A binary operator the checker rows and the list above does not name
+# - dunder primitives aside, which no hover spells - is a hover the
+# server answers without a reference, so the extraction refuses it.
+_binshapes = [tuple(p) + (r,) for p, r in _SHAPE_WANT.values()]
+_binop = {n for n, (p, r) in CHECKER_BUILTINS.items()
+          if not n.startswith("__") and tuple(p) + (r,) in _binshapes}
+if _binop != set(_SHAPE_WANT):
+    sys.exit(f"FAIL: the checker's binary-operator rows are {sorted(_binop)}, "
+             f"this file assumes {sorted(_SHAPE_WANT)}")
+_lsrc = open(os.path.join(REPO, "self_host", "lsp.ax"), encoding="utf-8").read()
+_lshape = _lsrc[_lsrc.index("(pub fn (lspShapeBuiltinRes"):
+               _lsrc.index("(pub :: lspShapeApplyArrow")]
+LSP_BUILTINS = set(re.findall(r'\(strEq h "([^"]+)"\)', _lshape))
+if LSP_BUILTINS != set(_SHAPE_WANT):
+    sys.exit(f"FAIL: lsp.ax's builtin table names {sorted(LSP_BUILTINS)}, the "
+             f"checker's rows name {sorted(_SHAPE_WANT)} - the copy has drifted")
+PLUS_RESULT = CHECKER_BUILTINS["+"][1]
+
 def nav_req(rid, method, uri, at, extra=None):
     p = {"textDocument": {"uri": uri},
          "position": {"line": at["line"], "character": at["start"]}}
@@ -1608,6 +1749,12 @@ nav_session2 = b"".join(frame(m) for m in [
     nav_req(31, "textDocument/hover", A_URI, PH[3]),
     nav_req(32, "textDocument/hover", C_URI, PW[1]),
     nav_req(33, "textDocument/definition", C_URI, PH[3]),
+    # value shapes: the `let` hover carries the value's type
+    nav_req(60, "textDocument/hover", A_URI, ACC[2]),
+    nav_req(61, "textDocument/hover", A_URI, C3[1]),
+    nav_req(62, "textDocument/hover", A_URI, DT[1]),
+    nav_req(63, "textDocument/hover", A_URI, BX[1]),
+    nav_req(64, "textDocument/hover", A_URI, TP[1]),
     # type positions: from the signature, from the declaration
     refs(35, A_URI, SHAPE_A[3], True), hilite(36, A_URI, SHAPE_A[0]),
     prep(37, A_URI, INT_IN_SIG), ren(38, A_URI, SHAPE_A[1], "Blob"),
@@ -1824,11 +1971,23 @@ elif nav_landed(28, A_URI, PH[1]):
 elif nav_landed(29, A_URI, PH[0]):
     nwhy = "definition of the parameter `ph` from the let's value: " + nav_landed(29, A_URI, PH[0])
 # (h) Hover: the parameter with its type from the signature, the let
-# with its binding pair cut from the document.
+# with its binding pair cut from the document and the value's shape
+# under it - a builtin call, a literal, a `::` call, a constructor,
+# a struct construction, a field read.
 elif nav_hover(30, [f"pw : {PARAM_TYPE}", "parameter of `area`"], PW[1]):
     nwhy = "hover on a parameter: " + nav_hover(30, [f"pw : {PARAM_TYPE}", "parameter of `area`"], PW[1])
-elif nav_hover(31, [LET_TEXT, "bound by `let` in `area`"], PH[3]):
-    nwhy = "hover on a let binding: " + nav_hover(31, [LET_TEXT, "bound by `let` in `area`"], PH[3])
+elif nav_hover(31, [LET_TEXT, "bound by `let` in `area`", f"ph : {PLUS_RESULT}"], PH[3]):
+    nwhy = "hover on a let binding: " + nav_hover(31, [LET_TEXT, "bound by `let` in `area`", f"ph : {PLUS_RESULT}"], PH[3])
+elif nav_hover(60, [ACC_TEXT, "bound by `let` in `count`", "acc : Int"], ACC[2]):
+    nwhy = "hover on a literal-bound let: " + nav_hover(60, [ACC_TEXT, "bound by `let` in `count`", "acc : Int"], ACC[2])
+elif nav_hover(61, [C3_TEXT, "bound by `let` in `main`", f"c3 : {COUNT_RESULT}"], C3[1]):
+    nwhy = "hover on a call-bound let: " + nav_hover(61, [C3_TEXT, "bound by `let` in `main`", f"c3 : {COUNT_RESULT}"], C3[1])
+elif nav_hover(62, [DT_TEXT, "bound by `let` in `main`", f"dt : {SHAPE_NAME}"], DT[1]):
+    nwhy = "hover on a constructor-bound let: " + nav_hover(62, [DT_TEXT, "bound by `let` in `main`", f"dt : {SHAPE_NAME}"], DT[1])
+elif nav_hover(63, [BX_TEXT, "bound by `let` in `main`", f"bx : {BOX_NAME}"], BX[1]):
+    nwhy = "hover on a struct-bound let: " + nav_hover(63, [BX_TEXT, "bound by `let` in `main`", f"bx : {BOX_NAME}"], BX[1])
+elif nav_hover(64, [TP_TEXT, "bound by `let` in `main`", f"tp : {TP_TYPE}"], TP[1]):
+    nwhy = "hover on a field-bound let: " + nav_hover(64, [TP_TEXT, "bound by `let` in `main`", f"tp : {TP_TYPE}"], TP[1])
 elif want_null(32, "hover on the document that does not parse"):
     nwhy = want_null(32, "hover on the document that does not parse")
 elif want_null(33, "definition on the document that does not parse"):
@@ -1915,8 +2074,9 @@ else:
           f"`1abc`, a sibling parameter, a name either document declares, and a type "
           f"name the signatures spell)")
     print(f"ok   local-nav  (definition from a read to ITS binder through a "
-          f"shadowing `let`, hover `pw : {PARAM_TYPE}` from the signature and "
-          f"{LET_TEXT!r} cut from the document; null on a broken document)")
+          f"shadowing `let`, hover `pw : {PARAM_TYPE}` from the signature, "
+          f"{LET_TEXT!r} with `ph : {PLUS_RESULT}` from the checker's row and "
+          f"five more lets with their shapes; null on a broken document)")
     passed += 4
 # ---------------------------------------------------------------------
 # CONSTRUCTOR NAVIGATION, over the session above. Its own block, so a

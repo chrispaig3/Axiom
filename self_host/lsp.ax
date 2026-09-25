@@ -5555,13 +5555,615 @@
                 (jsonObjPut (jsonObjPut jsonObj "uri" (jsonStr uri)) "range" (lspRangeIx src ix (memGetWord b 1)))))
             0))))))
 
+; ------------------------------------------------------------------
+; Value shapes: the type of the value at this position.
+;
+; WHAT THIS IS. One question - "what type does this expression have"
+; - asked of the RAW parse tree and answered as a type node, for the
+; two requests that show a value's type: `hover`, which answers it
+; below, and `inlayHint`, which is its next caller. The rules read
+; what the file SAYS: a literal's kind, a `::` signature's arrow, a
+; constructor's `data`, a builtin's row in the checker's own table.
+; Nothing here expands a macro and nothing runs the pipeline, which
+; is what the cost rule in docs/lsp.md requires of a per-keystroke
+; request: each answer costs one walk of the expression it types, and
+; a call's result costs no walk of its arguments at all unless the
+; callee is a constructor, whose type arguments are read off them.
+;
+; WHAT IT IS NOT is the checker. There is no unification, no
+; environment, and no error: where the checker would elaborate, this
+; answers 0 ("unknown") and the caller shows what it showed before.
+; Soundness stays where it was - a shape read off an ill-typed
+; program is still read, because the diagnostic beside it is the
+; checker's to publish, not this walk's to second-guess. Three
+; corollaries worth stating, because each is a trap a fuller answer
+; would fall into:
+;
+;   * A partial application answers the REMAINING arrow: `(+ 1)` is
+;     `(-> Int Int)`, exactly as the curried application means, and
+;     an argument past the arrows' end is unknown rather than an
+;     error, because arity is the checker's complaint.
+;   * A constructor answers its `data` with the arguments the call
+;     determines: `(Just 5)` is `Maybe Int`, `(Dot)` is `Shape`. An
+;     argument the call does NOT determine - `(Nothing)`, whose `a`
+;     appears nowhere - is unknown rather than a bare `Maybe`,
+;     because a bare `Maybe` is a different type wearing fewer
+;     words.
+;   * A variable answers through its binder, which the scope-aware
+;     walk has already resolved: a parameter through the owning
+;     signature, a `let` through its value. The walk's keys make
+;     shadowing exact for free, and a `let` is not recursive, so a
+;     value never names its own binder and the recursion always
+;     reaches an earlier binding; the fuel beside it is a backstop,
+;     not the termination argument. A TOP-LEVEL name as a value is
+;     read the way `checkBareValue` reads it - a `fn` of fewer
+;     than two arguments answers its signature, a nullary
+;     constructor its `data` - because a two-argument `fn` and a
+;     constructor that takes arguments are refused as bare values
+;     (AX3013, AX3009), and a shape beside the checker's poison
+;     would be a guess.
+;
+; WHAT IT DOES NOT ANSWER, and why each is a later slice rather than
+; a gap in this one: a name from another module (the imported
+; declarations are a read away and this slice did not take it); a
+; `lambda` (a function value whose parameter types the tree never
+; spells); a lambda parameter or a pattern variable (same reason -
+; the binder carries no value to read); and a field base this walk
+; could resolve but `lspFieldBaseStruct` still answers on its own,
+; which is the migration the next slice does.
+;
+; THE BUILTIN TABLE (`lspShapeBuiltinRes`) is a copy of `tcNew`'s
+; `regFn` rows in self_host/typecheck.ax, and it is a checked copy:
+; tests/lsp/drive.py parses those rows and requires the server's
+; answer to agree with them, the way it requires the completion
+; keywords to agree with the parser's. The checker types `+` as
+; `(-> Int Int Int)` unconditionally, so this does too - a `+` of
+; two strings is the checker's AX3004 beside a hover of `Int`.
+; ------------------------------------------------------------------
+; 0 and the poison type are both "unknown" to every reader here: a
+; broken signature answers nothing rather than a rendering of the
+; poison, the way the checker propagates it in silence.
+(pub :: lspShapeIsBad (-> Int Bool))
+(pub fn (lspShapeIsBad t)
+  (if (== t 0)
+    true
+    (== (nodeTag t) TAG_T_ERR)))
+
+; The checker's row for a builtin operator: 1 for an `Int` result
+; over `Int` arguments, 2 for `Bool` over `Int`, 3 for `Bool` over
+; `Bool`, 0 for "not a builtin this table knows". The rows mirror
+; `tcNew` in self_host/typecheck.ax exactly - same names, same
+; shapes - and the gate holds the mirror: ten arithmetic and bitwise
+; operators, six comparisons, two logical operators.
+(pub :: lspShapeBuiltinRes (-> String Int))
+(pub fn (lspShapeBuiltinRes h)
+  (if (strEq h "+") 1
+    (if (strEq h "-") 1
+      (if (strEq h "*") 1
+        (if (strEq h "/") 1
+          (if (strEq h "%") 1
+            (if (strEq h "&") 1
+              (if (strEq h "|") 1
+                (if (strEq h "^") 1
+                  (if (strEq h "<<") 1
+                    (if (strEq h ">>") 1
+                      (if (strEq h "==") 2
+                        (if (strEq h "!=") 2
+                          (if (strEq h "<") 2
+                            (if (strEq h ">") 2
+                              (if (strEq h "<=") 2
+                                (if (strEq h ">=") 2
+                                  (if (strEq h "&&") 3
+                                    (if (strEq h "||") 3
+                                      0)))))))))))))))))))
+
+; Drop one arrow domain per argument: the curried reading of a call.
+; A non-arrow with arguments left, a missing type, and poison are
+; all unknown.
+(pub :: lspShapeApplyArrow (-> Int Int Int))
+(pub fn (lspShapeApplyArrow ty n)
+  (if (lspShapeIsBad ty)
+    0
+    (if (== n 0)
+      ty
+      (if (!= (nodeTag ty) TAG_T_ARR)
+        0
+        (lspShapeApplyArrow (nodeB ty) (- n 1))))))
+
+; A builtin's type under application: its row's full arrow with one
+; domain dropped per argument, so a partial application answers the
+; remaining arrow.
+(pub :: lspShapeBuiltinTy (-> String Int Int))
+(pub fn (lspShapeBuiltinTy h nargs)
+  (let ((r (lspShapeBuiltinRes h)))
+    (if (== r 0)
+      0
+      (lspShapeApplyArrow
+        (if (== r 1)
+          (mkTArr mkIntTy (mkTArr mkIntTy mkIntTy))
+          (if (== r 2)
+            (mkTArr mkIntTy (mkTArr mkIntTy mkBoolTy))
+            (mkTArr mkBoolTy (mkTArr mkBoolTy mkBoolTy))))
+        nargs))))
+
+; The spine of a call: the head, with the arguments pushed in order.
+; The loop is `lspViewHintsApp`'s, factored so a shape and a hint
+; read one spine the same way.
+(pub :: lspShapeSpine (-> Int (Vec Int) Int))
+(pub fn (lspShapeSpine e args)
+  (let ((mut h e))
+    {
+      (while (== (nodeTag h) TAG_E_APP)
+        {
+          (vecPush args (nodeB h))
+          (set h (nodeA h))
+        })
+      (lspViewReverse args)
+      h
+    }))
+
+; Bindings are a flat Vec of (name, node) pairs, names at even
+; words: a constructor's arity is single digits, so a scan is the
+; index. 0 is "unbound", which is exact because nothing binds 0 -
+; an unknown argument binds nothing, and the coverage check below
+; turns the hole into an unknown shape.
+(pub :: lspShapeBindGet (-> (Vec Int) String Int))
+(pub fn (lspShapeBindGet pairs name)
+  (lspShapeBindGetIn pairs name 0))
+
+(pub :: lspShapeBindGetIn (-> (Vec Int) String Int Int))
+(pub fn (lspShapeBindGetIn pairs name i)
+  (if (>= i (vecLen pairs))
+    0
+    (if (strEq (vecGetStr pairs i) name)
+      (vecGet pairs (+ i 1))
+      (lspShapeBindGetIn pairs name (+ i 2)))))
+
+; A parameter's index, or -1. A variable that names no parameter is
+; not the call's to bind.
+(pub :: lspShapeParamAt (-> (Vec String) String Int Int))
+(pub fn (lspShapeParamAt params name i)
+  (if (>= i (vecLen params))
+    (- 0 1)
+    (if (strEq (vecGetStr params i) name)
+      i
+      (lspShapeParamAt params name (+ i 1)))))
+
+; Pair one field type with its argument's shape, recording what the
+; call determines about the type's parameters: 1 for "bound, or
+; nothing to bind", 0 for "contradicted". A bare parameter takes
+; its argument's shape, and two shapes for one parameter must
+; render equal; a constructor or arrow pairs structurally, and only
+; with the same head; anything else - a concrete field against any
+; argument, a parameter against an unknown one - binds nothing and
+; passes, because mismatch is the checker's complaint and silence
+; here would veto shapes the call does determine.
+(pub :: lspShapeBind (-> Int Int (Vec String) (Vec Int) Int))
+(pub fn (lspShapeBind ft arg params pairs)
+  (if (lspShapeIsBad ft)
+    0
+    (if (== (nodeTag ft) TAG_T_VAR)
+      (let ((vn (nodeAName ft)))
+        (if (!= (lspShapeParamAt params vn 0) (- 0 1))
+          (if (lspShapeIsBad arg)
+            1
+            (let ((old (lspShapeBindGet pairs vn)))
+              (if (== old 0)
+                {
+                  (vecPush pairs (cast Int vn))
+                  (vecPush pairs arg)
+                  1
+                }
+                (if (strEq (tyRender old) (tyRender arg)) 1 0))))
+          1))
+      (if (== (nodeTag ft) TAG_T_CON)
+        (if (&& (!= arg 0) (&& (== (nodeTag arg) TAG_T_CON) (strEq (nodeAName ft) (nodeAName arg))))
+          (lspShapeBindVec (nodeBVec ft) (nodeBVec arg) params pairs 0)
+          1)
+        (if (== (nodeTag ft) TAG_T_ARR)
+          (if (&& (!= arg 0) (== (nodeTag arg) TAG_T_ARR))
+            (if (== (lspShapeBind (nodeA ft) (nodeA arg) params pairs) 0)
+              0
+              (lspShapeBind (nodeB ft) (nodeB arg) params pairs))
+            1)
+          1)))))
+
+(pub :: lspShapeBindVec (-> (Vec Int) (Vec Int) (Vec String) (Vec Int) Int Int))
+(pub fn (lspShapeBindVec fts args params pairs i)
+  (if (>= i (vecLen fts))
+    1
+    (if (>= i (vecLen args))
+      1
+      (if (== (lspShapeBind (vecGet fts i) (vecGet args i) params pairs) 0)
+        0
+        (lspShapeBindVec fts args params pairs (+ i 1))))))
+
+; The type a constructor application builds: each field paired with
+; its argument's shape, then every parameter read out in order. A
+; field count that is not the argument count is unknown, and so is
+; a parameter the call leaves unbound.
+(pub :: lspShapeCon (-> (Vec Int) (Vec Int) String (Vec String) (Vec Int) (Vec Int) Int Int))
+(pub fn (lspShapeCon decls occs tname params fts args fuel)
+  (if (!= (vecLen fts) (vecLen args))
+    0
+    (let ((pairs vecNew))
+      (if (== (lspShapeBindAll decls occs fts args params pairs fuel 0) 0)
+        0
+        (lspShapeConBuild tname params pairs 0 vecNew)))))
+
+(pub :: lspShapeBindAll (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) (Vec Int) Int Int Int))
+(pub fn (lspShapeBindAll decls occs fts args params pairs fuel i)
+  (if (>= i (vecLen fts))
+    1
+    (if (== (lspShapeBind (vecGet fts i) (lspShapeOf decls occs (vecGet args i) fuel) params pairs) 0)
+      0
+      (lspShapeBindAll decls occs fts args params pairs fuel (+ i 1)))))
+
+(pub :: lspShapeConBuild (-> String (Vec String) (Vec Int) Int (Vec Int) Int))
+(pub fn (lspShapeConBuild tname params pairs i acc)
+  (if (>= i (vecLen params))
+    (mkTCon tname acc)
+    (let ((t (lspShapeBindGet pairs (vecGetStr params i))))
+      (if (== t 0)
+        0
+        {
+          (vecPush acc t)
+          (lspShapeConBuild tname params pairs (+ i 1) acc)
+        }))))
+
+; `t` with each parameter replaced by its argument: fresh nodes,
+; the arguments shared. Arity is the caller's check, and a
+; variable that names no parameter is shared as it stands.
+(pub :: lspShapeSubst (-> Int (Vec String) (Vec Int) Int))
+(pub fn (lspShapeSubst t params args)
+  (if (== t 0)
+    0
+    (if (== (nodeTag t) TAG_T_VAR)
+      (let ((at (lspShapeParamAt params (nodeAName t) 0)))
+        (if (< at 0)
+          t
+          (vecGet args at)))
+      (if (== (nodeTag t) TAG_T_CON)
+        (mkTCon (nodeAName t) (lspShapeSubstVec (nodeBVec t) params args 0 vecNew))
+        (if (== (nodeTag t) TAG_T_ARR)
+          (mkTArr (lspShapeSubst (nodeA t) params args) (lspShapeSubst (nodeB t) params args))
+          t)))))
+
+(pub :: lspShapeSubstVec (-> (Vec Int) (Vec String) (Vec Int) Int (Vec Int) (Vec Int)))
+(pub fn (lspShapeSubstVec ts params args i acc)
+  (if (|| (== (cast Int ts) 0) (>= i (vecLen ts)))
+    acc
+    {
+      (vecPush acc (lspShapeSubst (vecGet ts i) params args))
+      (lspShapeSubstVec ts params args (+ i 1) acc)
+    }))
+
+; A `data`'s or `struct`'s type parameters. A `data` always writes
+; its vector; a struct with none leaves the slot 0 (see
+; `parseFieldsTv`), which is why this is not `nodeTyVec` outright.
+(pub :: lspShapeTyParams (-> Int (Vec String)))
+(pub fn (lspShapeTyParams d)
+  (if (== (nodeTy d) 0)
+    vecNew
+    (nodeTyVec d)))
+
+; The field types of a struct's fields, in order.
+(pub :: lspShapeFieldTys (-> (Vec Int) Int (Vec Int) (Vec Int)))
+(pub fn (lspShapeFieldTys fs i acc)
+  (if (== (cast Int fs) 0)
+    acc
+    (if (>= i (vecLen fs))
+      acc
+      {
+        (vecPush acc (nodeTy (vecGet fs i)))
+        (lspShapeFieldTys fs (+ i 1) acc)
+      })))
+
+; The `k`th parameter type of the `::` signature naming `owner`:
+; the one lookup behind a parameter's hover, and behind a
+; variable's shape. 0 for no signature or no arrow there.
+(pub :: lspShapeParamTy (-> (Vec Int) String Int Int))
+(pub fn (lspShapeParamTy decls owner k)
+  (let ((sig (lspFindSig decls owner (- (vecLen decls) 1))))
+    (if (== sig 0)
+      0
+      (nthParamTy (nodeTy sig) k 0))))
+
+; The arrows of a curried type: `Int` is 0, `(-> Int Int)` is 1.
+(pub :: lspShapeArrowArity (-> Int Int))
+(pub fn (lspShapeArrowArity ty)
+  (if (== ty 0)
+    0
+    (if (!= (nodeTag ty) TAG_T_ARR)
+      0
+      (+ 1 (lspShapeArrowArity (nodeB ty))))))
+
+; A nullary constructor as a value: its `data`, when the `data`
+; takes no arguments. `(Dot)` is `Shape`; `(Nothing)` is unknown,
+; because its `a` is determined nowhere - the same coverage rule
+; `lspShapeCon` applies to a call. A constructor that TAKES
+; arguments is unknown as a bare value, because the checker
+; refuses it (AX3009) rather than typing it.
+(pub :: lspShapeCtorVar (-> (Vec Int) String Int))
+(pub fn (lspShapeCtorVar decls name)
+  (let ((dat (lspFindCtorData decls name (- (vecLen decls) 1))))
+    (if (== dat 0)
+      0
+      (let ((c (lspCtorNodeOf dat name)))
+        (if (== c 0)
+          0
+          (if (!= (vecLen (nodeTyVec c)) 0)
+            0
+            (if (!= (vecLen (lspShapeTyParams dat)) 0)
+              0
+              (mkTCon (nodeAName dat) vecNew))))))))
+
+; A variable's shape through its binder: a parameter through the
+; owning signature, a `let` through its value with one fuel spent.
+; `true` and `false` are `Bool` the way the checker types them.
+; A top-level name as a value is read the way `checkBareValue`
+; reads it: a `fn` of fewer than two arguments answers its
+; signature's type - a nullary `(:: seven Int)` used as `seven`,
+; or a one-argument `fn` named without being called - and a
+; `fn` of two or more is unknown, because the checker refuses
+; the bare value (AX3013) rather than typing it. A nullary
+; constructor answers its `data`. Signatures and constructors
+; from this document only; anything imported is the next
+; slice's read.
+(pub :: lspShapeVar (-> (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspShapeVar decls occs e fuel)
+  (let ((name (nodeAName e)))
+    (if (strEq name "true")
+      mkBoolTy
+      (if (strEq name "false")
+        mkBoolTy
+        (if (== (nodeSpan e) 0)
+          0
+          (let ((o (lspNavAt occs (spanStart (nodeSpan e)))))
+            (if (== o 0)
+              0
+              (let ((key (memGetWordStr o 3)))
+                (if (lspNavIsLocal key)
+                  (let ((b (lspNavBinderOf occs key)))
+                    (if (== b 0)
+                      0
+                      (let ((bkind (memGetWord b 4)))
+                        (if (== bkind NAV_B_PARAM)
+                          (let ((t (lspShapeParamTy decls (memGetWordStr b 5) (memGetWord b 6))))
+                            (if (lspShapeIsBad t) 0 t))
+                          (if (== bkind NAV_B_LET)
+                            (if (<= fuel 0)
+                              0
+                              (let ((v (memGetWord b 6)))
+                                (if (== v 0)
+                                  0
+                                  (lspShapeOf decls occs v (- fuel 1)))))
+                            0)))))
+                  (let ((sig (lspFindSig decls name (- (vecLen decls) 1))))
+                    (if (!= sig 0)
+                      (let ((t (nodeTy sig)))
+                        (if (lspShapeIsBad t)
+                          0
+                          (if (>= (lspShapeArrowArity t) 2)
+                            0
+                            t)))
+                      (lspShapeCtorVar decls name))))))))))))
+
+; Two branches' join: the shape when both agree, unknown when they
+; do not. Rendered strings are the comparison, because the two
+; nodes are built apart and share nothing.
+(pub :: lspShapeJoin (-> Int Int Int))
+(pub fn (lspShapeJoin a b)
+  (if (lspShapeIsBad a)
+    0
+    (if (lspShapeIsBad b)
+      0
+      (if (strEq (tyRender a) (tyRender b))
+        a
+        0))))
+
+; A block's shape is its last expression's.
+(pub :: lspShapeBegin (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
+(pub fn (lspShapeBegin decls occs xs fuel)
+  (if (== (cast Int xs) 0)
+    0
+    (if (== (vecLen xs) 0)
+      0
+      (lspShapeOf decls occs (vecGet xs (- (vecLen xs) 1)) fuel))))
+
+; A `match`'s shape: every arm body's, when they agree.
+(pub :: lspShapeMatch (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
+(pub fn (lspShapeMatch decls occs arms fuel)
+  (if (== (cast Int arms) 0)
+    0
+    (if (== (vecLen arms) 0)
+      0
+      (lspShapeMatchIn decls occs arms fuel 1 (lspShapeArmBody decls occs (vecGet arms 0) fuel)))))
+
+(pub :: lspShapeArmBody (-> (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspShapeArmBody decls occs arm fuel)
+  (if (== arm 0)
+    0
+    (if (!= (nodeTag arm) TAG_M_ARM)
+      0
+      (lspShapeOf decls occs (nodeB arm) fuel))))
+
+(pub :: lspShapeMatchIn (-> (Vec Int) (Vec Int) (Vec Int) Int Int Int Int))
+(pub fn (lspShapeMatchIn decls occs arms fuel i acc)
+  (if (>= i (vecLen arms))
+    acc
+    (let ((j (lspShapeJoin acc (lspShapeArmBody decls occs (vecGet arms i) fuel))))
+      (if (== j 0)
+        0
+        (lspShapeMatchIn decls occs arms fuel (+ i 1) j)))))
+
+; `true` for a head from another module, whatever the pipeline
+; stage spelled it with: `::` in the raw tree, `$` after mangling.
+(pub :: lspShapeQualified (-> String Bool))
+(pub fn (lspShapeQualified name)
+  (match (strFindByte name 58 0)
+    ((None)
+      (match (strFindByte name 36 0)
+        ((None) false)
+        ((Some _) true)))
+    ((Some _) true)))
+
+; A call's shape, asked in the language's own order: this
+; document's signature first, so a declaration shadows a builtin
+; of the same spelling; then the builtin table; then, for an
+; upcased head, the struct or constructor the name declares.
+(pub :: lspShapeApp (-> (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspShapeApp decls occs e fuel)
+  (let ((args vecNew))
+    (let ((h (lspShapeSpine e args)))
+      (if (!= (nodeTag h) TAG_E_VAR)
+        0
+        (let ((name (nodeAName h)))
+          (if (lspShapeQualified name)
+            0
+            (let ((sig (lspFindSig decls name (- (vecLen decls) 1))))
+              (if (!= sig 0)
+                (lspShapeApplyArrow (nodeTy sig) (vecLen args))
+                (if (!= (lspShapeBuiltinRes name) 0)
+                  (lspShapeBuiltinTy name (vecLen args))
+                  (if (== (lspIsUpperStart name) 1)
+                    (lspShapeUpCon decls occs name args fuel)
+                    0))))))))))
+
+; An upcased head: a struct built positionally, or a constructor
+; of the `data` that declares it - verified, not spelled: a name
+; that is neither answers unknown.
+(pub :: lspShapeUpCon (-> (Vec Int) (Vec Int) String (Vec Int) Int Int))
+(pub fn (lspShapeUpCon decls occs name args fuel)
+  (let ((d (lspFindTypeDecl decls name (- (vecLen decls) 1))))
+    (if (&& (!= d 0) (== (nodeTag d) TAG_D_STRUCT))
+      (lspShapeCon decls occs name (lspShapeTyParams d) (lspShapeFieldTys (nodeBVec d) 0 vecNew) args fuel)
+      (let ((dat (lspFindCtorData decls name (- (vecLen decls) 1))))
+        (if (== dat 0)
+          0
+          (let ((c (lspCtorNodeOf dat name)))
+            (if (== c 0)
+              0
+              (lspShapeCon decls occs (nodeAName dat) (lspShapeTyParams dat) (nodeTyVec c) args fuel))))))))
+
+; `(struct Name ...)`: the named struct, verified like any other
+; construction.
+(pub :: lspShapeStructCon (-> (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspShapeStructCon decls occs e fuel)
+  (let ((d (lspFindTypeDecl decls (nodeAName e) (- (vecLen decls) 1))))
+    (if (|| (== d 0) (!= (nodeTag d) TAG_D_STRUCT))
+      0
+      (let ((raw (nodeBVec e)))
+        (lspShapeCon decls occs (nodeAName e) (lspShapeTyParams d) (lspShapeFieldTys (nodeBVec d) 0 vecNew) (if (== (cast Int raw) 0) vecNew raw) fuel)))))
+
+; A field read: the field's declared type, with the base's
+; arguments in place of the struct's parameters. The base is
+; whatever shape the walk resolved - a parameter, a `let`, a
+; call result - so a call result reaches its field here where
+; `lspFieldBaseStruct` answers null; that function's own
+; migration onto this walk is the next slice.
+(pub :: lspShapeField (-> (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspShapeField decls occs e fuel)
+  (let ((b (lspShapeOf decls occs (nodeA e) fuel)))
+    (if (lspShapeIsBad b)
+      0
+      (if (!= (nodeTag b) TAG_T_CON)
+        0
+        (let ((d (lspFindTypeDecl decls (nodeAName b) (- (vecLen decls) 1))))
+          (if (|| (== d 0) (!= (nodeTag d) TAG_D_STRUCT))
+            0
+            (let ((f (lspStructFieldNode (nodeBVec d) (nodeBName e) 0)))
+              (if (== f 0)
+                0
+                (let ((ft (nodeTy f)))
+                  (if (lspShapeIsBad ft)
+                    0
+                    (let ((ps (lspShapeTyParams d)))
+                      (let ((raw (nodeBVec b)))
+                        (let ((as (if (== (cast Int raw) 0) vecNew raw)))
+                          (if (!= (vecLen ps) (vecLen as))
+                            0
+                            (lspShapeSubst ft ps as)))))))))))))))
+
+; The shape of an expression: a literal's kind, a variable
+; through its binder, a call through its signature, table row or
+; constructor, a branch or block through what it yields. A `set`
+; evaluates to 0, the checker's rule as much as the emitter's.
+; Anything else - a `lambda`, a loop, a form this slice does not
+; read - is unknown.
+(pub :: lspShapeOf (-> (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspShapeOf decls occs e fuel)
+  (if (== e 0)
+    0
+    (let ((tag (nodeTag e)))
+      (if (== tag TAG_E_INT)
+        mkIntTy
+        (if (== tag TAG_E_STR)
+          mkStringTy
+          (if (== tag TAG_E_CHAR)
+            mkCharTy
+            (if (== tag TAG_E_FLT)
+              mkFloatTy
+              (if (== tag TAG_E_VAR)
+                (lspShapeVar decls occs e fuel)
+                (if (== tag TAG_E_APP)
+                  (lspShapeApp decls occs e fuel)
+                  (if (== tag TAG_E_IF)
+                    (lspShapeJoin (lspShapeOf decls occs (nodeB e) fuel) (lspShapeOf decls occs (nodeC e) fuel))
+                    (if (== tag TAG_E_BEGIN)
+                      (lspShapeBegin decls occs (nodeAVec e) fuel)
+                      (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
+                        (lspShapeOf decls occs (nodeC e) fuel)
+                        (if (== tag TAG_E_MATCH)
+                          (lspShapeMatch decls occs (nodeBVec e) fuel)
+                          (if (== tag TAG_E_STRUCTCON)
+                            (lspShapeStructCon decls occs e fuel)
+                            (if (== tag TAG_E_FIELD)
+                              (lspShapeField decls occs e fuel)
+                              (if (|| (== tag TAG_E_SET) (== tag TAG_E_SETF))
+                                mkIntTy
+                                0))))))))))))))))
+
+; A binder's shape: a parameter's from its signature, a `let`'s
+; from its value. A lambda parameter or pattern variable carries
+; no value to read - unknown, until the call sites that could
+; type them are a slice of their own.
+(pub :: lspShapeOfBinder (-> (Vec Int) (Vec Int) Int Int))
+(pub fn (lspShapeOfBinder decls occs b)
+  (if (== b 0)
+    0
+    (let ((bkind (memGetWord b 4)))
+      (if (== bkind NAV_B_PARAM)
+        (let ((t (lspShapeParamTy decls (memGetWordStr b 5) (memGetWord b 6))))
+          (if (lspShapeIsBad t) 0 t))
+        (if (== bkind NAV_B_LET)
+          (let ((v (memGetWord b 6)))
+            (if (== v 0)
+              0
+              (lspShapeOf decls occs v 16)))
+          0)))))
+
+; A `let`'s hover code: the binding pair, with the value's shape
+; under it when the walk knows one. The pair is first and the
+; type second, because the binding is the answer and the type
+; annotates it; an unknown shape leaves the pair exactly as it
+; was.
+(pub :: lspShapeLetCode (-> String (Vec Int) (Vec Int) Int Int String String))
+(pub fn (lspShapeLetCode src decls occs b at name)
+  (let ((pair (lspClampLines (lspFormText src (lspNearestOpen src at)) 40)))
+    (let ((t (lspShapeOfBinder decls occs b)))
+      (if (lspShapeIsBad t)
+        pair
+        (strConcat pair (strConcat "\n" (strConcat name (strConcat " : " (tyRender t)))))))))
+
 ; A hover for a local: the binding AS WRITTEN, and a line saying what
 ; kind of binding it is, so a reader knows whether the fence is a
 ; `let` pair, a parameter, or a pattern.
 ;
 ;   let       the binding pair, `(x (+ a 1))` or `(mut i 0)`, cut from
 ;             the pair's own `(` to its `)` and clamped like every
-;             other fence
+;             other fence, with `x : T` under it when the value's
+;             shape is known
 ;   fn param  `x : Int` when the `fn` has a `::` signature with an
 ;             arrow at that position, else `x`
 ;   lambda param, pattern variable
@@ -5585,7 +6187,7 @@
                 )
                   (let (
                     (code (if (== bkind NAV_B_LET)
-                      (lspClampLines (lspFormText src (lspNearestOpen src at)) 40)
+                      (lspShapeLetCode src decls occs b at name)
                       (if (== bkind NAV_B_PARAM)
                         (lspNavParamCode decls owner name (memGetWord b 6))
                         (strConcat name (strConcat "\n" (lspNavLineText src at))))))
@@ -5607,13 +6209,10 @@
 ; type nodes carry no spans.
 (pub :: lspNavParamCode (-> (Vec Int) String String Int String))
 (pub fn (lspNavParamCode decls owner name k)
-  (let ((sig (lspFindSig decls owner (- (vecLen decls) 1))))
-    (if (== sig 0)
+  (let ((t (lspShapeParamTy decls owner k)))
+    (if (== t 0)
       name
-      (let ((t (nthParamTy (nodeTy sig) k 0)))
-        (if (== t 0)
-          name
-          (strConcat name (strConcat " : " (tyRender t))))))))
+      (strConcat name (strConcat " : " (tyRender t))))))
 
 ; The line `off` sits on, without its indentation.
 (pub :: lspNavLineText (-> String Int String))

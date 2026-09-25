@@ -672,12 +672,32 @@ x : Int
 parameter of `bump`
 ```
 
-with the type cut from the signature's arrow. The `range` is the word
+with the type cut from the signature's arrow. A `let` answers its
+binding pair with the value's shape under it when the walk knows
+one — `(ph (+ ph 1))` with `ph : Int`, from the checker's own row
+for `+`:
+
+```text
+(ph (+ ph 1))
+ph : Int
+
+bound by `let` in `area`
+```
+
+The shape is read off the raw tree and never elaborated: a
+literal's kind, a `::` call's result, a constructor's `data`, a
+builtin's row, a variable through its binder. What the walk cannot
+determine — a name from another module, a `lambda`, a parameter
+the call leaves unbound — leaves the pair exactly as it was,
+rather than a guess. The `range` is the word
 under the cursor, not the declaration, which for an imported name is
 in a different file. `null` for a builtin, a keyword or a name nothing
 declares. The gate cuts every quoted form and every paragraph out of
 the document itself — a second implementation, in Python, of
-`lspFormText` and `lspDocComment` — and compares.
+`lspFormText` and `lspDocComment` — and compares, and `SECTION NAV
+TESTS` cuts every `::` result, every `data` and `struct` name, and
+the checker's builtin rows from the modules that declare them, so
+the shape the server shows is derived three ways and blessed none.
 
 **`textDocument/completion`.** In this order: the head keywords the
 parser dispatches on (extracted from the `kwEq` call sites of
