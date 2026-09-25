@@ -950,8 +950,8 @@
 ; unjoined they would sit as siblings inside their enclosing group and
 ; give it two extra elements - `(g x.y)` would print as `(g x . y)`, an
 ; application of three things. Both join only when the tokens TOUCH,
-; which is what tells `Mem::memAlloc` apart from a trait method's
-; `show :: (-> a Int)`, where the same `::` separates a name from a type
+; which is what tells `Mem::memAlloc` apart from a signature's
+; `(:: show (-> a String))`, where the same `::` introduces a type
 ; with spaces around it.
 (pub :: FN_FIELD Int)
 (pub fn (FN_FIELD)

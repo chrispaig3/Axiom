@@ -283,12 +283,12 @@ export const SAMPLES: Sample[] = [
       (println
         (handle
           (total rows)
-          (Log Alloc Mut)
+          (Log Alloc Mut Unsafe)
           (lambda (m) (println m))))
       (let ((sum 
         (handle
           (total rows)
-          (Log Alloc Mut)
+          (Log Alloc Mut Unsafe)
           (lambda (m) (vecLen (vecPush seen m))))))
         {
           (assertEq "same total, nothing printed" 42 sum)

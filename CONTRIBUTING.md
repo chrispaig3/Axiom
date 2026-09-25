@@ -196,20 +196,21 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-22, `axiom fmt --check` over every one of the 712 `.ax` files
-in the repository answers `is already formatted` for 691 of them and
-`needs formatting` for 4. All 4 are deliberate and are named here:
+2026-09-25, `axiom fmt --check` over every one of the 712 `.ax` files
+in the repository answers `is already formatted` for 683 of them and
+`needs formatting` for 29. Four are deliberate and are named here:
 `tests/fmt/syntax-zoo.ax` and `tests/diagnostics/940-long-line.ax`,
 whose text is the fixture; `examples/batch-fallible/batch-fallible.ax`,
 a program that stays as it is until someone edits it; and
 `tests/diagnostics/654-macro-hygiene-suggestion.ax`, which arrived
 needing formatting with the binder-rendering change and stays that
-way because its spans are pinned — and
-that same sweep is
-what names them. No gate does: `check-fmt.sh` formats a COPY
+way because its spans are pinned. The other 25 are ordinary drift —
+files that arrived or changed without a fmt pass — and that same sweep
+is what names them. No gate does: `check-fmt.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
-committed file has drifted out of the normal form — and it fails if
-more than 60 files stop being covered by `tests/fmt/corpus-fmt.golden`.
+committed file has drifted out of the normal form — and
+`check-fmt-selfhost.sh` fails if more than 60 files stop being covered
+by `tests/fmt/corpus-fmt.golden`.
 Every fixture arrival is measured the same way - `axiom fmt --check` on the new file alone, which reads and does not rewrite - and the running total used to be re-derived here with every one. The per-file practice stays; the running ledger does not: the current total lives at the top of this section, re-derived rather than adjusted.
 
 
@@ -601,10 +602,13 @@ them has a leg that runs any of it.
 
 ### Formatting
 
-- The repository **is** kept in `axiom fmt`'s normal form, with the two
-  exceptions named above. It was not until 2026-08-22; the argument
-  against was that formatting buries real changes in churn, and the
-  answer is that it buries them once. `check-fmt.sh` still checks the
+- The repository is **not** kept in `axiom fmt`'s normal form. It was,
+  once — the whole tree was formatted on 2026-08-22 — and it has
+  drifted since; [the development workflow](#the-development-workflow)
+  carries the current count and the sweep that names the files. The
+  argument against was that formatting buries real changes in churn,
+  and the answer is that it buries them once. `check-fmt.sh` still
+  checks the
   property that matters more — that formatting *preserves behaviour*,
   by formatting a copy of the tree and re-running the suites against it.
 - Format a new file before committing it. The gates need it to
@@ -681,8 +685,11 @@ The standard library is written entirely in Axiom, over syscall
 primitives. When adding a new stdlib function:
 
 1. **Add it to the appropriate module** in `stdlib/` — `Pre`, `Mem`,
-   `Str`, `Vec`, `Map`, `Fmt`, `Intern`, `Sys`, `IO`, `Path`, `Json`,
-   `Rpc`, `Utf8`, `Err`, `Par`, `Http`, `Ffi`.
+   `Str`, `Utf8`, `Vec`, `Map`, `Fmt`, `Err`, `Fallible`, `Intern`,
+   `Sys`, `Path`, `IO`, `Ffi`, `Json`, `Rpc`, `Par`, `Http`, `Test`,
+   `Agent.Tags`, `Tui.Keys`, `Tui.Edit`, `Tui.Term` — the same list the
+   [Modules at a Glance](docs/reference.md#modules-at-a-glance) table
+   prints, in its order.
 2. **Use `::` for the type signature** and `fn` for the definition, with
    `pub` on both if the function is part of the module's surface.
 3. **If the function performs I/O**, annotate it with

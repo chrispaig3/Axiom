@@ -971,7 +971,7 @@ Rewrite the template without the form, or add a case for it to
 `substTpl` in `self_host/expand.ax`.
 
 A DECLARATION template has the same code with a fixed list: it may
-generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl`
+generate `fn`, `::`, `data`, `struct`, `type` and `effect`
 declarations, further macro invocations, and a `syntax/for` over
 them. An `import` template and a nested `macro` refuse, at the
 MACRO's own line rather than at an invocation, because a template
@@ -980,7 +980,7 @@ rather than by schedule: an `import` inside a template would reopen
 module resolution, which has already run when declaration expansion
 starts, and a nested `macro` would reopen the fixpoint that expands
 it. A `trait` template does not reach this code at all - a trait
-declaration inside a template is AX2003, from the parser.
+declaration inside a template is AX2004, from the parser.
 
 This paragraph named `type`, `trait`, `effect` and `import` as the
 four refusals until 2026-08-16. `type` and `effect` became template
@@ -1423,10 +1423,8 @@ somewhere, and it is not.
 
 The other route is a row with no DEFINITE effect and some POSSIBLE
 one: the body names an arrow-typed function without calling it
-(`(fn (handoff k) shout)`), or calls a trait method with more than
-one implementation. Whether such a body performs anything depends on
-what a caller does with the value, or which implementation dispatch
-selects, so a claim of absence over it is this too
+(`(fn (handoff k) shout)`). Whether such a body performs anything depends on
+what a caller does with the value, so a claim of absence over it is this too
 (tests/diagnostics/355-tag-over-approximated.ax). A definite effect
 beside a possible one is AX3010: the body performs it.
 
@@ -1674,12 +1672,13 @@ place a reader would otherwise have to open the callee to learn it.
 If the effect is not wanted there, the fix is to stop performing it
 rather than to stop saying so.
 
-`IO` is the only effect required TRANSITIVELY, and the reason is a measurement. Of 3,421
-functions in this compiler and its standard library, 2,095 perform
-something and 1,664 of those perform exactly `Alloc,Mut` - every
-function that touches a String or a Vec, because allocating is what
-an expression does here and `Mut` is set by writing any struct
-field. REQUIRED is not DECLARABLE: `;@axiom:effect(mut)` over a body
+`IO` is the only effect required TRANSITIVELY, and the reason is a measurement. Of 4,629
+functions in this compiler and its standard library, 4,076 perform
+something and 2,243 of those perform exactly `Alloc,Mut,Unsafe` -
+every function that touches a String or a Vec, because allocating is
+what an expression does here, `Mut` is set by writing any struct
+field, and `Unsafe` rides the byte reads and writes underneath.
+REQUIRED is not DECLARABLE: `;@axiom:effect(mut)` over a body
 that writes a field is accepted, and over one that does not it is
 AX3010. Alloc, Mut and every custom effect are declarable and
 checked - what is special about `IO` is that its ABSENCE is a claim every function up the call chain must answer.
@@ -1689,7 +1688,7 @@ still reports them and `handle`/`(Pure)` still measure them.
 
 One shape does not draw this. IO that reaches the row only as
 POSSIBLE - the body NAMES an IO-performing function without calling
-it, or calls a trait method with more than one implementation - is
+it - is
 not evidence that the body performs IO, and an untagged function
 holding nothing more is silent; `;@axiom:pure` over it is AX3037.
 The reading is PER EFFECT: IO the body performs is accused whatever
@@ -1873,7 +1872,7 @@ The path is the whole diagnostic. A restriction on a leaf is easy to
 check by reading; a restriction on a call chain is what a call graph
 is for, and printing the chain is the difference between "somewhere
 below you" and a place to put the fix. Every hop is the RESOLVED
-spelling the checker recorded - `Mod$name`, `Trait#Type#method` - so
+spelling the checker recorded - `Mod$name` - so
 it cross-checks `symbols --calls` hop for hop; the last hop is where
 the effect enters (a syscall primitive, an `extern`, `__alloc`), or
 the function whose own body holds the `alloc` form, said so. The tag
@@ -1898,8 +1897,7 @@ effect row, which is already a transitive fixpoint (docs/reference.md,
 Effects): a function calling an IO-performing function HAS `IO` in its
 row, and there is no local reading available. `no-foreign` walks the
 call graph `symbols --calls` prints, for an edge that lands on an
-`extern` item - through every implementation of a trait method the
-body calls, because that is what dispatch means. `no-cast` is LEXICAL:
+`extern` item. `no-cast` is LEXICAL:
 a cast is an act, not a propagated property, so it is checked in this
 body only and reported at the cast itself. A callee's casts are the
 callee's claim to make - and 653 of this repository's own expressions
@@ -2037,8 +2035,7 @@ readings make a claim unverifiable:
     a call applying a callee's result) - so an effect ABSENT from it
     is not evidence the body avoids it;
   - the effect is only POSSIBLE - it arrived by naming an arrow-typed
-    function without calling it, or through a trait method with more
-    than one implementation - so its presence is not evidence the
+    function without calling it - so its presence is not evidence the
     body performs it. `symbols` prints these as `#effects-possible=`;
   - the body CALLS one of its own parameters. The row is complete
     about this body and answers the wrong question: what the call

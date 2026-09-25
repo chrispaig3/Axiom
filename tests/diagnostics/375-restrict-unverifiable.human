@@ -7,7 +7,7 @@
   [1;34m = [0m[1;32mhelp: [0ma limit of the ANALYSIS rather than a defect in the program - AX3037's argument at one remove. There are four readings: an effect present only as POSSIBLE, a row the walk marked incomplete, a body that CALLS one of its own parameters (`#effect-params=`), whose answer is chosen by each caller and cannot be settled here at all, and - for `no-escape` alone - a region fixpoint that hit its round limit before the facts settled, which is a depth limit rather than anything about this declaration. Name the function at the call, stop calling the parameter, shorten the chain, or drop the claim; `no-cast`, `no-wrap` and `no-untrapped` are checked regardless, because all three are lexical and need no call resolved
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3051` for a full explanation
 
-[1;33mwarning[AX3051][0m[1m: `handoff` claims `restrict(no-io)` and the claim cannot be checked: `IO` reaches the effect row only as a possible effect - the body names a function without calling it, or calls a trait method with more than one implementation - so its presence is not evidence the body performs it[0m
+[1;33mwarning[AX3051][0m[1m: `handoff` claims `restrict(no-io)` and the claim cannot be checked: `IO` reaches the effect row only as a possible effect - the body names a function without calling it - so its presence is not evidence the body performs it[0m
   [1;34m--> [0m375-restrict-unverifiable.ax:44:6
 [1;34m   |[0m
 [1;34m44 |[0m (fn (handoff k)

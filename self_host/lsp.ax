@@ -4322,10 +4322,9 @@
   (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp))))
 
 ; Whether the first non-blank byte after `sp` is a single `:` - what
-; makes the identifier before it a field name - or (`dbl` 1) a `::`,
-; which makes it a trait method's name.
-(pub :: lspNavColonAfter (-> String Int Int Bool))
-(pub fn (lspNavColonAfter src sp dbl)
+; makes the identifier before it a field name - rather than a `::`.
+(pub :: lspNavColonAfter (-> String Int Bool))
+(pub fn (lspNavColonAfter src sp)
   (let (
     (n (strLen src))
     (k (lspNavSkipBlank src (spanEnd sp) (strLen src)))
@@ -4338,9 +4337,7 @@
           (if (< (+ k 1) n)
             (== (strByte src (+ k 1)) 58)
             false)))
-          (if (== dbl 1)
-            second
-            (lspNavNot second)))))))
+          (lspNavNot second))))))
 
 ; The type grammar's punctuation: the arrow, the pointer markers and
 ; the wildcard spell no type.
@@ -4449,7 +4446,7 @@
                         0)
                       (set ci (+ ci 1))
                     })
-                  (if (lspNavColonAfter src sp 0)
+                  (if (lspNavColonAfter src sp)
                     0
                     (let ((name (lspNavSpanText src sp)))
                       (if (lspNavIsTyvar tvs name)
@@ -4476,12 +4473,12 @@
           (while (< i (vecLen spans))
             (let ((sp (vecGet spans i)))
               {
-                (if (lspNavColonAfter src sp 0)
+                (if (lspNavColonAfter src sp)
                   0
                   (if (&&
                     (strEq (lspNavSpanText src sp) "mut")
                     (if (< (+ i 1) (vecLen spans))
-                      (lspNavColonAfter src (vecGet spans (+ i 1)) 0)
+                      (lspNavColonAfter src (vecGet spans (+ i 1)))
                       false))
                     0
                     (lspNavTypeRef nv (lspNavSpanText src sp) sp)))
@@ -9396,8 +9393,8 @@
 ;
 ; TWO OF THESE EXPAND, and MAC-TOOL-3 is why that is said first.
 ; `codeAction` and `expandMacro` run the pipeline `lspCheckDoc` runs -
-; preflight, `resolveImports`, `expandProgram`, `lowerImpls`, and for
-; code actions the checker - because a quickfix IS a checker
+; preflight, `resolveImports`, `expandProgram`, and for code actions
+; the checker - because a quickfix IS a checker
 ; diagnostic and an expansion IS the expander's output; neither can be
 ; read off the raw tree. Neither is a per-keystroke request either: a
 ; client asks for code actions when the cursor rests and for an
@@ -9469,7 +9466,7 @@
 ; The expansion pipeline, once, for the two requests that need it.
 ;
 ; This is `lspCheckDoc`'s call order - preflight, `resolveImports`,
-; `expandProgram`, `lowerImpls` - with the DIAGNOSTIC HANDLES kept
+; `expandProgram` - with the DIAGNOSTIC HANDLES kept
 ; rather than rendered, and `expandProgram`'s answer kept too: the
 ; (name, macro) pairs of every declaration phase D generated, which is
 ; what `expandMacro` attributes its output by and what `axiom symbols`

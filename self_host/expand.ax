@@ -1588,8 +1588,7 @@
       (expFindCtorIn cs c (+ i 1)))))
 
 ; `(syntax/binders C p)`: arity-of-C fresh identifiers derived from
-; prefix p - spelled `p#i`, the same spelling `lowerImpls` already
-; uses for generated parameters, which no user identifier can carry
+; prefix p - spelled `p#i`, which no user identifier can carry
 ; (`#` does not lex in names). The spelling is DETERMINISTIC, which
 ; is what "the same sequence at every mention within one expansion"
 ; requires: the pattern mention introduces `p#i` as binders (renamed
@@ -7028,7 +7027,7 @@
             (if (== (nodeSpan t) 0)
               (nodeSpan mac)
               (nodeSpan t))
-            (strConcat (strConcat "macro `" (nodeAName mac)) "`'s template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
+            (strConcat (strConcat "macro `" (nodeAName mac)) "`'s template may generate `fn`, `::`, `data`, `struct`, `type` and `effect` declarations, further macro invocations, or a syntax/for over them - this form is not supported yet")
             0
             0
             "generate the declaration by hand, or split it out of the template"
@@ -7390,7 +7389,7 @@
               env
               d
               (strConcat (strConcat "`" (expSrcSpelling (nodeAName d))) "` is neither a declaration keyword nor a visible macro")
-              "a top-level form is a declaration - fn, ::, data, struct, type, trait, impl, effect, import, macro - or an invocation of a declaration macro"
+              "a top-level form is a declaration - fn, ::, data, struct, type, effect, import, macro - or an invocation of a declaration macro"
               "this used to be a bare `syntax error` that also stopped the parse at the first unknown head, hiding every later diagnostic in the file")
             (if (|| (== (memGetWord mac 9) 0) (== (memGetWord mac 6) 1))
               (expDeclCallErr
@@ -8662,7 +8661,7 @@
                       "AX3021"
                       "macro-template-unsupported"
                       isp
-                      "a declaration template may generate `fn`, `::`, `data`, `struct`, `type`, `effect` and `impl` declarations, or further macro invocations - this form is not supported yet"
+                      "a declaration template may generate `fn`, `::`, `data`, `struct`, `type` and `effect` declarations, or further macro invocations - this form is not supported yet"
                       0
                       0
                       "generate the declaration by hand, or extend the template surface"

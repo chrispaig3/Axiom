@@ -177,6 +177,18 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-25 (12): LSP hover reads struct fields, at the use
+# and where declared. Thirteen added, none removed, none changed - each
+# new row read off `symbols` by name. Seven read exactly `Unsafe`
+# (string and span reads, no allocation): `lspIsUpperStart`,
+# `lspIdentStart`, `lspSpineHead`, `lspFindStructField`,
+# `lspStructFieldNode`, `lspFieldValueStruct` and `lspFieldNodeAt`.
+# Six read `Alloc,Mut,Unsafe` through the hover text and fence build:
+# `lspFieldParamStruct`, `lspFieldBaseStruct`, `lspHoverFieldUse`,
+# `lspHoverFieldDecl`, `lspHoverFieldDeclIn` and `lspHoverField`.
+# Every move is a gain - `Alloc,Mut,Unsafe` 2237 to 2243, exactly
+# `Unsafe` 1130 to 1137 - and no row moves off `IO` or onto it: the
+# required/ambient line sits where it was measured.
 # RE-PINNED 2026-09-24 (11): `AX3043` warns on a reference smuggled
 # through a field declared `Int` (error-model.md ERR-TYPE-5). One
 # added, none removed, three changed - the new row read off `symbols`
@@ -273,8 +285,8 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2237 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1130 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2243 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1137 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 396 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 118 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
