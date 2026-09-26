@@ -1802,9 +1802,9 @@
 ; A position that is not a name still answers null, which is the
 ; protocol's way of saying "nothing here" and what an editor expects
 ; for every other word in the file.
-(pub :: lspDefinition (-> String String Int Int))
+(pub :: lspDefinition (-> String String Int String Int))
 ;@axiom:effect(io)
-(pub fn (lspDefinition src uri params)
+(pub fn (lspDefinition src uri params gen)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
       jsonNull
@@ -1841,7 +1841,17 @@
                       (let ((c (lspCtorDefinition src uri decls w)))
                         (if (!= c 0)
                           c
-                          (lspDefinitionImported (lspUriToPath uri) src decls w))))))))))))))
+                          ; A GENERATED NAME, last: the cache the
+                          ; fill wrote at `didOpen`/`didChange`.
+                          ; Firing here - after every raw-tree and
+                          ; import lookup misses - is what keeps
+                          ; every answer given before standing, and
+                          ; reading a string is what keeps this arm
+                          ; on MAC-TOOL-3's side of expansion.
+                          (let ((imp (lspDefinitionImported (lspUriToPath uri) src decls w)))
+                            (if (jsonIsNull imp)
+                              (lspGenDefinition gen uri src w)
+                              imp)))))))))))))))
 
 ; The second lookup: resolve this document's imports through
 ; `lspResolveFor` - the same preamble `lspCheckDoc` runs, so the two
@@ -2112,14 +2122,14 @@
             range)))
       (lspHoverFieldDecl src decls wsp range))))
 
-(pub :: lspHover (-> String String Int Int))
+(pub :: lspHover (-> String String Int String Int))
 ; A field path is resolved as a path first: the word under the
 ; cursor in `base.field` is only the field, and answering it as a
 ; top-level name (or nothing) would be the wrong question. When the
 ; path does not resolve, the word falls through to the ordinary
 ; lookup below rather than answering null outright.
 ;@axiom:effect(io)
-(pub fn (lspHover src uri params)
+(pub fn (lspHover src uri params gen)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
       jsonNull
@@ -2159,12 +2169,18 @@
                           ; what the rest of this function's header says.
                           (let ((dat (lspFindCtorData decls w (- (vecLen decls) 1))))
                             (if (== (lspCtorNodeOf dat w) 0)
-                              (lspHoverImported
+                              ; A GENERATED NAME, last, for `definition`'s
+                              ; reason: after every lookup misses, from
+                              ; the cache string, expanding nothing.
+                              (let ((hov (lspHoverImported
                                 (lspUriToPath uri)
                                 src
                                 decls
                                 w
-                                range)
+                                range)))
+                                (if (jsonIsNull hov)
+                                  (lspGenHover gen src w range)
+                                  hov))
                               (lspHoverAtNote
                                 src
                                 decls
@@ -3213,6 +3229,44 @@
       ""
       (vecGetStr texts i))))
 
+; The generated-name cache: one JSON array per open document, in a
+; third vector parallel to `texts` and kept index-aligned with it by
+; the same rule - appended together or neither. Each entry is what
+; one macro invocation generated that a name can be looked up by:
+; `{"name","macro","invStart","invEnd","code"}`, where the invocation
+; offsets are bytes into the document and `code` is the `::` the
+; product was generated with (or the `fn`'s first line when no `::`
+; was). `lspRecheck` fills it, which already runs the pipeline -
+; including expansion - for diagnostics, so per-keystroke requests
+; read names expansion never touches their path for. That is the
+; whole of MAC-TOOL-3's cache side: `definition`, `hover`,
+; `references` and `declaration` consult this string and expand
+; nothing, and `scripts/check-macro-demand.sh` pins the fast path
+; structurally.
+(pub :: docPutGen (-> (Vec String) (Vec String) String String Int))
+(pub fn (docPutGen uris gens uri gen)
+  (let ((i (docFind uris uri)))
+    (if (< i 0)
+      ; A uri `docPut` has not seen either: appended, so the two
+      ; stays aligned whichever of the two writers runs first.
+      {
+        (vecPush gens gen)
+        (vecLen gens)
+      }
+      {
+        (while (<= (vecLen gens) i)
+          (vecPush gens ""))
+        (vecSet gens i gen)
+        (vecLen gens)
+      })))
+
+(pub :: docGen (-> (Vec String) (Vec a) String String))
+(pub fn (docGen uris gens uri)
+  (let ((i (docFind uris uri)))
+    (if (< i 0)
+      "[]"
+      (vecGetStr gens i))))
+
 ; ------------------------------------------------------------------
 ; The request boundary
 ; ------------------------------------------------------------------
@@ -3246,16 +3300,22 @@
 ;   word 0   total bytes (what the reclaim is told to keep)
 ;   word 1   document count N
 ;   word 2   unconsumed reader bytes U
-;   word 3.. N pairs of (uri length, text length)
-;   then     U bytes of reader input, then each uri and text in order
-(pub :: lspSnapshot (-> (Vec String) (Vec String) Int Int))
-(pub fn (lspSnapshot uris texts r)
+;   word 3.. N triples of (uri length, text length, cache length)
+;   then     U bytes of reader input, then each uri, text and cache
+;            in order
+;
+; The third of the triple is the generated-name cache (`docPutGen`):
+; it is filled at `didOpen`/`didChange`, which is before the reclaim,
+; so it crosses the boundary like the text or the first request after
+; every edit answers from an empty one.
+(pub :: lspSnapshot (-> (Vec String) (Vec String) (Vec String) Int Int))
+(pub fn (lspSnapshot uris texts gens r)
   (let (
     (n (vecLen uris))
     (u (- (rdFilled r) (rdConsumed r)))
   )
     (let (
-      (head (* 8 (+ 3 (* 2 n))))
+      (head (* 8 (+ 3 (* 3 n))))
       (mut total 0)
       (mut i 0)
     )
@@ -3263,7 +3323,7 @@
         (set total (+ head u))
         (while (< i n)
           {
-            (set total (+ total (+ (strLen (vecGetStr uris i)) (strLen (vecGetStr texts i)))))
+            (set total (+ total (+ (strLen (vecGetStr uris i)) (+ (strLen (vecGetStr texts i)) (strLen (lspGenAt gens i))))))
             (set i (+ i 1))
           })
         (let (
@@ -3277,8 +3337,9 @@
             (memSetWord b 2 u)
             (while (< j n)
               {
-                (memSetWord b (+ 3 (* 2 j)) (strLen (vecGetStr uris j)))
-                (memSetWord b (+ 4 (* 2 j)) (strLen (vecGetStr texts j)))
+                (memSetWord b (+ 3 (* 3 j)) (strLen (vecGetStr uris j)))
+                (memSetWord b (+ 4 (* 3 j)) (strLen (vecGetStr texts j)))
+                (memSetWord b (+ 5 (* 3 j)) (strLen (lspGenAt gens j)))
                 (set j (+ j 1))
               })
             (memCopy (+ b at) (+ (strData (rdBuf r)) (rdConsumed r)) u)
@@ -3288,17 +3349,30 @@
               (let (
                 (uu (vecGetStr uris j))
                 (tt (vecGetStr texts j))
+                (gg (lspGenAt gens j))
               )
                 {
                   (memCopy (+ b at) (strData uu) (strLen uu))
                   (set at (+ at (strLen uu)))
                   (memCopy (+ b at) (strData tt) (strLen tt))
                   (set at (+ at (strLen tt)))
+                  (memCopy (+ b at) (strData gg) (strLen gg))
+                  (set at (+ at (strLen gg)))
                   (set j (+ j 1))
                 }))
             b
           })
       })))
+
+; The cache entry at an index, or the empty cache when `gens` is
+; short: a document `didClose`d clears its text but the vectors only
+; ever grow, so the third vector lags the first by construction until
+; its own writer runs, and the snapshot must not read past its end.
+(pub :: lspGenAt (-> (Vec String) Int String))
+(pub fn (lspGenAt gens j)
+  (if (>= j (vecLen gens))
+    "[]"
+    (vecGetStr gens j)))
 
 ; Rebuild the store and the reader out of a snapshot the reclaim has
 ; already moved down to the waterline, and answer the three handles in
@@ -3314,32 +3388,37 @@
     (u (memGetWord b 2))
     (fu vecNew)
     (ft vecNew)
+    (fg vecNew)
     (r (rdNew 0))
   )
     (let (
       (mut j 0)
-      (mut at (* 8 (+ 3 (* 2 n))))
+      (mut at (* 8 (+ 3 (* 3 n))))
     )
       {
         (rdReseat r (+ b at) u)
         (set at (+ at u))
         (while (< j n)
           (let (
-            (ul (memGetWord b (+ 3 (* 2 j))))
-            (tl (memGetWord b (+ 4 (* 2 j))))
+            (ul (memGetWord b (+ 3 (* 3 j))))
+            (tl (memGetWord b (+ 4 (* 3 j))))
+            (gl (memGetWord b (+ 5 (* 3 j))))
           )
             {
               (vecPush fu (strDup (strWrap (+ b at) ul)))
               (set at (+ at ul))
               (vecPush ft (strDup (strWrap (+ b at) tl)))
               (set at (+ at tl))
+              (vecPush fg (strDup (strWrap (+ b at) gl)))
+              (set at (+ at gl))
               (set j (+ j 1))
             }))
-        (let ((h (memAlloc 24)))
+        (let ((h (memAlloc 32)))
           {
             (memSetWord h 0 fu)
             (memSetWord h 1 ft)
             (memSetWord h 2 r)
+            (memSetWord h 3 fg)
             h
           })
       })))
@@ -3412,10 +3491,13 @@
   (jsonObjPut (jsonObjPut jsonObj "resolveProvider" (jsonBool 0)) "triggerCharacters" (jsonArrPush jsonArr (jsonStr "("))))
 
 ; Check the document behind `uri` and publish the result.
-(pub :: lspRecheck (-> (Vec String) (Vec String) String Int))
+(pub :: lspRecheck (-> (Vec String) (Vec String) (Vec String) String Int))
 ;@axiom:effect(io)
-(pub fn (lspRecheck uris texts uri)
-  (lspPublish uri (lspCheckDoc (lspUriToPath uri) (docText uris texts uri))))
+(pub fn (lspRecheck uris texts gens uri)
+  {
+    (docPutGen uris gens uri (lspGenFill (lspUriToPath uri) (docText uris texts uri)))
+    (lspPublish uri (lspCheckDoc (lspUriToPath uri) (docText uris texts uri)))
+  })
 
 ; The URI a `textDocument`-shaped params object names.
 (pub :: lspParamsUri (-> Int String))
@@ -3452,16 +3534,17 @@
 (pub fn (lspExtHandles method)
   (|| (lspNavHandles method) (|| (lspViewHandles method) (lspFixHandles method))))
 
-(pub :: lspExtDispatch (-> String Int Int (Vec String) (Vec a) Int))
+(pub :: lspExtDispatch (-> String Int Int (Vec String) (Vec a) (Vec String) Int))
 ;@axiom:effect(io)
-(pub fn (lspExtDispatch method id params uris texts)
+(pub fn (lspExtDispatch method id params uris texts gens)
   (if (lspNavHandles method)
     (lspNavDispatch
       method
       id
       params
       uris
-      texts)
+      texts
+      gens)
     (if (lspViewHandles method)
       (lspViewDispatch
         method
@@ -5355,9 +5438,9 @@
 ; document's, each in offset order. Null when nothing is under the
 ; cursor, which is what a keyword, a literal and a comment are.
 ; ------------------------------------------------------------------
-(pub :: lspReferences (-> String String Int (Vec String) (Vec a) Int))
+(pub :: lspReferences (-> String String Int (Vec String) (Vec a) String Int))
 ;@axiom:effect(io)
-(pub fn (lspReferences src uri params uris texts)
+(pub fn (lspReferences src uri params uris texts gen)
   (let ((decls (lspNavParse src)))
     (if (==
       (cast Int decls)
@@ -5376,6 +5459,15 @@
               (out jsonArr)
             )
               {
+                ; A GENERATED NAME's invocation, first when the
+                ; declaration is included: it precedes every use in
+                ; the document, so prepending keeps document order.
+                (if (== incl 1)
+                  (let ((e (lspGenLookup gen (memGetWordStr o 0))))
+                    (if (!= e 0)
+                      (jsonArrPush out (lspNavLocOf uri src (mkSpan (jsonGetInt e "invStart") (jsonGetInt e "invEnd"))))
+                      0))
+                  0)
                 (lspNavLocations
                   out
                   uri
@@ -6488,9 +6580,9 @@
 ; with no `fn` under it - a half-written declaration, or one whose
 ; body is still to come. There IS a declaration there, so saying where
 ; it is beats saying nothing.
-(pub :: lspDeclaration (-> String String Int Int))
+(pub :: lspDeclaration (-> String String Int String Int))
 ;@axiom:effect(io)
-(pub fn (lspDeclaration src uri params)
+(pub fn (lspDeclaration src uri params gen)
   (let ((decls (lspNavParse src)))
     (if (==
       (cast Int decls)
@@ -6523,7 +6615,13 @@
                           (let ((c (lspCtorDefinition src uri decls w)))
                             (if (!= c 0)
                               c
-                              (lspDeclarationImported (lspUriToPath uri) src decls w))))))))))))))))
+                              ; A GENERATED NAME, last, for `definition`'s
+                              ; reason: the invocation head is what a
+                              ; generated name is declared by.
+                              (let ((dec (lspDeclarationImported (lspUriToPath uri) src decls w)))
+                                (if (jsonIsNull dec)
+                                  (lspGenDefinition gen uri src w)
+                                  dec)))))))))))))))))
 
 ; A Location, from a uri and a span into that uri's own text.
 (pub :: lspNavLocOf (-> String String Int Int))
@@ -7475,12 +7573,13 @@
 (pub fn (lspNavHandles method)
   (|| (strEq method "textDocument/references") (|| (strEq method "textDocument/documentHighlight") (|| (strEq method "textDocument/prepareRename") (|| (strEq method "textDocument/rename") (|| (strEq method "textDocument/declaration") (|| (strEq method "textDocument/prepareCallHierarchy") (|| (strEq method "callHierarchy/incomingCalls") (|| (strEq method "callHierarchy/outgoingCalls") (|| (strEq method "textDocument/prepareTypeHierarchy") (|| (strEq method "typeHierarchy/supertypes") (strEq method "typeHierarchy/subtypes"))))))))))))
 
-(pub :: lspNavDispatch (-> String Int Int (Vec String) (Vec a) Int))
+(pub :: lspNavDispatch (-> String Int Int (Vec String) (Vec a) (Vec String) Int))
 ;@axiom:effect(io)
-(pub fn (lspNavDispatch method id params uris texts)
+(pub fn (lspNavDispatch method id params uris texts gens)
   (let (
     (uri (lspParamsUri params))
     (src (docText uris texts (lspParamsUri params)))
+    (gen (docGen uris gens (lspParamsUri params)))
   )
     (if (strEq method "textDocument/references")
       (lspReply id (lspReferences
@@ -7488,7 +7587,8 @@
         uri
         params
         uris
-        texts))
+        texts
+        gen))
       (if (strEq method "textDocument/documentHighlight")
         (lspReply id (lspDocumentHighlight src params))
         (if (strEq method "textDocument/prepareRename")
@@ -7501,7 +7601,7 @@
               uris
               texts))
             (if (strEq method "textDocument/declaration")
-              (lspReply id (lspDeclaration src uri params))
+              (lspReply id (lspDeclaration src uri params gen))
               (if (strEq method "textDocument/prepareCallHierarchy")
                 (lspReply id (lspPrepareCallHierarchy src uri params))
                 ; The two hierarchy requests carry an ITEM and no
@@ -11999,6 +12099,355 @@
   (jsonObjPut (jsonObjPut jsonObj "range" range) "command" (jsonObjPut (jsonObjPut (jsonObjPut jsonObj "title" (jsonStr title)) "command" (jsonStr command)) "arguments" args)))
 
 ; ------------------------------------------------------------------
+; ------------------------------------------------------------------
+; The generated-name cache: what each top-level invocation made, by
+; name, filled where expansion already runs.
+;
+; MAC-TOOL-3 says per-keystroke requests expand nothing, and the
+; demand pins in `scripts/check-macro-demand.sh` count the requests
+; that goes answered for: a name only the expansion knows -
+; `tagShape` from `(deriveTag Shape)` - answers the invocation head
+; under `definition` and `declaration`, the cached rendering under
+; `hover`, and the invocation then the use under `references`. The
+; cache answers them without moving expansion: `didOpen` and
+; `didChange` already run the pipeline, including expansion, for
+; diagnostics, so the fill runs there, once per top-level
+; invocation, and the arms read the resulting string.
+;
+; WHAT IS STORED, per generated name: the macro, the invocation head
+; name's byte offsets, and the hover text - the `::` product's
+; rendering when one names it, else the `fn` product's first line,
+; else the product's whole rendering. `definition` and `declaration`
+; answer the invocation head ("generated here"); `hover` fences the
+; text and names the invocation form; `references` with
+; `includeDeclaration` prepends the invocation in document order.
+; First invocation wins per name: two calls generating one name is a
+; checker error, and the cache keeps the first rather than mixing a
+; span from one call with text from another.
+;
+; WHAT IT COSTS: one isolated expansion per top-level call, each
+; under the MAC-EXP budgets, reusing `lspExpandAt`'s own attribution
+; (expand with every other call removed, take everything phase D
+; made) - including its resolve, which is handle-bound to the fresh
+; list and cannot be hoisted: resolving the original list and
+; expanding a fresh one faults. A document with no top-level calls
+; fills `"[]"` without resolving. An invocation whose expansion
+; fails is skipped: its names miss the cache and answer as they did
+; before.
+; ------------------------------------------------------------------
+(pub :: lspGenFill (-> String String String))
+;@axiom:effect(io)
+(pub fn (lspGenFill path src)
+  (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr 0) 0)
+      "[]"
+      (let ((calls (lspGenCallSites (memGetWordVec pr 1))))
+        (if (== (vecLen calls) 0)
+          "[]"
+          (jsonWrite (lspGenEntries path src (memGetWordVec pr 1) calls)))))))
+
+; Indices of the top-level declarations that are macro invocations
+; with a span to answer at.
+(pub :: lspGenCallSites (-> (Vec Int) (Vec Int)))
+(pub fn (lspGenCallSites decls)
+  (let (
+    (out vecNew)
+    (n (vecLen decls))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let ((d (vecGet decls i)))
+            (if (&& (== (nodeTag d) TAG_D_MACROCALL) (!= (nodeSpan d) 0))
+              (vecPush out i)
+              (cast (Vec Int) 0)))
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; The invocation head name's start: past the `(` and any whitespace
+; to the first byte of the macro name.
+(pub :: lspGenHeadStart (-> String Int Int))
+(pub fn (lspGenHeadStart src form)
+  (let (
+    (n (strLen src))
+    (mut p (+ form 1))
+  )
+    {
+      (while (&& (< p n) (lspGenIsWs (strByte src p)))
+        (set p (+ p 1)))
+      p
+    }))
+
+(pub :: lspGenIsWs (-> Int Bool))
+(pub fn (lspGenIsWs b)
+  (|| (== b 32) (|| (== b 9) (|| (== b 10) (== b 13)))))
+
+; One JSON object per generated name, first invocation winning: the
+; temporary list merges one call's own products (`::` preferred),
+; then merges into the answer by name.
+(pub :: lspGenEntries (-> String String (Vec Int) (Vec Int) Int))
+;@axiom:effect(io)
+(pub fn (lspGenEntries path src decls calls)
+  (let (
+    (out vecNew)
+    (nc (vecLen calls))
+    (mut c 0)
+  )
+    {
+      (while (< c nc)
+        {
+          (lspGenOneCall path src decls (vecGet calls c) out)
+          (set c (+ c 1))
+        })
+      (lspGenToJson out)
+    }))
+
+; One call's products, attributed the way `lspExpandAt` attributes
+; them: the isolated list is resolved AND expanded together, because
+; the resolution is handle-bound to the list it ran on.
+(pub :: lspGenOneCall (-> String String (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(io)
+(pub fn (lspGenOneCall path src decls idx out)
+  (let ((pr2 (parseModuleWith (lex src) (scanAxtags src))))
+    (if (== (memGetWord pr2 0) 0)
+      0
+      (let ((decls2 (lspKeepOneCall (memGetWordVec pr2 1) idx)))
+        (let (
+          (before (lspDeclHandles decls2))
+          (wasCall (lspDeclIsCall decls2))
+        )
+          (let ((ex (lspFixExpand path src decls2)))
+            (if (== ex 0)
+              0
+              (if (> (countErrorDiags (memGetWordVec ex 2)) 0)
+                0
+                (lspGenCollect
+                  src
+                  decls
+                  idx
+                  decls2
+                  before
+                  wasCall
+                  (memGetWordVec ex 3)
+                  out)))))))))
+
+; Every product of this one call into the answer: the invocation's
+; own span and macro name travel with each, from the ORIGINAL list,
+; whose handles the expansion never touched.
+(pub :: lspGenCollect (-> String (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int))
+(pub fn (lspGenCollect src decls idx decls2 before wasCall gens out)
+  (let ((site (vecGet decls idx)))
+    (let ((macName (nodeAName site)))
+      (let ((hs (lspGenHeadStart src (lspFormStart src (spanStart (nodeSpan site))))))
+        (let (
+          (tmp vecNew)
+          (tsig vecNew)
+          (n (vecLen decls2))
+          (mut i 0)
+        )
+          {
+            (while (< i n)
+              (let ((g (vecGet decls2 i)))
+                {
+                  (if (lspIsProductOf g i before wasCall gens macName true)
+                    (lspGenTempMerge tmp tsig g)
+                    0)
+                  (set i (+ i 1))
+                }))
+            (lspGenTempFlush tmp tsig out macName hs (+ hs (strLen macName)))
+            0
+          })))))
+
+; One call's products keyed by name: the `::` rendering wins over the
+; `fn`'s first line, and a product with no name to look up by is left
+; out. `tmp` holds (name, code) pairs, `tsig` whether the code is a
+; `::` rendering.
+(pub :: lspGenTempMerge (-> (Vec Int) (Vec Int) Int Int))
+(pub fn (lspGenTempMerge tmp tsig g)
+  (let ((nm (nodeAName g)))
+    (if (== (strLen nm) 0)
+      0
+      (let ((isSig (if (== (nodeTag g) TAG_D_SIG) 1 0)))
+        (let ((code (if (== isSig 1)
+          (lspRenderDecl g 0)
+          (if (== (nodeTag g) TAG_D_FN)
+            (lspFirstLine (lspRenderDecl g 0))
+            (lspRenderDecl g 0)))))
+          (lspGenTempUpsert tmp tsig nm code isSig))))))
+
+(pub :: lspGenTempUpsert (-> (Vec Int) (Vec Int) String String Int Int))
+(pub fn (lspGenTempUpsert tmp tsig nm code isSig)
+  (let (
+    (n (vecLen tmp))
+    (mut i 0)
+    (mut found (- 0 1))
+  )
+    {
+      (while (< i n)
+        {
+          (if (strEq (memGetWordStr (vecGet tmp i) 0) nm)
+            {
+              (set found i)
+              (set i n)
+            }
+            0)
+          (set i (+ i 1))
+        })
+      (if (< found 0)
+        (let ((pair (memAlloc 16)))
+          {
+            (memSetWord pair 0 nm)
+            (memSetWord pair 1 code)
+            (vecPush tmp pair)
+            (vecPush tsig isSig)
+            1
+          })
+        (if (&& (== (vecGet tsig found) 0) (== isSig 1))
+          {
+            (memSetWord (vecGet tmp found) 1 code)
+            (vecSet tsig found 1)
+            1
+          }
+          0))
+    }))
+
+; The temporary list into the answer, first invocation winning whole
+; entries: a name already there keeps its span, macro and text.
+(pub :: lspGenTempFlush (-> (Vec Int) (Vec Int) (Vec Int) String Int Int Int))
+(pub fn (lspGenTempFlush tmp tsig out macName hs he)
+  (let (
+    (n (vecLen tmp))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (lspGenOutPush
+            out
+            (memGetWordStr (vecGet tmp i) 0)
+            (memGetWordStr (vecGet tmp i) 1)
+            macName
+            hs
+            he)
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+(pub :: lspGenOutPush (-> (Vec Int) String String String Int Int Int))
+(pub fn (lspGenOutPush out nm code macName hs he)
+  (let (
+    (n (vecLen out))
+    (mut i 0)
+    (mut found false)
+  )
+    {
+      (while (< i n)
+        {
+          (if (strEq (memGetWordStr (vecGet out i) 0) nm)
+            {
+              (set found true)
+              (set i n)
+            }
+            0)
+          (set i (+ i 1))
+        })
+      (if found
+        0
+        (let ((e (memAlloc 48)))
+          {
+            (memSetWord e 0 nm)
+            (memSetWord e 1 code)
+            (memSetWord e 2 macName)
+            (memSetWord e 3 hs)
+            (memSetWord e 4 he)
+            (vecPush out e)
+            1
+          }))
+    }))
+
+; Entries to the cached JSON: one object per name.
+(pub :: lspGenToJson (-> (Vec Int) Int))
+(pub fn (lspGenToJson out)
+  (let (
+    (arr jsonArr)
+    (n (vecLen out))
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        (let ((e (vecGet out i)))
+          {
+            (jsonArrPush arr
+              (jsonObjPut
+                (jsonObjPut
+                  (jsonObjPut
+                    (jsonObjPut
+                      (jsonObjPut jsonObj "name" (jsonStr (memGetWordStr e 0)))
+                      "code" (jsonStr (memGetWordStr e 1)))
+                    "macro" (jsonStr (memGetWordStr e 2)))
+                  "invStart" (jsonNum (memGetWord e 3)))
+                "invEnd" (jsonNum (memGetWord e 4))))
+            (set i (+ i 1))
+          }))
+      arr
+    }))
+
+; The read side. Every arm below takes the cache STRING the dispatch
+; resolved - never the store, never the expander. `definition` and
+; `declaration` answer the invocation head ("generated here");
+; `hover` fences the stored text and names the invocation form;
+; `references` prepends the invocation in document order. All four
+; fire only where the raw-tree lookups miss, so every answer given
+; before stands.
+(pub :: lspGenLookup (-> String String Int))
+(pub fn (lspGenLookup gen name)
+  (if (strEq gen "[]")
+    0
+    (let ((arr (jsonParse gen)))
+      (if (== arr 0)
+        0
+        (let (
+          (n (jsonArrLen arr))
+          (mut i 0)
+          (mut found 0)
+        )
+          {
+            (while (< i n)
+              (let ((e (jsonArrGet arr i)))
+                {
+                  (if (strEq (jsonGetStr e "name") name)
+                    {
+                      (set found e)
+                      (set i n)
+                    }
+                    0)
+                  (set i (+ i 1))
+                }))
+            found
+          })))))
+
+(pub :: lspGenDefinition (-> String String String String Int))
+(pub fn (lspGenDefinition gen uri src w)
+  (let ((e (lspGenLookup gen w)))
+    (if (== e 0)
+      jsonNull
+      (lspNavLocOf uri src (mkSpan (jsonGetInt e "invStart") (jsonGetInt e "invEnd"))))))
+
+(pub :: lspGenHover (-> String String String Int Int))
+(pub fn (lspGenHover gen src w range)
+  (let ((e (lspGenLookup gen w)))
+    (if (== e 0)
+      jsonNull
+      (let ((form (lspFormText src (lspFormStart src (jsonGetInt e "invStart")))))
+        (let ((value (strConcat
+          (strConcat (strConcat "```axiom\n" (lspClampLines (jsonGetStr e "code") 40)) "\n```\n")
+          (strConcat (strConcat "\ngenerated by `" form) "`\n"))))
+          (jsonObjPut (jsonObjPut jsonObj "contents" (jsonObjPut (jsonObjPut jsonObj "kind" (jsonStr "markdown")) "value" (jsonStr value))) "range" range))))))
+
 ; `axiom/expandMacro`: what a macro generated, as source.
 ;
 ; WHERE IT ANSWERS. On a TOP-LEVEL invocation - a `TAG_D_MACROCALL`,
@@ -13278,6 +13727,7 @@
     (mut r (rdNew 0))
     (mut uris vecNew)
     (mut texts vecNew)
+    (mut gens vecNew)
     (mut running 1)
     (mut status 1)
     (m __axiom_arena_mark)
@@ -13318,26 +13768,27 @@
                               (let ((uri (lspParamsUri params)))
                                 {
                                   (docPut uris texts uri (jsonGetStr (jsonGet params "textDocument") "text"))
-                                  (lspRecheck uris texts uri)
+                                  (lspRecheck uris texts gens uri)
                                 })
                               (if (strEq method "textDocument/didChange")
                                 (let ((uri (lspParamsUri params)))
                                   {
                                     (docPut uris texts uri (lspChangeText params))
-                                    (lspRecheck uris texts uri)
+                                    (lspRecheck uris texts gens uri)
                                   })
                                 (if (strEq method "textDocument/documentSymbol")
                                   (lspReply id (lspDocumentSymbols (docText uris texts (lspParamsUri params))))
                                   (if (strEq method "textDocument/definition")
-                                    (lspReply id (lspDefinition (docText uris texts (lspParamsUri params)) (lspParamsUri params) params))
+                                    (lspReply id (lspDefinition (docText uris texts (lspParamsUri params)) (lspParamsUri params) params (docGen uris gens (lspParamsUri params))))
                                     (if (strEq method "textDocument/hover")
-                                      (lspReply id (lspHover (docText uris texts (lspParamsUri params)) (lspParamsUri params) params))
+                                      (lspReply id (lspHover (docText uris texts (lspParamsUri params)) (lspParamsUri params) params (docGen uris gens (lspParamsUri params))))
                                       (if (strEq method "textDocument/completion")
                                         (lspReply id (lspCompletion (docText uris texts (lspParamsUri params)) (lspParamsUri params) params))
                                         (if (strEq method "textDocument/didClose")
                                           (let ((uri (lspParamsUri params)))
                                             {
                                               (docPut uris texts uri "")
+                                              (docPutGen uris gens uri "[]")
                                               ; An empty list is how a server retracts
                                               ; the squiggles for a file the editor has
                                               ; closed; saying nothing leaves them on
@@ -13355,7 +13806,8 @@
                                               id
                                               params
                                               uris
-                                              texts)
+                                              texts
+                                              gens)
                                             ; Anything else: a request must be answered,
                                             ; a notification must not be.
                                             (if (== id 0)
@@ -13364,13 +13816,14 @@
           ; The boundary. Everything this message touched goes back,
           ; except the store and the reader's unconsumed bytes, which
           ; travel down to the waterline in one block.
-          (let ((snap (lspSnapshot uris texts r)))
+          (let ((snap (lspSnapshot uris texts gens r)))
             (let ((kept (__axiom_arena_reset_keeping m snap (memGetWord snap 0))))
               (let ((h (lspRestore kept)))
                 {
                   (set uris (memGetWordVec h 0))
                   (set texts (memGetWordVec h 1))
                   (set r (memGetWord h 2))
+                  (set gens (memGetWordVec h 3))
                 })))
         })
       (sysExitWith status)
