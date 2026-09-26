@@ -342,7 +342,9 @@ okOr Err.ax Alloc
 optMap Err.ax Alloc
 optOr Err.ax Alloc
 parArgvVector Par.ax Alloc,Mut,Unsafe
+parJoinChecked Par.ax Alloc,IO,Unsafe
 parMapWords Par.ax Alloc,IO,Mut,Unsafe
+parMapWordsChecked Par.ax Alloc,IO,Mut,Unsafe
 parRunAll Par.ax Alloc,IO,Mut,Unsafe
 parRunOne Par.ax Alloc,IO,Mut,Unsafe
 parRunWord Par.ax Alloc,IO,Mut,Unsafe

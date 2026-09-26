@@ -330,11 +330,12 @@ See [reference.md](reference.md) for the language, and
 
 ## `Par`
 
-`stdlib/Par.ax` — 4 public names
+`stdlib/Par.ax` — 5 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `parMapWords` | value | `(-> (-> Int Int) Int Int (Vec Int))` | `Alloc,IO,Mut,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering the results in SUBMIT order. |
+| `parMapWordsChecked` | value | `(-> (-> Int Int) Int Int (Vec (Result Int Error)))` | `Alloc,IO,Mut,Unsafe` | Run `f i` for every `i` in `0 .. n`, at most `width` at once, answering one `Result` per slot in SUBMIT order: `Ok` the thunk's word, `Err` the wait status of a slot whose thunk trapped. |
 | `parArgvVector` | value | `(-> (Vec String) Int)` | `Alloc,Mut,Unsafe` | A NULL-terminated array of char* from a Vec of `String`, which is the shape `execve` and `posix_spawn` both take. |
 | `parRunOne` | value | `(-> (Vec String) (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run one argv - element 0 is the program, looked up on `PATH` the way `sysRunPath` does it. |
 | `parRunAll` | value | `(-> (Vec (Vec String)) Int (Vec Int))` | `Alloc,IO,Mut,Unsafe` | Run every command in `cmds` at up to `width` at once, answering their exit codes in the order they appear in `cmds`. |
