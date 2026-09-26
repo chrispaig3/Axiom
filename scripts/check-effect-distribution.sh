@@ -177,6 +177,26 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-26 (16): the generated-name cache fills at
+# `didOpen`/`didChange` and the four navigation arms read it.
+# Eighteen added, none removed, none changed - each new row read off
+# `symbols` by name, and the eight widened signatures (`lspDefinition`,
+# `lspDeclaration`, `lspHover`, `lspReferences`, `lspExtDispatch`,
+# `lspNavDispatch`, `lspRecheck`, `lspSnapshot`) keep their rows: the
+# old-vs-new `symbols` diff shows zero changed effect rows. Three read
+# `Alloc,IO,Mut,Unsafe` through `lspResolveFor` (imported-module file
+# reads, the same machinery every navigation request already reads):
+# `lspGenFill`, `lspGenEntries` and `lspGenOneCall`. Eleven read
+# `Alloc,Mut,Unsafe` (vectors and blocks built and walked): `docPutGen`,
+# `lspGenCallSites`, `lspGenCollect`, `lspGenDefinition`, `lspGenHover`,
+# `lspGenLookup`, `lspGenOutPush`, `lspGenTempFlush`, `lspGenTempMerge`,
+# `lspGenTempUpsert` and `lspGenToJson`. Three read exactly `Unsafe`
+# (reads with no allocation): `docGen`, `lspGenAt` and
+# `lspGenHeadStart`. One is pure: `lspGenIsWs`. Every move is a gain -
+# `Alloc,Mut,Unsafe` 2285 to 2296, exactly `Unsafe` 1156 to 1159,
+# `Alloc,IO,Mut,Unsafe` 400 to 403, pure 555 to 556. No row moves off
+# `IO` or onto it: the required/ambient line sits where it was
+# measured.
 # RE-PINNED 2026-09-26 (15): LSP inlay hints thread `decls`+`occs`
 # (macro-definition skip via `lspSkipHintName`). One added, none
 # removed, none changed - the new row read off `symbols` by name:
@@ -357,15 +377,15 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2285 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1156 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 400 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2296 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1159 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 403 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 121 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 555 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 556 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 

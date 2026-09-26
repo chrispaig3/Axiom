@@ -17,10 +17,11 @@
 #               family plus one frontend case, none in stdlib or the
 #               compiler itself. The surface that could want locating.
 #   demand      requests in tests/lsp/drive.py targeting a generated
-#               name - 3 today (definition and hover unanswered, and
-#               references seeing exactly the use site, on the generated
-#               `tagShape` call), each asserting the raw-tree shape
-#               inline. The want, going unanswered.
+#               name - 4 today (definition, declaration and hover
+#               answered from the cache, references seeing the
+#               invocation then the use site, on the generated
+#               `tagShape` call), each asserting the cached shape
+#               inline. The want, answered without moving expansion.
 #
 # A pin, not a ceiling: if either number moves, this gate fails and the
 # conversation is whether MAC-TOOL-3 still holds - a new decl-macro user
@@ -38,7 +39,7 @@ ok()   { echo "ok   $*"; passed=$((passed + 1)); }
 fail() { echo "FAIL: $*"; failed=$((failed + 1)); }
 
 WANT_POPULATION=129
-WANT_DEMAND=3
+WANT_DEMAND=4
 
 echo "== population: every #generated= row over the corpus =="
 swept=0
@@ -88,8 +89,8 @@ fi
 echo
 echo "== demand: requests targeting a generated name =="
 # The behaviour itself is pinned inline in drive.py (each asserts the
-# raw-tree absence); what is pinned here is that the probes still
-# exist. A demand probe deleted quietly is demand measured quietly.
+# cached shape); what is pinned here is that the probes still exist.
+# A demand probe deleted quietly is demand measured quietly.
 demand="$(grep -c 'MAC-TOOL-3-demand' tests/lsp/drive.py || true)"
 if (( demand == WANT_DEMAND )); then
   ok "demand is $demand generated-name requests in drive.py, as pinned"
@@ -107,10 +108,10 @@ if (( 116 == WANT_POPULATION )); then
 else
   ok "probe: a population of 116 against a pin of $WANT_POPULATION is refused"
 fi
-if (( 4 == WANT_DEMAND )); then
-  fail "probe: a demand of 4 against a pin of $WANT_DEMAND was accepted - the comparison cannot fail"
+if (( 5 == WANT_DEMAND )); then
+  fail "probe: a demand of 5 against a pin of $WANT_DEMAND was accepted - the comparison cannot fail"
 else
-  ok "probe: a demand of 4 against a pin of $WANT_DEMAND is refused"
+  ok "probe: a demand of 5 against a pin of $WANT_DEMAND is refused"
 fi
 
 echo
@@ -118,4 +119,4 @@ if (( failed > 0 )); then
   echo "check-macro-demand: $failed check(s) failed, $passed passed"
   exit 1
 fi
-echo "check-macro-demand: $passed checks - $population generated rows, $demand unanswered wants"
+echo "check-macro-demand: $passed checks - $population generated rows, $demand answered wants"

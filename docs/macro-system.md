@@ -2412,6 +2412,16 @@ go unanswered, references sees exactly the use site, on the generated
 failure is a conversation about whether this rule still holds, not a
 tuning of the pin.
 
+*The cache answers the demand, 2026-09-26.* That conversation
+happened: the fill runs at `didOpen`/`didChange`, where the pipeline
+already runs for diagnostics - one isolated expansion per top-level
+invocation, stored by generated name with the invocation head's span
+and the product's rendering. `definition`, `declaration`, `hover` and
+`references` read that string where the raw-tree lookups miss and
+expand nothing, so the rule above stands unchanged: the fast path
+still never expands, it remembers what the last `didOpen` expanded.
+The four demand probes assert the cached shape inline.
+
 *The expansion request needed a printer, 2026-08-28.* Nothing in the
 compiler could turn a node back into source — `format.ax` prints from
 its own token forms, `symbols` renders types alone — so

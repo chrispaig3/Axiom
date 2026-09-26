@@ -815,7 +815,31 @@ floor=8192       # 8 MiB
 # Vec per repeat import with a non-empty delta, and this input's only
 # repeat selective import names what the first list already kept).
 # 672 leaves 10.2% over the measured 610, the same margin 608 set.
-ceiling=688128   # 672 MiB, over a measured 610
+#
+# 672 -> 760 MiB on 2026-09-26, at the generated-name cache. The gate
+# failed at 676 against the 672 ceiling, and the re-run on the
+# pristine tree peaks at 670 - the margin had been eaten a slice at a
+# time, and one earlier baseline read 568 and did not reproduce on the
+# re-run or on either direct measurement, so it is recorded here as
+# mis-measurement rather than as the margin. The split the 09-22
+# entry runs, on `emit-llvm self_host/main.ax`, in KiB. The branch
+# input repeats within 1 MiB across three runs (two gate runs at 676
+# and the direct run below); the trunk input repeats at 670-671 the
+# same way once the 568 is set aside:
+#
+#   the PRISTINE compiler on HEAD's source      686,880
+#   the PRISTINE compiler on the NEW source     692,560   +5,680 KiB
+#   the NEW compiler on the NEW source          692,576   +16 KiB
+#
+# The compiler change costs 16 KiB on identical input - noise; the
+# other 5,680 KiB is 469 more source lines to compile, 12.1 KiB per
+# line against the 14.37 the 08-15 entry measured. The shape the
+# ceiling guards was re-measured rather than assumed, on synthetic
+# inputs of 4,000 / 8,000 trivial declarations: 51 -> 100 MiB at BOTH
+# compilers (x1.96), identical numbers left and right. Doubling the
+# input doubles the peak, at both compilers. Linear.
+# 760 leaves 12.4% over the measured 676.
+ceiling=778240   # 760 MiB, over a measured 676
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi
