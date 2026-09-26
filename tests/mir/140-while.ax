@@ -1,0 +1,46 @@
+; `while` over `mut` bindings, with the loop's value used.
+;
+; The loop counts down from n to 1, summing everything but the
+; multiples of 3, so `%` plants its divide guard INSIDE the body - a
+; `trapz` whose continuation the back-edge must still reach. Both
+; `if` arms fire across the bank (multiples of 3 exist from n = 3
+; up), both post-loop arms fire (the sum passes 100 at n = 17), and
+; k = 0 takes the zero-trip path, where the carried `mut`s answer
+; their entry values. `w` is the loop's own value - 0 on every trip
+; count, bound and printed so the differential pins the answer rule
+; every run.
+;
+; The countdown is load-bearing under ABLATION 1 the way 141's bound
+; guard is: with the comparison's operands swapped the condition
+; reads `(> 0 i)`, which is false on entry for every k, so the drill
+; answers a wrong number rather than diverging. An up-loop's swapped
+; condition stays true forever at small k.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+(fn (probe n)
+  (let ((mut s 0))
+    (let ((mut i n))
+      (let ((w (while (> i 0)
+                 (set s (+ s (if (== (% i 3) 0) 0 i)))
+                 (set i (- i 1)))))
+        (if (> s 100)
+          (+ (- s 100) w)
+          (+ s w))))))
+
+(:: emit (-> Int Int))
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}"))
+      (emit (+ k 1))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (emit 0))

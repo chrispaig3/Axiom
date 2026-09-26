@@ -155,6 +155,20 @@
 #      operands and terminators; neither reaches what a binop is
 #      called, which is the second axis of the closed opcode set.
 #
+#      ABLATION 8 rebinds the exit to the loop's ENTRY values instead
+#      of its exit parameters: every post-loop read answers what the
+#      `mut` held before the first trip. §2 and §4 must go red exactly
+#      on the fixtures whose goldens carry an applied `condbr` - a
+#      `condbr` line holding a paren, which only the loop lowering
+#      writes - derived from the goldens, not listed, while §3 stays
+#      silent, since an entry value dominates the exit as soundly as
+#      the parameter does. The back-edge is deliberately NOT the seam:
+#      answering stale values there diverges rather than
+#      mis-answering, and a drill that hangs is not a drill. (The
+#      loop's own 0 answer is pinned the other way: fixture 140 binds
+#      it as `w` and prints it, so §4 answers for the rule every run
+#      without a drill of its own.)
+#
 # AXIOM_BLESS=1 rewrites the §2 goldens and nothing else. It cannot
 # write `self_host/mir.ax`, the fixtures, `codegen.ax` or the corpus,
 # which is why §3 to §9 survive a bless.
@@ -657,6 +671,18 @@ elif which == "7":
     # through the quoted heredoc untouched.)
     pat = re.compile(r'\(strEq nm "%"\)\s+"srem"')
     rep = r'(strEq nm "%")  "srex"'
+elif which == "8":
+    # The exit rebinds to the ENTRY values instead of the exit
+    # parameters: every post-loop read answers what the `mut` held
+    # before the first trip. Well-formed IR with the wrong meaning,
+    # so the goldens and the differential move while the verifier
+    # stays silent - the same shape as ablations 1 and 6, for the
+    # rule neither reaches. Scoped to `mLowerWhile` by the function
+    # head; the `px` rebind is the only one of the three that names
+    # the exit's parameters, so the seam cannot land on the header's
+    # or the body's.
+    pat = re.compile(r"(\(pub fn \(mLowerWhile[\s\S]*?mRebind\s+env\s+names\s+)px(\s+0\))")
+    rep = r"\g<1>entryRegs\g<2>"
 else:
     sys.stderr.write("no such ablation: %s\n" % which)
     sys.exit(1)
@@ -1097,6 +1123,60 @@ else
     ok "ABLATION 7: all $n_spoke7 complaints name the corrupted spelling, not a side effect"
   else
     bad "ABLATION 7: $n_named7 of $n_spoke7 complaints named the corrupted spelling"
+  fi
+fi
+
+# --- ABLATION 8: the exit answers the entry values ---
+# WITHOUT THIS, THE EXIT REBIND IS UNPINNED. Ablations 1 and 6
+# move operands and constants, and neither reaches which registers
+# the names past the loop answer. Which fixtures those are is
+# derived from the CHECKED-IN goldens - a `condbr` line holding a
+# paren, the applied form only the loop lowering writes - not from
+# a list written here, for ablation 2's reason.
+if ! ablate 8; then
+  bad "ABLATION 8 could not be built"
+  sed 's/^/     /' "$work/abl8/build.log" 2>/dev/null | head -10
+else
+  a8="$work/abl8/mirtool"
+  n_loop=0
+  wrong8=""
+  crashed8=0
+  for f in "${fixtures[@]}"; do
+    n="$(basename "$f" .ax)"
+    if grep -q 'condbr.*(' "tests/mir/$n.mir"; then
+      expect=red
+    else
+      expect=same
+    fi
+    [[ "$expect" == "red" ]] && n_loop=$((n_loop + 1))
+    "$a8" lower "$f" > "$work/abl8.$n.mir" 2>/dev/null
+    if cmp -s "$work/abl8.$n.mir" "tests/mir/$n.mir"; then got=same; else got=red; fi
+    [[ "$got" != "$expect" ]] && wrong8="$wrong8 $n(print-$got)"
+    { "$a8" run "$f" "$PROBES" > "$work/abl8.$n.out" 2>/dev/null; } 2>/dev/null
+    (( $? > 128 )) && crashed8=$((crashed8 + 1))
+    if cmp -s "$work/abl8.$n.out" "$work/$n.native"; then
+      [[ "$expect" == "red" ]] && wrong8="$wrong8 $n(eval-same)"
+    else
+      [[ "$expect" == "same" ]] && wrong8="$wrong8 $n(eval-red)"
+    fi
+    "$a8" verify "$f" > "$work/abl8.$n.verify" 2>&1
+    [[ -s "$work/abl8.$n.verify" ]] && wrong8="$wrong8 $n(spoke)"
+  done
+  if (( n_loop > 0 )); then
+    ok "$n_loop fixture(s) loop, so the drill has something to move"
+  else
+    bad "no fixture loops - ABLATION 8 passes over an empty set"
+    wrong8="$wrong8 (empty)"
+  fi
+  if [[ -z "$wrong8" ]]; then
+    ok "ABLATION 8: §2 and §4 go red exactly on the fixtures that loop, and §3 stays silent on all $n_fix"
+  else
+    bad "ABLATION 8: answered wrongly for:$wrong8"
+  fi
+  if (( crashed8 == 0 )); then
+    ok "ABLATION 8: every red is a wrong answer, not a crash"
+  else
+    bad "ABLATION 8: $crashed8 fixtures died instead of answering"
   fi
 fi
 

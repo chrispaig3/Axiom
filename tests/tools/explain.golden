@@ -1672,9 +1672,9 @@ place a reader would otherwise have to open the callee to learn it.
 If the effect is not wanted there, the fix is to stop performing it
 rather than to stop saying so.
 
-`IO` is the only effect required TRANSITIVELY, and the reason is a measurement. Of 4,632
-functions in this compiler and its standard library, 4,079 perform
-something and 2,244 of those perform exactly `Alloc,Mut,Unsafe` -
+`IO` is the only effect required TRANSITIVELY, and the reason is a measurement. Of 4,645
+functions in this compiler and its standard library, 4,092 perform
+something and 2,251 of those perform exactly `Alloc,Mut,Unsafe` -
 every function that touches a String or a Vec, because allocating is
 what an expression does here, `Mut` is set by writing any struct
 field, and `Unsafe` rides the byte reads and writes underneath.

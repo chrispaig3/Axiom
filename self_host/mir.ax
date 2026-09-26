@@ -49,15 +49,22 @@
 ; types needs a side table keyed by node, and that is a later slice.
 ;
 ; THE SUBSET. `mLowerFn` lowers a function whose body is built from
-; integer and boolean literals, variables, `let`, `if`, `begin` and
-; applications of the sixteen arithmetic, comparison and bitwise
-; operators or of a TOP-LEVEL function - plus `cast`, which erases:
-; `(cast T v)` answers v's register and emits nothing, exactly as the
-; walk evaluates it, except a `Float` destination, which re-enters
-; float arithmetic and stays refused. `&&` and `||` lower as the
-; control flow they are - the left side tested, the right side in one
-; arm only, the join answering 0/1 exactly as `emitAndOr`'s `phi`
-; does - because one instruction cannot short-circuit. Anything
+; integer and boolean literals, variables, `let`, `mut`, `set`, `if`,
+; `while`, `begin` and applications of the sixteen arithmetic,
+; comparison and bitwise operators or of a TOP-LEVEL function - plus
+; `cast`, which erases: `(cast T v)` answers v's register and emits
+; nothing, exactly as the walk evaluates it, except a `Float`
+; destination, which re-enters float arithmetic and stays refused.
+; `&&` and `||` lower as the control flow they are - the left side
+; tested, the right side in one arm only, the join answering 0/1
+; exactly as `emitAndOr`'s `phi` does - because one instruction
+; cannot short-circuit. A `while` is a header, a body and an exit,
+; the `mut` bindings in scope carried as block parameters on all
+; three, and it answers 0 exactly as `emitWhile` does - a loop that
+; ran zero times has no last iteration to take a value from. A `set`
+; under an `if` arm or an `&&`/`||` right-hand side refuses: only
+; one arm executes, so no single register answers the name past the
+; join. Anything
 ; else - a
 ; string, a match, a lambda, a field access, an application whose
 ; head is a local - makes it REFUSE the whole function. It never
@@ -65,8 +72,8 @@
 ;
 ; HOW MUCH THAT IS, measured with `tests/mir/mirtool.ax count` over
 ; `self_host/*.ax stdlib/*.ax stdlib/*/*.ax` and NOT taken from
-; anywhere else: 2,509 of 5,349 top-level functions lower end to end,
-; among them 312 of 731 in `codegen.ax`, 442 of 975 in
+; anywhere else: 2,596 of 5,362 top-level functions lower end to end,
+; among them 315 of 731 in `codegen.ax`, 449 of 975 in
 ; `typecheck.ax`, 130 of 338 in `parser.ax` and 153 of 330 in
 ; `expand.ax`. `check-mir.sh` recomputes the total every run, prints
 ; it, and holds a floor under it, so the day a lowering rule narrows
@@ -171,6 +178,13 @@
 ;   name  MO_BIN: the opcode spelling. MO_CALL: the callee.
 ;   args  MO_CALL: the argument registers. MT_BR: the block
 ;         arguments, one per parameter of the target block.
+;         MT_CONDBR: the block arguments, passed to BOTH successors,
+;         which therefore take the same number of parameters. One
+;         list, not two, because `while` passes its carried `mut`s
+;         to the body and the exit alike - the body's parameters
+;         are the values the body computes from, the exit's the
+;         values the loop leaves behind - and two lists that always
+;         agree are one list written twice.
 ;   tgt   MT_BR: the block branched to. MT_CONDBR: the block taken
 ;         when the tested register is nonzero.
 ;   alt   MT_CONDBR: the block taken when it is zero.
@@ -245,12 +259,15 @@
 ; not, so a reader never has to decide whether a missing list means
 ; "no arguments" or "not written yet".
 ;
-; `condbr` prints two bare block names and no argument lists, because
-; in this IR a conditional branch's successors take NO parameters.
-; That is a restriction of slice 1's lowering rather than of the
-; representation, and it is not a comment: `mirVerify` fails a
-; `condbr` to a block that has parameters, so the printer's grammar
-; and the verifier's rule are the same statement.
+; `condbr` prints each successor bare when the argument list is
+; empty - `condbr %3, bb1, bb2` - and with its arguments in
+; parentheses when it is not: `condbr %3, bb1(%4), bb2(%4)`. One
+; list for both successors, by the rule `MInst.args` states. The
+; bare form is what `if` and `&&`/`||` lower, so their goldens do
+; not move; the applied form is what `while` lowers, carrying the
+; loop's `mut`s to the body and the exit alike. `mirVerify` checks
+; both successors' parameter counts against the list, so the
+; printer's grammar and the verifier's rule are the same statement.
 ;
 ; The op spellings are LLVM's - `add`, `sdiv`, `srem`, `slt` - and
 ; not Axiom's source operators, so the backend slice is a rename
@@ -284,6 +301,16 @@
           (strConcat acc ", "))
         (mirReg (vecGet v i))))))
 
+; A `condbr` successor: bare when the argument list is empty, applied
+; when it is not. `br` keeps its own spelling - it always prints its
+; parentheses, empty or not, and the goldens pin that - so this is
+; `condbr`'s alone, and the two successors share the one list.
+(pub :: mCondTarget (-> Int (Vec Int) String))
+(pub fn (mCondTarget b args)
+  (if (== (vecLen args) 0)
+    (mirBB b)
+    (mcat3 (mirBB b) "(" (strConcat (mirRegList args 0 "") ")"))))
+
 (pub :: mirInst (-> MInst String))
 (pub fn (mirInst n)
   (if (== n.op MO_CONST)
@@ -297,7 +324,7 @@
           (if (== n.op MT_BR)
             (mcat3 "  br " (mirBB n.tgt) (mcat3 "(" (mirRegList n.args 0 "") ")"))
             (if (== n.op MT_CONDBR)
-              (mcat3 (mcat3 "  condbr " (mirReg n.a) ", ") (mirBB n.tgt) (strConcat ", " (mirBB n.alt)))
+              (mcat3 (mcat3 "  condbr " (mirReg n.a) ", ") (mCondTarget n.tgt n.args) (strConcat ", " (mCondTarget n.alt n.args)))
               (if (== n.op MT_TRAPZ)
                 (mcat3 (mcat3 "  trapz " (mirReg n.a) ", ") (mirBB n.tgt) (strConcat ", " (mirBB n.alt)))
                 (if (== n.op MT_TRAP)
@@ -350,20 +377,35 @@
 ; inside a branch leaves `cur` somewhere other than the block that
 ; branch started in, and terminating the block you STARTED with
 ; instead of the one you ENDED in is the bug that produces an
-; unreachable join.
+; unreachable join. `cond` is nonzero while an `if` arm or an
+; `&&`/`||` right-hand side lowers: only one arm executes, so a
+; `set` there has no single register to answer past the join, and
+; `mLowerSet` refuses rather than leaking one arm's binding into a
+; scope the other arm never defines.
 ;
 ; `MBind` is one name-to-register binding. The environment is a `Vec`
 ; scanned from the END, so an inner `let` shadows an outer one
-; without the scan having to remove anything.
+; without the scan having to remove anything. `isMut` is 1 for a
+; `mut` binding and 0 for anything else - a parameter, a `let` - and
+; it is what `set` checks and what `while` carries: only a `mut`
+; binding can change, so only one needs a block parameter on the
+; loop's three blocks. The field is `isMut` and not `mut` because a
+; field NAMED `mut` is a formatter refusal: `(mut : Int)` reads as
+; the mutability keyword where a name should be, and `axiom fmt`
+; declines to guess. The checker accepts it; the printer does not;
+; the name sidesteps the disagreement the way `parser.ax`'s `isMut`
+; locals already do.
 ; ------------------------------------------------------------------
 (pub struct MLC
   (mut nreg : Int)
   (blocks : (Vec MBlock))
-  (mut cur : MBlock))
+  (mut cur : MBlock)
+  (mut cond : Int))
 
 (pub struct MBind
   (name : String)
-  (reg : Int))
+  (reg : Int)
+  (isMut : Int))
 
 (pub :: mlcFresh (-> MLC Int))
 (pub fn (mlcFresh lc)
@@ -424,6 +466,69 @@
 (pub :: mEnvFind (-> (Vec MBind) String Int))
 (pub fn (mEnvFind env name)
   (mEnvLook env name (- (vecLen env) 1)))
+
+; The innermost binding's mutability: 1 for a `mut` binding, 0 for
+; anything else, -1 when no binding answers the name at all. `set`
+; reads this, not the register: storing through a `let` would be a
+; program the checker refused, and the subset refuses it here rather
+; than rebinding a name that cannot change.
+(pub :: mEnvLookMut (-> (Vec MBind) String Int Int))
+(pub fn (mEnvLookMut env name i)
+  (if (< i 0)
+    (- 0 1)
+    (let ((bnd (vecGet env i)))
+      (if (strEq bnd.name name)
+        bnd.isMut
+        (mEnvLookMut env name (- i 1))))))
+
+(pub :: mEnvMut (-> (Vec MBind) String Int))
+(pub fn (mEnvMut env name)
+  (mEnvLookMut env name (- (vecLen env) 1)))
+
+; Pop the environment back to `n` bindings. `while` binds its
+; carried `mut`s three times over - header, body, exit - and the
+; body's own `let`s die with it; the truncation is what restores the
+; entry's bindings before the exit's are pushed.
+(pub :: mEnvTrunc (-> (Vec MBind) Int Int))
+(pub fn (mEnvTrunc env n)
+  (if (<= (vecLen env) n)
+    0
+    {
+      (vecPop env)
+      (mEnvTrunc env n)
+    }))
+
+; Drop every binding for `nm` at or above `base`, compacting the rest
+; down. A `let` ends this way rather than by popping once or by
+; truncating: a body holding a `set` net-grows the environment, so a
+; single pop eats the store's binding and leaks the `let`'s own -
+; and a truncation eats the store's binding too, which must OUTLIVE
+; the `let` when it names an outer `mut`. The store persists past
+; the scope that made it; only the `let`'s own name dies with it.
+(pub :: mEnvDropScan (-> (Vec MBind) String Int Int Int))
+(pub fn (mEnvDropScan env nm i keep)
+  (if (>= i (vecLen env))
+    keep
+    (let ((bnd (vecGet env i)))
+      (if (strEq bnd.name nm)
+        (mEnvDropScan env nm (+ i 1) keep)
+        {
+          (vecSet env keep bnd)
+          (mEnvDropScan env nm (+ i 1) (+ keep 1))
+        }))))
+
+(pub :: mEnvDropName (-> (Vec MBind) String Int Int))
+(pub fn (mEnvDropName env nm base)
+  (mEnvTrunc env (mEnvDropScan env nm base base)))
+
+; String membership over a `Vec`, innermost-first callers' seen-set.
+(pub :: mStrMem (-> (Vec String) String Int Bool))
+(pub fn (mStrMem v nm i)
+  (if (>= i (vecLen v))
+    false
+    (if (strEq (vecGet v i) nm)
+      true
+      (mStrMem v nm (+ i 1)))))
 
 ; The operator table. Answers the MIR spelling of an Axiom binary
 ; operator, or "" for a name that is not one - and "" is what makes
@@ -605,36 +710,255 @@
                   0))
                 (- 0 1)))))
         (if (== t TAG_E_LET)
-          (mLowerLet lc env e)
-          (if (== t TAG_E_IF)
-            (mLowerIf lc env e)
-            (if (== t TAG_E_BEGIN)
-              (mLowerSeq
-                lc
-                env
-                (nodeAVec e)
-                0
-                (- 0 1))
-              (if (== t TAG_E_APP)
-                (mLowerApp lc env e)
-                (- 0 1)))))))))
+          (mLowerLet lc env e 0)
+          (if (== t TAG_E_LETM)
+            (mLowerLet lc env e 1)
+            (if (== t TAG_E_IF)
+              (mLowerIf lc env e)
+              (if (== t TAG_E_WHILE)
+                (mLowerWhile lc env e)
+                (if (== t TAG_E_SET)
+                  (mLowerSet lc env e)
+                  (if (== t TAG_E_BEGIN)
+                    (mLowerSeq
+                      lc
+                      env
+                      (nodeAVec e)
+                      0
+                      (- 0 1))
+                    (if (== t TAG_E_APP)
+                      (mLowerApp lc env e)
+                      (- 0 1))))))))))))
 
 ; `TAG_E_LET` binds exactly one name per node (parser.ax builds it
 ; that way and codegen relies on it), so there is no binding list to
-; walk: value, push, body, pop.
-(pub :: mLowerLet (-> MLC (Vec MBind) Int Int))
-(pub fn (mLowerLet lc env e)
-  (let ((rv (mLower lc env (nodeB e))))
+; walk: value, push, body, pop. `TAG_E_LETM` is the same shape with
+; the mutability bit set - the parser marks `(mut x v)` pairs, and
+; the one flag is the whole difference between the two down here.
+;
+; The pop drops the `let`'s own NAME, not the top binding and not
+; everything the body added: a body holding a `set` net-grows the
+; environment, and the store must outlive the scope that made it
+; when it names an outer `mut` - while the body's stores to the
+; `let`'s own name (a `mut` re-stored) die with it, or a use past
+; the scope would read a register no live binding answers.
+(pub :: mLowerLet (-> MLC (Vec MBind) Int Int Int))
+(pub fn (mLowerLet lc env e mut)
+  (let (
+    (rv (mLower lc env (nodeB e)))
+    (base (vecLen env))
+  )
     (if (< rv 0)
       (- 0 1)
       {
-        (vecPush env (MBind (nodeAName e) rv))
+        (vecPush env (MBind (nodeAName e) rv mut))
         (let ((rb (mLower lc env (nodeC e))))
           {
-            (vecPop env)
+            (mEnvDropName env (nodeAName e) base)
             rb
           })
       })))
+
+; `set` stores by REBINDING: the value lowers, a fresh binding for
+; the target shadows the old one, and the answer is the value's own
+; register - which is what `emitSet` leaves in its slot, the stored
+; value. No instruction is emitted and none is needed: every later
+; read consults the environment first, exactly as the walk reads the
+; alloca the store wrote. The target must be a `mut` binding in
+; scope; anything else is a program the checker refused, and refuses
+; here too. And the store must not stand under a conditional: only
+; one `if` arm executes, so a binding an arm pushes answers a use
+; past the join with a register the other arm never defines - the
+; dominance violation, refused at the store rather than reported at
+; the use.
+(pub :: mLowerSet (-> MLC (Vec MBind) Int Int))
+(pub fn (mLowerSet lc env e)
+  (if (!= lc.cond 0)
+    (- 0 1)
+    (let ((m (mEnvMut env (nodeAName e))))
+      (if (< m 0)
+        (- 0 1)
+        (if (== m 0)
+          (- 0 1)
+          (let ((rv (mLower lc env (nodeB e))))
+            (if (< rv 0)
+              (- 0 1)
+              {
+                (vecPush env (MBind (nodeAName e) rv 1))
+                rv
+              })))))))
+
+; The loop-carried set: every `mut` binding in scope at the loop's
+; entry, innermost shadowing outermost. Scanned from the END so the
+; first binding seen for a name wins; `seen` is what makes the
+; second one for the same name not a second parameter. An immutable
+; shadowing a `mut` carries nothing - the loop reads the `let`'s
+; register, which dominates the whole loop already.
+(pub :: mCarryLoop (-> (Vec MBind) Int (Vec String) (Vec String) (Vec Int) Int))
+(pub fn (mCarryLoop env i seen names regs)
+  (if (< i 0)
+    0
+    (let ((bnd (vecGet env i)))
+      (if (mStrMem seen bnd.name 0)
+        (mCarryLoop env (- i 1) seen names regs)
+        {
+          (vecPush seen bnd.name)
+          (if (== bnd.isMut 1)
+            {
+              (vecPush names bnd.name)
+              (vecPush regs bnd.reg)
+              0
+            }
+            0)
+          (mCarryLoop env (- i 1) seen names regs)
+        }))))
+
+; `n` fresh registers onto `v`.
+(pub :: mFreshN (-> MLC (Vec Int) Int Int))
+(pub fn (mFreshN lc v n)
+  (if (<= n 0)
+    0
+    {
+      (vecPush v (mlcFresh lc))
+      (mFreshN lc v (- n 1))
+    }))
+
+; Bind each carried name to its block parameter, shadowing whatever
+; the name held before. Three rounds per loop - header, body, exit -
+; and the truncation between the body and the exit is what keeps the
+; body's own bindings from leaking past the loop.
+(pub :: mRebind (-> (Vec MBind) (Vec String) (Vec Int) Int Int))
+(pub fn (mRebind env names regs i)
+  (if (>= i (vecLen names))
+    0
+    {
+      (vecPush env (MBind (vecGet names i) (vecGet regs i) 1))
+      (mRebind env names regs (+ i 1))
+    }))
+
+; The registers the carried names hold NOW - after the body's `set`s
+; - in carry order. These are the back-edge's arguments.
+(pub :: mCurRegs (-> (Vec MBind) (Vec String) Int (Vec Int) (Vec Int)))
+(pub fn (mCurRegs env names i out)
+  (if (>= i (vecLen names))
+    out
+    {
+      (vecPush out (mEnvFind env (vecGet names i)))
+      (mCurRegs env names (+ i 1) out)
+    }))
+
+; `while` is a header, a body and an exit, and the `mut` bindings in
+; scope are carried as block parameters on all three. The entry edge
+; passes the values the loop starts with, the back-edge the values
+; the body leaves behind, and the `condbr` in the header passes its
+; list to BOTH successors - the body's parameters are what the body
+; computes from, the exit's what the loop answers past itself. A
+; post-loop read of a carried `mut` is therefore an exit parameter,
+; not a use of a body register the zero-trip path never defines,
+; which is the use the dominance check would rightly refuse.
+;
+; The condition lowers in the header and the `set`s it holds are NOT
+; truncated away before the body: a store the condition makes is
+; visible to the body on the walk, and the environment says so here
+; too. The body's own bindings die at the back-edge instead, by the
+; truncation to the entry's length.
+;
+; The form answers 0, exactly as `emitWhile` does. The body's value
+; is lowered and checked and then dropped - a loop that ran zero
+; times has no last iteration to take a value from.
+;
+; Block discipline is `mLowerIf`'s, extended: all three blocks exist
+; before the condition lowers, and each region terminates the block
+; it ENDED in. A `&&` in the condition or an `if` in the body moves
+; `cur` through its own blocks first, and the loop's branches land
+; wherever it stopped, which is why a nested conditional composes
+; instead of needing its own case.
+(pub :: mLowerWhile (-> MLC (Vec MBind) Int Int))
+(pub fn (mLowerWhile lc env e)
+  (let (
+    (names vecNew)
+    (entryRegs vecNew)
+    (seen vecNew)
+    (base (vecLen env))
+  )
+    {
+      (mCarryLoop env (- base 1) seen names entryRegs)
+      (let (
+        (ph vecNew)
+        (pd vecNew)
+        (px vecNew)
+      )
+        {
+          (mFreshN lc ph (vecLen names))
+          (mFreshN lc pd (vecLen names))
+          (mFreshN lc px (vecLen names))
+          (let (
+            (hd (mlcBlock lc ph))
+            (bd (mlcBlock lc pd))
+            (bx (mlcBlock lc px))
+          )
+            {
+              (mlcTerm lc (MInst
+                MT_BR
+                (- 0 1)
+                0
+                0
+                ""
+                entryRegs
+                hd.id
+                0))
+              (set lc.cur hd)
+              (mRebind env names ph 0)
+              (let ((rc (mLower lc env (nodeA e))))
+                (if (< rc 0)
+                  (- 0 1)
+                  {
+                    ; The header's own parameters, ALIASED rather than
+                    ; copied: no rule mutates a block's parameter list
+                    ; after `mlcBlock` takes it, so the list the branch
+                    ; passes and the list the header declares are one
+                    ; list, and cannot disagree.
+                    (mlcTerm lc (MInst
+                      MT_CONDBR
+                      (- 0 1)
+                      rc
+                      0
+                      ""
+                      ph
+                      bd.id
+                      bx.id))
+                    (set lc.cur bd)
+                    (mRebind env names pd 0)
+                    (let ((bodyVal (mLowerSeq lc env (nodeBVec e) 0 (- 0 1))))
+                      (if (< bodyVal 0)
+                        (- 0 1)
+                        {
+                          (mlcTerm lc (MInst
+                            MT_BR
+                            (- 0 1)
+                            0
+                            0
+                            ""
+                            (mCurRegs env names 0 vecNew)
+                            hd.id
+                            0))
+                          (set lc.cur bx)
+                          (mEnvTrunc env base)
+                          (mRebind env names px 0)
+                          (mlcEmit lc (MInst
+                            MO_CONST
+                            (mlcFresh lc)
+                            0
+                            0
+                            ""
+                            vecNew
+                            0
+                            0))
+                        }))
+                  }))
+            })
+        })
+    }))
 
 ; `if` is three new blocks and a join parameter. The join block is
 ; created BEFORE either arm is lowered, so a nested `if` inside an
@@ -653,6 +977,7 @@
         (bt (mlcBlock lc vecNew))
         (bf (mlcBlock lc vecNew))
         (pj (mlcFresh lc))
+        (outer lc.cond)
       )
         (let ((bj (mlcBlock lc (mSingleton pj))))
           {
@@ -666,6 +991,11 @@
               bt.id
               bf.id))
             (set lc.cur bt)
+            ; Arms are conditional; the condition above is not. A
+            ; `set` under this flag refuses, and the flag restores
+            ; past the join - saved, because an `if` nests inside
+            ; an arm as well as above one.
+            (set lc.cond 1)
             (let ((r1 (mLower lc env (nodeB e))))
               (if (< r1 0)
                 (- 0 1)
@@ -693,6 +1023,7 @@
                           (mSingleton r2)
                           bj.id
                           0))
+                        (set lc.cond outer)
                         (set lc.cur bj)
                         pj
                       }))
@@ -884,6 +1215,7 @@
           (brhs (mlcBlock lc vecNew))
           (bshort (mlcBlock lc vecNew))
           (pj (mlcFresh lc))
+          (outer lc.cond)
         )
           (let ((bj (mlcBlock lc (mSingleton pj))))
             {
@@ -897,6 +1229,11 @@
                 (if isAnd brhs.id bshort.id)
                 (if isAnd bshort.id brhs.id)))
               (set lc.cur brhs)
+              ; The right-hand side is conditional - short-circuit
+              ; means it may never run - so a `set` under it refuses,
+              ; exactly as under an `if` arm. The left side above is
+              ; not, and lowers with the flag as it arrived.
+              (set lc.cond 1)
               (let ((rb (mLower lc env (vecGet args 1))))
                 (if (< rb 0)
                   (- 0 1)
@@ -950,6 +1287,7 @@
                             (mSingleton sv)
                             bj.id
                             0))
+                          (set lc.cond outer)
                           (set lc.cur bj)
                           pj
                         })
@@ -963,7 +1301,7 @@
     (let ((r (mlcFresh lc)))
       {
         (vecPush out r)
-        (vecPush env (MBind (vecGet ps i) r))
+        (vecPush env (MBind (vecGet ps i) r 0))
         (mBindParams
           lc
           env
@@ -986,7 +1324,7 @@
     (entry (MBlock 0 vecNew vecNew vecNew))
     (out vecNew)
   )
-    (let ((lc (MLC 0 vecNew entry)))
+    (let ((lc (MLC 0 vecNew entry 0)))
       {
         (vecPush lc.blocks entry)
         (let (
@@ -1066,9 +1404,11 @@
 ;   4. every register mentioned is below `nreg` and has a definition;
 ;   5. every branch names a block that exists;
 ;   6. a `br`'s argument count equals its target's parameter count;
-;   7. a `condbr`'s targets take no parameters (slice 1's
-;      restriction, stated here so the printer's grammar is checked
-;      rather than assumed);
+;   7. a `condbr`'s argument list reaches BOTH successors, and
+;      each takes exactly that many parameters - the applied form
+;      `while` lowers. `trapz` still passes none, and the same
+;      check with an empty list says so: a `trapz` to a block
+;      with parameters fails the count, not a special case;
 ;   8. every block is reachable from block 0;
 ;   9. DOMINANCE - the definition of every register used reaches the
 ;      use on every path. Block parameters make a cross-block use
@@ -1582,8 +1922,19 @@
                 t.a
                 b.id
                 idx)
-              (mvCondTarget f out what t.tgt)
-              (mvCondTarget f out what t.alt)
+              (mvUseList
+                f
+                dom
+                defBlk
+                defIdx
+                out
+                what
+                t.args
+                b.id
+                idx
+                0)
+              (mvCondTarget f out what t.tgt (vecLen t.args))
+              (mvCondTarget f out what t.alt (vecLen t.args))
             }
             (if (== t.op MT_TRAPZ)
               {
@@ -1597,8 +1948,8 @@
                   t.a
                   b.id
                   idx)
-                (mvCondTarget f out what t.tgt)
-                (mvCondTarget f out what t.alt)
+                (mvCondTarget f out what t.tgt 0)
+                (mvCondTarget f out what t.alt 0)
               }
               (if (== t.op MT_TRAP)
                 (if (>= t.a 0)
@@ -1615,17 +1966,17 @@
                   0)
                 (mvSay out (mcat3 what " ends in opcode " (strConcat (fmtInt t.op) ", which is not a terminator")))))))))))
 
-; A `condbr` successor must exist and take no parameters - the
-; printer has nowhere to write an argument list for one, and the
-; lowering never makes one, so a block with parameters here means
-; something upstream is wrong.
-(pub :: mvCondTarget (-> MFunc (Vec String) String Int Int))
-(pub fn (mvCondTarget f out what id)
+; A `condbr`/`trapz` successor must exist and take exactly the
+; arguments it is passed - `want` of them. The complaint mirrors
+; `br`'s arity message, because it is the same rule: one list, and
+; the target declares what the list lands in.
+(pub :: mvCondTarget (-> MFunc (Vec String) String Int Int Int))
+(pub fn (mvCondTarget f out what id want)
   (let ((np (mvBlockAt f id)))
     (if (< np 0)
       (mvSay out (mcat3 what " branches to " (strConcat (mirBB id) ", which does not exist")))
-      (if (> np 0)
-        (mvSay out (mcat3 (mcat3 what " conditionally branches to " (mirBB id)) ", which takes " (strConcat (fmtInt np) " parameters; condbr passes none")))
+      (if (!= np want)
+        (mvSay out (mcat3 (mcat3 what " passes " (fmtInt want)) (mcat3 " arguments to " (mirBB id) ", which takes ") (fmtInt np)))
         0))))
 
 (pub :: mvCheckBlocks (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) Int Int))

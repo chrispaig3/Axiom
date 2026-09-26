@@ -19812,12 +19812,12 @@
 ; not say so.
 ;
 ; WHY ONLY `IO` IS REQUIRED TRANSITIVELY, measured. Recounted
-; 2026-09-25: of 4,632 functions in `self_host/` and `stdlib/`, 4,079
-; perform something and 2,244 of those perform exactly
+; 2026-09-25: of 4,645 functions in `self_host/` and `stdlib/`, 4,092
+; perform something and 2,251 of those perform exactly
 ; `Alloc,Mut,Unsafe` - every function that touches a String or a Vec,
 ; because allocating is what an expression DOES here, `Mut` is set by
 ; writing any struct field, and `Unsafe` rides the byte reads and
-; writes underneath. A declaration required on those is 2,244
+; writes underneath. A declaration required on those is 2,251
 ; annotations that distinguish nothing from nothing. `IO` is on 458,
 ; and each one of those says the thing a caller actually needs to
 ; know: this reaches outside the process. (The 2026-08-30 recount's
@@ -20867,7 +20867,7 @@
 ; The built-in effect name NOTHING PRODUCES. `Div` is spellable - a
 ; handle list may write it, and it is not a custom effect - and the walk
 ; has no producer for it: measured over `self_host/` and `stdlib/`, ZERO
-; of 4,632 rows carry it.
+; of 4,645 rows carry it.
 ;
 ; `Err` WAS THE OTHER ONE and is no longer a built-in effect name at all
 ; (`AX3054`'s commit, 2026-08-30): nothing inferred it, and its own tag

@@ -219,6 +219,10 @@
               t.tgt
               (mvalArgs regs t.args 0 vecNew))
             (if (== t.op MT_CONDBR)
+              ; The argument list reaches whichever successor the
+              ; test selects - the applied form `while` lowers. An
+              ; empty list binds nothing, which is the bare form
+              ; `if` lowers, so the two spellings share this arm.
               (mvalGoto
                 fns
                 f
@@ -226,7 +230,7 @@
                 (if (!= (vecGet regs t.a) 0)
                   t.tgt
                   t.alt)
-                vecNew)
+                (mvalArgs regs t.args 0 vecNew))
               (if (== t.op MT_TRAPZ)
                 (mvalGoto
                   fns

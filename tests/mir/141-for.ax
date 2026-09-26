@@ -1,0 +1,45 @@
+; `for` in both range shapes, which the parser desugars to the
+; `while`/`mut`/`set` this IR lowers - so this fixture pins the
+; desugared loop, not a second lowering.
+;
+; The plain range sums 1..n-1 and the stepped range sums n..1, so
+; `probe` answers n squared: 0, 1, 4, ..., 361. The stepped shape's
+; condition is itself an `if` on the step's sign, which lowers in
+; the header beside the comparison. k = 0 skips both loops.
+;
+(import IO)
+
+(:: probe (-> Int Int))
+(fn (probe n)
+  ; The bound guard is load-bearing under ABLATION 1: with the
+  ; comparison's operands swapped the up-loop's condition stays true
+  ; forever at n = 0, so the gate's drill would hang rather than go
+  ; red. Every fixture answers a wrong number under the swap, never
+  ; a divergence. It guards the BOUND rather than wrapping the loops
+  ; because a `set` under an `if` arm refuses - only one arm
+  ; executes, so no single register answers the name past the join -
+  ; while an `if` whose arms hold no stores lowers like any other.
+  (let ((mut s 0))
+    {
+      (for i 1 (if (== n 0) 1 n)
+        (set s (+ s i)))
+      (for j n 0 -1
+        (set s (+ s j)))
+      s
+    }))
+
+(:: emit (-> Int Int))
+;@axiom:effect(io)
+(fn (emit k)
+  (if (>= k 20)
+    0
+    {
+      (let ((v (probe k)))
+        (println "{v}"))
+      (emit (+ k 1))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (emit 0))

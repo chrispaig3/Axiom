@@ -117,6 +117,16 @@ today's output would refuse tomorrow's. `tests/axir/body.axir` is that
 corpus: `entry`, `loop`, `alloc`, `store`, `phi`.
 `tests/axir/lowered.axir` is the other side, the emitted shape verbatim.
 
+**`term condbr` carries block arguments.** A `while` passes its
+carried `mut`s to the body and the exit alike, so the `condbr` line
+names both successors and then the shared argument list: `term
+condbr %9 bb2 bb3 %3 %4`. An `if` passes nothing and the line ends
+at the second successor, exactly as before — the reader takes a
+variable operand list, so the bare and applied forms are one rule,
+not two. This is the same uniformity the `.mir` printer keeps:
+`condbr %9, bb2, bb3` beside `condbr %9, bb2(%3, %4),
+bb3(%3, %4)`.
+
 **Escaping.** A parameter name goes through `saAxSafe`, the escaper
 `symbols.ax` already uses for AXTAG payloads on an AXSYM line: every
 structural byte as `%XX`. The header name does **not**, and that is a

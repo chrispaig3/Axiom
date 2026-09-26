@@ -279,7 +279,11 @@
     (if (== t.op MT_BR)
       (strConcat "term br " (strConcat (mirBB t.tgt) (axirRegs t.args 0 "")))
       (if (== t.op MT_CONDBR)
-        (strConcat "term condbr " (strConcat (mirReg t.a) (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))))
+        ; The block arguments ride after the two targets - the same
+        ; suffix `br` carries, because it is the same list. An empty
+        ; list renders as nothing, so the bare form reads exactly as
+        ; it did before `while` gave the applied form a writer.
+        (strConcat "term condbr " (strConcat (mirReg t.a) (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (strConcat (mirBB t.alt) (axirRegs t.args 0 "")))))))
         (if (== t.op MT_TRAPZ)
           (strConcat "term trapz " (strConcat (mirReg t.a) (strConcat " " (strConcat (mirBB t.tgt) (strConcat " " (mirBB t.alt))))))
           (if (== t.op MT_TRAP)
