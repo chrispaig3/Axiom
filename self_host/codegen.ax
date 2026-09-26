@@ -13414,12 +13414,23 @@
     ; the slot took a share iff the bit
     ; is set, and then the temporary's
     ; own share goes back
+    ;
+    ; A temporary that IS a string literal owns nothing to hand
+    ; back: releasing a `-1`-sentinel static is the runtime no-op
+    ; `isStaticSentinelNode` already names at the argument, field
+    ; and `let` scope-end sites. The boundary retain above is
+    ; untouched - retain-without-release on a static is the same
+    ; shape the argument path has shipped since 2026-08-31 - and
+    ; the conditional arm below is skipped with it, because the
+    ; value is a static whatever the evidence bit claims.
     (let ((owned 
-      (if (== (valueOwnedRef cg (vecGet args i)) 1)
-        1
-        (if (== (nodeTag (vecGet args i)) TAG_E_LAM)
+      (if (== (isStaticSentinelNode cg (vecGet args i)) 1)
+        0
+        (if (== (valueOwnedRef cg (vecGet args i)) 1)
           1
-          0))))
+          (if (== (nodeTag (vecGet args i)) TAG_E_LAM)
+            1
+            0)))))
       (let ((cg1 
         (if (== owned 0)
           cg
@@ -20240,7 +20251,24 @@
                         ; `releasable` decision left untouched with only
                         ; its spending conditional, same pending vector
                         ; for the tail-jump path.
-                        (if (&& (== releasable 1) (!= (memGetWord cgB 31) 1))
+                        ; A `let` initialiser that IS a string literal
+                        ; spends the same way for a dumber reason: the
+                        ; binding is immutable, so the register still
+                        ; holds the literal at scope end (SSA - the
+                        ; name cannot have been reused for another
+                        ; value), and releasing a `-1`-sentinel static
+                        ; is the runtime no-op `isStaticSentinelNode`
+                        ; already names at the argument and field
+                        ; sites. The join caveat there applies here
+                        ; too: only a bare literal initialiser spends,
+                        ; never a join that merely has a literal arm.
+                        ; Same shape as the stamp spends above -
+                        ; `releasable` still says 1, the pending
+                        ; vector still takes the share for the
+                        ; tail-jump path - so an ablation of the
+                        ; shared predicate restores every one of
+                        ; these releases with the other sites'.
+                        (if (&& (== releasable 1) (&& (!= (memGetWord cgB 31) 1) (== (isStaticSentinelNode cgB valExpr) 0)))
                           (if (&& (!= (pairSlot cgB 9) 0) (&& (|| (== (nodeTag valExpr) TAG_E_APP) (|| (== (nodeTag valExpr) TAG_E_IF) (== (nodeTag valExpr) TAG_E_MATCH))) (== (nodeResWord valExpr) 2)))
                             cgB
                             (let (
