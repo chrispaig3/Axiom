@@ -2439,7 +2439,12 @@ What a binding may share with its parent is a WORD. Pass the value
 through the thunk's word argument, or build a copy inside the
 binding; a `Vec` is not refused, because it takes no share of a
 count (`evScalarName`), and neither is anything the compiler can see
-is a scalar.
+is a scalar. A bare `Foreign` is not refused either: it points
+into memory Axiom never allocated, so the release walk skips it
+and there is no count to race (`tests/ffi/demo/410-
+foreign-not-walked.ax`). A `Handle` IS refused - a counted block
+carrying a destructor - and `tests/diagnostics/655-
+parallel-capture-foreign.ax` pins the two answers side by side.
 
 The rule is the LANGUAGE's, not a lowering's, so it does not depend
 on `--threads`: the process lowering is merely permitted to be laxer

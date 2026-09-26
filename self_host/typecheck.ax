@@ -1042,9 +1042,17 @@
 ; see the note on `fldClass`. Evidence must reach the same answer the
 ; reference map does: a `Vec` handed to a type-variable parameter took
 ; no share while it was spelled `Int`, and typing it takes none now.
+; `Foreign` is listed here, not fallen through to in `evClassOf`: a
+; `Foreign` is a pointer into memory Axiom never allocated, so the
+; release walk skips it (`tests/ffi/demo/410-foreign-not-walked.ax`
+; pins the map) and capturing one races no count. It answered 0
+; before through `evDataTyKnown`'s default for undeclared names - the
+; same answer, but a default is not a promise, and AX3064's rule
+; below treats every 0 as one. `externTypeRefusal` names it beside
+; this list already; the answers there do not move either.
 (pub :: evScalarName (-> String Int))
 (pub fn (evScalarName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (strEq n "Vec")))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Vec") (strEq n "Foreign"))))))))))))))))
     1
     0))
 
@@ -8700,6 +8708,15 @@
 ; share, so no count is raced over. `tests/stdlib/471-parallel-trap.ax`
 ; captures one and stays green - which is worth stating plainly,
 ; because that fixture's header does not mention the capture at all.
+;
+; `Foreign` IS CLASS 0 FOR THE SAME REASON, and listed beside it for
+; it: a bare `Foreign` word is skipped by the release walk
+; (`tests/ffi/demo/410-foreign-not-walked.ax`), so no retain it races
+; exists. The near miss is `Handle` - a COUNTED block carrying a
+; destructor, class 1, refused - and
+; `tests/diagnostics/655-parallel-capture-foreign.ax` pins the two
+; answers side by side so no classifier change can silently flip
+; either.
 ; ------------------------------------------------------------------
 ; The two spawn primitives whose lowering SHARES an address space with
 ; the parent. `__proc_spawn` is deliberately not here: it names the
@@ -9214,10 +9231,11 @@
                     0
                     ; EVERYTHING BUT CLASS 0. `evClassOf` answers 0
                     ; for a value that takes no share of a count -
-                    ; the scalars, and `Vec`, whose own comment gives
-                    ; the ownership reason - and that is the only
-                    ; answer which is a PROMISE that no count is
-                    ; raced over. 1 is a reference outright. `2+k`
+                    ; the scalars, `Vec`, and `Foreign`, each listed
+                    ; in `evScalarName` with the ownership reason -
+                    ; and that is the only answer which is a PROMISE
+                    ; that no count is raced over. 1 is a reference
+                    ; outright. `2+k`
                     ; is a type the caller chooses, so it may be a
                     ; reference at some call. And negative is two
                     ; things, neither of them a promise: `EV_LAMARG

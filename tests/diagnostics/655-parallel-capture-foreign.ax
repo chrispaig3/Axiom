@@ -1,0 +1,100 @@
+; MM-PAR-6, the share-free accept (docs/memory-model-v2-design.md 3.2b).
+;
+; AX3064 refuses every capture but class 0, and class 0 is a PROMISE:
+; the value takes no share of a count, so no count is raced over. A
+; bare `Foreign` is such a value - a pointer into memory Axiom never
+; allocated, skipped by the release walk, with
+; `tests/ffi/demo/410-foreign-not-walked.ax` pinning the map - and
+; `evScalarName` lists it explicitly, so the accept is load-bearing
+; rather than the 0-default's accident.
+;
+;   1  `fpar` captures a `Foreign` at `__par_spawn`. Silent.
+;   2  `fthread` captures one at `__thread_spawn`. Silent: both
+;      checked prims share the rule.
+;   3  `falias` captures one through a type alias. Silent: aliases
+;      expand before checking, so the promise survives the spelling.
+;   4  `hstring` captures a `String`. One AX3064: the refusal is
+;      intact, in the same file as the accepts.
+;   5  `hhandle` captures a `Handle`. One AX3064: the near miss - a
+;      COUNTED block carrying a destructor, refused where the bare
+;      word beside it is not.
+(import IO)
+(import Ffi)
+
+(pub extern "axiom_demo"
+  (counterNew :: (-> Int Foreign) (symbol "axffi_counter_new")))
+
+(type FPtr = Foreign)
+
+(:: fpar Int)
+;@axiom:effect(io)
+(fn (fpar)
+  (let ((p (counterNew 0)))
+    (__par_join
+      (__par_spawn
+        (lambda (w)
+          {
+            p
+            w
+          }
+        )
+        0))))
+
+(:: fthread Int)
+;@axiom:effect(io)
+(fn (fthread)
+  (let ((p (counterNew 0)))
+    (__thread_join
+      (__thread_spawn
+        (lambda (w)
+          {
+            p
+            w
+          }
+        )
+        0))))
+
+(:: falias (-> FPtr Int))
+;@axiom:effect(io)
+(fn (falias x)
+  (__par_join
+    (__par_spawn
+      (lambda (w)
+        {
+          x
+          w
+        }
+      )
+      0)))
+
+(:: hstring Int)
+;@axiom:effect(io)
+(fn (hstring)
+  (let ((s "held"))
+    (__par_join
+      (__par_spawn
+        (lambda (w)
+          {
+            s
+            w
+          }
+        )
+        0))))
+
+(:: hhandle Int)
+;@axiom:effect(io)
+(fn (hhandle)
+  (let ((h (ffiHandleNew 0 0)))
+    (__par_join
+      (__par_spawn
+        (lambda (w)
+          {
+            h
+            w
+          }
+        )
+        0))))
+
+(:: main Int)
+(fn (main)
+  0)

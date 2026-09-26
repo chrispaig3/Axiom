@@ -1250,6 +1250,34 @@ check3064 "$work/opaque-cond.ax" 1 "a conditional hiding a captured String"
 check3064 "$work/opaque-call.ax" 1 "a call-result thunk"
 checkok "$work/opaque-word.ax" "the same conditional over words"
 checkok "$work/opaque-proc.ax" "a call-result thunk through __proc_spawn"
+# --- the share-free accept: a `Foreign` is class 0, listed in
+# `evScalarName` with the ownership reason rather than fallen through
+# to. The release walk skips it (`tests/ffi/demo/410` pins the map),
+# so no count is raced over. `tests/diagnostics/655` pins the accept
+# beside its near miss; this arm keeps section 11's claim - every
+# shape scanned or refused - honest about the shape that is neither,
+# because it needs neither.
+cat > "$work/accept-foreign.ax" <<'FOREIGN'
+(pub extern "axiom_demo"
+  (counterNew :: (-> Int Foreign) (symbol "axffi_counter_new")))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((p (counterNew 0)))
+    (__par_join (__par_spawn (lambda (w) { p w }) 0))))
+FOREIGN
+cat > "$work/refuse-handle.ax" <<'HANDLE'
+(import Ffi)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((h (ffiHandleNew 0 0)))
+    (__par_join (__par_spawn (lambda (w) { h w }) 0))))
+HANDLE
+checkok "$work/accept-foreign.ax" "a captured Foreign"
+check3064 "$work/refuse-handle.ax" 1 "a captured Handle"
 
 echo
 if (( failed > 0 )); then

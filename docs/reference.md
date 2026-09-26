@@ -1130,7 +1130,12 @@ the shape, whose captures are not visible here
 (`tests/diagnostics/644-parallel-thunk-shape.ax`). No `parallel`
 written in source can reach any of those shapes, since the parser's
 desugaring always emits a literal lambda: they are reachable only
-from a hand-written `__par_spawn` or `__thread_spawn`.
+from a hand-written `__par_spawn` or `__thread_spawn`. A bare
+`Foreign` is not refused: it points into memory Axiom never
+allocated, so the release walk skips it and there is no count to
+race. A `Handle` is - a counted block carrying a destructor - and
+`tests/diagnostics/655-parallel-capture-foreign.ax` pins the two
+answers side by side.
 
 **Where it is not available.** `--threads` on freebsd-* or
 windows-x86_64, and `__thread_spawn` there, are refused at build time
