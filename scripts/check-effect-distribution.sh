@@ -217,6 +217,24 @@
 # `Unsafe` 1137 to 1149, `Alloc,IO,Mut,Unsafe` 396 to 399, pure 553 to
 # 555 - and no EXISTING row moves buckets at all: the old-vs-new
 # `symbols` diff shows zero changed effect rows.
+# RE-PINNED 2026-09-25 (14): the merge recount. Two landings the pins
+# had not caught up with: the non-raising join plus checked pool (four
+# rows, all gains - `emitPrimParJoinNr` reads `Alloc,IO,Mut,Unsafe`
+# through the two emitted call lines, `isParJoinNrName` reads exactly
+# `Unsafe` (three string compares, no allocation), and in the stdlib
+# view `parMapWordsChecked` reads `Alloc,IO,Mut,Unsafe` while
+# `parJoinChecked` reads `Alloc,IO,Unsafe`) and the thirteen
+# `while`/`mut`/`set` rows (13) names below, whose seven
+# `Alloc,Mut,Unsafe`, three exactly `Unsafe` and three `Mut,Unsafe`
+# land unchanged. Seventeen added across both views, none removed -
+# and no EXISTING row moves buckets at all: the old-vs-new `symbols`
+# diff shows zero changed effect rows. No row moves off `IO` or onto
+# it: the required/ambient line sits where it was measured. Exactly
+# `Unsafe` 1152 to 1156, `Alloc,IO,Mut,Unsafe` 399 to 400 in the main
+# view and 73 to 74 in the stdlib view, `Alloc,IO,Unsafe` 11 to 12
+# there; `Alloc,Mut,Unsafe` 2285 and `Mut,Unsafe` 121 arrive with the
+# pick and verify (2278 and 118 on the old side plus MIR's seven and
+# three).
 # RE-PINNED 2026-09-25 (13): MIR lowers `while`/`mut`/`set` with
 # `condbr` block arguments. Thirteen added, none removed, none
 # changed - each new row read off `symbols` by name. Seven read
@@ -340,8 +358,8 @@ have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2285 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1154 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 399 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1156 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 400 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 121 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
@@ -381,10 +399,10 @@ have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 0 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 180 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Unsafe')" 151 "exactly Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 73 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 74 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 48 "Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 12 "Alloc,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 11 "Alloc,IO,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 12 "Alloc,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut,Unsafe')" 7 "Alloc,Assert,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
