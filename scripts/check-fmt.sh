@@ -68,6 +68,11 @@ mkdir -p "$copy"
 # formatting **5,809** `.ax` files where the repository has **506** -
 # ten copies of the tree, most of them months of commits stale.
 #
+# `.muse/worktrees/` is the same exclusion for the current harness,
+# which moved the worktree root and left this list behind. Measured
+# 2026-09-26: the sweep formatted **8,564** `.ax` files where the
+# repository has **718**.
+#
 # It is not only slow. A gate that sweeps "every file in the
 # repository" and reaches files that are NOT in the repository will go
 # red for a change that is correct here and stale there, which is
@@ -75,7 +80,7 @@ mkdir -p "$copy"
 # repository", it must not mean "whatever is under this directory".
 tar --exclude=./.git --exclude=./rust/target --exclude=./.axiom-bin \
     --exclude='./rust/examples/*/target' --exclude=./node_modules \
-    --exclude=./.claude/worktrees \
+    --exclude=./.claude/worktrees --exclude=./.muse/worktrees \
     --exclude=./tree-sitter-axiom/node_modules -cf - . | (cd "$copy" && tar -xf -)
 
 total=0

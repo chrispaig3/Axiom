@@ -218,7 +218,8 @@ mkdir -p /work
 # carry host-built artifacts into it.
 tar -C /src --exclude=./.axiom-bin --exclude='./node_modules' \
     --exclude='./tree-sitter-axiom/node_modules' \
-    --exclude=./rust/target --exclude=./.claude/worktrees -cf - . \
+    --exclude=./rust/target --exclude=./.claude/worktrees \
+    --exclude=./.muse/worktrees -cf - . \
   | tar -C /work -xf -
 cd /work
 # The worktree case: `/work/.git` arrived as a pointer to a host path.
