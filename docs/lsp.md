@@ -760,14 +760,16 @@ shadowing a top-level `fn` of the same name is asked first, so
 `f`; a `fn` header does not answer its own signature; outside any
 call it is `null`.
 
-**`textDocument/inlayHint`.** Three hints the source does not spell:
+**`textDocument/inlayHint`.** Four hints the source does not spell:
 `x:` before each argument of a call to a declared or imported `fn`
 (kind `Parameter`, never before a variable spelled like the
 parameter), `: Int` after each parameter in a `fn` header and
 ` -> Int` after the header (kind `Type`), the last two from the
-signature's arrow — so a `fn` with no `::` gets no type hints. The
-callee lookup is indexed per request; the measured cost of not doing
-so is in the changelog.
+signature's arrow — so a `fn` with no `::` gets no type hints — and
+`: T` after each `let`/`letm` binder whose value resolves (kind
+`Type`), from the value-shape reader, so generated binders and `_`
+stay quiet. The callee lookup is indexed per request; the measured
+cost of not doing so is in the changelog.
 
 **`textDocument/foldingRange`.** Every form and brace block whose
 opener and closer sit on different lines, a run of `;` comment lines

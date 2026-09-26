@@ -177,6 +177,12 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-26 (15): LSP inlay hints thread `decls`+`occs`
+# (macro-definition skip via `lspSkipHintName`). One added, none
+# removed, none changed - the new row read off `symbols` by name:
+# `lspSkipHintName` reads exactly `Unsafe` as a string test, like
+# `mIsAndOr`/`mIsBinSpelling`. The only move is a gain - exactly
+# `Unsafe` 1151 to 1152 - and no existing row moves buckets.
 # RE-PINNED 2026-09-25 (14): MIR `&&`/`||` desugar and the closed
 # binop-spelling check. Three added, none removed, none changed - each
 # new row read off `symbols` by name: `mLowerAndOr` reads
@@ -320,7 +326,7 @@ have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2278 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1151 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1152 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 399 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 118 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"

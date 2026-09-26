@@ -1934,7 +1934,9 @@
 (pub fn (lspIdentStart src off)
   (let ((mut s off))
     {
-      (while (if (> s 0) (isIdentChar (strByte src (- s 1))) false)
+      (while (if (> s 0)
+        (isIdentChar (strByte src (- s 1)))
+        false)
         (set s (- s 1)))
       s
     }))
@@ -2029,18 +2031,32 @@
 (pub fn (lspHoverFieldUse src decls base baseOff wsp range)
   (let ((w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp)))))
     (let ((sn (lspFieldBaseStruct src decls base baseOff)))
-      (if (== (cast Int sn) 0)
+      (if (==
+        (cast Int sn)
+        0)
         0
         (let ((d (lspFindStructField decls sn w)))
           (if (== d 0)
             0
-            (lspHoverAtNote src decls d range "" (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`")))))))))
+            (lspHoverAtNote
+              src
+              decls
+              d
+              range
+              ""
+              (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`")))))))))
 
 ; A field declaration: the word sits in a struct's field slot.
 (pub :: lspHoverFieldDecl (-> String (Vec Int) Int Int Int))
 (pub fn (lspHoverFieldDecl src decls wsp range)
   (let ((w (strSlice src (spanStart wsp) (- (spanEnd wsp) (spanStart wsp)))))
-    (lspHoverFieldDeclIn decls src w (spanStart wsp) range (- (vecLen decls) 1))))
+    (lspHoverFieldDeclIn
+      decls
+      src
+      w
+      (spanStart wsp)
+      range
+      (- (vecLen decls) 1))))
 
 (pub :: lspHoverFieldDeclIn (-> (Vec Int) String String Int Int Int Int))
 (pub fn (lspHoverFieldDeclIn decls src w off range i)
@@ -2048,10 +2064,28 @@
     0
     (let ((d (vecGet decls i)))
       (if (!= (nodeTag d) TAG_D_STRUCT)
-        (lspHoverFieldDeclIn decls src w off range (- i 1))
+        (lspHoverFieldDeclIn
+          decls
+          src
+          w
+          off
+          range
+          (- i 1))
         (if (== (lspFieldNodeAt (nodeBVec d) w off 0) 0)
-          (lspHoverFieldDeclIn decls src w off range (- i 1))
-          (lspHoverAtNote src decls d range "" (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`"))))))))
+          (lspHoverFieldDeclIn
+            decls
+            src
+            w
+            off
+            range
+            (- i 1))
+          (lspHoverAtNote
+            src
+            decls
+            d
+            range
+            ""
+            (strConcat (strConcat (strConcat "field `" w) "` of `struct ") (strConcat (nodeAName d) "`"))))))))
 
 (pub :: lspFieldNodeAt (-> (Vec Int) String Int Int Int))
 (pub fn (lspFieldNodeAt fs fname off i)
@@ -2069,15 +2103,22 @@
       (let ((bs (lspIdentStart src (- fs 1))))
         (if (== bs (- fs 1))
           0
-          (lspHoverFieldUse src decls (strSlice src bs (- (- fs 1) bs)) bs wsp range)))
+          (lspHoverFieldUse
+            src
+            decls
+            (strSlice src bs (- (- fs 1) bs))
+            bs
+            wsp
+            range)))
       (lspHoverFieldDecl src decls wsp range))))
+
 (pub :: lspHover (-> String String Int Int))
-;@axiom:effect(io)
 ; A field path is resolved as a path first: the word under the
 ; cursor in `base.field` is only the field, and answering it as a
 ; top-level name (or nothing) would be the wrong question. When the
 ; path does not resolve, the word falls through to the ordinary
 ; lookup below rather than answering null outright.
+;@axiom:effect(io)
 (pub fn (lspHover src uri params)
   (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
     (if (== (memGetWord pr 0) 0)
@@ -2103,34 +2144,34 @@
                     (if (!= local 0)
                       local
                       (let ((d (lspFindDecl decls w (- (vecLen decls) 1))))
-                    (if (!= d 0)
-                      (lspHoverAt
-                        src
-                        decls
-                        d
-                        range
-                        "")
-                      ; A CONSTRUCTOR is read at the `data` that
-                      ; declares it - the whole form, so its siblings
-                      ; and its field types are in the tooltip - with
-                      ; one line naming which of them is under the
-                      ; cursor. The `range` stays the WORD, which is
-                      ; what the rest of this function's header says.
-                      (let ((dat (lspFindCtorData decls w (- (vecLen decls) 1))))
-                        (if (== (lspCtorNodeOf dat w) 0)
-                          (lspHoverImported
-                            (lspUriToPath uri)
+                        (if (!= d 0)
+                          (lspHoverAt
                             src
                             decls
-                            w
-                            range)
-                          (lspHoverAtNote
-                            src
-                            decls
-                            dat
+                            d
                             range
-                            ""
-                            (lspCtorNote dat w)))))))))))))))))
+                            "")
+                          ; A CONSTRUCTOR is read at the `data` that
+                          ; declares it - the whole form, so its siblings
+                          ; and its field types are in the tooltip - with
+                          ; one line naming which of them is under the
+                          ; cursor. The `range` stays the WORD, which is
+                          ; what the rest of this function's header says.
+                          (let ((dat (lspFindCtorData decls w (- (vecLen decls) 1))))
+                            (if (== (lspCtorNodeOf dat w) 0)
+                              (lspHoverImported
+                                (lspUriToPath uri)
+                                src
+                                decls
+                                w
+                                range)
+                              (lspHoverAtNote
+                                src
+                                decls
+                                dat
+                                range
+                                ""
+                                (lspCtorNote dat w)))))))))))))))))
 
 ; The hover object for declaration `d`, whose spans index `dsrc` and
 ; whose signature - if it has one - is in `ddecls`. `range` names the
@@ -4256,17 +4297,17 @@
                     (lspNavTypesSubtype nv d)
                   }
                   (if (== tag TAG_D_MACRO)
-                  (lspNavDeclName nv d NAV_DECL)
-                  (if (== tag TAG_D_MACROCALL)
-                    ; An invocation is a REFERENCE to the macro
-                    ; (MAC-TOOL-2), and its arguments are read as
-                    ; expressions at top level: `(deriveTag Colour)`
-                    ; names the `data` it derives for.
-                    {
-                      (lspNavRef nv (nodeAName d) (nodeSpan d) NAV_READ)
-                      (lspNavWalkVec nv (nodeBVec d))
-                    }
-                    0))))))))
+                    (lspNavDeclName nv d NAV_DECL)
+                    (if (== tag TAG_D_MACROCALL)
+                      ; An invocation is a REFERENCE to the macro
+                      ; (MAC-TOOL-2), and its arguments are read as
+                      ; expressions at top level: `(deriveTag Colour)`
+                      ; names the `data` it derives for.
+                      {
+                        (lspNavRef nv (nodeAName d) (nodeSpan d) NAV_READ)
+                        (lspNavWalkVec nv (nodeBVec d))
+                      }
+                      0))))))))
     }))
 
 ; ------------------------------------------------------------------
@@ -5679,24 +5720,42 @@
 ; operators, six comparisons, two logical operators.
 (pub :: lspShapeBuiltinRes (-> String Int))
 (pub fn (lspShapeBuiltinRes h)
-  (if (strEq h "+") 1
-    (if (strEq h "-") 1
-      (if (strEq h "*") 1
-        (if (strEq h "/") 1
-          (if (strEq h "%") 1
-            (if (strEq h "&") 1
-              (if (strEq h "|") 1
-                (if (strEq h "^") 1
-                  (if (strEq h "<<") 1
-                    (if (strEq h ">>") 1
-                      (if (strEq h "==") 2
-                        (if (strEq h "!=") 2
-                          (if (strEq h "<") 2
-                            (if (strEq h ">") 2
-                              (if (strEq h "<=") 2
-                                (if (strEq h ">=") 2
-                                  (if (strEq h "&&") 3
-                                    (if (strEq h "||") 3
+  (if (strEq h "+")
+    1
+    (if (strEq h "-")
+      1
+      (if (strEq h "*")
+        1
+        (if (strEq h "/")
+          1
+          (if (strEq h "%")
+            1
+            (if (strEq h "&")
+              1
+              (if (strEq h "|")
+                1
+                (if (strEq h "^")
+                  1
+                  (if (strEq h "<<")
+                    1
+                    (if (strEq h ">>")
+                      1
+                      (if (strEq h "==")
+                        2
+                        (if (strEq h "!=")
+                          2
+                          (if (strEq h "<")
+                            2
+                            (if (strEq h ">")
+                              2
+                              (if (strEq h "<=")
+                                2
+                                (if (strEq h ">=")
+                                  2
+                                  (if (strEq h "&&")
+                                    3
+                                    (if (strEq h "||")
+                                      3
                                       0)))))))))))))))))))
 
 ; Drop one arrow domain per argument: the curried reading of a call.
@@ -5792,15 +5851,24 @@
             (let ((old (lspShapeBindGet pairs vn)))
               (if (== old 0)
                 {
-                  (vecPush pairs (cast Int vn))
+                  (vecPush
+                    pairs
+                    (cast Int vn))
                   (vecPush pairs arg)
                   1
                 }
-                (if (strEq (tyRender old) (tyRender arg)) 1 0))))
+                (if (strEq (tyRender old) (tyRender arg))
+                  1
+                  0))))
           1))
       (if (== (nodeTag ft) TAG_T_CON)
         (if (&& (!= arg 0) (&& (== (nodeTag arg) TAG_T_CON) (strEq (nodeAName ft) (nodeAName arg))))
-          (lspShapeBindVec (nodeBVec ft) (nodeBVec arg) params pairs 0)
+          (lspShapeBindVec
+            (nodeBVec ft)
+            (nodeBVec arg)
+            params
+            pairs
+            0)
           1)
         (if (== (nodeTag ft) TAG_T_ARR)
           (if (&& (!= arg 0) (== (nodeTag arg) TAG_T_ARR))
@@ -5818,7 +5886,12 @@
       1
       (if (== (lspShapeBind (vecGet fts i) (vecGet args i) params pairs) 0)
         0
-        (lspShapeBindVec fts args params pairs (+ i 1))))))
+        (lspShapeBindVec
+          fts
+          args
+          params
+          pairs
+          (+ i 1))))))
 
 ; The type a constructor application builds: each field paired with
 ; its argument's shape, then every parameter read out in order. A
@@ -5829,9 +5902,22 @@
   (if (!= (vecLen fts) (vecLen args))
     0
     (let ((pairs vecNew))
-      (if (== (lspShapeBindAll decls occs fts args params pairs fuel 0) 0)
+      (if (== (lspShapeBindAll
+        decls
+        occs
+        fts
+        args
+        params
+        pairs
+        fuel
+        0) 0)
         0
-        (lspShapeConBuild tname params pairs 0 vecNew)))))
+        (lspShapeConBuild
+          tname
+          params
+          pairs
+          0
+          vecNew)))))
 
 (pub :: lspShapeBindAll (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) (Vec Int) Int Int Int))
 (pub fn (lspShapeBindAll decls occs fts args params pairs fuel i)
@@ -5839,7 +5925,15 @@
     1
     (if (== (lspShapeBind (vecGet fts i) (lspShapeOf decls occs (vecGet args i) fuel) params pairs) 0)
       0
-      (lspShapeBindAll decls occs fts args params pairs fuel (+ i 1)))))
+      (lspShapeBindAll
+        decls
+        occs
+        fts
+        args
+        params
+        pairs
+        fuel
+        (+ i 1)))))
 
 (pub :: lspShapeConBuild (-> String (Vec String) (Vec Int) Int (Vec Int) Int))
 (pub fn (lspShapeConBuild tname params pairs i acc)
@@ -5850,7 +5944,12 @@
         0
         {
           (vecPush acc t)
-          (lspShapeConBuild tname params pairs (+ i 1) acc)
+          (lspShapeConBuild
+            tname
+            params
+            pairs
+            (+ i 1)
+            acc)
         }))))
 
 ; `t` with each parameter replaced by its argument: fresh nodes,
@@ -5866,18 +5965,32 @@
           t
           (vecGet args at)))
       (if (== (nodeTag t) TAG_T_CON)
-        (mkTCon (nodeAName t) (lspShapeSubstVec (nodeBVec t) params args 0 vecNew))
+        (mkTCon (nodeAName t) (lspShapeSubstVec
+          (nodeBVec t)
+          params
+          args
+          0
+          vecNew))
         (if (== (nodeTag t) TAG_T_ARR)
           (mkTArr (lspShapeSubst (nodeA t) params args) (lspShapeSubst (nodeB t) params args))
           t)))))
 
 (pub :: lspShapeSubstVec (-> (Vec Int) (Vec String) (Vec Int) Int (Vec Int) (Vec Int)))
 (pub fn (lspShapeSubstVec ts params args i acc)
-  (if (|| (== (cast Int ts) 0) (>= i (vecLen ts)))
+  (if (||
+    (==
+      (cast Int ts)
+      0)
+    (>= i (vecLen ts)))
     acc
     {
       (vecPush acc (lspShapeSubst (vecGet ts i) params args))
-      (lspShapeSubstVec ts params args (+ i 1) acc)
+      (lspShapeSubstVec
+        ts
+        params
+        args
+        (+ i 1)
+        acc)
     }))
 
 ; A `data`'s or `struct`'s type parameters. A `data` always writes
@@ -5892,7 +6005,9 @@
 ; The field types of a struct's fields, in order.
 (pub :: lspShapeFieldTys (-> (Vec Int) Int (Vec Int) (Vec Int)))
 (pub fn (lspShapeFieldTys fs i acc)
-  (if (== (cast Int fs) 0)
+  (if (==
+    (cast Int fs)
+    0)
     acc
     (if (>= i (vecLen fs))
       acc
@@ -5972,7 +6087,9 @@
                       (let ((bkind (memGetWord b 4)))
                         (if (== bkind NAV_B_PARAM)
                           (let ((t (lspShapeParamTy decls (memGetWordStr b 5) (memGetWord b 6))))
-                            (if (lspShapeIsBad t) 0 t))
+                            (if (lspShapeIsBad t)
+                              0
+                              t))
                           (if (== bkind NAV_B_LET)
                             (if (<= fuel 0)
                               0
@@ -6007,7 +6124,9 @@
 ; A block's shape is its last expression's.
 (pub :: lspShapeBegin (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
 (pub fn (lspShapeBegin decls occs xs fuel)
-  (if (== (cast Int xs) 0)
+  (if (==
+    (cast Int xs)
+    0)
     0
     (if (== (vecLen xs) 0)
       0
@@ -6016,11 +6135,19 @@
 ; A `match`'s shape: every arm body's, when they agree.
 (pub :: lspShapeMatch (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
 (pub fn (lspShapeMatch decls occs arms fuel)
-  (if (== (cast Int arms) 0)
+  (if (==
+    (cast Int arms)
+    0)
     0
     (if (== (vecLen arms) 0)
       0
-      (lspShapeMatchIn decls occs arms fuel 1 (lspShapeArmBody decls occs (vecGet arms 0) fuel)))))
+      (lspShapeMatchIn
+        decls
+        occs
+        arms
+        fuel
+        1
+        (lspShapeArmBody decls occs (vecGet arms 0) fuel)))))
 
 (pub :: lspShapeArmBody (-> (Vec Int) (Vec Int) Int Int Int))
 (pub fn (lspShapeArmBody decls occs arm fuel)
@@ -6037,7 +6164,13 @@
     (let ((j (lspShapeJoin acc (lspShapeArmBody decls occs (vecGet arms i) fuel))))
       (if (== j 0)
         0
-        (lspShapeMatchIn decls occs arms fuel (+ i 1) j)))))
+        (lspShapeMatchIn
+          decls
+          occs
+          arms
+          fuel
+          (+ i 1)
+          j)))))
 
 ; `true` for a head from another module, whatever the pipeline
 ; stage spelled it with: `::` in the raw tree, `$` after mangling.
@@ -6047,7 +6180,8 @@
     ((None)
       (match (strFindByte name 36 0)
         ((None) false)
-        ((Some _) true)))
+        ((Some _) true))
+    )
     ((Some _) true)))
 
 ; A call's shape, asked in the language's own order: this
@@ -6069,7 +6203,12 @@
                 (if (!= (lspShapeBuiltinRes name) 0)
                   (lspShapeBuiltinTy name (vecLen args))
                   (if (== (lspIsUpperStart name) 1)
-                    (lspShapeUpCon decls occs name args fuel)
+                    (lspShapeUpCon
+                      decls
+                      occs
+                      name
+                      args
+                      fuel)
                     0))))))))))
 
 ; An upcased head: a struct built positionally, or a constructor
@@ -6079,14 +6218,28 @@
 (pub fn (lspShapeUpCon decls occs name args fuel)
   (let ((d (lspFindTypeDecl decls name (- (vecLen decls) 1))))
     (if (&& (!= d 0) (== (nodeTag d) TAG_D_STRUCT))
-      (lspShapeCon decls occs name (lspShapeTyParams d) (lspShapeFieldTys (nodeBVec d) 0 vecNew) args fuel)
+      (lspShapeCon
+        decls
+        occs
+        name
+        (lspShapeTyParams d)
+        (lspShapeFieldTys (nodeBVec d) 0 vecNew)
+        args
+        fuel)
       (let ((dat (lspFindCtorData decls name (- (vecLen decls) 1))))
         (if (== dat 0)
           0
           (let ((c (lspCtorNodeOf dat name)))
             (if (== c 0)
               0
-              (lspShapeCon decls occs (nodeAName dat) (lspShapeTyParams dat) (nodeTyVec c) args fuel))))))))
+              (lspShapeCon
+                decls
+                occs
+                (nodeAName dat)
+                (lspShapeTyParams dat)
+                (nodeTyVec c)
+                args
+                fuel))))))))
 
 ; `(struct Name ...)`: the named struct, verified like any other
 ; construction.
@@ -6096,7 +6249,18 @@
     (if (|| (== d 0) (!= (nodeTag d) TAG_D_STRUCT))
       0
       (let ((raw (nodeBVec e)))
-        (lspShapeCon decls occs (nodeAName e) (lspShapeTyParams d) (lspShapeFieldTys (nodeBVec d) 0 vecNew) (if (== (cast Int raw) 0) vecNew raw) fuel)))))
+        (lspShapeCon
+          decls
+          occs
+          (nodeAName e)
+          (lspShapeTyParams d)
+          (lspShapeFieldTys (nodeBVec d) 0 vecNew)
+          (if (==
+            (cast Int raw)
+            0)
+            vecNew
+            raw)
+          fuel)))))
 
 ; A field read: the field's declared type, with the base's
 ; arguments in place of the struct's parameters. The base is
@@ -6122,7 +6286,12 @@
                     0
                     (let ((ps (lspShapeTyParams d)))
                       (let ((raw (nodeBVec b)))
-                        (let ((as (if (== (cast Int raw) 0) vecNew raw)))
+                        (let ((as 
+                          (if (==
+                            (cast Int raw)
+                            0)
+                            vecNew
+                            raw)))
                           (if (!= (vecLen ps) (vecLen as))
                             0
                             (lspShapeSubst ft ps as)))))))))))))))
@@ -6177,7 +6346,9 @@
     (let ((bkind (memGetWord b 4)))
       (if (== bkind NAV_B_PARAM)
         (let ((t (lspShapeParamTy decls (memGetWordStr b 5) (memGetWord b 6))))
-          (if (lspShapeIsBad t) 0 t))
+          (if (lspShapeIsBad t)
+            0
+            t))
         (if (== bkind NAV_B_LET)
           (let ((v (memGetWord b 6)))
             (if (== v 0)
@@ -6229,7 +6400,13 @@
                 )
                   (let (
                     (code (if (== bkind NAV_B_LET)
-                      (lspShapeLetCode src decls occs b at name)
+                      (lspShapeLetCode
+                        src
+                        decls
+                        occs
+                        b
+                        at
+                        name)
                       (if (== bkind NAV_B_PARAM)
                         (lspNavParamCode decls owner name (memGetWord b 6))
                         (strConcat name (strConcat "\n" (lspNavLineText src at))))))
@@ -7000,7 +7177,9 @@
 ; membership cannot drift from the checker's.
 (pub :: lspThBuiltin (-> String Bool))
 (pub fn (lspThBuiltin name)
-  (if (!= (cast Int (typeKeywordCanon name)) 0)
+  (if (!=
+    (cast Int (typeKeywordCanon name))
+    0)
     true
     (strEq name "Linear")))
 
@@ -7114,13 +7293,13 @@
         (let ((o (lspNavAt occs (lspOffsetOf src ix (jsonGet params "position")))))
           (if (== o 0)
             jsonNull
+            ; A local, a constructor (`Shape#Circle`) and an effect
+            ; (`!E`) are never types; everything else resolves by
+            ; spelling, declaration before builtin.
             (let (
               (w (memGetWordStr o 0))
               (key (memGetWordStr o 3))
             )
-              ; A local, a constructor (`Shape#Circle`) and an effect
-              ; (`!E`) are never types; everything else resolves by
-              ; spelling, declaration before builtin.
               (if (lspNavIsLocal key)
                 jsonNull
                 (match (strFindByte key 35 0)
@@ -7132,7 +7311,7 @@
                         (if (!= d 0)
                           (jsonArrPush jsonArr (lspThItem src ix uri d))
                           (let ((r (lspResolveFor (lspUriToPath uri) src decls)))
-                            (let ((item
+                            (let ((item 
                               (if (<= r 0)
                                 0
                                 (lspThImportedItem r w))))
@@ -7142,8 +7321,14 @@
                                   (let ((wsp (memGetWord o 1)))
                                     (if (== wsp 0)
                                       jsonNull
-                                      (jsonArrPush jsonArr (lspThBuiltinItem src ix uri w wsp))))
-                                  jsonNull)))))))))))))))))
+                                      (jsonArrPush jsonArr (lspThBuiltinItem
+                                        src
+                                        ix
+                                        uri
+                                        w
+                                        wsp))))
+                                  jsonNull)))))))
+                  ))))))))))
 
 ; The item a hierarchy request carries, re-resolved from its (uri,
 ; name): the document must be open, must parse, and must declare
@@ -7203,7 +7388,7 @@
                   (if (!= dd 0)
                     (jsonArrPush jsonArr (lspThItem src (lspLineIndex src) uri dd))
                     (let ((r (lspResolveFor (lspUriToPath uri) src decls)))
-                      (let ((item
+                      (let ((item 
                         (if (<= r 0)
                           0
                           (lspThImportedItem r h))))
@@ -7213,7 +7398,12 @@
                             (let ((bsp (lspThBaseSpan src d h)))
                               (if (== bsp 0)
                                 jsonArr
-                                (jsonArrPush jsonArr (lspThBuiltinItem src (lspLineIndex src) uri h bsp))))
+                                (jsonArrPush jsonArr (lspThBuiltinItem
+                                  src
+                                  (lspLineIndex src)
+                                  uri
+                                  h
+                                  bsp))))
                             jsonArr))))))))))))))
 
 ; `typeHierarchy/subtypes`: the `subtype` declarations constraining
@@ -7232,7 +7422,12 @@
         (mut i 0)
       )
         {
-          (lspThSubtypesIn out uri (memGetWordStr s 2) (memGetWordVec s 3) name)
+          (lspThSubtypesIn
+            out
+            uri
+            (memGetWordStr s 2)
+            (memGetWordVec s 3)
+            name)
           (while (< i (vecLen uris))
             {
               (if (strEq (vecGetStr uris i) uri)
@@ -7243,7 +7438,12 @@
                       (cast Int odecls)
                       0)
                       0
-                      (lspThSubtypesIn out (vecGetStr uris i) osrc odecls name)))))
+                      (lspThSubtypesIn
+                        out
+                        (vecGetStr uris i)
+                        osrc
+                        odecls
+                        name)))))
               (set i (+ i 1))
             })
           out
@@ -8130,6 +8330,7 @@
           (fns (lspViewFnIndexFor (lspUriToPath uri) src decls))
           (sigs (lspViewSigIndex decls))
           (locals (lspNavLocalIndex src decls rs re))
+          (occs (lspNavOccurrences src decls))
           (out jsonArr)
           (mut i 0)
         )
@@ -8158,6 +8359,8 @@
                             ix
                             fns
                             locals
+                            decls
+                            occs
                             (nodeC d)
                             rs
                             re)
@@ -8324,8 +8527,19 @@
 ; Literals, too, are found this way rather than through their spans,
 ; so every argument shape takes one path.
 ; ------------------------------------------------------------------
-(pub :: lspViewHintsExpr (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int Int Int))
-(pub fn (lspViewHintsExpr out src ix fns locals e rs re)
+; A binder name inlay hints stay off: `_` binds nothing, and a `$`
+; name is generated (`for$`, gensyms) - the occurrence walk skips
+; both for the same reason.
+(pub :: lspSkipHintName (-> String Int))
+(pub fn (lspSkipHintName name)
+  (if (strEq name "_")
+    1
+    (match (strFindByte name 36 0)
+      ((None) 0)
+      ((Some _) 1))))
+
+(pub :: lspViewHintsExpr (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int Int))
+(pub fn (lspViewHintsExpr out src ix fns locals decls occs e rs re)
   (if (== e 0)
     0
     (let ((tag (nodeTag e)))
@@ -8336,17 +8550,41 @@
           ix
           fns
           locals
+          decls
+          occs
           e
           rs
           re)
         (if (|| (== tag TAG_E_LET) (== tag TAG_E_LETM))
           {
+            ; A readable value shape hints the binder, `: T` after
+            ; its name, the way headers hint parameters. Generated
+            ; binders (`for$`, gensyms) and `_` stay quiet, like the
+            ; occurrence walk that skips them: a hint on a name no one
+            ; wrote is noise about the compiler's innards.
+            (let ((t (lspShapeOf decls occs (nodeB e) 16)))
+              (if (lspShapeIsBad t)
+                0
+                (if (== (lspSkipHintName (nodeAName e)) 1)
+                  0
+                  (lspViewHint
+                    out
+                    src
+                    ix
+                    (spanEnd (nodeSpan e))
+                    (strConcat ": " (tyRender t))
+                    1
+                    0
+                    rs
+                    re))))
             (lspViewHintsExpr
               out
               src
               ix
               fns
               locals
+              decls
+              occs
               (nodeB e)
               rs
               re)
@@ -8356,6 +8594,8 @@
               ix
               fns
               locals
+              decls
+              occs
               (nodeC e)
               rs
               re)
@@ -8368,6 +8608,8 @@
                 ix
                 fns
                 locals
+                decls
+                occs
                 (nodeA e)
                 rs
                 re)
@@ -8377,6 +8619,8 @@
                 ix
                 fns
                 locals
+                decls
+                occs
                 (nodeB e)
                 rs
                 re)
@@ -8386,6 +8630,8 @@
                 ix
                 fns
                 locals
+                decls
+                occs
                 (nodeC e)
                 rs
                 re)
@@ -8397,6 +8643,8 @@
                 ix
                 fns
                 locals
+                decls
+                occs
                 (nodeB e)
                 rs
                 re)
@@ -8407,6 +8655,8 @@
                   ix
                   fns
                   locals
+                  decls
+                  occs
                   (nodeAVec e)
                   rs
                   re)
@@ -8417,6 +8667,8 @@
                     ix
                     fns
                     locals
+                    decls
+                    occs
                     (nodeBVec e)
                     rs
                     re)
@@ -8428,6 +8680,8 @@
                         ix
                         fns
                         locals
+                        decls
+                        occs
                         (nodeB e)
                         rs
                         re)
@@ -8438,6 +8692,8 @@
                           ix
                           fns
                           locals
+                          decls
+                          occs
                           (nodeA e)
                           rs
                           re)
@@ -8447,6 +8703,8 @@
                           ix
                           fns
                           locals
+                          decls
+                          occs
                           (nodeBVec e)
                           rs
                           re)
@@ -8459,6 +8717,8 @@
                           ix
                           fns
                           locals
+                          decls
+                          occs
                           (nodeA e)
                           rs
                           re)
@@ -8468,6 +8728,8 @@
                           ix
                           fns
                           locals
+                          decls
+                          occs
                           (nodeBVec e)
                           rs
                           re)
@@ -8482,6 +8744,8 @@
                           ix
                           fns
                           locals
+                          decls
+                          occs
                           (nodeB e)
                           rs
                           re)
@@ -8492,6 +8756,8 @@
                             ix
                             fns
                             locals
+                            decls
+                            occs
                             (nodeA e)
                             rs
                             re)
@@ -8503,6 +8769,8 @@
                                 ix
                                 fns
                                 locals
+                                decls
+                                occs
                                 (nodeA e)
                                 rs
                                 re)
@@ -8512,6 +8780,8 @@
                                 ix
                                 fns
                                 locals
+                                decls
+                                occs
                                 (nodeC e)
                                 rs
                                 re)
@@ -8523,6 +8793,8 @@
                                 ix
                                 fns
                                 locals
+                                decls
+                                occs
                                 (nodeB e)
                                 rs
                                 re)
@@ -8534,6 +8806,8 @@
                                     ix
                                     fns
                                     locals
+                                    decls
+                                    occs
                                     (nodeA e)
                                     rs
                                     re)
@@ -8543,14 +8817,16 @@
                                     ix
                                     fns
                                     locals
+                                    decls
+                                    occs
                                     (nodeC e)
                                     rs
                                     re)
                                 }
                                 0))))))))))))))))
 
-(pub :: lspViewHintsVec (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
-(pub fn (lspViewHintsVec out src ix fns locals xs rs re)
+(pub :: lspViewHintsVec (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspViewHintsVec out src ix fns locals decls occs xs rs re)
   (if (==
     (cast Int xs)
     0)
@@ -8565,6 +8841,8 @@
               ix
               fns
               locals
+              decls
+              occs
               (vecGet xs i)
               rs
               re)
@@ -8576,8 +8854,8 @@
 ; The arms of a `match` (bodies alone - the pattern is not a call).
 ; (`cond` clauses used to walk here too, tests included; `cond` is
 ; AX2004 now, so the flag that distinguished them is gone with it.)
-(pub :: lspViewHintsArms (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
-(pub fn (lspViewHintsArms out src ix fns locals arms rs re)
+(pub :: lspViewHintsArms (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
+(pub fn (lspViewHintsArms out src ix fns locals decls occs arms rs re)
   (if (==
     (cast Int arms)
     0)
@@ -8594,6 +8872,8 @@
                   ix
                   fns
                   locals
+                  decls
+                  occs
                   (nodeB arm)
                   rs
                   re)
@@ -8608,8 +8888,8 @@
 ; variable is a call; any other head - a lambda, a nested form - is
 ; walked as an expression. Every argument is walked afterwards, since
 ; each may hold calls of its own.
-(pub :: lspViewHintsApp (-> Int String (Vec Int) (Vec Int) (Vec Int) Int Int Int Int))
-(pub fn (lspViewHintsApp out src ix fns locals e rs re)
+(pub :: lspViewHintsApp (-> Int String (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int Int))
+(pub fn (lspViewHintsApp out src ix fns locals decls occs e rs re)
   (let (
     (args vecNew)
     (mut h e)
@@ -8638,6 +8918,8 @@
           ix
           fns
           locals
+          decls
+          occs
           h
           rs
           re))
@@ -8647,6 +8929,8 @@
         ix
         fns
         locals
+        decls
+        occs
         args
         rs
         re)

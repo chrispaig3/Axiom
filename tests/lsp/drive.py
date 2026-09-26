@@ -3351,6 +3351,7 @@ if len(ADD_DOC.split("\n")) < 3:
 # a type hint, kind 2 a parameter name; both come from the protocol.
 HDR_ADD, HDR_SUM = "(fn (add x y)", "(fn (sumUp x)"
 CALL_LIT, CALL_SAME, CALL_IMP = "(add 1 2)", "(add x 3)", "(twice (add 4 5))"
+LET_TOTAL, LET_SAME = "(let ((total (add 1 2))", "(same (add x 3))"
 
 
 def vhint(anchor, sub, label, kind):
@@ -3374,6 +3375,9 @@ HINTS_WANT = sorted([
     vhint(CALL_IMP, "(twice ", TWICE_PARAMS[0] + ":", 2),
     vhint(CALL_IMP, "(twice (add ", ADD_PARAMS[0] + ":", 2),
     vhint(CALL_IMP, "(twice (add 4 ", ADD_PARAMS[1] + ":", 2),
+    # (d) the value shape after each `let` binder both calls resolve to.
+    vhint(LET_TOTAL, "(let ((total", ": " + ADD_TYS[2], 1),
+    vhint(LET_SAME, "(same", ": " + ADD_TYS[2], 1),
 ])
 FORBIDDEN_HINT = vhint(CALL_SAME, "(add ", ADD_PARAMS[0] + ":", 2)
 HDR_ADD_LINE = locate(VIEW, HDR_ADD, 1)["line"]
@@ -3728,7 +3732,8 @@ else:
           f"keyword head, on a head that is a local, inside a fn header, and on a "
           f"document that does not parse)")
     print(f"ok   inlay-hints (exactly the {len(HINTS_WANT)} derived hints: types "
-          f"after header parameters, the result after the header, names before "
+          f"after header parameters, the result after the header, value shapes "
+          f"after let binders, names before "
           f"literal and nested arguments, none before the var spelled like its "
           f"parameter, none on a call whose head is a local; {len(HINTS_ONE_LINE)} "
           f"for one line; [] on a document that does not parse)")

@@ -22,6 +22,17 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`
+
+A `let`/`letm` binder whose value resolves now carries a `: T` type
+hint after its name, from the same `lspShape*` core the value hover
+reads: `lspViewHints*` thread `decls`+`occs` so the shape resolves
+against the declaration tables, generated binders (`for$`, gensyms)
+and `_` stay quiet via `lspSkipHintName`, and anything the shape
+cannot resolve stays hintless rather than a guess. Held by
+`scripts/check-lsp-selfhost.sh` (44 checks, the exact 13-hint derived
+list over the VIEW document).
+
 ## 0.7.6 — 2026-09-25
 
 ### Hover shows a `let` value's type — `tests/lsp/drive.py`
