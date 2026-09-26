@@ -22,6 +22,24 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
+
+S4's table row set one success criterion - re-run §1.1's ablation and
+expect the binary win with the RSS win intact - and slices 1-5 shipped
+without running it. The new gate runs it: three workloads against one
+fully-ablated compiler (slice 1's depth guard, the stamp, and the
+static-sentinel answer killed at once). Emitting `self_host` both ways
+restores 7,951 releases, every one on a literal, at 99% of the ablated
+emit's peak RSS; the six S4 fixtures plus a literal probe pin
+full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
+32-byte aggregate binary win; 300,000 regions of combined traffic hold
+100% RSS. Held by the gate itself (12 checks). The witness as built is
+the stamp system: the §2.5 trailing word was evaluated against the
+runtime and declined in a dated design-note entry, and two slice-era
+"next slice" comments now point at the built slices. Calls one new
+gate; the count sites state seventy-nine gates, and the battery has
+ninety-six.
+
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`
 
 A `let`/`letm` binder whose value resolves now carries a `: T` type
