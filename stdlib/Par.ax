@@ -78,8 +78,19 @@
 ; This does NOT affect `parRunAll`'s contract. An external program that
 ; fails - exits 42, dies of a signal, or does not exist at all - is not
 ; a trap: `parRunOne` answers a word and its child exits 0. Only an
-; Axiom-side trap inside the thunk propagates, and a caller wanting
-; per-slot failure of those cannot have it without changing the join.
+; Axiom-side trap inside the thunk propagates.
+;
+; PER-SLOT FAILURE OF THOSE TRAPS is `parMapWordsChecked`'s, below. It
+; joins through `__proc_join_nr` - the join that stores the decoded
+; wait status to an out-cell instead of re-raising it - and answers a
+; `Vec` of `Result`: `Ok` the thunk's word, `Err` the slot's wait
+; status (an exit code, or 128 plus the signal) as an `Error` code.
+; The trap's own message still goes to fd 2 - the child writes it as
+; it dies, and no join can unwrite that - but the parent survives, the
+; remaining slots still join, and the answer is in submit order like
+; every other answer this module gives. `parMapWords` keeps the
+; raising join: a checked pool is a choice the caller makes by naming
+; it, not a behaviour change to the pool that exists.
 ;
 ; THE ERROR CONTRACT IS `sysRun`'S, EXACTLY, unchanged from `Job`:
 ;
@@ -139,6 +150,62 @@
       (while (< joined (vecLen hs))
         {
           (vecPush out (__proc_join (vecGet hs joined)))
+          (set joined (+ joined 1))
+        })
+      out
+    }))
+
+; Join one `__proc_spawn` handle WITHOUT re-raising: `Ok` the thunk's
+; word when the child exits 0, `Err` the child's wait status otherwise.
+; The out-cell is one bumped word; the allocator has no free, so this
+; asks for none.
+;
+; PRIVATE, for `parRunWord`'s reason: the lossy-per-slot form is needed
+; in one place, so it lives there, and a caller who wants the pool
+; calls `parMapWordsChecked`.
+(:: parJoinChecked (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (parJoinChecked h)
+  (let ((cell (memAlloc 8)))
+    (let ((w (__proc_join_nr h cell)))
+      (let ((st (memGetWord cell 0)))
+        (if (== st 0)
+          (Ok w)
+          (Err (mkError st "parallel slot trapped")))))))
+
+; Run `f i` for every `i` in `0 .. n`, at most `width` at once,
+; answering one `Result` per slot in SUBMIT order: `Ok` the thunk's
+; word, `Err` the wait status of a slot whose thunk trapped.
+;
+; The loop is `parMapWords`'s, join for join - the width clamp, the
+; block-before-spawning, the drain that continues `joined` - and the
+; comments there are not repeated here. What differs is only the join:
+; the non-raising one, so a trapped slot is an `Err` in the answer and
+; not the end of the program.
+(pub :: parMapWordsChecked (-> (-> Int Int) Int Int (Vec (Result Int Error))))
+;@axiom:effect(io)
+(pub fn (parMapWordsChecked f n width)
+  (let (
+    (w (if (< width 1)
+      1
+      width))
+    (hs vecNew)
+    (out vecNew)
+    (mut joined 0)
+  )
+    {
+      (for i 0 n
+        {
+          (while (>= (- i joined) w)
+            {
+              (vecPush out (parJoinChecked (vecGet hs joined)))
+              (set joined (+ joined 1))
+            })
+          (vecPush hs (__proc_spawn f i))
+        })
+      (while (< joined (vecLen hs))
+        {
+          (vecPush out (parJoinChecked (vecGet hs joined)))
           (set joined (+ joined 1))
         })
       out

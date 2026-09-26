@@ -1,0 +1,93 @@
+; Per-slot failure from a bounded pool: the checked twin of 476.
+;
+; `parMapWordsChecked` joins through `__proc_join_nr`, so a thunk that
+; traps is an `Err` in the answer instead of the end of the program.
+; Three terms, each pinning one half of that sentence:
+;
+;   1. MIXED. Four thunks at width 2 - ok, an index trap (77), ok, a
+;      division trap (72) - answered ok and err in submit order with
+;      the exact wait statuses. The parent survives the first trap and
+;      still joins the slots after it.
+;   2. SERIAL. Width 1 over [trap, ok]: the blocking path with a
+;      failure first. A pool that stopped joining after a trap would
+;      answer one slot here instead of two.
+;   3. ALL OK. Width 4 over three thunks: the drain-only path, proving
+;      the checked join answers plain words when nothing fails.
+;
+; The traps' own messages go to fd 2, which the runner discards - this
+; golden pins stdout only. `scripts/check-parallel.sh` section 6f runs
+; this fixture with and without `--threads` and requires the two
+; modules byte-identical, extending section 6b's claim to the checked
+; pool.
+(import IO)
+(import Str)
+(import Fmt)
+(import Vec)
+(import Err)
+(import Par)
+
+(pub :: trapIndex (-> Int Int))
+(pub fn (trapIndex n)
+  (let ((v vecNew))
+    {
+      (vecPush v 1)
+      (vecGet v (+ 5 n))
+    }))
+
+(pub :: trapDiv (-> Int Int))
+(pub fn (trapDiv z)
+  (/ 10 z))
+
+(pub :: showSlot (-> (Result Int Error) String))
+(pub fn (showSlot r)
+  (match r
+    ((Ok w) (strConcat "ok " (fmtInt w)))
+    ((Err e) (strConcat "err " (fmtInt (errCode e))))))
+
+(pub :: showPool (-> (Vec (Result Int Error)) Int))
+;@axiom:effect(io)
+(pub fn (showPool res)
+  (let ((mut k 0))
+    {
+      (while (< k (vecLen res))
+        {
+          (println (showSlot (vecGet res k)))
+          (set k (+ k 1))
+        })
+      0
+    }))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (println "mixed")
+    (showPool
+      (parMapWordsChecked
+        (lambda (i)
+          (if (== i 1)
+            (trapIndex 0)
+            (if (== i 3)
+              (trapDiv (- i i))
+              (* i 10)))
+        )
+        4
+        2))
+    (println "serial")
+    (showPool
+      (parMapWordsChecked
+        (lambda (i)
+          (if (== i 0)
+            (trapIndex 0)
+            7)
+        )
+        2
+        1))
+    (println "all ok")
+    (showPool
+      (parMapWordsChecked
+        (lambda (i) (+ i 1))
+        3
+        4))
+    0
+  })

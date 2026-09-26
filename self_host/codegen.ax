@@ -5231,7 +5231,12 @@
 ;
 ; and `(parallel p ((a e1) (b e2)) body)` is the third pair, written by
 ; the parser (`parseParallelExpr`): spawn every binding, then join
-; every binding IN ARGUMENT ORDER, then the body. The two runtimes are
+; every binding IN ARGUMENT ORDER, then the body. Each join has a
+; non-raising twin, `__par_join_nr`/`__thread_join_nr`/`__proc_join_nr`
+; (`(-> Int Int Int)`, handle and out-cell), which stores the decoded
+; wait status instead of re-raising it; the parser never writes one -
+; `(parallel ...)` keeps the raising join - and `stdlib/Par.ax`'s
+; checked pool is the caller they exist for. The two runtimes are
 ; the two lowerings of docs/memory-model-v2-design.md §3.3 - PROCESSES
 ; by default, because MM-PAR-3 makes their isolation true by
 ; construction and costs nothing (fork, wait4, one shared page per
@@ -5275,10 +5280,13 @@
 ; already exit the whole process (`targetExitNum` is `exit_group` on
 ; Linux, and its own comment records why that mattered before there
 ; was a second thread). Under processes the child dies alone, so the
-; join reads its wait status and exits with the same number - the
-; child already wrote the message. `tests/stdlib/471-parallel-trap.ax`
+; RAISING join reads its wait status and exits with the same number -
+; the child already wrote the message. `tests/stdlib/471-parallel-trap.ax`
 ; pins status 77 out of both, which is what "the same determinism
-; guarantee under both" costs to keep.
+; guarantee under both" costs to keep. The NON-RAISING join stores that
+; same status to its out-cell and carries on; a caller that wants
+; per-slot failure under processes names one, and a caller under
+; threads gets the same spelling with the process still ending first.
 ;
 ; WHAT THE THREAD LOWERING DOES NOT YET CHECK, stated rather than
 ; implied: a binding's expression may capture any outer name, and
@@ -5346,17 +5354,30 @@
     true
     (if (strEq nm "__par_join")
       true
-      (if (strEq nm "__thread_spawn")
+      (if (strEq nm "__par_join_nr")
         true
-        (if (strEq nm "__thread_join")
+        (if (strEq nm "__thread_spawn")
           true
-          (if (strEq nm "__proc_spawn")
+          (if (strEq nm "__thread_join")
             true
-            (strEq nm "__proc_join")))))))
+            (if (strEq nm "__thread_join_nr")
+              true
+              (if (strEq nm "__proc_spawn")
+                true
+                (if (strEq nm "__proc_join")
+                  true
+                  (strEq nm "__proc_join_nr"))))))))))
 
 (pub :: isParSpawnName (-> String Bool))
 (pub fn (isParSpawnName nm)
   (|| (strEq nm "__par_spawn") (|| (strEq nm "__thread_spawn") (strEq nm "__proc_spawn"))))
+
+; The non-raising joins: same handle, plus an out-cell for the decoded
+; wait status. They lower beside their raising twins - `emitPrimParJoin`
+; branches on this - so `isParSpawnName` above stays exactly three.
+(pub :: isParJoinNrName (-> String Bool))
+(pub fn (isParJoinNrName nm)
+  (|| (strEq nm "__par_join_nr") (|| (strEq nm "__thread_join_nr") (strEq nm "__proc_join_nr"))))
 
 ; Which targets can create a thread through the platform's pthread, and
 ; which can fork. `targetCode`'s numbering: darwin 0/1, linux 2/3,
@@ -5623,13 +5644,19 @@
     1
     (if (== (declsNamePrim decls "__par_join" 0) 1)
       1
-      (if (== (declsNamePrim decls "__thread_spawn" 0) 1)
+      (if (== (declsNamePrim decls "__par_join_nr" 0) 1)
         1
-        (if (== (declsNamePrim decls "__thread_join" 0) 1)
+        (if (== (declsNamePrim decls "__thread_spawn" 0) 1)
           1
-          (if (== (declsNamePrim decls "__proc_spawn" 0) 1)
+          (if (== (declsNamePrim decls "__thread_join" 0) 1)
             1
-            (declsNamePrim decls "__proc_join" 0)))))))
+            (if (== (declsNamePrim decls "__thread_join_nr" 0) 1)
+              1
+              (if (== (declsNamePrim decls "__proc_spawn" 0) 1)
+                1
+                (if (== (declsNamePrim decls "__proc_join" 0) 1)
+                  1
+                  (declsNamePrim decls "__proc_join_nr" 0))))))))))
 
 ; A program that names a spawn, on a target with NEITHER lowering -
 ; windows-x86_64, which has no `fork` and no pthread. This is the
@@ -5723,19 +5750,46 @@
 (pub :: emitPrimParJoin (-> String (Vec Int) Int Int))
 ;@axiom:effect(io)
 (pub fn (emitPrimParJoin fnName args cg)
+  (if (isParJoinNrName fnName)
+    (emitPrimParJoinNr fnName args cg)
+    (let ((cgH (emitExpr (vecGet args 0) cg)))
+      (let (
+        (h (strDup (memGetWordStr cgH 2)))
+        (r (regStr (allocReg cgH)))
+      )
+        {
+          (if (== (targetHasSpawn (memGetWord cgH 26)) 1)
+            (emitLine cgH (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "join" cgH) "(i64 ") h ")"))
+            (emitLine cgH (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()")))
+          (memSetWord cgH 2 r)
+          (memSetWord cgH 14 0)
+          cgH
+        }))))
+
+; `(join_nr handle cell)`. Same call shape as a spawn's two arguments -
+; the half is `join_nr`, so `parRuntimeSym` answers
+; `@__axiom_par_join_nr_proc` or `@__axiom_par_join_nr_thread` by the
+; same rule the raising join follows - and the same unsupported rule on
+; a target with neither lowering: the trap, which never returns, so the
+; cell it never writes is moot.
+(pub :: emitPrimParJoinNr (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimParJoinNr fnName args cg)
   (let ((cgH (emitExpr (vecGet args 0) cg)))
-    (let (
-      (h (strDup (memGetWordStr cgH 2)))
-      (r (regStr (allocReg cgH)))
-    )
-      {
-        (if (== (targetHasSpawn (memGetWord cgH 26)) 1)
-          (emitLine cgH (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "join" cgH) "(i64 ") h ")"))
-          (emitLine cgH (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()")))
-        (memSetWord cgH 2 r)
-        (memSetWord cgH 14 0)
-        cgH
-      })))
+    (let ((h (strDup (memGetWordStr cgH 2))))
+      (let ((cgC (emitExpr (vecGet args 1) cgH)))
+        (let (
+          (c (strDup (memGetWordStr cgC 2)))
+          (r (regStr (allocReg cgC)))
+        )
+          {
+            (if (== (targetHasSpawn (memGetWord cgC 26)) 1)
+              (emitLine cgC (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "join_nr" cgC) "(i64 ") h (cat3 ", i64 " c ")")))
+              (emitLine cgC (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()")))
+            (memSetWord cgC 2 r)
+            (memSetWord cgC 14 0)
+            cgC
+          })))))
 
 ; A syscall call line for the runtime below: number and six operands.
 (pub :: parSys (-> Int String String String))
@@ -5920,6 +5974,45 @@
       (emitLine cg "  ret i64 %res")
       (emitLine cg "}")
       (emitLine cg "")
+      ; The non-raising join: the same `wait4` and the same decode, but
+      ; the status is STORED to the out-cell and the join always
+      ; finishes. A failed child never stored word 3, so the failure
+      ; arm settles the answer slot to 0 itself rather than trusting
+      ; the page's zero-fill - the page IS zero-filled fresh mmap, but
+      ; no line of this runtime relies on that anywhere else, and this
+      ; one will not be the first.
+      (emitLine cg "define internal i64 @__axiom_par_join_nr_proc(i64 %h, i64 %cell) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %pid = load i64, ptr %hp")
+      (emitLine cg "  %p4 = getelementptr i64, ptr %hp, i64 4")
+      (emitLine cg "  %st4 = ptrtoint ptr %p4 to i64")
+      (emitLine cg "  br label %wait")
+      (emitLine cg "wait:")
+      (emitLine cg (cat2 "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %pid, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg "  %intr = icmp eq i64 %w, -4")
+      (emitLine cg "  br i1 %intr, label %wait, label %waited")
+      (emitLine cg "waited:")
+      (emitLine cg "  %st = load i64, ptr %p4")
+      (emitLine cg "  %sig = and i64 %st, 127")
+      (emitLine cg "  %sigz = icmp eq i64 %sig, 0")
+      (emitLine cg "  %hi = lshr i64 %st, 8")
+      (emitLine cg "  %code = and i64 %hi, 255")
+      (emitLine cg "  %sigst = add i64 %sig, 128")
+      (emitLine cg "  %status = select i1 %sigz, i64 %code, i64 %sigst")
+      (emitLine cg "  %cellp = inttoptr i64 %cell to ptr")
+      (emitLine cg "  store i64 %status, ptr %cellp")
+      (emitLine cg "  %ok = icmp eq i64 %status, 0")
+      (emitLine cg "  br i1 %ok, label %fine, label %failed")
+      (emitLine cg "failed:")
+      (emitLine cg "  %p3 = getelementptr i64, ptr %hp, i64 3")
+      (emitLine cg "  store i64 0, ptr %p3")
+      (emitLine cg "  br label %fine")
+      (emitLine cg "fine:")
+      (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
+      (emitLine cg "  ret i64 %res")
+      (emitLine cg "}")
+      (emitLine cg "")
       cg
     }))
 
@@ -5969,6 +6062,26 @@
     (emitLine cg "  %t = load i64, ptr %hp")
     (emitLine cg "  %tp = inttoptr i64 %t to ptr")
     (emitLine cg "  call i32 @pthread_join(ptr %tp, ptr null)")
+    (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
+    (emitLine cg "  ret i64 %res")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; The non-raising thread join. The cell takes `pthread_join`'s own
+    ; return - 0, or the errno it failed with - which is the only
+    ; failure this join can ever REPORT: a trapping thread ends the
+    ; whole process (`exit_group`) before any join runs, so a returned
+    ; non-raising thread join is a joined thread. Same API as the proc
+    ; half, honestly narrower, and `scripts/check-parallel.sh` section
+    ; 6f pins both halves of that sentence.
+    (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %h, i64 %cell) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+    (emitLine cg "  %t = load i64, ptr %hp")
+    (emitLine cg "  %tp = inttoptr i64 %t to ptr")
+    (emitLine cg "  %rc = call i32 @pthread_join(ptr %tp, ptr null)")
+    (emitLine cg "  %rc64 = sext i32 %rc to i64")
+    (emitLine cg "  %cellp = inttoptr i64 %cell to ptr")
+    (emitLine cg "  store i64 %rc64, ptr %cellp")
     (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
     (emitLine cg "  ret i64 %res")
     (emitLine cg "}")

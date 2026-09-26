@@ -1163,7 +1163,16 @@ primitives — `__par_spawn`/`__par_join`, which follow `--threads`, and
 `__thread_spawn`/`__thread_join` and `__proc_spawn`/`__proc_join`, which
 name their lowering — each spawn `(-> (-> Int Int) Int Int)` and each
 join `(-> Int Int)`, all carrying `IO`, so a `parallel` in a body
-claiming `no-io` is refused as a syscall there is. Nothing in
+claiming `no-io` is refused as a syscall there is. Each join has a
+non-raising twin — `__par_join_nr`, `__thread_join_nr`,
+`__proc_join_nr`, each `(-> Int Int Int)` over a handle and an
+out-cell — which stores the child's decoded wait status (0, an exit
+code, or 128 plus the signal) instead of re-raising it, answering the
+thunk's word, or 0 when the child never answered. The parser never
+emits one; `(parallel ...)` keeps the raising join. `stdlib/Par.ax`'s
+`parMapWordsChecked` is the caller they exist for: the same bounded
+pool as `parMapWords`, answering one `Result` per slot in submit
+order, so a batch sweep survives a trapped slot. Nothing in
 `self_host/` uses the *form* yet: the committed seed cannot parse it, and
 the rule is land, reseed, then use. `stdlib/Par.ax` spells the
 `__proc_spawn`/`__proc_join` pair directly instead, which the seed's

@@ -2892,12 +2892,23 @@
       ; process or out of another thread's arena today. `__par_*` is
       ; what `(parallel ...)` desugars to (`self_host/parser.ax`) and
       ; follows `--threads`; the other two pairs name their lowering.
+      ; Each pair has a third spelling, `__*_join_nr`: the join that
+      ; does NOT re-raise a failed child, answering the thunk's word
+      ; and writing the decoded wait status - 0, an exit code, or 128
+      ; plus the signal - to the out-cell its second argument names,
+      ; so a pool can record per-slot failure and carry on
+      ; (`stdlib/Par.ax`, `parMapWordsChecked`). Same lowering rule as
+      ; its raising twin: `__par_` follows the flag, the other two
+      ; name theirs.
       (regFnEff fns "__par_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
       (regFnEff fns "__par_join" (mkIntArrow 1) (builtinEff "IO"))
+      (regFnEff fns "__par_join_nr" (mkIntArrow 2) (builtinEff "IO"))
       (regFnEff fns "__thread_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
       (regFnEff fns "__thread_join" (mkIntArrow 1) (builtinEff "IO"))
+      (regFnEff fns "__thread_join_nr" (mkIntArrow 2) (builtinEff "IO"))
       (regFnEff fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
       (regFnEff fns "__proc_join" (mkIntArrow 1) (builtinEff "IO"))
+      (regFnEff fns "__proc_join_nr" (mkIntArrow 2) (builtinEff "IO"))
       (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
       ; Not spellable in source - `checkNumeric` rewrites `==`/`!=`
       ; into these. They are registered anyway because the rewritten

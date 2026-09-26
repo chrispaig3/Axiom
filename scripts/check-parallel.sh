@@ -631,6 +631,140 @@ fi
 
 # --------------------------------------------------------------------
 echo
+echo "== 6f. the checked pool: per-slot failure, flag-independent =="
+# --------------------------------------------------------------------
+# `parMapWordsChecked` is `parMapWords` joined through `__proc_join_nr`:
+# a thunk that traps is an `Err` carrying its wait status, the parent
+# survives, the slots after it still join, and the answer stays in
+# submit order. Two arms and an ablation, mirroring 6a/6b/6e for the
+# one behaviour the raising pool refuses: living through a trap.
+fx492="$repo_root/tests/stdlib/492-par-pool-checked.ax"
+gold492="$repo_root/tests/stdlib/492-par-pool-checked.out"
+if [[ ! -f "$fx492" || ! -f "$gold492" ]]; then
+  bad "6f: tests/stdlib/492-par-pool-checked.{ax,out} are missing"
+else
+# --- the fixture answers its golden, exit 0, the parent alive ---
+if run_case "$fx492" "" p492; then
+  if cmp -s "$work/p492.out" "$gold492" && [[ "$(cat "$work/p492.status")" == 0 ]]; then
+    ok "492: the checked pool answers its golden ($(wc -l < "$gold492" | tr -d ' ') lines) and exits 0 - three traps survived"
+  else
+    bad "492: the checked pool disagrees with tests/stdlib/492-par-pool-checked.out (exit $(cat "$work/p492.status"))"
+    diff "$work/p492.out" "$gold492" | head -10 | sed 's/^/     /'
+  fi
+fi
+# --- flag-independent, like 6b: the module is byte-identical ---
+"$axc" emit-llvm "$fx492" -o "$work/p492.ll" > /dev/null 2>&1
+"$axc" --threads emit-llvm "$fx492" -o "$work/t492.ll" > /dev/null 2>&1
+if cmp -s "$work/p492.ll" "$work/t492.ll"; then
+  ok "492: the module is byte-identical with and without --threads ($(wc -l < "$work/p492.ll" | tr -d ' ') lines)"
+else
+  bad "492: --threads changed the checked pool's module - it is not naming the __proc_ pair"
+  diff "$work/p492.ll" "$work/t492.ll" | head -10 | sed 's/^/     /'
+fi
+n_nrdef="$(grep -c 'define internal i64 @__axiom_par_join_nr_proc' "$work/p492.ll" || true)"
+n_nrcall="$(grep -c '= call i64 @__axiom_par_join_nr_proc' "$work/p492.ll" || true)"
+n_pth="$(grep -c '^declare i32 @pthread_' "$work/t492.ll" || true)"
+n_tl="$(grep -c 'thread_local' "$work/t492.ll" || true)"
+if [[ "$n_nrdef" == 1 && "$n_nrcall" -ge 1 && "$n_pth" == 0 && "$n_tl" == 0 ]]; then
+  ok "492: one join_nr_proc definition, $n_nrcall call site(s), 0 pthread declares and 0 thread_local under --threads"
+else
+  bad "492: expected 1 join_nr_proc definition, >=1 call, 0 pthread declares, 0 thread_local; got $n_nrdef, $n_nrcall, $n_pth, $n_tl"
+fi
+# --- ABLATION (arm 6f): the non-raising join swapped for the raising one ---
+# `parJoinChecked` over `__proc_join` is the pool this section refuses
+# to be: the mixed term's first trap ends the program with 77 instead
+# of an `Err` in the answer. A golden this edit could still satisfy
+# would not be measuring the join.
+if abl_run nrjoin 's|(__proc_join_nr h cell)|(__proc_join h)|' "the non-raising join"; then
+  if AXIOM_STDLIB="$work/abl-nrjoin/stdlib" "$axc" build --input "$fx492" --output "$work/abl-nrjoin.bin" > "$work/abl-nrjoin.build" 2>&1; then
+    ( cd "$work" && ./abl-nrjoin.bin > "$work/abl-nrjoin.out" 2>/dev/null ); nrc=$?
+    if [[ "$nrc" == 77 ]]; then
+      ok "ablation nrjoin: over the raising join the fixture dies 77 at its first trap, so arm 6f is measuring the join"
+    else
+      bad "ablation nrjoin: over the raising join the fixture exits $nrc, not 77 - the ablation is not the pool it claims"
+    fi
+  else
+    bad "ablation nrjoin: the ablated pool would not build"; sed 's/^/     /' "$work/abl-nrjoin.build" | head -5
+  fi
+fi
+fi
+
+# --- 6f, threads parity: `__par_join_nr` follows the flag ---
+# The `__par_` spelling lowers to processes by default and threads
+# under `--threads`, like its raising twin. All-ok thunks answer the
+# same bytes out of both; a trapping thunk answers per-slot failure
+# out of processes - `0` and `72`, exit 0 - and ends the process out
+# of threads, exit 72 with nothing printed. That second half is the
+# limit codegen's header states: a trapping thread is `exit_group`
+# before any join runs, so the non-raising spelling changes nothing
+# there, and this arm pins the asymmetry rather than hiding it.
+cat > "$work/nrpar.ax" <<'NRPAR'
+(import IO)
+
+(import Mem)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((cell (memAlloc 8)))
+    (let ((h (__par_spawn (lambda (w) (+ w 41)) 1)))
+      (let ((ans (__par_join_nr h cell)))
+        {
+          (println (cast Int ans))
+          (println (cast Int (memGetWord cell 0)))
+          0
+        }))))
+NRPAR
+cat > "$work/nrtrap.ax" <<'NRTRAP'
+(import IO)
+
+(import Mem)
+
+(:: main Int)
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((cell (memAlloc 8)))
+    (let ((h (__par_spawn (lambda (w) (/ 10 w)) 0)))
+      (let ((ans (__par_join_nr h cell)))
+        {
+          (println (cast Int ans))
+          (println (cast Int (memGetWord cell 0)))
+          0
+        }))))
+NRTRAP
+if run_case "$work/nrpar.ax" "" nrpar-p && run_case "$work/nrpar.ax" "--threads" nrpar-t; then
+  if [[ "$(cat "$work/nrpar-p.out")" == "$(printf '42\n0')" && "$(cat "$work/nrpar-t.out")" == "$(cat "$work/nrpar-p.out")" \
+     && "$(cat "$work/nrpar-p.status")" == 0 && "$(cat "$work/nrpar-t.status")" == 0 ]]; then
+    ok "__par_join_nr: all-ok thunks answer 42 and status 0 out of both lowerings"
+  else
+    bad "__par_join_nr: all-ok answers differ (processes [$(tr '\n' ' ' < "$work/nrpar-p.out")]@$(cat "$work/nrpar-p.status"), threads [$(tr '\n' ' ' < "$work/nrpar-t.out")]@$(cat "$work/nrpar-t.status"))"
+  fi
+fi
+if run_case "$work/nrtrap.ax" "" nrtrap-p && run_case "$work/nrtrap.ax" "--threads" nrtrap-t; then
+  if [[ "$(cat "$work/nrtrap-p.out")" == "$(printf '0\n72')" && "$(cat "$work/nrtrap-p.status")" == 0 ]]; then
+    ok "__par_join_nr/processes: a trapping thunk answers 0 with 72 in the cell, exit 0"
+  else
+    bad "__par_join_nr/processes: wanted [0 72]@0, got [$(tr '\n' ' ' < "$work/nrtrap-p.out")]@$(cat "$work/nrtrap-p.status")"
+  fi
+  if [[ ! -s "$work/nrtrap-t.out" && "$(cat "$work/nrtrap-t.status")" == 72 ]]; then
+    ok "__par_join_nr/threads: a trapping thunk still ends the process, exit 72 with nothing printed"
+  else
+    bad "__par_join_nr/threads: wanted empty@72, got [$(tr '\n' ' ' < "$work/nrtrap-t.out")]@$(cat "$work/nrtrap-t.status")"
+  fi
+fi
+"$axc" emit-llvm "$work/nrpar.ax" -o "$work/nrpar-p.ll" > /dev/null 2>&1
+"$axc" --threads emit-llvm "$work/nrpar.ax" -o "$work/nrpar-t.ll" > /dev/null 2>&1
+if grep -q '= call i64 @__axiom_par_join_nr_proc' "$work/nrpar-p.ll" 2>/dev/null \
+   && grep -q '= call i64 @__axiom_par_join_nr_thread' "$work/nrpar-t.ll" 2>/dev/null; then
+  ok "__par_join_nr: the default module calls join_nr_proc and the --threads module calls join_nr_thread"
+else
+  bad "__par_join_nr: the spelling does not follow the flag in the emitted modules"
+fi
+
+# --------------------------------------------------------------------
+echo
 echo "== 7. freebsd: the process lowering is EXECUTED, and this is the leg that does it =="
 # --------------------------------------------------------------------
 # `docs/status.md` said "freebsd is unmeasured" until 2026-09-04 and it
