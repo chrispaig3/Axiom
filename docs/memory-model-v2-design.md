@@ -795,6 +795,16 @@ share back. What remains of S4 is the first half of that
 remainder: pair-error projections (`extractvalue` of an errno out
 of a two-word call pair, 13 sites).
 
+**The pair-error remainder, TRACED 2026-09-26 - required, not
+dead.** All 13 sites are `Err` arms over `$pair` calls whose slot
+1 holds `call i64 @Err$mkError(...)` - a fresh heap `Error`,
+traced through `sysResult$pair` in the compiler's own IR. Each
+release frees the block its own failed call built; eliding any of
+them leaks one `Error` per failure. The bucket stays at 13 by
+construction and grows legitimately with new syscall wrappers,
+so there is no gate on the count - a static count here would
+churn, not guard. S4's counted remainder is empty.
+
 **The adjacent hole, CLOSED 2026-09-17.** A callee-mediated store
 of a fresh construction into an outer cell from inside an
 UN-annotated region used to check OK and read back wrong (measured:
