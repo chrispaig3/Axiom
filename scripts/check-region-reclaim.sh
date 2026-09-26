@@ -62,10 +62,14 @@
 #      Recorded in the design note's S4 subsection, not fixed here.
 #
 # What this gate does NOT cover, stated rather than left to be
-# found: call results (freshness needs the MM-RGN-5 witness),
-# `VAR` operands (def-tracking), field stores (paired retains), and
-# `musttail` paths - each documented in the predicate's own comment
-# with the reason. `emitLamDef`'s clearing of the depth is
+# found: `VAR` operands (def-tracking), field stores (paired
+# retains), and `musttail` paths - each documented in the
+# predicate's own comment with the reason. Call results were on this
+# list when freshness needed a witness nobody had built; slices 2-4
+# built it as stamps, and `check-region-fresh.sh`,
+# `check-region-fresh-let.sh`, `check-region-phi.sh`,
+# `check-region-phi-let.sh` and `check-region-scrutinee.sh` cover
+# them now. `emitLamDef`'s clearing of the depth is
 # defense-in-depth under today's drain timing (lambdas always emit
 # at depth 0 in the module loop); term 5 passes either way, and the
 # comment says so.

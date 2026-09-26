@@ -18287,8 +18287,9 @@
       ; only a use inside the body may go without its release. What
       ; is NOT covered here is a fresh call result bound by `let`
       ; and released at scope end rather than passed as an argument
-      ; - that walker is the next slice, and this one leaves it
-      ; exactly alone. Inlined rather than factored so no new
+      ; - that walker is slice 2's scope-end path (`emitLetAt`),
+      ; built, and this one leaves it exactly alone. Inlined rather
+      ; than factored so no new
       ; top-level function moves the effect-distribution pins; the
       ; callee-mediated hole is outcome-identical either way (the
       ; reset frees unconditionally), as slice 1's gate pins.
@@ -18536,9 +18537,11 @@
 ; reach a release site, and allocating primops build fresh blocks
 ; after the mark, where elision is outcome-identical.
 ;
-; What is NOT covered, by design: call results (the callee may alias
-; an outer value - freshness needs the MM-RGN-5 witness, which is
-; S4's next slice), field stores (their release balances a retain in
+; What is NOT covered, by design: call results are covered elsewhere
+; now (the callee may alias an outer value, and freshness comes from
+; the MM-RGN-5 witness as built - the stamp system, slices 2-4, read
+; in `releaseOwnedArgs`, `emitLetAt` and `releaseScrutinee` - so this
+; syntactic predicate leaves them alone); field stores (their release balances a retain in
 ; the same step - eliding one half would leak), and `musttail`
 ; decisions (`argOwnedRelease` still answers 1 for a covered
 ; temporary, so `mustTailOK` stays conservative and

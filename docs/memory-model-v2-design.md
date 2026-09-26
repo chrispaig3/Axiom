@@ -299,6 +299,25 @@ the call site from static types, and `EV_LAMARG` already extends it to
 a lambda's own parameter by depth (`self_host/typecheck.ax`). A region
 witness is the same shape and the same call-site computation.
 
+*Measured against implementation, 2026-09-26:* the witness as built
+is the stamp system, not the trailing word. S3's facts fixpoint
+proves freshness per callee, the post-fixpoint walk stamps proven
+nodes (`nodeResWord` 2), and S4's spends read the stamps - which is
+what "S4's next slice" in slice 1's row became, and what the verdict
+row below closes. The trailing word of the (D) text above was
+evaluated against the runtime and DECLINED: a callee cannot
+bump-allocate into a non-current region (position IS extent - a value
+above an inner mark dies at the inner reset whatever region it was
+"for"), cross-region results are served by reset-time promotion
+(`MM-ALLOC-15`, built) and refcounted promotion (`MM-RGN-6`), and
+freshness certification - the named consumer - is what the stamps
+deliver at zero runtime cost. Threading a word no reader consumes
+would be traffic without a proof, which is what S4 deletes. Revisit
+iff a region-polymorphic program needs cross-region BEHAVIOUR at a
+call site - dynamic extent checks over the raw-`Int` channel are the
+sound reader if that day comes - and none exists in the tree: the
+sweep of §5 found region annotations only in tests.
+
 Most functions need none: under `MM-RGN-4` they allocate in the current
 region, which is the global bump pointer they already use, so their
 emitted code does not change at all.
@@ -540,7 +559,7 @@ gate below follows it.
 | **S1** | **DONE 2026-08-31. `MM-ALLOC-16b` alone** becomes checked, as `16a` did — a reset that would reclaim a live `handle`'s evidence record | one gated call in `resetbody`, one on the unwind walk, and `@__axiom_ev_check` over the effect slots | `tests/stdlib/167-arena-live-handle.ax`, exit **76**. Before: the operation ran off reclaimed memory and the program **exited 0**. The two legal shapes beside it stay silent, and `401-recover-effect.ax` still exits 71 — the recovery path needs no exemption because it restores every slot *before* it resets. Byte-identical IR for a program declaring no effect, `self_host/` included |
 | **S2** | **DONE 2026-09-03. `region` returns as a checked scope with no types yet** — mark/reset on a STACK cell, names scope-checked (`AX3058`), `AX2004`'s false advice deleted. "No typechecker change" was wrong as written and is corrected here: without types the checker still has to refuse the two escape channels a scope can see — the region's own value when it is not a scalar, and a `set` on a binding bound outside the region when the stored value is not one — as `AX3059`, or the reset hands a program a dangling descriptor with every gate green | a real node (`TAG_E_REGION`, so S3 can find extents) + the open-region stack + the value/store rule in `typecheck.ax`; `emitRegion` is three loads, one hoisted `alloca` and the existing `@__axiom_arena_reset_fn` | `scripts/check-region-scope.sh`: a no-region program emits no cell; 4,000 × 64 KiB with the region against without is 185x on peak RSS; `tests/diagnostics/631` draws exactly its three rows; and the ABLATION — `rgTyScalar` answering 1 — builds a compiler under which `hello world` stored out of a region reads back as `XXXXXXXXXXX`, the next allocation. `tests/stdlib/168-region.ax` (ten terms). Byte-identical IR for a program with no region, measured against the previous commit's compiler on `self_host/main.ax`: 202,021 lines both ways. NOT done here, by design: a reference leaving a region, which is S3's typed promotion, and the two channels a scope cannot see (a call that stores, a raw `Int`), which stay `MM-ALLOC-16`'s obligation |
 | S3 | **BUILT 2026-09-03, save the witness.** Region-parameterised signatures, `(Str @r)`, and `MM-RGN-3` checked over every body; `restrict(no-escape)`; the sweep of §5 as a gate | typecheck (`rgnCheckAll`, a facts fixpoint over the call graph plus one reporting walk), parser, formatter, grammar; NO codegen — the witness of §2.5 is deferred to S4, see below | `scripts/check-region-escape.sh`: an annotated program and its stripped twin emit byte-identical IR (1,652 lines); `tests/diagnostics/645`–`649` one per escape shape, AX3060–AX3063; the ablation — `rgnCheckAll` answering 0 — accepts all four and the program it then lets through reads reclaimed memory; the sweep reads 241 of 6,206 (3.88%) |
-| S4 | Delete ownership traffic the region proves dead | codegen | **re-run §1.1's ablation and expect the binary win with the RSS win intact** — the one measurement that decides whether any of this was worth it |
+| S4 | **VERDICT RUN 2026-09-26.** Delete ownership traffic the region proves dead | codegen | **re-run §1.1's ablation and expect the binary win with the RSS win intact** — the one measurement that decides whether any of this was worth it. Run: `check-region-verdict.sh` — 7,951 literal releases on self_host, per-fixture deltas 18/23/21/24/21/26/10, aggregate binary −32 B, RSS 99–100%, answers identical. The verdict row below carries the numbers |
 | **S5** | **DONE 2026-09-03. `__thread_spawn`/`__thread_join`, and `cgThreads`'s owed body** | the primitive pair, the scan (`parScan` in codegen.ax, before `emitAllocator`), the thread runtime (`emitParThread`: the platform's `pthread_create`, an entry that runs the thunk and writes its word) | `scripts/check-thread-local.sh` reaches the ON path through a program that spawns, no ablation: eight globals move and nothing else, the OFF path imports no TLS symbol, a thread's cost is `pthread_create`+`pthread_join` (+`__tlv_bootstrap` on Darwin), local-exec on both Linux targets. freebsd and windows refuse it at build time (`AX4006`) |
 | **S6** | **DONE 2026-09-03, with the limit stated. `parallel`, both lowerings** | the surface is a parser desugaring over `__par_spawn`/`__par_join` (no AST tag); the two backends are `emitParProc` (fork, one `MAP_SHARED` page per binding, `wait4` re-raising a child's status) and `emitParThread`, selected by `--threads` | `scripts/check-parallel.sh`: `tests/stdlib/470-parallel.ax` and `471-parallel-trap.ax` under both lowerings, byte-identical stdout and the same exit (77 out of both for the trap); processes add no import, threads add exactly their own; the flag is inert on a program that spawns nothing; windows emits a status-79 trap in place of both primitives. **What crosses a join is a word, and captures are unchecked under threads** - §3.3 below, and §3.2b for why S3 did not close it |
 
@@ -804,6 +823,41 @@ them leaks one `Error` per failure. The bucket stays at 13 by
 construction and grows legitimately with new syscall wrappers,
 so there is no gate on the count - a static count here would
 churn, not guard. S4's counted remainder is empty.
+
+**The S4 verdict, RUN 2026-09-26 - the binary win with the RSS win
+intact.** The S4 table row's criterion, `scripts/check-region-verdict.sh`,
+three workloads against one fully-ablated compiler (slice 1's depth
+guard, the stamp, and the static-sentinel answer all killed at once).
+W1 is §1.1's workload itself: both compilers emit `self_host/main.ax`
+and 7,951 releases come back, every one on a `@strhdr_*` literal
+(4,293 headers) - the region kills provably inert where no region
+form stands - while the emitting compiler's own peak RSS reads
+692,672 KiB against 694,160 ablated (99%). W2 runs the six S4
+fixtures plus a literal probe: per-file release deltas 18/23/21/24/21/26/10
+against slice floors 6/7/8/7/8/8/4, every file's answers identical
+both ways, every binary no bigger and the seven files' aggregate
+251,248 bytes against 251,280 ablated. W3 loops 300,000 regions of
+combined construction/call/literal traffic: the same 90001800000 both
+ways, peak RSS 100%. No wall-clock claim, per §1.1's own correction.
+
+The full pins decompose by operand definer, counted against both
+IRs: 479 is 6 constructions (the slice pin) + 12 literals; 480 is 7
+calls + 13 literals, 2 constructions, 1 call; 481 is 8 calls + 12
+literals, 1 construction; 482 is 6 joins + 1 scratch load + 15
+literals, 1 construction, 1 load; 483 is 6 joins + 2 scratch loads +
+12 literals, 1 construction; 484 is 4 calls + 4 joins + 16 literals, 1
+construction, 1 load; the probe is 4 guarded literals + 6
+println-machinery literals. The dominant cross-traffic is literals -
+the strings every fixture prints through. Two mechanisms the verdict
+caught rather than assumed: restored releases flip `musttail`
+decisions downstream (the W1 comparison normalises registers, cancels
+alignment drift, and allows only the flip vocabulary plus the
+release-count-scaled `@__axiom_line*`/`filen` tables), and function
+alignment absorbs a few removed calls into padding (three fixtures
+tie to the byte, which is why the strict win is pinned on the
+aggregate). S4 is closed: the traffic the region proves dead is gone,
+the binary is smaller for it, and nothing that freed anything went
+with it.
 
 **The adjacent hole, CLOSED 2026-09-17.** A callee-mediated store
 of a fresh construction into an outer cell from inside an
