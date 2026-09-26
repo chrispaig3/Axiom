@@ -35,7 +35,8 @@
 # - because `(if c "lit" (mkStr))` has to stay owned for the OTHER
 # branch's share to be given back. Answering 0 there silences this
 # release and LEAKS that one. So `isStaticSentinelNode` is asked at the
-# two sites that emit a release for a value that IS the literal, and
+# four sites that emit a release for a value that IS the literal -
+# argument, field, `let` scope end, and tail-call temporary - and
 # the join reasoning is untouched. The gate's second assertion is what
 # keeps that distinction honest.
 #
@@ -96,8 +97,11 @@ PY
 # `argOf` puts one in argument position (`releaseOwnedArgs`) and `Box`
 # puts one in a constructor field (the block-construction store). Both
 # are the shapes that emitted a release before 2026-08-31, and both
-# must emit none now.
-echo "== a literal in argument and in field position emits no release =="
+# must emit none now. `letOf` binds one (the `let` scope-end release
+# in `emitLetAt`) and `tailOf` passes one to a self tail call (the
+# argument temporary `releaseTailTemps` hands back) - the two shapes
+# that emitted one before 2026-09-26, and both must emit none now.
+echo "== a literal in argument, field, let and tail position emits no release =="
 cat > "$work/lit.ax" <<'AX'
 (import Str)
 
@@ -111,9 +115,20 @@ cat > "$work/lit.ax" <<'AX'
 
 (fn (boxOf n) (cast Int (Box "in field position" n)))
 
+(:: letOf (-> Int Int))
+
+(fn (letOf n) (let ((s "in let position")) (strLen s)))
+
+(:: tailOf (-> Int String Int))
+
+(fn (tailOf n acc)
+  (if (<= n 0)
+    (strLen acc)
+    (tailOf (- n 1) "in tail position")))
+
 (:: main Int)
 
-(fn (main) (- (argOf 1) (boxOf 1)))
+(fn (main) (- (+ (argOf 1) (+ (letOf 1) (tailOf 3 "seed"))) (boxOf 1)))
 AX
 if ! "$axc" emit-llvm "$work/lit.ax" -o "$work/lit.ll" >"$work/lit.log" 2>&1; then
   bad "the fixture does not compile"
@@ -174,11 +189,15 @@ fi
 # ---------------------------------------------------------------
 # 3. The corpus figure, over the largest Axiom program there is.
 # ---------------------------------------------------------------
-# A residue is expected and is named rather than rounded away: five
-# sites survive, from release paths that hold no AST node to ask. The
-# cap is what would notice a regression, and the header floor is what
-# keeps a compiler that emitted no literals at all from passing.
-echo "== the compiler's own IR: the residue is named, not rounded =="
+# No residue: every release path that holds an AST node asks the
+# predicate, so a static release in this census is a missed elision
+# and the cap is 0. (The census is syntactic - an operand DEFINED by
+# a literal. Static VALUES behind a `load`, like a literal a caller
+# passed into a callee's parameter slot, are nodeless by
+# construction and invisible here; that is a different slice, not a
+# residue of this one.) The header floor is what keeps a compiler
+# that emitted no literals at all from passing.
+echo "== the compiler's own IR: zero static releases =="
 if ! "$axc" emit-llvm "$repo_root/self_host/main.ax" -o "$work/self.ll" >"$work/self.log" 2>&1; then
   bad "could not emit IR for self_host/main.ax"
   sed 's/^/     /' "$work/self.log" | head -20
@@ -186,10 +205,10 @@ else
   read -r sst stot shd <<<"$(count_static_releases "$work/self.ll")"
   if [[ "$shd" -lt 2000 ]]; then
     bad "self_host/main.ax emitted $shd string headers; the floor is 2000 - this check has stopped seeing the program"
-  elif [[ "$sst" -gt 20 ]]; then
-    bad "$sst static releases in the compiler's own IR; the cap is 20 (5 on 2026-08-31, from paths with no AST node to ask)"
+  elif [[ "$sst" != 0 ]]; then
+    bad "$sst static release(s) in the compiler's own IR; the cap is 0 - a missed elision, or a new nodeless path to name"
   else
-    ok "$sst static release(s) over $shd headers, against 5762 before 2026-08-31 ($stot release sites total, was 10849)"
+    ok "0 static releases over $shd headers, against 5762 before 2026-08-31 ($stot release sites total, was 10849)"
   fi
 fi
 
@@ -247,16 +266,17 @@ else
       ok "ablated: $ast static releases (against $sst from the tree) - the predicate is what removes them"
     fi
     # AND THE FIXTURE, which is what keeps check 1 from being vacuous.
-    # It asserts a zero, and a fixture that reached neither guarded site
-    # would produce a zero too. The ablated compiler must find both.
+    # It asserts a zero, and a fixture that reached none of the guarded
+    # sites would produce a zero too. The ablated compiler must find
+    # all four.
     checks=$((checks + 1))
     if "$work/axc-ablated" emit-llvm "$work/lit.ax" -o "$work/lit-abl.ll" \
          >"$work/lit-abl.log" 2>&1; then
       read -r lst _ltot _lhd <<<"$(count_static_releases "$work/lit-abl.ll")"
-      if [[ "$lst" -lt 2 ]]; then
-        bad "the ablated compiler emitted $lst static release(s) for the fixture; wanted 2 - the fixture no longer reaches both guarded sites, so check 1 above is vacuous"
+      if [[ "$lst" -lt 4 ]]; then
+        bad "the ablated compiler emitted $lst static release(s) for the fixture; wanted 4 - the fixture no longer reaches all four guarded sites, so check 1 above is vacuous"
       else
-        ok "ablated: the fixture emits $lst static releases, so both guarded positions are live"
+        ok "ablated: the fixture emits $lst static releases, so all four guarded positions are live"
       fi
     else
       bad "the ablated compiler could not re-emit the fixture"

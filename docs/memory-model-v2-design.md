@@ -773,6 +773,28 @@ bringing all eight back. Both ablations are path-specific on
 purpose - ablating the shared stamp would restore traffic the
 walker under test never owned.
 
+**S4 slice 5, BUILT 2026-09-26 - scope-end and tail-temp releases
+of string literals.** The second half of the counted remainder:
+`isStaticSentinelNode` is now asked at all four sites that emit a
+release for a value that IS the literal. `emitLetAt` skips the
+scope-end release when the initialiser is a bare `TAG_E_STR` (the
+binding is immutable, so SSA still holds the literal there), and
+`releaseTailTemps` skips an argument temporary that is one (the
+`""` a tail loop threads through, measured twice in
+`codegen$scanLineMarks`). Same shape as the stamp spends -
+`releasable` still says 1, the pending vector still takes the
+share for the tail-jump path - so the shared predicate's ablation
+restores every one of these with the other sites'. Census on the
+compiler's own IR: static-literal release operands 7 to 0, every
+other bucket unchanged (6,380 call, 451 load, 168 phi, 13
+extractvalue). `scripts/check-static-release.sh` grows the
+coverage: the fixture binds and tail-passes literals (ablated: 5
+static releases, so all four positions are live), the corpus cap
+goes 20 to 0, and the join guard still requires the join's own
+share back. What remains of S4 is the first half of that
+remainder: pair-error projections (`extractvalue` of an errno out
+of a two-word call pair, 13 sites).
+
 **The adjacent hole, CLOSED 2026-09-17.** A callee-mediated store
 of a fresh construction into an outer cell from inside an
 UN-annotated region used to check OK and read back wrong (measured:
