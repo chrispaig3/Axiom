@@ -43,7 +43,10 @@
 # install from before the record is recognised by its shape (8), and
 # that a release whose compiler fails leaves the working install in
 # place (9). Each of the three guards is then removed in a copy of the
-# installer and must be seen to cost the file it guards.
+# installer and must be seen to stop refusing: the ownership check and
+# the staged probe then cost the file they guard, and `$HOME/.` gets
+# past the list - where the ownership check, the next guard down, is
+# seen to catch it.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -489,27 +492,81 @@ echo "== the probes on the destructive half: each guard, removed, must cost =="
 # line replacement whose match count is asserted first - `sed` that
 # matches nothing produces a copy identical to the original and an
 # ablation that proves nothing.
+#
+# THE COPY IS CHECKED AS WELL AS THE ORIGINAL, because a seam that
+# matches install.sh once can still be missed by the tool doing the
+# replacing - and was. This used `awk -v old="$2"`, and `-v` runs its
+# value through awk's string-escape processing. Seam A ends in the
+# line-continuation backslash, and what a lone trailing `\` becomes is
+# the awk's choice: BWK awk (macOS) and mawk keep it, gawk DROPS it. So
+# under gawk `$0 == old` matched nothing, the "ablated" copy was
+# install.sh byte for byte, and probe A ran the real installer and
+# watched it refuse `$HOME/.` - reported as "still refused", a message
+# that points at physical_path and not at the copy. Reproduced
+# 2026-09-27 in `run-gates-linux.sh`'s Ubuntu 24.04 aarch64 image, where
+# `awk` is gawk 5.2.1; it is why probe A failed on all three
+# linux-aarch64 CI runs it had, identically, and passed on darwin.
+# (linux-x86_64 never reaches it: that target ships no archive, so this
+# gate stops at the refusal check above.)
+#
+# The two strings now travel through ENVIRON, which no awk
+# escape-processes, and the copy must have lost the seam and gained the
+# replacement exactly once. A replacement that silently did not happen
+# is named for what it is.
 ablated() {  # <out> <exact line> <replacement>
-  local n
+  local n had
   n="$(grep -cxF -- "$2" "$repo_root/scripts/install.sh" || true)"
   if [[ "$n" != 1 ]]; then
     bad "the ablation seam \`$2\` matches $n lines of install.sh, not 1"
     return 1
   fi
-  awk -v old="$2" -v new="$3" '$0 == old { print new; next } { print }' \
+  had="$(grep -cxF -- "$3" "$repo_root/scripts/install.sh" || true)"
+  ABL_OLD="$2" ABL_NEW="$3" \
+    awk '$0 == ENVIRON["ABL_OLD"] { print ENVIRON["ABL_NEW"]; next } { print }' \
     "$repo_root/scripts/install.sh" > "$1"
+  n="$(grep -cxF -- "$2" "$1" || true)"
+  if [[ "$n" != 0 || "$(grep -cxF -- "$3" "$1" || true)" != $((had + 1)) ]]; then
+    bad "the ablation seam \`$2\` was not replaced in the copy ($n left) - the probe would run the real installer"
+    return 1
+  fi
 }
 
 # A. The spelling compared instead of the directory: `$HOME/.` must get
-#    through - and in this scratch home it then deletes the sentinels.
+#    past the protected list.
+#
+#    GETTING PAST IT IS ASSERTED, not read off a missing refusal. A log
+#    without "which is $HOME" is also what a run that died BEFORE the
+#    comparison writes - a copy that no longer parses (drop the seam's
+#    trailing `\` from the replacement and the next line is a bare
+#    `|| die`), a tool it looks for first - and that run proves nothing
+#    about physical_path. So it must be seen to reach the download,
+#    which install.sh starts only once every prefix guard has passed.
+#
+#    What stops it after that is the ownership check: the scratch
+#    home's `bin/` holds a file no install recorded. This comment used
+#    to say the sentinels were then deleted; that was true before the
+#    record existed and nothing checked it after. It is asserted now,
+#    against a refusal that names THIS run's prefix, because a second
+#    line of defence nobody has seen hold is a comment and not a guard.
 if ablated "$work/spelling.sh" \
      'PREFIX="$(physical_path "$given_prefix")" \' 'PREFIX="${given_prefix%/}" \'; then
   plant_home "$fake_home"
   rc="$(home_run "$fake_home" "$fake_home/." "$work/spelling.sh")"
   if grep -qF "which is $fake_home" "$work/install.log"; then
     bad "with the spelling compared, \$HOME/. was still refused as the home directory"
+    sed 's/^/     /' "$work/install.log" | tail -4
+  elif ! grep -qF "==> downloading $name" "$work/install.log"; then
+    bad "with the spelling compared, the installer stopped before the download (exit $rc) - it never reached the comparison, so this proves nothing"
+    sed 's/^/     /' "$work/install.log" | tail -4
   else
-    ok "with the spelling compared, \$HOME/. is not refused as home (exit $rc) - case 5 is what physical_path buys"
+    ok "with the spelling compared, \$HOME/. gets past the list to the download - case 5 is what physical_path buys"
+    if (( rc != 0 )) && sentinels_ok "$fake_home" \
+       && grep -qF "refusing to install into '$fake_home/.': it already has bin" "$work/install.log"; then
+      ok "and the ownership check refuses it there (exit $rc), both sentinels intact - the second line of defence"
+    else
+      bad "past the list, \$HOME/. was not stopped by the ownership check: exit $rc, sentinels $(sentinels_ok "$fake_home" && echo intact || echo DELETED)"
+      sed 's/^/     /' "$work/install.log" | tail -4
+    fi
   fi
   plant_home "$fake_home"
 fi
