@@ -597,17 +597,18 @@ if abl_run flag 's/__proc_spawn/__par_spawn/g; s/__proc_join/__par_join/g' "the 
   fi
 fi
 
-# ABLATION 3 (arm 6c): the pre-spawn blocking loop deleted. Every task
-# is forked at once whatever `width` says, so the two wall times
-# converge and the ratio collapses toward 1.
-if abl_run bound 's|(while (>= (- i joined) w)|(while (>= (- i joined) 999999)|' "the width bound"; then
+# ABLATION 3 (arm 6c): use n as the width. Both the rolling handle ring
+# and the blocking loop must agree on the ablated bound; deleting only
+# the loop would overwrite live handles and measure a broken pool.
+# Every task is forked at once, so the wall-time ratio approaches 1.
+if abl_run bound 's|(w (if (< width 1)|(w (if (< n 1)|; s|      width))|      n))|' "the width bound"; then
   if AXIOM_STDLIB="$work/abl-bound/stdlib" "$axc" build --input "$work/width.ax" --output "$work/abl-bound.bin" > "$work/abl-bound.build" 2>&1; then
     abl_ratio="$(pool_ratio ./abl-bound.bin)"
     ar="${abl_ratio%% *}"
     if python3 -c "import sys;sys.exit(0 if float(sys.argv[1]) > 2.5 else 1)" "$ar"; then
-      bad "ablation bound: with the blocking loop gone the ratio is still ${ar}x - arm 6c cannot fail"
+      bad "ablation bound: ignoring width still gives ratio ${ar}x - arm 6c cannot fail"
     else
-      ok "ablation bound: with the blocking loop gone the ratio collapses to ${ar}x, so arm 6c is measuring the bound"
+      ok "ablation bound: ignoring width collapses the ratio to ${ar}x, so arm 6c is measuring the bound"
     fi
   else
     bad "ablation bound: the ablated pool would not build"; sed 's/^/     /' "$work/abl-bound.build" | head -5

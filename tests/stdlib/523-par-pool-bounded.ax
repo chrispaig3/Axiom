@@ -1,0 +1,198 @@
+; F8: rolling handle slots and one reusable checked-join status word.
+;
+; The first two terms measure parent arena growth for 256 submissions
+; at width 3, including the returned vector (and 256 Result boxes for
+; the checked pool). They require marks in the same chunk, fail closed
+; if the cursor moves backwards, and allow headroom above the current
+; 4,304 / 12,528 byte measurements. The old append-only handle vector
+; and per-join status cell consume 8,432 / 24,816 bytes on this input,
+; so the 6 / 14 KiB budgets reject that implementation. This is an
+; allocation regression, not a process RSS or an asymptotic proof;
+; Par.ax's ring capacity supplies the latter. Child pages are outside
+; this arena measurement and are governed by the runtime's join path.
+;
+; Later terms verify every result after many wraps, mixed failures
+; followed by successes (the status cell must be overwritten), the
+; partial final drain, nonpositive width, and empty/short inputs with
+; a width too large to allocate eagerly. Results remain O(n).
+(import IO)
+(import Mem)
+(import Vec)
+(import Err)
+(import Par)
+
+(:: work (-> Int Int))
+(fn (work i)
+  (+ (* i 7) 3))
+
+(:: wordMismatch (-> (Vec Int) Int Int))
+(fn (wordMismatch r n)
+  (let ((mut bad 
+    (if (== (vecLen r) n)
+      0
+      1)))
+    {
+      (for i 0 (vecLen r)
+        (if (== (vecGet r i) (work i))
+          0
+          (set bad (+ bad 1))))
+      bad
+    }))
+
+(:: checkedMismatch (-> (Vec (Result Int Error)) Int Bool Int))
+(fn (checkedMismatch r n mixed)
+  (let ((mut bad 
+    (if (== (vecLen r) n)
+      0
+      1)))
+    {
+      (for i 0 (vecLen r)
+        (let ((fail (&& mixed (== (% i 5) 1))))
+          (if (match (vecGet r i)
+            ((Ok w)
+              (&&
+                (if fail
+                  false
+                  true)
+                (== w (work i)))
+            )
+            ((Err e) (&& fail (== (errCode e) 72))))
+            0
+            (set bad (+ bad 1)))))
+      bad
+    }))
+
+(:: mixedWork (-> Int Int))
+(fn (mixedWork i)
+  (if (== (% i 5) 1)
+    (/ 10 (- i i))
+    (work i)))
+
+; These are raw allocator marks for a bounded resource probe. Neither
+; result escapes its region and neither mark is read after the reset.
+(:: storageWords Int)
+;@axiom:effect(io)
+(fn (storageWords)
+  (region words
+    (let (
+      (a __axiom_arena_mark)
+      (r (parMapWords
+        (lambda (i) (work i))
+        256
+        3))
+      (b __axiom_arena_mark)
+      (bytes (- (memGetWord b 0) (memGetWord a 0)))
+    )
+      (if (&& (== (memGetWord a 2) (memGetWord b 2)) (&& (>= bytes 0) (&& (<= bytes 6144) (== (wordMismatch r 256) 0))))
+        1
+        0))))
+
+(:: storageChecked Int)
+;@axiom:effect(io)
+(fn (storageChecked)
+  (region checked
+    (let (
+      (a __axiom_arena_mark)
+      (r (parMapWordsChecked
+        (lambda (i) (work i))
+        256
+        3))
+      (b __axiom_arena_mark)
+      (bytes (- (memGetWord b 0) (memGetWord a 0)))
+    )
+      (if (&& (== (memGetWord a 2) (memGetWord b 2)) (&& (>= bytes 0) (&& (<= bytes 14336) (== (checkedMismatch r 256 false) 0))))
+        1
+        0))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+(pub fn (main)
+  {
+    (println storageWords)
+    (println storageChecked)
+    (println
+      (wordMismatch
+        (parMapWords
+          (lambda (i) (work i))
+          29
+          3)
+        29))
+    (println
+      (wordMismatch
+        (parMapWords
+          (lambda (i) (work i))
+          11
+          0)
+        11))
+    (println
+      (wordMismatch
+        (parMapWords
+          (lambda (i) (work i))
+          11
+          (- 0 5))
+        11))
+    (println
+      (checkedMismatch
+        (parMapWordsChecked
+          (lambda (i) (mixedWork i))
+          37
+          5)
+        37
+        true))
+    (println
+      (checkedMismatch
+        (parMapWordsChecked
+          (lambda (i) (mixedWork i))
+          11
+          0)
+        11
+        true))
+    (println
+      (checkedMismatch
+        (parMapWordsChecked
+          (lambda (i) (mixedWork i))
+          11
+          (- 0 5))
+        11
+        true))
+    (println
+      (wordMismatch
+        (parMapWords
+          (lambda (i) (work i))
+          3
+          9223372036854775807)
+        3))
+    (println
+      (checkedMismatch
+        (parMapWordsChecked
+          (lambda (i) (mixedWork i))
+          3
+          9223372036854775807)
+        3
+        true))
+    (println
+      (vecLen
+        (parMapWords
+          (lambda (i) (/ 1 i))
+          0
+          9223372036854775807)))
+    (println
+      (vecLen
+        (parMapWordsChecked
+          (lambda (i) (/ 1 i))
+          0
+          9223372036854775807)))
+    (println
+      (vecLen
+        (parMapWords
+          (lambda (i) (/ 1 i))
+          (- 0 1)
+          3)))
+    (println
+      (vecLen
+        (parMapWordsChecked
+          (lambda (i) (/ 1 i))
+          (- 0 1)
+          3)))
+    0
+  })

@@ -67,13 +67,13 @@
 ; would never spawn and never finish.
 ;
 ; THE ONE BEHAVIOUR THAT DIFFERS FROM `Job`, and a caller must know it.
-; A thunk that TRAPS kills the PARENT. `__axiom_par_join_proc` re-raises
-; a non-zero wait status as the parent's own exit - that is
-; `tests/stdlib/471-parallel-trap.ax`'s pinned rule (status 77) and it
-; is not this module's to change. Measured: three thunks whose middle
-; one indexes a `Vec` out of range prints the first answer, then exits
-; 77 with the trap's backtrace, and the remaining handles are never
-; joined.
+; A thunk that TRAPS propagates its status in the PARENT.
+; `__axiom_par_join_proc` re-raises a non-zero wait status through the
+; parent's recovery point, or exits with it when none is armed. The
+; runtime sweeps outstanding children on that path; the pool's normal
+; scratch cleanup below is bypassed, so reclaiming arena storage after
+; recovery remains the recovery owner's obligation. This pool does not
+; turn spawn failures into per-slot results.
 ;
 ; This does NOT affect `parRunAll`'s contract. An external program that
 ; fails - exits 42, dies of a signal, or does not exist at all - is not
@@ -109,13 +109,13 @@
 ; Run `f i` for every `i` in `0 .. n`, at most `width` at once,
 ; answering the results in SUBMIT order.
 ;
-; `hs` holds one handle per spawn and `out` one word per join, and the
-; two are read in lockstep by index: `joined` is how far `out` has got
-; through `hs`. They are NOT two parallel vectors pushed together - that
-; is the discipline `Job.ax` had to keep by hand between `pids` and
-; `codes`, and the shape `codegen.ax`'s `bares`/`fulls` pair got wrong
-; the hard way. Here `out`'s length IS `joined`, so the invariant is a
-; consequence of the loop rather than something to maintain.
+; `hs` is a ring with at most min(n, w) slots. Slot i % w is reused
+; only after the old child in it has joined; `joined` counts submitted
+; results, not positions in the ring. `out` still holds n results, so
+; total result storage is O(n), while handle storage is O(min(n, w)).
+; Capacity is capped by n before allocation: a huge width over a short
+; or empty input does not ask for a huge ring. Vec clamps an empty or
+; negative capacity to one word.
 (pub :: parMapWords (-> (-> Int Int) Int Int (Vec Int)))
 ;@axiom:effect(io)
 (pub fn (parMapWords f n width)
@@ -123,7 +123,10 @@
     (w (if (< width 1)
       1
       width))
-    (hs vecNew)
+    (hs (vecWithCapacity
+      (if (< n w)
+        n
+        w)))
     (out vecNew)
     (mut joined 0)
   )
@@ -135,43 +138,42 @@
           ; handles spawned but not yet joined.
           (while (>= (- i joined) w)
             {
-              (vecPush out (__proc_join (vecGet hs joined)))
+              (vecPush out (__proc_join (vecGet hs (% joined w))))
               (set joined (+ joined 1))
             })
-          (vecPush hs (__proc_spawn f i))
+          (let ((h (__proc_spawn f i)))
+            (if (< i w)
+              (vecPush hs h)
+              (vecSet hs (% i w) h)))
         })
-      ; The drain. It joins the OLDEST outstanding first, which is what
-      ; keeps `out` in submit order; joining the newest would answer the
-      ; same multiset in a different order, and `check-parallel.sh`
-      ; ablates exactly that. It CONTINUES the `joined` counter the
-      ; fill loop left off at - rejoining from 0 would join handles
-      ; twice - so this stays a `while`, not a `for`: `for` binds its
-      ; counter fresh.
-      (while (< joined (vecLen hs))
+      ; The drain continues the submission count left by the fill loop.
+      ; Ring length is only its capacity, not the number submitted.
+      (while (< joined n)
         {
-          (vecPush out (__proc_join (vecGet hs joined)))
+          (vecPush out (__proc_join (vecGet hs (% joined w))))
           (set joined (+ joined 1))
         })
+      (vecFree hs)
       out
     }))
 
 ; Join one `__proc_spawn` handle WITHOUT re-raising: `Ok` the thunk's
 ; word when the child exits 0, `Err` the child's wait status otherwise.
-; The out-cell is one bumped word; the allocator has no free, so this
-; asks for none.
+; `cell` is a live writable word owned by the calling pool. Every join
+; overwrites it before returning, so one cell serves all sequential joins
+; in that pool. It is never shared between concurrent pool invocations.
 ;
 ; PRIVATE, for `parRunWord`'s reason: the lossy-per-slot form is needed
 ; in one place, so it lives there, and a caller who wants the pool
 ; calls `parMapWordsChecked`.
-(:: parJoinChecked (-> Int (Result Int Error)))
+(:: parJoinChecked (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
-(fn (parJoinChecked h)
-  (let ((cell (memAlloc 8)))
-    (let ((w (__proc_join_nr h cell)))
-      (let ((st (memGetWord cell 0)))
-        (if (== st 0)
-          (Ok w)
-          (Err (mkError st "parallel slot trapped")))))))
+(fn (parJoinChecked h cell)
+  (let ((w (__proc_join_nr h cell)))
+    (let ((st (memGetWord cell 0)))
+      (if (== st 0)
+        (Ok w)
+        (Err (mkError st "parallel slot trapped"))))))
 
 ; Run `f i` for every `i` in `0 .. n`, at most `width` at once,
 ; answering one `Result` per slot in SUBMIT order: `Ok` the thunk's
@@ -181,7 +183,9 @@
 ; block-before-spawning, the drain that continues `joined` - and the
 ; comments there are not repeated here. What differs is only the join:
 ; the non-raising one, so a trapped slot is an `Err` in the answer and
-; not the end of the program.
+; not the end of the program. The scratch cell and ring are released on
+; normal completion, including child traps returned as Err. A spawn
+; failure still raises through the runtime and bypasses these releases.
 (pub :: parMapWordsChecked (-> (-> Int Int) Int Int (Vec (Result Int Error))))
 ;@axiom:effect(io)
 (pub fn (parMapWordsChecked f n width)
@@ -189,25 +193,35 @@
     (w (if (< width 1)
       1
       width))
-    (hs vecNew)
+    (hs (vecWithCapacity
+      (if (< n w)
+        n
+        w)))
     (out vecNew)
+    (cell (memAlloc 8))
     (mut joined 0)
   )
     {
+      (__retain cell)
       (for i 0 n
         {
           (while (>= (- i joined) w)
             {
-              (vecPush out (parJoinChecked (vecGet hs joined)))
+              (vecPush out (parJoinChecked (vecGet hs (% joined w)) cell))
               (set joined (+ joined 1))
             })
-          (vecPush hs (__proc_spawn f i))
+          (let ((h (__proc_spawn f i)))
+            (if (< i w)
+              (vecPush hs h)
+              (vecSet hs (% i w) h)))
         })
-      (while (< joined (vecLen hs))
+      (while (< joined n)
         {
-          (vecPush out (parJoinChecked (vecGet hs joined)))
+          (vecPush out (parJoinChecked (vecGet hs (% joined w)) cell))
           (set joined (+ joined 1))
         })
+      (vecFree hs)
+      (__release cell)
       out
     }))
 
