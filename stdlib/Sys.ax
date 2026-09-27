@@ -573,6 +573,106 @@
       (__syscall3 sysRmdirNum atFdCwd path 512)
       (__syscall1 sysRmdirNum path))))
 
+; Create the symbolic link `link` whose content is `target`, both
+; NUL-terminated addresses. Answers `Ok 0`, or the errno.
+;
+; Same shape as `sysUnlink`: AArch64 Linux has only `symlinkat`, which
+; takes the directory fd BETWEEN the two paths, so this branches on
+; `openNeedsDirFd` as the others do. It exists so that a program - a
+; test above all - can build the tree `sysOpenBeneath` must refuse to
+; walk out of; before it, no Axiom program could make a symlink at all.
+(pub :: sysSymlink (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (sysSymlink target link)
+  (sysResult
+    "sysSymlink"
+    (if (== openNeedsDirFd 1)
+      (__syscall3 sysSymlinkNum target atFdCwd link)
+      (__syscall2 sysSymlinkNum target link))))
+
+; Open `rel` for reading inside the directory `root` (a NUL-terminated
+; address), following no symlink below it: the descriptor, or the errno.
+;
+; `sysOpenBeneath root rel` will not leave `root`.
+; `root` is opened as an ordinary path, so a root that is itself a
+; symlink is the caller's decision. Below it, every segment of `rel` is
+; opened with `openat` against the descriptor of the one before, each
+; with O_NOFOLLOW - so NO symlink under the root is followed: one
+; pointing out of the tree, one pointing back into it, and a directory
+; swapped for one between two calls all fail alike (ELOOP on Darwin and
+; Linux, EMLINK on FreeBSD).
+;
+; WHY DESCRIPTORS AND NOT A PATH CHECK. Resolving the joined path to
+; its canonical spelling and then opening it is two lookups of one
+; name, and a segment replaced between them by a link to `/` is
+; followed by the second. Each `openat` here resolves exactly one name
+; in a directory this call already holds open, so there is no second
+; lookup to race. `Http.httpServeFile` joined and opened until
+; 2026-09-26, and an audit served a file outside its static root through
+; a symlink planted inside it.
+;
+; `rel` must be relative, of non-empty segments, with no `..` and no
+; NUL; anything else answers EXDEV before any syscall - the errno
+; Linux's `openat2(RESOLVE_BENEATH)` gives a path that would escape. A
+; `.` segment is allowed: it names the directory already held. The last
+; segment is opened O_NONBLOCK as well, so a FIFO planted in the tree
+; answers rather than stalling the caller inside `open`.
+;
+; A DIRECTORY opens, as `open` would open one: a caller that wants a
+; file reads it, and a directory's read answers EISDIR (`sysReadErrno`
+; says why that is the portable test). Every intermediate descriptor is
+; closed before this answers; the one it answers is the caller's.
+; `tests/stdlib/432-http-router.ax` plants the links it must refuse.
+(pub :: sysOpenBeneath (-> Int String (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (sysOpenBeneath root rel)
+  (let ((dirfd (sysOpenRaw root (| oRdonly oDirectory))))
+    (sysResult
+      "sysOpenBeneath"
+      (if (sysFailed dirfd)
+        dirfd
+        (sysBeneathFrom dirfd rel 0)))))
+
+; Whether one segment of a `sysOpenBeneath` path could leave the
+; directory it is resolved in, or is not a name at all.
+(:: sysSegmentEscapes (-> String Bool))
+(fn (sysSegmentEscapes seg)
+  (|| (== (strLen seg) 0) (|| (strEq seg "..") (match (strFindByte seg 0 0)
+    ((None) false)
+    ((Some _) true)))))
+
+; The segments of `rel` from byte `at`, each opened against `dirfd`,
+; which this closes. Answers the last segment's descriptor, or -errno.
+(:: sysBeneathFrom (-> Int String Int Int))
+;@axiom:effect(io)
+(fn (sysBeneathFrom dirfd rel at)
+  (let (
+    (stop (match (strFindByte rel 47 at)
+      ((None) (strLen rel))
+      ((Some k) k)))
+    (seg (strSlice rel at (- stop at)))
+    (last (>= stop (strLen rel)))
+  )
+    (if (sysSegmentEscapes seg)
+      {
+        (let ((_ (sysCloseFd dirfd))) 0)
+        (- 0 eXdev)
+      }
+      (let ((fd (__syscall4
+        sysOpenatNum
+        dirfd
+        (strCStr (strDup seg))
+        (if last
+          (| oRdonly (| oNoFollow oNonblock))
+          (| oRdonly (| oDirectory oNoFollow)))
+        0)))
+        {
+          (let ((_ (sysCloseFd dirfd))) 0)
+          (if (|| last (sysFailed fd))
+            fd
+            (sysBeneathFrom fd rel (+ stop 1)))
+        }))))
+
 ; ------------------------------------------------------------------
 ; Four questions about a file that need no new syscall.
 ;

@@ -426,7 +426,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 86 public names
+`stdlib/Sys.ax` — 88 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -452,6 +452,8 @@ See [reference.md](reference.md) for the language, and
 | `sysMkdir` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Create directory `path` with `mode`. Answers 0, or `-errno` - which is `-17` (EEXIST) when it is already there, and callers usually want to treat that as success. |
 | `sysDirMode` | value | `Int` |  | 0755, the mode a directory usually wants. A nullary function because that is how this language spells a constant. |
 | `sysRmdir` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Remove the empty directory `path`. Answers 0, or `-errno`. |
+| `sysSymlink` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Create the symbolic link `link` whose content is `target`, both NUL-terminated addresses. Answers `Ok 0`, or the errno. |
+| `sysOpenBeneath` | value | `(-> Int String (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Open `rel` for reading inside the directory `root` (a NUL-terminated address), following no symlink below it: the descriptor, or the errno. |
 | `sysFileExists` | value | `(-> Int Bool)` | `Alloc,IO` | 1 when `path` names something that can be opened for reading. |
 | `sysFileSize` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | The size of `path` in bytes, or `-errno`. Seeks to the end, which is what the size IS - no struct, no layout, no per-target record. |
 | `sysReadErrno` | value | `(-> Int Int)` | `Alloc,IO,Mut,Unsafe` | 0 when `path` can be opened AND read as a file, otherwise the errno saying why not. |
@@ -519,7 +521,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 105 public names
+`stdlib/Sys/Platform.darwin.ax` — 110 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -628,6 +630,11 @@ See [reference.md](reference.md) for the language, and
 | `tiosIstrip` | value | `Int` |  |  |
 | `tiosIxon` | value | `Int` |  |  |
 | `tiosOpost` | value | `Int` |  | The one c_oflag bit raw mode touches. Probe: `OPOST = 0x1`, and it is 0x1 on Linux and FreeBSD too. |
+| `sysOpenatNum` | value | `Int` |  | openat(dirfd, path, flags, mode) - BSD 463 |
+| `sysSymlinkNum` | value | `Int` |  | symlink(target, link) - BSD 57 |
+| `oNoFollow` | value | `Int` |  | O_NOFOLLOW = 0x100 |
+| `oDirectory` | value | `Int` |  | O_DIRECTORY = 0x100000 |
+| `eXdev` | value | `Int` |  | EXDEV, 18 on every kernel here: what `sysOpenBeneath` answers for a path that would leave its directory, the errno Linux's `openat2(RESOLVE_BENEATH)` answers for the same thing. |
 
 ## `Test`
 

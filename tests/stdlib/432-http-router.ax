@@ -14,6 +14,20 @@
 ; the negative probe replaces `httpPathSafe`'s answer with `true` in a
 ; copy of Http.ax and requires the `..` case to serve `secret.txt`.
 ;
+; THE SYMLINK ARM, since 2026-09-26, is the same claim one layer down:
+; the static root is a boundary a LINK does not cross either. An audit
+; planted `pub/link.txt -> ../secret.txt` and read the secret through a
+; request `httpPathSafe` rightly accepted. Now every link below the root
+; is refused as a missing file - one pointing at a file outside, one
+; pointing at a directory outside, one pointing back INSIDE (the policy
+; is "no link is followed", not "no link leaves", because the second
+; needs a path check the first does not), and a file and a directory
+; each served honestly and then swapped for a link between two
+; requests, which is the case a check-then-open would lose. The
+; negative probe, run 2026-09-26: this file against the previous
+; `Http.ax` answers 200 to all five - the secret twice, the far file
+; twice, and the stylesheet through its alias.
+;
 ; Also pinned: a route hit with the request's own query reaching the
 ; handler; the same path with another method answering 405; a path
 ; nothing matched answering the default 404 and then a replaced
@@ -161,6 +175,26 @@
       (eq "a path not starting with / is refused" (gist (dispatched rt (req "GET" "static/site.css" ""))) "HTTP/1.1 400 Bad Request | 400 Bad Request: unsafe path\n")
       (eq "..x is a name, not a traversal" (gist (dispatched rt (req "GET" "/static/..x" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
       (eq "a trailing slash on a route path is a different path" (gist (dispatched rt (req "GET" "/echo/" ""))) "HTTP/1.1 404 Not Found | <h1>nothing at /echo/</h1>")
+      ; --- links under the static root: none is followed -----------
+      (let ((_ (makeDir "outside"))) 0)
+      (let ((_ (writeFile "outside/far.txt" "far away\n"))) 0)
+      (let ((_ (makeDir "pub/real"))) 0)
+      (let ((_ (writeFile "pub/real/near.txt" "near\n"))) 0)
+      (let ((_ (writeFile "pub/swap.txt" "honest\n"))) 0)
+      (let ((_ (sysSymlink (strCStr "../secret.txt") (strCStr "pub/link.txt")))) 0)
+      (let ((_ (sysSymlink (strCStr "../outside") (strCStr "pub/out")))) 0)
+      (let ((_ (sysSymlink (strCStr "site.css") (strCStr "pub/alias.css")))) 0)
+      (eq "a link to a file outside the root is not served" (gist (dispatched rt (req "GET" "/static/link.txt" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
+      (eq "a link to a directory outside the root is not walked" (gist (dispatched rt (req "GET" "/static/out/far.txt" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
+      (eq "a link back inside the root is not followed either" (gist (dispatched rt (req "GET" "/static/alias.css" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
+      (eq "a file below a real subdirectory is served" (gist (dispatched rt (req "GET" "/static/real/near.txt" ""))) "HTTP/1.1 200 OK | near\n")
+      (eq "a file is served before it is swapped" (gist (dispatched rt (req "GET" "/static/swap.txt" ""))) "HTTP/1.1 200 OK | honest\n")
+      (let ((_ (sysUnlink (strCStr "pub/swap.txt")))) 0)
+      (let ((_ (sysSymlink (strCStr "../secret.txt") (strCStr "pub/swap.txt")))) 0)
+      (eq "the same name swapped for a link is refused" (gist (dispatched rt (req "GET" "/static/swap.txt" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
+      (let ((_ (sysRename (strCStr "pub/real") (strCStr "pub/real-aside")))) 0)
+      (let ((_ (sysSymlink (strCStr "../outside") (strCStr "pub/real")))) 0)
+      (eq "a directory swapped for a link is refused" (gist (dispatched rt (req "GET" "/static/real/far.txt" ""))) "HTTP/1.1 404 Not Found | 404 Not Found: no such file\n")
       ; a NUL byte cannot be spelled in a literal; build the path
       (let ((nulPath (strAlloc 9)))
         {

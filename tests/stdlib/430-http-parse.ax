@@ -27,7 +27,14 @@
 ; 18446744073709551621` (400 - `strParseInt` answers None for the
 ; value that wrapped to 5 in Rpc.ax), `9223372036854775800` (413,
 ; above the 8 MiB ceiling), a 17,000-byte head (431), a peer that
-; closes mid-body (400), and Transfer-Encoding (501).
+; closes mid-body (400), and Transfer-Encoding (501). And since
+; 2026-09-26 the framing an audit found half-parsed, each at all three
+; capacities: two `Content-Length` values that disagree - as two fields
+; or as a list - a signed length (`-0`, `+3`, `-1`), an empty list
+; element, a TAB or a `(` in a header name, a NUL in a header value,
+; and a bare CR (all 400); beside them what the policy ACCEPTS, so the
+; refusals are seen to be about the value and not the field: the same
+; length twice or as `3, 3`, and a TAB inside a value.
 ;
 ; The negative probes, run against a copy of Http.ax: the refill loop
 ; cut to a single read fails the capacity-1 and capacity-8 arms and
@@ -209,11 +216,31 @@
           (eq "HTTP/2 is refused" (parseVia lsn "GET / HTTP/2\r\n\r\n" 8192) "ERR 505 only HTTP/1.0 and HTTP/1.1 are served")
           (eq "the value that wrapped to 5 in Rpc.ax is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 18446744073709551621\r\n\r\nhello" 8192) "ERR 400 Content-Length is not a decimal integer")
           (eq "a length above the ceiling is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 9223372036854775800\r\n\r\n{}" 8192) "ERR 413 Content-Length above httpMaxBody")
-          (eq "a negative length is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: -1\r\n\r\n" 8192) "ERR 400 Content-Length is negative")
+          (eq "a negative length is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: -1\r\n\r\n" 8192) "ERR 400 Content-Length carries a sign")
           (eq "a peer that closes mid-body is refused" (parseVia lsn "POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc" 8192) "ERR 400 connection closed before Content-Length bytes of body arrived")
           (eq "Transfer-Encoding is refused" (parseVia lsn "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n" 8192) "ERR 501 Transfer-Encoding is not served; send Content-Length")
           (eq "a 17,000-byte head is refused" (parseVia lsn (strConcat "GET / HTTP/1.1\r\nX-Pad: " (strConcat (repeatTo "x" 17000) "\r\n\r\n")) 8192) "ERR 431 request head larger than httpMaxHead")
           (eq "an empty stream is refused" (parseVia lsn "" 8192) "ERR 400 connection closed before the request head was complete")
+          ; --- framing: one length, token names, clean values ---------
+          ; Each at three capacities, because a refusal that held only
+          ; when the head arrived in one read would be a property of the
+          ; test's timing. The first two are the audit's reproduction:
+          ; before 2026-09-26 both were ACCEPTED, the first answering
+          ; `body=abc` from the first of two disagreeing lengths.
+          (sameAtAllCaps lsn "two Content-Length fields that disagree" "POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 6\r\n\r\nabcdef" "ERR 400 conflicting Content-Length values")
+          (sameAtAllCaps lsn "Content-Length: -0" "POST / HTTP/1.1\r\nContent-Length: -0\r\n\r\n" "ERR 400 Content-Length carries a sign")
+          (sameAtAllCaps lsn "a TAB inside a header name" "GET / HTTP/1.1\r\nX\tY: z\r\n\r\n" "ERR 400 whitespace in a header name")
+          (sameAtAllCaps lsn "a list whose lengths disagree" "POST / HTTP/1.1\r\nContent-Length: 3, 6\r\n\r\nabcdef" "ERR 400 conflicting Content-Length values")
+          (sameAtAllCaps lsn "Content-Length: +3" "POST / HTTP/1.1\r\nContent-Length: +3\r\n\r\nabc" "ERR 400 Content-Length carries a sign")
+          (sameAtAllCaps lsn "an empty list element" "POST / HTTP/1.1\r\nContent-Length: 3,\r\n\r\nabc" "ERR 400 Content-Length is not a decimal integer")
+          (sameAtAllCaps lsn "a parenthesis in a header name" "GET / HTTP/1.1\r\nX(Y: z\r\n\r\n" "ERR 400 a header name holds a byte that is not a token character")
+          (sameAtAllCaps lsn "a NUL in a header value" "GET / HTTP/1.1\r\nX: a\0b\r\n\r\n" "ERR 400 a header value holds a control byte")
+          (sameAtAllCaps lsn "a bare CR inside a line" "GET / HTTP/1.1\r\nHost: x\rY: z\r\n\r\n" "ERR 400 bare CR in the request head")
+          ; and the policy's accepting side: the same length twice, or
+          ; as a list, is one length; a TAB inside a VALUE is text.
+          (sameAtAllCaps lsn "the same Content-Length twice" "POST / HTTP/1.1\r\nContent-Length: 3\r\nContent-Length: 3\r\n\r\nabcdef" "POST / query= HTTP/1.1 [content-length=3;content-length=3;] body=abc")
+          (sameAtAllCaps lsn "the same length as a list" "POST / HTTP/1.1\r\nContent-Length: 3, 3\r\n\r\nabcdef" "POST / query= HTTP/1.1 [content-length=3, 3;] body=abc")
+          (sameAtAllCaps lsn "a TAB inside a header value" "GET / HTTP/1.1\r\nX: a\tb\r\n\r\n" "GET / query= HTTP/1.1 [x=a\tb;] body=")
           ; --- the query accessor ----------------------------------
           (let ((r (HttpReq
             "GET"

@@ -548,3 +548,34 @@
 (pub :: tiosOpost Int)
 (pub fn (tiosOpost)
   0)
+
+; ------------------------------------------------------------------
+; Opening beneath a directory (`Sys.sysOpenBeneath`) and making the
+; links it refuses to follow (`Sys.sysSymlink`). Added 2026-09-26.
+; ------------------------------------------------------------------
+; no filesystem
+(pub :: sysOpenatNum Int)
+(pub fn (sysOpenatNum)
+  0)
+
+; no filesystem
+(pub :: sysSymlinkNum Int)
+(pub fn (sysSymlinkNum)
+  0)
+
+; no filesystem
+(pub :: oNoFollow Int)
+(pub fn (oNoFollow)
+  0)
+
+; no filesystem
+(pub :: oDirectory Int)
+(pub fn (oDirectory)
+  0)
+
+; EXDEV, 18 on every kernel here: what `sysOpenBeneath` answers for a
+; path that would leave its directory, the errno Linux's
+; `openat2(RESOLVE_BENEATH)` answers for the same thing.
+(pub :: eXdev Int)
+(pub fn (eXdev)
+  18)

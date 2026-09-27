@@ -633,6 +633,15 @@ jobs:
       # allocator still reclaims.
       - name: Server memory holds across ten thousand connections
         run: ./scripts/check-net.sh
+      # The HTTP reader looks for the end of a request head after every
+      # read, and until 2026-09-26 each look rescanned from the start: a
+      # peer sending a byte at a time bought (N-3)(N-2)/2 comparisons,
+      # 134 million at the 16 KiB ceiling. The gate COUNTS the positions
+      # the scan examines, in an instrumented copy fed one byte per
+      # read, and requires the count linear - a clock would measure the
+      # runner - and the pre-fix rescan is its ablation.
+      - name: The HTTP head scan is linear, counted
+        run: ./scripts/check-http-scan.sh
       # The examples/ DIRECTORY is swept: every tracked file a source or
       # a static asset, none executable, every program named in
       # examples/README.md and README.md linking there. A 156 KB Mach-O

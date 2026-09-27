@@ -18,6 +18,13 @@ ok   a backslash is refused
 ok   a path not starting with / is refused
 ok   ..x is a name, not a traversal
 ok   a trailing slash on a route path is a different path
+ok   a link to a file outside the root is not served
+ok   a link to a directory outside the root is not walked
+ok   a link back inside the root is not followed either
+ok   a file below a real subdirectory is served
+ok   a file is served before it is swapped
+ok   the same name swapped for a link is refused
+ok   a directory swapped for a link is refused
 ok   a NUL byte in the path is refused
 ok   httpPathSafe accepts a plain path
 ok   httpPathSafe accepts a trailing slash

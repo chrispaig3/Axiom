@@ -25,6 +25,42 @@ ok   a peer that closes mid-body is refused
 ok   Transfer-Encoding is refused
 ok   a 17,000-byte head is refused
 ok   an empty stream is refused
+ok   two Content-Length fields that disagree, one read
+ok   two Content-Length fields that disagree, one byte per read
+ok   two Content-Length fields that disagree, eight bytes per read
+ok   Content-Length: -0, one read
+ok   Content-Length: -0, one byte per read
+ok   Content-Length: -0, eight bytes per read
+ok   a TAB inside a header name, one read
+ok   a TAB inside a header name, one byte per read
+ok   a TAB inside a header name, eight bytes per read
+ok   a list whose lengths disagree, one read
+ok   a list whose lengths disagree, one byte per read
+ok   a list whose lengths disagree, eight bytes per read
+ok   Content-Length: +3, one read
+ok   Content-Length: +3, one byte per read
+ok   Content-Length: +3, eight bytes per read
+ok   an empty list element, one read
+ok   an empty list element, one byte per read
+ok   an empty list element, eight bytes per read
+ok   a parenthesis in a header name, one read
+ok   a parenthesis in a header name, one byte per read
+ok   a parenthesis in a header name, eight bytes per read
+ok   a NUL in a header value, one read
+ok   a NUL in a header value, one byte per read
+ok   a NUL in a header value, eight bytes per read
+ok   a bare CR inside a line, one read
+ok   a bare CR inside a line, one byte per read
+ok   a bare CR inside a line, eight bytes per read
+ok   the same Content-Length twice, one read
+ok   the same Content-Length twice, one byte per read
+ok   the same Content-Length twice, eight bytes per read
+ok   the same length as a list, one read
+ok   the same length as a list, one byte per read
+ok   the same length as a list, eight bytes per read
+ok   a TAB inside a header value, one read
+ok   a TAB inside a header value, one byte per read
+ok   a TAB inside a header value, eight bytes per read
 ok   httpQueryParam decodes %20 and +
 ok   httpQueryParam finds a later pair
 ok   a pair with no = is empty

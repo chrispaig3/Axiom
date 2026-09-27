@@ -65,6 +65,20 @@
 ;     as is a bare `\n` line ending, a request line that is not three
 ;     tokens, and a version that is not HTTP/1.0 or HTTP/1.1 (505).
 ;
+; AND FRAMING, since 2026-09-26, after an audit found this parser
+; accepting two `Content-Length`s that disagreed (the first won), a
+; signed length, and a TAB inside a header name - the disagreements a
+; stricter proxy in front of it would resolve differently. A header
+; name must be RFC 9110 `tchar`s, a value may hold no control byte but
+; HTAB, a CR must be followed by LF, and every `Content-Length` value,
+; across fields and comma lists, must be the same unsigned decimal
+; (`httpContentLength` states the policy). All 400.
+;
+; The head is found by a scan that RESUMES where the last one stopped
+; (`httpHeadEndFrom`), so a peer sending a byte per packet costs a
+; linear number of comparisons, not (N-3)(N-2)/2;
+; `scripts/check-http-scan.sh` counts them.
+;
 ; The error a refusal answers carries the HTTP STATUS as its code, so
 ; `httpServeOne` writes the refusal to the peer with no table between
 ; the parser and the wire.
@@ -102,7 +116,13 @@
 ; type is chosen by extension (`httpContentType`) and an unknown
 ; extension is `application/octet-stream`, never `text/html` - serving
 ; an unknown file as HTML is the stored-XSS route. A path under a
-; static prefix that names nothing, or names a directory, is 404.
+; static prefix that names nothing, or names a directory, is 404. So is
+; one that reaches a SYMLINK anywhere below the static directory: the
+; file is opened one segment at a time relative to the directory before
+; it, following no link (`Sys.sysOpenBeneath`), so the directory given
+; to `routeStatic` is a boundary a link does not cross, whether the
+; link points out of the tree or back into it (`httpServeFile` says why
+; that is the policy).
 ;
 ; KEEP-ALIVE IS NOT HERE, and the reasons are in order of weight.
 ; MM-ALLOC-22 scopes its own claim to the stateless request: "keep-
@@ -140,6 +160,7 @@
 (import Sys)
 (import Path)
 (import Err)
+(import Sys.Platform (eIsDir))
 
 ; ------------------------------------------------------------------
 ; Limits
@@ -278,26 +299,42 @@
   })
 
 ; The offset of `\r\n\r\n` within the unconsumed region, relative to
-; `consumed` (`Rpc.ax` says why relative: a fill may compact), or -1.
-(:: httpHeadEnd (-> HttpReader Int))
-(fn (httpHeadEnd r)
+; `consumed` (`Rpc.ax` says why relative: a fill may compact), looking
+; only at offsets from `from` on, or -1.
+;
+; THE SCAN RESUMES; it used to start at 0 on every fill. `httpRead`
+; calls this once per `read`, and a peer that sends its head a byte at
+; a time made each call rescan every byte already seen: (N-3)(N-2)/2
+; candidate positions for an N-byte head with no terminator, about 134
+; million at the 16 KiB ceiling - measured by an audit on 2026-09-26 at
+; 1.6, 6.8, 27.8 and 107.8 ms for 2, 4, 8 and 16 KiB, four times the
+; cost for twice the bytes. The caller now passes where the last scan
+; stopped, less three bytes, since a terminator can straddle a fill,
+; so the total over a whole head is linear. Offsets are relative, so a
+; compaction between two calls moves nothing this depends on.
+; `scripts/check-http-framing.sh` counts the candidates this loop
+; examines and holds them to a linear bound.
+(:: httpHeadEndFrom (-> HttpReader Int Int))
+(fn (httpHeadEndFrom r from)
   (let (
     (buf r.buf)
     (base r.consumed)
     (n (httpAvail r))
-    (mut i 0)
+    (mut cand (if (> from 0)
+      from
+      0))
     (mut found (- 0 1))
   )
     {
-      (while (&& (< found 0) (<= (+ i 4) n))
+      (while (&& (< found 0) (<= (+ cand 4) n))
         {
-          (if (&& (== (strByte buf (+ base i)) 13) (&& (== (strByte buf (+ (+ base i) 1)) 10) (&& (== (strByte buf (+ (+ base i) 2)) 13) (== (strByte buf (+ (+ base i) 3)) 10))))
+          (if (&& (== (strByte buf (+ base cand)) 13) (&& (== (strByte buf (+ (+ base cand) 1)) 10) (&& (== (strByte buf (+ (+ base cand) 2)) 13) (== (strByte buf (+ (+ base cand) 3)) 10))))
             {
-              (set found i)
+              (set found cand)
               0
             }
             0)
-          (set i (+ i 1))
+          (set cand (+ cand 1))
         })
       found
     }))
@@ -512,6 +549,189 @@
       answer
     }))
 
+; FRAMING THAT ONLY HALF-PARSED, closed 2026-09-26. An audit fed this
+; parser, through its real public entry point, a request with
+; `Content-Length: 3` and `Content-Length: 6` (accepted, three bytes of
+; body - the FIRST field won), `Content-Length: -0` (accepted), and a
+; header name holding a TAB (accepted). A server that frames a request
+; differently from the proxy in front of it is the precondition for
+; request smuggling, and RFC 9112 6.3 requires a recipient to reject
+; conflicting lengths. The four checks below close those, one each.
+
+; Whether `b` may appear in a header field NAME: RFC 9110 5.6.2's
+; `tchar` - letters, digits, and ! # $ % & ' * + - . ^ _ ` | ~.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: httpIsTchar (-> Int Bool))
+(fn (httpIsTchar b)
+  (|| (strIsAlpha b) (|| (strIsDigit b) (|| (== b 33) (|| (&& (>= b 35) (<= b 39)) (|| (== b 42) (|| (== b 43) (|| (== b 45) (|| (== b 46) (|| (== b 94) (|| (== b 95) (|| (== b 96) (|| (== b 124) (== b 126))))))))))))))
+
+; The offset of the first byte of `s` a field may not hold, or -1:
+; for `kind` 0 a NAME (anything not `tchar`), for 1 a VALUE (a control
+; byte other than HTAB, or DEL - RFC 9110 5.5).
+(:: httpFirstBad (-> String Int Int))
+(fn (httpFirstBad s kind)
+  (let (
+    (mut i 0)
+    (mut at (- 0 1))
+  )
+    {
+      (while (&& (< at 0) (< i (strLen s)))
+        {
+          (let ((b (strByte s i)))
+            (if (if (== kind 0)
+              (httpNot (httpIsTchar b))
+              ; a field VALUE: no control byte but HTAB, and no DEL
+              (|| (&& (< b 32) (!= b 9)) (== b 127)))
+              {
+                (set at i)
+                0
+              }
+              0))
+          (set i (+ i 1))
+        })
+      at
+    }))
+
+; Is there a `\r` not followed by `\n` in `s` between `from` and `to`?
+; `httpBareLf`'s mirror: a lone CR is a line ending to some parsers and
+; a byte to others, and RFC 9112 2.2 lets a recipient refuse it.
+(:: httpBareCr (-> String Int Int Bool))
+(fn (httpBareCr s from to)
+  (let (
+    (mut i from)
+    (mut bare 0)
+  )
+    {
+      (while (&& (< i to) (== bare 0))
+        {
+          (if (&& (== (strByte s i) 13) (!= (strByte s (+ i 1)) 10))
+            {
+              (set bare 1)
+              0
+            }
+            0)
+          (set i (+ i 1))
+        })
+      (== bare 1)
+    }))
+
+; Every value of header `name` (lowercased on both sides), in order.
+(:: httpHeaderAll (-> HttpReq String (Vec String)))
+(fn (httpHeaderAll r name)
+  (let (
+    (want (strLower name))
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen r.hnames))
+        {
+          (if (strEq (vecGetStr r.hnames i) want)
+            {
+              (vecPush out (vecGetStr r.hvals i))
+              0
+            }
+            0)
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; Whether `s` is `1*DIGIT`: at least one byte, every one a digit - no
+; sign, no space, no comma.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: httpAllDigits (-> String Bool))
+(fn (httpAllDigits s)
+  (let (
+    (mut i 0)
+    (mut ok (if (> (strLen s) 0)
+      1
+      0))
+  )
+    {
+      (while (&& (== ok 1) (< i (strLen s)))
+        {
+          (if (strIsDigit (strByte s i))
+            0
+            {
+              (set ok 0)
+              0
+            })
+          (set i (+ i 1))
+        })
+      (== ok 1)
+    }))
+
+; THE ONE Content-Length a request's fields spell, or why there is none.
+;
+; THE POLICY, stated because RFC 9110 8.6 leaves a choice: every value
+; of every `Content-Length` field, split on commas and trimmed, must be
+; the SAME unsigned decimal, byte for byte - so `3` sent twice, or as
+; `3, 3`, is one length of three, and `3` beside `6` is refused. That is
+; the replacement 8.6 permits for identical values and the rejection
+; RFC 9112 6.3 requires for the rest. A sign (`-0`, `+3`) is not
+; `1*DIGIT` and is refused before any integer is parsed; so is an empty
+; element (`3,`). Answers the digits, or the refusal's message.
+(:: httpContentLength (-> (Vec String) (Result String String)))
+(fn (httpContentLength vals)
+  (let (
+    (mut i 0)
+    (mut first "")
+    (mut problem "")
+  )
+    {
+      (while (&& (== (strLen problem) 0) (< i (vecLen vals)))
+        (let (
+          (v (vecGetStr vals i))
+          (mut at 0)
+          (mut more 1)
+        )
+          {
+            (while (&& (== more 1) (== (strLen problem) 0))
+              (let ((comma 
+                (match (strFindByte v 44 at)
+                  ((None) (strLen v))
+                  ((Some k) k))))
+                (let ((el (strTrim (strSlice v at (- comma at)))))
+                  {
+                    (if (&& (> (strLen el) 0) (|| (== (strByte el 0) 45) (== (strByte el 0) 43)))
+                      {
+                        (set problem "Content-Length carries a sign")
+                        0
+                      }
+                      (if (httpNot (httpAllDigits el))
+                        {
+                          (set problem "Content-Length is not a decimal integer")
+                          0
+                        }
+                        (if (== (strLen first) 0)
+                          {
+                            (set first el)
+                            0
+                          }
+                          (if (strEq first el)
+                            0
+                            {
+                              (set problem "conflicting Content-Length values")
+                              0
+                            }))))
+                    (if (>= comma (strLen v))
+                      {
+                        (set more 0)
+                        0
+                      }
+                      {
+                        (set at (+ comma 1))
+                        0
+                      })
+                  })))
+            (set i (+ i 1))
+          }))
+      (if (> (strLen problem) 0)
+        (Err problem)
+        (Ok first))
+    }))
+
 ; A refusal: the HTTP status as the error's code, and what the peer
 ; will be told as its message.
 (:: httpRefuse (-> Int String (Result HttpReq Error)))
@@ -563,19 +783,30 @@
                         (set problem "header line without a name and a colon")
                         0
                       }
-                      (let ((nm (strSlice hl 0 colon)))
-                        (if (match (strFindByte nm 32 0)
-                          ((None) false)
-                          ((Some _) true))
-                          {
-                            (set problem "whitespace in a header name")
-                            0
-                          }
-                          {
-                            (vecPush names (strLower (strDup nm)))
-                            (vecPush vals (strDup (strTrim (strSlice hl (+ colon 1) (- (strLen hl) (+ colon 1))))))
-                            0
-                          })))
+                      (let (
+                        (nm (strSlice hl 0 colon))
+                        (raw (strSlice hl (+ colon 1) (- (strLen hl) (+ colon 1))))
+                      )
+                        (let ((badAt (httpFirstBad nm 0)))
+                          (if (>= badAt 0)
+                            {
+                              ; SP and HTAB keep the message they had
+                              ; when a space was the only byte refused.
+                              (set problem (if (|| (== (strByte nm badAt) 32) (== (strByte nm badAt) 9))
+                                "whitespace in a header name"
+                                "a header name holds a byte that is not a token character"))
+                              0
+                            }
+                            (if (>= (httpFirstBad raw 1) 0)
+                              {
+                                (set problem "a header value holds a control byte")
+                                0
+                              }
+                              {
+                                (vecPush names (strLower (strDup nm)))
+                                (vecPush vals (strDup (strTrim raw)))
+                                0
+                              })))))
                     (set at (+ le 2))
                     0
                   }
@@ -596,6 +827,8 @@
   )
     (if (httpBareLf buf base (+ base hdr))
       (httpRefuse 400 "bare LF line ending in the request head")
+      (if (httpBareCr buf base (+ base hdr))
+      (httpRefuse 400 "bare CR in the request head")
       ; A request line with no CR is a REFUSAL now, not a negative
       ; slice length. `eol` was `-1` here and `(strSlice buf base
       ; (- eol base))` asked for a length below zero; the reader's
@@ -665,7 +898,7 @@
                                     "")))))))))
                   ))
               )))
-        )))))
+        ))))))
 
 ; Read `n` bytes of body for `req` out of the reader and then straight
 ; off the socket into a buffer of exactly `n` bytes, and answer the
@@ -715,15 +948,19 @@
   (if (httpHasHeader req "transfer-encoding")
     (httpRefuse 501 "Transfer-Encoding is not served; send Content-Length")
     (if (httpHasHeader req "content-length")
-      (match (strParseInt (httpHeader req "content-length" ""))
-        ((None) (httpRefuse 400 "Content-Length is not a decimal integer"))
-        ((Some n)
-          (if (< n 0)
-            (httpRefuse 400 "Content-Length is negative")
-            (if (> n httpMaxBody)
-              (httpRefuse 413 "Content-Length above httpMaxBody")
-              (httpReadBody r req n)))
-        ))
+      (match (httpContentLength (httpHeaderAll req "content-length"))
+        ((Err why) (httpRefuse 400 why))
+        ((Ok digits)
+          ; `1*DIGIT` already, so `None` here is only a value too large
+          ; for an Int - the one that wrapped to 5 in Rpc.ax.
+          (match (strParseInt digits)
+            ((None) (httpRefuse 400 "Content-Length is not a decimal integer"))
+            ((Some n)
+              (if (> n httpMaxBody)
+                (httpRefuse 413 "Content-Length above httpMaxBody")
+                (httpReadBody r req n)))
+          ))
+      )
       (Ok req))))
 
 ; Read one whole request from the reader: refill until the head has
@@ -740,11 +977,15 @@
   (let (
     (mut hdr (- 0 1))
     (mut stop 0)
+    (mut scanned 0)
   )
     {
       (while (&& (< hdr 0) (== stop 0))
         {
-          (set hdr (httpHeadEnd r))
+          (set hdr (httpHeadEndFrom r scanned))
+          ; Nothing before `avail - 3` can begin a terminator now, so the
+          ; next scan starts there (`httpHeadEndFrom` says why three).
+          (set scanned (- (httpAvail r) 3))
           (if (< hdr 0)
             (let ((n (httpFill r)))
               (if (< n 1)
@@ -1048,6 +1289,21 @@
 ; is empty or names nothing or a directory, otherwise 200 with the
 ; content type of its extension and its bytes written whole. The path
 ; is checked before the filesystem is touched.
+;
+; THE ROOT IS A BOUNDARY, AND A SYMLINK DOES NOT CROSS IT. This joined
+; `dir` and the rest of the path and opened the result, and an ordinary
+; open follows symlinks: `httpPathSafe` refuses every `..` a request can
+; spell, and an audit on 2026-09-26 still read a file outside the root
+; through `pub/link.txt -> ../marker`, planted inside it, with a
+; lexically perfect request. The file is opened with
+; `Sys.sysOpenBeneath` now - one segment at a time, each relative to the
+; directory before it, none through a symlink - so no link under `dir`
+; is served, whether it points out of the tree or back into it, and a
+; directory swapped for a link between requests is refused the same
+; way. `dir` itself may be a link; that is the application's choice,
+; made once. An application that wants links followed serves those
+; files through a route of its own. Every refusal is the same 404 as a
+; missing file, so a request cannot tell a link from nothing.
 (pub :: httpServeFile (-> Int HttpReq String String Int))
 ;@axiom:effect(io)
 (pub fn (httpServeFile fd req prefix dir)
@@ -1055,18 +1311,28 @@
     (let ((rest (strSlice req.path (strLen prefix) (- (strLen req.path) (strLen prefix)))))
       (if (== (strLen rest) 0)
         (httpFail fd 404 "no file named")
-        (let ((full (pathJoin dir rest)))
-          (if (sysFileExists (strCStr full))
-            (if (sysIsDir (strCStr full))
-              (httpFail fd 404 "that is a directory")
-              (let ((bytes (sysReadFile (strCStr full))))
-                (httpRespondRaw
-                  fd
-                  200
-                  (httpContentType full)
-                  (strData bytes)
-                  (strLen bytes))))
-            (httpFail fd 404 "no such file")))))
+        (match (sysOpenBeneath (strCStr (strDup dir)) rest)
+          ((Err _) (httpFail fd 404 "no such file"))
+          ((Ok file)
+            (let ((got (sysReadAllFd file)))
+              {
+                (let ((_ (sysCloseFd file))) 0)
+                (match got
+                  ((Err e)
+                    (if (== (errCode e) eIsDir)
+                      (httpFail fd 404 "that is a directory")
+                      (httpFail fd 404 "no such file"))
+                  )
+                  ((Ok bytes)
+                    (httpRespondRaw
+                      fd
+                      200
+                      (httpContentType rest)
+                      (strData bytes)
+                      (strLen bytes))
+                  ))
+              })
+          ))))
     (httpFail fd 400 "unsafe path")))
 
 ; The index of the exact route for `method` and `path`, or -1.
