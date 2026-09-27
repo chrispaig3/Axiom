@@ -1,0 +1,16 @@
+; expect 42
+; Field access by name on a `data` type stays legal when every
+; constructor declares the field at the same word with the same
+; type: the emitter loads one index for the name, and here every
+; constructor agrees on it. The partial shapes - a constructor that
+; does not declare the field, or declares it elsewhere - are refused
+; as AX3070 (tests/diagnostics/484-field-on-partial-data.ax).
+(data Shape
+  (Circle { r : Int })
+  (Dot { r : Int }))
+
+(:: radius (-> Shape Int))
+(fn (radius s) s.r)
+
+(:: main Int)
+(fn (main) (radius (Dot 42)))

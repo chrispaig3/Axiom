@@ -22,6 +22,22 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Field reads resolve in the receiver's type - 2026-09-27
+
+A field read on a `data` type resolved program-wide, first declaring
+constructor winning, without consulting the receiver's own type — so
+`s.r` on a `Shape` whose `Rect` declares no `r` passed `check` and
+loaded the neighbour's slot (answered 7), or a word past a shorter
+block (SIGSEGV, exit 139); a field every constructor declares at
+different words misread the same way. The read is now refused as
+`AX3070` unless every constructor declares the field at the same word
+with the same type; a `match` is the remedy, as with the nullary arm.
+BREAKING for programs that relied on the hole: all three shapes are
+now compile errors. Held by `tests/diagnostics/484`,
+`tests/selfhost/1003`, and the unchanged `tests/diagnostics/480`
+golden; `docs/refusal-ledger.md` records the decision and
+`docs/roadmap-type-system.md` the ranked follow-ups.
+
 ### An audit's eleven findings, closed - 2026-09-26
 
 An external audit of `560d45b` (0.7.6) reported eleven defects at the

@@ -82,7 +82,7 @@
   [93mAX3067[0m  a `struct` built with the wrong number of fields  (struct-arity-mismatch)
   [93mAX3068[0m  a `lambda` with no parameters, which can never be called  (nullary-lambda)
   [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
-  [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
+  [93mAX3070[0m  a field read on a `data` value that may not have that field  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
@@ -684,9 +684,10 @@ struct than the one you meant has different fields.
 
 Fix the name, or the value. Two codes sit beside this one: AX3067
 for a `struct` built with the wrong number of fields, and AX3070 for a
-field read on a `data` type that has a nullary constructor beside a
-fielded one (the value may be a bare tag with no fields to read, so
-the read is refused in favour of a `match`); and AX3012 for a `set`
+field read on a `data` type whose constructors do not all declare the
+field at the same word (the value may be a bare tag or another
+constructor's block, so the read is refused in favour of a `match`);
+and AX3012 for a `set`
 into a field the declaration does not mark `mut`.
 
 ### explain AX3009
@@ -2528,11 +2529,11 @@ AX3069 - `sizeof` or `alignof` given more than the one type each takes
 Remove the extra argument.
 
 ### explain AX3070
-AX3070 - a field read on a `data` type with a nullary constructor beside a fielded one
+AX3070 - a field read on a `data` type that may not have that field
 
-Under MM-VAL-8 a nullary constructor IS its tag, so a value of such a type may be an immediate tag with no fields to read: an unguarded load dereferences a small integer. The read is refused in favour of a `match`, which emits the immediate-or-address guard that field access cannot.
+Under MM-VAL-8 a nullary constructor IS its tag, so a value of such a type may be an immediate tag with no fields to read: an unguarded load dereferences a small integer. The same unguarded load misreads when only some constructors declare the field, or declare it at different words: it loads another constructor's slot, or a word past a shorter block. Both shapes are refused in favour of a `match`, which emits the guard that field access cannot.
 
-Match on the value instead, and read the field in the arm that has it. A field that does not exist on the type is AX3007.
+Match on the value instead, and read the field in the arm that has it. A field no constructor declares is AX3007. A field every constructor declares at the same word with the same type stays legal.
 
 ### explain AX3071
 AX3071 - a bare `__store64` of a reference that takes no share
@@ -2966,7 +2967,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3067[0m  a `struct` built with the wrong number of fields  (struct-arity-mismatch)
   [93mAX3068[0m  a `lambda` with no parameters, which can never be called  (nullary-lambda)
   [93mAX3069[0m  `sizeof` or `alignof` given more than the one type each takes  (sizeof-arity)
-  [93mAX3070[0m  a field read on a `data` type with a nullary constructor beside a fielded one  (unsafe-field-access)
+  [93mAX3070[0m  a field read on a `data` value that may not have that field  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
   [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)

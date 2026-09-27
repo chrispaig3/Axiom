@@ -1379,13 +1379,14 @@ Values are built positionally, in declaration order:
 (Rect 3 4)
 ```
 
-and read back by name, either through field access or in a pattern:
+and read back by name in a pattern (field access `s.r` is available
+only when every constructor declares `r` at the same word with the
+same type — otherwise it is refused as `AX3070`, since the value may
+be another constructor's block):
 
 ```scheme
 (fn (describe s)
   {
-    s.r                                    ; field access by name
-
     (match s
       ((Circle { r = r })       r)         ; named
       ((Rect   { h = h, w = w }) (* w h))  ; order does not matter

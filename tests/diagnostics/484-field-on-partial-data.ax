@@ -1,0 +1,18 @@
+; Field access by name on a `data` type whose constructors do not
+; all declare the field. `Shape` has no nullary constructor, so the
+; 480 arm does not fire - but `Rect` declares no `r`, and field
+; access emits one unguarded load for the name: on a `Rect` value it
+; loads the neighbour's slot, and on a shorter block a word past it
+; (`check` said OK and the program answered 7, or died of SIGSEGV).
+; Only `match` emits the tag guard, so the read is refused in favour
+; of one. A field every constructor declares at the same word with
+; the same type stays legal.
+(data Shape
+  (Circle { r : Int })
+  (Rect { w : Int, h : Int }))
+
+(:: radius (-> Shape Int))
+(fn (radius s) s.r)
+
+(:: main Int)
+(fn (main) (radius (Rect 7 9)))

@@ -14918,44 +14918,75 @@
                 (stampFieldStruct e ent)
                 fty
               }
-              ; Not a struct field. It may still be a DATA
-              ; constructor's named field: stage0 scans every data
-              ; type and every constructor that has field names,
-              ; first match winning, without consulting the
-              ; scrutinee's own type. That looseness is deliberate
-              ; there and is reproduced here rather than tightened,
-              ; because tightening it would refuse programs stage0
+              ; Not a struct field. When the receiver names a
+              ; DATA type in scope, the field resolves IN THAT
+              ; TYPE: it must be declared by every constructor at
+              ; the same word with the same type, because the
+              ; emitter loads one index for the name. A field
+              ; another constructor does not declare, or declares
+              ; elsewhere, loads its slot or a word past a shorter
+              ; block - `check` said OK and the program answered a
+              ; neighbour's field, or died of SIGSEGV. A `match`
+              ; emits the guard; this form cannot, so those shapes
+              ; are refused. When the receiver names no known data
+              ; type, the stage0 program-wide first match stays:
+              ; tightening that would refuse programs stage0
               ; accepts.
-              (let ((dty (dataFieldTy tc (nodeBName e))))
-                (if (!= dty 0)
-                  ; The field exists on a DATA constructor - but a
-                  ; type with a NULLARY constructor may hand this
-                  ; access an immediate tag (MM-VAL-8, rep 2), and
-                  ; field access emits an unguarded load: `check`
-                  ; said OK and `(let ((x (E))) x.v)` died of
-                  ; SIGSEGV (MM-VAL-9a). A `match` emits the guard;
-                  ; this form cannot, so on such a type it is
-                  ; refused.
-                  (let ((own (dataFieldOwner tc (nodeBName e))))
-                    (if (&& (!= own 0) (== (dataHasNullary own) 1))
+              (let ((dent (findData tc (nodeAName baseTy))))
+                (if (!= dent 0)
+                  (let ((ctors (memGetWordVec dent 1)))
+                    (if (== (dataFieldTyInCtors ctors (nodeBName e) 0) 0)
                       {
-                        (emitFieldOnMixed tc (nodeBName e) (memGetWordStr own 0) (nodeSpan e))
+                        (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
                         (mkNode TAG_T_ERR 0 0 0)
                       }
-                      ; Stamped EMPTY: "not a struct field", so
-                      ; the emitter skips its struct scan and
-                      ; reads the data field it resolved here
-                      ; (`resolveStructField`).
+                      ; The field exists on a DATA constructor - but a
+                      ; type with a NULLARY constructor may hand this
+                      ; access an immediate tag (MM-VAL-8, rep 2), and
+                      ; field access emits an unguarded load: `check`
+                      ; said OK and `(let ((x (E))) x.v)` died of
+                      ; SIGSEGV (MM-VAL-9a). A `match` emits the guard;
+                      ; this form cannot, so on such a type it is
+                      ; refused.
+                      (if (== (dataHasNullary dent) 1)
+                        {
+                          (emitFieldOnMixed tc (nodeBName e) (memGetWordStr dent 0) (nodeSpan e))
+                          (mkNode TAG_T_ERR 0 0 0)
+                        }
+                        (let ((agreed (dataAgreedFieldTy ctors (nodeBName e))))
+                          (if (== agreed 0)
+                            {
+                              (emitFieldNotOnAllCtors tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
+                              (mkNode TAG_T_ERR 0 0 0)
+                            }
+                            ; Stamped EMPTY: "not a struct field", so
+                            ; the emitter skips its struct scan and
+                            ; reads the data field it resolved here
+                            ; (`resolveStructField`).
+                            {
+                              (setNodeTy
+                                e
+                                (cast Int ""))
+                              agreed
+                            })))))
+                  (let ((dty (dataFieldTy tc (nodeBName e))))
+                    (if (!= dty 0)
+                      (let ((own (dataFieldOwner tc (nodeBName e))))
+                        (if (&& (!= own 0) (== (dataHasNullary own) 1))
+                          {
+                            (emitFieldOnMixed tc (nodeBName e) (memGetWordStr own 0) (nodeSpan e))
+                            (mkNode TAG_T_ERR 0 0 0)
+                          }
+                          {
+                            (setNodeTy
+                              e
+                              (cast Int ""))
+                            dty
+                          }))
                       {
-                        (setNodeTy
-                          e
-                          (cast Int ""))
-                        dty
-                      }))
-                  {
-                    (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
-                    mkI64Ty
-                  }))))))
+                        (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
+                        mkI64Ty
+                      }))))))))
       {
         (if (== (tyIsSilentWild baseTy) 0)
           (emitMismatch tc "struct or data type" (tyRender baseTy) (spanOf (nodeA e)))
@@ -15019,6 +15050,60 @@
       1
       (dataHasNullaryIn ctors (+ i 1)))))
 
+; A DATA field read is only sound when every constructor of the
+; RECEIVER's type declares the field at the same word with the same
+; type: the emitter resolves a data field to one index
+; (`findDataField`), so any disagreement loads another
+; constructor's slot, or a word past a shorter block.
+; `dataAgreedFieldTy` answers the field's declared type when that
+; holds, else 0. Type agreement compares renderings, which observe
+; without unifying: `tyCompat` would pin where this must only look.
+(pub :: dataAgreedFieldTy (-> (Vec Int) String Int))
+(pub fn (dataAgreedFieldTy ctors fname)
+  (let ((idx (dataFirstDeclIdx ctors fname 0)))
+    (if (< idx 0)
+      0
+      (let ((ty0 (dataFieldTyInCtors ctors fname 0)))
+        (if (== ty0 0)
+          0
+          (if (== (dataCtorsAgree ctors fname 0 idx ty0) 1)
+            ty0
+            0))))))
+
+; The declared index of fname in the first constructor that declares
+; it, else -1.
+(pub :: dataFirstDeclIdx (-> (Vec Int) String Int Int))
+(pub fn (dataFirstDeclIdx ctors fname i)
+  (if (>= i (vecLen ctors))
+    (- 0 1)
+    (let ((declared (memGetWordVec (vecGet ctors i) 4)))
+      (if (== (cast Int declared) 0)
+        (dataFirstDeclIdx ctors fname (+ i 1))
+        (let ((j (declaredFieldIndex declared fname 0)))
+          (if (< j 0)
+            (dataFirstDeclIdx ctors fname (+ i 1))
+            j))))))
+
+; 1 when every constructor declares fname at index idx with a type
+; rendering equal to ty0's, else 0. A constructor with no declared
+; names - nullary or positional - disagrees by construction.
+(pub :: dataCtorsAgree (-> (Vec Int) String Int Int Int Int))
+(pub fn (dataCtorsAgree ctors fname i idx ty0)
+  (if (>= i (vecLen ctors))
+    1
+    (let ((declared (memGetWordVec (vecGet ctors i) 4)))
+      (if (== (cast Int declared) 0)
+        0
+        (let ((j (declaredFieldIndex declared fname 0)))
+          (if (!= j idx)
+            0
+            (let ((tys (memGetWordVec (vecGet ctors i) 1)))
+              (if (>= j (vecLen tys))
+                0
+                (if (strEq (tyRender (vecGet tys j)) (tyRender ty0))
+                  (dataCtorsAgree ctors fname (+ i 1) idx ty0)
+                  0)))))))))
+
 (pub :: emitFieldOnMixed (-> Int String String Int Int))
 (pub fn (emitFieldOnMixed tc fname tyname span)
   {
@@ -15032,6 +15117,27 @@
       0
       "match on the value instead, and read the field in the fieldful arm - a `match` emits the immediate-or-address guard that field access cannot"
       "an unguarded load on an immediate dereferences a small integer: this passed `check` and died of SIGSEGV (docs/memory-model.md MM-VAL-9a)") "the value may not be a block at all"))
+    0
+  })
+
+; The sibling refusal: the receiver's type has no nullary
+; constructor, but not every constructor declares the field - so a
+; value built by another constructor has no such word, and the
+; unguarded load reads its slot or a word past its block. Same
+; code, same remedy as the nullary arm above.
+(pub :: emitFieldNotOnAllCtors (-> Int String String Int Int))
+(pub fn (emitFieldNotOnAllCtors tc fname tyname span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3070"
+      "unsafe-field-access"
+      span
+      (strConcat (strConcat (strConcat (strConcat "field access `." fname) "` is unsafe on `") tyname) "`: not every constructor declares that field, so a value built by another constructor has no such word to read")
+      0
+      0
+      "match on the value instead, and read the field in the arm that has it - a `match` emits the tag guard that field access cannot"
+      "an unguarded load on a value of another constructor reads its slot, or a word past its block: this passed `check` and died of SIGSEGV") "only some constructors declare this field"))
     0
   })
 

@@ -962,9 +962,16 @@ access, so field access on a `data` type **with a nullary constructor**
 is **refused** (`AX3070`): a value of such a type may be an immediate
 tag, and the unguarded load would dereference a small integer. On a
 `data` type whose every constructor is fieldful the access stays legal
-— no value can be an immediate — and
-`tests/stdlib/210-struct-variants.ax` exercises that half beside
-`tests/diagnostics/480-field-on-mixed-data.ax`, which pins the refusal.
+only when every constructor declares the field at the same word with
+the same type — a field another constructor does not declare, or
+declares elsewhere, loads its slot or a word past a shorter block
+(`check` said OK and the program answered a neighbour's field, or died
+of SIGSEGV) — and
+`tests/stdlib/210-struct-variants.ax` exercises the matching half
+beside `tests/diagnostics/480-field-on-mixed-data.ax` and
+`tests/diagnostics/484-field-on-partial-data.ax`, which pin the two
+refusals, and `tests/selfhost/1003-data-field-agree.ax`, which pins
+the accepted shape.
 
 ```scheme refused
 (data T () (E) (N { v : Int }))
@@ -1005,10 +1012,13 @@ the identical block.
 ordinary constructor block under `MM-VAL-8`; the field names are a
 compile-time mapping to positions, honoured by patterns in any order.
 Field *access* by name is available on a `struct` type, and on a `data`
-type only when every constructor is fieldful — no value can then be an
-immediate, so the load always reads a block. On a type with a nullary
-constructor it is refused (`AX3070`, `MM-VAL-9a`); a field name that no
-type declares is `AX3007`.
+type only when every constructor declares the field at the same word
+with the same type — otherwise the value may be an immediate, another
+constructor's block, or a shorter block, and the one-index load the
+emitter resolves has no sound slot to read. On a type with a nullary
+constructor, or with a constructor that does not declare the field at
+that word, it is refused (`AX3070`, `MM-VAL-9a`); a field name that no
+constructor of the receiver's type declares is `AX3007`.
 
 **MM-VAL-12 (R).** There are **no first-class continuations**, and none
 of the machinery for them: no stack copying, no segmented stack, no

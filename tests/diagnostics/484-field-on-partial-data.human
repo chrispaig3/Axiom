@@ -1,0 +1,11 @@
+[1;31merror[AX3070][0m[1m: field access `.r` is unsafe on `Shape`: not every constructor declares that field, so a value built by another constructor has no such word to read[0m
+  [1;34m--> [0m484-field-on-partial-data.ax:15:18
+[1;34m   |[0m
+[1;34m15 |[0m (fn (radius s) s.r)
+[1;34m   |[0m                  [1;31m^ only some constructors declare this field[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man unguarded load on a value of another constructor reads its slot, or a word past its block: this passed `check` and died of SIGSEGV
+  [1;34m = [0m[1;32mhelp: [0mmatch on the value instead, and read the field in the arm that has it - a `match` emits the tag guard that field access cannot
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3070` for a full explanation
+
+compilation failed due to 1 previous error
