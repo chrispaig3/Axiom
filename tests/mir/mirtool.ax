@@ -104,7 +104,8 @@
                   units
                   bares
                   fulls
-                  mods)
+                  mods
+                  0)
                 (if (> (countErrorDiags eds) 0)
                   vecNew
                   (if (> (countErrorDiags (checkModule decls allDecls units)) 0)
