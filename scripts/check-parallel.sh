@@ -1407,36 +1407,56 @@ cat > "$work/orphan.ax" <<'ORPHAN'
 (fn (boom x)
   (/ 10 zero))
 
+; Wait until the child has actually published its pid. Requiring that
+; file prevents an unstarted child from making the sweep check vacuous.
+; Five seconds bounds a startup failure; the shell checks its status.
+(:: started (-> Int Bool))
+;@axiom:effect(io)
+(fn (started path)
+  (let (
+    (buf (memAlloc 16))
+    (start (nowUs buf))
+  )
+    {
+      (while (&&
+        (== (region r (strLen (sysReadFile path))) 0)
+        (< (- (nowUs buf) start) 5000000))
+        0)
+      (> (strLen (sysReadFile path)) 0)
+    }))
+
+; Join the failing child while its sibling is live. A parallel form
+; whose FIRST binding sleeps would wait two minutes before observing
+; the second child's trap, so that cannot test a prompt failure sweep.
+(:: failWithSibling (-> Int Int))
+;@axiom:effect(io)
+(fn (failWithSibling path)
+  {
+    (__proc_spawn (lambda (x) (sleeper path)) 0)
+    (if (started path)
+      (__proc_join (__proc_spawn (lambda (x) (boom x)) 0))
+      99)
+  })
+
 ;@axiom:effect(io)
 (fn (main)
   (let ((mode (sysArg 1)))
     (if (strEq mode "abort")
-      ; the second binding traps; the recovery point answers and the
-      ; first must not keep running
       {
         (let ((st (__axiom_recover
           __axiom_arena_mark
-          (lambda (x)
-            (parallel p (
-              (a (sleeper (__addr "pid-abort")))
-              (b (boom 0))
-            )
-              (+ a b))))))
+          (lambda (x) (failWithSibling (__addr "pid-abort"))))))
           (println "recovered {st}"))
         0
       }
       (if (strEq mode "trap")
-        ; nothing recovers: the program exits 72 from the second join
-        (parallel p (
-          (a (sleeper (__addr "pid-trap")))
-          (b (boom 0))
-        )
-          (+ a b))
-        ; `main` returns with a handle nobody joined
+        (failWithSibling (__addr "pid-trap"))
+        ; main returns with a live child and a handle nobody joined.
         {
           (__proc_spawn (lambda (x) (sleeper (__addr "pid-main"))) 0)
-          (println "main returns")
-          0
+          (if (started (__addr "pid-main"))
+            { (println "main returns") 0 }
+            99)
         }))))
 ORPHAN
 if "$axc" build --input "$work/orphan.ax" --output "$work/orphan" > "$work/orphan.build" 2>&1; then
@@ -1444,9 +1464,13 @@ if "$axc" build --input "$work/orphan.ax" --output "$work/orphan" > "$work/orpha
     rm -f "$work/pid-$mode"
     ( cd "$work" && timeout 60 ./orphan "$mode" > "orphan-$mode.out" 2>&1 )
     st=$?
-    # The child writes its pid first thing; the parent may have killed
-    # it before or after that write, so an ABSENT file means it never
-    # got that far, which is a pass for this question too.
+    expected=0
+    [[ "$mode" == trap ]] && expected=72
+    if (( st == expected )); then
+      ok "12b ($mode): exits $expected after observing the intended boundary"
+    else
+      bad "12b ($mode): expected exit $expected, got $st"
+    fi
     if [[ -s "$work/pid-$mode" ]]; then
       cpid="$(cat "$work/pid-$mode")"
       if kill -0 "$cpid" 2>/dev/null; then
@@ -1456,7 +1480,7 @@ if "$axc" build --input "$work/orphan.ax" --output "$work/orphan" > "$work/orpha
         ok "12b ($mode): exit $st, and the child that would have run for minutes is gone"
       fi
     else
-      ok "12b ($mode): exit $st before the child recorded itself - nothing left to outlive"
+      bad "12b ($mode): no child pid was recorded, so cleanup was not exercised"
     fi
     (( st == 124 )) && bad "12b ($mode): the probe itself hung - a sweep waited instead of killing"
   done
@@ -1467,6 +1491,55 @@ else
   bad "12b: the orphan probe did not build"
   sed 's/^/     /' "$work/orphan.build" | head -5
 fi
+
+
+# 12c. Reject a foreign owner BEFORE waiting or writing a status cell.
+# Previously the foreign thread successfully waited, then unlink raised
+# 78. Recovering that rejection left the rightful owner unable to join.
+# The non-raising forms also overwrote the out-cell before refusing it.
+for kind in proc thread; do
+  for form in raising checked; do
+    join_expr="(__${kind}_join h)"
+    [[ "$form" == checked ]] && join_expr="(__${kind}_join_nr h cell)"
+    tag="owner-$kind-$form"
+    cat > "$work/$tag.ax" <<OWNER
+(import IO)
+(import Mem)
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (cell (memAlloc 8))
+    (_ (memSetWord cell 0 123))
+    (h (__${kind}_spawn (lambda (x) 42) 0))
+    (other (__thread_spawn
+      (lambda (x)
+        (__axiom_recover __axiom_arena_mark
+          (lambda (y) $join_expr))) 0))
+    (foreign (__thread_join other))
+    (status (memGetWord cell 0))
+    (answer (__${kind}_join h))
+  )
+    {
+      (println "foreign {foreign} status {status} answer {answer}")
+      0
+    }))
+OWNER
+    if "$axc" build --input "$work/$tag.ax" --output "$work/$tag" > "$work/$tag.build" 2>&1; then
+      timeout 20 "$work/$tag" > "$work/$tag.out" 2> "$work/$tag.err"
+      st=$?
+      if (( st == 0 )) && [[ "$(cat "$work/$tag.out")" == 'foreign 78 status 123 answer 42' ]]; then
+        ok "12c ($kind $form): foreign join refused before waiting; owner joins 42 and out-cell stays 123"
+      else
+        bad "12c ($kind $form): expected owner result 42 after rejection 78, got exit $st"
+        head -5 "$work/$tag.out" "$work/$tag.err" | sed 's/^/     /'
+      fi
+    else
+      bad "12c ($kind $form): the foreign-join probe did not build"
+      sed 's/^/     /' "$work/$tag.build" | head -5
+    fi
+  done
+done
 
 echo
 if (( failed > 0 )); then

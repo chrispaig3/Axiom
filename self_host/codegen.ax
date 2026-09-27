@@ -6020,22 +6020,32 @@
       (emitLine cg "  ret void")
       (emitLine cg "}")
       (emitLine cg "")
-      ; Unlink a page. A page linked on ANOTHER thread's registry is a
-      ; handle joined by a thread that did not spawn it: the two lists
-      ; are unsynchronised, so that is refused as a lost join rather
-      ; than raced.
-      (emitLine cg "define internal void @__axiom_par_unlink(i64 %h) #0 {")
+      ; Check ownership BEFORE waiting: a foreign pthread_join can
+      ; consume the child's result before unlink rejects its registry.
+      ; If that rejection recovers, the rightful owner's later join
+      ; then fails. The process wait can steal its child's status too.
+      ; Every join calls this before the kernel or pthread entry point;
+      ; unlink also checks it before changing either registry link.
+      (emitLine cg "define internal void @__axiom_par_check_owner(i64 %h) #0 {")
       (emitLine cg "entry:")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %p9 = getelementptr i64, ptr %hp, i64 9")
       (emitLine cg "  %owner = load i64, ptr %p9")
       (emitLine cg "  %own = ptrtoint ptr @__axiom_par_live to i64")
       (emitLine cg "  %mine = icmp eq i64 %owner, %own")
-      (emitLine cg "  br i1 %mine, label %links, label %foreign")
+      (emitLine cg "  br i1 %mine, label %owned, label %foreign")
       (emitLine cg "foreign:")
       (emitLine cg "  call i64 @__axiom_par_join_lost()")
       (emitLine cg "  unreachable")
-      (emitLine cg "links:")
+      (emitLine cg "owned:")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      (emitLine cg "define internal void @__axiom_par_unlink(i64 %h) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %p9 = getelementptr i64, ptr %hp, i64 9")
       (emitLine cg "  %p5 = getelementptr i64, ptr %hp, i64 5")
       (emitLine cg "  %nx = load i64, ptr %p5")
       (emitLine cg "  %p6 = getelementptr i64, ptr %hp, i64 6")
@@ -6201,6 +6211,7 @@
       (emitLine cg "")
       (emitLine cg "define internal i64 @__axiom_par_join_proc(i64 %h) #0 {")
       (emitLine cg "entry:")
+      (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %pid = load i64, ptr %hp")
       (emitLine cg "  %p4 = getelementptr i64, ptr %hp, i64 4")
@@ -6251,6 +6262,7 @@
       ; kernel never wrote.
       (emitLine cg "define internal i64 @__axiom_par_join_nr_proc(i64 %h, i64 %cell) #0 {")
       (emitLine cg "entry:")
+      (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %pid = load i64, ptr %hp")
       (emitLine cg "  %p4 = getelementptr i64, ptr %hp, i64 4")
@@ -6305,7 +6317,7 @@
 ; would otherwise reallocate out of THIS arena), and the unsafe layer's
 ; obligation is the rest - a word that is the address of thread-arena
 ; memory, laundered through `cast`, dangles after the join
-; (`scripts/check-thread-arena.sh`).
+; (`scripts/check-parallel.sh` section 12a).
 (pub :: emitParThread (-> Int Int))
 (pub fn (emitParThread cg)
   (let ((t (memGetWord cg 26)))
@@ -6394,6 +6406,7 @@
       ; there next, and a leaked page is not.
       (emitLine cg "define internal i64 @__axiom_par_join_thread(i64 %h) #0 {")
       (emitLine cg "entry:")
+      (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %t = load i64, ptr %hp")
       (emitLine cg "  %tp = inttoptr i64 %t to ptr")
@@ -6421,6 +6434,7 @@
       ; gives.
       (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %h, i64 %cell) #0 {")
       (emitLine cg "entry:")
+      (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %t = load i64, ptr %hp")
       (emitLine cg "  %tp = inttoptr i64 %t to ptr")
