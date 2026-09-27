@@ -36,7 +36,8 @@ five IR mutations of the emitted runtime that must each turn their
 witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
-ran on — not a proof of anything else.
+ran on — not a proof of anything else. Calls one new gate; the count
+sites state eighty-one gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -277,7 +278,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty gates.
+checks). Calls one new gate; the count sites state eighty-one gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -294,7 +295,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty gates, and the battery has
+gate; the count sites state eighty-one gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`
