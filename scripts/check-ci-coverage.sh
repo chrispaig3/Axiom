@@ -76,11 +76,24 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 # against a doctored copy. A gate whose ablation re-implements the
 # check proves only that the ablation works.
 #
-# `run:` in YAML can open a block scalar (`run: |`) whose body is many
-# lines, and a gate invoked inside one of those bodies is genuinely
-# run. So the extractor takes every line, and the whole discrimination
-# is that COMMENTS ARE STRIPPED FIRST, on the `#`-at-start-of-token
-# rule YAML uses.
+# A MENTION IS NOT AN EXECUTION, and the first version of this gate
+# could not tell them apart. It stripped comments and grepped the rest
+# of the file, so a step's `name:`, an `echo` of the path, a step behind
+# `if: false`, a job with `continue-on-error: true` and a trailing
+# `|| true` all counted as the gate being run. An audit on 2026-09-26
+# turned the real `check-scope-equiv.sh` step into an `echo` of itself
+# in a copy of `ci.yml` and this gate still reported every script run,
+# with its own three ablations green. Ablation I below is that copy.
+#
+# So the workflow is now READ, not grepped: `scripts/lib/ci-steps.py`
+# walks jobs and steps and counts an invocation only when it is a whole
+# command line of a narrow form in a step's own `run:`, in a
+# straight-line script, under bash with `-e`, in a step and job that a
+# literally-false `if` does not disable and a `continue-on-error` does
+# not hide. Its header states the rule in full. A condition that is not
+# literally false - a platform, a schedule, a changed-path output - is
+# PRINTED with the invocation, because the workflow is built out of
+# those and the gate's job is to show them, not overrule them.
 # --------------------------------------------------------------------
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -88,25 +101,43 @@ trap 'rm -rf "$work"' EXIT
 disk="$work/disk"
 ( cd "$repo_root/scripts" && ls check-*.sh 2>/dev/null | LC_ALL=C sort ) > "$disk"
 
-# Names a workflow file actually RUNS, comments removed.
+# Every RUN/REFUSED record for one workflow file. A workflow the reader
+# cannot parse is a failure of this gate, not an empty answer: an empty
+# answer would be reported as "no step runs anything", which is true of
+# nothing and would read as a doctored file rather than a broken reader.
+steps_of() {
+  local out
+  if ! out="$(python3 "$repo_root/scripts/lib/ci-steps.py" "$1")"; then
+    echo "READER-FAILED"
+    return 0
+  fi
+  printf '%s\n' "$out"
+}
+
+# Names a workflow file actually RUNS.
 names_run_by() {
-  LC_ALL=C sed 's/[[:space:]]#.*$//; s/^[[:space:]]*#.*$//' "$1" \
-    | grep -oE 'scripts/check-[a-z0-9-]+\.sh' \
-    | sed 's|^scripts/||' | LC_ALL=C sort -u
+  steps_of "$1" | awk -F'\t' '$1 == "RUN" { print $2 }' | LC_ALL=C sort -u
 }
 
 # Every complaint about one workflow file, one per line, empty when
 # there is nothing to say. Both the real run and every ablation call
 # this and nothing else.
 coverage_complaints() {
-  local yml="$1" named="$work/named.$$" g
-  names_run_by "$yml" > "$named"
+  local yml="$1" named="$work/named.$$" records="$work/records.$$" g why
+  steps_of "$yml" > "$records"
+  if grep -qx 'READER-FAILED' "$records"; then
+    echo "scripts/lib/ci-steps.py could not read $(basename "$yml")"
+    rm -f "$records"
+    return 0
+  fi
+  awk -F'\t' '$1 == "RUN" { print $2 }' "$records" | LC_ALL=C sort -u > "$named"
 
   while IFS= read -r g; do
     [[ -z "$g" ]] && continue
     grep -qx "$g" "$named" && continue
     is_excluded "$g" && continue
-    echo "scripts/$g is on disk and no CI step runs it"
+    why="$(awk -F'\t' -v g="$g" '$1 == "REFUSED" && $2 == g { print $5; exit }' "$records")"
+    echo "scripts/$g is on disk and no CI step runs it${why:+ (named in a step, but $why)}"
   done < "$disk"
 
   while IFS= read -r g; do
@@ -115,7 +146,7 @@ coverage_complaints() {
       || echo "ci.yml runs scripts/$g, which is not in the tree"
   done < "$named"
 
-  rm -f "$named"
+  rm -f "$named" "$records"
 }
 
 # --------------------------------------------------------------------
@@ -159,7 +190,30 @@ complaints="$(coverage_complaints "$ci_yml")"
 if [[ -n "$complaints" ]]; then
   while IFS= read -r line; do bad "$line"; done <<< "$complaints"
 else
-  ok "$(wc -l < "$disk" | tr -d ' ') gate scripts on disk, $(names_run_by "$ci_yml" | wc -l | tr -d ' ') named by a step, and the two sets agree"
+  ok "$(wc -l < "$disk" | tr -d ' ') gate scripts on disk, $(names_run_by "$ci_yml" | wc -l | tr -d ' ') invoked by a step, and the two sets agree"
+fi
+
+# THE CONDITIONS, SHOWN. A gate whose every invocation sits under an
+# `if:` runs only when that condition holds; that is often the design
+# (the nightly, a docs-only change, a changed path), and it is printed
+# here so that it is a decision somebody can see rather than a fact
+# nobody looked for. A mention the reader refused is printed too, with
+# its reason, even when the gate is invoked properly elsewhere.
+steps_of "$ci_yml" > "$work/real.records"
+awk -F'\t' '$1 == "RUN" && $5 == "-" { print $2 }' "$work/real.records" | LC_ALL=C sort -u > "$work/uncond"
+cond_only="$(awk -F'\t' '$1 == "RUN" && $5 != "-" { print $2 }' "$work/real.records" \
+             | LC_ALL=C sort -u | LC_ALL=C comm -23 - "$work/uncond")"
+if [[ -n "$cond_only" ]]; then
+  echo "     invoked only under a condition, and which:"
+  while IFS= read -r g; do
+    awk -F'\t' -v g="$g" '$1 == "RUN" && $2 == g { printf "       %s  [%s] if %s\n", g, $3, $5 }' \
+      "$work/real.records"
+  done <<< "$cond_only"
+fi
+refused_real="$(awk -F'\t' '$1 == "REFUSED" { printf "       %s  [%s / %s] %s\n", $2, $3, $4, $5 }' "$work/real.records")"
+if [[ -n "$refused_real" ]]; then
+  echo "     named in a step but not counted as run there:"
+  printf '%s\n' "$refused_real"
 fi
 
 # --------------------------------------------------------------------
@@ -239,6 +293,86 @@ ablate "a step running a gate that does not exist" "$work/b.yml" \
 ablate "scripts/$victim named only in a comment" "$work/c.yml" \
        "scripts/$victim is on disk and no CI step runs it"
 
+# THE MENTIONS THAT ARE NOT EXECUTIONS. Each of D-J keeps the gate's
+# path in the workflow, outside a comment, in a place a grep would count,
+# and each must still be refused. They need a gate that ONE step runs, on
+# one `run: ./scripts/<gate>` line, so the doctoring is a single-line
+# edit whose effect is unambiguous; the first such gate in file order is
+# chosen rather than a name written here, so a renamed gate cannot turn
+# them into edits of nothing - and the edit's match count is asserted.
+single="$(awk -F'\t' '$1 == "RUN" { n[$2]++ } END { for (g in n) if (n[g] == 1) print g }' \
+            "$work/real.records" | LC_ALL=C sort)"
+lone=""
+while IFS= read -r g; do
+  [[ -z "$g" ]] && continue
+  if [[ "$(grep -cE "^ +run: \./scripts/$g\$" "$ci_yml")" == 1 ]]; then lone="$g"; break; fi
+done <<< "$single"
+if [[ -z "$lone" ]]; then
+  bad "no gate is run by exactly one single-line step, so ablations D-J have nothing to doctor"
+else
+  lone_at="$(grep -nE "^ +run: \./scripts/$lone\$" "$ci_yml" | cut -d: -f1)"
+  lone_ind="$(sed -n "${lone_at}p" "$ci_yml" | sed 's/run:.*//')"
+  want="scripts/$lone is on disk and no CI step runs it"
+  doctor() {  # <out> <replacement lines for the run line, \n-separated>
+    # Through the environment, not `-v`: BSD awk refuses a newline in a
+    # `-v` assignment, and three of the replacements are two lines.
+    REP="$2" awk -v at="$lone_at" 'NR == at { print ENVIRON["REP"]; next } { print }' "$ci_yml" > "$1"
+    cmp -s "$ci_yml" "$1" && bad "doctoring line $lone_at changed nothing"
+  }
+
+  # D. the step echoes the path instead of running it.
+  doctor "$work/d.yml" "${lone_ind}run: echo ./scripts/$lone"
+  ablate "scripts/$lone echoed rather than run" "$work/d.yml" "$want (named in a step, but \`echo ./scripts/$lone\` is a mention"
+
+  # E. the step's NAME carries the path; its run does something else.
+  doctor "$work/e.yml" "${lone_ind}name: Run ./scripts/$lone
+${lone_ind}run: 'true'"
+  ablate "scripts/$lone only in a step name" "$work/e.yml" "$want"
+
+  # F. the step is disabled by a literally false condition.
+  doctor "$work/f.yml" "${lone_ind}if: false
+${lone_ind}run: ./scripts/$lone"
+  ablate "scripts/$lone behind \`if: false\`" "$work/f.yml" "$want (named in a step, but the step's \`if\` is literally false)"
+
+  # G. the only invocation moves to a job that can never start.
+  { grep -vE "^ +run: \./scripts/$lone\$" "$ci_yml"
+    printf '  ablation-disabled:\n    if: ${{ false }}\n    runs-on: ubuntu-latest\n'
+    printf '    steps:\n      - run: ./scripts/%s\n' "$lone"
+    printf '  ablation-downstream:\n    needs: ablation-disabled\n    runs-on: ubuntu-latest\n'
+    printf '    steps:\n      - run: ./scripts/%s\n' "$lone"; } > "$work/g.yml"
+  ablate "scripts/$lone in a disabled job and one that needs it" "$work/g.yml" "$want (named in a step, but its job can never start"
+
+  # H. the step's failure is hidden by continue-on-error.
+  doctor "$work/h.yml" "${lone_ind}continue-on-error: true
+${lone_ind}run: ./scripts/$lone"
+  ablate "scripts/$lone under \`continue-on-error: true\`" "$work/h.yml" "$want (named in a step, but the step has \`continue-on-error\`"
+
+  # I. the status is thrown away on the line itself.
+  doctor "$work/i.yml" "${lone_ind}run: ./scripts/$lone || true"
+  ablate "scripts/$lone followed by \`|| true\`" "$work/i.yml" "$want (named in a step, but \`./scripts/$lone || true\` is a mention"
+
+  # J. the line is unreachable inside the step's own script.
+  doctor "$work/j.yml" "${lone_ind}run: |
+${lone_ind}  if false; then
+${lone_ind}    ./scripts/$lone
+${lone_ind}  fi"
+  ablate "scripts/$lone inside \`if false\` in the script" "$work/j.yml" "$want (named in a step, but the step's script is not straight-line"
+fi
+
+# THE AUDIT'S OWN COPY, reproduced: the real `check-scope-equiv.sh`
+# invocation turned into an echo of itself. Named here, not chosen,
+# because it is a specific historical failure; if the step moves or
+# the gate is renamed the seam's count says so rather than going quiet.
+se_n="$(grep -cE '^ +run: \./scripts/check-scope-equiv\.sh$' "$ci_yml" || true)"
+if [[ "$se_n" != 1 ]]; then
+  bad "ablation I's seam, a single \`run: ./scripts/check-scope-equiv.sh\` line, matches $se_n lines"
+else
+  sed -E 's|^( +run: )\./scripts/check-scope-equiv\.sh$|\1echo ./scripts/check-scope-equiv.sh|' \
+    "$ci_yml" > "$work/audit.yml"
+  ablate "the audit's copy: check-scope-equiv.sh echoed" "$work/audit.yml" \
+         "scripts/check-scope-equiv.sh is on disk and no CI step runs it"
+fi
+
 # --------------------------------------------------------------------
 echo
 if (( failed )); then
@@ -248,5 +382,7 @@ fi
 echo "check-ci-coverage: $checks checks - every gate script in the tree is"
 echo "                   run by a CI step or excluded by name with a reason,"
 echo "                   every gate a step names is present, the exclusion"
-echo "                   table still describes the tree, and three doctored"
-echo "                   workflows are each refused"
+echo "                   table still describes the tree, and eleven doctored"
+echo "                   workflows - three that drop a step and eight that keep"
+echo "                   a gate's path where a grep would count it - are each"
+echo "                   refused"
