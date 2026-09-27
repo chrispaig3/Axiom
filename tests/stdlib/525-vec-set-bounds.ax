@@ -1,0 +1,42 @@
+; Invalid writes must trap 77 without changing length or existing data.
+; Recovery makes each boundary observable and proves the vector survives.
+; The final unrecovered write pins the public exit and stderr contract.
+(import IO)
+(import Vec)
+(import Str)
+
+(:: attempt (-> (Vec Int) Int Int))
+(fn (attempt v i)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      {
+        (vecSet v i 999)
+        0
+      }
+    )))
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (v vecNew)
+    (empty vecNew)
+  )
+    {
+      (vecPush v 10)
+      (vecPush v 20)
+      (vecSet v 0 30)
+      (vecSet v 1 40)
+      (println (vecGet v 0))
+      (println (vecGet v 1))
+      (println (attempt v (- 0 1)))
+      (println (attempt v 2))
+      (println (attempt v 9223372036854775807))
+      (println (attempt empty 0))
+      (println (vecLen v))
+      (println (vecGet v 0))
+      (println (vecGet v 1))
+      (vecSet v 2 777)
+      (println "unreachable")
+      0
+    }))

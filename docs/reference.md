@@ -4642,11 +4642,13 @@ accesses by hand with scalar TBAA (a data block never overlaps a
 header block) folds the trap but does not get the loop vectorized: the
 data-pointer read sits inside the check's branch, where LICM will not
 speculate a load through an integer address; the ownership branch
-keeps an `axiom_release` call in the body; and `vecSet`'s silent
-out-of-range skip is a predicated store, which neither baseline has a
-masked-store instruction for, so the cost model declines even once the
+keeps an `axiom_release` call in the body; and at the time of that
+measurement `vecSet`'s out-of-range skip was a predicated store, which
+neither baseline had a masked-store instruction for, so the cost model declined even once the
 loop is legal. Write loops are the open half, and the memory-model
-argument for them is not a flag.
+argument for them is not a flag. Since 2026-09-27, invalid `vecSet`
+indices trap with status 77, as reads do; the historical write-loop
+measurement above does not price that revised behavior.
 
 What did change on 2026-09-03 is the trap itself. The six trap
 functions (`__axiom_index_out_of_range` and its siblings) are emitted

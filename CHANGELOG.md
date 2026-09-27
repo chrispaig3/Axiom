@@ -22,6 +22,18 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Invalid vector writes fail visibly - 2026-09-27
+
+`Vec.vecSet` now traps with status 77 for a negative index or an index
+at or beyond the current length, before releasing or writing a slot.
+Previously these writes returned the vector unchanged, hiding failed
+updates. Valid writes and `vecPush` are unchanged. BREAKING: callers
+that intentionally ignored invalid writes must check the index first;
+call `vecPush` to append. `tests/stdlib/525-vec-set-bounds.ax` checks
+both boundaries, a huge index, an empty vector, recovery without
+mutation, and an unrecovered trap; `070-vec.ax` retains valid updates.
+The new fixture fails against the preceding `Vec.ax` implementation.
+
 ### Field reads resolve in the receiver's type - 2026-09-27
 
 A field read on a `data` type resolved program-wide, first declaring
@@ -10777,4 +10789,3 @@ exists to avoid:
 
 A deprecation policy and a compatibility gate over the symbol stream
 are the next release's work; until they exist, pin a commit.
-

@@ -356,17 +356,16 @@
 
 ; Overwrite the element at `i`. Returns the handle.
 ;
-; Out-of-range writes are ignored rather than growing the vector: a
-; caller that meant to append should say `vecPush`, and silently
-; extending on a stray index turns an off-by-one into a slow leak instead
-; of a wrong answer that `vecLen` makes visible.
+; Invalid indices trap with status 77 before touching the vector, just
+; as `vecGet` does. A caller that meant to append should say `vecPush`;
+; silently dropping a write lets a failed update look successful.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecSet (-> (Vec a) Int a (Vec a)))
 (pub fn (vecSet v i x)
   (if (< i 0)
-    v
+    __indexTrap
     (if (>= i (vecLen v))
-      v
+      __indexTrap
       ; On a `vecNewRef` vector the displaced element's share is
       ; this vector's to hand back, and dropping the word without
       ; doing so is a leak the walk can never find. The release

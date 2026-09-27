@@ -112,19 +112,17 @@
           ((Some x) x)
           ((None) (- 0 1))))
       ; -1: None, inside cap but past len
-      ; --- set then get, including rejected out-of-range sets ---
+      ; --- set then get; invalid writes trap in 525-vec-set-bounds.ax ---
       (vecSet v 0 999)
       (println
         (cast Int (vecGet v 0)))
       ; 999
-      (vecSet v 70 777)  ; ignored: index == len
       (println
         (match (vecTry v 70)
           ((Some x) x)
           ((None) (- 0 1))))
-      ; -1: the set was ignored, so there is still nothing there
+      ; -1: no element exists at len
       (println (vecLen v))  ; 70: set did not append
-      (vecSet v (- 0 1) 555)  ; ignored
       (println (vecLen v))  ; 70
       ; --- order matters: vecHash catches a permutation, vecSum does not
       (println
