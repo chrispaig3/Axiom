@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # seventy-eight of the gates below build the compiler under test from
+    # seventy-nine of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -546,6 +546,12 @@ jobs:
       # theirs.
       - name: Fresh scrutinee temporaries are reset-reclaimed
         run: ./scripts/check-region-scrutinee.sh
+
+      # S4's success criterion, run at last: the §1.1 ablation re-run -
+      # the binary win with the RSS win intact, three workloads against
+      # one fully-ablated compiler.
+      - name: S4 verdict holds end to end
+        run: ./scripts/check-region-verdict.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is
