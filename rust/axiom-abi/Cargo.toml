@@ -3,6 +3,7 @@ name = "axiom-abi"
 description = "The Axiom <-> Rust calling contract: value layouts, borrowed views, and the retain/release protocol."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [lib]

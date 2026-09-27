@@ -23,6 +23,9 @@ name = "axiom-nostd"
 description = "The freestanding-preserving FFI mode: core + alloc over Axiom's own allocator."
 version = "0.1.0"
 edition = "2021"
+# Its own workspace cannot inherit the root's minimum, so it states it;
+# `scripts/check-ffi.sh` holds the two numbers equal.
+rust-version = "1.88"
 license = "MIT"
 
 [lib]

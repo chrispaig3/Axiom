@@ -1481,6 +1481,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
         with:
           toolchain: stable
+      # THE DECLARED MINIMUM, installed beside stable, because a minimum
+      # nothing builds on is a guess: `rust/Cargo.toml` said 1.85 for
+      # weeks while the code needed 1.88. The version is READ from that
+      # file rather than repeated here, so the two cannot disagree, and
+      # `check-ffi.sh` fails under CI if this toolchain is missing - so
+      # deleting this step turns the job red rather than quiet.
+      - name: Install the Rust minimum rust/Cargo.toml declares
+        run: rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' rust/Cargo.toml)" --profile minimal
       - uses: ./.github/actions/provision
 
       # The three tiers the gate prices, the generated binding diffed

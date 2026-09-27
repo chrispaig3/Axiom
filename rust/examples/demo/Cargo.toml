@@ -3,6 +3,7 @@ name = "axiom-demo"
 description = "A worked example of exporting Rust to Axiom."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [lib]

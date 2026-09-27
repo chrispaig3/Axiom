@@ -700,4 +700,106 @@ else
   fi
 fi
 
+# --------------------------------------------------------------------
+# THE DECLARED RUST MINIMUM: inherited by every package, and true.
+# --------------------------------------------------------------------
+# `rust/Cargo.toml` said `rust-version = "1.85"` until 2026-09-26 and the
+# line bound nothing: no member opted into `rust-version.workspace =
+# true`, so `cargo metadata` reported no minimum for any of the eight
+# packages. It was also false - `axiom-ffi-classify` uses let chains, and
+# measured on 1.87.0 with the version check bypassed it fails with six
+# `E0658: let expressions in this position are unstable`; the locked
+# `trybuild` declares 1.88 on its own account. Nothing ran the declared
+# toolchain, so neither was visible. Both halves are held here: the
+# number every package reports, and a whole locked build on exactly that
+# toolchain. CI installs it before this gate (the `ffi` job); a local run
+# without it says so rather than passing.
+echo "== the declared Rust minimum =="
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "ok   cargo is not installed; the Rust minimum is not checked here (reported, not silent)"
+else
+  msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' rust/Cargo.toml)"
+  if [[ ! "$msrv" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "FAIL rust/Cargo.toml declares no readable rust-version (read '$msrv')"
+    status=1
+  else
+    if ! meta="$(cd rust && cargo metadata --locked --no-deps --format-version 1 2>&1)"; then
+      echo "FAIL cargo metadata failed over the workspace"
+      printf '%s\n' "$meta" | head -3 | sed 's/^/     /'
+      status=1
+    else
+      stray="$(printf '%s' "$meta" | python3 -c '
+import json, sys
+want = sys.argv[1]
+pkgs = json.load(sys.stdin)["packages"]
+print(len(pkgs))
+for p in pkgs:
+    if p.get("rust_version") != want:
+        print("%s declares %s" % (p["name"], p.get("rust_version")))
+' "$msrv")"
+      npkg="$(head -1 <<< "$stray")"
+      stray="$(tail -n +2 <<< "$stray")"
+      if [[ -n "$stray" ]] || (( npkg < 8 )); then
+        echo "FAIL not every workspace package inherits rust-version $msrv ($npkg packages read):"
+        printf '%s\n' "$stray" | sed 's/^/     /'
+        status=1
+      else
+        echo "ok   all $npkg workspace packages report rust-version $msrv"
+      fi
+    fi
+    nostd_v="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' rust/examples/nostd/Cargo.toml)"
+    if [[ "$nostd_v" != "$msrv" ]]; then
+      echo "FAIL rust/examples/nostd (its own workspace) declares rust-version '$nostd_v', not $msrv"
+      status=1
+    else
+      echo "ok   rust/examples/nostd, its own workspace, declares the same $msrv"
+    fi
+    # `1.88` and `1.88.0` are different toolchain NAMES to rustup (a
+    # channel, and a release), though both are the same compiler here;
+    # CI installs the first, a person may well have the second.
+    msrv_tc=""
+    if command -v rustup >/dev/null 2>&1; then
+      for tc in "$msrv" "$msrv.0"; do
+        if msrv_rustc="$(rustup run "$tc" rustc --version 2>/dev/null)" \
+           && [[ "$msrv_rustc" == "rustc $msrv"* ]]; then
+          msrv_tc="$tc"; break
+        fi
+      done
+    fi
+    if [[ -n "$msrv_tc" ]]; then
+      # Its own target directory: sharing the stable one would make every
+      # alternate run a full rebuild for both toolchains.
+      msrv_target="$repo_root/rust/target/msrv-$msrv"
+      if ! msrv_out="$(cd rust && CARGO_TARGET_DIR="$msrv_target" \
+             cargo "+$msrv_tc" build --locked --workspace --exclude axiom-host --all-targets 2>&1)"; then
+        echo "FAIL the locked workspace does not build on its declared minimum ($msrv_rustc)"
+        printf '%s\n' "$msrv_out" | grep -E '^error' | head -6 | sed 's/^/     /'
+        status=1
+      elif ! msrv_out="$(cd rust && CARGO_TARGET_DIR="$msrv_target" \
+             cargo "+$msrv_tc" check --locked -p axiom-host 2>&1)"; then
+        # `axiom-host` links an archive this section does not build, so it
+        # is type-checked on the minimum rather than linked.
+        echo "FAIL axiom-host does not type-check on the declared minimum ($msrv_rustc)"
+        printf '%s\n' "$msrv_out" | grep -E '^error' | head -6 | sed 's/^/     /'
+        status=1
+      elif ! msrv_out="$(cd rust/examples/nostd && CARGO_TARGET_DIR="$msrv_target-nostd" \
+             cargo "+$msrv_tc" build --locked --release 2>&1)"; then
+        echo "FAIL rust/examples/nostd does not build on the declared minimum ($msrv_rustc)"
+        printf '%s\n' "$msrv_out" | grep -E '^error' | head -6 | sed 's/^/     /'
+        status=1
+      else
+        echo "ok   the locked workspace, axiom-host and the nostd crate all build on $msrv_rustc"
+      fi
+    elif [[ -n "${CI:-}" ]]; then
+      echo "FAIL Rust $msrv, the declared minimum, is not installed on this CI runner;"
+      echo "     the \`ffi\` job installs it before this gate, and a CI run that skips"
+      echo "     the build on it would be the unchecked declaration this section replaced"
+      status=1
+    else
+      echo "ok   Rust $msrv is not installed here: the build on the minimum is NOT CHECKED"
+      echo "     HERE (\`rustup toolchain install $msrv --profile minimal\` to check it; CI does)"
+    fi
+  fi
+fi
+
 exit "$status"

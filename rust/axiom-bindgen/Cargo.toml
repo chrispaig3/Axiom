@@ -3,6 +3,7 @@ name = "axiom-bindgen"
 description = "Read a crate's #[axiom_export] surface and emit the matching Axiom `extern` module."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [lib]

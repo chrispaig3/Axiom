@@ -3,6 +3,7 @@ name = "axiom-ffi-macros"
 description = "The #[axiom_export] and #[axiom_opaque] attributes: generate the C-ABI shims Axiom links against."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [lib]

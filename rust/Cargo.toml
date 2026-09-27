@@ -52,9 +52,19 @@ edition = "2024"
 # The MSRV, declared rather than discovered. `#[diagnostic::on_unimplemented]`
 # in axiom-ffi needs 1.78 and edition 2024 needs 1.85; without this line an
 # older toolchain fails with a parse error somewhere in a dependency instead
-# of "requires rustc 1.85". Raise it deliberately, the way a target joins the
+# of "requires rustc 1.88". Raise it deliberately, the way a target joins the
 # supported list.
-rust-version = "1.85"
+#
+# 1.88, NOT THE 1.85 THIS SAID UNTIL 2026-09-26, and the old number was
+# wrong twice over. It was never INHERITED: no member said
+# `rust-version.workspace = true`, so `cargo metadata` reported no minimum
+# for any of the eight packages and the line bound nothing. And it was
+# never TRUE: `axiom-ffi-classify` and `axiom-bindgen` use let chains,
+# stable in 1.88, and the locked `trybuild` declares 1.88 itself. Every
+# member inherits it now, and `scripts/check-ffi.sh` holds both halves:
+# the metadata must report this number for every package, and the whole
+# locked workspace must build on exactly this toolchain (CI installs it).
+rust-version = "1.88"
 license = "MIT"
 
 # ONE LINT POLICY FOR THE WORKSPACE, inherited by every crate with

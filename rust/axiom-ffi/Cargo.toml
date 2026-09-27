@@ -3,6 +3,7 @@ name = "axiom-ffi"
 description = "Write Rust that Axiom can call. Re-exports the ABI and the #[axiom_export] attribute."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
