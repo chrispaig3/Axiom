@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 # Run the whole gate battery, in parallel where that is sound.
 #
-#   scripts/run-gates.sh            # everything
-#   scripts/run-gates.sh --list     # show the split and exit
-#   scripts/run-gates.sh fmt lsp    # only gates whose name contains these
+#   scripts/run-gates.sh                          # everything
+#   scripts/run-gates.sh --list                   # show the split and exit
+#   scripts/run-gates.sh fmt lsp                  # only gates whose name contains these
+#   scripts/run-gates.sh --profile fast           # the smoke set: seconds once the compiler is cached
+#   scripts/run-gates.sh --profile expensive      # platform, bootstrap and measurement gates only
 #   AXIOM_GATE_JOBS=4 scripts/run-gates.sh
+#
+# PROFILES. `fast` is the edit-and-rerun set: the four gates that answer
+# in seconds on a warm cache (diagnostics goldens, type pinning, the
+# gate-cache contract, CI coverage). The two corpora - `check-self-host`
+# and `check-stdlib-selfhost` - are NOT in it: the stdlib corpus alone
+# costs 277s, which would make `fast` a name rather than a property.
+# They run under the default `full` profile, which is every gate.
+# `expensive` is the platform/bootstrap/performance tail for scheduled
+# runs and release checks.
 #
 # WHY IT IS FASTER, AND WHY THAT IS NOT A TRICK. Every gate that tests
 # the working tree starts by building the compiler from `self_host/`,
@@ -165,18 +176,44 @@ if [[ -z "$jobs" ]]; then
   cores="$( (sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4) )"
   jobs=$(( cores - 2 )); (( jobs < 2 )) && jobs=2; (( jobs > 12 )) && jobs=12
 fi
+[[ "$jobs" =~ ^[1-9][0-9]*$ ]] || { echo "FAIL: AXIOM_GATE_JOBS must be a positive integer" >&2; exit 2; }
 
-all=(); for g in scripts/check-*.sh; do all+=("$g"); done
-if (( $# )); then
-  filtered=()
-  for g in "${all[@]}"; do
-    for pat in "$@"; do
-      [[ "$pat" == --* ]] && continue
-      [[ "$g" == *"$pat"* ]] && { filtered+=("$g"); break; }
-    done
-  done
-  [[ " $* " == *" --list "* ]] || all=("${filtered[@]}")
-fi
+profile=full
+list=0
+patterns=()
+while (( $# )); do
+  case "$1" in
+    --list) list=1 ;;
+    --profile)
+      shift
+      profile="${1:-}"
+      [[ "$profile" == fast || "$profile" == full || "$profile" == expensive ]] || {
+        echo "usage: $0 [--list] [--profile fast|full|expensive] [name ...]" >&2; exit 2;
+      } ;;
+    --*) echo "FAIL: unknown option $1" >&2; exit 2 ;;
+    *) patterns+=("$1") ;;
+  esac
+  shift
+done
+# `self-host` and `stdlib-selfhost` are named here by their absence: the
+# corpora are `full`-tier by cost (see PROFILES above), so this lists
+# only the four gates that answer in seconds on a warm cache.
+FAST_RE='check-(diagnostics|type-pinning|gate-lib|ci-coverage)\.sh$'
+EXPENSIVE_RE='check-(bootstrap|seed-lineage|seed-provenance|ddc|cross-targets|embedded|windows-hello|reproducible|memory-baseline|arena-reset-rate|container-reclaim|steady-state|recover|name-scale|type-namespace|degenerate|stack-bound|stack-depth)\.sh$'
+all=(); omitted=()
+for g in scripts/check-*.sh; do
+  if [[ "$profile" == fast && ! "$g" =~ $FAST_RE ]] ||
+     [[ "$profile" == expensive && ! "$g" =~ $EXPENSIVE_RE ]]; then
+    omitted+=("$g"); continue
+  fi
+  if (( ${#patterns[@]} )); then
+    matched=0
+    for pat in "${patterns[@]}"; do [[ "$g" == *"$pat"* ]] && matched=1; done
+    (( matched )) || { omitted+=("$g"); continue; }
+  fi
+  all+=("$g")
+done
+(( ${#all[@]} )) || { echo "FAIL: no gates match the requested selection" >&2; exit 2; }
 
 par=(); ser=(); notrun=()
 for g in "${all[@]}"; do
@@ -185,29 +222,63 @@ for g in "${all[@]}"; do
   else par+=("$g"); fi
 done
 
-if [[ " $* " == *" --list "* ]]; then
-  echo "parallel (${#par[@]}, $jobs at a time):"; printf '  %s\n' "${par[@]##*/}"
-  echo "serial (${#ser[@]}), because they measure or drive cargo:"; printf '  %s\n' "${ser[@]##*/}"
+if (( list )); then
+  echo "profile: $profile"
+  echo "parallel (${#par[@]}, $jobs at a time):"; (( ${#par[@]} )) && printf '  %s\n' "${par[@]##*/}"
+  echo "serial (${#ser[@]}), because they measure or drive cargo:"; (( ${#ser[@]} )) && printf '  %s\n' "${ser[@]##*/}"
   if (( ${#notrun[@]} )); then
     echo "not run here (${#notrun[@]}), $NOTRUN_WHY:"; printf '  %s\n' "${notrun[@]##*/}"
   fi
+  echo "not selected: ${#omitted[@]} (use --profile full without filters for the complete local battery)"
   exit 0
 fi
 
-out="$(mktemp -d)"
-trap 'rm -rf "$out"' EXIT
+source scripts/lib/gate.sh
+repo_root="$PWD"
+report_root="${AXIOM_GATE_REPORT_DIR:-$repo_root/.axiom-shared/runs}"
+mkdir -p "$report_root" || exit 1
+out="$(mktemp -d "$report_root/run.XXXXXX")" || exit 1
+: > "$out/RESULTS"
+for g in "${all[@]}"; do printf '%s\n' "$g"; done > "$out/SELECTED"
+if (( ${#omitted[@]} )); then printf '%s\n' "${omitted[@]}" > "$out/NOT-SELECTED"; fi
+if (( ${#notrun[@]} )); then printf '%s\n' "${notrun[@]}" > "$out/NOT-RUN"; fi
+echo "gate logs and accounting: $out"
 started=$SECONDS
+expected=$(( ${#par[@]} + ${#ser[@]} ))
+if (( expected == 0 )); then
+  echo "NOT RUN: $NOTRUN_WHY" >&2
+  exit 2
+fi
 
-# THE SHARED COMPILER. If this fails there is no point running anything:
-# every gate would fall back to building its own, serially, and the
-# battery would look mysteriously slow rather than broken.
-echo "== building the compiler every gate will share =="
-if ! ./scripts/build-shared-axc.sh "$out/axc" > "$out/build.log" 2>&1; then
-  echo "FAIL: could not build the shared compiler; running gates would each rebuild it" >&2
-  tail -20 "$out/build.log" >&2
+# Reuse the existing stamped compiler across invocations. Each run gets
+# a private snapshot; changing or publishing a shared artifact cannot
+# replace an executable underneath gates already running.
+cache="${AXIOM_AXC:-$repo_root/.axiom-shared/axc}"
+axiom="${AXIOM:-$cache}"
+valid=0
+if [[ -x "$cache" && -f "$cache.stamp" ]]; then
+  [[ "$(cat "$cache.stamp")" == "$(gate_source_stamp)" ]] && valid=1
+fi
+if (( valid )); then
+  echo "== reusing the verified shared compiler =="
+else
+  echo "== building the compiler every gate will share =="
+  if ! ./scripts/build-shared-axc.sh "$cache" > "$out/build.log" 2>&1; then
+    echo "FAIL: could not build the shared compiler; see $out/build.log" >&2
+    tail -20 "$out/build.log" >&2
+    exit 1
+  fi
+fi
+cp "$cache" "$out/axc" && cp "$cache.stamp" "$out/axc.stamp" || exit 1
+axiom="$out/axc"
+if [[ "$(cat "$out/axc.stamp")" != "$(gate_source_stamp)" ]]; then
+  echo "FAIL: shared compiler changed during snapshot, or its inputs changed; retry" >&2
   exit 1
 fi
 export AXIOM_AXC="$out/axc"
+# Gates use the same compiler identity as the published stamp. AXIOM
+# selected the builder above; it must not make every consumer miss.
+export AXIOM="$AXIOM_AXC"
 echo "   shared compiler ready ($(( SECONDS - started ))s)"
 
 run_one() { # run_one <script>
@@ -228,7 +299,7 @@ run_one() { # run_one <script>
 if (( ${#par[@]} )); then
   echo "== ${#par[@]} gate(s), $jobs at a time =="
   for g in "${par[@]}"; do
-    while (( $(jobs -rp | wc -l) >= jobs )); do wait -n 2>/dev/null || sleep 0.3; done
+    while (( $(jobs -rp | wc -l) >= jobs )); do wait -n 2>/dev/null || sleep 0.1; done
     run_one "$g" &
   done
   wait
@@ -240,6 +311,14 @@ if (( ${#ser[@]} )); then
 fi
 
 elapsed=$(( SECONDS - started ))
+completed="$(wc -l < "$out/RESULTS" | tr -d ' ')"
+if (( completed != expected )); then
+  echo "FAIL: expected $expected gate results, received $completed; see $out" >&2
+  exit 1
+fi
+printf 'profile=%s\nselected=%s\nexecuted=%s\nnot_selected=%s\nnot_run=%s\nelapsed_seconds=%s\n' \
+  "$profile" "${#all[@]}" "$completed" "${#omitted[@]}" "${#notrun[@]}" "$elapsed" > "$out/SUMMARY"
+echo "not selected: ${#omitted[@]}; not run here: ${#notrun[@]}; logs: $out"
 # `grep -c` EXITS 1 when the count is zero, so `|| echo 0` appends a
 # SECOND zero and the variable becomes "0\n0" - which `(( ))` then
 # refuses with a syntax error, after the gates have already run. Count

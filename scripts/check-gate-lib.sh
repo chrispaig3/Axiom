@@ -221,6 +221,107 @@ else
   echo "ok   the stamp moves when a source file moves"
 fi
 
+# Toolchain identity and platform configuration are build inputs too.
+echo
+echo "== toolchain and SDK changes invalidate the cache =="
+mkdir -p "$work/toolchain"
+cat > "$work/toolchain/llc" <<'TOOL'
+#!/usr/bin/env bash
+echo 'test LLVM version 1'
+TOOL
+chmod +x "$work/toolchain/llc"
+original_path="$PATH"
+export PATH="$work/toolchain:$PATH"
+stamp_of_sandbox > "$planted.stamp"
+AXIOM_AXC="$planted" run_probe reuse "the same toolchain reuses the artifact"
+printf '# replaced tool binary\n' >> "$work/toolchain/llc"
+AXIOM_AXC="$planted" run_probe rebuild "a changed tool binary invalidates it even with the same version"
+stamp_of_sandbox > "$planted.stamp"
+SDKROOT="$work/other-sdk" AXIOM_AXC="$planted" run_probe rebuild "a changed SDK invalidates it"
+export PATH="$original_path"
+
+# Exercise the actual publisher and runner without expensive compiler
+# work. The fake compiler logs builds and emits a large deterministic
+# IR stand-in; source edits and deliberate publication failure are real.
+echo
+echo "== publication and runner accounting =="
+runner_tree="$work/runner-tree"
+mkdir -p "$runner_tree/scripts/lib" "$runner_tree/self_host" "$runner_tree/stdlib" "$runner_tree/.axiom-bin"
+cp "$repo_root/scripts/lib/gate.sh" "$runner_tree/scripts/lib/"
+cp "$repo_root/scripts/build-shared-axc.sh" "$repo_root/scripts/run-gates.sh" "$runner_tree/scripts/"
+printf '; input\n' > "$runner_tree/self_host/main.ax"
+cat > "$runner_tree/.axiom-bin/axiom" <<'BUILDER'
+#!/usr/bin/env bash
+case "$1" in
+  --version) echo test-compiler ;;
+  build)
+    [[ "${FAIL_BUILD:-0}" == 0 ]] || exit 1
+    printf 'build\n' >> "$BUILD_RECORD"
+    while (( $# )); do
+      if [[ "$1" == --output ]]; then shift; cp "$0" "$1"; exit; fi
+      shift
+    done
+    exit 1 ;;
+  emit-llvm)
+    while (( $# )); do
+      if [[ "$1" == -o ]]; then shift; awk 'BEGIN {for(i=0;i<15000;i++) print "; test IR"}' > "$1"; exit; fi
+      shift
+    done
+    exit 1 ;;
+  *) exit 1 ;;
+esac
+BUILDER
+chmod +x "$runner_tree/.axiom-bin/axiom"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$runner_tree/scripts/check-pass.sh"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$runner_tree/scripts/check-fail.sh"
+chmod +x "$runner_tree/scripts/"*.sh
+export BUILD_RECORD="$work/build-record"
+: > "$BUILD_RECORD"
+runner() { ( cd "$runner_tree"; unset AXIOM AXIOM_AXC; ./scripts/run-gates.sh "$@" ); }
+checks=$((checks + 1))
+if runner pass > "$work/runner-cold.log" 2>&1 &&
+   runner pass > "$work/runner-warm.log" 2>&1 &&
+   [[ "$(wc -l < "$BUILD_RECORD" | tr -d ' ')" == 2 ]] &&
+   grep -q 'reusing the verified shared compiler' "$work/runner-warm.log"; then
+  echo "ok   cold publication verifies two builds; a warm run builds none"
+else
+  echo "FAIL runner cold/warm reuse"; cat "$work/runner-cold.log" "$work/runner-warm.log"
+  failed=$((failed + 1))
+fi
+checks=$((checks + 1))
+if runner no-such-gate > "$work/runner-empty.log" 2>&1; then
+  echo "FAIL an empty selection passed"; failed=$((failed + 1))
+else
+  grep -q 'no gates match' "$work/runner-empty.log" || failed=$((failed + 1))
+  echo "ok   an empty selection is an error"
+fi
+checks=$((checks + 1))
+if runner fail > "$work/runner-fail.log" 2>&1; then
+  echo "FAIL a failing gate passed"; failed=$((failed + 1))
+else
+  grep -q '1 FAILED' "$work/runner-fail.log" || failed=$((failed + 1))
+  echo "ok   a failing gate remains a failure with retained logs"
+fi
+checks=$((checks + 1))
+old_artifact="$(gate_sha "$runner_tree/.axiom-shared/axc")"
+old_stamp="$(cat "$runner_tree/.axiom-shared/axc.stamp")"
+printf '; changed source\n' >> "$runner_tree/self_host/main.ax"
+if FAIL_BUILD=1 runner pass > "$work/runner-build-fail.log" 2>&1; then
+  echo "FAIL a failed rebuild passed"; failed=$((failed + 1))
+elif [[ "$(gate_sha "$runner_tree/.axiom-shared/axc")" == "$old_artifact" &&
+        "$(cat "$runner_tree/.axiom-shared/axc.stamp")" == "$old_stamp" ]]; then
+  echo "ok   failed publication preserves the previous artifact and stamp"
+else
+  echo "FAIL failed publication damaged the previous generation"; failed=$((failed + 1))
+fi
+checks=$((checks + 1))
+if runner pass > "$work/runner-changed.log" 2>&1 &&
+   [[ "$(wc -l < "$BUILD_RECORD" | tr -d ' ')" == 4 ]]; then
+  echo "ok   a changed source rebuilds and verifies before publishing"
+else
+  echo "FAIL changed source was not rebuilt"; failed=$((failed + 1))
+fi
+
 echo
 echo "== the count those comments state is the count the tree has =="
 # THE DRIFT THIS CLOSES. On 2026-08-24 six places stated how many gates

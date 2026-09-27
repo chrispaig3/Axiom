@@ -62,6 +62,28 @@ if [[ -z "$out" ]]; then
   exit 2
 fi
 mkdir -p "$(dirname "$out")"
+out="$(cd "$(dirname "$out")" && pwd)/$(basename "$out")"
+
+# Serialize publishers of this path. Build and verify privately, then
+# rename fresh inodes into place; never truncate an executable in use.
+lock="$out.lock"
+waited=0
+until mkdir "$lock" 2>/dev/null; do
+  (( waited < 300 )) || { echo "FAIL: timed out waiting for $lock" >&2; exit 1; }
+  sleep 1
+  waited=$((waited + 1))
+done
+pending=""
+cleanup_shared() {
+  [[ -z "$pending" ]] || rm -f "$pending" "$pending.stamp"
+  rmdir "$lock"
+  rm -rf "$work"
+}
+trap cleanup_shared EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+initial_stamp="$(gate_source_stamp)"
+candidate="$work/candidate"
 
 build_one() {  # build_one <output> <log>
   if ! "$axiom" build --input self_host/main.ax --output "$1" >"$2" 2>&1; then
@@ -72,7 +94,7 @@ build_one() {  # build_one <output> <log>
 }
 
 echo "== building the shared compiler under test from self_host/ =="
-build_one "$out" "$work/build.log"
+build_one "$candidate" "$work/build.log"
 
 # WRITTEN AS THE CONSUMER WILL COMPUTE IT, and that is the whole fix.
 #
@@ -98,7 +120,7 @@ build_one "$out" "$work/build.log"
 # replaced: the stamp now says "these sources, and THIS compiler", so a
 # swapped or truncated artifact fails the comparison too, where before
 # it recorded a builder no consumer ever asks about.
-( axiom="$out"; gate_source_stamp > "$out.stamp" )
+# Publication waits until both builds and the comparison succeed.
 
 # THE EQUALITY, MEASURED. A second, independent build from the same
 # tree with the same builder, and then both compilers are asked to emit
@@ -141,7 +163,7 @@ build_one "$out" "$work/build.log"
 echo "== building it a second time, to measure the equality this claims =="
 build_one "$work/second" "$work/build2.log"
 
-"$out"        emit-llvm self_host/main.ax -o "$work/a.ll" >/dev/null
+"$candidate"  emit-llvm self_host/main.ax -o "$work/a.ll" >/dev/null
 "$work/second" emit-llvm self_host/main.ax -o "$work/b.ll" >/dev/null
 
 a_lines=$(wc -l < "$work/a.ll" | tr -d ' ')
@@ -167,7 +189,19 @@ $(cmp "$work/a.ll" "$work/b.ll" 2>&1 | sed 's/.*line //')" >&2
   exit 1
 fi
 
+if [[ "$(gate_source_stamp)" != "$initial_stamp" ]]; then
+  echo "FAIL: build inputs changed while building the shared compiler; nothing published" >&2
+  exit 1
+fi
+pending="$(mktemp "$out.pending.XXXXXX")"
+# -p: mktemp files are 0600, and a plain cp onto an existing path keeps
+# the destination mode, which would publish a non-executable compiler.
+cp -p "$candidate" "$pending"
+( axiom="$candidate"; gate_source_stamp > "$pending.stamp" )
+mv -f "$pending" "$out"
+mv -f "$pending.stamp" "$out.stamp"
+pending=""
+
 echo "ok   $out"
 echo "ok   stamp $(cut -c1-16 "$out.stamp")… - gates will reuse this until a source file moves"
 echo "ok   a second build emits identical IR for self_host/main.ax ($a_lines lines)"
-

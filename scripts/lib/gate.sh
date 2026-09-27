@@ -200,9 +200,29 @@ gate_link_entry() {
 # a file whose ablation the cache would hide.
 gate_source_stamp() {
   {
+    printf '%s\n' 'gate-cache-v2: native build, default optimization'
     gate_seed_source_stamp "$repo_root"
     gate_sha "$axiom"
+    gate_toolchain_stamp
   } | gate_sha
+}
+
+# Build inputs outside the Axiom source tree. Keep this separate from
+# gate_seed_source_stamp: seed provenance describes sources, not a host.
+gate_toolchain_stamp() {
+  local tool path
+  uname -srm
+  printf '%s\n' "SDKROOT=${SDKROOT:-}" \
+    "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-}" \
+    "DEVELOPER_DIR=${DEVELOPER_DIR:-}"
+  for tool in opt llc cc; do
+    path="$(command -v "$tool" || true)"
+    printf '%s\n' "$tool=$path"
+    if [[ -n "$path" && -f "$path" ]]; then
+      gate_sha "$path"
+      "$path" --version 2>&1 || return 1
+    fi
+  done
 }
 
 # gate_seed_source_stamp <root>
@@ -351,10 +371,19 @@ gate_build_axc() {
       exit 1
     fi
     if [[ "$(cat "${AXIOM_AXC}.stamp")" == "$stamp" ]]; then
-      echo "== reusing the compiler under test (source stamp ${stamp:0:12}) =="
+      local artifact_sha
+      artifact_sha="$(gate_sha "$AXIOM_AXC")"
       cp "$AXIOM_AXC" "$out"
-      printf -v "$var" '%s' "$out"
-      return 0
+      # A producer may publish a new generation while this gate copies.
+      # Check the private snapshot and inputs again before accepting it.
+      if [[ "$(gate_sha "$out")" == "$artifact_sha" &&
+            "$(gate_source_stamp)" == "$stamp" &&
+            "$(cat "${AXIOM_AXC}.stamp")" == "$stamp" ]]; then
+        echo "== reusing the compiler under test (source stamp ${stamp:0:12}) =="
+        printf -v "$var" '%s' "$out"
+        return 0
+      fi
+      rm -f "$out"
     fi
   fi
 
@@ -471,4 +500,3 @@ docs/embedded-proposal.md
 docs/cast-arg-root.md
 DOCS
 }
-
