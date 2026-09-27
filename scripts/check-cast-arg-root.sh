@@ -41,7 +41,13 @@ gate_build_axc axc
 echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
-# Baseline 337 measured 2026-09-25 (was 329 on 2026-09-21): five
+# Baseline 340 measured 2026-09-27 (337 on 2026-09-25): three arrived
+# with tests/stdlib/521-release-filed.ax (`a28d7a02`), which hands a
+# static literal's handle to `__retain` once and `__release` twice to
+# show the -1 sentinel survives an imbalance (MM-LIFE-2k) - the cast IS
+# the raw word under test, which is the MM-VAL-23 reason. CI never
+# reached this gate the day they landed: every Tests leg stopped at an
+# earlier red step. 337 was measured 2026-09-25 (was 329 on 2026-09-21): five
 # arrived with the 1008-error-payload-untyped fixture (`02edb8ae` -
 # three in the probe source, two echoed in its `.human` golden - the
 # casts ARE the payloads the diagnostic is about) and three with the
@@ -52,10 +58,10 @@ echo "--- 1. user-level cast count does not grow ---"
 # ratchet is <=, so removing casts always passes and adding one must
 # update this number with a reason.
 cast_count="$(rg --no-filename -o '\(cast ' stdlib/ tests/ examples/ 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$cast_count" -le 337 ]; then
-  ok "user-level (cast count $cast_count <= 337)"
+if [ "$cast_count" -le 340 ]; then
+  ok "user-level (cast count $cast_count <= 340)"
 else
-  bad "user-level (cast count $cast_count > 337): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 340): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"

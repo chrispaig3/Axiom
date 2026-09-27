@@ -140,6 +140,7 @@ emit_probe() {
     }))
 
 (:: advance (-> (Vec Int) Int (Vec Int)))
+;@axiom:effect(unsafe)
 (fn (advance b n)
   (let ((m (__axiom_arena_mark)) (mut bb b) (mut nn n))
     {
@@ -154,6 +155,7 @@ emit_probe() {
       bb
     }))' ;;
     ablated) advance='(:: advance (-> (Vec Int) Int (Vec Int)))
+;@axiom:effect(unsafe)
 (fn (advance b n)
   (let ((m (__axiom_arena_mark)) (mut bb b) (mut nn n))
     {
