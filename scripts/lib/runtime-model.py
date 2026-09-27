@@ -419,6 +419,15 @@ class Trace:
         self.declare(name)
         cell = self.model.mark(name)
         self.op(f"(set {name} __axiom_arena_mark)")
+        # The cell is an allocation like any other, so it may reuse a
+        # filed slot - and any stale name for that slot is gone, exactly
+        # as in allocate. Without this the dead handle reads live again
+        # (its offset's count is the cell's 0, not a link tuple) and the
+        # generator drives it: seed-1001 wrote its mark cell's saved bump
+        # through h45 and the reset then restored garbage.
+        for other, o in list(self.handles.items()):
+            if o == cell:
+                del self.handles[other]
         self.check(f"(== (- {name} origin) {cell})", f"mark {name} cell offset {cell}")
         self.check(f"(== (- (__load64 {name} 0) origin) {self.model.bump})", f"mark {name} saves the bump")
         # I7 at run time: the chunk end the cell saved is far enough away
