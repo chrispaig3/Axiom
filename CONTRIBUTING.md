@@ -196,15 +196,15 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-27, `axiom fmt --check` over every one of the 730 `.ax` files
+2026-09-27, `axiom fmt --check` over every one of the 731 `.ax` files
 in the repository answers `is already formatted` for 691 of them and
-`needs formatting` for 37. Four are deliberate and are named here:
+`needs formatting` for 40. Four are deliberate and are named here:
 `tests/fmt/syntax-zoo.ax` and `tests/diagnostics/940-long-line.ax`,
 whose text is the fixture; `examples/batch-fallible/batch-fallible.ax`,
 a program that stays as it is until someone edits it; and
 `tests/diagnostics/654-macro-hygiene-suggestion.ax`, which arrived
 needing formatting with the binder-rendering change and stays that
-way because its spans are pinned. The other 33 are ordinary drift —
+way because its spans are pinned. The other 36 are ordinary drift —
 files that arrived or changed without a fmt pass — and that same sweep
 is what names them. No gate does: `check-fmt.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
@@ -431,7 +431,7 @@ be a framework a reader had to learn before reading a single gate.
 | `check-bootstrap.sh` | the self-hosting fixpoint: `stage2 == stage3`, byte for byte |
 | `check-reproducible.sh` | compiling the same source twice produces identical bytes |
 | `bootstrap-from-seed.sh` | a clean checkout builds a working compiler from `bootstrap/` with nothing but `llc` and `cc` |
-| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the eighty-one gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim eighty-one gates then rest on |
+| `build-shared-axc.sh` | not an assertion but the step the others rest on: it builds the compiler under test ONCE and stamps it, and the eighty-two gates that call `gate_build_axc` reuse it while the stamp matches the tree. It builds a second time and compares the IR both compilers emit, because "this artifact is what you would have built" is the claim eighty-two gates then rest on |
 | `check-gate-lib.sh` | that the shared artifact cannot hide a source change - the probe that makes the reuse above safe to believe |
 | `check-install.sh` | the script `README.md` tells a stranger to pipe into bash. A release built from this tree is served over the loopback and installed; a tampered archive, one with no checksum and one with no `stdlib/` must each be refused. Its own probe deletes `install.sh`'s checksum comparison in a copy and requires the tampered case to stop being refused |
 | `check-release-targets.sh` | what a release BUILDS and what `install.sh` REFUSES are one fact split across two files on opposite sides of the project. A target in both uploads an archive the installer will not fetch; a target in neither gives the user a bare `curl` 404. Also holds the two axes apart: nothing is shipped that README does not call supported, and nothing is supported-but-unshipped without a CI leg or a README paragraph saying why (`darwin-x86_64`) |

@@ -65,13 +65,14 @@ runtime passing is not a proof of the model.
 - Seeded compiler-input fuzzing in CI (the second half of R-E1 as
   plan.md states it).
 - Fuzzing of FFI boundaries and runtime operations; sanitizers and
-  race detectors; schedule exploration and memory-ordering litmus
-  tests (R-C3); allocation/cancellation/failure injection beyond
-  the fault-injected count boundary (527) and the `reset_keeping`
-  fixtures (165).
+  race detectors; schedule exploration, and memory-ordering litmus
+  families beyond the three `scripts/check-atomics.sh` runs (SB, MP
+  and a contended counter, R-C3); allocation/cancellation/failure
+  injection beyond the fault-injected count boundary (527) and the
+  `reset_keeping` fixtures (165).
 - Long-duration memory and concurrency stress; inspection of
-  optimized IR and machine code for critical lowering (only the
-  atomics half of R-C3 names it, but the model assembles at one
-  level per trace, not all four with diffing).
+  optimized IR and machine code for critical lowering beyond the
+  atomics (`check-atomics.sh` counts theirs at all four levels; the
+  model assembles at one level per trace, not all four with diffing).
 - Differential and metamorphic compiler tests beyond the bootstrap
   fixpoint (`stage2 == stage3`) and the MIR differential.

@@ -4102,6 +4102,20 @@ is the control that keeps the other four discriminating. They are the first phas
 obligation being discharged; the rest of this rule — the price, and
 that it is chosen against — is unchanged until that obligation is.
 
+**Inspected and run since 2026-09-27.** "No thread for them to
+synchronise with" stopped being true when `--threads` landed
+(2026-09-03). `scripts/check-atomics.sh` now counts the instruction
+each primitive lowers to — `xchg`, `lock xadd`, `lock cmpxchg` and a
+locked `or` to the stack on x86-64; `ldar`, `stlr`, an `ldaxr`/`stlxr`
+loop and `dmb ish` on AArch64 — on all seven targets at `-O0`…`-O3`,
+requires five weakenings of the IR to turn that count red, and runs
+store-buffering, message-passing and counter litmus tests on two
+`--threads` threads (`tests/litmus/atomics.ax`), each beside a
+plain-access control that must show the outcome the atomics exclude.
+A seq_cst load on x86-64 is a plain `mov`, indistinguishable in
+machine code from a monotonic one; the gate measures that rather than
+checking past it.
+
 **The conclusion is unchanged and the argument for it was false.** It
 was carried in `MM-PAR-2`'s sentence rather than here: thread creation
 on macOS needs `bsdthread_register`, Mach-O has no local-exec TLS so

@@ -1,0 +1,297 @@
+; Litmus tests for the five atomic primitives, run on two threads.
+;
+; `scripts/check-atomics.sh` builds this with `--threads` and runs it
+; once per row below; each run prints one line, `<forbidden>
+; <witnessed>`, and the gate decides. Three families, each with the
+; outcome sequential consistency FORBIDS:
+;
+;   sb   store buffering. T0 stores x then loads y, T1 stores y then
+;        loads x; forbidden is both loads answering 0. `sc` uses
+;        `__atomic_store`/`__atomic_load`, `fence` plain accesses with
+;        `__fence` between, `plain` plain accesses alone - the CONTROL,
+;        which must show the forbidden outcome, or the zeros above it
+;        mean only that this harness cannot see a reordering at all.
+;   mp   message passing. T0 stores data (plain) then flag, T1 loads
+;        flag then data (plain); forbidden is flag 1 with data 0. `sc`
+;        publishes through the atomic flag - the pattern a program
+;        would actually use - and `plain` makes the flag plain too.
+;        The witness is how many rounds saw the flag at all: a run in
+;        which T1 always read the flag first is not a test.
+;   add  two threads each add 1 to one word `n` times; forbidden is
+;        any lost update. `sc` is `__atomic_add`, `cas` a
+;        compare-and-swap loop (witness: failed swaps, so contention
+;        is shown rather than assumed), and `split` an atomic load
+;        followed by an atomic store - atomic accesses, non-atomic
+;        increment - the control that shows the threads overlap.
+;
+; Every round of sb and mp uses FRESH zeroed words (MM-ALLOC-6), so no
+; location is ever reset while the other thread may still read it, and
+; both threads meet at a spin barrier before each round so they start
+; it together. What a zero here says is limited to the rounds run, on
+; this host, at this `--opt`: the absence of an outcome is not a proof
+; that it cannot happen.
+(import Fmt)
+(import IO)
+(import Str)
+(import Sys)
+
+; Arrive at round `round`'s barrier and spin until both threads have.
+; Answers the spin count, which nothing reads.
+(:: arrive (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (arrive ctr round)
+  (let (
+    (mut spins 0)
+    (want (* 2 (+ round 1)))
+  )
+    {
+      (__atomic_add ctr 1)
+      (while (< (__atomic_load ctr) want)
+        (set spins (+ spins 1)))
+      spins
+    }))
+
+; ---- sb ------------------------------------------------------------
+; mode 0 sc, 1 plain, 2 fence. Writes round i's load into res[i].
+(:: sbThread (-> Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (sbThread mine other res ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (if (== mode 0)
+            {
+              (__atomic_store (+ mine (* 8 i)) 1)
+              (__store64 res i (__atomic_load (+ other (* 8 i))))
+            }
+            (if (== mode 1)
+              {
+                (__store64 mine i 1)
+                (__store64 res i (__load64 other i))
+              }
+              {
+                (__store64 mine i 1)
+                __fence
+                (__store64 res i (__load64 other i))
+              }))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+(:: runSb (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runSb mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (ys (__alloc (* 8 n)))
+    (r0 (__alloc (* 8 n)))
+    (r1 (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+    (mut i 0)
+    (mut weak 0)
+  )
+    {
+      (parallel p (
+        (a (sbThread
+          xs
+          ys
+          r0
+          ctr
+          n
+          mode))
+        (b (sbThread
+          ys
+          xs
+          r1
+          ctr
+          n
+          mode))
+      )
+        (+ a b))
+      (while (< i n)
+        {
+          (if (== (+ (__load64 r0 i) (__load64 r1 i)) 0)
+            (set weak (+ weak 1))
+            0)
+          (set i (+ i 1))
+        })
+      (println (strConcat (fmtInt weak) (strConcat " " (fmtInt n))))
+      0
+    }))
+
+; ---- mp ------------------------------------------------------------
+; mode 0 sc (plain data, atomic flag), 1 plain.
+(:: mpWriter (-> Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (mpWriter data flag ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (__store64 data i 1)
+          (if (== mode 0)
+            (__atomic_store (+ flag (* 8 i)) 1)
+            (__store64 flag i 1))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; Round i's flag, through the atomic load (mode 0) or a plain one.
+(:: loadFlag (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (loadFlag flag i mode)
+  (if (== mode 0)
+    (__atomic_load (+ flag (* 8 i)))
+    (__load64 flag i)))
+
+; Writes the forbidden count to out[0] and the rounds that saw the
+; flag to out[1].
+(:: mpReader (-> Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (mpReader data flag ctr n mode out)
+  (let (
+    (mut i 0)
+    (mut weak 0)
+    (mut seen 0)
+  )
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (let ((f (loadFlag flag i mode)))
+            (let ((d (__load64 data i)))
+              (if (== f 1)
+                {
+                  (set seen (+ seen 1))
+                  (if (== d 0)
+                    (set weak (+ weak 1))
+                    0)
+                }
+                0)))
+          (set i (+ i 1))
+        })
+      (__store64 out 0 weak)
+      (__store64 out 1 seen)
+      0
+    }))
+
+(:: runMp (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runMp mode n)
+  (let (
+    (data (__alloc (* 8 n)))
+    (flag (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+    (out (__alloc 16))
+  )
+    {
+      (parallel p (
+        (a (mpWriter
+          data
+          flag
+          ctr
+          n
+          mode))
+        (b (mpReader
+          data
+          flag
+          ctr
+          n
+          mode
+          out))
+      )
+        (+ a b))
+      (println (strConcat (fmtInt (__load64 out 0)) (strConcat " " (fmtInt (__load64 out 1)))))
+      0
+    }))
+
+; ---- add -----------------------------------------------------------
+; mode 0 sc, 1 split, 2 cas. Answers the failed swaps (cas) or 0.
+(:: addThread (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (addThread cell n mode)
+  (let (
+    (mut i 0)
+    (mut failed 0)
+  )
+    {
+      (while (< i n)
+        {
+          (if (== mode 0)
+            (__atomic_add cell 1)
+            (if (== mode 1)
+              (__atomic_store cell (+ (__atomic_load cell) 1))
+              (let ((mut old (__atomic_load cell)))
+                (while (!= (__atomic_cas cell old (+ old 1)) old)
+                  {
+                    (set failed (+ failed 1))
+                    (set old (__atomic_load cell))
+                  }))))
+          (set i (+ i 1))
+        })
+      failed
+    }))
+
+(:: runAdd (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runAdd mode n)
+  (let ((cell (__alloc 8)))
+    (parallel p (
+      (a (addThread cell n mode))
+      (b (addThread cell n mode))
+    )
+      {
+        (let ((lost (- (* 2 n) (__atomic_load cell))))
+          (println
+            (strConcat
+              (fmtInt lost)
+              (strConcat
+                " "
+                (fmtInt
+                  (if (== mode 2)
+                    (+ a b)
+                    (* 2 n)))))))
+        0
+      })))
+
+(:: modeOf (-> String Int))
+(fn (modeOf s)
+  (if (strEq s "sc")
+    0
+    (if (|| (strEq s "plain") (strEq s "split"))
+      1
+      (if (|| (strEq s "fence") (strEq s "cas"))
+        2
+        (- 0 1)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (family (sysArg 1))
+    (mode (modeOf (sysArg 2)))
+    (n 500000)
+  )
+    (if (< mode 0)
+      {
+        (println "usage: atomics (sb sc|plain|fence) | (mp sc|plain) | (add sc|split|cas)")
+        2
+      }
+      (if (strEq family "sb")
+        (runSb mode n)
+        (if (strEq family "mp")
+          (runMp mode n)
+          (if (strEq family "add")
+            (runAdd mode n)
+            {
+              (println "usage: atomics (sb sc|plain|fence) | (mp sc|plain) | (add sc|split|cas)")
+              2
+            }))))))

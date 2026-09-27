@@ -42,13 +42,13 @@ observed.
 | ID | Guarantee | Rule / implementation | Owner | Evidence | Configs | Gaps |
 |---|---|---|---|---|---|---|
 | R-C1 | No `Vec` shared by reference between `--threads` siblings (plan F11) | `MM-PAR-6`; `capReport` + `capTyIsVec` refuse class-0 containers | compiler | `tests/diagnostics/656-parallel-container-capture.ax` (direct, aliased, nested, struct-wrapped); `642` row 5; `471-parallel-trap.ax` builds inside | H1–H3 | the refusal is by head constructor after alias expansion; a `Vec` behind an unresolved type variable is refused by the class rule instead |
+| R-C3 | The five atomic primitives lower to their sequentially consistent instructions on x86-64 and AArch64 at every `--opt`, and two threads never show an outcome sequential consistency forbids in the store-buffering, message-passing and counter families | `MM-PAR-1` atomics clause; `emitPrimAtomic` (`seq_cst` IR, no target arm) | compiler | `scripts/check-atomics.sh` §1: ordering instructions counted against `tests/stdlib/440-atomics.ax`'s uses, 7 targets × `-O0`…`-O3`, a no-atomics control clean; §2: five IR weakenings each turn §1 red, and the x86-64 load is measured invisible; §3: `tests/litmus/atomics.ax` under `--threads`, 3 × 500,000 rounds per row per level, with `sb plain` and `add split` controls required to show the forbidden outcome | §1 all seven targets (emission); §3 H1–H3 | a litmus zero is evidence on the rounds run, not proof; only SB, MP and counter (no LB, IRIW, 2+2W); AArch64 is inspected as LL/SC because the IR names no LSE-capable CPU; at `-O0` AArch64 lowers every RMW with `ldaxr`/`stlxr` whatever its ordering, so §1's `-O0` RMW rows discriminate nothing; the `mp plain` control is reported, not required, because x86 hardware never reorders it |
 
 ## Open (milestones C–E)
 
 | ID | Guarantee | Status |
 |---|---|---|
 | R-C2 | Mutex, bounded channel, timeout, cancellation; typed results by explicit serialization with a per-task byte bound | open: only a word crosses a join; platform-constant fragments in `.claude/worktrees/` agent dirs do not stand alone (no `Shared`/`Chan`/`Task`, no `Sys.ax` branches) |
-| R-C3 | Atomics lowering inspected in machine code on x86-64 and AArch64 at every `--opt`; litmus tests on the host | open |
 | R-D1 | Checked restricted profile with transitive enforcement and a per-function resource report | open; one worktree holds a typecheck fragment referencing undefined profile/MMIO helpers and a missing doc — not integrated |
 | R-D2 | Bare-metal image executed under QEMU; MMIO/interrupt/DMA ownership demonstrator | open |
 | R-E1 | Executable model with differential harness; seeded compiler fuzzing in CI | partial: model + gate landed (`scripts/lib/runtime-model.py`, `scripts/check-runtime-model.sh`, 13 checks); seeded compiler-input fuzzing in CI still open |

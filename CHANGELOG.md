@@ -22,6 +22,36 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The atomics in machine code and on two threads — `scripts/check-atomics.sh` - 2026-09-27
+
+The five atomic primitives lower to `seq_cst` LLVM atomics with no
+target arm, and nothing had looked at an instruction. The new gate
+does, in three sections. Machine code: `440-atomics.ax` is emitted for
+all seven targets and put through the driver's `opt`/`llc` at
+`-O0`…`-O3`, and each ordering instruction must appear exactly once
+per source use - `xchg`, `lock xadd`, `lock cmpxchg` and a locked `or`
+to the stack on x86-64; `ldar`, `stlr`, an `ldaxr`/`stlxr` loop and
+`dmb ish` on AArch64 - with no weaker exclusive, while a program with
+no atomics counts zero of every one. Ablations: weakening a store, a
+load or a read-modify-write to `monotonic`, or deleting the fence,
+must turn that count red where the ISA can show it; the x86-64 load is
+measured byte-identical under `monotonic`, because TSO puts the cost
+on the store. Litmus: `tests/litmus/atomics.ax` runs store-buffering,
+message-passing and a contended counter on two `--threads` threads at
+every level, 500,000 rounds a run, and every atomic row must show zero
+forbidden outcomes while `sb plain` and `add split` - plain accesses,
+and an atomic load then an atomic store - must show them, or the zeros
+mean the harness cannot see a reordering at all. Measured on
+darwin-aarch64: 69 checks; the plain store-buffering control shows 2 to
+36,036 forbidden rounds depending on level. Two things the gate found
+in its own table: at `-O0` LLVM lowers every AArch64 read-modify-write
+with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
+`-O2`), and AArch64 is inspected as LL/SC because the IR names no
+LSE-capable CPU. Scope is stated in the gate and in
+`docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
+rounds run, not proof. Calls one new gate; the count sites state
+eighty-two gates.
+
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
 `scripts/check-region-verdict.sh` compared whole-file `wc -c` and went
@@ -50,7 +80,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-one gates.
+sites state eighty-two gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -291,7 +321,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-one gates.
+checks). Calls one new gate; the count sites state eighty-two gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -308,7 +338,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-one gates, and the battery has
+gate; the count sites state eighty-two gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

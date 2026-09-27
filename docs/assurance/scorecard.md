@@ -25,13 +25,15 @@ row names another.
 | `MM-RGN-1…7` normative with H/P markers (R-B3) | `memory-model.md` §3.6; `bash scripts/check-region-scope.sh check-region-escape.sh …` |
 | Obligation dispositions registered (R-B4) | [memory-audit.md](memory-audit.md); `bash scripts/check-doc-drift.sh` |
 | No `Vec` shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; `642` row 5; `471` builds inside |
+| Atomics lower to their ordering instructions on 7 targets × 4 levels; SB/MP/counter litmus clean on two threads, beside controls that show the forbidden outcomes (R-C3) | `bash scripts/check-atomics.sh` — 69 pass on H3 (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Executable allocator/arena/region model agrees with the runtime (R-E1 partial) | `scripts/lib/runtime-model.py`; `bash scripts/check-runtime-model.sh` — 13 pass (selftest, 18 trace builds at opt 0+3, canary, hand control, 5 ablations) |
 
 ## Open defects and gaps
 
-- R-C2/R-C3 (plan F12): no mutex/channel/timeout/cancellation; no atomics machine-code inspection or litmus runs.
+- R-C2 (plan F12): no mutex/channel/timeout/cancellation.
+- R-C3 limits: litmus families beyond SB/MP/counter (LB, IRIW, 2+2W); no LSE-lowered AArch64 inspected; a litmus zero is evidence, not proof.
 - R-A3 remainder: no dedicated spawn-refused fixture.
-- R-E1 remainder: seeded compiler-input fuzzing in CI; sanitizers, race detectors, litmus runs.
+- R-E1 remainder: seeded compiler-input fuzzing in CI; sanitizers, race detectors.
 - `MM-PAR-7` stated limits: reparented grandchildren, uninterruptible sweeps, unmapped-handle words (`MM-PAR-8` planned).
 - R-B5 (`MM-FFI-7`) is stated and unchecked.
 - R-B2 budgets are allocator-mark measurements on one shape, not RSS or asymptotic proof.
@@ -44,7 +46,8 @@ H1, H2, H3 via CI; E1 emission-only. Local full runs on H3-class
 hardware: `check-parallel.sh` 69/69 (with a `timeout` shim; 12a
 SKIP), `check-diagnostics.sh` 245/245, `check-render-selfhost.sh`
 238/238, `run-stdlib-tests.sh 527` pass with optstable,
-`check-runtime-model.sh` 13/13, `check-doc-drift.sh` green.
+`check-runtime-model.sh` 13/13, `check-atomics.sh` 69/69,
+`check-doc-drift.sh` green.
 `timeout(1)` is absent from the macOS image, so §12b/§12c fail there
 on the harness; freebsd/windows/darwin-x86_64 execution is
 unverified everywhere.

@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-one of the gates below build the compiler under test from
+    # eighty-two of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -559,6 +559,16 @@ jobs:
       # two IR mutations of the emitted runtime must both fail.
       - name: Executable allocator model agrees with the emitted runtime
         run: ./scripts/check-runtime-model.sh
+
+      # R-C3: the five atomic primitives in machine code for all seven
+      # targets at -O0..-O3 - each ordering instruction counted against
+      # the fixture's uses, a no-atomics control clean, and IR weakenings
+      # required to turn the count red - then store-buffering,
+      # message-passing and counter litmus tests on two `--threads`
+      # threads on this runner, each beside a control that must show the
+      # outcome the zeros exclude.
+      - name: Atomics lower to their ordering instructions and hold on two threads
+        run: ./scripts/check-atomics.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is
