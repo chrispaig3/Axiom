@@ -61,11 +61,13 @@
 #                 tests/fmt/syntax-zoo.expected.ax, and leaves that
 #                 golden alone when re-run on it.
 #
-#   memory        one self-compile's peak RSS, under a ceiling (340
+#   memory        one self-compile's peak RSS, under a ceiling (704
 #                 MiB today; every move of it is dated and measured
 #                 at the constant itself) and over an 8 MiB floor,
 #                 with the IR it produced compared against the IR
-#                 the ladder already has.
+#                 the ladder already has; and a 14-deep nest of `mut`
+#                 bindings within 16 MiB of a 6-deep one, the shape
+#                 that once made one function cost 400 MiB.
 #
 # WHAT IS DELIBERATELY NOT HERE. scripts/bootstrap-from-seed.sh already
 # runs the OTHER ladder - seed -> stage1 -> stage2 -> stage3 with this
@@ -839,14 +841,103 @@ floor=8192       # 8 MiB
 # compilers (x1.96), identical numbers left and right. Doubling the
 # input doubles the peak, at both compilers. Linear.
 # 760 leaves 12.4% over the measured 676.
-ceiling=778240   # 760 MiB, over a measured 676
+#
+# 760 -> 704 MiB on 2026-09-27 - DOWN, after the first failure here in
+# a while that WAS the thing the failure text suspects: not source
+# growth, a walk that repeats itself. CI failed at 1072 MiB (Linux,
+# d47998b0) and darwin read 1073. Bisected over 560d45bb..d47998b0 on
+# stage2 binaries (each tree's source built by its own stage1), on
+# `emit-llvm self_host/main.ax`, in KiB, each repeating to within
+# 16 KiB across two runs:
+#
+#   65a35e07 (Http)                          695,584
+#   7b4ff8cb (fetch: SHA-256 in pkg.ax)    1,098,256   +57.9%
+#
+#   65a35e07's compiler on 7b4ff8cb's source   1,098,240
+#   7b4ff8cb's compiler on 65a35e07's source     695,600
+#
+# The compiler change costs 16 KiB; the 402,656 is 428 inserted source
+# lines, 941 KiB a line against the 12-14 the entries above measure,
+# for 2,736 more IR lines (0.66%). One 68-line function did it:
+# `pkgShaBlock`, SHA-256's compression round, nine `mut` slots in one
+# `let` under a tenth. The flow walk (`setFlows`, `flowMask`,
+# `flowStashes` in codegen.ax) asked `mutFlag` for a `mut`'s flag - a
+# walk of its body - then walked the same body again, so every
+# enclosing `mut` doubled the walks under it, and `inferFlows` did it
+# all again every pass. EXPONENTIAL in nesting depth: 8 / 10 / 12
+# nested `mut`s over a trivial loop cost +2.2 / +9.8 / +39.8 MiB over
+# an empty file, and `pkgShaBlock` alone, in a file of its own, 204 MiB.
+#
+# `mutFlag` is memoised now (its comment says why that is sound), and
+# its answers are unchanged: IR byte-identical on 716 files (tests/,
+# examples/, stdlib/, self_host/), and on the self-compile of four
+# trees. On identical input, in KiB:
+#
+#   trunk's compiler on the fixed tree         1,100,208
+#   the FIXED compiler on the fixed tree         630,416   -42.7%
+#   the FIXED compiler on 65a35e07's source      622,864
+#   the FIXED compiler on 7b4ff8cb's source      628,480   +5,616
+#
+# The SHA-256 commit costs 13.1 KiB a source line under the fix - the
+# linear shape - and the pre-regression tree peaks 72,720 KiB (10.5%)
+# lower than it did, which is what shallower nests had been costing
+# all along. The self-compile's time halves with it, 6.9 -> 3.5 s. The
+# shape re-measured on 4,000 / 8,000 trivial declarations: 113,088 ->
+# 201,088 KiB before, 112,736 -> 200,688 after (x1.78 both). Nothing
+# here copies, and the nest arm below holds the walk itself, since this
+# ceiling only ever guarded it through one function a rewrite could
+# remove.
+#
+# THIS GATE'S OWN RUN READ 407 MiB, on a machine at load 17 with other
+# gates running; the same binary on the same input read 616 on three
+# runs out of three once the load fell, and 426 and 602 on two runs
+# under it. Peak RSS under memory pressure reads LOW - the kernel
+# compresses resident pages - and not high, so a low reading proves
+# nothing and the number to trust is the highest of repeated runs. The
+# 568 the 09-26 entry set aside was probably this. 704 leaves 12.5%
+# over the measured 616.
+ceiling=720896   # 704 MiB, over a measured 616
 if (( peak < floor )); then
   fail "the self-compile peaked at $peak KiB, under the $((floor / 1024)) MiB floor - that is not a measurement of compiling 73,298 source lines"
 fi
 if (( peak > ceiling )); then
-  fail "one self-compile peaked at $((peak / 1024)) MiB, over the $((ceiling / 1024)) MiB ceiling - suspect an accumulator that copies"
+  fail "one self-compile peaked at $((peak / 1024)) MiB, over the $((ceiling / 1024)) MiB ceiling - suspect an accumulator that copies, or a walk that repeats itself (bisect it, then run the split above)"
 fi
 echo "ok   one self-compile peaks at $((peak / 1024)) MiB, under the $((ceiling / 1024)) MiB ceiling ($(( (ceiling - peak) * 100 / ceiling ))% headroom)"
+
+# And the walk the 760 -> 704 entry found, held directly: one function
+# whose loop rotates `d` nested `mut` slots, at d = 6 and d = 14. Each
+# enclosing `mut` doubled the flow walk before `mutFlag` was memoised,
+# so the difference was 2^8 x the small nest's walk; measured on
+# stage2 binaries, the 14-deep nest peaked 163,056 KiB above the 6-deep
+# one before the memo and 224 KiB above it after. 16 MiB is ten times
+# under the first and seventy over the second. A difference rather
+# than a ratio, because both runs carry the same ~25 MiB of runtime and
+# stdlib, and that is not the part being asked about.
+nest_src() {
+  local d="$1" j
+  printf '(import Vec)\n(import Fmt)\n(import IO)\n\n(:: f (-> (Vec Int) Int))\n(fn (f h)\n  (let (\n'
+  for ((j = 0; j < d; j++)); do printf '    (mut v%d (vecGet h %d))\n' "$j" "$j"; done
+  printf '    (mut i 0)\n  )\n    {\n      (while (< i 64)\n        {\n'
+  for ((j = d - 1; j > 0; j--)); do printf '          (set v%d v%d)\n' "$j" "$((j - 1))"; done
+  printf '          (set v0 (+ v0 i))\n          (set i (+ i 1))\n        })\n      (+ v0 v%d)\n    }))\n\n' "$((d - 1))"
+  printf '(:: main Int)\n;@axiom:effect(io)\n(fn (main) { (let ((v vecNew)) (println (fmtHex (f v)))) 0 })\n'
+}
+mkdir -p "$work/nest"
+ln -s "$repo_root/stdlib" "$work/nest/stdlib"
+nest_src 6 >"$work/nest/n6.ax"
+nest_src 14 >"$work/nest/n14.ax"
+# Each run's IR is read for the function before its number is believed:
+# a compiler that refused the program would peak at nothing and pass.
+shallow="$(cd "$work/nest" && peak_rss_kb "$work/d2/axc" emit-llvm n6.ax)"
+grep -q '^define i64 @f(' "$work/peak.ll" || fail "stage2 emitted no \`f\` for the 6-deep mut nest - the difference below would be of something else"
+deep="$(cd "$work/nest" && peak_rss_kb "$work/d2/axc" emit-llvm n14.ax)"
+grep -q '^define i64 @f(' "$work/peak.ll" || fail "stage2 emitted no \`f\` for the 14-deep mut nest - the difference below would be of something else"
+[[ -n "$shallow" && -n "$deep" ]] || fail "could not measure the mut nests' peak memory"
+if (( deep - shallow > 16384 )); then
+  fail "a 14-deep mut nest peaked $(( (deep - shallow) / 1024 )) MiB above a 6-deep one, over 16 MiB - the flow walk is repeating itself per enclosing \`mut\` again (see \`mutFlag\`, self_host/codegen.ax)"
+fi
+echo "ok   a 14-deep mut nest peaks $(( deep - shallow )) KiB above a 6-deep one (under 16 MiB: the flow walk is not exponential in nesting)"
 
 echo
 echo "fixpoint reached from $seed_ll: the Axiom compiler reproduces itself, builds itself, and answers $swept cases correctly"

@@ -546,6 +546,11 @@
       ; asks for; until 2026-09-27 that one name silently moved every
       ; `parallel` in the program onto threads too (`parScan`).
       (vecPush ps 0)
+      ; slot 11: `mutFlag`'s memo, and slot 12: how deep inside an
+      ; outermost `mutFlag` call the walk is - the memo is only valid
+      ; within one (see `mutFlag`).
+      (vecPushVec ps vecNew)
+      (vecPush ps 0)
       (addTypeNamed
         ts
         "Some"
@@ -1615,6 +1620,10 @@
             (inferFlowsPass cg decls (+ i 1) changed)
             (let ((cell regionNew))
               {
+                ; the two walks below see one set of summaries - they
+                ; are written after both - so `mutFlag` may keep its
+                ; answers across them rather than per call
+                (mutMemoOpen cg)
                 (flowStashes
                   cg
                   (nodeC d)
@@ -1636,6 +1645,7 @@
                   (let (
                     (st (| (memGetWord e 7) (| st0 (arrivalToWord st0))))
                     (rt (| (memGetWord e 8) (flowMask cg (nodeC d) (nodeBVec d) vecNew)))
+                    (_z (mutMemoClose cg))
                     ; what the open region consumed, net of its counts,
                     ; widened to the word half like the stash summary:
                     ; a parameter released on any path is consumed on
@@ -2519,16 +2529,121 @@
 ; (`(set t (strConcat t "x"))`). The flag of the slot is what a park
 ; or an answer of it carries: `(let ((mut t 0)) { (set t (cast Int
 ; s)) (__store64 m 0 t) })` parks a header word of `s`.
+;
+; MEMOISED, because the walk is otherwise EXPONENTIAL in how many `mut`
+; bindings nest. `setFlows`, `flowMask` and `flowStashes` each meet a
+; `(let ((mut x i)) body)` by asking this for `x`'s flag - a walk of
+; `body` per fixpoint pass - and then walk `body` again for their own
+; question, so every enclosing `mut` at least doubles the walks of what
+; is under it, and `inferFlows` repeats the lot on every pass. A
+; `(let ((mut a ..) .. (mut i 0)) ..)` list is that many nested
+; bindings: `pkgShaBlock` in `pkg.ax` (SHA-256, nine `mut` slots under
+; a tenth) took one self-compile from 695,600 to 1,098,256 KiB on
+; 2026-09-27 with byte-identical IR for everything else, and on
+; synthetic nests of 8 / 10 / 12 `mut`s over a trivial loop the peak
+; over an empty file was +2.2 / +9.8 / +39.8 MiB - x2 per binding.
+;
+; A binding's flag is a function of the binding, `params`, the `env` it
+; is asked under, and the flow summaries, which `inferFlowsPass` writes
+; between walks and never during one. So an answer is kept for as long
+; as the summaries cannot move: for one outermost call of this
+; function, or for the whole of a `mutMemoOpen` scope, which
+; `inferFlowsPass` opens around each function's two walks. The second
+; walk of a `body` then asks each binding under it the same question
+; under the same `env` the first walk did, and reads the answer the
+; first walk paid for. `env` is compared word for word; its names are
+; the AST's own strings, so a word-for-word match binds the same names
+; to the same flags, and a miss only costs the walk. The answers are
+; the unmemoised walk's: the compiler's IR is byte-identical with and
+; without it, and the nests above cost +0.3 / +0.4 / +0.4 MiB.
 (pub :: mutFlag (-> Int String Int Int (Vec Int) (Vec Int) Int))
 (pub fn (mutFlag cg name init body params env)
-  (mutFlagIter
-    cg
-    name
-    body
-    params
-    env
-    (flowMask cg init params env)
-    0))
+  (let (
+    (memo (vecGetVec (memGetWordVec cg 46) 11))
+    (depth (pairSlot cg 12))
+  )
+    (let ((at (if (== depth 0)
+      {
+        (vecClear memo)
+        (- 0 1)
+      }
+      (mutMemoFind memo name init body params env 0))))
+      (if (>= at 0)
+        (vecGet memo (+ at 4))
+        {
+          (pairSetSlot cg 12 (+ depth 1))
+          (let ((f (mutFlagIter
+            cg
+            name
+            body
+            params
+            env
+            (flowMask cg init params env)
+            0)))
+            {
+              (pairSetSlot cg 12 depth)
+              (mutMemoAdd memo name init body params env f)
+              f
+            })
+        }))))
+
+; An entry is `body init name params flag n` and then the `n` words
+; of the `env` it was asked under; the index of the matching entry,
+; or -1.
+(pub :: mutMemoFind (-> (Vec Int) String Int Int (Vec Int) (Vec Int) Int Int))
+(pub fn (mutMemoFind memo name init body params env at)
+  (if (>= at (vecLen memo))
+    (- 0 1)
+    (let ((n (vecGet memo (+ at 5))))
+      (if (&& (== (vecGet memo at) body) (&& (== (vecGet memo (+ at 1)) init) (&& (== (vecGet memo (+ at 2)) (cast Int name)) (&& (== (vecGet memo (+ at 3)) (cast Int params)) (&& (== n (vecLen env)) (== (mutMemoEnvEq memo (+ at 6) env 0 n) 1))))))
+        at
+        (mutMemoFind memo name init body params env (+ at (+ 6 n)))))))
+
+(pub :: mutMemoEnvEq (-> (Vec Int) Int (Vec Int) Int Int Int))
+(pub fn (mutMemoEnvEq memo at env i n)
+  (if (>= i n)
+    1
+    (if (== (vecGet memo (+ at i)) (vecGet env i))
+      (mutMemoEnvEq memo at env (+ i 1) n)
+      0)))
+
+(pub :: mutMemoAdd (-> (Vec Int) String Int Int (Vec Int) (Vec Int) Int Int))
+(pub fn (mutMemoAdd memo name init body params env f)
+  (let ((mut i 0))
+    {
+      (vecPush memo body)
+      (vecPush memo init)
+      (vecPush
+        memo
+        (cast Int name))
+      (vecPush
+        memo
+        (cast Int params))
+      (vecPush memo f)
+      (vecPush memo (vecLen env))
+      (while (< i (vecLen env))
+        {
+          (vecPush memo (vecGet env i))
+          (set i (+ i 1))
+        })
+      f
+    }))
+
+; A scope whose `mutFlag` answers are all kept: every walk inside it
+; must see the same flow summaries and the same current declaration
+; (word 36, which `paramFlowBit` reads; `params` is in the key).
+; Scopes do not nest - `mutMemoClose` returns to "one outermost call".
+(pub :: mutMemoOpen (-> Int Int))
+(pub fn (mutMemoOpen cg)
+  {
+    (vecClear (vecGetVec (memGetWordVec cg 46) 11))
+    (pairSetSlot cg 12 1)
+    0
+  })
+
+(pub :: mutMemoClose (-> Int Int))
+(pub fn (mutMemoClose cg)
+  (pairSetSlot cg 12 0))
 
 (pub :: mutFlagIter (-> Int String Int (Vec Int) (Vec Int) Int Int Int))
 (pub fn (mutFlagIter cg name body params env f k)
