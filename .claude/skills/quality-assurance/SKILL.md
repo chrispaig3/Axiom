@@ -52,14 +52,21 @@ Audit the thing that exists, not a generic compiler:
 - **The compiler is `self_host/`, written in Axiom.** The pipeline is
   `lexer.ax` → `parser.ax` → `expand.ax` (macro expansion, its own pass,
   after import resolution and before the checker) → `typecheck.ax` →
-  `codegen.ax`, which is an **LLVM IR text emitter**: there is no
-  separate three-address IR and no optimisation pass inside the compiler.
-  `opt`, `llc` and `cc` are external and `driver.ax` drives them.
-- **Reclamation is reference counting.** `linear T` and `consume` parse
-  but the memory model does not rely on them
-  (`docs/memory-model.md` MM-LIFE-2a / MM-LIFE-7). An audit that reports
-  on "the linear type system" or "the ownership model" is auditing a
-  language this is not.
+  `codegen.ax`, which is an **LLVM IR text emitter**: the BUILD path has
+  no separate three-address IR and no optimisation pass inside the
+  compiler. `opt`, `llc` and `cc` are external and `driver.ax` drives
+  them. The repository is not IR-free, though: `mir.ax`, `mireval.ax`
+  and `axir.ax` are an intermediate form and its evaluator for analysis
+  and tooling (`scripts/check-mir*.sh`), off the path a build takes -
+  say which path a claim is about.
+- **Reclamation is the arena scope plus the reference counting that
+  already emits.** `__axiom_arena_mark`/`__axiom_arena_reset` are the
+  strategy (`docs/memory-model.md` MM-ALLOC-22); reference counting
+  (MM-LIFE-2a) is abandoned in place rather than pending, and what it
+  emits still reclaims. `linear T` and `consume` parse but the memory
+  model does not rely on them (MM-LIFE-7). An audit that reports on "the
+  linear type system" or "the ownership model" is auditing a language
+  this is not.
 - **Effects are AXTAG claims checked against bodies** (`AX3010`, an
   **error** since 2026-08-25; `AX3037` for a claim the walk cannot
   check, still a warning). It rejects a claim, not an effect: an
@@ -69,9 +76,11 @@ Audit the thing that exists, not a generic compiler:
 - **Cascade suppression is poison propagation** (`TAG_T_ERR`, `tyCompat`,
   `tyPoisonUnknown`) plus ten spanlessness guards. There is no dedup pass
   and no diagnostic grouping.
-- **Allocation is a `mmap`-backed bump pointer with no free**, not
-  overridable (`AX3026`), and generated code calls no libc function
-  (`scripts/check-freestanding.sh`).
+- **Allocation is a bump pointer over `mmap`-ed chunks that are never
+  unmapped**, with a per-size-class free list a released block goes back
+  to (MM-ALLOC-2, MM-LIFE-2e) - "no free" was true once and is not now.
+  It is not overridable (`AX3026`), and generated code calls no libc
+  function (`scripts/check-freestanding.sh`).
 - **The corpus is the specification.** `tests/` is where behaviour is
   pinned; a claim with no fixture behind it is a claim, not a property.
 

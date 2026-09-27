@@ -22,6 +22,82 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### An audit's eleven findings, closed - 2026-09-26
+
+An external audit of `560d45b` (0.7.6) reported eleven defects at the
+integration boundaries, each with a reproduction. Every one is fixed,
+and every fix is held by a check that was seen to fail without it.
+
+- **The generated Rust binding was safe over raw handles.**
+  `Pair::from_axiom(<any i64>)`, `vec_sum(12345)` and `AxVecBuf: Send +
+  Sync` all compiled under `#![forbid(unsafe_code)]`. Now `from_axiom`
+  is `unsafe`; a `(Vec Int)` is a typed `&AxVecBuf`/`AxVecBuf`; any
+  operation that hands Axiom a raw `AxWord` (a `Handle`, a `Foreign`,
+  another `Vec`, or a data type holding one) is `unsafe` with a
+  `# Safety` section; `AxVecBuf` is `!Send`/`!Sync`. BREAKING for hosts.
+- **Host threads could race the runtime through safe calls.** Every
+  generated call and every allocating constructor takes an `AxRuntime`
+  (`axiom_ffi::host`), which one thread per process can claim and no
+  thread can send or forge; the `host` feature now implies `std`.
+  BREAKING for hosts: `AxString::from_str(rt, s)`, `add_two(rt, ..)`.
+  `scripts/check-ffi.sh` holds eight misuses to their error codes, a
+  correct-use twin to compiling, and two ablations of the generated file
+  to breaking them; `rust/examples/host` round-trips the new paths and
+  sees a second thread refused.
+- **The installer deleted `$HOME/bin` given `--prefix "$HOME/."`.** The
+  prefix is resolved to a physical directory before the protected list
+  is compared; existing trees are replaced only when `.axiom-install`
+  records them (or they have an earlier install's exact shape); the new
+  compiler is proved in a staging directory before the old one moves.
+  `scripts/check-install.sh`: cases 5-9, three ablations.
+- **`Http` served files through symlinks below a static root.**
+  `httpServeFile` opens through `Sys.sysOpenBeneath` - one `openat` per
+  segment, `O_NOFOLLOW` each - so no link below the root is followed.
+  `Sys` gains `sysOpenBeneath` and `sysSymlink`; every
+  `Sys/Platform.*.ax` gains `sysOpenatNum`, `sysSymlinkNum`,
+  `oNoFollow`, `oDirectory` and `eXdev`. `tests/stdlib/432` plants
+  outward, inward and swapped links; the previous `Http.ax` serves all
+  five.
+- **`Http` accepted conflicting framing.** Two `Content-Length`s that
+  disagreed (the first won), a signed length, a TAB in a header name, a
+  control byte in a value and a bare CR are 400s; the policy for
+  repeated lengths is stated at `httpContentLength`. `tests/stdlib/430`,
+  each at three read granularities. The negative-length message is now
+  `Content-Length carries a sign`.
+- **The head scan was quadratic under fragmentation.** It resumes where
+  the last one stopped. `scripts/check-http-scan.sh` (new) COUNTS the
+  positions examined - N-3 for an N-byte head fed a byte per read, where
+  the old scan's 521,731 at N=1,024 is its ablation.
+- **`axiom fetch` reused another repository's checkout** when two URLs
+  slugged alike, and **reported a failed clone `present`**. The checkout
+  key is now the slug plus 128 bits of SHA-256 of the whole URL; a
+  checkout is accepted by `fetch` and `build` only when git records that
+  URL as its origin; the clone goes to a temporary sibling and is renamed
+  into place only when complete. `scripts/check-driver.sh`, which also
+  stopped losing verdicts made inside `( ... )` subshells - its `fetch`
+  cases could never fail it before (137 counted, 145 now).
+  The checkout directory for an existing URL dependency MOVES: run
+  `axiom fetch` once.
+- **`check-ci-coverage.sh` counted mentions as executions.** It reads
+  the workflow's jobs and steps (`scripts/lib/ci-steps.py`) and counts a
+  gate only when a step runs it in a narrow form, not disabled by a
+  literally false `if` or hidden by `continue-on-error`. Eight new
+  ablations, including the audit's own echoed copy.
+- **The declared Rust minimum was neither inherited nor true.** It is
+  1.88 (let chains; the locked `trybuild`), every member inherits it,
+  and the `ffi` job builds the locked workspace on exactly that
+  toolchain; 1.87 fails with six `E0658`.
+- **`bench-datastructures.sh` printed ratios over a clamped
+  denominator** (1204.00x). Both sides now read N and a round count at
+  run time and print a checksum held to a closed form; rounds scale
+  until each side's work clears its launch cost and ten times its
+  jitter; a side that never does is INCONCLUSIVE (`--check` exits 3);
+  raw samples are kept.
+- Also: `pages.yml` pins its actions to commits and grants
+  `pages: write` to the deploy job alone; the QA and performance skills
+  no longer describe the allocator as never freeing or the repository
+  as having no intermediate representation.
+
 ### M3: innermost-wins, the scope-equiv gate redefined, 1003 becomes 1009
 
 MAC-HYG-9 migration slice 3: the ren-first tier rule is deleted and a

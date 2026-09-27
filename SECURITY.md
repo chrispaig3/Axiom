@@ -57,9 +57,21 @@ and `cc` are sufficient — see `CONTRIBUTING.md` and `bootstrap/README.md`.
 - **The installer** (`scripts/install.sh`) — what `curl | bash` runs.
   It verifies a SHA-256 against a published checksum file, and
   `scripts/check-install.sh` proves that comparison is what refuses a
-  tampered archive.
+  tampered archive. It also must never delete what it did not install:
+  it compares the prefix as a physical directory (so `$HOME/.` is
+  `$HOME`), replaces only trees its `.axiom-install` record lists, and
+  proves a new compiler before moving the old one aside - each of those
+  is in scope, and each is ablated in the same gate.
 - **The FFI boundary** (`docs/ffi.md`) — a shape the boundary accepts
-  and then misreads.
+  and then misreads, including a SAFE Rust API in a generated binding
+  that can reach undefined behaviour: the binding's contract (raw words
+  only through `unsafe`, one runtime thread through `AxRuntime`) is held
+  to compile errors by `scripts/check-ffi.sh`.
+- **`Http`'s static root** — a request served from outside the
+  directory given to `routeStatic`, by traversal or through a symlink
+  below it, and request framing the parser accepts ambiguously.
+- **`axiom fetch`** — a build compiled against a checkout that is not a
+  clone of the URL its manifest names.
 
 ## What is out of scope
 

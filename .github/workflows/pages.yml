@@ -24,13 +24,13 @@ on:
   # Manual, for a re-deploy after changing the Pages source in Settings.
   workflow_dispatch:
 
-# What `deploy-pages` needs, and nothing else. `contents: read` is the
-# checkout; `pages: write` publishes; `id-token: write` is the OIDC
-# token the deployment is attested with.
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+# NOTHING at the workflow level; each job asks for its own. Until
+# 2026-09-26 `pages: write` and `id-token: write` were granted here, to
+# BOTH jobs - so `npm ci`, the build and every package it ran held a
+# token that could publish the site. The build job reads; only the
+# deploy job, which runs no repository code and one pinned action, can
+# write. `ci.yml` and `release.yml` already scope their tokens this way.
+permissions: {}
 
 # One deployment at a time. `cancel-in-progress: false` because a
 # half-finished deploy is worse than a queued one: cancelling between
@@ -44,13 +44,22 @@ defaults:
   run:
     working-directory: web
 
+# EVERY ACTION IS PINNED TO A COMMIT, as in `ci.yml` and `release.yml`:
+# a major tag like `v4` is moved by its owner, so `@v4` runs whatever
+# that repository published last. Each SHA below is the commit its
+# major tag pointed at on 2026-09-26, so pinning changed nothing that
+# runs; moving one is now a reviewed edit to this file.
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The checkout, and `configure-pages` reading the site's settings.
+    permissions:
+      contents: read
+      pages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm
@@ -83,18 +92,24 @@ jobs:
       # diagnosed from a 404.
       - run: touch dist/.nojekyll
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: web/dist
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # What `deploy-pages` needs, and nothing else: `pages: write`
+    # publishes, `id-token: write` is the OIDC token the deployment is
+    # attested with. No checkout, so no `contents`.
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

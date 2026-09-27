@@ -28,8 +28,8 @@ shims across the FFI boundary.
 This repository's one recorded performance win was found by measuring,
 and it was in the place nobody predicted. `renderCG` built the emitted
 module by left-folding `strConcat` over a vector of lines. `strConcat`
-allocates a fresh buffer and copies both operands, and the allocator is a
-bump pointer with no free, so each line copied everything emitted so far
+allocates a fresh buffer and copies both operands, and the allocator was
+then a bump pointer with no free, so each line copied everything emitted so far
 and abandoned the previous copy: peak was the *sum* of every
 intermediate, growing with the square of the output. Measuring the total
 length once and copying into a single buffer took one self-compile from
@@ -75,17 +75,25 @@ no `Vec` at all.
 
 State these correctly or not at all:
 
-- **Allocation is a `mmap`-backed bump pointer with no free**, and it is
-  not overridable - defining `axiom_alloc` is refused as `AX3026`. Every
-  intermediate buffer you allocate stays resident until the process ends.
-  This is why quadratic copying shows up as a memory catastrophe before
-  it shows up as a slow one.
-- **Reclamation is reference counting**, not linearity and not a garbage
-  collector. `linear T` and `consume` parse but are not what the memory
-  model relies on (README.md's status table; `docs/memory-model.md`
-  MM-LIFE-2a / MM-LIFE-7). What linearity would still buy is
-  retain/release-free moves and early drops - say that, not that Axiom
-  has linear types.
+- **Allocation is a bump pointer over `mmap`-ed chunks**, and it is not
+  overridable - defining `axiom_alloc` is refused as `AX3026`. Chunks are
+  never unmapped. A block whose count reaches zero goes onto a
+  per-size-class free list that the next allocation of that size reuses
+  (`docs/memory-model.md` MM-ALLOC-2, MM-LIFE-2e), and an arena reset
+  returns whole chunks (MM-ALLOC-22) - so "no free" is stale. But memory
+  is never given back to the OS, and a released block is reused only by
+  an allocation of its own size class, so a sequence of ever-larger
+  buffers (the quadratic-copy shape) is not rescued by the free lists.
+  Measure peak memory before assuming it is; that is why quadratic
+  copying shows up as a memory catastrophe before it shows up as a slow
+  one.
+- **Reclamation is the arena scope plus reference counting**, not
+  linearity and not a garbage collector. The arena is the strategy
+  (MM-ALLOC-22); reference counting (MM-LIFE-2a) is abandoned in place,
+  and what it already emits still reclaims. `linear T` and `consume`
+  parse but are not what the memory model relies on (MM-LIFE-7). What
+  linearity would still buy is retain/release-free moves and early
+  drops - say that, not that Axiom has linear types.
 - **`stdlib/Map.ax` is an open-addressing hash map with a separate state
   array**, mutable, `Int` keys to machine-word values. It is not
   persistent. `stdlib/Vec.ax` and `stdlib/Intern.ax` are the other two
