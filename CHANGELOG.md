@@ -22,6 +22,25 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
+
+`docs/memory-model.md` said which bindings run where and what crosses
+a join, and nothing about when one binding's write is visible to
+another's read. `MM-PAR-9` states it: happens-before is program order,
+spawn (`pthread_create` / `fork`), join (`pthread_join` / `wait4` on the
+shared page) and the sequentially consistent atomics, and nothing else;
+the atomics are one 64-bit width at an 8-aligned address, lock-free on
+every target; a data race is never harmless and so is not defined. The
+safe-language guarantee is stated with its exact boundary, and two
+things measured while writing it are recorded rather than smoothed
+over: an atomic whose word crosses a 16-byte granule dies of SIGBUS on
+darwin-aarch64 (exit 138, no message, no trap) - a precondition of the
+unsafe layer, not a check - and `restrict(no-unsafe)` refuses ordinary
+container code (`work -> Vec$vecPush -> Mem$memSetWord -> __store64`),
+so a call to an `effect(unsafe)` wrapper and a user `cast` of a word
+into a handle remain program obligations with no practical checkable
+refusal. R-C4 in the requirements matrix.
+
 ### The atomics in machine code and on two threads — `scripts/check-atomics.sh` - 2026-09-27
 
 The five atomic primitives lower to `seq_cst` LLVM atomics with no

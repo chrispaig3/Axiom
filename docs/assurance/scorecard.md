@@ -25,12 +25,14 @@ row names another.
 | `MM-RGN-1…7` normative with H/P markers (R-B3) | `memory-model.md` §3.6; `bash scripts/check-region-scope.sh check-region-escape.sh …` |
 | Obligation dispositions registered (R-B4) | [memory-audit.md](memory-audit.md); `bash scripts/check-doc-drift.sh` |
 | No `Vec` shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; `642` row 5; `471` builds inside |
+| Happens-before, the atomics' meaning and the data-race boundary stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; evidence as R-C3 plus `check-parallel.sh` |
 | Atomics lower to their ordering instructions on 7 targets × 4 levels; SB/MP/counter litmus clean on two threads, beside controls that show the forbidden outcomes (R-C3) | `bash scripts/check-atomics.sh` — 69 pass on H3 (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Executable allocator/arena/region model agrees with the runtime (R-E1 partial) | `scripts/lib/runtime-model.py`; `bash scripts/check-runtime-model.sh` — 13 pass (selftest, 18 trace builds at opt 0+3, canary, hand control, 5 ablations) |
 
 ## Open defects and gaps
 
 - R-C2 (plan F12): no mutex/channel/timeout/cancellation.
+- R-C4 limits: a misaligned atomic is SIGBUS, not a trap (measured, exit 138); no practical checkable refusal for a call to an `effect(unsafe)` wrapper or a user `cast` of a word into a handle - `restrict(no-unsafe)` also refuses `vecPush`.
 - R-C3 limits: litmus families beyond SB/MP/counter (LB, IRIW, 2+2W); no LSE-lowered AArch64 inspected; a litmus zero is evidence, not proof.
 - R-A3 remainder: no dedicated spawn-refused fixture.
 - R-E1 remainder: seeded compiler-input fuzzing in CI; sanitizers, race detectors.

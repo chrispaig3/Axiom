@@ -4417,6 +4417,105 @@ join of an unmapped page is still a read of whatever maps there next,
 and is a program obligation until the handle has a type that is
 consumed by its join.
 
+**MM-PAR-9 (H, 2026-09-27). What orders memory between bindings, what
+the atomics mean, and what a race is.** Until this rule the contract
+said which bindings run where and what crosses a join, and nothing
+about *when* one binding's write is visible to another's read.
+
+*Happens-before has exactly these edges, and no others:*
+
+1. **Program order** within one binding.
+2. **Spawn.** Everything the spawning binding did before a spawn
+   happens-before everything the spawned binding does. Under threads the
+   parent writes the thunk and its argument to the handle page and then
+   calls `pthread_create` (`__axiom_par_spawn_thread`), which POSIX
+   lists among its memory-synchronizing functions. Under processes it is
+   `fork`: the child starts from a copy of the parent's memory, and
+   nothing either writes afterwards is visible to the other except the
+   answer.
+3. **Join.** Everything a binding did happens-before its join returns.
+   Under threads the answer is read from the handle page after
+   `pthread_join` (POSIX-listed). Under processes the child writes its
+   answer to the `MAP_SHARED` page and exits, and the parent reads it
+   after `wait4` returns - the BSD/Linux form of `waitpid`, which POSIX
+   lists; this contract relies on the kernel's exit/wait path and names
+   that reliance rather than hiding it. `stdlib/Par.ax` is the process
+   lowering (`__proc_spawn`/`__proc_join`) and inherits both edges.
+4. **Atomics.** The five primitives are sequentially consistent: there
+   is one total order over every atomic operation in the program,
+   consistent with program order and with the edges above, and an
+   atomic load that reads an atomic store synchronizes with it - so a
+   plain write made before the store is visible to a plain read made
+   after the load (publication, the message-passing shape).
+
+There is no mutex, channel, condition variable, timeout or volatile
+access (R-C2 in `docs/assurance/requirements.md`). The only blocking
+operation is a join, which waits for its child without a timeout.
+
+*The atomics, precisely.* One width: a 64-bit word. One ordering:
+`seq_cst`, with no weaker spelling in the language. At a BYTE address
+that **MUST** be 8-aligned - a precondition of the unsafe layer these
+primitives belong to (`MM-EXEC-9c`), stated here and not checked: the
+IR claims `align 8`, and a misaligned address is outside this contract.
+Measured on darwin-aarch64: a word at offset 4 of a 16-byte granule
+works, and one at offset 12, crossing into the next granule, dies of
+SIGBUS - exit 138, no message, no trap a recovery point can catch. A
+defined trap there is open, not provided. All five lower inline on every
+target, to the instructions `scripts/check-atomics.sh` counts, so they
+are lock-free everywhere; there is no locking fallback to substitute.
+
+*A data race* is two accesses to one location from different bindings,
+at least one a write and at least one not atomic, with neither
+happening-before the other. Its meaning is not "one of the two values":
+a racing plain read may answer anything, the compiler may assume no
+race exists, and a race on a handle or a count word corrupts the
+allocator's metadata (`MM-PAR-6a`, `MM-LIFE-2k`). No race is harmless,
+so none is defined.
+
+*The safe-language guarantee, and the exact boundary of it.* A race
+needs a location two bindings can both reach, and the language builds
+none: it has no top-level mutable state (`def` is not a form; a
+top-level binding is a function), every mutable runtime global is
+thread-local (`MM-PAR-6`), a spawned thunk captures no reference and no
+`Vec` (`AX3064`, R-C1), what crosses a join is a word, and the process
+lowering shares nothing (`MM-PAR-3`). So a race requires one of three
+things:
+
+- **the unsafe layer** - an `Unsafe` primitive (a raw address loaded or
+  stored, or an atomic on a word something else accesses plainly), or a
+  call to one of the standard-library wrappers that say
+  `effect(unsafe)` (`Mem.ax`'s raw words and their kin, R-A6). A
+  declaration that performs a primitive must say so (`AX3073`), so
+  direct use is always visible. `restrict(no-unsafe)` refuses both - but
+  it walks through the SAFE standard library too, so it also refuses
+  ordinary container code. Measured: a thunk that pushes to a local
+  `Vec` is refused as `work -> Vec$vecPush -> Mem$memSetWord ->
+  __store64`. It is a sufficient check, not a practical one;
+- **an `extern` call**, whose side decides (`MM-FFI-7`) - refused by
+  `restrict(no-foreign)`, which admits ordinary code;
+- **a `cast` from a word to a handle** (`MM-VAL-22`). `restrict(no-cast)`
+  reads only its own body, and `restrict(no-cast:deep)` also refuses the
+  standard library's own typed accessors, which cast by design
+  (`MM-VAL-23`).
+
+Two holes, then, with no refusal that admits ordinary programs: a user
+`cast` of a word into a handle, and a call to an `effect(unsafe)`
+wrapper from a declaration that does not itself say so (`AX3073` fires
+only where a primitive is called). Each is findable by reading - the
+word `cast`, the callee's tag - and each is a **program obligation**
+until a claim can separate the trusted layer's internal use from a
+user's.
+
+*Evidence.* `scripts/check-atomics.sh` (the instructions, their
+ablations, and store-buffering, message-passing and counter litmus tests
+on two threads); `scripts/check-parallel.sh` (both lowerings answer
+byte-identically, joins, sweeps, foreign-join refusal);
+`tests/diagnostics/642`, `643`, `644` and `656` (the capture
+refusals); `scripts/check-thread-local.sh` (the thread-local globals).
+The spawn and join edges are the platform's, cited rather than tested:
+no litmus can show a missing `pthread_create` barrier more directly
+than every parallel fixture already would.
+
 ---
 
 ## 7. Foreign memory
