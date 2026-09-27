@@ -3,6 +3,7 @@
 ; the header, both within recovery and at process exit (MM-LIFE-2l).
 (import IO)
 (import Mem)
+(import Str)
 
 (:: retainOne (-> Int Int))
 ;@axiom:effect(unsafe)
@@ -31,6 +32,9 @@
             (println "unchanged {unchanged}")
           }))
       (retainOne p)
-      (println "UNREACHABLE")
-      0
+      ; NOT REACHED, and deliberately not a bare numeral: the status is
+      ; the trap's 70, and `verify-stdlib-out.py` reads a literal tail as
+      ; the exit status. If the retain ever stops trapping, this line runs
+      ; and the golden says so.
+      (printlnLit (strCStr "UNREACHABLE: the retain past the limit returned"))
     }))
