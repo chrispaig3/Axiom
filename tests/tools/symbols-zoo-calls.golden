@@ -20,7 +20,7 @@ F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #rest
 F vecWithCapacityRef stdlib/Vec.ax:106:9-27 "(Int -> Vec a)" @4931b5c5fdddadcc #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecBuild
 F vecNewRef stdlib/Vec.ax:112:9-18 "Vec a" @a3810b6416057230 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecDefaultCap,Vec$vecWithCapacityRef
 F vecBuild stdlib/Vec.ax:124:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=*,<,==,Mem$memAlloc,Mem$memAllocMapped,Mem$memMarkArray,Mem$memSetWord,__retain
-F vecFree stdlib/Vec.ax:162:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #calls=__release
+F vecFree stdlib/Vec.ax:162:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=__release
 F vecOwnsRefs stdlib/Vec.ax:177:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls===,Mem$memGetWord
 F vecLen stdlib/Vec.ax:186:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
 F vecCap stdlib/Vec.ax:193:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
@@ -31,25 +31,25 @@ F vecGetStr stdlib/Vec.ax:296:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a4
 F vecGetVec stdlib/Vec.ax:315:9-18 "(Vec a -> (Int -> Vec b))" @8412825523066371 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecGet
 F vecPushStr stdlib/Vec.ax:336:9-19 "(Vec a -> (String -> Vec a))" @25d7fb280bccc022 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecPush,__retainref
 F vecPushVec stdlib/Vec.ax:348:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed9282468628f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecPush,__retainref
-F vecSet stdlib/Vec.ax:364:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=<,>=,Mem$memSetWord,Vec$vecData,Vec$vecDropAt,Vec$vecLen,Vec$vecOwnsRefs
-F vecReserve stdlib/Vec.ax:391:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=<=,Vec$vecCap,Vec$vecGrownCap,Vec$vecReserveExactly
-F vecGrownCap stdlib/Vec.ax:408:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign #calls=*,>=,Vec$vecGrownCap
-F vecReserveExactly stdlib/Vec.ax:421:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=*,Mem$memAlloc,Mem$memCopy,Mem$memMarkArray,Mem$memMarkLeaf,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecOwnsRefs,__release,__retain
-F vecPush stdlib/Vec.ax:462:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=+,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecReserve
-F vecPop stdlib/Vec.ax:492:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=-,==,Mem$memGetWord,Mem$memSetWord,Vec$vecData,Vec$vecLen,__indexTrap
-F vecLast stdlib/Vec.ax:521:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=-,Vec$vecGet,Vec$vecLen
-F vecClear stdlib/Vec.ax:533:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memSetWord,Vec$vecDropFrom,Vec$vecOwnsRefs
-F vecDropAt stdlib/Vec.ax:549:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord,Vec$vecData,__release
-F vecDropFrom stdlib/Vec.ax:559:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=+,>=,Vec$vecDropAt,Vec$vecDropFrom,Vec$vecLen
-F vecSum stdlib/Vec.ax:579:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecSumFrom
-F vecSumFrom stdlib/Vec.ax:584:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=+,>=,Vec$vecGet,Vec$vecLen,Vec$vecSumFrom
-F vecHash stdlib/Vec.ax:597:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecHashFrom
-F vecHashFrom stdlib/Vec.ax:602:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=%,*,+,>=,Vec$vecGet,Vec$vecHashFrom,Vec$vecLen
-F vecSwapWords stdlib/Vec.ax:630:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord
-F vecSiftDown stdlib/Vec.ax:641:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords
-F vecSort stdlib/Vec.ax:679:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDown,Vec$vecSwapWords
-F vecSiftDownBy stdlib/Vec.ax:702:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords #effect-params=cmp
-F vecSortBy stdlib/Vec.ax:753:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDownBy,Vec$vecSwapWords #effect-params=cmp
+F vecSet stdlib/Vec.ax:363:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=<,>=,Mem$memSetWord,Vec$vecData,Vec$vecDropAt,Vec$vecLen,Vec$vecOwnsRefs,__indexTrap
+F vecReserve stdlib/Vec.ax:390:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=<=,Vec$vecCap,Vec$vecGrownCap,Vec$vecReserveExactly
+F vecGrownCap stdlib/Vec.ax:407:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign #calls=*,>=,Vec$vecGrownCap
+F vecReserveExactly stdlib/Vec.ax:420:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=*,Mem$memAlloc,Mem$memCopy,Mem$memMarkArray,Mem$memMarkLeaf,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecOwnsRefs,__release,__retain
+F vecPush stdlib/Vec.ax:461:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=+,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecReserve
+F vecPop stdlib/Vec.ax:491:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=-,==,Mem$memGetWord,Mem$memSetWord,Vec$vecData,Vec$vecLen,__indexTrap
+F vecLast stdlib/Vec.ax:520:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=-,Vec$vecGet,Vec$vecLen
+F vecClear stdlib/Vec.ax:532:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memSetWord,Vec$vecDropFrom,Vec$vecOwnsRefs
+F vecDropAt stdlib/Vec.ax:548:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord,Vec$vecData,__release
+F vecDropFrom stdlib/Vec.ax:558:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=+,>=,Vec$vecDropAt,Vec$vecDropFrom,Vec$vecLen
+F vecSum stdlib/Vec.ax:578:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecSumFrom
+F vecSumFrom stdlib/Vec.ax:583:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=+,>=,Vec$vecGet,Vec$vecLen,Vec$vecSumFrom
+F vecHash stdlib/Vec.ax:596:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecHashFrom
+F vecHashFrom stdlib/Vec.ax:601:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=%,*,+,>=,Vec$vecGet,Vec$vecHashFrom,Vec$vecLen
+F vecSwapWords stdlib/Vec.ax:629:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord
+F vecSiftDown stdlib/Vec.ax:640:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords
+F vecSort stdlib/Vec.ax:678:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDown,Vec$vecSwapWords
+F vecSiftDownBy stdlib/Vec.ax:701:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords #effect-params=cmp
+F vecSortBy stdlib/Vec.ax:752:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDownBy,Vec$vecSwapWords #effect-params=cmp
 F strWrap stdlib/Str.ax:45:9-16 "(Int -> (Int -> String))" @23328120de2f4a36 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Str$strWrapOwned
 F strWrapOwned stdlib/Str.ax:68:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe9929cdf4389f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Mem$memAllocMapped,Mem$memSetWord
 F strAlloc stdlib/Str.ax:90:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=+,Mem$memAlloc,Str$strWrapOwned,__retain
