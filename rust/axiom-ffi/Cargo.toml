@@ -33,8 +33,10 @@ nostd-runtime = []
 # `host` module - `AxString::from_str` over the archive's own
 # `Str$strAlloc`, `read_str` - which declares symbols only such an
 # archive defines, so it is off unless asked for (a staticlib that
-# Axiom links must not reference them).
-host = []
+# Axiom links must not reference them). It needs `std`: `AxRuntime`
+# binds the runtime to one thread by its `ThreadId`, and a host is a
+# Rust program with a `main` anyway.
+host = ["std"]
 
 [lints]
 workspace = true

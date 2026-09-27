@@ -615,6 +615,165 @@ if [[ -f "$hostlib" && -d rust/examples/host ]]; then
   fi
 fi
 
+# ---------------------------------------------------------------
+# The generated binding's SAFETY CONTRACT, held at compile time.
+#
+# Until 2026-09-26 the binding compiled a safe API over raw handles: an
+# audit type-checked, under `#![forbid(unsafe_code)]`, `Pair::from_axiom`
+# on an arbitrary `i64` (which dereferences it and calls `axiom_release`
+# on it), `vec_sum(12345)`, an `AxVecBuf` asserted `Send + Sync`, and two
+# threads each allocating an `AxString`. Every one of those is now a
+# compile error, and a compile error is only evidence if the program it
+# is about compiles once the mistake is taken out. So:
+#
+#   - eight MISUSE probes, each against the freshly generated binding,
+#     each required to fail with its own error code - not merely to
+#     fail, since a probe with a typo fails too;
+#   - one CORRECT-USE twin doing all eight things properly, required to
+#     compile - the proof that the negatives fail for their reasons;
+#   - two ABLATIONS of the generated file (`from_axiom` made safe, the
+#     vector's thread marker made `Send`) under which the matching probe
+#     must start compiling - the proof that the contract is what the
+#     generator writes, not an accident of the probe.
+#
+# `rustc --emit=metadata` type-checks without linking, so no archive is
+# needed; `axiom-ffi` is built once with the `host` feature to give the
+# probes something to `--extern`.
+# ---------------------------------------------------------------
+echo "== the generated binding's safety contract, at compile time =="
+if [[ ! -f "$work/hostlib/hostlib.rs" ]]; then
+  echo "FAIL no freshly generated binding to probe (the host section above did not produce one)"
+  status=1
+elif ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then
+  echo "ok   cargo/rustc are not installed; the binding's contract is not checked here (reported)"
+else
+  ffi_json="$(cd rust && cargo build -p axiom-ffi --features host --message-format=json 2>/dev/null)" || true
+  ffi_rlib="$(printf '%s\n' "$ffi_json" | python3 -c '
+import json, sys
+for line in sys.stdin:
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") == "compiler-artifact" and m["target"]["name"] == "axiom_ffi":
+        for f in m["filenames"]:
+            if f.endswith(".rlib"):
+                print(f)
+' | tail -1)" || true
+  if [[ -z "$ffi_rlib" || ! -f "$ffi_rlib" ]]; then
+    echo "FAIL could not build axiom-ffi with the host feature for the contract probes"
+    status=1
+  else
+    probes="$work/contract"
+    mkdir -p "$probes"
+    # Both directories: cargo reports the UPLIFTED `target/debug/*.rlib`,
+    # and the crates it depends on are only in `target/debug/deps` -
+    # without the second `-L` every probe fails E0463, which is not the
+    # error any of them is for.
+    # `probe <name> <binding.rs> <body>`: type-check one probe crate;
+    # prints rustc's error codes, one per line, and answers its status.
+    probe() {
+      local name="$1" binding="$2" body="$3"
+      {
+        echo "#![allow(dead_code, unused_imports, unused_variables, unused_unsafe)]"
+        echo "use axiom_ffi::host::{AxRuntime, AxString};"
+        echo "use axiom_ffi::AxWord;"
+        echo "#[path = \"$binding\"]"
+        echo "mod hostlib;"
+        printf '%s\n' "$body"
+      } > "$probes/$name.rs"
+      rustc --edition 2024 --crate-type lib --crate-name "probe_${name//-/_}" --emit=metadata \
+        -L "dependency=$(dirname "$ffi_rlib")" -L "dependency=$(dirname "$ffi_rlib")/deps" \
+        --extern "axiom_ffi=$ffi_rlib" \
+        -o "$probes/$name.rmeta" "$probes/$name.rs" 2>"$probes/$name.err"
+      local rc=$?
+      grep -oE 'error\[E[0-9]{4}\]' "$probes/$name.err" | sort -u
+      return $rc
+    }
+    fresh="$work/hostlib/hostlib.rs"
+    # name | the error it must fail with | the body
+    misuse=(
+      "from-axiom-safe|E0133|pub fn p(rt: AxRuntime, w: AxWord) -> hostlib::Pair { hostlib::Pair::from_axiom(rt, w) }"
+      "raw-wrapper-safe|E0133|pub fn p(rt: AxRuntime, w: AxWord) -> i64 { hostlib::count_strs(rt, w) }"
+      "raw-to-axiom-safe|E0133|pub fn p(rt: AxRuntime, w: AxWord) -> AxWord { hostlib::Tagged { f0: w, f1: 1 }.to_axiom(rt) }"
+      "int-as-vector|E0308|pub fn p(rt: AxRuntime) -> i64 { hostlib::vec_sum(rt, 12345) }"
+      "vecbuf-send|E0277|fn need<T: Send>() {} pub fn p() { need::<hostlib::AxVecBuf>() }"
+      "runtime-send|E0277|fn need<T: Send>() {} pub fn p() { need::<AxRuntime>() }"
+      "alloc-on-another-thread|E0277|pub fn p(rt: AxRuntime) { std::thread::spawn(move || { let _ = AxString::from_str(rt, \"x\"); }); }"
+      "forge-runtime|E0451|pub fn p() -> AxRuntime { AxRuntime { _thread: core::marker::PhantomData } }"
+    )
+    # NOT `codes="$(probe ..)"; prc=$?`: this gate runs under `set -e`,
+    # and an assignment whose substitution fails - which is every probe
+    # here that works - ends the script there, silently, one heading in.
+    # The first draft did exactly that.
+    for row in "${misuse[@]}"; do
+      IFS='|' read -r pname pcode pbody <<< "$row"
+      prc=0
+      codes="$(probe "$pname" "$fresh" "$pbody")" || prc=$?
+      if (( prc == 0 )); then
+        echo "FAIL contract: \`$pname\` COMPILED against the generated binding"
+        status=1
+      elif ! grep -qx "error\[$pcode\]" <<< "$codes"; then
+        echo "FAIL contract: \`$pname\` failed, but not with $pcode (got: $(tr '\n' ' ' <<< "$codes"))"
+        sed 's/^/     /' "$probes/$pname.err" | head -4
+        status=1
+      else
+        echo "ok   contract: $pname is refused ($pcode)"
+      fi
+    done
+    twin='pub fn p(rt: AxRuntime, w: AxWord) {
+    // SAFETY: probe only, never run.
+    let _p = unsafe { hostlib::Pair::from_axiom(rt, w) };
+    let _n = unsafe { hostlib::count_strs(rt, w) };
+    let _t = unsafe { hostlib::Tagged { f0: w, f1: 1 }.to_axiom(rt) };
+    let v = hostlib::AxVecBuf::from_words(rt, &[12345]);
+    let _s = hostlib::vec_sum(rt, &v);
+    let _q = hostlib::Pair { f0: 1, f1: 2 }.to_axiom(rt);
+    let _a = AxString::from_str(rt, "x");
+    let _o = std::thread::spawn(|| AxRuntime::claim().is_none());
+}'
+    if codes="$(probe correct-use "$fresh" "$twin")"; then
+      echo "ok   contract: the same eight operations, written correctly, compile"
+    else
+      echo "FAIL contract: the correct-use twin does not compile, so the refusals above prove nothing"
+      sed 's/^/     /' "$probes/correct-use.err" | head -6
+      status=1
+    fi
+    # The ablations: the generated file with one guarantee removed.
+    ablate_binding() {  # <out> <exact line> <replacement>
+      local n
+      n="$(grep -cxF -- "$2" "$fresh" || true)"
+      if [[ "$n" != 1 ]]; then
+        echo "FAIL contract ablation: \`$2\` matches $n lines of the generated binding, not 1"
+        status=1; return 1
+      fi
+      OLD="$2" NEW="$3" awk '$0 == ENVIRON["OLD"] { print ENVIRON["NEW"]; next } { print }' "$fresh" > "$1"
+    }
+    if ablate_binding "$probes/safe-from.rs.bind" \
+         '    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> Pair {' \
+         '    pub fn from_axiom(rt: AxRuntime, word: AxWord) -> Pair {'; then
+      if probe ablated-from "$probes/safe-from.rs.bind" \
+           "pub fn p(rt: AxRuntime, w: AxWord) -> hostlib::Pair { hostlib::Pair::from_axiom(rt, w) }" >/dev/null; then
+        echo "ok   contract ablation: with from_axiom generated safe, the first probe compiles"
+      else
+        echo "FAIL contract ablation: a safe from_axiom still did not compile - the probe tests something else"
+        status=1
+      fi
+    fi
+    if ablate_binding "$probes/send-vec.rs.bind" \
+         '    _thread: core::marker::PhantomData<*const ()>,' \
+         '    _thread: core::marker::PhantomData<()>,'; then
+      if probe ablated-send "$probes/send-vec.rs.bind" \
+           "fn need<T: Send>() {} pub fn p() { need::<hostlib::AxVecBuf>() }" >/dev/null; then
+        echo "ok   contract ablation: with the vector's marker made Send, the Send probe compiles"
+      else
+        echo "FAIL contract ablation: a Send AxVecBuf still failed the Send probe"
+        status=1
+      fi
+    fi
+  fi
+fi
+
 # --------------------------------------------------------------------
 # The HAND-WRITTEN Rust: clippy and rustfmt.
 # --------------------------------------------------------------------

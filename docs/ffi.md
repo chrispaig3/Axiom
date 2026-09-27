@@ -801,26 +801,27 @@ axiom build --input hostlib.ax --output libaxiom_hostlib.a \
 `--emit-rust-binding PATH` writes, from the same declarations the IR
 came from, the Rust view of the file's `pub` surface (`self_host/rustbind.ax`):
 one `extern "C"` declaration per function in a `raw` module, and one
-safe wrapper per function in Rust's own types —
+wrapper per function in Rust's own types — safe, except where a raw
+`AxWord` crosses —
 
 ```rust
 mod raw {
-    extern "C" {
+    unsafe extern "C" {
         pub fn addTwo(a0: i64, a1: i64) -> i64;
         pub fn shout(a0: i64) -> i64;
     }
 }
 
 /// `(pub :: addTwo (-> Int Int Int))`
-pub fn add_two(a: i64, b: i64) -> i64 {
+pub fn add_two(rt: AxRuntime, a: i64, b: i64) -> i64 {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::addTwo(a, b) };
     __r
 }
 
 /// `(pub :: shout (-> String String))`
-pub fn shout(s: &str) -> AxString {
-    let __a0 = AxString::from_str(s);
+pub fn shout(rt: AxRuntime, s: &str) -> AxString {
+    let __a0 = AxString::from_str(rt, s);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::shout(__a0.as_word()) };
     // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).
@@ -832,11 +833,25 @@ pub fn shout(s: &str) -> AxString {
 
 ```rust
 mod hostlib;
+use axiom_ffi::host::AxRuntime;
 fn main() {
-    println!("{}", hostlib::add_two(40, 2));                         // 42
-    println!("{}", hostlib::shout("hello").as_str().unwrap());       // HELLO
+    let rt = AxRuntime::claim().expect("this thread is the first to ask");
+    println!("{}", hostlib::add_two(rt, 40, 2));                     // 42
+    println!("{}", hostlib::shout(rt, "hello").as_str().unwrap());   // HELLO
 }
 ```
+
+**Every call takes an `AxRuntime`**, and that is the thread rule made
+into a type (§16). The archive's allocator keeps its state in plain
+globals and `axiom_retain`/`axiom_release` are unsynchronised, so two
+Rust threads allocating a string each race on it with nothing shared
+between them. `AxRuntime::claim()` answers `Some` on the first thread
+to ask - every time it asks - and `None` on every other thread for the
+life of the process, and the token is neither `Send` nor `Sync`: it
+cannot be forged (its field is private), cannot be moved into another
+thread, and without it nothing reaches the runtime. `AxString`,
+`AxVecBuf` and every value holding one are `!Send` as well, so what
+the owning thread built is dropped there.
 
 | Axiom | Rust parameter | Rust result | how |
 |---|---|---|---|
@@ -844,9 +859,21 @@ fn main() {
 | `Float` | `f64` | `f64` | `to_bits` / `from_bits` |
 | `Bool` | `bool` | `bool` | `as i64` / `!= 0` |
 | `Char` | `char` | `char` | the code point; `from_u32(..).unwrap_or('\u{FFFD}')` |
-| `String` | `&str` | `AxString` | `AxString::from_str` (the archive's `Str$strAlloc`) for the call; the result adopted with `from_owned` |
-| `Handle`, `Foreign` | `AxWord` | `AxWord` | the bare word |
+| `String` | `&str` | `AxString` | `AxString::from_str(rt, ..)` (the archive's `Str$strAlloc`) for the call; the result adopted with `from_owned` |
+| `(Vec Int)` | `&AxVecBuf` | `AxVecBuf` | borrowed for the call; the result adopted |
+| `Handle`, `Foreign`, any other `Vec` | `AxWord` | `AxWord` | the bare word - and a wrapper TAKING one is `unsafe` |
 | `()` result | — | `()` | the word dropped |
+
+**A raw word makes the call `unsafe`.** An `AxWord` is any `i64` the
+caller writes, and Axiom dereferences a `Handle`, a `Foreign` and every
+element of a `(Vec String)`, so a wrapper that hands one to Axiom - as
+an argument, or as a field of a value passed by reference - is a
+`pub unsafe fn` whose `# Safety` section says what the caller promises.
+One that only RECEIVES one stays safe: an owned word nobody releases is
+a leak, not a hazard. Until 2026-09-26 every wrapper was safe, and an
+audit compiled `vec_sum(12345)` and `Pair::from_axiom(<any i64>)` under
+`#![forbid(unsafe_code)]`; `scripts/check-ffi.sh` now holds eight such
+misuses to their compile errors (see the paragraph on `rust/examples/host` below).
 
 Names are snake-cased (`addTwo` → `add_two`; a Rust keyword gets a
 trailing underscore).
@@ -869,7 +896,9 @@ axh_vec_new / axh_vec_push / axh_vec_len / axh_vec_get
 
 and the binding writes, per type, a Rust `struct` (one constructor;
 the declared field names, or `f0..`) or `enum` (tuple variants) with
-`from_axiom`/`to_axiom`, maps `(Option T)` to `Option<T>` and
+`from_axiom`/`to_axiom` - `from_axiom(rt, word)` is `unsafe`, because
+it consumes a share of whatever the word points at, and `to_axiom(rt)`
+is too when a field is a raw word - maps `(Option T)` to `Option<T>` and
 `(Result T E)` to `Result<T, E>`, boxes a field that reaches its own
 type (`Cons(i64, Box<List_Int>)`), and converts at every boundary:
 
@@ -883,24 +912,38 @@ type (`Cons(i64, Box<List_Int>)`), and converts at every boundary:
 ```rust
 pub enum Shape { Circle(f64), Rect(i64, i64), Empty }
 pub struct Named { pub name: AxString, pub score: i64 }
-pub fn shape_grow(s: &Shape, k: i64) -> Shape
-pub fn safe_div(a: i64, b: i64) -> Result<i64, AxString>
+pub fn shape_grow(rt: AxRuntime, s: &Shape, k: i64) -> Shape
+pub fn safe_div(rt: AxRuntime, a: i64, b: i64) -> Result<i64, AxString>
 
-let grown = hostlib::shape_grow(&Shape::Rect(2, 3), 2);     // Shape::Rect(4, 6)
-let err = hostlib::safe_div(1, 0);                          // Err("division by zero")
+let grown = hostlib::shape_grow(rt, &Shape::Rect(2, 3), 2); // Shape::Rect(4, 6)
+let err = hostlib::safe_div(rt, 1, 0);                      // Err("division by zero")
 ```
 
 An Axiom `Vec` carries its element type on the Axiom side and nothing
-on the Rust one, so a signature naming `(Vec Int)` spells `AxWord` in
-the binding and the host builds and reads one through `AxVecBuf`
-(`from_words`, `as_word`, `words`; released on drop). The ownership rule the binding follows is the emitter's own,
+on the Rust one, so the binding types exactly one of them: a
+`(Vec Int)` parameter is `&AxVecBuf` and a result is an owned
+`AxVecBuf` (`from_words(rt, &[i64])`, `words`, `len`; released on
+drop), because its elements are words and any `i64` is a valid one.
+Every other `Vec` stays the raw word it is, for the reason in the table
+above. The ownership rule the binding follows is the emitter's own,
 read from its IR: an **argument is borrowed** (a callee that keeps one
 retains it — a constructor does), a **result is an owned share**
 (`MM-LIFE-2c` event 2). So `to_axiom` answers an owned word the
 wrapper releases after the call, `from_axiom` consumes the word it was
 given, and every accessor's answer is adopted or released.
 `rust/examples/host` round-trips each of these shapes ten thousand
-times through the allocator to show the shares balance.
+times through the allocator to show the shares balance - raw words
+included (`someStrs` out, `countStrs` and `taggedLen` back in, the
+share released by the host) - and checks that a second thread's
+`AxRuntime::claim()` is refused. `scripts/check-ffi.sh` then holds the
+generated file's CONTRACT at compile time: eight misuses - `from_axiom`
+without `unsafe`, a raw-word wrapper without `unsafe`, `to_axiom` on a
+type with a raw field without `unsafe`, an integer where a `(Vec Int)`
+is taken, `AxVecBuf: Send`, `AxRuntime: Send`, allocating on another
+thread, and forging an `AxRuntime` - must each fail with its own error
+code; the same eight operations written correctly must compile; and
+with `from_axiom` generated safe, or `AxVecBuf`'s thread marker made
+`Send`, the matching probe must start compiling.
 
 A `pub fn` whose signature names a type variable, a tuple, an arrow or
 a `[T]` list type — or a `data` whose fields reach one — or that has
@@ -1279,7 +1322,15 @@ names the fact in the way.
   its reason is not, and the old reason — "Axiom has no threads" — stopped
   being true on 2026-09-03, when `parallel` shipped with a `--threads`
   lowering that names the platform's `pthread_create`
-  (`self_host/codegen.ax`, `emitParThread`).
+  (`self_host/codegen.ax`, `emitParThread`). In the HOST direction
+  (§10) the restriction is enforced rather than stated, since
+  2026-09-26: every generated call and every allocating constructor
+  takes an `AxRuntime`, which one thread per process can claim and no
+  thread can send - an audit had type-checked two Rust threads each
+  allocating an `AxString` through the safe API, which races on the
+  allocator's globals without a single value crossing. In the direction
+  this section is about - Rust code Axiom calls - the rule below still
+  rests on the caller.
 
   What actually holds is narrower and stronger. The emitted runtime's
   `axiom_retain` and `axiom_release` are a plain load-add-store, not an

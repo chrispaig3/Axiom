@@ -54,19 +54,21 @@ of the type table.
 axiom build --input tests/ffi/host/hostlib.ax \
             --output /some/dir/libaxiom_hostlib.a --emit-staticlib
 AXIOM_HOST_ARCHIVE_DIR=/some/dir cargo run -p axiom-host
-# host: addTwo=42 shout=HELLO halve=2.5 isEven=true nextChar=b answer=42 same=ok structured=ok agree
+# host: addTwo=42 shout=HELLO halve=2.5 isEven=true nextChar=b answer=42 same=ok structured=ok otherThread=refused agree
 ```
 
 Every `pub fn` of the archive's entry file is a C symbol under its own
-name. `examples/host` calls the twenty the binding carries — the
-twenty-first, `identity`, is `(-> a a)` and the binding names it in a
+name. `examples/host` calls the twenty-three the binding carries — the
+twenty-fourth, `identity`, is `(-> a a)` and the binding names it in a
 trailing comment instead — round-trips the structured ones ten thousand
-times to show the shares balance, and prints the line above; `src/hostlib.rs` is the binding
+times to show the shares balance, checks that a second thread cannot
+claim the runtime, and prints the line above; `src/hostlib.rs` is the binding
 `--emit-rust-binding` generated, checked in and diffed against a fresh
 generation by `check-ffi.sh`. The facade's `host` feature is what that
-binding uses: `AxString::from_str` builds an argument through the
-archive's own `Str$strAlloc`, and `AxString::from_owned` adopts a
-result. See [`docs/ffi.md`](../docs/ffi.md) §10.
+binding uses: `AxRuntime::claim` gives the one thread allowed to touch
+the runtime its token, `AxString::from_str(rt, ..)` builds an argument
+through the archive's own `Str$strAlloc`, and `AxString::from_owned`
+adopts a result. See [`docs/ffi.md`](../docs/ffi.md) §10.
 
 ## Regenerating bindings
 

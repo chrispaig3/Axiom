@@ -183,6 +183,37 @@
       (vecDoubleInto v out (+ i 1))
     }))
 
+; RAW WORDS, which the binding carries but cannot type. A `(Vec
+; String)` crosses as the bare `AxWord` it is - the host cannot build
+; one, and Axiom dereferences every element - and so does a data type
+; with such a field. Every Rust operation that HANDS one to Axiom is
+; `unsafe` in the generated file (`countStrs`, `taggedLen`,
+; `Tagged::to_axiom`), and one that only receives one (`someStrs`) is
+; not: an owned word the caller has not released is a leak, not a
+; hazard. The host gets a word from `someStrs`, hands it to
+; `countStrs`, and releases it itself.
+(pub :: someStrs (Vec String))
+(pub fn (someStrs)
+  (let ((v vecNew))
+    {
+      (vecPush v "one")
+      (vecPush v "two")
+      (vecPush v "three")
+      v
+    }))
+
+(pub :: countStrs (-> (Vec String) Int))
+(pub fn (countStrs v)
+  (vecLen v))
+
+(pub data Tagged
+  (Tagged (Vec String) Int))
+
+(pub :: taggedLen (-> Tagged Int))
+(pub fn (taggedLen t)
+  (match t
+    ((Tagged v n) (+ (vecLen v) n))))
+
 ; Not carried by the binding: a function over a type variable. The
 ; generated file names it in a comment instead of declaring it.
 (pub :: identity (-> a a))

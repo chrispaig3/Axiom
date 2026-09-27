@@ -7,16 +7,23 @@
 //! releases. `String` arguments are built with the archive's own
 //! `Str$strAlloc`; a `data` value is built and read through the `axh_*`
 //! accessors the same build synthesised into the archive.
+//!
+//! Every call takes an `AxRuntime`: the archive's allocator and its
+//! reference counts are unsynchronised, so exactly one thread may touch
+//! them, and `AxRuntime::claim` is how a thread becomes that one. A call
+//! that takes a raw `AxWord` is `unsafe`: the word must be a live value
+//! of the Axiom type its signature names.
 #![allow(
     non_snake_case,
     non_camel_case_types,
     dead_code,
     unused_imports,
     unused_unsafe,
+    unused_variables,
     clippy::all
 )]
 
-use axiom_ffi::host::AxString;
+use axiom_ffi::host::{AxRuntime, AxString};
 use axiom_ffi::{axiom_release, AxWord};
 
 mod raw {
@@ -41,6 +48,9 @@ mod raw {
         pub fn optPairSum(a0: i64) -> i64;
         pub fn vecSum(a0: i64) -> i64;
         pub fn vecDouble(a0: i64) -> i64;
+        pub fn someStrs() -> i64;
+        pub fn countStrs(a0: i64) -> i64;
+        pub fn taggedLen(a0: i64) -> i64;
         pub fn axh_vec_new() -> i64;
         pub fn axh_vec_push(a0: i64, a1: i64) -> i64;
         pub fn axh_vec_len(a0: i64) -> i64;
@@ -78,53 +88,73 @@ mod raw {
         pub fn axh_Option_Pair_None() -> i64;
         pub fn axh_Option_Pair_Some(a0: i64) -> i64;
         pub fn axh_Option_Pair_Some_0(a0: i64) -> i64;
+        pub fn axh_Tagged_tag(a0: i64) -> i64;
+        pub fn axh_Tagged_Tagged(a0: i64, a1: i64) -> i64;
+        pub fn axh_Tagged_Tagged_0(a0: i64) -> i64;
+        pub fn axh_Tagged_Tagged_1(a0: i64) -> i64;
     }
 }
 
-/// An Axiom `Vec` of words, built and read through the archive's own `Vec`.
-/// A signature spells a `Vec` as `AxWord`, so pass `as_word()` where one is taken
-/// and wrap a returned word with `from_owned`.
-pub struct AxVecBuf(AxWord);
+/// An Axiom `(Vec Int)`, built and read through the archive's own `Vec`.
+/// A `(Vec Int)` parameter borrows one and a `(Vec Int)` result is one.
+#[derive(Debug)]
+pub struct AxVecBuf {
+    word: AxWord,
+    _thread: core::marker::PhantomData<*const ()>,
+}
 
 impl AxVecBuf {
-    pub fn from_words(words: &[AxWord]) -> AxVecBuf {
-        // SAFETY: the archive's `vecNew`/`vecPush`, answering an owned share.
+    /// A fresh Axiom `(Vec Int)` holding `words`.
+    pub fn from_words(rt: AxRuntime, words: &[i64]) -> AxVecBuf {
+        // SAFETY: the archive's `vecNew`/`vecPush`, answering an owned share; `rt`
+        // proves this is the thread the runtime belongs to.
         let v = unsafe { raw::axh_vec_new() };
         for w in words {
             unsafe { raw::axh_vec_push(v, *w) };
         }
-        AxVecBuf(v)
+        AxVecBuf {
+            word: v,
+            _thread: core::marker::PhantomData,
+        }
     }
 
-    /// Adopt a `Vec` word a function answered (an owned share).
+    /// Adopt a `(Vec Int)` word a function answered.
+    ///
+    /// # Safety
+    /// `word` must be a live Axiom `(Vec Int)` the caller owns one share of,
+    /// and this must run on the thread that holds the `AxRuntime`.
     pub unsafe fn from_owned(word: AxWord) -> AxVecBuf {
-        AxVecBuf(word)
+        AxVecBuf {
+            word,
+            _thread: core::marker::PhantomData,
+        }
     }
 
+    /// The word, for an `extern` call made by hand.
     pub fn as_word(&self) -> AxWord {
-        self.0
+        self.word
     }
 
     pub fn len(&self) -> usize {
-        unsafe { raw::axh_vec_len(self.0) as usize }
+        unsafe { raw::axh_vec_len(self.word) as usize }
     }
 
-    pub fn words(&self) -> Vec<AxWord> {
+    pub fn words(&self) -> Vec<i64> {
         (0..self.len())
-            .map(|i| unsafe { raw::axh_vec_get(self.0, i as AxWord) })
+            .map(|i| unsafe { raw::axh_vec_get(self.word, i as AxWord) })
             .collect()
     }
 }
 
 impl Drop for AxVecBuf {
     fn drop(&mut self) {
-        unsafe { axiom_release(self.0) }
+        unsafe { axiom_release(self.word) }
     }
 }
 
-fn __from_Option_Int(word: AxWord) -> Option<i64> {
-    // SAFETY: `word` is a live value of this type, owned by the caller; every
-    // accessor answers an owned share, released here or adopted by the value.
+unsafe fn __from_Option_Int(word: AxWord) -> Option<i64> {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
     let __tag = unsafe { raw::axh_Option_Int_tag(word) };
     let __v = match __tag {
         0 => None,
@@ -151,9 +181,9 @@ fn __to_Option_Int(v: &Option<i64>) -> AxWord {
     }
 }
 
-fn __from_Result_Int_String(word: AxWord) -> Result<i64, AxString> {
-    // SAFETY: `word` is a live value of this type, owned by the caller; every
-    // accessor answers an owned share, released here or adopted by the value.
+unsafe fn __from_Result_Int_String(word: AxWord) -> Result<i64, AxString> {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
     let __tag = unsafe { raw::axh_Result_Int_String_tag(word) };
     let __v = match __tag {
         0 => {
@@ -190,9 +220,9 @@ pub struct Pair {
     pub f1: i64,
 }
 
-fn __from_Pair(word: AxWord) -> Pair {
-    // SAFETY: `word` is a live value of this type, owned by the caller; every
-    // accessor answers an owned share, released here or adopted by the value.
+unsafe fn __from_Pair(word: AxWord) -> Pair {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
     let __tag = unsafe { raw::axh_Pair_tag(word) };
     let __v = match __tag {
         0 => {
@@ -216,11 +246,18 @@ fn __to_Pair(v: &Pair) -> AxWord {
 }
 
 impl Pair {
-    pub fn from_axiom(word: AxWord) -> Pair {
-        __from_Pair(word)
+    /// Adopt an Axiom value of this type, consuming the share `word` carries.
+    ///
+    /// # Safety
+    /// `word` must be a live Axiom `Pair` the caller owns one share of - the answer
+    /// of an Axiom call, or of `to_axiom` - and that share is released here, so the same
+    /// word must not be adopted twice.
+    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> Pair {
+        unsafe { __from_Pair(word) }
     }
 
-    pub fn to_axiom(&self) -> AxWord {
+    /// This value as an Axiom one, an owned share the caller releases.
+    pub fn to_axiom(&self, rt: AxRuntime) -> AxWord {
         __to_Pair(self)
     }
 }
@@ -233,9 +270,9 @@ pub enum Shape {
     Empty,
 }
 
-fn __from_Shape(word: AxWord) -> Shape {
-    // SAFETY: `word` is a live value of this type, owned by the caller; every
-    // accessor answers an owned share, released here or adopted by the value.
+unsafe fn __from_Shape(word: AxWord) -> Shape {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
     let __tag = unsafe { raw::axh_Shape_tag(word) };
     let __v = match __tag {
         0 => {
@@ -272,11 +309,18 @@ fn __to_Shape(v: &Shape) -> AxWord {
 }
 
 impl Shape {
-    pub fn from_axiom(word: AxWord) -> Shape {
-        __from_Shape(word)
+    /// Adopt an Axiom value of this type, consuming the share `word` carries.
+    ///
+    /// # Safety
+    /// `word` must be a live Axiom `Shape` the caller owns one share of - the answer
+    /// of an Axiom call, or of `to_axiom` - and that share is released here, so the same
+    /// word must not be adopted twice.
+    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> Shape {
+        unsafe { __from_Shape(word) }
     }
 
-    pub fn to_axiom(&self) -> AxWord {
+    /// This value as an Axiom one, an owned share the caller releases.
+    pub fn to_axiom(&self, rt: AxRuntime) -> AxWord {
         __to_Shape(self)
     }
 }
@@ -288,9 +332,9 @@ pub struct Named {
     pub score: i64,
 }
 
-fn __from_Named(word: AxWord) -> Named {
-    // SAFETY: `word` is a live value of this type, owned by the caller; every
-    // accessor answers an owned share, released here or adopted by the value.
+unsafe fn __from_Named(word: AxWord) -> Named {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
     let __tag = unsafe { raw::axh_Named_tag(word) };
     let __v = match __tag {
         0 => {
@@ -320,11 +364,18 @@ fn __to_Named(v: &Named) -> AxWord {
 }
 
 impl Named {
-    pub fn from_axiom(word: AxWord) -> Named {
-        __from_Named(word)
+    /// Adopt an Axiom value of this type, consuming the share `word` carries.
+    ///
+    /// # Safety
+    /// `word` must be a live Axiom `Named` the caller owns one share of - the answer
+    /// of an Axiom call, or of `to_axiom` - and that share is released here, so the same
+    /// word must not be adopted twice.
+    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> Named {
+        unsafe { __from_Named(word) }
     }
 
-    pub fn to_axiom(&self) -> AxWord {
+    /// This value as an Axiom one, an owned share the caller releases.
+    pub fn to_axiom(&self, rt: AxRuntime) -> AxWord {
         __to_Named(self)
     }
 }
@@ -336,16 +387,16 @@ pub enum List_Int {
     Cons(i64, Box<List_Int>),
 }
 
-fn __from_List_Int(word: AxWord) -> List_Int {
-    // SAFETY: `word` is a live value of this type, owned by the caller; every
-    // accessor answers an owned share, released here or adopted by the value.
+unsafe fn __from_List_Int(word: AxWord) -> List_Int {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
     let __tag = unsafe { raw::axh_List_Int_tag(word) };
     let __v = match __tag {
         0 => List_Int::Nil,
         1 => {
             let __f0 = unsafe { raw::axh_List_Int_Cons_0(word) };
             let __f1 = unsafe { raw::axh_List_Int_Cons_1(word) };
-            List_Int::Cons(__f0, Box::new(__from_List_Int(__f1)))
+            List_Int::Cons(__f0, Box::new(unsafe { __from_List_Int(__f1) }))
         }
         _ => unreachable!("a constructor index the type does not have"),
     };
@@ -369,24 +420,31 @@ fn __to_List_Int(v: &List_Int) -> AxWord {
 }
 
 impl List_Int {
-    pub fn from_axiom(word: AxWord) -> List_Int {
-        __from_List_Int(word)
+    /// Adopt an Axiom value of this type, consuming the share `word` carries.
+    ///
+    /// # Safety
+    /// `word` must be a live Axiom `(List Int)` the caller owns one share of - the answer
+    /// of an Axiom call, or of `to_axiom` - and that share is released here, so the same
+    /// word must not be adopted twice.
+    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> List_Int {
+        unsafe { __from_List_Int(word) }
     }
 
-    pub fn to_axiom(&self) -> AxWord {
+    /// This value as an Axiom one, an owned share the caller releases.
+    pub fn to_axiom(&self, rt: AxRuntime) -> AxWord {
         __to_List_Int(self)
     }
 }
 
-fn __from_Option_Pair(word: AxWord) -> Option<Pair> {
-    // SAFETY: `word` is a live value of this type, owned by the caller; every
-    // accessor answers an owned share, released here or adopted by the value.
+unsafe fn __from_Option_Pair(word: AxWord) -> Option<Pair> {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
     let __tag = unsafe { raw::axh_Option_Pair_tag(word) };
     let __v = match __tag {
         0 => None,
         1 => {
             let __f0 = unsafe { raw::axh_Option_Pair_Some_0(word) };
-            Some(__from_Pair(__f0))
+            Some(unsafe { __from_Pair(__f0) })
         }
         _ => unreachable!("a constructor index the type does not have"),
     };
@@ -409,16 +467,69 @@ fn __to_Option_Pair(v: &Option<Pair>) -> AxWord {
     }
 }
 
+/// `Tagged`, one constructor
+#[derive(Debug)]
+pub struct Tagged {
+    pub f0: AxWord,
+    pub f1: i64,
+}
+
+unsafe fn __from_Tagged(word: AxWord) -> Tagged {
+    // SAFETY: the caller promises `word` is a live value of this type it owns;
+    // every accessor answers an owned share, released here or adopted by the value.
+    let __tag = unsafe { raw::axh_Tagged_tag(word) };
+    let __v = match __tag {
+        0 => {
+            let __f0 = unsafe { raw::axh_Tagged_Tagged_0(word) };
+            let __f1 = unsafe { raw::axh_Tagged_Tagged_1(word) };
+            Tagged { f0: __f0, f1: __f1 }
+        }
+        _ => unreachable!("a constructor index the type does not have"),
+    };
+    unsafe { axiom_release(word) };
+    __v
+}
+
+fn __to_Tagged(v: &Tagged) -> AxWord {
+    match v {
+        Tagged { f0: a0, f1: a1 } => {
+            let __w = unsafe { raw::axh_Tagged_Tagged(*a0, *a1) };
+            __w
+        }
+    }
+}
+
+impl Tagged {
+    /// Adopt an Axiom value of this type, consuming the share `word` carries.
+    ///
+    /// # Safety
+    /// `word` must be a live Axiom `Tagged` the caller owns one share of - the answer
+    /// of an Axiom call, or of `to_axiom` - and that share is released here, so the same
+    /// word must not be adopted twice.
+    pub unsafe fn from_axiom(rt: AxRuntime, word: AxWord) -> Tagged {
+        unsafe { __from_Tagged(word) }
+    }
+
+    /// This value as an Axiom one, an owned share the caller releases.
+    ///
+    /// # Safety
+    /// Every `AxWord` field reachable from `self` must be a live Axiom value of the
+    /// type its Axiom declaration names.
+    pub unsafe fn to_axiom(&self, rt: AxRuntime) -> AxWord {
+        __to_Tagged(self)
+    }
+}
+
 /// `(pub :: addTwo (-> Int Int Int))`
-pub fn add_two(a: i64, b: i64) -> i64 {
+pub fn add_two(rt: AxRuntime, a: i64, b: i64) -> i64 {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::addTwo(a, b) };
     __r
 }
 
 /// `(pub :: shout (-> String String))`
-pub fn shout(s: &str) -> AxString {
-    let __a0 = AxString::from_str(s);
+pub fn shout(rt: AxRuntime, s: &str) -> AxString {
+    let __a0 = AxString::from_str(rt, s);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::shout(__a0.as_word()) };
     // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).
@@ -426,36 +537,36 @@ pub fn shout(s: &str) -> AxString {
 }
 
 /// `(pub :: halve (-> Float Float))`
-pub fn halve(x: f64) -> f64 {
+pub fn halve(rt: AxRuntime, x: f64) -> f64 {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::halve((x).to_bits() as i64) };
     f64::from_bits(__r as u64)
 }
 
 /// `(pub :: isEven (-> Int Bool))`
-pub fn is_even(n: i64) -> bool {
+pub fn is_even(rt: AxRuntime, n: i64) -> bool {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::isEven(n) };
     __r != 0
 }
 
 /// `(pub :: nextChar (-> Char Char))`
-pub fn next_char(c: char) -> char {
+pub fn next_char(rt: AxRuntime, c: char) -> char {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::nextChar((c) as i64) };
     char::from_u32(__r as u32).unwrap_or('\u{FFFD}')
 }
 
 /// `(pub :: answer Int)`
-pub fn answer() -> i64 {
+pub fn answer(rt: AxRuntime) -> i64 {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::answer() };
     __r
 }
 
 /// `(pub :: same (-> String String))`
-pub fn same(s: &str) -> AxString {
-    let __a0 = AxString::from_str(s);
+pub fn same(rt: AxRuntime, s: &str) -> AxString {
+    let __a0 = AxString::from_str(rt, s);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::same(__a0.as_word()) };
     // SAFETY: a String a function answers is an owned share (MM-LIFE-2c event 2).
@@ -463,29 +574,29 @@ pub fn same(s: &str) -> AxString {
 }
 
 /// `(pub :: strLenOf (-> String Int))`
-pub fn str_len_of(s: &str) -> i64 {
-    let __a0 = AxString::from_str(s);
+pub fn str_len_of(rt: AxRuntime, s: &str) -> i64 {
+    let __a0 = AxString::from_str(rt, s);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::strLenOf(__a0.as_word()) };
     __r
 }
 
 /// `(pub :: firstEven (-> Int Int (Option Int)))`
-pub fn first_even(a: i64, b: i64) -> Option<i64> {
+pub fn first_even(rt: AxRuntime, a: i64, b: i64) -> Option<i64> {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::firstEven(a, b) };
-    __from_Option_Int(__r)
+    unsafe { __from_Option_Int(__r) }
 }
 
 /// `(pub :: safeDiv (-> Int Int (Result Int String)))`
-pub fn safe_div(a: i64, b: i64) -> Result<i64, AxString> {
+pub fn safe_div(rt: AxRuntime, a: i64, b: i64) -> Result<i64, AxString> {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::safeDiv(a, b) };
-    __from_Result_Int_String(__r)
+    unsafe { __from_Result_Int_String(__r) }
 }
 
 /// `(pub :: pairSum (-> Pair Int))`
-pub fn pair_sum(p: &Pair) -> i64 {
+pub fn pair_sum(rt: AxRuntime, p: &Pair) -> i64 {
     let __a0 = __to_Pair(p);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::pairSum(__a0) };
@@ -494,16 +605,16 @@ pub fn pair_sum(p: &Pair) -> i64 {
 }
 
 /// `(pub :: pairSwap (-> Pair Pair))`
-pub fn pair_swap(p: &Pair) -> Pair {
+pub fn pair_swap(rt: AxRuntime, p: &Pair) -> Pair {
     let __a0 = __to_Pair(p);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::pairSwap(__a0) };
     unsafe { axiom_release(__a0) };
-    __from_Pair(__r)
+    unsafe { __from_Pair(__r) }
 }
 
 /// `(pub :: shapeArea (-> Shape Float))`
-pub fn shape_area(s: &Shape) -> f64 {
+pub fn shape_area(rt: AxRuntime, s: &Shape) -> f64 {
     let __a0 = __to_Shape(s);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::shapeArea(__a0) };
@@ -512,25 +623,25 @@ pub fn shape_area(s: &Shape) -> f64 {
 }
 
 /// `(pub :: shapeGrow (-> Shape Int Shape))`
-pub fn shape_grow(s: &Shape, k: i64) -> Shape {
+pub fn shape_grow(rt: AxRuntime, s: &Shape, k: i64) -> Shape {
     let __a0 = __to_Shape(s);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::shapeGrow(__a0, k) };
     unsafe { axiom_release(__a0) };
-    __from_Shape(__r)
+    unsafe { __from_Shape(__r) }
 }
 
 /// `(pub :: namedBump (-> Named Named))`
-pub fn named_bump(n: &Named) -> Named {
+pub fn named_bump(rt: AxRuntime, n: &Named) -> Named {
     let __a0 = __to_Named(n);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::namedBump(__a0) };
     unsafe { axiom_release(__a0) };
-    __from_Named(__r)
+    unsafe { __from_Named(__r) }
 }
 
 /// `(pub :: listSum (-> (List Int) Int))`
-pub fn list_sum(xs: &List_Int) -> i64 {
+pub fn list_sum(rt: AxRuntime, xs: &List_Int) -> i64 {
     let __a0 = __to_List_Int(xs);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::listSum(__a0) };
@@ -539,14 +650,14 @@ pub fn list_sum(xs: &List_Int) -> i64 {
 }
 
 /// `(pub :: listRange (-> Int (List Int)))`
-pub fn list_range(n: i64) -> List_Int {
+pub fn list_range(rt: AxRuntime, n: i64) -> List_Int {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::listRange(n) };
-    __from_List_Int(__r)
+    unsafe { __from_List_Int(__r) }
 }
 
 /// `(pub :: optPairSum (-> (Option Pair) Int))`
-pub fn opt_pair_sum(o: &Option<Pair>) -> i64 {
+pub fn opt_pair_sum(rt: AxRuntime, o: &Option<Pair>) -> i64 {
     let __a0 = __to_Option_Pair(o);
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
     let __r = unsafe { raw::optPairSum(__a0) };
@@ -555,16 +666,49 @@ pub fn opt_pair_sum(o: &Option<Pair>) -> i64 {
 }
 
 /// `(pub :: vecSum (-> (Vec Int) Int))`
-pub fn vec_sum(v: AxWord) -> i64 {
+pub fn vec_sum(rt: AxRuntime, v: &AxVecBuf) -> i64 {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
-    let __r = unsafe { raw::vecSum(v) };
+    let __r = unsafe { raw::vecSum(v.as_word()) };
     __r
 }
 
 /// `(pub :: vecDouble (-> (Vec Int) (Vec Int)))`
-pub fn vec_double(v: AxWord) -> AxWord {
+pub fn vec_double(rt: AxRuntime, v: &AxVecBuf) -> AxVecBuf {
     // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
-    let __r = unsafe { raw::vecDouble(v) };
+    let __r = unsafe { raw::vecDouble(v.as_word()) };
+    unsafe { AxVecBuf::from_owned(__r) }
+}
+
+/// `(pub :: someStrs (Vec String))`
+pub fn some_strs(rt: AxRuntime) -> AxWord {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::someStrs() };
+    __r
+}
+
+/// `(pub :: countStrs (-> (Vec String) Int))`
+///
+/// # Safety
+/// Every `AxWord` this call is handed - an argument, or a field of a value passed
+/// by reference - must be a live Axiom value of the type its Axiom signature names,
+/// borrowed for the call.
+pub unsafe fn count_strs(rt: AxRuntime, v: AxWord) -> i64 {
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::countStrs(v) };
+    __r
+}
+
+/// `(pub :: taggedLen (-> Tagged Int))`
+///
+/// # Safety
+/// Every `AxWord` this call is handed - an argument, or a field of a value passed
+/// by reference - must be a live Axiom value of the type its Axiom signature names,
+/// borrowed for the call.
+pub unsafe fn tagged_len(rt: AxRuntime, t: &Tagged) -> i64 {
+    let __a0 = __to_Tagged(t);
+    // SAFETY: the archive defines the symbol with exactly this shape (one word each way).
+    let __r = unsafe { raw::taggedLen(__a0) };
+    unsafe { axiom_release(__a0) };
     __r
 }
 

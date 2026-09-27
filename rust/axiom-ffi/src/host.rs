@@ -32,9 +32,70 @@
 //! share is released, or read it in place with [`read_str`] and leak
 //! it. A value passed INTO an Axiom call is borrowed for the call
 //! (event 1): the host's share covers it.
+//!
+//! # One thread
+//!
+//! The runtime a host links is not synchronised. Its allocator keeps
+//! its state in ordinary globals - a static archive with no `spawn` in
+//! it emits them without `thread_local`, and `--threads` does not change
+//! that for code the host calls - and `axiom_retain`/`axiom_release` are
+//! a plain load, add and store. Two Rust threads allocating an
+//! [`AxString`] each, with nothing shared between them, race on the
+//! allocator; that needs no value to cross a thread at all, so no marker
+//! on the VALUES can prevent it.
+//!
+//! So every call that reaches the runtime takes an [`AxRuntime`], and
+//! exactly one thread can ever hold one: [`AxRuntime::claim`] answers
+//! `Some` on the first thread to ask and on no other, for the life of
+//! the process, and the token is neither `Send` nor `Sync`. A second
+//! thread cannot construct a value, cannot call a generated wrapper, and
+//! cannot be handed the token - each of those is a compile error or a
+//! `None`, never a race. (Until 2026-09-26 `AxString::from_str` took
+//! nothing, and an audit type-checked two threads allocating through it
+//! under `#![forbid(unsafe_code)]`.)
 
 use crate::{axiom_release, AxStr, AxStrRepr, AxWord};
 use core::str::Utf8Error;
+use std::sync::OnceLock;
+use std::thread::{self, ThreadId};
+
+/// The one thread allowed to touch the Axiom runtime, fixed by the first
+/// [`AxRuntime::claim`].
+static OWNER: OnceLock<ThreadId> = OnceLock::new();
+
+/// The right to call into the Axiom runtime this program links: held by
+/// one thread, for the life of the process.
+///
+/// A zero-sized `Copy` token that is neither `Send` nor `Sync`, so it
+/// can be passed around freely on the thread that claimed it and cannot
+/// leave it. Every generated wrapper, every constructor here that
+/// allocates, and every `to_axiom` takes one.
+#[derive(Clone, Copy, Debug)]
+pub struct AxRuntime {
+    /// See [`axiom_abi::NotThreadSafe`]: what keeps the token on the
+    /// thread that claimed it.
+    _thread: axiom_abi::NotThreadSafe,
+}
+
+impl AxRuntime {
+    /// Claim the runtime for the calling thread.
+    ///
+    /// Answers `Some` on the first thread ever to call this - and every
+    /// time that thread calls it again - and `None` on every other
+    /// thread, for the life of the process. There is no release: a value
+    /// built on the owning thread may outlive any scope, so a second
+    /// owner could never be sure the first had finished.
+    pub fn claim() -> Option<AxRuntime> {
+        let me = thread::current().id();
+        if *OWNER.get_or_init(|| me) == me {
+            Some(AxRuntime {
+                _thread: core::marker::PhantomData,
+            })
+        } else {
+            None
+        }
+    }
+}
 
 unsafe extern "C" {
     /// `stdlib/Str.ax`: a `String` over fresh zeroed space for `len`
@@ -66,13 +127,17 @@ impl AxString {
     /// no encoding requirement. An `Err` type nothing can construct is
     /// worse than an inherent method with the obvious name.
     #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> AxString {
-        Self::from_bytes(s.as_bytes())
+    pub fn from_str(rt: AxRuntime, s: &str) -> AxString {
+        Self::from_bytes(rt, s.as_bytes())
     }
 
     /// As [`from_str`](Self::from_str), for bytes that need not be UTF-8
     /// (an Axiom `Str` is a byte string).
-    pub fn from_bytes(bytes: &[u8]) -> AxString {
+    ///
+    /// `rt` is the proof that this is the runtime's thread; the
+    /// allocation below is what needs it.
+    pub fn from_bytes(rt: AxRuntime, bytes: &[u8]) -> AxString {
+        let _ = rt;
         // SAFETY: `Str$strAlloc` is Axiom's own constructor; it answers
         // a header whose word 1 addresses `len + 1` zeroed bytes, so
         // the copy of `len` bytes stays inside the block and leaves the
@@ -94,7 +159,9 @@ impl AxString {
     ///
     /// # Safety
     /// `word` must be a live Axiom `String` the caller owns one share
-    /// of - the result of an Axiom call, not an argument it borrowed.
+    /// of - the result of an Axiom call, not an argument it borrowed -
+    /// and this must run on the thread that holds the [`AxRuntime`],
+    /// because the share is released there when the value drops.
     pub unsafe fn from_owned(word: AxWord) -> AxString {
         AxString {
             word,
