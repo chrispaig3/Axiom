@@ -1,0 +1,979 @@
+/* ================================================================ *
+ * Layout primitives
+ * ================================================================ */
+
+.container {
+  width: 100%;
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--s-5);
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding-inline: var(--s-4);
+  }
+}
+
+.section {
+  position: relative;
+  padding-block: clamp(4.5rem, 8vw, 7.5rem);
+  border-top: 1px solid var(--border);
+}
+
+.section--alt {
+  background: var(--bg-alt);
+}
+
+/* Grid and flex children must be allowed to shrink. A grid item's
+   default `min-width: auto` refuses to go narrower than its content,
+   so one long token sets the track's floor and pushes the item over
+   its neighbour. This belongs everywhere, not at the one place the
+   bug was noticed. */
+.pillars > *,
+.breaker > *,
+.breaker__stage > *,
+.tour > *,
+.tour__panel > *,
+.bench-grid > *,
+.trust > *,
+.duo > *,
+.duo__panel > *,
+.tools > *,
+.steps > *,
+.step > *,
+.next > *,
+.status > *,
+.docs > *,
+.faq > *,
+.footer__inner > *,
+.hero__stage > *,
+.ostabs > *,
+.step__demo > *,
+.usecases > *,
+.built__grid > *,
+.involved > *,
+.cta__inner > *,
+.hero__lead > *,
+.method__text > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* ---- the section head -------------------------------------------- */
+
+.shead {
+  max-width: 44rem;
+  margin-bottom: clamp(var(--s-6), 4vw, var(--s-7));
+}
+
+.shead--center {
+  margin-inline: auto;
+  text-align: center;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-4);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.eyebrow::before {
+  content: '';
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--grad);
+}
+
+.shead__lede {
+  margin-top: var(--s-4);
+}
+
+.shead__lede p {
+  font-size: clamp(var(--t-0), 0.9rem + 0.3vw, var(--t-1));
+  line-height: 1.65;
+}
+
+.grad {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* The descender of "y" and the comma sit outside the line box at a
+     1.02 line height; without this the gradient clips them. */
+  padding-bottom: 0.08em;
+}
+
+.aside {
+  max-width: 64ch;
+  margin-top: var(--s-6);
+  color: var(--text-3);
+  font-size: var(--t--1);
+}
+
+.hint {
+  margin: var(--s-2) 0 0;
+  color: var(--text-3);
+  font-size: var(--t--1);
+  line-height: 1.6;
+}
+
+.hint a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* ================================================================ *
+ * Navigation
+ * ================================================================ */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  height: var(--nav-h);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+}
+
+.nav__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  height: 100%;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: var(--t-1);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: var(--text);
+}
+
+.brand__mark {
+  flex: none;
+  border-radius: 6px;
+}
+
+.brand__version {
+  padding: 1px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.nav__links {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.nav__links a {
+  position: relative;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--t--1);
+  font-weight: 540;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.nav__links a:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.nav__links a[aria-current='true'] {
+  color: var(--text);
+}
+
+.nav__links a[aria-current='true']::after {
+  content: '';
+  position: absolute;
+  left: 11px;
+  right: 11px;
+  bottom: -11px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--grad);
+}
+
+.nav__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.icon-btn:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Theme glyph: BOTH are rendered and CSS picks, in the three cases
+   tokens.css handles - explicit dark, explicit light, and neither,
+   where only `prefers-color-scheme` separates them. */
+.icon-btn__sun {
+  display: none;
+}
+
+.icon-btn__moon {
+  display: block;
+}
+
+:root[data-theme='dark'] .icon-btn__sun {
+  display: block;
+}
+
+:root[data-theme='dark'] .icon-btn__moon {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .icon-btn__sun {
+    display: block;
+  }
+
+  :root:not([data-theme='light']) .icon-btn__moon {
+    display: none;
+  }
+}
+
+.icon-btn--menu {
+  display: none;
+}
+
+.nav__cta {
+  margin-left: var(--s-1);
+}
+
+@media (max-width: 1000px) {
+  .icon-btn--menu {
+    display: inline-flex;
+  }
+
+  .nav__actions {
+    margin-left: auto;
+  }
+
+  .nav__links {
+    position: absolute;
+    top: var(--nav-h);
+    left: 0;
+    right: 0;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: var(--s-3) var(--s-4) var(--s-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+  }
+
+  .nav[data-open='true'] .nav__links {
+    display: flex;
+  }
+
+  .nav__links a {
+    padding: 11px 12px;
+    font-size: var(--t-0);
+  }
+
+  .nav__links a[aria-current='true']::after {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand__version,
+  .nav__cta {
+    display: none;
+  }
+}
+
+/* ================================================================ *
+ * Buttons
+ * ================================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: var(--t-0);
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease,
+    transform 140ms ease, box-shadow 140ms ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn--lg {
+  min-height: 50px;
+  padding: 12px 24px;
+  font-size: var(--t-1);
+}
+
+.btn--sm {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: var(--t--1);
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: var(--text-inverse);
+  box-shadow: 0 8px 24px -10px var(--accent-line);
+}
+
+.btn--primary:hover {
+  background: var(--accent-hover);
+  color: var(--text-inverse);
+  box-shadow: 0 10px 30px -10px var(--accent);
+}
+
+.btn--ghost {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.btn--ghost:hover {
+  border-color: var(--text-3);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.badge--err {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+/* ================================================================ *
+ * A shell command with a copy button
+ * ================================================================ */
+
+.command {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--radius);
+  background: var(--ink-bg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.command + .command {
+  margin-top: var(--s-2);
+}
+
+.command__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 11px var(--s-4);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--t--1);
+  line-height: 1.5;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+
+.command__text code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: inherit;
+  overflow-wrap: normal;
+}
+
+.command__prompt {
+  flex: none;
+  color: var(--accent);
+  user-select: none;
+}
+
+.command__copy,
+.copy-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: var(--s-4);
+  border: 0;
+  border-left: 1px solid var(--ink-border);
+  background: var(--ink-bar);
+  color: var(--text-2);
+  font-size: var(--t--2);
+  font-weight: 540;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.command__copy:hover,
+.copy-btn:hover {
+  background: var(--ink-raised);
+  color: var(--text);
+}
+
+.command__copy[data-copied='true'],
+.copy-btn[data-copied='true'] {
+  color: var(--ok);
+}
+
+@media (max-width: 560px) {
+  .command__copy span {
+    display: none;
+  }
+}
+
+/* ================================================================ *
+ * The code window
+ * ================================================================ */
+
+.win {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--radius-lg);
+  background: var(--ink-bg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.win__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 42px;
+  padding-left: var(--s-4);
+  border-bottom: 1px solid var(--ink-border);
+  background: var(--ink-bar);
+}
+
+.win__dots {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+
+.win__dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2a323e;
+}
+
+.win__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.win__badge {
+  margin-left: auto;
+  flex: none;
+}
+
+.win__badge > :not(.badge) {
+  display: inline-flex;
+}
+
+.win__bar .copy-btn {
+  align-self: stretch;
+  margin-left: auto;
+}
+
+.win__badge + .copy-btn {
+  margin-left: 0;
+}
+
+.win__body {
+  position: relative;
+}
+
+.win__body pre {
+  margin: 0;
+  padding: var(--s-4) var(--s-5) var(--s-4) var(--s-4);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  font-size: var(--t--1);
+  line-height: 1.7;
+  tab-size: 2;
+  scrollbar-width: thin;
+}
+
+.win__body code {
+  display: block;
+  min-width: max-content;
+}
+
+.win__body--folded {
+  max-height: 36rem;
+  overflow: hidden;
+}
+
+.win__body--folded::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 6rem;
+  background: linear-gradient(to bottom, transparent, var(--ink-bg));
+  pointer-events: none;
+}
+
+.win__fold {
+  display: flex;
+  justify-content: center;
+  padding: var(--s-2);
+  border-top: 1px solid var(--ink-border);
+  background: var(--ink-bar);
+}
+
+.win__fold button {
+  padding: 5px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  cursor: pointer;
+}
+
+.win__fold button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* One line per block, its number inside it: one line box, two halves,
+   no drift. The number is excluded from selection and held against
+   the left edge while a long line scrolls under it. */
+.ln {
+  display: block;
+  margin-inline: calc(var(--s-4) * -1) calc(var(--s-5) * -1);
+  padding-inline: var(--s-4) var(--s-5);
+  border-left: 2px solid transparent;
+  transition: background 160ms ease;
+}
+
+.ln__n {
+  display: inline-block;
+  width: var(--ln-w, 2ch);
+  margin-right: 2ch;
+  color: var(--text-3);
+  text-align: right;
+  opacity: 0.55;
+  user-select: none;
+  -webkit-user-select: none;
+  position: sticky;
+  left: 0;
+  background: var(--ink-bg);
+}
+
+.ln--mark {
+  border-left-color: var(--ink-mark-edge);
+  background: var(--ink-mark);
+}
+
+.ln--mark .ln__n {
+  color: var(--ink-mark-edge);
+  opacity: 1;
+  background: transparent;
+}
+
+@media (max-width: 640px) {
+  .win__body pre {
+    padding-inline: var(--s-3) var(--s-4);
+    font-size: 0.78rem;
+  }
+
+  .ln {
+    margin-inline: calc(var(--s-3) * -1) calc(var(--s-4) * -1);
+    padding-inline: var(--s-3) var(--s-4);
+  }
+
+  .ln__n {
+    margin-right: 1.5ch;
+  }
+}
+
+/* A plain snippet, no window. */
+.snippet {
+  margin: var(--s-4) 0 0;
+  padding: var(--s-4);
+  border: 1px solid var(--ink-border);
+  border-radius: var(--radius);
+  background: var(--ink-bg);
+  overflow-x: auto;
+  font-size: var(--t--1);
+  line-height: 1.65;
+}
+
+/* ---- the run strip ------------------------------------------------ */
+
+.run {
+  border-top: 1px solid var(--ink-border);
+  background: #080b10;
+}
+
+.run__cmd {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 10px var(--s-4) 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+}
+
+.run__prompt {
+  color: var(--accent);
+  user-select: none;
+}
+
+.run__busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.run__busy::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: axpulse 900ms ease-in-out infinite;
+}
+
+@keyframes axpulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.run__out {
+  margin: 0;
+  padding: 6px var(--s-4) 12px;
+  overflow-x: auto;
+  color: var(--sx-string);
+  font-size: var(--t--1);
+  line-height: 1.6;
+  scrollbar-width: thin;
+}
+
+.run__line {
+  display: block;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.run[data-phase='waiting'] .run__line,
+.run[data-phase='busy'] .run__line,
+.run__line[data-shown='false'] {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+
+.run[data-phase='reveal'] .run__line[data-shown='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run__line,
+  .run__line[data-shown='false'] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ---- a refusal report --------------------------------------------- */
+
+.report {
+  border-top: 1px solid var(--ink-border);
+  background: #080b10;
+}
+
+.report__exit {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+  font-size: 0.7rem;
+}
+
+.report__body {
+  max-height: 30rem;
+  margin: 0;
+  padding: 8px var(--s-4) 14px;
+  overflow: auto;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+}
+
+/* ================================================================ *
+ * Tabs, and the terminal that uses them
+ * ================================================================ */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  padding: 6px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected='true'] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.term {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--radius-lg);
+  background: #080b10;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.term__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 6px 6px 6px var(--s-4);
+  border-bottom: 1px solid var(--ink-border);
+  background: var(--ink-bar);
+}
+
+.term__name {
+  flex: none;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  white-space: nowrap;
+}
+
+.term__bar .tabs {
+  margin-left: auto;
+}
+
+.term__body {
+  max-height: 32rem;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.term__body pre {
+  margin: 0;
+  padding: var(--s-4);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.term--wrap .term__body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.term:not(.term--wrap) .term__body code {
+  display: block;
+  min-width: max-content;
+}
+
+.term__caption {
+  padding: var(--s-3) var(--s-4);
+  border-top: 1px solid var(--ink-border);
+  color: var(--text-3);
+  font-size: var(--t--2);
+}
+
+@media (max-width: 560px) {
+  .term__bar {
+    flex-wrap: wrap;
+  }
+
+  .term__bar .tabs {
+    margin-left: 0;
+  }
+}
+
+/* ================================================================ *
+ * Syntax tokens (capture names from tree-sitter-axiom/queries/highlights.scm)
+ * ================================================================ */
+
+.tok-comment { color: var(--sx-comment); font-style: italic; }
+.tok-attribute { color: var(--sx-attribute); font-weight: 560; }
+.tok-string { color: var(--sx-string); }
+.tok-string-hole { color: var(--sx-hole); font-weight: 560; }
+.tok-character { color: var(--sx-string); }
+.tok-number { color: var(--sx-number); }
+.tok-boolean { color: var(--sx-boolean); }
+.tok-type { color: var(--sx-type); }
+.tok-type-builtin { color: var(--sx-type-builtin); font-weight: 560; }
+.tok-type-definition { color: var(--sx-type); }
+.tok-constructor { color: var(--sx-constructor); }
+.tok-function { color: var(--sx-function); font-weight: 580; }
+.tok-function-call { color: var(--sx-function); }
+.tok-function-method { color: var(--sx-function); }
+.tok-keyword { color: var(--sx-keyword); }
+.tok-keyword-function { color: var(--sx-keyword); }
+.tok-keyword-type { color: var(--sx-keyword); }
+.tok-keyword-conditional { color: var(--sx-keyword); }
+.tok-keyword-modifier { color: var(--sx-modifier); }
+.tok-module { color: var(--sx-type); }
+.tok-variable { color: var(--sx-variable); }
+.tok-variable-parameter { color: var(--sx-param); }
+.tok-variable-member { color: var(--sx-param); }
+.tok-character-special { color: var(--sx-punct); }
+.tok-punctuation-bracket { color: var(--sx-punct); }
+.tok-punctuation-delimiter { color: var(--sx-punct); }
+.tok-error { color: var(--sx-error); text-decoration: underline wavy; }
+.tok-text { color: var(--sx-variable); }
+
+/* Compiler output: the compiler's own severity colours, from the
+   palette table in self_host/style.ax. Rendered here, not quoted. */
+.term-e { color: var(--danger); font-weight: 650; }
+.term-w { color: var(--warn); font-weight: 650; }
+.term-code { color: var(--danger); }
+.term-gutter { color: var(--accent); }
+.term-help { color: var(--ok); }
+.term-dim { color: var(--text-3); }
+.term-key { color: var(--violet); }
+.term-str { color: var(--sx-string); }
+.term-num { color: var(--sx-number); }
+.term-e,
+.term-w,
+.term-code,
+.term-gutter,
+.term-help,
+.term-dim,
+.term-key,
+.term-str,
+.term-num {
+  font-style: normal;
+}
+
+/* A scrollable region must be reachable by keyboard; its focus ring is
+   drawn inside so a clipped parent cannot hide it. */
+.table-wrap,
+.win__body pre,
+.term__body,
+.report__body,
+.snippet,
+.fixpoint {
+  outline-offset: -2px;
+}

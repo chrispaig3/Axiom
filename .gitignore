@@ -61,6 +61,10 @@ web/.smoke-entry.tsx
 web/.smoke-bundle.mjs
 web/.tok-entry.ts
 web/.tok-bundle.mjs
+web/.samples-entry.ts
+web/.samples-bundle.mjs
+web/.prerender-entry.tsx
+web/.prerender-bundle.mjs
 
 # `axiom run` builds into the WORKING DIRECTORY. self_host/main.ax:1668
 # names the scratch executable `axiom_temp_output.<pid>`, and the

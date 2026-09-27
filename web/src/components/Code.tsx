@@ -1,42 +1,33 @@
 import {
   Fragment,
+  useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react'
 import { highlight, type Token } from '../lib/highlight.ts'
-import { ArrowUpRight } from './Icons.tsx'
+import { highlightRust } from '../lib/highlight-rust.ts'
+import { Check, Copy } from './Icons.tsx'
+
+export type Lang = 'axiom' | 'rust' | 'plain'
 
 const cls = (capture: Token['capture']) => `tok-${capture.replace(/\./g, '-')}`
 
-function Highlighted({ code }: { code: string }) {
-  const tokens = useMemo(() => highlight(code), [code])
-  return (
-    <>
-      {tokens.map((t, i) =>
-        t.capture === 'text' ? (
-          <Fragment key={i}>{t.text}</Fragment>
-        ) : (
-          <span key={i} className={cls(t.capture)}>
-            {t.text}
-          </span>
-        ),
-      )}
-    </>
-  )
+function tokensFor(code: string, lang: Lang): Token[] {
+  if (lang === 'axiom') return highlight(code)
+  if (lang === 'rust') return highlightRust(code)
+  return [{ text: code, capture: 'text' }]
 }
 
 /**
  * Split the token stream into lines.
  *
- * The gutter used to be a sibling column, and a sibling has its own font
- * and therefore its own line box — which is how the numbers came to sit
- * beside the wrong lines on a narrow screen. A number rendered INSIDE
- * the line it numbers cannot do that: there is one line box, and both
- * halves are in it. Alignment stops being something to keep true.
+ * The number is rendered INSIDE the line it numbers, not in a sibling
+ * gutter column: a sibling has its own line box, which is how numbers
+ * once came to sit beside the wrong lines on a narrow screen. One line
+ * box holding both halves cannot drift.
  */
 function toLines(tokens: Token[]): Token[][] {
   const lines: Token[][] = [[]]
@@ -50,26 +41,48 @@ function toLines(tokens: Token[]): Token[][] {
   return lines
 }
 
-/** Highlighted code, one `<span>` per line, each carrying its number. */
-function NumberedCode({ code }: { code: string }) {
-  const lines = useMemo(() => toLines(highlight(code)), [code])
+function paint(line: Token[]) {
+  return line.map((t, j) =>
+    t.capture === 'text' ? (
+      <Fragment key={j}>{t.text}</Fragment>
+    ) : (
+      <span key={j} className={cls(t.capture)}>
+        {t.text}
+      </span>
+    ),
+  )
+}
+
+/** Highlighted code, one block per line, each carrying its number. */
+export function Lines({
+  code,
+  lang = 'axiom',
+  marked,
+  numbered = true,
+}: {
+  code: string
+  lang?: Lang
+  /** 1-based line numbers to highlight as changed. */
+  marked?: readonly number[] | undefined
+  numbered?: boolean
+}) {
+  const lines = useMemo(() => toLines(tokensFor(code, lang)), [code, lang])
+  const mark = useMemo(() => new Set(marked ?? []), [marked])
   const width = `${String(lines.length).length}ch`
   return (
     <code style={{ ['--ln-w' as string]: width }}>
       {lines.map((line, i) => (
-        <span className="ln" key={i}>
-          <span className="ln__n" aria-hidden>
-            {i + 1}
-          </span>
-          {line.map((t, j) =>
-            t.capture === 'text' ? (
-              <Fragment key={j}>{t.text}</Fragment>
-            ) : (
-              <span key={j} className={cls(t.capture)}>
-                {t.text}
-              </span>
-            ),
+        <span
+          className={mark.has(i + 1) ? 'ln ln--mark' : 'ln'}
+          key={i}
+          data-numbered={numbered || undefined}
+        >
+          {numbered && (
+            <span className="ln__n" aria-hidden>
+              {i + 1}
+            </span>
           )}
+          {paint(line)}
           {'\n'}
         </span>
       ))}
@@ -77,245 +90,240 @@ function NumberedCode({ code }: { code: string }) {
   )
 }
 
-const reducedMotion = () =>
-  typeof matchMedia === 'function' &&
-  matchMedia('(prefers-reduced-motion: reduce)').matches
+/** A button that copies `text`, and says so. */
+export function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
 
-/**
- * The run strip: a prompt, a brief compile beat, then the program's real
- * output a line at a time.
- *
- * The delay is theatre and is labelled as such — it is not a measured
- * compile time, and the benchmark section carries the number that is.
- * It exists because a static block of green text does not read as
- * *output*; watching it arrive does. Under `prefers-reduced-motion` the
- * whole sequence collapses to the finished state, and the text is in the
- * DOM either way, so a screen reader never waits for an animation.
- */
-export function RunOutput({ tab, output }: { tab: string; output: string }) {
-  const lines = useMemo(() => output.split('\n'), [output])
-  const [shown, setShown] = useState(() => (reducedMotion() ? lines.length : 0))
-  const [busy, setBusy] = useState(() => !reducedMotion())
-  const timers = useRef<number[]>([])
-
-  useEffect(() => {
-    for (const t of timers.current) window.clearTimeout(t)
-    timers.current = []
-
-    if (reducedMotion()) {
-      setShown(lines.length)
-      setBusy(false)
-      return
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard access can be denied; the text is selectable either way.
     }
-
-    setShown(0)
-    setBusy(true)
-    timers.current.push(
-      window.setTimeout(() => setBusy(false), 420),
-      ...lines.map((_, i) =>
-        window.setTimeout(() => setShown(i + 1), 460 + i * 130),
-      ),
-    )
-    return () => {
-      for (const t of timers.current) window.clearTimeout(t)
-    }
-  }, [tab, lines])
+  }, [text])
 
   return (
-    <div className="code__out" data-busy={busy}>
-      <span className="code__out-label">
-        <span className="code__out-prompt">$</span> axiom run {tab}
-      </span>
-      <pre>
-        {busy ? (
-          <span className="code__out-busy">compiling…</span>
-        ) : (
-          lines.map((line, i) => (
-            <span
-              key={i}
-              className="code__out-line"
-              data-shown={i < shown}
-            >
-              {line}
-              {'\n'}
-            </span>
-          ))
-        )}
-      </pre>
-    </div>
+    <button
+      type="button"
+      className="copy-btn"
+      onClick={copy}
+      data-copied={copied}
+      aria-label={copied ? 'Copied' : `${label} to clipboard`}
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+      <span aria-hidden>{copied ? 'Copied' : label}</span>
+    </button>
   )
 }
 
-interface CodeProps {
+interface WindowProps {
+  /** File name in the title bar. */
+  name: string
   code: string
-  name?: string
-  badge?: string
-  caption?: ReactNode
-  /** `false` renders plain — for terminal output, not source. */
-  axiom?: boolean
-  wrap?: boolean
-  tight?: boolean
-  /** Show the line-number gutter. */
+  lang?: Lang
+  badge?: ReactNode
+  marked?: readonly number[] | undefined
   numbered?: boolean
+  /** Lines past which the body opens folded. */
+  foldAt?: number
+  /** Replaces the copy button's text, e.g. to copy the unbroken program. */
+  copyText?: string | null
+  children?: ReactNode
+  className?: string
   label?: string
 }
 
-export function Code({
-  code,
+/**
+ * A code window: title bar with the file name, a copy button, the
+ * numbered source, and whatever the caller docks under it (a run
+ * strip, a caption).
+ *
+ * Long programs open folded. The fold is a `max-height`, so the whole
+ * program stays in the DOM for a reader who searches or copies, and
+ * for a crawler, which never clicks.
+ */
+export function CodeWindow({
   name,
+  code,
+  lang = 'axiom',
   badge,
-  caption,
-  axiom = true,
-  wrap = false,
-  tight = false,
-  numbered = false,
+  marked,
+  numbered = true,
+  foldAt,
+  copyText,
+  children,
+  className,
   label,
-}: CodeProps) {
-  const classes = ['code']
-  if (wrap) classes.push('code--wrap')
-  if (tight) classes.push('code--tight')
+}: WindowProps) {
+  const [open, setOpen] = useState(false)
+  const count = useMemo(() => code.split('\n').length, [code])
+  const foldable = foldAt !== undefined && count > foldAt
+  const folded = foldable && !open
+
+  // A new program resets the fold.
+  useEffect(() => setOpen(false), [code])
 
   return (
-    <figure className={classes.join(' ')} style={{ margin: 0 }}>
-      {(name || badge) && (
-        <div className="code__bar">
-          {name && <span className="code__name">{name}</span>}
-          {badge && <span className="code__badge">{badge}</span>}
-        </div>
-      )}
-      <div className={numbered ? 'code__body code__body--numbered' : 'code__body'}>
-        <pre aria-label={label}>
-          {numbered && axiom ? (
-            <NumberedCode code={code} />
-          ) : (
-            <code>{axiom ? <Highlighted code={code} /> : code}</code>
-          )}
+    <figure className={['win ink', className].filter(Boolean).join(' ')} aria-label={label}>
+      <div className="win__bar">
+        <span className="win__dots" aria-hidden>
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="win__name">{name}</span>
+        {badge && (
+          <span className="win__badge">
+            {typeof badge === 'string' ? <span className="badge">{badge}</span> : badge}
+          </span>
+        )}
+        {copyText !== null && <CopyButton text={copyText ?? code} />}
+      </div>
+      <div className={folded ? 'win__body win__body--folded' : 'win__body'}>
+        <pre tabIndex={0}>
+          <Lines code={code} lang={lang} marked={marked} numbered={numbered} />
         </pre>
       </div>
-      {caption && <figcaption className="code__caption">{caption}</figcaption>}
+      {foldable && (
+        <div className="win__fold">
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={!folded}>
+            {folded ? `Show all ${count} lines` : 'Fold the program'}
+          </button>
+        </div>
+      )}
+      {children}
     </figure>
   )
 }
 
-export interface TabbedItem {
-  id: string
-  tab: string
-  code: string
-  /** Real program output, shown under the source. */
-  output?: string
-  caption?: ReactNode
-}
-
-/** Programs longer than this open folded, so the page is not one scroll
-    of source between two headings. The fold is announced and one
-    control opens it; the whole program is in the DOM either way. */
-const FOLD_AT = 34
-
-export function TabbedCode({
-  items,
-  label,
-}: {
-  items: TabbedItem[]
-  label: string
-}) {
-  const [active, setActive] = useState(0)
-  const [expanded, setExpanded] = useState(false)
-  const uid = useId()
-  const current = items[active] ?? items[0]
-  if (!current) return null
-
-  const lineCount = current.code.split('\n').length
-  const folded = lineCount > FOLD_AT && !expanded
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
-    e.preventDefault()
-    const delta = e.key === 'ArrowRight' ? 1 : -1
-    const next = (active + delta + items.length) % items.length
-    setActive(next)
-    setExpanded(false)
-    document.getElementById(`${uid}-tab-${next}`)?.focus()
-  }
-
+/** A plain code block, for snippets that are not whole files. */
+export function Snippet({ code, lang = 'plain' }: { code: string; lang?: Lang }) {
   return (
-    <div className="code code--program">
-      <div className="code__bar">
-        <div
-          className="code__tabs"
-          role="tablist"
-          aria-label={label}
-          onKeyDown={onKeyDown}
-        >
-          {items.map((item, i) => (
-            <button
-              key={item.id}
-              id={`${uid}-tab-${i}`}
-              className="code__tab"
-              type="button"
-              role="tab"
-              aria-selected={i === active}
-              aria-controls={`${uid}-panel-${i}`}
-              tabIndex={i === active ? 0 : -1}
-              onClick={() => {
-                setActive(i)
-                setExpanded(false)
-              }}
-            >
-              {item.tab}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div
-        className={
-          folded
-            ? 'code__body code__body--numbered code__body--folded'
-            : 'code__body code__body--numbered'
-        }
-        id={`${uid}-panel-${active}`}
-        role="tabpanel"
-        aria-labelledby={`${uid}-tab-${active}`}
-        tabIndex={0}
-      >
-        <pre>
-          <NumberedCode code={current.code} />
-        </pre>
-      </div>
-
-      {lineCount > FOLD_AT && (
-        <div className="code__fold">
-          <button
-            type="button"
-            className="code__fold-btn"
-            onClick={() => setExpanded((e) => !e)}
-            aria-expanded={!folded}
-            aria-controls={`${uid}-panel-${active}`}
-          >
-            {folded ? `Show all ${lineCount} lines` : 'Fold the program'}
-          </button>
-        </div>
-      )}
-
-      {current.output && (
-        <RunOutput
-          key={current.id}
-          tab={current.tab}
-          output={current.output}
-        />
-      )}
-
-      {current.caption && <div className="code__caption">{current.caption}</div>}
-    </div>
+    <pre className="snippet ink" tabIndex={0}>
+      <Lines code={code} lang={lang} numbered={false} />
+    </pre>
   )
 }
 
-/** A repo path rendered as a link to the file on GitHub. */
-export function SourceLink({ path, href }: { path: string; href: string }) {
+const reducedMotion = () =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+type Phase = 'static' | 'waiting' | 'busy' | 'reveal'
+
+/**
+ * The run strip: `$ axiom run f.ax`, then the program's real output.
+ *
+ * THE OUTPUT IS IN THE SERVER-RENDERED PAGE. The strip used to start in
+ * a "compiling…" state and render the lines only after an effect ran,
+ * so the prerendered HTML every crawler reads said "compiling…" where
+ * the output belonged. Now the first render is the finished state, on
+ * the server and the client alike, and the animation is an
+ * enhancement: it plays when the strip first scrolls into view (if it
+ * was off-screen at load) and whenever `replay` changes, never under
+ * `prefers-reduced-motion`.
+ *
+ * The compile beat is theatre and is labelled as such nowhere because
+ * it claims nothing: it is not a measured time, and the benchmark
+ * section carries the numbers that are.
+ */
+export function RunOutput({
+  command,
+  output,
+  replay,
+  tone = 'ok',
+}: {
+  command: string
+  output: string
+  /** Changing this replays the animation (a tab switch). */
+  replay?: string
+  /** `err` paints the output as compiler errors rather than stdout. */
+  tone?: 'ok' | 'err'
+}) {
+  const lines = useMemo(() => output.split('\n'), [output])
+  const [phase, setPhase] = useState<Phase>('static')
+  const [shown, setShown] = useState(lines.length)
+  const ref = useRef<HTMLDivElement>(null)
+  const timers = useRef<number[]>([])
+  const first = useRef(true)
+
+  const clear = () => {
+    for (const t of timers.current) window.clearTimeout(t)
+    timers.current = []
+  }
+
+  const play = useCallback(() => {
+    clear()
+    setShown(0)
+    setPhase('busy')
+    const step = Math.max(40, Math.min(120, 900 / lines.length))
+    timers.current.push(
+      window.setTimeout(() => setPhase('reveal'), 380),
+      ...lines.map((_, i) => window.setTimeout(() => setShown(i + 1), 420 + i * step)),
+    )
+  }, [lines])
+
+  // First mount: animate on first sight, if the strip starts off-screen.
+  useEffect(() => {
+    if (!first.current) return
+    first.current = false
+    const el = ref.current
+    if (!el || reducedMotion() || typeof IntersectionObserver !== 'function') return
+    if (el.getBoundingClientRect().top < window.innerHeight) return
+    setPhase('waiting')
+    setShown(0)
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect()
+          play()
+        }
+      },
+      { rootMargin: '0px 0px -12% 0px' },
+    )
+    io.observe(el)
+    return () => {
+      io.disconnect()
+      clear()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Later: a tab switch replays.
+  const last = useRef(replay)
+  useEffect(() => {
+    if (last.current === replay) return
+    last.current = replay
+    if (reducedMotion()) {
+      setPhase('static')
+      setShown(lines.length)
+      return
+    }
+    play()
+    return clear
+  }, [replay, play, lines.length])
+
   return (
-    <a href={href} target="_blank" rel="noreferrer noopener">
-      {path}
-      <ArrowUpRight size={11} />
-    </a>
+    <div className="run ink" data-phase={phase} data-tone={tone} ref={ref}>
+      <div className="run__cmd">
+        <span className="run__prompt" aria-hidden>
+          $
+        </span>
+        <span>{command}</span>
+        {phase === 'busy' && <span className="run__busy">compiling</span>}
+      </div>
+      <pre className="run__out">
+        {lines.map((line, i) => (
+          <span key={i} className="run__line" data-shown={i < shown}>
+            {line}
+            {'\n'}
+          </span>
+        ))}
+      </pre>
+    </div>
   )
 }

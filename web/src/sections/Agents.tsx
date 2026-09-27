@@ -1,128 +1,92 @@
-import {
-  AXSYM_AI,
-  AXSYM_TABLE,
-  FIX_AXDL,
-  FIX_JSON,
-  FIX_SOURCE,
-  SET_AXDL,
-  SET_HUMAN,
-  SET_SOURCE,
-} from '../data/samples.ts'
+import { AXSYM_AI, AXSYM_SOURCE, AXSYM_TABLE, FIX_AXDL, FIX_JSON, FIX_SOURCE } from '../data/samples.ts'
 import { BLOB, DOCS, stat } from '../data/site.ts'
-import { Code } from '../components/Code.tsx'
+import { CodeWindow } from '../components/Code.tsx'
 import { RenderTabs } from '../components/Terminal.tsx'
+import { SectionHead } from '../components/SectionHead.tsx'
+import { inline } from '../lib/inline.tsx'
+
+/** docs/agent-harness.md §1: the four notations that ship and are gated. */
+const NOTATIONS = [
+  { k: 'AXDL', v: 'One line per diagnostic, with machine-applicable fixes as byte-range substitutions.' },
+  { k: 'AXSYM', v: 'One line per symbol: kind, name, span, exact type, id, and every accepted tag.' },
+  { k: 'NID', v: 'A content-derived id per declaration, stable across reordering and reformatting.' },
+  { k: 'AXTAG', v: '`;@axiom:` claims above a declaration, validated wherever the compiler knows the key.' },
+]
 
 export function Agents() {
+  const bytes = new TextEncoder().encode(FIX_AXDL).length
   return (
-    <section className="section" id="agents" aria-labelledby="agents-h">
+    <section className="section section--alt" id="agents" aria-labelledby="agents-h">
       <div className="container">
-        <div className="lede-block">
-          <span className="index index--violet">06</span>
-          <h2 id="agents-h">
-            Two audiences. One set of facts.
-          </h2>
+        <SectionHead id="agents-h" eyebrow="Built for agents, too" title="Answer the machine in its own format.">
           <p>
-            One structured diagnostic is built at every stage that can refuse,
-            and the renderers never see anything the compiler did not already
-            know. So the report you read and the line your tooling parses can
-            never disagree about what went wrong.
+            Most toolchains publish their failures as prose and keep their successes to themselves.
+            Axiom publishes both as data: one line per diagnostic <em>and</em> one line per symbol,
+            built from the same structured facts the human report is built from, so the two can
+            never disagree.
           </p>
-        </div>
+        </SectionHead>
+
+        <ul className="notations">
+          {NOTATIONS.map((n) => (
+            <li key={n.k}>
+              <b>{n.k}</b>
+              <span>{inline(n.v)}</span>
+            </li>
+          ))}
+        </ul>
 
         <div className="duo">
           <div className="duo__panel">
-            <h3>Why did this fail?</h3>
-            <Code code={SET_SOURCE} name="count.ax" badge="refused" />
+            <h3>Every fact in {bytes} bytes, and the fix with it</h3>
+            <p>
+              The exact span, the kind of error, the label, the message, and a replacement a tool
+              applies as a substitution instead of parsing English. Both renderings are real output,
+              re-checked against the compiler.
+            </p>
+            <CodeWindow name="main.ax" code={FIX_SOURCE} badge="a typo on line 6" marked={[6]} copyText={null} />
             <RenderTabs
-              label="Diagnostic renderings"
+              label="One diagnostic, two machine formats"
+              name="$ axiom check main.ax"
               items={[
-                { id: 'human', tab: 'human', kind: 'human', text: SET_HUMAN },
-                { id: 'ai', tab: 'ai', kind: 'axdl', text: SET_AXDL },
+                { id: 'axdl', tab: '--diagnostic-format=ai', kind: 'axdl', text: FIX_AXDL },
+                { id: 'json', tab: '--diagnostic-format=json', kind: 'json', text: FIX_JSON },
               ]}
-              caption={
-                <>
-                  The human report quotes <em>both</em> spans and elides the
-                  lines between them, labels the binding site as well as the
-                  offence, and ends with a fix rather than a restatement.
-                  Columns count characters, not bytes, so a caret under a line
-                  containing an em dash lands where the eye expects.
-                </>
-              }
             />
           </div>
 
           <div className="duo__panel">
             <h3>What does this file already provide?</h3>
-            <p className="duo__lede">
-              The other question a tool asks is not about failure at all.{' '}
-              <code>axiom symbols</code> runs the same pipeline as{' '}
-              <code>check</code> and prints one line per symbol — kind, name,
-              location, exact type. An agent greps <code>^D Maybe</code> for the
-              constructor set instead of re-parsing the file.
+            <p>
+              <code>axiom symbols</code> runs the same pipeline as <code>check</code> and prints one
+              line per declaration. An agent greps <code>^D Maybe</code> for the constructor set
+              instead of re-reading the file, and the <code>@27bcb2…</code> id still names the same
+              function after the file is reordered or reformatted.
             </p>
+            <CodeWindow name="main.ax" code={AXSYM_SOURCE} copyText={null} />
             <RenderTabs
               label="Symbol renderings"
+              name="$ axiom symbols main.ax"
               wrap={false}
               items={[
-                { id: 'table', tab: 'table', kind: 'plain', text: AXSYM_TABLE },
-                { id: 'axsym', tab: 'AXSYM', kind: 'axsym', text: AXSYM_AI },
+                { id: 'axsym', tab: '--diagnostic-format=ai', kind: 'axsym', text: AXSYM_AI },
+                { id: 'table', tab: 'human', kind: 'plain', text: AXSYM_TABLE },
               ]}
-              caption={
-                <>
-                  The <code>@27bcb2…</code> is a content-derived id that does not
-                  move when the declaration is reordered, reformatted, or read
-                  from another path — identity is the id, and the rest of the row
-                  is the contract.
-                </>
-              }
             />
           </div>
         </div>
 
-        <div className="fixline">
-          <div className="fixline__text">
-            <h3>
-              Every fact, in {new TextEncoder().encode(FIX_AXDL).length} bytes —
-              and the fix comes with it
-            </h3>
-            <p>
-              The exact span, the kind of error, the primary label, the message,
-              and a replacement a tool applies as a byte-range substitution
-              instead of parsing English.
-            </p>
-            <p className="micro">
-              Both blocks are real compiler output. This line is the golden of{' '}
-              <a
-                href={`${BLOB}/tests/diagnostics/150-undefined-suggestion.axdl`}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                one diagnostics fixture
-              </a>
-              , re-rendered against the live compiler on every run — output
-              nobody could reproduce would fail the build.{' '}
-              <a
-                href={`${DOCS}/diagnostics.md`}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                diagnostics.md
-              </a>{' '}
-              has the grammar; <code>axiom explain --list</code> names all{' '}
-              {stat('codes')} codes.
-            </p>
-          </div>
-          <div className="stack">
-            <Code code={FIX_SOURCE} name="main.ax" badge="a typo on line 6" />
-            <RenderTabs
-              label="One diagnostic, two machine formats"
-              items={[
-                { id: 'axdl', tab: 'ai', kind: 'axdl', text: FIX_AXDL },
-                { id: 'json', tab: 'json', kind: 'json', text: FIX_JSON },
-              ]}
-            />
-          </div>
-        </div>
+        <p className="aside">
+          The AXDL line above is the golden of{' '}
+          <a href={`${BLOB}/tests/diagnostics/150-undefined-suggestion.axdl`} target="_blank" rel="noreferrer noopener">
+            one diagnostics fixture
+          </a>
+          , re-rendered against the live compiler on every run.{' '}
+          <a href={`${DOCS}/diagnostics.md`} target="_blank" rel="noreferrer noopener">
+            diagnostics.md
+          </a>{' '}
+          has the grammar, and <code>axiom explain --list</code> names all {stat('codes')} codes.
+        </p>
       </div>
     </section>
   )

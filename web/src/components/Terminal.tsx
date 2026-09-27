@@ -187,6 +187,61 @@ const LINE_FN: Record<RenderKind, (l: string) => Piece[]> = {
   plain: (l) => [{ t: l, c: 'term-dim' }],
 }
 
+/**
+ * Paint a whole report. Line by line, with one piece of state: a help
+ * line ending in `~>` introduces a machine-applicable fix whose text
+ * runs on the lines after it, indented, until the next gutter or help
+ * marker. Those lines are the fix, and are painted as one.
+ */
+export function paintReport(kind: RenderKind, text: string): ReactNode {
+  const render = LINE_FN[kind]
+  let inFix = false
+  return text.split('\n').map((line, i) => {
+    let pieces: Piece[]
+    if (kind === 'human' && inFix && /^\s{4,}\S/.test(line) && !/^\s*(\||=|-->)/.test(line)) {
+      pieces = [{ t: line, c: 'term-str' }]
+    } else {
+      inFix = false
+      pieces = render(line)
+    }
+    if (kind === 'human' && /~>\s*$/.test(line)) inFix = true
+    return (
+      <Fragment key={i}>
+        {paint(pieces)}
+        {'\n'}
+      </Fragment>
+    )
+  })
+}
+
+/** One report, no tabs: a refusal under the program that caused it. */
+export function Report({
+  text,
+  kind = 'human',
+  command,
+}: {
+  text: string
+  kind?: RenderKind
+  command?: string
+}) {
+  return (
+    <div className="report ink">
+      {command && (
+        <div className="run__cmd">
+          <span className="run__prompt" aria-hidden>
+            $
+          </span>
+          <span>{command}</span>
+          <span className="report__exit">exit 1</span>
+        </div>
+      )}
+      <pre className="report__body" tabIndex={0}>
+        <code>{paintReport(kind, text)}</code>
+      </pre>
+    </div>
+  )
+}
+
 export interface RenderItem {
   id: string
   tab: string
@@ -205,16 +260,26 @@ export function RenderTabs({
   name,
   caption,
   wrap = true,
+  active: controlled,
+  onChange,
 }: {
   items: RenderItem[]
   label: string
   name?: string
   caption?: ReactNode
-  /** `false` keeps every line on one line and scrolls sideways instead —
+  /** `false` keeps every line on one line and scrolls sideways instead -
       for the aligned table, whose columns are the point. */
   wrap?: boolean
+  /** Controlled selection, when a parent keeps two tab strips in step. */
+  active?: number
+  onChange?: (i: number) => void
 }) {
-  const [active, setActive] = useState(0)
+  const [own, setOwn] = useState(0)
+  const active = controlled ?? own
+  const set = (i: number) => {
+    setOwn(i)
+    onChange?.(i)
+  }
   const uid = useId()
   const current = items[active] ?? items[0]
   if (!current) return null
@@ -224,34 +289,26 @@ export function RenderTabs({
     e.preventDefault()
     const delta = e.key === 'ArrowRight' ? 1 : -1
     const next = (active + delta + items.length) % items.length
-    setActive(next)
+    set(next)
     document.getElementById(`${uid}-tab-${next}`)?.focus()
   }
 
-  const render = LINE_FN[current.kind]
-
   return (
-    <div className={wrap ? 'code code--wrap code--tight' : 'code code--tight'}>
-      <div className="code__bar">
-        {name && <span className="code__name">{name}</span>}
-        <div
-          className="code__tabs"
-          role="tablist"
-          aria-label={label}
-          onKeyDown={onKeyDown}
-          style={name ? { marginLeft: 'auto' } : undefined}
-        >
+    <div className={wrap ? 'term term--wrap ink' : 'term ink'}>
+      <div className="term__bar">
+        {name && <span className="term__name">{name}</span>}
+        <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
           {items.map((item, i) => (
             <button
               key={item.id}
               id={`${uid}-tab-${i}`}
-              className="code__tab"
+              className="tab"
               type="button"
               role="tab"
               aria-selected={i === active}
               aria-controls={`${uid}-panel-${i}`}
               tabIndex={i === active ? 0 : -1}
-              onClick={() => setActive(i)}
+              onClick={() => set(i)}
             >
               {item.tab}
             </button>
@@ -259,24 +316,17 @@ export function RenderTabs({
         </div>
       </div>
       <div
-        className="code__body"
+        className="term__body"
         id={`${uid}-panel-${active}`}
         role="tabpanel"
         aria-labelledby={`${uid}-tab-${active}`}
         tabIndex={0}
       >
         <pre>
-          <code>
-            {current.text.split('\n').map((line, i) => (
-              <Fragment key={i}>
-                {paint(render(line))}
-                {'\n'}
-              </Fragment>
-            ))}
-          </code>
+          <code>{paintReport(current.kind, current.text)}</code>
         </pre>
       </div>
-      {caption && <div className="code__caption">{caption}</div>}
+      {caption && <div className="term__caption">{caption}</div>}
     </div>
   )
 }

@@ -4,18 +4,23 @@ import { REPO, VERSION } from '../data/site.ts'
 import { GitHub, Menu, Moon, Sun, X } from './Icons.tsx'
 
 const LINKS = [
-  { href: '#code', label: 'The language' },
-  { href: '#speed', label: 'Measured' },
-  { href: '#for', label: 'Built for' },
-  { href: '#agents', label: 'Diagnostics' },
-  { href: '#start', label: 'Install' },
+  { href: '#why', label: 'Why Axiom' },
+  { href: '#tour', label: 'Tour' },
+  { href: '#built-for', label: 'Built for' },
+  { href: '#speed', label: 'Performance' },
+  { href: '#faq', label: 'FAQ' },
+  { href: '#docs', label: 'Docs' },
 ]
 
+/**
+ * The section links are a row on a wide screen and a disclosure on a
+ * narrow one. The link for the section in view is marked
+ * `aria-current`, which is an enhancement: the server renders none
+ * marked, and nothing depends on it.
+ */
 export function Nav({ onToggle }: { onToggle: () => void }) {
-  // The section links are a row on a wide screen and a disclosure on a
-  // narrow one. Until 2026-09-04 they were simply `display: none` below
-  // 900px, so a phone had no way to reach a section but scrolling.
   const [open, setOpen] = useState(false)
+  const [current, setCurrent] = useState<string | null>(null)
   const menuId = useId()
 
   useEffect(() => {
@@ -27,40 +32,57 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
     return () => window.removeEventListener('keydown', close)
   }, [open])
 
+  useEffect(() => {
+    if (typeof IntersectionObserver !== 'function') return
+    const targets = LINKS.map((l) => document.getElementById(l.href.slice(1))).filter(
+      (el): el is HTMLElement => Boolean(el),
+    )
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) if (e.isIntersecting) setCurrent(`#${e.target.id}`)
+      },
+      { rootMargin: '-45% 0px -50% 0px' },
+    )
+    targets.forEach((t) => io.observe(t))
+    return () => io.disconnect()
+  }, [])
+
   return (
-    <header className="site-nav" data-open={open}>
-      <div className="container site-nav__inner">
-        <a className="brand" href="#top">
+    <header className="nav" data-open={open}>
+      <div className="container nav__inner">
+        <a className="brand" href="#top" aria-label="Axiom, back to the top">
           <img
             className="brand__mark"
             src={asset('axiom-mark.png')}
             alt=""
             width={26}
             height={24}
-            style={{ borderRadius: 4 }}
           />
-          Axiom
+          <span className="brand__word">Axiom</span>
           <span className="brand__version">{VERSION}</span>
         </a>
 
-        <nav className="nav-links" id={menuId} aria-label="Sections">
+        <nav className="nav__links" id={menuId} aria-label="Sections">
           {LINKS.map((l) => (
-            <a key={l.href} href={l.href} onClick={() => setOpen(false)}>
+            <a
+              key={l.href}
+              href={l.href}
+              aria-current={current === l.href ? 'true' : undefined}
+              onClick={() => setOpen(false)}
+            >
               {l.label}
             </a>
           ))}
         </nav>
 
-        <div className="nav-actions">
+        <div className="nav__actions">
           {/* BOTH GLYPHS, and CSS picks. The page is rendered in Node at
               build time (scripts/prerender.mjs), where there is no
-              `matchMedia` and no `localStorage`, so `useTheme` resolves
-              to 'light' and React would emit the Moon on the server for
-              every reader. A dark-mode visitor would then hydrate into a
-              mismatch — a console error on the one page whose gate exists
-              to catch console errors. `data-theme` is stamped by the
-              inline script in index.html before first paint, so CSS knows
-              the answer and React renders one thing. */}
+              `matchMedia` and no `localStorage`, so React would emit one
+              glyph for every reader and a dark-mode visitor would hydrate
+              into a mismatch. `data-theme` is stamped by the inline
+              script in index.html before first paint, so CSS knows the
+              answer and React renders one thing. */}
           <button
             type="button"
             className="icon-btn icon-btn--theme"
@@ -83,7 +105,7 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
           >
             <GitHub />
           </a>
-          <a className="btn btn--primary btn--sm nav-cta" href="#start">
+          <a className="btn btn--primary btn--sm nav__cta" href="#start">
             Install
           </a>
           <button
