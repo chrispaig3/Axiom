@@ -22,6 +22,21 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Freeing a container is `Unsafe` in its row - 2026-09-27
+
+BREAKING for claims. `__retain` and `__release` joined the `Unsafe`
+primitives on 2026-09-27 (`MM-EXEC-9c`), so the five public wrappers
+whose only raw operation is a release - `Vec.vecFree`, `Map.mapFree`,
+`Intern.internFree`, `Ffi.ffiCellFree`, `Tui.Edit.ledFree` - answer
+`#effects=Unsafe` where 0.7.6 answered an empty row, and the effect
+reaches their callers' rows as any effect does. A function tagged
+`pure` or `restrict(no-unsafe)` that frees a container is refused now
+(`AX3010` / `AX3049`); drop the claim from the freeing function or free
+outside it. `compat/BREAKING` declares all five against 0.7.7, and
+`scripts/check-compat.sh`, `check-agent-policy.sh` and
+`check-effect-distribution.sh` - red since that commit - hold the new
+rows.
+
 ### Process pools bound their handle storage - 2026-09-27
 
 `Par.parMapWords(Checked)` kept one handle per submission although at

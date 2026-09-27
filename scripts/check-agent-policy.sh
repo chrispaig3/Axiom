@@ -729,14 +729,20 @@ prim_case "__store8v"                   "(__store8v n 0 42)"                   "
 prim_case "__argc"                      "(__argc)"                             "IO"
 prim_case "__argv"                      "(__argv n)"                           "IO"
 prim_case "__axiom_arena_mark"          "(__axiom_arena_mark)"                 "Alloc"
-prim_case "__axiom_arena_reset"         "(__axiom_arena_reset n)"              "Alloc"
-prim_case "__axiom_arena_reset_keeping" "(__axiom_arena_reset_keeping n 0 0)"  "Alloc"
+# The resets rewind the allocator to an arbitrary word, so they joined
+# `Unsafe` with the other eight of 2026-09-27 (MM-EXEC-9c). The mark
+# did not: it answers a position and dereferences nothing, and it is
+# the control that keeps these two measuring the reset.
+prim_case "__axiom_arena_reset"         "(__axiom_arena_reset n)"              "Alloc,Unsafe"
+prim_case "__axiom_arena_reset_keeping" "(__axiom_arena_reset_keeping n 0 0)"  "Alloc,Unsafe"
 # The atomics that WRITE or ORDER carry `Mut`: a store, an add and a
 # compare-and-swap write a word every alias of it sees, and a fence
-# exists only to order such writes. The load is a control, below.
-prim_case "__atomic_store"              "(__atomic_store n 42)"                "Mut"
-prim_case "__atomic_add"                "(__atomic_add n 1)"                   "Mut"
-prim_case "__atomic_cas"                "(__atomic_cas n 0 1)"                 "Mut"
+# exists only to order such writes. Since 2026-09-27 the four that
+# dereference a word also carry `Unsafe` (MM-EXEC-9c); the fence
+# touches no address and stays `Mut` alone.
+prim_case "__atomic_store"              "(__atomic_store n 42)"                "Mut,Unsafe"
+prim_case "__atomic_add"                "(__atomic_add n 1)"                   "Mut,Unsafe"
+prim_case "__atomic_cas"                "(__atomic_cas n 0 1)"                 "Mut,Unsafe"
 prim_case "__fence"                     "(__fence)"                            "Mut"
 # The `parallel` primitives (2026-09-03) reach the kernel - a fork or a
 # thread creation, and the wait or join that collects it - and carry `IO`
@@ -752,25 +758,30 @@ prim_case "__thread_spawn"              "(__thread_spawn (lambda (x) x) n)"    "
 prim_case "__proc_join"                 "(__proc_join n)"                      "IO"
 # THE CONTROLS, and they are what make the rows above mean anything. A
 # registration that gave EVERY primitive an effect would satisfy all of
-# them and destroy the discrimination the whole mechanism is for. The
-# loads used to be two of these - spelled exactly like the reporting
-# primitives and silent - until `Unsafe` inference gave raw reads their
-# own effect (2026-09-21): `__load64` and `__load8` now report it.
-# What stays silent is still selective: the ordered atomic load and the
-# runtime's own retain/release bookkeeping, below.
+# them and destroy the discrimination the whole mechanism is for.
+#
+# Corrected 2026-09-27. Until MM-EXEC-9c the silent controls were
+# `__atomic_load` and `__retain`; both dereference an arbitrary word
+# and report `Unsafe` now, and this table went red the day they
+# joined (6527bea0) without anyone reading past the population diff
+# above it. What each still discriminates is `Mut`: the atomic load
+# writes nothing, so the three atomics above are measuring the write
+# and not the prefix `__atomic`, and `__retain`/`__release` are still
+# the deliberate `Mut` omission MM-EXEC-9a names - their writes are
+# the runtime's bookkeeping, and `Mut` on them would mark every
+# function that touches a reference.
 prim_case "__load64 (control)"          "(__load64 n 0)"                       "Unsafe"
 prim_case "__load8 (control)"           "(__load8 n 0)"                        "Unsafe"
-# `__atomic_load` is the control among the atomics. It stays silent
-# while the plain `__load64` reports `Unsafe`: the `Unsafe`
-# registration covers the seven raw spellings and nothing else, and an
-# effect on every primitive would make these controls agree with
-# anything. It must stay silent, or the four above are measuring the
-# prefix `__atomic` and not the write.
-prim_case "__atomic_load (control)"     "(__atomic_load n)"                    ""
-# And `__retain`/`__release` are the deliberate omission `MM-EXEC-9a`
-# names: their writes are the runtime's own bookkeeping, and giving them
-# `Mut` marks every function that touches a reference.
-prim_case "__retain (deliberate)"       "(__retain n)"                         ""
+prim_case "__atomic_load (control)"     "(__atomic_load n)"                    "Unsafe"
+prim_case "__retain (deliberate)"       "(__retain n)"                         "Unsafe"
+prim_case "__release (deliberate)"      "(__release n)"                        "Unsafe"
+prim_case "__call_word"                 "(__call_word n 1)"                    "Unsafe"
+# The one primitive that must stay SILENT: `__retainref` takes a share
+# of a TYPED value, so the checker bounds the word it touches and
+# MM-EXEC-9c leaves it out of the set. If the `Unsafe` registration
+# ever grew to cover it, every row above would still pass - this is
+# the case that would not.
+prim_case "__retainref (control)"       "(__retainref n)"                      ""
 if (( failed_prim > 0 )); then
   echo "     $failed_prim primitive(s) disagree with docs/memory-model.md MM-EXEC-9a"
   exit 1

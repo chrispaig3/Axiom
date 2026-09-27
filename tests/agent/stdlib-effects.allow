@@ -30,6 +30,7 @@ fallibleCounting Fallible.ax Mut
 fallibleTally Fallible.ax Alloc
 ffiAbiVersion Ffi.ax IO
 ffiBytesToStr Ffi.ax Alloc,Mut,Unsafe
+ffiCellFree Ffi.ax Unsafe
 ffiCellNew Ffi.ax Alloc,Unsafe
 ffiCellNewN Ffi.ax Alloc,Unsafe
 ffiCellWord Ffi.ax Unsafe
@@ -106,6 +107,7 @@ internCap Intern.ax Unsafe
 internCount Intern.ax Unsafe
 internFind Intern.ax Unsafe
 internFindFrom Intern.ax Unsafe
+internFree Intern.ax Unsafe
 internHashFrom Intern.ax Unsafe
 internHashStr Intern.ax Unsafe
 internIntern Intern.ax Alloc,Mut,Unsafe
@@ -210,6 +212,7 @@ ledDispatch Edit.ax Alloc,Mut,Unsafe
 ledEnd Edit.ax Alloc,Mut,Unsafe
 ledEraseOld Edit.ax Alloc,Mut,Unsafe
 ledEraseRow Edit.ax Alloc,Mut,Unsafe
+ledFree Edit.ax Unsafe
 ledHome Edit.ax Alloc,Mut,Unsafe
 ledInsert Edit.ax Alloc,Mut,Unsafe
 ledInsertStr Edit.ax Alloc,Mut,Unsafe
@@ -258,6 +261,7 @@ mapErr Err.ax Alloc
 mapFillAt Map.ax Mut,Unsafe
 mapFindLoop Map.ax Unsafe
 mapFindSlot Map.ax Unsafe
+mapFree Map.ax Unsafe
 mapGet Map.ax Unsafe
 mapGetStr Map.ax Unsafe
 mapHas Map.ax Unsafe
@@ -536,6 +540,7 @@ vecClear Vec.ax Mut,Unsafe
 vecData Vec.ax Unsafe
 vecDropAt Vec.ax Mut,Unsafe
 vecDropFrom Vec.ax Mut,Unsafe
+vecFree Vec.ax Unsafe
 vecGet Vec.ax Unsafe
 vecGetStr Vec.ax Unsafe
 vecGetVec Vec.ax Unsafe

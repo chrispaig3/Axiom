@@ -754,3 +754,20 @@
 # so none of them moves. A caller that relied on the truncation masks
 # first and casts: `(strFromByte (cast Byte (& b 255)))`.
 0.7.6  F  strFromByte  (-> Int String) -> (-> Byte String): truncation is now a trap, not a silent wrap
+
+# 0.7.7 - MM-EXEC-9c: `__retain` and `__release` joined `Unsafe`
+# (6527bea0). Five public wrappers whose only raw operation is a
+# release answered an EMPTY row at 0.7.6 and answer `#effects=Unsafe`
+# now. The widening reaches callers, because `Unsafe` flows through
+# rows like any effect (only AX3073, the "say `effect(unsafe)`" rule,
+# stops at the wrapper): a caller tagged `pure` or
+# `restrict(no-unsafe)` that frees a container compiled at 0.7.6 and
+# is refused now, AX3010 / AX3049. That is the point - handing a
+# share back is what makes a later use-after-free possible - and the
+# remedy is to drop the claim from the freeing function, or to free
+# outside it.
+0.7.7  F  vecFree      row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
+0.7.7  F  mapFree      row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
+0.7.7  F  internFree   row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
+0.7.7  F  ffiCellFree  row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
+0.7.7  F  ledFree      row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
