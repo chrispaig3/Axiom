@@ -1,0 +1,100 @@
+[1;31merror[AX3049][0m[1m: `retains` claims `restrict(no-unsafe)` and the body performs Unsafe: retains -> __retain[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:17:6
+[1;34m   |[0m
+[1;34m17 |[0m (fn (retains n)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__retain (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `releases` claims `restrict(no-unsafe)` and the body performs Unsafe: releases -> __release[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:25:6
+[1;34m   |[0m
+[1;34m25 |[0m (fn (releases n)
+[1;34m   |[0m      [1;31m^^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__release (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `calls` claims `restrict(no-unsafe)` and the body performs Unsafe: calls -> __call_word[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:33:6
+[1;34m   |[0m
+[1;34m33 |[0m (fn (calls n)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__call_word (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `loads` claims `restrict(no-unsafe)` and the body performs Unsafe: loads -> __atomic_load[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:38:6
+[1;34m   |[0m
+[1;34m38 |[0m (fn (loads n)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__atomic_load (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `stores` claims `restrict(no-unsafe)` and the body performs Unsafe: stores -> __atomic_store[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:43:6
+[1;34m   |[0m
+[1;34m43 |[0m (fn (stores n)
+[1;34m   |[0m      [1;31m^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__atomic_store (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `adds` claims `restrict(no-unsafe)` and the body performs Unsafe: adds -> __atomic_add[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:48:6
+[1;34m   |[0m
+[1;34m48 |[0m (fn (adds n)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__atomic_add (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `swaps` claims `restrict(no-unsafe)` and the body performs Unsafe: swaps -> __atomic_cas[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:53:6
+[1;34m   |[0m
+[1;34m53 |[0m (fn (swaps n)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__atomic_cas (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `rewinds` claims `restrict(no-unsafe)` and the body performs Unsafe: rewinds -> __axiom_arena_reset[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:58:6
+[1;34m   |[0m
+[1;34m58 |[0m (fn (rewinds n)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__axiom_arena_reset (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `keeps` claims `restrict(no-unsafe)` and the body performs Unsafe: keeps -> __axiom_arena_reset_keeping[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:63:6
+[1;34m   |[0m
+[1;34m63 |[0m (fn (keeps n v)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__axiom_arena_reset_keeping (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `counted`: `pure` claim contradicted: body performs Unsafe[0m
+  [1;34m--> [0m1010-unsafe-primitives.ax:68:6
+[1;34m   |[0m
+[1;34m68 |[0m (fn (counted n)
+[1;34m   |[0m      [1;31m^^^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+compilation failed due to 10 previous errors

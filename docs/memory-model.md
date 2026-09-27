@@ -509,6 +509,31 @@ mechanism today. Stating that is more useful than the alternative,
 which is a reader trusting a tag that `MM-EXEC-9a`'s two remaining
 rows walk straight through.
 
+**MM-EXEC-9c (H, 2026-09-27). `Unsafe` is every primitive that reads,
+writes, frees or calls through a word the type system does not bound.**
+Sixteen primitives: the original seven (`__load8`, `__store8`,
+`__store8v`, `__load64`, `__store64`, `__alloc`, `__addr`) and nine that
+joined them on 2026-09-27 — `__retain` and `__release`, which write the
+count word below an arbitrary address and can file it on a free list;
+`__call_word`, which calls it; the four atomics, which dereference it;
+and `__axiom_arena_reset`/`__axiom_arena_reset_keeping`, which rewind
+the allocator to it (`MM-ALLOC-16`). Each of the nine passed
+`restrict(no-unsafe)` before, and `pure` accepted `__retain`; each is
+refused now, as `AX3049` and `AX3010` respectively
+(`tests/diagnostics/1010-unsafe-primitives.ax`). `__fence`,
+`__retainref` (a typed value) and `__axiom_arena_mark` stay outside the
+set, and that fixture holds them silent.
+
+*Staged, and the stage is stated.* `AX3073` — the lexical rule that the
+declaration CALLING a raw primitive says `effect(unsafe)` — still reads
+the original seven. Fifteen standard-library wrappers call `__retain`
+or `__release` directly, and the committed seed, which compiles
+`stdlib/`, answers an `effect(unsafe)` claim on them with `AX3010`
+because it does not yet count the nine; the bootstrap stopped at
+stage1, measured. After the next reseed the lexical rule reads all
+sixteen and those wrappers carry the claim (`isUnsafeRawPrim` in
+`self_host/typecheck.ax` records the plan).
+
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
 
@@ -1304,6 +1329,20 @@ until the trap was written, fails on the stderr. Its tail is
 deliberately not a numeral, which is also the tripwire for this rule's
 second sentence: the day the allocator ANSWERS instead of exiting, that
 line runs, stdout gains a line, and the golden says so.
+
+**MM-ALLOC-7a (H, 2026-09-27). A size no address space can hold is out
+of memory, decided before any arithmetic on it.** A request above 2^62
+bytes — which includes every negative `Int`, read unsigned — takes
+status 70 with `axiom: out of memory (allocation size out of range)`,
+recoverable exactly as the mapping refusal is (`ERR-REC-6`). Before
+this rule a negative size reached the rounding: the unsigned
+small-block test sent it to the bump path, the bump pointer moved
+BACKWARDS, and the next block's header overwrote live data — measured,
+`(memAlloc -32)` then `(memAlloc 64)` rewrote words 6 and 7 of the
+block allocated before them, and the program printed nothing and exited
+0. `tests/stdlib/520-alloc-size.ax` pins both halves: the arming call
+answers 70 where the old compiler answered an address, and 2^62 + 1
+bytes outside a recovery point exits 70 with the new sentence.
 
 **MM-ALLOC-8 (R 2026-08-31; **P** from 2026-08-11, and three documents
 described the seam as working until 2026-08-14, when all three were
@@ -3586,6 +3625,30 @@ last collector conservative and wrong (`MM-ALLOC-20`, §10). A cycle
 collector beside ARC is a later decision that arrives with its hard
 part already paid for.
 
+**MM-LIFE-2k (H, 2026-09-27). A dead block's count word holds an
+encoded link, so no retain or release can corrupt the allocator.** A
+block whose count reaches zero reuses its count word as a link — first
+on the release's dead list while its children are walked, then on its
+size class's free list — and the link is stored as `-2 - link`. Every
+filed or dead block therefore reads as a count of at most -2, -1 stays
+the static sentinel, and `axiom_retain` and `axiom_release` skip every
+negative count. Until this rule the link was stored raw: a second
+release of a filed block read an address as a count, decremented it,
+and left the free list pointing one byte below the next block, which
+the allocator then handed out — measured, a double release followed by
+two allocations of the class answered the misaligned address
+`base + 15` (`tests/stdlib/521-release-filed.ax`, and
+`tests/stdlib/350-arc-header.ax`'s third term, which read the raw link
+as a count of 0 only because its class list happened to be empty).
+
+This is **integrity of the allocator's own metadata**, not safety for
+the program that caused the imbalance: a block released one time too
+many is still a block whose storage the next allocation may reuse, and
+a reference to it is still a dangling reference. What changed is that
+the imbalance — a compiler defect, an unsafe store, a race under
+`--threads` — can no longer turn into an allocation outside the heap's
+alignment and extent.
+
 **MM-LIFE-2 (R).** Axiom has **no tracing garbage collector**, and
 `--gc` is refused by name rather than silently ignored. The retired Rust
 backend had one — conservative, non-moving, with per-chunk object-start
@@ -3908,6 +3971,9 @@ array, `@__axiom_recover_top`, and one evidence slot per declared
 effect. **Eight**, and the number is an enumeration of `@__axiom_` in
 `self_host/codegen.ax` rather than a restatement of the sentence above,
 which is how the roadmap's "all seven" came to be short by two.
+*Ten since 2026-09-27* in a module that spawns: the child registry's
+head and sequence counter (`MM-PAR-7`) are per thread for the reason
+the other eight are - each thread sweeps the children it spawned.
 `@__axiom_argc`/`@__axiom_argv` are **not** among them and the reason
 is worth stating rather than leaving symmetric: they are written once
 in `@main`'s prologue, before any thread can exist, and never again.
@@ -4000,6 +4066,93 @@ this allocator's design cannot absorb.
   regions ACCEPTING captures it proves safe - waits for S4 with
   everything else. The process lowering - where the same program is
   safe by `MM-PAR-3` - stays the default and threads stay opt-in.
+- **what "no cross-thread reference" leaves out** - a `Vec`, until
+  2026-09-27. `AX3064` refused every capture `evClassOf` does not
+  answer 0 for, and a `Vec` answers 0 because it takes no share of a
+  count. But its handle names a MUTABLE buffer, so two bindings could
+  grow one container at once; `MM-PAR-6a` is why that became a
+  memory-safety fault and not only a data race. It is refused now,
+  with its own message (`tests/diagnostics/642-parallel-capture.ax`
+  row 5). A `Foreign` stays accepted, for `MM-FFI-7`'s reason.
+
+**MM-PAR-6a (H, 2026-09-27). A thread-lowered binding returns its arena
+when it ends.** Every mutable runtime global is thread-local under the
+thread lowering, so a binding's first allocation maps a chunk of its
+own - and until this rule nothing unmapped one: 600 bindings left
+634 MB of address space mapped and 6,000 left 6.16 GB, where the same
+program forked held 3.6 MB (`VmSize`, measured). The thread's entry
+now sweeps its own children (`MM-PAR-7`) and then unmaps every chunk on
+its active list and its free list; the same 600 and 6,000 bindings hold
+20 MB either way.
+
+It is sound because nothing a thread allocated is reachable once it
+ends: what crosses the join is a word (`AX3004` at the binding), and
+`AX3064` refuses every captured reference and every captured `Vec`,
+whose buffer a push would otherwise reallocate out of the thread's
+arena and leave the parent naming unmapped memory. What remains is the
+unsafe layer's, and it is a **program obligation**: a word that is the
+address of thread-arena memory, laundered through `cast` or stored
+through a raw address, dangles after the join.
+
+**MM-PAR-7 (H, 2026-09-27). No spawned child outlives the scope that
+could still observe it.** Every spawn links its handle page onto a
+registry belonging to the spawning thread, every join unlinks it, and
+three places sweep what is still linked - a process is sent `SIGKILL`
+and reaped, a thread is JOINED (nothing can stop one mid-flight
+soundly), and in both cases the thunk is released and the page unmapped:
+
+| When | What is swept |
+|---|---|
+| a recovery abort, before it resets the arena | every child spawned since that recovery point was armed |
+| a trap that nothing recovers, before it exits | every child |
+| `main` returning | every child the program never joined |
+| a forked child's or a thread's own end | the children that binding spawned and did not join |
+
+Four defects closed with it, each measured before the change:
+
+- **A forked child inherited the parent's recovery point.** A binding
+  that trapped inside `__axiom_recover` jumped to the PARENT's arm site
+  in the CHILD and ran the parent's continuation there, and the parent
+  read the child's exit 0 as success with the answer 0: two lines of
+  output where one belonged, the second wrong. The child now starts
+  disarmed with an empty registry, and the raising join re-raises its
+  child's status through the parent's recovery point
+  (`tests/stdlib/522-parallel-recover.ax`).
+- **A join that re-raised abandoned its siblings**, which ran on after
+  the parent had exited or recovered.
+- **A spawn the kernel refused leaked its page and its thunk's share**
+  (status 78 is recoverable, so the leak was per retry).
+- **A join that could not reach its child read success.** `wait4`
+  failing with anything but `EINTR` left the status word unwritten, and
+  0 was read as a clean exit; `pthread_join`'s answer was ignored. Both
+  are status 78 now, `axiom: parallel: could not join the binding`, and
+  so is a handle joined by a thread that did not spawn it - the two
+  registries are unsynchronised, so that is refused rather than raced.
+
+Three limits, stated rather than left to be discovered. A killed child
+cannot sweep its own children, so the grandchildren of a killed binding
+are reparented, not killed. A thread cannot be interrupted, so a sweep
+of a binding that never finishes never finishes. And a handle is a
+word, so joining one twice is refused only while the registry can see
+it: a handle whose page was already unmapped is a dangling address
+(`MM-PAR-8`).
+
+**What it costs.** The registry is two more thread-local globals - the
+eight of `MM-PAR-3` become ten in a module that spawns
+(`scripts/check-thread-local.sh`) - five words per handle page, and a
+sweep call in the abort, in `@main`'s wrapper and at each child's end.
+A module that names no spawn primitive emits none of it and is
+byte-identical to what it was.
+
+**MM-PAR-8 (P). A spawn handle SHALL be a value the type system
+tracks, joined exactly once.** Today it is an `Int`: the `parallel`
+form never exposes one, and `stdlib/Par.ax` joins every handle it
+spawns exactly once by construction, but a program spelling the raw
+primitives can join one twice or never. `MM-PAR-7`'s registry turns the
+never into a sweep and the cross-thread join into status 78; a second
+join of an unmapped page is still a read of whatever maps there next,
+and is a program obligation until the handle has a type that is
+consumed by its join.
 
 ---
 
@@ -4157,6 +4310,21 @@ re-entrancy clause above: 100 values freed through a `Drop` that calls
 back into `axiom_retain`/`axiom_release` mid-release, with the drops
 and retains counters agreeing at 100.
 
+
+**MM-FFI-7 (H, program obligation, 2026-09-27). A `Foreign` captured by
+a thread binding is shared, and its thread-safety is the foreign
+side's.** `AX3064` accepts a captured `Foreign` because the release walk
+never follows one - there is no Axiom count to race - and that is the
+whole of what the checker can say
+(`tests/diagnostics/655-parallel-capture-foreign.ax`). Under the thread
+lowering both threads then hold the same foreign object; whether it may
+be used from two threads at once is a property of the code behind it,
+which no Axiom rule can see. Under the process lowering each child
+holds its own copy-on-write copy of any foreign state in the process
+image, and a foreign object backed by something outside the image - a
+file descriptor, a mapping, a device - is shared exactly as the kernel
+shares it.
+
 ---
 
 ## 8. Formal invariants
@@ -4220,11 +4388,11 @@ that rule's status, which is the failure this table exists to prevent.
 |---|---|---|---|---|
 | Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
 | Representation | VAL-1…11, 14…20, VAL-22, VAL-23 | — | — | VAL-12, VAL-13 |
-| Allocation | ALLOC-1…7, 8a…16b, ALLOC-22, ALLOC-23 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
+| Allocation | ALLOC-1…7, 7a, 8a…16b, ALLOC-22, ALLOC-23 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
 | Mutation | MUT-1…5 | — | — | MUT-6 |
-| Lifetimes | LIFE-1, 3, 4, 6, 2g | LIFE-5, LIFE-7 | LIFE-2a…2f (2026-08-24, superseded by ALLOC-22) | LIFE-2 |
-| Parallelism | PAR-1…5 | PAR-6 | — | — |
-| Foreign | FFI-1…6 | — | — | — |
+| Lifetimes | LIFE-1, 3, 4, 6, 2g, 2k | LIFE-5, LIFE-7 | LIFE-2a…2f (2026-08-24, superseded by ALLOC-22) | LIFE-2 |
+| Parallelism | PAR-1…5, 6a, 7 | PAR-6, PAR-8 | — | — |
+| Foreign | FFI-1…7 | — | — | — |
 
 `MM-VAL-21` appears in no column: it is neither held, planned nor
 refused, but **defective** — see §9.0.
@@ -4342,6 +4510,11 @@ equivalent honesty for this one.
 | `scripts/check-bootstrap.sh` | that the compiler survives compiling itself under this allocator |
 | `scripts/check-reproducible.sh` | EXEC-13 |
 | `tests/stdlib/476-par-pool.ax` | PAR-5 |
+| `tests/stdlib/520-alloc-size.ax` | ALLOC-7a - a negative size answers 70 at a recovery point and 2^62 + 1 bytes exits 70, where the unfixed compiler answered an address |
+| `tests/stdlib/521-release-filed.ax` | LIFE-2k - a double release of a filed block leaves the next two allocations aligned and reusing it, where the unfixed compiler handed out `base + 15` |
+| `tests/stdlib/522-parallel-recover.ax` | PAR-7's recovery half - a trapping forked binding inside a recovery point answers 72 once, where the unfixed compiler printed twice |
+| `tests/diagnostics/1010-unsafe-primitives.ax` | EXEC-9c - the nine primitives refused under `restrict(no-unsafe)` and `pure`, three controls silent |
+| `scripts/check-parallel.sh` section 12 | PAR-6a and PAR-7 - thread churn holds address space flat, and no child outlives an abort, a trap or `main` |
 | `tests/selfhost/500-while-mut.ax` | MUT-1 in constant stack |
 | `tests/diagnostics/465-set-on-parameter.ax`, `466-set-captured.ax` | MUT-1a — both refusals, byte-pinned in all three renderings |
 | `tests/diagnostics/471-reserved-runtime-name.ax` | ALLOC-8's refusal arm (`AX3026`) |

@@ -1281,6 +1281,192 @@ HANDLE
 checkok "$work/accept-foreign.ax" "a captured Foreign"
 check3064 "$work/refuse-handle.ax" 1 "a captured Handle"
 
+# --------------------------------------------------------------------
+echo
+echo "== 12. thread arenas come back, and no child outlives its scope (MM-PAR-6a, MM-PAR-7) =="
+# --------------------------------------------------------------------
+# 12a. THREAD CHURN HOLDS ADDRESS SPACE FLAT. Before MM-PAR-6a every
+# thread-lowered binding mapped a chunk of its own and nothing unmapped
+# it: 600 bindings held 634 MB of address space and 6,000 held 6.16 GB
+# (`VmSize`, measured 2026-09-27). The program reads its own
+# /proc/self/status after N bindings; the same binary's figure at 600
+# and at 6,000 must agree within a slack far below one leaked chunk per
+# thread (1 MiB x 5,400 would be 5.4 GB). Linux only: `VmSize` is
+# procfs's, and the thread lowering exists on darwin too but has no
+# procfs to read.
+if [[ "$(uname -s)" == Linux ]]; then
+  for n in 300 3000; do
+    cat > "$work/churn$n.ax" <<CHURN
+(import IO)
+(import Vec)
+(import Sys)
+
+(:: work (-> Int Int))
+(fn (work i)
+  (let ((v vecNew))
+    {
+      (for k 0 100
+        (vecPush v k))
+      (vecLen v)
+    }))
+
+(:: loop (-> Int Int Int))
+;@axiom:effect(io)
+(fn (loop i acc)
+  (if (>= i $n)
+    acc
+    (loop
+      (+ i 1)
+      (+
+        acc
+        (parallel p (
+          (a (work i))
+          (b (work i))
+        )
+          (+ a b))))))
+
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "{(loop 0 0)}")
+    (println (sysReadFile (__addr "/proc/self/status")))
+    0
+  })
+CHURN
+    if "$axc" build --threads --input "$work/churn$n.ax" --output "$work/churn$n" > "$work/churn$n.build" 2>&1; then
+      "$work/churn$n" > "$work/churn$n.out" 2>&1 || true
+    else
+      bad "12a: the churn probe at $n iterations did not build"
+      sed 's/^/     /' "$work/churn$n.build" | head -5
+    fi
+  done
+  vm300="$(awk '/^VmSize:/ {print $2}' "$work/churn300.out" 2>/dev/null)"
+  vm3000="$(awk '/^VmSize:/ {print $2}' "$work/churn3000.out" 2>/dev/null)"
+  if [[ -n "$vm300" && -n "$vm3000" ]]; then
+    if (( vm3000 - vm300 < 65536 )); then
+      ok "12a: 600 threads end at ${vm300} kB of address space and 6,000 at ${vm3000} kB - flat"
+    else
+      bad "12a: 600 threads end at ${vm300} kB and 6,000 at ${vm3000} kB - a thread's arena is not coming back"
+    fi
+  else
+    bad "12a: the churn probe printed no VmSize"
+  fi
+else
+  echo "SKIP 12a: VmSize is Linux procfs; this host is $(uname -s)"
+fi
+
+# 12b. NO CHILD OUTLIVES AN ABORT, A TRAP OR `main`. Each probe writes
+# the pid of a binding that would run for minutes into a file, then
+# leaves the scope that owns it; after the probe exits, `kill -0` on
+# that pid must fail. Before MM-PAR-7 all three shapes left the child
+# running: a join that re-raised exited past it, an abort jumped past
+# it, and `main` returned past a handle nobody joined.
+cat > "$work/orphan.ax" <<'ORPHAN'
+(import IO)
+(import Sys)
+(import Str)
+(import Fmt)
+(import Mem)
+
+(:: zero Int)
+(fn (zero)
+  0)
+
+; The monotonic clock in microseconds, or 0 where it is refused.
+(:: nowUs (-> Int Int))
+;@axiom:effect(io)
+(fn (nowUs buf)
+  (match (sysNowMonotonic buf)
+    ((Ok t) t)
+    ((Err e) 0)))
+
+; Record this process's pid, then spin on the CLOCK for two minutes -
+; a syscall per turn, which no optimiser can fold the way it folds a
+; counting loop to its final value. Only a kill ends it in time.
+(:: sleeper (-> Int Int))
+;@axiom:effect(io)
+(fn (sleeper path)
+  {
+    (match (sysWriteFile path (fmtInt sysGetPid))
+      ((Ok n) n)
+      ((Err e) 0))
+    (let (
+      (buf (memAlloc 16))
+      (start (nowUs (memAlloc 16)))
+      (mut spins 0)
+    )
+      {
+        (while (< (- (nowUs buf) start) 120000000)
+          (set spins (+ spins 1)))
+        spins
+      })
+  })
+
+(:: boom (-> Int Int))
+(fn (boom x)
+  (/ 10 zero))
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((mode (sysArg 1)))
+    (if (strEq mode "abort")
+      ; the second binding traps; the recovery point answers and the
+      ; first must not keep running
+      {
+        (let ((st (__axiom_recover
+          __axiom_arena_mark
+          (lambda (x)
+            (parallel p (
+              (a (sleeper (__addr "pid-abort")))
+              (b (boom 0))
+            )
+              (+ a b))))))
+          (println "recovered {st}"))
+        0
+      }
+      (if (strEq mode "trap")
+        ; nothing recovers: the program exits 72 from the second join
+        (parallel p (
+          (a (sleeper (__addr "pid-trap")))
+          (b (boom 0))
+        )
+          (+ a b))
+        ; `main` returns with a handle nobody joined
+        {
+          (__proc_spawn (lambda (x) (sleeper (__addr "pid-main"))) 0)
+          (println "main returns")
+          0
+        }))))
+ORPHAN
+if "$axc" build --input "$work/orphan.ax" --output "$work/orphan" > "$work/orphan.build" 2>&1; then
+  for mode in abort trap main; do
+    rm -f "$work/pid-$mode"
+    ( cd "$work" && timeout 60 ./orphan "$mode" > "orphan-$mode.out" 2>&1 )
+    st=$?
+    # The child writes its pid first thing; the parent may have killed
+    # it before or after that write, so an ABSENT file means it never
+    # got that far, which is a pass for this question too.
+    if [[ -s "$work/pid-$mode" ]]; then
+      cpid="$(cat "$work/pid-$mode")"
+      if kill -0 "$cpid" 2>/dev/null; then
+        bad "12b ($mode): child $cpid is still running after the program exited $st"
+        kill -9 "$cpid" 2>/dev/null
+      else
+        ok "12b ($mode): exit $st, and the child that would have run for minutes is gone"
+      fi
+    else
+      ok "12b ($mode): exit $st before the child recorded itself - nothing left to outlive"
+    fi
+    (( st == 124 )) && bad "12b ($mode): the probe itself hung - a sweep waited instead of killing"
+  done
+  grep -q '^recovered 72$' "$work/orphan-abort.out" \
+    && ok "12b: the abort probe's recovery point answered the binding's 72" \
+    || bad "12b: the abort probe did not answer 72: $(head -3 "$work/orphan-abort.out")"
+else
+  bad "12b: the orphan probe did not build"
+  sed 's/^/     /' "$work/orphan.build" | head -5
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-parallel: $failed of $((checks + failed)) checks failed"
@@ -1297,4 +1483,5 @@ echo "                freebsd's leg still executes the fixtures, four concurrent
 echo "                allocators answer as four processes do, two failing bindings"
 echo "                are deterministic under processes and are not under threads,"
 echo "                and a thread's backtrace stops where its stack does;"
-echo "                every thunk shape a spawn can take is scanned or refused"
+echo "                every thunk shape a spawn can take is scanned or refused;"
+echo "                thread arenas come back and no child outlives its scope"
