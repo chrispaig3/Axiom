@@ -1123,7 +1123,8 @@
                               (cast (Vec Int) 0)
                               tbares
                               tfulls
-                              tmods)))
+                              tmods
+                              0)))
                             (if (> (countErrorDiags exDiags) 0)
                               {
                                 (printTypeErrors exDiags 0)
@@ -1316,7 +1317,8 @@
                   (cast (Vec Int) 0)
                   bares
                   fulls
-                  mods)
+                  mods
+                  0)
                 v
               })))
             (let ((ds (expMergeInto eds (checkModule decls allDecls units))))
@@ -1961,7 +1963,8 @@
                         (cast (Vec Int) 0)
                         bares
                         fulls
-                        mods)
+                        mods
+                        0)
                       v
                     })))
                   (let ((ds (orderDiags (expMergeInto eds (checkModule decls allDecls units)))))

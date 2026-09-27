@@ -69,3 +69,13 @@ AX4007
 # not by a check-surface .axdl. Alternative coverage: PARTIAL (LSP
 # golden, no .axdl).
 AX5001
+
+# AX3075 (self_host/expand.ax: expScEmit). Scope/rename divergence.
+# Fires only under AXIOM_VERIFY_SCOPES=1, which the diagnostics
+# harness never sets, so no `.axdl` golden can pin it: a checked-in
+# golden would mismatch on every re-bless. Pinned instead by
+# scripts/check-scope-equiv.sh, whose positive control
+# (tests/selfhost/1003-macro-for-precedence.ax) must diverge under
+# verify and check clean without it. Alternative coverage: FULL
+# (dedicated gate with positive and negative legs, no .axdl).
+AX3075

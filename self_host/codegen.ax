@@ -11894,7 +11894,8 @@
           (cast (Vec Int) 0)
           (cast (Vec String) 0)
           (cast (Vec String) 0)
-          (cast (Vec Int) 0))
+          (cast (Vec Int) 0)
+          0)
         (if (> (countErrorDiags eds) 0)
           {
             (dieImport "error: macro expansion failed; emitModule emits no code for a refused module (check/build it through the main pipeline for diagnostics): " target)
