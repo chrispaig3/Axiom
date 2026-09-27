@@ -9,17 +9,7 @@
  * blinks out and back; under `prefers-reduced-motion` nothing is
  * touched at all.
  */
-const SELECTOR = [
-  '.shead',
-  '.pillar',
-  '.usecase',
-  '.bar-card',
-  '.built__grid > li',
-  '.docs__group',
-  '.status__col',
-  '.tool',
-  '.involved > li',
-].join(',')
+const SELECTOR = ['.shead', '.pillar', '.bar-card', '.status__col', '.compare'].join(',')
 
 export function installReveal(): void {
   if (typeof window === 'undefined' || typeof IntersectionObserver !== 'function') return

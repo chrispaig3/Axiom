@@ -43,35 +43,55 @@ body {
   overflow-x: hidden;
 }
 
+/* The whole page sits behind faint scanlines, as a screen would. The
+   strength is a token: zero on paper, and never enough to cost
+   contrast (the lines darken by a few percent, one pixel in three). */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    rgba(0, 0, 0, calc(var(--scan) * 0.6)) 2px 3px
+  );
+  pointer-events: none;
+}
+
+/* Display type is the terminal's: monospaced, heavy, a little bloom. */
 h1,
 h2,
 h3,
 h4 {
   margin: 0;
   color: var(--text);
-  font-weight: 680;
-  line-height: 1.12;
-  letter-spacing: -0.022em;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   text-wrap: balance;
 }
 
 h1 {
-  font-size: clamp(2.5rem, 1.35rem + 3.9vw, 4.6rem);
-  font-weight: 760;
-  line-height: 1.02;
-  letter-spacing: -0.042em;
+  font-size: clamp(2.1rem, 1.2rem + 3.1vw, 3.9rem);
+  font-weight: 800;
+  line-height: 1.06;
+  letter-spacing: -0.045em;
+  text-shadow: var(--bloom);
 }
 
 h2 {
-  font-size: clamp(1.9rem, 1.25rem + 2.1vw, 3.1rem);
-  font-weight: 720;
-  line-height: 1.06;
-  letter-spacing: -0.035em;
+  font-size: clamp(1.7rem, 1.2rem + 1.7vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  text-shadow: var(--bloom);
 }
 
 h3 {
   font-size: var(--t-2);
-  letter-spacing: -0.018em;
+  letter-spacing: -0.03em;
 }
 
 p {
@@ -94,6 +114,7 @@ ol {
 a {
   color: var(--accent);
   text-decoration-color: var(--accent-line);
+  text-decoration-style: dotted;
   text-underline-offset: 0.18em;
   text-decoration-thickness: 1px;
   transition: color 140ms ease, text-decoration-color 140ms ease;
@@ -102,6 +123,7 @@ a {
 a:hover {
   color: var(--accent-hover);
   text-decoration-color: currentColor;
+  text-decoration-style: solid;
 }
 
 :focus-visible {
@@ -115,15 +137,34 @@ kbd,
 samp,
 pre {
   font-family: var(--font-mono);
+}
+
+/* JetBrains Mono draws `->` as an arrow and `~/` as one glyph. Code on
+   this site is shown as typed, so ligatures are off wherever it is set
+   in the monospace face: headings and labels included. */
+code,
+kbd,
+samp,
+pre,
+h1,
+h2,
+h3,
+h4,
+.demo,
+.command,
+.btn,
+.nav__links,
+.eyebrow {
   font-feature-settings: 'liga' 0, 'calt' 0;
+  font-variant-ligatures: none;
 }
 
 :not(pre) > code {
   padding: 0.1em 0.36em;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--surface-2);
-  color: var(--text);
+  color: var(--accent);
   font-size: 0.86em;
   /* NOT `nowrap`: one long token - a `restrict(...)` tag, a path - then
      could not break, overflowed its grid column, and printed on top of
@@ -158,7 +199,12 @@ button {
 }
 
 ::selection {
-  background: rgba(76, 194, 241, 0.28);
+  background: var(--accent);
+  color: var(--text-inverse);
+}
+
+html {
+  scrollbar-color: var(--border-strong) var(--bg);
 }
 
 /* Visually hidden, still reachable by assistive tech. */

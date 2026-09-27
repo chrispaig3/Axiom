@@ -1,15 +1,15 @@
 import { useEffect, useId, useState } from 'react'
 import { asset } from '../lib/asset.ts'
-import { REPO, VERSION } from '../data/site.ts'
+import { DOCS, REPO, VERSION } from '../data/site.ts'
 import { GitHub, Menu, Moon, Sun, X } from './Icons.tsx'
 
 const LINKS = [
-  { href: '#why', label: 'Why Axiom' },
+  { href: '#why', label: 'Why' },
   { href: '#tour', label: 'Tour' },
-  { href: '#built-for', label: 'Built for' },
-  { href: '#speed', label: 'Performance' },
+  { href: '#speed', label: 'Speed' },
+  { href: '#compare', label: 'Compare' },
+  { href: '#status', label: 'Status' },
   { href: '#faq', label: 'FAQ' },
-  { href: '#docs', label: 'Docs' },
 ]
 
 /**
@@ -73,6 +73,9 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
               {l.label}
             </a>
           ))}
+          <a href={`${DOCS}/reference.md`} target="_blank" rel="noreferrer noopener">
+            Docs
+          </a>
         </nav>
 
         <div className="nav__actions">

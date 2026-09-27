@@ -29,7 +29,7 @@ writeFileSync(
   entry,
   `import { renderToStaticMarkup } from 'react-dom/server'
 import App from './src/App.tsx'
-export { HERO, TOUR, BREAKS, FIX_SOURCE, AXSYM_SOURCE } from './src/data/samples.ts'
+export { TOUR, DEMO } from './src/data/samples.ts'
 export const html = renderToStaticMarkup(<App />)
 `,
 )
@@ -59,7 +59,7 @@ const realWarn = console.warn
 console.error = (...a) => warnings.push(a.join(' '))
 console.warn = (...a) => warnings.push(a.join(' '))
 
-const { html, HERO, TOUR, BREAKS, FIX_SOURCE, AXSYM_SOURCE } = await import(pathToFileURL(out).href)
+const { html, TOUR, DEMO } = await import(pathToFileURL(out).href)
 
 rmSync(entry, { force: true })
 rmSync(out, { force: true })
@@ -124,16 +124,11 @@ if (!noalt) console.log(`ok   all ${imgs.length} images carry an alt attribute`)
 // --- 5. one numbered line per source line ---------------------------
 // The number lives inside the line it numbers, so this is what proves
 // the split is right: every number rendered must be matched by a line
-// of a program the page shows numbered on first render - the hero, the
-// first breakage, the first tour chapter, and the two agent examples.
+// of the program the page shows numbered on first render, the first
+// tour chapter.
 {
   const count = (code) => code.split('\n').length
-  const expected =
-    count(HERO.code) +
-    count(BREAKS[0].code) +
-    count(TOUR[0].code) +
-    count(FIX_SOURCE) +
-    count(AXSYM_SOURCE)
+  const expected = count(TOUR[0].code)
   const rendered = (html.match(/class="ln__n"/g) ?? []).length
   if (rendered !== expected) {
     fail(`numbered lines: rendered ${rendered}, the programs shown have ${expected}`)
@@ -143,9 +138,33 @@ if (!noalt) console.log(`ok   all ${imgs.length} images carry an alt attribute`)
 
   // And the output a crawler reads is the real output, not a spinner:
   // the run strip renders its lines on the server.
-  const firstOut = HERO.output.split('\n')[0]
-  if (!html.includes(firstOut)) fail(`the hero's output (${firstOut}) is not in the server-rendered page`)
+  const firstOut = TOUR[0].output.split('\n')[1]
+  if (!html.includes(firstOut)) fail(`the tour's output (${firstOut}) is not in the server-rendered page`)
   else console.log('ok   program output is in the server-rendered HTML')
+}
+
+// The demo renders its LAST frame on the server: the finished program
+// and every command's output, so a crawler and a reader without
+// JavaScript get the whole session rather than an empty editor.
+{
+  let code = ''
+  let cursor = 0
+  for (const s of DEMO) {
+    if (s.do === 'type') {
+      code = code.slice(0, cursor) + s.text + code.slice(cursor)
+      cursor += s.text.length
+    } else if (s.do === 'after') cursor = code.indexOf(s.text) + s.text.length
+  }
+  const lines = (html.match(/class="dl"/g) ?? []).length
+  const runs = DEMO.filter((s) => s.do === 'run')
+  const missing = runs.filter((r) => !html.includes(r.output.split('\n').at(-1).replace(/"/g, '&quot;')))
+  if (lines !== code.split('\n').length) {
+    fail(`demo: the server rendered ${lines} editor lines, the finished program has ${code.split('\n').length}`)
+  } else if (missing.length) {
+    fail(`demo: the output of \`${missing[0].command}\` is not in the server-rendered page`)
+  } else {
+    console.log(`ok   the demo's last frame is server-rendered: ${lines} lines and ${runs.length} commands' output`)
+  }
 }
 
 // --- 6. links into the repository resolve -----------------------------

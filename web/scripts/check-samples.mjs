@@ -12,13 +12,13 @@
  *
  *   PROGRAMS   `axiom fmt --check` passes (what is shown IS the
  *              formatter's normal form), then `axiom run` (or
- *              `axiom test`) exits 0 and prints exactly `output`.
- *   BREAKS     each broken program fails `axiom check` with exit 1, and
- *              stderr is byte-for-byte the `human` report and the `ai`
- *              line the page shows.
- *   QUOTES     the agent-notation blocks: AXDL, JSON and human reports,
- *              and the AXSYM table and lines, re-rendered from their
- *              source files and compared.
+ *              `axiom test`) exits 0 and prints exactly `output`; a
+ *              refusal fails `axiom check` with exactly its report.
+ *   POINTS     every note pinned to a line names text on exactly one
+ *              line of its program.
+ *   DEMO       the landing demo's script, replayed edit by edit: at each
+ *              `run` the buffer is formatter-normal and the command
+ *              prints exactly what the demo shows.
  *
  * It is NOT part of `npm run build`, on purpose: the Pages workflow
  * deliberately builds no compiler (see `.github/workflows/pages.yml`),
@@ -188,47 +188,93 @@ for (const p of programs) {
   )
 }
 
-// The hero's terminal: each tab's steps, run in order, filtered the way
-// its prompt's pipe says, must print exactly what the tab shows.
-for (const t of data.HERO_SESSIONS) {
-  checked++
-  const what = `session/${t.id}`
-  writeFileSync(join(work, data.HERO.file), `${data.HERO.code}\n`)
-  let out = ''
-  let bad = false
-  for (const step of t.steps) {
-    const local = step[0].startsWith('./')
-    const r = spawnSync(local ? join(work, step[0]) : axiom, local ? step.slice(1) : step, {
-      cwd: work,
-      env,
-      encoding: 'utf8',
-      timeout: 120_000,
-    })
-    if (r.status !== 0) {
-      fail(what, `${step.join(' ')} exited ${r.status}: ${trimEnd(plain(r.stderr ?? ''))}`)
-      bad = true
-      break
-    }
-    out += r.stdout ?? ''
-  }
-  if (bad) continue
-  let lines = trimEnd(out).split('\n')
-  if (t.grep) lines = lines.filter((l) => l.includes(t.grep))
-  if (t.head) lines = lines.slice(0, t.head)
-  if (!differs(what, 'output', t.output, lines.join('\n'))) {
-    console.log(`ok   ${what}: \`${t.command}\` prints what the tab shows`)
-  }
-}
-
-// The hero's notes each name a line and a token that line must hold.
+// Every point names text on exactly one line of its program: the page
+// lights the line it finds, so a point on no line or on two would light
+// nothing, or the wrong thing.
 {
   checked++
-  const lines = data.HERO.code.split('\n')
-  const off = data.HERO_NOTES.filter((n) => !(lines[n.line - 1] ?? '').includes(n.token))
-  if (off.length) {
-    for (const n of off) fail('hero notes', `line ${n.line} no longer holds ${JSON.stringify(n.token)}`)
-  } else {
-    console.log(`ok   hero notes: all ${data.HERO_NOTES.length} point at the line they describe`)
+  let bad = 0
+  let n = 0
+  for (const p of data.TOUR) {
+    const lines = p.code.split('\n')
+    for (const pt of p.points) {
+      n++
+      const hits = lines.filter((l) => l.includes(pt.at)).length
+      if (hits !== 1) {
+        fail(`points/${p.id}`, `${JSON.stringify(pt.at)} is on ${hits} lines of ${p.file}, not one`)
+        bad++
+      }
+    }
+  }
+  if (n < 20) fail('points', `only ${n} point(s) were read; the parse broke`)
+  else if (!bad) console.log(`ok   points: all ${n} name exactly one line of their program`)
+}
+
+// The landing demo, replayed. Edits are applied to a buffer exactly as
+// the player applies them; every `run` writes the buffer out, requires
+// it formatter-normal, runs each process of the step, and compares.
+{
+  const file = data.DEMO_FILE
+  let code = ''
+  let cursor = 0
+  let runs = 0
+  let bad = false
+  for (const step of data.DEMO) {
+    if (bad) break
+    if (step.do === 'type') {
+      code = code.slice(0, cursor) + step.text + code.slice(cursor)
+      cursor += step.text.length
+    } else if (step.do === 'after') {
+      const i = code.indexOf(step.text)
+      if (i < 0) {
+        fail('demo', `\`after\` names text the buffer does not have: ${JSON.stringify(step.text)}`)
+        bad = true
+        break
+      }
+      if (code.indexOf(step.text, i + 1) >= 0) {
+        fail('demo', `\`after\` names text the buffer has twice: ${JSON.stringify(step.text)}`)
+        bad = true
+        break
+      }
+      cursor = i + step.text.length
+    } else if (step.do === 'run') {
+      runs++
+      checked++
+      const what = `demo/${runs} \`${step.command}\``
+      const fmt = ax(file, code, ['fmt', '--check', file])
+      if (fmt.status !== 0) {
+        fail(what, `the buffer is not in axiom fmt normal form: ${trimEnd(fmt.stderr || fmt.stdout)}`)
+        bad = true
+        break
+      }
+      let out = ''
+      let status = 0
+      for (const argv of step.argv) {
+        const local = argv[0].startsWith('./')
+        const r = spawnSync(local ? join(work, argv[0]) : axiom, local ? argv.slice(1) : argv, {
+          cwd: work,
+          env,
+          encoding: 'utf8',
+          timeout: 120_000,
+        })
+        status = r.status
+        out += step.exit === 1 ? plain(r.stderr ?? '') : (r.stdout ?? '')
+        if (status !== 0) break
+      }
+      const want = step.exit ?? 0
+      if (status !== want) {
+        fail(what, `exited ${status}, the demo shows exit ${want}`)
+        bad = true
+      } else if (differs(what, 'output', step.output, out)) {
+        bad = true
+      } else {
+        console.log(`ok   ${what}: prints what the demo shows`)
+      }
+    }
+  }
+  if (!bad && runs < 4) fail('demo', `only ${runs} command(s) were replayed; the script is shorter than the page`)
+  if (!bad && !data.DEMO.some((s) => s.do === 'type' && s.text === data.HERO.code.slice(0, s.text.length))) {
+    fail('demo', 'the demo no longer starts by typing the checked HERO program')
   }
 }
 
@@ -252,43 +298,6 @@ for (const t of data.HERO_SESSIONS) {
   }
 }
 
-// --- 2. the broken programs -------------------------------------------
-for (const b of data.BREAKS) {
-  const what = `break/${b.id}`
-  checked++
-  const human = ax(data.BREAK_FILE, b.code, ['check', data.BREAK_FILE])
-  const ai = ax(data.BREAK_FILE, b.code, ['--diagnostic-format=ai', 'check', data.BREAK_FILE])
-  if (human.status !== 1) {
-    fail(what, `axiom check exited ${human.status}, the page says it is refused`)
-    continue
-  }
-  const bad = differs(what, 'human report', b.human, plain(human.stderr)) ||
-    differs(what, 'ai report', b.ai, ai.stderr)
-  if (!bad) console.log(`ok   ${what}: refused, both reports match`)
-}
-
-// --- 3. quoted compiler output -----------------------------------------
-{
-  checked++
-  const what = 'quote/undefined-suggestion'
-  const a = ax('main.ax', data.FIX_SOURCE, ['--diagnostic-format=ai', 'check', 'main.ax'])
-  const j = ax('main.ax', data.FIX_SOURCE, ['--diagnostic-format=json', 'check', 'main.ax'])
-  if (!differs(what, 'ai', data.FIX_AXDL, a.stderr.split('\n')[0] ?? '') &&
-      !differs(what, 'json', data.FIX_JSON, j.stderr.split('\n')[0] ?? '')) {
-    console.log(`ok   ${what}: AXDL and JSON match`)
-  }
-}
-{
-  checked++
-  const what = 'quote/axsym'
-  const t = ax('main.ax', data.AXSYM_SOURCE, ['symbols', 'main.ax'])
-  const a = ax('main.ax', data.AXSYM_SOURCE, ['--diagnostic-format=ai', 'symbols', 'main.ax'])
-  if (!differs(what, 'table', data.AXSYM_TABLE, t.stdout) &&
-      !differs(what, 'AXSYM', data.AXSYM_AI, a.stdout)) {
-    console.log(`ok   ${what}: table and AXSYM lines match`)
-  }
-}
-
 // A floor: a data module that silently exported nothing would pass.
 if (checked < 15) {
   fail('floor', `only ${checked} item(s) were checked; the site carries more than that`)
@@ -297,6 +306,6 @@ if (checked < 15) {
 console.log(
   failed
     ? `\nFAIL (${failed}) - the page shows output this compiler does not produce`
-    : `\nPASS ${checked} programs, breaks and quotes match ${trimEnd(spawnSync(axiom, ['version'], { encoding: 'utf8' }).stdout)}`,
+    : `\nPASS ${checked} programs, points and demo commands match ${trimEnd(spawnSync(axiom, ['version'], { encoding: 'utf8' }).stdout)}`,
 )
 process.exit(failed ? 1 : 0)

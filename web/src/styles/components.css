@@ -31,30 +31,20 @@
    its neighbour. This belongs everywhere, not at the one place the
    bug was noticed. */
 .pillars > *,
-.breaker > *,
-.breaker__stage > *,
 .tour > *,
 .tour__panel > *,
 .bench-grid > *,
-.trust > *,
-.duo > *,
-.duo__panel > *,
-.tools > *,
 .steps > *,
 .step > *,
 .next > *,
 .status > *,
-.docs > *,
 .faq > *,
 .footer__inner > *,
 .hero__stage > *,
 .ostabs > *,
 .step__demo > *,
-.usecases > *,
-.built__grid > *,
-.involved > *,
-.cta__inner > *,
 .hero__lead > *,
+.demo__panes > *,
 .method__text > * {
   min-width: 0;
   max-width: 100%;
@@ -72,25 +62,35 @@
   text-align: center;
 }
 
+/* The eyebrow is a prompt: `> WHY AXIOM_`, in the terminal's face. */
 .eyebrow {
   display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  margin: 0 0 var(--s-4);
+  align-items: baseline;
+  gap: 0.5ch;
+  margin: 0 0 var(--s-3);
   color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: var(--t--2);
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-family: var(--font-pixel);
+  font-size: 1.35rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-shadow: var(--bloom);
 }
 
 .eyebrow::before {
-  content: '';
-  width: 16px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--grad);
+  content: '>';
+  color: var(--amber);
+}
+
+.eyebrow::after {
+  content: '_';
+  animation: axblink 1.1s steps(1) infinite;
+}
+
+@keyframes axblink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .shead__lede {
@@ -142,9 +142,9 @@
   z-index: 50;
   height: var(--nav-h);
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: saturate(160%) blur(14px);
-  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
 }
 
 .nav__inner {
@@ -159,10 +159,12 @@
   align-items: center;
   gap: 10px;
   color: var(--text);
-  font-size: var(--t-1);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-family: var(--font-pixel);
+  font-size: 1.7rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
   text-decoration: none;
+  text-shadow: var(--bloom);
 }
 
 .brand:hover {
@@ -177,7 +179,8 @@
 .brand__version {
   padding: 1px 7px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
+  text-shadow: none;
   color: var(--text-3);
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -196,20 +199,24 @@
   padding: 7px 11px;
   border-radius: var(--radius-sm);
   color: var(--text-2);
-  font-size: var(--t--1);
-  font-weight: 540;
+  font-family: var(--font-mono);
+  font-size: var(--t--2);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   text-decoration: none;
   white-space: nowrap;
   transition: color 140ms ease, background 140ms ease;
 }
 
 .nav__links a:hover {
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .nav__links a[aria-current='true'] {
-  color: var(--text);
+  color: var(--accent);
+  text-shadow: var(--bloom);
 }
 
 .nav__links a[aria-current='true']::after {
@@ -250,33 +257,18 @@
   color: var(--text);
 }
 
-/* Theme glyph: BOTH are rendered and CSS picks, in the three cases
-   tokens.css handles - explicit dark, explicit light, and neither,
-   where only `prefers-color-scheme` separates them. */
-.icon-btn__sun {
-  display: none;
-}
-
+/* Theme glyph: BOTH are rendered and CSS picks. The terminal theme is
+   the default, so the sun (switch to paper) shows unless paper is on. */
 .icon-btn__moon {
-  display: block;
-}
-
-:root[data-theme='dark'] .icon-btn__sun {
-  display: block;
-}
-
-:root[data-theme='dark'] .icon-btn__moon {
   display: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .icon-btn__sun {
-    display: block;
-  }
+:root[data-theme='light'] .icon-btn__sun {
+  display: none;
+}
 
-  :root:not([data-theme='light']) .icon-btn__moon {
-    display: none;
-  }
+:root[data-theme='light'] .icon-btn__moon {
+  display: block;
 }
 
 .icon-btn--menu {
@@ -325,9 +317,12 @@
   }
 }
 
+/* `.nav` in the selector: `.btn` is declared later with the same
+   weight, and its `display` would otherwise win and push the menu
+   button past the edge of a phone. */
 @media (max-width: 480px) {
-  .brand__version,
-  .nav__cta {
+  .nav .brand__version,
+  .nav .nav__cta {
     display: none;
   }
 }
@@ -344,9 +339,12 @@
   min-height: 44px;
   padding: 10px 18px;
   border: 1px solid transparent;
-  border-radius: var(--radius);
-  font-size: var(--t-0);
-  font-weight: 600;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--t--1);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   line-height: 1.2;
   text-decoration: none;
   white-space: nowrap;
@@ -362,7 +360,7 @@
 .btn--lg {
   min-height: 50px;
   padding: 12px 24px;
-  font-size: var(--t-1);
+  font-size: var(--t-0);
 }
 
 .btn--sm {
@@ -374,25 +372,25 @@
 .btn--primary {
   background: var(--accent);
   color: var(--text-inverse);
-  box-shadow: 0 8px 24px -10px var(--accent-line);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 26px -6px var(--accent);
 }
 
 .btn--primary:hover {
   background: var(--accent-hover);
   color: var(--text-inverse);
-  box-shadow: 0 10px 30px -10px var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-hover), 0 0 34px -4px var(--accent);
 }
 
 .btn--ghost {
-  border-color: var(--border-strong);
-  background: var(--surface);
-  color: var(--text);
+  border-color: var(--accent-line);
+  background: transparent;
+  color: var(--accent);
 }
 
 .btn--ghost:hover {
-  border-color: var(--text-3);
-  background: var(--surface-2);
-  color: var(--text);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .badge {
@@ -400,7 +398,7 @@
   align-items: center;
   padding: 2px 8px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   color: var(--text-3);
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -419,6 +417,7 @@
  * ================================================================ */
 
 .command {
+  position: relative;
   display: flex;
   align-items: stretch;
   min-width: 0;
@@ -502,6 +501,7 @@
  * ================================================================ */
 
 .win {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -533,7 +533,22 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #2a323e;
+  background: #1c3a2a;
+}
+
+/* Every code screen gets its scanlines. */
+.win::after,
+.command::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    rgba(0, 0, 0, var(--scan)) 2px 3px
+  );
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 .win__name {
@@ -609,7 +624,7 @@
 .win__fold button {
   padding: 5px 14px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-2);
   font-family: var(--font-mono);
@@ -647,15 +662,36 @@
   background: var(--ink-bg);
 }
 
-.ln--mark {
-  border-left-color: var(--ink-mark-edge);
-  background: var(--ink-mark);
+.ln[data-mark='edit'] {
+  border-left-color: var(--ink-edit-edge);
+  background: var(--ink-edit);
 }
 
-.ln--mark .ln__n {
-  color: var(--ink-mark-edge);
+.ln[data-mark='error'] {
+  border-left-color: var(--ink-error-edge);
+  background: var(--ink-error);
+}
+
+.ln[data-mark='focus'] {
+  border-left-color: var(--ink-focus-edge);
+  background: var(--ink-focus);
+}
+
+.ln[data-mark] .ln__n {
   opacity: 1;
   background: transparent;
+}
+
+.ln[data-mark='edit'] .ln__n {
+  color: var(--ink-edit-edge);
+}
+
+.ln[data-mark='error'] .ln__n {
+  color: var(--ink-error-edge);
+}
+
+.ln[data-mark='focus'] .ln__n {
+  color: var(--ink-focus-edge);
 }
 
 @media (max-width: 640px) {
@@ -801,7 +837,7 @@
 }
 
 /* ================================================================ *
- * Tabs, and the terminal that uses them
+ * Tabs
  * ================================================================ */
 
 .tabs {
@@ -837,78 +873,6 @@
   border-color: var(--accent-line);
   background: var(--accent-soft);
   color: var(--accent);
-}
-
-.term {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border: 1px solid var(--ink-border);
-  border-radius: var(--radius-lg);
-  background: #080b10;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-}
-
-.term__bar {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  padding: 6px 6px 6px var(--s-4);
-  border-bottom: 1px solid var(--ink-border);
-  background: var(--ink-bar);
-}
-
-.term__name {
-  flex: none;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: var(--t--2);
-  white-space: nowrap;
-}
-
-.term__bar .tabs {
-  margin-left: auto;
-}
-
-.term__body {
-  max-height: 32rem;
-  overflow: auto;
-  scrollbar-width: thin;
-}
-
-.term__body pre {
-  margin: 0;
-  padding: var(--s-4);
-  font-size: 0.78rem;
-  line-height: 1.6;
-}
-
-.term--wrap .term__body pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.term:not(.term--wrap) .term__body code {
-  display: block;
-  min-width: max-content;
-}
-
-.term__caption {
-  padding: var(--s-3) var(--s-4);
-  border-top: 1px solid var(--ink-border);
-  color: var(--text-3);
-  font-size: var(--t--2);
-}
-
-@media (max-width: 560px) {
-  .term__bar {
-    flex-wrap: wrap;
-  }
-
-  .term__bar .tabs {
-    margin-left: 0;
-  }
 }
 
 /* ================================================================ *
@@ -952,7 +916,7 @@
 .term-gutter { color: var(--accent); }
 .term-help { color: var(--ok); }
 .term-dim { color: var(--text-3); }
-.term-key { color: var(--violet); }
+.term-key { color: var(--sx-modifier); }
 .term-str { color: var(--sx-string); }
 .term-num { color: var(--sx-number); }
 .term-e,
@@ -971,9 +935,7 @@
    drawn inside so a clipped parent cannot hide it. */
 .table-wrap,
 .win__body pre,
-.term__body,
 .report__body,
-.snippet,
-.fixpoint {
+.snippet {
   outline-offset: -2px;
 }

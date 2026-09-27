@@ -9,12 +9,12 @@
  * one copy of the fact, so a reader can check it and so can the next
  * person to edit this file.
  */
-import { BLOB, DOCS, REPO } from './site.ts'
+import { BLOB, DOCS, stat } from './site.ts'
 
 const REF = `${DOCS}/reference.md`
 
 /* ------------------------------------------------------------------ *
- * Why Axiom: six properties, each with the thing that holds it.
+ * Why Axiom: six design decisions, each linked to what enforces it.
  * ------------------------------------------------------------------ */
 
 export type PillarIcon = 'box' | 'shield' | 'terminal' | 'bot' | 'loop' | 'link'
@@ -31,43 +31,43 @@ export interface Pillar {
 export const PILLARS: Pillar[] = [
   {
     icon: 'box',
-    title: 'A binary, not a runtime',
-    body: 'No VM and no garbage collector. The allocator is emitted into your executable and the standard library talks to the kernel with raw syscalls, so a program calls no C function to print or to allocate.',
+    title: 'No runtime',
+    body: 'The allocator is compiled into your executable and the standard library calls the kernel directly. There is nothing to install beside the binary.',
     proof: 'scripts/check-freestanding.sh',
     href: `${BLOB}/scripts/check-freestanding.sh`,
   },
   {
     icon: 'shield',
-    title: 'Effects the compiler proves',
-    body: 'I/O is inferred through every call. Declare it, promise its absence with `restrict(no-io)`, or say nothing, which is itself a claim. A false one is an error that traces the path to the syscall.',
+    title: 'Effects are checked',
+    body: 'The compiler infers which functions perform I/O. `restrict(no-io)` promises that one never does, and a function that prints has to say so.',
     proof: ';@axiom:restrict(no-io)',
     href: `${REF}#restrict---what-a-declaration-does-not-do`,
   },
   {
     icon: 'terminal',
-    title: 'A compiler that argues well',
-    body: 'Exhaustive matching, no silent coercions, and errors that quote both spans, explain themselves with `axiom explain`, and carry fixes a tool can apply.',
+    title: 'Errors you can act on',
+    body: `Every diagnostic has a code, quotes the spans involved, and often carries a fix a tool can apply. \`axiom explain\` has a page for each one of the ${stat('codes')} codes.`,
     proof: 'axiom explain AX3005',
     href: `${DOCS}/diagnostics.md`,
   },
   {
     icon: 'bot',
-    title: 'Legible to people and agents',
-    body: 'One syntactic form with no precedence to guess. One line per diagnostic and one per symbol, with ids that survive edits, so a tool reads facts instead of scraping prose.',
+    title: 'Readable by tools',
+    body: 'One syntactic form and no precedence rules. `--diagnostic-format=ai` prints one line per error and `axiom symbols` one line per declaration, so an agent reads facts rather than prose.',
     proof: '--diagnostic-format=ai',
     href: `${DOCS}/agent-harness.md`,
   },
   {
     icon: 'loop',
-    title: 'It builds itself',
-    body: 'The compiler is written in Axiom and bootstraps from committed LLVM IR with nothing but `llc` and a C linker, until two generations are byte-identical.',
+    title: 'It compiles itself',
+    body: `The compiler is ${stat('lines')} lines of Axiom. A clean checkout rebuilds it from committed LLVM IR with \`llc\` and a C linker, and stops unless two generations are byte-identical.`,
     proof: 'scripts/bootstrap-from-seed.sh',
     href: `${BLOB}/scripts/bootstrap-from-seed.sh`,
   },
   {
     icon: 'link',
     title: 'Rust when you need it',
-    body: 'An `extern` block names symbols in a static archive, and `--crate` builds the crate and links it. Handles drop the Rust value when the last Axiom reference goes.',
+    body: 'An `extern` block names Rust functions, and `--crate` builds the crate and links it. A handle drops its Rust value when the last Axiom reference goes.',
     proof: 'axiom build --crate DIR',
     href: `${DOCS}/ffi.md`,
   },
@@ -192,8 +192,8 @@ export const FAQS: Faq[] = [
   {
     q: 'Is Axiom ready for production?',
     a: [
-      'It is 0.x, and it says exactly how far each piece has got. The core language (types, matching, structs, loops, modules) is complete; the FFI, the standard library and editor support are functional; macros are partial. Every row of the status table names the test that holds it.',
-      'If you need a mature ecosystem, a package index or green threads, those are not here yet. If you want a small, explicit language whose compiler you can reason about, it is built for that today.',
+      'Not for most teams yet. It is 0.x: the core language (types, matching, structs, loops, modules) is complete, the FFI, standard library and editor support are functional, and macros are partial. Every row of the status table names the test behind it.',
+      'There is no package index and no green threads. What is here is a small language whose compiler you can read and whose claims are tested.',
     ],
     link: { label: 'Implementation status', href: `${DOCS}/status.md` },
   },
@@ -227,27 +227,6 @@ export const FAQS: Faq[] = [
     link: { label: 'Effects in the reference', href: `${REF}#effects` },
   },
   {
-    q: 'Which platforms does it run on?',
-    a: [
-      'Six targets are supported, and in this project that word has a definition: a CI job executes what the compiler emits there. Prebuilt archives exist for Apple silicon and Linux on arm64; everywhere else, one script builds the compiler from the committed seed with `llc` and a C compiler. Windows executables are cross-compiled from Linux or macOS.',
-    ],
-    link: { label: 'Targets in the README', href: `${REPO}#targets` },
-  },
-  {
-    q: 'Can I call Rust or C?',
-    a: [
-      'Rust, directly: mark functions `#[axiom_export]`, and `axiom-bindgen` writes the Axiom module. Strings, `Vec`s, `Result`s, callbacks and owned handles cross the boundary, and the other direction works too: a Rust program can host an Axiom static library. C is reachable through the same `extern` block.',
-    ],
-    link: { label: 'The FFI guide', href: `${DOCS}/ffi.md` },
-  },
-  {
-    q: 'How does concurrency work?',
-    a: [
-      'One form, `parallel`, runs its bindings beside the caller and joins them in the order written: as child processes by default, whose isolation is true by construction, or as threads under `--threads`. Only a machine word crosses a join, and a binding that captures a reference the parent holds is refused. There is no async and no scheduler; `stdlib/Par.ax` is a bounded pool over the same primitives.',
-    ],
-    link: { label: 'parallel in the reference', href: `${REF}#parallel--bindings-that-run-beside-the-caller` },
-  },
-  {
     q: 'Are there traits or type classes?',
     a: [
       'They were replaced by capability records. An interface is a parameterised struct holding functions, and an instance is an ordinary value of it, passed where it is needed. Dispatch is application: no table, no resolution rules, and a function generic over an interface can call its methods.',
@@ -264,123 +243,8 @@ export const FAQS: Faq[] = [
   {
     q: 'Why does the compiler have an "ai" output format?',
     a: [
-      'Because more and more code is written by agents, and an agent reading English error prose is guessing. `--diagnostic-format=ai` prints one dense line per diagnostic with exact spans and applicable fixes, and `axiom symbols` prints one line per declaration with a content-derived id, so a tool can ask what a file provides without reading it again. The human report is built from the same structured diagnostic, so the two can never disagree.',
+      'For agents and other tools. `--diagnostic-format=ai` prints one line per diagnostic with exact spans and any fix that applies, and `axiom symbols` prints one line per declaration with an id that survives reformatting, so a tool can learn what a file provides without reading it again. The human report is rendered from the same diagnostic, so the two cannot disagree.',
     ],
     link: { label: 'Diagnostics and AXSYM', href: `${DOCS}/diagnostics.md` },
-  },
-]
-
-/* ------------------------------------------------------------------ *
- * Built for: the kinds of work where the design pays off. Each point
- * is sourced: the stdlib names are `docs/reference.md` (Standard
- * Library); regions per request are MM-ALLOC-22 in
- * `docs/memory-model.md`; `restrict(...)` is `docs/reference.md`
- * (AXTAG Keys); the agent surface is `docs/agent-harness.md`.
- * ------------------------------------------------------------------ */
-
-export type UseCaseIcon = 'terminal' | 'globe' | 'shield' | 'bot'
-
-export interface UseCase {
-  icon: UseCaseIcon
-  kicker: string
-  title: string
-  body: string
-  points: string[]
-  link: { label: string; href: string }
-}
-
-export const USE_CASES: UseCase[] = [
-  {
-    icon: 'terminal',
-    kicker: 'Command-line tools',
-    title: 'Ship one file that starts instantly.',
-    body: '`axiom build` writes a native executable with its allocator and its syscalls inside it. There is no runtime to install beside it and nothing to warm up.',
-    points: [
-      'Arguments, environment, files, pipes and child processes, all from a standard library written in Axiom.',
-      '`--target` emits for any of six targets from any host.',
-      '`axiom new` gives you a project; `axiom build` names the binary after it.',
-    ],
-    link: { label: 'The standard library', href: `${REF}#standard-library` },
-  },
-  {
-    icon: 'globe',
-    kicker: 'Services',
-    title: 'Serve requests in flat memory.',
-    body: 'Sockets and readiness polling are raw syscalls, `Http` parses and routes requests, and a `region` per request reclaims everything it built in a single pointer move.',
-    points: [
-      'Reference counting frees what dies early; the region takes the rest at the end of the request.',
-      'A pre-forked server is measured flat across ten thousand connections, against an unscoped run that must grow.',
-      'Numeric addresses only: name resolution lives in libc, and Axiom does not call libc.',
-    ],
-    link: { label: 'Regions in the reference', href: `${REF}#regions` },
-  },
-  {
-    icon: 'shield',
-    kicker: 'Security-sensitive code',
-    title: 'Say what a function may not do. Have it checked.',
-    body: '`;@axiom:restrict(no-io,no-alloc,no-foreign)` is not a comment. It is a claim tested against the effect row and the call graph, and a failure names the path of calls to where the effect enters.',
-    points: [
-      'Silence is a checked claim: a function that performs I/O and does not declare it is an error, not a lint.',
-      'The program calls no C library function, so there is no libc call for anyone to interpose on.',
-      'Exploits first, codes second: an attack was measured working before it became a diagnostic and a fixture.',
-    ],
-    link: { label: 'The security policy', href: `${BLOB}/SECURITY.md` },
-  },
-  {
-    icon: 'bot',
-    kicker: 'Code written by agents',
-    title: 'Let the machine read facts, not prose.',
-    body: 'One line per diagnostic and one per symbol, so an agent can ask what a file provides and what went wrong without paying to read it all again.',
-    points: [
-      'Fixes arrive as a span and a replacement, applied by substitution rather than by parsing English.',
-      'Every function, type and struct carries an id that survives reordering and reformatting.',
-      'One syntactic form: no precedence to guess, no parse ambiguity to get wrong.',
-    ],
-    link: { label: 'The agent harness', href: `${DOCS}/agent-harness.md` },
-  },
-]
-
-/* ------------------------------------------------------------------ *
- * Built with Axiom: the programs this repository runs every day that
- * are written in the language. Real users of a 0.x language are the
- * ones you can check, and every one of these is gated in CI.
- * ------------------------------------------------------------------ */
-
-export interface Built {
-  name: string
-  path: string
-  body: string
-}
-
-export const BUILT: Built[] = [
-  {
-    name: 'The compiler',
-    path: 'self_host/',
-    body: 'Lexer, parser, macro expander, type and effect checker, LLVM emitter and driver. CI rebuilds it from the committed seed on every run.',
-  },
-  {
-    name: 'The language server',
-    path: 'self_host/lsp.ax',
-    body: 'Navigation, hover, completion, rename, call hierarchy, code actions and macro expansion, over JSON-RPC framed by the standard library.',
-  },
-  {
-    name: 'The standard library',
-    path: 'stdlib/',
-    body: 'Strings, UTF-8, vectors, maps, JSON, HTTP, processes, sockets and a line editor. None of it calls C.',
-  },
-  {
-    name: 'The API reference generator',
-    path: 'examples/axdoc/axdoc.ax',
-    body: 'Reads the library\'s source and its AXSYM stream and writes stdlib-api.md; CI requires the output byte-identical.',
-  },
-  {
-    name: 'A million-record batch job',
-    path: 'examples/batch-fallible/batch-fallible.ax',
-    body: 'Malformed records handled by an effect six calls down, with no unwinding and no bytes allocated per record.',
-  },
-  {
-    name: 'The REPL and the formatter',
-    path: 'self_host/repl.ax',
-    body: 'An interactive session that compiles each line to native code, and the one canonical layout, in the same binary.',
   },
 ]

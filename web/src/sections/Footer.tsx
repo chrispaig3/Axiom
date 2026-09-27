@@ -9,6 +9,8 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
       ['Language reference', `${DOCS}/reference.md`],
       ['Standard library', `${DOCS}/stdlib-api.md`],
       ['Examples', `${BLOB}/examples/README.md`],
+      ['Editor setup', `${DOCS}/lsp.md`],
+      ['Calling Rust', `${DOCS}/ffi.md`],
     ],
   },
   {
@@ -17,6 +19,8 @@ const COLUMNS: { title: string; links: [string, string][] }[] = [
       ['Memory model', `${DOCS}/memory-model.md`],
       ['Error model', `${DOCS}/error-model.md`],
       ['Diagnostics', `${DOCS}/diagnostics.md`],
+      ['Agent harness', `${DOCS}/agent-harness.md`],
+      ['Compatibility', `${DOCS}/compatibility.md`],
       ['Status', `${DOCS}/status.md`],
     ],
   },
@@ -42,7 +46,13 @@ export function Footer() {
             <img className="brand__mark" src={asset('axiom-mark.png')} alt="" width={26} height={24} />
             <span className="brand__word">Axiom</span>
           </a>
-          <p>Functional programming that ships a binary, not a runtime.</p>
+          <p>
+            Found a wrong answer, a confusing error, or a claim here that does not hold?{' '}
+            <a href={`${REPO}/issues`} target="_blank" rel="noreferrer noopener">
+              Open an issue
+            </a>
+            .
+          </p>
           <p className="footer__fine">
             Axiom {VERSION} · MIT licensed · © 2026 Chris Paige
             <br />

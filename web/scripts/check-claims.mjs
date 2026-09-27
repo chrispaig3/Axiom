@@ -1,7 +1,7 @@
 /**
  * Hold the website's numbers to the repository they describe.
  *
- * The site states four counts about this tree. Every one of them moved
+ * The site states counts about this tree. Every one it has stated moved
  * the first time trunk advanced under it — 580 `.ax` files became 581,
  * 87,373 lines became 87,494, 61 gates became 62 — and nothing on the
  * page would have noticed. A number that no longer matches the thing it
@@ -32,33 +32,6 @@ const CLAIMS = [
     format: (n) => Number(n).toLocaleString('en-US'),
   },
   {
-    key: 'axfiles',
-    what: '.ax files in the tree',
-    prose: /all (\d[\d,]*)\s+\.ax files/g,
-    // `.claude/worktrees/` MUST be excluded and this checker did not.
-    // Each agent worktree is a full checkout, so with twenty of them
-    // present the count read 12,621 against a real 587 - a number the
-    // build would then have demanded the site publish. A claim checker
-    // that fails the build over its own miscount is worse than none,
-    // because the obvious way to make it pass is to write its answer
-    // into the page. `node_modules` is excluded for the same reason it
-    // is excluded from the Linux harness's tar: a nested copy of
-    // somebody else's tree is not this tree.
-    //
-    // `.muse/` joins the exclusion for the same reason on 2026-09-22:
-    // the harness moved its worktrees from `.claude/worktrees/` to
-    // `.muse/worktrees/`, the exclusion did not follow, and the count
-    // read 4,158 against a real 697 - the exact miscount this comment
-    // warns about, wearing a new directory.
-    derive: () =>
-      sh(
-        "find . -name '*.ax' -not -path './.git/*'" +
-          " -not -path './.claude/*' -not -path './.muse/*'" +
-          " -not -path '*/node_modules/*' | wc -l",
-      ),
-    format: (n) => String(Number(n)),
-  },
-  {
     key: 'codes',
     what: 'diagnostic codes',
     prose: /(?:all|one of the)\s+(\d[\d,]*)\s+(?:diagnostic )?codes?\b/g,
@@ -72,70 +45,7 @@ const CLAIMS = [
       ),
     format: (n) => String(Number(n)),
   },
-  {
-    key: 'gates',
-    what: 'gate scripts',
-    prose: /(\d[\d,]*)\s+gate scripts?\b/g,
-    derive: () => sh("ls scripts/ | grep -c '^check-.*\\.sh$'"),
-    format: (n) => String(Number(n)),
-  },
-  // After STATS in site.ts come the FACTS: figures the prose repeats
-  // that the ticker does not show. Same order here as there.
-  {
-    key: 'lspRequests',
-    what: 'LSP requests the server answers',
-    prose: /answers\s+(\d[\d,]*)\s+requests\b/g,
-    // Every JSON-RPC method the server names, minus the four that are
-    // notifications rather than requests (three from the client, one
-    // the server sends). `axiom/expandMacro`, the one request that is
-    // this server's own, counts. The page said "twenty-four" until
-    // 2026-09-04, spelled out where no checker could read it; the
-    // server answered twenty-three.
-    derive: () => {
-      const all = sh(
-        "grep -o '\"\\(textDocument\\|workspace\\|callHierarchy\\|typeHierarchy\\|completionItem\\|axiom\\)/[A-Za-z/]*\"' self_host/lsp.ax | sort -u",
-      )
-        .split('\n')
-        .filter(Boolean)
-      const notifications = new Set([
-        '"textDocument/didOpen"',
-        '"textDocument/didChange"',
-        '"textDocument/didClose"',
-        '"textDocument/publishDiagnostics"',
-      ])
-      return String(all.filter((m) => !notifications.has(m)).length)
-    },
-    format: (n) => String(Number(n)),
-  },
-  {
-    key: 'commands',
-    what: 'subcommands in `axiom --help`',
-    prose: /(\d[\d,]*)\s+subcommands\b/g,
-    // The COMMANDS block of the help text, which lives in one string in
-    // self_host/driver.ax, minus `help` itself: the page lists what
-    // there is to use, and `help` is how you find it.
-    derive: () => String(helpCommands().length),
-    format: (n) => String(Number(n)),
-  },
 ]
-
-/**
- * `axiom --help`'s COMMANDS block, read from its source so this needs no
- * built compiler: `[name, description]` per command, continuation lines
- * joined, `help` dropped.
- */
-function helpCommands() {
-  const src = readFileSync(new URL('../../self_host/driver.ax', import.meta.url), 'utf8')
-  const m = /COMMANDS:\\n([\s\S]*?)\\n\\n/.exec(src)
-  if (!m) throw new Error('check-claims: no COMMANDS block in self_host/driver.ax')
-  const out = []
-  for (const line of m[1].split('\\n')) {
-    const cmd = /^  ([a-z][a-z-]*)\s{2,}(.*)$/.exec(line)
-    if (cmd) out.push([cmd[1], cmd[2].trim()])
-    else if (out.length && /^\s{6,}\S/.test(line)) out[out.length - 1][1] += ` ${line.trim()}`
-  }
-  return out.filter(([name]) => name !== 'help')
-}
 
 // The site's figures, in the order STATS declares them.
 const src = readFileSync(new URL('../src/data/site.ts', import.meta.url), 'utf8')
@@ -185,14 +95,20 @@ for (const [i, claim] of CLAIMS.entries()) {
 // sentence is checked exactly like a literal one - the check does not
 // reward the conversion by looking away from it.
 const sectionsDir = new URL('../src/sections/', import.meta.url)
-const sections = readdirSync(sectionsDir).filter((f) => f.endsWith('.tsx'))
+const sections = [
+  ...readdirSync(sectionsDir)
+    .filter((f) => f.endsWith('.tsx'))
+    .map((f) => new URL(f, sectionsDir)),
+  // Card and FAQ prose lives in data, and says figures too.
+  new URL('../src/data/content.ts', import.meta.url),
+]
 
 /** JSX to something close to what a reader sees. */
 const rendered = (src) =>
   src
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, ' ')
-    .replace(/\{stat\('([a-zA-Z]+)'\)\}/g, (_, k) => {
+    .replace(/\$?\{stat\('([a-zA-Z]+)'\)\}/g, (_, k) => {
       const i = CLAIMS.findIndex((c) => c.key === k)
       return i < 0 ? '?' : CLAIMS[i].format(CLAIMS[i].derive())
     })
@@ -202,7 +118,7 @@ const rendered = (src) =>
 
 let prose_seen = 0
 for (const file of sections) {
-  const text = rendered(readFileSync(new URL(file, sectionsDir), 'utf8'))
+  const text = rendered(readFileSync(file, 'utf8'))
   for (const claim of CLAIMS) {
     if (!claim.prose) continue
     const want = claim.format(claim.derive())
@@ -210,7 +126,7 @@ for (const file of sections) {
       prose_seen++
       if (m[1] !== want) {
         fail(
-          `${file}: "${m[0].trim()}" says ${m[1]}, the tree says ${want}` +
+          `${file.pathname.split('/').pop()}: "${m[0].trim()}" says ${m[1]}, the tree says ${want}` +
             ` — write {stat('${claim.key}')} rather than the number`,
         )
       }
@@ -219,14 +135,13 @@ for (const file of sections) {
 }
 
 // A floor, for the reason every floor in this repository exists: a
-// regex that has quietly stopped matching reports success. Four
-// sentences carry a figure today (hero lines, explain codes, agents
-// codes, the LSP request count) plus the tree-sitter .ax count = 5.
-// The subcommand count joined them on the redesign; the floor stays 5.
-if (prose_seen < 5) {
+// regex that has quietly stopped matching reports success. Two
+// sentences carry a figure since the page was cut down (the pillars'
+// line count and code count), so the floor is 2.
+if (prose_seen < 2) {
   fail(
     `the prose sweep matched ${prose_seen} sentence(s) across ` +
-      `${sections.length} section(s); the floor is 5 — the patterns no ` +
+      `${sections.length} file(s); the floor is 2 — the patterns no ` +
       'longer find the sentences they were written for',
   )
 } else {
@@ -237,19 +152,6 @@ if (prose_seen < 5) {
 // counts has swapped a member; these are checked name for name.
 const siteSrc = readFileSync(new URL('../src/data/site.ts', import.meta.url), 'utf8')
 const contentSrc = readFileSync(new URL('../src/data/content.ts', import.meta.url), 'utf8')
-
-// COMMANDS: exactly `axiom --help`, in order, with its words.
-{
-  const want = helpCommands()
-  const block = /export const COMMANDS[\s\S]*?\n\]/.exec(siteSrc)?.[0] ?? ''
-  const got = [...block.matchAll(/\{\s*name: '([^']+)',\s*desc:\s*(?:'((?:[^'\\]|\\.)*)'|"([^"]*)")/g)].map(
-    (m) => [m[1], (m[2] ?? m[3] ?? '').replace(/\\'/g, "'")],
-  )
-  const a = JSON.stringify(want)
-  const b = JSON.stringify(got)
-  if (a !== b) fail(`COMMANDS in site.ts is not axiom --help\n     help: ${a}\n     site: ${b}`)
-  else console.log(`ok   the ${got.length} subcommands on the page are axiom --help's, word for word`)
-}
 
 // TARGETS: exactly README's "Supported:" sentence, as a set.
 {

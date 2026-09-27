@@ -1,10 +1,10 @@
 import { useId, useMemo, useRef, useState } from 'react'
 import { TOUR, commandFor } from '../data/samples.ts'
 import { SectionHead } from '../components/SectionHead.tsx'
-import { CodeWindow, RunOutput } from '../components/Code.tsx'
+import { CodeWindow, RunOutput, type LineMark } from '../components/Code.tsx'
 import { Report } from '../components/Terminal.tsx'
 import { ArrowRight, ArrowUpRight, Bolt, Undo } from '../components/Icons.tsx'
-import { changedLines } from '../lib/diff.ts'
+import { changedLines, lineOf, reportedLines } from '../lib/diff.ts'
 import { inline } from '../lib/inline.tsx'
 
 /** Programs longer than this open folded; one control opens them. */
@@ -13,27 +13,37 @@ const FOLD_AT = 36
 /**
  * Ten small real programs, one idea each, as a tabbed chapter list.
  *
- * Every chapter's output is the program's real stdout, and a chapter
- * with a refusal can be broken in place: the button swaps in the
- * changed program, marks the changed lines, and shows the compiler's
- * real report. All of it is checked by `scripts/check-samples.mjs`.
+ * Each point beside a program names the line it is about, and hovering
+ * or focusing it lights that line. A chapter with a refusal can be
+ * broken in place: the changed program comes in with the lines the edit
+ * touched in amber and the line the compiler points at in red, which is
+ * what the note under the button describes. All of it is checked by
+ * `scripts/check-samples.mjs`.
  */
 export function Tour() {
   const [active, setActive] = useState(0)
   const [broken, setBroken] = useState(false)
+  const [focus, setFocus] = useState<number | null>(null)
   const uid = useId()
   const panel = useRef<HTMLDivElement>(null)
   const p = TOUR[active] ?? TOUR[0]
 
-  const diff = useMemo(
-    () => (p?.refusal ? changedLines(p.code, p.refusal.code) : []),
-    [p],
-  )
+  const pointLines = useMemo(() => (p ? p.points.map((pt) => lineOf(p.code, pt.at)) : []), [p])
+
+  const breakMarks = useMemo(() => {
+    const m = new Map<number, LineMark>()
+    if (!p?.refusal) return m
+    for (const l of changedLines(p.code, p.refusal.code)) m.set(l, 'edit')
+    for (const l of reportedLines(p.refusal.human)) m.set(l, 'error')
+    return m
+  }, [p])
+
   if (!p) return null
 
   const go = (i: number, focusTab = false) => {
     setActive(i)
     setBroken(false)
+    setFocus(null)
     if (focusTab) document.getElementById(`${uid}-t-${i}`)?.focus()
   }
 
@@ -47,15 +57,20 @@ export function Tour() {
 
   const next = TOUR[active + 1]
   const showBroken = broken && p.refusal
+  const focusLine = focus === null ? 0 : (pointLines[focus] ?? 0)
+  const marks = showBroken
+    ? breakMarks
+    : focusLine
+      ? new Map<number, LineMark>([[focusLine, 'focus']])
+      : undefined
 
   return (
     <section className="section" id="tour" aria-labelledby="tour-h">
       <div className="container">
         <SectionHead id="tour-h" eyebrow="The tour" title="Learn Axiom in ten programs.">
           <p>
-            Each is a small real task, not a feature demo, and each was compiled and run: the
-            output under it is what it printed. Where the compiler refuses something interesting,
-            there is a button to try it.
+            Each one is a small task, compiled and run; the output under it is what it printed.
+            Point at a note to light the line it describes.
           </p>
         </SectionHead>
 
@@ -94,13 +109,24 @@ export function Tour() {
           >
             <header className="tour__head">
               <p className="tour__count">
-                Chapter {active + 1} of {TOUR.length} · <code>{p.file}</code>
+                {String(active + 1).padStart(2, '0')}/{TOUR.length} · <code>{p.file}</code>
               </p>
               <h3>{p.title}</h3>
               <p className="tour__lede">{inline(p.lede)}</p>
-              <ul className="tour__points">
-                {p.points.map((pt) => (
-                  <li key={pt}>{inline(pt)}</li>
+              <ul className="tour__points" aria-label="What to notice">
+                {p.points.map((pt, i) => (
+                  <li
+                    key={pt.at}
+                    tabIndex={0}
+                    data-active={focus === i && !showBroken}
+                    onMouseEnter={() => setFocus(i)}
+                    onMouseLeave={() => setFocus(null)}
+                    onFocus={() => setFocus(i)}
+                    onBlur={() => setFocus(null)}
+                  >
+                    <span className="tour__ln">L{pointLines[i]}</span>
+                    <span>{inline(pt.text)}</span>
+                  </li>
                 ))}
               </ul>
             </header>
@@ -119,7 +145,7 @@ export function Tour() {
             <CodeWindow
               name={p.file}
               code={showBroken ? p.refusal!.code : p.code}
-              marked={showBroken ? diff : undefined}
+              marks={marks}
               foldAt={FOLD_AT}
               badge={
                 showBroken ? (
@@ -145,9 +171,17 @@ export function Tour() {
                   aria-pressed={broken}
                 >
                   {broken ? <Undo /> : <Bolt />}
-                  {broken ? 'Restore the program' : `Now break it: ${p.refusal.label.toLowerCase()}`}
+                  {broken ? 'Restore the program' : `Break it: ${p.refusal.label.toLowerCase()}`}
                 </button>
-                <p>{inline(p.refusal.note)}</p>
+                <div>
+                  <p>{inline(p.refusal.note)}</p>
+                  {broken && (
+                    <p className="legend">
+                      <span data-k="edit">your edit</span>
+                      <span data-k="error">where the compiler points</span>
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

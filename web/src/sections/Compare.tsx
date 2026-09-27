@@ -1,5 +1,4 @@
 import { COMPARE } from '../data/content.ts'
-import { DOCS } from '../data/site.ts'
 import { SectionHead } from '../components/SectionHead.tsx'
 import { inline } from '../lib/inline.tsx'
 
@@ -14,11 +13,8 @@ export function Compare() {
   return (
     <section className="section" id="compare" aria-labelledby="compare-h">
       <div className="container">
-        <SectionHead id="compare-h" eyebrow="How it compares" title="Five decisions that set it apart.">
-          <p>
-            Design, not benchmarks: the numbers are one section up. Every Axiom cell is held by
-            something in the repository; the other columns stick to facts nobody disputes.
-          </p>
+        <SectionHead id="compare-h" eyebrow="How it compares" title="Next to Rust, Go and Haskell.">
+          <p>Five design choices side by side. The other columns stick to facts nobody disputes.</p>
         </SectionHead>
 
         <div className="compare" role="table" aria-label="Axiom compared with Rust, Go and Haskell">
@@ -51,14 +47,6 @@ export function Compare() {
             </div>
           ))}
         </div>
-
-        <p className="aside">
-          Axiom is <code>0.x</code>, and nothing on this page is a promise the{' '}
-          <a href={`${DOCS}/status.md#implementation-status`} target="_blank" rel="noreferrer noopener">
-            status table
-          </a>{' '}
-          does not make. The honest summary is <a href="#status">further down</a>.
-        </p>
       </div>
     </section>
   )

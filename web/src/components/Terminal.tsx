@@ -1,4 +1,4 @@
-import { Fragment, useId, useState, type ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 
 /**
  * Compiler output, coloured.
@@ -238,95 +238,6 @@ export function Report({
       <pre className="report__body" tabIndex={0}>
         <code>{paintReport(kind, text)}</code>
       </pre>
-    </div>
-  )
-}
-
-export interface RenderItem {
-  id: string
-  tab: string
-  kind: RenderKind
-  text: string
-}
-
-/**
- * A tab strip over two or more renderings of the same compiler output.
- * A real ARIA tablist, because a set of buttons that swaps a panel is a
- * tablist whether or not it says so.
- */
-export function RenderTabs({
-  items,
-  label,
-  name,
-  caption,
-  wrap = true,
-  active: controlled,
-  onChange,
-}: {
-  items: RenderItem[]
-  label: string
-  name?: string
-  caption?: ReactNode
-  /** `false` keeps every line on one line and scrolls sideways instead -
-      for the aligned table, whose columns are the point. */
-  wrap?: boolean
-  /** Controlled selection, when a parent keeps two tab strips in step. */
-  active?: number
-  onChange?: (i: number) => void
-}) {
-  const [own, setOwn] = useState(0)
-  const active = controlled ?? own
-  const set = (i: number) => {
-    setOwn(i)
-    onChange?.(i)
-  }
-  const uid = useId()
-  const current = items[active] ?? items[0]
-  if (!current) return null
-
-  function onKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
-    e.preventDefault()
-    const delta = e.key === 'ArrowRight' ? 1 : -1
-    const next = (active + delta + items.length) % items.length
-    set(next)
-    document.getElementById(`${uid}-tab-${next}`)?.focus()
-  }
-
-  return (
-    <div className={wrap ? 'term term--wrap ink' : 'term ink'}>
-      <div className="term__bar">
-        {name && <span className="term__name">{name}</span>}
-        <div className="tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
-          {items.map((item, i) => (
-            <button
-              key={item.id}
-              id={`${uid}-tab-${i}`}
-              className="tab"
-              type="button"
-              role="tab"
-              aria-selected={i === active}
-              aria-controls={`${uid}-panel-${i}`}
-              tabIndex={i === active ? 0 : -1}
-              onClick={() => set(i)}
-            >
-              {item.tab}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div
-        className="term__body"
-        id={`${uid}-panel-${active}`}
-        role="tabpanel"
-        aria-labelledby={`${uid}-tab-${active}`}
-        tabIndex={0}
-      >
-        <pre>
-          <code>{paintReport(current.kind, current.text)}</code>
-        </pre>
-      </div>
-      {caption && <div className="term__caption">{caption}</div>}
     </div>
   )
 }

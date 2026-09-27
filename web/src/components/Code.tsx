@@ -29,7 +29,7 @@ function tokensFor(code: string, lang: Lang): Token[] {
  * once came to sit beside the wrong lines on a narrow screen. One line
  * box holding both halves cannot drift.
  */
-function toLines(tokens: Token[]): Token[][] {
+export function toLines(tokens: Token[]): Token[][] {
   const lines: Token[][] = [[]]
   for (const t of tokens) {
     const parts = t.text.split('\n')
@@ -41,7 +41,7 @@ function toLines(tokens: Token[]): Token[][] {
   return lines
 }
 
-function paint(line: Token[]) {
+export function paint(line: Token[]) {
   return line.map((t, j) =>
     t.capture === 'text' ? (
       <Fragment key={j}>{t.text}</Fragment>
@@ -53,27 +53,35 @@ function paint(line: Token[]) {
   )
 }
 
+/**
+ * How a line is lit, and why: `focus` is the line a sentence beside the
+ * code is about, `edit` a line a reader's change touched, `error` the
+ * line a refusal points at. Each has its own colour, so a highlight
+ * always says which of the three it is.
+ */
+export type LineMark = 'focus' | 'edit' | 'error'
+
 /** Highlighted code, one block per line, each carrying its number. */
 export function Lines({
   code,
   lang = 'axiom',
-  marked,
+  marks,
   numbered = true,
 }: {
   code: string
   lang?: Lang
-  /** 1-based line numbers to highlight as changed. */
-  marked?: readonly number[] | undefined
+  /** 1-based line number to how it is lit. */
+  marks?: ReadonlyMap<number, LineMark> | undefined
   numbered?: boolean
 }) {
   const lines = useMemo(() => toLines(tokensFor(code, lang)), [code, lang])
-  const mark = useMemo(() => new Set(marked ?? []), [marked])
   const width = `${String(lines.length).length}ch`
   return (
     <code style={{ ['--ln-w' as string]: width }}>
       {lines.map((line, i) => (
         <span
-          className={mark.has(i + 1) ? 'ln ln--mark' : 'ln'}
+          className="ln"
+          data-mark={marks?.get(i + 1)}
           key={i}
           data-numbered={numbered || undefined}
         >
@@ -127,7 +135,7 @@ interface WindowProps {
   code: string
   lang?: Lang
   badge?: ReactNode
-  marked?: readonly number[] | undefined
+  marks?: ReadonlyMap<number, LineMark> | undefined
   numbered?: boolean
   /** Lines past which the body opens folded. */
   foldAt?: number
@@ -152,7 +160,7 @@ export function CodeWindow({
   code,
   lang = 'axiom',
   badge,
-  marked,
+  marks,
   numbered = true,
   foldAt,
   copyText,
@@ -167,6 +175,12 @@ export function CodeWindow({
 
   // A new program resets the fold.
   useEffect(() => setOpen(false), [code])
+
+  // A lit line is never left under the fold: the folded body shows about
+  // two dozen lines, so a mark past them opens the program.
+  useEffect(() => {
+    if (foldable && marks && [...marks.keys()].some((l) => l > 22)) setOpen(true)
+  }, [marks, foldable])
 
   return (
     <figure className={['win ink', className].filter(Boolean).join(' ')} aria-label={label}>
@@ -186,7 +200,7 @@ export function CodeWindow({
       </div>
       <div className={folded ? 'win__body win__body--folded' : 'win__body'}>
         <pre tabIndex={0}>
-          <Lines code={code} lang={lang} marked={marked} numbered={numbered} />
+          <Lines code={code} lang={lang} marks={marks} numbered={numbered} />
         </pre>
       </div>
       {foldable && (

@@ -103,9 +103,7 @@ const PREREQS: Tab[] = [
     label: 'Anything else',
     body: (
       <p className="hint">
-        Any LLVM that provides <code>llc</code>, and any C compiler on the path as <code>cc</code>{' '}
-        for the final link. That is the whole list: the compiler is written in Axiom, so there is no
-        other toolchain to install first.
+        Any LLVM that provides <code>llc</code>, and any C compiler on the path as <code>cc</code>.
       </p>
     ),
   },
@@ -149,18 +147,17 @@ export function Start() {
   return (
     <section className="section section--alt" id="start" aria-labelledby="start-h">
       <div className="container">
-        <SectionHead id="start-h" eyebrow="Get started" title="From nothing to a native binary in three steps.">
+        <SectionHead id="start-h" eyebrow="Get started" title="Three steps to a native binary.">
           <p>
-            You need <code>llc</code> from LLVM and a C compiler for the final link. That is the
-            whole list.
+            Axiom needs <code>llc</code> from LLVM and a C compiler for the final link. The compiler
+            itself is written in Axiom, so there is no other toolchain to install first.
           </p>
         </SectionHead>
 
         <ol className="steps">
           <li className="step">
             <div className="step__text">
-              <h3>Install the two prerequisites</h3>
-              <p>LLVM for code generation, and a C compiler to link.</p>
+              <h3>Install LLVM and a C compiler</h3>
             </div>
             <Tabs tabs={PREREQS} label="Prerequisites by operating system" />
           </li>
@@ -168,7 +165,7 @@ export function Start() {
           <li className="step">
             <div className="step__text">
               <h3>Install Axiom</h3>
-              <p>A prebuilt archive where one exists, or the committed seed anywhere else.</p>
+              <p>A prebuilt archive where one exists; otherwise, build from the committed seed.</p>
             </div>
             <Tabs tabs={INSTALLS} label="Ways to install" />
           </li>
@@ -192,7 +189,7 @@ export function Start() {
 
         <div className="next">
           <div className="next__col">
-            <h3>Then, the commands you will use most</h3>
+            <h3>The commands you will use most</h3>
             <dl className="cheats">
               {[
                 ['axiom check', 'type-check and verify every effect claim, no code generation'],

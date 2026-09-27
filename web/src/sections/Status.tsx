@@ -33,11 +33,10 @@ export function Status() {
   return (
     <section className="section" id="status" aria-labelledby="status-h">
       <div className="container">
-        <SectionHead id="status-h" eyebrow="Honest status" title="What is solid, what is not yet.">
+        <SectionHead id="status-h" eyebrow="Status" title="What works today, and what does not.">
           <p>
-            Axiom is <code>0.x</code>. Here is where it stands, in the words of the status table, which
-            names the test behind every row. Things that were tried and removed are listed too,
-            because knowing what a language decided against tells you what it is.
+            Axiom is <code>0.x</code>. These rows are copied from the repository's status table,
+            which names the test behind each one. The last column is what was tried and taken out.
           </p>
         </SectionHead>
 

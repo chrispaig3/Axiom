@@ -116,10 +116,9 @@ export function Benchmark() {
       <div className="container">
         <SectionHead id="speed-h" eyebrow="Performance" title="C speed, a fraction of Rust's size.">
           <p>
-            The same Collatz loop in Axiom, Rust and C, on one machine. Axiom lowers to LLVM IR and
-            hands it to <code>llc</code>, the backend Rust and clang use, so a loop that is only
-            arithmetic and branches gets the machine code the other two get. The slowest number
-            here is Axiom's, and it is published anyway.
+            The same Collatz loop in Axiom, Rust and C, on one machine. Axiom hands its LLVM IR to{' '}
+            <code>llc</code>, the backend Rust and clang use, so a loop of arithmetic and branches
+            gets the same machine code.
           </p>
         </SectionHead>
 
