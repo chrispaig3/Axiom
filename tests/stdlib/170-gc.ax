@@ -53,6 +53,15 @@
 
 ; Two vectors that reference each other, then dropped. Unreachable as a
 ; pair; reachable from each other forever.
+;
+; The cycle is built through a nominal wrapper: two bare vectors pushed
+; into each other have no finite inferred type (`a` would be `(Vec b)`
+; with `b` a `(Vec a)`), so since 2026-09-27 the checker refuses that
+; spelling as AX3004. Naming the cell keeps the object graph cyclic -
+; each vector still reaches the other, through one wrapper block - and
+; the pair is still dropped immediately, which is the property under
+; test: unreachable to tracing, uncollectable to reference counting.
+(data Cell (CellWrap (Vec Cell)))
 (pub :: cycles (-> Int Int Int))
 (pub fn (cycles n acc)
   (if (<= n 0)
@@ -60,8 +69,8 @@
     (let (
       (a vecNew)
       (b vecNew)
-      (_1 (vecPush a b))
-      (_2 (vecPush b a))
+      (_1 (vecPush a (CellWrap b)))
+      (_2 (vecPush b (CellWrap a)))
     )
       (cycles (- n 1) acc))))
 

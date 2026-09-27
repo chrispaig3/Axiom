@@ -33,6 +33,12 @@
 #        element types in one scope. A global substitution would pass
 #        every other check here and fail this one.
 #
+# Recursive equations must be refused too. Declining to RECORD
+# `a = Vec a` while reporting compatibility lets a self-containing
+# vector later become `Vec String`. Direct and indirect cycles below
+# must draw AX3004; finite nesting and nominal recursive ADTs must
+# still compile and RUN, so refusing every nested type cannot pass.
+#
 # Together those are the four obligations the patch names, checked
 # from the outside: only an instantiation placeholder binds (4), the
 # binding follows the BINDING and not the program (5), and it is what
@@ -55,17 +61,29 @@ checks=0
 ok()  { echo "ok   $*"; checks=$((checks + 1)); }
 bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
-# $1 name, $2 expect (refuse|accept), rest: source on stdin
+# $1 name, $2 expect (refuse|accept|run-42), rest: source on stdin
 probe() {
   local name="$1" expect="$2" src="$work/$1.ax"
+  local rc
   cat > "$src"
-  if "$axc" check "$src" >"$work/$1.out" 2>&1; then
-    if [[ "$expect" == accept ]]; then ok "$name: accepted, as it must be"
+  if "$axc" --diagnostic-format=ai check "$src" >"$work/$1.out" 2>&1; then
+    if [[ "$expect" == accept ]]; then
+      ok "$name: accepted, as it must be"
+    elif [[ "$expect" == run-42 ]]; then
+      "$axc" --diagnostic-format=ai run "$src" >"$work/$1.run" 2>&1
+      rc=$?
+      if [[ "$rc" == 42 ]]; then ok "$name: accepted and ran to 42"
+      else bad "$name: runtime exit $rc, expected 42"; cat "$work/$1.run"; fi
     else bad "$name: ACCEPTED, and this shape is the unsoundness"; fi
   else
-    if [[ "$expect" == refuse ]]; then ok "$name: refused"
+    rc=$?
+    if [[ "$expect" == refuse && "$rc" == 1 ]] && grep -q '^E AX3004 ' "$work/$1.out"; then
+      ok "$name: refused with AX3004"
+    elif [[ "$expect" == refuse ]]; then
+      bad "$name: exit $rc without the required type-mismatch diagnostic"
+      cat "$work/$1.out"
     else bad "$name: refused, but this program is correct"
-         sed 's/\x1b\[[0-9;]*m//g' "$work/$1.out" | grep -E "^error|expected" | head -2 | sed 's/^/       /'; fi
+         head -2 "$work/$1.out" | sed 's/^/       /'; fi
   fi
 }
 
@@ -109,6 +127,31 @@ probe read-back refuse <<'AX'
 AX
 
 echo
+probe self-containing-vector refuse <<'AX'
+(import Vec)
+(import Str)
+(fn (main)
+  (let ((v vecNew))
+    {
+      (vecPush v v)
+      (vecPush v "hello")
+      (strLen (vecGet v 0))
+    }))
+AX
+
+probe mutually-containing-vectors refuse <<'AX'
+(import Vec)
+(import Str)
+(fn (main)
+  (let ((a vecNew) (b vecNew))
+    {
+      (vecPush a b)
+      (vecPush b a)
+      (vecPush b "hello")
+      (strLen (vecGet b 0))
+    }))
+AX
+
 echo "== what pinning must NOT break =="
 
 probe one-type accept <<'AX'
@@ -158,6 +201,36 @@ probe per-binding accept <<'AX'
     }
   )
 )
+AX
+
+echo
+probe finite-nested-vectors run-42 <<'AX'
+(import Vec)
+(import Str)
+(fn (main)
+  (let ((strings vecNew) (nested vecNew) (ints vecNew))
+    {
+      (vecPush strings "hello")
+      (vecPush nested strings)
+      (vecPush ints 37)
+      (+ (strLen (vecGet (vecGet nested 0) 0)) (vecGet ints 0))
+    }))
+AX
+
+probe nominal-recursive-data run-42 <<'AX'
+(import Vec)
+(data Tree () (Leaf Int) (Branch (Vec Tree)))
+(:: total (-> Tree Int))
+(fn (total t)
+  (match t
+    ((Leaf n) n)
+    ((Branch children) (total (vecGet children 0)))))
+(fn (main)
+  (let ((children vecNew))
+    {
+      (vecPush children (Leaf 42))
+      (total (Branch children))
+    }))
 AX
 
 echo

@@ -487,6 +487,20 @@ about what the checker stops proving applies from here.
 
 The `(a)` after the type name introduces a type parameter. Types can be polymorphic — the same `Maybe` can hold any type.
 
+A generic value bound by `let` keeps the type chosen by its uses. For
+example, pushing a `String` into an initially empty vector makes that
+binding a `(Vec String)`; a later `Int` push is a type mismatch
+(`AX3004`). Separate empty vectors can acquire different element types.
+
+Inferred types must be finite. Inserting a vector into itself would
+require its element type `a` to equal `(Vec a)`, so it is refused with
+`AX3004`. An indirect cycle through two vectors is refused for the same
+reason. Finite nested vectors are supported, as are explicitly recursive
+data declarations such as `(data Tree () (Leaf Int) (Branch (Vec Tree)))`.
+Name the recursive structure with a data type rather than relying on an
+infinite inferred type. This rule does not establish ownership or prevent
+all runtime object cycles.
+
 ### Region Annotations
 
 A signature may name the **region** a reference lives in, with `@name`

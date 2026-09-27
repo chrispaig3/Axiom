@@ -588,7 +588,16 @@ rather than a hope.**
    spread the error instead of stopping it.
 3. **The occurs check is not optional.** Binding `_i` to a type
    containing `_i` builds a cycle that `tyResolve` and the
-   reference-map walk would both follow forever.
+   reference-map walk would both follow forever. The comparison must
+   also fail with `AX3004`: declining to record the binding while
+   reporting success loses a real constraint. That was the behavior
+   until 2026-09-27. A vector could contain itself, then a later push
+   could pin its element type to `String`, accepting a container as a
+   string without any cast. Direct and indirect recursive equations
+   are now refused. Finite nested vectors and nominal recursive data
+   types remain supported; `check-type-pinning.sh` executes both and
+   requires the recursive equations to emit `AX3004`, not merely fail
+   for an unrelated reason.
 4. **There is no backtracking.** Binding is monotone, so it is sound
    only if no caller tries a match and discards it. All 53 `tyCompat`
    call sites were read: every one reports on failure or walks

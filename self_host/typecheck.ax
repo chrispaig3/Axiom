@@ -372,7 +372,10 @@
 ;      to it would spread the error instead of stopping it.
 ;   3. THE OCCURS CHECK IS NOT OPTIONAL. Binding `_t` to a type
 ;      containing `_t` builds a cycle, and `tyResolve` and the
-;      reference-map walk would both follow it forever.
+;      reference-map walk would both follow it forever. The comparison
+;      must FAIL too: silently leaving it unbound accepts a container
+;      holding itself, then lets a later use claim its elements are
+;      Strings or Ints instead of containers.
 ;   4. THERE IS NO BACKTRACKING. Binding is monotone, so it is sound
 ;      only if no caller tries a match and discards it. All 53
 ;      `tyCompat` call sites were read: every one either reports on
@@ -442,10 +445,10 @@
       (tyOccursVec v xs (+ i 1)))))
 
 ; Pin `v` to `t`, answering whether the two are now compatible.
-; Refuses on the occurs check and on poison, and both refusals answer
-; 1: this is only reached where the old code said "a minted variable
-; matches anything", so declining to RECORD a binding must not by
-; itself turn a program red.
+; Poison and unavailable type information remain compatible without
+; recording a binding. An occurs-check failure is different: `a` and
+; `(Vec a)` cannot be equal finite types, so it MUST return 0. Merely
+; declining to record that equation would forget a real constraint.
 (pub :: tyPin (-> Int Int Int))
 (pub fn (tyPin v t)
   (if (== v t)
@@ -461,7 +464,7 @@
         (if (&& (== (nodeTag t) TAG_T_VAR) (&& (== (tyIsSrcVar t) 0) (== (tyIsMintedVar t) 0)))
           1
           (if (== (tyOccurs v t) 1)
-            1
+            0
             {
               (memSetWord
                 (cast Int v)
