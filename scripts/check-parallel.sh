@@ -231,8 +231,10 @@ if [[ "$tl_p" == 0 ]]; then ok "processes: no thread_local in the module"; else 
 # and one evidence slot per effect - the fixture declares none, so 7.
 # check-thread-local.sh counts them by name; here the number is what a
 # program with no effect must get.
-if [[ "$tl_t" == 7 ]]; then ok "threads: 7 thread_local(localexec) globals - the eight less the evidence slot this fixture has no effect for"; else bad "threads: $tl_t thread_local globals, expected 7"; grep 'thread_local' "$work/t470.ll" | sed 's/^/     /' | head -10; fi
-for g in __axiom_bump __axiom_bump_end __axiom_chunk __axiom_free __axiom_high __axiom_slabs __axiom_recover_top; do
+# Plus, since 2026-09-27, the child registry's head and sequence
+# counter (MM-PAR-7), which a spawning module always carries: 9.
+if [[ "$tl_t" == 9 ]]; then ok "threads: 9 thread_local(localexec) globals - the eight less the evidence slot this fixture has no effect for, and the registry's two"; else bad "threads: $tl_t thread_local globals, expected 9"; grep 'thread_local' "$work/t470.ll" | sed 's/^/     /' | head -10; fi
+for g in __axiom_bump __axiom_bump_end __axiom_chunk __axiom_free __axiom_high __axiom_slabs __axiom_recover_top __axiom_par_live __axiom_par_seq; do
   grep -q "^@$g = internal thread_local(localexec) global" "$work/t470.ll" || bad "threads: @$g did not move"
 done
 if grep -q '@__axiom_arg[cv] = internal thread_local' "$work/t470.ll"; then bad "threads: argc/argv moved; they are write-once and shared by design"; else ok "threads: @__axiom_argc/argv stayed shared"; fi

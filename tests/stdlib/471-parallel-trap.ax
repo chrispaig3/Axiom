@@ -15,6 +15,12 @@
 ; The join of `a` is what propagates, and `b` - which would have
 ; answered - is never reached: the body never runs, and nothing after
 ; the form does either.
+;
+; The vector is built INSIDE the binding. It was captured from `main`
+; until 2026-09-27, when `AX3064` began refusing a captured `Vec` at a
+; thread-capable spawn: its handle names a mutable buffer a binding
+; could grow while another reads it (MM-PAR-6a,
+; `tests/diagnostics/642-parallel-capture.ax` row 5).
 (import IO)
 (import Str)
 (import Vec)
@@ -22,21 +28,23 @@
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((v vecNew))
-    {
-      (vecPush v 1)
-      (println "before")
-      (parallel p (
-        (a (vecGet v 5))
-        (b 2)
-      )
-        (println (+ a b)))
-      ; Nothing after the form runs: the join of `a` re-raises 77. The
-      ; tail is a CALL and not the literal 0 for `464-index-trap.ax`'s
-      ; reason - `verify-stdlib-out.py` models a case's exit status from
-      ; `main`'s tail when that tail is a literal, and this program's
-      ; status comes from the child's trap. It is also the tripwire for
-      ; the join swallowing the status: if it ever answers instead of
-      ; exiting 77, this line runs and the golden says so.
-      (printlnLit (strCStr "UNREACHABLE: the join returned"))
-    }))
+  {
+    (println "before")
+    (parallel p (
+      (a (let ((v vecNew))
+        {
+          (vecPush v 1)
+          (vecGet v 5)
+        }))
+      (b 2)
+    )
+      (println (+ a b)))
+    ; Nothing after the form runs: the join of `a` re-raises 77. The
+    ; tail is a CALL and not the literal 0 for `464-index-trap.ax`'s
+    ; reason - `verify-stdlib-out.py` models a case's exit status from
+    ; `main`'s tail when that tail is a literal, and this program's
+    ; status comes from the child's trap. It is also the tripwire for
+    ; the join swallowing the status: if it ever answers instead of
+    ; exiting 77, this line runs and the golden says so.
+    (printlnLit (strCStr "UNREACHABLE: the join returned"))
+  })

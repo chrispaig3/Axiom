@@ -1,0 +1,50 @@
+; A `parallel` binding that traps inside a recovery point is answered at
+; the ARMING CALL, once, with the trap's status (MM-PAR-7).
+;
+; Until 2026-09-27 the forked child inherited the parent's recovery
+; point with the rest of its memory. A binding that divided by zero
+; inside `__axiom_recover` therefore jumped to the PARENT's arm site in
+; the CHILD, which ran the parent's continuation - this program printed
+; `after recover: status 72` from the child - and exited 0, which the
+; parent's join read as success with the answer 0: the parent printed
+; `after recover: status 1`. Two lines where one belongs, the second of
+; them wrong, and no error visible to either process.
+;
+; The child now starts disarmed, with an empty registry of its own; its
+; trap is an exit with status 72, and the join re-raises that status
+; THROUGH the parent's recovery point, which answers it. The child's
+; sentence is on fd 2 (`.err`); the parent's stdout carries one line.
+;
+; The default lowering is what this case measures. Under `--threads` a
+; binding's trap ends the process, as `docs/reference.md`'s `parallel`
+; section states; `471-parallel-trap.ax` is the case both lowerings run.
+(import IO)
+(import Str)
+
+(:: zero Int)
+(fn (zero)
+  0)
+
+(:: boom (-> Int Int))
+(fn (boom x)
+  (/ 10 zero))
+
+(:: body (-> Int Int))
+;@axiom:effect(io)
+(fn (body x)
+  (parallel p (
+    (a (+ x 1))
+    (b (boom x))
+  )
+    (+ a b)))
+
+;@axiom:effect(io)
+(fn (main)
+  (let ((st 
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (body x)))))
+    {
+      (println "after recover: status {st}")
+      0
+    }))

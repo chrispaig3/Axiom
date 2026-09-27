@@ -116,7 +116,6 @@
 ; `{ptr, len}`), for a record that crosses as its fields (one word
 ; each, in declaration order) or any payload wider than two words.
 (pub :: ffiCellNewN (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ffiCellNewN n)
   (let ((c 
     (memAlloc
@@ -141,7 +140,6 @@
   (ffiCellWord p i))
 
 (pub :: ffiCellFree (-> Int Int))
-;@axiom:effect(unsafe)
 (pub fn (ffiCellFree c)
   {
     (__release c)

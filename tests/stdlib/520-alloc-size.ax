@@ -1,0 +1,72 @@
+; exit 70 (see .exit)
+;
+; MM-ALLOC-7a: an allocation size no address space can hold is out of
+; memory - status 70, recoverable like the mapping refusal - and it is
+; decided BEFORE the allocator does any arithmetic on it.
+;
+; Until 2026-09-27 a negative size reached that arithmetic. `%sz0` came
+; out negative, the unsigned small-block test sent it down the bump
+; path, the bump pointer moved BACKWARDS, and the next block's header
+; landed on live data: `(memAlloc -32)` then `(memAlloc 64)` rewrote
+; words 6 and 7 of the block allocated before them. Nothing trapped and
+; nothing was printed; the corruption surfaced wherever those words
+; were next read.
+;
+; Three halves, one program, for `402-recover-oom.ax`'s reason: with
+; `__axiom_recover` unreferenced the recovery branch folds away.
+;
+;   1  inside a recovery point, a negative request answers 70 at the
+;      arming call;
+;   2  the block allocated BEFORE the refused request still holds all
+;      eight of its words - the half that failed silently before;
+;   3  outside every recovery point, 2^62 + 1 bytes is the end of the
+;      program: the sentence on fd 2 names the size, not `mmap`, and
+;      the status is 70.
+(import IO)
+(import Str)
+(import Mem)
+
+(:: fill (-> Int Int))
+(fn (fill p)
+  {
+    (for i 0 8
+      (memSetWord p i (+ 100 i)))
+    p
+  })
+
+(:: sum (-> Int Int))
+(fn (sum p)
+  (let ((mut acc 0))
+    {
+      (for i 0 8
+        (set acc (+ acc (memGetWord p i))))
+      acc
+    }))
+
+(:: negative (-> Int Int))
+(fn (negative x)
+  (memAlloc (- 0 32)))
+
+(:: huge (-> Int Int))
+(fn (huge x)
+  (memAlloc 4611686018427387905))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((kept (fill (memAlloc 64))))
+    (let ((inside 
+      (__axiom_recover
+        __axiom_arena_mark
+        (lambda (x) (negative x)))))
+      (let (
+        (after (memAlloc 64))
+        (total (sum kept))
+      )
+        {
+          (memSetWord after 0 7)
+          (println "recovered {inside}")
+          (println "kept {total}")
+          (huge 0)
+          (printlnLit (strCStr "UNREACHABLE: the refusal outside a recovery point returned"))
+        }))))

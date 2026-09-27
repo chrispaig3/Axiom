@@ -88,7 +88,6 @@
 ; payload; the allocator zeroes, so the terminator is already in place.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strAlloc (-> Int String))
-;@axiom:effect(unsafe)
 (pub fn (strAlloc len)
   ; the header's own share of its buffer - one retain here makes
   ; the rule uniform ("a `Str` header's death releases its owner
@@ -245,7 +244,6 @@
 ; empty rather than a read of unrelated memory.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: strSlice (-> String Int Int String))
-;@axiom:effect(unsafe)
 (pub fn (strSlice s start count)
   ; the slice's own share of the bytes it now points into
   (let ((len (strLen s)))

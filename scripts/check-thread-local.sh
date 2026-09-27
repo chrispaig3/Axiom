@@ -196,7 +196,8 @@ echo "== 3. on: exactly the eight move, and the thread runtime arrives =="
 tl_on="$(grep -c '= internal thread_local(localexec) global' "$work/on.ll" || true)"
 wrong=0
 for g in __axiom_bump __axiom_bump_end __axiom_chunk __axiom_free \
-         __axiom_high __axiom_slabs __axiom_recover_top __axiom_ev_Console; do
+         __axiom_high __axiom_slabs __axiom_recover_top __axiom_ev_Console \
+         __axiom_par_live __axiom_par_seq; do
   if ! grep -q "^@$g = internal thread_local(localexec) global" "$work/on.ll"; then
     bad "@$g did not move to thread_local(localexec)"
     wrong=1
@@ -207,12 +208,16 @@ for g in __axiom_bump __axiom_bump_end __axiom_chunk __axiom_free \
   fi
 done
 if [[ "$wrong" == 0 ]]; then
-  ok "all eight globals moved to thread_local(localexec)"
+  ok "all ten globals moved to thread_local(localexec)"
 fi
-if [[ "$tl_on" == 8 ]]; then
-  ok "and $tl_on thread_local global(s) in the whole module - the eight, nothing else"
+# TEN since 2026-09-27: the eight, plus the child registry's head and
+# its sequence counter (MM-PAR-7) - per thread because each thread
+# sweeps the children IT spawned, and a shared list would be two
+# threads linking pages into one unsynchronised structure.
+if [[ "$tl_on" == 10 ]]; then
+  ok "and $tl_on thread_local global(s) in the whole module - the eight and the registry's two, nothing else"
 else
-  bad "$tl_on thread_local globals, expected exactly 8"
+  bad "$tl_on thread_local globals, expected exactly 10"
   grep 'thread_local' "$work/on.ll" | sed 's/^/     /' | head -12
 fi
 # argc/argv must NOT have moved: they are written once in @main's

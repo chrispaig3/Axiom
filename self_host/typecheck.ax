@@ -13596,6 +13596,25 @@
 ; (`tests/diagnostics/1010-unsafe-primitives.ax`, MM-EXEC-9c).
 (pub :: isUnsafePrim (-> String Int))
 (pub fn (isUnsafePrim n)
+  (if (== (isUnsafeRawPrim n) 1)
+    1
+    (isUnsafeWordPrim n)))
+
+; The original seven, which AX3073's LEXICAL scan still reads alone.
+;
+; STAGED, and the stage is the seed's. The nine below join the effect
+; row and every restriction at once - `restrict(no-unsafe)` and `pure`
+; refuse them transitively from 2026-09-27 - but AX3073 asks the
+; declaration that CALLS one to say `effect(unsafe)`, and fifteen
+; standard-library wrappers call `__retain`/`__release` directly. The
+; committed seed compiles `stdlib/` and does not know these nine are
+; Unsafe, so it answers such a claim with AX3010 ("`effect(unsafe)`
+; claim unsupported: missing Unsafe") and the bootstrap stops at
+; stage1, measured. The rule is land, reseed, then use: after the next
+; reseed this scan reads `isUnsafePrim` and the fifteen gain their
+; claims (MM-EXEC-9c).
+(pub :: isUnsafeRawPrim (-> String Int))
+(pub fn (isUnsafeRawPrim n)
   (if (strEq n "__load8")
     1
     (if (strEq n "__store8")
@@ -13610,7 +13629,7 @@
               1
               (if (strEq n "__addr")
                 1
-                (isUnsafeWordPrim n)))))))))
+                0))))))))
 
 ; The nine the 2026-09-27 probe found outside the set, kept in their
 ; own function so the list above reads as the seven it always was and
@@ -18971,7 +18990,7 @@
           (let ((head (spineHead e)))
             {
               (if (== (nodeTag head) TAG_E_VAR)
-                (if (== (isUnsafePrim (nodeAName head)) 1)
+                (if (== (isUnsafeRawPrim (nodeAName head)) 1)
                   {
                     (vecPush acc e)
                     0

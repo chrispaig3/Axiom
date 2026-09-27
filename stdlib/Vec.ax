@@ -122,7 +122,6 @@
 ; its buffer, for the same reason, and calls it "the header's own share".
 ;@axiom:restrict(no-io,no-foreign)
 (:: vecBuild (-> Int Int (Vec a)))
-;@axiom:effect(unsafe)
 (fn (vecBuild cap refs)
   (let (
     (n (if (< cap 1)
@@ -161,7 +160,6 @@
 ; mutator answers the handle precisely so that it CAN be chained.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: vecFree (-> (Vec a) Int))
-;@axiom:effect(unsafe)
 (pub fn (vecFree v)
   {
     (__release
@@ -421,7 +419,6 @@
 ; than whatever the arena last held there.
 ;@axiom:restrict(no-io,no-foreign)
 (:: vecReserveExactly (-> (Vec a) Int (Vec a)))
-;@axiom:effect(unsafe)
 (fn (vecReserveExactly v newCap)
   (let (
     (old (vecData v))
@@ -550,7 +547,6 @@
 ; on an array-form data block, where the vector owns what it holds.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: vecDropAt (-> (Vec a) Int (Vec a)))
-;@axiom:effect(unsafe)
 (fn (vecDropAt v i)
   (let ((old (memGetWord (vecData v) i)))
     {

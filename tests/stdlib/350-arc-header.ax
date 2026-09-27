@@ -1,4 +1,4 @@
-; exit 19 (see .exit)
+; exit 22 (see .exit)
 ; MM-LIFE-2b, mechanics only - the assertions here are chosen to
 ; SURVIVE the ownership events (2c) and the reference maps (2d), so
 ; this fixture pins the header's existence and the primitives'
@@ -6,10 +6,16 @@
 ;
 ;   27 x 0   a fresh block's count word reads 0 at handle-16
 ;    9 x 2   two __retain calls read back as 2
-;    3 x 0   three __release calls FLOOR at zero - 0 - 1 is the
-;            statics sentinel, and an unbalanced release must not be
-;            able to forge one (the double-release is a no-op this
-;            fixture can observe, not an immortal block it cannot)
+;    3 x 1   three __release calls: the second takes the count to
+;            zero and FILES the block, and the third is a no-op. A
+;            filed block's count word holds its free-list link ENCODED
+;            as `-2 - link` (MM-LIFE-2k, 2026-09-27), so it reads at
+;            most -2 and both owners skip it. This term read the word
+;            as 0 until then, which was true only because the size
+;            class's list happened to be empty: the link was stored
+;            raw, and a filed block ahead of this one would have put
+;            its ADDRESS here - the value a stray release then
+;            decremented (`tests/stdlib/521-release-filed.ax`)
 ;    1 x 1   a string literal's count reads the all-ones sentinel,
 ;            and the __retain before the read left it untouched - a
 ;            static is never written, even by the machinery
@@ -34,7 +40,13 @@
       (__release h)
       (__release h)
       (__release h)
-      (set acc (+ acc (* 3 (__load64 (- h 16) 0))))
+      (set acc (+
+        acc
+        (*
+          3
+          (if (<= (__load64 (- h 16) 0) (- 0 2))
+            1
+            0))))
       (__retain
         (cast Int lit))
       (set acc (+

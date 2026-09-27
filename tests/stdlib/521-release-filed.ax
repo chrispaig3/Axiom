@@ -1,0 +1,72 @@
+; MM-LIFE-2k: a dead block's count word holds an ENCODED link, so a
+; stray retain or release of it touches nothing.
+;
+; When a block's count reaches zero it is filed on its size class's
+; free list, and the list's link lives in the block's count word. Until
+; 2026-09-27 that link was stored raw - an address - so a second
+; release of a filed block read the address as a count, decremented
+; it, and left the list pointing one byte below the next free block.
+; The allocation after that handed the misaligned address out: this
+; program printed `aligned 0 15` and `reused a 0`.
+;
+; The link is stored as `-2 - link` now. Every filed or dead block
+; reads as a count of at most -2, `axiom_retain` and `axiom_release`
+; both skip any negative count (-1 is still the static sentinel), and
+; the allocator's pop decodes. An imbalance is still a bug in whatever
+; caused it - a compiler defect, an unsafe store, a race - but it no
+; longer corrupts the allocator's own metadata.
+;
+;   1  `b` released twice after `a` was filed ahead of it: the two
+;      allocations that follow come back 16-byte aligned (MM-ALLOC-3),
+;      the second at `a` itself;
+;   2  a static string's count (-1) stays static through a retain and
+;      two releases.
+(import IO)
+(import Mem)
+(import Str)
+
+(:: aligned (-> Int Int))
+(fn (aligned p)
+  (& p 15))
+
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (a (memAlloc 32))
+    (b (memAlloc 32))
+  )
+    {
+      (__retain a)
+      (__retain b)
+      (__release a)
+      (__release b)
+      (__release b)
+      (let (
+        (x (memAlloc 32))
+        (y (memAlloc 32))
+      )
+        (let (
+          (ax (aligned x))
+          (ay (aligned y))
+          (same (if (== y a)
+            1
+            0))
+        )
+          {
+            (println "aligned {ax} {ay}")
+            (println "reused a {same}")
+            (__release x)
+            (__release y)
+            (let ((lit "static"))
+              {
+                (__retain
+                  (cast Int lit))
+                (__release
+                  (cast Int lit))
+                (__release
+                  (cast Int lit))
+                (println lit)
+              })
+            0
+          }))
+    }))

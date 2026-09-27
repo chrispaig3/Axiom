@@ -36,10 +36,16 @@
 ;      module walk has pushed, and a top-level `(-> String Int)` is an
 ;      arrow, which classifies as a reference: with that lookup this
 ;      row is a false AX3064 and so is `tests/stdlib/470-parallel.ax`.
-;   5  `container` captures a `Vec`. Silent, and not by accident:
-;      `evScalarName` lists `Vec` for the OWNERSHIP reason its own
-;      comment gives - a `Vec` takes no share, so there is no count to
-;      race over. `tests/stdlib/471-parallel-trap.ax` captures one.
+;   5  `container` captures a `Vec`. REFUSED since 2026-09-27, and
+;      with a message of its own. `evScalarName` lists `Vec` for the
+;      OWNERSHIP reason its comment gives - a `Vec` takes no share, so
+;      no count is raced over - and this row was silent on that
+;      ground. But the handle names a MUTABLE buffer: two bindings can
+;      grow it at once, and under `--threads` a push reallocates the
+;      parent's buffer out of the thread's arena, which the thread
+;      unmaps when it ends (MM-PAR-6a).
+;      `tests/stdlib/471-parallel-trap.ax` builds its vector inside
+;      the binding now.
 (import IO)
 (import Str)
 (import Vec)

@@ -1,0 +1,94 @@
+; The nine primitives that read, write, free or call through an
+; arbitrary word are Unsafe since 2026-09-27 (MM-EXEC-9c). Each passed
+; `restrict(no-unsafe)` before, and `pure` accepted `__retain`: one
+; declaration per primitive, each refused as AX3049 at its name, and the
+; `pure` claim refused as AX3010.
+;
+; The controls below them stay silent, and they are the half that keeps
+; the rule honest: `__fence` touches no address, `__retainref` takes a
+; typed value, and `__axiom_arena_mark` only reads the position.
+;
+; No row here draws AX3073. The lexical declaration rule reads the
+; original seven until the next reseed, because the committed seed does
+; not know these nine and would refuse the standard library's claims on
+; them (`isUnsafeRawPrim`, self_host/typecheck.ax).
+;@axiom:restrict(no-unsafe)
+(:: retains (-> Int Int))
+(fn (retains n)
+  {
+    (__retain n)
+    0
+  })
+
+;@axiom:restrict(no-unsafe)
+(:: releases (-> Int Int))
+(fn (releases n)
+  {
+    (__release n)
+    0
+  })
+
+;@axiom:restrict(no-unsafe)
+(:: calls (-> Int Int))
+(fn (calls n)
+  (__call_word n 1))
+
+;@axiom:restrict(no-unsafe)
+(:: loads (-> Int Int))
+(fn (loads n)
+  (__atomic_load n))
+
+;@axiom:restrict(no-unsafe)
+(:: stores (-> Int Int))
+(fn (stores n)
+  (__atomic_store n 1))
+
+;@axiom:restrict(no-unsafe)
+(:: adds (-> Int Int))
+(fn (adds n)
+  (__atomic_add n 1))
+
+;@axiom:restrict(no-unsafe)
+(:: swaps (-> Int Int))
+(fn (swaps n)
+  (__atomic_cas n 0 1))
+
+;@axiom:restrict(no-unsafe)
+(:: rewinds (-> Int Int))
+(fn (rewinds n)
+  (__axiom_arena_reset n))
+
+;@axiom:restrict(no-unsafe)
+(:: keeps (-> Int Int Int))
+(fn (keeps n v)
+  (__axiom_arena_reset_keeping n v 8))
+
+;@axiom:pure
+(:: counted (-> Int Int))
+(fn (counted n)
+  {
+    (__retain n)
+    n
+  })
+
+;@axiom:restrict(no-unsafe)
+(:: fenced Int)
+(fn (fenced)
+  __fence)
+
+;@axiom:restrict(no-unsafe)
+(:: typed (-> String Int))
+(fn (typed s)
+  {
+    (__retainref s)
+    0
+  })
+
+;@axiom:restrict(no-unsafe)
+(:: marked Int)
+(fn (marked)
+  __axiom_arena_mark)
+
+(:: main Int)
+(fn (main)
+  0)
