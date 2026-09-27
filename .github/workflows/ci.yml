@@ -553,6 +553,13 @@ jobs:
       - name: S4 verdict holds end to end
         run: ./scripts/check-region-verdict.sh
 
+      # The executable model's half of R-E1: `runtime-model.py`
+      # generates allocator/arena traces whose every transition is a
+      # prediction, the compiler under test builds and runs them, and
+      # two IR mutations of the emitted runtime must both fail.
+      - name: Executable allocator model agrees with the emitted runtime
+        run: ./scripts/check-runtime-model.sh
+
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is
       # excellent and it tests the Rust CLIENT: cargo, `#[axiom_export]`,

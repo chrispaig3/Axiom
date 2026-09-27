@@ -9755,6 +9755,15 @@
     (emitLine cg "  %stat = icmp slt i64 %c, 0")
     (emitLine cg "  br i1 %stat, label %done, label %bump")
     (emitLine cg "bump:")
+    ; The next count must remain nonnegative: negative words belong
+    ; to statics and encoded dead-list links (MM-LIFE-2k). Refuse
+    ; exhaustion before changing the header, including under recovery.
+    (emitLine cg "  %full = icmp eq i64 %c, 9223372036854775807")
+    (emitLine cg "  br i1 %full, label %overflow, label %increment")
+    (emitLine cg "overflow:")
+    (emitLine cg "  call i64 @__axiom_refcount_exhausted()")
+    (emitLine cg "  unreachable")
+    (emitLine cg "increment:")
     (emitLine cg "  %c1 = add i64 %c, 1")
     (emitLine cg "  store i64 %c1, ptr %cp")
     (emitLine cg "  br label %done")
@@ -10349,6 +10358,18 @@
         (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
         (emitLine cg "  %oomsp = ptrtoint ptr @__axiom_oom_size_msg to i64")
         (emitRuntimeWrite cg "%oomsp" "52")
+        (emitLine cg "  call void @__axiom_backtrace()")
+        (emitRuntimeExit cg "70")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        ; The count is a finite runtime resource too. It shares the
+        ; exhaustion status, but does not claim that allocation failed.
+        (emitLine cg "@__axiom_rc_full_msg = private unnamed_addr constant [38 x i8] c\"axiom: reference count limit exceeded\\0A\"")
+        (emitLine cg (cat3 "define internal i64 @__axiom_refcount_exhausted() " trapFnAttrs " {"))
+        (emitLine cg "entry:")
+        (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
+        (emitLine cg "  %rcp = ptrtoint ptr @__axiom_rc_full_msg to i64")
+        (emitRuntimeWrite cg "%rcp" "38")
         (emitLine cg "  call void @__axiom_backtrace()")
         (emitRuntimeExit cg "70")
         (emitLine cg "  unreachable")

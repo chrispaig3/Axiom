@@ -1,0 +1,93 @@
+; MM-PAR-6a: a captured `Vec` is refused even though it takes no
+; share (docs/memory-model.md, `capReport` in self_host/typecheck.ax).
+;
+; Class 0 answers "no count is raced over", which is true of a `Vec`
+; and is not the question a thread asks: its handle names a MUTABLE
+; buffer, and two bindings can grow it at once. Measured with the rule
+; off: a binding that pushes onto a captured `Vec` under `--threads`
+; reallocates the parent's buffer out of the THREAD's arena, and the
+; parent's handle names memory the thread unmaps when it ends.
+;
+;   1  `direct` captures a `Vec` at `__par_spawn`. One AX3064, with
+;      the container message rather than the reference one.
+;   2  `aliased` captures one through a type alias. One AX3064:
+;      aliases expand before checking, so the refusal survives the
+;      spelling - the mirror of 655's row 3, which stays silent.
+;   3  `nested` captures a `Vec` of `Vec`. One AX3064: the outer
+;      handle is itself a mutable buffer.
+;   4  `wrapped` captures a struct holding a `Vec`. One AX3064 with
+;      the REFERENCE message: the struct is class 1, so this row is
+;      the class rule rather than the container rule, and it pins
+;      that a `Vec` reached through a field is still refused.
+;   5  `words` captures only an `Int`. Silent: the control, so a
+;      rule refusing every capture cannot pass this fixture.
+(import IO)
+(import Vec)
+
+(type IntVec = (Vec Int))
+(struct Bag (items : (Vec Int)) (n : Int))
+
+(:: direct (-> (Vec Int) Int))
+;@axiom:effect(io)
+(fn (direct v)
+  (__par_join
+    (__par_spawn
+      (lambda (w)
+        {
+          v
+          w
+        }
+      )
+      0)))
+
+(:: aliased (-> IntVec Int))
+;@axiom:effect(io)
+(fn (aliased v)
+  (__par_join
+    (__par_spawn
+      (lambda (w)
+        {
+          v
+          w
+        }
+      )
+      0)))
+
+(:: nested (-> (Vec (Vec Int)) Int))
+;@axiom:effect(io)
+(fn (nested v)
+  (__thread_join
+    (__thread_spawn
+      (lambda (w)
+        {
+          v
+          w
+        }
+      )
+      0)))
+
+(:: wrapped (-> Bag Int))
+;@axiom:effect(io)
+(fn (wrapped b)
+  (__par_join
+    (__par_spawn
+      (lambda (w)
+        {
+          b
+          w
+        }
+      )
+      0)))
+
+(:: words (-> Int Int))
+;@axiom:effect(io)
+(fn (words n)
+  (__thread_join
+    (__thread_spawn
+      (lambda (w)
+        (+ n w))
+      0)))
+
+(:: main Int)
+(fn (main)
+  0)

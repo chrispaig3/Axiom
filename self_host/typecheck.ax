@@ -8706,11 +8706,13 @@
 ; possibly one", and the corpus contains none of them at a spawn, so
 ; the wide rule costs nothing and leaves no hole to come back to.
 ;
-; `Vec` IS CLASS 0 AND THAT IS NOT AN OVERSIGHT. `evScalarName` lists
-; it, for the ownership reason its own comment gives: a `Vec` takes no
-; share, so no count is raced over. `tests/stdlib/471-parallel-trap.ax`
-; captures one and stays green - which is worth stating plainly,
-; because that fixture's header does not mention the capture at all.
+; `Vec` IS CLASS 0 for ownership, but is still refused by `capReport`:
+; its handle names a mutable buffer even though it takes no share of
+; a count. A worker growing that buffer would publish thread-arena
+; memory to the parent, then unmap it at thread exit (MM-PAR-6a).
+; `tests/diagnostics/656-parallel-container-capture.ax` holds direct,
+; aliased and nested containers, and `tests/stdlib/471-parallel-trap.ax`
+; builds its vector inside the worker instead of capturing it.
 ;
 ; `Foreign` IS CLASS 0 FOR THE SAME REASON, and listed beside it for
 ; it: a bare `Foreign` word is skipped by the release walk
@@ -13600,19 +13602,11 @@
     1
     (isUnsafeWordPrim n)))
 
-; The original seven, which AX3073's LEXICAL scan still reads alone.
-;
-; STAGED, and the stage is the seed's. The nine below join the effect
-; row and every restriction at once - `restrict(no-unsafe)` and `pure`
-; refuse them transitively from 2026-09-27 - but AX3073 asks the
-; declaration that CALLS one to say `effect(unsafe)`, and fifteen
-; standard-library wrappers call `__retain`/`__release` directly. The
-; committed seed compiles `stdlib/` and does not know these nine are
-; Unsafe, so it answers such a claim with AX3010 ("`effect(unsafe)`
-; claim unsupported: missing Unsafe") and the bootstrap stops at
-; stage1, measured. The rule is land, reseed, then use: after the next
-; reseed this scan reads `isUnsafePrim` and the fifteen gain their
-; claims (MM-EXEC-9c).
+; The original seven address and allocation primitives. The lexical
+; declaration check and the transitive effect walk both read the full
+; `isUnsafePrim` set; this helper only keeps the two families legible.
+; The seed now recognizes the word primitives too, so stdlib wrappers
+; can declare their direct raw operations without breaking bootstrap.
 (pub :: isUnsafeRawPrim (-> String Int))
 (pub fn (isUnsafeRawPrim n)
   (if (strEq n "__load8")
@@ -18990,7 +18984,7 @@
           (let ((head (spineHead e)))
             {
               (if (== (nodeTag head) TAG_E_VAR)
-                (if (== (isUnsafeRawPrim (nodeAName head)) 1)
+                (if (== (isUnsafePrim (nodeAName head)) 1)
                   {
                     (vecPush acc e)
                     0

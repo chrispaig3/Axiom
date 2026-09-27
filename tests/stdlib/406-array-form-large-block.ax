@@ -110,6 +110,7 @@
 ; the explicit retain makes 3: the walk that reaches the element leaves
 ; 2 and the walk that does not leaves 3. `refs` picks the constructor
 ; and is the only difference between probes 8 and 4.
+;@axiom:effect(unsafe)
 (:: sharesAfterFree (-> Bool Int Int))
 (fn (sharesAfterFree refs n)
   (let ((s (strDup "probe")))

@@ -53,6 +53,7 @@
     }))
 
 ; N rounds of: allocate a little garbage, reclaim, keep the block.
+;@axiom:effect(unsafe)
 (pub :: churn (-> Int Int Int Int Int))
 (pub fn (churn m live bytes n)
   (let (

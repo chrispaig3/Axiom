@@ -22,9 +22,10 @@ observed.
 | R-A3 | A failing `wait4` (other than `EINTR`), an ignored `pthread_join` answer, and a refused spawn surface as status 78, never as success | `MM-PAR-7`; join paths, spawn path | runtime | §12b trap arm (exit 72 path exercises the re-raise; 78 is `parallel: could not join`) | H1–H3 | the spawn-refused path has no dedicated failing-spawn fixture |
 | R-A4 | Thread churn holds address space flat: a finished thread's arena is unmapped | `MM-PAR-6a` (`emitParThread` teardown) | runtime | gate §12a: 600 and 6,000 bindings, VmSize flat | H1, H2 (procfs; SKIP on H3) | unverified on H3 and on freebsd/windows runners |
 | R-A5 | `axiom_alloc` refuses a negative size; a size no address space can hold is out-of-memory | `MM-ALLOC-7a` | runtime | plan F4 probe; fixtures from `6527bea0` | H1–H3 | — |
-| R-A6 | The sixteen `Unsafe` primitives are refused under `restrict(no-unsafe)` and `pure` | `MM-EXEC-9c`; `isUnsafeRawPrim`, `AX3049`/`AX3010` | compiler | `tests/diagnostics/1010-unsafe-primitives.ax` (all three renderings) | H1–H3 | `AX3073` still reads the original seven until the next reseed; fifteen stdlib wrappers carry no `effect(unsafe)` claim yet |
-| R-A7 | A dead block's count word holds an encoded free-list link; a second release cannot decrement a pointer | `MM-LIFE-2k`; release path | runtime | codegen release path; "never decrements 0" holds only before filing | H1–H3 | no dedicated double-release fixture |
+| R-A6 | The sixteen `Unsafe` primitives are refused under `restrict(no-unsafe)` and `pure`; the declaration calling one says `effect(unsafe)` | `MM-EXEC-9c`; `isUnsafePrim`, `AX3049`/`AX3010`/`AX3073` | compiler | `tests/diagnostics/1010-unsafe-primitives.ax` (all three renderings); fifteen stdlib wrappers claimed; `check-diagnostics.sh` 245/245 | H1–H3 | claimed declarations are checked only for the claimed effect (`AX3073`/`AX3042` silence half, stated in `checkUndeclaredUnsafe`) |
+| R-A7 | A dead block's count word holds an encoded free-list link; a second release cannot decrement a pointer | `MM-LIFE-2k`; release path | runtime | `tests/stdlib/521-release-filed.ax`; codegen release path | H1–H3 | — |
 | R-A8 | A join from a thread that did not spawn the handle is refused (78) before waiting or writing a status cell; the owner's later join still succeeds | `MM-PAR-7` registry ownership; `__axiom_par_check_owner` at every join entry | runtime | gate §12c, all four proc/thread × raising/checked probes (`foreign 78 status 123 answer 42`) | H1–H3 | a handle whose page was already unmapped is a dangling address (`MM-PAR-8`, planned) |
+| R-A9 | A retain past the 2^63-1 count limit traps 70 before writing the header, recoverably | `MM-LIFE-2l`; retain path + `__axiom_refcount_exhausted` | runtime | `tests/stdlib/527-retain-overflow.ax` (`.optstable` pins --opt 0–3); model `exhaust` witness + ablation (`check-runtime-model.sh` §5) | H1–H3 | the boundary is fault-injected, never reached by retaining |
 
 ## Milestone B — ownership and safe interfaces
 
@@ -36,14 +37,19 @@ observed.
 | R-B4 | Every program obligation carries a disposition: static check, dynamic check, or explicit unsafe boundary | §0.2; [memory-audit.md](memory-audit.md) register | docs + compiler/runtime | `check-doc-drift.sh` holds the register's references; each row names its gate | H1–H3 | dispositions are review claims; no mechanized model checks them |
 | R-B5 | A `Foreign` captured by a thread is the foreign side's to make safe | `MM-FFI-7` (program obligation) | programmer | stated; no positive/negative fixture | H1–H3 | unenforced by any check |
 
+## Milestone C — typed concurrency (partial)
+
+| ID | Guarantee | Rule / implementation | Owner | Evidence | Configs | Gaps |
+|---|---|---|---|---|---|---|
+| R-C1 | No `Vec` shared by reference between `--threads` siblings (plan F11) | `MM-PAR-6`; `capReport` + `capTyIsVec` refuse class-0 containers | compiler | `tests/diagnostics/656-parallel-container-capture.ax` (direct, aliased, nested, struct-wrapped); `642` row 5; `471-parallel-trap.ax` builds inside | H1–H3 | the refusal is by head constructor after alias expansion; a `Vec` behind an unresolved type variable is refused by the class rule instead |
+
 ## Open (milestones C–E)
 
 | ID | Guarantee | Status |
 |---|---|---|
-| R-C1 | No `Vec` shared by reference between `--threads` siblings (plan F11) | open: `AX3064` refuses counted captures only |
-| R-C2 | Mutex, bounded channel, timeout, cancellation; typed results by explicit serialization with a per-task byte bound | open: only a word crosses a join |
+| R-C2 | Mutex, bounded channel, timeout, cancellation; typed results by explicit serialization with a per-task byte bound | open: only a word crosses a join; platform-constant fragments in `.claude/worktrees/` agent dirs do not stand alone (no `Shared`/`Chan`/`Task`, no `Sys.ax` branches) |
 | R-C3 | Atomics lowering inspected in machine code on x86-64 and AArch64 at every `--opt`; litmus tests on the host | open |
-| R-D1 | Checked restricted profile with transitive enforcement and a per-function resource report | open |
+| R-D1 | Checked restricted profile with transitive enforcement and a per-function resource report | open; one worktree holds a typecheck fragment referencing undefined profile/MMIO helpers and a missing doc — not integrated |
 | R-D2 | Bare-metal image executed under QEMU; MMIO/interrupt/DMA ownership demonstrator | open |
-| R-E1 | Executable model with differential harness; seeded compiler fuzzing in CI | open |
+| R-E1 | Executable model with differential harness; seeded compiler fuzzing in CI | partial: model + gate landed (`scripts/lib/runtime-model.py`, `scripts/check-runtime-model.sh`, 13 checks); seeded compiler-input fuzzing in CI still open |
 | R-E2 | Hazard/threat analysis, trusted components, tool qualification strategy, coverage, safety manual, support policy | open; strategy skeleton in [qualification.md](qualification.md) |

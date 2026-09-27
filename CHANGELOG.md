@@ -22,6 +22,65 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### An executable model holds the runtime to its memory rules - 2026-09-27
+
+`scripts/lib/runtime-model.py` is a second, independent statement of
+the allocator, arena, region and count rules (MM-ALLOC, MM-LIFE-2*,
+MM-RGN), written from `docs/memory-model.md` rather than
+transliterated from the IR. `scripts/check-runtime-model.sh` (new
+gate, in CI) drives it through fixed witnesses and seeded random
+traces, compiles each as a program with the compiler under test, and
+requires the runtime to agree at every check — plus a canary that
+must report its one wrong prediction, a hand-pipeline control, and
+five IR mutations of the emitted runtime that must each turn their
+witness red at a named check. Scope and non-scope are stated in the
+model's docstring and `docs/assurance/verification.md`; a green run
+is agreement on the traces run, at the levels run, on the host it
+ran on — not a proof of anything else.
+
+### The count limit traps instead of wrapping - 2026-09-27
+
+`axiom_retain` refused to move a count word past 2^63 - 1 nowhere:
+the increment wrapped to -2^63, which reads as negative, so every
+later retain and release skipped the block and it was never reclaimed
+while new shares went uncounted. The retain at the limit now traps
+with status 70 (`axiom: reference count limit exceeded`) before
+writing the header — recoverable, with the header unchanged
+(`MM-LIFE-2l`). `tests/stdlib/527-retain-overflow.ax` fault-injects
+the boundary (forge, retain to the limit, recover 70, exit 70) with
+`.optstable` pinning `--opt` 0-3, and the executable model's
+`exhaust` witness requires the trap while its ablation requires the
+return.
+
+### Captured containers are refused at thread-capable spawns - 2026-09-27
+
+`AX3064` refused every capture `evClassOf` does not answer 0 for, and
+a `Vec` answers 0 because it takes no share of a count — but its
+handle names a mutable buffer, so two bindings could grow one
+container at once, and under `--threads` a push reallocated the
+parent's buffer out of the thread's arena, which the thread unmaps
+when it ends. Captured `Vec`s are refused now with their own message
+(`MM-PAR-6`); `tests/diagnostics/656-parallel-container-capture.ax`
+pins the direct, aliased and nested shapes and the struct-wrapped
+shape the class rule refuses beside them, and
+`tests/stdlib/471-parallel-trap.ax` builds its vector inside the
+binding.
+
+### `AX3073` reads all sixteen `Unsafe` primitives - 2026-09-27
+
+The staged remainder of `MM-EXEC-9c` landed with the reseed: the
+lexical rule that the declaration calling a raw primitive says
+`effect(unsafe)` reads the full `isUnsafePrim` set, and the fifteen
+standard-library wrappers calling `__retain`/`__release` directly
+(`Mem`/`Str`/`Vec`/`Map`/`Intern`/`Ffi`) carry the claim, with unsafe
+preconditions stated in their module headers. Every row of
+`tests/diagnostics/1010-unsafe-primitives.ax` now draws `AX3073`
+beside its `AX3049` (the `pure` row draws `AX3010`; the three
+controls stay silent), and three stdlib fixtures calling word
+primitives from unclaimed declarations gained the claim
+(`165-arena-keep.ax`, `404-container-reference-maps.ax`,
+`406-array-form-large-block.ax`).
+
 ### Freeing a container is `Unsafe` in its row - 2026-09-27
 
 BREAKING for claims. `__retain` and `__release` joined the `Unsafe`

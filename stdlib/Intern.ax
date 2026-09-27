@@ -169,6 +169,7 @@
 ; the one structure here that survives a rehash untouched, so sizing it
 ; generously costs one allocation and saves a growth step.
 (:: internAllocTable (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (internAllocTable cap)
   ; Words 0 and 2 are the map (5 = bits 0 and 2): the `Vec` and
   ; the slot table. Word 1 is `cap`, a number, and is not in it.
@@ -192,7 +193,10 @@
 
 ; Hand `it` back: the slot table, the `Vec`, and one share of every
 ; string in it. Answers 0, as `Vec.vecFree` and `Map.mapFree` do.
+; `it` must be a live interner owning this share. Its raw Int handle
+; and any unretained views into it must not be used after release.
 (pub :: internFree (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (internFree it)
   {
     (__release it)
@@ -379,6 +383,7 @@
 ; to capture the old array first, and no chance of copying a stale slot.
 ; Having a dense id space pays for itself here.
 (:: internRehash (-> Int Int Int))
+;@axiom:effect(unsafe)
 (fn (internRehash it newCap)
   (let (
     (old (internTable it))

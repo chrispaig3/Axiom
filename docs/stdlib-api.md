@@ -140,7 +140,7 @@ See [reference.md](reference.md) for the language, and
 | `ffiCellNew` | value | `Int` | `Alloc,Unsafe` | A two-word out-cell, zeroed, held by one share the wrapper gives back with `ffiCellFree`. |
 | `ffiCellNewN` | value | `(-> Int Int)` | `Alloc,Unsafe` | An out-cell of `n` words (at least two: a status' message is `{ptr, len}`), for a record that crosses as its fields (one word each, in declaration order) or any payload wider than two words. |
 | `ffiWordAt` | value | `(-> Int Int Int)` | `Unsafe` | Word `i` of a Rust-owned word buffer: what a generated wrapper reads a record's fields or a list's lengths through before freeing it. The same read as `ffiCellWord`, kept under its own name because the two describe different things to a reader of the generated module - one is Rust's buffer, one is the cell the wrapper allocated - and written in terms of it so there is one load. |
-| `ffiCellFree` | value | `(-> Int Int)` | `Unsafe` |  |
+| `ffiCellFree` | value | `(-> Int Int)` | `Unsafe` | Release the share returned by ffiCellNew/ffiCellNewN exactly once. `c` must be that live cell, with no outstanding foreign use of it. |
 | `ffiCellWord` | value | `(-> Int Int Int)` | `Unsafe` |  |
 | `ffiBytesToStr` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc` reserves len+1 and zeroes it, so the NUL terminator is already there. Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after. |
 | `ffiWordsToVec` | value | `(-> Int Int (Vec Int))` | `Alloc,Mut,Unsafe` | A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n` words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`. |
@@ -240,7 +240,7 @@ See [reference.md](reference.md) for the language, and
 | `internSlotOf` | value | `(-> String Int Int)` | `Unsafe` | The slot `s` probes first, in [0, cap). |
 | `internNew` | value | `Int` | `Alloc,Mut,Unsafe` | `internDefaultCap` is a *slot* count, so it is passed straight to `internAllocTable` and not through `internWithCapacity`, which takes a *string* count and doubles it. Routing it through the latter would make a fresh interner 128 slots while its own documentation said 64. |
 | `internWithCapacity` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` | An interner sized so `want` distinct strings fit without rehashing. |
-| `internFree` | value | `(-> Int Int)` | `Unsafe` | Hand `it` back: the slot table, the `Vec`, and one share of every string in it. Answers 0, as `Vec.vecFree` and `Map.mapFree` do. |
+| `internFree` | value | `(-> Int Int)` | `Unsafe` | Hand `it` back: the slot table, the `Vec`, and one share of every string in it. Answers 0, as `Vec.vecFree` and `Map.mapFree` do. `it` must be a live interner owning this share. Its raw Int handle and any unretained views into it must not be used after release. |
 | `internCap` | value | `(-> Int Int)` | `Unsafe` |  |
 | `internCount` | value | `(-> Int Int)` | `Unsafe` | How many distinct strings have been interned. Ids are exactly 0..internCount-1, with no gaps - that is what "dense" means here, and it is what lets a caller size a side table by `internCount` and index it by id. |
 | `internLookup` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | The string with id `id`, or an empty `Str` if `id` was never handed out. |
@@ -289,7 +289,7 @@ See [reference.md](reference.md) for the language, and
 | `mapWithCapacity` | value | `(-> Int Map)` | `Alloc,Mut,Unsafe` | An empty `Map` sized so that `want` entries fit without rehashing. |
 | `mapWithCapacityRefVals` | value | `(-> Int Map)` | `Alloc,Mut,Unsafe` | `mapWithCapacity`'s owning twin. See `mapNewRefVals`. |
 | `mapRoundUpPow2` | value | `(-> Int Int)` |  | `n` rounded up to a power of two, at least `mapDefaultCap`. |
-| `mapFree` | value | `(-> Map Int)` | `Unsafe` | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. |
+| `mapFree` | value | `(-> Map Int)` | `Unsafe` | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. The caller must own the released share; aliases cannot be used after the last share is released. |
 | `mapLen` | value | `(-> Map Int)` |  |  |
 | `mapCap` | value | `(-> Map Int)` |  |  |
 | `mapUsed` | value | `(-> Map Int)` |  | Slots that are live or tombstoned. Exposed because it is the number that explains a rehash, and a test that could not see it would have to infer growth from timing. |
@@ -314,7 +314,7 @@ See [reference.md](reference.md) for the language, and
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `memAlloc` | value | `(-> Int Int)` | `Alloc,Unsafe` | Mem - raw memory operations, in Axiom. |
+| `memAlloc` | value | `(-> Int Int)` | `Alloc,Unsafe` | Allocate `bytes` bytes of zeroed memory and return its address. |
 | `memAllocMapped` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` | The same allocation, declaring which of the block's words hold REFERENCES: bit i of `map` says payload word i is a handle to another counted block, so releasing this block releases that one too (docs/memory-model.md MM-LIFE-2d, the record form). |
 | `memMarkArray` | value | `(-> Int Int Int)` | `Mut,Unsafe` | The ARRAY FORM: payload words 0..n-1 of this block are handles to other counted blocks, so releasing it releases all of them, and `n` is the caller's ELEMENT count (docs/memory-model.md MM-LIFE-2d names the two forms; the array form landed 2026-08-24 and took its own length 2026-09-03). |
 | `memMarkLeaf` | value | `(-> Int Int)` | `Mut,Unsafe` | The inverse, and it is not symmetry for its own sake: it is what a container's GROWTH needs. Doubling a buffer copies the elements to a new block WITHOUT retaining them - the shares move - so releasing the old block while it still reads as an array would spend every share twice. Clearing the bit first makes the old block a leaf, and its release then reclaims the block and touches nothing it used to hold. |
@@ -822,7 +822,7 @@ See [reference.md](reference.md) for the language, and
 | `vecWithCapacity` | value | `(-> Int (Vec a))` | `Alloc,Mut,Unsafe` | An empty `Vec` that can hold at least `cap` elements without growing. |
 | `vecWithCapacityRef` | value | `(-> Int (Vec a))` | `Alloc,Mut,Unsafe` | The same, with an ARRAY-FORM data block: every element is a handle this vector owns a share of. See the module comment. |
 | `vecNewRef` | value | `(Vec a)` | `Alloc,Mut,Unsafe` | An empty `Vec` with `vecDefaultCap` capacity, owning its elements. |
-| `vecFree` | value | `(-> (Vec a) Int)` | `Unsafe` | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. |
+| `vecFree` | value | `(-> (Vec a) Int)` | `Unsafe` | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. The caller must own the share being released and must not reuse the handle or its data after its last share is released. |
 | `vecOwnsRefs` | value | `(-> (Vec a) Bool)` | `Unsafe` | Whether this vector owns a share of every element it holds - the `vecNewRef` half of the module comment. It is word 3 of the header and not a test of the data block's shape word: see `vecBuild`. |
 | `vecLen` | value | `(-> (Vec a) Int)` | `Unsafe` |  |
 | `vecCap` | value | `(-> (Vec a) Int)` | `Unsafe` |  |

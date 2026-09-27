@@ -10,13 +10,25 @@
 ; it is the layer where Axiom's type system stops and the machine
 ; begins - and every safe abstraction above it (`Str`, `Buf`) is
 ; responsible for never handing out an address a caller could misuse.
+;
+; Raw access requires live storage covering the entire requested range;
+; indices and address arithmetic must stay in that allocation. Word
+; access also requires 8-byte alignment. Reads require initialized
+; bytes, and writes require exclusive access or external synchronization.
+; Neither Int addresses nor effect(unsafe) establish these preconditions.
+; Typed views additionally require the stored word to be a live value of
+; the requested type. Ownership metadata may be changed only on a live
+; allocator block: each marked word must be zero or an owned managed
+; reference, and its share must be released or transferred before its
+; mark is removed. Arena reset invalidates all reclaimed addresses.
+
 ; Allocate `bytes` bytes of zeroed memory and return its address.
 ;
 ; Memory comes from the arena the compiler emits (a bump allocator over
-; `mmap`), so allocation is a pointer bump in the common case and there
-; is no `free`: an Axiom process reclaims everything at exit. That is
-; the right trade for a compiler, and the wrong one for a long-running
-; server - which is why this is `memAlloc` and not `new`. (This comment
+; `mmap`), with size-class reuse after a counted block is released and
+; bulk reclamation through explicit arena marks/resets. `Mem` exposes
+; no general-purpose free: callers must uphold the ownership and region
+; obligations before reclaiming storage. (This comment
 ; used to add "the allocator is replaceable: define `axiom_alloc` and
 ; the backend defers to it". It does not defer - the backend emits its
 ; definition unconditionally, and a program defining `axiom_alloc` is
@@ -118,6 +130,11 @@
 ; many elements. `tests/stdlib/406-array-form-large-block.ax` is the
 ; fixture; it answers 22 against the one-argument version and 31
 ; against this one.
+;
+; `h` must be a live leaf allocation with room for at least `n` words,
+; and `n` must be nonnegative. This mask encodes the caller's assertion;
+; it does not prove that count fits the allocation. Do not mark an
+; already mapped block without accounting for its owned shares.
 ;
 ; PASS THE ELEMENT COUNT, NOT THE BLOCK'S WORDS. `memAlloc` rounds up
 ; to 16 bytes, so a block of an odd number of words carries a pad word

@@ -8,10 +8,12 @@
 ; the rule honest: `__fence` touches no address, `__retainref` takes a
 ; typed value, and `__axiom_arena_mark` only reads the position.
 ;
-; No row here draws AX3073. The lexical declaration rule reads the
-; original seven until the next reseed, because the committed seed does
-; not know these nine and would refuse the standard library's claims on
-; them (`isUnsafeRawPrim`, self_host/typecheck.ax).
+; Every row here draws AX3073 as well as AX3049: the lexical
+; declaration rule reads all sixteen since the reseed taught the seed
+; the nine word primitives (`isUnsafePrim`, self_host/typecheck.ax).
+; The `pure` row draws AX3010 instead - a declaration that made ANY
+; claim belongs to AX3010, right or wrong - and the three controls
+; stay silent under every rule.
 ;@axiom:restrict(no-unsafe)
 (:: retains (-> Int Int))
 (fn (retains n)

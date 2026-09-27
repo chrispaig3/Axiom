@@ -931,9 +931,14 @@ Before the limit existed this crashed the compiler: `(macro (loopy x)
 (loopy x))` segfaulted with no diagnostic and no output, in about 10 ms
 of CPU time.
 
-A macro cannot recurse on its arguments the way a function can, because
-there is no test the expander can evaluate to stop. Write the recursion
-as a function and let the macro expand to a call.
+What is limited is DEPTH, not recursion as such. A rule-form macro that
+consumes an argument on every step finishes - `(emacro sumAll ((sumAll
+x) x) ((sumAll x rest ...) (+ x (sumAll rest ...))))` expands a hundred
+arguments and runs - but every argument is one more level, so the same
+macro over 130 arguments reaches this limit. A macro whose rewrite never
+shrinks its input cannot finish at any limit: there is no test the
+expander can evaluate to stop. For either, write the recursion as a
+function and let the macro expand to a call.
 
 ### explain AX3020
 AX3020 - a macro declares the same parameter twice
@@ -1336,10 +1341,11 @@ Four ways to get the depth wrong, and this code is all of them:
     every argument left after the fixed ones, so a second has nothing
     defined to take, and where the split fell would be the expander
     guessing.
-  - a rule repeats a PATTERN rather than a bare name. v1 binds ONE
-    name to the forms a repeat absorbs; repeating `(a b) ...` would
-    bind `a` and `b` to a sequence each, in lockstep, which is a
-    second feature and is not built.
+  - a repeat sits beneath another repeat: `(rows (r x ...) ...)`. A
+    repeated PATTERN is fine - `(dotPairs (k v) ...)` binds `k` and
+    `v` to one sequence each, in lockstep, and `(dotPairs (1 2) (4
+    10))` expands - but a pattern that itself repeats would need a
+    sequence of sequences, which is not built.
 
 The first two are reported at the invocation, the last two at the
 macro's own line - the place each author can act on.
@@ -1736,9 +1742,11 @@ and so does a reference in the entry file to a type the entry file
 declares. This reports the case that is left, where the compiler
 genuinely cannot tell.
 
-WHAT TO DO. Qualification is NOT the answer here, and this is why the
-code is not AX3014: `Mod::Name` is an expression spelling and does not
-parse in type position at all. What works is either
+WHAT TO DO depends on where the name stands. In a TYPE position -
+a signature, a field - qualify it: `(:: get (-> TeamA::Config Int))`
+names TeamA's declaration and checks. Where the program CONSTRUCTS
+the value, qualification is refused today - `(TeamA::Config 42 3)`
+draws this same code - so what works there is either
 
   * narrowing the import so only one of the two types is carried:
     an import name list decides what a module exports to this

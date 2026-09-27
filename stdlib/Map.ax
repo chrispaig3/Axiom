@@ -310,6 +310,7 @@
 ; words of values, `cap` *bytes* of states - plus `len`, `used` and the
 ; flag saying whether this table owns a share of every value in it.
 (:: mapAllocTable (-> Int Int Map))
+;@axiom:effect(unsafe)
 (fn (mapAllocTable cap refs)
   ; Words 2, 3 and 4 are the map (28 = bits 2/3/4), so the
   ; header's death takes all three arrays with it - and each is
@@ -358,8 +359,10 @@
 
 ; Hand `m` back: the three arrays go with it, and on a `mapNewRefVals`
 ; table so does one share of every value still in it. Answers 0, as
-; `Vec.vecFree` does and for the same reason.
+; `Vec.vecFree` does and for the same reason. The caller must own the
+; released share; aliases cannot be used after the last share is released.
 (pub :: mapFree (-> Map Int))
+;@axiom:effect(unsafe)
 (pub fn (mapFree m)
   {
     (__release
@@ -388,6 +391,7 @@
 ; Hand back the share of the value in slot `i` and zero the word. A
 ; no-op on a `mapNew` table, which owns nothing it holds.
 (:: mapDropVal (-> Map Int Int))
+;@axiom:effect(unsafe)
 (fn (mapDropVal m i)
   (if (mapOwnsVals m)
     (let (
@@ -930,6 +934,7 @@
 ; only way the space a removed entry occupies ever comes back, and it
 ; is why `mapRemove` can be O(1) and still leave the table healthy.
 (:: mapRehash (-> Map Int Int))
+;@axiom:effect(unsafe)
 (fn (mapRehash m newCap)
   (let (
     (oldCap (mapCap m))

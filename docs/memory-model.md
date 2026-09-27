@@ -526,15 +526,17 @@ refused now, as `AX3049` and `AX3010` respectively
 `__retainref` (a typed value) and `__axiom_arena_mark` stay outside the
 set, and that fixture holds them silent.
 
-*Staged, and the stage is stated.* `AX3073` — the lexical rule that the
-declaration CALLING a raw primitive says `effect(unsafe)` — still reads
-the original seven. Fifteen standard-library wrappers call `__retain`
-or `__release` directly, and the committed seed, which compiles
-`stdlib/`, answers an `effect(unsafe)` claim on them with `AX3010`
-because it does not yet count the nine; the bootstrap stopped at
-stage1, measured. After the next reseed the lexical rule reads all
-sixteen and those wrappers carry the claim (`isUnsafeRawPrim` in
-`self_host/typecheck.ax` records the plan).
+*The stage landed with the reseed.* `AX3073` — the lexical rule that
+the declaration CALLING a raw primitive says `effect(unsafe)` — read
+the original seven until the seed learned the nine, because the
+fifteen standard-library wrappers calling `__retain` or `__release`
+directly could not carry the claim before it did (the bootstrap
+stopped at stage1, measured). Since the reseed the rule reads all
+sixteen (`isUnsafePrim` in `self_host/typecheck.ax`), the fifteen
+wrappers carry `effect(unsafe)`, and every row of
+`tests/diagnostics/1010-unsafe-primitives.ax` draws `AX3073` beside
+its `AX3049` — except the `pure` row, which draws `AX3010`, and the
+three controls, which stay silent under every rule.
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -3854,6 +3856,28 @@ the imbalance — a compiler defect, an unsafe store, a race under
 `--threads` — can no longer turn into an allocation outside the heap's
 alignment and extent.
 
+**MM-LIFE-2l (H, 2026-09-27). The count is finite, and the last
+representable retain is the last one.** A block's count word is a
+signed 64-bit integer, and `axiom_retain` refuses to move it past
+2^63 - 1: the retain of a block already at the limit traps with
+status 70 (`axiom: reference count limit exceeded`) *before* writing
+the header. The refusal is recoverable like every other trap — a
+recovery point answers 70 at the arming call with the header still
+holding 2^63 - 1 — and shares the exhaustion status without claiming
+an allocation failed. Until this rule the increment wrapped: the
+count went from 2^63 - 1 to -2^63, which reads as negative, so every
+later retain and release skipped the block (`MM-LIFE-2k`) and it was
+never reclaimed while every new share went uncounted.
+
+No program reaches the boundary by retaining: the fault is injected,
+not performed (`tests/stdlib/527-retain-overflow.ax` forges the count
+through a header store, retains once to 2^63 - 1, recovers 70 with
+the header unchanged, and exits 70 on the final retain;
+`.optstable` pins the behavior at `--opt 0–3`). The executable model
+covers the rule from the other side: its `exhaust` witness requires
+the trap, and the ablation with the guard removed must return
+(`scripts/check-runtime-model.sh` §5).
+
 **MM-LIFE-2 (R).** Axiom has **no tracing garbage collector**, and
 `--gc` is refused by name rather than silently ignored. The retired Rust
 backend had one — conservative, non-moving, with per-chunk object-start
@@ -4294,7 +4318,10 @@ this allocator's design cannot absorb.
   grow one container at once; `MM-PAR-6a` is why that became a
   memory-safety fault and not only a data race. It is refused now,
   with its own message (`tests/diagnostics/642-parallel-capture.ax`
-  row 5). A `Foreign` stays accepted, for `MM-FFI-7`'s reason.
+  row 5; `tests/diagnostics/656-parallel-container-capture.ax` pins
+  the direct, aliased and nested shapes, and the struct-wrapped shape
+  the class rule refuses beside them). A `Foreign` stays accepted,
+  for `MM-FFI-7`'s reason.
 
 **MM-PAR-6a (H, 2026-09-27). A thread-lowered binding returns its arena
 when it ends.** Every mutable runtime global is thread-local under the

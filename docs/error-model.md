@@ -770,6 +770,7 @@ instead of writing to fd 2 and exiting:
 | Inside a recovery point | Outside one |
 |---|---|
 | out of memory answers **70** | `axiom: out of memory (mmap failed)`, exit 70 |
+| a reference count at its maximum answers **70** | `axiom: reference count limit exceeded`, exit 70 (`MM-LIFE-2l`, `tests/stdlib/527-retain-overflow.ax`, both halves at `--opt` 0-3) |
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
 | a violated contract answers **80** | ``axiom: precondition failed in `half`: (> n 0)``, exit 80 |

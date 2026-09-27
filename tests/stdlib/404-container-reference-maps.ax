@@ -107,6 +107,7 @@
 ; a probe sharing a size class with the loop measures the free list
 ; rather than what it meant to - applies in reverse here, where the
 ; free list IS the measurement.
+;@axiom:effect(unsafe)
 (:: bytesComeBack (-> Bool Bool))
 (fn (bytesComeBack refs)
   (let ((s (strAlloc 200)))
@@ -126,6 +127,7 @@
         (== (memAlloc 200) bytes)
       })))
 
+;@axiom:effect(unsafe)
 (:: main Int)
 (fn (main)
   (let (

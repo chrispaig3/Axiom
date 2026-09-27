@@ -116,6 +116,7 @@
 ; `{ptr, len}`), for a record that crosses as its fields (one word
 ; each, in declaration order) or any payload wider than two words.
 (pub :: ffiCellNewN (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (ffiCellNewN n)
   (let ((c 
     (memAlloc
@@ -139,7 +140,10 @@
 (pub fn (ffiWordAt p i)
   (ffiCellWord p i))
 
+; Release the share returned by ffiCellNew/ffiCellNewN exactly once.
+; `c` must be that live cell, with no outstanding foreign use of it.
 (pub :: ffiCellFree (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (ffiCellFree c)
   {
     (__release c)

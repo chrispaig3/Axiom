@@ -1,0 +1,36 @@
+; Fault-inject the count boundary rather than perform 2^63 retains.
+; The last representable retain succeeds. The next traps before writing
+; the header, both within recovery and at process exit (MM-LIFE-2l).
+(import IO)
+(import Mem)
+
+(:: retainOne (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (retainOne p)
+  {
+    (__retain p)
+    0
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (p (memAlloc 8))
+    (header (- p 16))
+  )
+    {
+      (memSetWord header 0 9223372036854775806)
+      (retainOne p)
+      (let ((last (memGetWord header 0)))
+        (println "last {last}"))
+      (let ((status (__axiom_recover __axiom_arena_mark (lambda (x) (retainOne p)))))
+        (let ((unchanged (if (== (memGetWord header 0) 9223372036854775807) 1 0)))
+          {
+            (println "recovered {status}")
+            (println "unchanged {unchanged}")
+          }))
+      (retainOne p)
+      (println "UNREACHABLE")
+      0
+    }))
