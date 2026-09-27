@@ -540,6 +540,12 @@
       ; whose execution may outlive the reset. Read only by
       ; `isRegionCoveredCon`, written only in those two places.
       (vecPush ps 0)
+      ; slot 10: 1 when `__par_*` lowers to threads - `--threads` on a
+      ; target that has them. Slot 4 answers whether the thread
+      ; RUNTIME is present at all, which naming `__thread_spawn` also
+      ; asks for; until 2026-09-27 that one name silently moved every
+      ; `parallel` in the program onto threads too (`parScan`).
+      (vecPush ps 0)
       (addTypeNamed
         ts
         "Some"
@@ -5511,6 +5517,18 @@
         11
         73))))
 
+; `kill`, for the registry sweep (MM-PAR-7): the numbers
+; `stdlib/Sys/Platform.*.ax` carries as `sysKillNum`.
+(pub :: targetKillNum (-> Int Int))
+(pub fn (targetKillNum t)
+  (if (|| (== t 0) (== t 1))
+    33554469
+    (if (== t 2)
+      129
+      (if (== t 3)
+        62
+        37))))
+
 ; MAP_SHARED|MAP_ANON: `targetMapFlags` with bit 1 (MAP_SHARED, 0x1)
 ; in place of bit 2 (MAP_PRIVATE, 0x2). The page a child writes its
 ; answer into must be the parent's page after a fork.
@@ -5691,6 +5709,12 @@
     (pairSetSlot cg 5 (parAnyNamed decls))
     (pairSetSlot
       cg
+      10
+      (if (&& (== (targetHasThreads (memGetWord cg 26)) 1) (&& (== (declsNamePrim decls "__par_spawn" 0) 1) (argHas "--threads" 1)))
+        1
+        0))
+    (pairSetSlot
+      cg
       4
       (if (&& (== (targetHasThreads (memGetWord cg 26)) 1) (parThreadsWanted decls))
         1
@@ -5699,7 +5723,9 @@
   })
 
 ; The runtime symbol a primitive lowers to: `__thread_*` and `__proc_*`
-; say which, `__par_*` follows the scan.
+; say which, `__par_*` follows `--threads` (slot 10) - never the mere
+; presence of a `__thread_spawn` elsewhere in the program, which is
+; what slot 4 answers and what this read until 2026-09-27.
 (pub :: parRuntimeSym (-> String String Int String))
 (pub fn (parRuntimeSym fnName half cg)
   (cat3
@@ -5709,7 +5735,7 @@
       "_thread"
       (if (strStartsWith fnName "__proc_")
         "_proc"
-        (if (cgThreads cg)
+        (if (== (pairSlot cg 10) 1)
           "_thread"
           "_proc")))))
 
@@ -5821,6 +5847,15 @@
 
 ; Status 78: the kernel refused the fork or the pthread. Recoverable,
 ; as the index trap is.
+;
+; And status 78 again, with its own sentence, when a JOIN cannot reach
+; its child: `wait4` failing with anything but EINTR (the child was
+; reaped by someone else - a `sysWaitPid` for any pid - or the handle
+; was joined twice), `pthread_join` failing, or a handle joined by a
+; thread that did not spawn it. Until 2026-09-27 the process join read
+; a failed `wait4` as exit status 0 - the status word the kernel never
+; wrote - and answered the binding's result slot as if the child had
+; succeeded; the thread join ignored `pthread_join`'s answer outright.
 (pub :: emitParTrap (-> Int Int))
 (pub fn (emitParTrap cg)
   {
@@ -5830,6 +5865,17 @@
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 78)")
     (emitLine cg "  %pfp = ptrtoint ptr @__axiom_par_fail_msg to i64")
     (emitRuntimeWrite cg "%pfp" "45")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "78")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    (emitLine cg "")
+    (emitLine cg "@__axiom_par_lost_msg = private unnamed_addr constant [44 x i8] c\"axiom: parallel: could not join the binding\\0A\"")
+    (emitLine cg "define internal i64 @__axiom_par_join_lost() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 78)")
+    (emitLine cg "  %plp = ptrtoint ptr @__axiom_par_lost_msg to i64")
+    (emitRuntimeWrite cg "%plp" "44")
     (emitLine cg "  call void @__axiom_backtrace()")
     (emitRuntimeExit cg "78")
     (emitLine cg "  unreachable")
@@ -5857,11 +5903,54 @@
     cg
   })
 
-; The handle page, the thunk call, and the join's shared tail.
+; The handle page, the thunk call, the join's shared tail, and the
+; REGISTRY of children still outstanding.
+;
+; THE PAGE. Word 0 the pid or `pthread_t`, 1 the thunk, 2 its word
+; argument, 3 the answer, 4 the wait status; and, since 2026-09-27,
+; 5 and 6 the registry links, 7 the kind (1 process, 2 thread), 8 the
+; spawn's sequence number, 9 the address of the registry head it was
+; linked on - which is the spawning THREAD's, because the head is a
+; mutable runtime global and so thread-local exactly when the rest are.
+;
+; WHY A REGISTRY (MM-PAR-7). A child was reachable only through the
+; handle word its parent held, so every path that dropped the handle
+; without joining it abandoned the child: a join re-raising a sibling's
+; trap exited with later siblings still running, a spawn failure under
+; a recovery point jumped away from children already started, and a
+; recovery abort reset the arena under a THREAD still reading its
+; closure out of it. Measured before this: a trapping forked binding
+; inside `__axiom_recover` ran the parent's continuation in the child
+; (the arming call answered twice, once per process), and nothing ever
+; killed or reaped the siblings of a failed join. So every spawn links
+; its page onto the spawning thread's registry and every join unlinks
+; it, and three places SWEEP what is still linked - kill and reap a
+; process, join a thread, release its thunk, unmap its page:
+;
+;   * `@__axiom_recover_abort`, before it resets the arena: every child
+;     spawned since the recovery point was armed (sequence number above
+;     the one the arm recorded), and EVERY child when nothing is armed,
+;     because every caller of the abort exits when it returns;
+;   * `@main`'s wrapper, after the program's `main` returns;
+;   * the end of a forked child and of a thread's entry, for children
+;     the binding itself spawned and did not join.
+;
+; A THREAD IS JOINED, NOT KILLED: there is no sound way to stop one
+; mid-flight, so a sweep waits for it to finish. A process is sent
+; SIGKILL and reaped. A killed child cannot sweep its own children, so
+; grandchildren of a killed binding are reparented rather than killed;
+; `docs/memory-model.md` MM-PAR-7 states that limit.
+;
+; A PROGRAM THAT SPAWNS NOTHING PAYS NOTHING: this whole block is
+; emitted only for a module that names a spawn primitive (slot 5), so
+; every other module is byte-identical to what it was.
 (pub :: emitParCommon (-> Int Int))
 (pub fn (emitParCommon cg)
   (let ((t (memGetWord cg 26)))
     {
+      (emitLine cg (cat3 "@__axiom_par_live = " (cgMutGlobal cg) " i64 0"))
+      (emitLine cg (cat3 "@__axiom_par_seq = " (cgMutGlobal cg) " i64 0"))
+      (emitLine cg "")
       (emitLine cg "define internal i64 @__axiom_par_page() #0 {")
       (emitLine cg "entry:")
       (emitLine cg (cat2 "  %addr = " (parSys cg (fmtInt (targetMmapNum t)) (cat3 "i64 0, i64 4096, i64 3, i64 " (fmtInt (targetMapSharedFlags t)) ", i64 -1, i64 0"))))
@@ -5900,14 +5989,172 @@
       (emitLine cg "  ret i64 %res")
       (emitLine cg "}")
       (emitLine cg "")
+      ; Link a spawned page onto this thread's registry, newest first.
+      (emitLine cg "define internal void @__axiom_par_link(i64 %h, i64 %kind) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %p7 = getelementptr i64, ptr %hp, i64 7")
+      (emitLine cg "  store i64 %kind, ptr %p7")
+      (emitLine cg "  %s0 = load i64, ptr @__axiom_par_seq")
+      (emitLine cg "  %s1 = add i64 %s0, 1")
+      (emitLine cg "  store i64 %s1, ptr @__axiom_par_seq")
+      (emitLine cg "  %p8 = getelementptr i64, ptr %hp, i64 8")
+      (emitLine cg "  store i64 %s1, ptr %p8")
+      (emitLine cg "  %own = ptrtoint ptr @__axiom_par_live to i64")
+      (emitLine cg "  %p9 = getelementptr i64, ptr %hp, i64 9")
+      (emitLine cg "  store i64 %own, ptr %p9")
+      (emitLine cg "  %head = load i64, ptr @__axiom_par_live")
+      (emitLine cg "  %p5 = getelementptr i64, ptr %hp, i64 5")
+      (emitLine cg "  store i64 %head, ptr %p5")
+      (emitLine cg "  %p6 = getelementptr i64, ptr %hp, i64 6")
+      (emitLine cg "  store i64 0, ptr %p6")
+      (emitLine cg "  %has = icmp ne i64 %head, 0")
+      (emitLine cg "  br i1 %has, label %back, label %done")
+      (emitLine cg "back:")
+      (emitLine cg "  %headp = inttoptr i64 %head to ptr")
+      (emitLine cg "  %hb6 = getelementptr i64, ptr %headp, i64 6")
+      (emitLine cg "  store i64 %h, ptr %hb6")
+      (emitLine cg "  br label %done")
+      (emitLine cg "done:")
+      (emitLine cg "  store i64 %h, ptr @__axiom_par_live")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; Unlink a page. A page linked on ANOTHER thread's registry is a
+      ; handle joined by a thread that did not spawn it: the two lists
+      ; are unsynchronised, so that is refused as a lost join rather
+      ; than raced.
+      (emitLine cg "define internal void @__axiom_par_unlink(i64 %h) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %p9 = getelementptr i64, ptr %hp, i64 9")
+      (emitLine cg "  %owner = load i64, ptr %p9")
+      (emitLine cg "  %own = ptrtoint ptr @__axiom_par_live to i64")
+      (emitLine cg "  %mine = icmp eq i64 %owner, %own")
+      (emitLine cg "  br i1 %mine, label %links, label %foreign")
+      (emitLine cg "foreign:")
+      (emitLine cg "  call i64 @__axiom_par_join_lost()")
+      (emitLine cg "  unreachable")
+      (emitLine cg "links:")
+      (emitLine cg "  %p5 = getelementptr i64, ptr %hp, i64 5")
+      (emitLine cg "  %nx = load i64, ptr %p5")
+      (emitLine cg "  %p6 = getelementptr i64, ptr %hp, i64 6")
+      (emitLine cg "  %pv = load i64, ptr %p6")
+      (emitLine cg "  %hasp = icmp ne i64 %pv, 0")
+      (emitLine cg "  br i1 %hasp, label %mid, label %first")
+      (emitLine cg "mid:")
+      (emitLine cg "  %pvp = inttoptr i64 %pv to ptr")
+      (emitLine cg "  %pv5 = getelementptr i64, ptr %pvp, i64 5")
+      (emitLine cg "  store i64 %nx, ptr %pv5")
+      (emitLine cg "  br label %fwd")
+      (emitLine cg "first:")
+      (emitLine cg "  store i64 %nx, ptr @__axiom_par_live")
+      (emitLine cg "  br label %fwd")
+      (emitLine cg "fwd:")
+      (emitLine cg "  %hasn = icmp ne i64 %nx, 0")
+      (emitLine cg "  br i1 %hasn, label %fix, label %done")
+      (emitLine cg "fix:")
+      (emitLine cg "  %nxp = inttoptr i64 %nx to ptr")
+      (emitLine cg "  %nx6 = getelementptr i64, ptr %nxp, i64 6")
+      (emitLine cg "  store i64 %pv, ptr %nx6")
+      (emitLine cg "  br label %done")
+      (emitLine cg "done:")
+      (emitLine cg "  store i64 0, ptr %p9")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; End one unlinked child: a process is killed and reaped, a thread
+      ; joined; then its thunk is released and its page unmapped.
+      (emitLine cg "define internal void @__axiom_par_reap(i64 %h) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %p7 = getelementptr i64, ptr %hp, i64 7")
+      (emitLine cg "  %kind = load i64, ptr %p7")
+      (emitLine cg "  %who = load i64, ptr %hp")
+      (emitLine cg "  %isthr = icmp eq i64 %kind, 2")
+      (emitLine cg "  br i1 %isthr, label %thr, label %proc")
+      (emitLine cg "proc:")
+      (emitLine cg (cat2 "  %kr = " (parSys cg (fmtInt (targetKillNum t)) "i64 %who, i64 9, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg "  %p4 = getelementptr i64, ptr %hp, i64 4")
+      (emitLine cg "  %st4 = ptrtoint ptr %p4 to i64")
+      (emitLine cg "  br label %wait")
+      (emitLine cg "wait:")
+      (emitLine cg (cat2 "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %who, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg "  %intr = icmp eq i64 %w, -4")
+      (emitLine cg "  br i1 %intr, label %wait, label %fin")
+      (emitLine cg "thr:")
+      (if (cgThreads cg)
+        {
+          (emitLine cg "  %tp = inttoptr i64 %who to ptr")
+          (emitLine cg "  %jr = call i32 @pthread_join(ptr %tp, ptr null)")
+          0
+        }
+        0)
+      (emitLine cg "  br label %fin")
+      (emitLine cg "fin:")
+      (emitLine cg "  %r = call i64 @__axiom_par_finish(i64 %h)")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; Sweep every child on this thread's registry whose sequence number
+      ; is above `floor`: -1 sweeps them all. The list is newest first,
+      ; so the children spawned since a point are a prefix of it.
+      (emitLine cg "define internal void @__axiom_par_sweep(i64 %floor) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  br label %loop")
+      (emitLine cg "loop:")
+      (emitLine cg "  %head = load i64, ptr @__axiom_par_live")
+      (emitLine cg "  %empty = icmp eq i64 %head, 0")
+      (emitLine cg "  br i1 %empty, label %done, label %test")
+      (emitLine cg "test:")
+      (emitLine cg "  %hp = inttoptr i64 %head to ptr")
+      (emitLine cg "  %p8 = getelementptr i64, ptr %hp, i64 8")
+      (emitLine cg "  %seq = load i64, ptr %p8")
+      (emitLine cg "  %inside = icmp sgt i64 %seq, %floor")
+      (emitLine cg "  br i1 %inside, label %end1, label %done")
+      (emitLine cg "end1:")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %head)")
+      (emitLine cg "  call void @__axiom_par_reap(i64 %head)")
+      (emitLine cg "  br label %loop")
+      (emitLine cg "done:")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
       cg
     }))
+
+; Is the registry in this module: a spawn primitive is named, on a
+; target that can spawn. The recovery point's arm and abort and
+; `@main`'s wrapper ask this before they touch it.
+(pub :: parRegistryOn (-> Int Int))
+(pub fn (parRegistryOn cg)
+  (if (== (pairSlot cg 5) 0)
+    0
+    (targetHasSpawn (memGetWord cg 26))))
+
+; Where a recovery record keeps the spawn sequence number its arm saw:
+; the word after the evidence-slot snapshot, which starts at 128.
+(pub :: parRecSeqOffset (-> Int Int))
+(pub fn (parRecSeqOffset cg)
+  (+ 128 (* 8 (distinctSlotCount (memGetWordVec cg 32) 0 0))))
 
 ; The process lowering: fork, run the thunk in the child, write the
 ; answer through the shared page, exit; the parent's join is a `wait4`
 ; that retries on EINTR, then the status decode `Sys.ax` documents for
 ; `sysRun` - exit code, or 128 plus the signal - re-raised as the
 ; parent's own exit when it is not 0.
+;
+; RE-RAISED THROUGH THE RECOVERY POINT, since 2026-09-27. The raising
+; join unlinks and releases the failed child, then calls
+; `@__axiom_recover_abort` with the child's status before it exits, so
+; a recovery point armed around the `parallel` answers that status like
+; any other trap and the siblings spawned inside it are swept first.
+; And the CHILD is disarmed: it starts with no recovery point and an
+; empty registry. It inherited the parent's copy of both, so a binding
+; that trapped inside the parent's recovery extent used to jump to the
+; PARENT's arm site in the child and run the parent's continuation
+; there, while the parent read the child's exit 0 as success
+; (`tests/stdlib/522-parallel-recover.ax`).
 (pub :: emitParProc (-> Int Int))
 (pub fn (emitParProc cg)
   (let ((t (memGetWord cg 26)))
@@ -5923,7 +6170,10 @@
       (emitLine cg (cat2 "  %pid = " (parSys cg (fmtInt (targetForkNum t)) (cat3 "i64 " (fmtInt (targetForkArg t)) ", i64 0, i64 0, i64 0, i64 0, i64 0"))))
       (emitLine cg "  %failed = icmp slt i64 %pid, 0")
       (emitLine cg "  br i1 %failed, label %fail, label %forked")
+      ; The page and the thunk's share go back before the trap: it may
+      ; recover, and a recovered spawn failure used to leak both.
       (emitLine cg "fail:")
+      (emitLine cg "  %dis = call i64 @__axiom_par_finish(i64 %page)")
       (emitLine cg "  call i64 @__axiom_par_spawn_failed()")
       (emitLine cg "  unreachable")
       (emitLine cg "forked:")
@@ -5935,13 +6185,17 @@
         })
       (emitLine cg "  br i1 %ischild, label %child, label %parent")
       (emitLine cg "child:")
+      (emitLine cg "  store i64 0, ptr @__axiom_recover_top")
+      (emitLine cg "  store i64 0, ptr @__axiom_par_live")
       (emitLine cg "  %r = call i64 @__axiom_par_call(i64 %fn, i64 %arg)")
       (emitLine cg "  %p3 = getelementptr i64, ptr %hp, i64 3")
       (emitLine cg "  store i64 %r, ptr %p3")
+      (emitLine cg "  call void @__axiom_par_sweep(i64 -1)")
       (emitRuntimeExit cg "0")
       (emitLine cg "  unreachable")
       (emitLine cg "parent:")
       (emitLine cg "  store i64 %pid, ptr %hp")
+      (emitLine cg "  call void @__axiom_par_link(i64 %page, i64 1)")
       (emitLine cg "  ret i64 %page")
       (emitLine cg "}")
       (emitLine cg "")
@@ -5957,6 +6211,14 @@
       (emitLine cg "  %intr = icmp eq i64 %w, -4")
       (emitLine cg "  br i1 %intr, label %wait, label %waited")
       (emitLine cg "waited:")
+      (emitLine cg "  %lost = icmp slt i64 %w, 0")
+      (emitLine cg "  br i1 %lost, label %gone, label %decode")
+      (emitLine cg "gone:")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %h)")
+      (emitLine cg "  %gf = call i64 @__axiom_par_finish(i64 %h)")
+      (emitLine cg "  call i64 @__axiom_par_join_lost()")
+      (emitLine cg "  unreachable")
+      (emitLine cg "decode:")
       (emitLine cg "  %st = load i64, ptr %p4")
       (emitLine cg "  %sig = and i64 %st, 127")
       (emitLine cg "  %sigz = icmp eq i64 %sig, 0")
@@ -5967,9 +6229,13 @@
       (emitLine cg "  %ok = icmp eq i64 %status, 0")
       (emitLine cg "  br i1 %ok, label %fine, label %propagate")
       (emitLine cg "propagate:")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %h)")
+      (emitLine cg "  %pf = call i64 @__axiom_par_finish(i64 %h)")
+      (emitLine cg "  call i64 @__axiom_recover_abort(i64 %status)")
       (emitRuntimeExit cg "%status")
       (emitLine cg "  unreachable")
       (emitLine cg "fine:")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %h)")
       (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
       (emitLine cg "  ret i64 %res")
       (emitLine cg "}")
@@ -5980,7 +6246,9 @@
       ; arm settles the answer slot to 0 itself rather than trusting
       ; the page's zero-fill - the page IS zero-filled fresh mmap, but
       ; no line of this runtime relies on that anywhere else, and this
-      ; one will not be the first.
+      ; one will not be the first. A `wait4` that cannot reach the child
+      ; at all stores 78, the lost-join status, rather than the 0 the
+      ; kernel never wrote.
       (emitLine cg "define internal i64 @__axiom_par_join_nr_proc(i64 %h, i64 %cell) #0 {")
       (emitLine cg "entry:")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
@@ -5993,13 +6261,15 @@
       (emitLine cg "  %intr = icmp eq i64 %w, -4")
       (emitLine cg "  br i1 %intr, label %wait, label %waited")
       (emitLine cg "waited:")
+      (emitLine cg "  %lost = icmp slt i64 %w, 0")
       (emitLine cg "  %st = load i64, ptr %p4")
       (emitLine cg "  %sig = and i64 %st, 127")
       (emitLine cg "  %sigz = icmp eq i64 %sig, 0")
       (emitLine cg "  %hi = lshr i64 %st, 8")
       (emitLine cg "  %code = and i64 %hi, 255")
       (emitLine cg "  %sigst = add i64 %sig, 128")
-      (emitLine cg "  %status = select i1 %sigz, i64 %code, i64 %sigst")
+      (emitLine cg "  %status0 = select i1 %sigz, i64 %code, i64 %sigst")
+      (emitLine cg "  %status = select i1 %lost, i64 78, i64 %status0")
       (emitLine cg "  %cellp = inttoptr i64 %cell to ptr")
       (emitLine cg "  store i64 %status, ptr %cellp")
       (emitLine cg "  %ok = icmp eq i64 %status, 0")
@@ -6009,6 +6279,7 @@
       (emitLine cg "  store i64 0, ptr %p3")
       (emitLine cg "  br label %fine")
       (emitLine cg "fine:")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %h)")
       (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
       (emitLine cg "  ret i64 %res")
       (emitLine cg "}")
@@ -6020,74 +6291,155 @@
 ; `@__axiom_par_entry` with the page, which runs the thunk and writes
 ; word 3. The two `declare`s are the whole import surface of a thread-
 ; lowered program, and `scripts/check-parallel.sh` measures them.
+;
+; THE ENTRY RETURNS ITS ARENA (MM-PAR-6a), since 2026-09-27. Every
+; mutable runtime global is thread-local here, so a thread's first
+; allocation maps a chunk of its own - and nothing ever unmapped one:
+; 6,000 bindings left 6.16 GB of address space mapped against 3.6 MB
+; for the same program forked (`VmSize`, measured). After the thunk
+; answers and the thread's own children are swept, the entry walks its
+; chunk list and its free list and unmaps every chunk. That is sound
+; because nothing allocated in a thread can be reached from outside it
+; once it ends: what crosses the join is a word, `AX3064` refuses every
+; captured reference and every captured `Vec` (whose buffer a push
+; would otherwise reallocate out of THIS arena), and the unsafe layer's
+; obligation is the rest - a word that is the address of thread-arena
+; memory, laundered through `cast`, dangles after the join
+; (`scripts/check-thread-arena.sh`).
 (pub :: emitParThread (-> Int Int))
 (pub fn (emitParThread cg)
-  {
-    (emitLine cg "declare i32 @pthread_create(ptr, ptr, ptr, ptr) #0")
-    (emitLine cg "declare i32 @pthread_join(ptr, ptr) #0")
-    (emitLine cg "")
-    (emitLine cg "define internal ptr @__axiom_par_entry(ptr %pg) #0 {")
-    (emitLine cg "entry:")
-    (emitLine cg "  %p1 = getelementptr i64, ptr %pg, i64 1")
-    (emitLine cg "  %fn = load i64, ptr %p1")
-    (emitLine cg "  %p2 = getelementptr i64, ptr %pg, i64 2")
-    (emitLine cg "  %arg = load i64, ptr %p2")
-    (emitLine cg "  %r = call i64 @__axiom_par_call(i64 %fn, i64 %arg)")
-    (emitLine cg "  %p3 = getelementptr i64, ptr %pg, i64 3")
-    (emitLine cg "  store i64 %r, ptr %p3")
-    (emitLine cg "  ret ptr null")
-    (emitLine cg "}")
-    (emitLine cg "")
-    (emitLine cg "define internal i64 @__axiom_par_spawn_thread(i64 %fn, i64 %arg) #0 {")
-    (emitLine cg "entry:")
-    (emitLine cg "  %page = call i64 @__axiom_par_page()")
-    (emitLine cg "  %hp = inttoptr i64 %page to ptr")
-    (emitLine cg "  %p1 = getelementptr i64, ptr %hp, i64 1")
-    (emitLine cg "  store i64 %fn, ptr %p1")
-    (emitLine cg "  %p2 = getelementptr i64, ptr %hp, i64 2")
-    (emitLine cg "  store i64 %arg, ptr %p2")
-    (emitLine cg "  %rc = call i32 @pthread_create(ptr %hp, ptr null, ptr @__axiom_par_entry, ptr %hp)")
-    (emitLine cg "  %bad = icmp ne i32 %rc, 0")
-    (emitLine cg "  br i1 %bad, label %fail, label %ok")
-    (emitLine cg "fail:")
-    (emitLine cg "  call i64 @__axiom_par_spawn_failed()")
-    (emitLine cg "  unreachable")
-    (emitLine cg "ok:")
-    (emitLine cg "  ret i64 %page")
-    (emitLine cg "}")
-    (emitLine cg "")
-    (emitLine cg "define internal i64 @__axiom_par_join_thread(i64 %h) #0 {")
-    (emitLine cg "entry:")
-    (emitLine cg "  %hp = inttoptr i64 %h to ptr")
-    (emitLine cg "  %t = load i64, ptr %hp")
-    (emitLine cg "  %tp = inttoptr i64 %t to ptr")
-    (emitLine cg "  call i32 @pthread_join(ptr %tp, ptr null)")
-    (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
-    (emitLine cg "  ret i64 %res")
-    (emitLine cg "}")
-    (emitLine cg "")
-    ; The non-raising thread join. The cell takes `pthread_join`'s own
-    ; return - 0, or the errno it failed with - which is the only
-    ; failure this join can ever REPORT: a trapping thread ends the
-    ; whole process (`exit_group`) before any join runs, so a returned
-    ; non-raising thread join is a joined thread. Same API as the proc
-    ; half, honestly narrower, and `scripts/check-parallel.sh` section
-    ; 6f pins both halves of that sentence.
-    (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %h, i64 %cell) #0 {")
-    (emitLine cg "entry:")
-    (emitLine cg "  %hp = inttoptr i64 %h to ptr")
-    (emitLine cg "  %t = load i64, ptr %hp")
-    (emitLine cg "  %tp = inttoptr i64 %t to ptr")
-    (emitLine cg "  %rc = call i32 @pthread_join(ptr %tp, ptr null)")
-    (emitLine cg "  %rc64 = sext i32 %rc to i64")
-    (emitLine cg "  %cellp = inttoptr i64 %cell to ptr")
-    (emitLine cg "  store i64 %rc64, ptr %cellp")
-    (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
-    (emitLine cg "  ret i64 %res")
-    (emitLine cg "}")
-    (emitLine cg "")
-    cg
-  })
+  (let ((t (memGetWord cg 26)))
+    {
+      (emitLine cg "declare i32 @pthread_create(ptr, ptr, ptr, ptr) #0")
+      (emitLine cg "declare i32 @pthread_join(ptr, ptr) #0")
+      (emitLine cg "")
+      (emitLine cg "define internal void @__axiom_arena_unmap_thread() #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %a0 = load i64, ptr @__axiom_chunk")
+      (emitLine cg "  br label %act")
+      (emitLine cg "act:")
+      (emitLine cg "  %c = phi i64 [ %a0, %entry ], [ %cn, %actstep ]")
+      (emitLine cg "  %cz = icmp eq i64 %c, 0")
+      (emitLine cg "  br i1 %cz, label %freel, label %actstep")
+      (emitLine cg "actstep:")
+      (emitLine cg "  %cp = inttoptr i64 %c to ptr")
+      (emitLine cg "  %csz = load i64, ptr %cp")
+      (emitLine cg "  %cl = add i64 %c, 8")
+      (emitLine cg "  %clp = inttoptr i64 %cl to ptr")
+      (emitLine cg "  %cn = load i64, ptr %clp")
+      (emitLine cg (cat2 "  %cu = " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %c, i64 %csz, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg "  br label %act")
+      (emitLine cg "freel:")
+      (emitLine cg "  %f0 = load i64, ptr @__axiom_free")
+      (emitLine cg "  br label %fre")
+      (emitLine cg "fre:")
+      (emitLine cg "  %f = phi i64 [ %f0, %freel ], [ %fnx, %frestep ]")
+      (emitLine cg "  %fz = icmp eq i64 %f, 0")
+      (emitLine cg "  br i1 %fz, label %done, label %frestep")
+      (emitLine cg "frestep:")
+      (emitLine cg "  %fp = inttoptr i64 %f to ptr")
+      (emitLine cg "  %fsz = load i64, ptr %fp")
+      (emitLine cg "  %fl = add i64 %f, 8")
+      (emitLine cg "  %flp = inttoptr i64 %fl to ptr")
+      (emitLine cg "  %fnx = load i64, ptr %flp")
+      (emitLine cg (cat2 "  %fu = " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %f, i64 %fsz, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg "  br label %fre")
+      (emitLine cg "done:")
+      (emitLine cg "  store i64 0, ptr @__axiom_chunk")
+      (emitLine cg "  store i64 0, ptr @__axiom_free")
+      (emitLine cg "  store i64 0, ptr @__axiom_bump")
+      (emitLine cg "  store i64 0, ptr @__axiom_bump_end")
+      (emitLine cg "  store i64 0, ptr @__axiom_high")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      (emitLine cg "define internal ptr @__axiom_par_entry(ptr %pg) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %p1 = getelementptr i64, ptr %pg, i64 1")
+      (emitLine cg "  %fn = load i64, ptr %p1")
+      (emitLine cg "  %p2 = getelementptr i64, ptr %pg, i64 2")
+      (emitLine cg "  %arg = load i64, ptr %p2")
+      (emitLine cg "  %r = call i64 @__axiom_par_call(i64 %fn, i64 %arg)")
+      (emitLine cg "  %p3 = getelementptr i64, ptr %pg, i64 3")
+      (emitLine cg "  store i64 %r, ptr %p3")
+      (emitLine cg "  call void @__axiom_par_sweep(i64 -1)")
+      (emitLine cg "  call void @__axiom_arena_unmap_thread()")
+      (emitLine cg "  ret ptr null")
+      (emitLine cg "}")
+      (emitLine cg "")
+      (emitLine cg "define internal i64 @__axiom_par_spawn_thread(i64 %fn, i64 %arg) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %page = call i64 @__axiom_par_page()")
+      (emitLine cg "  %hp = inttoptr i64 %page to ptr")
+      (emitLine cg "  %p1 = getelementptr i64, ptr %hp, i64 1")
+      (emitLine cg "  store i64 %fn, ptr %p1")
+      (emitLine cg "  %p2 = getelementptr i64, ptr %hp, i64 2")
+      (emitLine cg "  store i64 %arg, ptr %p2")
+      (emitLine cg "  %rc = call i32 @pthread_create(ptr %hp, ptr null, ptr @__axiom_par_entry, ptr %hp)")
+      (emitLine cg "  %bad = icmp ne i32 %rc, 0")
+      (emitLine cg "  br i1 %bad, label %fail, label %ok")
+      (emitLine cg "fail:")
+      (emitLine cg "  %dis = call i64 @__axiom_par_finish(i64 %page)")
+      (emitLine cg "  call i64 @__axiom_par_spawn_failed()")
+      (emitLine cg "  unreachable")
+      (emitLine cg "ok:")
+      (emitLine cg "  call void @__axiom_par_link(i64 %page, i64 2)")
+      (emitLine cg "  ret i64 %page")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; A `pthread_join` that fails did not wait for the thread, which
+      ; may still be running on the page and on its thunk - so the lost
+      ; path unlinks and traps and deliberately does NOT finish: an
+      ; unmapped page under a live thread is a write into whatever maps
+      ; there next, and a leaked page is not.
+      (emitLine cg "define internal i64 @__axiom_par_join_thread(i64 %h) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %t = load i64, ptr %hp")
+      (emitLine cg "  %tp = inttoptr i64 %t to ptr")
+      (emitLine cg "  %rc = call i32 @pthread_join(ptr %tp, ptr null)")
+      (emitLine cg "  %bad = icmp ne i32 %rc, 0")
+      (emitLine cg "  br i1 %bad, label %gone, label %fine")
+      (emitLine cg "gone:")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %h)")
+      (emitLine cg "  call i64 @__axiom_par_join_lost()")
+      (emitLine cg "  unreachable")
+      (emitLine cg "fine:")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %h)")
+      (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
+      (emitLine cg "  ret i64 %res")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; The non-raising thread join. The cell takes `pthread_join`'s own
+      ; return - 0, or the errno it failed with - which is the only
+      ; failure this join can ever REPORT: a trapping thread ends the
+      ; whole process (`exit_group`) before any join runs, so a returned
+      ; non-raising thread join is a joined thread. Same API as the proc
+      ; half, honestly narrower, and `scripts/check-parallel.sh` section
+      ; 6f pins both halves of that sentence. A failed join answers 0
+      ; and leaves the page mapped, for the reason the raising join
+      ; gives.
+      (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %h, i64 %cell) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %t = load i64, ptr %hp")
+      (emitLine cg "  %tp = inttoptr i64 %t to ptr")
+      (emitLine cg "  %rc = call i32 @pthread_join(ptr %tp, ptr null)")
+      (emitLine cg "  %rc64 = sext i32 %rc to i64")
+      (emitLine cg "  %cellp = inttoptr i64 %cell to ptr")
+      (emitLine cg "  store i64 %rc64, ptr %cellp")
+      (emitLine cg "  call void @__axiom_par_unlink(i64 %h)")
+      (emitLine cg "  %bad = icmp ne i32 %rc, 0")
+      (emitLine cg "  br i1 %bad, label %gone, label %fine")
+      (emitLine cg "gone:")
+      (emitLine cg "  ret i64 0")
+      (emitLine cg "fine:")
+      (emitLine cg "  %res = call i64 @__axiom_par_finish(i64 %h)")
+      (emitLine cg "  ret i64 %res")
+      (emitLine cg "}")
+      (emitLine cg "")
+      cg
+    }))
 
 (pub :: argHas (-> String Int Bool))
 ;@axiom:effect(io)
@@ -8922,6 +9274,11 @@
           (emitLine cg "  store i64 %argc, ptr @__axiom_argc")
           (emitLine cg "  store i64 %argv, ptr @__axiom_argv")
           (emitLine cg "  %r = call i64 @__axiom_user_main()")
+          ; MM-PAR-7: a handle the program never joined does not
+          ; outlive `main`.
+          (if (== (parRegistryOn cg) 1)
+            (emitLine cg "  call void @__axiom_par_sweep(i64 -1)")
+            0)
           (if (== (mainReturnsResult cg) 1)
             (emitMainResultTail cg 0)
             (emitLine cg "  ret i64 %r"))
@@ -8998,7 +9355,23 @@
     (emitLine cg "zero:")
     (emitLine cg "  %zb = load i64, ptr @__axiom_bump")
     (emitLine cg "  ret i64 %zb")
+    ; MM-ALLOC-7a: a request no address space can hold is out of
+    ; memory, and it is decided HERE, before the size is rounded or
+    ; added to anything. Until 2026-09-27 a negative size reached the
+    ; arithmetic below: `%sz0` came out negative, the unsigned
+    ; small-block test sent it to the bump path, `%next` landed BELOW
+    ; `%cur`, and `%fits` passed - so the bump pointer moved backwards
+    ; and the next block's header was written over live data (measured:
+    ; `(memAlloc -32)` then `(memAlloc 64)` rewrote words 6 and 7 of
+    ; the block allocated before them). A size within 15 of 2^63 did
+    ; the same through `%padded` wrapping. One unsigned compare against
+    ; 2^62 refuses both - every negative Int is above it unsigned - and
+    ; routes them to the same trap an `mmap` refusal takes, status 70,
+    ; which recovers like any other (`tests/stdlib/520-alloc-size.ax`).
     (emitLine cg "sized:")
+    (emitLine cg "  %toobig = icmp ugt i64 %size, 4611686018427387904")
+    (emitLine cg "  br i1 %toobig, label %oomsize, label %sizeok")
+    (emitLine cg "sizeok:")
     (emitLine cg "  %padded = add i64 %size, 15")
     (emitLine cg "  %sz0 = and i64 %padded, -16")
     ; MM-LIFE-2b: the 16-byte count/shape header below every counted
@@ -9019,7 +9392,8 @@
     (emitLine cg "  br i1 %sempty, label %bump_path, label %pop")
     (emitLine cg "pop:")
     (emitLine cg "  %pnextp = inttoptr i64 %shead to ptr")
-    (emitLine cg "  %pnext = load i64, ptr %pnextp")
+    (emitLine cg "  %pnextenc = load i64, ptr %pnextp")
+    (emitLine cg "  %pnext = sub i64 -2, %pnextenc")
     (emitLine cg "  store i64 %pnext, ptr %slotp")
     (emitLine cg "  %pe = add i64 %shead, %sz")
     (emitLine cg "  %ph = load i64, ptr @__axiom_high")
@@ -9209,6 +9583,9 @@
     (emitLine cg "oom:")
     (emitLine cg "  call i64 @__axiom_out_of_memory()")
     (emitLine cg "  unreachable")
+    (emitLine cg "oomsize:")
+    (emitLine cg "  call i64 @__axiom_out_of_memory_size()")
+    (emitLine cg "  unreachable")
     (emitLine cg "}")
     (emitLine cg "")
     ; MM-LIFE-2b's other two owners of the header. Emitted, exempted,
@@ -9222,6 +9599,22 @@
     ; 0 - 1 IS the statics sentinel, so an unbalanced release must
     ; not be able to forge one (the double-release stays a no-op the
     ; fixture can observe, instead of an immortal block it cannot).
+    ;
+    ; EVERY NEGATIVE COUNT IS LEFT ALONE, NOT ONLY -1 (2026-09-27). A
+    ; block that dies has its count word reused as a LINK - the dead
+    ; list below while its children are walked, then its size class's
+    ; free list - and until this date the link was stored raw. A raw
+    ; link is an address, so a second release of a filed block (an
+    ; imbalance anywhere: a compiler bug, an unsafe store, a race under
+    ; `--threads`) read the address as a count, decremented it, and
+    ; left the free list pointing one byte into somebody else's memory;
+    ; the next allocation of that class handed it out. The link is now
+    ; stored ENCODED as `-2 - link` (MM-LIFE-2k): every filed or dead
+    ; block reads as a count of at most -2, both owners skip any
+    ; negative count, and a stray retain or release of a dead block
+    ; touches nothing. Decoding is the same subtraction, so the pop in
+    ; `axiom_alloc`, the dead-list drain and the two filing stores are
+    ; the only sites that know (`tests/stdlib/521-release-filed.ax`).
     (emitLine cg "define void @axiom_retain(i64 %h) #0 {")
     (emitLine cg "entry:")
     (emitLine cg "  %imm = icmp slt i64 %h, 4096")
@@ -9230,7 +9623,7 @@
     (emitLine cg "  %hoff = add i64 %h, -16")
     (emitLine cg "  %cp = inttoptr i64 %hoff to ptr")
     (emitLine cg "  %c = load i64, ptr %cp")
-    (emitLine cg "  %stat = icmp eq i64 %c, -1")
+    (emitLine cg "  %stat = icmp slt i64 %c, 0")
     (emitLine cg "  br i1 %stat, label %done, label %bump")
     (emitLine cg "bump:")
     (emitLine cg "  %c1 = add i64 %c, 1")
@@ -9241,13 +9634,16 @@
     (emitLine cg "}")
     (emitLine cg "")
     ; MM-LIFE-2e + 2d: the release path. A handle below 4096 is an
-    ; immediate, a count of -1 a static, a count of 0 a free-floating
-    ; block nobody adopted: each is left alone. Otherwise the count
+    ; immediate, a count of -1 a static, a count of -2 or below a dead
+    ; block whose count word holds an encoded link (MM-LIFE-2k), a
+    ; count of 0 a free-floating block nobody adopted: each is left
+    ; alone. Otherwise the count
     ; drops, and at zero the block is dead. A dead RECORD with no
     ; reference map files at once; one of the FOREIGN FORM (form bit 1,
     ; MM-FFI-6) runs its destructor first; a dead RECORD with a map is
     ; DEFERRED: its count word - dead storage from here on, and the
-    ; free-list link once it files - links it into a dead list this
+    ; free-list link once it files, both stored as `-2 - link` - links
+    ; it into a dead list this
     ; invocation keeps in a local, and nothing else is stored
     ; anywhere. The drain pops a dead record, walks its map releasing
     ; each payload reference through the same `relone` path (a child
@@ -9288,7 +9684,7 @@
     (emitLine cg "  %hoff = add i64 %h, -16")
     (emitLine cg "  %cp = inttoptr i64 %hoff to ptr")
     (emitLine cg "  %c = load i64, ptr %cp")
-    (emitLine cg "  %stat = icmp eq i64 %c, -1")
+    (emitLine cg "  %stat = icmp slt i64 %c, 0")
     (emitLine cg "  br i1 %stat, label %after, label %live")
     (emitLine cg "live:")
     (emitLine cg "  %zero = icmp eq i64 %c, 0")
@@ -9337,7 +9733,8 @@
     (emitLine cg "  br label %filev")
     (emitLine cg "defer:")
     (emitLine cg "  %dh = load i64, ptr %dead")
-    (emitLine cg "  store i64 %dh, ptr %cp")
+    (emitLine cg "  %dhenc = sub i64 -2, %dh")
+    (emitLine cg "  store i64 %dhenc, ptr %cp")
     (emitLine cg "  store i64 %h, ptr %dead")
     (emitLine cg "  br label %after")
     (emitLine cg "filev:")
@@ -9351,7 +9748,8 @@
     (emitLine cg "  %pcls = lshr i64 %bcnt, 1")
     (emitLine cg "  %pslotp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %pcls")
     (emitLine cg "  %ohead = load i64, ptr %pslotp")
-    (emitLine cg "  store i64 %ohead, ptr %cp")
+    (emitLine cg "  %oenc = sub i64 -2, %ohead")
+    (emitLine cg "  store i64 %oenc, ptr %cp")
     (emitLine cg "  store i64 %hoff, ptr %pslotp")
     (emitLine cg "  br label %after")
     (emitLine cg "after:")
@@ -9425,7 +9823,8 @@
     (emitLine cg "  %dohead = load i64, ptr %dslotp")
     (emitLine cg "  %dbase = add i64 %Dw, -16")
     (emitLine cg "  %dbasep = inttoptr i64 %dbase to ptr")
-    (emitLine cg "  store i64 %dohead, ptr %dbasep")
+    (emitLine cg "  %doenc = sub i64 -2, %dohead")
+    (emitLine cg "  store i64 %doenc, ptr %dbasep")
     (emitLine cg "  store i64 %dbase, ptr %dslotp")
     (emitLine cg "  br label %drain")
     (emitLine cg "drain:")
@@ -9435,7 +9834,8 @@
     (emitLine cg "popD:")
     (emitLine cg "  %lp0 = add i64 %dl, -16")
     (emitLine cg "  %lpp = inttoptr i64 %lp0 to ptr")
-    (emitLine cg "  %nxt = load i64, ptr %lpp")
+    (emitLine cg "  %nxtenc = load i64, ptr %lpp")
+    (emitLine cg "  %nxt = sub i64 -2, %nxtenc")
     (emitLine cg "  store i64 %nxt, ptr %dead")
     (emitLine cg "  store i64 %dl, ptr %D")
     (emitLine cg "  store i64 0, ptr %wi")
@@ -9669,6 +10069,11 @@
     (emitLine cg "  %armed = icmp ne i64 %top, 0")
     (emitLine cg "  br i1 %armed, label %jump, label %none")
     (emitLine cg "none:")
+    ; MM-PAR-7: every caller exits when this returns, so no child it
+    ; spawned may outlive it - swept only in a module that can spawn.
+    (if (== (parRegistryOn cg) 1)
+      (emitLine cg "  call void @__axiom_par_sweep(i64 -1)")
+      0)
     (emitLine cg "  ret i64 0")
     (emitLine cg "jump:")
     (emitLine cg "  %recp = inttoptr i64 %top to ptr")
@@ -9685,6 +10090,18 @@
     (emitLine cg "  %a5 = add i64 %top, 40")
     (emitLine cg "  %p5 = inttoptr i64 %a5 to ptr")
     (emitLine cg "  store i64 %code, ptr %p5")
+    ; MM-PAR-7: the children spawned inside the extent end BEFORE the
+    ; reset reclaims what they may still be reading - a thread's thunk
+    ; lives in this arena.
+    (if (== (parRegistryOn cg) 1)
+      {
+        (emitLine cg (cat3 "  %aseqa = add i64 %top, " (fmtInt (parRecSeqOffset cg)) ""))
+        (emitLine cg "  %aseqp = inttoptr i64 %aseqa to ptr")
+        (emitLine cg "  %aseq = load i64, ptr %aseqp")
+        (emitLine cg "  call void @__axiom_par_sweep(i64 %aseq)")
+        0
+      }
+      0)
     (emitLine cg "  call i64 @__axiom_recover_load(i64 %top)")
     (emitLine cg "  call i64 @__axiom_arena_reset_fn(i64 %mark)")
     (emitLine cg (cat3 "  call void asm sideeffect " (targetRecoverJumpAsm (memGetWord cg 26)) "(i64 %top, i64 %sp, i64 %fp, i64 %pc)"))
@@ -9789,6 +10206,20 @@
         (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
         (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
         (emitRuntimeWrite cg "%oomp" n)
+        (emitLine cg "  call void @__axiom_backtrace()")
+        (emitRuntimeExit cg "70")
+        (emitLine cg "  unreachable")
+        (emitLine cg "}")
+        ; MM-ALLOC-7a's refusal: the same status and the same recovery
+        ; as the mapping refusal above, with a sentence that does not
+        ; blame `mmap` for a request nothing was asked to map - a
+        ; negative size, or one past 2^62 bytes.
+        (emitLine cg "@__axiom_oom_size_msg = private unnamed_addr constant [52 x i8] c\"axiom: out of memory (allocation size out of range)\\0A\"")
+        (emitLine cg (cat3 "define internal i64 @__axiom_out_of_memory_size() " trapFnAttrs " {"))
+        (emitLine cg "entry:")
+        (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
+        (emitLine cg "  %oomsp = ptrtoint ptr @__axiom_oom_size_msg to i64")
+        (emitRuntimeWrite cg "%oomsp" "52")
         (emitLine cg "  call void @__axiom_backtrace()")
         (emitRuntimeExit cg "70")
         (emitLine cg "  unreachable")
@@ -17303,7 +17734,7 @@
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
     (let (
       (mark (strDup (memGetWordStr cg0 2)))
-      (size (fmtInt (* (+ 16 (distinctSlotCount (memGetWordVec cg0 32) 0 0)) 8)))
+      (size (fmtInt (* (+ (+ 16 (parRegistryOn cg0)) (distinctSlotCount (memGetWordVec cg0 32) 0 0)) 8)))
       (rec (regStr (allocReg cg0)))
       (pv (regStr (allocReg cg0)))
       (a3 (regStr (allocReg cg0)))
@@ -17332,6 +17763,7 @@
       (_10 (emitLine cg0 (cat4 (cat2 "  " p5) " = inttoptr i64 " a5 " to ptr")))
       (_11 (emitLine cg0 (cat2 "  store i64 0, ptr " p5)))
       (_12 (emitLine cg0 (cat3 "  call i64 @__axiom_recover_save(i64 " rec ")")))
+      (_12s (emitArmSeq cg0 rec))
       (_13 (emitLine cg0 (cat3 "  store i64 " rec ", ptr @__axiom_recover_top")))
       (_14 (emitLine cg0 (cat3 "  call void asm sideeffect " (targetRecoverArmAsm (memGetWord cg0 26)) (cat3 "(i64 " rec ")"))))
       (_15 (emitLine cg0 (cat3 (cat2 "  " st) " = load i64, ptr " p5)))
@@ -17365,6 +17797,26 @@
                   (memSetWord cgA 14 0)
                   cgA
                 }))))))))
+
+; MM-PAR-7: the spawn sequence number at the arm, in the word after the
+; slot snapshot, so an abort to this point sweeps exactly the children
+; spawned inside it. Nothing in a module that cannot spawn.
+(pub :: emitArmSeq (-> Int String Int))
+(pub fn (emitArmSeq cg rec)
+  (if (== (parRegistryOn cg) 0)
+    0
+    (let (
+      (a (regStr (allocReg cg)))
+      (p (regStr (allocReg cg)))
+      (v (regStr (allocReg cg)))
+    )
+      {
+        (emitLine cg (cat4 (cat2 "  " a) " = add i64 " rec (cat2 ", " (fmtInt (parRecSeqOffset cg)))))
+        (emitLine cg (cat4 (cat2 "  " p) " = inttoptr i64 " a " to ptr"))
+        (emitLine cg (cat2 (cat2 "  " v) " = load i64, ptr @__axiom_par_seq"))
+        (emitLine cg (cat4 "  store i64 " v ", ptr " p))
+        0
+      })))
 
 (pub :: emitPrimArenaMark (-> Int Int))
 (pub fn (emitPrimArenaMark cg)

@@ -9263,8 +9263,23 @@
                     ; costs the corpus nothing and closes the hole
                     ; for the first `parallel` written inside a
                     ; generic function.
+                    ;
+                    ; `Vec` IS REFUSED BESIDE THEM, since 2026-09-27,
+                    ; though it takes no share. Class 0 answers "no
+                    ; count is raced over", which is true of a `Vec`
+                    ; and is not the question a thread asks: its
+                    ; handle names a MUTABLE buffer, and two bindings
+                    ; that capture it can grow it at once. Measured
+                    ; with this rule off: a binding that pushes onto a
+                    ; captured `Vec` under `--threads` reallocates the
+                    ; parent's buffer out of the THREAD's arena, and
+                    ; the parent's handle names memory that goes away
+                    ; with the thread (MM-PAR-6a). A `Foreign` stays
+                    ; accepted: it names memory Axiom never allocated,
+                    ; and its thread-safety is the foreign side's
+                    ; (MM-FFI-7).
                     (let ((cls (evClassOf tc ty)))
-                      (if (!= cls 0)
+                      (if (|| (!= cls 0) (== (capTyIsVec ty) 1))
                         {
                           (vecPush seen (nodeA v))
                           (emitSpawnCapture
@@ -9277,6 +9292,19 @@
                         0))))))))
         (capReport tc occ (+ i 1) seen)
       })))
+
+; A captured type that is a `Vec`, after resolution: the one class-0
+; name whose handle is a mutable heap buffer (`capReport`).
+(pub :: capTyIsVec (-> Int Int))
+(pub fn (capTyIsVec ty)
+  (let ((rt (tyResolve ty)))
+    (if (== rt 0)
+      0
+      (if (== (nodeTag rt) TAG_T_CON)
+        (if (strEq (nodeAName rt) "Vec")
+          1
+          0)
+        0))))
 
 (pub :: emitSpawnCapture (-> Int String Int Int Int Int))
 (pub fn (emitSpawnCapture tc name ty span cls)
@@ -9291,14 +9319,16 @@
           span
           (strConcat
             (strConcat (strConcat (strConcat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty))
-            (if (== cls 1)
+            (if (== cls 0)
+              "` - a mutable container the parent also holds, which a binding could grow while another reads it"
+              (if (== cls 1)
               "` - a reference the parent also holds"
               (if (>= cls 2)
                 "` - a type the caller chooses, so it may be a reference here"
-                "` - a type this checker cannot classify, so it cannot promise the block's count is untouched")))
+                "` - a type this checker cannot classify, so it cannot promise the block's count is untouched"))))
           0
           0
-          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word"
+          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word. To share read-only input with several workers, use `stdlib/Par.ax` or `stdlib/Task.ax`, whose forked children read their own copy"
           "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt")
         (strConcat (strConcat "`" name) "` is bound outside this binding")))
     0
@@ -13535,15 +13565,35 @@
                 1
                 0))))))))
 
-; The raw-memory primitives are the Unsafe ones: a load or store at an
-; address the type system does not bound, the allocator everything
-; goes through, and `__addr` of a literal. Seven names - `__store8v`
-; is `__store8` with LLVM `volatile`, for MMIO a middle end must not
-; delete - and the set is closed by construction: nothing else reads
-; or writes memory the checker cannot see. `walkCallHead` adds
-; `Unsafe` at a call to one,
-; alongside whatever `Mut` or `Alloc` its seeded row already carries,
-; and `graphSeeds` answers them the way it answers a syscall for `IO`.
+; The raw-memory primitives are the Unsafe ones: every primitive that
+; reads, writes, frees or jumps through a word the type system does not
+; bound. `walkCallHead` adds `Unsafe` at a call to one, alongside
+; whatever `Mut` or `Alloc` its seeded row already carries, and
+; `graphSeeds` answers them the way it answers a syscall for `IO`.
+;
+; SEVEN NAMES WERE HERE UNTIL 2026-09-27, and this comment called the
+; set "closed by construction: nothing else reads or writes memory the
+; checker cannot see". It was not closed. Probed with one declaration
+; per primitive under `restrict(no-unsafe)`, only `__load64` was
+; refused; these passed, and each takes an arbitrary `Int`:
+;
+;   `__retain`, `__release`  write the count word 16 bytes below it,
+;                            and a release that reaches zero FILES the
+;                            block - a forged word becomes an address
+;                            the allocator later hands out;
+;   `__call_word`            calls it as a closure record's code;
+;   `__atomic_load/_store/_add/_cas`  dereference it as a byte address;
+;   `__axiom_arena_reset`, `__axiom_arena_reset_keeping`  rewind the
+;                            allocator to it, reclaiming everything
+;                            allocated since (MM-ALLOC-16's obligation).
+;
+; `pure` accepted `__retain` for the same reason. `__fence` touches no
+; address and `__retainref` takes a TYPED value, so neither is here;
+; `__axiom_arena_mark` only reads the position, and `__axiom_recover`
+; arms at a mark its caller just took. `region` and `parallel` never
+; reach this list: the region form is its own node and lowers to the
+; runtime directly, and `parallel` desugars to the spawn primitives
+; (`tests/diagnostics/1010-unsafe-primitives.ax`, MM-EXEC-9c).
 (pub :: isUnsafePrim (-> String Int))
 (pub fn (isUnsafePrim n)
   (if (strEq n "__load8")
@@ -13560,7 +13610,22 @@
               1
               (if (strEq n "__addr")
                 1
-                0))))))))
+                (isUnsafeWordPrim n)))))))))
+
+; The nine the 2026-09-27 probe found outside the set, kept in their
+; own function so the list above reads as the seven it always was and
+; this one as the nine that joined it.
+(pub :: isUnsafeWordPrim (-> String Int))
+(pub fn (isUnsafeWordPrim n)
+  (if (|| (strEq n "__retain") (strEq n "__release"))
+    1
+    (if (strEq n "__call_word")
+      1
+      (if (|| (strEq n "__atomic_load") (|| (strEq n "__atomic_store") (|| (strEq n "__atomic_add") (strEq n "__atomic_cas"))))
+        1
+        (if (|| (strEq n "__axiom_arena_reset") (strEq n "__axiom_arena_reset_keeping"))
+          1
+          0)))))
 
 ; ------------------------------------------------------------------
 ; The walk's scope. `names` is the shadow list - one entry per `let`,
