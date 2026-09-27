@@ -32,6 +32,18 @@
 # And a probe on the gate itself: with `install.sh`'s comparison
 # deleted in a copy, case 2 must stop being refused. A verification
 # test that passes against an unverifying installer is testing nothing.
+#
+# THE DESTRUCTIVE HALF, cases 5-9, added 2026-09-26 after an audit
+# installed into `--prefix "$HOME/."` and lost two files the string
+# comparison had been written to protect. They plant files the
+# installer did not put there - in a scratch HOME, never the real one -
+# and require that every spelling of a protected directory is refused
+# (5), that a directory of somebody else's is not replaced (6), that an
+# upgrade replaces exactly what the ownership record lists (7), that an
+# install from before the record is recognised by its shape (8), and
+# that a release whose compiler fails leaves the working install in
+# place (9). Each of the three guards is then removed in a copy of the
+# installer and must be seen to cost the file it guards.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -308,11 +320,234 @@ else
   sed 's/^/     /' "$work/install.log" | tail -6
 fi
 
+# --------------------------------------------------------------------
+# THE DESTRUCTIVE HALF. Everything below plants files the installer
+# must not delete and asks it to install on top of them - so every
+# directory involved is under `$work`, INCLUDING the home directory:
+# `HOME` is pointed at a scratch directory for each run, because the
+# refusal under test is "this prefix is your home", and a regression
+# in it must cost a sentinel file, never a real one.
+# --------------------------------------------------------------------
+home_run() {  # <home> <prefix> [installer] - like install_run, with HOME set
+  local home="$1" prefix="$2" script="${3:-$repo_root/scripts/install.sh}"
+  set +e
+  HOME="$home" AXIOM_BASE_URL="$base" AXIOM_PREFIX="$prefix" \
+    bash "$script" --version "$V" >"$work/install.log" 2>&1
+  local rc=$?
+  set -e
+  printf '%s' "$rc"
+}
+
+plant_home() {  # <dir>: a home directory with two files nobody installed
+  rm -rf "$1"
+  mkdir -p "$1/bin" "$1/docs"
+  echo "not the installer's" > "$1/bin/keep-me"
+  echo "not the installer's" > "$1/docs/keep-me.md"
+}
+
+sentinels_ok() {  # <dir>
+  [[ -f "$1/bin/keep-me" && -f "$1/docs/keep-me.md" ]]
+}
+
+# Case 4 left a release with no stdlib/ on the server; every case below
+# needs one the installer would accept, so that a refusal can only be
+# the one under test.
+assemble
+
+# --------------------------------------------------------------------
+echo
+echo "== 5. every spelling of the home directory is the home directory =="
+# --------------------------------------------------------------------
+# The audit's reproduction was `--prefix "$HOME/."`: refused as "$HOME",
+# accepted with the dot, and both sentinels gone. Each spelling below
+# names the same directory; each must be refused, and nothing deleted.
+fake_home="$work/home"
+plant_home "$fake_home"
+ln -s "$fake_home" "$work/homelink"
+for spelling in "$fake_home" "$fake_home/" "$fake_home/." "$fake_home/./" \
+                "$fake_home//" "$fake_home/bin/.." "$fake_home/nowhere/.." \
+                "$work/homelink" "$work/homelink/." "$work/./home"; do
+  rc="$(home_run "$fake_home" "$spelling")"
+  shown="${spelling#"$work"/}"
+  if (( rc != 0 )) && grep -qF "which is $fake_home" "$work/install.log" && sentinels_ok "$fake_home"; then
+    ok "\$work/$shown is refused as the home directory, and both sentinels survive"
+  else
+    bad "\$work/$shown: exit $rc, sentinels $(sentinels_ok "$fake_home" && echo intact || echo DELETED)"
+    sed 's/^/     /' "$work/install.log" | tail -4
+    plant_home "$fake_home"
+  fi
+done
+
+# --------------------------------------------------------------------
+echo
+echo "== 6. a directory of somebody else's is not replaced =="
+# --------------------------------------------------------------------
+# A prefix no list protects can still hold things: here, a `bin/` with
+# a tool of the user's own. With no record of an earlier install and
+# not the shape of one, the installer must refuse before it deletes.
+tools="$work/tools"
+mkdir -p "$tools/bin"
+echo "#!/bin/sh" > "$tools/bin/mytool"
+rc="$(home_run "$fake_home" "$tools")"
+if (( rc != 0 )) && grep -q "nothing records" "$work/install.log" && [[ -f "$tools/bin/mytool" ]]; then
+  ok "a prefix whose bin/ holds a stranger's file is refused, and the file survives"
+else
+  bad "a prefix with an unrelated bin/ exited $rc; mytool $([[ -f "$tools/bin/mytool" ]] && echo survived || echo DELETED)"
+  sed 's/^/     /' "$work/install.log" | tail -4
+fi
+# The same prefix with bin/ empty but a README.md of its own: prose
+# files count as an earlier install's only beside its `bin/axiom`.
+rm -rf "$tools"; mkdir -p "$tools"; echo "my project" > "$tools/README.md"
+rc="$(home_run "$fake_home" "$tools")"
+if (( rc != 0 )) && grep -q "already has README.md" "$work/install.log" \
+   && [[ "$(cat "$tools/README.md")" == "my project" ]]; then
+  ok "a prefix with a README.md of its own is refused, and the README survives"
+else
+  bad "a prefix with its own README.md exited $rc"
+  sed 's/^/     /' "$work/install.log" | tail -4
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== 7. the ownership record: an upgrade replaces, a stranger stops it =="
+# --------------------------------------------------------------------
+# Case 1 installed into `$work/prefix`, so it has a record. Installing
+# again is the upgrade path and must succeed; a file dropped into its
+# `bin/` afterwards is not in the record and must stop the next one.
+if [[ -f "$work/prefix/.axiom-install" ]] && grep -qx 'file bin/axiom' "$work/prefix/.axiom-install"; then
+  ok "case 1's install wrote .axiom-install, listing bin/axiom"
+else
+  bad "case 1's install left no .axiom-install naming bin/axiom"
+fi
+rc="$(home_run "$fake_home" "$work/prefix")"
+if (( rc == 0 )) && "$work/prefix/bin/axiom" --version >/dev/null 2>&1; then
+  ok "reinstalling over a recorded install succeeds (the upgrade path)"
+else
+  bad "reinstalling over a recorded install exited $rc"
+  sed 's/^/     /' "$work/install.log" | tail -4
+fi
+echo "mine" > "$work/prefix/bin/extra"
+rc="$(home_run "$fake_home" "$work/prefix")"
+if (( rc != 0 )) && grep -q "bin/extra" "$work/install.log" && [[ -f "$work/prefix/bin/extra" ]]; then
+  ok "a file the record does not list is named, and the install refused around it"
+else
+  bad "an unrecorded bin/extra did not stop the install (exit $rc)"
+  sed 's/^/     /' "$work/install.log" | tail -4
+fi
+rm -f "$work/prefix/bin/extra"
+
+# --------------------------------------------------------------------
+echo
+echo "== 8. an install from before the record is recognised by its shape =="
+# --------------------------------------------------------------------
+# Every install made before 2026-09-26 has no `.axiom-install`. Its
+# shape - bin/ holding only `axiom`, stdlib/ only `.ax`, docs/ only
+# `.md` - is what lets it be upgraded rather than stranded.
+cp -R "$work/prefix" "$work/legacy"
+rm -f "$work/legacy/.axiom-install"
+rc="$(home_run "$fake_home" "$work/legacy")"
+if (( rc == 0 )) && [[ -f "$work/legacy/.axiom-install" ]]; then
+  ok "an unrecorded install of the old shape is upgraded, and gains a record"
+else
+  bad "an unrecorded install of the old shape exited $rc"
+  sed 's/^/     /' "$work/install.log" | tail -4
+fi
+
+# --------------------------------------------------------------------
+echo
+echo "== 9. a release whose compiler does not work leaves the old one =="
+# --------------------------------------------------------------------
+# The archive is well-formed and correctly checksummed; its compiler
+# is a script that fails. The install must refuse it AND the working
+# install already in the prefix must be untouched - the property that
+# staging exists for. Before it, the old tree was deleted first.
+assemble
+printf '#!/bin/sh\nexit 3\n' > "$work/broken-axiom"
+chmod +x "$work/broken-axiom"
+( d="$work/stage/$name"; cp "$work/broken-axiom" "$d/bin/axiom"
+  cd "$work/stage" && tar -czf "$serve/$name.tar.gz" "$name" )
+printf '%s  %s\n' "$(sha_of "$serve/$name.tar.gz")" "$name.tar.gz" > "$serve/$name.tar.gz.sha256"
+cp -R "$work/prefix" "$work/kept"
+rc="$(home_run "$fake_home" "$work/kept")"
+if (( rc != 0 )) && grep -q "Nothing was installed" "$work/install.log" \
+   && cmp -s "$work/kept/bin/axiom" "$work/prefix/bin/axiom" \
+   && "$work/kept/bin/axiom" --version >/dev/null 2>&1 \
+   && [[ -z "$(ls -A "$work/kept" | grep '^\.axiom-\(stage\|old\)\.' || true)" ]]; then
+  ok "refused, and the installed compiler is the one that was there, still running"
+else
+  bad "a broken release over a working install exited $rc"
+  sed 's/^/     /' "$work/install.log" | tail -4
+fi
+broken_tar="$work/broken.tar.gz"; cp "$serve/$name.tar.gz" "$broken_tar"
+assemble
+
+# --------------------------------------------------------------------
+echo
+echo "== the probes on the destructive half: each guard, removed, must cost =="
+# --------------------------------------------------------------------
+# Three copies of install.sh, each with one guard taken out by an exact
+# line replacement whose match count is asserted first - `sed` that
+# matches nothing produces a copy identical to the original and an
+# ablation that proves nothing.
+ablated() {  # <out> <exact line> <replacement>
+  local n
+  n="$(grep -cxF -- "$2" "$repo_root/scripts/install.sh" || true)"
+  if [[ "$n" != 1 ]]; then
+    bad "the ablation seam \`$2\` matches $n lines of install.sh, not 1"
+    return 1
+  fi
+  awk -v old="$2" -v new="$3" '$0 == old { print new; next } { print }' \
+    "$repo_root/scripts/install.sh" > "$1"
+}
+
+# A. The spelling compared instead of the directory: `$HOME/.` must get
+#    through - and in this scratch home it then deletes the sentinels.
+if ablated "$work/spelling.sh" \
+     'PREFIX="$(physical_path "$given_prefix")" \' 'PREFIX="${given_prefix%/}" \'; then
+  plant_home "$fake_home"
+  rc="$(home_run "$fake_home" "$fake_home/." "$work/spelling.sh")"
+  if grep -qF "which is $fake_home" "$work/install.log"; then
+    bad "with the spelling compared, \$HOME/. was still refused as the home directory"
+  else
+    ok "with the spelling compared, \$HOME/. is not refused as home (exit $rc) - case 5 is what physical_path buys"
+  fi
+  plant_home "$fake_home"
+fi
+
+# B. No ownership check: the stranger's bin/ must be replaced.
+if ablated "$work/owner.sh" '  elif ! legacy_owns "$m"; then' '  elif false; then'; then
+  rm -rf "$tools"; mkdir -p "$tools/bin"; echo "#!/bin/sh" > "$tools/bin/mytool"
+  rc="$(home_run "$fake_home" "$tools" "$work/owner.sh")"
+  if [[ -f "$tools/bin/mytool" ]]; then
+    bad "with the ownership check removed, the stranger's bin/mytool still survived"
+  else
+    ok "with the ownership check removed, bin/mytool is deleted (exit $rc) - case 6 is what it buys"
+  fi
+fi
+
+# C. No verification before the switch: the broken compiler must land.
+if ablated "$work/unstaged.sh" \
+     'verify_compiler "$stage" || die "Nothing was installed; $given_prefix is as it was."' 'true'; then
+  cp "$broken_tar" "$serve/$name.tar.gz"
+  printf '%s  %s\n' "$(sha_of "$serve/$name.tar.gz")" "$name.tar.gz" > "$serve/$name.tar.gz.sha256"
+  rm -rf "$work/kept"; cp -R "$work/prefix" "$work/kept"
+  rc="$(home_run "$fake_home" "$work/kept" "$work/unstaged.sh")"
+  if cmp -s "$work/kept/bin/axiom" "$work/prefix/bin/axiom"; then
+    bad "with the staged probe removed, the old compiler still survived a broken release"
+  else
+    ok "with the staged probe removed, the broken compiler replaces the working one (exit $rc) - case 9 is what staging buys"
+  fi
+  assemble
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-install: $failed of $((checks + failed)) checks failed"
   exit 1
 fi
 echo "check-install: $checks checks - the script a stranger pipes into bash"
-echo "               installs a good release, refuses three bad ones, and its"
-echo "               verification has been observed to be what does the refusing"
+echo "               installs a good release, refuses three bad ones and every"
+echo "               spelling of a protected directory, replaces only what an"
+echo "               earlier install recorded, leaves a working install alone"
+echo "               when the new compiler fails, and each of those guards has"
+echo "               been observed to be what does the refusing"

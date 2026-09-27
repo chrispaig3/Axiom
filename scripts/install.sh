@@ -171,21 +171,99 @@ esac
 # of this file has the Axiom repository at ~/.axiom, which is also this
 # script's DEFAULT prefix - the no-argument one-liner in the README
 # would have deleted the repository's own stdlib/.
+#
+# THE COMPARISON IS OF PHYSICAL DIRECTORIES, NOT OF SPELLINGS. Until
+# 2026-09-26 it stripped one trailing slash and compared the string, so
+# `--prefix "$HOME"` was refused and `--prefix "$HOME/."` - the same
+# directory - was accepted, and the install then deleted `$HOME/bin`
+# and `$HOME/docs`. Reproduced by an audit in a scratch HOME with two
+# sentinel files, both of which the second spelling destroyed. `..`,
+# a doubled slash and a symlink to a protected directory were the same
+# hole under other names. So the prefix is resolved first - every `.`
+# and `..` taken out, every symlink in the part that exists followed
+# (`physical_path` below) - and every protected directory is resolved
+# the same way before the two are compared. On macOS that matters for
+# the list itself: `/etc` and `/var` are symlinks into `/private`.
+#
+# The list is the first line of defence, not the only one. A directory
+# nobody listed can hold things too, which is what the ownership check
+# after the download is for.
+
+# `physical_path <absolute path>`: the directory the path names once the
+# kernel has resolved it, printed. Components that exist are resolved
+# with `cd -P`, so a symlink anywhere in them is followed; once one does
+# not exist, the rest cannot be symlinks and is resolved lexically - a
+# `..` there undoes the component before it, which is what `mkdir -p`
+# will do with the same spelling. Fails (status 1) when an existing
+# component is not a directory, including a dangling symlink: nothing
+# can be installed beneath it.
+#
+# Written for bash 3.2, because that is `/bin/bash` on macOS and this
+# script is piped into whatever `bash` the user has.
+#
+# Every join is `${out%/}/<name>`, never `$out/<name>`: from the root
+# the second spells `//var`, and POSIX lets a leading `//` mean
+# something else, so bash's `pwd -P` keeps it - measured, `/var` then
+# resolved to `//private/var` and the same directory had two answers.
+physical_path() {
+  local out="/" comp exists=1
+  local -a comps
+  IFS=/ read -r -a comps <<< "$1"
+  for comp in "${comps[@]+"${comps[@]}"}"; do
+    case "$comp" in
+      ""|.) ;;
+      ..)
+        if (( exists )); then
+          out="$(cd -P "${out%/}/.." 2>/dev/null && pwd -P)" || return 1
+        else
+          out="$(dirname "$out")"
+          if [[ -d "$out" ]]; then
+            exists=1
+            out="$(cd -P "$out" 2>/dev/null && pwd -P)" || return 1
+          fi
+        fi ;;
+      *)
+        if (( exists )) && [[ -d "${out%/}/$comp" ]]; then
+          out="$(cd -P "${out%/}/$comp" 2>/dev/null && pwd -P)" || return 1
+        elif (( exists )) && { [[ -e "${out%/}/$comp" ]] || [[ -L "${out%/}/$comp" ]]; }; then
+          return 1
+        else
+          exists=0
+          out="${out%/}/$comp"
+        fi ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+
 case "$PREFIX" in
   /*) ;;
   *)  die "--prefix must be an absolute path (got '$PREFIX')" ;;
 esac
-PREFIX="${PREFIX%/}"
-[[ -n "$PREFIX" ]] || die "--prefix may not be the filesystem root"
 case "$PREFIX" in
-  /usr|/usr/local|/usr/bin|/bin|/sbin|/etc|/var|/opt|/opt/homebrew|"$HOME")
-    die "refusing to install into '$PREFIX': this script removes \$prefix/bin and
-            \$prefix/stdlib before installing, and '$PREFIX' holds files it did
-            not put there. Choose a directory of its own, e.g. --prefix $HOME/.axiom" ;;
+  *$'\n'*) die "--prefix may not contain a newline" ;;
 esac
+given_prefix="$PREFIX"
+PREFIX="$(physical_path "$given_prefix")" \
+  || die "--prefix '$given_prefix' passes through something that is not a directory"
+[[ "$PREFIX" != "/" ]] || die "--prefix may not be the filesystem root (got '$given_prefix')"
+
+# Every directory refused outright, each resolved as the prefix was. A
+# directory that does not exist on this machine cannot hold anything,
+# and resolving it would fail, so it is skipped rather than compared.
+for protected in /usr /usr/local /usr/bin /usr/sbin /usr/lib /bin /sbin /etc /var \
+                 /opt /opt/homebrew /Library /System /Applications /private "$HOME"; do
+  [[ -n "$protected" && -d "$protected" ]] || continue
+  if [[ "$(physical_path "$protected")" == "$PREFIX" ]]; then
+    die "refusing to install into '$given_prefix', which is $protected: this script
+            replaces \$prefix/bin, \$prefix/stdlib and \$prefix/docs, and $protected
+            holds files it did not put there. Choose a directory of its own,
+            e.g. --prefix $HOME/.axiom"
+  fi
+done
 if [[ -e "$PREFIX/.git" ]]; then
-  die "refusing to install into '$PREFIX': it is a git checkout, and this script
-            removes \$prefix/stdlib. Choose a directory of its own."
+  die "refusing to install into '$given_prefix': it is a git checkout, and this script
+            replaces \$prefix/stdlib. Choose a directory of its own."
 fi
 
 for tool in curl tar; do
@@ -300,21 +378,101 @@ tar -xzf "$work/$name.tar.gz" -C "$work"
 [[ -d "$work/$name/stdlib" ]]    || die "the archive holds no stdlib/; refusing to install a
             compiler with no standard library"
 
-echo "==> installing to $PREFIX"
-mkdir -p "$PREFIX"
-rm -rf "$PREFIX/bin" "$PREFIX/stdlib" "$PREFIX/docs"
-mv "$work/$name/bin" "$PREFIX/bin"
-mv "$work/$name/stdlib" "$PREFIX/stdlib"
-for f in LICENSE README.md CHANGELOG.md; do
-  if [[ -f "$work/$name/$f" ]]; then mv "$work/$name/$f" "$PREFIX/$f"; fi
+# ---- what this script may replace ----------------------------------
+#
+# The names an installation consists of. `docs/` is OPTIONAL in an
+# archive and REQUIRED of the archive builder, which is not an
+# inconsistency: this script is fetched fresh and may be pointed at a
+# release that predates docs/ shipping, and refusing to install 0.5.0
+# because it lacks a directory 0.6.0 introduced would be this script
+# breaking older releases as it improved. `check-install.sh` asserts
+# the current tree's archive carries it.
+managed="bin stdlib docs LICENSE README.md CHANGELOG.md"
+
+# THE OWNERSHIP RECORD. A path resolving to no protected directory can
+# still hold things this script did not put there - `--prefix ~/tools`
+# with a `bin/` of the user's own - and replacing `$prefix/bin` would
+# delete them exactly as the `$HOME/.` spelling did. So an install
+# writes `.axiom-install`: a header, then one `file <path>` line per
+# file it placed. Before anything is replaced, every file under every
+# managed name that already exists must be one the record lists; one
+# that is not is named and the install is refused, with nothing
+# touched. Names the prefix does not have are simply created, and
+# entries that are not managed names are never read or moved.
+marker="$PREFIX/.axiom-install"
+marker_head="axiom-install 1"
+
+# Files (not directories) at or under `$PREFIX/<name>`, prefix-relative.
+files_under() {
+  ( cd "$PREFIX" && find "$1" \( -type f -o -type l \) -print ) | LC_ALL=C sort
+}
+
+# INSTALLS FROM BEFORE THE RECORD EXISTED have none, and refusing every
+# one of them would strand every user on the version they have. They
+# are recognised by SHAPE, and the shape is narrow on purpose: `bin/`
+# holding exactly `bin/axiom`, `stdlib/` holding only `.ax` files,
+# `docs/` holding only `.md` files - every earlier archive, and nothing
+# a user's own directory is likely to be. The three prose files count
+# as ours only beside such a `bin/axiom`. Anything else is unrelated
+# and refused.
+legacy_owns() {  # <name>
+  case "$1" in
+    bin)    [[ "$(files_under bin)" == "bin/axiom" ]] ;;
+    stdlib) [[ -z "$(files_under stdlib | grep -v '\.ax$')" ]] ;;
+    docs)   [[ -z "$(files_under docs | grep -v '\.md$')" ]] ;;
+    *)      [[ "$(files_under bin 2>/dev/null)" == "bin/axiom" ]] ;;
+  esac
+}
+
+if [[ -f "$marker" ]] && [[ "$(head -1 "$marker")" != "$marker_head" ]]; then
+  die "refusing to install into '$given_prefix': its .axiom-install is not a record
+            this script wrote (first line '$(head -1 "$marker")')"
+fi
+for m in $managed; do
+  [[ -e "$PREFIX/$m" || -L "$PREFIX/$m" ]] || continue
+  if [[ -f "$marker" ]]; then
+    # No `head` on this pipe: under `pipefail` a reader that stops early
+    # turns the writer's SIGPIPE into the pipeline's status, and an
+    # assignment under `set -e` then ends the script with no message.
+    sed -n 's/^file //p' "$marker" | LC_ALL=C sort > "$work/recorded"
+    strangers="$(files_under "$m" | LC_ALL=C comm -23 - "$work/recorded")"
+    stranger="${strangers%%$'\n'*}"
+    [[ -z "$stranger" ]] && continue
+    die "refusing to install into '$given_prefix': $PREFIX/$stranger was not put there
+            by an earlier install (it is not in $marker), and this script
+            replaces \$prefix/$m whole. Move it out of $m/, or choose a directory
+            of its own."
+  elif ! legacy_owns "$m"; then
+    die "refusing to install into '$given_prefix': it already has $m, and nothing records
+            that an earlier install put it there. This script replaces \$prefix/$m
+            whole; choose a directory of its own, e.g. --prefix $HOME/.axiom"
+  fi
 done
-# `docs/` is OPTIONAL here and REQUIRED of the archive builder, which is
-# not an inconsistency: this script is fetched fresh and may be pointed
-# at a release that predates docs/ shipping, and refusing to install
-# 0.5.0 because it lacks a directory 0.6.0 introduced would be this
-# script breaking older releases as it improved. `check-install.sh`
-# asserts the current tree's archive carries it.
-if [[ -d "$work/$name/docs" ]]; then mv "$work/$name/docs" "$PREFIX/docs"; fi
+
+# ---- stage, verify, then switch -------------------------------------
+#
+# THE NEW INSTALLATION IS PROVED BEFORE THE OLD ONE IS TOUCHED. This
+# used to delete the old `bin/`, `stdlib/` and `docs/`, move the new
+# ones in, and only then run the probe below - so an archive whose
+# compiler could not build a program left the user with no working
+# compiler at all. Now the archive is assembled in a staging directory
+# INSIDE the prefix (same filesystem, so the switch is renames), the
+# probe runs against the staged compiler, and only a staged compiler
+# that passed is moved into place. The old tree is renamed aside first
+# and removed last; a rename that fails puts it back.
+mkdir -p "$PREFIX"
+stage="$PREFIX/.axiom-stage.$$"
+aside="$PREFIX/.axiom-old.$$"
+cleanup() {
+  rm -rf "$work"
+  [[ -n "${stage:-}" ]] && rm -rf "$stage"
+  return 0
+}
+trap cleanup EXIT
+mkdir "$stage"
+for m in $managed; do
+  if [[ -e "$work/$name/$m" ]]; then mv "$work/$name/$m" "$stage/$m"; fi
+done
 
 # ---- an install that does not run is not an install -----------------
 #
@@ -323,7 +481,7 @@ if [[ -d "$work/$name/docs" ]]; then mv "$work/$name/docs" "$PREFIX/docs"; fi
 # rather than passing. And it runs from a directory of its own, so the
 # module cannot be resolved through the compiler's working-directory
 # fallback and report success for the wrong reason.
-echo "==> checking the installed compiler"
+echo "==> checking the new compiler before installing it"
 probe="$work/probe"
 mkdir -p "$probe"
 cat >"$probe/probe.ax" <<'AX'
@@ -343,17 +501,62 @@ AX
 # By BARE NAME on PATH, which is the invocation the line printed at the
 # end of this script tells the user to adopt. `AXIOM_STDLIB` is unset
 # for the probe on purpose: if it were set, this would pass without
-# saying anything about the installation.
-(
-  cd "$probe"
-  unset AXIOM_STDLIB AXIOM_PATH
-  PATH="$PREFIX/bin:$PATH" axiom build --input probe.ax --output probe >/dev/null
-) || die "the installed compiler could not build a program that imports the standard
-            library, invoked as \`axiom\` on PATH from $probe.
-            The archive unpacked to $PREFIX; \`$PREFIX/bin/axiom\` and
-            \`$PREFIX/stdlib\` should be siblings."
-set +e; "$probe/probe" >/dev/null; rc=$?; set -e
-[[ $rc -eq 42 ]] || die "the installed compiler built a program that exited $rc, wanted 42"
+# saying anything about the installation. The staged tree has the
+# installed shape - `bin/` beside `stdlib/` - so what resolves here
+# resolves after the renames below. Answers 0, or 1 with the reason on
+# stderr.
+verify_compiler() {  # <tree holding bin/ and stdlib/>
+  if ! (
+    cd "$probe"
+    unset AXIOM_STDLIB AXIOM_PATH
+    PATH="$1/bin:$PATH" axiom build --input probe.ax --output probe >/dev/null
+  ); then
+    echo "install.sh: the new compiler could not build a program that imports the
+            standard library, invoked as \`axiom\` on PATH from $probe." >&2
+    return 1
+  fi
+  local rc
+  set +e; "$probe/probe" >/dev/null; rc=$?; set -e
+  if [[ $rc -ne 42 ]]; then
+    echo "install.sh: the new compiler built a program that exited $rc, wanted 42." >&2
+    return 1
+  fi
+}
+verify_compiler "$stage" || die "Nothing was installed; $given_prefix is as it was."
+
+echo "==> installing to $PREFIX"
+mkdir "$aside"
+moved=""
+restore() {
+  local m
+  for m in $moved; do rm -rf "$PREFIX/$m"; done
+  for m in $managed; do
+    if [[ -e "$aside/$m" ]]; then mv "$aside/$m" "$PREFIX/$m"; fi
+  done
+  rmdir "$aside" 2>/dev/null || true
+}
+for m in $managed; do
+  if [[ -e "$PREFIX/$m" || -L "$PREFIX/$m" ]]; then
+    mv "$PREFIX/$m" "$aside/$m" || { restore; die "could not move $PREFIX/$m aside; nothing was replaced"; }
+  fi
+done
+for m in $managed; do
+  if [[ -e "$stage/$m" ]]; then
+    mv "$stage/$m" "$PREFIX/$m" || { restore; die "could not move the new $m into place; the old installation was restored"; }
+    moved="$moved $m"
+  fi
+done
+{
+  echo "$marker_head"
+  echo "version $VERSION"
+  echo "target $target"
+  for m in $managed; do
+    if [[ -e "$PREFIX/$m" ]]; then files_under "$m" | sed 's/^/file /'; fi
+  done
+} > "$marker.tmp.$$" && mv "$marker.tmp.$$" "$marker"
+rm -rf "$aside"
+"$PREFIX/bin/axiom" --version >/dev/null 2>&1 \
+  || die "$PREFIX/bin/axiom does not run after the move, although the staged copy did"
 
 echo
 echo "Axiom $VERSION ($target) installed."

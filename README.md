@@ -33,7 +33,9 @@ export PATH="$HOME/.axiom/bin:$PATH"
 ```
 
 It verifies the archive's SHA-256, then builds and runs a program that
-*imports a standard-library module* before reporting success. Archives are
+*imports a standard-library module* with the new compiler before it
+replaces anything, and it replaces only an installation it made itself -
+a prefix holding a `bin/` or `stdlib/` of anyone else's is refused. Archives are
 published for `linux-aarch64` and `darwin-aarch64`; on any other host it says
 so and points here. `linux-x86_64` is fully supported and tested — its CI leg
 runs the whole battery — it just has no prebuilt archive.
