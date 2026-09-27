@@ -1376,12 +1376,15 @@
 
 ; `axiom fetch`: check out the manifest's registry dependencies.
 ;
-; For every `depend` URL without a checkout, `git clone`s it into
-; `.axiom/deps/<slug>/` beside the manifest; a checkout already
-; there is reported and left alone. Local `depend` directories are
-; not its business - `build` verifies those - and a manifest with
-; no URLs answers that there is nothing to fetch. `git` missing or
-; a clone failing dies naming both, exit 4, the native-tool code.
+; For every `depend` URL without a checkout, `git clone`s it and moves
+; the finished clone to `.axiom/deps/<key>/` beside the manifest; a
+; checkout already there is reported `present` and left alone - but
+; only when git records it as cloned from that URL (`pkgOrigin`), and
+; anything else there is refused rather than reported. Local `depend`
+; directories are not its business - `build` verifies those - and a
+; manifest with no URLs answers that there is nothing to fetch. `git`
+; missing or a clone failing dies naming both, exit 4, the native-tool
+; code.
 (pub :: fetchCmd Int)
 ;@axiom:effect(io)
 (pub fn (fetchCmd)
@@ -1397,6 +1400,18 @@
               (fetchUrls (pkgFetchUrls text) (pathDir mf) 0)
             }))))))
 
+; THE CLONE IS TRANSACTIONAL. This created the checkout directory
+; first and cloned into it, so a clone that failed left the directory
+; behind - and the next `fetch`, which asked only whether the directory
+; existed, printed `present` and exited 0 with nothing checked out
+; (measured by an audit: exit 4, then exit 0, on a URL that did not
+; exist). Now the clone goes to a sibling named for this process,
+; `.axiom/deps/.fetch-<key>-<pid>`, which git creates itself and
+; removes itself when the clone fails; only a clone that finished is
+; renamed to the key, one rename on one filesystem, so the key's path
+; either holds a complete checkout or does not exist. A clone killed
+; outright leaves its `.fetch-` directory, which nothing reads as a
+; checkout and which names the process that owned it.
 (pub :: fetchUrls (-> (Vec Int) String Int Int))
 ;@axiom:effect(io)
 (pub fn (fetchUrls urls base i)
@@ -1410,21 +1425,55 @@
     (let ((url (vecGetStr urls i)))
       (let ((dest (pkgDepCheckout base url)))
         (if (isDir dest)
-          {
-            (replOut (cat3 "present " dest "\n"))
-            (fetchUrls urls base (+ i 1))
-          }
-          {
-            (replOut (cat3 "fetching " dest "\n"))
-            (if (!= (mkdirParents dest) 0)
-              (die (cat2 (cat2 "error: could not create directory `" dest) "`\n") 4)
-              (let ((rc (fetchClone url dest)))
-                (if (< rc 0)
-                  (die "error: `git` was not found on PATH; install git and try again\n" 4)
-                  (if (!= rc 0)
-                    (die (cat2 (cat2 "error: cloning `" url) (cat2 "` failed (git exited " (cat2 (decStr rc) ")\n"))) 4)
-                    (fetchUrls urls base (+ i 1))))))
-          })))))
+          (let ((origin (pkgOrigin dest)))
+            (if (strEq origin url)
+              {
+                (replOut (cat3 "present " dest "\n"))
+                (fetchUrls urls base (+ i 1))
+              }
+              (die (cat4 (cat3 "error: `" dest "` is not a checkout of `") url (cat3 "`: " (pkgOriginWhy origin url) ".\n") "       Remove it and run `axiom fetch` again.\n") 4)))
+          (let (
+            (deps (strConcat (pathWithSlash base) ".axiom/deps"))
+            (tmp (strConcat (strConcat (pathWithSlash base) ".axiom/deps/.fetch-") (cat3 (pkgDepKey url) "-" (decStr sysGetPid))))
+          )
+            {
+              (replOut (cat3 "fetching " dest "\n"))
+              (if (!= (mkdirParents deps) 0)
+                (die (cat2 (cat2 "error: could not create directory `" deps) "`\n") 4)
+                (let ((rc (fetchClone url tmp)))
+                  (if (< rc 0)
+                    (die "error: `git` was not found on PATH; install git and try again\n" 4)
+                    (if (!= rc 0)
+                      {
+                        (fetchDiscard tmp)
+                        (die (cat2 (cat2 "error: cloning `" url) (cat2 "` failed (git exited " (cat2 (decStr rc) "); nothing was checked out\n"))) 4)
+                      }
+                      (if (isErr (sysRename (strCStr tmp) (strCStr (strDup (pkgStripSlash dest)))))
+                        {
+                          (fetchDiscard tmp)
+                          (die (cat3 "error: the clone finished but could not be moved to `" dest "`\n") 4)
+                        }
+                        (fetchUrls urls base (+ i 1)))))))
+            }))))))
+
+; Remove this fetch's own temporary clone, if git left one. Only ever
+; called with the `.fetch-<key>-<pid>` path this process chose, so it
+; cannot reach a checkout or anything else under the manifest.
+(pub :: fetchDiscard (-> String Int))
+;@axiom:effect(io)
+(pub fn (fetchDiscard tmp)
+  (if (isDir tmp)
+    (let ((args vecNew))
+      {
+        (vecPush
+          args
+          (cast Int "-rf"))
+        (vecPush
+          args
+          (cast Int tmp))
+        (runTool "rm" args)
+      })
+    0))
 
 ; `git clone URL DEST`, answering git's exit code, or a negative
 ; errno when git could not be started at all (`runTool`'s contract:

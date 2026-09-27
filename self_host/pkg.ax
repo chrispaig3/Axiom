@@ -499,9 +499,269 @@
 (pub fn (pkgIsSlugByte b)
   (|| (strIsAlpha b) (|| (strIsDigit b) (|| (== b 46) (|| (== b 45) (== b 95))))))
 
-; Where a URL dependency lives: `.axiom/deps/<slug>/` under the
-; manifest's own directory, with a trailing slash like every other
-; resolved dependency directory.
+; ------------------------------------------------------------------
+; The checkout KEY, and the hash inside it.
+;
+; `pkgDepSlug` alone was the checkout directory until 2026-09-26, and
+; it is not injective: every byte outside `[A-Za-z0-9._-]` becomes `-`,
+; so `file:///repos/a/b` and `file:///repos/a-b` both named
+; `.axiom/deps/repos-a-b/`. An audit fetched the first (its `Widget.answer`
+; is 11), pointed the manifest at the second (22), and `axiom fetch`
+; printed `present` and exited 0 - the program still answered 11,
+; compiled against a repository the manifest no longer named. Changing a
+; dependency silently kept the old one.
+;
+; So the key is the slug, cut to 64 bytes for a readable prefix, then a
+; `-`, then the first 32 hex digits (128 bits) of the SHA-256 of the
+; WHOLE URL exactly as the manifest spells it: two spellings are two
+; checkouts, and two different URLs meet in one directory only by a
+; collision in SHA-256. The hash is not the only guard - `pkgOrigin`
+; below reads the origin git recorded, and a checkout cloned from
+; anywhere else is refused whatever its directory is called - but it is
+; what lets two dependencies that the slug confused coexist, rather
+; than take turns being refused.
+; ------------------------------------------------------------------
+(pub :: pkgDepKey (-> String String))
+(pub fn (pkgDepKey url)
+  (let ((slug (pkgDepSlug url)))
+    (strConcat
+      (if (> (strLen slug) 64)
+        (strSlice slug 0 64)
+        slug)
+      (strConcat "-" (strSlice (pkgSha256Hex url) 0 32)))))
+
+; SHA-256 (FIPS 180-4), for the key above and nothing else. A 32-bit
+; word lives in a non-negative Int, so `>>` is a logical shift here
+; (the sign bit is never set) and every sum is masked back to 32 bits.
+; `scripts/check-driver.sh` holds a checkout's name to the digest
+; `shasum` computes for the same URL, which is what pins this
+; implementation: a wrong constant or rotation would name a different
+; directory there.
+(:: pkgShaMask Int)
+(fn (pkgShaMask)
+  4294967295)
+
+(:: pkgShaRotr (-> Int Int Int))
+(fn (pkgShaRotr x n)
+  (& (| (>> x n) (<< x (- 32 n))) pkgShaMask))
+
+; The 64 round constants: the first 32 bits of the fractional parts of
+; the cube roots of the first 64 primes.
+(:: pkgShaK (Vec Int))
+(fn (pkgShaK)
+  (let ((k vecNew))
+    {
+      (vecPush k 1116352408)
+      (vecPush k 1899447441)
+      (vecPush k 3049323471)
+      (vecPush k 3921009573)
+      (vecPush k 961987163)
+      (vecPush k 1508970993)
+      (vecPush k 2453635748)
+      (vecPush k 2870763221)
+      (vecPush k 3624381080)
+      (vecPush k 310598401)
+      (vecPush k 607225278)
+      (vecPush k 1426881987)
+      (vecPush k 1925078388)
+      (vecPush k 2162078206)
+      (vecPush k 2614888103)
+      (vecPush k 3248222580)
+      (vecPush k 3835390401)
+      (vecPush k 4022224774)
+      (vecPush k 264347078)
+      (vecPush k 604807628)
+      (vecPush k 770255983)
+      (vecPush k 1249150122)
+      (vecPush k 1555081692)
+      (vecPush k 1996064986)
+      (vecPush k 2554220882)
+      (vecPush k 2821834349)
+      (vecPush k 2952996808)
+      (vecPush k 3210313671)
+      (vecPush k 3336571891)
+      (vecPush k 3584528711)
+      (vecPush k 113926993)
+      (vecPush k 338241895)
+      (vecPush k 666307205)
+      (vecPush k 773529912)
+      (vecPush k 1294757372)
+      (vecPush k 1396182291)
+      (vecPush k 1695183700)
+      (vecPush k 1986661051)
+      (vecPush k 2177026350)
+      (vecPush k 2456956037)
+      (vecPush k 2730485921)
+      (vecPush k 2820302411)
+      (vecPush k 3259730800)
+      (vecPush k 3345764771)
+      (vecPush k 3516065817)
+      (vecPush k 3600352804)
+      (vecPush k 4094571909)
+      (vecPush k 275423344)
+      (vecPush k 430227734)
+      (vecPush k 506948616)
+      (vecPush k 659060556)
+      (vecPush k 883997877)
+      (vecPush k 958139571)
+      (vecPush k 1322822218)
+      (vecPush k 1537002063)
+      (vecPush k 1747873779)
+      (vecPush k 1955562222)
+      (vecPush k 2024104815)
+      (vecPush k 2227730452)
+      (vecPush k 2361852424)
+      (vecPush k 2428436474)
+      (vecPush k 2756734187)
+      (vecPush k 3204031479)
+      (vecPush k 3329325298)
+      k
+    }))
+
+; The message's bytes, padded: a 1 bit, zeros to 56 bytes mod 64, then
+; the length in bits as eight big-endian bytes.
+(:: pkgShaPad (-> String (Vec Int)))
+(fn (pkgShaPad s)
+  (let (
+    (n (strLen s))
+    (out vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i n)
+        {
+          (vecPush out (strByte s i))
+          (set i (+ i 1))
+        })
+      (vecPush out 128)
+      (while (!= (% (vecLen out) 64) 56)
+        {
+          (vecPush out 0)
+          0
+        })
+      (set i 7)
+      (while (>= i 0)
+        {
+          (vecPush out (& (>> (* n 8) (* i 8)) 255))
+          (set i (- i 1))
+        })
+      out
+    }))
+
+; One 64-byte block of `m` from `at`, folded into the state `h`; `w` is
+; the 64-word schedule, reused across blocks.
+(:: pkgShaBlock (-> (Vec Int) Int (Vec Int) (Vec Int) (Vec Int) Int))
+(fn (pkgShaBlock m at k h w)
+  (let ((mut t 0))
+    {
+      (while (< t 16)
+        {
+          (vecSet w t (| (<< (vecGet m (+ at (* t 4))) 24) (| (<< (vecGet m (+ at (+ (* t 4) 1))) 16) (| (<< (vecGet m (+ at (+ (* t 4) 2))) 8) (vecGet m (+ at (+ (* t 4) 3)))))))
+          (set t (+ t 1))
+        })
+      (while (< t 64)
+        (let (
+          (x (vecGet w (- t 15)))
+          (y (vecGet w (- t 2)))
+        )
+          (let (
+            (ls0 (^ (pkgShaRotr x 7) (^ (pkgShaRotr x 18) (>> x 3))))
+            (ls1 (^ (pkgShaRotr y 17) (^ (pkgShaRotr y 19) (>> y 10))))
+          )
+            {
+              (vecSet w t (& (+ (+ (vecGet w (- t 16)) ls0) (+ (vecGet w (- t 7)) ls1)) pkgShaMask))
+              (set t (+ t 1))
+            })))
+      (let (
+        (mut a (vecGet h 0))
+        (mut b (vecGet h 1))
+        (mut c (vecGet h 2))
+        (mut d (vecGet h 3))
+        (mut e (vecGet h 4))
+        (mut f (vecGet h 5))
+        (mut g (vecGet h 6))
+        (mut hh (vecGet h 7))
+        (mut i 0)
+      )
+        {
+          (while (< i 64)
+            (let (
+              (bs1 (^ (pkgShaRotr e 6) (^ (pkgShaRotr e 11) (pkgShaRotr e 25))))
+              (ch (^ (& e f) (& (^ e pkgShaMask) g)))
+              (bs0 (^ (pkgShaRotr a 2) (^ (pkgShaRotr a 13) (pkgShaRotr a 22))))
+              (mj (^ (& a b) (^ (& a c) (& b c))))
+            )
+              (let (
+                (t1 (& (+ (+ hh bs1) (+ ch (+ (vecGet k i) (vecGet w i)))) pkgShaMask))
+                (t2 (& (+ bs0 mj) pkgShaMask))
+              )
+                {
+                  (set hh g)
+                  (set g f)
+                  (set f e)
+                  (set e (& (+ d t1) pkgShaMask))
+                  (set d c)
+                  (set c b)
+                  (set b a)
+                  (set a (& (+ t1 t2) pkgShaMask))
+                  (set i (+ i 1))
+                })))
+          (vecSet h 0 (& (+ (vecGet h 0) a) pkgShaMask))
+          (vecSet h 1 (& (+ (vecGet h 1) b) pkgShaMask))
+          (vecSet h 2 (& (+ (vecGet h 2) c) pkgShaMask))
+          (vecSet h 3 (& (+ (vecGet h 3) d) pkgShaMask))
+          (vecSet h 4 (& (+ (vecGet h 4) e) pkgShaMask))
+          (vecSet h 5 (& (+ (vecGet h 5) f) pkgShaMask))
+          (vecSet h 6 (& (+ (vecGet h 6) g) pkgShaMask))
+          (vecSet h 7 (& (+ (vecGet h 7) hh) pkgShaMask))
+          0
+        })
+    }))
+
+; The SHA-256 of `s`'s bytes, as 64 lower-case hex digits.
+(pub :: pkgSha256Hex (-> String String))
+(pub fn (pkgSha256Hex s)
+  (let (
+    (m (pkgShaPad s))
+    (k pkgShaK)
+    (h vecNew)
+    (w vecNew)
+    (mut i 0)
+    (mut out "")
+  )
+    {
+      (vecPush h 1779033703)
+      (vecPush h 3144134277)
+      (vecPush h 1013904242)
+      (vecPush h 2773480762)
+      (vecPush h 1359893119)
+      (vecPush h 2600822924)
+      (vecPush h 528734635)
+      (vecPush h 1541459225)
+      (while (< i 64)
+        {
+          (vecPush w 0)
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< (* i 64) (vecLen m))
+        {
+          (pkgShaBlock m (* i 64) k h w)
+          (set i (+ i 1))
+        })
+      (set i 0)
+      (while (< i 8)
+        {
+          (set out (strConcat out (fmtPadZerosLeft (fmtHex (vecGet h i)) 8)))
+          (set i (+ i 1))
+        })
+      out
+    }))
+
+; Where a URL dependency lives: `.axiom/deps/<key>/` under the
+; manifest's own directory (`pkgDepKey`: a readable slug and a hash of
+; the whole URL), with a trailing slash like every other resolved
+; dependency directory.
 ;
 ; The compiler never fetches. A manifest is a checked-in file that
 ; arrives with a clone, and a line in one may not run another
@@ -510,7 +770,99 @@
 ; with the path and the clone that fills it (see `pkgUrlHint`).
 (pub :: pkgDepCheckout (-> String String String))
 (pub fn (pkgDepCheckout base url)
-  (strConcat (strConcat (pathWithSlash base) ".axiom/deps/") (strConcat (pkgDepSlug url) "/")))
+  (strConcat (strConcat (pathWithSlash base) ".axiom/deps/") (strConcat (pkgDepKey url) "/")))
+
+; The URL git recorded as `origin` for the checkout at `dir` (a
+; directory path with its trailing slash), or "" when it records none.
+;
+; THIS IS WHAT A CHECKOUT IS, for `fetch` and for `build` alike: a
+; directory whose `.git/config` says it was cloned from the URL the
+; manifest names. A directory that merely EXISTS at the key's path is
+; not one - until 2026-09-26 `fetch` answered `present` for any
+; directory there, including the empty one its own failed clone had
+; left behind (next fetch: exit 0, nothing checked out), and including
+; one cloned from a different URL with the same slug. Reading git's own
+; record rather than a file of ours means a checkout made by hand with
+; the `git clone` the build's hint prints is as good as one `fetch`
+; made, and one made from the wrong URL is not, whoever made it.
+(pub :: pkgOrigin (-> String String))
+;@axiom:effect(io)
+(pub fn (pkgOrigin dir)
+  (pkgOriginIn (sysReadFile (strData (strConcat dir ".git/config")))))
+
+; The `url` of the `[remote "origin"]` section of git config text, or
+; "": the first `url = VALUE` line after that section header and before
+; the next one, whitespace trimmed and one pair of quotes removed.
+(pub :: pkgOriginIn (-> String String))
+(pub fn (pkgOriginIn text)
+  (let (
+    (mut at 0)
+    (mut inOrigin 0)
+    (mut found "")
+    (mut done 0)
+  )
+    {
+      (while (&& (== done 0) (< at (strLen text)))
+        (let (
+          (eol (match (strFindByte text 10 at)
+            ((None) (strLen text))
+            ((Some k) k)))
+          (line (strTrim (strSlice text at (- eol at))))
+        )
+          {
+            (if (strStartsWith line "[")
+              {
+                (set inOrigin (if (strEq line "[remote \"origin\"]")
+                  1
+                  0))
+                0
+              }
+              (if (&& (== inOrigin 1) (strStartsWith line "url"))
+                (let ((rest (strTrim (strSlice line 3 (- (strLen line) 3)))))
+                  (if (strStartsWith rest "=")
+                    {
+                      (set found (pkgUnquote (strTrim (strSlice rest 1 (- (strLen rest) 1)))))
+                      (set done 1)
+                      0
+                    }
+                    0))
+                0))
+            (set at (+ eol 1))
+            0
+          }))
+      found
+    }))
+
+(pub :: pkgUnquote (-> String String))
+(pub fn (pkgUnquote v)
+  (if (&& (>= (strLen v) 2) (&& (== (strByte v 0) 34) (== (strByte v (- (strLen v) 1)) 34)))
+    (strSlice v 1 (- (strLen v) 2))
+    v))
+
+; Why the checkout at `dir` is not one of `url`, for a refusal: what git
+; recorded instead, or that it recorded nothing.
+(pub :: pkgOriginWhy (-> String String String))
+(pub fn (pkgOriginWhy origin url)
+  (if (== (strLen origin) 0)
+    "it holds no git checkout with an `origin` (an interrupted or failed clone leaves one like this)"
+    (pkg3 "git records its origin as `" origin "`")))
+
+; Every URL dependency's checkout was cloned from that URL - the build's
+; half of what `pkgOrigin` says. Called after `pkgVerify` has refused a
+; checkout that is not there at all, so each one here exists.
+(pub :: pkgCheckOrigins (-> (Vec Int) String String Int Int))
+;@axiom:effect(io)
+(pub fn (pkgCheckOrigins urls base mf i)
+  (if (>= i (vecLen urls))
+    0
+    (let (
+      (url (vecGetStr urls i))
+      (dest (pkgDepCheckout base (vecGetStr urls i)))
+    )
+      (let ((origin (pkgOrigin dest)))
+        (if (strEq origin url)
+          (pkgCheckOrigins urls base mf (+ i 1))
+          (pkgDie (pkg4 (pkg3 "error: " mf " depends on a registry URL whose checkout is not a clone of it:\n") (pkg3 "       " url "\n") (pkg3 "       " dest "\n") (pkg3 "       - " (pkgOriginWhy origin url) ".\n       Remove that directory and run `axiom fetch`.\n"))))))))
 
 ; Every registry (`depend` URL) value in an already-read manifest,
 ; in file order: what `fetch` checks out and nothing else.
@@ -545,7 +897,7 @@
     ""
     (let ((v (vecGetStr vs i)))
       (if (&& (pkgIsUrl v) (strEq (pkgDepCheckout base v) dir))
-        (strConcat (pkg3 "       `" v "` is a registry dependency: check it out with\n") (pkg4 "       git clone " v " " (strConcat dir "\n")))
+        (strConcat (pkg3 "       `" v "` is a registry dependency: check it out with `axiom fetch`,\n") (pkg4 "       or by hand with\n       git clone " v " " (strConcat dir "\n")))
         (pkgUrlHintVals vs base dir (+ i 1))))))
 
 ; The `name` the manifest at or above `entryDir` declares, or "".
@@ -796,6 +1148,7 @@
                       (pkgDie (pkg4 (pkg3 "error: " mf " names a dependency directory that is not there:\n") (pkg3 "       " (vecGetStr dirs i) "\n") "       `depend` names a DIRECTORY of modules, resolved against the\n" (strConcat "       manifest's own directory.\n" (pkgUrlHint text (pathDir mf) (vecGetStr dirs i))))))
                     (set i (+ i 1))
                   })
+                (pkgCheckOrigins (pkgFetchUrls text) (pathDir mf) mf 0)
                 (pkgCheckCrates (pkgCrateDirs entryDir) mf 0)
                 ; The pairwise check runs over the depend directories AND
                 ; every crate's `axiom/` together, because they land in one

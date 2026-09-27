@@ -20,10 +20,19 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 
+# THE VERDICTS GO TO A FILE, NOT ONLY TO TWO VARIABLES. Several cases
+# below run inside `( cd dir && ... )`, and a variable a subshell
+# increments is a copy the parent never sees: until 2026-09-26 a `bad`
+# in the `fetch` round trip printed FAIL and left this gate's exit
+# status at 0, and the tally at the bottom never counted those cases in
+# either column. Every verdict is appended to `$verdicts` as well, and
+# the tally and the exit status are read from it.
 passed=0
 failed=0
-ok()   { echo "ok   $1"; passed=$((passed + 1)); }
-bad()  { echo "FAIL $1"; failed=$((failed + 1)); }
+verdicts="$work/verdicts"
+: > "$verdicts"
+ok()   { echo "ok   $1"; passed=$((passed + 1)); echo ok >> "$verdicts"; }
+bad()  { echo "FAIL $1"; failed=$((failed + 1)); echo bad >> "$verdicts"; }
 
 gate_build_axc s1 "$work/axiom"
 
@@ -1362,8 +1371,111 @@ else
   ( cd fetchapp && "$s1" fetch extra >fx.err 2>&1; rc=$?
     [[ $rc == 2 ]] && ok "\`fetch\` with an operand is a usage error" \
       || bad "\`fetch extra\` (rc=$rc)" )
+
+  # WHAT A CHECKOUT IS, since 2026-09-26: a directory at the URL's KEY
+  # whose git records that URL as its origin - not a directory that
+  # merely exists. An audit reproduced both halves of the old rule's
+  # failure, and these are its reproductions.
+  mkrepo() {  # <dir> <answer>
+    mkdir -p "$1" && ( cd "$1" && git init -q . \
+      && git config user.email fetch@test.t && git config user.name fetch \
+      && printf '(pub :: answer Int)\n(pub fn (answer)\n  %s)\n' "$2" >Widget.ax \
+      && git add -A && git commit -qm widget )
+  }
+  deps_named() {  # the checkout directories under .axiom/deps, not a fetch's temporaries
+    ls -1 .axiom/deps 2>/dev/null | grep -v '^\.' | LC_ALL=C sort
+  }
+  mkrepo fetchrepo/repos/a/b 11
+  mkrepo fetchrepo/repos/a-b 22
+  mkdir -p collide
+  ( cd collide || exit 1
+    printf '(import Widget)\n(:: main Int)\n(fn (main) answer)\n' >Main.ax
+    url_ab="file://$work/fetchrepo/repos/a/b"
+    url_a_b="file://$work/fetchrepo/repos/a-b"
+    printf 'name     collide\nversion  0.1.0\ndepend   %s\n' "$url_ab" >axiom.pkg
+    "$s1" fetch >f1.out 2>&1 && "$s1" build >b1.out 2>&1; ./collide; first=$?
+    # The audit's reproduction: `a/b` and `a-b` have ONE slug, and the
+    # second fetch printed `present` and the program still answered 11.
+    printf 'name     collide\nversion  0.1.0\ndepend   %s\n' "$url_a_b" >axiom.pkg
+    "$s1" fetch >f2.out 2>&1; frc=$?
+    "$s1" build >b2.out 2>&1; ./collide; second=$?
+    if [[ $first == 11 && $frc == 0 && $second == 22 ]] && grep -q '^fetching ' f2.out \
+       && [[ "$(deps_named | wc -l | tr -d ' ')" == 2 ]]; then
+      ok "two URLs with one slug are two checkouts: 11, then 22 after the manifest changes"
+    else
+      bad "slug collision: first=$first fetch=$frc second=$second, $(head -1 f2.out)"
+    fi
+    # The key's hash is SHA-256 of the whole URL, held to an independent
+    # implementation - a wrong constant or rotation in pkg.ax would name
+    # a different directory here.
+    want="$(python3 -c 'import hashlib, re, sys
+u = sys.argv[1]
+s = u
+for p in ("https://", "http://", "git@", "ssh://", "git://", "file://"):
+    if s.startswith(p):
+        s = s[len(p):]
+        break
+if s.endswith("/"): s = s[:-1]
+if len(s) > 4 and s.endswith(".git"): s = s[:-4]
+slug = re.sub(r"[^A-Za-z0-9._-]", "-", s)[:64]
+print(slug + "-" + hashlib.sha256(u.encode()).hexdigest()[:32])' "$url_a_b")"
+    if [[ -d ".axiom/deps/$want" ]]; then
+      ok "the checkout is named by the slug and the SHA-256 python computes: $want"
+    else
+      bad "no checkout at .axiom/deps/$want; there is: $(deps_named | tr '\n' ' ')"
+    fi
+    # A checkout whose recorded origin is another URL is refused by
+    # fetch (4) and by build (3) - whoever made it.
+    git -C ".axiom/deps/$want" remote set-url origin "$url_ab"
+    "$s1" fetch >f3.out 2>&1; frc=$?
+    "$s1" build >b3.out 2>&1; brc=$?
+    if [[ $frc == 4 && $brc == 3 ]] && grep -q 'is not a checkout of' f3.out \
+       && grep -q 'git records its origin as' b3.out; then
+      ok "a checkout cloned from another URL is refused by fetch (4) and by build (3)"
+    else
+      bad "a checkout with the wrong origin: fetch=$frc build=$brc, $(head -1 f3.out)"
+    fi
+    git -C ".axiom/deps/$want" remote set-url origin "$url_a_b" )
+
+  # A FAILED CLONE STAYS FAILED. The audit: a URL that does not exist
+  # exited 4, and the identical second fetch exited 0 with `present`,
+  # because the first had created the directory before cloning into it.
+  mkdir -p failing
+  ( cd failing || exit 1
+    url_nope="file://$work/fetchrepo/not-yet"
+    printf 'name     failing\nversion  0.1.0\ndepend   %s\n' "$url_nope" >axiom.pkg
+    printf '(import Widget)\n(:: main Int)\n(fn (main) answer)\n' >Main.ax
+    "$s1" fetch >g1.out 2>&1; g1=$?
+    "$s1" fetch >g2.out 2>&1; g2=$?
+    left="$(ls -A .axiom/deps 2>/dev/null | tr '\n' ' ')"
+    if [[ $g1 == 4 && $g2 == 4 && -z "$left" ]] && ! grep -q '^present' g2.out; then
+      ok "a clone that fails leaves nothing, and fetching again fails again (4, 4)"
+    else
+      bad "failed clone: first=$g1 second=$g2, .axiom/deps holds: ${left:-nothing}"
+    fi
+    # ... and once the source exists, the next fetch is a real one.
+    mkrepo "$work/fetchrepo/not-yet" 33
+    "$s1" fetch >g3.out 2>&1; g3=$?
+    "$s1" build >g4.out 2>&1; ./failing; ran=$?
+    if [[ $g3 == 0 && $ran == 33 ]] && grep -q '^fetching ' g3.out; then
+      ok "when the source appears, the next fetch clones it and the program answers 33"
+    else
+      bad "recovery after a failed clone: fetch=$g3 ran=$ran, $(head -1 g3.out)"
+    fi
+    # An EMPTY directory at the key - what the old fetch left behind - is
+    # not a checkout either.
+    key="$(deps_named | head -1)"
+    rm -rf ".axiom/deps/$key" && mkdir ".axiom/deps/$key"
+    "$s1" fetch >g5.out 2>&1; g5=$?
+    if [[ $g5 == 4 ]] && grep -q 'holds no git checkout' g5.out; then
+      ok "an empty directory where a checkout belongs is refused, not reported present"
+    else
+      bad "an empty checkout directory: fetch=$g5, $(head -1 g5.out)"
+    fi )
 fi
 
 echo
+passed="$(grep -c '^ok$' "$verdicts" || true)"
+failed="$(grep -c '^bad$' "$verdicts" || true)"
 echo "$passed passed, $failed failed"
 [[ "$failed" == 0 ]]

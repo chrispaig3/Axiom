@@ -3070,10 +3070,11 @@ line that cannot mean what it says.
 
 A `depend` may name a git URL instead of a directory. The URL is
 where the dependency lives; it is read from a checkout the manifest
-derives deterministically — `.axiom/deps/<slug>/` under the
-manifest's own directory, where the slug is the URL without its
-scheme, without one trailing `/` or `.git`, and with every other
-foreign byte a `-`:
+derives deterministically — `.axiom/deps/<key>/` under the
+manifest's own directory. The key is a readable slug - the URL
+without its scheme, without one trailing `/` or `.git`, every other
+foreign byte a `-`, cut to 64 bytes - then a `-` and the first 32 hex
+digits of the SHA-256 of the whole URL as the manifest spells it:
 
 ```
 # axiom.pkg
@@ -3085,12 +3086,19 @@ depend   https://github.com/example/axiom-greeter.git
 ```
 $ axiom build
 error: ./axiom.pkg names a dependency directory that is not there:
-       ./.axiom/deps/github.com-example-axiom-greeter/
+       ./.axiom/deps/github.com-example-axiom-greeter-e1d118389ae2db5e5b06a6258203b7fa/
        `depend` names a DIRECTORY of modules, resolved against the
        manifest's own directory.
-       `https://github.com/example/axiom-greeter.git` is a registry dependency: check it out with
-       git clone https://github.com/example/axiom-greeter.git ./.axiom/deps/github.com-example-axiom-greeter/
+       `https://github.com/example/axiom-greeter.git` is a registry dependency: check it out with `axiom fetch`,
+       or by hand with
+       git clone https://github.com/example/axiom-greeter.git ./.axiom/deps/github.com-example-axiom-greeter-e1d118389ae2db5e5b06a6258203b7fa/
 ```
+
+THE HASH IS WHY TWO URLS ARE TWO CHECKOUTS. Until 2026-09-26 the
+directory was the slug alone, and the slug is not injective:
+`file:///repos/a/b` and `file:///repos/a-b` both became `repos-a-b`,
+so changing a manifest from one to the other kept compiling the first
+while `axiom fetch` reported it `present`.
 
 The compiler never fetches on its own: a checked-in line may not run
 another project's network. `axiom fetch` is the explicit ask — for
@@ -3099,17 +3107,34 @@ when none is there and leaves a checkout already there alone:
 
 ```
 $ axiom fetch
-fetching ./.axiom/deps/github.com-example-axiom-greeter/
+fetching ./.axiom/deps/github.com-example-axiom-greeter-e1d118389ae2db5e5b06a6258203b7fa/
 $ axiom fetch
-present ./.axiom/deps/github.com-example-axiom-greeter/
+present ./.axiom/deps/github.com-example-axiom-greeter-e1d118389ae2db5e5b06a6258203b7fa/
 $ axiom build
 Build successful: hello
 ```
 
+A CHECKOUT IS A CLONE OF ITS URL, not a directory that exists. Both
+`fetch` and `build` read the origin git recorded in the checkout's
+`.git/config` and refuse one cloned from anywhere else - `fetch` with
+exit 4, `build` with 3 - so a checkout made by hand with the `git
+clone` the hint prints is as good as one `fetch` made, and one that
+merely sits at the right path is not. And the clone is transactional:
+it goes to `.axiom/deps/.fetch-<key>-<pid>` and is renamed to the key
+only when it finished, so a clone that fails leaves nothing behind
+and the next `fetch` tries again. Until 2026-09-26 the directory was
+created first, and a failed clone left an empty one that every later
+`fetch` reported `present` with exit 0.
+
+A URL is not a version: `fetch` clones the default branch, and a
+checkout already present is not updated. Pinning a revision is not
+supported yet.
+
 `fetch` takes no operands and needs `git` on PATH. A `file://` URL
 names a local repository and clones from disk, which is how the
-round trip is gated with no network (`scripts/check-driver.sh`).
-Once the checkout is there the directory joins
+round trip is gated with no network (`scripts/check-driver.sh`, which
+also reproduces the slug collision, the failed clone and a checkout
+with the wrong origin). Once the checkout is there the directory joins
 the search path exactly like a vendored `depend`, pairwise overlap
 included, and a URL that stops resolving is the same refusal a
 deleted directory always was.
