@@ -255,7 +255,7 @@ if [[ -n "${AXIOM_ABLATE:-}" ]]; then
     "$AXIOM_ABLATE" "$work/tree/self_host/codegen.ax" || exit 1
   src_root="$work/tree"
   echo "== building the compiler under test from the ABLATED tree =="
-  if ! ( cd "$src_root" && "$axiom" build --input self_host/main.ax --output "$work/axc-abl" ) \
+  if ! gate_build_tree "$axiom" "$src_root" "$AXIOM_STDLIB" "$work/axc-abl" \
         > "$work/ablbuild.log" 2>&1; then
     # A drill that makes the compiler fail to BUILD is still a non-zero
     # exit, but it is red for the wrong reason and would hide whether
@@ -589,7 +589,7 @@ mkdir -p "$work/vtree"
 cp -a "$src_root/self_host" "$work/vtree/self_host"
 python3 "$repo_root/scripts/lib/embedded-patch.py" \
   "variant:$code41:$host_code" "$work/vtree/self_host/codegen.ax" || exit 1
-if ! ( cd "$work/vtree" && "$axiom" build --input self_host/main.ax --output "$work/vaxc" ) \
+if ! gate_build_tree "$axiom" "$work/vtree" "$AXIOM_STDLIB" "$work/vaxc" \
       > "$work/vbuild.log" 2>&1; then
   # THIS IS A RED, NOT AN ABORT. A target table whose rows cannot take a
   # different value is 4.1 not being a constant.
@@ -979,7 +979,7 @@ mkdir -p "$work/stree"
 cp -a "$src_root/self_host" "$work/stree/self_host"
 python3 "$repo_root/scripts/lib/embedded-patch.py" \
   "silent:$host_code" "$work/stree/self_host/codegen.ax" || exit 1
-if ! ( cd "$work/stree" && "$axiom" build --input self_host/main.ax --output "$work/saxc" ) \
+if ! gate_build_tree "$axiom" "$work/stree" "$AXIOM_STDLIB" "$work/saxc" \
       > "$work/sbuild.log" 2>&1; then
   bad "the silent variant does not build - a target-table row that cannot take 1 is not a row"
   sed 's/^/    /' "$work/sbuild.log" | head -15

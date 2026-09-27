@@ -92,7 +92,7 @@ subject="self_host/main.ax"
 # and `$AXIOM` here is only the builder - the same division of labour the
 # other `*-selfhost` gates use, and the reason pointing `AXIOM=` at an
 # old binary does not ablate any of them.
-if ! "$axiom" build --input self_host/main.ax --output "$work/stage1" \
+if ! gate_build_tree "$axiom" "$repo_root" "$AXIOM_STDLIB" "$work/stage1" \
        --opt 1 >"$work/build.log" 2>&1; then
   echo "FAIL: could not build a compiler from self_host/" >&2
   tail -20 "$work/build.log" >&2

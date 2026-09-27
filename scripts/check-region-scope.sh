@@ -89,20 +89,7 @@ gate_build_axc axc
 
 # `measure-memory-baseline.sh`'s reader, and its rule: fail rather
 # than skip when neither `time` answers.
-max_rss_kb() {
-  local div=1
-  [[ "$(uname -s)" == Darwin ]] && div=1024
-  if /usr/bin/time -l true >/dev/null 2>&1; then
-    /usr/bin/time -l "$@" 2>&1 >/dev/null \
-      | awk -v div="$div" '/maximum resident set size/ {print int($1/div)}'
-  elif /usr/bin/time -v true >/dev/null 2>&1; then
-    /usr/bin/time -v "$@" 2>&1 >/dev/null \
-      | awk -F: '/Maximum resident set size/ {print int($2)}'
-  else
-    echo "FAIL: no usable time(1) for RSS measurement" >&2
-    return 1
-  fi
-}
+# (`max_rss_kb` itself is defined once, in scripts/lib/gate.sh.)
 
 CELL='alloca i64, i64 3, align 16'
 
@@ -302,8 +289,8 @@ PY
 checks=$((checks + 1))
 if [[ $? -ne 0 ]]; then
   bad "could not apply the ablation - rgTyScalar has moved, and this gate is asserting nothing"
-elif ! AXIOM_STDLIB="$abl/stdlib" "$axc" build --input "$abl/self_host/main.ax" \
-     --output "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
+elif ! gate_build_tree "$axc" "$abl" "$abl/stdlib" \
+     "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
   bad "the ablated compiler did not build"
   sed 's/^/     /' "$work/ablated.build.log" | head -20
 elif ! AXIOM_STDLIB="$repo_root/stdlib" "$work/axc-ablated" build --input "$work/esc.ax" \

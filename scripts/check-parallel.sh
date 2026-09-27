@@ -1160,7 +1160,7 @@ if s.count(old) != 1:
 open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY
 then
-  if (cd "$abl_bt" && "$axiom" build --input self_host/main.ax --output "$work/axc-nostop") \
+  if gate_build_tree "$axiom" "$abl_bt" "$AXIOM_STDLIB" "$work/axc-nostop" \
        > "$work/abl-bt.build" 2>&1; then
     AXIOM_STDLIB="$abl_bt/stdlib" "$work/axc-nostop" --threads build --input "$fx471" \
       --output "$work/bt471-nostop.bin" > "$work/abl-bt.build2" 2>&1

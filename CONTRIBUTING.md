@@ -365,6 +365,23 @@ nothing that runs the compiler, counts cases or reports results: those
 differ per gate for real reasons, and a helper that unified them would
 be a framework a reader had to learn before reading a single gate.
 
+### Which command runs what
+
+- `scripts/run-gates.sh` runs every gate (`full`, the default).
+- `scripts/run-gates.sh --profile fast` runs the fast set: the
+  thirty entries in `FAST_RE`, each measured at 15 seconds or less on
+  a warm cache in a full run — about a minute of wall clock for
+  edit-and-rerun checks. It leaves out the two corpora, the
+  diagnostics goldens, the formatter/LSP/tools sweeps, and the
+  reclamation gates, which cost one to five minutes each.
+- `scripts/run-gates.sh --profile expensive` runs only the
+  platform, bootstrap, and measurement tail for scheduled runs and
+  release checks.
+- `scripts/run-gates.sh --list` shows the split without running
+  anything; extra arguments select gates by name substring.
+- `scripts/check-gate-lib.sh` holds the profile lists to the tree:
+  every name they spell must be a script that exists.
+
 ### The gates
 
 `.github/workflows/ci.yml` runs all of these:

@@ -74,20 +74,7 @@ status=0
 # read 1392 KiB as "1 KiB" on FreeBSD 14.4/arm64 (2026-08-29) and
 # failed the ablation as "cannot see the growth". The divisor is
 # Darwin's alone.
-max_rss_kb() {
-  local div=1
-  [[ "$(uname -s)" == Darwin ]] && div=1024
-  if /usr/bin/time -l true >/dev/null 2>&1; then
-    /usr/bin/time -l "$@" 2>&1 >/dev/null \
-      | awk -v div="$div" '/maximum resident set size/ {print int($1/div)}'
-  elif /usr/bin/time -v true >/dev/null 2>&1; then
-    /usr/bin/time -v "$@" 2>&1 >/dev/null \
-      | awk -F: '/Maximum resident set size/ {print int($2)}'
-  else
-    echo "FAIL: no usable time(1) for RSS measurement" >&2
-    return 1
-  fi
-}
+# (`max_rss_kb` itself is defined once, in scripts/lib/gate.sh.)
 
 # ------------------------------------------------------------------
 # 1. Each trap recovers inside a recovery point and still exits

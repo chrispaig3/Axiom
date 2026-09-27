@@ -239,6 +239,12 @@ AXIOM_AXC="$planted" run_probe rebuild "a changed tool binary invalidates it eve
 stamp_of_sandbox > "$planted.stamp"
 SDKROOT="$work/other-sdk" AXIOM_AXC="$planted" run_probe rebuild "a changed SDK invalidates it"
 export PATH="$original_path"
+# The environment the compiler itself reads (`gate_config_stamp`): a
+# module search path can change which file an import resolves to.
+stamp_of_sandbox > "$planted.stamp"
+AXIOM_PATH="$work/elsewhere" AXIOM_AXC="$planted" run_probe rebuild "a changed AXIOM_PATH invalidates it"
+AXIOM_STDLIB="$sandbox/self_host" AXIOM_AXC="$planted" run_probe rebuild "a build reading another stdlib does not reuse it"
+AXIOM_AXC="$planted" run_probe reuse "and the unchanged environment still reuses it"
 
 # Exercise the actual publisher and runner without expensive compiler
 # work. The fake compiler logs builds and emits a large deterministic
@@ -321,6 +327,95 @@ if runner pass > "$work/runner-changed.log" 2>&1 &&
 else
   echo "FAIL changed source was not rebuilt"; failed=$((failed + 1))
 fi
+
+# `gate_build_tree`: the compiler of an ABLATED tree, cached by what
+# it is built from. A counting builder stands in for the compiler: it
+# records every build and writes an "executable" whose bytes are a
+# digest of the sources it read, so a reused artifact that belonged to
+# different sources is visible in the bytes, not only in the count.
+echo
+echo "== an ablated tree's compiler is reused by content, and only by content =="
+tree_builder="$work/tree-builder"
+cat > "$tree_builder" <<'BUILDER'
+#!/usr/bin/env bash
+[[ "${FAIL_TREE_BUILD:-0}" == 0 ]] || exit 1
+printf 'build\n' >> "$TREE_RECORD"
+out=""
+while (( $# )); do
+  if [[ "$1" == --output ]]; then out="$2"; shift; fi
+  shift
+done
+digest="$(cat self_host/*.ax "$AXIOM_STDLIB"/*.ax | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-64)"
+printf '#!/usr/bin/env bash\necho %s\n' "$digest" > "$out"
+chmod +x "$out"
+BUILDER
+chmod +x "$tree_builder"
+export TREE_RECORD="$work/tree-record"
+: > "$TREE_RECORD"
+tree_cache="$work/tree-cache"
+mk_tree() {  # mk_tree <dir>: a small tree with a self_host and a stdlib
+  mkdir -p "$1/self_host" "$1/stdlib"
+  printf '(fn (main) 0)\n' > "$1/self_host/main.ax"
+  printf '(pub fn (helper) 1)\n' > "$1/stdlib/Mem.ax"
+}
+mk_tree "$work/ta"; mk_tree "$work/tb"
+builds() { wc -l < "$TREE_RECORD" | tr -d ' '; }
+digest_of() { ( cd "$1" && cat self_host/*.ax "$2"/*.ax | gate_sha ); }
+# tree_probe <expected builds after> <label> <builder> <root> <stdlib> <out> [flags]
+tree_probe() {
+  local want="$1" label="$2" rc=0; shift 2
+  ( AXIOM_GATE_CACHE="${PROBE_CACHE:-$tree_cache}"; gate_build_tree "$@" ) > "$work/tree-probe.log" 2>&1 || rc=$?
+  checks=$((checks + 1))
+  local expect_digest; expect_digest="$(digest_of "$2" "$3")"
+  if (( rc == 0 )) && [[ "$(builds)" == "$want" ]] && [[ "$("$4")" == "$expect_digest" ]]; then
+    echo "ok   $label"
+  else
+    echo "FAIL $label: exit $rc, $(builds) builds (wanted $want), artifact says '$("$4" 2>/dev/null)'"
+    sed 's/^/     /' "$work/tree-probe.log" | head -5
+    failed=$((failed + 1))
+  fi
+}
+tree_probe 1 "a cold tree is built" "$tree_builder" "$work/ta" "$work/ta/stdlib" "$work/o1"
+tree_probe 1 "the same sources at another path reuse it" "$tree_builder" "$work/tb" "$work/tb/stdlib" "$work/o2"
+printf '; ablated\n' >> "$work/tb/self_host/main.ax"
+tree_probe 2 "one changed byte of self_host/ is a fresh build" "$tree_builder" "$work/tb" "$work/tb/stdlib" "$work/o3"
+printf '; changed\n' >> "$work/tb/stdlib/Mem.ax"
+tree_probe 3 "one changed byte of the stdlib read is a fresh build" "$tree_builder" "$work/tb" "$work/tb/stdlib" "$work/o4"
+cp "$tree_builder" "$work/tree-builder2"; printf '# another builder\n' >> "$work/tree-builder2"
+tree_probe 4 "another builder is a fresh build" "$work/tree-builder2" "$work/ta" "$work/ta/stdlib" "$work/o5"
+tree_probe 5 "other build flags are a fresh build" "$tree_builder" "$work/ta" "$work/ta/stdlib" "$work/o6" --opt 2
+for e in "$tree_cache"/tree-*; do [[ "$e" == *.sha ]] || printf 'damaged\n' > "$e"; done
+tree_probe 6 "a damaged entry is rebuilt, not trusted" "$tree_builder" "$work/ta" "$work/ta/stdlib" "$work/o7"
+PROBE_CACHE=off tree_probe 7 "AXIOM_GATE_CACHE=off builds every time" "$tree_builder" "$work/ta" "$work/ta/stdlib" "$work/o8"
+checks=$((checks + 1))
+before="$(ls "$tree_cache" | wc -l | tr -d ' ')"
+mk_tree "$work/tc"; printf '; new\n' >> "$work/tc/self_host/main.ax"
+if ( AXIOM_GATE_CACHE="$tree_cache"; FAIL_TREE_BUILD=1 gate_build_tree "$tree_builder" "$work/tc" "$work/tc/stdlib" "$work/o9" ) >/dev/null 2>&1; then
+  echo "FAIL a failing tree build answered success"; failed=$((failed + 1))
+elif [[ "$(ls "$tree_cache" | wc -l | tr -d ' ')" != "$before" ]]; then
+  echo "FAIL a failing tree build published a cache entry"; failed=$((failed + 1))
+else
+  echo "ok   a failing tree build fails and publishes nothing"
+fi
+
+# Every gate name the runner's lists spell must be a gate that exists:
+# a renamed script left in SERIAL_RE runs in the parallel pool, and one
+# left in a profile silently drops out of it, with every run green.
+echo
+echo "== the runner's lists name gates that exist =="
+for list in NOTRUN_RE SERIAL_RE FAST_RE EXPENSIVE_RE; do
+  checks=$((checks + 1))
+  names="$(grep -E "^$list='" "$repo_root/scripts/run-gates.sh" | sed -E "s/^$list='check-[(]//; s/[)].*//" | tr '|' ' ')"
+  missing=""
+  for n in $names; do [[ -f "$repo_root/scripts/check-$n.sh" ]] || missing="$missing $n"; done
+  if [[ -z "$names" ]]; then
+    echo "FAIL $list: could not read its names from run-gates.sh"; failed=$((failed + 1))
+  elif [[ -n "$missing" ]]; then
+    echo "FAIL $list names gates that do not exist:$missing"; failed=$((failed + 1))
+  else
+    echo "ok   $list: $(echo $names | wc -w | tr -d ' ') names, every one a script"
+  fi
+done
 
 echo
 echo "== the count those comments state is the count the tree has =="

@@ -81,20 +81,7 @@ gate_build_axc axc
 
 # `measure-memory-baseline.sh`'s reader, and its rule: fail rather
 # than skip when neither `time` answers.
-max_rss_kb() {
-  local div=1
-  [[ "$(uname -s)" == Darwin ]] && div=1024
-  if /usr/bin/time -l true >/dev/null 2>&1; then
-    /usr/bin/time -l "$@" 2>&1 >/dev/null \
-      | awk -v div="$div" '/maximum resident set size/ {print int($1/div)}'
-  elif /usr/bin/time -v true >/dev/null 2>&1; then
-    /usr/bin/time -v "$@" 2>&1 >/dev/null \
-      | awk -F: '/Maximum resident set size/ {print int($2)}'
-  else
-    echo "FAIL: no usable time(1) for RSS measurement" >&2
-    return 1
-  fi
-}
+# (`max_rss_kb` itself is defined once, in scripts/lib/gate.sh.)
 
 releases_in() { # <ll> -> count of release call sites (not the define)
   grep -c 'call void @axiom_release' "$1"
@@ -179,8 +166,8 @@ then
   echo "     nothing was ablated, so every arm below proves nothing"
 else
   echo "-- rebuilding the compiler from the fully-ablated tree --"
-  if AXIOM_STDLIB="$abl/stdlib" "$axiom" build "$abl/self_host/main.ax" \
-       -o "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
+  if gate_build_tree "$axiom" "$abl" "$abl/stdlib" \
+       "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
     ok "the fully-ablated compiler builds (all three rule-kills applied)"
   else
     bad "the fully-ablated compiler did not build"

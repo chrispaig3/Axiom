@@ -124,8 +124,8 @@ PY
     bad "could not ablate binderIsScalar"
   else
     echo "-- rebuilding the compiler from the ablated tree --"
-    if AXIOM_STDLIB="$abl/stdlib" "$axiom" build "$abl/self_host/main.ax" \
-         -o "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
+    if gate_build_tree "$axiom" "$abl" "$abl/stdlib" \
+         "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
       rc_abl="$(run_fixture "$work/axc-ablated")"
       if [[ "$rc_abl" == "$want" ]]; then
         bad "the ablated compiler still exits $rc_abl - term 32 cannot fail"
@@ -198,8 +198,8 @@ cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl2/" || {
 
 if python3 "$repo_root/scripts/lib/ablate-poison-arm.py" "$abl2/self_host/typecheck.ax"; then
   echo "-- rebuilding the compiler with a last-write-wins stamp --"
-  if AXIOM_STDLIB="$abl2/stdlib" "$axiom" build "$abl2/self_host/main.ax" \
-       -o "$work/axc-lww" >"$work/lww.build.log" 2>&1; then
+  if gate_build_tree "$axiom" "$abl2" "$abl2/stdlib" \
+       "$work/axc-lww" >"$work/lww.build.log" 2>&1; then
 
     # The sweep. `emit-llvm` and not `build`, so the comparison is of
     # what the checker handed codegen and not of anything the linker

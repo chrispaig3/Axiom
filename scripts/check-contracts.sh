@@ -479,7 +479,7 @@ s = open(p).read()
 assert s.count(a) == 1, (p, s.count(a))
 open(p, 'w').write(s.replace(a, b))
 PY
-  if ! ( cd "$dir" && AXIOM_STDLIB="$dir/stdlib" "$axc" build --input self_host/main.ax -o "$dir/axc" ) >"$dir/build.log" 2>&1; then
+  if ! gate_build_tree "$axc" "$dir" "$dir/stdlib" "$dir/axc" >"$dir/build.log" 2>&1; then
     bad "ablation \`$name\`: the ablated compiler did not build"
     head -20 "$dir/build.log"
     return

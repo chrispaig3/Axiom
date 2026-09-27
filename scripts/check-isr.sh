@@ -136,7 +136,7 @@ if s.count(old) != 1:
 open(p, "w", encoding="utf-8").write(s.replace(old, "(if (== (tagsHaveIsr sig own) 999)"))
 PY
 then
-  if (cd "$abl" && "$axiom" build --input self_host/main.ax --output "$work/axc-noisr") \
+  if gate_build_tree "$axiom" "$abl" "$AXIOM_STDLIB" "$work/axc-noisr" \
        > "$work/abl-noop.build" 2>&1; then
     r1=0; AXIOM_STDLIB="$abl/stdlib" "$work/axc-noisr" --diagnostic-format=ai check "$fx651" >/dev/null 2>&1 || r1=$?
     r2=0; AXIOM_STDLIB="$abl/stdlib" "$work/axc-noisr" --diagnostic-format=ai check "$fx652" >/dev/null 2>&1 || r2=$?

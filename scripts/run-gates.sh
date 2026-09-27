@@ -8,14 +8,16 @@
 #   scripts/run-gates.sh --profile expensive      # platform, bootstrap and measurement gates only
 #   AXIOM_GATE_JOBS=4 scripts/run-gates.sh
 #
-# PROFILES. `fast` is the edit-and-rerun set: the four gates that answer
-# in seconds on a warm cache (diagnostics goldens, type pinning, the
-# gate-cache contract, CI coverage). The two corpora - `check-self-host`
-# and `check-stdlib-selfhost` - are NOT in it: the stdlib corpus alone
-# costs 277s, which would make `fast` a name rather than a property.
-# They run under the default `full` profile, which is every gate.
-# `expensive` is the platform/bootstrap/performance tail for scheduled
-# runs and release checks.
+# PROFILES. `fast` is the edit-and-rerun set: the gates the full run of
+# 2026-09-27 measured at 15 seconds or less that do not need the
+# machine to themselves - thirty of them, about a minute of wall clock
+# on a warm cache (see CONTRIBUTING.md "Which command runs what" for
+# the measurement). What it leaves out is priced, not forgotten: the
+# two corpora (`check-self-host`, `check-stdlib-selfhost`), the
+# diagnostics goldens, the formatter, LSP and tools sweeps, and the
+# reclamation gates cost one to five minutes EACH. `full` - the default
+# - is every gate. `expensive` is the platform/bootstrap/measurement
+# tail for scheduled runs and release checks.
 #
 # WHY IT IS FASTER, AND WHY THAT IS NOT A TRICK. Every gate that tests
 # the working tree starts by building the compiler from `self_host/`,
@@ -195,10 +197,12 @@ while (( $# )); do
   esac
   shift
 done
-# `self-host` and `stdlib-selfhost` are named here by their absence: the
-# corpora are `full`-tier by cost (see PROFILES above), so this lists
-# only the four gates that answer in seconds on a warm cache.
-FAST_RE='check-(diagnostics|type-pinning|gate-lib|ci-coverage)\.sh$'
+# The corpora and the diagnostics goldens are named here by their
+# absence: they are `full`-tier by cost (see PROFILES above), so this
+# lists only gates that answer in seconds on a warm cache. A gate that
+# grows past that belongs in `full`, and `check-gate-lib.sh` requires
+# every name here to be a script that exists.
+FAST_RE='check-(type-pinning|gate-lib|ci-coverage|vec-field-shape|cast-arg-root|tail-position|agent-policy|agent-calls|c-abi|http-scan|nostd-subset|platform-constants|seed-supply-chain|terminal-restore|version|windows-entry|diverging-tyvar|mir-projection|frontend-parity|trap-statuses|backtrace|test-runner|packages|doc-drift|diagnostic-coverage|examples|repl-highlight|tail-calls|install|release-targets)\.sh$'
 EXPENSIVE_RE='check-(bootstrap|seed-lineage|seed-provenance|ddc|cross-targets|embedded|windows-hello|reproducible|memory-baseline|arena-reset-rate|container-reclaim|steady-state|recover|name-scale|type-namespace|degenerate|stack-bound|stack-depth)\.sh$'
 all=(); omitted=()
 for g in scripts/check-*.sh; do
@@ -222,6 +226,36 @@ for g in "${all[@]}"; do
   else par+=("$g"); fi
 done
 
+# LONGEST FIRST. The parallel pool used to start gates in glob order,
+# so the slowest ones - `check-restrictions`, `check-render-selfhost`,
+# `check-tools-selfhost`, all late in the alphabet and each 3-5 minutes
+# - started last and ran on after the rest had drained, with five of
+# six slots idle. Measured on the 2026-09-27 full run: 3,793 gate-
+# seconds in the pool over 6 slots is 632s of work, and the pool took
+# 845s. Ordering by the duration each gate took in the most recent run
+# that recorded it is the classic longest-processing-time schedule; a
+# gate with no history sorts FIRST, because an unknown is the one most
+# likely to be a new long pole. It changes WHEN a gate starts and
+# nothing about what it runs or how its verdict is read, and the serial
+# list keeps its written order.
+report_root="${AXIOM_GATE_REPORT_DIR:-$PWD/.axiom-shared/runs}"
+gate_history() {  # "<script basename> <seconds>", newest run first, one per gate
+  local f
+  ls -t "$report_root"/run.*/RESULTS 2>/dev/null | while IFS= read -r f; do
+    awk '{ print $3, $2 }' "$f"
+  done | awk '!seen[$1]++'
+}
+if (( ${#par[@]} > 1 )); then
+  ordered="$(
+    { gate_history | sed 's/^/H /'; printf 'G %s\n' "${par[@]}"; } |
+      awk '$1 == "H" { d[$2] = $3; next }
+           { n = $2; sub(/.*\//, "", n); print ((n in d) ? d[n] : 999999), $2 }' |
+      sort -k1,1nr -k2,2 | cut -d' ' -f2-
+  )"
+  par=()
+  while IFS= read -r g; do [[ -n "$g" ]] && par+=("$g"); done <<< "$ordered"
+fi
+
 if (( list )); then
   echo "profile: $profile"
   echo "parallel (${#par[@]}, $jobs at a time):"; (( ${#par[@]} )) && printf '  %s\n' "${par[@]##*/}"
@@ -235,8 +269,24 @@ fi
 
 source scripts/lib/gate.sh
 repo_root="$PWD"
-report_root="${AXIOM_GATE_REPORT_DIR:-$repo_root/.axiom-shared/runs}"
+# What every gate's `gate_init` exports, so the stamp computed here is
+# the stamp each gate will compute (`gate_config_stamp` records it).
+export AXIOM_STDLIB="$repo_root/stdlib"
 mkdir -p "$report_root" || exit 1
+# Keep the twenty newest earlier runs. Each holds a 3 MB compiler snapshot and
+# every gate's log; they are evidence for the run they describe and
+# history for the schedule above, not an archive.
+ls -dt "$report_root"/run.* 2>/dev/null | tail -n +21 | while IFS= read -r old; do
+  rm -rf "$old"
+done
+# And the eighty most recently used ablated-tree compilers
+# (`gate_build_tree`), about two generations of the thirty-five a full
+# battery builds. Pruned here, before any gate starts, never by a gate.
+tree_cache="${AXIOM_GATE_CACHE:-$repo_root/.axiom-shared/cache}"
+if [[ "$tree_cache" != off && -d "$tree_cache" ]]; then
+  ls -t "$tree_cache"/tree-* 2>/dev/null | grep -v '\.sha$' | tail -n +81 |
+    while IFS= read -r old; do rm -f "$old" "$old.sha"; done
+fi
 out="$(mktemp -d "$report_root/run.XXXXXX")" || exit 1
 : > "$out/RESULTS"
 for g in "${all[@]}"; do printf '%s\n' "$g"; done > "$out/SELECTED"
@@ -316,8 +366,24 @@ if (( completed != expected )); then
   echo "FAIL: expected $expected gate results, received $completed; see $out" >&2
   exit 1
 fi
-printf 'profile=%s\nselected=%s\nexecuted=%s\nnot_selected=%s\nnot_run=%s\nelapsed_seconds=%s\n' \
-  "$profile" "${#all[@]}" "$completed" "${#omitted[@]}" "${#notrun[@]}" "$elapsed" > "$out/SUMMARY"
+# PARTS THAT DID NOT RUN. A gate's exit status says whether what it
+# checked held; it does not say whether it checked everything. Gates in
+# this tree print a line beginning `SKIP` (or `skip`) for a section the
+# host cannot exercise - no `git`, no `ulimit -s`, an `llc` without
+# `--stack-usage-file`, a REPL case the model does not cover - and that
+# line used to reach only the gate's own log. It is collected here and
+# printed with the verdict, so "passed" is never read as "passed in
+# full" when it was not.
+: > "$out/SKIPS"
+for g in ${par[@]+"${par[@]}"} ${ser[@]+"${ser[@]}"}; do
+  [[ -n "$g" ]] || continue
+  n="$(basename "$g")"
+  grep -E '^[[:space:]]*(note[[:space:]]+)?(SKIP|skip)([:[:space:]]|$)' "$out/$n.log" 2>/dev/null |
+    sed "s|^[[:space:]]*|$n: |" >> "$out/SKIPS"
+done
+skipped="$(wc -l < "$out/SKIPS" | tr -d ' ')"
+printf 'profile=%s\nselected=%s\nexecuted=%s\nnot_selected=%s\nnot_run=%s\nskipped_sections=%s\nelapsed_seconds=%s\n' \
+  "$profile" "${#all[@]}" "$completed" "${#omitted[@]}" "${#notrun[@]}" "$skipped" "$elapsed" > "$out/SUMMARY"
 echo "not selected: ${#omitted[@]}; not run here: ${#notrun[@]}; logs: $out"
 # `grep -c` EXITS 1 when the count is zero, so `|| echo 0` appends a
 # SECOND zero and the variable becomes "0\n0" - which `(( ))` then
@@ -330,6 +396,12 @@ echo
 if (( ${#notrun[@]} )); then
   echo "NOT RUN HERE (${#notrun[@]}), $NOTRUN_WHY:"
   printf '  %s\n' "${notrun[@]##*/}"
+  echo
+fi
+if (( skipped )); then
+  echo "SECTIONS NOT EXERCISED ON THIS HOST ($skipped), from the gates' own SKIP lines:"
+  sed 's/^/  /' "$out/SKIPS" | head -20
+  (( skipped > 20 )) && echo "  ... and $((skipped - 20)) more in $out/SKIPS"
   echo
 fi
 sort -k2 -rn "$out/RESULTS" | head -5 | while read -r st sec nm; do
@@ -347,4 +419,4 @@ if (( fail )); then
   echo "run-gates: $pass passed, $fail FAILED in ${elapsed}s"
   exit 1
 fi
-echo "run-gates: all $pass gates passed in ${elapsed}s"
+echo "run-gates: all $pass gates passed in ${elapsed}s$( (( skipped )) && echo ", $skipped section(s) skipped on this host" )"

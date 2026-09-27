@@ -192,8 +192,8 @@ then
   echo "     nothing was ablated, so the red half of this gate proves nothing"
 else
   echo "-- rebuilding the compiler from the ablated tree --"
-  if AXIOM_STDLIB="$abl/stdlib" "$axiom" build "$abl/self_host/main.ax" \
-       -o "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
+  if gate_build_tree "$axiom" "$abl" "$abl/stdlib" \
+       "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
     rc_abl="$(run_fixture "$work/axc-ablated")"
     if [[ "$rc_abl" == "$want" ]]; then
       bad "the ablated compiler still exits $rc_abl - the byte terms cannot fail"
@@ -264,8 +264,8 @@ if s.count(needle) != 1:
     sys.exit(1)
 open(p, "w").write(s.replace(needle, repl, 1))
 PY
-  AXIOM_STDLIB="$tree/stdlib" "$axiom" build "$tree/self_host/main.ax" \
-    -o "$work/axc-abl-$name" >"$work/abl-$name.build.log" 2>&1 || return 1
+  gate_build_tree "$axiom" "$tree" "$tree/stdlib" \
+    "$work/axc-abl-$name" >"$work/abl-$name.build.log" 2>&1 || return 1
   ( "$work/axc-abl-$name" run "$surplus" ) >"$work/abl-$name.run" 2>&1
   printf '%s' "$?"
 }
@@ -378,8 +378,8 @@ then
   bad "could not ablate the resWord stamp - nothing was proven"
 else
   echo "-- rebuilding the compiler from the stamp-ablated tree --"
-  if AXIOM_STDLIB="$argabl/stdlib" "$axiom" build "$argabl/self_host/main.ax" \
-       -o "$work/axc-argabl" >"$work/argabl.build.log" 2>&1; then
+  if gate_build_tree "$axiom" "$argabl" "$argabl/stdlib" \
+       "$work/axc-argabl" >"$work/argabl.build.log" 2>&1; then
     if "$work/axc-argabl" build --input "$term410" --output "$work/fall410a" >>"$work/argabl.build.log" 2>&1; then
       "$work/fall410a" >"$work/fall410a.out" 2>&1
       if (( $? != 0 )); then

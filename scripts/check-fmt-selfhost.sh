@@ -469,8 +469,7 @@ fi
 # `(Red 1)` compiled and ran and answered wrongly.
 # ---------------------------------------------------------------
 echo "== behaviour: rebuilding the compiler from the formatted tree =="
-if ! (cd "$copy" && AXIOM_STDLIB="$copy/stdlib" "$axc" build \
-        --input self_host/main.ax --output "$work/axc2") >"$work/build2.log" 2>&1; then
+if ! gate_build_tree "$axc" "$copy" "$copy/stdlib" "$work/axc2" >"$work/build2.log" 2>&1; then
   echo "FAIL: the formatted tree no longer builds the compiler"
   tail -20 "$work/build2.log" | sed 's/^/     /'
   failed=$((failed + 1))

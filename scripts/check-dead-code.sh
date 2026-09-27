@@ -418,7 +418,7 @@ new = "(pub fn (pruneDeadDefs cg)\n  (if (|| cgStaticlib true)\n"
 assert s.count(old) == 1, s.count(old)
 open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY
-  if ! (cd "$abl" && "$axiom" build --input self_host/main.ax --output "$work/axc-abl") \
+  if ! gate_build_tree "$axiom" "$abl" "$AXIOM_STDLIB" "$work/axc-abl" \
        > "$work/abl.build.log" 2>&1; then
     bad "the ablated compiler would not build"
     sed 's/^/     /' "$work/abl.build.log" | head -10

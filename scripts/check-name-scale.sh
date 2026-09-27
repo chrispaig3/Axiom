@@ -457,8 +457,8 @@ then
 fi
 
 echo "-- rebuilding the compiler with the scan put back --"
-if ! AXIOM_STDLIB="$abl/stdlib" "$axiom" build --input "$abl/self_host/main.ax" \
-       --output "$work/axc-scan" >"$work/scan.build.log" 2>&1; then
+if ! gate_build_tree "$axiom" "$abl" "$abl/stdlib" \
+       "$work/axc-scan" >"$work/scan.build.log" 2>&1; then
   echo "FAIL: the ablated compiler did not build" >&2
   sed 's/^/    /' "$work/scan.build.log" | head -20 >&2
   exit 1
@@ -523,8 +523,8 @@ then
 fi
 
 echo "-- rebuilding the compiler with the visibility scan put back --"
-if ! AXIOM_STDLIB="$abl1/stdlib" "$axiom" build --input "$abl1/self_host/main.ax" \
-       --output "$work/axc-noidx" >"$work/noidx.build.log" 2>&1; then
+if ! gate_build_tree "$axiom" "$abl1" "$abl1/stdlib" \
+       "$work/axc-noidx" >"$work/noidx.build.log" 2>&1; then
   echo "FAIL: the arm-1 ablated compiler did not build" >&2
   sed 's/^/    /' "$work/noidx.build.log" | head -20 >&2
   exit 1

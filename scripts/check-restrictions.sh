@@ -562,7 +562,7 @@ s = open(p).read()
 assert s.count(hook + '\n') == 1, s.count(hook + '\n')
 open(p, 'w').write(s.replace(hook + '\n', '          0\n'))
 PY
-  if "$axiom" build --input "$work/ablate/self_host/main.ax" --output "$work/ablate/axc" > "$work/ablate/build.log" 2>&1; then
+  if gate_build_tree "$axiom" "$work/ablate" "$AXIOM_STDLIB" "$work/ablate/axc" > "$work/ablate/build.log" 2>&1; then
     if fixtures_answer "$work/ablate/axc" > "$work/ablate/answer.log" 2>&1; then
       bad "negative probe: a compiler with checkRestricts unhooked still passes section 2 (the section cannot fail)"
     else
@@ -807,7 +807,7 @@ s = s.replace(floatop, floatop[:len(floatop) - len(floatop.lstrip())] + '(if (==
 open(p, 'w').write(s)
 PY
 if grep -q '(if (== 2 1)' "$work/exabl/self_host/typecheck.ax"; then
-  if "$axiom" build --input "$work/exabl/self_host/main.ax" --output "$work/exabl/axc" > "$work/exabl/build.log" 2>&1; then
+  if gate_build_tree "$axiom" "$work/exabl" "$AXIOM_STDLIB" "$work/exabl/axc" > "$work/exabl/build.log" 2>&1; then
     ( cd "$work/exempt" && "$work/exabl/axc" --diagnostic-format=ai check exempt.ax ) > /dev/null 2> "$work/exempt/abl.err" || true
     restriction_lines "$work/exempt/abl.err" > "$work/exempt/abl.hits"
     got_for=0; got_flt=0; got_fdiv=0

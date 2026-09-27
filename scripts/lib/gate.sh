@@ -200,11 +200,38 @@ gate_link_entry() {
 # a file whose ablation the cache would hide.
 gate_source_stamp() {
   {
-    printf '%s\n' 'gate-cache-v2: native build, default optimization'
+    printf '%s\n' 'gate-cache-v3: native build, default optimization'
     gate_seed_source_stamp "$repo_root"
     gate_sha "$axiom"
     gate_toolchain_stamp
+    gate_config_stamp
   } | gate_sha
+}
+
+# The environment the COMPILER reads while it builds. Every `sysEnv`
+# in `self_host/` and `stdlib/` was read on 2026-09-27; these are the
+# ones that can change what a build of `self_host/main.ax` produces:
+# AXIOM_STDLIB and AXIOM_PATH choose which module files an import
+# resolves to, AXIOM_LINK_SEARCH what the link line finds, and
+# AXIOM_MIR_EMIT / AXIOM_VERIFY_SCOPES switch extra work on. The rest
+# (HOME, XDG_CONFIG_HOME, TMPDIR, AXIOM_REPL_HISTORY) are read only by
+# the REPL and the package commands, and PATH is covered by the
+# toolchain stamp's resolved tools.
+#
+# The stdlib is recorded as the directory a build would READ, resolved
+# physically, with `gate_init`'s default when unset: the source stamp
+# hashes `$repo_root/stdlib`'s bytes, so a build pointed at a different
+# stdlib must not match an artifact built against this one. A caller
+# that computes a stamp without `gate_init` (run-gates.sh) exports the
+# same default first, or every consumer would miss.
+gate_config_stamp() {
+  local lib="${AXIOM_STDLIB:-$repo_root/stdlib}"
+  [[ -d "$lib" ]] && lib="$(cd -P "$lib" && pwd -P)"
+  printf '%s\n' "stdlib=$lib" \
+    "AXIOM_PATH=${AXIOM_PATH:-}" \
+    "AXIOM_LINK_SEARCH=${AXIOM_LINK_SEARCH:-}" \
+    "AXIOM_MIR_EMIT=${AXIOM_MIR_EMIT:-}" \
+    "AXIOM_VERIFY_SCOPES=${AXIOM_VERIFY_SCOPES:-}"
 }
 
 # Build inputs outside the Axiom source tree. Keep this separate from
@@ -397,6 +424,119 @@ gate_build_axc() {
   printf -v "$var" '%s' "$out"
 }
 
+# gate_build_tree <builder> <root> <stdlib> <out> [build flag ...]
+#
+# Build `<root>/self_host/main.ax` with <builder> into <out>, reading
+# the standard library at <stdlib>: the compiler of an ABLATED tree,
+# which is how most negative controls in this battery prove their gate
+# can fail. The stdlib is an argument because the call sites differ on
+# purpose - some ablate a module in the copy and must read it, others
+# build the copied `self_host/` against the gate's `$AXIOM_STDLIB` -
+# and each passes what it read before. <out> must be absolute.
+#
+# WHY A CACHE, AND WHY IT IS SAFE. Thirty-five of these builds ran in
+# every full battery, about 18s each: over ten minutes of CPU spent
+# re-deriving binaries whose inputs had not changed since the last
+# run. The result is a pure function of what the key hashes - every
+# `.ax` under `<root>/self_host`, every `.ax` in the stdlib the build
+# reads (paths and bytes, `gate_ax_tree_stamp`), the builder binary,
+# the toolchain, the compiler-read environment and the flags. Measured
+# on 2026-09-27 before relying on it: the compiler built from two
+# copies of one tree at different paths is byte-identical and names
+# neither path, so the directory a tree sits in is correctly NOT an
+# input. A one-byte ablation is a different key and a fresh build.
+#
+# Entries live in `$AXIOM_GATE_CACHE` (default
+# `$repo_root/.axiom-shared/cache`), are published by `mv` of a
+# completed build (never visible half-written; two gates racing to
+# publish one key write identical bytes), and are re-hashed against
+# the digest recorded beside them on every hit, so a damaged entry is
+# rebuilt rather than trusted. `AXIOM_GATE_CACHE=off` disables it.
+# `check-gate-lib.sh` holds the hit, the miss on a changed byte, a
+# changed builder and changed flags, and the damaged-entry rebuild.
+gate_build_tree() {
+  local builder="$1" root="$2" lib="$3" out="$4"; shift 4
+  local cache key entry tmp rc=0
+  cache="${AXIOM_GATE_CACHE:-$repo_root/.axiom-shared/cache}"
+  if [[ "$cache" != off ]]; then
+    key="$( {
+      printf '%s\n' 'gate-tree-v1' "flags=$*"
+      gate_ax_tree_stamp "$root" self_host
+      gate_ax_tree_stamp "$lib" .
+      gate_sha "$builder"
+      gate_toolchain_stamp
+      printf '%s\n' "AXIOM_PATH=${AXIOM_PATH:-}" \
+        "AXIOM_LINK_SEARCH=${AXIOM_LINK_SEARCH:-}" \
+        "AXIOM_MIR_EMIT=${AXIOM_MIR_EMIT:-}" \
+        "AXIOM_VERIFY_SCOPES=${AXIOM_VERIFY_SCOPES:-}"
+    } | gate_sha )"
+    entry="$cache/tree-$key"
+    if [[ -x "$entry" && -f "$entry.sha" ]]; then
+      rm -f "$out"
+      cp "$entry" "$out" && chmod +x "$out"
+      if [[ "$(gate_sha "$out")" == "$(cat "$entry.sha")" ]]; then
+        touch "$entry" 2>/dev/null || true   # recency, for run-gates.sh's pruning
+        echo "== reusing the compiler of $root (tree key ${key:0:12}) =="
+        return 0
+      fi
+      echo "== cached compiler tree-${key:0:12} does not match its digest; rebuilding =="
+      rm -f "$out" "$entry" "$entry.sha"
+    fi
+  fi
+  ( cd "$root" && AXIOM_STDLIB="$lib" "$builder" build --input self_host/main.ax --output "$out" "$@" ) || rc=$?
+  (( rc == 0 )) || return "$rc"
+  if [[ "$cache" != off ]] && mkdir -p "$cache" 2>/dev/null; then
+    tmp="$(mktemp "$cache/.tmp.XXXXXX")" || return 0
+    if cp "$out" "$tmp" && chmod +x "$tmp" && gate_sha "$tmp" > "$tmp.sha"; then
+      mv -f "$tmp.sha" "$entry.sha" && mv -f "$tmp" "$entry"
+    fi
+    rm -f "$tmp" "$tmp.sha"
+  fi
+  return 0
+}
+
+# max_rss_kb <command ...>: the peak resident set of one run, in KiB.
+#
+# Eleven gates carried this function byte for byte, each with its own
+# copy of the comment explaining it; it lives here once now. Two rules
+# it carries, both learned the hard way:
+#
+# - `ru_maxrss` is BYTES on Darwin and kilobytes on every other kernel,
+#   FreeBSD included, and FreeBSD's `time` takes `-l` too - so keying
+#   the division on the flag read 1392 KiB as "1 KiB" on FreeBSD
+#   14.4/arm64 (2026-08-29). The divisor is the kernel's, not the flag's.
+# - `measure-memory-baseline.sh`'s rule: FAIL rather than skip when
+#   neither `time` answers. A measurement that silently measures
+#   nothing is how the last RSS regression hid.
+max_rss_kb() {
+  local div=1
+  [[ "$(uname -s)" == Darwin ]] && div=1024
+  if /usr/bin/time -l true >/dev/null 2>&1; then
+    /usr/bin/time -l "$@" 2>&1 >/dev/null \
+      | awk -v div="$div" '/maximum resident set size/ {print int($1/div)}'
+  elif /usr/bin/time -v true >/dev/null 2>&1; then
+    /usr/bin/time -v "$@" 2>&1 >/dev/null \
+      | awk -F: '/Maximum resident set size/ {print int($2)}'
+  else
+    echo "FAIL: no usable time(1) for RSS measurement" >&2
+    return 1
+  fi
+}
+
+# gate_ax_tree_stamp <dir> <subdir>: paths then bytes of every `.ax`
+# under <dir>/<subdir>, relative to <dir> - `gate_seed_source_stamp`'s
+# recipe for one directory, so a renamed or added-empty file moves it.
+gate_ax_tree_stamp() {
+  local list f
+  list="$( cd "$1" && find "$2" -name '*.ax' -type f 2>/dev/null | LC_ALL=C sort )"
+  {
+    printf '%s\n' "$list"
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && cat "$1/$f"
+    done <<< "$list"
+  } | gate_sha
+}
+
 # The prose documents that carry Axiom code and cite fixtures.
 #
 # Three gates swept this list and each kept its own hand-written copy -
@@ -498,5 +638,6 @@ docs/mir-design.md
 docs/status.md
 docs/embedded-proposal.md
 docs/cast-arg-root.md
+docs/recovery-audit-2026-09-27.md
 DOCS
 }

@@ -438,8 +438,8 @@ open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY
 if [[ $? -ne 0 ]]; then
   bad "could not apply the ablation - trapFnAttrs has moved, and check 4 is asserting nothing"
-elif ! AXIOM_STDLIB="$abl/stdlib" "$axc" build "$abl/self_host/main.ax" \
-       -o "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
+elif ! gate_build_tree "$axc" "$abl" "$abl/stdlib" \
+       "$work/axc-ablated" >"$work/ablated.build.log" 2>&1; then
   bad "the ablated compiler did not build"
   sed 's/^/     /' "$work/ablated.build.log" | head -20
 elif ! "$work/axc-ablated" emit-llvm "$work/simd/bump.ax" -o "$work/simd/bump.abl.ll" \

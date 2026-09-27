@@ -333,7 +333,7 @@ new = '"internal thread_local global"'
 assert s.count(old) == 1
 open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY
-  if ! (cd "$gd" && "$axiom" build --input self_host/main.ax --output "$work/axc-gd") \
+  if ! gate_build_tree "$axiom" "$gd" "$AXIOM_STDLIB" "$work/axc-gd" \
        > "$work/gd.build.log" 2>&1; then
     bad "the general-dynamic compiler would not build"
   else

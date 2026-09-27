@@ -847,7 +847,7 @@ PY
   if [[ $? -ne 0 ]]; then
     return 1
   fi
-  ( cd "$root" && "$axc" build --input self_host/main.ax --output "$root/axc" ) \
+  gate_build_tree "$axc" "$root" "$AXIOM_STDLIB" "$root/axc" \
     > "$root/build.log" 2>&1
 }
 
