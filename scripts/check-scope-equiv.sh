@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
-# THE SCOPE-EQUIVALENCE GATE (MAC-HYG-9 equivalence slice).
+# THE SCOPE-DRIFT GATE (MAC-HYG-9 equivalence slice, redefined at M3).
 #
 # The expander carries scope sets beside the rename table
 # (`self_host/expand.ax`'s scope track, words 24-28), and under
-# AXIOM_VERIFY_SCOPES=1 every variable reference the rename table hits
-# is resolved both ways. A parting is AX3075. This gate runs the
-# checkable corpus through verify mode and pins the theorem: both
-# mechanisms agree on every reference, except the listed positive
-# controls, which diverge by design (renaming answers the template
-# binder where scope resolution would take the for-binding).
+# AXIOM_VERIFY_SCOPES=1 every variable reference the scope track hits
+# is resolved both ways. A parting is AX3075. Before M3 this gate
+# pinned an AGREEMENT - both mechanisms resolving every reference
+# alike, with the one designed precedence control diverging - and the
+# corpus leg's green was M3's safety proof: no shipped program relied
+# on ren-first, so the flip to innermost-wins could move nothing but
+# the control. Afterwards there is no agreement left to assert -
+# one mechanism resolves, the other only shadows it - so the gate is
+# redefined rather than left asserting a tautology: it runs the
+# checkable corpus through verify mode and pins the absence of drift.
+# Any AX3075 now is the drift shape, a missed push or truncation
+# pairing between the two tracks, which is a compiler bug; M4 retires
+# even that with the second track.
 #
-# The two legs are airtight together: the corpus leg passes by ABSENCE
-# (no AX3075), which a silently-disabled verify would also produce -
-# and the controls leg then fails for the same reason, because a
-# control that does not diverge is a check that is not running.
+# The airtightness argument retired with the controls. The corpus leg
+# passes by ABSENCE (no AX3075), which a silently-disabled verify
+# would also produce - and no positive control can exist for a
+# diagnostic whose only remaining shape is a compiler bug. M4 deletes
+# this leg with the track it watches rather than letting a dead check
+# report green; until then the leg's value is the red it would go,
+# not the green it reports.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -24,15 +34,6 @@ failed=0
 checks=0
 ok()   { echo "ok   $*"; checks=$((checks + 1)); }
 bad()  { echo "FAIL $*"; failed=$((failed + 1)); }
-
-# Programs that diverge ON PURPOSE: renaming's ren-first precedence
-# against scope resolution's innermost-wins. Each must emit AX3075
-# under verify and check clean without it. One today; the list grows
-# if the corpus ever grows a second shape (that day the corpus leg
-# below goes red first, which is how the shape announces itself).
-controls=(
-  tests/selfhost/1003-macro-for-precedence.ax
-)
 
 # The corpus: every standalone-checkable program. Exit statuses are
 # meaningless here - tests/diagnostics fails BY DESIGN - so the only
@@ -45,17 +46,12 @@ while IFS= read -r line; do
   corpus+=("$line")
 done < <(find tests/selfhost tests/stdlib tests/diagnostics stdlib self_host \
   -name '*.ax' -not -path '*/mods/*' 2>/dev/null | sort)
-echo "corpus: ${#corpus[@]} files, controls: ${#controls[@]}"
+echo "corpus: ${#corpus[@]} files"
 
 echo "== every corpus file resolves identically both ways =="
 n_div=0
 n_checked=0
 for f in "${corpus[@]}"; do
-  skip=0
-  for c in "${controls[@]}"; do
-    [[ "$f" == "$c" ]] && skip=1
-  done
-  (( skip )) && continue
   n_checked=$((n_checked + 1))
   out="$(AXIOM_VERIFY_SCOPES=1 "$axc" --diagnostic-format=ai check "$f" 2>&1)" || true
   # `grep ... >/dev/null`, never `grep -q`: under `pipefail` a `-q`
@@ -69,29 +65,6 @@ for f in "${corpus[@]}"; do
   fi
 done
 (( n_div == 0 )) && ok "$n_checked corpus files, zero AX3075"
-
-echo "== the positive controls diverge, and only under verify =="
-for c in "${controls[@]}"; do
-  checks=$((checks + 1))
-  if [[ ! -f "$c" ]]; then
-    echo "FAIL scope-equiv: control $c is missing - retire it or restore it"
-    failed=$((failed + 1))
-    continue
-  fi
-  vout="$(AXIOM_VERIFY_SCOPES=1 "$axc" --diagnostic-format=ai check "$c" 2>&1)" || true
-  nout="$("$axc" --diagnostic-format=ai check "$c" 2>&1)" || true
-  if echo "$vout" | grep 'AX3075' >/dev/null; then
-    if echo "$nout" | grep 'AX3075' >/dev/null; then
-      echo "FAIL scope-equiv: control $c diverges WITHOUT verify - the track leaks into normal builds"
-      failed=$((failed + 1))
-    else
-      echo "ok   control $c diverges under verify, clean without"
-    fi
-  else
-    echo "FAIL scope-equiv: control $c does NOT diverge under verify - the check is not running"
-    failed=$((failed + 1))
-  fi
-done
 
 echo "check-scope-equiv: $checks checks, $failed failed"
 exit $(( failed > 0 ))

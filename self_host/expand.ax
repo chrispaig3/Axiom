@@ -937,25 +937,28 @@
 ; answer it by matching `(name, scopes)` pairs, a reference resolving
 ; to the innermost binder whose scopes are a subset of its own.
 ; Template binders resolve through `expScResolveTpl` and answer the
-; spelling their record carries; for-bindings still answer through
-; `expForLookup`, which the tier rule below orders after the template
-; tier however the two nest. Word 28 gates only the drift check and
-; the for-binding snapshots now - the track itself runs on every
-; build, and the battery (not a flag) is what proves it resolves
-; identically to the table it replaced.
+; spelling their record carries; for-bindings answer through
+; `expForBindOf`, and the newer push-order stamp of the two hits is
+; the inner binder - M3 deleted the tier rule that ordered the
+; template tier first however the two nest. Word 28 gates only the
+; drift check and the for-binding snapshots now - the track itself
+; runs on every build, and the battery (not a flag) is what proves
+; the flip moved exactly the one designed control.
 ;
-; THE TIER RULE, stated because M3 deletes it. Template records are
-; consulted before for-bindings whatever the nesting: the ren-first
-; precedence as an explicit scope rule rather than an emergent table
-; order. A for-binding pushed after (inside) a template binder of the
-; same spelling is where single-mechanism resolution would part from
-; it, and that is what the drift check still hunts. For-bindings are
-; visible by ACTIVITY (forstack membership), not by chain prefix: a
-; declaration-level iteration's bindings are live in generated bodies
-; whose chain never grew the iteration scope, and presence is the
-; visibility there. Template binders are visible by subset, and every
-; co-active template record's scopes are a prefix of the live chain,
-; because a chain pop always truncates the records pushed under it.
+; THE INNERMOST RULE (M3). A variable reference takes the inner of
+; the template hit and the for hit: the for-binding wins when there
+; is no template hit, or its stamp is newer than the hit's - pushed
+; later means pushed inside, on stacks whose pops always remove what
+; the pushes put under them. For-bindings are visible by ACTIVITY
+; (forstack membership), not by chain prefix: a declaration-level
+; iteration's bindings are live in generated bodies whose chain never
+; grew the iteration scope, and presence is the visibility there.
+; Those stale bindings always lose the stamp comparison - a generated
+; body starts a fresh record stack, so anything it pushes is newer -
+; which is why activity needs no prefix check to stay sound.
+; Template binders are visible by subset, and every co-active
+; template record's scopes are a prefix of the live chain, because a
+; chain pop always truncates the records pushed under it.
 ; ------------------------------------------------------------------
 (pub :: expScVerify (-> Int Int))
 (pub fn (expScVerify env)
@@ -979,16 +982,16 @@
       n
     }))
 
-; The next push-order stamp, or 0 when verify is off.
+; The next push-order stamp. Ungated since M3: the stamp orders the
+; template stack against the for-stack, which is the decision
+; procedure's innermost rule, not the checker's.
 (pub :: expScNextSeq (-> Int Int))
 (pub fn (expScNextSeq env)
-  (if (== (expScVerify env) 0)
-    0
-    (let ((n (+ (memGetWord env 27) 1)))
-      {
-        (memSetWord env 27 n)
-        n
-      })))
+  (let ((n (+ (memGetWord env 27) 1)))
+    {
+      (memSetWord env 27 n)
+      n
+    }))
 
 ; A copy of the current chain. Snapshots are taken at binder pushes;
 ; the live chain keeps moving, so sharing it would rewrite history.
@@ -1121,13 +1124,14 @@
         (expScResolveTplFrom tpl name chain (- i 1))))))
 
 ; The check, run at every variable reference, hit or miss.
-; `sbpos` is scope resolution's answer (position or -1). Lockstep
-; first, in both directions: the mirrored stack holds exactly the
-; pairs, and both tracks resolve to the SAME position - a miss on one
-; side with a hit on the other is a missed push or truncation
-; pairing, a compiler bug, and it refuses as one. Then the tier rule:
-; the innermost for-binding spelling the same name is where
-; single-mechanism resolution would part from template-first.
+; `sbpos` is scope resolution's answer (position or -1). Lockstep, in
+; both directions: the mirrored stack holds exactly the pairs, and
+; both tracks resolve to the SAME position - a miss on one side with
+; a hit on the other is a missed push or truncation pairing, a
+; compiler bug, and it refuses as one. M3 retired the check's second
+; half with the tier rule it hunted: there is no precedence left to
+; part on, only the drift of one track against the other, and M4
+; retires that with the second track.
 (pub :: expScCheckRef (-> Int (Vec Int) String Int Int Int))
 (pub fn (expScCheckRef env ren name sbpos isp)
   (if (== (expScVerify env) 0)
@@ -1147,32 +1151,11 @@
             (if (== sbpos (- 0 1))
               0
               (if (strEq (memGetWordStr (vecGet tpl idx) 0) (vecGetStr ren (* idx 2)))
-                (expScCheckFor env name (memGetWord (vecGet tpl idx) 2) isp)
+                0
                 {
                   (expScEmit env isp name "the scope track drifted from the rename track (record spelling)" "this is a compiler bug in the scope-set track, not in the program: a template binder pushed or truncated one track without the other")
                   0
                 }))))))))
-
-; The innermost for-binding spelling `name` decides, per the header's
-; proof: older than the rename hit it is outer and agrees; newer and
-; scope-visible, the two mechanisms part.
-(pub :: expScCheckFor (-> Int String Int Int Int))
-(pub fn (expScCheckFor env name rseq isp)
-  (expScCheckForFrom env (expForStackVec env) name rseq isp (- (vecLen (expForStackVec env)) 1)))
-
-(pub :: expScCheckForFrom (-> Int (Vec Int) String Int Int Int Int))
-(pub fn (expScCheckForFrom env fs name rseq isp i)
-  (if (< i 0)
-    0
-    (let ((b (vecGet fs i)))
-      (if (strEq (memGetWordStr b 0) name)
-        (if (&& (> (memGetWord b 4) rseq) (== (expScPrefix (cast (Vec Int) (memGetWord b 5)) (expScChainVec env)) 1))
-          {
-            (expScEmit env isp name "the template tier answers where single-mechanism resolution would take a for-binding: an iteration binds this spelling inside the template binder" "template records are consulted before for-bindings whatever the nesting; without the tier rule the innermost binder of either kind would win")
-            0
-          }
-          0)
-        (expScCheckForFrom env fs name rseq isp (- i 1))))))
 
 (pub :: expScEmit (-> Int Int String String String Int))
 (pub fn (expScEmit env isp name msg note)
@@ -4138,18 +4121,25 @@
     (let ((tag (nodeTag tpl)))
       (if (|| (== tag TAG_E_INT) (|| (== tag TAG_E_STR) (|| (== tag TAG_E_FLT) (== tag TAG_E_CHAR))))
         (expRebuildLit tpl isp)
-        ; --- a name: a rename, a for-binding, a parameter, or ------
-        ; --- itself, in that order ---------------------------------
+        ; --- a name: the inner binder, a parameter, or itself, ---
+        ; --- in that order -----------------------------------------
         (if (== tag TAG_E_VAR)
           (let (
             (sbpos (expScResolveTpl env (nodeAName tpl)))
+            (forb (expForBindOf env (nodeAName tpl)))
+            ; M3 innermost-wins: the template hit answers unless a
+            ; for-binding of the same spelling carries a newer
+            ; push-order stamp - pushed later, so pushed inside -
+            ; in which case the reference falls through to the
+            ; for-branch below, where it always went on a miss.
+            (tplWins (&& (!= sbpos (- 0 1))
+              (|| (== forb 0)
+                (<= (memGetWord forb 4) (memGetWord (vecGet (expScTplVec env) sbpos) 2)))))
             (_chk (if (== (expScVerify env) 1)
               (expScCheckRef env ren (nodeAName tpl) sbpos isp)
               0))
           )
-            (if (!=
-              sbpos
-              (- 0 1))
+            (if tplWins
               (mkEVarAt (memGetWordStr (vecGet (expScTplVec env) sbpos) 3) isp)
               (let ((fe (expForLookup env (nodeAName tpl))))
                 (if (!=

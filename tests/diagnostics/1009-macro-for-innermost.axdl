@@ -1,0 +1,2 @@
+E AX3001 1009-macro-for-innermost.ax:24:13-18 undefined-variable "undefined variable `x`" #"no binding named `x` in scope" ?"a similarly named binding `g` is in scope; did you mean this?" &1009-macro-for-innermost.ax:19:9-14:"probe"
+E AX3001 1009-macro-for-innermost.ax:24:13-18 undefined-variable "undefined variable `y`" #"no binding named `y` in scope" ?"a similarly named binding `g` is in scope; did you mean this?" &1009-macro-for-innermost.ax:19:9-14:"probe"

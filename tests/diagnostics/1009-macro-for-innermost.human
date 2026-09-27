@@ -1,0 +1,29 @@
+[1;31merror[AX3001][0m[1m: undefined variable `x`[0m
+  [1;34m--> [0m1009-macro-for-innermost.ax:24:13
+[1;34m   |[0m
+[1;34m24 |[0m   (let ((p (probe Point)))
+[1;34m   |[0m             [1;31m^^^^^ no binding named `x` in scope[0m
+[1;34m   |[0m
+  [1;34m--> [0m1009-macro-for-innermost.ax:19:9
+[1;34m   |[0m
+[1;34m19 |[0m (macro (probe S) (let ((g 41))
+[1;34m   |[0m         [1;36m^^^^^ in this expansion of `probe`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `g` is in scope; did you mean this?
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `y`[0m
+  [1;34m--> [0m1009-macro-for-innermost.ax:24:13
+[1;34m   |[0m
+[1;34m24 |[0m   (let ((p (probe Point)))
+[1;34m   |[0m             [1;31m^^^^^ no binding named `y` in scope[0m
+[1;34m   |[0m
+  [1;34m--> [0m1009-macro-for-innermost.ax:19:9
+[1;34m   |[0m
+[1;34m19 |[0m (macro (probe S) (let ((g 41))
+[1;34m   |[0m         [1;36m^^^^^ in this expansion of `probe`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `g` is in scope; did you mean this?
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 2 previous errors

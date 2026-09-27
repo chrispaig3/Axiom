@@ -22,6 +22,20 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### M3: innermost-wins, the scope-equiv gate redefined, 1003 becomes 1009
+
+MAC-HYG-9 migration slice 3: the ren-first tier rule is deleted and a
+macro reference takes the inner of the template hit and the for hit,
+ordered by push-order stamp. The one program that ever parted moves
+with the answer: `tests/selfhost/1003-macro-for-precedence.ax` becomes
+`tests/diagnostics/1009-macro-for-innermost.ax`, pinning two AX3001
+(the field names arrive where no variable is bound). AX3075's
+precedence shape retires with the rule; the drift shape remains until
+M4 deletes the second track. `scripts/check-scope-equiv.sh` is
+redefined to drift-only (no agreement left to assert, no positive
+leg possible). Held by the battery (diagnostics, selfhost 193,
+scope-equiv, bootstrap).
+
 ### M2: the expander resolves through scopes, tier rule kept
 
 MAC-HYG-9 migration slice 2: lookup sites resolve through scope
