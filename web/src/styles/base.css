@@ -1,4 +1,4 @@
-/* Reset + element defaults. Everything here is theme-token driven. */
+/* Reset and element defaults. Everything here is token driven. */
 
 *,
 *::before,
@@ -10,7 +10,7 @@ html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
   /* Anchor targets clear the sticky header. */
-  scroll-padding-top: calc(var(--nav-h) + var(--s-5));
+  scroll-padding-top: calc(var(--nav-h) + var(--s-4));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -33,11 +33,13 @@ body {
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--t-0);
-  line-height: var(--lh-prose);
-  font-feature-settings: 'cv05' 1, 'cv08' 1, 'ss03' 1, 'tnum' 0;
+  line-height: 1.65;
+  font-feature-settings: 'cv05' 1, 'cv08' 1, 'ss03' 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* No horizontal page scroll, ever: wide content scrolls in its own box. */
+  /* No horizontal page scroll, ever: wide content scrolls in its own
+     box. This guard HIDES rather than scrolls, so anything genuinely
+     wider than the viewport carries its own scroll container. */
   overflow-x: hidden;
 }
 
@@ -47,30 +49,29 @@ h3,
 h4 {
   margin: 0;
   color: var(--text);
-  font-weight: 620;
-  line-height: var(--lh-tight);
-  letter-spacing: -0.021em;
+  font-weight: 680;
+  line-height: 1.12;
+  letter-spacing: -0.022em;
   text-wrap: balance;
 }
 
 h1 {
-  font-size: clamp(2rem, 1.3rem + 2.5vw, 3.35rem);
-  letter-spacing: -0.034em;
+  font-size: clamp(2.5rem, 1.35rem + 3.9vw, 4.6rem);
+  font-weight: 760;
+  line-height: 1.02;
+  letter-spacing: -0.042em;
 }
 
 h2 {
-  font-size: clamp(var(--t-3), 1.1rem + 1.7vw, var(--t-5));
-  letter-spacing: -0.028em;
+  font-size: clamp(1.9rem, 1.25rem + 2.1vw, 3.1rem);
+  font-weight: 720;
+  line-height: 1.06;
+  letter-spacing: -0.035em;
 }
 
 h3 {
   font-size: var(--t-2);
   letter-spacing: -0.018em;
-}
-
-h4 {
-  font-size: var(--t-1);
-  letter-spacing: -0.012em;
 }
 
 p {
@@ -85,17 +86,9 @@ p:last-child {
 
 ul,
 ol {
-  margin: 0 0 var(--s-4);
-  padding-left: 1.25em;
-  color: var(--text-2);
-}
-
-li {
-  margin-bottom: var(--s-2);
-}
-
-li:last-child {
-  margin-bottom: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 a {
@@ -126,26 +119,27 @@ pre {
 }
 
 :not(pre) > code {
-  padding: 0.12em 0.36em;
+  padding: 0.1em 0.36em;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   background: var(--surface-2);
   color: var(--text);
-  font-size: 0.885em;
-  /* NOT `nowrap`. It was, and a single long token —
-     `;@axiom:restrict(no-io,no-alloc,no-foreign,no-recursion,…)` — then
+  font-size: 0.86em;
+  /* NOT `nowrap`: one long token - a `restrict(...)` tag, a path - then
      could not break, overflowed its grid column, and printed on top of
      the column beside it. Short spans still never wrap, because they
      fit; only the ones that would otherwise overflow do. */
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
-hr {
-  height: 1px;
-  margin: var(--s-7) 0;
-  border: 0;
-  background: var(--border);
+em {
+  font-style: italic;
+}
+
+strong,
+b {
+  color: var(--text);
+  font-weight: 640;
 }
 
 img,
@@ -164,11 +158,10 @@ button {
 }
 
 ::selection {
-  background: var(--accent-soft);
-  color: var(--text);
+  background: rgba(76, 194, 241, 0.28);
 }
 
-/* Visually hidden, still reachable by assistive tech and by Tab. */
+/* Visually hidden, still reachable by assistive tech. */
 .visually-hidden {
   position: absolute;
   width: 1px;

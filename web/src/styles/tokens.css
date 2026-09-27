@@ -7,85 +7,63 @@
  * against an explicit light choice, and again under `[data-theme=dark]`
  * so the toggle wins in both directions.
  *
- * The accent pair is read off `assets/logo/Axiom_Logo.png`: a cyan that
- * carries the primary actions and a violet reserved for the agent-facing
- * notation, which is the one place the site wants a second voice.
+ * The accents are read off `assets/logo/Axiom_Logo.png`: a cyan that
+ * carries actions, a violet it fades into, and the gradient between
+ * them, used for exactly two headlines.
+ *
+ * CODE IS ALWAYS INK. Every surface that shows code or compiler output
+ * wears the `.ink` scope at the bottom of this file, in both themes: a
+ * program on this site is a product shot, and the syntax palette was
+ * designed against one dark surface rather than two.
  */
 
 :root {
   color-scheme: light;
 
-  /* --- surfaces ---------------------------------------------------- */
-  --bg: #fbfbfc;
-  --bg-alt: #f4f5f7;
+  --bg: #fbfbfd;
+  --bg-alt: #f3f5f9;
   --surface: #ffffff;
-  --surface-2: #f7f8fa;
-  --surface-code: #f7f8fa;
-  --border: #e2e5ea;
-  --border-strong: #cfd4dc;
+  --surface-2: #f5f7fa;
+  --surface-3: #edf0f5;
+  --border: #e2e6ed;
+  --border-strong: #cbd2dc;
 
-  /* --- text -------------------------------------------------------- */
-  --text: #14171c;
-  --text-2: #414954;
-  --text-3: #6b7482;
+  --text: #0f1419;
+  --text-2: #3b4450;
+  --text-3: #626c7a;
   --text-inverse: #ffffff;
 
-  /* --- accents ----------------------------------------------------- */
   --accent: #0873a8;
   --accent-hover: #065a84;
-  --accent-soft: rgba(8, 115, 168, 0.09);
-  --accent-line: rgba(8, 115, 168, 0.28);
-  --violet: #7527c4;
-  --violet-soft: rgba(117, 39, 196, 0.09);
-  --violet-line: rgba(117, 39, 196, 0.26);
+  --accent-soft: rgba(8, 115, 168, 0.08);
+  --accent-line: rgba(8, 115, 168, 0.26);
+  --violet: #6d28d9;
+  --violet-soft: rgba(109, 40, 217, 0.08);
+  --grad: linear-gradient(100deg, #0873a8 0%, #3f5bd4 48%, #7c3aed 100%);
+  --glow-a: rgba(8, 115, 168, 0.13);
+  --glow-b: rgba(124, 58, 237, 0.1);
 
-  /* --- semantic ---------------------------------------------------- */
-  --danger: #b3261e;
+  --ok: #0f7a4a;
   --warn: #8a5300;
-  --ok: #146c43;
+  --danger: #b3261e;
 
-  /* --- syntax (light) ---------------------------------------------- */
-  --sx-comment: #737d8c;
-  --sx-attribute: #7527c4;
-  --sx-string: #0b6b45;
-  --sx-hole: #8a5300;
-  --sx-number: #9a4a06;
-  --sx-boolean: #9a4a06;
-  --sx-type: #0b6383;
-  --sx-type-builtin: #0b6383;
-  --sx-constructor: #984000;
-  --sx-function: #1a4fbe;
-  --sx-keyword: #a01c86;
-  --sx-modifier: #7527c4;
-  --sx-param: #7a4e00;
-  --sx-variable: #262b33;
-  --sx-punct: #8b94a1;
-  --sx-error: #b3261e;
+  /* The benchmark's emphasis pair, validated against --surface. */
+  --bar-ax: #0873a8;
+  --bar-other: #8b95a1;
 
-  /* --- typography -------------------------------------------------- */
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
-    Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono',
-    Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
 
-  /* A 1.2 modular scale, rounded to whole/half pixels at small sizes. */
-  --t--2: 0.75rem;    /* 12px */
-  --t--1: 0.8125rem;  /* 13px */
-  --t-0: 0.9375rem;   /* 15px */
-  --t-1: 1.0625rem;   /* 17px */
-  --t-2: 1.25rem;     /* 20px */
-  --t-3: 1.5rem;      /* 24px */
-  --t-4: 1.875rem;    /* 30px */
-  --t-5: 2.375rem;    /* 38px */
-  --t-6: 3rem;        /* 48px */
-  --t-7: 3.75rem;     /* 60px */
+  --t--2: 0.75rem;
+  --t--1: 0.8125rem;
+  --t-0: 0.9375rem;
+  --t-1: 1.0625rem;
+  --t-2: 1.25rem;
+  --t-3: 1.5rem;
+  --t-4: 1.875rem;
 
-  --lh-tight: 1.15;
-  --lh-snug: 1.35;
-  --lh-prose: 1.65;
-  --lh-code: 1.6;
-
-  /* --- space (4px base) -------------------------------------------- */
   --s-1: 0.25rem;
   --s-2: 0.5rem;
   --s-3: 0.75rem;
@@ -95,105 +73,129 @@
   --s-7: 3rem;
   --s-8: 4rem;
   --s-9: 6rem;
-  --s-10: 8rem;
 
-  --radius-sm: 4px;
-  --radius: 8px;
-  --radius-lg: 12px;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
 
-  --shadow-sm: 0 1px 2px rgba(16, 20, 26, 0.06);
-  --shadow: 0 1px 3px rgba(16, 20, 26, 0.07), 0 8px 24px -12px rgba(16, 20, 26, 0.16);
+  --shadow-sm: 0 1px 2px rgba(15, 20, 25, 0.06);
+  --shadow: 0 1px 2px rgba(15, 20, 25, 0.05), 0 12px 32px -14px rgba(15, 20, 25, 0.22);
+  --shadow-lg: 0 2px 4px rgba(15, 20, 25, 0.05), 0 30px 70px -30px rgba(15, 20, 25, 0.4);
 
-  --measure: 68ch;
-  --page: 1140px;
-  --nav-h: 56px;
+  --page: 1200px;
+  --nav-h: 60px;
 }
 
-/* System preference: dark, unless the reader explicitly chose light. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
     color-scheme: dark;
 
-    --bg: #0a0c0f;
-    --bg-alt: #0d1015;
-    --surface: #101319;
-    --surface-2: #141821;
-    --surface-code: #0d1015;
-    --border: #1f242e;
-    --border-strong: #2c333f;
+    --bg: #07090d;
+    --bg-alt: #0b0e14;
+    --surface: #0f131a;
+    --surface-2: #141922;
+    --surface-3: #1a202a;
+    --border: #1d2430;
+    --border-strong: #2b3442;
 
-    --text: #e8ecf2;
-    --text-2: #b0b9c6;
-    --text-3: #7b8593;
-    --text-inverse: #06080a;
+    --text: #e9edf3;
+    --text-2: #b1bac7;
+    --text-3: #7f8998;
+    --text-inverse: #05070a;
 
     --accent: #4cc2f1;
     --accent-hover: #7ad4f7;
-    --accent-soft: rgba(76, 194, 241, 0.12);
-    --accent-line: rgba(76, 194, 241, 0.32);
-    --violet: #c08bfb;
-    --violet-soft: rgba(192, 139, 251, 0.12);
-    --violet-line: rgba(192, 139, 251, 0.3);
+    --accent-soft: rgba(76, 194, 241, 0.1);
+    --accent-line: rgba(76, 194, 241, 0.3);
+    --violet: #b794fb;
+    --violet-soft: rgba(183, 148, 251, 0.1);
+    --grad: linear-gradient(100deg, #4cc2f1 0%, #7f9cf8 50%, #c08bfb 100%);
+    --glow-a: rgba(76, 194, 241, 0.16);
+    --glow-b: rgba(192, 139, 251, 0.12);
 
-    --danger: #ff8a80;
-    --warn: #f0c26a;
     --ok: #6ee7a8;
+    --warn: #f0c26a;
+    --danger: #ff8a80;
 
-    --sx-comment: #6d7787;
-    --sx-attribute: #c08bfb;
-    --sx-string: #7fd6a8;
-    --sx-hole: #f0c26a;
-    --sx-number: #f2b880;
-    --sx-boolean: #f2b880;
-    --sx-type: #6fd1e8;
-    --sx-type-builtin: #6fd1e8;
-    --sx-constructor: #f5b17b;
-    --sx-function: #8ab6ff;
-    --sx-keyword: #f08ac9;
-    --sx-modifier: #c08bfb;
-    --sx-param: #e3cf9a;
-    --sx-variable: #dbe2ec;
-    --sx-punct: #6b7480;
-    --sx-error: #ff8a80;
+    --bar-ax: #1f9fd8;
+    --bar-other: #5c6675;
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 12px 32px -16px rgba(0, 0, 0, 0.8);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 14px 36px -16px rgba(0, 0, 0, 0.85);
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.5), 0 40px 90px -30px rgba(0, 0, 0, 0.9);
   }
 }
 
-/* Explicit choice: dark. Duplicated rather than shared so that the
-   toggle beats the media query in both directions. */
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #0a0c0f;
-  --bg-alt: #0d1015;
-  --surface: #101319;
-  --surface-2: #141821;
-  --surface-code: #0d1015;
-  --border: #1f242e;
-  --border-strong: #2c333f;
+  --bg: #07090d;
+  --bg-alt: #0b0e14;
+  --surface: #0f131a;
+  --surface-2: #141922;
+  --surface-3: #1a202a;
+  --border: #1d2430;
+  --border-strong: #2b3442;
 
-  --text: #e8ecf2;
-  --text-2: #b0b9c6;
-  --text-3: #7b8593;
-  --text-inverse: #06080a;
+  --text: #e9edf3;
+  --text-2: #b1bac7;
+  --text-3: #7f8998;
+  --text-inverse: #05070a;
 
   --accent: #4cc2f1;
   --accent-hover: #7ad4f7;
-  --accent-soft: rgba(76, 194, 241, 0.12);
-  --accent-line: rgba(76, 194, 241, 0.32);
-  --violet: #c08bfb;
-  --violet-soft: rgba(192, 139, 251, 0.12);
-  --violet-line: rgba(192, 139, 251, 0.3);
+  --accent-soft: rgba(76, 194, 241, 0.1);
+  --accent-line: rgba(76, 194, 241, 0.3);
+  --violet: #b794fb;
+  --violet-soft: rgba(183, 148, 251, 0.1);
+  --grad: linear-gradient(100deg, #4cc2f1 0%, #7f9cf8 50%, #c08bfb 100%);
+  --glow-a: rgba(76, 194, 241, 0.16);
+  --glow-b: rgba(192, 139, 251, 0.12);
 
-  --danger: #ff8a80;
-  --warn: #f0c26a;
   --ok: #6ee7a8;
+  --warn: #f0c26a;
+  --danger: #ff8a80;
+
+  --bar-ax: #1f9fd8;
+  --bar-other: #5c6675;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 14px 36px -16px rgba(0, 0, 0, 0.85);
+  --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.5), 0 40px 90px -30px rgba(0, 0, 0, 0.9);
+}
+
+/* ---------------------------------------------------------------- *
+ * Ink: the one palette code is drawn in, whatever the page theme.
+ * Anything inside inherits it, so a caret, a help line or a copy
+ * button inside a code window is dark-surface correct by construction.
+ * ---------------------------------------------------------------- */
+.ink {
+  color-scheme: dark;
+
+  --ink-bg: #0b0f15;
+  --ink-bar: #10151d;
+  --ink-raised: #151b25;
+  --ink-border: #1f2733;
+  --ink-line: rgba(255, 255, 255, 0.045);
+  --ink-mark: rgba(240, 194, 106, 0.1);
+  --ink-mark-edge: #f0c26a;
+
+  --text: #dde4ee;
+  --text-2: #aeb8c6;
+  --text-3: #6f7a8a;
+  --accent: #4cc2f1;
+  --accent-soft: rgba(76, 194, 241, 0.12);
+  --accent-line: rgba(76, 194, 241, 0.3);
+  --violet: #c08bfb;
+  --ok: #6ee7a8;
+  --warn: #f0c26a;
+  --danger: #ff8a80;
+  --border: var(--ink-border);
+  --border-strong: #2b3442;
 
   --sx-comment: #6d7787;
   --sx-attribute: #c08bfb;
-  --sx-string: #7fd6a8;
+  --sx-string: #86d9ae;
   --sx-hole: #f0c26a;
   --sx-number: #f2b880;
   --sx-boolean: #f2b880;
@@ -205,9 +207,8 @@
   --sx-modifier: #c08bfb;
   --sx-param: #e3cf9a;
   --sx-variable: #dbe2ec;
-  --sx-punct: #6b7480;
+  --sx-punct: #66707d;
   --sx-error: #ff8a80;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5), 0 12px 32px -16px rgba(0, 0, 0, 0.8);
+  color: var(--text);
 }

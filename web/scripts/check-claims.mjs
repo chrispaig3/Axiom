@@ -107,7 +107,35 @@ const CLAIMS = [
     },
     format: (n) => String(Number(n)),
   },
+  {
+    key: 'commands',
+    what: 'subcommands in `axiom --help`',
+    prose: /(\d[\d,]*)\s+subcommands\b/g,
+    // The COMMANDS block of the help text, which lives in one string in
+    // self_host/driver.ax, minus `help` itself: the page lists what
+    // there is to use, and `help` is how you find it.
+    derive: () => String(helpCommands().length),
+    format: (n) => String(Number(n)),
+  },
 ]
+
+/**
+ * `axiom --help`'s COMMANDS block, read from its source so this needs no
+ * built compiler: `[name, description]` per command, continuation lines
+ * joined, `help` dropped.
+ */
+function helpCommands() {
+  const src = readFileSync(new URL('../../self_host/driver.ax', import.meta.url), 'utf8')
+  const m = /COMMANDS:\\n([\s\S]*?)\\n\\n/.exec(src)
+  if (!m) throw new Error('check-claims: no COMMANDS block in self_host/driver.ax')
+  const out = []
+  for (const line of m[1].split('\\n')) {
+    const cmd = /^  ([a-z][a-z-]*)\s{2,}(.*)$/.exec(line)
+    if (cmd) out.push([cmd[1], cmd[2].trim()])
+    else if (out.length && /^\s{6,}\S/.test(line)) out[out.length - 1][1] += ` ${line.trim()}`
+  }
+  return out.filter(([name]) => name !== 'help')
+}
 
 // The site's figures, in the order STATS declares them.
 const src = readFileSync(new URL('../src/data/site.ts', import.meta.url), 'utf8')
@@ -194,6 +222,7 @@ for (const file of sections) {
 // regex that has quietly stopped matching reports success. Four
 // sentences carry a figure today (hero lines, explain codes, agents
 // codes, the LSP request count) plus the tree-sitter .ax count = 5.
+// The subcommand count joined them on the redesign; the floor stays 5.
 if (prose_seen < 5) {
   fail(
     `the prose sweep matched ${prose_seen} sentence(s) across ` +
@@ -204,10 +233,68 @@ if (prose_seen < 5) {
   console.log(`ok   ${prose_seen} prose repetitions of a figure, all matching`)
 }
 
+// THE LISTS, not only the counts. A count can agree while the list it
+// counts has swapped a member; these are checked name for name.
+const siteSrc = readFileSync(new URL('../src/data/site.ts', import.meta.url), 'utf8')
+const contentSrc = readFileSync(new URL('../src/data/content.ts', import.meta.url), 'utf8')
+
+// COMMANDS: exactly `axiom --help`, in order, with its words.
+{
+  const want = helpCommands()
+  const block = /export const COMMANDS[\s\S]*?\n\]/.exec(siteSrc)?.[0] ?? ''
+  const got = [...block.matchAll(/\{\s*name: '([^']+)',\s*desc:\s*(?:'((?:[^'\\]|\\.)*)'|"([^"]*)")/g)].map(
+    (m) => [m[1], (m[2] ?? m[3] ?? '').replace(/\\'/g, "'")],
+  )
+  const a = JSON.stringify(want)
+  const b = JSON.stringify(got)
+  if (a !== b) fail(`COMMANDS in site.ts is not axiom --help\n     help: ${a}\n     site: ${b}`)
+  else console.log(`ok   the ${got.length} subcommands on the page are axiom --help's, word for word`)
+}
+
+// TARGETS: exactly README's "Supported:" sentence, as a set.
+{
+  const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
+  // The sentence wraps in the README, so read it to its full stop.
+  const line = /^Supported: ([\s\S]*?)\./m.exec(readme)
+  const want = line ? [...line[1].matchAll(/`([a-z0-9_-]+)`/g)].map((m) => m[1]).sort() : []
+  const targets = /export const TARGETS[\s\S]*?\n\]/.exec(siteSrc)?.[0] ?? ''
+  const got = [...targets.matchAll(/name: '([^']+)'/g)].map((m) => m[1]).sort()
+  if (!want.length) fail("README.md has no 'Supported:' line; the targets check read nothing")
+  else if (JSON.stringify(want) !== JSON.stringify(got)) {
+    fail(`TARGETS in site.ts is not README's supported list\n     README: ${want.join(', ')}\n     site:   ${got.join(', ')}`)
+  } else console.log(`ok   the ${got.length} targets on the page are README's supported list`)
+}
+
+// STATUS: every row's feature and status are docs/status.md's, exactly.
+{
+  const status = readFileSync(new URL('../../docs/status.md', import.meta.url), 'utf8')
+  const table = new Map()
+  for (const row of status.split('\n')) {
+    const cells = row.split('|')
+    if (cells.length < 4 || !row.startsWith('| ')) continue
+    const bold = /^\s*\*\*(.*?)\*\*\s*$/.exec(cells[2] ?? '')
+    if (bold) table.set(cells[1].trim(), bold[1])
+  }
+  const rows = [...contentSrc.matchAll(/\{ feature: '((?:[^'\\]|\\.)*)', status: '((?:[^'\\]|\\.)*)'/g)]
+  let bad = 0
+  for (const [, feature, st] of rows) {
+    const have = table.get(feature)
+    if (have === undefined) {
+      fail(`status panel names '${feature}', which docs/status.md has no row for`)
+      bad++
+    } else if (have !== st) {
+      fail(`status panel says '${feature}' is '${st}'; docs/status.md says '${have}'`)
+      bad++
+    }
+  }
+  if (rows.length < 15) fail(`read only ${rows.length} status rows from content.ts; the parse broke`)
+  else if (!bad) console.log(`ok   all ${rows.length} status rows match docs/status.md word for word`)
+}
+
 if (failed) {
   console.log(
     `\n${failed} claim(s) no longer match the repository. Update src/data/site.ts` +
-      ' (and the sentence in Editors.tsx) rather than this checker.',
+      ' or src/data/content.ts rather than this checker.',
   )
   process.exit(1)
 }

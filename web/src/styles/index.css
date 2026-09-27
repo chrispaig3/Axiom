@@ -1,8 +1,4 @@
 @import './tokens.css';
 @import './base.css';
-@import './app.css';
+@import './components.css';
 @import './sections.css';
-@import './responsive.css';
-@import './editor.css';
-@import './narrow.css';
-@import './design.css';

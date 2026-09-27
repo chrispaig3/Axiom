@@ -40,6 +40,7 @@ writeFileSync(
   entry,
   `import { renderToString } from 'react-dom/server'
 import App from './src/App.tsx'
+export { FAQS } from './src/data/content.ts'
 export const html = renderToString(<App />)
 `,
 )
@@ -69,7 +70,7 @@ const realWarn = console.warn
 console.error = (...a) => warnings.push(a.join(' '))
 console.warn = (...a) => warnings.push(a.join(' '))
 
-const { html } = await import(pathToFileURL(out).href)
+const { html, FAQS } = await import(pathToFileURL(out).href)
 
 console.error = realError
 console.warn = realWarn
@@ -110,5 +111,26 @@ if (failed) {
   process.exit(1)
 }
 
-writeFileSync(page, doc.replace(MOUNT, `<div id="root">${html}</div>`))
+// The FAQ as FAQPage structured data, from the same list the page
+// renders, so the two cannot disagree. Backticks are the content's one
+// piece of markup; a search result shows plain text, so they go.
+const plain = (s) => s.replace(/`/g, '')
+const faqLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQS.map((f) => ({
+    '@type': 'Question',
+    name: plain(f.q),
+    acceptedAnswer: { '@type': 'Answer', text: f.a.map(plain).join(' ') },
+  })),
+}
+if (!FAQS.length) fail('no FAQ entries were exported; the FAQPage data would be empty')
+const ld = `<script type="application/ld+json">${JSON.stringify(faqLd).replace(/</g, '\\u003c')}</script>`
+if (!doc.includes('</head>')) fail('dist/index.html has no </head> to put the FAQ data before')
+if (failed) process.exit(1)
+
+writeFileSync(
+  page,
+  doc.replace('</head>', `    ${ld}\n  </head>`).replace(MOUNT, `<div id="root">${html}</div>`),
+)
 console.log(`ok   prerendered ${html.length.toLocaleString('en-US')} bytes of markup into dist/index.html`)

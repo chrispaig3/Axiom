@@ -3,7 +3,7 @@
  * so a wrong role is visible without a browser. Trivia is elided.
  *
  *   node scripts/tokens.mjs           # all samples
- *   node scripts/tokens.mjs shapes    # one, by id
+ *   node scripts/tokens.mjs shapes    # one, by id (the hero, or a tour chapter)
  */
 import { build } from 'esbuild'
 import { rmSync, writeFileSync } from 'node:fs'
@@ -16,7 +16,7 @@ const out = join(process.cwd(), '.tok-bundle.mjs')
 writeFileSync(
   entry,
   `export { highlight } from './src/lib/highlight.ts'
-export { SAMPLES, HERO } from './src/data/samples.ts'
+export { TOUR, HERO } from './src/data/samples.ts'
 `,
 )
 
@@ -32,7 +32,7 @@ await build({
   absWorkingDir: process.cwd(),
 })
 
-const { highlight, SAMPLES, HERO } = await import(
+const { highlight, TOUR, HERO } = await import(
   pathToFileURL(out).href
 )
 rmSync(entry, { force: true })
@@ -41,7 +41,7 @@ rmSync(out, { force: true })
 const only = process.argv[2]
 const all = [
   [HERO.id, HERO.code],
-  ...SAMPLES.map((s) => [s.id, s.code]),
+  ...TOUR.map((s) => [s.id, s.code]),
 ]
 
 for (const [id, code] of all) {

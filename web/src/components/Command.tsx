@@ -20,7 +20,7 @@ export function Command({ command }: { command: string }) {
   }, [command])
 
   return (
-    <div className="command">
+    <div className="command ink">
       <div className="command__text">
         <span className="command__prompt" aria-hidden>
           $

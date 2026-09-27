@@ -3,6 +3,7 @@ import { createRoot, hydrateRoot } from 'react-dom/client'
 import App from './App.tsx'
 import './styles/index.css'
 import { installOverflowProbe } from './lib/overflow.ts'
+import { installReveal } from './lib/reveal.ts'
 
 // No-op unless the URL carries `?debug=overflow`.
 installOverflowProbe()
@@ -22,3 +23,6 @@ const tree = (
 // there, or render from nothing.
 if (root.firstChild) hydrateRoot(root, tree)
 else createRoot(root).render(tree)
+
+// After the first paint, so the prerendered page is never hidden.
+requestAnimationFrame(() => installReveal())

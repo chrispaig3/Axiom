@@ -1,30 +1,73 @@
-import { REPO, VERSION } from '../data/site.ts'
+import { asset } from '../lib/asset.ts'
+import { BLOB, DOCS, RELEASES, REPO, VERSION } from '../data/site.ts'
 
-const LINKS = [
-  ['GitHub', REPO],
-  ['Reference', `${REPO}/blob/trunk/docs/reference.md`],
-  ['Changelog', `${REPO}/blob/trunk/CHANGELOG.md`],
-  ['Releases', `${REPO}/releases`],
-  ['Issues', `${REPO}/issues`],
+const COLUMNS: { title: string; links: [string, string][] }[] = [
+  {
+    title: 'Learn',
+    links: [
+      ['Tour', '#tour'],
+      ['Language reference', `${DOCS}/reference.md`],
+      ['Standard library', `${DOCS}/stdlib-api.md`],
+      ['Examples', `${BLOB}/examples/README.md`],
+    ],
+  },
+  {
+    title: 'Specifications',
+    links: [
+      ['Memory model', `${DOCS}/memory-model.md`],
+      ['Error model', `${DOCS}/error-model.md`],
+      ['Diagnostics', `${DOCS}/diagnostics.md`],
+      ['Status', `${DOCS}/status.md`],
+    ],
+  },
+  {
+    title: 'Project',
+    links: [
+      ['GitHub', REPO],
+      ['Releases', RELEASES],
+      ['Changelog', `${BLOB}/CHANGELOG.md`],
+      ['Contributing', `${BLOB}/CONTRIBUTING.md`],
+      ['Security', `${BLOB}/SECURITY.md`],
+      ['Issues', `${REPO}/issues`],
+    ],
+  },
 ]
 
 export function Footer() {
   return (
-    <footer className="site-footer">
-      <div className="container site-footer__inner">
-        <p>
-          Axiom {VERSION} · MIT · © 2026 Chris Paige
-          <br />
-          Code on this page is coloured by a highlighter that follows the
-          language's own tree-sitter queries, capture for capture.
-        </p>
-        <nav aria-label="Elsewhere">
-          {LINKS.map(([label, href]) => (
-            <a key={label} href={href} target="_blank" rel="noreferrer noopener">
-              {label}
-            </a>
-          ))}
-        </nav>
+    <footer className="footer">
+      <div className="container footer__inner">
+        <div className="footer__brand">
+          <a className="brand" href="#top">
+            <img className="brand__mark" src={asset('axiom-mark.png')} alt="" width={26} height={24} />
+            <span className="brand__word">Axiom</span>
+          </a>
+          <p>Functional programming that ships a binary, not a runtime.</p>
+          <p className="footer__fine">
+            Axiom {VERSION} · MIT licensed · © 2026 Chris Paige
+            <br />
+            Code on this page is coloured by a highlighter that follows the language's own
+            tree-sitter queries, capture for capture.
+          </p>
+        </div>
+        {COLUMNS.map((c) => (
+          <nav className="footer__col" key={c.title} aria-label={c.title}>
+            <h2>{c.title}</h2>
+            <ul>
+              {c.links.map(([label, href]) => (
+                <li key={label}>
+                  {href.startsWith('#') ? (
+                    <a href={href}>{label}</a>
+                  ) : (
+                    <a href={href} target="_blank" rel="noreferrer noopener">
+                      {label}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
       </div>
     </footer>
   )

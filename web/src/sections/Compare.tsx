@@ -1,141 +1,64 @@
+import { COMPARE } from '../data/content.ts'
 import { DOCS } from '../data/site.ts'
-import type { ReactNode } from 'react'
+import { SectionHead } from '../components/SectionHead.tsx'
+import { inline } from '../lib/inline.tsx'
 
 /**
- * A design comparison, not a benchmark.
- *
- * Every Axiom cell is sourced: the runtime row is `docs/memory-model.md`
- * MM-ALLOC-1/2 (gated by `scripts/check-freestanding.sh`); the effects
- * row is `docs/reference.md` (Effects) and `docs/diagnostics.md`
- * (AX3010/AX3049); the syntax row is `docs/macro-system.md`; the
- * tooling row is `docs/diagnostics.md` (AXDL/AXSYM/NID); the build row
- * is `docs/reference.md` (Packages).
- *
- * The other columns are restricted to facts that are not in dispute —
- * that Go and GHC ship a garbage collector and a runtime, that a Rust
- * binary using `std` links libc, that neither Rust nor Go tracks
- * effects. Nothing here scores anybody.
+ * A design comparison, not a benchmark. The Axiom column is sourced in
+ * `content.ts`; the others are restricted to facts nobody disputes, and
+ * nothing here scores anybody. On a narrow screen each row becomes a
+ * card rather than a table scrolled sideways, because the Axiom cell is
+ * the one that needs room.
  */
-interface Row {
-  k: string
-  axiom: ReactNode
-  rust: string
-  go: string
-  haskell: string
-}
-
-const ROWS: Row[] = [
-  {
-    k: 'How memory is managed',
-    axiom: (
-      <>
-        <strong>A bump allocator over <code>mmap</code></strong>, with explicit
-        arena reclamation where peak memory matters. No tracing collector, and no
-        borrow checker to satisfy.
-      </>
-    ),
-    rust: 'ownership and borrowing',
-    go: 'tracing GC',
-    haskell: 'tracing GC',
-  },
-  {
-    k: 'Whether effects are tracked',
-    axiom: (
-      <>
-        <strong>Inferred per function, and checkable from source.</strong>{' '}
-        <code>;@axiom:effect(io)</code> above a declaration is a claim the
-        compiler tests against what the body actually reaches — and a false one
-        is an error.
-      </>
-    ),
-    rust: 'not tracked',
-    go: 'not tracked',
-    haskell: 'tracked, written by hand',
-  },
-  {
-    k: 'What a macro operates on',
-    axiom: (
-      <>
-        <strong>The program tree itself</strong>, because the syntax is already a
-        tree. Expansion runs before the type checker, so everything a macro
-        generates is checked like anything else.
-      </>
-    ),
-    rust: 'token streams',
-    go: 'no macros',
-    haskell: 'Template Haskell',
-  },
-  {
-    k: 'What it takes to build and run',
-    axiom: (
-      <>
-        <strong>
-          <code>axiom run f.ax</code>
-        </strong>
-        . One step, one binary, no build file. A dependency is a path on your
-        machine — there is no registry to configure and no lockfile to resolve.
-      </>
-    ),
-    rust: 'cargo and crates.io',
-    go: 'go build and modules',
-    haskell: 'cabal or stack',
-  },
-]
-
 export function Compare() {
   return (
     <section className="section" id="compare" aria-labelledby="compare-h">
       <div className="container">
-        <div className="lede-block">
-          <span className="index">04</span>
-          <h2 id="compare-h">
-            Four decisions that set it apart.
-          </h2>
+        <SectionHead id="compare-h" eyebrow="How it compares" title="Five decisions that set it apart.">
           <p>
-            Design, not benchmarks — the numbers are one section up. Every Axiom
-            cell here is held by something in the repository; the other columns
-            are restricted to facts nobody disputes.
+            Design, not benchmarks: the numbers are one section up. Every Axiom cell is held by
+            something in the repository; the other columns stick to facts nobody disputes.
           </p>
-        </div>
+        </SectionHead>
 
-        <div className="matrix">
-          {ROWS.map((r) => (
-            <article className="matrix__row" key={r.k}>
-              <h3 className="matrix__k">{r.k}</h3>
-              <p className="matrix__ax">{r.axiom}</p>
-              <ul className="matrix__others">
-                <li>
-                  <span>Rust</span>
-                  {r.rust}
-                </li>
-                <li>
-                  <span>Go</span>
-                  {r.go}
-                </li>
-                <li>
-                  <span>Haskell</span>
-                  {r.haskell}
-                </li>
-              </ul>
-            </article>
+        <div className="compare" role="table" aria-label="Axiom compared with Rust, Go and Haskell">
+          <div className="compare__row compare__row--head" role="row">
+            <span role="columnheader" />
+            <span role="columnheader" className="compare__ax">
+              Axiom
+            </span>
+            <span role="columnheader">Rust</span>
+            <span role="columnheader">Go</span>
+            <span role="columnheader">Haskell</span>
+          </div>
+          {COMPARE.map((r) => (
+            <div className="compare__row" role="row" key={r.k}>
+              <span role="rowheader" className="compare__k">
+                {r.k}
+              </span>
+              <span role="cell" className="compare__ax" data-label="Axiom">
+                {inline(r.axiom)}
+              </span>
+              <span role="cell" data-label="Rust">
+                {r.rust}
+              </span>
+              <span role="cell" data-label="Go">
+                {r.go}
+              </span>
+              <span role="cell" data-label="Haskell">
+                {r.haskell}
+              </span>
+            </div>
           ))}
         </div>
 
-        <div className="closing">
-          <p>
-            Axiom is <code>0.x</code>. The feature-by-feature status table — what
-            is complete, what is partial, what was removed, each with the test
-            that holds it — is{' '}
-            <a
-              href={`${DOCS}/status.md#implementation-status`}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              in docs/status.md
-            </a>
-            , and nothing on this page is a promise that table does not make.
-          </p>
-        </div>
+        <p className="aside">
+          Axiom is <code>0.x</code>, and nothing on this page is a promise the{' '}
+          <a href={`${DOCS}/status.md#implementation-status`} target="_blank" rel="noreferrer noopener">
+            status table
+          </a>{' '}
+          does not make. The honest summary is <a href="#status">further down</a>.
+        </p>
       </div>
     </section>
   )

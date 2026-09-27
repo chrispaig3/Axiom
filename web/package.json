@@ -9,7 +9,8 @@
     "build": "node scripts/check-claims.mjs && tsc -b && vite build && node scripts/prerender.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "check": "node scripts/check-claims.mjs && node scripts/smoke.mjs"
+    "check": "node scripts/check-claims.mjs && node scripts/smoke.mjs",
+    "check:samples": "node scripts/check-samples.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
