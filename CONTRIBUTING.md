@@ -196,15 +196,15 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-27, `axiom fmt --check` over every one of the 720 `.ax` files
-in the repository answers `is already formatted` for 689 of them and
-`needs formatting` for 31. Four are deliberate and are named here:
+2026-09-27, `axiom fmt --check` over every one of the 722 `.ax` files
+in the repository answers `is already formatted` for 685 of them and
+`needs formatting` for 37. Four are deliberate and are named here:
 `tests/fmt/syntax-zoo.ax` and `tests/diagnostics/940-long-line.ax`,
 whose text is the fixture; `examples/batch-fallible/batch-fallible.ax`,
 a program that stays as it is until someone edits it; and
 `tests/diagnostics/654-macro-hygiene-suggestion.ax`, which arrived
 needing formatting with the binder-rendering change and stays that
-way because its spans are pinned. The other 27 are ordinary drift —
+way because its spans are pinned. The other 33 are ordinary drift —
 files that arrived or changed without a fmt pass — and that same sweep
 is what names them. No gate does: `check-fmt.sh` formats a COPY
 of the tree, so it fails when formatting changes MEANING, not when a
