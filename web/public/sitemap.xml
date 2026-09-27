@@ -3,6 +3,9 @@
   One page, one entry. The site is a single document with in-page
   anchors; a fragment is not a separate URL and listing fragments here
   would claim pages that do not exist.
+
+  No <lastmod> here: scripts/prerender.mjs stamps it into dist/ from the
+  last commit that touched web/, and refuses one written by hand.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>

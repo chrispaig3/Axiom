@@ -28,6 +28,8 @@
  * Runs AFTER `vite build`, on the file Vite has just written.
  */
 import { build } from 'esbuild'
+import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -127,10 +129,56 @@ const faqLd = {
 if (!FAQS.length) fail('no FAQ entries were exported; the FAQPage data would be empty')
 const ld = `<script type="application/ld+json">${JSON.stringify(faqLd).replace(/</g, '\\u003c')}</script>`
 if (!doc.includes('</head>')) fail('dist/index.html has no </head> to put the FAQ data before')
+
+// THE SOCIAL CARD'S URL CARRIES ITS CONTENT. A link preview is fetched
+// once and cached by URL - by the platform, and again by its image
+// proxy - so a new og.png served at the old address can go on showing
+// the old card to whoever the link is sent to. (On 2026-09-27 the card
+// itself was stale: it showed the design the CRT redesign replaced,
+// because nothing ties og.png to the page.) The two image tags
+// get `?v=` and the first 12 hex of the card's SHA-256, so a changed
+// card is a new URL and an unchanged one keeps its cache.
+const CARD_URL = 'https://chrispaig3.github.io/Axiom/og.png'
+const cardKey = createHash('sha256')
+  .update(readFileSync(join(process.cwd(), 'dist', 'og.png')))
+  .digest('hex')
+  .slice(0, 12)
+const cardTags = doc.split(`content="${CARD_URL}"`).length - 1
+if (cardTags !== 2) {
+  fail(`index.html names ${CARD_URL} ${cardTags} time(s); og:image and twitter:image are 2`)
+}
+
+// THE SITEMAP'S <lastmod> IS STAMPED, NEVER TYPED. It is the date of
+// the last commit that touched web/ - in the Pages build, a one-commit
+// checkout, that is the pushed commit, and Pages builds only when web/
+// moves. A hand-written date would be right for one deploy and wrong
+// for every one after, so a <lastmod> in public/sitemap.xml fails.
+const sitemap = join(process.cwd(), 'dist', 'sitemap.xml')
+const git = (args) => {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch {
+    return ''
+  }
+}
+const lastmod =
+  [git(['log', '-1', '--format=%cs', '--', '.']), git(['log', '-1', '--format=%cs'])].find((d) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(d),
+  ) ?? new Date().toISOString().slice(0, 10)
+const sm = readFileSync(sitemap, 'utf8')
+const markup = sm.replace(/<!--[\s\S]*?-->/g, '') // the file's comment names the element
+const locs = markup.split('</loc>').length - 1
+if (locs !== 1) fail(`dist/sitemap.xml has ${locs} <loc> entries; the site is one page`)
+if (markup.includes('<lastmod>')) fail('public/sitemap.xml carries a hand-written <lastmod>; the build stamps it')
 if (failed) process.exit(1)
 
 writeFileSync(
   page,
-  doc.replace('</head>', `    ${ld}\n  </head>`).replace(MOUNT, `<div id="root">${html}</div>`),
+  doc
+    .replace('</head>', `    ${ld}\n  </head>`)
+    .replace(MOUNT, `<div id="root">${html}</div>`)
+    .replaceAll(`content="${CARD_URL}"`, `content="${CARD_URL}?v=${cardKey}"`),
 )
+writeFileSync(sitemap, sm.replace('</loc>', `</loc>\n    <lastmod>${lastmod}</lastmod>`))
 console.log(`ok   prerendered ${html.length.toLocaleString('en-US')} bytes of markup into dist/index.html`)
+console.log(`ok   social card at og.png?v=${cardKey}; sitemap <lastmod> ${lastmod}`)
