@@ -140,7 +140,7 @@ See [reference.md](reference.md) for the language, and
 | `ffiCellNew` | value | `Int` | `Alloc,Unsafe` | A two-word out-cell, zeroed, held by one share the wrapper gives back with `ffiCellFree`. |
 | `ffiCellNewN` | value | `(-> Int Int)` | `Alloc,Unsafe` | An out-cell of `n` words (at least two: a status' message is `{ptr, len}`), for a record that crosses as its fields (one word each, in declaration order) or any payload wider than two words. |
 | `ffiWordAt` | value | `(-> Int Int Int)` | `Unsafe` | Word `i` of a Rust-owned word buffer: what a generated wrapper reads a record's fields or a list's lengths through before freeing it. The same read as `ffiCellWord`, kept under its own name because the two describe different things to a reader of the generated module - one is Rust's buffer, one is the cell the wrapper allocated - and written in terms of it so there is one load. |
-| `ffiCellFree` | value | `(-> Int Int)` |  |  |
+| `ffiCellFree` | value | `(-> Int Int)` | `Unsafe` |  |
 | `ffiCellWord` | value | `(-> Int Int Int)` | `Unsafe` |  |
 | `ffiBytesToStr` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | Rust-owned bytes copied into a fresh Axiom `String`. `strAlloc` reserves len+1 and zeroes it, so the NUL terminator is already there. Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after. |
 | `ffiWordsToVec` | value | `(-> Int Int (Vec Int))` | `Alloc,Mut,Unsafe` | A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n` words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`. |
@@ -240,7 +240,7 @@ See [reference.md](reference.md) for the language, and
 | `internSlotOf` | value | `(-> String Int Int)` | `Unsafe` | The slot `s` probes first, in [0, cap). |
 | `internNew` | value | `Int` | `Alloc,Mut,Unsafe` | `internDefaultCap` is a *slot* count, so it is passed straight to `internAllocTable` and not through `internWithCapacity`, which takes a *string* count and doubles it. Routing it through the latter would make a fresh interner 128 slots while its own documentation said 64. |
 | `internWithCapacity` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` | An interner sized so `want` distinct strings fit without rehashing. |
-| `internFree` | value | `(-> Int Int)` |  | Hand `it` back: the slot table, the `Vec`, and one share of every string in it. Answers 0, as `Vec.vecFree` and `Map.mapFree` do. |
+| `internFree` | value | `(-> Int Int)` | `Unsafe` | Hand `it` back: the slot table, the `Vec`, and one share of every string in it. Answers 0, as `Vec.vecFree` and `Map.mapFree` do. |
 | `internCap` | value | `(-> Int Int)` | `Unsafe` |  |
 | `internCount` | value | `(-> Int Int)` | `Unsafe` | How many distinct strings have been interned. Ids are exactly 0..internCount-1, with no gaps - that is what "dense" means here, and it is what lets a caller size a side table by `internCount` and index it by id. |
 | `internLookup` | value | `(-> Int Int String)` | `Alloc,Mut,Unsafe` | The string with id `id`, or an empty `Str` if `id` was never handed out. |
@@ -289,7 +289,7 @@ See [reference.md](reference.md) for the language, and
 | `mapWithCapacity` | value | `(-> Int Map)` | `Alloc,Mut,Unsafe` | An empty `Map` sized so that `want` entries fit without rehashing. |
 | `mapWithCapacityRefVals` | value | `(-> Int Map)` | `Alloc,Mut,Unsafe` | `mapWithCapacity`'s owning twin. See `mapNewRefVals`. |
 | `mapRoundUpPow2` | value | `(-> Int Int)` |  | `n` rounded up to a power of two, at least `mapDefaultCap`. |
-| `mapFree` | value | `(-> Map Int)` |  | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. |
+| `mapFree` | value | `(-> Map Int)` | `Unsafe` | Hand `m` back: the three arrays go with it, and on a `mapNewRefVals` table so does one share of every value still in it. Answers 0, as `Vec.vecFree` does and for the same reason. |
 | `mapLen` | value | `(-> Map Int)` |  |  |
 | `mapCap` | value | `(-> Map Int)` |  |  |
 | `mapUsed` | value | `(-> Map Int)` |  | Slots that are live or tombstoned. Exposed because it is the number that explains a rehash, and a test that could not see it would have to infer growth from timing. |
@@ -666,7 +666,7 @@ See [reference.md](reference.md) for the language, and
 | `ledRingNew` | value | `(Vec String)` | `Alloc,Mut,Unsafe` | The kill ring, created once per session and outliving every line. |
 | `ledNew` | value | `(-> (Vec String) String LineEd)` | `Alloc,Mut,Unsafe` | One editor over a session's ring, with the caller's word set. The gap vectors are `vecNew` (leaf) because their elements are CODE POINTS: Vec.ax's comment says a leaf block is exactly right for Ints and costs nothing. |
 | `ledReset` | value | `(-> LineEd String Int Int Int)` | `Mut,Unsafe` | Prepare for the next physical line. Keeps both vectors' capacity. |
-| `ledFree` | value | `(-> LineEd Int)` |  | Hand the two gap vectors back. For session end and for a test harness, which builds hundreds; see the struct's comment for why nothing else needs it. |
+| `ledFree` | value | `(-> LineEd Int)` | `Unsafe` | Hand the two gap vectors back. For session end and for a test harness, which builds hundreds; see the struct's comment for why nothing else needs it. |
 | `ledLen` | value | `(-> LineEd Int)` | `Unsafe` |  |
 | `ledCursor` | value | `(-> LineEd Int)` | `Unsafe` | The cursor, as a code-point index. It IS `(vecLen left)`. |
 | `ledCpAt` | value | `(-> LineEd Int Int)` | `Unsafe` | Code point `i` of the logical buffer, or 0 out of range. |
@@ -822,7 +822,7 @@ See [reference.md](reference.md) for the language, and
 | `vecWithCapacity` | value | `(-> Int (Vec a))` | `Alloc,Mut,Unsafe` | An empty `Vec` that can hold at least `cap` elements without growing. |
 | `vecWithCapacityRef` | value | `(-> Int (Vec a))` | `Alloc,Mut,Unsafe` | The same, with an ARRAY-FORM data block: every element is a handle this vector owns a share of. See the module comment. |
 | `vecNewRef` | value | `(Vec a)` | `Alloc,Mut,Unsafe` | An empty `Vec` with `vecDefaultCap` capacity, owning its elements. |
-| `vecFree` | value | `(-> (Vec a) Int)` |  | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. |
+| `vecFree` | value | `(-> (Vec a) Int)` | `Unsafe` | Hand `v` back. Its data block goes with it - the header's reference map names word 2 - and, for a `vecNewRef` vector, so does one share of every element. |
 | `vecOwnsRefs` | value | `(-> (Vec a) Bool)` | `Unsafe` | Whether this vector owns a share of every element it holds - the `vecNewRef` half of the module comment. It is word 3 of the header and not a test of the data block's shape word: see `vecBuild`. |
 | `vecLen` | value | `(-> (Vec a) Int)` | `Unsafe` |  |
 | `vecCap` | value | `(-> (Vec a) Int)` | `Unsafe` |  |

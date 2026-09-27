@@ -48,6 +48,7 @@ SGR_LIST self_host/style.ax no-io,no-alloc,no-foreign ok
 SGR_SEC self_host/style.ax no-io,no-alloc,no-foreign ok
 SGR_TITLE self_host/style.ax no-io,no-alloc,no-foreign ok
 SGR_WARN self_host/style.ax no-io,no-alloc,no-foreign ok
+adds tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 allocates tests/diagnostics/371-restrict-no-io.ax no-io ok
 badEscapeIn self_host/lexer.ax no-io,no-alloc,no-foreign ok
 bareOf self_host/core.ax no-io,no-foreign ok
@@ -55,6 +56,7 @@ bareOfFrom self_host/core.ax no-io,no-foreign ok
 bothWays tests/diagnostics/391-restrict-effect-transparent.ax no-io violated
 bridges tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 builds tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
+calls tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 casts tests/diagnostics/375-restrict-unverifiable.ax no-cast violated
 catStrs self_host/diag.ax no-io,no-foreign ok
 charsToIx self_host/diag.ax no-io,no-alloc,no-foreign ok
@@ -123,6 +125,7 @@ divides tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
 emitToken self_host/lexer.ax no-io,no-foreign ok
 entry tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
+fenced tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
 fhalf tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
 findNewline self_host/lexer.ax no-io,no-alloc,no-foreign ok
 floats tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
@@ -235,6 +238,7 @@ isIdentStart self_host/lexer.ax no-io,no-alloc,no-foreign ok
 isSpace self_host/lexer.ax no-io,no-alloc,no-foreign ok
 iterates tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
 ixLineK self_host/diag.ax no-io,no-alloc,no-foreign ok
+keeps tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 keyCsiEnd stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
 keyCsiMax stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
 keyCsiParam stdlib/Tui/Keys.ax no-io,no-alloc,no-foreign ok
@@ -326,11 +330,13 @@ lineOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartOf self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartOfIx self_host/diag.ax no-io,no-alloc,no-foreign ok
 lineStartScan self_host/diag.ax no-io,no-alloc,no-foreign ok
+loads tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 local tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 lookup tests/stdlib/468-region-signatures.ax no-escape ok
 loopBody tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 looped tests/diagnostics/379-restrict-no-recursion.ax no-recursion ok
 loud tests/diagnostics/392-macro-template-first-tag.ax no-io violated
+marked tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
 measures tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 memAlloc stdlib/Mem.ax no-io,no-foreign ok
 memAllocMapped stdlib/Mem.ax no-io,no-foreign ok
@@ -388,6 +394,7 @@ quoteUesc self_host/diag.ax no-io,no-foreign ok
 reads tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 reads tests/diagnostics/649-restrict-no-escape.ax no-escape ok
 refuted tests/diagnostics/393-restrict-strict.ax no-io,strict violated
+releases tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 renderDiag self_host/diag.ax no-io,no-foreign ok
 renderDiagIx self_host/diag.ax no-io,no-foreign ok
 renderDiagsUnits self_host/diag.ax no-io,no-foreign ok
@@ -403,6 +410,8 @@ replIsHistDown self_host/repl.ax no-io,no-alloc,no-foreign ok
 replIsHistUp self_host/repl.ax no-io,no-alloc,no-foreign ok
 restrictedTwice tests/fmt/syntax-zoo.ax no-io,no-cast ok
 restrictedTwice tests/fmt/syntax-zoo.expected.ax no-io,no-cast ok
+retains tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
+rewinds tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 scaled tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 scanAxtags self_host/lexer.ax no-io,no-foreign ok
 scanStringEnd self_host/lexer.ax no-io,no-alloc,no-foreign ok
@@ -430,6 +439,7 @@ stepCharToken self_host/lexer.ax no-io,no-foreign ok
 stepIdentToken self_host/lexer.ax no-io,no-foreign ok
 stepNumberFrom self_host/lexer.ax no-io,no-foreign ok
 stepToken self_host/lexer.ax no-io,no-foreign ok
+stores tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 stores tests/diagnostics/649-restrict-no-escape.ax no-escape violated
 strAlloc stdlib/Str.ax no-io,no-foreign ok
 strByte stdlib/Str.ax no-io,no-alloc,no-foreign ok
@@ -467,6 +477,7 @@ strWrapOwned stdlib/Str.ax no-io,no-foreign ok
 strictOnly tests/diagnostics/393-restrict-strict.ax strict ok
 sumTo tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 sums tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
+swaps tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 tag tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 termBufBytes stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
 termWsCols stdlib/Tui/Term.ax no-io,no-alloc,no-foreign ok
@@ -479,6 +490,7 @@ topStrict tests/diagnostics/650-region-fixpoint-cap.ax no-escape,strict violated
 tuiCat stdlib/Tui/Edit.ax no-io,no-foreign ok
 tuiVisLen stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
 twice tests/diagnostics/376-restrict-unknown-name.ax no-io,no-io ok
+typed tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
 unescByte self_host/core.ax no-io,no-alloc,no-foreign ok
 unitIndexes self_host/diag.ax no-io,no-foreign ok
 utf8CharAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
