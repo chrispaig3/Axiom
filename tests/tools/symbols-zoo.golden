@@ -218,6 +218,11 @@ F tiosIcrnl stdlib/Sys/Platform.darwin.ax:927:9-18 "Int" @17a01ebc5d026842
 F tiosIstrip stdlib/Sys/Platform.darwin.ax:931:9-19 "Int" @60570a6831aba481
 F tiosIxon stdlib/Sys/Platform.darwin.ax:935:9-17 "Int" @187fe9a6373cf8d2
 F tiosOpost stdlib/Sys/Platform.darwin.ax:948:9-18 "Int" @4880ccf70baf4fc5
+F sysOpenatNum stdlib/Sys/Platform.darwin.ax:957:9-21 "Int" @5423791dcf40fffb
+F sysSymlinkNum stdlib/Sys/Platform.darwin.ax:962:9-22 "Int" @a1658f19134fc529
+F oNoFollow stdlib/Sys/Platform.darwin.ax:967:9-18 "Int" @7f419e2abda0741e
+F oDirectory stdlib/Sys/Platform.darwin.ax:972:9-19 "Int" @0352f03f7f9fdad7
+F eXdev stdlib/Sys/Platform.darwin.ax:979:9-14 "Int" @29287ef0ba89a22d
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure

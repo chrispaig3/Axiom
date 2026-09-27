@@ -208,11 +208,13 @@ hlSpanStart self_host/replhl.ax no-io,no-alloc,no-foreign ok
 honest tests/diagnostics/373-restrict-no-cast.ax no-cast ok
 honest tests/diagnostics/383-restrict-no-wrap.ax no-wrap ok
 honest tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
+httpAllDigits stdlib/Http.ax no-io,no-alloc,no-foreign ok
 httpAvail stdlib/Http.ax no-io,no-alloc,no-foreign ok
 httpContentType stdlib/Http.ax no-io,no-foreign ok
 httpEscapeAt stdlib/Http.ax no-io,no-alloc,no-foreign ok
 httpHead stdlib/Http.ax no-io,no-foreign ok
 httpHexPair stdlib/Http.ax no-io,no-alloc,no-foreign ok
+httpIsTchar stdlib/Http.ax no-io,no-alloc,no-foreign ok
 httpJoin stdlib/Http.ax no-io,no-foreign ok
 httpMaxBody stdlib/Http.ax no-io,no-alloc,no-foreign ok
 httpMaxHead stdlib/Http.ax no-io,no-alloc,no-foreign ok

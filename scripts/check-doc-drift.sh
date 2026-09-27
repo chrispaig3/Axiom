@@ -674,7 +674,13 @@ for root, dirs, files in os.walk("."):
         # is that a file naming one must also carry its retrieval.
         retrievable = set(re.findall(
             r"git show [0-9a-f]{7,40}\^?:(docs/[\w./-]+\.md)", text))
-        for d in re.findall(r"docs/[\w./-]+\.md(?![\w])", text):
+        # Anchored paths are not repo-relative references. `$1/docs/`
+        # in `check-install.sh` is a scratch install prefix whose victim
+        # file is created at runtime, and `../docs/` is a markdown link
+        # the target loop below resolves - while `$repo_root/docs/` IS
+        # this tree, and stays checked. So a bare `docs/` match must not
+        # sit mid-path unless that path is the repository root.
+        for d in re.findall(r"(?:(?<=\$repo_root/)|(?<![\w$/\-.]))docs/[\w./-]+\.md(?![\w])", text):
             if d in retrievable:
                 continue
             doc_named.setdefault(d, []).append(path)
