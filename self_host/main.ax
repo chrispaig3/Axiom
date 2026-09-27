@@ -485,12 +485,12 @@
                             bares
                             fulls
                             mods
-                            ; Scope verification rides an environment
-                            ; variable rather than a flag (no driver
-                            ; plumbing, no `--help` honesty to keep):
-                            ; `AXIOM_VERIFY_SCOPES=1` runs the MAC-HYG-9
-                            ; equivalence check over every expansion.
                             (if (strEq (sysEnv "AXIOM_VERIFY_SCOPES") "")
+                              ; Scope verification rides an environment
+                              ; variable rather than a flag (no driver
+                              ; plumbing, no `--help` honesty to keep):
+                              ; `AXIOM_VERIFY_SCOPES=1` runs the MAC-HYG-9
+                              ; equivalence check over every expansion.
                               0
                               1))
                           ; The expander's OWN refusals get the frames too.
@@ -1763,18 +1763,19 @@
                                       (ftbl vecNew)
                                       (eds vecNew)
                                     )
-                                      (let ((gens (expandProgram
-                                        decls
-                                        allDecls
-                                        eds
-                                        ftbl
-                                        units
-                                        bares
-                                        fulls
-                                        mods
-                                        (if (strEq (sysEnv "AXIOM_VERIFY_SCOPES") "")
-                                          0
-                                          1))))
+                                      (let ((gens 
+                                        (expandProgram
+                                          decls
+                                          allDecls
+                                          eds
+                                          ftbl
+                                          units
+                                          bares
+                                          fulls
+                                          mods
+                                          (if (strEq (sysEnv "AXIOM_VERIFY_SCOPES") "")
+                                            0
+                                            1))))
                                         (let ((_stop 
                                           (if (> (countErrorDiags eds) 0)
                                             {
