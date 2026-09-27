@@ -1354,6 +1354,59 @@ holding both halves is `scripts/check-scope-equiv.sh`. What the slice
 does NOT decide is which precedence the full migration keeps: if
 innermost-wins, the fixture's answer moves deliberately with it.
 
+**Full migration: design (2026-09-27, plan).** The migration is
+expander-internal: scopes become the decision procedure inside
+substitution, and renamed spellings stay the output encoding
+downstream never stops reading. That scoping is load-bearing and is
+stated before the slices. Post-expansion, the checker resolves by
+spelling on fully-renamed output, which is sound exactly when
+substitution assigned each reference its correct binder's spelling -
+and that is a substitution-time property scope resolution decides.
+Nothing downstream needs the pairs: the def-scope stamp (word 10)
+stays the downstream encoding of "top level", and the `.N` shape
+stays because the checker strips it for display (`emitAX3012` and
+kin, `MAC-HYG-3a`). The `fresh` counter keeps numbering binder
+spellings in push order, so output bytes need not move at all.
+
+- **M1 (landed 2026-09-26).** The dual track and the agreement gate:
+  scope records beside every `ren` pair, `AX3075` on parting,
+  `scripts/check-scope-equiv.sh` pinning 578 agreeing files and the
+  one designed control.
+- **M2 (next).** The mechanism swap with behavior preserved: lookup
+  sites resolve through scope records (innermost visible) and answer
+  the record's assigned spelling, with the ren-first tier rule kept
+  EXPLICITLY (template records before for-bindings). The battery is
+  the proof: goldens byte-identical, selfhost answers identical
+  (1003 still 41), bootstrap fixpoint intact. `ren` stays as the
+  lockstep half, written but no longer read for decisions.
+- **M3.** The precedence flip to pure innermost-wins: the tier rule
+  goes, for-bindings participate as ordinary inner binders, and
+  `tests/selfhost/1003-macro-for-precedence.ax` moves to
+  `tests/diagnostics/` pinning the checker's true answer (a field
+  name arriving where no variable is bound). The scope-equiv gate's
+  corpus leg is M3's safety proof: it goes red if any corpus program
+  relied on ren-first, and green means the flip touches nothing
+  shipped. Afterwards the gate is redefined (single mechanism, no
+  agreement to assert) rather than left asserting a tautology.
+- **M4.** `ren` deleted: pushes, lookups, truncations and the
+  lockstep asserts go with it; spelling assignment stays on the
+  `fresh` counter at the same push sites, so output bytes still do
+  not move and the battery proves it. `AX3075`'s drift shape retires
+  with the second track (the number is never reused); the precedence
+  shape retires with the tier rule. What remains of the track is the
+  representation: binders ARE `(name, scopes)` pairs from push to
+  emission.
+
+Two things this design does NOT claim. Nested-pattern macros
+("one expansion's binder visible to another's template") are
+conjectured to work today via textual substitution - the outer
+`substTpl` renames before the inner invocation expands - and M2
+carries a probe proving or refuting that; if it refutes, the failing
+shape becomes M3's second control. And `MAC-LANG-17`'s
+literal-as-binding comparison stays canonical-spelling until a
+failing shape says otherwise: scopes make the binding available,
+not the comparison.
+
 **MAC-HYG-10 (H, 2026-08-16).** A binder position holding a macro
 **PARAMETER** takes the **argument's** name and **MUST NOT** be
 renamed. A binder the *template* introduces is renamed as `MAC-HYG-1`

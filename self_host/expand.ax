@@ -152,8 +152,9 @@
 ;            reset: only co-active entries are ever compared.
 ;   scVerify — word 28, 1 when the caller asked for scope verification
 ;            (`AXIOM_VERIFY_SCOPES` in `main.ax`'s hands; 0 from every
-;            other `expandProgram` caller). When 0 the track costs one
-;            word read per site and changes nothing.
+;            other `expandProgram` caller). Since M2 the track itself
+;            runs on every build; the flag gates only the drift check
+;            and the for-binding snapshots it reads.
 ; ------------------------------------------------------------------
 (pub struct MEnv
   (macros : Int)
@@ -901,21 +902,11 @@
     }))
 
 ; ------------------------------------------------------------------
-; The rename stack: alternating old, new. Innermost wins, so the scan
-; runs backward in pairs.
+; The rename stack: alternating old, new. M2 resolves through scope
+; records and only WRITES this (the drift check reads it back); M4
+; deletes it. The name-returning lookup went with the readership -
+; only the index form below survives, for the lockstep comparison.
 ; ------------------------------------------------------------------
-(pub :: expRenLookup (-> (Vec Int) String String))
-(pub fn (expRenLookup ren name)
-  (expRenLookupFrom ren name (- (vecLen ren) 2)))
-
-(pub :: expRenLookupFrom (-> (Vec Int) String Int String))
-(pub fn (expRenLookupFrom ren name i)
-  (if (< i 0)
-    (cast String 0)
-    (if (strEq (vecGetStr ren i) name)
-      (vecGetStr ren (+ i 1))
-      (expRenLookupFrom ren name (- i 2)))))
-
 (pub :: expRenPush (-> (Vec Int) String String (Vec Int)))
 (pub fn (expRenPush ren old new)
   {
@@ -939,26 +930,32 @@
       (expRenLookupIdxFrom ren name (- i 2)))))
 
 ; ------------------------------------------------------------------
-; The scope-set track (MAC-HYG-9 equivalence slice).
+; The scope-set track (MAC-HYG-9; M1 built it as the mirror, M2
+; resolves through it).
 ;
-; Renaming answers "which binder?" by rewriting spellings; scope sets
+; Renaming answered "which binder?" by rewriting spellings; scope sets
 ; answer it by matching `(name, scopes)` pairs, a reference resolving
-; to the innermost binder whose scopes are a subset of its own. This
-; track carries the pairs alongside the renames and checks, at every
-; variable reference, that both resolve identically. It changes no
-; output: when word 28 reads 0 every entry below costs one word read
-; and returns at once.
+; to the innermost binder whose scopes are a subset of its own.
+; Template binders resolve through `expScResolveTpl` and answer the
+; spelling their record carries; for-bindings still answer through
+; `expForLookup`, which the tier rule below orders after the template
+; tier however the two nest. Word 28 gates only the drift check and
+; the for-binding snapshots now - the track itself runs on every
+; build, and the battery (not a flag) is what proves it resolves
+; identically to the table it replaced.
 ;
-; What the check can and cannot see. Within one instantiation every
-; template binder carries the instantiation scope and every template
-; reference a superset of it, so scope resolution over template
-; binders alone ALWAYS equals the rename table - that half is pinned
-; structurally (the lockstep assert) rather than proved. The live
-; question is precedence: renaming consults the rename table BEFORE
-; the for-stack whatever the nesting, while scope resolution takes
-; the innermost binder of either kind. A for-binding pushed after
-; (inside) a template binder of the same spelling is where the two
-; can part, and that is what the check hunts.
+; THE TIER RULE, stated because M3 deletes it. Template records are
+; consulted before for-bindings whatever the nesting: the ren-first
+; precedence as an explicit scope rule rather than an emergent table
+; order. A for-binding pushed after (inside) a template binder of the
+; same spelling is where single-mechanism resolution would part from
+; it, and that is what the drift check still hunts. For-bindings are
+; visible by ACTIVITY (forstack membership), not by chain prefix: a
+; declaration-level iteration's bindings are live in generated bodies
+; whose chain never grew the iteration scope, and presence is the
+; visibility there. Template binders are visible by subset, and every
+; co-active template record's scopes are a prefix of the live chain,
+; because a chain pop always truncates the records pushed under it.
 ; ------------------------------------------------------------------
 (pub :: expScVerify (-> Int Int))
 (pub fn (expScVerify env)
@@ -972,16 +969,15 @@
 (pub fn (expScTplVec env)
   (cast (Vec Int) (memGetWord env 26)))
 
-; A fresh scope id, or 0 with the counter untouched when verify is off.
+; A fresh scope id. Ungated since M2: the chain is the decision
+; procedure's, not the checker's.
 (pub :: expScNextId (-> Int Int))
 (pub fn (expScNextId env)
-  (if (== (expScVerify env) 0)
-    0
-    (let ((n (+ (memGetWord env 24) 1)))
-      {
-        (memSetWord env 24 n)
-        n
-      })))
+  (let ((n (+ (memGetWord env 24) 1)))
+    {
+      (memSetWord env 24 n)
+      n
+    }))
 
 ; The next push-order stamp, or 0 when verify is off.
 (pub :: expScNextSeq (-> Int Int))
@@ -1033,24 +1029,20 @@
 ; so the save/restore is belt and braces, house style.
 (pub :: expScEnterInst (-> Int Int))
 (pub fn (expScEnterInst env)
-  (if (== (expScVerify env) 0)
-    0
-    (let ((prev (memGetWord env 25)))
-      {
-        (memSetWord env 25 vecNew)
-        (vecPush (expScChainVec env) (expScNextId env))
-        (memSetWord env 26 vecNew)
-        prev
-      })))
+  (let ((prev (memGetWord env 25)))
+    {
+      (memSetWord env 25 vecNew)
+      (vecPush (expScChainVec env) (expScNextId env))
+      (memSetWord env 26 vecNew)
+      prev
+    }))
 
 (pub :: expScExitInst (-> Int Int Int))
 (pub fn (expScExitInst env prev)
-  (if (== (expScVerify env) 0)
+  {
+    (memSetWord env 25 prev)
     0
-    {
-      (memSetWord env 25 prev)
-      0
-    }))
+  })
 
 ; Enter a declaration instantiation's generation. The chain is reset
 ; like any instantiation's, but the template-binder stack is NOT: no
@@ -1059,48 +1051,41 @@
 ; stay live across it.
 (pub :: expScEnterDeclInst (-> Int Int))
 (pub fn (expScEnterDeclInst env)
-  (if (== (expScVerify env) 0)
-    0
-    (let ((prev (memGetWord env 25)))
-      {
-        (memSetWord env 25 vecNew)
-        (vecPush (expScChainVec env) (expScNextId env))
-        prev
-      })))
+  (let ((prev (memGetWord env 25)))
+    {
+      (memSetWord env 25 vecNew)
+      (vecPush (expScChainVec env) (expScNextId env))
+      prev
+    }))
 
 ; A generated body starts a fresh `ren`; its scope records start fresh
 ; beside it. The chain is NOT touched: the body substitutes under the
 ; declaration's generation, whose for-bindings are live here.
 (pub :: expScResetTpl (-> Int Int))
 (pub fn (expScResetTpl env)
-  (if (== (expScVerify env) 0)
+  {
+    (memSetWord env 26 vecNew)
     0
-    {
-      (memSetWord env 26 vecNew)
-      0
-    }))
+  })
 
 ; Push a template binder's record beside its `ren` pair. Called with
-; the OLD spelling at exactly the four `expRenPush` sites.
-(pub :: expScPushTpl (-> Int String Int))
-(pub fn (expScPushTpl env name)
-  (if (== (expScVerify env) 0)
+; the old spelling and the fresh one at exactly the four `expRenPush`
+; sites; the fresh spelling is what references to this binder answer.
+(pub :: expScPushTpl (-> Int String String Int))
+(pub fn (expScPushTpl env name spelling)
+  {
+    (vecPush
+      (expScTplVec env)
+      (cast Int (ScopeBind name (cast Int (expScChainCopy env)) (expScNextSeq env) spelling)))
     0
-    {
-      (vecPush
-        (expScTplVec env)
-        (cast Int (ScopeBind name (cast Int (expScChainCopy env)) (expScNextSeq env))))
-      0
-    }))
+  })
 
 ; Truncate the records beside a `ren` truncation. The marks are taken
 ; together at four sites; a fifth pairing is a bug the lockstep
 ; assert below exists to catch.
 (pub :: expScTruncTpl (-> Int Int Int))
 (pub fn (expScTruncTpl env mark)
-  (if (== (expScVerify env) 0)
-    0
-    (expTrunc (expScTplVec env) mark)))
+  (expTrunc (expScTplVec env) mark))
 
 ; Push a for-loop's iteration scope for one element's walk. The id is
 ; per element walk rather than per loop: records never outlive their
@@ -1108,29 +1093,43 @@
 ; observationally identical, and nesting falls out of the pairing.
 (pub :: expScPushLoop (-> Int Int))
 (pub fn (expScPushLoop env)
-  (if (== (expScVerify env) 0)
+  {
+    (vecPush (expScChainVec env) (expScNextId env))
     0
-    {
-      (vecPush (expScChainVec env) (expScNextId env))
-      0
-    }))
+  })
 
 (pub :: expScTruncLoop (-> Int Int Int))
 (pub fn (expScTruncLoop env mark)
-  (if (== (expScVerify env) 0)
-    0
-    (expTrunc (expScChainVec env) mark)))
+  (expTrunc (expScChainVec env) mark))
 
-; The check, run at every variable reference the rename table hits.
-; `idx` is the hit's pair index. Lockstep first: the mirrored stack
-; holds exactly the pairs, and record for record the spellings match -
-; a drift here is a missed push or truncation pairing, a compiler bug,
-; and it refuses as one. Then precedence: the innermost for-binding
-; spelling the same name decides - pushed after the rename hit and
-; scope-visible, scope resolution would take it where renaming took
-; the template binder.
+; Template-tier resolution: the POSITION of the innermost record
+; spelling `name` whose scopes are a subset of the live chain, or -1.
+; Positions because the drift check compares against the rename
+; table's pair index - same stack, same index, or a missed pairing.
+(pub :: expScResolveTpl (-> Int String Int))
+(pub fn (expScResolveTpl env name)
+  (let ((tpl (expScTplVec env)))
+    (expScResolveTplFrom tpl name (expScChainVec env) (- (vecLen tpl) 1))))
+
+(pub :: expScResolveTplFrom (-> (Vec Int) String (Vec Int) Int Int))
+(pub fn (expScResolveTplFrom tpl name chain i)
+  (if (< i 0)
+    (- 0 1)
+    (let ((b (vecGet tpl i)))
+      (if (&& (strEq (memGetWordStr b 0) name) (== (expScPrefix (cast (Vec Int) (memGetWord b 1)) chain) 1))
+        i
+        (expScResolveTplFrom tpl name chain (- i 1))))))
+
+; The check, run at every variable reference, hit or miss.
+; `sbpos` is scope resolution's answer (position or -1). Lockstep
+; first, in both directions: the mirrored stack holds exactly the
+; pairs, and both tracks resolve to the SAME position - a miss on one
+; side with a hit on the other is a missed push or truncation
+; pairing, a compiler bug, and it refuses as one. Then the tier rule:
+; the innermost for-binding spelling the same name is where
+; single-mechanism resolution would part from template-first.
 (pub :: expScCheckRef (-> Int (Vec Int) String Int Int Int))
-(pub fn (expScCheckRef env ren name idx isp)
+(pub fn (expScCheckRef env ren name sbpos isp)
   (if (== (expScVerify env) 0)
     0
     (let ((tpl (expScTplVec env)))
@@ -1139,12 +1138,20 @@
           (expScEmit env isp name "the scope track drifted from the rename track (record count)" "this is a compiler bug in the scope-set track, not in the program: a template binder pushed or truncated one track without the other")
           0
         }
-        (if (strEq (memGetWordStr (vecGet tpl idx) 0) name)
-          (expScCheckFor env name (memGetWord (vecGet tpl idx) 2) isp)
-          {
-            (expScEmit env isp name "the scope track drifted from the rename track (record spelling)" "this is a compiler bug in the scope-set track, not in the program: a template binder pushed or truncated one track without the other")
-            0
-          })))))
+        (let ((idx (expRenLookupIdx ren name)))
+          (if (!= sbpos idx)
+            {
+              (expScEmit env isp name "the scope track drifted from the rename track (resolution position)" "this is a compiler bug in the scope-set track, not in the program: scopes and the table resolved one reference to different binders")
+              0
+            }
+            (if (== sbpos (- 0 1))
+              0
+              (if (strEq (memGetWordStr (vecGet tpl idx) 0) (vecGetStr ren (* idx 2)))
+                (expScCheckFor env name (memGetWord (vecGet tpl idx) 2) isp)
+                {
+                  (expScEmit env isp name "the scope track drifted from the rename track (record spelling)" "this is a compiler bug in the scope-set track, not in the program: a template binder pushed or truncated one track without the other")
+                  0
+                }))))))))
 
 ; The innermost for-binding spelling `name` decides, per the header's
 ; proof: older than the rename hit it is outer and agrees; newer and
@@ -1161,7 +1168,7 @@
       (if (strEq (memGetWordStr b 0) name)
         (if (&& (> (memGetWord b 4) rseq) (== (expScPrefix (cast (Vec Int) (memGetWord b 5)) (expScChainVec env)) 1))
           {
-            (expScEmit env isp name "renaming and scope resolution part here: the rename table answers a template binder while the innermost scope-visible binder is a for-binding" "the rename table is consulted before the for-stack whatever the nesting; scope resolution takes the innermost binder of either kind")
+            (expScEmit env isp name "the template tier answers where single-mechanism resolution would take a for-binding: an iteration binds this spelling inside the template binder" "template records are consulted before for-bindings whatever the nesting; without the tier rule the innermost binder of either kind would win")
             0
           }
           0)
@@ -1333,7 +1340,7 @@
               (let ((new (expFresh env (nodeAName p))))
                 {
                   (expRenPush ren (nodeAName p) new)
-                  (expScPushTpl env (nodeAName p))
+                  (expScPushTpl env (nodeAName p) new)
                   (mkEVarAt new isp)
                 }))))
         (if (== tag TAG_E_APP)
@@ -1459,14 +1466,18 @@
   (seq : Int)
   (scopes : Int))
 
-; One template binder's scope-set record, mirroring a `ren` pair.
+; One template binder's scope-set record. M1 pushed it beside a `ren`
+; pair as the mirror; M2 resolves through it, and `spelling` is the
+; `name.N` the binder answers downstream - assigned from `fresh` at
+; the same push sites in the same order, so output bytes do not move.
 ; `scopes` is a (Vec Int) snapshot of the chain at the push, held as
 ; a word with the cast at the accessor, house style. `seq` is the
 ; push-order stamp from the same counter for-bindings draw from.
 (pub struct ScopeBind
   (name : String)
   (scopes : Int)
-  (seq : Int))
+  (seq : Int)
+  (spelling : String))
 
 (pub :: expForStack (-> Int Int))
 (pub fn (expForStack env)
@@ -4130,16 +4141,16 @@
         ; --- a name: a rename, a for-binding, a parameter, or ------
         ; --- itself, in that order ---------------------------------
         (if (== tag TAG_E_VAR)
-          (let ((r (expRenLookup ren (nodeAName tpl))))
+          (let (
+            (sbpos (expScResolveTpl env (nodeAName tpl)))
+            (_chk (if (== (expScVerify env) 1)
+              (expScCheckRef env ren (nodeAName tpl) sbpos isp)
+              0))
+          )
             (if (!=
-              (cast Int r)
-              0)
-              {
-                (if (== (expScVerify env) 1)
-                  (expScCheckRef env ren (nodeAName tpl) (expRenLookupIdx ren (nodeAName tpl)) isp)
-                  0)
-                (mkEVarAt r isp)
-              }
+              sbpos
+              (- 0 1))
+              (mkEVarAt (memGetWordStr (vecGet (expScTplVec env) sbpos) 3) isp)
               (let ((fe (expForLookup env (nodeAName tpl))))
                 (if (!=
                   (cast Int fe)
@@ -4147,22 +4158,22 @@
                   ; The element itself may be a renamed binder:
                   ; a fold variable over `(syntax/binders C x)`
                   ; resolves to `x#i`, whose pattern mention the
-                  ; renamer has already renamed - the rename
-                  ; table is consulted for the ELEMENT so the
+                  ; renamer has already renamed - the template
+                  ; tier is consulted for the ELEMENT so the
                   ; body reference lands on the renamed binder.
-                  (let ((r2 (expRenLookup ren fe)))
-                    {
-                      (if (&& (!= (cast Int r2) 0) (== (expScVerify env) 1))
-                        (expScCheckRef env ren fe (expRenLookupIdx ren fe) isp)
-                        0)
-                      (mkEVarAt
-                        (if (!=
-                          (cast Int r2)
-                          0)
-                          r2
-                          fe)
-                        isp)
-                    })
+                  (let (
+                    (sb2 (expScResolveTpl env fe))
+                    (_chk2 (if (== (expScVerify env) 1)
+                      (expScCheckRef env ren fe sb2 isp)
+                      0))
+                  )
+                    (mkEVarAt
+                      (if (!=
+                        sb2
+                        (- 0 1))
+                        (memGetWordStr (vecGet (expScTplVec env) sb2) 3)
+                        fe)
+                      isp))
                   (let ((idx (expParamIndex params (nodeAName tpl))))
                     (if (< idx 0)
                       ; A `syntax/`-spelled name that survived
@@ -4326,7 +4337,7 @@
                         0)
                         {
                           (expRenPush ren (nodeAName tpl) new)
-                          (expScPushTpl env (nodeAName tpl))
+                          (expScPushTpl env (nodeAName tpl) new)
                           ren
                         }
                         ren)
@@ -4424,7 +4435,7 @@
                                 0)
                                 {
                                   (expRenPush ren (nodeAName tpl) new)
-                                  (expScPushTpl env (nodeAName tpl))
+                                  (expScPushTpl env (nodeAName tpl) new)
                                   ren
                                 }
                                 ren)
@@ -4690,7 +4701,7 @@
         (let ((new (expFresh env (vecGetStr ps i))))
           {
             (expRenPush ren (vecGetStr ps i) new)
-            (expScPushTpl env (vecGetStr ps i))
+            (expScPushTpl env (vecGetStr ps i) new)
             (substLamParamsIn
               ps
               params
@@ -4711,16 +4722,16 @@
 ; and is refused rather than dropped.
 (pub :: substName (-> String (Vec Int) (Vec Int) (Vec Int) Int Int String))
 (pub fn (substName name params args ren env isp)
-  (let ((r (expRenLookup ren name)))
+  (let (
+    (sbpos (expScResolveTpl env name))
+    (_chk (if (== (expScVerify env) 1)
+      (expScCheckRef env ren name sbpos isp)
+      0))
+  )
     (if (!=
-      (cast Int r)
-      0)
-      {
-        (if (== (expScVerify env) 1)
-          (expScCheckRef env ren name (expRenLookupIdx ren name) isp)
-          0)
-        r
-      }
+      sbpos
+      (- 0 1))
+      (memGetWordStr (vecGet (expScTplVec env) sbpos) 3)
       (let ((idx (expParamIndex params name)))
         (if (< idx 0)
           (expQualify env name)

@@ -1,0 +1,19 @@
+; expect 46
+; Two-level macro nesting with shadowing at both levels. The outer
+; template binds `v` and passes it as an argument; the inner template
+; binds `v` again over its own parameter. Each instantiation renames
+; its own template consistently - the outer `v` (41) flows through the
+; argument untouched by the inner rename, and the inner `v` (41 + 1)
+; never captures it. 41 + 1 + 4 = 46. Regression pin for the HYG-9
+; migration (M2): the mechanism swap must not move this answer, and
+; the precedence flip (M3) must not either - no for-binding shadows
+; any template binder here.
+(macro (inner x) (let ((v x))
+  (+ v 1)))
+
+(macro (outer y) (let ((v y))
+  (+ (inner v) 4)))
+
+(:: main Int)
+(fn (main)
+  (outer 41))

@@ -22,6 +22,20 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### M2: the expander resolves through scopes, tier rule kept
+
+MAC-HYG-9 migration slice 2: lookup sites resolve through scope
+records (`expScResolveTpl`) and answer the record's assigned
+spelling; the rename table is written but no longer read for
+decisions (its name lookup is deleted, M4 deletes the rest). The
+ren-first precedence survives as an explicit tier rule - template
+records before for-bindings - so behavior is preserved: 1003 still
+answers 41 and diverges under verify, the new 1004 nesting probe
+answers 46, goldens byte-identical, bootstrap fixpoint intact. The
+drift check now covers both directions (a miss on either side with a
+hit on the other refuses). Held by the battery (diagnostics,
+selfhost 194, scope-equiv, bootstrap).
+
 ### Scope sets ride beside renaming, and both agree — `scripts/check-scope-equiv.sh`
 
 MAC-HYG-9's equivalence slice: under `AXIOM_VERIFY_SCOPES=1` the
