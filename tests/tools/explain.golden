@@ -2571,11 +2571,9 @@ To mean the literal name, give the parameter another name so the template says w
 ### explain AX3075
 AX3075 - renaming and scope resolution part on a macro reference
 
-This diagnostic only fires under AXIOM_VERIFY_SCOPES=1, the MAC-HYG-9 equivalence check (docs/macro-system.md). The expander carries scope sets beside the rename table: every template binder is a (name, scopes) pair, and a reference resolves to the innermost binder whose scopes are a subset of its own. Here the two mechanisms answered different binders for one reference.
+This diagnostic only fires under AXIOM_VERIFY_SCOPES=1, the MAC-HYG-9 equivalence check (docs/macro-system.md). The expander carries scope sets beside the rename table: every template binder is a (name, scopes) pair, and a reference resolves to the innermost binder of either kind. Here the scope track and the rename table answered different binders for one reference.
 
-The usual shape is precedence, not corruption: renaming consults the rename table BEFORE the for-stack whatever the nesting, while scope resolution takes the innermost binder of either kind. A `syntax/for` binding pushed inside a template binder of the same spelling - a for-loop in a template `let`'s body, iterating a variable the `let` also binds - is resolved to the `let` by renaming and to the iteration by scopes. The shipped expansion is still the renamed one; the diagnostic records that scope sets would read it differently. If the precedence surprises, rename one side so the two bindings no longer share a spelling.
-
-The other shape is a drift between the two tracks, and the message says so: a template binder pushed or truncated one track without the other. That is a compiler bug rather than a program bug - the track is new, and a missed pairing is its failure mode.
+What remains is drift between the two tracks, and the message says so: a template binder pushed or truncated one track without the other. That is a compiler bug rather than a program bug - the track is new, and a missed pairing is its failure mode. The diagnostic's other shape, the precedence parting where renaming answered a template binder and scopes would have taken a for-binding, retired with the tier rule at M3: innermost-wins is the shipped rule now, and `tests/diagnostics/1009-macro-for-innermost.ax` pins what it means for the one program that ever parted.
 
 ### explain AX4001
 AX4001 - no `main` function
