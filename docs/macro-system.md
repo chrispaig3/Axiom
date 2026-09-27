@@ -1338,6 +1338,22 @@ identifiers have exactly ONE definition scope, the top level, and one
 bit on the reference says so. No `(name, scopes)` pair and no change
 to what an identifier is. See `MAC-HYG-8`.1.
 
+**Equivalence slice (2026-09-26).** Scope sets ride beside renaming
+without replacing it yet: under `AXIOM_VERIFY_SCOPES=1` the expander
+carries `(name, scopes)` pairs for every template binder and
+for-binding (words 24-28), resolves every reference the rename table
+hits both ways, and refuses the partings as `AX3075`. Measured over
+the 579-file checkable corpus: 578 files agree on every reference,
+and the one that does not is the shape where the mechanisms differ by
+design - a `syntax/for` binding inside a template `let` of the same
+spelling, which renaming resolves to the `let` (the table is consulted
+before the for-stack whatever the nesting) while scopes would take
+the iteration. That shape is `tests/selfhost/1003-macro-for-precedence.ax`,
+which pins today's answer (41) and diverges under verify; the gate
+holding both halves is `scripts/check-scope-equiv.sh`. What the slice
+does NOT decide is which precedence the full migration keeps: if
+innermost-wins, the fixture's answer moves deliberately with it.
+
 **MAC-HYG-10 (H, 2026-08-16).** A binder position holding a macro
 **PARAMETER** takes the **argument's** name and **MUST NOT** be
 renamed. A binder the *template* introduces is renamed as `MAC-HYG-1`

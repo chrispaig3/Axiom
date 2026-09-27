@@ -132,6 +132,28 @@
 ;            `substTpl` runs to completion before the expansion it
 ;            produces is walked, so no two macros are ever mid-
 ;            substitution at once.
+;   scNext   — word 24, the fresh scope-id counter for the scope-set
+;            track (MAC-HYG-9 equivalence slice). Every instantiation
+;            introduces one fresh scope; every `syntax/for` loop one
+;            per element walk. NEVER the gensym counter: `fresh`
+;            numbers the renamed spellings the IR pins byte for byte
+;            (MAC-EXP-12), and scope ids must not renumber them.
+;   scChain  — word 25, the current scope chain, outermost-first: the
+;            instantiation scope, then one id per enclosing for-loop.
+;            Saved and restored around each instantiation; pushed and
+;            truncated around each for-element walk, paired with the
+;            for-stack's own marks.
+;   scTpl    — word 26, one ScopeBind per template binder in scope,
+;            pushed in lockstep with `ren`'s pairs and truncated at
+;            the same marks. Read only in verify mode.
+;   scSeq    — word 27, push-order stamps shared by template binders
+;            and for-bindings, so the check can order a rename-table
+;            hit against a for-binding. Monotonic per pass, never
+;            reset: only co-active entries are ever compared.
+;   scVerify — word 28, 1 when the caller asked for scope verification
+;            (`AXIOM_VERIFY_SCOPES` in `main.ax`'s hands; 0 from every
+;            other `expandProgram` caller). When 0 the track costs one
+;            word read per site and changes nothing.
 ; ------------------------------------------------------------------
 (pub struct MEnv
   (macros : Int)
@@ -157,7 +179,12 @@
   (seqbinds : (Vec Int))
   (tplbinds : (Vec Int))
   (declnodes : Int)
-  (midx : Int))
+  (midx : Int)
+  (scNext : Int)
+  (scChain : (Vec Int))
+  (scTpl : (Vec Int))
+  (scSeq : Int)
+  (scVerify : Int))
 
 ; The two budgets on the OUTPUT, which the parser's
 ; own AX2005 guard cannot see: it measures the source,
@@ -897,6 +924,265 @@
     ren
   })
 
+; The pair INDEX of a rename hit, for the scope check to map onto the
+; mirrored record. -1 on a miss, matching `expParamIndex`'s convention.
+(pub :: expRenLookupIdx (-> (Vec Int) String Int))
+(pub fn (expRenLookupIdx ren name)
+  (expRenLookupIdxFrom ren name (- (vecLen ren) 2)))
+
+(pub :: expRenLookupIdxFrom (-> (Vec Int) String Int Int))
+(pub fn (expRenLookupIdxFrom ren name i)
+  (if (< i 0)
+    (- 0 1)
+    (if (strEq (vecGetStr ren i) name)
+      (/ i 2)
+      (expRenLookupIdxFrom ren name (- i 2)))))
+
+; ------------------------------------------------------------------
+; The scope-set track (MAC-HYG-9 equivalence slice).
+;
+; Renaming answers "which binder?" by rewriting spellings; scope sets
+; answer it by matching `(name, scopes)` pairs, a reference resolving
+; to the innermost binder whose scopes are a subset of its own. This
+; track carries the pairs alongside the renames and checks, at every
+; variable reference, that both resolve identically. It changes no
+; output: when word 28 reads 0 every entry below costs one word read
+; and returns at once.
+;
+; What the check can and cannot see. Within one instantiation every
+; template binder carries the instantiation scope and every template
+; reference a superset of it, so scope resolution over template
+; binders alone ALWAYS equals the rename table - that half is pinned
+; structurally (the lockstep assert) rather than proved. The live
+; question is precedence: renaming consults the rename table BEFORE
+; the for-stack whatever the nesting, while scope resolution takes
+; the innermost binder of either kind. A for-binding pushed after
+; (inside) a template binder of the same spelling is where the two
+; can part, and that is what the check hunts.
+; ------------------------------------------------------------------
+(pub :: expScVerify (-> Int Int))
+(pub fn (expScVerify env)
+  (memGetWord env 28))
+
+(pub :: expScChainVec (-> Int (Vec Int)))
+(pub fn (expScChainVec env)
+  (cast (Vec Int) (memGetWord env 25)))
+
+(pub :: expScTplVec (-> Int (Vec Int)))
+(pub fn (expScTplVec env)
+  (cast (Vec Int) (memGetWord env 26)))
+
+; A fresh scope id, or 0 with the counter untouched when verify is off.
+(pub :: expScNextId (-> Int Int))
+(pub fn (expScNextId env)
+  (if (== (expScVerify env) 0)
+    0
+    (let ((n (+ (memGetWord env 24) 1)))
+      {
+        (memSetWord env 24 n)
+        n
+      })))
+
+; The next push-order stamp, or 0 when verify is off.
+(pub :: expScNextSeq (-> Int Int))
+(pub fn (expScNextSeq env)
+  (if (== (expScVerify env) 0)
+    0
+    (let ((n (+ (memGetWord env 27) 1)))
+      {
+        (memSetWord env 27 n)
+        n
+      })))
+
+; A copy of the current chain. Snapshots are taken at binder pushes;
+; the live chain keeps moving, so sharing it would rewrite history.
+(pub :: expScChainCopy (-> Int (Vec Int)))
+(pub fn (expScChainCopy env)
+  (expScChainCopyIn (expScChainVec env) vecNew 0))
+
+(pub :: expScChainCopyIn (-> (Vec Int) (Vec Int) Int (Vec Int)))
+(pub fn (expScChainCopyIn src dst i)
+  (if (>= i (vecLen src))
+    dst
+    {
+      (vecPush dst (vecGet src i))
+      (expScChainCopyIn src dst (+ i 1))
+    }))
+
+; Whether `small` is a prefix of `big`: scope visibility, since every
+; chain grows by pushes and shrinks only with its records' truncation.
+(pub :: expScPrefix (-> (Vec Int) (Vec Int) Int))
+(pub fn (expScPrefix small big)
+  (if (> (vecLen small) (vecLen big))
+    0
+    (expScPrefixIn small big 0)))
+
+(pub :: expScPrefixIn (-> (Vec Int) (Vec Int) Int Int))
+(pub fn (expScPrefixIn small big i)
+  (if (>= i (vecLen small))
+    1
+    (if (!= (vecGet small i) (vecGet big i))
+      0
+      (expScPrefixIn small big (+ i 1)))))
+
+; Enter an instantiation's scope generation: a fresh scope becomes the
+; whole chain, and the template-binder stack is reset beside `ren`'s
+; own fresh vector. Answers the previous chain for the exit to restore.
+; Generations never nest mid-substitution - `substTpl` instantiates
+; nothing, nested invocations expand in the output walk afterwards -
+; so the save/restore is belt and braces, house style.
+(pub :: expScEnterInst (-> Int Int))
+(pub fn (expScEnterInst env)
+  (if (== (expScVerify env) 0)
+    0
+    (let ((prev (memGetWord env 25)))
+      {
+        (memSetWord env 25 vecNew)
+        (vecPush (expScChainVec env) (expScNextId env))
+        (memSetWord env 26 vecNew)
+        prev
+      })))
+
+(pub :: expScExitInst (-> Int Int Int))
+(pub fn (expScExitInst env prev)
+  (if (== (expScVerify env) 0)
+    0
+    {
+      (memSetWord env 25 prev)
+      0
+    }))
+
+; Enter a declaration instantiation's generation. The chain is reset
+; like any instantiation's, but the template-binder stack is NOT: no
+; fresh `ren` starts here (bodies each bring their own at the build
+; site, which resets beside it), while the declaration's for-bindings
+; stay live across it.
+(pub :: expScEnterDeclInst (-> Int Int))
+(pub fn (expScEnterDeclInst env)
+  (if (== (expScVerify env) 0)
+    0
+    (let ((prev (memGetWord env 25)))
+      {
+        (memSetWord env 25 vecNew)
+        (vecPush (expScChainVec env) (expScNextId env))
+        prev
+      })))
+
+; A generated body starts a fresh `ren`; its scope records start fresh
+; beside it. The chain is NOT touched: the body substitutes under the
+; declaration's generation, whose for-bindings are live here.
+(pub :: expScResetTpl (-> Int Int))
+(pub fn (expScResetTpl env)
+  (if (== (expScVerify env) 0)
+    0
+    {
+      (memSetWord env 26 vecNew)
+      0
+    }))
+
+; Push a template binder's record beside its `ren` pair. Called with
+; the OLD spelling at exactly the four `expRenPush` sites.
+(pub :: expScPushTpl (-> Int String Int))
+(pub fn (expScPushTpl env name)
+  (if (== (expScVerify env) 0)
+    0
+    {
+      (vecPush
+        (expScTplVec env)
+        (cast Int (ScopeBind name (cast Int (expScChainCopy env)) (expScNextSeq env))))
+      0
+    }))
+
+; Truncate the records beside a `ren` truncation. The marks are taken
+; together at four sites; a fifth pairing is a bug the lockstep
+; assert below exists to catch.
+(pub :: expScTruncTpl (-> Int Int Int))
+(pub fn (expScTruncTpl env mark)
+  (if (== (expScVerify env) 0)
+    0
+    (expTrunc (expScTplVec env) mark)))
+
+; Push a for-loop's iteration scope for one element's walk. The id is
+; per element walk rather than per loop: records never outlive their
+; element (the for-stack truncates beside us), so the two are
+; observationally identical, and nesting falls out of the pairing.
+(pub :: expScPushLoop (-> Int Int))
+(pub fn (expScPushLoop env)
+  (if (== (expScVerify env) 0)
+    0
+    {
+      (vecPush (expScChainVec env) (expScNextId env))
+      0
+    }))
+
+(pub :: expScTruncLoop (-> Int Int Int))
+(pub fn (expScTruncLoop env mark)
+  (if (== (expScVerify env) 0)
+    0
+    (expTrunc (expScChainVec env) mark)))
+
+; The check, run at every variable reference the rename table hits.
+; `idx` is the hit's pair index. Lockstep first: the mirrored stack
+; holds exactly the pairs, and record for record the spellings match -
+; a drift here is a missed push or truncation pairing, a compiler bug,
+; and it refuses as one. Then precedence: the innermost for-binding
+; spelling the same name decides - pushed after the rename hit and
+; scope-visible, scope resolution would take it where renaming took
+; the template binder.
+(pub :: expScCheckRef (-> Int (Vec Int) String Int Int Int))
+(pub fn (expScCheckRef env ren name idx isp)
+  (if (== (expScVerify env) 0)
+    0
+    (let ((tpl (expScTplVec env)))
+      (if (!= (/ (vecLen ren) 2) (vecLen tpl))
+        {
+          (expScEmit env isp name "the scope track drifted from the rename track (record count)" "this is a compiler bug in the scope-set track, not in the program: a template binder pushed or truncated one track without the other")
+          0
+        }
+        (if (strEq (memGetWordStr (vecGet tpl idx) 0) name)
+          (expScCheckFor env name (memGetWord (vecGet tpl idx) 2) isp)
+          {
+            (expScEmit env isp name "the scope track drifted from the rename track (record spelling)" "this is a compiler bug in the scope-set track, not in the program: a template binder pushed or truncated one track without the other")
+            0
+          })))))
+
+; The innermost for-binding spelling `name` decides, per the header's
+; proof: older than the rename hit it is outer and agrees; newer and
+; scope-visible, the two mechanisms part.
+(pub :: expScCheckFor (-> Int String Int Int Int))
+(pub fn (expScCheckFor env name rseq isp)
+  (expScCheckForFrom env (expForStackVec env) name rseq isp (- (vecLen (expForStackVec env)) 1)))
+
+(pub :: expScCheckForFrom (-> Int (Vec Int) String Int Int Int Int))
+(pub fn (expScCheckForFrom env fs name rseq isp i)
+  (if (< i 0)
+    0
+    (let ((b (vecGet fs i)))
+      (if (strEq (memGetWordStr b 0) name)
+        (if (&& (> (memGetWord b 4) rseq) (== (expScPrefix (cast (Vec Int) (memGetWord b 5)) (expScChainVec env)) 1))
+          {
+            (expScEmit env isp name "renaming and scope resolution part here: the rename table answers a template binder while the innermost scope-visible binder is a for-binding" "the rename table is consulted before the for-stack whatever the nesting; scope resolution takes the innermost binder of either kind")
+            0
+          }
+          0)
+        (expScCheckForFrom env fs name rseq isp (- i 1))))))
+
+(pub :: expScEmit (-> Int Int String String String Int))
+(pub fn (expScEmit env isp name msg note)
+  {
+    (expEmit env (mkDiagNote
+      SEV_ERROR
+      "AX3075"
+      "scope-divergence"
+      isp
+      (strConcat (strConcat (strConcat "scope/rename divergence on `" name) "`: ") msg)
+      0
+      0
+      "this diagnostic only fires under AXIOM_VERIFY_SCOPES=1; without it the expansion above is what the compiler ships"
+      note))
+    0
+  })
+
 ; ------------------------------------------------------------------
 ; Parameter lookup. The LAST occurrence wins, matching the emit-time
 ; expander - but a duplicate parameter is now AX3020, so the rule is
@@ -1047,6 +1333,7 @@
               (let ((new (expFresh env (nodeAName p))))
                 {
                   (expRenPush ren (nodeAName p) new)
+                  (expScPushTpl env (nodeAName p))
                   (mkEVarAt new isp)
                 }))))
         (if (== tag TAG_E_APP)
@@ -1168,7 +1455,18 @@
   (name : String)
   (elem : String)
   (key : String)
-  (idx : Int))
+  (idx : Int)
+  (seq : Int)
+  (scopes : Int))
+
+; One template binder's scope-set record, mirroring a `ren` pair.
+; `scopes` is a (Vec Int) snapshot of the chain at the push, held as
+; a word with the cast at the accessor, house style. `seq` is the
+; push-order stamp from the same counter for-bindings draw from.
+(pub struct ScopeBind
+  (name : String)
+  (scopes : Int)
+  (seq : Int))
 
 (pub :: expForStack (-> Int Int))
 (pub fn (expForStack env)
@@ -3165,9 +3463,10 @@
 (pub fn (expFoldBuild env pairs seqs params args ren isp fh tpl acc i)
   (if (< i 0)
     acc
-    (let ((mark (vecLen (expForStackVec env))))
+    (let ((mark (vecLen (expForStackVec env))) (markC (vecLen (expScChainVec env))))
       {
         (expIterPush env seqs i 0)
+        (expScPushLoop env)
         (let ((ti (substTpl
           tpl
           params
@@ -3177,6 +3476,7 @@
           isp)))
           {
             (expTrunc (expForStackVec env) mark)
+            (expScTruncLoop env markC)
             (expFoldBuild
               env
               pairs
@@ -3213,7 +3513,15 @@
       {
         (vecPush
           (expForStackVec env)
-          (cast Int (ForBind (vecGetStr t 0) (vecGetStr (vecGet t 1) idx) (vecGetStr t 2) idx)))
+          (cast Int (ForBind
+            (vecGetStr t 0)
+            (vecGetStr (vecGet t 1) idx)
+            (vecGetStr t 2)
+            idx
+            (expScNextSeq env)
+            (if (== (expScVerify env) 0)
+              0
+              (cast Int (expScChainCopy env))))))
         (expIterPush env seqs idx (+ j 1))
       })))
 
@@ -3278,9 +3586,10 @@
 (pub fn (expSpliceForArgElems tpl params args ren env isp out seqs n j)
   (if (>= j n)
     0
-    (let ((mark (vecLen (expForStackVec env))))
+    (let ((mark (vecLen (expForStackVec env))) (markC (vecLen (expScChainVec env))))
       {
         (expIterPush env seqs j 0)
+        (expScPushLoop env)
         (vecPush out (substTpl
           tpl
           params
@@ -3289,6 +3598,7 @@
           env
           isp))
         (expTrunc (expForStackVec env) mark)
+        (expScTruncLoop env markC)
         (expSpliceForArgElems
           tpl
           params
@@ -3824,7 +4134,12 @@
             (if (!=
               (cast Int r)
               0)
-              (mkEVarAt r isp)
+              {
+                (if (== (expScVerify env) 1)
+                  (expScCheckRef env ren (nodeAName tpl) (expRenLookupIdx ren (nodeAName tpl)) isp)
+                  0)
+                (mkEVarAt r isp)
+              }
               (let ((fe (expForLookup env (nodeAName tpl))))
                 (if (!=
                   (cast Int fe)
@@ -3836,13 +4151,18 @@
                   ; table is consulted for the ELEMENT so the
                   ; body reference lands on the renamed binder.
                   (let ((r2 (expRenLookup ren fe)))
-                    (mkEVarAt
-                      (if (!=
-                        (cast Int r2)
+                    {
+                      (if (&& (!= (cast Int r2) 0) (== (expScVerify env) 1))
+                        (expScCheckRef env ren fe (expRenLookupIdx ren fe) isp)
                         0)
-                        r2
-                        fe)
-                      isp))
+                      (mkEVarAt
+                        (if (!=
+                          (cast Int r2)
+                          0)
+                          r2
+                          fe)
+                        isp)
+                    })
                   (let ((idx (expParamIndex params (nodeAName tpl))))
                     (if (< idx 0)
                       ; A `syntax/`-spelled name that survived
@@ -3986,6 +4306,7 @@
                     env
                     isp))
                   (mark (vecLen ren))
+                  (markS (vecLen (expScTplVec env)))
                   (pb (expBinderParam
                     (nodeAName tpl)
                     params
@@ -4003,7 +4324,11 @@
                       (if (==
                         (cast Int pb)
                         0)
-                        (expRenPush ren (nodeAName tpl) new)
+                        {
+                          (expRenPush ren (nodeAName tpl) new)
+                          (expScPushTpl env (nodeAName tpl))
+                          ren
+                        }
                         ren)
                       (let ((body (substTpl
                         (nodeC tpl)
@@ -4014,6 +4339,7 @@
                         isp)))
                         {
                           (expTrunc ren mark)
+                          (expScTruncTpl env markS)
                           (mkNodeAt
                             tag
                             new
@@ -4025,6 +4351,7 @@
                 (if (== tag TAG_E_LAM)
                   (let (
                     (mark (vecLen ren))
+                    (markS (vecLen (expScTplVec env)))
                     (ps (substLamParams
                       (nodeAVec tpl)
                       params
@@ -4042,6 +4369,7 @@
                       isp)))
                       {
                         (expTrunc ren mark)
+                        (expScTruncTpl env markS)
                         (mkNodeAt
                           TAG_E_LAM
                           ps
@@ -4076,6 +4404,7 @@
                         ; what it will find.
                         (let (
                           (mark (vecLen ren))
+                          (markS (vecLen (expScTplVec env)))
                           (pb (expBinderParam
                             (nodeAName tpl)
                             params
@@ -4093,7 +4422,11 @@
                               (if (==
                                 (cast Int pb)
                                 0)
-                                (expRenPush ren (nodeAName tpl) new)
+                                {
+                                  (expRenPush ren (nodeAName tpl) new)
+                                  (expScPushTpl env (nodeAName tpl))
+                                  ren
+                                }
                                 ren)
                               (let ((body (substTpl
                                 (nodeB tpl)
@@ -4104,6 +4437,7 @@
                                 isp)))
                                 {
                                   (expTrunc ren mark)
+                                  (expScTruncTpl env markS)
                                   (mkNodeAt
                                     TAG_E_REGION
                                     new
@@ -4356,6 +4690,7 @@
         (let ((new (expFresh env (vecGetStr ps i))))
           {
             (expRenPush ren (vecGetStr ps i) new)
+            (expScPushTpl env (vecGetStr ps i))
             (substLamParamsIn
               ps
               params
@@ -4380,7 +4715,12 @@
     (if (!=
       (cast Int r)
       0)
-      r
+      {
+        (if (== (expScVerify env) 1)
+          (expScCheckRef env ren name (expRenLookupIdx ren name) isp)
+          0)
+        r
+      }
       (let ((idx (expParamIndex params name)))
         (if (< idx 0)
           (expQualify env name)
@@ -4848,7 +5188,7 @@
         ; for-arm's BODY, so its patterns arrive here through
         ; the ordinary TAG_E_MATCH walk, not through the
         ; TAG_M_FOR dispatch above.
-        (let ((mark (vecLen ren)))
+        (let ((mark (vecLen ren)) (markS (vecLen (expScTplVec env))))
           (let ((pat (expRenamePat
             (expSubstPatFor
               (nodeA arm)
@@ -4870,6 +5210,7 @@
               isp)))
               {
                 (expTrunc ren mark)
+                (expScTruncTpl env markS)
                 (substArmsIn
                   arms
                   params
@@ -4935,9 +5276,10 @@
 (pub fn (expSpliceForElems farm params args ren env isp acc seqs n j)
   (if (>= j n)
     0
-    (let ((mark (vecLen (expForStackVec env))))
+    (let ((mark (vecLen (expForStackVec env))) (markC (vecLen (expScChainVec env))))
       {
         (expIterPush env seqs j 0)
+        (expScPushLoop env)
         (substArmsIn
           (nodeCVec farm)
           params
@@ -4948,6 +5290,7 @@
           acc
           0)
         (expTrunc (expForStackVec env) mark)
+        (expScTruncLoop env markC)
         (expSpliceForElems
           farm
           params
@@ -5668,6 +6011,7 @@
         (prevMod (expMacMod env))
         (prevSite (memGetWord env 9))
         (prevFors (memGetWord env 13))
+        (prevSc (expScEnterInst env))
         (_frame (vecPush
           (memGetWordVec env 10)
           (cast Int (ExpFrame
@@ -5690,6 +6034,7 @@
           {
             (expSetMacMod env prevMod)
             (memSetWord env 13 prevFors)
+            (expScExitInst env prevSc)
             (expSetDepth env d)
             (let ((out (expandExpr body env bs)))
               {
@@ -5729,6 +6074,7 @@
         (prevSite (memGetWord env 9))
         (prevFors (memGetWord env 13))
         (prevSeqs (memGetWord env 20))
+        (prevSc (expScEnterInst env))
         (_frame (vecPush
           (memGetWordVec env 10)
           (cast Int (ExpFrame
@@ -5753,6 +6099,7 @@
             (expSetMacMod env prevMod)
             (memSetWord env 13 prevFors)
             (memSetWord env 20 prevSeqs)
+            (expScExitInst env prevSc)
             (expSetDepth env d)
             (let ((out (expandExpr body env bs)))
               {
@@ -7171,9 +7518,9 @@
 ; declaration list, with the same diagnostic Vec the checker will add
 ; to. Answers nothing: the declarations are rewritten in place.
 ; ------------------------------------------------------------------
-(pub :: expandProgram (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) (Vec String) (Vec Int) (Vec Int)))
-(pub fn (expandProgram entryDecls decls out frames units bares fulls mods)
-  (let ((env 
+(pub :: expandProgram (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) (Vec String) (Vec Int) Int (Vec Int)))
+(pub fn (expandProgram entryDecls decls out frames units bares fulls mods scVerify)
+  (let ((env
     (cast Int (MEnv
       (cast Int (expCollectMacros decls vecNew 0))
       out
@@ -7198,7 +7545,12 @@
       vecNew
       vecNew
       0
-      mangleIdxNew))))
+      mangleIdxNew
+      0
+      vecNew
+      vecNew
+      0
+      scVerify))))
     {
       (expCheckMacros env 0)
       (expCheckDeclNames decls env 0)
@@ -7432,6 +7784,7 @@
     (prevDecl (memGetWord env 11))
     (prevFors (memGetWord env 13))
     (prevSeqs (memGetWord env 20))
+    (prevSc (expScEnterDeclInst env))
   )
     {
       (memSetWord env 20 (expMatchSeqs m))
@@ -7468,6 +7821,7 @@
         {
           (memSetWord env 20 prevSeqs)
           (expSetMacMod env prevMod)
+          (expScExitInst env prevSc)
           (memSetWord env 9 prevSite)
           (memSetWord env 17 0)
           (memSetWord env 11 prevDecl)
@@ -7982,9 +8336,10 @@
     ; difference between 0.04 s and never returning.
     (if (== (expBlown env) 1)
       0
-      (let ((mark (vecLen (expForStackVec env))))
+      (let ((mark (vecLen (expForStackVec env))) (markC (vecLen (expScChainVec env))))
         {
           (expIterPush env seqs j 0)
+          (expScPushLoop env)
           (let ((r (expBuildDecls
             (nodeCVec f)
             params
@@ -7995,6 +8350,7 @@
             0)))
             {
               (expTrunc (expForStackVec env) mark)
+              (expScTruncLoop env markC)
               (if (==
                 (cast Int r)
                 0)
@@ -8408,6 +8764,7 @@
               (let (
                 (prevTb (memGetWord env 21))
                 (_pushTb (memSetWord env 21 ps))
+                (_scReset (expScResetTpl env))
                 (body (substTpl
                   (nodeC t)
                   params

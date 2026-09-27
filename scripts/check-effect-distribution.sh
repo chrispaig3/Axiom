@@ -177,6 +177,24 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-26 (17): the MAC-HYG-9 equivalence slice carries
+# scope sets beside the rename table. Twenty-three added, none
+# removed, none changed - each new row read off `symbols` by name.
+# Eleven read `Alloc,Mut,Unsafe` (records built, diagnostics emitted):
+# `expScChainCopy`, `expScChainCopyIn`, `expScCheckFor`,
+# `expScCheckForFrom`, `expScCheckRef`, `expScEmit`, `expScEnterDeclInst`,
+# `expScEnterInst`, `expScPushLoop`, `expScPushTpl` and `expScResetTpl`.
+# Seven read exactly `Unsafe` (reads and scans with no allocation):
+# `expRenLookupIdx`, `expRenLookupIdxFrom`, `expScChainVec`,
+# `expScPrefix`, `expScPrefixIn`, `expScTplVec` and `expScVerify`.
+# Five read `Mut,Unsafe` (counter bumps and truncations):
+# `expScExitInst`, `expScNextId`, `expScNextSeq`, `expScTruncLoop` and
+# `expScTruncTpl`. Every move is a gain - `Alloc,Mut,Unsafe` 2296 to
+# 2307, exactly `Unsafe` 1159 to 1166, `Mut,Unsafe` 121 to 126 - and
+# no existing row moves buckets: the two `main.ax` call sites read
+# `sysEnv` through rows that already perform IO, and `expandProgram`
+# keeps its row with the flag as data. Every IO bucket frozen again.
+#
 # RE-PINNED 2026-09-26 (16): the generated-name cache fills at
 # `didOpen`/`didChange` and the four navigation arms read it.
 # Eighteen added, none removed, none changed - each new row read off
@@ -377,10 +395,10 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 21 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 18 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2296 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1159 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2307 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1166 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 403 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 121 "Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 126 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"

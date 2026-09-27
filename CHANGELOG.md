@@ -22,6 +22,23 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Scope sets ride beside renaming, and both agree — `scripts/check-scope-equiv.sh`
+
+MAC-HYG-9's equivalence slice: under `AXIOM_VERIFY_SCOPES=1` the
+expander carries `(name, scopes)` pairs beside the rename table (words
+24-28), and every variable reference the rename table hits is resolved
+both ways. A parting is the new AX3075, verify-only and recorded in
+`tests/diagnostics/UNCOVERED` with its reason. The new gate runs the
+579-file checkable corpus through verify mode and pins zero
+divergences; its positive control
+(`tests/selfhost/1003-macro-for-precedence.ax`) is the one shape where
+the mechanisms differ by design - renaming answers the template binder
+where scopes would take the for-binding - and must diverge under
+verify while checking clean and answering 41 without it. The corpus
+leg passes by absence and the control leg fails if verify ever goes
+silent, so the gate cannot pass vacuously. Held by the gate itself (2
+checks). Calls one new gate; the count sites state eighty gates.
+
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
 S4's table row set one success criterion - re-run §1.1's ablation and
@@ -37,7 +54,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state seventy-nine gates, and the battery has
+gate; the count sites state eighty gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`
