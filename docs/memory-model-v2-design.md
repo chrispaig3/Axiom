@@ -723,6 +723,21 @@ aggregate). S4 is closed: the traffic the region proves dead is gone,
 the binary is smaller for it, and nothing that freed anything went
 with it.
 
+**Amended 2026-09-27: the win is measured in code, not file bytes.**
+On darwin at `99bd5415` the gate went red on 483 and 484 - files 8 and
+16 bytes LARGER under test - while their `__text` sections were 288
+bytes smaller each. The file carries linker tables that do not track
+the code: LC_FUNCTION_STARTS (a ULEB list of function-start deltas,
+padded to 8) went 64 -> 72 bytes, and the code signature follows the
+file's own length. The gate now reads the text section (`llvm-size
+-A`, `__text` or `.text`) for both the per-file must-not-grow rule and
+the aggregate's strict win, and prints file bytes without asserting
+them. Measured then, on darwin-aarch64: every fixture's code shrinks
+(224-296 bytes each), and the seven files' aggregate is 57,884 bytes
+against 59,764 ablated - the 32-byte file-level figure above
+understated the win by two orders of magnitude, in the direction a
+reader would not have guessed.
+
 **The adjacent hole, CLOSED 2026-09-17.** A callee-mediated store
 of a fresh construction into an outer cell from inside an
 UN-annotated region used to check OK and read back wrong (measured:

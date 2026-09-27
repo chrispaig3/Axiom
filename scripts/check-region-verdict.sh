@@ -41,8 +41,19 @@
 #   W2. THE SIX FIXTURES PLUS THE LITERAL PROBE. Per program: the
 #       release delta equals the pin, the IR diff is release lines
 #       only, both binaries answer identically (stdout and exit), and
-#       the verdict binary is SMALLER in bytes - the binary win,
-#       measured where §1.1 measured it, one `wc -c` per arm.
+#       the verdict binary's CODE is smaller - the text section
+#       (`__text` / `.text`, read by `llvm-size -A`), one per arm.
+#
+#       NOT `wc -c`, although §1.1 measured file bytes and this gate
+#       did until 2026-09-27. A file carries linker tables that do not
+#       move with the code, and on darwin they moved the other way:
+#       at 99bd5415, 483's `__text` was 8,552 bytes under test against
+#       8,840 ablated - 288 bytes of removed release traffic - while
+#       the file was 16 bytes LARGER, because LC_FUNCTION_STARTS (a
+#       ULEB table of function-start deltas, padded to 8) went 64 -> 72
+#       bytes and the code signature tracks the file's own size. The
+#       gate said "the elision grew the backend" about a backend that
+#       had shrunk. File bytes are still printed; they are not asserted.
 #   W3. ONE RSS LOOP, COMBINED TRAFFIC. 300,000 regions, each routing
 #       a fresh box through a call (slice 2's path), a construction
 #       (slice 1's) and a literal touch (slice 5's): same answer both
@@ -53,11 +64,12 @@
 # What this gate does NOT assert, stated rather than left to be
 # found: no wall-clock claim (§1.1's own correction stands - load
 # moves it, and this gate runs on loaded runners), and no absolute
-# binary size (toolchains move it; the DIRECTION is the assertion).
+# code size (toolchains move it; the DIRECTION is the assertion).
 # Per file the direction is must-not-grow, because function alignment
-# absorbs a few removed calls into padding (three fixtures tie to
-# the byte); the strict win is pinned on the seven files' aggregate,
-# where padding cannot absorb every file at once.
+# can absorb a few removed calls into padding (three fixtures tied to
+# the byte when this measured whole files); the strict win is pinned
+# on the seven files' aggregate, where padding cannot absorb every
+# file at once.
 #
 # Cost: one extra compiler build plus two emits of `self_host`, the
 # same shape every slice gate already pays once.
@@ -71,6 +83,15 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
 command -v python3 >/dev/null || { echo "FAIL: python3 is not on PATH"; exit 1; }
+command -v llvm-size >/dev/null || { echo "FAIL: llvm-size is not on PATH; it ships with LLVM alongside llc"; exit 1; }
+
+# The bytes of code in a linked binary: the `__text` (Mach-O) or
+# `.text` (ELF) section, summed. 0 means the reader found no such
+# section, which is a broken measurement, never a small binary.
+text_bytes() { # <binary>
+  llvm-size -A "$1" 2>/dev/null \
+    | awk '$1 == "__text" || $1 == ".text" { s += $2 } END { print s + 0 }'
+}
 
 failed=0
 checks=0
@@ -367,18 +388,22 @@ if [[ -f "$work/axc-ablated" ]]; then
       diff "$work/$name-abl.out" "$work/$name.out" | head -5 | sed 's/^/     /'
       continue
     fi
-    b_new="$(wc -c < "$work/$name" | tr -d ' ')"; b_abl="$(wc -c < "$work/$name-abl" | tr -d ' ')"
-    # Per file the verdict must not be BIGGER; it may tie, because
-    # function alignment absorbs a few removed calls into padding
-    # (measured: three fixtures tie to the byte). The win itself is
-    # pinned on the aggregate below, where padding cannot absorb
-    # every file at once.
+    b_new="$(text_bytes "$work/$name")"; b_abl="$(text_bytes "$work/$name-abl")"
+    f_new="$(wc -c < "$work/$name" | tr -d ' ')"; f_abl="$(wc -c < "$work/$name-abl" | tr -d ' ')"
+    if (( b_new == 0 || b_abl == 0 )); then
+      bad "$name: no text section read ($b_new under test, $b_abl ablated) - the measurement is broken"
+      continue
+    fi
+    # Per file the verdict's code must not be BIGGER; it may tie, because
+    # function alignment can absorb a few removed calls into padding.
+    # The win itself is pinned on the aggregate below, where padding
+    # cannot absorb every file at once.
     if (( b_new > b_abl )); then
-      bad "$name binary is $b_new bytes under test against $b_abl ablated - the elision grew the backend"
+      bad "$name code is $b_new bytes under test against $b_abl ablated - the elision grew the backend"
       continue
     fi
     sum_new=$(( sum_new + b_new )); sum_abl=$(( sum_abl + b_abl ))
-    ok "$name: delta $pin, identical answers, binary $b_new <= $b_abl bytes"
+    ok "$name: delta $pin, identical answers, code $b_new <= $b_abl bytes (files $f_new / $f_abl, not asserted)"
   done
   # The literal probe: four guarded positions, pin 4, stdout "50" and "41".
   "$axc" emit-llvm "$work/litprobe.ax" -o "$work/litprobe.ll" >"$work/lit.log" 2>&1 \
@@ -403,21 +428,23 @@ if [[ -f "$work/axc-ablated" ]]; then
       elif [[ "$got" != "$want" ]]; then
         bad "the literal probe answers '$got', wanted '51' - the probe is not probing"
       else
-        b_new="$(wc -c < "$work/litprobe" | tr -d ' ')"; b_abl="$(wc -c < "$work/litprobe-abl" | tr -d ' ')"
-        if (( b_new > b_abl )); then
-          bad "literal probe binary is $b_new bytes under test against $b_abl ablated"
+        b_new="$(text_bytes "$work/litprobe")"; b_abl="$(text_bytes "$work/litprobe-abl")"
+        if (( b_new == 0 || b_abl == 0 )); then
+          bad "literal probe: no text section read ($b_new under test, $b_abl ablated) - the measurement is broken"
+        elif (( b_new > b_abl )); then
+          bad "literal probe code is $b_new bytes under test against $b_abl ablated"
         else
           sum_new=$(( sum_new + b_new )); sum_abl=$(( sum_abl + b_abl ))
-          ok "literal probe: delta 10, answers 51 both ways, binary $b_new <= $b_abl bytes"
+          ok "literal probe: delta 10, answers 51 both ways, code $b_new <= $b_abl bytes"
         fi
       fi
     fi
   fi
   if (( sum_abl > 0 )); then
     if (( sum_new >= sum_abl )); then
-      bad "aggregate binary is $sum_new bytes under test against $sum_abl ablated - padding absorbed nothing, the win is missing"
+      bad "aggregate code is $sum_new bytes under test against $sum_abl ablated - the win is missing"
     else
-      ok "aggregate binary $sum_new < $sum_abl bytes - the win reaches the backend"
+      ok "aggregate code $sum_new < $sum_abl bytes - the win reaches the backend"
     fi
   fi
 else

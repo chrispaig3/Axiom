@@ -2135,8 +2135,9 @@ sites in [codegen.ax](../self_host/codegen.ax);
 [check-static-release.sh](../scripts/check-static-release.sh),
 [check-arena-reset-rate.sh](../scripts/check-arena-reset-rate.sh), and
 [check-region-verdict.sh](../scripts/check-region-verdict.sh).
-The verdict compares answers, emitted releases, aggregate binary size
-and peak RSS against an ablated compiler. It asserts no wall-clock or
+The verdict compares answers, emitted releases, aggregate code size
+(the text section, not file bytes) and peak RSS against an ablated
+compiler. It asserts no wall-clock or
 worst-case execution-time guarantee.
 
 **MM-RGN-7 (P; the surface and word transport are H).** The proposed

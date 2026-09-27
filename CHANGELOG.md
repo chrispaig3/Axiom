@@ -22,6 +22,19 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The S4 verdict measures code, not file bytes - 2026-09-27
+
+`scripts/check-region-verdict.sh` compared whole-file `wc -c` and went
+red on darwin for 483 and 484 - 8 and 16 bytes larger under test -
+while their `__text` sections were 288 bytes smaller each: the file
+carries LC_FUNCTION_STARTS (a padded ULEB table, 64 -> 72 bytes) and a
+code signature that follows the file's length, and neither tracks the
+code. The per-file must-not-grow rule and the aggregate's strict win
+now read the text section through `llvm-size -A`, and a section that
+reads 0 is a broken measurement rather than a small binary. Measured
+on darwin-aarch64: all seven files' code shrinks, 57,884 bytes against
+59,764 ablated. File bytes are still printed, not asserted.
+
 ### An executable model holds the runtime to its memory rules - 2026-09-27
 
 `scripts/lib/runtime-model.py` is a second, independent statement of
