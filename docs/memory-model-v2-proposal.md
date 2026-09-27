@@ -1,5 +1,12 @@
 # Toward Axiom's own memory model — a design proposal
 
+This is a historical proposal, not a specification. Its rule inventory
+and present-tense descriptions are the baseline at `6cfa571`, not a
+current status table. The authoritative contract and conformance table
+are in [memory-model.md](memory-model.md); the region rules now live
+there in §3.6, and the current obligation dispositions are in
+[assurance/memory-audit.md](assurance/memory-audit.md).
+
 This is not a specification. `docs/memory-model.md` remains the
 normative source of truth; nothing here is binding until a rule moves
 there. This document is Phase 1 (a map, with the withdrawn/held/planned

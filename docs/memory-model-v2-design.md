@@ -1,55 +1,23 @@
-# Regions — a design pass at Axiom's own memory model
+# Regions — design and implementation history (non-normative)
 
-This is a **design note**, not a specification. `docs/memory-model.md`
-remains the normative source; nothing here is binding until a rule
-moves there. It follows the convention
-[docs/checked-arithmetic-design.md](checked-arithmetic-design.md) set:
-every claim below carries the command that established it, and the
-claims that are *not* measured say so in the same sentence.
+The authoritative `MM-RGN-*` contract is now
+[memory-model.md §3.6](memory-model.md#36-checked-lexical-regions), with
+implemented **H**, planned **P**, and withdrawn **W** entries in its
+conformance table. This record supplies dated measurements and the
+reasoning behind decisions. It defines no normative rules.
 
-It answers a narrower question than its title. Three decisions were
-taken rather than argued for, and the note reasons from them:
+The initial measurements were taken at `19cb860` on darwin-aarch64;
+later entries name their own dates. Present-tense claims in the
+historical sections describe those snapshots, not an additional current
+contract. In particular, S4 release elision is complete, but typed
+sibling task regions and heap-result promotion remain planned. Raw-word
+lifetimes and foreign sharing are still programmer obligations; see
+[the memory audit](assurance/memory-audit.md).
 
-- the mechanism is **typed regions**, declared rather than inferred —
-  Ada's accessibility rules rather than Rust's lifetime inference;
-- concurrency is **one surface with two lowerings** — threads inside a
-  process, processes across, the same source and the same determinism
-  guarantee under both;
-- **typed regions are the destination, S3 included** (2026-08-31).
-  This note's own §5 was written as a case for deferring the
-  type-system stage until three probes had been run. That was a
-  recommendation and it was overruled: the direction is settled, and
-  §5's probes now **size** S3 rather than decide whether it happens.
-
-**What that decision is buying, and it is better than it looked when
-the decision was taken.** §5's probes 1 and 2 were run the same day and
-both came back for the design; only probe 3, which is S4's own gate,
-remains. The measurement in §1.1 that cuts the other way still stands —
-counting buys a **2.4×** reduction in peak RSS for **no wall-clock cost
-this machine could measure** — but the scaling argument now rests on a
-measurement rather than on an expectation (§5, probe 2, run
-2026-08-31 over the IR that `scripts/check-static-release.sh` counts):
-**69.7–80.8%** of the call-result
-releases have no escape channel out of their function, so a region
-model takes this compiler's release traffic from 10,849 sites to
-roughly **1,300–1,900** (§5, probe 2).
-
-The safety argument does not depend on any of that and is not in doubt:
-two of the arena's three program obligations are unchecked today
-(§1.3), the surface syntax for scoping was deleted on the strength of
-an inference that was then withdrawn (§1.4), and typed regions make
-`MM-PAR-6`'s "no cross-thread reference" a corollary rather than a
-second system (§3.2). Those are the reasons to build this that were
-already measured when the decision was taken.
-
-Rule identifiers below are proposed, marked **(D)** for *design*, and
-belong to a new `MM-RGN-*` series. None is normative and none appears
-in §9's conformance table. `scripts/check-doc-drift.sh` section 8
-refuses a rule header defined twice, so the series is reserved by being
-written down here.
-
-Measured on the compiler built from this worktree at `19cb860` by
-`./scripts/build-shared-axc.sh /tmp/axc-mm2/axc`, on darwin-aarch64.
+The original direction was declared typed regions over the existing
+arena, and one parallel surface with process and thread lowerings.
+The measurements below sized that work; they did not establish a
+universal memory-safety or timing guarantee.
 
 ---
 
@@ -207,137 +175,60 @@ all.
 
 ---
 
-## 2. The design
+## 2. Design decisions and dispositions
 
-### 2.1 The runtime already exists; what is missing is the discipline
+These are historical decisions. The linked specification owns their
+current wording, evidence and status; the original proposal text is
+available in the version history of this file.
 
-**MM-RGN-1 (D). A region is an allocation scope with a statically
-known, lexically nested extent.** `(region r EXPR)` binds the region
-name `r` over `EXPR`'s dynamic extent.
+### 2.1 The runtime already existed
 
-The critical property is that **this needs no new runtime.**
-`@__axiom_bump`, `@__axiom_bump_end` and `@__axiom_chunk` *are* the
-current region. `__axiom_arena_mark` captures it, `__axiom_arena_reset`
-restores it, `__axiom_arena_reset_keeping` restores it while promoting
-one value out (`MM-ALLOC-15`, gated by
-`tests/stdlib/165-arena-keep.ax`). Today's allocator is already a
-region allocator that has exactly one region and never resets it.
+`MM-RGN-1` used the existing arena position and reset operation for a
+lexical scope. S2 implemented a stack mark cell and a scalar-result
+restriction. It did not implement automatic promotion of a heap result.
 
-What v2 adds is a **static discipline** over machinery that is built,
-measured and gated. That is the whole reason to prefer this mechanism
-over the alternatives: the 100–313× is already banked.
+### 2.2 Lexical outlives order
 
-### 2.2 Regions are lexical, so "outlives" is a tree order, not an inference
+`MM-RGN-2` selected a lexical tree order. The implementation also treats
+distinct signature region names as unordered, each outliving the
+caller's current allocation region. It does not construct sibling
+region nodes for `parallel` bindings.
 
-**MM-RGN-2 (D). Region extents nest, and the nesting is the outlives
-relation.** `r` outlives `s` iff `s`'s block is inside `r`'s. Two
-sibling regions are unordered — neither outlives the other.
+### 2.3 The escape rule
 
-This is the single largest simplification over a borrow checker and the
-reason the note reaches for Ada rather than Rust. Rust infers lifetimes
-from control flow, so it needs inference, variance, and a solver.
-Axiom's regions are written, so the order is **known at parse time**
-and the check is a tree comparison. `MM-ALLOC-16a`'s nesting
-requirement is already exactly this order, stated as a program
-obligation and now trapped — §1.3.
+`MM-RGN-3` became the checked-origin store/return/capture rule. The
+original claim that it would subsume all raw-reset, live-evidence and
+invisible-store obligations was too broad: erased addresses retain
+programmer obligations, and the dynamic mark/evidence guards remain.
+The canonical rule states the covered domain.
 
-### 2.3 One rule does the work
+### 2.4 Annotations and the common case
 
-**MM-RGN-3 (D), the escape rule. A value in region `s` MUST NOT be
-stored into, returned into, or captured by anything in a region that
-outlives `s`.**
+`MM-RGN-4` originally proposed that every reference parameter and result
+share the caller's region. S3 instead reads callee facts, allowing a
+read-only use of an outer value while refusing an escaping store.
+This supersedes the invariance proposal without adding runtime
+arguments. The annotated-versus-stripped comparison remains a gate.
 
-That is the whole safety argument. It subsumes:
+### 2.5 The witness changed during implementation
 
-- `MM-ALLOC-16` — "what may be read after a reset" becomes unspellable
-  rather than unchecked, because reading a `@s` value after `s` ends
-  requires naming it outside `s`;
-- `MM-ALLOC-16b` — an evidence record's extent is a region, and
-  resetting past it is an outer region ending before an inner one,
-  which the nesting refuses;
-- `MM-LIFE-2g`'s invisible store — a store that erases a type is
-  refused unless the target's region is the value's or shorter, which
-  is what `__retainref` is currently a runtime apology for.
+The original `MM-RGN-5` proposed a hidden trailing mark-cell word per
+region parameter. That proposal was declined on 2026-09-26 and is
+withdrawn in the specification. The bump allocator cannot place a new
+value below an inner waterline merely by receiving an outer mark.
 
-### 2.4 The common case carries no annotation
+`MM-RGN-5a` records what actually shipped: post-fixpoint freshness
+stamps consumed at release sites, with no runtime witness word. The
+S4 entries below retain the measurements and path-specific ablations.
 
-**MM-RGN-4 (D). A signature that names no region is region-monomorphic
-in the caller's current region.** Every reference parameter and the
-result share it.
+### 2.6 Reclamation and counting
 
-This is the ergonomics half and it is what makes v2 **backward
-compatible by construction**: a program that never writes `region` has
-exactly one region, never reset, plus today's counting — which is
-today's semantics, byte for byte. The 1,211 release-only functions of
-§1.2 are precisely the shape this default is for; none of them would
-gain an annotation.
-
-Only a function relating **two** regions names them:
-
-```scheme fragment
-(:: parse (-> (Str @r) (Ast @r)))
-
-(:: intern (-> (Str @s) (Table @r) (Sym @r)))
-```
-
-`intern` is the interesting one: it reads a short-lived string and
-answers a symbol in the long-lived table's region. The signature says
-so, and `MM-RGN-3` then refuses a `Sym` that points into `@s`.
-
-**This is the claim most likely to be wrong, and §5 says how to falsify
-it.** The corpus has never been swept for functions that relate two
-regions, because there has never been a region to relate.
-
-### 2.5 What carries the witness at runtime
-
-**MM-RGN-5 (D). A region-polymorphic function takes one hidden trailing
-word per region parameter, holding that region's mark cell.**
-
-This is not a new mechanism. `MM-LIFE-2d`'s **evidence word** already
-threads one hidden trailing `i64` per polymorphic function, computed at
-the call site from static types, and `EV_LAMARG` already extends it to
-a lambda's own parameter by depth (`self_host/typecheck.ax`). A region
-witness is the same shape and the same call-site computation.
-
-*Measured against implementation, 2026-09-26:* the witness as built
-is the stamp system, not the trailing word. S3's facts fixpoint
-proves freshness per callee, the post-fixpoint walk stamps proven
-nodes (`nodeResWord` 2), and S4's spends read the stamps - which is
-what "S4's next slice" in slice 1's row became, and what the verdict
-row below closes. The trailing word of the (D) text above was
-evaluated against the runtime and DECLINED: a callee cannot
-bump-allocate into a non-current region (position IS extent - a value
-above an inner mark dies at the inner reset whatever region it was
-"for"), cross-region results are served by reset-time promotion
-(`MM-ALLOC-15`, built) and refcounted promotion (`MM-RGN-6`), and
-freshness certification - the named consumer - is what the stamps
-deliver at zero runtime cost. Threading a word no reader consumes
-would be traffic without a proof, which is what S4 deletes. Revisit
-iff a region-polymorphic program needs cross-region BEHAVIOUR at a
-call site - dynamic extent checks over the raw-`Int` channel are the
-sound reader if that day comes - and none exists in the tree: the
-sweep of §5 found region annotations only in tests.
-
-Most functions need none: under `MM-RGN-4` they allocate in the current
-region, which is the global bump pointer they already use, so their
-emitted code does not change at all.
-
-### 2.6 Reclamation, and what survives of counting
-
-**MM-RGN-6 (D). A region reclaims its own extent in one pointer move.
-Reference counting survives only where a value outlives its region.**
-
-Inside a region, a value that does not escape needs no retain and no
-release — the reset reclaims it. A value that escapes to an outer
-region is promoted at the boundary, which is `reset_keeping`,
-which exists.
-
-Counting is not deleted. It stays for: the `Foreign` drop path
-(`MM-FFI-*`), values promoted across a region boundary, and any value
-whose region cannot be decided statically. `MM-LIFE-3`'s cycles remain
-uncollected and this design does not change that — a cycle inside a
-region dies with the region, which is strictly better than today, but a
-cycle promoted out still leaks.
+`MM-RGN-6` retains counting except where a particular release is proved
+redundant. The original claim that counting survives *only* for values
+outliving their region was not implemented as a general rule. Nor is
+reset's total work a single pointer move: it also clears size-class
+heads and processes surplus chunks. The canonical contract states the
+composition once, including destructor and shallow-copy limits.
 
 ### 2.7 What is taken from Ada, precisely
 
@@ -413,40 +304,13 @@ is why the two decisions in this note's preamble are one decision.
 
 ### 3.3 The surface, and the two lowerings
 
-**MM-RGN-7 (D).** One construct:
-
-```scheme fragment
-(parallel p
-  ((a (handle conn1))
-   (b (handle conn2)))
-  (combine a b))
-```
-
-Each binding runs in **its own region**, siblings under `p`. Results
-are moved into `p` at join — the `reset_keeping` promotion of §2.6.
-Combination is in **argument order**, always, because `MM-PAR-5`
-requires submit-order results and every byte-comparing gate in the
-repository depends on it (`tests/stdlib/476-par-pool.ax` pins ascending
-output with children whose completion order is deliberately reversed).
-
-| | threads | processes |
-|---|---|---|
-| sibling regions are | thread-local bump pointers | separate address spaces |
-| the eight globals | `thread_local(localexec)` | private after `fork`, free (`MM-PAR-3`) |
-| results cross as | a promotion into `p` | bytes, through a descriptor |
-| `MM-FFI-1` tier | 3 — thread creation names libSystem | **1 — zero undefined symbols** |
-| `MM-RGN-3` is | a load-bearing static check | a redundant check over an isolation that already holds |
-
-The last row is the property that makes two lowerings worth having
-rather than a hedge: **the check is the same under both**, so a program
-developed and gated under the process lowering — where safety is
-`MM-PAR-3`'s by-construction guarantee and costs nothing — is already
-proved safe for the thread lowering. Isolation is the conservative
-lowering, not the fallback one.
-
-`stdlib/Par.ax` and `sysForkProcess` are the process lowering's
-existing machinery; `tests/net/echo-server.ax`'s pre-forked pool is the
-shape, and it is where `MM-ALLOC-22`'s measurement is taken.
+The original `MM-RGN-7` proposal put each binding in a typed sibling
+region and promoted its result into the parent at join. That remains
+**P** in [the specification](memory-model.md#36-checked-lexical-regions).
+S5/S6 implemented the surface, the two lowerings, written-order joins,
+and word transport. Neither a word crossing a join nor the capture
+refusals is recursive typed heap promotion. The following dated account
+explains why the stronger sibling-region claim did not follow from S3.
 
 ### 3.2b The sibling-region rule did not ship, and `--threads` is unsound without it
 

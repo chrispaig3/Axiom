@@ -22,6 +22,40 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Process pools bound their handle storage - 2026-09-27
+
+`Par.parMapWords(Checked)` kept one handle per submission although at
+most `width` are live, and allocated a status cell per checked join.
+Handles now live in a ring capped at min(n, w) with the old child
+joined before its slot is reused, and one caller-owned cell serves
+every sequential checked join; both are released on normal
+completion. `tests/stdlib/523-par-pool-bounded.ax` pins 6/14 KiB
+parent-arena budgets for 256 submissions at width 3 (the old shape
+took 8,432/24,816 bytes), result order across wraps, mixed failures,
+drains, and degenerate widths, with `.optstable` pinning `--opt` 0-3.
+
+### Foreign joins are refused before waiting - 2026-09-27
+
+A join from a thread that did not spawn the handle used to wait (or
+write the status cell) first and fail only at unlink, consuming the
+child's result so the rightful owner could never join. Every join
+entry now checks ownership first and answers 78 without touching the
+child or the cell. `scripts/check-parallel.sh` §12c pins all four
+proc/thread × raising/checked combinations, and §12b's orphan probe
+is rebuilt around a pid-publishing child with asserted exit codes
+after the old form proved unable to observe the trap it tested.
+
+### Memory contract consolidated; assurance records opened - 2026-09-27
+
+`docs/memory-model.md` §3.6 now states `MM-RGN-1…7` normatively with
+held/planned markers, §0.2 requires every program obligation to name
+its enforcement, and the v2 design/proposal documents point at the
+contract instead of restating it. `docs/assurance/` gains the
+requirements matrix, reference configurations, scorecard, memory-audit
+disposition register, and qualification strategy the plan's
+milestones A and B promised. `scripts/check-doc-drift.sh` holds the
+cross-references; nothing is claimed as qualified.
+
 ### Invalid vector writes fail visibly - 2026-09-27
 
 `Vec.vecSet` now traps with status 77 for a negative index or an index

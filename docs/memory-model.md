@@ -36,9 +36,11 @@ bind two different audiences, and each rule says which:
 
 - **Implementation obligations** bind the compiler and its emitted
   runtime. A conforming implementation that violates one is defective.
-- **Program obligations** bind the Axiom programmer. Nothing checks
-  these — they are the places where the language's safety stops, and
-  each is named rather than left implicit.
+- **Program obligations** bind the Axiom programmer. A rule states
+  whether a static check or a runtime trap enforces it and names any
+  unchecked remainder. An obligation is not discharged merely because
+  some other use of the same primitive is checked. The disposition
+  register is [assurance/memory-audit.md](assurance/memory-audit.md).
 
 ### 0.3 Status markers
 
@@ -1509,9 +1511,10 @@ against **193,247** with the boundary removed (`MM-LIFE-2e`).
 request/response service is the shape this reclamation fits exactly: the
 live set at the reset is empty by construction, so the boundary costs a
 waterline restore and gives back everything the request touched.
-`MM-ALLOC-16`'s program obligation is what a caller pays for that and is
-unchanged — nothing verifies it, and the compiler still never inserts
-these calls itself. Keep-alive, where per-connection state outlives the
+`MM-ALLOC-16` remains the obligation for raw mark/reset callers.
+The checked `region` form inserts its own mark/reset and rejects the
+escapes described by `MM-RGN-1`–`4`; that narrower guarantee does not
+validate an arbitrary raw reset. Keep-alive, where per-connection state outlives the
 request, is outside the measurement and outside this rule's claim
 (`MM-ALLOC-4b`).
 
@@ -1566,11 +1569,16 @@ one of which may be the source's.
 between `bytes` and the 16-byte rounding holds whatever was there
 before. No caller can name those bytes.
 
-**MM-ALLOC-16 (H, program obligation).** These three carry a contract
-the compiler **cannot** check: *after a reset, nothing allocated since
-the matching mark may be read again*, except the one block carried by
-`reset_keeping`. Nothing verifies it, and the compiler never inserts
-these calls itself.
+**MM-ALLOC-16 (H, program obligation; checked subset in §3.6).** After
+a raw reset, no reclaimed allocation may be read again, except through
+the new address of the contiguous block carried by `reset_keeping`.
+A raw mark or address is an `Int`; the compiler does not prove this
+obligation for arbitrary uses of the primitives. A kept block's fields
+are not recursively promoted: each referenced allocation must still
+outlive every later read. `MM-RGN-1`–`4` provide static checks for the
+lexical `region` form and typed origins, not a general validation of
+raw words. `MM-ALLOC-16a` and `16b` state the separate dynamic checks
+and their limits.
 
 **MM-ALLOC-16b (H, program obligation; implementation obligation since
 2026-08-31).** An **evidence record is an ordinary arena object**
@@ -1807,7 +1815,7 @@ reference wherever it is stored (`MM-LIFE-2c`, events 2 and 6), and
 `region` stays deleted either way.
 
 *Amended 2026-09-03:* `region` is back in the surface syntax, as
-`MM-RGN-1`'s checked scope (`docs/memory-model-v2-design.md` §4, S2)
+`MM-RGN-1`'s checked scope (§3.6)
 — a scope the PROGRAM brackets, which is what §3.4's own verdict asked
 for, and not the annotation this rule said the compiler would derive.
 The sentences above stand for the inferred model; they no longer
@@ -1970,6 +1978,186 @@ still not at the call, which is the part of the recipe that was right:
 what changed is which position is honest about what it produces, not
 where the cast goes.
 
+### 3.6 Checked lexical regions
+
+This is the authoritative contract for `MM-RGN-*`. The
+[design record](memory-model-v2-design.md) preserves measurements and
+rejected proposals, not a second specification. The rule numbers were
+reserved there as **D**; their status below reflects what shipped, with
+planned behavior stated separately. The guarantees concern the typed
+origins the analysis tracks. They do not make arbitrary `Int` addresses,
+foreign memory or raw reset calls safe.
+
+**MM-RGN-1 (H). A region is a lexical allocation scope.**
+`(region r EXPR)` binds the region name over `EXPR`. On entry the
+emitter saves the current bump pointer, end and chunk in a three-word
+stack cell; on normal return it resets to that saved position and
+answers the body's scalar result. A live region name cannot be rebound
+inside itself (`AX3058`); a reference-valued result is refused
+(`AX3059`). A region form does not automatically promote a heap result.
+Recovery has its own reset/unwind contract (`MM-ALLOC-23`).
+
+Evidence: [codegen.ax](../self_host/codegen.ax), `emitRegion` and
+`emitRegionCell`; [typecheck.ax](../self_host/typecheck.ax),
+`rgTyScalar`; [check-region-scope.sh](../scripts/check-region-scope.sh),
+including its unsafe-escape ablation and its no-region/two-region
+controls; [168-region.ax](../tests/stdlib/168-region.ax).
+
+**MM-RGN-2 (H). Region extents nest.** For lexical regions, an extent
+outlives itself and its descendants; siblings are unordered. In a
+region-annotated signature, each distinct named region outlives the
+caller's current allocation region and its lexical descendants, but
+different named regions are unordered. This is the checker's declared
+ordering, not runtime lifetime inference. A signature cannot promise a
+result region that no parameter supplies (`AX3063`). A `parallel`
+binding does not currently create a typed sibling region (`MM-RGN-7`).
+
+Evidence: [typecheck.ax](../self_host/typecheck.ax), `rgnOutlives`,
+`rgnFormNestedIn`, `rgnCheckResult`;
+[646-region-escape-return.ax](../tests/diagnostics/646-region-escape-return.ax)
+and [648-region-argument.ax](../tests/diagnostics/648-region-argument.ax),
+held by [check-region-escape.sh](../scripts/check-region-escape.sh).
+
+**MM-RGN-3 (H, within the tracked-origin domain). The escape rule.**
+A reference **MUST NOT** be stored into, returned into, or captured by
+an object whose region outlives any region that reference depends on.
+The checker rejects a non-scalar value leaving a region as its result
+or through a direct outer-binding store (`AX3059`). Its region facts
+also reject stores, including callee-mediated stores (`AX3060`), a
+return incompatible with the declared result region (`AX3061`), an
+escaping capture (`AX3062`), and inconsistent region arguments
+(`AX3063`). The reporting pass runs over function bodies when the
+program contains a region form or region-annotated signature.
+
+Facts propagate through resolved calls to a fixpoint. An unresolved
+call is conservatively assumed to store every argument into every
+argument; it can therefore cause a false refusal. This is not a proof
+about arbitrary words: erased addresses, hand-built layouts and raw
+mark/reset calls retain `MM-ALLOC-16` and `MM-LIFE-2g`'s obligations.
+The dynamic checks for marks and live evidence remain necessary
+(`MM-ALLOC-16a`, `16b`); the region rule does not replace them.
+
+Evidence: [typecheck.ax](../self_host/typecheck.ax), `rgnCheckAll`,
+`rgnEnsureFacts`, `rgnStoreOk`, `rgnUnknownCall`;
+[check-region-escape.sh](../scripts/check-region-escape.sh) tests each
+refusal and ablates the rule to expose the reclaimed-memory read;
+[653-region-escape-callee.ax](../tests/diagnostics/653-region-escape-callee.ax)
+pins the unannotated callee-mediated store beside the accepted cases in
+[479-region-reclaim.ax](../tests/stdlib/479-region-reclaim.ax).
+
+**MM-RGN-4 (H, amended from the design default).** Allocation by an
+unannotated function uses its caller's current region. Its parameter
+and result origins are determined from the body's facts; they are
+**not** forced to be identical. Thus a read of an outer string is legal
+inside a shorter region, while a call storing a fresh inner value into
+an outer container is refused. This supersedes the design's proposed
+invariance of every reference parameter and result. Region annotations
+do not add runtime arguments or select another allocation arena.
+
+A program with no region form emits no lexical-region mark cell.
+Annotations alone leave the emitted program unchanged, apart from
+source-location attribution. Evidence:
+[check-region-scope.sh](../scripts/check-region-scope.sh) and
+[check-region-escape.sh](../scripts/check-region-escape.sh), whose
+annotated fixture is compared with its stripped twin.
+
+`restrict(no-escape)` reads these same facts. It claims that a function
+stores none of its fresh allocations into its parameters; it is not a
+claim that the function allocates nothing or returns no reference.
+A proven violation is `AX3049`; an unresolved call or truncated
+analysis is `AX3051`, or `AX3057` under `strict`. A warning is not a
+proof. Evidence: `restrictNoEscape` in
+[typecheck.ax](../self_host/typecheck.ax),
+[649-restrict-no-escape.ax](../tests/diagnostics/649-restrict-no-escape.ax)
+and [check-restrictions.sh](../scripts/check-restrictions.sh).
+
+**MM-RGN-5 (W, design withdrawn 2026-09-26).** The proposed rule was:
+“A region-polymorphic function takes one hidden trailing word per
+region parameter, holding that region's mark cell.” It was never
+implemented. `MM-RGN-5a` supersedes its freshness-witness role.
+Allocation into an arbitrary outer region and runtime checks of erased
+addresses have no implementation under this identifier. Passing a mark
+would not by itself let the current bump allocator allocate below an
+inner region's waterline. The historical decision and measurement are
+in [the design record](memory-model-v2-design.md), §2.5 and §4.
+
+**MM-RGN-5a (H). Freshness evidence is a compile-time stamp.** After
+convergence of the region facts, the reporting walk stamps a proven
+fresh call result, and a join whose every arm is already stamped, with
+`nodeResWord` 2. The stamp is not a runtime word. It is withheld for
+unresolved or aliasing results and when the facts truncate. Codegen
+spends it only at the implemented release sites inside a lexical
+region; it clears region depth when emitting a lambda body, which can
+execute after the enclosing region has ended. Tail-call ownership
+classification remains conservative even when an ordinary release is
+elided.
+
+Evidence: `rgnStamping`, `rgnCheckAll`, `rgnApp`, `rgnArms` in
+[typecheck.ax](../self_host/typecheck.ax); `releaseOwnedArgs`,
+`emitLetAt`, `releaseScrutinee` in [codegen.ax](../self_host/codegen.ax).
+The call, binding, join and scrutinee paths each have an ablation gate:
+[check-region-fresh.sh](../scripts/check-region-fresh.sh),
+[check-region-fresh-let.sh](../scripts/check-region-fresh-let.sh),
+[check-region-phi.sh](../scripts/check-region-phi.sh),
+[check-region-phi-let.sh](../scripts/check-region-phi-let.sh), and
+[check-region-scrutinee.sh](../scripts/check-region-scrutinee.sh).
+
+**MM-RGN-6 (H, narrowed from the design proposal). Regions and counting
+compose.** Region reset reclaims the extent regardless of reference
+counts. Within it the emitter omits only the releases proved covered
+by the implemented construction or freshness checks. Other counting
+traffic continues to emit, including field-store ownership transfers,
+unknown/borrowed results and foreign destruction paths. Outside a
+region those checks do not authorize dropping a reclaiming release.
+Static-literal release elision is separate: it applies without a region
+because the sentinel release was already inert.
+
+The proposal “Reference counting survives only where a value outlives
+its region” is withdrawn as a universal description; it is not a
+promise to remove every retain/release inside a region. The proposal
+“in one pointer move” described the waterline, not the whole reset's
+cost: reset also clears 4,097 size-class heads and walks surplus chunks.
+Those actions prevent counting's free lists from retaining reclaimed
+storage. Reset does not run a destructor for every reclaimed object.
+A program must close an external resource that requires destruction
+before a raw reset discards its last handle.
+
+`reset_keeping` copies one contiguous block (`MM-ALLOC-15`). It is not
+typed recursive promotion; retaining a field does not make that field
+survive reset. Cycles wholly inside a reset extent are discarded with
+it; counting alone still does not collect cycles (`MM-LIFE-3`).
+
+Evidence: `emitArenaHelpers`, `isRegionCoveredCon` and the release
+sites in [codegen.ax](../self_host/codegen.ax);
+[check-region-reclaim.sh](../scripts/check-region-reclaim.sh),
+[check-static-release.sh](../scripts/check-static-release.sh),
+[check-arena-reset-rate.sh](../scripts/check-arena-reset-rate.sh), and
+[check-region-verdict.sh](../scripts/check-region-verdict.sh).
+The verdict compares answers, emitted releases, aggregate binary size
+and peak RSS against an ablated compiler. It asserts no wall-clock or
+worst-case execution-time guarantee.
+
+**MM-RGN-7 (P; the surface and word transport are H).** The proposed
+`parallel` contract requires typed sibling task regions and transfer of
+results into the parent's region at join. Those region nodes, typed
+heap-result transfer, and acceptance of safe shared captures on a
+region proof are not implemented. They remain planned, not a corollary
+of `MM-RGN-3` in the current compiler.
+
+Today `parallel` desugars to spawn/join calls. Processes are the default;
+`--threads` selects the supported thread lowering. Each binding answers
+an `Int` word, results are joined in written order, and `AX3064`
+conservatively refuses counted or `Vec` captures and opaque thunk
+shapes. Raw addresses can still be carried as words, and `Foreign`
+sharing is the foreign side's responsibility. See `MM-PAR-5`–`8` and
+`MM-FFI-7` for the transport, cleanup and capture contracts. Evidence:
+`mkParallel` in [parser.ax](../self_host/parser.ax),
+`checkSpawnCaptures` in [typecheck.ax](../self_host/typecheck.ax),
+[check-parallel.sh](../scripts/check-parallel.sh) and
+[check-thread-local.sh](../scripts/check-thread-local.sh).
+
+---
+
 ## 4. Mutation
 
 **MM-MUT-1 (H).** `(let ((mut x e)) ...)` introduces a mutable local,
@@ -2041,6 +2229,16 @@ data buffer moves. `Map` rehashes in place. This is a deliberate trade —
 these exist to serve a compiler that runs in milliseconds — and it means
 **no structure in `stdlib/` is safe to share across a mutation**.
 
+**MM-MUT-5a (H, 2026-09-27).** `vecSet`, like `vecGet`, **MUST**
+trap with status **77** when the index is negative or at least the
+vector's length. The check precedes the element store and any ownership
+change, so a recovered failed write leaves the vector unchanged. The
+previous silent no-op is superseded. This checks the index of a valid
+vector; it does not validate a forged vector handle or prove an element
+read through a typed raw-word accessor has that type. Evidence:
+[Vec.ax](../stdlib/Vec.ax), `vecSet`, and
+[525-vec-set-bounds.ax](../tests/stdlib/525-vec-set-bounds.ax).
+
 **MM-MUT-6 (R).** Axiom provides **no persistent data structures** and
 no structural sharing beyond `strSlice`'s byte sharing (`MM-VAL-7`). A
 program needing them builds them from `data` types, which are immutable
@@ -2050,17 +2248,24 @@ by `MM-MUT-3` and therefore share freely and safely.
 
 ## 5. Lifetimes and reclamation
 
-**MM-LIFE-1 (H, amended 2026-08-15).** The lifetime of every heap value
-is **the process**, unless a program reclaims explicitly with §3.3 — or
-unless the counting machinery reclaims it, which since the first
-ownership events (`MM-LIFE-2c`) it does for the shapes those events
-reach: a directly-built construction discarded in statement position,
-and a `handle`'s evidence record at its exit. There is no `free` and no
-destructor, and there is still no collector; there IS now a reference
-count on every heap block, and a block whose count reaches zero joins
-its size class and is handed out again (`MM-LIFE-2b`, `2e`). What has
-not changed is the DEFAULT: a value nobody releases still lives as long
-as the process, because most of the events are not emitted yet.
+**MM-LIFE-1 (H, amended 2026-09-27).** Reclamation composes two
+mechanisms: explicit arena/region reset (`MM-ALLOC-22`, `MM-RGN-6`)
+and the reference-counting events that already emit (`MM-LIFE-2c`).
+The counting roadmap was withdrawn, but its header, reference maps,
+ownership events and release path remain implemented. A zero-count
+block's mapped children are released, and eligible small blocks are
+reused through size-class lists; larger blocks wait for arena reset.
+A lexical region reclaims its extent regardless of those counts.
+
+There is no tracing collector. A value that nobody releases remains
+allocated until its arena is reset or its process ends; a thread's
+arena is also unmapped at thread completion (`MM-PAR-6a`). `Handle`
+provides the explicit foreign destructor path (`MM-FFI-6`), not a
+universal finalizer. The lifetime cases and unsafe obligations are
+`MM-LIFE-4` and [the audit](assurance/memory-audit.md). Evidence:
+[the ownership-event fixture](../tests/stdlib/355-arc-events.ax),
+[container reclamation](../scripts/check-container-reclaim.sh), and
+[region scopes](../scripts/check-region-scope.sh).
 
 **MM-LIFE-2a (W, 2026-08-24) — the chosen strategy: reference counting.**
 
@@ -3692,38 +3897,56 @@ arbitration went the other way — `MM-LIFE-2a` prices the leak in and
 rather than hidden by rewording, because the measurement above is what
 both positions stand on.
 
-**MM-LIFE-4 (H).** What a program may assume about a value's lifetime,
-stated positively:
+**MM-LIFE-4 (H, amended 2026-09-27).** A heap allocation remains
+valid only until the first applicable reclamation event:
 
-1. A value is valid from the moment its constructor returns until the
-   process exits, **or**
-2. until a `__axiom_arena_reset` whose mark preceded its allocation,
-   after which reading it is undefined (`MM-ALLOC-16`).
+1. its count reaches zero through an emitted ownership event or a raw
+   release (`MM-LIFE-2c`, `2e`);
+2. an arena reset reclaims it, including the reset emitted at the end
+   of a lexical region (`MM-ALLOC-16`, `MM-RGN-1`);
+3. its thread's arena is unmapped at completion (`MM-PAR-6a`); or
+4. its process exits.
 
-There is no third case. In particular, no value's lifetime is tied to a
-lexical scope, a function activation, or a variable going out of scope.
+A non-owning alias cannot extend that lifetime. Neither an extra
+retain nor a cycle prevents arena reset. `reset_keeping` preserves
+only its copied contiguous block at the returned address, not a graph
+of values reached through its fields. A `Foreign` word follows the
+foreign owner's lifetime instead (`MM-FFI-3`, `7`). This rule replaces
+the former two-case wording that excluded count-zero and lexical-region
+reclamation; those exclusions no longer described the implementation.
+Evidence is the source and gates in `MM-LIFE-1` and `MM-RGN-6`.
 
-**MM-LIFE-5 (P).** Under `MM-LIFE-2a`–`2f` a third case is added: a
-value's lifetime ends when its last reference dies. `MM-LIFE-4`
-**SHALL** then read "until its count reaches zero", and the compiler
-**SHALL** guarantee that no reachable value is reclaimed — which is the
-whole content of `MM-LIFE-2c` and `MM-LIFE-2d`. (While §3.4 was the
-plan, this rule read "a value's lifetime is its arena's"; the
-withdrawal note there says why it no longer is.)
+**MM-LIFE-5 (W, 2026-09-27).** The withdrawn text was: "Under
+`MM-LIFE-2a`–`2f` a third case is added: a value's lifetime ends when its
+last reference dies. `MM-LIFE-4` **SHALL** then read ‘until its count
+reaches zero’, and the compiler **SHALL** guarantee that no reachable
+value is reclaimed."
 
-**MM-LIFE-6 (H, program obligation — half discharged 2026-08-15).** A
-`strSlice` result keeps its parent's byte buffer live and points into
-its middle. A program that resets an arena containing the parent
-invalidates every slice of it, and nothing says so. Under `MM-LIFE-2d`
-this obligation dissolves: the byte buffer becomes a counted block the
-slice retains, and the reset that could strand a slice is refused under
-ARC anyway (`MM-LIFE-2e`). The COUNTING half is done
-(`tests/stdlib/357-str-owner.ax`, 63): the buffer is named by word 2,
-`strAlloc` and every `strSlice` take a share, and the arithmetic a
-release rule needs is already correct in every running program. What
-remains is the release side — a `Str` header is a `memAlloc` leaf, so
-its death returns nothing yet — and the §3.3 refusal; both ride with
-the container rung.
+Superseded by `MM-LIFE-4` and `MM-RGN-6`. Count-zero reclamation already
+exists; the automatic-counting roadmap it was waiting for was withdrawn
+in 2026-08. Its unconditional reachability guarantee is not a current
+claim: raw resets, erased addresses and unsupported ownership routes
+remain programmer obligations. No runtime code is removed by this
+withdrawal, and its standing cost is the counting/reset composition
+recorded in `MM-RGN-6` and §9.0.
+
+**MM-LIFE-6 (H, program obligation; counting half implemented).** A
+`strSlice` keeps the owning byte block live through its three-word
+header's mapped owner field. `strWrapOwned` allocates that header with
+`memAllocMapped 24 4`; its death releases the owner. This is implemented,
+not dependent on a future container stage (source:
+[Str.ax](../stdlib/Str.ax), `strWrapOwned`, `strAlloc`, `strSlice`;
+[357-str-owner.ax](../tests/stdlib/357-str-owner.ax),
+[358-str-owner-shares.ax](../tests/stdlib/358-str-owner-shares.ax), and
+[container reclamation](../scripts/check-container-reclaim.sh)).
+
+Counting does not protect the byte block against arena reset. A program
+using raw reset **MUST** stop reading every slice of reclaimed bytes;
+the typed-region checks discharge only `MM-RGN-3`'s covered paths.
+`strWrap` supplies no owner, so its caller must keep the supplied bytes
+readable for the entire lifetime of every header or slice using them.
+The old promise to refuse arena primitives after ARC was superseded by
+`MM-ALLOC-22`; it is not a planned way to discharge this obligation.
 
 **MM-LIFE-7 (P, its syntax refused 2026-08-25).** **Linear types.**
 `(linear T)` and `(consume e)` no longer parse. Both report `AX2004`:
@@ -4050,8 +4273,7 @@ this allocator's design cannot absorb.
   WORD: the join hands back the thunk's `Int` through a page the
   parent mapped. A heap value cannot be a binding's answer yet
   (`AX3004` at the expression), because moving one out of the child's
-  arena is the typed promotion S3/S4 of `docs/memory-model-v2-design.md`
-  own.
+  arena requires the typed transfer still planned in `MM-RGN-7`.
 - **combination in argument order** - holds by construction: the
   parser joins in the order written, and a child's completion order is
   not observable through the form.
@@ -4061,10 +4283,9 @@ this allocator's design cannot absorb.
   opaque-thunk half: a conditional, a match, a `let` and a brace block
   walked to every lambda they can answer, a call result and a field
   refused at the shape). Every shape the checker can see is either
-  scanned or refused, so no unrefused capture reaches a thread. The
-  typed precision the design's §3.2 describes - `MM-RGN-3` over sibling
-  regions ACCEPTING captures it proves safe - waits for S4 with
-  everything else. The process lowering - where the same program is
+  scanned or refused, so no unrefused capture reaches a thread. Typed acceptance of captures proved safe across sibling task
+  regions remains planned in `MM-RGN-7`; S4's completed release
+  elision does not implement it. The process lowering - where the same program is
   safe by `MM-PAR-3` - stays the default and threads stay opt-in.
 - **what "no cross-thread reference" leaves out** - a `Vec`, until
   2026-09-27. `AX3064` refused every capture `evClassOf` does not
@@ -4166,7 +4387,7 @@ the amendment is what says how.
 
 `foreign` remains removed and remains a reserved word reporting
 `AX2004`, as does `union`; `region` returned on 2026-09-03 as
-`MM-RGN-1`'s checked scope (`docs/memory-model-v2-design.md` §4, S2),
+`MM-RGN-1`'s checked scope (§3.6),
 a scope the program brackets rather than the annotation this section's
 history refused. It is not the FFI under a new
 name: `foreign` named ONE symbol and emitted a call the emitted module
@@ -4343,12 +4564,12 @@ breaks if it is violated, because that is the useful half.
 | **I7** | A reset writes nothing to what it reclaims | `MM-ALLOC-14` | copy-at-boundary reads scrubbed bytes — 39,841 of 40,000 wrong |
 | **I8** | Marks nest, and a mark is never reclaimed by its own reset | `MM-ALLOC-12` | a mark reset OUT OF NESTING ORDER restores a position from freed memory. **Enforced since 2026-08-31**, status 75 (`MM-ALLOC-16a`, `tests/stdlib/166-arena-bad-mark.ax`) — the first of these fifteen to move from argued to trapped. The consequence column said "a doubly-reset mark" until then, and that was the wrong shape: resetting the SAME mark twice is legal by this invariant's own first clause (the cell is never reclaimed by its own reset, so it stays readable) and is measurably harmless — the second reset finds its chunk still active and takes the equal-chunk fast path. What is not harmless is an INNER mark reset after its outer one |
 | **I9** | Chunk addresses are unordered | `MM-ALLOC-5` | a backward copy across chunks corrupts |
-| **I10** | The stack holds no data, only frames, `mut` cells, and the per-function merge scratch (one `alloca` whose value never outlives the merge that loads it - amended 2026-08-15 with `MM-ALLOC-9`) | `MM-ALLOC-11` | dangling values would become possible |
+| **I10** | Language heap values are not stack allocated; frames, `mut` cells, merge scratch and lexical region mark cells may be on the stack | `MM-ALLOC-11`, `MM-RGN-1` | a stack address escaping its activation could dangle |
 | **I11** | All allocator state is process-private | `MM-PAR-3` | a shared-address-space pool would need atomics |
 | **I12** | Compilation is deterministic and reproducible | `MM-EXEC-13` | `check-reproducible.sh` |
 | **I13** | The compiler executes no user code | `MM-EXEC-14` | the threat model |
 | **I14** | The heap graph **may** contain cycles | `MM-LIFE-3` | the chosen ARC leaks them by stated cost (`MM-LIFE-2f`); any future cycle collector must trace them, with the maps `MM-LIFE-2d` specifies |
-| **I15** | Nothing is reclaimed except by §3.3, by process exit, or by the ownership events that emit today | `MM-LIFE-1` | — |
+| **I15** | Reclamation occurs at the events enumerated by `MM-LIFE-4`, including lexical-region reset and thread-arena teardown | `MM-LIFE-1`, `MM-RGN-6`, `MM-PAR-6a` | an alias surviving one of those events can dangle |
 
 **Two invariants are narrower than their one-line form**, and the
 narrowing is stated here rather than left to careful reading:
@@ -4389,8 +4610,9 @@ that rule's status, which is the failure this table exists to prevent.
 | Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
 | Representation | VAL-1…11, 14…20, VAL-22, VAL-23 | — | — | VAL-12, VAL-13 |
 | Allocation | ALLOC-1…7, 7a, 8a…16b, ALLOC-22, ALLOC-23 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
-| Mutation | MUT-1…5 | — | — | MUT-6 |
-| Lifetimes | LIFE-1, 3, 4, 6, 2g, 2k | LIFE-5, LIFE-7 | LIFE-2a…2f (2026-08-24, superseded by ALLOC-22) | LIFE-2 |
+| Regions | RGN-1…4, 5a, 6 | RGN-7 | RGN-5 | — |
+| Mutation | MUT-1…5a | — | — | MUT-6 |
+| Lifetimes | LIFE-1, 3, 4, 6, 2g…2i, 2k | LIFE-7 | LIFE-2a…2f (superseded by ALLOC-22), LIFE-5 (superseded by LIFE-4/RGN-6) | LIFE-2 |
 | Parallelism | PAR-1…5, 6a, 7 | PAR-6, PAR-8 | — | — |
 | Foreign | FFI-1…7 | — | — | — |
 
