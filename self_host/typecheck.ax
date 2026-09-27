@@ -9328,7 +9328,7 @@
                 "` - a type this checker cannot classify, so it cannot promise the block's count is untouched"))))
           0
           0
-          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word. To share read-only input with several workers, use `stdlib/Par.ax` or `stdlib/Task.ax`, whose forked children read their own copy"
+          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word. To share read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy"
           "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt")
         (strConcat (strConcat "`" name) "` is bound outside this binding")))
     0
