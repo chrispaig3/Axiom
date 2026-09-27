@@ -1327,9 +1327,10 @@ if [[ "$(uname -s)" == Linux ]]; then
           (+ a b))))))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
-    (println "{(loop 0 0)}")
+    (println (loop 0 0))
     (println (sysReadFile (__addr "/proc/self/status")))
     0
   })

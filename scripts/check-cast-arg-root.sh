@@ -57,8 +57,18 @@ echo "--- 1. user-level cast count does not grow ---"
 # boundary casts exist for, which is the MM-VAL-23 reason. The
 # ratchet is <=, so removing casts always passes and adding one must
 # update this number with a reason.
-cast_count="$(rg --no-filename -o '\(cast ' stdlib/ tests/ examples/ 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$cast_count" -le 340 ]; then
+#
+# COUNTED WITH `git grep`, AND A ZERO IS A FAILURE. This read `rg ...
+# 2>/dev/null | wc -l`, and the CI runners have no `rg`: the error went
+# to /dev/null, `wc` counted nothing, and every CI run printed "cast
+# count 0 <= 337" - a ratchet that could not fail anywhere it gated
+# (found 2026-09-27, when the local count was 340 and CI's was 0).
+# `git grep` exists wherever the repository does and reads exactly the
+# tracked files, so a stray local file cannot move the number either.
+cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples | wc -l | tr -d ' ')"
+if [ "$cast_count" -eq 0 ]; then
+  bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
+elif [ "$cast_count" -le 340 ]; then
   ok "user-level (cast count $cast_count <= 340)"
 else
   bad "user-level (cast count $cast_count > 340): new casts need a MM-VAL-23 reason and a baseline bump"
