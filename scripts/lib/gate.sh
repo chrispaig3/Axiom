@@ -638,6 +638,7 @@ docs/mir-design.md
 docs/status.md
 docs/embedded-proposal.md
 docs/cast-arg-root.md
+docs/recovery-audit-2026-09-27.md
 docs/refusal-ledger.md
 docs/roadmap-type-system.md
 DOCS
