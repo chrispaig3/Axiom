@@ -1462,7 +1462,7 @@ ORPHAN
 if "$axc" build --input "$work/orphan.ax" --output "$work/orphan" > "$work/orphan.build" 2>&1; then
   for mode in abort trap main; do
     rm -f "$work/pid-$mode"
-    ( cd "$work" && timeout 60 ./orphan "$mode" > "orphan-$mode.out" 2>&1 )
+    ( cd "$work" && gate_timeout 60 ./orphan "$mode" > "orphan-$mode.out" 2>&1 )
     st=$?
     expected=0
     [[ "$mode" == trap ]] && expected=72
@@ -1526,7 +1526,7 @@ for kind in proc thread; do
     }))
 OWNER
     if "$axc" build --input "$work/$tag.ax" --output "$work/$tag" > "$work/$tag.build" 2>&1; then
-      timeout 20 "$work/$tag" > "$work/$tag.out" 2> "$work/$tag.err"
+      gate_timeout 20 "$work/$tag" > "$work/$tag.out" 2> "$work/$tag.err"
       st=$?
       if (( st == 0 )) && [[ "$(cat "$work/$tag.out")" == 'foreign 78 status 123 answer 42' ]]; then
         ok "12c ($kind $form): foreign join refused before waiting; owner joins 42 and out-cell stays 123"

@@ -495,6 +495,34 @@ gate_build_tree() {
   return 0
 }
 
+# gate_timeout <seconds> <command ...>: run a command under a deadline,
+# answering its own status, or 124 when the deadline killed it - GNU
+# `timeout`'s contract. macOS ships no `timeout` (coreutils' is
+# `gtimeout`, and only where Homebrew put it), so a gate that called
+# `timeout` directly passed on the Linux legs and failed every darwin
+# run with status 127, "command not found", which the gate then read as
+# the program's own answer. The fallback is perl, which both runners and
+# every macOS install carry: fork, exec the command, SIGTERM it at the
+# deadline. A command killed by a signal answers 128+signal, as with
+# `timeout`.
+gate_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+  else
+    perl -e '
+      my $t = shift; my $p = fork;
+      die "fork: $!" unless defined $p;
+      if ($p == 0) { exec @ARGV; exit 127 }
+      $SIG{ALRM} = sub { kill "TERM", $p; waitpid($p, 0); exit 124 };
+      alarm $t; waitpid($p, 0);
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
+    ' "$secs" "$@"
+  fi
+}
+
 # max_rss_kb <command ...>: the peak resident set of one run, in KiB.
 #
 # Eleven gates carried this function byte for byte, each with its own
