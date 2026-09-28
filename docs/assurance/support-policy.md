@@ -70,11 +70,12 @@ fix closes a row only with a test that fails without it.
 - A check that can't run on a host, for want of QEMU, procfs or
   `llvm-readobj`, prints SKIP with the reason and is counted apart from
   passes. A run's summary states passed, failed and skipped separately.
-- Expensive coverage (`scripts/check-fuzz.sh --long`,
-  `scripts/check-seed-lineage.sh --full`,
-  `scripts/check-runtime-model.sh --long`) is scheduled, not dropped.
-  Where it isn't scheduled yet, that is recorded as a gap
-  ([requirements.md](requirements.md), R-E1).
+- Expensive coverage is scheduled, not dropped. CI's nightly run,
+  also started by hand, replays the seed lineage in full
+  (`scripts/check-seed-lineage.sh --full`) and runs the fuzzer's full
+  budget and the model's every trace (`scripts/check-fuzz.sh --long`,
+  `scripts/check-runtime-model.sh --long`). A push runs a sample of
+  each.
 
 ## What you can expect
 

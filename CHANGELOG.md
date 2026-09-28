@@ -22,6 +22,30 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The fuzzer's full budget and the model's every trace run nightly — `.github/workflows/ci.yml` - 2026-09-28
+
+A push runs a sample of each: 600 mutants of the corpus
+(`scripts/check-fuzz.sh`), and the executable model's traces at `--opt`
+0 and 3 (`scripts/check-runtime-model.sh`). The budgets behind them, 6,000
+mutants and every trace at every level, had no scheduled run, so
+`docs/assurance/` listed them as unscheduled. A second nightly job,
+`long-evidence`, beside `seed-lineage-full` and on the same trigger and
+button, runs both.
+
+Running the full budget first found seven failures, none of them the
+compiler's. Six were mutants of `tests/embedded/periodic.ax`, which
+checks OK and is refused for the host by `AX4008`: that refusal is
+decided at emit, after unreachable functions are pruned, so P3 now
+accepts a mutant `emit-llvm` refuses with `AX4008` alone and counts it
+apart. One was the generator's `long` edit repeating a `println` branch
+4,878 times into a 60 MB function that `llc -O0` was still compiling
+after ten minutes: `llc` measured 4 s at 1,000 branches and 49 s at
+2,000, so the edit now stops at 100,000 bytes rather than 1,000,000.
+`docs/assurance/verification.md` records both, and no longer lists the
+five fuzzer findings that were fixed as open. After the changes: 600
+mutants 31/31 (one refused at emit), `--long` 6,000 mutants 31/31 (six
+refused at emit, none failing), the model's `--long` 13/13.
+
 ### What the concurrency primitives cost — `scripts/bench-concurrency.sh` - 2026-09-28
 
 The measurements the assurance programme asked for: spawn and join in

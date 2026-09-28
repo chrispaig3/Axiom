@@ -39,10 +39,12 @@ on:
     paths-ignore:
       - 'web/**'
       - '.github/workflows/pages.yml'
-  # The nightly and the button exist for ONE job, `seed-lineage-full`:
+  # The nightly and the button exist for TWO jobs. `seed-lineage-full`:
   # replaying every row of `bootstrap/CHAIN` from the Rust anchor is
   # forty minutes and needs cargo, which is a poor neighbour for a pull
   # request and the wrong cadence for a table that moves at a reseed.
+  # And `long-evidence`: the fuzzer's full budget and the executable
+  # model's every trace, which a push runs a sample of.
   # Every other job `needs: grammar`, and `grammar` is skipped on these
   # two triggers, so they run nothing else - a skipped `needs` skips
   # its dependents.
@@ -1913,6 +1915,24 @@ jobs:
       - uses: ./.github/actions/provision
       - name: Every row of bootstrap/CHAIN replays, and the anchor's probes go red
         run: ./scripts/check-seed-lineage.sh --full
+
+  # The long evidence. A push runs the fuzzer's 600-mutant sample and the
+  # model's traces at `--opt` 0 and 3; the budgets behind them - 6,000
+  # mutants, and every trace at every level - are minutes each, so they
+  # run here, nightly and on the button, rather than on every push. A
+  # budget nobody runs is a claim nobody checks; scheduling it keeps the
+  # coverage, and a red here is a red like any other.
+  long-evidence:
+    name: The fuzzer's full budget and the model's every trace
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: ./.github/actions/provision
+      - name: 6,000 mutants of the corpus, each held to check answering
+        run: ./scripts/check-fuzz.sh --long
+      - name: Every model trace at every --opt level
+        run: ./scripts/check-runtime-model.sh --long
 
   reproducible:
     name: Reproducible build

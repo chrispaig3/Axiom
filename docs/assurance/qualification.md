@@ -85,8 +85,7 @@ approved, and no document here says it is.
 
 In dependency order:
 
-1. Sanitizer and race-detector runs on the hosted configurations, and
-   a scheduled `--long` fuzzing run.
+1. Sanitizer and race-detector runs on the hosted configurations.
 2. Hardware execution on a named board, recorded apart from QEMU runs,
    with the MMU and caches on.
 3. Frozen toolchain versions for one reference configuration.

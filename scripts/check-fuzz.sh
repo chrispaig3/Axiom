@@ -28,7 +28,14 @@
 #       bytes; a NUL cannot sit in a diagnostics fixture (the harness
 #       reads lines through bash), and this is what pins it.
 #   P3  a mutant `check` accepts is a mutant `emit-llvm` compiles (exit
-#       0, IR written) and `llc` accepts. `emit-llvm` deliberately does
+#       0, IR written) and `llc` accepts - or one `emit-llvm` refuses
+#       with AX4008 and nothing else. AX4008 is the one refusal decided
+#       at emit rather than at check (it reads the module after
+#       unreachable functions are pruned, so an uncalled helper is never
+#       refused), and a bare-metal program - `tests/embedded/periodic.ax`
+#       binds `isr(irq)` - checks OK and is refused for the host. Such a
+#       mutant is counted apart, not as a pass: the `--long` run of
+#       2026-09-28 met six. `emit-llvm` deliberately does
 #       not require `main` (main.ax's `needMain`) while the prelude's
 #       wrapper calls `@__axiom_user_main` unconditionally, so IR that
 #       does not define it gets a stub definition before `llc` - measured
@@ -157,7 +164,7 @@ deadline=120
 # the check would prove only that the control works.
 #
 # fuzz_one <compiler> <input.ax> <AXIOM_PATH> <deadline>
-#   f_verdict  ok | refused | fail
+#   f_verdict  ok | refused | target (AX4008 at emit, P3's exception) | fail
 #   f_stage    where it failed: check | json | emit | llc
 #   f_why      the harness's sentence
 #   f_detail   the failing tool's own first relevant line (for the JSON
@@ -231,6 +238,12 @@ fuzz_one() {
 
   rc=0
   AXIOM_PATH="$ap" gate_timeout "$4" "$cc" emit-llvm "$m" -o "$b.ll" > "$b.eout" 2> "$b.eerr" < /dev/null || rc=$?
+  # P3's one exception: exit 1 with AX4008 and no other error code.
+  if (( rc == 1 )) && grep -a -q 'error\[AX4008\]' "$b.eerr" \
+     && [[ -z "$(grep -a -o 'error\[AX[0-9]\{4\}\]' "$b.eerr" | grep -v 'AX4008' || true)" ]]; then
+    f_verdict=target
+    return
+  fi
   if (( rc != 0 )); then
     f_stage=emit f_why="emit-llvm $(describe_rc "$rc") on a program check accepted"
     f_detail="$(first_line "$b.eerr")"
@@ -360,7 +373,7 @@ echo "   reproduce any mutant I: scripts/check-fuzz.sh --seed $seed --only I --k
 
 # ---------------------------------------------------------------------
 echo "== 2. $count mutants through check, the JSON renderer, emit-llvm and llc =="
-n_run=0 n_parsed=0 n_ok=0 n_emitted=0 n_llc=0 n_refused=0 n_fail=0 n_known=0
+n_run=0 n_parsed=0 n_ok=0 n_emitted=0 n_llc=0 n_refused=0 n_fail=0 n_known=0 n_target=0
 : > "$work/json.list"; : > "$work/json.names"
 : > "$work/human.list"; : > "$work/human.names"
 ok_names=() refused_names=()
@@ -377,6 +390,7 @@ while IFS=$'\t' read -r name src ops; do
   fi
   case "$f_verdict" in
     ok) ok_names+=("$name") ;;
+    target) n_target=$((n_target + 1)) ;;
     refused)
       n_refused=$((n_refused + 1)); refused_names+=("$name")
       printf '%s\n' "$f_json" >> "$work/json.list"
@@ -435,7 +449,7 @@ while IFS=$'\t' read -r hf why; do
   fi
 done < "$work/human.bad"
 
-echo "   $n_run run in $((SECONDS - t0))s: $n_parsed parsed, $n_ok checked OK, $n_emitted emitted, $n_llc llc-accepted, $n_refused refused ($n_json with well-formed JSON); $n_human human reports terminal-safe; $n_known known-open (XFAIL), $n_fail new failures"
+echo "   $n_run run in $((SECONDS - t0))s: $n_parsed parsed, $n_ok checked OK, $n_emitted emitted, $n_llc llc-accepted, $n_target refused at emit by AX4008 for this host, $n_refused refused ($n_json with well-formed JSON); $n_human human reports terminal-safe; $n_known known-open (XFAIL), $n_fail new failures"
 if (( n_fail == 0 )); then
   ok "no mutant crashed, hung, refused without a code, broke the JSON contract, wrote an unsafe human report or produced IR llc rejects ($n_known known-open)"
 fi

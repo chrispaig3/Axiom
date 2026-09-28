@@ -101,11 +101,12 @@ is one to three of these edits:
   including the optional `span`/`label`, the related entries and the
   trailer line.
 - **P3**, a program `check` accepts is one `emit-llvm` compiles and
-  `llc -O0` accepts. IR with no `@__axiom_user_main` gets a stub
-  first, because `emit-llvm` doesn't require `main`.
+  `llc -O0` accepts, or one `emit-llvm` refuses with `AX4008` alone,
+  counted apart. IR with no `@__axiom_user_main` gets a stub first,
+  because `emit-llvm` doesn't require `main`.
 
-The default budget is 600 mutants from seed 20260927 (32 s on H3).
-`--long` runs 6,000 (484 s). The gate has six sections:
+The default budget is 600 mutants from seed 20260927 (about 50 s on
+H3). `--long` runs 6,000 (442 s), nightly in CI. The gate has six sections:
 
 1. The generator: its selftest, including a pinned digest of 200
    mutants of an in-memory corpus, so cross-host determinism is
@@ -121,13 +122,14 @@ The default budget is 600 mutants from seed 20260927 (32 s on H3).
 5. The stored reproducers.
 6. A tally of what the open rows excused.
 
-Reach on the default run over the 734-file corpus: of 600 mutants,
-280 (47%) got past the reader and 81 (14%) checked OK. All 81 emitted
-and were llc-clean. The other 519 were refused with a code, and 507 of
-those had well-formed JSON. Twelve hit open rows as `XFAIL`.
+Reach on the default run over the 764-file corpus: of 600 mutants,
+274 (46%) got past the reader and 82 (14%) checked OK. Of those, 81
+emitted and were llc-clean, and one was a bare-metal program refused
+at emit by `AX4008`. The other 518 were refused with a code, all with
+well-formed JSON. None hit an open row.
 
 The corpus is `git ls-files`, so a new file moves the mutants. On the
-731-file corpus the same counts were 291, 83, 82, 517 and 504. A
+734-file corpus the same counts were 280, 81, 81, 519 and 507. A
 fuzzer of this kind mostly tests the reader's and the checker's
 refusal paths. About a sixth of its budget reaches code generation.
 
@@ -142,20 +144,17 @@ and the gate replays every one.
 |---|---|---|
 | `render-spanless-cross.axfuzz` | `check` SIGSEGV (exit 139) in the human renderer. A user `fn` spelled `*` whose body allocates fails every stdlib `no-alloc` claim that multiplies, with a restriction path whose last hop has no span. `secNoteText` asked `diagSecCross` before the span and handed `fmtSpanIx` a null one. The AXDL and JSON renderers already asked the span first. | **fixed** (`self_host/render.ax`); now refused with its codes |
 | `region-nonarrow-sig.axfuzz` | `check` SIGSEGV in the region pass. A signature that is not an arrow (`(:: wrapBox ())`) over a function with a parameter, called inside a `region`: `rgnKnownCall` asked `rgTyScalar` about `nthParamTy`'s fallback 0, a null type. | **fixed** (`self_host/typecheck.ax`: no type answers "not scalar", the safe direction the function already took for a type variable); now AX3004 |
-| `dup-param-llc.axfuzz` | `(fn (f x x) x)` checks OK and emits a `define` with `%x` twice, which `llc` refuses. `build` would fail at the toolchain with exit 4. No refusal exists (AX3020 is for macros). | open |
-| `builtin-name-value.axfuzz` | `cast`, `sizeof`, `alignof`, `handle`, `IO`, `Pure`, `Alloc`, `Mut` and `Div` check OK as values and lower to an SSA name nothing defines. `isBuiltinName` admits them because a `handle` list parses as an application. The other twenty names in that list are refused there. | open |
-| `cast-missing-operand.axfuzz` | `(cast T)` with no operand checks OK and lowers the type name as a variable (`%Int`, `%Bool`, a user `%Foo`). AX3069 refuses a surplus operand, nothing refuses a missing one, and `isCastLike` exempts `cast` from the saturation check. | open |
-| `primitive-value.axfuzz` | Thirteen one-argument primitives applied to nothing, such as `(__floatToInt)`, `(__alloc)` and `(__atomic_load)`, check OK and lower to an SSA name nothing defines: a primitive has no function symbol to take the address of. Every primitive of two or more arguments is refused (AX3013). | open |
-| `json-ax1001-partial-char.axfuzz`, `json-restrict-illformed.axfuzz` | `--diagnostic-format json` writes ill-formed UTF-8. AX1001 quotes *one* byte of a multi-byte character, so the human message is broken too. AX3052 quotes a restriction tag's bytes verbatim. `jsonEsc` escapes control bytes but passes ill-formed sequences through. 99 of the 6,000 `--long` mutants hit it. | open |
+| `dup-param-llc.axfuzz` | `(fn (f x x) x)` checked OK and emitted a `define` with `%x` twice, which `llc` refuses. | **fixed** (`checkDupParams`); now AX3006 |
+| `builtin-name-value.axfuzz` | `cast`, `sizeof`, `alignof`, `handle` and the effect names checked OK as values and lowered to an SSA name nothing defines. | **fixed**; now AX3001 and AX3013 |
+| `cast-missing-operand.axfuzz` | `(cast T)` with no operand checked OK and lowered the type name as a variable (`%Int`). | **fixed** (`checkCastForm`); now AX3013 |
+| `primitive-value.axfuzz` | Thirteen one-argument primitives applied to nothing, such as `(__alloc)`, checked OK and lowered to an SSA name nothing defines. | **fixed** (`checkBareValue`); now AX3013 |
+| `json-ax1001-partial-char.axfuzz`, `json-restrict-illformed.axfuzz` | `--diagnostic-format json` wrote ill-formed UTF-8: AX1001 quoted one byte of a multi-byte character, and AX3052 quoted a restriction tag's bytes verbatim. | **fixed**: the lexer's error token covers the whole character, and every renderer writes a byte that isn't UTF-8 as U+FFFD |
 
-An open row's signature is an extended regex over the failing tool's
-own words, matched at the row's stage. A mutant that fails that way is
-printed as `XFAIL` and not counted red. The row itself must keep
-failing exactly so, or the gate goes red.
-
-Two signatures are broad by necessity, and say so. `not
-UTF-8` excuses any ill-formed JSON, and the `cast` row's `'%[A-Z]...'`
-would excuse any undefined capitalised SSA name.
+No row is open. An open row would carry a signature, an extended regex
+over the failing tool's own words matched at the row's stage: a mutant
+failing that way prints as `XFAIL` and isn't counted red, and the row
+itself must keep failing exactly so, or the gate goes red. A fixed row
+is replayed as a regression on every run.
 
 These were measured but aren't crashes, and aren't stored as
 reproducers:
@@ -166,6 +165,17 @@ reproducers:
   3.6 s). A 20,000-binding mutant didn't finish in 60 s. Blocks of
   32,000 statements emit in 0.45 s. The `long` edit is capped at 5,000,
   so the gate's deadline measures hangs and not this.
+- **`llc -O0` is superlinear in one function's basic blocks.** A
+  `println` branch repeated in an `if` chain takes 4 s of `llc` at
+  1,000 branches (5.7 MB of IR) and 49 s at 2,000. A `--long` mutant
+  that repeated one 4,878 times (180,538 blocks, 60 MB of IR) was still
+  in `llc` after ten minutes. The `long` edit now also stops at
+  100,000 bytes, where it stopped at 1,000,000.
+- **`AX4008` is decided at emit, not at check.** A bare-metal program
+  such as `tests/embedded/periodic.ax` checks OK and is refused for the
+  host, because the refusal reads the module after unreachable
+  functions are pruned. P3 counts such a mutant apart, as refused at
+  emit, and not as a failure.
 - **`(import main)` from the repository root checks the whole
   compiler.** The resolver keeps `self_host/` and `stdlib/` relative
   to the working directory as a last-resort fallback
@@ -196,15 +206,13 @@ miscompilation that yields valid IR is invisible.
 
 Not fuzzed at all: `build`/`run` (linking and execution), the runtime,
 `fmt`, the LSP, the REPL, non-host `--target`s and the command line.
-The default budget is 600 mutants a CI leg, and `--long` isn't wired
-to a schedule.
+The default budget is 600 mutants a CI leg. The 6,000-mutant `--long`
+budget runs nightly, in CI's `long-evidence` job.
 
 ## What is still open
 
-- The six open fuzzing findings above. Each is a row in
-  `tests/fuzz/MANIFEST` that the gate holds failing until it is fixed.
-- A scheduled `--long` fuzzing run, coverage-guided fuzzing, and
-  fuzzing of `build`/`run`, the formatter, the LSP and the REPL. A
+- Coverage-guided fuzzing, and fuzzing of `build`/`run`, the
+  formatter, the LSP and the REPL. A
   miscompilation oracle (differential execution of accepted mutants).
 - Fuzzing of FFI boundaries and runtime operations. Sanitizers and
   race detectors. Schedule exploration, and memory-ordering litmus

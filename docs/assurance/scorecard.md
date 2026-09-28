@@ -53,9 +53,10 @@ source.
   inspected. A litmus zero is evidence, not proof.
 - R-A3 remainder: a spawn the kernel refuses has no dedicated fixture.
   `scripts/check-parallel.sh` §12c executes the other status-78 paths.
-- R-E1 remainder: no sanitizers or race detectors. `--long` fuzzing
-  isn't scheduled. `build`, `run`, `fmt`, the LSP and the REPL aren't
-  fuzzed, and there is no miscompilation oracle.
+- R-E1 remainder: no sanitizers or race detectors. `build`, `run`,
+  `fmt`, the LSP and the REPL aren't fuzzed, and there is no
+  miscompilation oracle. The full fuzzing budget runs nightly, not per
+  push.
 - `MM-PAR-7` limits: reparented grandchildren, uninterruptible sweeps
   and unmapped-handle words (`MM-PAR-8`, planned).
 - R-B5 (`MM-FFI-7`) is stated but not checked.
