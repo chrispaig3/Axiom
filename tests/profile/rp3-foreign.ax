@@ -1,0 +1,7 @@
+(extern "axiom_demo"
+  (add :: (-> Int Int Int) (symbol "axffi_add")))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (add 1 2))

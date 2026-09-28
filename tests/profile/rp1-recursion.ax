@@ -1,0 +1,9 @@
+(:: fib (-> Int Int))
+(fn (fib n)
+  (if (< n 2)
+    n
+    (+ (fib (- n 1)) (fib (- n 2)))))
+
+(:: main Int)
+(fn (main)
+  (fib 10))

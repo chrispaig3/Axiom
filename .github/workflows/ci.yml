@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-four of the gates below build the compiler under test from
+    # eighty-five of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -589,6 +589,17 @@ jobs:
       # ones pass, open ones still fail exactly as recorded.
       - name: Seeded compiler fuzzing finds no crash, and can see one
         run: ./scripts/check-fuzz.sh
+
+      # R-D1: `scripts/axiom-report.py`, the per-function resource report
+      # read off the compiler's own call graph and effect rows, and the
+      # restricted profile's refusals (recursion, indirect calls,
+      # foreign items, spawns, allocation under a steady root) - each
+      # fixture refused by exactly its rule, each rule ablated. Then the
+      # stack bound from AArch64 machine code (`.stack_sizes` frames,
+      # CALL26/JUMP26 edges, tail cycles as loops), held to the sum of
+      # its path and to llvm-readobj's reading of the same object.
+      - name: The resource report and the restricted profile refuse what they claim to
+        run: ./scripts/check-report.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is

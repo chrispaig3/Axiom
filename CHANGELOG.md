@@ -22,6 +22,47 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The resource report and the restricted profile — `scripts/axiom-report.py`, `scripts/check-report.sh` - 2026-09-27
+
+R-D1. `scripts/axiom-report.py FILE.ax` prints, for every function
+reachable from `main` and the file's `isr` functions, whether it
+allocates, performs IO, calls an Unsafe primitive directly, is an
+`extern` item, sits on a call-graph cycle, makes a call the graph cannot
+follow, spawns or joins a binding, or enters the kernel - read off the
+compiler's own `symbols --calls` rows, not re-derived. `--profile
+restricted` turns that into refusals (exit 1): recursion (RP-1), calls
+through a parameter or `__call_word` (RP-2), foreign items not named by
+`--allow-foreign` (RP-3), spawns and joins (RP-4), allocation reachable
+from a steady root - an `isr`, a `restrict(no-alloc)` declaration, a
+`--steady NAME` (RP-5), an edge it cannot resolve (RP-6). The Unsafe
+functions, kernel entries and the analysis's assumptions are listed as
+obligations every time, and so are its two blind spots: traps are not
+enumerated and nothing is a time bound.
+
+`--stack` computes a worst-case stack from AArch64 machine code: frames
+from `llc -stack-size-section`, calls and tail calls from the object's
+`CALL26`/`JUMP26` relocations, a tail-call cycle valued as the loop it
+is, a cycle through a call unbounded, indirect sites resolved to the
+functions whose address escapes in the IR. `tests/embedded/blink.ax`
+for `baremetal-aarch64` is bounded at 304 bytes, and its deepest path is
+the out-of-memory trap's backtrace - code the source never mentions,
+which is why the bound is read from machine code. RP-7 refuses an
+unbounded program or one over `--stack-budget`.
+
+`symbols` prints `#extern` on an extern item (`self_host/symbols.ax`):
+without it the row is a function with no calls and `#effects=IO`,
+exactly what a body writing one syscall looks like.
+
+`scripts/check-report.sh`, 35 checks: the bound on ten hand-answered
+graphs; the facts of a program with one of everything, exactly; each
+`tests/profile/rpN-*.ax` refused by exactly RP-N and `ok-periodic.ax`
+passing; the stack bounded, unbounded and over budget where it should
+be, every bound equal to the sum of its path, and the tool's ELF reader
+agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
+ablated in a copy of the tool, and the bound's cycle check ablated
+against the selftest and tree recursion. The count sites state
+eighty-five gates. Specified in `docs/restricted-profile.md`.
+
 ### Seeded compiler fuzzing, and two crashes it found — `scripts/check-fuzz.sh` - 2026-09-27
 
 The fuzzing half of R-E1. `scripts/lib/fuzz.py` mutates the tracked
@@ -64,7 +105,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-four gates.
+state eighty-five gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -105,7 +146,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-four gates.
+eighty-five gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -154,7 +195,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-four gates.
+eighty-five gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -184,7 +225,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-four gates.
+sites state eighty-five gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -425,7 +466,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-four gates.
+checks). Calls one new gate; the count sites state eighty-five gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -442,7 +483,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-four gates, and the battery has
+gate; the count sites state eighty-five gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

@@ -1,0 +1,11 @@
+(:: twice (-> (-> Int Int) Int Int))
+(fn (twice f x)
+  (f (f x)))
+
+(:: inc (-> Int Int))
+(fn (inc x)
+  (+ x 1))
+
+(:: main Int)
+(fn (main)
+  (twice inc 40))

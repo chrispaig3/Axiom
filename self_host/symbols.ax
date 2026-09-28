@@ -1494,6 +1494,15 @@
                         ; `symTagFrom` answers the LAST `#key` on the line,
                         ; so a compiler-owned key placed after the tags
                         ; cannot be shadowed by a forged one.
+                        ; `#extern`: word 4 is 2 for an `extern` item
+                        ; (`tcAddExtern`). Without it the row is a function
+                        ; with no calls and `#effects=IO` - the same row a
+                        ; body writing one syscall gets - and a reader of
+                        ; the stream (`scripts/axiom-report.py`) could only
+                        ; guess which rows leave the program.
+                        (if (== isOp 2)
+                          (vecPush metas "extern")
+                          (cast (Vec String) 0))
                         (if (&& (== mir 1) (== isB 0))
                           (symMirMetas e (saGet (memGetWordVec sm 16) (memGetWordVec sm 17) name) trunc metas)
                           0)
