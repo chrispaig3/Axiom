@@ -110,6 +110,17 @@ cat > "$work/facts.ax" <<'AX'
 (fn (tick)
   0)
 
+; Two effect tags render as two `#effect=` keys, and `unsafe` FIRST here,
+; so a reader keeping only the last key would lose the direct-Unsafe mark.
+(:: peek (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:effect(io)
+(fn (peek a)
+  {
+    (println "peek")
+    (__load64 a 0)
+  })
+
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
@@ -120,6 +131,7 @@ cat > "$work/facts.ax" <<'AX'
     (apply (fn (x) (+ x 1)) 2)
     (vecLen (build 3))
     (tick)
+    (peek 0)
     (parallel p ((a (+ 1 2)) (b (+ 3 4)))
       (+ a b))
   })
@@ -158,6 +170,7 @@ apply .....~..
 build A.......
 tick ........ isr
 main AI....S.
+peek AIU.....
 Mem$memAlloc A.U.....
 Sys$sysWriteFd AI.....K
 roots main,tick

@@ -107,13 +107,19 @@ ROW_RE = re.compile(r'^F (\S+) (\S+) "((?:[^"\\]|\\.)*)"(?: (@[0-9a-f]+))?(.*)$'
 
 
 def parse_metas(tail):
+    """`#key=value` and `#flag` tokens. A key may repeat - two effect
+    tags render as `#effect=io #effect=unsafe` - so every value is kept:
+    `metas[k]` is the last (what `symTagFrom` answers for the
+    compiler-owned keys, which come after the author's), and
+    `metas['all:' + k]` is every value in order."""
     metas = {}
     for tok in re.findall(r'#(\S+)', tail):
         if '=' in tok:
             k, v = tok.split('=', 1)
-            metas[k] = v
         else:
-            metas[tok] = True
+            k, v = tok, True
+        metas[k] = v
+        metas.setdefault('all:' + k, []).append(v)
     return metas
 
 
@@ -689,7 +695,7 @@ def facts_of(g, q):
     return dict(
         alloc='Alloc' in f.effects,
         io='IO' in f.effects,
-        unsafe=(f.metas.get('effect') == 'unsafe' or 'unsafe' in str(f.metas.get('effect', '')).split(',')),
+        unsafe='unsafe' in f.metas.get('all:effect', []),
         extern=f.flag('extern'),
         isr=f.flag('isr'),
         spawn=[l for l in leaves if SPAWN_RE.match(l)],
