@@ -1,0 +1,5 @@
+list: 1000000 then 1000000, second round reused the first: yes
+right: 1000000 then 1000000, second round reused the first: yes
+left: 1000000 then 1000000, second round reused the first: yes
+strings: 1000000 then 1000000, second round reused the first: yes
+closures: 1000000 then 1000000, second round reused the first: yes

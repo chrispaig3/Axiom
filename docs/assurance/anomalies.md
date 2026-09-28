@@ -29,6 +29,10 @@ It isn't a system severity. The integrator assigns that
 | AN-17 | L | Neither the mutex nor the channel is fair or has priority inheritance, so a binding can starve and priority inversion is possible | `MM-PAR-10`, `MM-PAR-11` | Don't rely on either for real-time scheduling |
 | AN-37 | D | `axiom symbols` prints an unsigned function's fresh type variables with a global counter, so `(Int -> (_t3 -> _t3))` becomes `(Int -> (_t13 -> _t13))` when unrelated declarations are added | `tests/selfhost/770-over-application.ax`'s `adder`, with ten functions appended | Give a function a `::` signature; `scripts/lib/metamorphic.py` compares fresh variables by order of appearance |
 | AN-18 | L | On Darwin, timed waits and task deadlines use the realtime clock, so a clock step can move them, by at most one 100 ms slice per wait | `MM-PAR-12` | Keep the clock stepped by slewing only, or run deadline-sensitive work on Linux |
+| AN-39 | W | A recovery point's abort reclaims everything its thunk allocated, including a block the thunk stored into a structure older than the point, so a `Vec` grown inside the extent points at reused memory afterwards. `__axiom_recover` needs no `effect(unsafe)` | `MM-ALLOC-23`; a probe pushing 100 elements into an older `Vec`, then dividing by zero: after the abort a fresh `Vec` of 200 changes the old one's sum from 104,951 to 106,656 | Store only after the arming call answers (`tests/stdlib/561-failed-operations.ax` case 3) |
+| AN-40 | W | `vecWithCapacity` multiplies the element count by 8 unchecked, so 2^61 elements ask the allocator for 0 bytes: the vector reports that capacity, and its pushes land in memory the next allocation hands out | `(vecWithCapacity 2305843009213693952)`, 16 pushes, one `strDup`: element 0 reads 1, not 1000 | Keep capacities below 2^59 |
+| AN-41 | L | A descriptor, shared mapping or lock taken inside a recovery extent stays taken when a trap aborts it | `MM-ALLOC-23`; `scripts/check-reclaim-soak.sh` §5 | Acquire outside the point, or release before anything in the extent can trap |
+| AN-42 | L | A closure a function receives as an argument and returns is never released: 32 bytes a call, 64 when it is wrapped once more | A loop of `(keep (lambda (x) (+ x k)))` with `(fn (keep f) f)`, read with `__axiom_mem_stat` | Scope such loops in an arena, or keep the closure in the caller |
 
 ## Closed
 
@@ -73,3 +77,5 @@ It isn't a system severity. The integrator assigns that
 | AN-C7 | A second release of a filed block decremented a pointer (F6) | Milestone A | `tests/stdlib/521-release-filed.ax` |
 | AN-C8 | `vecSet` ignored an out-of-range index (F9) | Milestone B | `tests/stdlib/525-vec-set-bounds.ax` |
 | AN-C9 | A `Vec` could be shared by reference between `--threads` siblings (F11) | Milestone C | `tests/diagnostics/656-parallel-container-capture.ax` |
+| AN-43 | A reset-free loop of mixed sizes above 1 KiB grew with time, because each exact 16-byte class kept its peak | `30c433ed` | `tests/stdlib/558-size-classes.ax`; `scripts/check-reclaim-soak.sh` §2 |
+| AN-44 | A recovery point whose thunk answered left its 144-byte record in the arena | `7e4992b6` | `tests/stdlib/560-recover-record.ax` |

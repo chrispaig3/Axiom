@@ -24,6 +24,9 @@ source.
 | A parameter is read, not called, beside a nullary function of its name; a cast's type operand and a named pattern's binders resolve as written; so an unused declaration changes nothing else (R-A10) | `tests/selfhost/1006-cast-type-operand.ax`, `tests/selfhost/1007-param-shadows-nullary.ax`; `scripts/check-metamorphic.sh`: 334 programs keep the relation, three ablations each red |
 | Count exhaustion traps with 70 before the write, and is recoverable (R-A9) | `tests/stdlib/527-retain-overflow.ax` (`.optstable` 0 to 3); the model's `exhaust` ablation |
 | `vecSet` traps with 77 before it mutates (R-B1) | `tests/stdlib/525-vec-set-bounds.ax` |
+| A million-deep chain is released whole under a 64 KiB stack, and no share is released twice through the safe surface (R-B7) | `tests/stdlib/555-release-deep-chain.ax`, `556-count-balance.ax`; `scripts/check-reclaim-soak.sh` §1 and its recursive-walk ablation |
+| Reuse plateaus under a mixed-size soak, a cycle costs exactly its bytes until a reset, resets leave no stale list head, and `__axiom_mem_stat` reads it all (R-B8) | `tests/stdlib/557-cycle-backlog.ax` to `559-reset-metadata.ax`; `scripts/check-reclaim-soak.sh` §2 to §4, with four ablations |
+| A recovery point allocates nothing, a contained trap leaves the heap consistent, and a child spawned in the extent is swept (R-B9) | `tests/stdlib/560-recover-record.ax`, `561-failed-operations.ax`; `scripts/check-reclaim-soak.sh` §5 and §6 |
 | Pool handles are O(min(n, w)), with one checked-join cell (R-B2) | `tests/stdlib/523-par-pool-bounded.ax` (`.optstable` 0 to 3) |
 | `MM-RGN-1…7` are normative, with H and P markers (R-B3) | `memory-model.md` §3.6; the `check-region-*.sh` gates |
 | Obligation dispositions are registered (R-B4) | [memory-audit.md](memory-audit.md); `scripts/check-doc-drift.sh` |
@@ -67,6 +70,12 @@ source.
   captured `Foreign`'s thread-safety is unchecked.
 - R-B2's budgets are allocator-mark measurements on one shape, not RSS
   or an asymptotic proof.
+- R-B8 and R-B9 limits: reuse is bounded by each class's peak, so a
+  drifting size mix keeps old bands until a reset. There is no cycle
+  collector. A recovery extent must not grow an older structure
+  (AN-39), and doesn't release descriptors, mappings or locks (AN-41).
+- AN-40: `vecWithCapacity` of 2^61 or more elements wraps its byte size
+  and corrupts the heap.
 
 ## Verified configurations
 
@@ -90,6 +99,7 @@ constants.
 | `check-runtime-model.sh` | 15 pass |
 | `check-fuzz.sh` | 46 pass |
 | `check-metamorphic.sh` | 6 pass |
+| `check-reclaim-soak.sh` | 22 pass |
 
 Execution on freebsd, windows and darwin-x86_64 has narrower evidence
 ([configurations.md](configurations.md)). Nothing has run on
@@ -110,6 +120,17 @@ These are measurements, not proofs.
   fit in 6 KiB (words) and 14 KiB (checked) of parent-arena growth.
 - `scripts/check-parallel.sh` §12a: 6,000 thread bindings hold VmSize
   flat. Before the fix, VmSize reached 6,164,156 kB.
+- A reset-free loop keeping 1,000 strings of random length up to
+  60,000 bytes live (about 30 MB) peaks at 40,432, 47,104 and 51,392
+  KiB after 10^4, 10^5 and 10^6 replacements, and the arena holds 1.7
+  times the live bytes. With exact 16-byte classes it peaked at 117,
+  267 and 379 MB (`scripts/check-reclaim-soak.sh` §2).
+- Two-node knots dropped outside an arena scope cost 64 bytes each,
+  7,840 KiB at 10^5 and 64,096 KiB at 10^6; inside a scope reset each
+  iteration, 1,632 KiB at both (§3).
+- 10,000 recovery points whose thunk answers, traps or nests grow the
+  arena by nothing; each fresh mark costs 48 bytes
+  (`tests/stdlib/560-recover-record.ax`).
 
 ## Timing
 

@@ -881,7 +881,15 @@ unknown. Java, Go and Rust all abort there too.
 This narrow version is sound because there is nothing to unwind. Axiom
 has no destructors, no finalizers and no stack-allocated data, so
 "unwinding" reduces to restoring the stack pointer, the arena and the
-effect slots. `MM-ALLOC-23` in the memory model gives the memory
+effect slots.
+
+Two things stay yours. The abort reclaims everything the thunk
+allocated, so a structure older than the point must not be made to hold
+any of it: return the thunk's answer through the arming call and store
+it afterwards. And a descriptor, mapping or lock the thunk took stays
+taken, because nothing runs on the way out. `MM-ALLOC-23` in the memory
+model states both, and `tests/stdlib/561-failed-operations.ax` shows the
+safe shape. `MM-ALLOC-23` in the memory model gives the memory
 argument, including the one cost it doesn't avoid: a retain abandoned
 below the mark. The measurement bounds it: 100,000 aborts hold max RSS
 at 1,376 KiB, against 419,328 KiB for the same program with nothing to

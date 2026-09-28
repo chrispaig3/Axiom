@@ -1,0 +1,145 @@
+; MM-LIFE-2e: a dead chain of any depth is released in bounded stack.
+;
+; When a block's count reaches zero its reference fields are released,
+; and a child that dies in turn joins a dead list threaded through the
+; dead blocks' own count words. Nothing recurses, so the depth of what
+; dies never reaches the machine stack. Each shape below is built by a
+; tail loop, held by one `let`, and dropped whole when the `let` ends:
+; one release at the head frees the lot.
+;
+;   list     a million `Cons` cells, the link in the LAST field
+;   right    a million `Node`s nested through the last field
+;   left     a million `Node`s nested through the FIRST field, so each
+;            level's remaining fields are still pending while it dies
+;   strings  a million cells each owning a string, so every level
+;            leaves a second dead block behind it
+;   closures a million closures, each capturing the one before,
+;            down to one base closure the caller keeps
+;
+; Every shape runs twice, and the second round must be served from the
+; blocks the first released: the arena's held bytes don't grow between
+; the rounds. That is what shows the release ran to the end of the
+; chain rather than stopping early.
+;
+; `scripts/check-reclaim-soak.sh` runs this fixture under a 64 KiB
+; stack, where a release that recursed once per level dies by SIGSEGV
+; (its IR ablation), and so does a non-tail walk of the same list.
+(import IO)
+(import Str)
+(import Fmt)
+
+(data L
+  (Nil)
+  (Cons Int L))
+
+(data T
+  (Leaf)
+  (Node T Int T))
+
+(data SL
+  (SNil)
+  (SCons String SL))
+
+(:: build (-> Int L L))
+(fn (build n acc)
+  (if (== n 0)
+    acc
+    (build (- n 1) (Cons n acc))))
+
+(:: walk (-> L Int Int))
+(fn (walk xs acc)
+  (match xs
+    ((Nil) acc)
+    ((Cons h t) (walk t (+ acc 1)))))
+
+(:: right (-> Int T T))
+(fn (right n acc)
+  (if (== n 0)
+    acc
+    (right (- n 1) (Node (Leaf) n acc))))
+
+(:: left (-> Int T T))
+(fn (left n acc)
+  (if (== n 0)
+    acc
+    (left (- n 1) (Node acc n (Leaf)))))
+
+(:: depthR (-> T Int Int))
+(fn (depthR t acc)
+  (match t
+    ((Leaf) acc)
+    ((Node l v r) (depthR r (+ acc 1)))))
+
+(:: depthL (-> T Int Int))
+(fn (depthL t acc)
+  (match t
+    ((Leaf) acc)
+    ((Node l v r) (depthL l (+ acc 1)))))
+
+(:: strs (-> Int SL SL))
+(fn (strs n acc)
+  (if (== n 0)
+    acc
+    (strs (- n 1) (SCons (fmtInt n) acc))))
+
+(:: slen (-> SL Int Int))
+(fn (slen xs acc)
+  (match xs
+    ((SNil) acc)
+    ((SCons s t) (slen t (+ acc 1)))))
+
+(:: chain (-> Int (-> Int Int) Int Int))
+(fn (chain n f)
+  (if (== n 0)
+    f
+    (chain
+      (- n 1)
+      (lambda (x) (+ (f x) 1)))))
+
+(:: once (-> Int Int (-> Int Int) Int))
+(fn (once shape n base)
+  (if (== shape 0)
+    (let ((xs (build n (Nil))))
+      (walk xs 0))
+    (if (== shape 1)
+      (let ((t (right n (Leaf))))
+        (depthR t 0))
+      (if (== shape 2)
+        (let ((t (left n (Leaf))))
+          (depthL t 0))
+        (if (== shape 3)
+          (let ((xs (strs n (SNil))))
+            (slen xs 0))
+          ; applying a million-deep chain would be a million-deep
+          ; call; building and dropping one is the subject here
+          (let ((f (chain n base)))
+            n))))))
+
+; Two rounds of one shape: the count each round saw, and whether the
+; second round was served entirely from what the first released.
+(:: twice (-> String Int Int (-> Int Int) Int))
+;@axiom:effect(io)
+(fn (twice name shape n base)
+  (let ((a (once shape n base)))
+    (let ((h1 (__axiom_mem_stat 0)))
+      (let ((b (once shape n base)))
+        (let ((h2 (__axiom_mem_stat 0)))
+          (let ((reused 
+            (if (<= h2 h1)
+              "yes"
+              "no")))
+            {
+              (println "{name}: {a} then {b}, second round reused the first: {reused}")
+              (if (<= h2 h1)
+                0
+                1)
+            }))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (n 1000000)
+    (base (lambda (x) x))
+  )
+    (+ (+ (twice "list" 0 n base) (twice "right" 1 n base)) (+ (+ (twice "left" 2 n base) (twice "strings" 3 n base)) (twice "closures" 4 n base)))))

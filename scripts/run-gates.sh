@@ -131,7 +131,7 @@ NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a ba
 # willingness to drain them while fifteen compilers are running, and a
 # short read is indistinguishable at the assertion from a server that
 # lost data.
-SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net|repl-history)\.sh$'
+SERIAL_RE='check-(bootstrap|container-reclaim|reclaim-soak|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net|repl-history)\.sh$'
 
 # THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
 # 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s
@@ -203,7 +203,7 @@ done
 # grows past that belongs in `full`, and `check-gate-lib.sh` requires
 # every name here to be a script that exists.
 FAST_RE='check-(type-pinning|gate-lib|ci-coverage|vec-field-shape|cast-arg-root|tail-position|agent-policy|agent-calls|c-abi|http-scan|nostd-subset|platform-constants|seed-supply-chain|terminal-restore|version|windows-entry|diverging-tyvar|mir-projection|frontend-parity|trap-statuses|backtrace|test-runner|packages|doc-drift|diagnostic-coverage|examples|repl-highlight|tail-calls|install|release-targets)\.sh$'
-EXPENSIVE_RE='check-(bootstrap|seed-lineage|seed-provenance|ddc|cross-targets|embedded|windows-hello|reproducible|memory-baseline|arena-reset-rate|container-reclaim|steady-state|recover|name-scale|type-namespace|degenerate|stack-bound|stack-depth)\.sh$'
+EXPENSIVE_RE='check-(bootstrap|seed-lineage|seed-provenance|ddc|cross-targets|embedded|windows-hello|reproducible|memory-baseline|arena-reset-rate|container-reclaim|reclaim-soak|steady-state|recover|name-scale|type-namespace|degenerate|stack-bound|stack-depth)\.sh$'
 all=(); omitted=()
 for g in scripts/check-*.sh; do
   if [[ "$profile" == fast && ! "$g" =~ $FAST_RE ]] ||

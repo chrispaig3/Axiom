@@ -4629,6 +4629,12 @@ pads. This isn't a `catch`, and it can't contain a memory-safety fault,
 because a segmentation fault isn't a trap. [error-model.md](error-model.md)
 ERR-REC-6 states the whole contract.
 
+Two limits follow from the reset. Don't store anything the thunk
+allocated into a value older than the recovery point; return it through
+the arming call instead. And close files and release locks before
+anything in the thunk can trap, because an abort doesn't. Take the mark
+once, outside a loop: each `__axiom_arena_mark` costs a 48-byte cell.
+
 Tested by `tests/stdlib/403-recover-div.ax`.
 
 <a id="memory-primitives"></a>

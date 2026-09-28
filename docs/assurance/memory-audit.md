@@ -24,6 +24,8 @@ root.
 | Obligation | Disposition | Evidence |
 |---|---|---|
 | After a raw reset, no reclaimed allocation is read again (`MM-ALLOC-16`) | Boundary and open. Raw marks are `Int`s. Escapes from the checked `region` form are static (`MM-RGN-1…4`, `AX3058–AX3063`). Arbitrary raw resets are unchecked | `scripts/check-region-scope.sh`, `scripts/check-region-escape.sh`, diagnostics 630, 631, 645–648 and 653; raw-reset misuse has no fixture |
+| Nothing older than a recovery point is made to hold what its thunk allocated (`MM-ALLOC-23`) | Open: `__axiom_recover` isn't `Unsafe`, and its thunk isn't region-checked, so a `Vec` grown inside an aborted extent keeps a reclaimed data block (AN-39) | `tests/stdlib/561-failed-operations.ax` case 3 shows the safe shape; the unsafe one has no fixture, because it corrupts |
+| A reset leaves no stale allocator metadata, in any class, chunk or thread (`MM-ALLOC-13`, `MM-LIFE-2e`) | Implementation: the reset scrubs every list head and the filed count | `tests/stdlib/559-reset-metadata.ax`; `scripts/check-reclaim-soak.sh` §4 with the no-scrub and shared-lists ablations |
 | A reset keeps exactly one contiguous carried block, and kept fields aren't recursively promoted (`MM-ALLOC-16`) | Boundary: the `reset_keeping` contract. Referencing a dead allocation through a kept block is the caller's responsibility | Stated; no fixture |
 | A mark names a live arena position, and evidence is live at reset (`MM-ALLOC-16a`, `16b`) | Dynamic: the runtime checks marks and live evidence | The `6527bea0` fixtures |
 | A lexical region answers a scalar, and names don't rebind inside themselves (`MM-RGN-1`) | Static: `AX3058`, `AX3059` | `tests/stdlib/168-region.ax`; `check-region-scope.sh`, including the unsafe-escape ablation |
@@ -34,9 +36,12 @@ root.
 
 | Obligation | Disposition | Evidence |
 |---|---|---|
-| No use after free, double release or count tampering through the safe surface | Dynamic and partial. Free-list links are encoded (`MM-LIFE-2k`), release paths emit retains and releases, and count exhaustion traps with 70 (`MM-LIFE-2l`) | `tests/stdlib/355-arc-events.ax`, `check-container-reclaim.sh`, `527-retain-overflow.ax` (optstable 0–3) |
-| Cycles under counting (`MM-LIFE-2f`: the rule is withdrawn, the obligation is live) | Boundary: there is no tracing collector, so cyclic garbage waits for an arena reset or the end of the process | Stated; bounded reclamation for long-lived cyclic workloads is untested |
-| A value whose count never reaches zero is released explicitly or scoped to an arena (the `MM-LIFE-4` cases) | Boundary and open. `Handle` carries foreign destructors (`MM-FFI-6`), and there is no universal finalisation | The `Handle` fixtures; the deferred-reclamation backlog is unmeasured |
+| No use after free, double release or count tampering through the safe surface | Dynamic and partial. Free-list links are encoded (`MM-LIFE-2k`), release paths emit retains and releases, and count exhaustion traps with 70 (`MM-LIFE-2l`). Closures, containers, field stores, `Str` slices and a `Handle` were probed and hold | `tests/stdlib/355-arc-events.ax`, `check-container-reclaim.sh`, `527-retain-overflow.ax` (optstable 0–3), `556-count-balance.ax` with its over-release control |
+| A dead structure of any depth is released without exhausting the stack (`MM-LIFE-2d`) | Implementation: the walk keeps a dead list in the dead blocks' own count words and never recurses | `tests/stdlib/555-release-deep-chain.ax`; `scripts/check-reclaim-soak.sh` §1 under a 64 KiB stack, with the recursive-walk ablation red |
+| Cycles under counting (`MM-LIFE-2f`: the rule is withdrawn, the obligation is live) | Boundary, measured: there is no tracing collector, so cyclic garbage waits for an arena reset or the end of the process. A dropped two-node knot costs 64 bytes of backlog; inside an arena scope, nothing | `tests/stdlib/557-cycle-backlog.ax`; `scripts/check-reclaim-soak.sh` §3 (RSS at 10^5 and 10^6, scoped and acyclic controls) |
+| A value whose count never reaches zero is released explicitly or scoped to an arena (the `MM-LIFE-4` cases) | Boundary and open. `Handle` carries foreign destructors (`MM-FFI-6`), and there is no universal finalisation. An arena reset reclaims a `Handle`'s block without running its destructor | The `Handle` fixtures |
+| The deferred-reclamation backlog is observable (`MM-ALLOC-24`) | Implementation: `(__axiom_mem_stat k)` answers held, filed and mapped bytes; held less filed is the backlog | `tests/stdlib/557-cycle-backlog.ax`, `558-size-classes.ax`; the model predicts filed at every step (`scripts/check-runtime-model.sh`); `scripts/check-reclaim-soak.sh` §2 holds held against peak RSS |
+| Reuse doesn't ratchet under a mixed size distribution (`MM-ALLOC-25`) | Implementation, bounded by each class's peak: a size mix that drifts keeps the old band's blocks until a reset | `tests/stdlib/558-size-classes.ax`; `scripts/check-reclaim-soak.sh` §2 and its no-rounding ablation |
 | No mutable aliasing of a live value (`MM-MUT-4`) | Static where the checker tracks it. `cast` and raw words escape it | The checker and the `AX3012` family; raw-word aliasing is open |
 
 ## Concurrency and tasks
@@ -47,6 +52,8 @@ root.
 | A captured `Vec` isn't mutated across `--threads` siblings | Static: `AX3064` refuses class-0 containers with their own message | `tests/diagnostics/656-parallel-container-capture.ax` (direct, aliased, nested and struct-wrapped); `tests/stdlib/471-parallel-trap.ax` builds inside |
 | A spawned child is joined in its scope, and join failures are observed | Dynamic: the registry sweeps on abort, trap, return and end (`MM-PAR-7`), and failures are status 78 | §12b (`kill -0`), §12c (`foreign 78 … answer 42`) |
 | Grandchildren of a killed child, threads that never finish, and unmapped-handle words | Open by statement: the three `MM-PAR-7` limits. `MM-PAR-8` is planned | — |
+| A child spawned inside an aborted recovery extent is ended | Dynamic: the abort sweeps the extent's children before it resets (`MM-PAR-7`) | `scripts/check-reclaim-soak.sh` §5 |
+| Descriptors, shared mappings and locks taken inside a recovery extent are released on every path (`MM-ALLOC-23`) | Open program obligation: an abort runs nothing, and the runtime can't know what the thunk acquired (AN-41) | `scripts/check-reclaim-soak.sh` §5 measures one descriptor leaked per trapped cycle, and none for the control that closes first |
 | A `Foreign` shared with a thread is made safe by the foreign side (`MM-FFI-7`) | Open program obligation | — |
 
 ## Unsafe layer and FFI

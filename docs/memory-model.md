@@ -1473,9 +1473,11 @@ The bound is on the sum of each class's peak, not on the live set:
 blocks don't split or coalesce, so a workload whose sizes drift from
 one band to another keeps the old band's blocks on their lists until a
 reset. A reset-free service whose sizes drift belongs in an arena scope
-(`MM-ALLOC-22`). Tested by `tests/stdlib/558-size-classes.ax`, and by
-the executable model's `classes` witness, which an IR ablation of the
-request rounding turns red (`scripts/check-runtime-model.sh`).
+(`MM-ALLOC-22`). Tested by `tests/stdlib/558-size-classes.ax`, by the
+executable model's `classes` witness, which an IR ablation of the
+request rounding turns red (`scripts/check-runtime-model.sh`), and by
+the soak in `scripts/check-reclaim-soak.sh` section 2, whose ablation of
+the same rounding must see memory grow.
 
 ### 3.2 What allocates
 
@@ -1777,6 +1779,24 @@ resumption and no way to catch anything at a chosen frame. A recovery
 point can only contain one of the three traps. `ERR-REC-6` in
 [the error model](error-model.md) states what that does and doesn't
 buy.
+
+Two program obligations follow, and nothing checks either:
+
+- **Nothing older than the point may be made to hold what the thunk
+  allocated.** The abort reclaims everything the thunk allocated, and a
+  structure older than the point keeps whatever the thunk stored in it.
+  A `Vec` made before the arm and grown inside the thunk keeps a data
+  block the abort gave back, and the next allocation reuses it. Carry
+  the thunk's answer out as the arming call's result and store it
+  afterwards (`tests/stdlib/561-failed-operations.ax` case 3). This is
+  `MM-ALLOC-16`'s obligation, applied to the reset an abort performs.
+- **Resources the thunk acquired stay acquired.** A file descriptor
+  opened in an aborted extent stays open, a shared mapping stays mapped
+  and a mutex stays locked: the runtime can't know they were taken.
+  Acquire them outside the point, or release them before anything in
+  the extent can trap. The one resource the runtime owns, a child
+  spawned inside the extent, is swept by the abort (`MM-PAR-7`).
+  `scripts/check-reclaim-soak.sh` section 5 measures both halves.
 
 ### 3.4 The inferred arena model — withdrawn
 
@@ -3551,9 +3571,17 @@ type-variable field takes its bit from the evidence word (below). With
 no stamp or a zero witness it contributes no bit, which is the leaf
 answer for that field, and every classifiable neighbour keeps its bit.
 
-`@axiom_release`'s dead path walks the map and calls itself for each
-set bit, then files the block. Its own guards cover immediates, statics
-and zero counts. The allocator and the arena's keep helper stamp the
+`@axiom_release`'s dead path walks the map and releases the block
+named by each set bit, then files the block. A child that dies joins a
+dead list threaded through the dead blocks' own count words, so the
+walk never recurses and never allocates: a chain of any depth is
+released in the stack of one call. A million-cell list, a million-deep
+tree nested through either field, a list of strings and a chain of a
+million closures each drop whole under a 64 KiB stack
+(`tests/stdlib/555-release-deep-chain.ax`, `scripts/check-reclaim-soak.sh`
+section 1, whose ablation makes the walk recurse and dies).
+
+The walk's own guards cover immediates, statics and zero counts. The allocator and the arena's keep helper stamp the
 leaf of their dynamic size with a shared clamp: a payload past 16,383
 words stores count 0, the unknown-size sentinel that release refuses
 to file. The ceiling is 16,383 rather than 32,767 because the array
@@ -3873,12 +3901,28 @@ rule says. A knot built from anything else is leaked because nothing
 releases it at all. The obligation matters for every shape once the
 remaining events land.
 
-The cycle question is separable, and choosing ARC builds toward the
-alternative rather than away from it. The reference maps of
-`MM-LIFE-2d` are exactly the tracing information whose absence made the
-last collector conservative and wrong (`MM-ALLOC-20`, §10). A cycle
-collector beside ARC is a later decision, and its hard part is already
-paid for.
+*The policy*: cyclic garbage waits for an arena reset or the end of
+the process, and nothing else reclaims it. Inside an arena scope that
+costs nothing: 1,000 two-node knots, each dropped inside a scope reset
+every iteration, leave no backlog, and a million of them hold RSS flat.
+Outside one, each knot costs its blocks' bytes for the rest of the
+process: 64 bytes for two 16-byte nodes and their headers, measured by
+`__axiom_mem_stat` at 100,000 and a million knots, with peak RSS
+growing eightfold between the two. Breaking one edge before the drop, as above,
+costs nothing too. A service can watch the backlog as held less filed
+(`MM-ALLOC-24`) and decide when to reset. Tested by
+`tests/stdlib/557-cycle-backlog.ax` and `scripts/check-reclaim-soak.sh`
+section 3.
+
+*The decision*: no cycle collector, because the arena policy covers the
+workloads measured. The target workload is a request handler in an
+arena scope, where a cycle's cost ends at the request. A reset-free
+program pays for exactly the knots it ties, at a price it can now read.
+A collector would
+be a new rule with its own acceptance criteria. Its hard part is
+already paid for: the reference maps of `MM-LIFE-2d` are exactly the
+tracing information whose absence made the last collector conservative
+and wrong (`MM-ALLOC-20`, §10).
 
 **MM-LIFE-2k (H). A dead block's count word holds an
 encoded link, so no retain or release can corrupt the allocator.** A
@@ -5469,6 +5513,11 @@ only written down.
 | `tests/stdlib/557-cycle-backlog.ax` | LIFE-2f's cost and ALLOC-24: 64 bytes a two-node knot, none for a chain, a broken knot or a scoped one |
 | `tests/stdlib/558-size-classes.ax` | ALLOC-25 and ALLOC-24: each request's class, reuse across sizes of one class, and the exact filed count of one block per class |
 | `tests/stdlib/560-recover-record.ax` | ALLOC-23: an arm allocates nothing, whether its thunk answers or traps |
+| `tests/stdlib/555-release-deep-chain.ax` | LIFE-2d's walk: million-deep lists, trees and closure chains dropped whole, each second round served by the first |
+| `tests/stdlib/556-count-balance.ax` | LIFE-2c and LIFE-2k through closures, containers, field stores, slices and a `Handle`: nothing freed while reachable, with a control that one release too many is seen |
+| `tests/stdlib/559-reset-metadata.ax` | ALLOC-13 and LIFE-2e: every block zeroed and disjoint after a reset of every class, nested marks across chunks, a reset inside a recovery point and a released large block |
+| `tests/stdlib/561-failed-operations.ax` | ALLOC-23: the heap is consistent after a trap inside a constructor and a refused `Vec` of 2^58 elements, and the obligation's safe shape |
+| `scripts/check-reclaim-soak.sh` | LIFE-2d's bounded stack under 64 KiB, ALLOC-25's plateau, LIFE-2f's cycle cost, per-thread resets, and ALLOC-23's two obligations, each beside an ablation or a control that must move |
 
 Some rules are only covered incidentally. Fixtures written for another
 purpose exercise them, so a regression would surface, but under a name
