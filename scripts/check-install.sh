@@ -139,15 +139,25 @@ sha_of() {
   else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
+# Copy the TRACKED files under <dir> into <dest>, as the working tree
+# holds them. The release workflow copies from a clean checkout, and a
+# plain `cp -R` here also copied whatever else sat in the directory: a
+# Finder `docs/.DS_Store` made the staged docs/ fail case 8's
+# only-`.md` shape, a red no release could produce.
+copy_tracked() {  # <dir> <dest>
+  ( cd "$repo_root" && git ls-files -z -- "$1" | tar --null -T - -cf - ) \
+    | tar -xf - -C "$2"
+}
+
 # Assemble a release into $serve. `--no-stdlib` omits `stdlib/` from
 # the archive, for case 4.
 assemble() {  # [--no-stdlib]
   local d="$work/stage/$name"
   rm -rf "$work/stage"; mkdir -p "$d/bin"
   cp "$axc" "$d/bin/axiom"
-  [[ "${1:-}" == "--no-stdlib" ]] || cp -R "$repo_root/stdlib" "$d/stdlib"
+  [[ "${1:-}" == "--no-stdlib" ]] || copy_tracked stdlib "$d"
   cp "$repo_root/LICENSE" "$repo_root/README.md" "$repo_root/CHANGELOG.md" "$d/"
-  [[ "${1:-}" == "--no-docs" ]] || cp -R "$repo_root/docs" "$d/docs"
+  [[ "${1:-}" == "--no-docs" ]] || copy_tracked docs "$d"
   ( cd "$work/stage" && tar -czf "$serve/$name.tar.gz" "$name" )
   sha_of "$serve/$name.tar.gz" > "$serve/$name.tar.gz.sha256.tmp"
   printf '%s  %s\n' "$(cat "$serve/$name.tar.gz.sha256.tmp")" "$name.tar.gz" \
