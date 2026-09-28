@@ -103,6 +103,12 @@ module.exports = grammar({
   // answer highlights identically.
   conflicts: $ => [
     [$.struct_declaration, $.struct_construction],
+    // `(struct Chan word shared (slot : Int))`: a bare name after the
+    // struct's name is a representation marker if this is a declaration
+    // and an argument if it is a construction, and the two readings
+    // diverge only at the body - the same ambiguity as the line above,
+    // named at the rules the generator reports.
+    [$.struct_declaration, $._expression],
     // The same ambiguity one level down: in `(struct Point () ...)` the
     // `()` is an empty type parameter list if this is a declaration and an
     // empty-tuple argument if it is a construction. It has to be listed
@@ -496,9 +502,19 @@ module.exports = grammar({
     // colon excludes it - so raising this rule only settles the case
     // where the two genuinely collide, which is the case the compiler
     // decides the same way.
+    //
+    // Representation markers sit between the name and the rest:
+    // `(struct Chan word shared (slot : Int))`. The compiler's parser
+    // records every bare name there (`collectStructMarkers`) and its
+    // checker decides what each one means (AX3084), so this rule takes
+    // any identifier, as the parser does, and leaves the refusal to the
+    // checker. Until the body's first `(`, a marker and a construction's
+    // bare-name argument are the same token, which is the conflict this
+    // rule already declares with `struct_construction`.
     struct_declaration: $ => seq(
       '(', optional(field('visibility', 'pub')), 'struct',
       field('name', choice($.identifier, $.syntax_join_name)),
+      repeat(field('marker', $.identifier)),
       optional(field('type_parameters', prec.dynamic(1, $.type_parameters))),
       repeat(field('field', $.field_declaration)),
       ')',

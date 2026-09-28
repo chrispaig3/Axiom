@@ -13498,6 +13498,26 @@
     "(pub "
     "("))
 
+; A struct's representation markers as written, each after a space
+; (`collectStructMarkers`), or "" for a struct with none. A generated
+; `(struct Chan word shared ...)` rendered without them would show a
+; heap struct where the program has a sealed word.
+(pub :: lspStructMarkers (-> Int String))
+(pub fn (lspStructMarkers d)
+  (let (
+    (ms (structMarkers d))
+    (parts vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen ms))
+        {
+          (vecPush parts (strConcat " " (nodeAName (vecGet ms i))))
+          (set i (+ i 1))
+        })
+      (catStrs parts)
+    }))
+
 (pub :: lspRenderDeclBody (-> Int Int String))
 (pub fn (lspRenderDeclBody d ind)
   (let ((tag (nodeTag d)))
@@ -13508,7 +13528,7 @@
         (if (== tag TAG_D_DATA)
           (lspRenderData d ind)
           (if (== tag TAG_D_STRUCT)
-            (strConcat (strConcat (strConcat (lspPubOf d) "struct ") (lspRenderDeclName (nodeAName d))) (strConcat (lspRenderFields (nodeBVec d) (+ ind 2)) ")"))
+            (strConcat (strConcat (strConcat (lspPubOf d) "struct ") (strConcat (lspRenderDeclName (nodeAName d)) (lspStructMarkers d))) (strConcat (lspRenderFields (nodeBVec d) (+ ind 2)) ")"))
             (if (== tag TAG_D_MACRO)
               (lspRenderMacro d ind)
               (if (== tag TAG_D_IMPORT)

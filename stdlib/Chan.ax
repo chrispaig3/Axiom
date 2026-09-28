@@ -22,13 +22,20 @@
 ; receiver does not own. Typed transfer of heap values is R-C2's open
 ; half.
 ;
-; THE HANDLE IS AN `Int` TOO, and that is a program obligation, not a
-; guarantee: `AX3064` admits a word capture (it must - a counted
-; capture would race the counts), so a channel crosses a spawn as the
-; address it is. Two obligations follow, the ones `MM-PAR-8` states for
-; a spawn handle: pass only a word `chanNew` answered, and call
-; `chanFree` only once no binding can still reach the channel - after
-; the `parallel` form that used it. A typed handle waits on MM-PAR-8.
+; THE HANDLE IS A `Chan` (docs/memory-model.md MM-PAR-8): a word struct
+; (MM-VAL-10a) that only this module can make or read, so no other code
+; can hand a channel operation a word `chanNew` did not answer. Its word
+; is a slot in the runtime's handle table, kind `chanKind`, naming the
+; mapping, and every public function asks the table for the mapping
+; first (`chanAt`). So an operation on a freed channel, and a second
+; `chanFree`, trap with status 85 instead of touching the unmapped ring.
+; It is declared `shared`, because every operation below is built for
+; use from every binding at once, so a `parallel` binding may capture it
+; in either lowering (AX3064 admits it). What stays the program's: free
+; a channel only once no binding can still reach it - after the
+; `parallel` form that used it. A free that RACES another binding's
+; operation is a data race (MM-PAR-9): the check covers every operation
+; ordered after the free, not one already in flight.
 ;
 ; HOW IT BLOCKS. Word 0 is a three-state lock (0 free, 1 held, 2 held
 ; with waiters - Drepper's futex mutex): an uncontended acquire and
@@ -70,6 +77,38 @@
 (import Mem)
 (import Sys)
 (import Err)
+
+; ---- the handle ------------------------------------------------------
+; A channel: one word, a slot in the runtime's handle table (MM-PAR-8)
+; naming the ring's mapping.
+(pub struct Chan word shared
+  (slot : Int))
+
+; The handle table's kind for a channel. The table refuses a word of any
+; other kind, so a mutex's handle is not a channel even to code that
+; forged one.
+(:: chanKind Int)
+(fn (chanKind)
+  2)
+
+; The ring a live channel names, or the 85 trap for one that was freed.
+(:: chanAt (-> Chan Int))
+;@axiom:effect(unsafe)
+(fn (chanAt c)
+  (__handle_get chanKind c.slot))
+
+; A handle for a fresh ring, or 0 when the table has no slot left.
+(:: chanName (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (chanName ch)
+  (__handle_new chanKind ch))
+
+; Retire a live channel's handle and answer its ring, or the 85 trap for
+; a channel already freed.
+(:: chanRetire (-> Chan Int))
+;@axiom:effect(unsafe)
+(fn (chanRetire c)
+  (__handle_free chanKind c.slot))
 
 ; ---- the lock --------------------------------------------------------
 ; Set the word at `a` to `v` and answer what it held: a compare-and-swap
@@ -265,8 +304,9 @@
 ; ---- the channel ------------------------------------------------------
 ; A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle,
 ; or the mapping's error; a capacity out of range is EINVAL (22 on every
-; target with a syscall ABI).
-(pub :: chanNew (-> Int (Result Int Error)))
+; target with a syscall ABI), and a handle table with no slot left is
+; EMFILE (24).
+(pub :: chanNew (-> Int (Result Chan Error)))
 ;@axiom:effect(io)
 (pub fn (chanNew cap)
   (if (|| (< cap 1) (> cap 1048576))
@@ -277,18 +317,32 @@
           {
             (chanPut ch 5 cap)
             (chanPut ch 7 len)
-            (Ok ch)
+            (chanNamed ch len)
           }
         )
         ((Err e) (Err e))))))
 
+; Name a fresh ring in the handle table, or unmap it and say why not.
+(:: chanNamed (-> Int Int (Result Chan Error)))
+;@axiom:effect(io)
+(fn (chanNamed ch len)
+  (let ((h (chanName ch)))
+    (if (== h 0)
+      (match (sysUnmapShared ch len)
+        ((Ok z) (Err (mkError 24 "chanNew: every handle is in use")))
+        ((Err e) (Err (mkError 24 "chanNew: every handle is in use"))))
+      (Ok (Chan h)))))
+
 ; Send `v`, waiting while the ring is full. `True` once it is in the
 ; ring; `False` if the channel is closed - before the call or while it
 ; waited - and then `v` was not sent.
-(pub :: chanSend (-> Int Int Bool))
+(pub :: chanSend (-> Chan Int Bool))
 ;@axiom:effect(io)
-(pub fn (chanSend ch v)
-  (let ((mut state 0))
+(pub fn (chanSend c v)
+  (let (
+    (ch (chanAt c))
+    (mut state 0)
+  )
     {
       (while (== state 0)
         {
@@ -323,10 +377,11 @@
 
 ; Receive the oldest word, waiting while the ring is empty and open.
 ; `None` once the channel is closed AND drained - the end of the stream.
-(pub :: chanRecv (-> Int (Option Int)))
+(pub :: chanRecv (-> Chan (Option Int)))
 ;@axiom:effect(io)
-(pub fn (chanRecv ch)
+(pub fn (chanRecv c)
   (let (
+    (ch (chanAt c))
     (mut state 0)
     (mut got 0)
   )
@@ -371,10 +426,11 @@
 ; after the last wait, so a slot that opened as the time ran out is
 ; taken rather than refused. A non-positive `nanos` is one look, like
 ; `chanTrySend`, that says which of the three it was.
-(pub :: chanSendTimeout (-> Int Int Int (Result Bool Error)))
+(pub :: chanSendTimeout (-> Chan Int Int (Result Bool Error)))
 ;@axiom:effect(io)
-(pub fn (chanSendTimeout ch v nanos)
+(pub fn (chanSendTimeout c v nanos)
   (let (
+    (ch (chanAt c))
     (b (chanScratch nanos))
     (mut state 0)
   )
@@ -426,10 +482,11 @@
 ; drained); `Err` with code `sysTimedOut` when the time ran out with the
 ; ring still empty and open - the defined answer on timeout, which
 ; takes nothing out of the ring. A non-positive `nanos` is one look.
-(pub :: chanRecvTimeout (-> Int Int (Result (Option Int) Error)))
+(pub :: chanRecvTimeout (-> Chan Int (Result (Option Int) Error)))
 ;@axiom:effect(io)
-(pub fn (chanRecvTimeout ch nanos)
+(pub fn (chanRecvTimeout c nanos)
   (let (
+    (ch (chanAt c))
     (b (chanScratch nanos))
     (mut state 0)
     (mut got 0)
@@ -484,110 +541,118 @@
 ; for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for
 ; "closed" is the sentinel convention the error model is migrating away
 ; from (`tests/compat/verify-compat.py`).
-(pub :: chanTrySend (-> Int Int Bool))
+(pub :: chanTrySend (-> Chan Int Bool))
 ;@axiom:effect(io)
-(pub fn (chanTrySend ch v)
-  {
-    (chanLock ch)
-    (let (
-      (head (chanGet ch 3))
-      (tail (chanGet ch 4))
-      (cap (chanGet ch 5))
-    )
-      (if (== (chanGet ch 6) 1)
-        {
-          (chanUnlock ch)
-          false
-        }
-        (if (< (- tail head) cap)
-          {
-            (chanPut ch (+ 8 (% tail cap)) v)
-            (chanPut ch 4 (+ tail 1))
-            (chanBump ch)
-            (chanUnlock ch)
-            (chanNotify ch)
-            true
-          }
+(pub fn (chanTrySend c v)
+  (let ((ch (chanAt c)))
+    {
+      (chanLock ch)
+      (let (
+        (head (chanGet ch 3))
+        (tail (chanGet ch 4))
+        (cap (chanGet ch 5))
+      )
+        (if (== (chanGet ch 6) 1)
           {
             (chanUnlock ch)
             false
-          })))
-  })
+          }
+          (if (< (- tail head) cap)
+            {
+              (chanPut ch (+ 8 (% tail cap)) v)
+              (chanPut ch 4 (+ tail 1))
+              (chanBump ch)
+              (chanUnlock ch)
+              (chanNotify ch)
+              true
+            }
+            {
+              (chanUnlock ch)
+              false
+            })))
+    }))
 
 ; Receive without waiting: the oldest word, or `None` when there is
 ; none right now - empty, whether or not it is closed; `chanClosed`
 ; tells the two apart.
-(pub :: chanTryRecv (-> Int (Option Int)))
+(pub :: chanTryRecv (-> Chan (Option Int)))
 ;@axiom:effect(io)
-(pub fn (chanTryRecv ch)
-  {
-    (chanLock ch)
-    (let (
-      (head (chanGet ch 3))
-      (tail (chanGet ch 4))
-      (cap (chanGet ch 5))
-    )
-      (if (< head tail)
-        (let ((v (chanGet ch (+ 8 (% head cap)))))
+(pub fn (chanTryRecv c)
+  (let ((ch (chanAt c)))
+    {
+      (chanLock ch)
+      (let (
+        (head (chanGet ch 3))
+        (tail (chanGet ch 4))
+        (cap (chanGet ch 5))
+      )
+        (if (< head tail)
+          (let ((v (chanGet ch (+ 8 (% head cap)))))
+            {
+              (chanPut ch 3 (+ head 1))
+              (chanBump ch)
+              (chanUnlock ch)
+              (chanNotify ch)
+              (Some v)
+            })
           {
-            (chanPut ch 3 (+ head 1))
-            (chanBump ch)
             (chanUnlock ch)
-            (chanNotify ch)
-            (Some v)
-          })
-        {
-          (chanUnlock ch)
-          None
-        }))
-  })
+            None
+          }))
+    }))
 
 ; End the stream. Idempotent. Every waiter wakes: a sender to be
 ; refused, a receiver to drain and then see `None`.
-(pub :: chanClose (-> Int Int))
+(pub :: chanClose (-> Chan Int))
 ;@axiom:effect(io)
-(pub fn (chanClose ch)
-  {
-    (chanLock ch)
-    (chanPut ch 6 1)
-    (chanBump ch)
-    (chanUnlock ch)
-    (chanNotify ch)
-    0
-  })
+(pub fn (chanClose c)
+  (let ((ch (chanAt c)))
+    {
+      (chanLock ch)
+      (chanPut ch 6 1)
+      (chanBump ch)
+      (chanUnlock ch)
+      (chanNotify ch)
+      0
+    }))
 
-(pub :: chanClosed (-> Int Bool))
+(pub :: chanClosed (-> Chan Bool))
 ;@axiom:effect(io)
-(pub fn (chanClosed ch)
-  {
-    (chanLock ch)
-    (let ((c (chanGet ch 6)))
-      {
-        (chanUnlock ch)
-        (== c 1)
-      })
-  })
+(pub fn (chanClosed c)
+  (let ((ch (chanAt c)))
+    {
+      (chanLock ch)
+      (let ((c (chanGet ch 6)))
+        {
+          (chanUnlock ch)
+          (== c 1)
+        })
+    }))
 
 ; Words in the ring now.
-(pub :: chanLen (-> Int Int))
+(pub :: chanLen (-> Chan Int))
 ;@axiom:effect(io)
-(pub fn (chanLen ch)
-  {
-    (chanLock ch)
-    (let ((n (- (chanGet ch 4) (chanGet ch 3))))
-      {
-        (chanUnlock ch)
-        n
-      })
-  })
+(pub fn (chanLen c)
+  (let ((ch (chanAt c)))
+    {
+      (chanLock ch)
+      (let ((n (- (chanGet ch 4) (chanGet ch 3))))
+        {
+          (chanUnlock ch)
+          n
+        })
+    }))
 
-(pub :: chanCap (-> Int Int))
-(pub fn (chanCap ch)
-  (chanGet ch 5))
+(pub :: chanCap (-> Chan Int))
+(pub fn (chanCap c)
+  (chanGet (chanAt c) 5))
 
 ; Unmap the channel. Only once no binding can still reach it - after
 ; the `parallel` form that used it (the module header's obligation).
-(pub :: chanFree (-> Int (Result Int Error)))
+; The handle is retired before the ring is unmapped, so every call made
+; after this one - a second `chanFree` included - traps with status 85.
+(pub :: chanFree (-> Chan (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (chanFree ch)
-  (sysUnmapShared ch (chanGet ch 7)))
+(pub fn (chanFree c)
+  (let ((ch (chanRetire c)))
+    (sysUnmapShared ch (chanGet ch 7))))

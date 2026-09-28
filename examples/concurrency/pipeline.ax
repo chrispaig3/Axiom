@@ -25,7 +25,10 @@
 ;
 ; A CHANNEL CARRIES WORDS. `Chan` moves `Int`s between bindings, not
 ; heap values (MM-PAR-10); `typed-tasks.ax` beside this file is how a
-; record crosses.
+; record crosses. The channel itself is a `Chan`, a handle the three
+; bindings capture: `Chan` is declared `shared`, so AX3064 admits it in
+; either lowering, and one freed early would trap rather than read an
+; unmapped ring (MM-PAR-8).
 (import IO)
 (import Sys)
 (import Str)
@@ -50,7 +53,7 @@
 
 ; Send 1..n into `raw`, stalling halfway; then close it. Answers the
 ; count sent.
-(:: produce (-> Int Int Int Int))
+(:: produce (-> Chan Int Int Int))
 ;@axiom:effect(io)
 (fn (produce raw idle n)
   (let ((mut sent 0))
@@ -73,7 +76,7 @@
 
 ; Square what arrives on `raw` into `out` until `raw` ends; close
 ; `out`. Answers the idle ticks it counted.
-(:: work (-> Int Int Int))
+(:: work (-> Chan Chan Int))
 ;@axiom:effect(io)
 (fn (work raw out)
   (let (
@@ -101,7 +104,7 @@
     }))
 
 ; Drain `out`: the sum of what arrived.
-(:: drainAll (-> Int Int))
+(:: drainAll (-> Chan Int))
 ;@axiom:effect(io)
 (fn (drainAll out)
   (let (
@@ -129,7 +132,7 @@
     "yes"
     "no"))
 
-(:: run (-> Int Int Int Int Int))
+(:: run (-> Chan Chan Int Int Int))
 ;@axiom:effect(io)
 (fn (run raw out idle n)
   (parallel p (

@@ -67,22 +67,23 @@ two differ.
 
 ## `Chan`
 
-`stdlib/Chan.ax` — 12 public names
+`stdlib/Chan.ax` — 13 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `chanNew` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI). |
-| `chanSend` | value | `(-> Int Int Bool)` | `IO,Mut,Unsafe` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - and then `v` was not sent. |
-| `chanRecv` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream. |
-| `chanSendTimeout` | value | `(-> Int Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out with the ring still full - and then `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which of the three it was. |
-| `chanRecvTimeout` | value | `(-> Int Int (Result (Option Int) Error))` | `Alloc,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out with the ring still empty and open - the defined answer on timeout, which takes nothing out of the ring. A non-positive `nanos` is one look. |
-| `chanTrySend` | value | `(-> Int Int Bool)` | `IO,Mut,Unsafe` | Send without waiting: `True` if `v` went into the ring, `False` if it did not - full or closed, which `chanClosed` tells apart, as it does for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
-| `chanTryRecv` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Receive without waiting: the oldest word, or `None` when there is none right now - empty, whether or not it is closed; `chanClosed` tells the two apart. |
-| `chanClose` | value | `(-> Int Int)` | `IO,Mut,Unsafe` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. |
-| `chanClosed` | value | `(-> Int Bool)` | `IO,Mut,Unsafe` |  |
-| `chanLen` | value | `(-> Int Int)` | `IO,Mut,Unsafe` | Words in the ring now. |
-| `chanCap` | value | `(-> Int Int)` | `Unsafe` |  |
-| `chanFree` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). |
+| `Chan` | struct |  |  | A channel: one word, a slot in the runtime's handle table (MM-PAR-8) naming the ring's mapping. |
+| `chanNew` | value | `(-> Int (Result Chan Error))` | `Alloc,IO,Mut,Unsafe` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI), and a handle table with no slot left is EMFILE (24). |
+| `chanSend` | value | `(-> Chan Int Bool)` | `IO,Mut,Unsafe` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - and then `v` was not sent. |
+| `chanRecv` | value | `(-> Chan (Option Int))` | `IO,Mut,Unsafe` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream. |
+| `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out with the ring still full - and then `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which of the three it was. |
+| `chanRecvTimeout` | value | `(-> Chan Int (Result (Option Int) Error))` | `Alloc,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out with the ring still empty and open - the defined answer on timeout, which takes nothing out of the ring. A non-positive `nanos` is one look. |
+| `chanTrySend` | value | `(-> Chan Int Bool)` | `IO,Mut,Unsafe` | Send without waiting: `True` if `v` went into the ring, `False` if it did not - full or closed, which `chanClosed` tells apart, as it does for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
+| `chanTryRecv` | value | `(-> Chan (Option Int))` | `IO,Mut,Unsafe` | Receive without waiting: the oldest word, or `None` when there is none right now - empty, whether or not it is closed; `chanClosed` tells the two apart. |
+| `chanClose` | value | `(-> Chan Int)` | `IO,Mut,Unsafe` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. |
+| `chanClosed` | value | `(-> Chan Bool)` | `IO,Mut,Unsafe` |  |
+| `chanLen` | value | `(-> Chan Int)` | `IO,Mut,Unsafe` | Words in the ring now. |
+| `chanCap` | value | `(-> Chan Int)` | `Unsafe` |  |
+| `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. |
 
 ## `Err`
 
@@ -677,20 +678,21 @@ two differ.
 
 ## `Sync`
 
-`stdlib/Sync.ax` — 10 public names
+`stdlib/Sync.ax` — 11 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
+| `Mutex` | struct |  |  | A mutex: one word, a slot in the runtime's handle table (MM-PAR-8) naming the page. |
 | `syncOwnerDead` | value | `Int` |  | Above 255, like `sysTimedOut` (1001, the timeout every lock call here answers), so none can be mistaken for a wait status. |
 | `syncNotHeld` | value | `Int` |  |  |
 | `syncProbeNanos` | value | `Int` |  | How long a waiter sleeps before it looks at the holder: 100 ms. |
-| `mutexNew` | value | `(Result Int Error)` | `Alloc,IO,Mut,Unsafe` |  |
-| `mutexLock` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
-| `mutexTryLock` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
-| `mutexLockTimeout` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
-| `mutexUnlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Let the next holder in. `guard` must be what this binding's lock call answered: anything else - a free mutex, a stale guard, a sibling's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
-| `mutexOwnerDead` | value | `(-> Int Bool)` | `Unsafe` | Whether a holder was found dead holding this mutex (the poisoning in the header). |
-| `mutexFree` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. |
+| `mutexNew` | value | `(Result Mutex Error)` | `Alloc,IO,Mut,Unsafe` | A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
+| `mutexLock` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
+| `mutexTryLock` | value | `(-> Mutex (Option Int))` | `IO,Mut,Unsafe` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
+| `mutexLockTimeout` | value | `(-> Mutex Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
+| `mutexUnlock` | value | `(-> Mutex Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Let the next holder in. `guard` must be what this binding's lock call answered: anything else - a free mutex, a stale guard, a sibling's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
+| `mutexOwnerDead` | value | `(-> Mutex Bool)` | `Unsafe` | Whether a holder was found dead holding this mutex (the poisoning in the header). |
+| `mutexFree` | value | `(-> Mutex (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. The handle is retired before the page is unmapped, so every call made after this one - a second `mutexFree` included - traps with status 85. |
 
 ## `Task`
 

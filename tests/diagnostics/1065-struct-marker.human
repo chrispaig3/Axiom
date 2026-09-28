@@ -1,0 +1,71 @@
+[1;31merror[AX3084][0m[1m: word struct `TwoFields` declares 2 fields, and a word holds exactly one[0m
+ [1;34m--> [0m1065-struct-marker.ax:7:9
+[1;34m  |[0m
+[1;34m7 |[0m (struct TwoFields word
+[1;34m  |[0m         [1;31m^^^^^^^^^ refused here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0ma word struct is one machine word, not a block (docs/memory-model.md MM-VAL-10a)
+ [1;34m = [0m[1;32mhelp: [0mgive it one field, `(slot : Int)`: a word struct IS its one field, so a second one has nowhere to live
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+[1;31merror[AX3084][0m[1m: field `x` of word struct `Mutable` is `mut`[0m
+  [1;34m--> [0m1065-struct-marker.ax:12:8
+[1;34m   |[0m
+[1;34m12 |[0m   (mut x : Int))
+[1;34m   |[0m        [1;31m^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma word struct has no block a field store could reach
+  [1;34m = [0m[1;32mhelp: [0mdrop `mut`: a word struct is a value, and a store would change only the copy it was made on
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+[1;31merror[AX3084][0m[1m: field `x` of word struct `NotAWord` is not an `Int`[0m
+  [1;34m--> [0m1065-struct-marker.ax:15:4
+[1;34m   |[0m
+[1;34m15 |[0m   (x : String))
+[1;34m   |[0m    [1;31m^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma `String`, a `Vec` or a record is a reference, and a word that held one would take no share of it
+  [1;34m = [0m[1;32mhelp: [0mtype the field `Int`: a word struct holds one machine word, and `Int` is the type that is one
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+[1;31merror[AX3084][0m[1m: word struct `Params` takes type parameters[0m
+  [1;34m--> [0m1065-struct-marker.ax:17:9
+[1;34m   |[0m
+[1;34m17 |[0m (struct Params word (a)
+[1;34m   |[0m         [1;31m^^^^^^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma word takes no share and so has no evidence a type argument could describe
+  [1;34m = [0m[1;32mhelp: [0mdrop the parameters: a word carries no type argument
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+[1;31merror[AX3084][0m[1m: struct `SharedHeap` is `shared` but not a `word`[0m
+  [1;34m--> [0m1065-struct-marker.ax:20:9
+[1;34m   |[0m
+[1;34m20 |[0m (struct SharedHeap shared
+[1;34m   |[0m         [1;31m^^^^^^^^^^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma heap struct is a counted block, and `axiom_retain` is a plain load-add-store: two bindings touching one count lose an increment and free a block still named (MM-PAR-6)
+  [1;34m = [0m[1;32mhelp: [0madd `word`, or drop `shared`: only a word may be shared between concurrent bindings
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+[1;31merror[AX3084][0m[1m: `word` is written twice[0m
+  [1;34m--> [0m1065-struct-marker.ax:23:20
+[1;34m   |[0m
+[1;34m23 |[0m (struct Twice word word
+[1;34m   |[0m                    [1;31m^^^^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma marker says one thing about the struct, and saying it twice says nothing more
+  [1;34m = [0m[1;32mhelp: [0mwrite each marker once
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+[1;31merror[AX3084][0m[1m: `packed` is not a struct marker[0m
+  [1;34m--> [0m1065-struct-marker.ax:26:17
+[1;34m   |[0m
+[1;34m26 |[0m (struct Unknown packed
+[1;34m   |[0m                 [1;31m^^^^^^ refused here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe markers come between the name and the first field: `(struct Chan word shared (slot : Int))`
+  [1;34m = [0m[1;32mhelp: [0ma struct takes `word`, which makes it one machine word rather than a heap block, and `shared`, which lets a `parallel` binding capture a `word`; anything else after the struct's name is refused
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3084` for a full explanation
+
+compilation failed due to 7 previous errors

@@ -4340,6 +4340,17 @@
             (fpP p ")")
           })))))
 
+; The end of a struct declaration's markers: the run of bare names from
+; `from`, the position of the first kid that is not one.
+(pub :: fpMarkersEnd (-> Int Int Int))
+(pub fn (fpMarkersEnd n from)
+  (let ((mut i from))
+    {
+      (while (&& (< i (fnLen n)) (fpIsIdentAtom (fnKid n i)))
+        (set i (+ i 1)))
+      i
+    }))
+
 (pub :: fpDeclStruct (-> Int Int Int))
 (pub fn (fpDeclStruct p n)
   (let (
@@ -4353,103 +4364,122 @@
         false
         true))
       (fpBad p)
-      (let ((tvEnd (fpTyvarsEnd src n (+ b 2))))
-        {
-          (fpP p "(")
-          (fpVis p n)
-          (fpP p "struct ")
-          (fpP p (fnText src (fnKid n (+ b 1))))
-          (fpTyvars
-            p
-            n
-            (+ b 2)
-            tvEnd
-            1)
-          ; There is no layout modifier to print. `packed`, `repr(C)`
-          ; and `align(N)` were accepted here and by nothing else:
-          ; the parser has always answered AX2001 for all three, so
-          ; the only programs this arm could format were programs the
-          ; compiler refuses. C layout has no meaning in a language
-          ; that links no C.
-          ; Fields: `({mut }name : Type)`, one per line.
-          (let ((mut i tvEnd))
-            {
-              (if (< i (fnLen n))
-                (foPushIndent o)
-                o)
-              (let ((had (< i (fnLen n))))
+      ; REPRESENTATION MARKERS first - every bare name after the
+      ; struct's own, as the parser collects them (`collectStructMarkers`)
+      ; and the checker judges them (AX3084): `(struct Chan word shared
+      ; (slot : Int))`. So a bare name here is a marker and never a type
+      ; parameter; only a parenthesised list is one, which is the only
+      ; spelling of parameters the parser has ever read for a struct.
+      ; Reading bare names as parameters printed `word shared` as `(word
+      ; shared)`, a parameter list - a program with another meaning.
+      (let ((mEnd (fpMarkersEnd n (+ b 2))))
+        (let ((tvEnd 
+          (if (&& (< mEnd (fnLen n)) (fpIsTyvarList src (fnKid n mEnd)))
+            (+ mEnd 1)
+            mEnd)))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "struct ")
+            (fpP p (fnText src (fnKid n (+ b 1))))
+            (let ((mut k (+ b 2)))
+              (while (< k mEnd)
                 {
-                  (while (< i (fnLen n))
-                    (let ((f (fnKid n i)))
-                      (if (!= (fnKind f) FN_PAREN)
-                        {
-                          (fpBad p)
-                          (set i (fnLen n))
-                        }
-                        ; A field is `({mut }name : Type)` or, as the
-                        ; parser also reads it, `(name Type)` with no
-                        ; colon or a bare `(name)` - the checker refuses
-                        ; both (AX3056), and a type it cannot read is
-                        ; the same field left at the empty variable, so
-                        ; `(name : 5)` parses too. The formatter follows
-                        ; the parser: all three print as written, the
-                        ; unreadable type through the expression printer
-                        ; where the type printer would refuse, and the
-                        ; checker keeps the refusal. This used to `fpBad`
-                        ; all three, which made the fixture that pins
-                        ; AX3056 unformattable - the same shape the
-                        ; effect printer above was given for AX3055.
-                        (let ((fb 
-                          (if (&& (> (fnLen f) 0) (fpIsAtomText src (fnKid f 0) "mut"))
-                            1
-                            0)))
-                          (if (||
-                            (< (fnLen f) (+ fb 1))
-                            (||
-                              (> (fnLen f) (+ fb 3))
+                  (fpP p " ")
+                  (fpP p (fnText src (fnKid n k)))
+                  (set k (+ k 1))
+                }))
+            (fpTyvars
+              p
+              n
+              mEnd
+              tvEnd
+              1)
+            ; There is no layout modifier to print. `packed`, `repr(C)`
+            ; and `align(N)` were accepted here and by nothing else:
+            ; the parser has always answered AX2001 for all three, so
+            ; the only programs this arm could format were programs the
+            ; compiler refuses. C layout has no meaning in a language
+            ; that links no C.
+            ; Fields: `({mut }name : Type)`, one per line.
+            (let ((mut i tvEnd))
+              {
+                (if (< i (fnLen n))
+                  (foPushIndent o)
+                  o)
+                (let ((had (< i (fnLen n))))
+                  {
+                    (while (< i (fnLen n))
+                      (let ((f (fnKid n i)))
+                        (if (!= (fnKind f) FN_PAREN)
+                          {
+                            (fpBad p)
+                            (set i (fnLen n))
+                          }
+                          ; A field is `({mut }name : Type)` or, as the
+                          ; parser also reads it, `(name Type)` with no
+                          ; colon or a bare `(name)` - the checker refuses
+                          ; both (AX3056), and a type it cannot read is
+                          ; the same field left at the empty variable, so
+                          ; `(name : 5)` parses too. The formatter follows
+                          ; the parser: all three print as written, the
+                          ; unreadable type through the expression printer
+                          ; where the type printer would refuse, and the
+                          ; checker keeps the refusal. This used to `fpBad`
+                          ; all three, which made the fixture that pins
+                          ; AX3056 unformattable - the same shape the
+                          ; effect printer above was given for AX3055.
+                          (let ((fb 
+                            (if (&& (> (fnLen f) 0) (fpIsAtomText src (fnKid f 0) "mut"))
+                              1
+                              0)))
+                            (if (||
+                              (< (fnLen f) (+ fb 1))
                               (||
-                                (if (fpIsIdentAtom (fnKid f fb))
-                                  false
-                                  true)
-                                (if (== (fnLen f) (+ fb 3))
-                                  (if (fpIsColonAtom (fnKid f (+ fb 1)))
+                                (> (fnLen f) (+ fb 3))
+                                (||
+                                  (if (fpIsIdentAtom (fnKid f fb))
                                     false
                                     true)
-                                  false))))
-                            {
-                              (fpBad p)
-                              (set i (fnLen n))
-                            }
-                            {
-                              (fpP p "\n")
-                              (foEmitIndent o)
-                              (fpP
-                                p
-                                (if (== fb 1)
-                                  "(mut "
-                                  "("))
-                              (fpP p (fnText src (fnKid f fb)))
-                              (if (== (fnLen f) (+ fb 3))
-                                {
-                                  (fpP p " : ")
-                                  (fpFieldTy p (fnKid f (+ fb 2)))
-                                }
-                                (if (== (fnLen f) (+ fb 2))
+                                  (if (== (fnLen f) (+ fb 3))
+                                    (if (fpIsColonAtom (fnKid f (+ fb 1)))
+                                      false
+                                      true)
+                                    false))))
+                              {
+                                (fpBad p)
+                                (set i (fnLen n))
+                              }
+                              {
+                                (fpP p "\n")
+                                (foEmitIndent o)
+                                (fpP
+                                  p
+                                  (if (== fb 1)
+                                    "(mut "
+                                    "("))
+                                (fpP p (fnText src (fnKid f fb)))
+                                (if (== (fnLen f) (+ fb 3))
                                   {
-                                    (fpP p " ")
-                                    (fpFieldTy p (fnKid f (+ fb 1)))
+                                    (fpP p " : ")
+                                    (fpFieldTy p (fnKid f (+ fb 2)))
                                   }
-                                  p))
-                              (fpP p ")")
-                              (set i (+ i 1))
-                            })))))
-                  (if had
-                    (foPopIndent o)
-                    o)
-                })
-            })
-          (fpP p ")")
-        }))))
+                                  (if (== (fnLen f) (+ fb 2))
+                                    {
+                                      (fpP p " ")
+                                      (fpFieldTy p (fnKid f (+ fb 1)))
+                                    }
+                                    p))
+                                (fpP p ")")
+                                (set i (+ i 1))
+                              })))))
+                    (if had
+                      (foPopIndent o)
+                      o)
+                  })
+              })
+            (fpP p ")")
+          })))))
 
 (pub :: fpDeclType (-> Int Int Int))
 (pub fn (fpDeclType p n)

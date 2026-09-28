@@ -712,6 +712,7 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured by `scripts/check-contracts.sh` §1: a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level. Inside `__axiom_recover` it answers 80 to the arming call |
 | 81 | an unhandled CPU exception on `baremetal-aarch64` | measured under QEMU (TCG): `tests/embedded/fault.ax` takes an alignment fault; the vector table writes the vector offset, ESR, ELR and FAR to the UART and exits 81 (`MM-EXEC-18`, `scripts/check-embedded.sh` A12). Not recoverable: no armed recovery point is jumped to |
 | 82 | an atomic whose address is not 8-byte aligned (`emitAtomicAlignGuard`, `MM-PAR-9`) | measured: `tests/stdlib/544-misaligned-atomic.ax` hands each of the four atomics an address 4 bytes into a word inside a recovery point, which answers 82 each time, then prints `axiom: misaligned atomic access` to fd 2 and exits 82, at every `--opt` level |
+| 85 | a handle that isn't live: a freed, forged or other-kind channel or mutex, or a second free of one (`@__axiom_handle_dead`, `MM-PAR-8`) | measured: `tests/stdlib/570-handle-freed.ax` runs every channel and mutex operation on a freed handle, a second free, a forged word and a mutex's word used as a channel, each inside a recovery point, which answers 85 each time, then prints `axiom: not a live handle (freed, or never made)` to fd 2 and exits 85, at every `--opt` level. `tests/stdlib/571-handle-table.ax` pins the table: 65,536 live handles, the next refused, and a reused slot under a new generation |
 
 `(__indexTrap)` never returns, so it fits every result type. It exists
 because traps are `internal` LLVM functions emitted by the runtime
@@ -1051,6 +1052,43 @@ measured why), and having both is exhaustive.
 with field *i* at word *i* in declaration order, and **no tag**. The
 keyword form `(struct P a b)` and the application form `(P a b)` build
 the identical block.
+
+**MM-VAL-10a (H). A `word` struct is one machine word, sealed to its
+module.** A struct declared with the marker `word` isn't a heap block.
+Its one field, an `Int`, is the whole value:
+
+```scheme
+(pub struct Chan word shared
+  (slot : Int))
+```
+
+`(Chan w)` is the word `w`, and `c.slot` is the word `c`. The value
+allocates nothing and takes no share. It has no bit in any reference
+map and costs a polymorphic call no evidence word, so a heap block that
+holds one maps exactly as it would for an `Int`.
+
+The type is sealed. Only the module that declares it can build one, in
+either spelling, or read its field, whatever `pub` says (`AX3085`,
+`AX3086`). A function declared to answer `Int` can't answer one
+(`AX3004`). `pub` exports the name, so another module's signatures can
+mention the type and pass it on, but can't make or open one. Every
+value of the type is therefore one its module made. A `cast` to the
+type forges one, and that belongs to the unsafe layer (`MM-VAL-22`).
+
+The checker holds the shape (`AX3084`): exactly one field, typed `Int`,
+not `mut`, and no type parameters. The second marker, `shared`, needs
+`word`. It says every operation the module offers on the type is safe
+from several bindings at once, and `MM-PAR-6` lets a concurrent binding
+capture exactly those word structs. The checker lowers construction and
+field reads to the word itself, so the emitter never sees either, and
+`symbols` reports the representation as `#repr=word` or
+`#repr=word,shared`.
+
+Tested by `tests/diagnostics/1062-handle-sealed-build.ax`,
+`tests/diagnostics/1063-handle-sealed-field.ax` and
+`tests/diagnostics/1065-struct-marker.ax`. `scripts/check-handles.sh`
+compares the shape word of a record holding a handle with the same
+record holding an `Int`.
 
 **MM-VAL-11 (H).** A struct variant such as `(Circle { r : Int })` is
 an ordinary constructor block under `MM-VAL-8`. The field names are a
@@ -4301,6 +4339,14 @@ design cannot absorb.
   direct, aliased and nested shapes, and the struct-wrapped shape that
   the class rule refuses beside them. A `Foreign` stays accepted, for
   `MM-FFI-7`'s reason.
+- **A captured handle: admitted when its type says so.** A word struct
+  its module declares `shared` (`MM-VAL-10a`), such as `Chan` and
+  `Mutex`, is one word the module built for use from several bindings
+  at once, so `AX3064` admits it in either lowering. A word struct
+  without `shared` is refused with its own message.
+  `tests/diagnostics/1064-parallel-capture-handle.ax` pins both, at
+  `parallel` and at `__thread_spawn`, and `scripts/check-handles.sh`
+  holds them under `build` and `build --threads`.
 
 **MM-PAR-6a (H). A thread-lowered binding returns its arena when it
 ends.** Under the thread lowering every mutable runtime global is
@@ -4409,6 +4455,12 @@ cross-thread join into status 78. A second join of an unmapped page
 still reads whatever maps there next. That stays a program obligation
 until the handle has a type that its join consumes.
 
+The table this rule needs exists, and channels and mutexes use it
+(`MM-PAR-10`, `MM-PAR-11`, §10.7): a handle is a sealed word
+(`MM-VAL-10a`) naming a slot with a generation, and a freed or forged
+one traps with status 85 before its object is touched. Spawn handles
+don't use it yet.
+
 **MM-PAR-9 (H). What orders memory between bindings, what the atomics
 mean, and what a race is.** This rule says when one binding's write is
 visible to another binding's read.
@@ -4507,10 +4559,11 @@ That leaves three holes with no refusal that admits ordinary programs:
 - a call to an `effect(unsafe)` wrapper from a declaration that doesn't
   itself say so, because `AX3073` fires only where a primitive is
   called;
-- a word handed to a library function that dereferences it as a handle
-  or a buffer, such as `Chan`'s handle (`MM-PAR-10`) or `Sys`'s buffer
-  addresses. The function can't tell a forged or freed word from a live
-  one.
+- a word handed to a library function that dereferences it as a
+  buffer, such as `Sys`'s buffer addresses. The function can't tell a
+  forged or freed word from a live one. Channels and mutexes are typed
+  handles the runtime checks (`MM-PAR-8`), so this hole doesn't reach
+  them.
 
 You can find the first two by reading: the word `cast`, and the
 callee's tag. You can find the third from the parameter's documented
@@ -4600,11 +4653,16 @@ would name memory the receiver doesn't own: a forked child's arena, or
 a thread's, which is unmapped when it ends (`MM-PAR-6a`). Typed values
 cross between tasks by serialization (`MM-PAR-13`).
 
-The handle is an `Int` too, because `AX3064` admits only a word
-capture. A program must pass only a handle that `chanNew` answered, and
-call `chanFree` only once no binding can reach the channel: after the
-`parallel` form that used it. This is `MM-PAR-8`'s obligation for a
-spawn handle, for the same reason.
+The handle is a `Chan` (`MM-VAL-10a`): only `chanNew` makes one, and
+every operation asks the runtime's handle table for the mapping before
+it touches the ring (`MM-PAR-8`). So an operation on a freed channel,
+and a second `chanFree`, trap with status 85 instead of reading an
+unmapped page, and no other kind of handle passes as a channel. `Chan`
+is declared `shared`, so a `parallel` binding may capture it in either
+lowering. What stays a program obligation is the order: call
+`chanFree` only once no binding can still use the channel, after the
+`parallel` form that used it. A free that races another binding's
+operation is a data race (`MM-PAR-9`), which the table doesn't catch.
 
 The public functions claim only `effect(io)`. The raw words are two
 private helpers that say `effect(unsafe)`, which keeps the module a
@@ -4702,10 +4760,12 @@ waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
 - A thread can't die holding the lock alone. A trap under `--threads`
   ends the process.
 
-*Program obligations.* The handle is an `Int`, as `Chan`'s is, for
-`MM-PAR-8`'s reason. Pass only a word `mutexNew` answered, and call
-`mutexFree` only once no binding can reach the mutex. A guard forged by
-reading the page isn't refused. What the lock protects is protected
+*Program obligations.* The handle is a `Mutex`, as `Chan`'s is a
+`Chan`: every call on a freed mutex, and a second `mutexFree`, traps
+with status 85. Call `mutexFree` only once no binding can reach the
+mutex; a free that races a lock call is a data race (`MM-PAR-9`). The
+guard is an `Int`, so a guard read out of the page through the unsafe
+layer, or guessed from one this binding held before, isn't refused. What the lock protects is protected
 only if every access to it happens under the lock. A plain access
 outside it is a data race (`MM-PAR-9`).
 
@@ -5280,7 +5340,7 @@ opposite of that rule's status.
 | Area | Holds today | Planned | Withdrawn | Refused |
 |---|---|---|---|---|
 | Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
-| Representation | VAL-1…11, 14…20, VAL-22, VAL-23 | — | — | VAL-12, VAL-13 |
+| Representation | VAL-1…11, 10a, 14…20, VAL-22, VAL-23 | — | — | VAL-12, VAL-13 |
 | Allocation | ALLOC-1…7, 7a, 8a…16b, ALLOC-22, ALLOC-23 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
 | Regions | RGN-1…4, 5a, 6 | RGN-7 | RGN-5 | — |
 | Mutation | MUT-1…5a | — | — | MUT-6 |
@@ -5391,6 +5451,7 @@ only written down.
 | `tests/stdlib/522-parallel-recover.ax` | PAR-7's recovery half: a trapping forked binding inside a recovery point answers 72 once, where the unfixed compiler printed twice |
 | `tests/diagnostics/1010-unsafe-primitives.ax` | EXEC-9c: the nine primitives refused under `restrict(no-unsafe)` and `pure`, with three controls silent |
 | `scripts/check-parallel.sh` section 12 | PAR-6a and PAR-7: thread churn holds address space flat, and no child outlives an abort, a trap or `main` |
+| `scripts/check-handles.sh` | VAL-10a and PAR-8: a freed or forged channel or mutex traps 85 at every `--opt` and in both lowerings; the table holds under four bindings at once and exactly one of two racing frees returns; the capture rule holds under `build --threads`; a record holding a handle maps as one holding an `Int`; three ablations each go red |
 | `tests/selfhost/500-while-mut.ax` | MUT-1 in constant stack |
 | `tests/diagnostics/465-set-on-parameter.ax`, `466-set-captured.ax` | MUT-1a: both refusals, byte-pinned in all three renderings |
 | `tests/diagnostics/471-reserved-runtime-name.ax` | ALLOC-8's refusal arm (`AX3026`) |
@@ -5618,6 +5679,45 @@ somewhere unlabelled.
 The platform forbids threads in a freestanding binary. The constraint
 helped: it made `MM-PAR-3` true by construction, and made the
 concurrency library a library.
+
+### 10.7 Why a handle is a sealed word with its liveness in a table
+
+A channel and a mutex each name a shared mapping that a free unmaps.
+Typed as an `Int`, any word would pass as one, and a freed one would
+point at an unmapped page. We weighed three designs.
+
+- **A word type the checker seals, which we chose.** It is one
+  uncounted word, distinct to the checker, built and opened only by
+  its module (`MM-VAL-10a`). It is a struct with markers instead of a
+  new declaration form, so construction, field access, `pub`,
+  `symbols`, the formatter and the LSP needed teaching only where the
+  markers go. The word takes no share, so it has no shape-word bit and
+  costs a polymorphic call no evidence word, and capturing it races no
+  count.
+- **A private struct marked shareable, counted atomically or made
+  immortal.** A struct is a counted block. Generic code retains through
+  the evidence word with the plain `axiom_retain`, so an atomic count
+  would need every retain to test the block's header first. An immortal
+  count, the static sentinel, avoids that. But the block would live in
+  the creating binding's arena, where a region or a raw reset reclaims
+  it along with any liveness flag it held, and every operation would
+  load the object's address out of it.
+- **A liveness flag in the object.** A free unmaps the object, so a
+  check that read the object would be the fault it exists to prevent.
+
+So a handle is a word, and its liveness lives in a table the runtime
+owns: a slot with a generation, retired by one compare-and-swap. The
+table is per address space, like the mappings it describes. A check is
+four atomic loads, with no allocation and no lock. The markers appear
+only in library modules the committed seed doesn't compile, so the
+compiler builds from the seed unchanged.
+
+One gap remains by choice. A free that races another binding's
+operation on the same handle is a data race (`MM-PAR-9`): the table
+catches every use ordered after the free, not one already in flight.
+Catching that too would need a count of operations in flight, updated
+on every call, and that is contended traffic on one cache line shared
+by every binding that uses the handle.
 
 ---
 

@@ -1,0 +1,10 @@
+live handles answering a wrong address, of 65536: 0
+one more handle: 0
+the freed handle answered its address: 1616
+the slot came back under a new word: 1
+the new word answers: 777
+the old word, status: 85
+a second free of it, status: 85
+the live word as another kind, status: 85
+a word no generation matches, status: 85
+the live word still answers: 777

@@ -1,0 +1,69 @@
+; What a concurrent binding may capture of a handle (docs/memory-model.md
+; MM-PAR-6, MM-PAR-8). A word struct declared `shared` - this file's
+; `Pass`, and the standard library's `Chan` - is captured by a
+; `parallel` binding and by `__thread_spawn`. A word struct not declared
+; `shared` is AX3064 at both, directly and through an alias, and so is a
+; `Vec`, as before. `__proc_spawn` names the isolated lowering and may
+; capture either.
+(import Chan)
+(import Vec)
+(import Err)
+
+(struct Ticket word
+  (slot : Int))
+
+(struct Pass word shared
+  (slot : Int))
+
+(type Stub = Ticket)
+
+(:: useTicket (-> Ticket Int))
+(fn (useTicket t)
+  t.slot)
+
+(:: usePass (-> Pass Int))
+(fn (usePass p)
+  p.slot)
+
+(:: stub (-> Int Stub))
+(fn (stub n)
+  (Ticket n))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (t (Ticket 1))
+    (s (stub 2))
+    (pass (Pass 3))
+    (v vecNew)
+  )
+    (match (chanNew 1)
+      ((Ok c)
+        (+
+          (parallel p (
+            (a (useTicket t))
+            (b (usePass pass))
+            (d (vecLen v))
+            (e (if (chanTrySend c 1)
+              1
+              0))
+            (f (useTicket s))
+          )
+            (+ a (+ b (+ d (+ e f)))))
+          (+
+            (__thread_join
+              (__thread_spawn
+                (lambda (x) (useTicket t))
+                0))
+            (+
+              (__thread_join
+                (__thread_spawn
+                  (lambda (x) (usePass pass))
+                  0))
+              (__proc_join
+                (__proc_spawn
+                  (lambda (x) (useTicket t))
+                  0)))))
+      )
+      ((Err e) 1))))

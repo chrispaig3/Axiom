@@ -36,8 +36,9 @@
 ; lock someone else held.) Each mutex's counter starts at its page
 ; number times 2^24, so guards of two live mutexes differ unless one of
 ; them has been locked 2^24 times. What this cannot refuse is a FORGED
-; guard - a word read out of the page by a binding that does not hold
-; the lock - and that is a program obligation, as `Chan`'s handle is.
+; guard - a word read out of the page through the unsafe layer, or one
+; guessed from a guard this binding held before - and that is a program
+; obligation.
 ;
 ; HAPPENS-BEFORE. The acquire is a seq_cst compare-and-swap and the
 ; release a seq_cst compare-and-swap or store, so an unlock
@@ -77,15 +78,53 @@
 ;   * A holder killed under `--threads` is the whole process: there is
 ;     no dead thread that holds a lock.
 ;
-; THE HANDLE IS AN `Int`, as `Chan`'s is: `mutexNew` answers the page's
-; address, `AX3064` admits it as a word capture, and `mutexFree` must
-; come only once no binding can reach the mutex.
+; THE HANDLE IS A `Mutex` (docs/memory-model.md MM-PAR-8), as `Chan`'s
+; is a `Chan`: a word struct (MM-VAL-10a) only this module can make or
+; read, whose word is a slot in the runtime's handle table naming the
+; page. Every public function asks the table for the page first
+; (`syncAt`), so a call on a freed mutex, and a second `mutexFree`, trap
+; with status 85 instead of touching the unmapped page. It is declared
+; `shared`: every operation is built for use from every binding at once,
+; so a `parallel` binding may capture it (AX3064 admits it). `mutexFree`
+; must still come only once no binding can reach the mutex; a free that
+; races a lock call is a data race (MM-PAR-9).
 ;
 ; Words: 0 the lock, 1 the holder's guard (0 when none is published),
 ; 2 the guard counter, 3 poisoned, 4 the mapping length.
 (import Mem)
 (import Sys)
 (import Err)
+
+; ---- the handle --------------------------------------------------------
+; A mutex: one word, a slot in the runtime's handle table (MM-PAR-8)
+; naming the page.
+(pub struct Mutex word shared
+  (slot : Int))
+
+; The handle table's kind for a mutex (`Chan.ax`'s is 2): a channel's
+; handle is not a mutex, even to code that forged one.
+(:: syncKind Int)
+(fn (syncKind)
+  3)
+
+; The page a live mutex names, or the 85 trap for one that was freed.
+(:: syncAt (-> Mutex Int))
+;@axiom:effect(unsafe)
+(fn (syncAt mx)
+  (__handle_get syncKind mx.slot))
+
+; A handle for a fresh page, or 0 when the table has no slot left.
+(:: syncName (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (syncName m)
+  (__handle_new syncKind m))
+
+; Retire a live mutex's handle and answer its page, or the 85 trap for a
+; mutex already freed.
+(:: syncRetire (-> Mutex Int))
+;@axiom:effect(unsafe)
+(fn (syncRetire mx)
+  (__handle_free syncKind mx.slot))
 
 ; ---- codes -------------------------------------------------------------
 ; Above 255, like `sysTimedOut` (1001, the timeout every lock call here
@@ -217,7 +256,9 @@
       0)))
 
 ; ---- the mutex -----------------------------------------------------------
-(pub :: mutexNew (Result Int Error))
+; A fresh mutex, free. `Err` the mapping's error, or EMFILE (24) when the
+; handle table has no slot left.
+(pub :: mutexNew (Result Mutex Error))
 ;@axiom:effect(io)
 (pub fn (mutexNew)
   (match (sysMapShared 4096)
@@ -225,10 +266,21 @@
       {
         (syncStore m 4 4096)
         (syncStore m 2 (* (/ m 4096) 16777216))
-        (Ok m)
+        (syncNamed m)
       }
     )
     ((Err e) (Err e))))
+
+; Name a fresh page in the handle table, or unmap it and say why not.
+(:: syncNamed (-> Int (Result Mutex Error)))
+;@axiom:effect(io)
+(fn (syncNamed m)
+  (let ((h (syncName m)))
+    (if (== h 0)
+      (match (sysUnmapShared m 4096)
+        ((Ok z) (Err (mkError 24 "mutexNew: every handle is in use")))
+        ((Err e) (Err (mkError 24 "mutexNew: every handle is in use"))))
+      (Ok (Mutex h)))))
 
 ; This binding's mark in the lock word: its pid, shifted past bit 0.
 (:: syncMe Int)
@@ -335,30 +387,32 @@
 ; Wait until this binding holds the lock. `Ok` the guard `mutexUnlock`
 ; wants back; `Err` code `syncOwnerDead` if the holder is found dead
 ; while this waits, or the mutex was poisoned before.
-(pub :: mutexLock (-> Int (Result Int Error)))
+(pub :: mutexLock (-> Mutex (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (mutexLock m)
-  (if (== (syncLoad m 3) 1)
-    (Err (mkError syncOwnerDead "mutexLock: the holder died holding it"))
-    (let ((me syncMe))
-      (if (== (syncCas m 0 me) 0)
-        (Ok (syncTake m))
-        (let ((g (syncAcquire m 0 0)))
-          (if (> g 0)
-            (Ok g)
-            (Err (mkError syncOwnerDead "mutexLock: the holder died holding it"))))))))
+(pub fn (mutexLock mx)
+  (let ((m (syncAt mx)))
+    (if (== (syncLoad m 3) 1)
+      (Err (mkError syncOwnerDead "mutexLock: the holder died holding it"))
+      (let ((me syncMe))
+        (if (== (syncCas m 0 me) 0)
+          (Ok (syncTake m))
+          (let ((g (syncAcquire m 0 0)))
+            (if (> g 0)
+              (Ok g)
+              (Err (mkError syncOwnerDead "mutexLock: the holder died holding it")))))))))
 
 ; Take the lock if it is free right now: `Some` the guard, `None` if it
 ; is held - or poisoned, which `mutexOwnerDead` tells apart.
-(pub :: mutexTryLock (-> Int (Option Int)))
+(pub :: mutexTryLock (-> Mutex (Option Int)))
 ;@axiom:effect(io)
-(pub fn (mutexTryLock m)
-  (if (== (syncLoad m 3) 1)
-    None
-    (let ((me syncMe))
-      (if (== (syncCas m 0 me) 0)
-        (Some (syncTake m))
-        None))))
+(pub fn (mutexTryLock mx)
+  (let ((m (syncAt mx)))
+    (if (== (syncLoad m 3) 1)
+      None
+      (let ((me syncMe))
+        (if (== (syncCas m 0 me) 0)
+          (Some (syncTake m))
+          None)))))
 
 ; `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard;
 ; `Err` code `sysTimedOut` when the time ran out with the lock still
@@ -366,53 +420,58 @@
 ; holder was found dead. A wait nobody ends is never shorter than
 ; `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A
 ; non-positive `nanos` is `mutexTryLock` with a reason.
-(pub :: mutexLockTimeout (-> Int Int (Result Int Error)))
+(pub :: mutexLockTimeout (-> Mutex Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (mutexLockTimeout m nanos)
-  (if (== (syncLoad m 3) 1)
-    (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
-    (let ((me syncMe))
-      (if (== (syncCas m 0 me) 0)
-        (Ok (syncTake m))
-        (let ((b (syncScratch nanos)))
-          (let ((g (syncAcquire m b 1)))
-            {
-              (syncScratchDone b)
-              (if (> g 0)
-                (Ok g)
-                (if (== g (- 0 2))
-                  (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
-                  (Err (mkError sysTimedOut "mutexLockTimeout: timed out"))))
-            }))))))
+(pub fn (mutexLockTimeout mx nanos)
+  (let ((m (syncAt mx)))
+    (if (== (syncLoad m 3) 1)
+      (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
+      (let ((me syncMe))
+        (if (== (syncCas m 0 me) 0)
+          (Ok (syncTake m))
+          (let ((b (syncScratch nanos)))
+            (let ((g (syncAcquire m b 1)))
+              {
+                (syncScratchDone b)
+                (if (> g 0)
+                  (Ok g)
+                  (if (== g (- 0 2))
+                    (Err (mkError syncOwnerDead "mutexLockTimeout: the holder died holding it"))
+                    (Err (mkError sysTimedOut "mutexLockTimeout: timed out"))))
+              })))))))
 
 ; Let the next holder in. `guard` must be what this binding's lock call
 ; answered: anything else - a free mutex, a stale guard, a sibling's -
 ; is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one
 ; unlock per acquisition succeeds, however the calls interleave.
-(pub :: mutexUnlock (-> Int Int (Result Int Error)))
+(pub :: mutexUnlock (-> Mutex Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (mutexUnlock m guard)
-  (if (|| (<= guard 0) (!= (syncCasAt m 1 guard 0) guard))
-    (Err (mkError syncNotHeld "mutexUnlock: this binding does not hold the mutex"))
-    (let ((v (syncLoad m 0)))
-      (if (&& (== (% v 2) 0) (== (syncCas m v 0) v))
-        (Ok 0)
-        {
-          (syncStore m 0 0)
-          (sysWakeWord m)
+(pub fn (mutexUnlock mx guard)
+  (let ((m (syncAt mx)))
+    (if (|| (<= guard 0) (!= (syncCasAt m 1 guard 0) guard))
+      (Err (mkError syncNotHeld "mutexUnlock: this binding does not hold the mutex"))
+      (let ((v (syncLoad m 0)))
+        (if (&& (== (% v 2) 0) (== (syncCas m v 0) v))
           (Ok 0)
-        }))))
+          {
+            (syncStore m 0 0)
+            (sysWakeWord m)
+            (Ok 0)
+          })))))
 
 ; Whether a holder was found dead holding this mutex (the poisoning in
 ; the header).
-(pub :: mutexOwnerDead (-> Int Bool))
-(pub fn (mutexOwnerDead m)
-  (== (syncLoad m 3) 1))
+(pub :: mutexOwnerDead (-> Mutex Bool))
+(pub fn (mutexOwnerDead mx)
+  (== (syncLoad (syncAt mx) 3) 1))
 
 ; Unmap the mutex. Only once no binding can still reach it - after the
 ; `parallel` form that used it. Takes no lock, so it is also the one
-; safe call on a poisoned mutex.
-(pub :: mutexFree (-> Int (Result Int Error)))
+; safe call on a poisoned mutex. The handle is retired before the page
+; is unmapped, so every call made after this one - a second `mutexFree`
+; included - traps with status 85.
+(pub :: mutexFree (-> Mutex (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (mutexFree m)
-  (sysUnmapShared m (syncLoad m 4)))
+(pub fn (mutexFree mx)
+  (let ((m (syncRetire mx)))
+    (sysUnmapShared m (syncLoad m 4))))

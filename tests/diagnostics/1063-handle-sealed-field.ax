@@ -1,0 +1,23 @@
+; A handle's word is read only by its own module (docs/memory-model.md
+; MM-VAL-10a, MM-PAR-8): the field of a `Chan` or a `Mutex` outside
+; `Chan.ax` or `Sync.ax` is AX3086. The heap struct's field read in
+; `main` is the control.
+(import Chan)
+(import Sync)
+
+(struct Pair
+  (a : Int)
+  (b : Int))
+
+(:: peek (-> Chan Int))
+(fn (peek c)
+  c.slot)
+
+(:: peekMutex (-> Mutex Int))
+(fn (peekMutex m)
+  m.slot)
+
+(:: main Int)
+(fn (main)
+  (let ((p (Pair 1 2)))
+    p.b))

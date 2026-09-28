@@ -1,0 +1,89 @@
+; The runtime's handle table itself (docs/memory-model.md MM-PAR-8),
+; through its three primitives, which the unsafe layer owns.
+;
+; 65,536 handles can be live at once: every one answers its own
+; address, and the next `__handle_new` answers 0 rather than a slot
+; someone holds. A freed slot is reused under a new generation, so the
+; handle that named it before stays dead (85) while the new one answers
+; its new address. A second free, a word of another kind and a word no
+; generation matches each answer 85 inside a recovery point. The last
+; get, of the first handle ever freed, is not recovered and exits 85.
+(import IO)
+(import Str)
+(import Vec)
+
+(:: newH (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (newH kind addr)
+  (__handle_new kind addr))
+
+(:: getH (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (getH kind h)
+  (__handle_get kind h))
+
+(:: freeH (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (freeH kind h)
+  (__handle_free kind h))
+
+(:: trapped (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (trapped op kind h)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      (if (== op 0)
+        (getH kind h)
+        (freeH kind h))
+    )))
+
+(:: bit (-> Bool Int))
+(fn (bit b)
+  (if b
+    1
+    0))
+
+(:: say (-> String Int Int))
+;@axiom:effect(io)
+(fn (say what v)
+  {
+    (println "{what}: {v}")
+    0
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let (
+    (hs (vecWithCapacity 65536))
+    (mut bad 0)
+  )
+    {
+      (for i 0 65536
+        (vecPush hs (newH 9 (* (+ i 1) 16))))
+      (for i 0 65536
+        (if (== (getH 9 (vecGet hs i)) (* (+ i 1) 16))
+          0
+          (set bad (+ bad 1))))
+      (say "live handles answering a wrong address, of 65536" bad)
+      (say "one more handle" (newH 9 1))
+      (let (
+        (old (vecGet hs 100))
+        (was (freeH 9 (vecGet hs 100)))
+      )
+        (let ((fresh (newH 9 777)))
+          {
+            (say "the freed handle answered its address" was)
+            (say "the slot came back under a new word" (bit (!= fresh old)))
+            (say "the new word answers" (getH 9 fresh))
+            (say "the old word, status" (trapped 0 9 old))
+            (say "a second free of it, status" (trapped 1 9 old))
+            (say "the live word as another kind, status" (trapped 0 8 fresh))
+            (say "a word no generation matches, status" (trapped 0 9 5))
+            (say "the live word still answers" (getH 9 fresh))
+            (getH 9 old)
+            (printlnLit (strCStr "UNREACHABLE: the trap returned"))
+          }))
+    }))

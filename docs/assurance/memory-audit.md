@@ -48,6 +48,7 @@ root.
 | A spawned child is joined in its scope, and join failures are observed | Dynamic: the registry sweeps on abort, trap, return and end (`MM-PAR-7`), and failures are status 78 | §12b (`kill -0`), §12c (`foreign 78 … answer 42`) |
 | Grandchildren of a killed child, threads that never finish, and unmapped-handle words | Open by statement: the three `MM-PAR-7` limits. `MM-PAR-8` is planned | — |
 | A `Foreign` shared with a thread is made safe by the foreign side (`MM-FFI-7`) | Open program obligation | — |
+| A channel or mutex handle is one its module made, and still live when used (`MM-PAR-8`, `MM-PAR-10`, `MM-PAR-11`) | Static and dynamic: the seal (`AX3085`, `AX3086`) and a distinct type (`AX3004`) refuse a forged handle; the handle table traps 85 on a freed, forged or other-kind one. Open: a free that races another binding's use | `tests/diagnostics/1060`-`1063`; `tests/stdlib/570-handle-freed.ax`; `scripts/check-handles.sh` |
 
 ## Unsafe layer and FFI
 

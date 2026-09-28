@@ -1,0 +1,23 @@
+; A channel is a `Chan`, not an `Int` (docs/memory-model.md MM-PAR-8).
+; An `Int` where a channel is expected, a channel where an `Int` is
+; expected, and a declared `Int` result answering a channel are each
+; AX3004. The send on the channel `chanNew` made is the control.
+(import Chan)
+(import Err)
+
+(:: leak (-> Chan Int))
+(fn (leak c)
+  c)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (chanNew 4)
+    ((Ok c)
+      {
+        (chanSend c 1)
+        (chanSend 5 1)
+        (+ c 1)
+      }
+    )
+    ((Err e) 1)))

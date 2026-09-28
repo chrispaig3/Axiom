@@ -8893,11 +8893,15 @@
                     (cast Int fs)
                     0)
                     0
+                    ; Word c is the representation markers
+                    ; (`collectStructMarkers`): copied as written, since
+                    ; a marker is a keyword and never a name position,
+                    ; so `word` and `shared` survive a template.
                     (let ((g (mkNodeAt
                       TAG_D_STRUCT
                       nm
                       fs
-                      0
+                      (nodeC t)
                       nsp)))
                       {
                         (memSetWord g 5 (expGenVis env t))

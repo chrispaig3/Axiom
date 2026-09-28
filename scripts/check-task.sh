@@ -441,8 +441,8 @@ import sys, os
 root, kind = sys.argv[1], sys.argv[2]
 cuts = {
   "lock": [("Sync.ax",
-    "  (if (== (syncLoad m 3) 1)\n    (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n    (let ((me syncMe))\n      (if (== (syncCas m 0 me) 0)",
-    "  (if (== (syncLoad m 3) 1)\n    (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n    (let ((me syncMe))\n      (if (== 0 0)")],
+    "    (if (== (syncLoad m 3) 1)\n      (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n      (let ((me syncMe))\n        (if (== (syncCas m 0 me) 0)",
+    "    (if (== (syncLoad m 3) 1)\n      (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n      (let ((me syncMe))\n        (if (== 0 0)")],
   "timed": [("Sys.ax", "      (/ (+ nanos 999) 1000))))", "      (/ (+ nanos 999) 10000))))"),
             ("Sys.ax", "(memSetWord ts 0 (/ nanos 1000000000))", "(memSetWord ts 0 (/ (/ nanos 10) 1000000000))"),
             ("Sys.ax", "(memSetWord ts 1 (% nanos 1000000000))", "(memSetWord ts 1 (% (/ nanos 10) 1000000000))")],

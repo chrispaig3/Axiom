@@ -1053,6 +1053,11 @@
 ; same answer, but a default is not a promise, and AX3064's rule
 ; below treats every 0 as one. `externTypeRefusal` names it beside
 ; this list already; the answers there do not move either.
+;
+; The word structs are class 0 as well, and are NOT here:
+; `externTypeRefusal` admits every name on this list to an `extern`
+; signature, and a Rust function answering a sealed handle would forge
+; one. `evClassOf` answers them in an arm of its own (`tcWordTyName`).
 (pub :: evScalarName (-> String Int))
 (pub fn (evScalarName n)
   (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Vec") (strEq n "Foreign"))))))))))))))))
@@ -1276,7 +1281,14 @@
                     0
                     (if (|| (strEq n "String") (strEq n "Handle"))
                       1
-                      (evDataTyKnown tc n))))
+                      ; A WORD STRUCT: one machine word that takes no
+                      ; share (MM-VAL-10a). Asked before
+                      ; `evDataTyKnown`, which answers 1 for every
+                      ; struct and would retain a handle as if it were
+                      ; a block.
+                      (if (== (tcWordTyName tc n) 1)
+                        0
+                        (evDataTyKnown tc n)))))
                 0))))))))
 
 ; MEET over every occurrence of one variable: unset takes the new
@@ -2202,7 +2214,38 @@
   (name : Int)
   (fields : Int)
   (module : Int)
-  (tyvars : Int))
+  (tyvars : Int)
+  (repr : Int))
+
+; A struct's representation, from its markers (`parser.ax`'s
+; `structIsWord` and `structIsShared`): 0 a heap block, 1 a word
+; (MM-VAL-10a), 3 a word a `parallel` binding may capture. Word 4 of
+; the `StructEnt`, beside the name and module the lookups key on.
+(pub :: structReprOf (-> Int Int))
+(pub fn (structReprOf d)
+  (+
+    (if (structIsWord d)
+      1
+      0)
+    (if (structIsShared d)
+      2
+      0)))
+
+(pub :: structEntIsWord (-> Int Int))
+(pub fn (structEntIsWord ent)
+  (if (== ent 0)
+    0
+    (if (== (% (memGetWord ent 4) 2) 1)
+      1
+      0)))
+
+(pub :: structEntIsShared (-> Int Int))
+(pub fn (structEntIsShared ent)
+  (if (== (structEntIsWord ent) 0)
+    0
+    (if (>= (memGetWord ent 4) 2)
+      1
+      0)))
 
 ; The type parameters the declaration named, in order - the vector
 ; `parseStructDecl` hung on the D_STRUCT node. Empty for every
@@ -2251,7 +2294,15 @@
   (subtypes : (Vec Int))
   (rgnHasForm : Int)
   (rgnStamping : Int)
-  (rgnRefused : (Vec Int)))
+  (rgnRefused : (Vec Int))
+  (wordLower : (Vec Int)))
+
+; Word 42, `wordLower`: pairs of AST nodes, (site, operand), one per
+; construction or field read of a WORD struct the checker accepted
+; (MM-VAL-10a). `wordLowerApply` copies each operand over its site
+; once every pass has run, so what reaches the emitter is the word
+; itself and never a constructor or a field read - see
+; `wordLowerRecord` for why the lowering is here rather than there.
 
 ; Word 18 was `traits`, the `trait` declaration nodes `symbols`
 ; walked, and word 28 was `implIdx`, every `impl` declaration
@@ -2984,6 +3035,21 @@
       (regFnEff fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
       (regFnEff fns "__proc_join" (mkIntArrow 1) (builtinEff "IO"))
       (regFnEff fns "__proc_join_nr" (mkIntArrow 2) (builtinEff "IO"))
+      ; The HANDLE TABLE (MM-PAR-8, `emitHandleRuntime` in codegen.ax):
+      ; `(__handle_new kind addr)` answers a fresh handle word naming
+      ; `addr`, or 0 when the table is full; `(__handle_get kind h)`
+      ; answers the address a live handle of that kind names;
+      ; `(__handle_free kind h)` answers it and retires the handle.
+      ; Either of the last two TRAPS 85 on a word that is not a live
+      ; handle of that kind - freed, forged or of another kind -
+      ; without reading anything the word points at. Words in, words
+      ; out: a library wraps the handle in a word struct of its own
+      ; (`stdlib/Chan.ax`). They take and answer addresses a caller
+      ; will dereference, so all three are `Unsafe`
+      ; (`isUnsafeHandlePrim`).
+      (regFnEff fns "__handle_new" (mkIntArrow 2) (builtinEff "Mut"))
+      (regFn fns "__handle_get" (mkIntArrow 2))
+      (regFnEff fns "__handle_free" (mkIntArrow 2) (builtinEff "Mut"))
       (regFn fns "__addr" (mkTArr mkStringTy mkIntTy))
       ; Not spellable in source - `checkNumeric` rewrites `==`/`!=`
       ; into these. They are registered anyway because the rewritten
@@ -3094,6 +3160,7 @@
           vecNew
           0
           0
+          vecNew
           vecNew))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
@@ -3332,8 +3399,11 @@
                   ; store retain - a use-after-free out of a program
                   ; `check` accepted (exit 139).
                   (checkStructFieldTyped tc (nodeBVec d) (nodeAName d))
-                  (let ((sent 
-                    (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d) (nodeTy d)))))
+                  ; The representation markers, AX3084: what `word`
+                  ; and `shared` require of the declaration.
+                  (checkStructMarkers tc d)
+                  (let ((sent
+                    (cast Int (StructEnt (nodeA d) (nodeB d) (nodeModule d) (nodeTy d) (structReprOf d)))))
                     {
                       (vecPush (tcStructsVec tc) sent)
                       (tyIdxPut
@@ -5292,6 +5362,422 @@
   (tyFind tc TY_DATA name 0))
 
 ; ------------------------------------------------------------------
+; WORD STRUCTS AND HANDLES (docs/memory-model.md MM-VAL-10a, MM-PAR-8).
+;
+; `(struct Chan word shared (slot : Int))` declares a type that is ONE
+; MACHINE WORD, not a heap block: `(Chan s)` is the word `s` and `c.slot`
+; is the word `c`. Three things follow, and this section is where the
+; checker says each of them:
+;
+;   * IT IS A SCALAR to every question about ownership. `evClassOf`,
+;     `tcFldClass`, `rgTyScalar` and codegen's `fldClass` all answer
+;     "a word" for it, so it takes no share, has no bit in any reference
+;     map, costs a polymorphic call no evidence and survives a region's
+;     reset by value. A heap struct holding a word struct keeps its map.
+;   * IT IS SEALED. Its constructor and its field belong to the module
+;     that declares it, whatever `pub` says (AX3085, AX3086), and a
+;     declared `Int` result may not answer one (`checkDeclaredReturn`),
+;     so the only word a caller holds is one its module made. `pub`
+;     exports the NAME, so an importer's signatures can speak of it.
+;     A `cast` to one is the unsafe layer's (`tyForgesWord` below).
+;   * IT IS CAPTURED ONLY WHEN SHARED. A concurrent binding may capture
+;     a word struct declared `shared` - its module built it for use
+;     from every binding at once - and no other word struct (AX3064,
+;     `capReport`).
+;
+; What the word MEANS is its module's business. The standard library's
+; handles (`Chan`, `Mutex`, `CancelToken`) hold a slot in the runtime's
+; handle table (`__handle_new`, MM-PAR-8), so a freed or forged one
+; traps 85 instead of touching an unmapped page.
+; ------------------------------------------------------------------
+; The struct declaration a bare or qualified NAME denotes, IGNORING
+; visibility: whether a type is a word is a fact about its declaration,
+; not about who asks. Tiered exactly as `tyFind` is - the referencing
+; module's own, then a module-less one, then any - with no privacy set.
+(pub :: findStructAnyVis (-> Int String Int))
+(pub fn (findStructAnyVis tc name)
+  (let ((v (tyIdxBucket tc name)))
+    (if (==
+      (cast Int v)
+      0)
+      0
+      (let (
+        (none (cast (Vec (Vec String)) 0))
+        (curMod (memGetWord tc 16))
+      )
+        (let ((te
+          (if (!= (modOf name) 0)
+            (tyPick
+              v
+              TY_STRUCT
+              name
+              none
+              curMod
+              0
+              0)
+            (let ((own (tyPick
+              v
+              TY_STRUCT
+              name
+              none
+              curMod
+              0
+              1)))
+              (if (!= own 0)
+                own
+                (let ((glob (tyPick
+                  v
+                  TY_STRUCT
+                  name
+                  none
+                  curMod
+                  0
+                  2)))
+                  (if (!= glob 0)
+                    glob
+                    (tyPick
+                      v
+                      TY_STRUCT
+                      name
+                      none
+                      curMod
+                      0
+                      0))))))))
+          (if (== te 0)
+            0
+            (memGetWord te 3)))))))
+
+; The word struct a type NAME denotes, or 0.
+(pub :: tcWordEnt (-> Int String Int))
+(pub fn (tcWordEnt tc n)
+  (let ((ent (findStructAnyVis tc n)))
+    (if (== (structEntIsWord ent) 1)
+      ent
+      0)))
+
+; Is `n` a word type?
+(pub :: tcWordTyName (-> Int String Int))
+(pub fn (tcWordTyName tc n)
+  (if (!= (tcWordEnt tc n) 0)
+    1
+    0))
+
+; The same question of a type NODE: resolved, alias-expanded, and
+; applied to no arguments (a word struct takes none).
+(pub :: tyIsWordTy (-> Int Int Int))
+(pub fn (tyIsWordTy tc ty0)
+  (if (== ty0 0)
+    0
+    (let ((ty (tyExpandAliases tc (tyResolve ty0) 0)))
+      (if (== ty 0)
+        0
+        (if (!= (nodeTag ty) TAG_T_CON)
+          0
+          (if (!= (vecLen (nodeBVec ty)) 0)
+            0
+            (tcWordTyName tc (nodeAName ty))))))))
+
+; A word type a concurrent binding may NOT capture: a word struct its
+; module did not declare `shared`.
+(pub :: tyIsUnsharedWord (-> Int Int Int))
+(pub fn (tyIsUnsharedWord tc ty0)
+  (if (== (tyIsWordTy tc ty0) 0)
+    0
+    (let ((n (nodeAName (tyExpandAliases tc (tyResolve ty0) 0))))
+      (if (== (structEntIsShared (tcWordEnt tc n)) 1)
+        0
+        1))))
+
+; Two module words - a String or 0 for the entry file - naming one
+; module.
+(pub :: tcSameModule (-> Int Int Int))
+(pub fn (tcSameModule a b)
+  (if (&& (== a 0) (== b 0))
+    1
+    (if (|| (== a 0) (== b 0))
+      0
+      (if (strEq
+        (cast String a)
+        (cast String b))
+        1
+        0))))
+
+; Is word struct `ent` sealed against the declaration being checked -
+; declared by another module? A heap struct is never sealed here: its
+; privacy is `pub`'s, as it always was.
+(pub :: wordSealedHere (-> Int Int Int))
+(pub fn (wordSealedHere tc ent)
+  (if (== (structEntIsWord ent) 0)
+    0
+    (if (== (tcSameModule (memGetWord ent 2) (memGetWord tc 16)) 1)
+      0
+      1)))
+
+; Does type `ty` mention, anywhere in it, a word type the declaration
+; being checked may not make: a word struct another module declared?
+; This is the question a FORGING cast asks - `(cast Chan w)` outside
+; `Chan.ax` makes a handle out of a word the table never issued, and
+; `(cast (Vec Chan) v)` a vector of them. The unsafe layer owns casts
+; (MM-VAL-22), and a cast whose target this answers 1 for is one of its
+; forging casts; this predicate is the half of that rule a sealed
+; handle needs. Nothing in this section calls it.
+(pub :: tyForgesWord (-> Int Int Int))
+(pub fn (tyForgesWord tc ty0)
+  (let ((ty (tyResolve ty0)))
+    (if (== ty 0)
+      0
+      (let ((tg (nodeTag ty)))
+        (if (== tg TAG_T_CON)
+          (if (== (tyForgesWordName tc (nodeAName ty)) 1)
+            1
+            (tyForgesWordVec tc (nodeBVec ty) 0))
+          (if (== tg TAG_T_ARR)
+            (if (== (tyForgesWord tc (nodeA ty)) 1)
+              1
+              (tyForgesWord tc (nodeB ty)))
+            (if (== tg TAG_T_TUP)
+              (tyForgesWordVec tc (nodeAVec ty) 0)
+              (if (|| (== tg TAG_T_LIST) (== tg TAG_T_PTR))
+                (tyForgesWord tc (nodeA ty))
+                0))))))))
+
+(pub :: tyForgesWordName (-> Int String Int))
+(pub fn (tyForgesWordName tc n)
+  (wordSealedHere tc (tcWordEnt tc n)))
+
+(pub :: tyForgesWordVec (-> Int (Vec Int) Int Int))
+(pub fn (tyForgesWordVec tc xs i)
+  (if (>= i (vecLen xs))
+    0
+    (if (== (tyForgesWord tc (vecGet xs i)) 1)
+      1
+      (tyForgesWordVec tc xs (+ i 1)))))
+
+; ------------------------------------------------------------------
+; The declaration rules, AX3084. A marker is `word` or `shared`, each
+; at most once. `shared` needs `word`: a heap struct is a counted
+; block, and a count two threads touch is MM-PAR-6's race. And a word
+; is ONE `Int`: one field, typed `Int`, not `mut` (a word has no
+; storage a store could reach - `(set c.slot v)` would change a copy),
+; and no type parameters (a word carries no type argument a `Vec`'s
+; evidence could read).
+; ------------------------------------------------------------------
+(pub :: checkStructMarkers (-> Int Int Int))
+(pub fn (checkStructMarkers tc d)
+  (let (
+    (ms (structMarkers d))
+    (seen vecNew)
+    (mut i 0)
+  )
+    {
+      (while (< i (vecLen ms))
+        (let (
+          (m (vecGet ms i))
+          (n (nodeAName (vecGet ms i)))
+        )
+          {
+            (if (|| (strEq n "word") (strEq n "shared"))
+              (if (>= (strVecIdx seen n) 0)
+                (emitStructMarkerDiag
+                  tc
+                  (nodeSpan m)
+                  (strConcat (strConcat "`" n) "` is written twice")
+                  "write each marker once"
+                  "a marker says one thing about the struct, and saying it twice says nothing more")
+                {
+                  (vecPushStr seen n)
+                  0
+                })
+              (emitStructMarkerDiag
+                tc
+                (nodeSpan m)
+                (strConcat (strConcat "`" n) "` is not a struct marker")
+                "a struct takes `word`, which makes it one machine word rather than a heap block, and `shared`, which lets a `parallel` binding capture a `word`; anything else after the struct's name is refused"
+                "the markers come between the name and the first field: `(struct Chan word shared (slot : Int))`"))
+            (set i (+ i 1))
+          }))
+      (if (&& (structIsShared d) (if (structIsWord d)
+        false
+        true))
+        (emitStructMarkerDiag
+          tc
+          (nodeSpan d)
+          (strConcat (strConcat "struct `" (nodeAName d)) "` is `shared` but not a `word`")
+          "add `word`, or drop `shared`: only a word may be shared between concurrent bindings"
+          "a heap struct is a counted block, and `axiom_retain` is a plain load-add-store: two bindings touching one count lose an increment and free a block still named (MM-PAR-6)")
+        0)
+      (if (structIsWord d)
+        (checkWordStructShape tc d)
+        0)
+      0
+    }))
+
+(pub :: checkWordStructShape (-> Int Int Int))
+(pub fn (checkWordStructShape tc d)
+  (let (
+    (fs (nodeBVec d))
+    (name (nodeAName d))
+  )
+    (if (!= (vecLen fs) 1)
+      (emitStructMarkerDiag
+        tc
+        (nodeSpan d)
+        (strConcat (strConcat (strConcat (strConcat "word struct `" name) "` declares ") (decStr (vecLen fs))) " fields, and a word holds exactly one")
+        "give it one field, `(slot : Int)`: a word struct IS its one field, so a second one has nowhere to live"
+        "a word struct is one machine word, not a block (docs/memory-model.md MM-VAL-10a)")
+      (let ((f (vecGet fs 0)))
+        (if (!= (nodeTy d) 0)
+          (emitStructMarkerDiag
+            tc
+            (nodeSpan d)
+            (strConcat (strConcat "word struct `" name) "` takes type parameters")
+            "drop the parameters: a word carries no type argument"
+            "a word takes no share and so has no evidence a type argument could describe")
+          (if (== (fieldIsMut f) 1)
+            (emitStructMarkerDiag
+              tc
+              (spanOf f)
+              (strConcat (strConcat (strConcat (strConcat "field `" (nodeAName f)) "` of word struct `") name) "` is `mut`")
+              "drop `mut`: a word struct is a value, and a store would change only the copy it was made on"
+              "a word struct has no block a field store could reach")
+            (if (&& (!= (nodeTy f) 0) (if (tyIsBareInt (nodeTy f))
+              false
+              true))
+              (emitStructMarkerDiag
+                tc
+                (spanOf f)
+                (strConcat (strConcat (strConcat (strConcat "field `" (nodeAName f)) "` of word struct `") name) "` is not an `Int`")
+                "type the field `Int`: a word struct holds one machine word, and `Int` is the type that is one"
+                "a `String`, a `Vec` or a record is a reference, and a word that held one would take no share of it")
+              0)))))))
+
+(pub :: emitStructMarkerDiag (-> Int Int String String String Int))
+(pub fn (emitStructMarkerDiag tc span msg help note)
+  (if (== span 0)
+    0
+    {
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR
+        "AX3084"
+        "struct-marker"
+        span
+        msg
+        0
+        0
+        help
+        note) "refused here"))
+      0
+    }))
+
+; ------------------------------------------------------------------
+; The seal, AX3085 and AX3086: a word struct's constructor and field
+; outside its module. A heap struct's privacy is `pub`'s and this does
+; not touch it.
+; ------------------------------------------------------------------
+(pub :: emitWordSealedBuild (-> Int Int Int Int))
+(pub fn (emitWordSealedBuild tc ent span)
+  (if (== span 0)
+    0
+    {
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR
+        "AX3085"
+        "word-struct-sealed"
+        span
+        (strConcat (strConcat (strConcat (strConcat "only module `" (wordEntModuleName ent)) "` can make a `") (memGetWordStr ent 0)) "`")
+        0
+        0
+        (strConcat (strConcat "get one from a function module `" (wordEntModuleName ent)) "` provides: a word struct's constructor stays in its module, `pub` or not")
+        "a word struct is sealed, so every value of its type is one its module made and no other code can forge one (docs/memory-model.md MM-VAL-10a)") "built outside its module"))
+      0
+    }))
+
+(pub :: emitWordSealedRead (-> Int Int String Int Int))
+(pub fn (emitWordSealedRead tc ent field span)
+  (if (== span 0)
+    0
+    {
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR
+        "AX3086"
+        "word-struct-sealed-field"
+        span
+        (strConcat (strConcat (strConcat (strConcat (strConcat (strConcat "only module `" (wordEntModuleName ent)) "` can read field `") field) "` of `") (memGetWordStr ent 0)) "`")
+        0
+        0
+        (strConcat (strConcat "use the functions module `" (wordEntModuleName ent)) "` provides: a word struct's field stays in its module, `pub` or not")
+        "a word struct is sealed: what its word means is its module's business, and code that read it could hand the same word to something else (docs/memory-model.md MM-VAL-10a)") "read outside its module"))
+      0
+    }))
+
+; The declaring module's name, for a message: its dotted path, or
+; `main` for the entry file.
+(pub :: wordEntModuleName (-> Int String))
+(pub fn (wordEntModuleName ent)
+  (if (== (memGetWord ent 2) 0)
+    "the entry file"
+    (memGetWordStr ent 2)))
+
+; ------------------------------------------------------------------
+; The lowering. A word struct's constructor and field read are the
+; identity on one word, and the checker is the one phase that knows
+; which applications and field reads those are. So each one it accepts
+; is recorded here - the site and its operand - and `wordLowerApply`
+; copies the operand's node over the site's once every pass has run.
+; What reaches the emitter is the word expression itself: no
+; constructor application, no field read, nothing for its thirty-six
+; `lookupType` readers to mistake for a block. Codegen knows only that
+; the type's NAME is a scalar (`fldClass`).
+;
+; A node copy, not a wrapper: an AST node is twelve words and every
+; consumer reads it by index, so the site becomes its operand in every
+; respect - tag, children, span and the checker's stamps. Children are
+; shared, which is safe because nothing walks the tree as a graph.
+; Recorded in post-order - an operand is checked, and so recorded,
+; before the site that holds it - which is the order the copies need:
+; `(Chan (Chan2 w))`'s inner site is already `w` when the outer copies
+; it.
+; ------------------------------------------------------------------
+(pub :: wordLowerRecord (-> Int Int Int Int))
+(pub fn (wordLowerRecord tc site operand)
+  (let ((v (memGetWordVec tc 42)))
+    {
+      (vecPush v site)
+      (vecPush v operand)
+      0
+    }))
+
+(pub :: wordLowerApply (-> Int Int))
+(pub fn (wordLowerApply tc)
+  (let (
+    (v (memGetWordVec tc 42))
+    (mut i 0)
+  )
+    {
+      (while (< (+ i 1) (vecLen v))
+        {
+          (nodeCopyInto (vecGet v i) (vecGet v (+ i 1)))
+          (set i (+ i 2))
+        })
+      0
+    }))
+
+; Every one of an AST node's twelve words, from `src` over `dst`.
+(pub :: nodeCopyInto (-> Int Int Int))
+(pub fn (nodeCopyInto dst src)
+  (if (== dst src)
+    0
+    (let ((mut k 0))
+      {
+        (while (< k 12)
+          {
+            (memSetWord dst k (memGetWord src k))
+            (set k (+ k 1))
+          })
+        0
+      })))
+
+; ------------------------------------------------------------------
 ; Type constructors named in a SIGNATURE.
 ;
 ; `parseTypeAtom` turns every capitalised name that is not one of
@@ -7020,7 +7506,10 @@
           (let ((n (nodeAName ty)))
             (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (strEq n "Unit")))))
               1
-              0))
+              ; A word struct's value is its word, and the handle table
+              ; it names lives outside every arena (MM-PAR-8), so it
+              ; survives a reset by value as an `Int` does.
+              (tcWordTyName tc n)))
           0)
         (if (== (nodeTag ty) TAG_T_TUP)
           (if (== (vecLen (nodeAVec ty)) 0)
@@ -8728,10 +9217,19 @@
 
 (pub :: emitUndefinedVar (-> Int String Int Int))
 (pub fn (emitUndefinedVar tc name span)
-  (let ((hidden 
+  (let ((hidden
     (if (== (memGetWord tc 19) 0)
       0
       (findFnEntAnywhere tc name))))
+    ; A WORD STRUCT's constructor, reached from another module: it is
+    ; sealed whatever `pub` says (AX3085), and a PRIVATE one arrives
+    ; here because the lookup filtered it - so the answer is the seal,
+    ; not "undefined" about a name that plainly exists.
+    (if (== (wordSealedHere tc (tcWordEnt tc name)) 1)
+      {
+        (emitWordSealedBuild tc (tcWordEnt tc name) span)
+        (mkNode TAG_T_ERR 0 0 0)
+      }
     (if (&& (!= hidden 0) (== (strInVec (memGetWordVec tc 19) (memGetWordStr hidden 0) 0) 1))
       (emitPrivateVar tc name span (memGetWordStr hidden 0))
       (if (== (isMacroAnywhere tc name) 1)
@@ -8739,7 +9237,7 @@
         (let ((cm (ctorHiddenModule tc name)))
           (if (!= cm 0)
             (emitPrivateVar tc name span (privKey cm name))
-            (emitUndefinedVarPlain tc name span)))))))
+            (emitUndefinedVarPlain tc name span))))))))
 
 ; The module of an INVISIBLE `data` declaring a constructor of this
 ; name, or 0. A private type's constructors are already refused - the
@@ -9434,6 +9932,14 @@
                     ; accepted: it names memory Axiom never allocated,
                     ; and its thread-safety is the foreign side's
                     ; (MM-FFI-7).
+                    ;
+                    ; A WORD STRUCT IS CLASS 0 AND STILL ASKED, the
+                    ; third question beside the class and `Vec`: is it
+                    ; `shared`? Its module says whether the word names
+                    ; something built for use from every binding at
+                    ; once - a channel's does - and a word struct not
+                    ; declared so is refused like any other value the
+                    ; binding has no business holding.
                     (let ((cls (evClassOf tc ty)))
                       (if (|| (!= cls 0) (== (capTyIsVec ty) 1))
                         {
@@ -9445,7 +9951,16 @@
                             (nodeSpan v)
                             cls)
                         }
-                        0))))))))
+                        (if (== (tyIsUnsharedWord tc ty) 1)
+                          {
+                            (vecPush seen (nodeA v))
+                            (emitCaptureUnshared
+                              tc
+                              name
+                              ty
+                              (nodeSpan v))
+                          }
+                          0)))))))))
         (capReport tc occ (+ i 1) seen)
       })))
 
@@ -9487,6 +10002,26 @@
           "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word. To share read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy"
           "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt")
         (strConcat (strConcat "`" name) "` is bound outside this binding")))
+    0
+  })
+
+; A captured word struct its module did not declare `shared`. Same
+; code, because it is the same rule (MM-PAR-6: what a binding may share
+; with its parent); its own message, because the fix is different - the
+; value is a word, and the question is what its module built it for.
+(pub :: emitCaptureUnshared (-> Int String Int Int Int))
+(pub fn (emitCaptureUnshared tc name ty span)
+  {
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3064"
+      "parallel-capture"
+      span
+      (strConcat (strConcat (strConcat (strConcat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty)) "` - a handle its module did not declare `shared`")
+      0
+      0
+      (strConcat (strConcat "use the handle only in the binding that holds it, or have its module declare `(struct " (tyRender ty)) " word shared ...)` if every operation on it is safe from several bindings at once")
+      "MM-PAR-6: a word struct crosses into a concurrent binding only when its module declares it `shared`, which says every operation on it is safe from several bindings at once; `__proc_spawn` names the isolated lowering and is exempt") (strConcat (strConcat "`" name) "` is bound outside this binding")))
     0
   })
 
@@ -10993,6 +11528,13 @@
 ; The renderer of a struct: `{x = 1, y = 2}` in declaration order,
 ; each field read by name and rendered by its declared type, under
 ; the same ancestor guard.
+;
+; A WORD STRUCT renders as its type's name, `<Chan>`, and reads
+; nothing. It is sealed (MM-VAL-10a): what its word means is its
+; module's business, so a rendering outside the module that read the
+; field would be refused as AX3086 at the format hole, over a field the
+; program never wrote. The same answer inside the module keeps the one
+; type rendering one way wherever it is printed.
 (pub :: showGenStruct (-> Int Int String Int Int Int))
 (pub fn (showGenStruct tc ty nm sp sent)
   (let ((fnd (showDeclare
@@ -11005,14 +11547,16 @@
       (showFinish
         tc
         fnd
-        (if (== (vecLen fields) 0)
-          (showLit "{}" sp)
-          (showGuarded tc (showCat tc (showStructBody
-            tc
-            fields
-            (showLit "{" sp)
-            sp
-            0) (showLit "}" sp) sp) 1 sp))))))
+        (if (== (structEntIsWord sent) 1)
+          (showLit (strConcat "<" (strConcat (memGetWordStr sent 0) ">")) sp)
+          (if (== (vecLen fields) 0)
+            (showLit "{}" sp)
+            (showGuarded tc (showCat tc (showStructBody
+              tc
+              fields
+              (showLit "{" sp)
+              sp
+              0) (showLit "}" sp) sp) 1 sp)))))))
 
 (pub :: showStructBody (-> Int (Vec Int) Int Int Int Int))
 (pub fn (showStructBody tc fields acc sp i)
@@ -11870,7 +12414,26 @@
 
 (pub :: checkStructCon (-> Int Int Int Int))
 (pub fn (checkStructCon tc e ent)
-  (checkStructConAt tc (spineArgVec e vecNew) (spanOf e) ent))
+  (if (== (wordSealedHere tc ent) 1)
+    {
+      (emitWordSealedBuild tc ent (spanOf e))
+      (checkSpineArgsOnly tc e)
+      (mkNode TAG_T_ERR 0 0 0)
+    }
+    (let ((args (spineArgVec e vecNew)))
+      (wordLowerIfWord tc ent e args (checkStructConAt tc args (spanOf e) ent)))))
+
+; A word struct's construction, once it checks, is recorded for the
+; lowering (`wordLowerRecord`): the site becomes its one argument.
+; Answers the construction's type unchanged.
+(pub :: wordLowerIfWord (-> Int Int Int (Vec Int) Int Int))
+(pub fn (wordLowerIfWord tc ent site args t)
+  {
+    (if (&& (== (structEntIsWord ent) 1) (&& (== (vecLen args) 1) (== (tyIsErr t) 0)))
+      (wordLowerRecord tc site (vecGet args 0))
+      0)
+    t
+  })
 
 ; The shared half, reached from both construction spellings: the
 ; application form `(P 1 2)` above, and the keyword form
@@ -12055,9 +12618,12 @@
                   2
                   (if (!= (findData tc n) 0)
                     2
-                    (if (!= (findStruct tc n) 0)
-                      2
-                      1)))))
+                    ; A word struct is codegen's scalar too (`fldClass`).
+                    (if (== (tcWordTyName tc n) 1)
+                      0
+                      (if (!= (findStruct tc n) 0)
+                        2
+                        1))))))
             1))))))
 
 ; `arrowResultTy`.
@@ -13037,12 +13603,16 @@
       (let ((sent (findStruct tc n)))
         (if (== sent 0)
           0
-          (let ((fields (memGetWordVec sent 1)))
-            (if (==
-              (cast Int fields)
-              0)
-              0
-              (vecLen fields))))))))
+          ; A word struct allocates nothing: its construction is its
+          ; one word (MM-VAL-10a), so it charges no `Alloc`.
+          (if (== (structEntIsWord sent) 1)
+            0
+            (let ((fields (memGetWordVec sent 1)))
+              (if (==
+                (cast Int fields)
+                0)
+                0
+                (vecLen fields)))))))))
 
 ; stage0's `walk_call`, by callee kind.
 (pub :: walkCallHead (-> Int String (Vec Int) Int (Vec a) Int Int))
@@ -13817,7 +14387,25 @@
     1
     (if (== (isUnsafeWordPrim n) 1)
       1
-      (isUnsafeDevicePrim n))))
+      (if (== (isUnsafeHandlePrim n) 1)
+        1
+        (isUnsafeDevicePrim n)))))
+
+; The handle table's three (MM-PAR-8). Each takes or answers an
+; ADDRESS its caller will dereference: the checker cannot see what that
+; address holds, which is the whole of this set's definition. A library
+; that wraps them in a word struct - `Chan`, `Mutex`, `CancelToken` -
+; says `effect(unsafe)` on the private helpers that call them and
+; offers a safe interface above.
+(pub :: isUnsafeHandlePrim (-> String Int))
+(pub fn (isUnsafeHandlePrim n)
+  (if (strEq n "__handle_new")
+    1
+    (if (strEq n "__handle_get")
+      1
+      (if (strEq n "__handle_free")
+        1
+        0))))
 
 ; The original seven address and allocation primitives. The lexical
 ; declaration check and the transitive effect walk both read the full
@@ -14995,6 +15583,16 @@
 (pub :: checkStructConNode (-> Int Int Int))
 (pub fn (checkStructConNode tc e)
   (let ((ent (findStruct tc (nodeAName e))))
+    (if (== (wordSealedHere tc (tcWordEnt tc (nodeAName e))) 1)
+      ; The keyword spelling of a sealed construction: AX3085, as the
+      ; application form draws, and for a private word struct too - the
+      ; lookup above filtered it, and "undefined type" would be wrong
+      ; about a type that exists.
+      {
+        (emitWordSealedBuild tc (tcWordEnt tc (nodeAName e)) (nodeSpan e))
+        (checkArgsFromIndex tc (nodeBVec e) 0)
+        (mkNode TAG_T_ERR 0 0 0)
+      }
     (if (== ent 0)
       {
         (if (!= (nodeSpan e) 0)
@@ -15010,7 +15608,7 @@
           0)
         (mkNode TAG_T_ERR 0 0 0)
       }
-      (checkStructConAt tc (nodeBVec e) (nodeSpan e) ent))))
+      (wordLowerIfWord tc ent e (nodeBVec e) (checkStructConAt tc (nodeBVec e) (nodeSpan e) ent))))))
 
 (pub :: checkStructFields (-> Int (Vec Int) (Vec Int) Int Int))
 
@@ -15207,6 +15805,15 @@
   (let ((baseTy (checkExprH tc (nodeA e) 0)))
     (if (== (nodeTag baseTy) TAG_T_CON)
       (let ((ent (findStruct tc (nodeAName baseTy))))
+        (if (== (wordSealedHere tc (tcWordEnt tc (nodeAName baseTy))) 1)
+          ; A word struct's field outside its module: AX3086, whatever
+          ; `pub` says - and for a private one too, where the lookup
+          ; above filtered the declaration and AX3007 would call a field
+          ; that exists missing.
+          {
+            (emitWordSealedRead tc (tcWordEnt tc (nodeAName baseTy)) (nodeBName e) (nodeSpan e))
+            (mkNode TAG_T_ERR 0 0 0)
+          }
         (if (== (checkAmbiguousType tc TY_ANY (nodeAName baseTy) (nodeSpan e)) 1)
           ; The receiver's type name is one that two modules declare,
           ; and the field offsets differ between them. Reading either
@@ -15232,6 +15839,11 @@
             (if (!= fty (- 0 1))
               {
                 (stampFieldStruct e ent)
+                ; A word struct's field IS its word: the read is
+                ; lowered to the receiver (`wordLowerRecord`).
+                (if (== (structEntIsWord ent) 1)
+                  (wordLowerRecord tc e (nodeA e))
+                  0)
                 fty
               }
               ; Not a struct field. When the receiver names a
@@ -15302,7 +15914,7 @@
                       {
                         (emitFieldNotFound tc (nodeBName e) (nodeAName baseTy) (nodeSpan e))
                         mkI64Ty
-                      }))))))))
+                      })))))))))
       {
         (if (== (tyIsSilentWild baseTy) 0)
           (emitMismatch tc "struct or data type" (tyRender baseTy) (spanOf (nodeA e)))
@@ -22037,7 +22649,14 @@
                     (emitMismatchTy tc want got (spanOf (nodeC d)))
                     (if (tyParamThroughInt want got)
                       (emitMismatchTy tc want got (spanOf (nodeC d)))
-                      0))
+                      ; A WORD STRUCT is not a heap handle: its word is
+                      ; the whole value, and an `Int` result that
+                      ; answered it would unwrap a sealed type through
+                      ; the back door (MM-VAL-10a). Read the field in
+                      ; its module instead.
+                      (if (== (tyIsWordTy tc got) 1)
+                        (emitMismatchTy tc want got (spanOf (nodeC d)))
+                        0)))
                   ; A DECLARED RESULT THAT MENTIONS A SOURCE TYPE
                   ; VARIABLE ANYWHERE stays permitted, and this arm is
                   ; why the rule above is safe to state at all.
@@ -24074,5 +24693,10 @@
         ; signatures as declared, and it is ABSENT - not silent - for a
         ; program whose signatures name no region (`rgnCheckAll`).
         (rgnCheckAll tc)
+        ; LAST, after every pass that reads the tree as written: word
+        ; struct constructions and field reads become the words they
+        ; are (MM-VAL-10a). Nothing is recorded for a program that
+        ; declares no word struct, so this is a no-op for it.
+        (wordLowerApply tc)
         tc
       })))

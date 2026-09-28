@@ -2018,6 +2018,61 @@ are all `AX2001`. When you [call Rust](#calling-rust), a record crosses
 the boundary one word per field, so there is no layout to change
 ([ffi.md §8](ffi.md#8-vec-slices-and-records-across-the-boundary)).
 
+### Make a handle other modules can't forge
+
+A struct declared `word` is one machine word, and only the module that
+declares it can build one or read its field. Use it for a *handle*: a
+value whose word means something only its module understands, such as
+a slot in a table.
+
+```scheme
+(import IO)
+
+(struct Ticket word
+  (slot : Int))
+
+(:: issue (-> Int Ticket))
+(fn (issue n) (Ticket (* n 10)))
+
+(:: redeem (-> Ticket Int))
+(fn (redeem t) t.slot)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((t (issue 4)))
+    {
+      (println "{t}")
+      (println (redeem t))
+      0
+    }))
+```
+
+```text
+<Ticket>
+40
+```
+
+`word` goes between the struct's name and its fields. A word struct
+has exactly one field, an `Int`, not `mut`, and no type parameters
+(`AX3084`). It allocates nothing: `(Ticket 40)` is the word 40, with
+its own type. A `Ticket` isn't an `Int`, and passing one where the
+other is expected is `AX3004`. It prints as its type's name.
+
+Only the declaring module can build one, in either spelling, or read
+its field, whether or not the struct is `pub` (`AX3085`, `AX3086`).
+Another module can name the type in its signatures and pass values on,
+so every `Ticket` it holds is one this module made.
+
+Add `shared` when every operation the module offers on the type is
+safe from several bindings at once, as in `(struct Chan word shared
+(slot : Int))`. A `parallel` binding may capture a shared handle
+([What a binding may capture](#what-a-binding-may-capture)). The
+standard library's `Chan` and `Mutex` are declared this way.
+
+Tested by `tests/diagnostics/1062-handle-sealed-build.ax` and
+`tests/diagnostics/1065-struct-marker.ax`.
+
 ## Capability records
 
 Axiom has no traits or `impl`. An interface is a *capability record*: a
@@ -4860,7 +4915,77 @@ A bare `Foreign` may be captured: it points into memory Axiom never
 allocated, so there's no count to race. A `Handle` may not, because
 it's a counted block that carries a destructor.
 
-Tested by `tests/diagnostics/655-parallel-capture-foreign.ax`.
+A handle whose type is declared `shared` may be captured too: a `Chan`
+or a `Mutex` is one word its module built for use from every binding at
+once ([Make a handle other modules can't forge](#make-a-handle-other-modules-cant-forge)).
+A word struct without `shared` may not, and neither may a `Vec`, which
+two bindings could grow at once.
+
+Tested by `tests/diagnostics/655-parallel-capture-foreign.ax` and
+`tests/diagnostics/1064-parallel-capture-handle.ax`.
+
+### Pass words between bindings with a channel
+
+`Chan` carries words from one binding to another. `chanNew` makes a
+bounded channel, `chanSend` and `chanRecv` wait while it is full or
+empty, and `chanClose` ends the stream:
+
+```scheme
+(import IO)
+(import Chan)
+(import Err)
+
+(:: produce (-> Chan Int Int))
+;@axiom:effect(io)
+(fn (produce ch n)
+  {
+    (for i 1 (+ n 1)
+      (chanSend ch i))
+    (chanClose ch)
+    n
+  })
+
+(:: total (-> Chan Int))
+;@axiom:effect(io)
+(fn (total ch)
+  (let ((mut sum 0) (mut going 1))
+    {
+      (while (== going 1)
+        (match (chanRecv ch)
+          ((Some v) (set sum (+ sum v)))
+          ((None) (set going 0))))
+      sum
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (chanNew 8)
+    ((Ok ch)
+      (parallel p ((sent (produce ch 100)) (sum (total ch)))
+        {
+          (println "sent {sent}, received a total of {sum}")
+          (match (chanFree ch)
+            ((Ok z) 0)
+            ((Err e) 1))
+        }))
+    ((Err e) 1)))
+```
+
+```text
+sent 100, received a total of 5050
+```
+
+`ch` is a `Chan`, a handle: only `chanNew` makes one, and the bindings
+may capture it because `Chan` is declared `shared`. It works the same
+in both lowerings. Free a channel after the `parallel` form that used
+it. A call on a freed channel, and a second `chanFree`, exits with
+status 85 and `axiom: not a live handle (freed, or never made)`
+instead of reading memory that is gone. `Mutex`, from `Sync`, works
+the same way.
+
+Tested by `tests/stdlib/528-chan.ax` and
+`tests/stdlib/570-handle-freed.ax`.
 
 ### Run a pool of tasks with `Par`
 
@@ -5130,8 +5255,8 @@ regenerates it on every run to keep it exact.
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them. Written for JSON-RPC. |
 | `Rpc` | The LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled`. |
 | `Par` | `parMapWords`, a bounded pool of concurrent tasks joined in submit order. `parRunAll` is the same pool over external commands, and `parRunOne`/`parArgvVector` are the pieces underneath. |
-| `Chan` | `chanNew`, a bounded channel of words between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings, in shared memory so forked children and threads both see it. `chanSend`/`chanRecv` block while it is full or empty, and `chanClose` ends the stream. Also `chanTrySend`, `chanTryRecv`, `chanLen`, `chanClosed`, `chanCap`, `chanFree`. `chanSendTimeout`/`chanRecvTimeout` wait at most a given time and answer `Err` code `sysTimedOut` when it runs out ([memory-model.md](memory-model.md) `MM-PAR-10`, `MM-PAR-12`). |
-| `Sync` | `mutexNew`, a mutex between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings in a shared word, in both lowerings. `mutexLock`/`mutexTryLock`/`mutexLockTimeout` answer a guard that `mutexUnlock` takes back (an unlock the caller did not earn is `Err` `syncNotHeld`), a holder found dead poisons it (`syncOwnerDead`, `mutexOwnerDead`), `mutexFree`. No fairness, no priority inheritance, not reentrant ([memory-model.md](memory-model.md) `MM-PAR-11`). |
+| `Chan` | `chanNew`, a bounded channel of words between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings, in shared memory so forked children and threads both see it. The channel is a `Chan`, a handle only this module makes, and a call on a freed one exits with status 85. `chanSend`/`chanRecv` block while it is full or empty, and `chanClose` ends the stream. Also `chanTrySend`, `chanTryRecv`, `chanLen`, `chanClosed`, `chanCap`, `chanFree`. `chanSendTimeout`/`chanRecvTimeout` wait at most a given time and answer `Err` code `sysTimedOut` when it runs out ([memory-model.md](memory-model.md) `MM-PAR-10`, `MM-PAR-12`). |
+| `Sync` | `mutexNew`, a mutex between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings in a shared word, in both lowerings. The mutex is a `Mutex`, a handle only this module makes, and a call on a freed one exits with status 85. `mutexLock`/`mutexTryLock`/`mutexLockTimeout` answer a guard that `mutexUnlock` takes back (an unlock the caller did not earn is `Err` `syncNotHeld`), a holder found dead poisons it (`syncOwnerDead`, `mutexOwnerDead`), `mutexFree`. No fairness, no priority inheritance, not reentrant ([memory-model.md](memory-model.md) `MM-PAR-11`). |
 | `Task` | `taskMap`/`taskMapWith`: `(-> Int String)` tasks in forked children, at most `width` at once, one `(Result String Error)` each in submit order. Answers cross as bytes under a per-task limit (`taskTooLargeCode`), a trap answers its wait status, a deadline kills and reaps (`sysTimedOut`), a token cancels (`taskTokenNew`, `taskCancel`, `taskCancelled`, `taskCancelledCode`), `failFast`; `TaskOpts` via `taskOpts` and `taskWith*`; `taskFold` streams the answers without keeping them ([memory-model.md](memory-model.md) `MM-PAR-13`). |
 | `Http` | Serving HTTP. The parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`). The `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`. The writer `httpRespond`/`httpRespondRaw`/`httpFail`, with `httpStatusText` and `httpContentType`. The router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells. Also `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the limits `httpMaxHead`/`httpMaxBody`. |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs, which `axiom test` uses to find and isolate failures (error-model.md ERR-REC-6). |

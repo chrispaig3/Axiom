@@ -330,7 +330,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-eight of the gates below build the compiler under test from
+    # eighty-nine of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -580,6 +580,16 @@ jobs:
       # required to turn the load red.
       - name: A bounded channel carries every word once, in both lowerings
         run: ./scripts/check-chan.sh
+
+      # MM-PAR-8's typed handles: a freed or forged channel or mutex
+      # traps 85 at every --opt and in both lowerings instead of reading
+      # an unmapped page; the handle table holds under four bindings at
+      # once, and exactly one of two racing frees returns; `build` and
+      # `build --threads` both refuse a captured unshared handle; and
+      # three ablations - the table's check, the channel's retirement,
+      # the free's compare - each turn it red.
+      - name: A freed or forged handle traps, and the handle table holds under concurrency
+        run: ./scripts/check-handles.sh
 
       # R-C2's second half, MM-PAR-11..13: `stdlib/Sync.ax`'s mutex holds
       # four bindings' plain increments exact in both lowerings beside an

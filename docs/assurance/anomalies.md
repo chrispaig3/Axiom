@@ -28,6 +28,7 @@ It isn't a system severity. The integrator assigns that
 | AN-15 | L | Waits on FreeBSD spin, because that target has no blocking wait | `MM-PAR-10`, `MM-PAR-12` | None; it costs a core |
 | AN-17 | L | Neither the mutex nor the channel is fair or has priority inheritance, so a binding can starve and priority inversion is possible | `MM-PAR-10`, `MM-PAR-11` | Don't rely on either for real-time scheduling |
 | AN-18 | L | On Darwin, timed waits and task deadlines use the realtime clock, so a clock step can move them, by at most one 100 ms slice per wait | `MM-PAR-12` | Keep the clock stepped by slewing only, or run deadline-sensitive work on Linux |
+| AN-34 | L | A free that races another binding's operation on the same channel or mutex is a data race: the handle table catches every use ordered after the free, not one already in flight | `MM-PAR-8`, §10.7 of [memory-model.md](../memory-model.md) | Free a handle only after the `parallel` form that used it |
 
 ## Closed
 
@@ -59,6 +60,7 @@ It isn't a system severity. The integrator assigns that
 | AN-31 | A checked tag, such as `restrict(no-alloc)`, above a `data`, `struct`, import, macro or alias was recorded and never checked | The tag-rules commit | `tests/diagnostics/1030-axtag-misplaced.ax`; `AX3077` |
 | AN-32 | Purity had three accepted spellings, `pure`, `effect(pure)` and a slip of `pure` read as metadata, and the slip claimed nothing | The tag-rules commit | `tests/diagnostics/1031-pure-tag-spelling.ax`; `AX3078` |
 | AN-33 | A `data` constructor or type spelled like an operator compiled though nothing could reach it | The tag-rules commit | `tests/fuzz/data-ctor-operator.axfuzz`; `tests/diagnostics/1029-operator-fn-name.axbad` |
+| AN-35 | A channel or mutex was an `Int`: any word passed as one, a call on a freed one read an unmapped page, and a second free unmapped whatever the kernel had mapped there since | The typed-handles commit | `tests/stdlib/570-handle-freed.ax`; `scripts/check-handles.sh` §1, §6 |
 | AN-C1 | The fuzzing harness read a refusal whose report held a NUL as a codeless one | `61f1e0ef` | `scripts/check-fuzz.sh` §4's NUL control |
 | AN-C2 | Two `check` segmentation faults found by the fuzzer, in the human renderer and the region pass | `878b17be` | `tests/fuzz/render-spanless-cross.axfuzz`, `tests/fuzz/region-nonarrow-sig.axfuzz` |
 | AN-C3 | A forked binding that trapped inside a recovery point ran the parent's continuation (F2) | Milestone A | `tests/stdlib/522-parallel-recover.ax` |

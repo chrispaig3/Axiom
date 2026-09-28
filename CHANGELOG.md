@@ -22,6 +22,60 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Channels and mutexes are typed handles, and a freed one traps — `MM-VAL-10a`, `MM-PAR-8`, `AX3084` to `AX3086`, status 85 - 2026-09-28
+
+**BREAKING.** `chanNew` answers a `Chan` and `mutexNew` a `Mutex`,
+where both answered an `Int`, and every function in `stdlib/Chan.ax`
+and `stdlib/Sync.ax` takes the handle. Neither module has shipped in a
+release, so the published surface in `compat/` doesn't move. To
+migrate, change the handle's type in your signatures and nothing else:
+
+```scheme
+(:: produce (-> Int Int Int))    ; before: the channel was an Int
+(:: produce (-> Chan Int Int))   ; now
+```
+
+A program that did arithmetic on the handle, passed a literal as one,
+or answered one from a function declared `Int` is refused with
+`AX3004`. The mutex's guard is still an `Int`.
+
+**A struct can be a sealed word.** `(pub struct Chan word shared (slot
+: Int))` declares a type that is one machine word instead of a heap
+block. Only its own module can build one or read its field (`AX3085`,
+`AX3086`), whatever `pub` says, so no other code can forge a channel.
+A word struct prints as its type's name, `<Chan>`.
+`shared` lets a `parallel` binding capture it, in either lowering; a
+word struct without it is refused (`AX3064`). The markers' shape rules
+are `AX3084`. The formatter, tree-sitter's grammar and the language
+server read the markers, and `axiom symbols` reports `#repr=word` or
+`#repr=word,shared` on the struct's row.
+
+**A freed or forged handle traps with status 85.** A handle's word is a
+slot in a table the runtime owns, with a generation, and every channel
+and mutex operation asks the table before it touches the mapping. So a
+send, receive, lock or unlock on a freed handle exits 85 with `axiom:
+not a live handle (freed, or never made)`, and so do a second free, a
+word the table never issued, and one handle's word used as another
+kind. Before, each read an unmapped page, a segmentation fault or a bus
+error, or whatever the kernel had mapped there since. The trap is recoverable, like the index trap. The
+table is per address space, like the mappings: a forked binding's free
+is its own. A module that names no handle primitive emits none of it.
+
+The runtime adds three primitives, `__handle_new`, `__handle_get` and
+`__handle_free`, all in the unsafe set. A channel operation costs four
+more atomic loads and no allocation or lock.
+
+`tests/diagnostics/1060` to `1065` pin the refusals in all three
+renderings; `tests/stdlib/570-handle-freed.ax` and
+`571-handle-table.ax` pin the traps at every `--opt`.
+`scripts/check-handles.sh` is new: the traps in both lowerings, the
+table under four bindings at once and under racing frees, the capture
+rule under `build` and `build --threads`, and three ablations that
+each turn it red. The count sites state eighty-nine gates.
+`scripts/check-trap-statuses.sh` counts twelve statuses; its docs-table
+ablation read only the `80` row, so it passed without its own rewrite,
+and now reads every `8x` row.
+
 ### Purity is written one way, and a tag must sit where it is checked — `AX3077`, `AX3078` - 2026-09-28
 
 **Purity is `;@axiom:effect(pure)`.** Three spellings were accepted:
@@ -209,7 +263,7 @@ in `docs/assurance/verification.md`.
 action and `scripts/run-gates-linux.sh`'s image install
 `libclang-rt-dev`; CI sets `AXIOM_TSAN_REQUIRED=1`, so a missing
 runtime fails there and skips elsewhere. Calls one new gate; the count
-sites state eighty-eight gates.
+sites state eighty-nine gates.
 ### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` §3 ran three litmus families, store
@@ -533,7 +587,7 @@ as the control); RSS flat from 500 to 5,000 folded tasks beside a
 keeping control that must grow; nine ablations on copies of the
 library each turning it red; and the three new programs in
 `examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
-new gate; the count sites state eighty-eight gates.
+new gate; the count sites state eighty-nine gates.
 
 An independent review before landing found six defects, two confirmed
 by probes. The mutex compared an unlock's guard against the guard
@@ -690,7 +744,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-eighty-eight gates. Specified in `docs/restricted-profile.md`.
+eighty-nine gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -758,7 +812,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-eight gates.
+state eighty-nine gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -799,7 +853,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-eight gates.
+eighty-nine gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -848,7 +902,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-eight gates.
+eighty-nine gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -878,7 +932,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-eight gates.
+sites state eighty-nine gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -1119,7 +1173,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-eight gates.
+checks). Calls one new gate; the count sites state eighty-nine gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -1136,7 +1190,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-eight gates, and the battery has
+gate; the count sites state eighty-nine gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

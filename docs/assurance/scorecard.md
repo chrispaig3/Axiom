@@ -28,6 +28,7 @@ source.
 | Obligation dispositions are registered (R-B4) | [memory-audit.md](memory-audit.md); `scripts/check-doc-drift.sh` |
 | No `Vec` is shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; row 5 of `642`; `471` builds inside |
 | A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel (R-C2a) | `tests/stdlib/528-chan.ax`; `scripts/check-chan.sh`: 15 pass |
+| A channel or mutex is a sealed handle: safe code can't forge one or pass an `Int` or another handle as one, and a freed or forged one traps with 85 instead of reading an unmapped page (R-C6) | `tests/diagnostics/1060` to `1065`; `tests/stdlib/570-handle-freed.ax`, `571-handle-table.ax`; `scripts/check-handles.sh`: 31 pass, including three ablations |
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 69 pass, including eleven ablations and two controls that measure stated limits |
 | Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP, LB, 2+2W and counter litmus tests are clean on two threads and IRIW on four, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 96 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
@@ -84,6 +85,7 @@ constants.
 | `check-atomics.sh` | 96 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |
+| `check-handles.sh` | 31 pass |
 | `check-report.sh` | 36 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 13 pass |
