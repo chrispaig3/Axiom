@@ -1,0 +1,5 @@
+(macro (qsecret x) (+ = 100))
+
+(:: main Int)
+(fn (main)
+  0)

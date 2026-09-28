@@ -571,12 +571,12 @@ echo "== 2b. the formatter (P4) and --opt 0 against --opt 2 (P5) on the accepted
 # so the default run compares a sample and `--long` ten times as many.
 rundir="$work/run"; mkdir -p "$rundir"
 n4_ok=0 n4_refused=0 n4_fail=0 n5_eligible=0 n5_agree=0 n5_inconc=0 n5_fail=0
-diff_names=()
+diff_names=() fmt_passed=() diff_agreed=()
 for name in "${ok_names[@]}"; do
   IFS=$'\t' read -r _ src ops < <(grep "^$name	" "$mdir/manifest.tsv")
   fmt_one "$axc" "$mdir/$name.ax" "$(dirname "$src")"
   case "$f4_verdict" in
-    ok) n4_ok=$((n4_ok + 1)) ;;
+    ok) n4_ok=$((n4_ok + 1)); fmt_passed+=("$name") ;;
     refused) n4_refused=$((n4_refused + 1)) ;;
     *) n4_fail=$((n4_fail + 1)); f_why="P4: $f4_why" f_detail="$f4_detail"; report_failure "$name" "$src" "$ops" "$mdir" ;;
   esac
@@ -584,7 +584,7 @@ for name in "${ok_names[@]}"; do
     n5_eligible=$((n5_eligible + 1)); diff_names+=("$name")
     diff_one "$axc" "$mdir/$name.ax" "$(dirname "$src")"
     case "$f5_verdict" in
-      agree) n5_agree=$((n5_agree + 1)) ;;
+      agree) n5_agree=$((n5_agree + 1)); diff_agreed+=("$name") ;;
       inconclusive) n5_inconc=$((n5_inconc + 1)) ;;
       *) n5_fail=$((n5_fail + 1)); f_why="P5: $f5_why" f_detail="$f5_detail"; report_failure "$name" "$src" "$ops" "$mdir" ;;
     esac
@@ -769,9 +769,13 @@ ROWS
   # formatted copy is planted with a refusal, and one eligible mutant
   # whose `--opt 2` binary is planted with an extra line. Each must be
   # reported as its property's failure; the clean mutant must still
-  # pass P4 through the wrapper.
-  c_fmt="${ok_names[2]:-}"
-  c_diff="${diff_names[0]:-}"
+  # pass P4 through the wrapper. Each is drawn from the mutants that
+  # passed its property, so what the control reports is the plant: a
+  # mutant whose run is cut short, say, would be inconclusive with or
+  # without one.
+  c_fmt=""
+  for n in ${fmt_passed[@]+"${fmt_passed[@]}"}; do [[ "$n" != "$c_clean" ]] && { c_fmt="$n"; break; }; done
+  c_diff="${diff_agreed[0]:-}"
   if [[ -z "$c_fmt" || -z "$c_diff" ]]; then
     bad "the run left no mutant for the P4 or P5 control (${#ok_names[@]} accepted, ${#diff_names[@]} eligible for P5)"
   else
@@ -839,6 +843,13 @@ else
       if [[ -s "$rdir/human.bad" ]]; then
         f_verdict=fail f_stage=human f_why="the human report is not safe to print to a terminal"
         f_detail="$(cut -f2- "$rdir/human.bad")"
+      fi
+    fi
+    # P4 too, so a row the formatter's side fixed is a regression test.
+    if [[ "$f_verdict" == ok ]]; then
+      fmt_one "$axc" "$rdir/$stem.ax" "$ap"
+      if [[ "$f4_verdict" == fail ]]; then
+        f_verdict=fail f_stage=fmt f_why="P4: $f4_why" f_detail="$f4_detail"
       fi
     fi
     case "$status" in

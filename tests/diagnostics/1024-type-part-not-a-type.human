@@ -1,0 +1,21 @@
+[1;31merror[AX3002][0m[1m: a literal is not a type, and `cast` takes a type first[0m
+  [1;34m--> [0m1024-type-part-not-a-type.ax:15:27
+[1;34m   |[0m
+[1;34m15 |[0m   (vecLen (:: vecNew (Vec 2))))
+[1;34m   |[0m                           [1;31m^ not a type[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration
+  [1;34m = [0m[1;32mhelp: [0mwrite the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+[1;31merror[AX3002][0m[1m: this expression is not a type, and `cast` takes a type first[0m
+  [1;34m--> [0m1024-type-part-not-a-type.ax:19:13
+[1;34m   |[0m
+[1;34m19 |[0m   (:: 5 (if true Int Int)))
+[1;34m   |[0m             [1;31m^^^^ not a type[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration
+  [1;34m = [0m[1;32mhelp: [0mwrite the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3002` for a full explanation
+
+compilation failed due to 2 previous errors

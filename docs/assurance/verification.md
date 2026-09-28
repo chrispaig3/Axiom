@@ -152,7 +152,9 @@ refusal paths. About a sixth of its budget reaches code generation.
 
 These came from 10,600 mutants: seed 1 ×1,000 and seed 2 ×3,000 while
 the harness was built, then seed 20260927 ×600 and ×6,000 through the
-gate. P4 and P5 found the last two on the default run. Each is minimised in `tests/fuzz/` and listed in its `MANIFEST`,
+gate. P4 and P5 found the last nine: two on the default run, six on
+the first `--long` run with them, and one on the default run after
+the corpus grew. Each is minimised in `tests/fuzz/` and listed in its `MANIFEST`,
 and the gate replays every one.
 
 | Reproducer | What | Status |
@@ -166,6 +168,12 @@ and the gate replays every one.
 | `json-ax1001-partial-char.axfuzz`, `json-restrict-illformed.axfuzz` | `--diagnostic-format json` wrote ill-formed UTF-8: AX1001 quoted one byte of a multi-byte character, and AX3052 quoted a restriction tag's bytes verbatim. | **fixed**: the lexer's error token covers the whole character, and every renderer writes a byte that isn't UTF-8 as U+FFFD |
 | `pub-twice.axfuzz` | P4: `(pub pub :: f Int)` checked OK, because the parser skipped a second `pub`, and `fmt`, which has its own grammar, refused the file with no code. `pub` inside an expression was skipped the same way. | **fixed** (`self_host/parser.ax`); now AX2001 |
 | `match-arms-disagree.axfuzz` | P5: a `match` answered its last arm's type and compared no arm with another. A `String` arm in a function declared `Int` checked OK, and the program answered from the string's address: 208 at `--opt 0` and 176 at `--opt 2`. | **fixed** (`armJoin` in `self_host/typecheck.ax`): the arms are held to the first arm with a known type, as `if` holds its branches; now AX3004 |
+| `ascription-literal-arg.axfuzz` | P4: `(:: e (quietLet 2))` checked OK. A type in expression position that `exprToType` can't convert, such as a nested literal or an `if`, became the silent wildcard, which matches every type. | **fixed** (`castTypeBadPart`); now AX3002 at the part that isn't a type |
+| `data-params-then-list.axfuzz`, `data-params-names-only.axfuzz` | P4: `(data M a () (N))` took `()` as a second type-parameter list, and a group opening with a lowercase name was a parameter list whatever followed, so `(let ((x (f 1))) x)` declared the parameter `let`. | **fixed** (`collectBareTyParams`, `namesReachRParen`); now AX2001 |
+| `struct-field-one-type.axfuzz` | P4: `(y : Int Int Int)` checked OK as `Int`, because what followed a field's type was skipped. A `data` field type that didn't parse became the wildcard. | **fixed** (`fieldTyOverruns`, `parseFieldTypes`); now AX2001 |
+| `cast-surplus-flat.axfuzz` | P4: `(cast Int s s s)`, whose surplus operands apply the result, checked OK, and the formatter printed a cast with one value only. | **fixed** in the formatter, which prints the surplus |
+| `deep-field-chain.axfuzz` | P4: at the nesting limit, the formatter counts each `.name` link as a level and the parser doesn't, so `fmt` refused a file `check` accepted, with no code. | **fixed**: the formatter keeps its count, because its printer recurses per link, and refuses with AX2005 |
+| `operator-name-template.axfuzz` | P4: `=` is a name to this compiler's parser, and an unexpanded macro template isn't resolved, so `(macro (q x) (+ = 100))` checked OK. The formatter refused every operator outside the retired stage0 parser's list. | **fixed**: the formatter prints such a name as itself |
 
 No row is open. An open row would carry a signature, an extended regex
 over the failing tool's own words matched at the row's stage: a mutant

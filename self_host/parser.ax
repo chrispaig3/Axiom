@@ -3359,7 +3359,10 @@
           ; three type variables. The prefix is reserved
           ; (MAC-CAP-6), so declining it here costs nothing and
           ; is the same test the other positions make.
-          (if (|| (identStartsUpper tokens inPos) (strStartsWith (tokenLexeme (vecGet tokens inPos)) "syntax/"))
+          ; And only names: `(let ((x ...)) x)` opens with a lowercase
+          ; name too, and was taken as the parameter list `let` with the
+          ; rest skipped.
+          (if (|| (identStartsUpper tokens inPos) (|| (strStartsWith (tokenLexeme (vecGet tokens inPos)) "syntax/") (== (namesReachRParen tokens inPos) 0)))
             pos
             (let ((r (skipParens tokens inPos 1)))
               (if (== (memGetWord r 0) 0)
@@ -3369,14 +3372,31 @@
                   (memGetWord r 2)
                 })))
           pos)))
+    (collectBareTyParams tokens pos tvs)))
+
+; Bare type parameters, `(data Tree a (Leaf) (Node a))`: a run of
+; lowercase names, and only names. A parenthesised list after them
+; used to be taken as a second parameter list, so `a ()` declared the
+; empty list as parameters where the formatter refused it.
+(pub :: collectBareTyParams (-> (Vec Int) Int (Vec String) Int))
+(pub fn (collectBareTyParams tokens pos tvs)
+  (if (peekIs tokens pos TK_IDENT)
+    (if (identStartsUpper tokens pos)
+      pos
+      {
+        (vecPush tvs (tokenLexeme (vecGet tokens pos)))
+        (collectBareTyParams tokens (advance pos) tvs)
+      })
+    pos))
+
+; 1 when the tokens from `pos` are names up to a `)`.
+(pub :: namesReachRParen (-> (Vec Int) Int Int))
+(pub fn (namesReachRParen tokens pos)
+  (if (peekIs tokens pos TK_RPAREN)
+    1
     (if (peekIs tokens pos TK_IDENT)
-      (if (identStartsUpper tokens pos)
-        pos
-        {
-          (vecPush tvs (tokenLexeme (vecGet tokens pos)))
-          (collectTyParams tokens (advance pos) tvs)
-        })
-      pos)))
+      (namesReachRParen tokens (advance pos))
+      0)))
 
 (pub :: collectIdentsUntilRParen (-> (Vec Int) Int (Vec String) Int))
 (pub fn (collectIdentsUntilRParen tokens pos tvs)
@@ -3578,32 +3598,24 @@
         (mkCtor ctorName (vecLen flags) flags)
         (cast Int tys))
       (advance pos))
-    (if (peekIs tokens pos TK_IDENT)
-      {
-        (vecPush flags (identIsFloat tokens pos))
-        (vecPush tys (typeNodeOrWildcard (parseTypeAtom tokens pos)))
-        (parseFieldTypes
-          tokens
-          (advance pos)
-          flags
-          ctorName
-          tys)
-      }
-      (if (peekIs tokens pos TK_LPAREN)
-        (let ((afterSkip (skipParens tokens (advance pos) 1)))
-          (if (== (memGetWord afterSkip 0) 0)
-            afterSkip
-            {
-              (vecPush flags 0)
-              (vecPush tys (typeNodeOrWildcard (parseType tokens pos)))
-              (parseFieldTypes
-                tokens
-                (memGetWord afterSkip 2)
-                flags
-                ctorName
-                tys)
-            }))
-        (pErr pos)))))
+    ; A field type that does not parse is refused where it stands. It
+    ; used to become the silent wildcard, which matches every type, so
+    ; `(Lo (Vec 1))` declared a field of any type at all.
+    (if (|| (peekIs tokens pos TK_IDENT) (peekIs tokens pos TK_LPAREN))
+      (let ((tr (parseType tokens pos)))
+        (if (== (memGetWord tr 0) 0)
+          tr
+          {
+            (vecPush flags (if (peekIs tokens pos TK_IDENT) (identIsFloat tokens pos) 0))
+            (vecPush tys (memGetWord tr 1))
+            (parseFieldTypes
+              tokens
+              (memGetWord tr 2)
+              flags
+              ctorName
+              tys)
+          }))
+      (pErr pos))))
 
 ; A parsed type, or the silent wildcard for one the grammar cannot
 ; represent - the checker treats a nameless TVar as matching anything
@@ -3807,6 +3819,15 @@
     0
     1))
 
+; Did a field's type parse, and something other than `)` follow it?
+(pub :: fieldTyOverruns (-> (Vec Int) Int Bool))
+(pub fn (fieldTyOverruns tokens tr)
+  (if (== (memGetWord tr 0) 0)
+    false
+    (if (peekIs tokens (memGetWord tr 2) TK_RPAREN)
+      false
+      true)))
+
 (pub :: parseOneFieldNamed (-> (Vec Int) Int Int))
 (pub fn (parseOneFieldNamed tokens pos)
   (let ((nr (parseIdentName tokens pos)))
@@ -3835,14 +3856,24 @@
             (let ((fl (identIsFloat tokens (advance nextPos))))
               (if (peekIs tokens (advance (advance nextPos)) TK_RPAREN)
                 (pOk (setNodeSpan (setNodeTy (mkField fieldName fl) fieldTy) (tokenSpan (vecGet tokens pos))) (advance (advance (advance nextPos))))
-                (let ((r (skipParens tokens (advance (advance nextPos)) 1)))
-                  (if (== (memGetWord r 0) 0)
-                    r
-                    (pOk (setNodeSpan (setNodeTy (mkField fieldName fl) fieldTy) (tokenSpan (vecGet tokens pos))) (memGetWord r 2))))))
-            (let ((afterSkip (skipParens tokens nextPos 1)))
-              (if (== (memGetWord afterSkip 0) 0)
-                afterSkip
-                (pOk (setNodeSpan (setNodeTy (mkField fieldName 0) fieldTy) (tokenSpan (vecGet tokens pos))) (memGetWord afterSkip 2))))))))))
+                ; A field has one type. What followed it used to be
+                ; skipped, so `(y : Int Int)` declared an `Int`.
+                (let ((tr (parseType tokens (advance nextPos))))
+                  (if (fieldTyOverruns tokens tr)
+                    (pErrExp (memGetWord tr 2) "`)` - a field has one type")
+                    (let ((r (skipParens tokens (advance (advance nextPos)) 1)))
+                      (if (== (memGetWord r 0) 0)
+                        r
+                        (pOk (setNodeSpan (setNodeTy (mkField fieldName fl) fieldTy) (tokenSpan (vecGet tokens pos))) (memGetWord r 2))))))))
+            (let (
+              (afterSkip (skipParens tokens nextPos 1))
+              (tr (if (peekIs tokens nextPos TK_COLON) (parseType tokens (advance nextPos)) 0))
+            )
+              (if (&& (!= tr 0) (fieldTyOverruns tokens tr))
+                (pErrExp (memGetWord tr 2) "`)` - a field has one type")
+                (if (== (memGetWord afterSkip 0) 0)
+                  afterSkip
+                  (pOk (setNodeSpan (setNodeTy (mkField fieldName 0) fieldTy) (tokenSpan (vecGet tokens pos))) (memGetWord afterSkip 2)))))))))))
 
 ; ------------------------------------------------------------------
 ; Parse (macro (name params...) template)

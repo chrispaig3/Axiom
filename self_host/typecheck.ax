@@ -11553,7 +11553,7 @@
         0)
       (if (strEq hname "cast")
         (if (>= (vecLen args) 1)
-          (if (== (castTypeIsLiteral (vecGet args 0)) 1)
+          (if (!= (castTypeBadPart (vecGet args 0)) 0)
             ; A LITERAL cannot name a type, and `exprToType`
             ; answers the SILENT WILDCARD for every shape it
             ; cannot convert - a type that unifies with anything,
@@ -11572,8 +11572,10 @@
                 SEV_ERROR
                 "AX3002"
                 "undefined-type"
-                (spanOf (vecGet args 0))
-                "a literal is not a type, and `cast` takes a type first"
+                (spanOf (castTypeBadPart (vecGet args 0)))
+                (if (== (castTypeIsLiteral (castTypeBadPart (vecGet args 0))) 1)
+                  "a literal is not a type, and `cast` takes a type first"
+                  "this expression is not a type, and `cast` takes a type first")
                 0
                 0
                 "write the type to cast TO - `(cast Int e)` - or, for an ascription, `(:: e Int)`"
@@ -11710,6 +11712,35 @@
       (if (|| (== t TAG_E_INT) (|| (== t TAG_E_STR) (|| (== t TAG_E_FLT) (== t TAG_E_CHAR))))
         1
         0))))
+
+; The first part of a type written in expression position that can't
+; be one, or 0. A type is a name, or a name applied to types, and
+; `exprToType` answers the silent wildcard for anything else: a
+; literal, an `if`, a lambda, or a literal nested as an argument, as in
+; `(:: e (Vec 2))`. The wildcard unifies with everything, so each of
+; those typed a value as anything at all.
+(pub :: castTypeBadPart (-> Int Int))
+(pub fn (castTypeBadPart e)
+  (if (== e 0)
+    0
+    (let ((t (nodeTag e)))
+      (if (== t TAG_E_VAR)
+        0
+        (if (== t TAG_E_APP)
+          (let ((head (spineHead e)))
+            (if (!= (nodeTag head) TAG_E_VAR)
+              head
+              (castTypeBadArgs (spineArgVec e vecNew) 0)))
+          e)))))
+
+(pub :: castTypeBadArgs (-> (Vec Int) Int Int))
+(pub fn (castTypeBadArgs args i)
+  (if (>= i (vecLen args))
+    0
+    (let ((b (castTypeBadPart (vecGet args i))))
+      (if (!= b 0)
+        b
+        (castTypeBadArgs args (+ i 1))))))
 
 (pub :: exprToType (-> Int Int))
 (pub fn (exprToType e)

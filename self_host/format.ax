@@ -2148,11 +2148,10 @@
 (pub fn (fpIsRemovedDeclHead t)
   (|| (strEq t "trait") (strEq t "impl")))
 
-; The operator spellings stage0's parser turns into expression values
-; (`parse_expr_at_depth`'s token list), exactly and only. `$` lexes as
-; the `!` token and prints as `!`. Any other operator run in
-; expression position is a stage0 parse error, so it answers "" and
-; the caller refuses - `=`, `->`, `~>` and `>>=` are all refusals.
+; The operator spellings stage0's parser turned into expression values
+; (`parse_expr_at_depth`'s token list). `$` lexes as the `!` token and
+; prints as `!`. Any other operator run answers "", and the caller
+; prints it as the name this compiler's parser reads it as.
 (pub :: fpOperSpelling (-> String String))
 (pub fn (fpOperSpelling t)
   (if (strEq t "+")
@@ -3137,9 +3136,13 @@
         (if (== tk FT_IDENT)
           (let ((t (fnText src n)))
             (if (isFOperChar (strByte src (fnStart n)))
+              ; Any other operator run is a name to this compiler's
+              ; parser, so it prints as itself. `check` resolves it
+              ; like any name, and a macro template, which `check`
+              ; doesn't resolve until it expands, may hold one.
               (let ((s (fpOperSpelling t)))
                 (if (== (strLen s) 0)
-                  (fpBad p)
+                  (fpP p t)
                   (fpP p s)))
               ; A bare name prints as itself whatever it spells:
               ; `data`, `match` and `where` are identifiers here, not
@@ -3316,15 +3319,29 @@
                                                 (fpBad p))
                                               (if (strEq h "cast")
                                                 (let ((vals (fpExprElems n 2)))
-                                                  (if (|| (< (fnLen n) 3) (!= (vecLen vals) 1))
+                                                  (if (|| (< (fnLen n) 3) (== (vecLen vals) 0))
                                                     (fpBad p)
-                                                    {
-                                                      (fpP p "(cast ")
-                                                      (fpType p (fnKid n 1))
-                                                      (fpP p " ")
-                                                      (fpExpr p (vecGet vals 0))
-                                                      (fpP p ")")
-                                                    }))
+                                                    (if (== (vecLen vals) 1)
+                                                      {
+                                                        (fpP p "(cast ")
+                                                        (fpType p (fnKid n 1))
+                                                        (fpP p " ")
+                                                        (fpExpr p (vecGet vals 0))
+                                                        (fpP p ")")
+                                                      }
+                                                      ; Operands past the value apply the
+                                                      ; cast's result: the parser reads
+                                                      ; `(cast T f x)` as `((cast T f) x)`.
+                                                      ; Printed as written, on one line, so
+                                                      ; the output is its own fixed point.
+                                                      {
+                                                        (fpP p "(cast ")
+                                                        (fpType p (fnKid n 1))
+                                                        (fpP p " ")
+                                                        (fpExpr p (vecGet vals 0))
+                                                        (fpCastSurplus p vals 1)
+                                                        (fpP p ")")
+                                                      })))
                                                 (if (strEq h "::")
                                                   (let ((elems (fpExprElems n 1)))
                                                     (if (!= (vecLen elems) 2)
@@ -3891,6 +3908,17 @@
                                   (fnStart (fnKid n 1))
                                   0)
                                 (fpAnchor src (fnKid n 0))))))))))))))))))
+
+; The operands a `cast` applies its result to, each after a space.
+(pub :: fpCastSurplus (-> Int (Vec Int) Int Int))
+(pub fn (fpCastSurplus p vals i)
+  (if (>= i (vecLen vals))
+    0
+    {
+      (fpP p " ")
+      (fpExpr p (vecGet vals i))
+      (fpCastSurplus p vals (+ i 1))
+    }))
 
 ; ------------------------------------------------------------------
 ; Declarations.
@@ -5280,8 +5308,12 @@
         ; refusal this function already has for every input it cannot
         ; print, so a file too deep to format is left untouched and
         ; exits 1, where it used to take the process down with SIGNAL 11.
+        ; The refusal names AX2005 in its text slot, which a refusal
+        ; otherwise leaves empty: counting each `.name` link as a level,
+        ; this walk refuses some files `check` accepts, and the driver
+        ; says so with the code rather than a bare refusal.
         (if (>= (fNestOverflow (fsToksVec sc) parseMaxDepth) 0)
-          (cast Int (FRes 0 ""))
+          (cast Int (FRes 0 "AX2005"))
           (let ((forms (readForms src (fsToksVec sc))))
             (if (==
               (cast Int forms)

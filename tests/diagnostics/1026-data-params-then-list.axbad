@@ -1,0 +1,11 @@
+; Bare type parameters are a run of names. A parenthesised list after
+; them was taken as a second parameter list, so `()` here declared
+; nothing and `check` accepted the file (tests/fuzz/data-params-then-list.axfuzz).
+; It is a constructor with no name now: AX2001 at the `)`.
+(data M9 a
+  ()
+  (N9))
+
+(:: main Int)
+(fn (main)
+  0)

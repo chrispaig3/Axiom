@@ -1,0 +1,4 @@
+(:: main Int)
+(fn (main)
+  (let ((s 5))
+    (cast Int s s s)))

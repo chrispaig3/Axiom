@@ -1,0 +1,10 @@
+; A struct field has one type. What followed it used to be skipped, so
+; this declared `y` an `Int` and `check` accepted the file
+; (tests/fuzz/struct-field-one-type.axfuzz). AX2001 at the second type.
+(struct P
+  (x : Int)
+  (y : Int Int))
+
+(:: main Int)
+(fn (main)
+  0)

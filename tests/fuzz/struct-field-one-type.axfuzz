@@ -1,0 +1,7 @@
+(struct P
+  (x : Int)
+  (y : Int Int Int))
+
+(:: main Int)
+(fn (main)
+  0)

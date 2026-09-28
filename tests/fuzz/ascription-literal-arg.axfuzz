@@ -1,0 +1,11 @@
+(:: quietLet (-> Int Int))
+(fn (quietLet n)
+  0)
+
+(:: main Int)
+(fn (main)
+  (::
+    (if true
+      1
+      0)
+    (quietLet 2)))

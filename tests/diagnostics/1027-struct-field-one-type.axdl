@@ -1,0 +1,1 @@
+E AX2001 1027-struct-field-one-type.ax:6:12-15 unexpected-token "expected `)` - a field has one type, found `Int`" #"found `Int` here" ?"Axiom expected `)` - a field has one type at this position"

@@ -235,7 +235,8 @@ was due; a `set` with no target; a signature whose arrow has no
 parameter type (`(-> Int)`), or a type trailing the result; a `for`
 with more than one body or a `parallel` binding marked `mut`; an
 `extern` item with no `:: type`, or with a clause the block does not
-take; a `pub` written twice, or inside an expression; and a file whose top level opens with something other than `(`.
+take; a `pub` written twice, or inside an expression; a field with a
+second type, or a literal where a field type goes; and a file whose top level opens with something other than `(`.
 Several of those messages say what the right shape is in the
 expectation itself, so read it in full.
 

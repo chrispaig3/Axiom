@@ -1788,7 +1788,9 @@
                           0
                           (let ((res (fmtFormat src)))
                             (if (== (fzOk res) 0)
-                              (die (cat2 f " was not rewritten: formatter refusal\n") 1)
+                              (if (strEq (fzText res) "AX2005")
+                                (die (cat3 "error[AX2005]: nesting is too deep for the formatter (limit is 1024); it counts each `.name` and `Mod::name` link as a level\n" f " was not rewritten: formatter refusal\n") 1)
+                                (die (cat2 f " was not rewritten: formatter refusal\n") 1))
                               (let ((text (fzText res)))
                                 (if (hasFlagAnywhere cmd "--check")
                                   (if (strEq src text)

@@ -1,0 +1,27 @@
+; A type written in expression position - `cast`'s first argument, and
+; so an ascription `(:: e T)` - is a name or a name applied to types.
+; Any other part used to become the silent wildcard, which matches
+; every type, so the value was typed as anything at all. A literal at
+; the top was already refused (1019); one nested as an argument, and
+; an `if`, were not (tests/fuzz/ascription-literal-arg.axfuzz).
+;
+;   nested  `(Vec 2)`: AX3002 at the `2`.
+;   form    an `if` where the type stands: AX3002 at the `if`.
+;   ok      `(Vec Int)` is a type, and the control checks.
+(import Vec)
+
+(:: nested Int)
+(fn (nested)
+  (vecLen (:: vecNew (Vec 2))))
+
+(:: form Int)
+(fn (form)
+  (:: 5 (if true Int Int)))
+
+(:: ok Int)
+(fn (ok)
+  (vecLen (:: vecNew (Vec Int))))
+
+(:: main Int)
+(fn (main)
+  (+ (nested) (+ (form) (ok))))

@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected type, found `1`","file":"1025-data-field-not-a-type.ax","span":{"start":{"line":7,"col":12},"end":{"line":7,"col":13},"char_start":300,"char_end":301},"label":"found `1` here","related":[],"notes":[],"help":["Axiom expected type at this position"],"expansion":[]}

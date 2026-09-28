@@ -1,0 +1,12 @@
+; A `data` constructor's field type that does not parse is refused
+; where it stands. It used to become the silent wildcard, which
+; matches every type, so `(Lo (Vec 1))` declared a field of any type
+; at all and `check` accepted a file the formatter refused. AX2001 at
+; the `1`.
+(data M
+  (Lo (Vec 1))
+  (N))
+
+(:: main Int)
+(fn (main)
+  0)

@@ -22,6 +22,58 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Seven more places `check` and `fmt` disagreed, and two more type holes — `scripts/check-fuzz.sh` P4, R-E1 - 2026-09-28
+
+The first `--long` run with P4 found six programs `check` accepted and
+`fmt` refused with no code, and the default run found a seventh after
+the corpus grew. In four of them `check` was wrong:
+
+- **A type written in expression position became the wildcard.**
+  `(:: e T)` is `(cast T e)`, and `exprToType` answered the silent
+  wildcard, which matches every type, for any part it couldn't
+  convert: a literal nested as an argument, `(:: e (quietLet 2))`, or
+  an `if`. A top-level literal was already refused. `castTypeBadPart`
+  now refuses every such part as `AX3002`, at the part.
+  `tests/diagnostics/1024-type-part-not-a-type.ax`.
+- **A field type that didn't parse became the wildcard.** In a `data`
+  constructor, `(Lo (Vec 1))` declared a field of any type, because
+  `typeNodeOrWildcard` swallowed the parse failure. A struct field
+  skipped whatever followed its type, so `(y : Int Int)` was an `Int`.
+  Both are `AX2001` now. `tests/diagnostics/1025-data-field-not-a-type.axbad`,
+  `1027-struct-field-one-type.axbad`.
+- **Type-parameter lists were read too eagerly.** After bare
+  parameters, `(data M a () (N))` took `()` as a second list, and a
+  group that opened with a lowercase name was a list whatever followed,
+  so `(let ((x (f 1))) x)` among constructors declared the parameter
+  `let` and skipped the rest. A list is names up to `)`, after bare
+  names only names follow, and both are `AX2001`.
+  `tests/diagnostics/1026-data-params-then-list.axbad`.
+
+In three, `fmt` was wrong:
+
+- `(cast Int s s s)`, whose surplus operands apply the cast's result as
+  `((cast Int s) s s)` does, checked OK, and the formatter printed a
+  cast with one value only. It prints the surplus now.
+- `=`, and any operator outside the retired stage0 parser's list, is a
+  name to this compiler's parser, and a macro template isn't resolved
+  until it expands, so `(macro (q x) (+ = 100))` checked OK. The
+  formatter prints such a name as itself.
+  `tests/fmt/parity/071-eq-in-expr.axp` is formatted rather than
+  refused, and `check` still refuses it (`AX3001`).
+- At the nesting limit the formatter counts each `.name` link as a
+  level and the parser doesn't, so 1,019 parentheses around `p.y`
+  checked OK and `fmt` refused with no code. The formatter keeps its
+  count, because its printer recurses once per link, and says so with
+  `AX2005`.
+
+Each is a reproducer in `tests/fuzz/`, and the replay now holds a
+fixed row to P4 as well, so a formatter-side fix has a regression test.
+The P4 and P5 controls draw their mutant from those that passed the
+property: the miscompile control had drawn one whose run hit the
+output limit, which is inconclusive with or without a plant. The whole
+tracked corpus checks and formats exactly as before. AN-25 to AN-28
+close. After the fixes: 600 mutants 43/43.
+
 ### A race detector over the thread lowering — `scripts/check-race.sh`, R-E1 - 2026-09-28
 
 ThreadSanitizer runs over `--threads` programs. The gate emits each

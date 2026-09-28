@@ -1,0 +1,8 @@
+(data Shade
+  (let ((seg (f 1)))
+    seg)
+  (Dim))
+
+(:: main Int)
+(fn (main)
+  0)
