@@ -2,16 +2,18 @@
 
 Every error the compiler reports, classified by the invariant it
 protects, and the decisions taken on the refusals in question.
-`explain --list` reports 92 codes: 81 errors and 11 warnings. The
+`explain --list` reports 94 codes: 83 errors and 11 warnings. The
 classes come from probing the compiler, not from reading the code.
 The probes are in the audit work in this file's history, and each
 decided case names the test that pins it.
 
-- **S**: required for soundness, memory safety or valid semantics. 66
-  codes, all retained.
-- **T**: a real target or ABI limitation. 4 codes, all retained:
+- **S**: required for soundness, memory safety or valid semantics. 67
+  codes, all retained. The newest is `AX3076`, an `effect(...)` tag
+  naming two effects, which no body could satisfy.
+- **T**: a real target or ABI limitation. 5 codes, all retained:
   `AX3026` (runtime symbol reservation), `AX3036` (one-word FFI
-  boundary), `AX4003` (toolchain ran) and `AX4006` (thread lowering).
+  boundary), `AX4003` (toolchain ran), `AX4006` (thread lowering) and
+  `AX4008` (a device instruction the target can't execute).
 - **M**: a missing implementation. 7 codes plus 9 secondary arms.
   Each names a real program that is refused today.
 - **O**: obsolete or over-broad. 4 codes plus 9 secondary arms. Each
