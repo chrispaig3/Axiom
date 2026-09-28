@@ -736,9 +736,12 @@ else:
 
 # `PROSE_DOCS` arrives from `gate_prose_docs`; compare it against the
 # tree rather than trusting it. A document under `docs/` that is not in
-# the list is compiled by nothing and cited-checked by nothing.
-on_disk = {os.path.join("docs", f)
-           for f in os.listdir("docs") if f.endswith(".md")}
+# the list is compiled by nothing and cited-checked by nothing. The walk
+# goes into subdirectories: it read `docs/` one level deep, so the
+# fifteen pages of `docs/assurance/` - the qualification package, whose
+# every row cites a path - were in no sweep and could not be put in one.
+on_disk = {os.path.join(r, f)
+           for r, _, fs in os.walk("docs") for f in fs if f.endswith(".md")}
 listed = {d for d in PROSE_DOCS if d.startswith("docs/")}
 unswept = sorted(on_disk - listed)
 phantom = sorted(listed - on_disk)

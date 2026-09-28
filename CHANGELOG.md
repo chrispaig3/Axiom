@@ -22,6 +22,44 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The qualification-readiness package — `docs/assurance/` - 2026-09-28
+
+R-E2: the documents a qualification effort starts from, each written
+against the tree as it stands and each saying what it doesn't
+establish. `hazards.md` is a component-level failure-mode analysis of
+the compiler, runtime, concurrency, embedded port and evidence tools,
+every control naming the gate or fixture that exercises it.
+`threats.md` applies STRIDE to seven trust boundaries.
+`trusted-components.md` lists the toolchain (unpinned rows marked), the 19
+runtime functions a bare-metal program carries, the 26 `Unsafe`
+primitives and the 102 `effect(unsafe)` declarations, each count with
+the command that re-derives it. `tool-qualification.md` states TOR-1 to
+TOR-7, the compiler's measured block coverage (41.6% of 60,864 blocks
+over its own corpora, not MC/DC), and a strategy per standard written
+from AMC 20-193's public text only: DO-178C, DO-330, ISO 26262,
+IEC 61508 and ECSS weren't consulted in licensed text, and the page
+says so. `safety-manual.md` is the integrator's page: the guarantee's
+boundary, rules for restricted and hosted concurrent builds, what each
+trap status means and what the system must decide. `anomalies.md`
+holds 11 open rows and 19 closed ones, each with its evidence;
+`support-policy.md` sets configuration, change-impact and anomaly
+management; `demonstrators.md` maps the six requested demonstrators to
+programs and gates (four built, two open as R-D2c). `requirements.md`
+gains verified rows for R-C2, R-D1, R-D2a, R-D2b, R-E1 and R-E2, and
+`scorecard.md` is re-derived from this battery.
+
+Writing it found two false claims in the drafts, both corrected against
+the tree: the emitter does not quote every IR name, only those LLVM
+doesn't accept bare (an identifier can't hold `"` or `\`, so none can
+close its quotes), and `check-embedded.sh` A11 is six checks, not 31.
+
+The fifteen pages were in no prose sweep and could not be put in one:
+`check-doc-drift.sh` compared `gate_prose_docs` against `docs/` one
+level deep. It now walks subdirectories, the pages are registered, and
+the sweep's first run found two paragraphs making a negative claim
+about fixtures with no path (fixed). Ablated: an unregistered
+`docs/assurance/` page is reported.
+
 ### A mutex, timed waits, and a bounded task pool — `stdlib/Sync.ax`, `stdlib/Task.ax`, `scripts/check-task.sh` - 2026-09-28
 
 R-C2's open half: until this, no mutex or timed wait existed, a thread

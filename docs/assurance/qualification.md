@@ -1,8 +1,8 @@
 # Qualification strategy
 
 This page sets out how the repository's evidence could one day support
-a qualification argument, and what is missing. It is a strategy
-skeleton, not a claim: no configuration here is qualified. §4 keeps
+a qualification argument, and what is missing. No configuration here
+is qualified. The detailed pages are listed in §3, and §4 keeps
 machine-assisted work separate from the independent assessment that
 every standard below requires.
 
@@ -55,15 +55,16 @@ Nothing here is legal or certification advice.
 
 | Artifact | State |
 |---|---|
-| Requirements-to-design-to-code-to-test traceability | Skeleton: [requirements.md](requirements.md) and plan findings F1–F12 |
-| Hazard analysis / security threat analysis | Absent |
-| Trusted-component list | Partial: seed chain, `llc`/`cc`, pinned Rust; no version-pinned LLVM |
-| Tool operational requirements and qualification strategy | This page, strategy only |
-| Verification independence | §4: not satisfied by repository evidence alone |
-| Structural coverage evidence | Absent (no coverage runs exist) |
-| Configuration management / change impact / anomaly tracking | Partial: git history and the gates; no anomaly log yet |
-| Known limitations / errata / user safety manual | Partial: the gaps in [scorecard.md](scorecard.md) and the stated `MM-PAR-7` limits; no safety manual |
-| Support / vulnerability-response / regression policy | Absent |
+| Requirements-to-design-to-code-to-test traceability | [requirements.md](requirements.md): each guarantee to its rule, implementation, owner, evidence and gaps |
+| Hazard analysis and security threat analysis | [hazards.md](hazards.md) and [threats.md](threats.md), at component level. The system analyses are the integrator's |
+| Trusted-component list | [trusted-components.md](trusted-components.md). The toolchain isn't version-pinned by the repository |
+| Tool operational requirements and qualification strategy | [tool-qualification.md](tool-qualification.md): TOR-1 to TOR-7 and a strategy per standard, from public text only |
+| Verification independence | Not satisfied by repository evidence (§4) |
+| Structural coverage evidence | Block coverage of the compiler's own object code (`scripts/measure-coverage.sh`). No decision coverage or MC/DC, and none of an application's code |
+| Configuration management, change impact and anomaly tracking | [support-policy.md](support-policy.md) and [anomalies.md](anomalies.md) |
+| Known limitations, errata and a user safety manual | [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), and the Gaps column of [requirements.md](requirements.md) |
+| Support, vulnerability-response and regression policy | [support-policy.md](support-policy.md) and [SECURITY.md](../../SECURITY.md) |
+| Demonstrators | [demonstrators.md](demonstrators.md): four of six built and gated |
 
 ## 4. AI-assisted work is not independent assessment
 
@@ -84,14 +85,14 @@ approved, and no document here says it is.
 
 In dependency order:
 
-1. An anomaly log.
-2. Hazard and threat analyses.
-3. The open fuzzing findings (R-E1, `tests/fuzz/MANIFEST`).
-4. Sanitizer and coverage runs on the hosted configurations.
-5. The rest of R-C2: mutex, timeout, cancellation and typed results.
-   The channel (R-C2a) and the machine-code inspection of the atomics
-   (R-C3) have landed.
-6. The restricted embedded profile, with its resource report (R-D1).
-7. QEMU execution evidence, marked as emulator evidence (R-D2).
-8. Only then, a per-standard tool-qualification argument over a frozen
-   configuration.
+1. The two runtime fixes of R-C5: a process-wide sweep of process
+   children on an unrecovered trap under `--threads`, and threads
+   inside forked children on Darwin.
+2. The periodic and DMA demonstrators of R-D2c, under QEMU.
+3. Sanitizer and race-detector runs on the hosted configurations, and
+   a scheduled `--long` fuzzing run.
+4. Hardware execution on a named board, recorded apart from QEMU runs.
+5. Frozen toolchain versions for one reference configuration.
+6. Only then, a per-standard tool-qualification argument over that
+   frozen configuration, written against the licensed standards and
+   reviewed independently.
