@@ -163,7 +163,7 @@ export function Demo() {
             <i />
           </span>
           <span className="demo__title" id="demo-title">
-            axiom — a terminal session, played back
+            shapes.ax — from source to executable
           </span>
           <span className="demo__rec" data-on={playing} aria-hidden>
             {playing ? 'PLAY' : 'PAUSE'}

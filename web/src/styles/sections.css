@@ -1,134 +1,4 @@
 /* ================================================================ *
- * Hero
- * ================================================================ */
-
-.hero {
-  position: relative;
-  /* Its own stacking context, so the backdrop's negative z-index sits
-     behind the hero's content and never above it. */
-  isolation: isolate;
-  padding-block: clamp(2rem, 4vw, 3.25rem) clamp(3.5rem, 6vw, 5rem);
-  overflow: hidden;
-}
-
-/* A phosphor grid fading out from the top, under two soft glows. */
-.hero__bg {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background:
-    radial-gradient(42rem 26rem at 20% -8%, var(--glow-a), transparent 70%),
-    radial-gradient(40rem 24rem at 84% 2%, var(--glow-b), transparent 70%);
-  pointer-events: none;
-}
-
-.hero__bg::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(to right, var(--border) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(75% 60% at 50% 0%, #000 0%, transparent 78%);
-  -webkit-mask-image: radial-gradient(75% 60% at 50% 0%, #000 0%, transparent 78%);
-  opacity: 0.55;
-}
-
-.hero__lead {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  max-width: 66rem;
-  margin-inline: auto;
-  text-align: center;
-}
-
-.banner {
-  margin: 0 0 var(--s-3);
-  font-family: var(--font-mono);
-  font-size: clamp(7px, 1.9vw, 14px);
-  font-weight: 400;
-  line-height: 1.02;
-  letter-spacing: 0;
-  background: var(--grad);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 0 14px var(--glow-a));
-  user-select: none;
-}
-
-.boot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.6ch;
-  margin: 0 0 var(--s-4);
-  color: var(--text-3);
-  font-family: var(--font-pixel);
-  font-size: 1.3rem;
-  line-height: 1;
-  letter-spacing: 0.06em;
-}
-
-.boot a {
-  color: var(--text-2);
-}
-
-.boot__ready {
-  color: var(--accent);
-  text-shadow: var(--bloom);
-}
-
-.cursor {
-  display: inline-block;
-  width: 0.55em;
-  height: 0.82em;
-  margin-left: 0.14em;
-  vertical-align: -0.04em;
-  background: var(--accent);
-  box-shadow: var(--bloom);
-  animation: axblink 1.1s steps(1) infinite;
-}
-
-.hero h1 {
-  font-size: clamp(1.9rem, 0.9rem + 2.5vw, 3.1rem);
-}
-
-.hero__lede {
-  max-width: 50rem;
-  margin: var(--s-4) 0 0;
-  color: var(--text-2);
-  font-size: clamp(var(--t-1), 0.95rem + 0.4vw, 1.2rem);
-  line-height: 1.6;
-}
-
-.hero__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--s-3);
-  margin-top: var(--s-5);
-}
-
-.hero__stage {
-  margin-top: clamp(var(--s-5), 3vw, var(--s-6));
-}
-
-.hero__install {
-  max-width: 46rem;
-  margin: var(--s-6) auto 0;
-  text-align: center;
-}
-
-.hero__note {
-  margin: var(--s-3) 0 0;
-  color: var(--text-3);
-  font-size: var(--t--1);
-}
-
-/* ================================================================ *
  * The demo: a terminal session played back (src/components/Demo.tsx)
  * ================================================================ */
 
@@ -146,35 +16,6 @@
     var(--ink-bg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
-}
-
-/* The glass: scanlines, a vignette, and a faint band rolling down it. */
-.demo__screen::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  background:
-    radial-gradient(130% 110% at 50% 50%, transparent 62%, rgba(0, 0, 0, 0.5) 100%),
-    repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, var(--scan)) 2px 3px);
-  pointer-events: none;
-}
-
-.demo__screen::before {
-  content: '';
-  position: absolute;
-  inset: -20% 0 auto;
-  z-index: 3;
-  height: 18%;
-  background: linear-gradient(to bottom, transparent, rgba(61, 255, 143, 0.035), transparent);
-  animation: axroll 8s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes axroll {
-  to {
-    transform: translateY(700%);
-  }
 }
 
 .demo__bar {
@@ -591,39 +432,8 @@
 
 .pillar:hover {
   border-color: var(--accent-line);
-  box-shadow: 0 0 0 1px var(--accent-line), 0 0 36px -14px var(--accent);
+  box-shadow: 0 16px 40px -25px rgba(0, 0, 0, .5);
   transform: translateY(-2px);
-}
-
-/* Bracket corners, as a terminal UI draws a box. */
-.pillar::before,
-.pillar::after {
-  content: '';
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  border: 0 solid var(--accent);
-  opacity: 0.7;
-  transition: opacity 180ms ease;
-}
-
-.pillar::before {
-  top: -1px;
-  left: -1px;
-  border-top-width: 2px;
-  border-left-width: 2px;
-}
-
-.pillar::after {
-  right: -1px;
-  bottom: -1px;
-  border-right-width: 2px;
-  border-bottom-width: 2px;
-}
-
-.pillar:hover::before,
-.pillar:hover::after {
-  opacity: 1;
 }
 
 .pillar__icon {
@@ -1299,7 +1109,7 @@
   height: 2.2rem;
   border-radius: 50%;
   background: var(--grad);
-  color: #fff;
+  color: var(--text-inverse);
   font-family: var(--font-mono);
   font-weight: 700;
 }

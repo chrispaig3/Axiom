@@ -1,0 +1,170 @@
+/* Landing-page composition and restrained, compositor-friendly motion. */
+.hero { position: relative; isolation: isolate; overflow: hidden; padding: 0 0 38px; }
+.hero__bg { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at 80% 13%, var(--accent-soft), transparent 42%); }
+.hero__opening { display: grid; grid-template-columns: 1.35fr 1fr; align-items: center; gap: 12px; padding: 64px 0 56px; }
+.hero__lead { position: relative; z-index: 1; min-width: 0; }
+.release-link { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 9px; color: var(--text-2); text-decoration: none; font-size: 11px; }
+.release-link__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.release-link__sep { color: var(--border-strong); margin-inline: 3px; }
+.hero__eyebrow { margin: 40px 0 20px; color: var(--text-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .17em; text-transform: uppercase; }
+.hero h1 { font-size: clamp(2.8rem, 5.3vw, 4.7rem); font-weight: 600; line-height: 1.075; letter-spacing: -.065em; text-wrap: initial; }
+.hero h1 span { color: var(--accent); }
+.hero__lede { max-width: 510px; margin: 26px 0 0; font-size: 17px; line-height: 1.8; }
+.hero__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 30px; }
+.hero__audience { margin: 19px 0 0; color: var(--text-3); font-size: 11px; }
+.hero__principles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); border-block: 1px solid var(--border); }
+.hero__principles a { display: grid; position: relative; gap: 8px; padding: 25px 28px; color: var(--text); text-decoration: none; transition: background .2s; }
+.hero__principles a:first-child { padding-left: 0; }
+.hero__principles a + a { border-left: 1px solid var(--border); }
+.hero__principles span { color: var(--text-3); font: 10px var(--font-mono); text-transform: uppercase; letter-spacing: .055em; }
+.hero__principles strong { padding-right: 14px; font-size: 14px; font-weight: 500; }
+.hero__principles svg { position: absolute; right: 18px; top: 26px; color: var(--text-3); transition: color .2s, transform .2s; }
+.hero__principles a:hover { background: var(--accent-soft); }
+.hero__principles a:hover svg { color: var(--accent); transform: translate(2px,-2px); }
+.hero__stage { margin-top: 66px; }
+.stage-heading { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 24px; }
+.stage-heading .eyebrow { margin-bottom: 12px; }
+.stage-heading h2 { font-size: clamp(1.5rem, 2.5vw, 2rem); letter-spacing: -.04em; }
+.stage-heading > p { font-size: 12px; line-height: 1.7; color: var(--text-3); }
+.demo { max-width: none; }
+.demo__screen { border-radius: 12px; background: var(--ink-bg); box-shadow: 0 24px 65px -30px #0008; }
+.demo__bar { min-height: 44px; }
+.demo__title { font-size: 11px; letter-spacing: .015em; }
+.demo__rec { font-size: 10px; }
+.demo__dots i:nth-child(1) { background: #a96450; }
+.demo__dots i:nth-child(2) { background: #a58c52; }
+.demo__dots i:nth-child(3) { background: #6d965c; }
+.demo__tab { font-size: 11px; }
+.demo__caption { font-size: 12px; }
+.demo__chapters button { font-size: 11px; }
+.hero__install { display: grid; grid-template-columns: 1fr 1.7fr; gap: 32px; align-items: center; margin-top: 28px; }
+.install-label { color: var(--text); font-size: 13px; font-weight: 500; }
+.hero__note { margin: 6px 0 0; font-size: 10px; color: var(--text-3); }
+.hero__note a { display: inline-flex; align-items: center; gap: 4px; }
+.hero__install .command__text { font-size: 11px; }
+.hero__footnote { margin: 28px 0 0; text-align: center; font-size: 11px; color: var(--text-3); }
+
+/* The prism is an abstract A: source above, a native artifact below. */
+.native-visual { position: relative; width: 100%; max-width: 510px; aspect-ratio: 1.05; justify-self: end; color: var(--accent); isolation: isolate; }
+.native-visual__grid { position: absolute; inset: 0; z-index: -1; background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(ellipse, #0007 15%, transparent 68%); }
+.native-visual__label { position: absolute; top: 15px; left: 12%; right: 8%; display: flex; justify-content: space-between; font: 8px var(--font-mono); letter-spacing: .15em; color: var(--text-3); }
+.native-visual__drawing { width: 100%; height: 100%; overflow: visible; }
+.native-orbits { opacity: .18; }
+.native-prism { transform-origin: 250px 240px; animation: prism-arrive 1.4s cubic-bezier(.16,1,.3,1) both; }
+.native-prism__trace { stroke-dasharray: 130 730; stroke-dashoffset: 860; animation: trace-prism 4.5s ease-in-out 1.3s 1; }
+.native-chip { position: absolute; padding: 13px 17px; border: 1px solid var(--border-strong); border-radius: 7px; background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: 0 12px 35px -15px #0005; }
+.native-chip--source { top: 14%; left: 0; transform: rotate(-4deg); animation: chip-source 1.2s cubic-bezier(.16,1,.3,1) both; }
+.native-chip--output { bottom: 12%; right: 0; transform: rotate(3deg); animation: chip-output 1.2s .15s cubic-bezier(.16,1,.3,1) both; }
+.native-chip__label { display: flex; gap: 6px; align-items: center; margin-bottom: 5px; color: var(--text-3); font: 8px var(--font-mono); letter-spacing: .08em; }
+.native-chip--output .native-chip__label { color: var(--accent); }
+.native-chip__label i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.native-chip code { padding: 0; border: 0; background: none; color: var(--text); font-size: 10px; }
+.native-visual__pipeline { position: absolute; bottom: 0; inset-inline: 18%; display: flex; align-items: center; gap: 14px; font: 9px var(--font-mono); color: var(--text-3); }
+.native-visual__pipeline span:last-child { color: var(--accent); }
+.native-visual__pipeline i { flex: 1; height: 1px; background: var(--border-strong); position: relative; overflow: hidden; }
+.native-visual__pipeline i::after { content: ''; position: absolute; inset: 0; background: var(--accent); transform: translateX(-100%); animation: compile-flow 2s ease-in-out 2; }
+.native-visual__pipeline i:nth-of-type(2)::after { animation-delay: .5s; }
+@keyframes trace-prism { to { stroke-dashoffset: 0; } }
+@keyframes compile-flow { to { transform: translateX(100%); } }
+@keyframes prism-arrive { from { opacity: 0; transform: translateY(15px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes chip-source { from { opacity: 0; transform: translateY(18px) rotate(-4deg); } to { opacity: 1; transform: rotate(-4deg); } }
+@keyframes chip-output { from { opacity: 0; transform: translateY(18px) rotate(3deg); } to { opacity: 1; transform: rotate(3deg); } }
+
+/* Shared polish across the longer technical sections. */
+.nav__links a { font-family: var(--font-sans); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.brand { letter-spacing: -.055em; }
+.brand__version { margin-left: 2px; font-size: 9px; }
+.btn { font-family: var(--font-sans); }
+.btn svg { transition: transform 180ms ease; }
+.btn:hover svg { transform: translateX(2px); }
+.btn--ghost { color: var(--text); border-color: var(--border-strong); }
+.btn--lg { font-size: 13px; min-height: 48px; padding-inline: 21px; }
+.shead { max-width: 780px; margin-bottom: 44px; }
+.shead__lede { max-width: 610px; }
+.eyebrow { line-height: 1.5; }
+.section { padding-block: clamp(64px, 8vw, 112px); }
+.pillar { padding: 30px; gap: 19px; box-shadow: none; }
+.pillar__number { position: absolute; right: 25px; top: 29px; font: 11px var(--font-mono); color: var(--text-3); }
+.pillar__icon { border: 1px solid var(--border-strong); background: var(--accent-soft); border-radius: 10px; }
+.pillar h3 { margin-top: 6px; font-size: 21px; font-weight: 550; }
+.pillar p { font-size: 14px; line-height: 1.8; }
+.pillar__proof { padding-top: 12px; font-size: 10px; }
+.pillar__proof code { color: var(--text-3); background: transparent; border: 0; padding: 0; }
+.pillar:hover .pillar__proof code { color: var(--accent); }
+.tour__nav { padding: 12px; }
+.tour__tab { padding-block: 12px; }
+.tour__count { font-size: 11px; letter-spacing: 0; }
+.tour__count code { font-size: 11px; }
+.tour__head h3 { font-weight: 550; }
+.bar-card { box-shadow: none; }
+.bar-card__head { font-family: var(--font-sans); letter-spacing: -.025em; }
+.step__text::before { border-radius: 7px; font-size: 12px; }
+.faq__item summary { padding-block: 22px; font-size: 14px; }
+.faq__item:hover { border-color: var(--border-strong); }
+.faq__item[open] .faq__a { animation: answer-in .25s ease both; }
+@keyframes answer-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+.closing { overflow: hidden; position: relative; border-top: 1px solid var(--border); background: radial-gradient(ellipse at 86% 50%, var(--accent-soft), transparent 60%), var(--bg); }
+.closing__inner { display: flex; align-items: center; justify-content: space-between; gap: 40px; padding-block: 100px; }
+.closing__copy { max-width: 680px; position: relative; z-index: 1; }
+.closing h2 { font-size: clamp(2.5rem, 4.8vw, 4.3rem); letter-spacing: -.06em; }
+.closing h2 span { color: var(--accent); }
+.closing__copy > p:not(.eyebrow) { max-width: 490px; margin-top: 24px; font-size: 15px; }
+.closing__glyph { font-family: var(--font-mono); font-size: clamp(5rem, 17vw, 14rem); font-weight: 400; line-height: 1; letter-spacing: -.14em; padding-right: .14em; color: var(--accent); opacity: .25; transform: rotate(-8deg); }
+.footer { padding-block: 54px; }
+.footer__brand p { max-width: 310px; line-height: 1.8; }
+
+@media (min-width: 1500px) { .hero__opening { padding-block: 88px 74px; } }
+@media (max-width: 1100px) {
+  .hero h1 { font-size: clamp(2.7rem, 5.5vw, 3.8rem); }
+  .hero__opening { grid-template-columns: 1.3fr 1fr; }
+  .native-chip { padding: 10px; }
+  .native-chip code { font-size: 8px; }
+  .hero__principles a { padding-inline: 18px; }
+  .hero__principles strong { font-size: 12px; }
+  .hero__install { grid-template-columns: 1fr; gap: 14px; }
+}
+@media (max-width: 760px) {
+  .hero__opening { grid-template-columns: 1fr; padding: 36px 0; gap: 10px; }
+  .hero__eyebrow { margin-top: 32px; }
+  .hero h1 { font-size: clamp(2.7rem, 8.5vw, 4.2rem); }
+  .hero__lede { max-width: 540px; font-size: 16px; }
+  .native-visual { max-width: 410px; justify-self: center; margin-block: 0 18px; }
+  .native-chip code { font-size: 10px; }
+  .hero__principles a { padding: 20px 14px; }
+  .hero__principles span { font-size: 8px; }
+  .hero__principles strong { font-size: 11px; line-height: 1.6; padding-right: 0; }
+  .hero__principles svg { display: none; }
+  .hero__stage { margin-top: 48px; }
+  .stage-heading { align-items: start; flex-direction: column; gap: 12px; }
+  .stage-heading > p { font-size: 12px; }
+  .stage-heading > p br { display: none; }
+  .closing__inner { padding-block: 70px; }
+  .closing__glyph { position: absolute; right: -15px; bottom: 10px; opacity: .08; font-size: 200px; }
+  .shead { margin-bottom: 30px; }
+}
+@media (max-width: 480px) {
+  .release-link { font-size: 9px; gap: 7px; }
+  .hero__eyebrow { font-size: 9px; }
+  .hero h1 { font-size: clamp(2rem, 8.5vw, 2.8rem); }
+  .hero__lede { font-size: 14px; margin-top: 20px; }
+  .hero__actions { gap: 9px; }
+  .hero__actions .btn { padding-inline: 14px; font-size: 11px; }
+  .hero__audience { font-size: 10px; }
+  .native-visual { max-width: 350px; }
+  .hero__principles { grid-template-columns: 1fr; }
+  .hero__principles a, .hero__principles a:first-child { padding: 16px 0; gap: 6px; }
+  .hero__principles a + a { border-left: 0; border-top: 1px solid var(--border); }
+  .hero__principles span { font-size: 8px; }
+  .hero__principles strong { font-size: 12px; }
+  .hero__principles svg { display: block; right: 3px; }
+  .pillar { padding: 25px; }
+  .demo__title { font-size: 9px; }
+  .demo__rec { font-size: 8px; }
+  .demo__chapters button { font-size: 9px; }
+  .demo__caption { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .native-prism, .native-chip, .native-prism__trace, .native-visual__pipeline i::after { animation: none; }
+  .native-prism__trace { display: none; }
+  [data-reveal='pending'] { opacity: 1; transform: none; }
+}

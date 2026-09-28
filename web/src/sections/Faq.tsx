@@ -12,7 +12,7 @@ export function Faq() {
   return (
     <section className="section section--alt" id="faq" aria-labelledby="faq-h">
       <div className="container">
-        <SectionHead id="faq-h" eyebrow="FAQ" title="Questions people ask." />
+        <SectionHead id="faq-h" eyebrow="FAQ" title="A few things worth knowing." />
         <div className="faq">
           {FAQS.map((f) => (
             <details key={f.q} className="faq__item">

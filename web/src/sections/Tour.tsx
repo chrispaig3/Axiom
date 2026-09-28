@@ -67,10 +67,10 @@ export function Tour() {
   return (
     <section className="section" id="tour" aria-labelledby="tour-h">
       <div className="container">
-        <SectionHead id="tour-h" eyebrow="The tour" title="Learn Axiom in ten programs.">
+        <SectionHead id="tour-h" eyebrow="The tour" title="Get a feel for the language.">
           <p>
-            Each one is a small task, compiled and run; the output under it is what it printed.
-            Point at a note to light the line it describes.
+            Ten working programs, from your first data type to calling Rust. Explore the code,
+            follow the annotations, and see exactly what each program prints.
           </p>
         </SectionHead>
 

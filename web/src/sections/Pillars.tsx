@@ -16,15 +16,16 @@ export function Pillars() {
   return (
     <section className="section section--alt" id="why" aria-labelledby="why-h">
       <div className="container">
-        <SectionHead id="why-h" eyebrow="Why Axiom" title="What it does differently.">
-          <p>Six design decisions. The link under each goes to the code that enforces it.</p>
+        <SectionHead id="why-h" eyebrow="Why Axiom" title="A small language. Serious capabilities.">
+          <p>The expressiveness of functional programming, with a direct path to native code. Every design choice gives you something concrete to work with.</p>
         </SectionHead>
 
         <ul className="pillars">
-          {PILLARS.map((p) => {
+          {PILLARS.map((p, i) => {
             const Icon = ICONS[p.icon]
             return (
               <li className="pillar" key={p.title}>
+                <span className="pillar__number" aria-hidden>{String(i + 1).padStart(2, '0')}</span>
                 <span className="pillar__icon" aria-hidden>
                   <Icon size={20} />
                 </span>

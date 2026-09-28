@@ -1,64 +1,49 @@
-/*
- * Design tokens.
- *
- * A CRT terminal with modern manners. The default theme is phosphor on
- * black: a green that carries actions and headings, an amber for what
- * needs attention, and one gradient (green into cyan into blue) kept
- * for exactly two places, the banner and the headline. The light theme
- * is its printout: dark green ink on paper. It is opt-in, stamped as
- * `[data-theme=light]` by the toggle, because the terminal IS the look;
- * a reader's system preference is not asked to override it.
- *
- * CODE IS ALWAYS INK. Every surface that shows code or compiler output
- * wears the `.ink` scope at the bottom of this file, in both themes: a
- * program on this site is a screen, and the syntax palette was designed
- * against one dark surface rather than two.
- */
+/* Graphite, warm paper, and an electric lime accent. Code keeps its own dark palette. */
 
 :root {
   color-scheme: dark;
 
-  --bg: #040806;
-  --bg-alt: #060c09;
-  --surface: #08110c;
-  --surface-2: #0c1711;
-  --surface-3: #102017;
-  --border: #163323;
-  --border-strong: #22503a;
+  --bg: #0b0d0c;
+  --bg-alt: #101311;
+  --surface: #131714;
+  --surface-2: #191e1a;
+  --surface-3: #202720;
+  --border: #29312a;
+  --border-strong: #465244;
 
-  --text: #d7f7df;
-  --text-2: #a3cfb0;
-  --text-3: #6a9877;
-  --text-inverse: #02140a;
+  --text: #f1f3ea;
+  --text-2: #b3bbae;
+  --text-3: #8b9788;
+  --text-inverse: #142008;
 
-  --accent: #3dff8f;
-  --accent-hover: #8dffbd;
-  --accent-soft: rgba(61, 255, 143, 0.08);
-  --accent-line: rgba(61, 255, 143, 0.32);
+  --accent: #c3f36b;
+  --accent-hover: #d5ff91;
+  --accent-soft: rgba(195, 243, 107, 0.08);
+  --accent-line: rgba(195, 243, 107, 0.32);
   --amber: #ffb638;
   --amber-soft: rgba(255, 182, 56, 0.1);
-  --grad: linear-gradient(100deg, #3dff8f 0%, #2de2e6 55%, #7aa2ff 100%);
-  --glow-a: rgba(61, 255, 143, 0.12);
+  --grad: linear-gradient(110deg, #d5ff91, #97cd47);
+  --glow-a: rgba(195, 243, 107, 0.12);
   --glow-b: rgba(45, 226, 230, 0.09);
-  /* Phosphor bloom on display type. `none` on paper. */
-  --bloom: 0 0 22px rgba(61, 255, 143, 0.28);
+  /* Display headings stay sharp in both themes. */
+  --bloom: none;
   /* The scanline overlay's strength. */
-  --scan: 0.07;
+  --scan: 0;
 
-  --ok: #3dff8f;
+  --ok: #c3f36b;
   --warn: #ffb638;
   --danger: #ff6b6b;
 
   /* The benchmark's emphasis pair: Axiom lit, the others recessive. */
-  --bar-ax: #3dff8f;
+  --bar-ax: #c3f36b;
   --bar-other: #4b6656;
 
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
     'Liberation Mono', monospace;
-  /* The terminal's own face: labels, prompts, status lines. */
-  --font-pixel: 'VT323', 'JetBrains Mono', ui-monospace, monospace;
+  /* Compact labels, prompts, and status lines. */
+  --font-pixel: var(--font-mono);
 
   --t--2: 0.75rem;
   --t--1: 0.8125rem;
@@ -78,52 +63,52 @@
   --s-8: 4rem;
   --s-9: 6rem;
 
-  --radius-sm: 3px;
-  --radius: 5px;
-  --radius-lg: 8px;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 16px 40px -18px rgba(0, 0, 0, 0.9);
-  --shadow-lg: 0 0 0 1px rgba(61, 255, 143, 0.06), 0 40px 90px -30px rgba(0, 0, 0, 0.95),
-    0 0 80px -30px rgba(61, 255, 143, 0.22);
+  --shadow-lg: 0 0 0 1px rgba(195, 243, 107, 0.06), 0 40px 90px -30px rgba(0, 0, 0, 0.95),
+    0 0 80px -30px rgba(195, 243, 107, 0.22);
 
-  --page: 1200px;
-  --nav-h: 60px;
+  --page: 1328px;
+  --nav-h: 76px;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --bg: #f3f1e7;
-  --bg-alt: #ebe8da;
-  --surface: #fbfaf4;
-  --surface-2: #f1eee2;
-  --surface-3: #e8e4d4;
-  --border: #d8d2bd;
-  --border-strong: #bdb59a;
+  --bg: #f6f5ef;
+  --bg-alt: #eeeee5;
+  --surface: #fdfdf8;
+  --surface-2: #e9edde;
+  --surface-3: #e1e7d5;
+  --border: #d4dacb;
+  --border-strong: #acb89e;
 
   --text: #0f1f16;
   --text-2: #33463a;
   --text-3: #5b695f;
   --text-inverse: #f4fff8;
 
-  --accent: #0a7a3c;
-  --accent-hover: #075c2d;
+  --accent: #3c6514;
+  --accent-hover: #274909;
   --accent-soft: rgba(10, 122, 60, 0.08);
   --accent-line: rgba(10, 122, 60, 0.3);
   --amber: #945700;
   --amber-soft: rgba(148, 87, 0, 0.08);
-  --grad: linear-gradient(100deg, #0a7a3c 0%, #0b7f86 55%, #2f55c9 100%);
+  --grad: linear-gradient(110deg, #3c6514, #668528);
   --glow-a: rgba(10, 122, 60, 0.08);
   --glow-b: rgba(11, 127, 134, 0.06);
   --bloom: none;
   --scan: 0;
 
-  --ok: #0a7a3c;
+  --ok: #3c6514;
   --warn: #8a5300;
   --danger: #b3261e;
 
-  --bar-ax: #0a7a3c;
+  --bar-ax: #3c6514;
   --bar-other: #9aa39a;
 
   --shadow-sm: 0 1px 2px rgba(15, 31, 22, 0.08);
@@ -139,11 +124,11 @@
 .ink {
   color-scheme: dark;
 
-  --ink-bg: #030805;
-  --ink-bar: #07100b;
+  --ink-bg: #0c100d;
+  --ink-bar: #141a15;
   --ink-raised: #0b1811;
-  --ink-border: #153223;
-  --ink-line: rgba(61, 255, 143, 0.04);
+  --ink-border: #2a352b;
+  --ink-line: rgba(195, 243, 107, 0.04);
 
   /* The three ways a line is lit: a reader's edit, the line a refusal
      points at, the line a sentence beside the code is about. */
@@ -151,24 +136,24 @@
   --ink-edit-edge: #ffb638;
   --ink-error: rgba(255, 107, 107, 0.13);
   --ink-error-edge: #ff6b6b;
-  --ink-focus: rgba(61, 255, 143, 0.1);
-  --ink-focus-edge: #3dff8f;
+  --ink-focus: rgba(195, 243, 107, 0.1);
+  --ink-focus-edge: #c3f36b;
 
   --text: #cff5d8;
   --text-2: #9ccaa8;
-  --text-3: #5f8c6c;
-  --accent: #3dff8f;
-  --accent-soft: rgba(61, 255, 143, 0.1);
-  --accent-line: rgba(61, 255, 143, 0.3);
+  --text-3: #8b9e8d;
+  --accent: #c3f36b;
+  --accent-soft: rgba(195, 243, 107, 0.1);
+  --accent-line: rgba(195, 243, 107, 0.3);
   --amber: #ffb638;
-  --ok: #3dff8f;
+  --ok: #c3f36b;
   --warn: #ffb638;
   --danger: #ff6b6b;
   --border: var(--ink-border);
-  --border-strong: #22503a;
-  --scan: 0.09;
+  --border-strong: #465244;
+  --scan: 0;
 
-  --sx-comment: #5a8566;
+  --sx-comment: #8b9e8d;
   --sx-attribute: #ffb638;
   --sx-string: #6bffab;
   --sx-hole: #ffe066;
@@ -182,7 +167,7 @@
   --sx-modifier: #c49bff;
   --sx-param: #e9f59c;
   --sx-variable: #cfe9d6;
-  --sx-punct: #4d7a5b;
+  --sx-punct: #849786;
   --sx-error: #ff6b6b;
 
   color: var(--text);

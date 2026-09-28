@@ -33,10 +33,11 @@ export function Status() {
   return (
     <section className="section" id="status" aria-labelledby="status-h">
       <div className="container">
-        <SectionHead id="status-h" eyebrow="Status" title="What works today, and what does not.">
+        <SectionHead id="status-h" eyebrow="Status" title="Know what’s ready. See what’s next.">
           <p>
-            Axiom is <code>0.x</code>. These rows are copied from the repository's status table,
-            which names the test behind each one. The last column is what was tried and taken out.
+            Axiom is <code>0.x</code>: ready to explore, still evolving. Start with a tool, an experiment,
+            or a contribution. Use this status map to decide where it fits; these rows reflect
+            the project’s tested implementation status.
           </p>
         </SectionHead>
 

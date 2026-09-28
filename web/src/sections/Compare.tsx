@@ -13,8 +13,8 @@ export function Compare() {
   return (
     <section className="section" id="compare" aria-labelledby="compare-h">
       <div className="container">
-        <SectionHead id="compare-h" eyebrow="How it compares" title="Next to Rust, Go and Haskell.">
-          <p>Five design choices side by side. The other columns stick to facts nobody disputes.</p>
+        <SectionHead id="compare-h" eyebrow="How it compares" title="A different set of tradeoffs.">
+          <p>Functional types, explicit effects, and native output in one language. See how Axiom’s choices sit alongside Rust, Go, and Haskell.</p>
         </SectionHead>
 
         <div className="compare" role="table" aria-label="Axiom compared with Rust, Go and Haskell">

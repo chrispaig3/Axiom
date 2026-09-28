@@ -7,6 +7,7 @@ import { Compare } from './sections/Compare.tsx'
 import { Start } from './sections/Start.tsx'
 import { Status } from './sections/Status.tsx'
 import { Faq } from './sections/Faq.tsx'
+import { Closing } from './sections/Closing.tsx'
 import { Footer } from './sections/Footer.tsx'
 import { useTheme } from './lib/theme.ts'
 
@@ -37,6 +38,7 @@ export default function App() {
         <Start />
         <Status />
         <Faq />
+        <Closing />
       </main>
       <Footer />
     </>
