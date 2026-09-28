@@ -75,5 +75,6 @@ image, and CI uses both apt llvm-18 and Homebrew llvm.
 - `timeout(1)` is missing from the macOS runner image, so §12b and §12c
   fail there because of the harness, not the property. They pass on H1
   and H2, and locally with a compatible `timeout` on `PATH`.
-- No sanitizer, race-detector, coverage or fault-injection runs exist
-  yet (R-E1 and R-C3 are open).
+- Only the thread lowering runs under a race detector
+  (`scripts/check-race.sh`), and no sanitizer sees the arena's heap
+  blocks. No fault-injection runs exist yet.

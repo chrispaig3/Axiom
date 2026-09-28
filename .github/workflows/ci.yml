@@ -330,7 +330,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-seven of the gates below build the compiler under test from
+    # eighty-eight of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -592,6 +592,21 @@ jobs:
       # turning it red - and runs examples/concurrency/.
       - name: A mutex excludes, timed waits keep time, and tasks fail, time out and cancel in their slots
         run: ./scripts/check-task.sh
+
+      # R-E1's race detector: ThreadSanitizer over `--threads` programs.
+      # sync-load's unlocked control must be reported as a data race; the
+      # mutex, a stale guard, the channel, the pipeline example and the
+      # seq_cst litmus rows must be clean at --opt 0 and 2; the one
+      # suppression (MM-PAR-12's stated plain read in
+      # `sysWaitWordTimeout`) must match and must hide nothing else; the
+      # mutex's CAS, the channel's lock and an atomic add, each ablated,
+      # must be reported; and ASan must see a string literal overread.
+      # The provision step installs the sanitizer runtimes, so here a
+      # missing one fails rather than skips.
+      - name: ThreadSanitizer reports the unlocked control and nothing in the synchronised programs
+        env:
+          AXIOM_TSAN_REQUIRED: '1'
+        run: ./scripts/check-race.sh
 
       # The fuzzing half of R-E1: 600 mutants of the corpus from a fixed
       # seed, each held to three properties - `check` answers with a code

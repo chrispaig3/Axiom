@@ -1,11 +1,12 @@
 # Verification programme (R-E1)
 
-This page covers what the executable model checks, what the compiler
-fuzzer checks, how each gate runs, what they found, and what neither
-covers. It goes with R-E1 in [requirements.md](requirements.md). The
-scope statements of record are two docstrings:
-`scripts/lib/runtime-model.py` for the model and `scripts/lib/fuzz.py`
-for the fuzzer.
+This page covers what the executable model, the compiler fuzzer and
+the race detector check, how each gate runs, what they found, and what
+none of them covers. It goes with R-E1 in
+[requirements.md](requirements.md). The scope statements of record are
+two docstrings and a gate header: `scripts/lib/runtime-model.py` for
+the model, `scripts/lib/fuzz.py` for the fuzzer and
+`scripts/check-race.sh` for the race detector.
 
 ## The model
 
@@ -209,13 +210,140 @@ Not fuzzed at all: `build`/`run` (linking and execution), the runtime,
 The default budget is 600 mutants a CI leg. The 6,000-mutant `--long`
 budget runs nightly, in CI's `long-evidence` job.
 
+## The race detector
+
+`scripts/check-race.sh` runs ThreadSanitizer (TSan) over programs built
+with the thread lowering. It emits each one with
+`axc emit-llvm --threads`, marks every function `sanitize_thread`, runs
+LLVM's TSan passes after `opt -O<n>`, and links with
+`clang -fsanitize=thread`. Two changes to the IR make TSan's view of
+memory match the runtime's:
+
+- The runtime's `mmap` and `munmap` go through the C library, where
+  TSan intercepts them. With the raw system calls, an arena that a
+  finished thread unmapped (MM-PAR-6a) and a sibling mapped again at
+  the same address reads as a race between `axiom_alloc` and
+  `__axiom_arena_unmap_thread`.
+- `sysWaitWordTimeout` stays out of line, so the one suppression can
+  name it at `--opt 2`.
+
+### What it runs
+
+Every row runs at `--opt` 0 and 2, and every clean run must also print
+the answer its program checks for itself.
+
+| Program | Mode | TSan must |
+|---|---|---|
+| `tests/litmus/sync-load.ax` | `excl 0 2000`: four bindings, one plain word, no lock | report a data race in `bump` (the control) |
+| `tests/litmus/sync-load.ax` | `excl 1 2000` (the mutex), `stale 2000` (a stale guard under contention) | report nothing |
+| `tests/litmus/chan-load.ax` | `stress 1 500`, `stress 64 500` | report nothing |
+| `examples/concurrency/pipeline.ax` | the default run, with its stall and timed waits | report nothing |
+| `tests/litmus/atomics.ax` | `sb sc`, `add sc`, `add cas` | report nothing |
+| `tests/litmus/atomics.ax` | `add split`, which loses updates through an atomic load and an atomic store | report nothing |
+
+The last row shows a limit: a lost update made only of atomics is not
+a data race, and TSan passes it. The atomics' ordering
+is `scripts/check-atomics.sh`'s subject.
+
+### Why a clean run means something
+
+`MM-PAR-9` has four happens-before edges: program order, spawn, join
+and the seq_cst atomics. TSan intercepts `pthread_create` and
+`pthread_join`, and treats every instrumented atomic as
+acquire-release. The mutex (`MM-PAR-11`) and the channel (`MM-PAR-10`)
+add no edge of their own. Their acquire is a compare-and-swap and their
+release a compare-and-swap, store or add, which TSan sees. Their waits
+are raw `futex` and `__ulock_wait` calls, which TSan can't see, but a
+wait orders nothing in `MM-PAR-9` either: a woken waiter takes the lock
+by the compare-and-swap. So the edges TSan uses are the edges the
+language promises.
+
+Three ablations show the converse, each required to turn a clean run
+into a reported race with the suppression list loaded:
+
+- `stdlib/Sync.ax`'s compare-and-swap removed, as
+  `scripts/check-task.sh` cuts it: the locked run reports a race in
+  `bump`;
+- `stdlib/Chan.ax`'s lock removed, as `scripts/check-chan.sh` cuts it:
+  the channel load reports races in `chanPut`;
+- `add sc`'s `atomicrmw` made a plain load and store in the emitted IR:
+  the counter reports a race in `addThread`.
+
+### The suppression, and what TSan found
+
+TSan found one race in the runtime and standard library code these
+programs reach, and it was already documented. `sysWaitWordTimeout`
+(`stdlib/Sys.ax`) reads the word it may wait on with a plain 64-bit
+load, while other bindings write that word with atomics. `MM-PAR-12`
+names this as an implementation reliance: `Sys.ax` is compiled by the
+seed, which has no atomic primitive, and the load is advisory and
+single-copy atomic on both instruction sets.
+
+`tests/litmus/tsan-suppressions.txt` suppresses it, with the reason
+above the rule. The gate checks the list three ways:
+
+- every rule has a reason directly above it;
+- every rule matched in the gate's runs, so none is stale;
+- the locked and pipeline programs, run without the list at both
+  levels, report that race and nothing else.
+
+A suppression hides every report with the function in either stack.
+The unsuppressed runs show it hid nothing else on those runs.
+
+`tests/litmus/atomics.ax`'s `mp sc` row has a race of its own. Its
+reader loads the data word before it tests the flag, so in a round
+where the flag isn't set yet, that plain load races the writer's plain
+store. TSan reports it. The row's answer only counts rounds that saw
+the flag, where the load is ordered, so `scripts/check-atomics.sh`'s
+reading of it stands. But the program races by `MM-PAR-9`'s definition,
+and the gate doesn't run it: at the program's fixed 500,000 rounds it
+takes 128 s under TSan.
+
+### AddressSanitizer
+
+Axiom's heap is its own arena, carved from pages the runtime maps
+itself. AddressSanitizer (ASan) can't see a block's bounds or a freed
+block's reuse there, and a read past a 16-byte block into its
+neighbour runs unreported. It can see globals. The gate's probe reads
+words past a string literal's handle through the unsafe layer: words 0
+to 2 read clean, and word 3 is reported as a global-buffer-overflow.
+
+One ASan build of every program in `tests/stdlib/` at `--opt 0`, run
+outside the gate, reported nothing but six stack overflows. They are
+the deep-recursion region tests such as
+`tests/stdlib/479-region-reclaim.ax`, and ASan's larger frames cause
+them: the same programs run clean without it.
+
+### Hosts
+
+The gate passes on darwin-aarch64 with Homebrew's LLVM, and on
+linux-aarch64 (Ubuntu 24.04, clang 18 with `libclang-rt-dev`) in a
+container. CI runs it on all three test legs with
+`AXIOM_TSAN_REQUIRED=1`, so a missing runtime fails there. Elsewhere
+a host with no runtime, or one where it can't start, prints `SKIP`. A
+linux-x86_64 container emulated on an arm64 Mac is one: TSan can't
+start under qemu's user-mode emulation.
+
+### What a clean run does not show
+
+- TSan is dynamic. It saw the interleavings these runs made, at these
+  levels, on that host.
+- It covers threads only. Forked bindings share only `MAP_SHARED`
+  pages, and TSan's model is one process, so the default lowering and
+  the task pool (`stdlib/Task.ax`) have no race detector.
+- The instrumented build isn't the shipped build: `mmap` and `munmap`
+  go through the C library, one function isn't inlined, and every
+  access calls into the TSan runtime.
+
 ## What is still open
 
 - Coverage-guided fuzzing, and fuzzing of `build`/`run`, the
   formatter, the LSP and the REPL. A
   miscompilation oracle (differential execution of accepted mutants).
-- Fuzzing of FFI boundaries and runtime operations. Sanitizers and
-  race detectors. Schedule exploration, and memory-ordering litmus
+- Fuzzing of FFI boundaries and runtime operations. Race detection
+  between forked bindings, and a heap sanitizer the arena works with
+  (the runtime would have to poison its own free blocks). Schedule
+  exploration, and memory-ordering litmus
   families beyond the three `scripts/check-atomics.sh` runs (SB, MP
   and a contended counter, R-C3). Allocation, cancellation and failure
   injection beyond the fault-injected count boundary (527) and the
