@@ -41,6 +41,11 @@ gate_build_axc axc
 echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
+# Baseline 372 measured 2026-09-28: one arrived with
+# `tests/selfhost/1006-cast-type-operand.ax`, whose header quotes
+# `Vec.ax`'s `(cast a (memGetWord ...))`: the fixture is about that
+# cast's TYPE operand being walked as a reference, which cannot be
+# said without writing the cast - the MM-VAL-23 reason.
 # Baseline 371 measured 2026-09-28: six arrived with
 # `1024-type-part-not-a-type`, whose three goldens echo AX3002's help,
 # "`(cast Int e)`", once per refusal. The fixture pins what a cast's
@@ -88,10 +93,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 371 ]; then
-  ok "user-level (cast count $cast_count <= 371)"
+elif [ "$cast_count" -le 372 ]; then
+  ok "user-level (cast count $cast_count <= 372)"
 else
-  bad "user-level (cast count $cast_count > 371): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 372): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"
