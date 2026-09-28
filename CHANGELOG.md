@@ -22,6 +22,21 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A function's NID doesn't move with its signature — `scripts/check-metamorphic.sh` §2c - 2026-09-28
+
+A declaration's NID is a hash of its kind and name, and `symbols` took
+the kind from whichever of a function's `::` and `fn` came last. So
+moving a signature below its definition gave the function a new NID,
+and the compatibility check, which treats the NID as identity, would
+read one function removed and another added. A function's NID is now
+its `fn`'s wherever the signature sits; a signature with no `fn` keeps
+its own. No declaration in the tree changes NID: 401 files compared.
+
+A third metamorphic relation holds it: moving every `::` to just below
+its `fn` must change no verdict and no `symbols` row. 329 programs keep
+it; with the fix taken out, 328 diverge, and the gate's `nid-fn-wins`
+ablation requires that.
+
 ### The stack bound reads x86-64 machine code — `scripts/axiom-report.py --stack`, R-D1 - 2026-09-28
 
 `--stack` now bounds a program's stack from an x86-64 ELF object as

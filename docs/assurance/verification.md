@@ -405,7 +405,13 @@ failure it shows until it is fixed:
   below it is refused with `AX3028` (AN-40,
   `tests/selfhost/381-macro-type-templates.ax` reversed).
 
-This relation compares no IR. Constructor tags, string constants and
+The third relation moves every `::` to just below its own `fn`, and
+requires the same verdict and the same `symbols` row for every
+declaration. It found that a NID hashed whichever of a function's two
+declarations came last, so the move gave the function a new identity
+(AN-41, fixed). With the fix removed, 328 programs diverge.
+
+The reordering relation compares no IR. Constructor tags, string constants and
 lambdas are numbered in declaration order, so reordering renames them
 in ways no program can observe.
 

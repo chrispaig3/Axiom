@@ -643,7 +643,7 @@ already has.
 ### Stable node IDs (NID)
 
 Every named declaration gets a content-derived ID: a short hash of its
-kind and name. It survives edits elsewhere in the file and
+kind and name. A function's kind is its `fn`, wherever its `::` sits. It survives edits elsewhere in the file and
 reformatting, which a `file:line:col` doesn't. AXSYM prints it as the
 optional `@NID` field after the type.
 

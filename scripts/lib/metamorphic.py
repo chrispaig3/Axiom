@@ -42,6 +42,11 @@ definition (AN-39) and a declaration macro querying a `data` another
 macro generates below it (AN-40). They are `--known` divergences: each
 must still fail exactly as recorded, so a fix has to update the list.
 
+THE THIRD RELATION, `sigmove`: moving every `::` to just below its
+own `fn` changes neither the verdict nor any `symbols` row. A NID used
+to hash whichever of a function's two declarations came last, so this
+gave the function a new identity (AN-41).
+
 WHAT IT CANNOT SEE. Only names it adds; only programs the compiler
 already accepts (a refused program's free names are exactly the
 names this adds - `tests/diagnostics/1009-macro-for-innermost.ax`
@@ -54,6 +59,7 @@ enumerate every function by design and are excluded by name,
 Usage:
   metamorphic.py run --axiom AXC [--jobs N] FILE...
   metamorphic.py reorder --axiom AXC [--jobs N] [--known FILE] FILE...
+  metamorphic.py sigmove --axiom AXC [--jobs N] [--known FILE] FILE...
   metamorphic.py selftest
 Exit 0 when every accepted program keeps the relation, 1 otherwise.
 """
@@ -265,6 +271,34 @@ def reordered(src):
     return ''.join(imports) + ''.join(reversed(groups)) + tail, len(groups)
 
 
+def sigs_below(src):
+    """Every `::` moved to just after its own `fn`, with the comment and
+    tag lines above it; everything else stays where it is."""
+    us, tail = units(src)
+    heads = [UNIT_HEAD.match(u) for u in us]
+    fn_at = {}
+    for i, h in enumerate(heads):
+        if h and h.group(1) == 'fn':
+            fn_at[h.group(2)] = i
+    moved, after = set(), {}
+    for i, h in enumerate(heads):
+        if h and h.group(1) == '::' and fn_at.get(h.group(2), -1) > i:
+            moved.add(i)
+            after.setdefault(fn_at[h.group(2)], []).append(i)
+    out = []
+    for i, u in enumerate(us):
+        if i in moved:
+            continue
+        out.append(u)
+        for j in after.get(i, []):
+            sig = us[j]
+            out.append(sig if sig.startswith('\n') else '\n' + sig)
+    return ''.join(out) + tail, len(moved)
+
+
+TRANSFORMS = {'reorder': reordered, 'sigmove': sigs_below}
+
+
 def verdict_of(check):
     """Exit status and the sorted diagnostic codes: positions move."""
     return check[0], tuple(sorted(re.findall(r'^[EW] (AX\d{4}) ', check[1], re.M)))
@@ -274,7 +308,7 @@ def plain_rows(table):
     return {k: re.sub(r'F:\d+:\d+(-\d+(:\d+)?)?', 'LOC', v) for k, v in table.items()}
 
 
-def one_reorder(axiom, path):
+def one_reorder(axiom, path, transform=reordered):
     path = os.path.abspath(path)
     cwd, base = os.path.split(path)
     src = open(path, encoding='utf-8', errors='replace').read()
@@ -282,10 +316,10 @@ def one_reorder(axiom, path):
     if orig[0] != 0:
         return path, 'refused', ''
     try:
-        text, ngroups = reordered(src)
+        text, ngroups = transform(src)
     except ValueError:
         return path, 'unparsed', ''
-    if ngroups < 2:
+    if ngroups < (2 if transform is reordered else 1):
         return path, 'single', ''
     vname = '.reorder-%d-%s' % (os.getpid(), base)
     vpath = os.path.join(cwd, vname)
@@ -309,7 +343,7 @@ def one_reorder(axiom, path):
     return path, 'diverged' if probs else 'kept', '; '.join(probs)
 
 
-def cmd_reorder(argv):
+def cmd_reorder(argv, transform=reordered):
     axiom, jobs, known_file, files = None, 4, None, []
     i = 0
     while i < len(argv):
@@ -336,7 +370,7 @@ def cmd_reorder(argv):
     counts = dict(kept=0, known=0, diverged=0, fixed=0, refused=0, single=0, unparsed=0)
     seen = set()
     with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
-        for path, verdict, sig in ex.map(lambda f: one_reorder(axiom, f), files):
+        for path, verdict, sig in ex.map(lambda f: one_reorder(axiom, f, transform), files):
             rel = os.path.relpath(path)
             seen.add(rel)
             if rel in known:
@@ -432,6 +466,9 @@ def cmd_selftest():
     expect(text.index(';@axiom:effect(io)') < text.index('(:: f Int)') < text.index('(fn (f)'),
            "a tag line and a signature travel with their function")
     expect(sorted(prog.split()) == sorted(text.split()), "reorder is a permutation of the source")
+    moved, nsig = sigs_below('(:: f Int)\n(fn (f) 1)\n(:: g Int)\n(fn (g) (f))\n')
+    expect(nsig == 2 and moved.index('(fn (f)') < moved.index('(:: f Int)') < moved.index('(fn (g)') < moved.index('(:: g Int)'),
+           "sigmove puts each signature just below its function")
     expect(verdict_of((1, 'E AX3004 a:1:1 x "m"\nW AX3037 b:2:2 y "n"')) == (1, ('AX3004', 'AX3037')),
            "a verdict is the exit status and the codes")
     print("selftest: %d failed" % fails)
@@ -443,6 +480,8 @@ if __name__ == "__main__":
         sys.exit(cmd_run(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "reorder":
         sys.exit(cmd_reorder(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "sigmove":
+        sys.exit(cmd_reorder(sys.argv[2:], sigs_below))
     if len(sys.argv) > 1 and sys.argv[1] == "selftest":
         sys.exit(cmd_selftest())
     print(__doc__)
