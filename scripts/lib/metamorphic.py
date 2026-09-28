@@ -38,7 +38,7 @@ not compared: constructor tags, string constants and lambdas are
 numbered in declaration order by design, so a reordered program's IR
 differs in names that no program can observe. Its first run found two
 programs a reordering refuses: an unsigned function called above its
-definition (AN-39) and a declaration macro querying a `data` another
+definition, which needs its signature (AN-39, AX3089) and a declaration macro querying a `data` another
 macro generates below it (AN-40). They are `--known` divergences: each
 must still fail exactly as recorded, so a fix has to update the list.
 

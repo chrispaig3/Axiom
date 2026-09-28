@@ -470,9 +470,11 @@ It prints `5`.
 `(:: add (-> Int Int Int))` is the signature. The last type in the
 arrow is the result and the ones before it are the parameters, so `add`
 takes two `Int`s and returns an `Int`. The signature is optional: leave
-it out and the compiler infers the type. Not yet: a function with no
-signature must be defined above its first call. [Types](#types) covers the
-type syntax.
+it out and the compiler infers the type from the body. A function
+that calls itself, or is called from a declaration above it, needs
+its signature: declarations are checked in the order they are
+written, so those calls come before the body that would answer them
+(`AX3089`). [Types](#types) covers the type syntax.
 
 ### Parameters
 

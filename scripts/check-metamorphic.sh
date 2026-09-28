@@ -98,7 +98,7 @@ echo "== 2b. reordering the declarations changes nothing, over the corpora =="
 cat > "$work/reorder-known.txt" <<'KNOWN'
 # path<TAB>the divergence it must still show, until fixed
 tests/selfhost/381-macro-type-templates.ax	R1 AX3028 AX3028
-tests/selfhost/770-over-application.ax	R1 AX3004
+tests/selfhost/770-over-application.ax	R1 AX3089
 KNOWN
 rc=0
 ( cd "$repo_root" && python3 "$lib" reorder --axiom "$axc" --jobs "$jobs" --known "$work/reorder-known.txt" "${corpus[@]}" ) \
