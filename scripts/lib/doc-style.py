@@ -19,7 +19,7 @@ Usage:
 
   python3 scripts/lib/doc-style.py FILE...
   python3 scripts/lib/doc-style.py --axiom .axiom-bin/axiom FILE...
-  python3 scripts/lib/doc-style.py --before OLD.md --dest docs/x.md NEW.md
+  python3 scripts/lib/doc-style.py --before OLD.md --dest docs/ffi.md NEW.md
 
   --axiom PATH   compile every documented program (a ```scheme block
                  that declares `main`) with `PATH check`
@@ -57,7 +57,7 @@ def strip_code(text):
     """Prose only: fenced blocks, inline code, HTML comments and URLs removed."""
     text = FENCE.sub(lambda m: '\n' * m.group(0).count('\n'), text)
     text = re.sub(r'<!--.*?-->', lambda m: '\n' * m.group(0).count('\n'), text, flags=re.S)
-    text = re.sub(r'`[^`\n]*`', 'code', text)
+    text = re.sub(r'`[^`\n]*`', 'Code', text)
     text = re.sub(r'\]\([^)]*\)', ']', text)
     text = re.sub(r'https?://\S+', 'url', text)
     return text

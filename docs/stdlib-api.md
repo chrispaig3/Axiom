@@ -1,30 +1,30 @@
-# Axiom standard library — API reference
+# Axiom standard library
 
-GENERATED. `examples/axdoc/axdoc.ax` writes this file from the
-standard library's own source and from `axiom symbols`; do not edit it
-by hand. `scripts/check-stdlib-api.sh` regenerates it and requires the
-result to be byte-identical, so an edit here is a failing gate rather
-than a document that quietly disagrees with the library.
+Every public function, type and macro in Axiom's standard library, one
+section per module. To find out what each module is for, start with
+[Modules at a glance](reference.md#modules-at-a-glance) in the language
+reference.
 
-The **public surface** is read from the source, because visibility is
-only written there — AXSYM cannot say whether a name is `pub` and emits
-no row for a macro at all. The **effects** column is the compiler's
-own answer, derived by a fixpoint over every body rather than claimed
-by a comment: `Alloc` is the heap machinery — allocation, the arena
-primitives, installing handler evidence; `IO` reaches the outside
-world, a syscall or an `extern` or the command line; `Mut` writes
-heap state something else can see, a field store or the primitive it
-lowers to. A blank cell means the checker derived no effect (or, for
-a macro, that AXSYM has no row to derive one from) — and it is a
-LOWER bound: `docs/memory-model.md` MM-EXEC-9a lists what inference
-still does not see, of which the one that can surprise a reader here
-is that a constructor allocates and contributes nothing.
+Every name listed is `pub` in the source. The columns are:
 
-The **type** column is the source spelling, `(-> Int Int)`, not AXSYM's
-curried rendering, because it is the spelling you will have to write.
+- **Kind**: `value` for a function or constant, `struct`, `data`,
+  `effect` or `macro`.
+- **Type**: the signature as you write it in source, such as
+  `(-> Int Int)`.
+- **Effects**: what the compiler infers the definition does. `Alloc`
+  allocates, uses the arena or installs a handler. `IO` reaches the
+  outside world through a syscall, an `extern` call or the command
+  line. `Mut` changes heap state that something else can see. `Unsafe`
+  uses a raw-memory primitive. A blank cell means the compiler inferred
+  no effect, and a macro's cell is always blank. Treat the column as a
+  lower bound: inference doesn't count the allocation a constructor
+  makes (`docs/memory-model.md` MM-EXEC-9a).
+- **Summary**: the first paragraph of the comment above the definition.
 
-See [reference.md](reference.md) for the language, and
-[README](../README.md#standard-library) for what each module is for.
+This page is generated from the standard library by
+`examples/axdoc/axdoc.ax`, so please don't edit it by hand.
+`scripts/check-stdlib-api.sh` regenerates it in CI and fails if the
+two differ.
 
 ## `Agent.Tags`
 
