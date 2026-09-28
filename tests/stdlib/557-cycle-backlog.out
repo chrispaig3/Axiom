@@ -1,0 +1,5 @@
+knots: answer 1002000, backlog 64 bytes a knot
+chains: answer 1002000, backlog 0 bytes a knot
+broken: answer 1002000, backlog 0 bytes a knot
+scoped: answer 1002000, backlog 0 bytes a knot
+mapped covers held: true; an unknown count answers -1

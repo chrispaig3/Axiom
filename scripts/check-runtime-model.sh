@@ -30,13 +30,16 @@
 #      driver's own opt/llc/cc steps at -O1, must still pass - so the
 #      ablations in 5 are red because of what they change, not because
 #      the hand pipeline differs from the driver's.
-#   5. Five mutation witnesses, each rewriting ONE rule in the emitted
+#   5. Six mutation witnesses, each rewriting ONE rule in the emitted
 #      runtime and required to turn its witness trace red at a named
 #      check: `dead` (MM-LIFE-2k: a stray release decrements a filed
 #      block's link), `reset` (MM-LIFE-2e: no slab scrub), `scrub`
 #      (MM-ALLOC-6: no handout wipe), `region` (MM-RGN-1: a region's
 #      exit forgets its reset), `exhaust` (MM-LIFE-2l: no count-limit
-#      trap, so the count wraps).
+#      trap, so the count wraps), `classes` (MM-ALLOC-25: requests keep
+#      their exact size, so a block born above 1 KiB is off its class).
+#      `reset` goes red at the filed-bytes check first: the scrub it
+#      deletes is also what zeroes MM-ALLOC-24's count.
 #   6. The exhaustion boundary is a terminal trace in section 2.
 #
 # LIMITS, stated here because a green gate invites reading more into it:
@@ -171,7 +174,7 @@ hand_build() {  # <ll> <out> <level>
 }
 
 echo "== 4. the hand pipeline's control =="
-for w in dead reset scrub region exhaust; do
+for w in dead reset scrub region exhaust classes; do
   if ! "$axc" emit-llvm "$traces/$w.ax" -o "$work/$w.ll" > "$work/$w.emit" 2>&1; then
     bad "$w: emit-llvm failed"; continue
   fi
@@ -222,10 +225,11 @@ while read -r kind expect; do
   fi
 done <<'ROWS'
 dead b_count_word_after_release
-reset b_=_alloc_32:_bump_offset
+reset reset_outer:_filed_bytes_0
 scrub b_zeroed_(MM-ALLOC-6)
 region region_r2_exit
 exhaust -
+classes big_leaf_shape
 ROWS
 
 echo

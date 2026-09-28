@@ -10036,12 +10036,15 @@
     ; the program wrote, and has to be scrubbed before it is handed out
     ; again - see `handout`.
     (emitLine cg (strConcat "@__axiom_high = " (strConcat (cgMutGlobal cg) " i64 0")))
-    ; MM-LIFE-2e: one free-list head per 16-byte size class, classes
-    ; 16..65536 (index = size/16; slot 0 unused). Release at zero
-    ; pushes a block - header included - onto its class; the
-    ; allocator pops before bumping. EXACT-size classes, so reuse
-    ; never splits a block and MM-ALLOC-3's alignment holds by
-    ; construction.
+    ; MM-LIFE-2e: one free-list head per class boundary, indexed by
+    ; boundary/16. The boundaries are every 16 bytes to
+    ; 1 KiB and eight per doubling from there to 64 KiB (MM-ALLOC-25),
+    ; so 113 of the 4,097 slots are ever used; the array keeps its
+    ; width because a reset scrubs it by index. Release at zero pushes a
+    ; block - header included - onto the largest boundary not above its
+    ; size; the allocator rounds a request up to a boundary and pops
+    ; before bumping. Reuse never splits a block, and every boundary is
+    ; a multiple of 16, so MM-ALLOC-3's alignment holds by construction.
     ;
     ; The ceiling was 1024 bytes until 2026-08-15, and the measurement
     ; that moved it is a cliff: 20,000 iterations of a tail loop
@@ -10061,6 +10064,22 @@
     ; Int-typed and events 2 and 3 do not emit. What the ceiling costs
     ; is this array (4097 words of BSS, 352 bytes of binary) and the
     ; per-reset scrub below.
+    ;
+    ; SLOT 0 IS NO CLASS, and it holds MM-ALLOC-24's count: the bytes,
+    ; headers included, of every block filed on the heads above -
+    ; storage the next allocation of its class reuses and nothing else
+    ; can. A filing adds, a pop subtracts, and a reset zeroes it with
+    ; the same scrub that empties the lists it counts, so the two can
+    ; never disagree across a reset. It exists to be READ
+    ; (`__axiom_mem_stat 1`): a reset-free service has no other way to
+    ; tell reusable storage from storage its live values, or its
+    ; unreachable cycles, hold. Living in the array rather than a
+    ; global of its own keeps the runtime's mutable globals at the
+    ; set `scripts/check-thread-local.sh` enumerates, and under
+    ; `--threads` it is per thread exactly as the lists are. No class
+    ; can index it: a request of one byte is class 1, and release
+    ; refuses a count of zero before it computes one. The bump path
+    ; never touches it.
     (emitLine cg (strConcat "@__axiom_slabs = " (strConcat (cgMutGlobal cg) " [4097 x i64] zeroinitializer")))
     (emitLine cg "")
     (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
@@ -10092,7 +10111,43 @@
     (emitLine cg "  br i1 %toobig, label %oomsize, label %sizeok")
     (emitLine cg "sizeok:")
     (emitLine cg "  %padded = add i64 %size, 15")
-    (emitLine cg "  %sz0 = and i64 %padded, -16")
+    (emitLine cg "  %sz0e = and i64 %padded, -16")
+    ; MM-ALLOC-25: THE SIZE CLASSES. Every 16 bytes up to 1 KiB, then
+    ; eight per doubling up to 64 KiB, and a request in that upper band
+    ; is rounded UP to its class, so every block is born on the boundary
+    ; its release files it at and a freed block serves every request of
+    ; its class. Until this rule the classes were exact 16-byte steps
+    ; all the way to 64 KiB - 4,096 of them - and a block served only
+    ; its own size. A reset-free loop holding 1,000 strings of uniformly
+    ; random length up to 60,000 bytes (about 30 MB live) peaked at
+    ; 397 MB after a million iterations and 494 MB after ten million,
+    ; still climbing: each class kept the most blocks it had ever held.
+    ; With these classes it holds 52 MB and 55 MB
+    ; (`scripts/check-reclaim.sh` section 4). The rounding costs at most
+    ; one eighth of a block between 1 and 64 KiB, and nothing at or
+    ; below 1 KiB, where every constructor, closure and header lives.
+    ;
+    ; The step is 2^(floor(log2(sz0 - 1)) - 3), so a size already on a
+    ; boundary stays where it is. The logarithm is five compares rather
+    ; than `llvm.ctlz`: an intrinsic is a `declare` in the module, and
+    ; the windows-x86_64 build holds every declaration to a reviewed
+    ; list (`scripts/check-freestanding.sh`). A request at or below
+    ; 1 KiB takes one subtraction and one branch more than it did.
+    (emitLine cg "  %rcoff = sub i64 %sz0e, 1025")
+    (emitLine cg "  %rcbig = icmp ult i64 %rcoff, 64512")
+    (emitLine cg "  br i1 %rcbig, label %rclass, label %rcdone")
+    (emitLine cg "rclass:")
+    (emitLine cg "  %rcm1 = sub i64 %sz0e, 1")
+    (emitLog2Steps cg "rc" "%rcm1" 5)
+    (emitLine cg "  %rcsh = add i64 %rcn5, 7")
+    (emitLine cg "  %rcstep = shl i64 1, %rcsh")
+    (emitLine cg "  %rcstm1 = sub i64 %rcstep, 1")
+    (emitLine cg "  %rcup = add i64 %sz0e, %rcstm1")
+    (emitLine cg "  %rcneg = sub i64 0, %rcstep")
+    (emitLine cg "  %rcceil = and i64 %rcup, %rcneg")
+    (emitLine cg "  br label %rcdone")
+    (emitLine cg "rcdone:")
+    (emitLine cg "  %sz0 = phi i64 [ %sz0e, %sizeok ], [ %rcceil, %rclass ]")
     ; MM-LIFE-2b: the 16-byte count/shape header below every counted
     ; block - one rounding step, never more.
     (emitLine cg "  %sz = add i64 %sz0, 16")
@@ -10114,7 +10169,24 @@
     (emitLine cg "  %pnextenc = load i64, ptr %pnextp")
     (emitLine cg "  %pnext = sub i64 -2, %pnextenc")
     (emitLine cg "  store i64 %pnext, ptr %slotp")
-    (emitLine cg "  %pe = add i64 %shead, %sz")
+    ; The popped block is handed out at ITS OWN size, read from the
+    ; shape word its filing left intact, not at the request's: a block
+    ; files at the largest class not above its size (`axiom_release`),
+    ; so one that was not born on a boundary - `reset_keeping`'s copy
+    ; is stamped at its exact size - is bigger than its class, and the
+    ; header written in `wiped` must say how big, or its next release
+    ; would file it a class too low and lose the difference for good.
+    (emitLine cg "  %pshq = add i64 %shead, 8")
+    (emitLine cg "  %pshqp = inttoptr i64 %pshq to ptr")
+    (emitLine cg "  %pshw = load i64, ptr %pshqp")
+    (emitLine cg "  %pwc0 = lshr i64 %pshw, 1")
+    (emitLine cg "  %pwc = and i64 %pwc0, 16383")
+    (emitLine cg "  %psz0 = shl i64 %pwc, 3")
+    (emitLine cg "  %psz = add i64 %psz0, 16")
+    (emitLine cg "  %pe = add i64 %shead, %psz")
+    (emitLine cg "  %pf0 = load i64, ptr @__axiom_slabs")
+    (emitLine cg "  %pf1 = sub i64 %pf0, %psz")
+    (emitLine cg "  store i64 %pf1, ptr @__axiom_slabs")
     (emitLine cg "  %ph = load i64, ptr @__axiom_high")
     (emitLine cg "  br label %handout")
     (emitLine cg "bump_path:")
@@ -10244,6 +10316,7 @@
     (emitLine cg "  %he = phi i64 [ %next, %fast ], [ %new_bump, %install ], [ %pe, %pop ]")
     (emitLine cg "  %hh = phi i64 [ %high, %fast ], [ %chunk_high, %install ], [ %ph, %pop ]")
     (emitLine cg "  %recyc = phi i1 [ false, %fast ], [ false, %install ], [ true, %pop ]")
+    (emitLine cg "  %hsz0 = phi i64 [ %sz0, %fast ], [ %sz0, %install ], [ %psz0, %pop ]")
     (emitLine cg "  %past = icmp ugt i64 %he, %hh")
     (emitLine cg "  %bstop = select i1 %past, i64 %hh, i64 %he")
     (emitLine cg "  %stop = select i1 %recyc, i64 %he, i64 %bstop")
@@ -10292,7 +10365,7 @@
     (emitLine cg "  store i64 0, ptr %cwp")
     (emitLine cg "  %shpw = add i64 %hb, 8")
     (emitLine cg "  %shpwp = inttoptr i64 %shpw to ptr")
-    (emitLine cg "  %wcnt = lshr i64 %sz0, 3")
+    (emitLine cg "  %wcnt = lshr i64 %hsz0, 3")
     (emitLine cg "  %wbig = icmp ugt i64 %wcnt, 16383")
     (emitLine cg "  %wleaf = select i1 %wbig, i64 0, i64 %wcnt")
     (emitLine cg "  %wshp = shl i64 %wleaf, 1")
@@ -10376,10 +10449,11 @@
     ; anywhere. The drain pops a dead record, walks its map releasing
     ; each payload reference through the same `relone` path (a child
     ; that dies joins the dead list, it is never recursed into), then
-    ; files the record by its size class: class = count >> 1, THE one
-    ; convention, and a count of zero (a pre-encoding block, or a
-    ; payload too large for the field) or above 8192 (past the 64 KiB
-    ; pool ceiling) is skipped rather than misfiled.
+    ; files the record at the largest class boundary not above its
+    ; count * 8 bytes (`emitFloorClass`, MM-ALLOC-25), and a count of
+    ; zero (a pre-encoding block, or a payload too large for the field)
+    ; or above 8192 (past the 64 KiB pool ceiling) is skipped rather
+    ; than misfiled.
     ;
     ; No recursion and no auxiliary stack, so the depth and the
     ; breadth of what dies never matter: the recursive walk took the
@@ -10473,7 +10547,7 @@
     (emitLine cg "  %ok = and i1 %ok1, %ok2")
     (emitLine cg "  br i1 %ok, label %push, label %after")
     (emitLine cg "push:")
-    (emitLine cg "  %pcls = lshr i64 %bcnt, 1")
+    (emitFloorClass cg "pf" "%bcnt" "%pcls" "push")
     (emitLine cg "  %pslotp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %pcls")
     (emitLine cg "  %ohead = load i64, ptr %pslotp")
     (emitLine cg "  %oenc = sub i64 -2, %ohead")
@@ -10546,7 +10620,7 @@
     (emitLine cg "  store i64 0, ptr %D")
     (emitLine cg "  br i1 %dok, label %pushD, label %drain")
     (emitLine cg "pushD:")
-    (emitLine cg "  %dcls = lshr i64 %dcnt, 1")
+    (emitFloorClass cg "df" "%dcnt" "%dcls" "pushD")
     (emitLine cg "  %dslotp = getelementptr [4097 x i64], ptr @__axiom_slabs, i64 0, i64 %dcls")
     (emitLine cg "  %dohead = load i64, ptr %dslotp")
     (emitLine cg "  %dbase = add i64 %Dw, -16")
@@ -10620,6 +10694,90 @@
     (emitParRuntime cg)
     cg
   })
+
+; How many of 2048, 4096, ... (`n` thresholds, doubling) the value `x`
+; reaches, as `%<p>n<n>`: floor(log2 x) - 10 for x in [1024, 2^(10+n+1)).
+; The size-class arithmetic of MM-ALLOC-25 needs that logarithm and may
+; not declare an intrinsic for it (see `sizeok` in `axiom_alloc`).
+(pub :: emitLog2Steps (-> Int String String Int Int))
+(pub fn (emitLog2Steps cg p x n)
+  (emitLog2StepsFrom cg p x n 1 2048))
+
+; `%<p><s>`: a register in the private family `p` of one emitted helper,
+; so two uses of a helper in one function never collide.
+(:: famReg (-> String String String))
+(fn (famReg p s)
+  (strConcat "%" (strConcat p s)))
+
+(:: emitLog2StepsFrom (-> Int String String Int Int Int Int))
+(fn (emitLog2StepsFrom cg p x n k bound)
+  (if (> k n)
+    cg
+    (let (
+      (c (famReg p (strConcat "c" (fmtInt k))))
+      (z (famReg p (strConcat "z" (fmtInt k))))
+      (nk (famReg p (strConcat "n" (fmtInt k))))
+      (nprev (if (== k 1)
+        "0"
+        (famReg p (strConcat "n" (fmtInt (- k 1))))))
+    )
+      {
+        (emitLine cg (strConcat "  " (strConcat c (strConcat " = icmp uge i64 " (strConcat x (strConcat ", " (fmtInt bound)))))))
+        (emitLine cg (strConcat "  " (strConcat z (strConcat " = zext i1 " (strConcat c " to i64")))))
+        (emitLine cg (strConcat "  " (strConcat nk (strConcat " = add i64 " (strConcat nprev (strConcat ", " z))))))
+        (emitLog2StepsFrom cg p x n (+ k 1) (* bound 2))
+      })))
+
+; MM-ALLOC-25, the release half: the slab a dead block of `words`
+; payload words files on, written to `out`, with the filing counted in
+; slab slot 0 (MM-ALLOC-24). A block files at the LARGEST class
+; boundary not above its size - its size itself at or below 1 KiB,
+; where the classes are every 16 bytes, and its size rounded DOWN to the
+; step 2^(floor(log2 size) - 3) above - so every block on a list is at
+; least as big as the class it serves, whatever path made it. The
+; allocator rounds a request UP to the same boundaries, which is what
+; makes the two halves meet: a block born for a request of class c is
+; exactly c bytes and files back at c. `words` is 1..8192 here; the
+; caller has already refused the rest. `from` names the block the
+; helper is emitted into, because the rounding sits behind a branch:
+; a block at or below 1 KiB - every constructor, closure and header -
+; pays one compare for it, not the logarithm.
+(pub :: emitFloorClass (-> Int String String String String Int))
+(pub fn (emitFloorClass cg p words out from)
+  (let (
+    (b (famReg p "b"))
+    (big (famReg p "big"))
+    (sh (famReg p "sh"))
+    (step (famReg p "step"))
+    (neg (famReg p "neg"))
+    (fl (famReg p "fl"))
+    (fsz (famReg p "fsz"))
+    (f0 (famReg p "f0"))
+    (t (famReg p "t"))
+    (f1 (famReg p "f1"))
+    (roundL (strConcat p "round"))
+    (joinL (strConcat p "join"))
+  )
+    {
+      (emitLine cg (strConcat "  " (strConcat b (strConcat " = shl i64 " (strConcat words ", 3")))))
+      (emitLine cg (strConcat "  " (strConcat big (strConcat " = icmp ugt i64 " (strConcat b ", 1024")))))
+      (emitLine cg (strConcat "  br i1 " (strConcat big (strConcat ", label %" (strConcat roundL (strConcat ", label %" joinL))))))
+      (emitLine cg (strConcat roundL ":"))
+      (emitLog2Steps cg p b 6)
+      (emitLine cg (strConcat "  " (strConcat sh (strConcat " = add i64 " (strConcat (famReg p "n6") ", 7")))))
+      (emitLine cg (strConcat "  " (strConcat step (strConcat " = shl i64 1, " sh))))
+      (emitLine cg (strConcat "  " (strConcat neg (strConcat " = sub i64 0, " step))))
+      (emitLine cg (strConcat "  " (strConcat fl (strConcat " = and i64 " (strConcat b (strConcat ", " neg))))))
+      (emitLine cg (strConcat "  br label %" joinL))
+      (emitLine cg (strConcat joinL ":"))
+      (emitLine cg (strConcat "  " (strConcat fsz (strConcat " = phi i64 [ " (strConcat b (strConcat ", %" (strConcat from (strConcat " ], [ " (strConcat fl (strConcat ", %" (strConcat roundL " ]")))))))))))
+      (emitLine cg (strConcat "  " (strConcat out (strConcat " = lshr i64 " (strConcat fsz ", 4")))))
+      (emitLine cg (strConcat "  " (strConcat f0 " = load i64, ptr @__axiom_slabs")))
+      (emitLine cg (strConcat "  " (strConcat t (strConcat " = add i64 " (strConcat b ", 16")))))
+      (emitLine cg (strConcat "  " (strConcat f1 (strConcat " = add i64 " (strConcat f0 (strConcat ", " t))))))
+      (emitLine cg (strConcat "  store i64 " (strConcat f1 ", ptr @__axiom_slabs")))
+      cg
+    }))
 
 ; ------------------------------------------------------------------
 ; The two arena primitives, as runtime helpers beside the allocator
@@ -12918,6 +13076,88 @@
     (emitLine cg "}")
     (emitLine cg "")
     (emitArenaKeepHelper cg)
+    (emitMemStatFn cg)
+    cg
+  })
+
+; MM-ALLOC-24: `@__axiom_mem_stat_fn(k)`, the allocator's own counts.
+;
+;   0  HELD: every byte of the active chunks the bump can no longer hand
+;      out - live values, dead blocks waiting on a list, dead blocks too
+;      large for one, unreachable cycles, and each chunk's header and
+;      abandoned tail. The sum of the active chunks' sizes, less what is
+;      left between the bump and the current chunk's end.
+;   1  FILED: bytes on the size-class lists, which the next allocation
+;      of their class reuses. Slab slot 0, one load.
+;   2  MAPPED: every chunk byte mapped, active or on the chunk free list.
+;      Chunks are never unmapped (MM-ALLOC-4a), so this only grows.
+;
+; HELD less FILED is the arena's backlog: what a reset would give back
+; and counting has not. In a process whose live set is bounded it is
+; bounded; a loop that builds a cycle per iteration raises it by the
+; cycle's bytes every time (MM-LIFE-2f). 0 and 2 walk the chunk lists,
+; which are short - a chunk is a megabyte - and nothing on the
+; allocation path pays for any of it but 1's counter, slab slot 0.
+(pub :: emitMemStatFn (-> Int Int))
+(pub fn (emitMemStatFn cg)
+  {
+    (emitLine cg "define internal i64 @__axiom_mem_stat_fn(i64 %k) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %isfiled = icmp eq i64 %k, 1")
+    (emitLine cg "  br i1 %isfiled, label %filed, label %known")
+    (emitLine cg "filed:")
+    (emitLine cg "  %fv = load i64, ptr @__axiom_slabs")
+    (emitLine cg "  ret i64 %fv")
+    (emitLine cg "known:")
+    (emitLine cg "  %isknown = icmp ult i64 %k, 3")
+    (emitLine cg "  br i1 %isknown, label %active, label %unknown")
+    (emitLine cg "unknown:")
+    (emitLine cg "  ret i64 -1")
+    (emitLine cg "active:")
+    (emitLine cg "  %ahead = load i64, ptr @__axiom_chunk")
+    (emitLine cg "  br label %aloop")
+    (emitLine cg "aloop:")
+    (emitLine cg "  %ac = phi i64 [ %ahead, %active ], [ %anext, %abody ]")
+    (emitLine cg "  %asum = phi i64 [ 0, %active ], [ %asum1, %abody ]")
+    (emitLine cg "  %adone = icmp eq i64 %ac, 0")
+    (emitLine cg "  br i1 %adone, label %aout, label %abody")
+    (emitLine cg "abody:")
+    (emitLine cg "  %acp = inttoptr i64 %ac to ptr")
+    (emitLine cg "  %asz = load i64, ptr %acp")
+    (emitLine cg "  %asum1 = add i64 %asum, %asz")
+    (emitLine cg "  %alink = add i64 %ac, 8")
+    (emitLine cg "  %alinkp = inttoptr i64 %alink to ptr")
+    (emitLine cg "  %anext = load i64, ptr %alinkp")
+    (emitLine cg "  br label %aloop")
+    (emitLine cg "aout:")
+    (emitLine cg "  %isheld = icmp eq i64 %k, 0")
+    (emitLine cg "  br i1 %isheld, label %held, label %fchunks")
+    (emitLine cg "held:")
+    (emitLine cg "  %hb = load i64, ptr @__axiom_bump")
+    (emitLine cg "  %he = load i64, ptr @__axiom_bump_end")
+    (emitLine cg "  %hleft = sub i64 %he, %hb")
+    (emitLine cg "  %hv = sub i64 %asum, %hleft")
+    (emitLine cg "  ret i64 %hv")
+    (emitLine cg "fchunks:")
+    (emitLine cg "  %fhead = load i64, ptr @__axiom_free")
+    (emitLine cg "  br label %floop")
+    (emitLine cg "floop:")
+    (emitLine cg "  %fc = phi i64 [ %fhead, %fchunks ], [ %fnext, %fbody ]")
+    (emitLine cg "  %fsum = phi i64 [ %asum, %fchunks ], [ %fsum1, %fbody ]")
+    (emitLine cg "  %fdone = icmp eq i64 %fc, 0")
+    (emitLine cg "  br i1 %fdone, label %fout, label %fbody")
+    (emitLine cg "fbody:")
+    (emitLine cg "  %fcp = inttoptr i64 %fc to ptr")
+    (emitLine cg "  %fsz = load i64, ptr %fcp")
+    (emitLine cg "  %fsum1 = add i64 %fsum, %fsz")
+    (emitLine cg "  %flink = add i64 %fc, 8")
+    (emitLine cg "  %flinkp = inttoptr i64 %flink to ptr")
+    (emitLine cg "  %fnext = load i64, ptr %flinkp")
+    (emitLine cg "  br label %floop")
+    (emitLine cg "fout:")
+    (emitLine cg "  ret i64 %fsum")
+    (emitLine cg "}")
+    (emitLine cg "")
     cg
   })
 
@@ -18024,6 +18264,8 @@
                                       true
                                       (if (strEq nm "__axiom_arena_reset_keeping")
                                         true
+                                        (if (strEq nm "__axiom_mem_stat")
+                                        true
                                         ; Not spellable in source: `checkNumeric` rewrites `==`/`!=` into
                                         ; these when it can see that BOTH operands are `String`. They are
                                         ; primitives rather than a `Str` call because the rewrite must work
@@ -18051,7 +18293,7 @@
                                                     true
                                                     (if (isDevicePrimName nm)
                                                       true
-                                                      (isSyscallName nm))))))))))))))))))))))))))))
+                                                      (isSyscallName nm)))))))))))))))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -18142,6 +18384,8 @@
                                         (emitPrimArenaReset args cg)
                                         (if (strEq fnName "__axiom_arena_reset_keeping")
                                           (emitPrimArenaResetKeeping args cg)
+                                          (if (strEq fnName "__axiom_mem_stat")
+                                          (emitPrimMemStat args cg)
                                           (if (strEq fnName "__streq")
                                             (emitPrimStrEq args cg 1)
                                             (if (strEq fnName "__strne")
@@ -18156,7 +18400,7 @@
                                                       (emitPrimAtomic fnName args cg)
                                                       (if (isDevicePrimName fnName)
                                                         (emitPrimDevice fnName args cg)
-                                                        (emitPrimSyscall args cg)))))))))))))))))))))))))))))
+                                                        (emitPrimSyscall args cg))))))))))))))))))))))))))))))
 
 ; `(__contract cond "message")` - the run-time half of a
 ; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
@@ -18629,6 +18873,22 @@
         (let ((cg1 (emitLine cg0 (strConcat (strConcat "  " r) (strConcat " = call i64 @__axiom_arena_reset_fn(i64 " (strConcat cell ")"))))))
           {
             (memSetWord cg1 2 (constStr 0))
+            cg1
+          })))))
+
+; `(__axiom_mem_stat k)` -> one of the allocator's own counts, in bytes
+; (MM-ALLOC-24): 0 held by the arena, 1 filed for reuse, 2 mapped; any
+; other `k` answers -1. One call into `@__axiom_mem_stat_fn`, which
+; walks the two chunk lists for 0 and 2 and reads one word for 1.
+(pub :: emitPrimMemStat (-> (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimMemStat args cg)
+  (let ((cg0 (emitExpr (vecGet args 0) cg)))
+    (let ((k (strDup (memGetWordStr cg0 2))))
+      (let ((r (regStr (allocReg cg0))))
+        (let ((cg1 (emitLine cg0 (strConcat "  " (strConcat r (strConcat " = call i64 @__axiom_mem_stat_fn(i64 " (strConcat k ")")))))))
+          {
+            (memSetWord cg1 2 r)
             cg1
           })))))
 
@@ -20465,8 +20725,9 @@
 
 ; The PADDED payload word count - THE one count convention
 ; (docs/memory-model.md MM-LIFE-2d): ((words*8)+15 & -16)/8, always
-; even; the size class is count >> 1, exactly the allocator's
-; `lshr %sz0, 4`; a dead block files iff 0 < count <= 8192.
+; even; a dead block files iff 0 < count <= 8192. A record's block is
+; at most 48 words, below MM-ALLOC-25's 1 KiB band, so its size class
+; is count >> 1, exactly the allocator's `lshr %sz0, 4`.
 (pub :: paddedWords (-> Int Int))
 (pub fn (paddedWords w)
   (* (/ (+ (* w 8) 15) 16) 2))

@@ -1,0 +1,12 @@
+a 1000-byte request is a 1008-byte block
+a 1024-byte request is a 1024-byte block
+a 1025-byte request is a 1152-byte block
+a 2049-byte request is a 2304-byte block
+a 40000-byte request is a 40960-byte block
+a 65536-byte request is a 65536-byte block
+1100 freed, 1150 asked: reused true, lists +1168 then -1168
+1100 freed, 1153 asked: reused false, lists +1168 then -0
+990 freed, 1000 asked: reused false, lists +1008 then -1024
+40000 freed, 36865 asked: reused true, lists +40976 then -40976
+4096 sizes released, the lists hold 841472 bytes
+after the reset they hold 0

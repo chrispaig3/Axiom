@@ -1,0 +1,112 @@
+; MM-LIFE-2f and MM-ALLOC-24: what an unreachable cycle costs, and how
+; a program sees it.
+;
+; Counting reclaims a dead tree and never a dead cycle: each block of a
+; knot holds a share of the other, so neither count reaches zero. The
+; policy is that cyclic garbage waits for an arena reset or the end of
+; the process. `(__axiom_mem_stat k)` reads the allocator's own counts,
+; so a service can watch that backlog grow:
+;
+;   0  HELD    bytes of the active chunks the bump has handed out
+;   1  FILED   bytes on the size-class lists, which the next request of
+;              their class reuses
+;   2  MAPPED  every chunk byte the process has mapped
+;
+; and any other `k` answers -1. HELD less FILED is the backlog: what a
+; reset would give back and counting hasn't.
+;
+;   knots     1,000 two-node knots, dropped: the backlog grows by 64
+;             bytes a knot, two 16-byte payloads and their headers
+;   chains    the same two nodes linked one way only: nothing grows
+;   broken    the knot with one edge cleared before the drop, which is
+;             MM-LIFE-2f's remedy: nothing grows
+;   scoped    1,000 knots, each inside an arena scope reset every
+;             iteration: nothing grows
+;
+; `scripts/check-reclaim-soak.sh` measures the same shapes by peak RSS
+; at three magnitudes.
+(import IO)
+
+(struct Node
+  (v : Int)
+  (mut next : Node))
+
+(:: knot (-> Int Int))
+(fn (knot i)
+  (let ((a (Node i (cast Node 0))) (b (Node (+ i 1) (cast Node 0))))
+    {
+      (set a.next b)
+      (set b.next a)
+      (+ a.v b.v)
+    }))
+
+(:: chain (-> Int Int))
+(fn (chain i)
+  (let ((b (Node (+ i 1) (cast Node 0))))
+    (let ((a (Node i b)))
+      (+ a.v b.v))))
+
+(:: broken (-> Int Int))
+(fn (broken i)
+  (let ((a (Node i (cast Node 0))) (b (Node (+ i 1) (cast Node 0))))
+    {
+      (set a.next b)
+      (set b.next a)
+      (let ((s (+ a.v b.v)))
+        {
+          (set b.next (cast Node 0))
+          s
+        })
+    }))
+
+(:: loop (-> Int Int Int Int))
+(fn (loop shape k acc)
+  (if (== k 0)
+    acc
+    (loop shape (- k 1)
+      (+ acc
+        (if (== shape 0)
+          (knot k)
+          (if (== shape 1)
+            (chain k)
+            (broken k)))))))
+
+(:: scoped (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (scoped m k acc)
+  (if (== k 0)
+    acc
+    (let ((r (knot k)))
+      {
+        (__axiom_arena_reset m)
+        (scoped m (- k 1) (+ acc r))
+      })))
+
+(:: backlog Int)
+(fn (backlog)
+  (- (__axiom_mem_stat 0) (__axiom_mem_stat 1)))
+
+(:: measure (-> String Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (measure name shape)
+  (let ((b0 (backlog)))
+    (let ((r (if (== shape 3)
+      (scoped __axiom_arena_mark 1000 0)
+      (loop shape 1000 0))))
+      (let ((per (/ (- (backlog) b0) 1000)))
+        {
+          (println "{name}: answer {r}, backlog {per} bytes a knot")
+          per
+        }))))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let ((k (measure "knots" 0)) (c (measure "chains" 1)) (b (measure "broken" 2)) (s (measure "scoped" 3)))
+    (let ((mapped (>= (__axiom_mem_stat 2) (__axiom_mem_stat 0))) (unknown (__axiom_mem_stat 3)))
+      {
+        (println "mapped covers held: {mapped}; an unknown count answers {unknown}")
+        0
+      })))

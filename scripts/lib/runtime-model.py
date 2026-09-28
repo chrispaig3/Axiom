@@ -43,18 +43,24 @@ confusing runtime diff):
 
 TRANSITION RULES checked against the runtime:
 
-  alloc   (MM-ALLOC-3/6/7a/8b, MM-LIFE-2b/2d/2e) size 0 answers the bump
-          and moves nothing; a size above 2^62 unsigned traps 70; otherwise
-          the payload is rounded to 16 (sz0), a class <= 64 KiB pops its
-          list head first, else the bump advances by sz0 + 16; the count
-          word is 0, the shape word is (sz0/8) << 1, every payload word 0.
+  alloc   (MM-ALLOC-3/6/7a/8b/25, MM-LIFE-2b/2d/2e) size 0 answers the
+          bump and moves nothing; a size above 2^62 unsigned traps 70;
+          otherwise the payload is rounded to 16 (sz0) and, between 1 KiB
+          and 64 KiB, up to its size class (eight per doubling); a class
+          <= 64 KiB pops its list head first, and the block keeps its own
+          size, else the bump advances by the class + 16; the count word
+          is 0, the shape word is (size/8) << 1, every payload word 0.
   retain  (MM-LIFE-2b/2k, MM-LIFE-2l) a negative count is left alone; a
           count of 2^63-1 traps 70 "reference count limit exceeded" with
           the header unchanged; otherwise +1.
-  release (MM-LIFE-2e/2k) a negative or zero count is left alone; else -1,
-          and at zero a leaf of 1..8192 words is filed LIFO on its class
-          with its count word = -2 - (previous head's header); a larger
-          one stays at count 0 and is never reused.
+  release (MM-LIFE-2e/2k, MM-ALLOC-25) a negative or zero count is left
+          alone; else -1, and at zero a leaf of 1..8192 words is filed
+          LIFO on the largest class not above its size with its count
+          word = -2 - (previous head's header); a larger one stays at
+          count 0 and is never reused.
+  filed   (MM-ALLOC-24) `__axiom_mem_stat 1` answers the bytes, headers
+          included, of every block on a list: a filing adds, a pop
+          subtracts, a reset empties it.
   mark    (MM-ALLOC-12) allocates a 24-byte cell like any 24-byte
           allocation (so it may pop class 32) and saves the bump after it.
   reset   (MM-ALLOC-14/16, MM-LIFE-2e) empties every free list, restores
@@ -115,6 +121,28 @@ def padded(size):
     return (size + 15) & ~15
 
 
+SMALL_CLASSES = 1024          # MM-ALLOC-25: every 16 bytes up to here
+
+
+def class_up(sz0):
+    """MM-ALLOC-25: the class a request of sz0 bytes is served from - sz0
+    itself at or below 1 KiB and above the pool ceiling, else sz0 rounded
+    up to a multiple of 2^(floor(log2(sz0 - 1)) - 3)."""
+    if sz0 <= SMALL_CLASSES or sz0 > POOL_CEILING:
+        return sz0
+    step = 1 << ((sz0 - 1).bit_length() - 4)
+    return (sz0 + step - 1) & -step
+
+
+def class_down(size):
+    """MM-ALLOC-25: the class a dead block of `size` payload bytes files
+    on - the largest class not above it."""
+    if size <= SMALL_CLASSES:
+        return size
+    step = 1 << (size.bit_length() - 4)
+    return size & -step
+
+
 @dataclass
 class Block:
     offset: int                 # handle offset from the trace origin
@@ -155,6 +183,7 @@ class Model:
         self.free = {}          # class -> [offset, ...], top of stack last
         self.scopes = []        # open marks and regions, outermost first
         self.reclaimed = {}     # offset -> Block, reclaimed by the LAST reset
+        self.filed = 0          # MM-ALLOC-24: bytes on the free lists, headers included
 
     # --- links: the runtime stores ADDRESSES; the model stores offsets
     # and says how to spell the address in the program.
@@ -167,13 +196,17 @@ class Model:
             return None
         if size < 0 or size > HUGE:
             raise Trap(70, "axiom: out of memory (allocation size out of range)")
-        sz0 = padded(size)
+        sz0 = class_up(padded(size))
         cls = sz0 // 16
         offset = None
         if sz0 <= POOL_CEILING:
             pool = self.free.get(cls, [])
             if pool:
                 offset = pool.pop()
+                # a popped block keeps its own size, which is at least
+                # its class's (it filed at the largest class below it)
+                sz0 = self.blocks[offset].size
+                self.filed -= sz0 + 16
         if offset is None:
             offset = self.bump + 16
             self.bump += sz0 + 16
@@ -197,11 +230,12 @@ class Model:
             return
         block.count -= 1
         if block.count == 0 and block.filable:
-            cls = block.size // 16
+            cls = class_down(block.size) // 16
             previous = self.head(cls)
             # MM-LIFE-2k: the link, ENCODED. `None` (empty list) is 0.
             block.count = ("link", previous)
             self.free.setdefault(cls, []).append(offset)
+            self.filed += block.size + 16
         self.invariant()
 
     def forge(self, offset, value):
@@ -241,6 +275,7 @@ class Model:
 
     def restore(self, waterline):
         self.free.clear()                                       # MM-LIFE-2e
+        self.filed = 0                                          # MM-ALLOC-24
         self.reclaimed = {o: b for o, b in self.blocks.items() if b.header >= waterline}
         self.blocks = {o: b for o, b in self.blocks.items() if b.header < waterline}
         self.bump = waterline
@@ -260,7 +295,7 @@ class Model:
                 assert o not in seen, "I3: duplicate free-list entry"
                 seen.add(o)
                 b = self.blocks[o]
-                assert b.size // 16 == cls and isinstance(b.count, tuple), "I3: live block on a free list"
+                assert class_down(b.size) // 16 == cls and isinstance(b.count, tuple), "I3: live block on a free list"
             for below, above in zip(pool, pool[1:]):
                 assert self.blocks[above].count[1] == below, "I3: link does not name the next entry"
             if pool:
@@ -337,6 +372,10 @@ class Trace:
     # --- observations
     def waterline(self, context):
         self.check(f"(== (- (__alloc 0) origin) {self.model.bump})", f"{context}: bump offset {self.model.bump}")
+        self.filed_bytes(context)
+
+    def filed_bytes(self, context):
+        self.check(f"(== (__axiom_mem_stat 1) {self.model.filed})", f"{context}: filed bytes {self.model.filed} (MM-ALLOC-24)")
 
     def observe(self, var, label="", payload=True):
         o = self.handles[var]
@@ -404,6 +443,7 @@ class Trace:
         self.model.release(self.handles[var])
         self.op(f"(__release {var})")
         self.observe(var, " after release", payload=False)
+        self.filed_bytes(f"release {var}")
 
     def write(self, var, word, value):
         self.model.blocks[self.handles[var]].payload[word] = value
@@ -617,6 +657,22 @@ def witness(kind, perturb=None):
         t.allocate("u", 16)
         t.region_close()
         t.allocate("b", 48)
+    elif kind == "classes":
+        # MM-ALLOC-25: above 1 KiB a request is served from its class, so
+        # a block freed at one size serves another size of the same class
+        t.allocate("big", 1100)
+        t.retain("big")
+        t.write("big", 0, 31)
+        t.release("big")
+        t.allocate("b", 1150)
+        t.allocate("c", 2049)
+        t.retain("c")
+        t.release("c")
+        t.allocate("d", 2300)
+        t.allocate("e", 40000)
+        t.retain("e")
+        t.release("e")
+        t.allocate("f", 36865)
     elif kind == "boundary":
         # The pool ceiling: 64 KiB files and is reused; 64 KiB + 16 never is.
         t.allocate("big", POOL_CEILING)
@@ -668,7 +724,7 @@ def canary():
     return t
 
 
-SIZES = [8, 16, 24, 32, 40, 48, 64, 80, 128, 256, 1000]
+SIZES = [8, 16, 24, 32, 40, 48, 64, 80, 128, 256, 1000, 1100, 2049, 5000]
 
 
 def randomized(seed, steps):
@@ -739,7 +795,7 @@ def randomized(seed, steps):
 
 
 def all_traces(seeds, steps):
-    traces = [witness(k) for k in ("dead", "reset", "scrub", "region", "boundary")]
+    traces = [witness(k) for k in ("dead", "reset", "scrub", "region", "boundary", "classes")]
     traces.append(exhaust_trace())
     traces.append(canary())
     traces += [randomized(seed, steps) for seed in seeds]
@@ -780,6 +836,11 @@ def ablate(kind, source, target):
         # the handout wipe never runs
         m = function_body(text, "axiom_alloc")
         body = replace_once(m.group(1), "  %wmore = icmp ult i64 %wi, %stop", "  %wmore = icmp ult i64 %wi, %hb", kind)
+    elif kind == "classes":
+        # MM-ALLOC-25's request half gone: every request keeps its exact
+        # 16-byte rounding, while release still files at the class below
+        m = function_body(text, "axiom_alloc")
+        body = replace_once(m.group(1), "  %rcbig = icmp ult i64 %rcoff, 64512", "  %rcbig = icmp ult i64 %rcoff, 0", kind)
     elif kind == "exhaust":
         # no refcount-exhaustion trap: the count wraps to a negative word
         m = function_body(text, "axiom_retain")
@@ -814,7 +875,7 @@ def selftest(count):
     for seed in range(count):
         t = randomized(seed, 60)
         total += t.operations
-    witness_ops = sum(witness(k).operations for k in ("dead", "reset", "scrub", "region", "boundary"))
+    witness_ops = sum(witness(k).operations for k in ("dead", "reset", "scrub", "region", "boundary", "classes"))
     print(f"model selftest: {count} random traces, {total} transitions, "
           f"{witness_ops} witness transitions, every invariant held")
 
@@ -828,7 +889,7 @@ def main():
     g.add_argument("--steps", type=int, default=72)
     g.add_argument("--long", action="store_true", help=f"seeds {LONG_SEEDS[0]}..{LONG_SEEDS[-1]} as well")
     a = sub.add_parser("ablate")
-    a.add_argument("kind", choices=["dead", "reset", "scrub", "exhaust", "region"])
+    a.add_argument("kind", choices=["dead", "reset", "scrub", "exhaust", "region", "classes"])
     a.add_argument("source", type=Path)
     a.add_argument("target", type=Path)
     lab = sub.add_parser("label")

@@ -22,6 +22,49 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Size classes that share, and a count a program can read — `MM-ALLOC-24`, `MM-ALLOC-25`, R-B8 - 2026-09-28
+
+**Memory that grew with time, fixed.** Every free-list class was an
+exact 16-byte step up to 64 KiB, so a freed block above 1 KiB served
+only a request of its own size, and each of 4,096 classes kept the
+most blocks it had ever held. A reset-free loop holding 1,000 strings
+of random length up to 60,000 bytes, about 30 MB live, peaked at
+117 MB, 267 MB, 379 MB and 478 MB after 10^4, 10^5, 10^6 and 10^7
+replacements. Above 1 KiB there are now eight classes per doubling, a
+request is rounded up to its class, and a dead block files on the
+largest class not above its size. The same loop peaks at 40, 47, 51
+and 54 MB. The rounding wastes at most an eighth of a block between
+1 KiB and 64 KiB, and nothing at or below 1 KiB.
+
+`(__axiom_mem_stat k)` answers the allocator's own counts for the
+calling thread: 0 the bytes the arena holds, 1 the bytes filed on the
+lists for reuse, 2 the bytes mapped. Held less filed is the backlog a
+reset would give back and counting hasn't, which is where unreachable
+cycles show. Filed is slot 0 of the class array, which no class uses:
+a filing adds, a pop subtracts, and a reset's existing scrub zeroes
+it, so the runtime keeps its set of mutable globals. The bump path is
+one compare and branch longer; a pop and a filing add a few
+instructions each.
+
+What it costs, measured with both compilers built from their own
+emitted IR through `opt -O1`, `llc -O1` and `cc`, hyperfine, nine runs
+after one warm-up: a self-compile takes 3.954 s against 3.922 s, best
+(4.026 s against 3.968 s, median), with peak RSS 651,728 KiB against
+653,072, and emits the same IR outside the runtime. A loop doing
+nothing but allocate and release a three-word block, 2 × 10^7 times,
+takes 354 ms against 336 ms (median 355 against 341), best of seven
+whole-process runs printing the same answer.
+
+`tests/stdlib/558-size-classes.ax` pins each request's class, reuse
+across two sizes of one class, and the exact filed count of one block
+per class, 841,472 bytes, back to 0 after a reset.
+`tests/stdlib/557-cycle-backlog.ax` reads a dropped two-node knot's
+cost as 64 bytes of backlog, and a chain's, a broken knot's and a
+scoped knot's as none. The executable model now predicts every
+block's class and the filed count after every step, traces allocate
+above 1 KiB, and a `classes` witness and ablation join it:
+`scripts/check-runtime-model.sh` runs 15 checks.
+
 ### The compiler joins strings with `strConcat` alone - 2026-09-28
 
 The compiler's source had six private helpers that each nested

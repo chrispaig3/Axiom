@@ -16,8 +16,10 @@ what the runtime does to the bump pointer, the per-class free lists
 and the 16-byte block header. It covers `axiom_alloc`, `axiom_retain`,
 `axiom_release`, the arena mark/reset functions and the
 `(region r ...)` form. It is written from
-[memory-model.md](../memory-model.md) (MM-ALLOC-3/6/7a/8b/12/14,
+[memory-model.md](../memory-model.md) (MM-ALLOC-3/6/7a/8b/12/14/24/25,
 MM-LIFE-2b/2d/2e/2k/2l, MM-RGN-1/2/6), not transliterated from the IR.
+It predicts each block's size class and the filed-bytes count that
+`__axiom_mem_stat 1` answers, after every step.
 
 The model knows offsets, counts, payload words and a LIFO list per
 size class, and nothing about registers or chunks. Seven invariants
@@ -37,16 +39,16 @@ and every compiler-emitted retain/release.
 
 ## The model's gate
 
-`scripts/check-runtime-model.sh` runs 13 checks. `--long` widens the
+`scripts/check-runtime-model.sh` runs 15 checks. `--long` widens the
 seeds and levels.
 
 1. The model alone: 200 random traces (2,000 under `--long`), with
    every invariant checked after every step. This shows the generator
    is valid. It says nothing about the runtime.
 2. Every trace at `--opt 0` and `--opt 3` (all four under `--long`),
-   compiled by the compiler under test. There are 10 traces: six fixed
-   witnesses (`dead`, `reset`, `scrub`, `region`, `boundary`,
-   `exhaust`), three seeded random walks, and the canary. Each must
+   compiled by the compiler under test. There are 11 traces: seven
+   fixed witnesses (`dead`, `reset`, `scrub`, `region`, `boundary`,
+   `classes`, `exhaust`), three seeded random walks, and the canary. Each must
    print `0 0` and exit as expected. A terminal trace (`exhaust`) must
    instead give the trap's 70 and its sentence.
 3. The canary: a trace with a planted error in its model, at exactly
@@ -57,11 +59,13 @@ seeds and levels.
    driver's own `opt`/`llc`/`cc` steps, and must still pass. So the
    section 5 reds come from what the mutation changed, and not from a
    difference between the hand pipeline and the driver's.
-5. Five mutation witnesses. Each rewrites one rule in the emitted
+5. Six mutation witnesses. Each rewrites one rule in the emitted
    runtime and must turn its trace red at a named check:
-   `dead` (MM-LIFE-2k), `reset` (MM-LIFE-2e slab scrub), `scrub`
-   (MM-ALLOC-6 handout wipe), `region` (MM-RGN-1 exit reset),
-   `exhaust` (MM-LIFE-2l: without the trap the retain returns).
+   `dead` (MM-LIFE-2k), `reset` (MM-LIFE-2e slab scrub, first seen in
+   the filed count it also zeroes), `scrub` (MM-ALLOC-6 handout wipe),
+   `region` (MM-RGN-1 exit reset), `classes` (MM-ALLOC-25 request
+   rounding), `exhaust` (MM-LIFE-2l: without the trap the retain
+   returns).
 6. The exhaustion boundary, as a terminal trace in section 2.
 
 A green run means agreement on the traces run, at the levels run, on

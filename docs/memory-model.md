@@ -1193,7 +1193,7 @@ and one array:
 | `@__axiom_chunk` | head of the active-chunk list |
 | `@__axiom_free` | head of the reclaimed-chunk free list |
 | `@__axiom_high` | dirty watermark for the current chunk: a **conservative upper bound** on how far into it memory has ever been handed out |
-| `@__axiom_slabs` | the array: one free-list head per 16-byte size class, used by `MM-LIFE-2e`'s release path (4,097 words, classes 16..65536) |
+| `@__axiom_slabs` | the array: one free-list head per size class (`MM-ALLOC-25`), indexed by the class's size / 16, used by `MM-LIFE-2e`'s release path (4,097 words). Slot 0 is no class: it holds the filed-bytes count of `MM-ALLOC-24` |
 
 The array is zero-initialised BSS. Like the five words, it is private
 after `fork` (`MM-PAR-3`), and it holds only addresses of blocks the
@@ -1423,6 +1423,59 @@ attribute group `#0 = { "no-builtins" }`. Without it, LLVM's loop-idiom
 recogniser rewrites the scrub loop of `MM-ALLOC-6` and the copy loop of
 `MM-ALLOC-15` into calls to `memset` and `memcpy`. That would be a libc
 dependency in a freestanding binary (`MM-ALLOC-1`).
+
+**MM-ALLOC-24 (H). A program can read what the allocator holds.**
+`(__axiom_mem_stat k)` answers one of the allocator's own counts, in
+bytes, for the calling thread's arena:
+
+| `k` | Count | What it covers |
+|---|---|---|
+| 0 | held | every byte of the active chunks the bump has handed out: live values, blocks waiting on a size-class list, dead blocks too large for one, unreachable cycles, and each chunk's header and abandoned tail |
+| 1 | filed | bytes, headers included, of the blocks on the size-class lists, which the next request of their class reuses |
+| 2 | mapped | every chunk byte mapped, active or on the chunk free list; chunks are never unmapped (`MM-ALLOC-4a`), so this only grows |
+
+Any other `k` answers -1. Held less filed is the *backlog*: what an
+arena reset would give back and counting hasn't, which is where an
+unreachable cycle shows (`MM-LIFE-2f`). The primitive performs `Alloc`,
+as `__axiom_arena_mark` does, so no `pure` body depends on it. It is
+not `Unsafe`: it names no address and writes nothing.
+
+Filed is one word, slot 0 of `@__axiom_slabs`: a filing adds the
+block's bytes, a pop subtracts them, and a reset zeroes the word with
+the same scrub that empties the lists. Held and mapped walk the two
+chunk lists when asked. So the bump path pays nothing, and a pop or a
+filing pays one load, one add and one store. Tested by
+`tests/stdlib/557-cycle-backlog.ax` and `tests/stdlib/558-size-classes.ax`;
+the executable model predicts filed after every step of every trace
+(`scripts/check-runtime-model.sh`).
+
+**MM-ALLOC-25 (H). Size classes: every 16 bytes up to 1 KiB, then
+eight per doubling up to 64 KiB.** Every request is rounded to 16
+bytes (`MM-ALLOC-3`). One between 1 KiB and 64 KiB is then rounded *up*
+to its class, a multiple of 2^(floor(log2(size − 1)) − 3). There are
+113 classes: 64 of them 16 bytes apart, then 1,152, 1,280 … 2,048,
+2,304 … 4,096, and so on to 65,536. A dead block files on the largest
+class not above its size (`MM-LIFE-2e`), so every block on a list is at
+least as big as the class it serves, and a block born on a class files
+back on it. A popped block keeps its own size in its header.
+
+So a block freed at one size serves every request of its class: 1,100
+bytes then 1,150 reuse one 1,152-byte block. The rounding costs at most
+an eighth of a block between 1 KiB and 64 KiB, and nothing at or below
+1 KiB, where constructors, closures and string headers live. Without
+it, each of 4,096 exact classes kept the most blocks it had ever held.
+A reset-free loop holding 1,000 strings of random length up to 60,000
+bytes, about 30 MB live, peaked at 379 MB after a million replacements
+and 478 MB after ten million. With the classes it peaks at 51 MB and
+54 MB, and the arena holds 1.7 times the live bytes.
+
+The bound is on the sum of each class's peak, not on the live set:
+blocks don't split or coalesce, so a workload whose sizes drift from
+one band to another keeps the old band's blocks on their lists until a
+reset. A reset-free service whose sizes drift belongs in an arena scope
+(`MM-ALLOC-22`). Tested by `tests/stdlib/558-size-classes.ax`, and by
+the executable model's `classes` witness, which an IR ablation of the
+request rounding turns red (`scripts/check-runtime-model.sh`).
 
 ### 3.2 What allocates
 
@@ -3731,9 +3784,9 @@ across a thousand-iteration `match` loop. The fall-through zero is an
 explicit store, not an inherited allocator promise.
 
 *The mechanism holds* (`tests/stdlib/351-arc-reuse.ax`, 42). Release at
-zero hands the block, header included, to its exact 16-byte size class.
-Classes run from 16 to 65536, and the dead block's count word doubles
-as the link. `axiom_alloc` pops before bumping, and re-enters the same
+zero hands the block, header included, to the largest size class not
+above its size (`MM-ALLOC-25`). Classes run from 16 to 65536, and the
+dead block's count word doubles as the link. `axiom_alloc` pops before bumping, and re-enters the same
 `handout` scrub every landing takes. So `MM-ALLOC-6`'s zeroing runs on
 the same path; the fixture writes garbage before the release and reads
 zero after the reuse.
@@ -3741,8 +3794,9 @@ zero after the reuse.
 The shape word carries the size half `MM-LIFE-2b` demanded, and, with
 `MM-LIFE-2d`'s monomorphic slice, the map beside it. Bit 0 is the
 form, bits 1..14 the padded payload word count, bit 15 the array form,
-and bits 16..62 the record form's reference bitmap. The size class is count >> 1, one
-convention at every writer, and a block files iff 0 < count <= 8192.
+and bits 16..62 the record form's reference bitmap. The size class is
+the largest class not above count × 8 bytes, which at or below 1 KiB is
+count >> 1, and a block files iff 0 < count <= 8192.
 Release's class lookup reads the count field, and the dead-path walk
 reads the map.
 
@@ -3781,8 +3835,8 @@ it, and nothing above the ceiling is pooled.
 What remains of this rule will not be built:
 
 - Pooling blocks above 64 KiB. They are one-shot in every workload
-  measured here, and two source files rarely share a size, so
-  exact-size pooling couldn't reuse them anyway.
+  measured here, and a class for them would hold at most an eighth of
+  its block in slack for reuse nothing measured asks for.
 - The acceptance measurements. They would need the compiler's own
   container and AST handles to carry a type the checker can see, and
   the container element maps under them.
@@ -5281,7 +5335,7 @@ opposite of that rule's status.
 |---|---|---|---|---|
 | Execution | EXEC-1…6d, 8…13, 15…17 | — | — | EXEC-7, EXEC-14 |
 | Representation | VAL-1…11, 14…20, VAL-22, VAL-23 | — | — | VAL-12, VAL-13 |
-| Allocation | ALLOC-1…7, 7a, 8a…16b, ALLOC-22, ALLOC-23 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
+| Allocation | ALLOC-1…7, 7a, 8a…16b, ALLOC-22…25 | ALLOC-20 | ALLOC-17…19, ALLOC-21 | ALLOC-8 |
 | Regions | RGN-1…4, 5a, 6 | RGN-7 | RGN-5 | — |
 | Mutation | MUT-1…5a | — | — | MUT-6 |
 | Lifetimes | LIFE-1, 3, 4, 6, 2g…2i, 2k | LIFE-7 | LIFE-2a…2f (superseded by ALLOC-22), LIFE-5 (superseded by LIFE-4/RGN-6) | LIFE-2 |
@@ -5401,6 +5455,8 @@ only written down.
 | `tests/stdlib/314-out-of-memory.ax` | EXEC-16's status 70 and ALLOC-7: the sentence pinned in `.err` and the status in `.exit`, each checked on its own, reached deterministically at 2^60 bytes |
 | `tests/stdlib/312-checked-arithmetic.ax` | VAL-3b's remedy: `addChecked`, `subChecked` and `mulChecked` at every boundary they have, with byte-identical stdout at `--opt` 0, 1, 2 and 3 |
 | `scripts/check-net.sh` | ALLOC-22 (a request handler scoped as an arena uses 100–313× less memory than the same binary unscoped, with the negative probe that makes the flat column mean something) and ALLOC-4b (request sizes varying across three orders of magnitude don't ratchet the watermark) |
+| `tests/stdlib/557-cycle-backlog.ax` | LIFE-2f's cost and ALLOC-24: 64 bytes a two-node knot, none for a chain, a broken knot or a scoped one |
+| `tests/stdlib/558-size-classes.ax` | ALLOC-25 and ALLOC-24: each request's class, reuse across sizes of one class, and the exact filed count of one block per class |
 
 Some rules are only covered incidentally. Fixtures written for another
 purpose exercise them, so a regression would surface, but under a name
