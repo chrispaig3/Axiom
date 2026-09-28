@@ -1,0 +1,5 @@
+1 every class filed then reset: filed before reset 841472, after 0, bad words 0
+2 nested marks over chunk boundaries: bad words 0
+3 reset inside a recovery point, then a trap: status 72, bad words 0 + 0
+4 large block released then reset: bad words 0
+total bad 0

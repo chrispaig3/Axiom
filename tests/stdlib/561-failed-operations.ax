@@ -1,0 +1,146 @@
+; MM-ALLOC-23 and ERR-REC-6: after a failed operation is contained, the
+; heap is consistent.
+;
+;   1  a constructor whose third argument divides by zero after the
+;      first two were built: the recovery point answers 72, the same
+;      constructor then builds whole, and 10,000 allocations come back
+;      zeroed
+;   2  a `Vec` asked for 2^58 elements inside a recovery point: its data
+;      block, 2^61 bytes, is refused before anything is stored, the
+;      point answers 70, and 10,000 allocations come back zeroed
+;   3  a `Vec` older than the recovery point, written only after the
+;      arming call answers: everything the thunk built is reclaimed by
+;      the abort, so its answer crosses the point as a word and the
+;      older `Vec` grows outside it
+;
+; Case 3 is the program's side of MM-ALLOC-23. An abort reclaims all
+; the thunk allocated, so a structure older than the point must not be
+; made to hold any of it: a `Vec` grown inside the extent would keep a
+; data block the abort gave back.
+(import IO)
+(import Mem)
+(import Vec)
+
+(data T
+  (Leaf)
+  (Node T Int T))
+
+(:: mk (-> Int T))
+(fn (mk n)
+  (Node (Leaf) n (Leaf)))
+
+(:: val (-> T Int))
+(fn (val t)
+  (match t
+    ((Leaf) 0)
+    ((Node l v r) (+ (+ (val l) v) (val r)))))
+
+(:: boom (-> Int Int))
+(fn (boom d)
+  (/ 100 d))
+
+(:: partial (-> Int Int))
+(fn (partial z)
+  (val (Node (mk 1) (boom z) (mk 2))))
+
+; 10,000 allocations of 48 bytes: how many came back with a nonzero word
+(:: dirty (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (dirty k bad)
+  (if (== k 0)
+    bad
+    (let ((p (memAlloc 48)))
+      (let ((z (+ (+ (memGetWord p 0) (memGetWord p 3)) (memGetWord p 5))))
+        {
+          (memSetWord p 0 77)
+          (memSetWord p 5 77)
+          (dirty
+            (- k 1)
+            (if (== z 0)
+              bad
+              (+ bad 1)))
+        }))))
+
+(:: case1 Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (case1)
+  (let ((st 
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (partial 0)))))
+    (let (
+      (whole (partial 1))
+      (bad (dirty 10000 0))
+    )
+      {
+        (println "1 partial constructor: recovered {st}, rebuilt {whole}, dirty blocks {bad}")
+        bad
+      })))
+
+(:: case2 Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (case2)
+  (let ((st 
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (vecLen (vecWithCapacity 288230376151711744))))))
+    (let ((bad (dirty 10000 0)))
+      {
+        (println "2 huge Vec: recovered {st}, dirty blocks {bad}")
+        bad
+      })))
+
+(:: fill (-> (Vec Int) Int Int Int))
+(fn (fill v i n)
+  (if (>= i n)
+    (vecLen v)
+    {
+      (vecPush v (+ 1000 i))
+      (fill v (+ i 1) n)
+    }))
+
+(:: total (-> (Vec Int) Int Int Int))
+(fn (total v i acc)
+  (if (>= i (vecLen v))
+    acc
+    (total v (+ i 1) (+ acc (vecGet v i)))))
+
+(:: case3 Int)
+;@axiom:effect(io)
+(fn (case3)
+  (let (
+    (v (vecNew))
+    (m __axiom_arena_mark)
+  )
+    (let (
+      (a (__axiom_recover
+        m
+        (lambda (x) (fill (vecNew) 0 100))))
+      (b (__axiom_recover
+        m
+        (lambda (x) (+ (fill (vecNew) 0 100) (boom 0)))))
+    )
+      {
+        (fill v 0 a)
+        (fill v 0 b)
+        (let ((w (vecNew)))
+          {
+            (fill w 0 300)
+            (let (
+              (n (vecLen v))
+              (t (total v 0 0))
+            )
+              {
+                (println "3 answers {a} and {b}, the older Vec holds {n} summing to {t}")
+                0
+              })
+          })
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (+ (+ (case1) (case2)) (case3)))

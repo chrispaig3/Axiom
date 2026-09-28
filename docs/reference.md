@@ -4632,6 +4632,12 @@ pads. This isn't a `catch`, and it can't contain a memory-safety fault,
 because a segmentation fault isn't a trap. [error-model.md](error-model.md)
 ERR-REC-6 states the whole contract.
 
+Two limits follow from the reset. Don't store anything the thunk
+allocated into a value older than the recovery point; return it through
+the arming call instead. And close files and release locks before
+anything in the thunk can trap, because an abort doesn't. Take the mark
+once, outside a loop: each `__axiom_arena_mark` costs a 48-byte cell.
+
 Tested by `tests/stdlib/403-recover-div.ax`.
 
 <a id="memory-primitives"></a>
@@ -4661,6 +4667,7 @@ stops: every argument and result is an `Int`.
 | `(__retain h)` / `(__release h)` | Take or hand back a share of the counted block at `h` |
 | `(__retainref v)` | Take a share of `v` only if `v` is a reference. This is decided from the call's type, so an `Int` argument emits nothing. Use it when you store a value behind a `cast Int` |
 | `__axiom_arena_mark` / `(__axiom_arena_reset m)` | Read the allocator's waterline (it takes no argument), and roll it back to a mark |
+| `(__axiom_mem_stat k)` | The allocator's own counts for this thread, in bytes: 0 held by the arena, 1 filed on the size-class lists for reuse, 2 mapped. Held less filed is what a reset would give back and counting hasn't, such as unreachable cycles. Any other `k` answers -1 ([memory-model.md](memory-model.md) MM-ALLOC-24) |
 | `(memMarkArray h n)` / `(memMarkLeaf h)` | From `Mem`. Declare that payload words `0..n-1` of the block at `h` are handles, or that none is. `n` is your element count, not the block's size, because the allocator's own word count is a size class, clamped to 0 past 16,383 words. There's no reader, so a container keeps its own flag (MM-LIFE-2h) |
 | `(__axiom_recover m thunk)` | Arm a recovery point at mark `m` and run `thunk`. See [Recover from a trap](#recover-from-a-trap) |
 | `(__addr "literal")` | Address of a string literal's bytes |

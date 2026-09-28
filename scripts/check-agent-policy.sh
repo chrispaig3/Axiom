@@ -737,6 +737,10 @@ prim_case "__axiom_arena_mark"          "(__axiom_arena_mark)"                 "
 # the control that keeps these two measuring the reset.
 prim_case "__axiom_arena_reset"         "(__axiom_arena_reset n)"              "Alloc,Unsafe"
 prim_case "__axiom_arena_reset_keeping" "(__axiom_arena_reset_keeping n 0 0)"  "Alloc,Unsafe"
+# The allocator's own counts (MM-ALLOC-24) allocate nothing and touch no
+# address, but the answer is the allocator's history, so it carries
+# `Alloc` as the mark does and no `pure` body can depend on it.
+prim_case "__axiom_mem_stat"            "(__axiom_mem_stat n)"                 "Alloc"
 # The atomics that WRITE or ORDER carry `Mut`: a store, an add and a
 # compare-and-swap write a word every alias of it sees, and a fence
 # exists only to order such writes. Since 2026-09-27 the four that

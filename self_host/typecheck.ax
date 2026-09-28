@@ -2931,6 +2931,11 @@
       (regFnEff fns "__axiom_arena_mark" (mkIntArrow 0) (builtinEff "Alloc"))
       (regFnEff fns "__axiom_arena_reset" (mkIntArrow 1) (builtinEff "Alloc"))
       (regFnEff fns "__axiom_arena_reset_keeping" (mkIntArrow 3) (builtinEff "Alloc"))
+      ; `(__axiom_mem_stat k)` reads the allocator's own counts
+      ; (MM-ALLOC-24). `Alloc`, as `__axiom_arena_mark` is: the answer
+      ; is the allocator's history, so no `pure` body may depend on it.
+      ; Not unsafe - it names no address and writes nothing.
+      (regFnEff fns "__axiom_mem_stat" (mkIntArrow 1) (builtinEff "Alloc"))
       ; The five atomic primitives (2026-08-29): the machine word at a
       ; BYTE ADDRESS, read, written, added to, compared-and-swapped and
       ; fenced, sequentially consistent (codegen.ax `emitPrimAtomic`).

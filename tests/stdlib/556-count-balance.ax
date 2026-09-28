@@ -1,0 +1,405 @@
+; MM-LIFE-2c and MM-LIFE-2k through the safe surface: no share is
+; released one time too many, so nothing is freed while it is still
+; reachable and nothing freed comes back to life.
+;
+; Each scenario keeps one value reachable, runs the safe operations
+; that move its count, then churns 20,000 allocations of the same size
+; classes filled with other bytes, and reads the value back. A share
+; released once too often frees the value early, the churn reuses its
+; storage, and the read-back differs.
+;
+;   A  closures: a capture outliving its frame, a closure passed
+;      through calls, stored in a `Vec` and overwritten, and a curried
+;      chain applied a thousand times
+;   B  containers: one element pushed three times then the `Vec` freed,
+;      a slot set to itself, a popped element outliving its `Vec`, and
+;      one value under two `Map` keys, removed and freed
+;   C  field stores: a field stored to itself, overwritten back and
+;      forth, and one value shared by two blocks that die
+;   D  `Str` slices: a slice of a slice outliving both parents, and a
+;      thousand slices dropped
+;   E  a `Handle` captured, stored, freed with its `Vec` and closed
+;      twice
+;
+; The last line is the instrument's control: one raw `__release` too
+; many, and the churn must see it. A probe that could not fail would
+; print "14 of 14" whatever the compiler did.
+(import IO)
+(import Str)
+(import Fmt)
+(import Vec)
+(import Map)
+(import Ffi)
+(import Mem)
+
+; 40 bytes: header block 48 B, buffer block 64 B
+(:: mkS (-> Int String))
+(fn (mkS k)
+  (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+
+(:: good (-> String Int))
+(fn (good s)
+  (if (== (strLen s) 40)
+    (if (== (strByte s 0) 97)
+      (if (== (strByte s 39) 68)
+        1
+        0)
+      0)
+    0))
+
+(:: churn Int)
+(fn (churn)
+  (let ((keep (vecNewRef)))
+    {
+      (churnFill keep 20000)
+      (vecLen keep)
+    }))
+
+(:: churnFill (-> (Vec String) Int Int))
+(fn (churnFill v k)
+  (if (== k 0)
+    0
+    {
+      (vecPush v (strDup "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"))
+      (churnFill v (- k 1))
+    }))
+
+; A closure capturing a string, built in a frame that then ends.
+(:: mkReader (-> Int Int Int))
+(fn (mkReader k)
+  (let ((s (mkS k)))
+    (lambda (i) (strByte s i))))
+
+(:: pass (-> (-> Int Int) Int Int))
+(fn (pass f)
+  f)
+
+(:: callMany (-> (-> Int Int) Int Int Int))
+(fn (callMany f k acc)
+  (if (== k 0)
+    acc
+    (callMany f (- k 1) (+ acc (f 0)))))
+
+(:: readerOk (-> (-> Int Int) Int))
+(fn (readerOk f)
+  (if (== (f 0) 97)
+    (if (== (f 39) 68)
+      1
+      0)
+    0))
+
+(:: scA1 Int)
+(fn (scA1)
+  (let ((f (mkReader 0)))
+    {
+      (callMany f 1000 0)
+      (churn)
+      (readerOk f)
+    }))
+
+(:: scA2 Int)
+(fn (scA2)
+  (let ((f (mkReader 0)))
+    (let ((g (pass (pass (pass f)))))
+      {
+        (callMany g 1000 0)
+        (callMany f 1000 0)
+        (churn)
+        (* (readerOk f) (readerOk g))
+      })))
+
+(:: scA3 Int)
+(fn (scA3)
+  (let (
+    (f (mkReader 0))
+    (h (mkReader 1))
+    (v (vecNewRef))
+  )
+    {
+      (vecPush v f)
+      (vecPush v f)
+      (vecSet v 0 h)
+      (vecSet v 1 h)
+      (vecFree v)
+      (churn)
+      (* (readerOk f) (readerOk h))
+    }))
+
+; a curried chain whose inner record captures a counted string
+(:: adder (-> Int Int Int Int))
+(fn (adder k)
+  (let ((s (mkS k)))
+    (lambda (a)
+      (lambda (b) (+ (+ a b) (strByte s 0)))
+    )))
+
+(:: applyMany (-> (-> Int Int Int) Int Int Int))
+(fn (applyMany f k acc)
+  (if (== k 0)
+    acc
+    (applyMany f (- k 1) (+ acc (f k 1)))))
+
+(:: scA4 Int)
+(fn (scA4)
+  (let ((f (adder 0)))
+    (let ((p (f 5)))
+      {
+        (applyMany f 1000 0)
+        (callMany p 1000 0)
+        (churn)
+        (if (== (p 1) 103)
+          (if (== (f 2 3) 102)
+            1
+            0)
+          0)
+      })))
+
+(:: scB1 Int)
+(fn (scB1)
+  (let (
+    (s (mkS 0))
+    (v (vecNewRef))
+  )
+    {
+      (vecPush v s)
+      (vecPush v s)
+      (vecPush v s)
+      (vecFree v)
+      (churn)
+      (good s)
+    }))
+
+(:: setSelf (-> (Vec String) Int Int))
+(fn (setSelf v k)
+  (if (== k 0)
+    0
+    {
+      (vecSet v 0 (vecGet v 0))
+      (setSelf v (- k 1))
+    }))
+
+(:: scB2 Int)
+(fn (scB2)
+  (let (
+    (s (mkS 0))
+    (v (vecNewRef))
+  )
+    {
+      (vecPush v s)
+      (setSelf v 1000)
+      (churn)
+      (let (
+        (a (good s))
+        (b (good (vecGet v 0)))
+      )
+        {
+          (vecFree v)
+          (churn)
+          (* (* a b) (good s))
+        })
+    }))
+
+(:: popped Int)
+(fn (popped)
+  (let ((v (vecNewRef)))
+    {
+      (vecPush v (mkS 0))
+      (vecPush v (mkS 1))
+      (let ((s (vecPop v)))
+        {
+          (vecFree v)
+          (churn)
+          (good s)
+        })
+    }))
+
+(:: scB3 Int)
+(fn (scB3)
+  (popped))
+
+(:: scB4 Int)
+(fn (scB4)
+  (let (
+    (s (mkS 0))
+    (m mapNewRefVals)
+  )
+    {
+      (mapInsert m 1 s)
+      (mapInsert m 2 s)
+      (mapInsert m 1 s)
+      (mapRemove m 2)
+      (mapInsert m 3 (mkS 1))
+      (mapFree m)
+      (churn)
+      (good s)
+    }))
+
+(struct Box
+  (tag : Int)
+  (mut s : String))
+
+(:: selfStore (-> Box Int Int))
+(fn (selfStore b k)
+  (if (== k 0)
+    0
+    {
+      (set b.s b.s)
+      (selfStore b (- k 1))
+    }))
+
+(:: scC1 Int)
+(fn (scC1)
+  (let ((b (Box 1 (mkS 0))))
+    {
+      (selfStore b 1000)
+      (churn)
+      (good b.s)
+    }))
+
+(:: scC2 Int)
+(fn (scC2)
+  (let (
+    (x (mkS 0))
+    (y (mkS 1))
+    (b (Box 1 (mkS 2)))
+  )
+    {
+      (set b.s x)
+      (set b.s y)
+      (set b.s x)
+      (set b.s y)
+      (churn)
+      (* (good x) (* (good y) (good b.s)))
+    }))
+
+(:: shareBoth (-> String Int))
+(fn (shareBoth s)
+  (let (
+    (a (Box 1 s))
+    (b (Box 2 s))
+  )
+    (+ (strLen a.s) (strLen b.s))))
+
+(:: scC3 Int)
+(fn (scC3)
+  (let ((s (mkS 0)))
+    {
+      (shareBoth s)
+      (shareBoth s)
+      (churn)
+      (good s)
+    }))
+
+; a slice of a slice, the parent and the middle slice dropped
+(:: sliceTwice (-> Int String))
+(fn (sliceTwice k)
+  (let ((p (mkS k)))
+    (let ((s1 (strSlice p 5 30)))
+      (strSlice s1 5 20))))
+
+(:: scD1 Int)
+(fn (scD1)
+  (let ((s2 (sliceTwice 0)))
+    {
+      (churn)
+      ; bytes 10..29 of the parent: "klmnopqrstuvwxyz0123"
+      (if (== (strLen s2) 20)
+        (if (== (strByte s2 0) 107)
+          (if (== (strByte s2 19) 51)
+            1
+            0)
+          0)
+        0)
+    }))
+
+(:: manySlices (-> String Int Int Int))
+(fn (manySlices p k acc)
+  (if (== k 0)
+    acc
+    (let ((s (strSlice p 1 30)))
+      (manySlices p (- k 1) (+ acc (strLen s))))))
+
+(:: scD2 Int)
+(fn (scD2)
+  (let ((p (mkS 0)))
+    {
+      (manySlices p 1000 0)
+      (churn)
+      (good p)
+    }))
+
+(:: scE1 Int)
+;@axiom:effect(unsafe)
+(fn (scE1)
+  (let (
+    (h (ffiHandleNew 12345 0))
+    (v (vecNewRef))
+  )
+    {
+      (vecPush v h)
+      (let ((f 
+        (lambda (x) (ffiHandlePtr h))))
+        {
+          (f 0)
+          (vecFree v)
+          (churn)
+          (let ((before (ffiHandlePtr h)))
+            {
+              (ffiHandleClose h)
+              (ffiHandleClose h)
+              (if (== before 12345)
+                (if (== (ffiHandlePtr h) 0)
+                  (if (== (f 0) 0)
+                    1
+                    0)
+                  0)
+                0)
+            })
+        })
+    }))
+
+; The control: a share released once too often, by hand.
+(:: overRelease (-> String Int))
+;@axiom:effect(unsafe)
+(fn (overRelease s)
+  {
+    (__release
+      (cast Int s))
+    (churn)
+    (good s)
+  })
+
+(:: control Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (control)
+  (let ((s (mkS 0)))
+    (let ((seen (overRelease s)))
+      (if (== seen 0)
+        {
+          (println "control: one release too many is seen by the churn")
+          0
+        }
+        {
+          (println "FAIL control: the churn did not see a freed value")
+          1
+        }))))
+
+(:: report (-> String Int Int))
+;@axiom:effect(io)
+(fn (report name ok)
+  {
+    (if (== ok 1)
+      (println "ok   {name}")
+      (println "FAIL {name}"))
+    ok
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((n (+ (+ (+ (report "A1 closure keeps its capture" scA1) (report "A2 closure passed through calls" scA2)) (+ (report "A3 closure stored and overwritten in a Vec" scA3) (report "A4 curried chain applied repeatedly" scA4))) (+ (+ (+ (report "B1 one element pushed three times, Vec freed" scB1) (report "B2 vecSet of a slot to itself" scB2)) (+ (report "B3 popped element outlives its Vec" scB3) (report "B4 one value under two Map keys, removed, freed" scB4))) (+ (+ (report "C1 field stored to itself" scC1) (report "C2 field overwritten back and forth" scC2)) (+ (report "C3 two blocks sharing a field value, dropped" scC3) (+ (+ (report "D1 slice of a slice outlives both parents" scD1) (report "D2 a thousand slices dropped" scD2)) (report "E1 Handle captured, stored, closed twice" scE1))))))))
+    {
+      (println "{n} of 14")
+      (+ (- 14 n) (control))
+    }))

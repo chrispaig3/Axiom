@@ -1,0 +1,126 @@
+; MM-ALLOC-25: the size classes, and MM-ALLOC-24's filed-bytes count.
+;
+; Up to 1 KiB there is a class every 16 bytes. From 1 KiB to 64 KiB
+; there are eight classes per doubling, and a request is rounded UP to
+; its class, so a block freed at one size serves every request of its
+; class. A dead block files on the largest class not above its size.
+;
+;   1  each request below lands in the block its class names: the
+;      block's own size, read from its shape word
+;   2  a released block is reused by the next request of its CLASS,
+;      a different size included (1100 then 1150, both 1152), and not
+;      by a request one class up (1153, class 1280), nor below 1 KiB
+;      by a request 16 bytes larger (990 then 1000)
+;   3  `__axiom_mem_stat 1` moves by exactly the filed block's bytes,
+;      header included, on a filing and on a pop
+;   4  one block of every size from 16 to 65,536 bytes in steps of 16,
+;      each released: 4,096 requests fall into 113 classes, and the
+;      lists hold exactly one block of each, 841,472 bytes; an arena
+;      reset empties them, and the count reads 0
+;
+; Until MM-ALLOC-25 every class was an exact 16-byte step, and a block
+; above 1 KiB served only its own size: 1150 missed 1100's block and
+; the lists in part 4 held 4,096 blocks, one per size.
+(import IO)
+(import Mem)
+
+(:: shapeBytes (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (shapeBytes p)
+  (* 8 (& (>> (__load64 (- p 8) 0) 1) 16383)))
+
+(:: counted (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (counted bytes)
+  (let ((p (memAlloc bytes)))
+    {
+      (__retain p)
+      p
+    }))
+
+(:: born (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (born bytes)
+  (let ((p (counted bytes)))
+    (let ((b (shapeBytes p)))
+      {
+        (__release p)
+        (println "a {bytes}-byte request is a {b}-byte block")
+        b
+      })))
+
+(:: reuse (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (reuse first second)
+  (let ((p (counted first)))
+    (let ((f0 (__axiom_mem_stat 1)))
+      {
+        (__release p)
+        (let (
+          (f1 (__axiom_mem_stat 1))
+          (q (counted second))
+        )
+          (let (
+            (f2 (__axiom_mem_stat 1))
+            (same (== p q))
+          )
+            (let (
+              (filed (- f1 f0))
+              (popped (- f1 f2))
+            )
+              {
+                (println "{first} freed, {second} asked: reused {same}, lists +{filed} then -{popped}")
+                (__release q)
+                0
+              })))
+      })))
+
+(:: fileEvery (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (fileEvery step)
+  (let (
+    (mut sz step)
+    (mut k 0)
+  )
+    {
+      (while (<= sz 65536)
+        {
+          (__release (counted sz))
+          (set k (+ k 1))
+          (set sz (+ sz step))
+        })
+      k
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  {
+    (born 1000)
+    (born 1024)
+    (born 1025)
+    (born 2049)
+    (born 40000)
+    (born 65536)
+    (reuse 1100 1150)
+    (reuse 1100 1153)
+    (reuse 990 1000)
+    (reuse 40000 36865)
+    (let ((m __axiom_arena_mark))
+      {
+        ; start from empty lists: a reset scrubs every head
+        (__axiom_arena_reset m)
+        (let ((k (fileEvery 16)))
+          (let ((held (__axiom_mem_stat 1)))
+            {
+              (println "{k} sizes released, the lists hold {held} bytes")
+              (__axiom_arena_reset m)
+              (let ((after (__axiom_mem_stat 1)))
+                (println "after the reset they hold {after}"))
+              0
+            }))
+      })
+  })

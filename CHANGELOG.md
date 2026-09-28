@@ -116,6 +116,108 @@ defined above its first call. The relation also showed that a
 function's NID depends on whether its `::` or its `fn` comes last
 (AN-41).
 
+### The reclamation and reuse audit — `scripts/check-reclaim-soak.sh`, R-B7 to R-B9 - 2026-09-28
+
+Six questions about what happens when values die, each answered by a
+probe and pinned by a fixture or a gate section:
+
+- **Deep chains hold.** The release walk keeps its dead list in the
+  dead blocks' own count words, so a million-cell list, a million-deep
+  tree nested through either field, a list of strings and a chain of a
+  million closures each drop whole under a 64 KiB stack
+  (`tests/stdlib/555-release-deep-chain.ax`). `MM-LIFE-2d` said the
+  walk called itself per set bit; it says what the code does now.
+- **Counts balance through the safe surface.** Closures, containers,
+  field stores, `Str` slices and a `Handle`, fourteen scenarios read
+  back after a 20,000-block churn, with a control that one raw release
+  too many is seen (`tests/stdlib/556-count-balance.ax`).
+- **Cycles are priced and visible.** `MM-LIFE-2f` now states the policy
+  and the decision: cyclic garbage waits for a reset, costs its bytes
+  until then, and a program reads it with `__axiom_mem_stat`. No
+  collector is planned.
+- **Resets leave nothing stale**, across every class, nested marks over
+  chunk boundaries, a reset inside a recovery point, a released large
+  block, and four threads' own arenas
+  (`tests/stdlib/559-reset-metadata.ax`).
+- **A contained trap leaves the heap consistent**, after a constructor
+  whose argument traps and a refused `Vec` of 2^58 elements
+  (`tests/stdlib/561-failed-operations.ax`), and sweeps a child spawned
+  in the extent. `MM-ALLOC-23` and `ERR-REC-6` now state what stays the
+  program's: nothing older than the point may be made to hold what the
+  thunk allocated, and descriptors, mappings and locks the thunk took
+  stay taken.
+
+`scripts/check-reclaim-soak.sh` runs the stress half in about 30
+seconds, with five IR ablations each required red; `--long`, nightly,
+adds ten million replacements. Found and logged, not fixed here: AN-42,
+a `Vec` grown inside an aborted extent keeps a reclaimed block and
+`__axiom_recover` needs no `effect(unsafe)`; AN-43, `vecWithCapacity`
+wraps its byte size at 2^61 elements; AN-44, the resources above;
+AN-45, a closure passed in and returned leaks 32 bytes a call. Calls
+one new gate; the count sites state ninety gates.
+
+### Arming a recovery point allocates nothing — `MM-ALLOC-23`, R-B9 - 2026-09-28
+
+**A leak the runtime owned, fixed.** A recovery point kept its record,
+the saved stack and registers, the mark, the displaced point and the
+evidence snapshot, in an arena block. An abort reclaimed it with the
+rest of the extent, but a thunk that answered left it behind: 144
+bytes an arm in a reset-free loop, gone only at the next outer reset.
+The record is now a cell in the arming function's own frame, hoisted to
+its entry block as a region's cell is. The abort jumps back into that
+frame, so the cell is intact when it lands, and no reset can reclaim it
+while it is armed.
+
+`tests/stdlib/560-recover-record.ax` arms 10,000 points whose thunk
+answers, 10,000 that trap, and 10,000 nested pairs, and the arena grows
+by nothing in each. The runtime before this change grows 144 bytes an
+answered arm there. Its last line pins what stays the program's: an
+arm that takes a fresh `__axiom_arena_mark` each time still pays that
+mark's 48-byte cell (`MM-ALLOC-12`), so take the mark once.
+
+### Size classes that share, and a count a program can read — `MM-ALLOC-24`, `MM-ALLOC-25`, R-B8 - 2026-09-28
+
+**Memory that grew with time, fixed.** Every free-list class was an
+exact 16-byte step up to 64 KiB, so a freed block above 1 KiB served
+only a request of its own size, and each of 4,096 classes kept the
+most blocks it had ever held. A reset-free loop holding 1,000 strings
+of random length up to 60,000 bytes, about 30 MB live, peaked at
+117 MB, 267 MB, 379 MB and 478 MB after 10^4, 10^5, 10^6 and 10^7
+replacements. Above 1 KiB there are now eight classes per doubling, a
+request is rounded up to its class, and a dead block files on the
+largest class not above its size. The same loop peaks at 40, 47, 51
+and 54 MB. The rounding wastes at most an eighth of a block between
+1 KiB and 64 KiB, and nothing at or below 1 KiB.
+
+`(__axiom_mem_stat k)` answers the allocator's own counts for the
+calling thread: 0 the bytes the arena holds, 1 the bytes filed on the
+lists for reuse, 2 the bytes mapped. Held less filed is the backlog a
+reset would give back and counting hasn't, which is where unreachable
+cycles show. Filed is slot 0 of the class array, which no class uses:
+a filing adds, a pop subtracts, and a reset's existing scrub zeroes
+it, so the runtime keeps its set of mutable globals. The bump path is
+one compare and branch longer; a pop and a filing add a few
+instructions each.
+
+What it costs, measured with both compilers built from their own
+emitted IR through `opt -O1`, `llc -O1` and `cc`, hyperfine, nine runs
+after one warm-up: a self-compile takes 3.954 s against 3.922 s, best
+(4.026 s against 3.968 s, median), with peak RSS 651,728 KiB against
+653,072, and emits the same IR outside the runtime. A loop doing
+nothing but allocate and release a three-word block, 2 × 10^7 times,
+takes 354 ms against 336 ms (median 355 against 341), best of seven
+whole-process runs printing the same answer.
+
+`tests/stdlib/558-size-classes.ax` pins each request's class, reuse
+across two sizes of one class, and the exact filed count of one block
+per class, 841,472 bytes, back to 0 after a reset.
+`tests/stdlib/557-cycle-backlog.ax` reads a dropped two-node knot's
+cost as 64 bytes of backlog, and a chain's, a broken knot's and a
+scoped knot's as none. The executable model now predicts every
+block's class and the filed count after every step, traces allocate
+above 1 KiB, and a `classes` witness and ablation join it:
+`scripts/check-runtime-model.sh` runs 15 checks.
+
 ### The compiler joins strings with `strConcat` alone - 2026-09-28
 
 The compiler's source had six private helpers that each nested
@@ -198,7 +300,7 @@ every stdlib module as entry files, nightly. The fixes are pinned by
 `tests/selfhost/1006-cast-type-operand.ax` and
 `tests/selfhost/1007-param-shadows-nullary.ax`, which dies with
 SIGSEGV on the unfixed compiler. Calls one new gate; the count sites
-state eighty-nine gates.
+state ninety gates.
 
 ### Purity is written one way, and a tag must sit where it is checked — `AX3077`, `AX3078` - 2026-09-28
 
@@ -387,7 +489,7 @@ in `docs/assurance/verification.md`.
 action and `scripts/run-gates-linux.sh`'s image install
 `libclang-rt-dev`; CI sets `AXIOM_TSAN_REQUIRED=1`, so a missing
 runtime fails there and skips elsewhere. Calls one new gate; the count
-sites state eighty-nine gates.
+sites state ninety gates.
 ### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` §3 ran three litmus families, store
@@ -711,7 +813,7 @@ as the control); RSS flat from 500 to 5,000 folded tasks beside a
 keeping control that must grow; nine ablations on copies of the
 library each turning it red; and the three new programs in
 `examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
-new gate; the count sites state eighty-nine gates.
+new gate; the count sites state ninety gates.
 
 An independent review before landing found six defects, two confirmed
 by probes. The mutex compared an unlock's guard against the guard
@@ -868,7 +970,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-eighty-nine gates. Specified in `docs/restricted-profile.md`.
+ninety gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -936,7 +1038,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-nine gates.
+state ninety gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -977,7 +1079,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-nine gates.
+ninety gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -1026,7 +1128,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-nine gates.
+ninety gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -1056,7 +1158,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-nine gates.
+sites state ninety gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -1297,7 +1399,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-nine gates.
+checks). Calls one new gate; the count sites state ninety gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -1314,7 +1416,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-nine gates, and the battery has
+gate; the count sites state ninety gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

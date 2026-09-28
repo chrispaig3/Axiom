@@ -1,0 +1,16 @@
+ok   A1 closure keeps its capture
+ok   A2 closure passed through calls
+ok   A3 closure stored and overwritten in a Vec
+ok   A4 curried chain applied repeatedly
+ok   B1 one element pushed three times, Vec freed
+ok   B2 vecSet of a slot to itself
+ok   B3 popped element outlives its Vec
+ok   B4 one value under two Map keys, removed, freed
+ok   C1 field stored to itself
+ok   C2 field overwritten back and forth
+ok   C3 two blocks sharing a field value, dropped
+ok   D1 slice of a slice outlives both parents
+ok   D2 a thousand slices dropped
+ok   E1 Handle captured, stored, closed twice
+14 of 14
+control: one release too many is seen by the churn

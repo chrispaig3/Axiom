@@ -1,0 +1,253 @@
+; MM-ALLOC-13, MM-ALLOC-22 and MM-LIFE-2e: a reset leaves no stale
+; allocator metadata behind.
+;
+; A reset moves the bump back and returns chunks, and it also empties
+; every size-class list, because a block filed above the mark would
+; otherwise be handed out twice. Each check below allocates afterwards
+; and verifies every block zeroed at birth (MM-ALLOC-6) and no two live
+; blocks overlapping: each is filled with its own pattern and all are
+; read back once all are filled.
+;
+;   1  a block of every size from 16 to 65,536 bytes filed inside a
+;      scope, then the scope reset: the filed count reads 0, and every
+;      class is allocated twice over
+;   2  three nested marks, each followed by a block large enough to
+;      cross a chunk boundary and by filings of a different band of
+;      classes, reset innermost first; the block below the outer mark
+;      keeps its pattern
+;   3  a mark and reset inside a recovery point's thunk, then a trap:
+;      the abort resets past the inner reset to the arm's mark
+;   4  a block over 64 KiB released (it files nowhere) and a second
+;      one kept, then the scope reset and the same size allocated again
+;
+; With the list scrub deleted from the emitted reset,
+; `scripts/check-reclaim-soak.sh` shows this program dying.
+(import IO)
+(import Str)
+(import Fmt)
+(import Mem)
+(import Vec)
+
+; fill `p` (`words` words) with a pattern derived from `tag`
+(:: pat (-> Int Int Int Int))
+(fn (pat p words tag)
+  {
+    (for i 0 words
+      (memSetWord p i (+ (* tag 1000003) i)))
+    p
+  })
+
+(:: patOk (-> Int Int Int Int))
+(fn (patOk p words tag)
+  (let ((mut bad 0))
+    {
+      (for i 0 words
+        (if (== (memGetWord p i) (+ (* tag 1000003) i))
+          0
+          (set bad (+ bad 1))))
+      bad
+    }))
+
+(:: zeroOk (-> Int Int Int))
+(fn (zeroOk p words)
+  (let ((mut bad 0))
+    {
+      (for i 0 words
+        (if (== (memGetWord p i) 0)
+          0
+          (set bad (+ bad 1))))
+      bad
+    }))
+
+; Allocate `n` blocks of `bytes` each (counted, so they can be
+; released), check each zeroed, fill all, then read all back.
+; Answers the number of bad words.
+(:: batch (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (batch n bytes salt)
+  (let (
+    (v (vecNew))
+    (w (/ bytes 8))
+    (mut bad 0)
+  )
+    {
+      (for i 0 n
+        (let ((p (memAlloc bytes)))
+          {
+            (__retain p)
+            (set bad (+ bad (zeroOk p w)))
+            (vecPush v p)
+          }))
+      (for i 0 n
+        (pat (vecGet v i) w (+ salt i)))
+      (for i 0 n
+        (set bad (+ bad (patOk (vecGet v i) w (+ salt i)))))
+      bad
+    }))
+
+; Allocate and immediately release one block of every class size in
+; [lo, hi] step `step`, dirtying it first, so every one of those lists
+; holds a filed, dirty block.
+(:: fileEvery (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (fileEvery lo hi step)
+  (let (
+    (mut k 0)
+    (mut sz lo)
+  )
+    {
+      (while (<= sz hi)
+        (let ((p (memAlloc sz)))
+          {
+            (__retain p)
+            (pat p (/ sz 8) 77)
+            (__release p)
+            (set k (+ k 1))
+            (set sz (+ sz step))
+          }))
+      k
+    }))
+
+; 1. every class filed inside a scope, then the scope reset; afterwards
+;    every class allocated twice over and verified
+(:: check1 Int)
+;@axiom:effect(unsafe)
+(fn (check1)
+  (let ((m __axiom_arena_mark))
+    {
+      (fileEvery 16 65536 16)
+      (let ((filed (__axiom_mem_stat 1)))
+        {
+          (__axiom_arena_reset m)
+          (let (
+            (after (__axiom_mem_stat 1))
+            (mut bad 0)
+            (mut sz 16)
+          )
+            {
+              (while (<= sz 65536)
+                {
+                  (set bad (+ bad (batch 2 sz sz)))
+                  (set sz (+ sz 16))
+                })
+              (println "1 every class filed then reset: filed before reset {filed}, after {after}, bad words {bad}")
+              bad
+            })
+        })
+    }))
+
+; 2. nested marks across chunk boundaries, reset innermost first, with
+;    filed blocks at every level; verify the outer level's blocks
+(:: check2 Int)
+;@axiom:effect(unsafe)
+(fn (check2)
+  (let ((outer (memAlloc 4096)))
+    {
+      (pat outer 512 9)
+      (let ((m1 __axiom_arena_mark))
+        {
+          (let ((a (memAlloc 700000)))
+            (pat a 87500 1))
+          (fileEvery 1024 8192 128)
+          (let ((m2 __axiom_arena_mark))
+            {
+              (let ((b (memAlloc 900000)))
+                (pat b 112500 2))
+              (fileEvery 16 2048 16)
+              (let ((m3 __axiom_arena_mark))
+                {
+                  (let ((c (memAlloc 2000000)))
+                    (pat c 250000 3))
+                  (fileEvery 8192 65536 1024)
+                  (__axiom_arena_reset m3)
+                  (let ((bad3 (batch 50 1040 3000)))
+                    {
+                      (__axiom_arena_reset m2)
+                      (let ((bad2 (batch 50 2064 4000)))
+                        {
+                          (__axiom_arena_reset m1)
+                          (let (
+                            (bad1 (batch 200 4000 5000))
+                            (keep (patOk outer 512 9))
+                          )
+                            (let ((bad (+ (+ bad3 bad2) (+ bad1 keep))))
+                              {
+                                (println "2 nested marks over chunk boundaries: bad words {bad}")
+                                bad
+                              }))
+                        })
+                    })
+                })
+            })
+        })
+    }))
+
+; 3. a reset inside a recovery point, then a trap: the abort resets to
+;    the arm's mark past the inner reset
+(:: inner3 (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (inner3 z)
+  (let ((m __axiom_arena_mark))
+    {
+      (fileEvery 16 4096 16)
+      (let ((big (memAlloc 3000000)))
+        (pat big 375000 5))
+      (__axiom_arena_reset m)
+      (fileEvery 16 4096 16)
+      (/ 1 z)
+    }))
+
+(:: check3 Int)
+;@axiom:effect(unsafe)
+(fn (check3)
+  (let ((keep (memAlloc 8192)))
+    {
+      (pat keep 1024 11)
+      (let ((st 
+        (__axiom_recover
+          __axiom_arena_mark
+          (lambda (x) (inner3 0)))))
+        (let (
+          (bad (+ (batch 100 4096 6000) (batch 300 48 7000)))
+          (k (patOk keep 1024 11))
+        )
+          {
+            (println "3 reset inside a recovery point, then a trap: status {st}, bad words {bad} + {k}")
+            (+ bad k)
+          }))
+    }))
+
+; 4. a large block (over 64 KiB) released, then the scope reset;
+;    afterwards the same size allocated and verified
+(:: check4 Int)
+;@axiom:effect(unsafe)
+(fn (check4)
+  (let ((m __axiom_arena_mark))
+    {
+      (let ((p (memAlloc 200000)))
+        {
+          (__retain p)
+          (pat p 25000 13)
+          (__release p)
+        })
+      (let ((q (memAlloc 200000)))
+        (pat q 25000 14))
+      (__axiom_arena_reset m)
+      (let ((bad (batch 6 200000 8000)))
+        {
+          (println "4 large block released then reset: bad words {bad}")
+          bad
+        })
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let ((b (+ (+ check1 check2) (+ check3 check4))))
+    {
+      (println "total bad {b}")
+      (if (== b 0)
+        0
+        1)
+    }))

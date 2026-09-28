@@ -330,7 +330,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-nine of the gates below build the compiler under test from
+    # ninety of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -1087,6 +1087,15 @@ jobs:
       # file green across it, the container gate included.
       - name: A bounded live set has bounded memory
         run: ./scripts/check-steady-state.sh
+
+      # Reclamation and reuse (R-B7 to R-B9): million-deep chains
+      # released under a 64 KiB stack, a mixed-size reset-free soak that
+      # plateaus, the price of an unreachable cycle, resets across
+      # classes, chunks and threads, and what a contained trap leaves
+      # behind. Every RSS comparison has an ablation or a control that
+      # must move; the 10^7 soak runs in `long-evidence`.
+      - name: Reclamation and reuse hold under depth, churn, cycles and resets
+        run: ./scripts/check-reclaim-soak.sh
 
       # And the cost this repository carried on every fallible call
       # until 2026-08-25: the block a call returning `Result` answers
@@ -1958,6 +1967,8 @@ jobs:
         run: ./scripts/check-runtime-model.sh --long
       - name: The metamorphic relation over the compiler and every stdlib module
         run: ./scripts/check-metamorphic.sh --long
+      - name: The reclamation soak at ten million replacements
+        run: ./scripts/check-reclaim-soak.sh --long
 
   reproducible:
     name: Reproducible build
