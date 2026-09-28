@@ -20,6 +20,9 @@ on:
     branches: [trunk]
     paths:
       - 'web/**'
+      # The site draws its logo from the brand kit's outlines, so an
+      # edit there is an edit to the page.
+      - 'assets/logo/geometry.json'
       - '.github/workflows/pages.yml'
   # Manual, for a re-deploy after changing the Pages source in Settings.
   workflow_dispatch:

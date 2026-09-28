@@ -170,9 +170,13 @@
   color: var(--text);
 }
 
-.brand__mark {
+.brand__logo {
+  display: block;
   flex: none;
-  border-radius: 6px;
+}
+
+.brand__symbol {
+  fill: var(--accent);
 }
 
 .brand__version {
