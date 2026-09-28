@@ -23,7 +23,6 @@ It isn't a system severity. The integrator assigns that
 |---|---|---|---|---|
 | AN-9 | L | Grandchildren of a swept child are reparented, not swept, and a sweep over a thread that never finishes never finishes | `MM-PAR-7`'s stated limits | Don't spawn from a binding, and bound every binding's work |
 | AN-10 | L | A binding killed while holding a channel's lock leaves it held, and later calls on that channel block, the timed forms included | `MM-PAR-10` | After a sweep, only `chanFree` the channel. The mutex (`MM-PAR-11`) doesn't have this limit |
-| AN-13 | L | The stack bound reads AArch64 ELF only; x86-64 is unsupported | [restricted-profile.md](../restricted-profile.md) | Bound on an AArch64 configuration |
 | AN-14 | L | Integer `+`, `-` and `*` wrap silently. `<<` and `>>` out of range, and `INT_MIN / -1`, are undefined in LLVM's terms | `no-wrap` and `no-untrapped` in [reference.md](../reference.md) | Claim `restrict(no-wrap, no-untrapped)` and use the checked operations |
 | AN-15 | L | Waits on FreeBSD spin, because that target has no blocking wait | `MM-PAR-10`, `MM-PAR-12` | None; it costs a core |
 | AN-17 | L | Neither the mutex nor the channel is fair or has priority inheritance, so a binding can starve and priority inversion is possible | `MM-PAR-10`, `MM-PAR-11` | Don't rely on either for real-time scheduling |
@@ -63,6 +62,7 @@ It isn't a system severity. The integrator assigns that
 | AN-31 | A checked tag, such as `restrict(no-alloc)`, above a `data`, `struct`, import, macro or alias was recorded and never checked | The tag-rules commit | `tests/diagnostics/1030-axtag-misplaced.ax`; `AX3077` |
 | AN-32 | Purity had three accepted spellings, `pure`, `effect(pure)` and a slip of `pure` read as metadata, and the slip claimed nothing | The tag-rules commit | `tests/diagnostics/1031-pure-tag-spelling.ax`; `AX3078` |
 | AN-33 | A `data` constructor or type spelled like an operator compiled though nothing could reach it | The tag-rules commit | `tests/fuzz/data-ctor-operator.axfuzz`; `tests/diagnostics/1029-operator-fn-name.axbad` |
+| AN-13 | The stack bound read AArch64 ELF only; x86-64 was unsupported | The x86-64 stack-bound commit | `scripts/check-report.sh` §4b and its `x86call` ablation |
 | AN-34 | A parameter, a lambda parameter or a captured parameter spelled like a nullary top-level function compiled as a call to that function, in its own module and across modules | The R-A10 commit | `tests/selfhost/1007-param-shadows-nullary.ax`; `scripts/check-metamorphic.sh` §3 `param-first` |
 | AN-35 | The effect walk read `cast`'s type operand as a reference, so an entry file's function `a` gave `Vec`'s element readers its effects, and a program importing `Vec` was refused | The R-A10 commit | `tests/selfhost/1006-cast-type-operand.ax`; `scripts/check-metamorphic.sh` §3 `cast-operand` |
 | AN-36 | The effect walk skipped a named pattern's binders, so `{tag = t}` read `t` as a free name | The R-A10 commit | `tests/selfhost/1006-cast-type-operand.ax`; `scripts/check-metamorphic.sh` §3 `named-pattern` |

@@ -2,7 +2,7 @@
 
 Status: **implemented and verified by `scripts/check-report.sh`** on the
 hosted configurations (H1–H3 in [assurance/configurations.md](assurance/configurations.md)),
-with the stack half read from AArch64 ELF objects only. It is a
+with the stack half read from AArch64 and x86-64 ELF objects. It is a
 qualification-readiness input, not a qualified tool: nothing here is
 approved for any application ([assurance/plan.md](assurance/plan.md)
 keeps those words apart).
@@ -143,6 +143,12 @@ v(f) = max( frame(f),
             v(h)              for each tail call h )
 ```
 
+On x86-64 a call pushes an 8-byte return address that `.stack_sizes`
+doesn't count, so each frame is charged 8 bytes more. A call and a
+tail jump are told apart by the opcode byte before the relocated
+displacement: `E8` is a call, and `E9` or a conditional `0F 8x` is a
+tail jump.
+
 A strongly connected component with a call edge between two of its
 members grows without bound. One whose members are joined by tail
 calls only is a loop, and all its members share one value, the
@@ -202,9 +208,10 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
 - **"May block" comes from the syscall number, not the descriptor.** A
   `read` or `write` of a regular file is marked too, because the graph
   can't tell a file from a pipe.
-- **The stack half reads AArch64 ELF only** (`baremetal-aarch64`,
-  `linux-aarch64`). x86-64 call relocations need instruction decoding
-  to tell a call from an address load, and are not attempted.
+- **The stack half reads ELF only**, for AArch64 and x86-64
+  (`baremetal-aarch64`, the Linux and FreeBSD targets), not Mach-O or
+  PE. On x86-64, indirect call sites come from the IR alone, because
+  variable-length code can't be scanned for them without decoding.
 - **The source graph is the checker's.** Code the compiler emits
   without a source call - retain, release, the allocator, trap exits -
   is visible only to `--stack`, which is what `--stack` is for.

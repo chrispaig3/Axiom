@@ -22,6 +22,26 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The stack bound reads x86-64 machine code — `scripts/axiom-report.py --stack`, R-D1 - 2026-09-28
+
+`--stack` now bounds a program's stack from an x86-64 ELF object as
+well as an AArch64 one, so `linux-x86_64` and `freebsd-x86_64` get the
+same answer `baremetal-aarch64` and `linux-aarch64` had (AN-13). An
+x86-64 call and a tail jump carry the same relocation, so the report
+reads the opcode byte before the displacement: `E8` is a call, and
+`E9` or a conditional `0F 8x` is a tail jump. A call pushes an 8-byte
+return address `.stack_sizes` doesn't count, so each frame is charged
+8 bytes more. Variable-length code can't be scanned for an indirect
+call without decoding it, so on x86-64 the indirect sites come from
+the IR alone, and the report says so.
+
+`scripts/check-report.sh` §4b, 49 checks in all: `ok-periodic.ax` and
+`blink.ax` bounded at 168 and 296 bytes on `linux-x86_64`, each bound
+equal to its path's frames plus 8 a call; every frame equal to
+`llvm-readobj --stack-sizes` (18 and 41 functions); tree recursion
+unbounded; and a copy that never reads `E8` as a call gets tree
+recursion bounded.
+
 ### A second metamorphic relation: reordering declarations — `scripts/check-metamorphic.sh` §2b - 2026-09-28
 
 Reversing a program's top-level declarations must not change its

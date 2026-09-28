@@ -386,6 +386,75 @@ PY
 fi
 
 echo
+echo "== 4b. the stack bound, from x86-64 machine code =="
+# The same questions of an x86-64 ELF object (linux-x86_64). A call and
+# a tail jump are told apart by the opcode byte before the relocated
+# displacement, and every frame is charged the 8-byte return address a
+# call pushes, which `.stack_sizes` does not count.
+x86=linux-x86_64
+if ! command -v llc >/dev/null 2>&1 || ! command -v opt >/dev/null 2>&1; then
+  skip "llc/opt not on PATH: the x86-64 stack half cannot build its object here"
+else
+  for fx in "$fxdir/ok-periodic.ax" "$blink"; do
+    n="$(basename "$fx")"
+    report "$tool" "$work/x-$n.json" "$fx" --target $x86 --stack --stack-budget 8192 --keep; rc=$?
+    b="$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["stack"]["results"]["main"]; print(r["bytes"] if r["bounded"] else "UNBOUNDED")' "$work/x-$n.json" 2>/dev/null)"
+    if [[ "$rc" == 0 && "$b" =~ ^[0-9]+$ ]] && (( b > 0 && b <= 8192 )); then
+      ok "$n on x86-64: bounded at $b bytes from main, no refusal"
+    else
+      bad "$n on x86-64: exit $rc, bound [$b]:"; head -5 "$work/x-$n.json.err" | sed 's/^/     /'
+    fi
+    if python3 - "$work/x-$n.json" > "$work/xsum-$n.out" 2>&1 <<'PY'
+import json, sys
+st = json.load(open(sys.argv[1]))['stack']
+fr, extra = st['frames'], st['frame_extra']
+if st['machine'] != 'x86-64' or extra != 8:
+    print('read as %s with %s extra bytes a frame' % (st['machine'], extra)); sys.exit(1)
+res = st['results']['main']
+steps = [f for f in res['path'] if not f.endswith('~>')]
+total = sum(fr[f] + extra for f in steps)
+if total != res['bytes'] or len(steps) < 2:
+    print('bound %d, path of %d calls sums to %d' % (res['bytes'], len(steps), total)); sys.exit(1)
+print('%d = %d frames + 8 each: %s' % (total, len(steps), ' -> '.join(steps)))
+PY
+    then
+      ok "$n on x86-64: the bound is its path's frames plus a return address each - $(cut -c1-140 "$work/xsum-$n.out")"
+    else
+      bad "$n on x86-64: $(cat "$work/xsum-$n.out")"
+    fi
+    readobj="$(command -v llvm-readobj || true)"
+    objf="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["stack"]["obj"])' "$work/x-$n.json" 2>/dev/null)"
+    if [[ -z "$readobj" ]]; then
+      skip "llvm-readobj not on PATH: the x86-64 frame reader is not cross-checked here"
+    elif python3 - "$work/x-$n.json" <("$readobj" --stack-sizes "$objf" 2>&1) > "$work/xro-$n.out" 2>&1 <<'PY'
+import json, re, sys
+fr = json.load(open(sys.argv[1]))['stack']['frames']
+theirs = {}
+for fns, sz in re.findall(r'Functions: \[([^\]]+)\]\s*\n\s*Size: (0x[0-9a-fA-F]+)', open(sys.argv[2]).read()):
+    for fn in fns.split(','):
+        theirs[fn.strip()] = int(sz, 16)
+diff = sorted(set(fr) ^ set(theirs)) + [f for f in fr if f in theirs and fr[f] != theirs[f]]
+if not theirs or diff:
+    print('disagree on %s' % diff[:8]); sys.exit(1)
+print('%d functions, every frame equal' % len(fr))
+PY
+    then
+      ok "$n on x86-64: the frames agree with llvm-readobj - $(cat "$work/xro-$n.out")"
+    else
+      bad "$n on x86-64: the frames and llvm-readobj's disagree - $(cat "$work/xro-$n.out")"
+    fi
+    [[ -n "$objf" ]] && rm -rf "$(dirname "$objf")"
+  done
+  report "$tool" "$work/x-fib.json" "$fxdir/rp1-recursion.ax" --target $x86 --profile restricted --stack; rc=$?
+  got="$(rules_of "$work/x-fib.json" 2>/dev/null)"
+  if [[ "$rc" == 1 && "$got" == "RP-1 RP-7" ]]; then
+    ok "rp1-recursion.ax on x86-64: tree recursion is unbounded (RP-1 RP-7)"
+  else
+    bad "rp1-recursion.ax on x86-64: exit $rc, refusals [$got], wanted RP-1 RP-7"
+  fi
+fi
+
+echo
 echo "== 5. ablations: each rule is what refuses its fixture =="
 # A copy of the tool with ONE site disabled. The seam is an exact
 # string and must match exactly once, or the ablation proves nothing.
@@ -442,6 +511,22 @@ if ablate blocking "BLOCKING_KERNEL = {" "BLOCKING_KERNEL = set() and {"; then
   fi
 else
   bad "ablation blocking: the seam did not match exactly once"
+fi
+# x86-64 calls are read off the opcode byte: a copy that never reads
+# E8 as a call loses every call edge, and tree recursion comes out
+# bounded, so 4b's unbounded verdict is the opcode reading's.
+if ablate x86call "                if op == 0xE8:" "                if False:"; then
+  if command -v llc >/dev/null 2>&1 && command -v opt >/dev/null 2>&1; then
+    report "$work/abl-x86call.py" "$work/a-x86call.json" "$fxdir/rp1-recursion.ax" --target linux-x86_64 --stack
+    b="$(python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["stack"]["results"]["main"]; print(r["bounded"])' "$work/a-x86call.json" 2>/dev/null)"
+    if [[ "$b" == "True" ]]; then
+      ok "ablation x86call: with E8 not read as a call, tree recursion comes out BOUNDED - 4b reads the calls"
+    else
+      bad "ablation x86call: tree recursion is [$b] without the E8 reading"
+    fi
+  fi
+else
+  bad "ablation x86call: the seam did not match exactly once"
 fi
 # The bound: a copy that ignores a call edge inside a cycle - treating
 # recursion as if it held no frame - must answer the selftest wrong and

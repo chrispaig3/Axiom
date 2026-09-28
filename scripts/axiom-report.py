@@ -83,8 +83,12 @@ WHAT IT DOES NOT DO, stated so a green report is not over-read:
     edge, and code the compiler EMITS without a source call (retain,
     release, the allocator, trap exits) is visible only to `--stack`,
     which reads the machine code - that is what `--stack` is for;
-  * `--stack` supports AArch64 ELF objects only (baremetal-aarch64,
-    linux-aarch64). Frame sizes are those of the analysis object, built
+  * `--stack` supports AArch64 and x86-64 ELF objects
+    (baremetal-aarch64, linux-aarch64, linux-x86_64, freebsd-*); not
+    Mach-O or PE. On x86-64 a call and a tail jump are read off the
+    opcode byte before the relocated displacement, every frame is
+    charged the 8-byte return address a call pushes, and indirect
+    sites come from the IR alone. Frame sizes are those of the analysis object, built
     from the same IR at the same `--opt` with two extra llc flags that
     change section placement, not frames; an indirect call is assumed to
     reach only an address-taken function (a code pointer forged from an
@@ -370,13 +374,16 @@ class Graph:
 
 
 # --------------------------------------------------------------------
-# The machine-code stack bound (AArch64 ELF)
+# The machine-code stack bound (AArch64 and x86-64 ELF)
 # --------------------------------------------------------------------
 
 R_AARCH64_ABS64 = 257
 R_AARCH64_JUMP26 = 282
 R_AARCH64_CALL26 = 283
 EM_AARCH64 = 183
+EM_X86_64 = 62
+R_X86_64_PC32 = 2
+R_X86_64_PLT32 = 4
 
 
 def uleb(data, i):
@@ -639,8 +646,9 @@ def stack_bound(axiom, src, target, opt, roots, workdir):
     if p.returncode != 0:
         raise ReportError('llc failed:\n' + p.stderr.decode('utf-8', 'replace')[:2000])
     elf = Elf(obj)
-    if elf.machine != EM_AARCH64:
-        raise ReportError('--stack reads AArch64 ELF objects only; this is machine %d' % elf.machine)
+    if elf.machine not in (EM_AARCH64, EM_X86_64):
+        raise ReportError('--stack reads AArch64 and x86-64 ELF objects only; this is machine %d' % elf.machine)
+    x86 = elf.machine == EM_X86_64
     funcs = [s for s in elf.syms if s['type'] == 2 and s['shndx'] != 0]  # STT_FUNC, defined
     funcs_by_sec = {}
     for f in funcs:
@@ -679,7 +687,26 @@ def stack_bound(axiom, src, target, opt, roots, workdir):
             t = target_name(sym, add, funcs_by_sec)
             if caller is None:
                 continue
-            if typ == R_AARCH64_CALL26:
+            if x86:
+                # A rel32 call or jump has no relocation type of its
+                # own: `call` is E8 before the displacement, `jmp` E9,
+                # a conditional jump 0F 8x. A RIP-relative data access
+                # has a ModRM byte there instead (mod 00, r/m 101),
+                # which is never E8 or E9. The displacement is taken
+                # from the end of the instruction, so a section
+                # symbol's target is at addend + 4.
+                if typ not in (R_X86_64_PLT32, R_X86_64_PC32):
+                    continue
+                code_at = elf.d[s['off']:s['off'] + s['size']]
+                op = code_at[off - 1] if off >= 1 else None
+                cond = off >= 2 and code_at[off - 2] == 0x0F and 0x80 <= code_at[off - 1] <= 0x8F
+                t = target_name(sym, add + 4, funcs_by_sec)
+                if op == 0xE8:
+                    calls.setdefault(caller, set()).add(t)
+                elif op == 0xE9 or cond:
+                    if t != caller:
+                        tails.setdefault(caller, set()).add(t)
+            elif typ == R_AARCH64_CALL26:
                 calls.setdefault(caller, set()).add(t)
             elif typ == R_AARCH64_JUMP26:
                 if t != caller:
@@ -691,6 +718,11 @@ def stack_bound(axiom, src, target, opt, roots, workdir):
             # table. Which of them ESCAPE is decided on the IR
             # (`ir_facts`), which can tell those shapes apart; the
             # relocation cannot.
+        if x86:
+            # Variable-length instructions can't be scanned for an
+            # indirect call without decoding; the IR's indirect sites
+            # stand alone here, which the report states.
+            continue
         code = elf.d[s['off']:s['off'] + s['size']]
         for k in range(0, len(code) - 3, 4):
             (w,) = struct.unpack_from('<I', code, k)
@@ -718,8 +750,15 @@ def stack_bound(axiom, src, target, opt, roots, workdir):
     for f in ir_indirect:
         # An indirect site may reach any address-taken function.
         calls.setdefault(f, set()).update(address_taken)
-    results = bound_graph(frames, calls, tails, problems, roots, names)
-    return dict(results=results, frames=frames, indirect_sites=sorted(ir_indirect),
+    # On x86-64 a call pushes its 8-byte return address below the
+    # caller's frame, and `.stack_sizes` counts neither: every frame is
+    # charged 8 more. A tail jump reuses its caller's slot, so the sum is
+    # an upper bound by 8 bytes per tail hop.
+    extra = 8 if x86 else 0
+    charged = {f: v + extra for f, v in frames.items()} if extra else frames
+    results = bound_graph(charged, calls, tails, problems, roots, names)
+    return dict(results=results, frames=frames, frame_extra=extra, machine='x86-64' if x86 else 'aarch64',
+                indirect_sites=sorted(ir_indirect),
                 indirect_targets=indirect_targets, asm=sorted(ir_asm),
                 symtab_excluded=irf['symtab_excluded'], symtab_users=irf['symtab_users'],
                 undefined=sorted(undefined), functions=len(funcs), ir=irpath, obj=obj)
@@ -909,9 +948,9 @@ def build_report(args):
         for l in fa['kernel']:
             oblige('kernel', '%s enters the kernel through %s%s' % (q, l, ' (lowered to the no-syscall trap, status 74, on this target)' if args.target == 'baremetal-aarch64' else ''), g.path(par, q) + [l])
     if stack is None:
-        oblige('stack', 'no stack bound computed (run with --stack on an AArch64 ELF target)')
+        oblige('stack', 'no stack bound computed (run with --stack on an AArch64 or x86-64 ELF target)')
     else:
-        oblige('stack', 'frames are llc\'s .stack_sizes for the analysis object; indirect sites %s may reach only address-taken functions %s (no forged code pointers - `__call_word` of an arbitrary word breaks this and is Unsafe)%s; inline assembly in %s is assumed to use no stack beyond its frame; the reset vector and C runtime are outside the object' % (
+        oblige('stack', ('%s: ' % stack['machine']) + ('each frame is charged 8 bytes more for the return address a call pushes, and indirect sites come from the post-opt IR alone (no machine-code cross-check); ' if stack['frame_extra'] else '') + 'frames are llc\'s .stack_sizes for the analysis object; indirect sites %s may reach only address-taken functions %s (no forged code pointers - `__call_word` of an arbitrary word breaks this and is Unsafe)%s; inline assembly in %s is assumed to use no stack beyond its frame; the reset vector and C runtime are outside the object' % (
             stack['indirect_sites'] or 'none', stack['indirect_targets'] or 'none',
             ('; the backtrace table @__axiom_symtab is excluded as never called, read only by %s, none of which holds an indirect call' % stack['symtab_users']) if stack.get('symtab_excluded') else '',
             stack['asm'] or 'none'))
@@ -936,7 +975,7 @@ def build_report(args):
                 profile=args.profile, roots=roots, isrs=isrs,
                 reachable=len(reach), functions=facts,
                 cycles=cycles, refusals=refusals, obligations=obligations,
-                stack=stack and {k: v for k, v in stack.items() if k in ('results', 'frames', 'indirect_sites', 'indirect_targets', 'asm', 'undefined', 'functions', 'symtab_excluded', 'symtab_users', 'workdir', 'obj')})
+                stack=stack and {k: v for k, v in stack.items() if k in ('results', 'frames', 'frame_extra', 'machine', 'indirect_sites', 'indirect_targets', 'asm', 'undefined', 'functions', 'symtab_excluded', 'symtab_users', 'workdir', 'obj')})
 
 
 def render_text(rep, out):
