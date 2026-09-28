@@ -22,6 +22,86 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A mutex, timed waits, and a bounded task pool — `stdlib/Sync.ax`, `stdlib/Task.ax`, `scripts/check-task.sh` - 2026-09-28
+
+R-C2's open half: until this, no mutex or timed wait existed, a thread
+could not be cancelled, and only a word crossed a join or a channel.
+
+`sysWaitWordTimeout` (`stdlib/Sys.ax`) bounds a wait on a shared word
+and answers why it ended - 0 woken, 1 timed out, 2 the word had
+changed: Linux FUTEX_WAIT with a relative timespec, Darwin
+`__ulock_wait`'s microseconds rounded up, a clock-checked spin where
+there is no blocking wait. `chanSendTimeout`/`chanRecvTimeout` and
+`mutexLockTimeout` are built on it and answer `Err` code `sysTimedOut`
+(1001) having done nothing; a wait nobody ends is never shorter than
+asked (MM-PAR-12). `stdlib/Sync.ax` is a mutex in a MAP_SHARED word for
+both `parallel` lowerings: the lock word names its holder's pid, every
+acquisition answers a guard `mutexUnlock` takes back (an unearned
+unlock is `Err` `syncNotHeld`, never silent), and a holder SIGKILLed
+while holding it is found by the next waiter and poisons the mutex
+(`syncOwnerDead`). No fairness, no priority inheritance, not reentrant
+(MM-PAR-11). `stdlib/Task.ax` runs `(-> Int String)` tasks in forked
+children, at most `width` at once, answering one `(Result String
+Error)` per task in submit order: the answer crosses as bytes under a
+per-task limit into a reused MAP_SHARED slab, so a record crosses by
+explicit serialization (`tests/stdlib/542-task-codec.ax`, JSON); a trap
+answers its wait status while siblings complete; a deadline SIGKILLs
+and reaps; a shared-word token cancels - unstarted tasks never start,
+running ones get a grace and are then killed and reaped - and
+`failFast` sets it at the first error. The parent looks at a running
+child with `waitid(WNOWAIT)`/`wait6`, which does not reap it
+(`sysChildExited`), so the join still owns its child. `taskFold`
+streams answers through a `region` and keeps memory flat (MM-PAR-13).
+
+`scripts/check-task.sh` holds it: four bindings × 100,000 increments
+of a plain shared word exact under the mutex in both lowerings at
+`--opt` 0 and 2 beside an unlocked control that must lose updates;
+timed waits within [T, T + slack] and never before T; a dead holder
+found; tasks equal to the sequential answer; a trap, a deadline, an
+oversized answer, a cancellation from a sibling binding and fail-fast,
+with every recorded pid gone; a parent trap mid-pool taking its tasks
+with it and an external SIGKILL leaving them alive (the stated limit,
+as the control); RSS flat from 500 to 5,000 folded tasks beside a
+keeping control that must grow; nine ablations on copies of the
+library each turning it red; and the three new programs in
+`examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
+new gate; the count sites state eighty-seven gates.
+
+An independent review before landing found six defects, two confirmed
+by probes. The mutex compared an unlock's guard against the guard
+COUNTER, which still held the previous holder's guard between a new
+holder's compare-and-swap and its bump: a double unlock landing there
+was accepted and released a lock someone else held (one run counted
+599,999 of 600,000). The holder's guard is now published in its own
+word after the lock is taken, and `mutexUnlock` claims it with one
+compare-and-swap before it touches the lock word; `check-task.sh` §2
+builds the window exactly (the old protocol accepts the stale guard
+every time, the new one refuses it) and loads 200,000 stale unlocks
+beside two correct bindings, and the `guard` ablation turns it red.
+Each mutex's guards now start at its page number times 2^24. A grace
+or deadline within 999 of the largest `Int` wrapped negative as it was
+rounded to microseconds and killed a cancelled pool's tasks at once;
+the conversions saturate (the `micros` ablation), and so does Darwin's
+`__ulock_wait` microseconds, which could hand the kernel a truncated,
+shorter wait. A deadline was stamped from the clock read before the
+batch's forks, so a task started late lost the earlier forks' time; it
+now runs from the clock read after its own spawn. A task that answered
+was joined at once, so one whose process could not then exit blocked
+the pool in `wait4` with no deadline enforced; it is now joined when
+the kernel reports its exit, and stays under its deadline and grace
+until then (no Darwin test yet: see below). `failFast` now classifies
+a task killed from outside after answering as the delivered answer
+does. `Chan`'s timed forms slept the whole remaining time as one slice,
+so a Darwin clock step could end the entire wait early; they sleep at
+most 100 ms at a time, as `Sync` does. Two stated limits were missing
+and are now in `MM-PAR-7` and `MM-PAR-13`, each measured: under
+`--threads` a trap in a sibling thread sweeps only its own registry,
+so a pool's tasks outlive the process (`check-task.sh` §4's second
+control); and on Darwin a thread spawned inside a forked child
+crashes it with SIGSEGV, because the runtime's raw `fork` leaves
+libSystem holding the parent's Mach task port (Linux runs the same
+program). Both are runtime fixes for the next commit.
+
 ### The fuzzer's six open findings, fixed; `AX3076`; terminal-safe human reports - 2026-09-27
 
 Every OPEN row of `tests/fuzz/MANIFEST` is `fixed`, and the gate
@@ -142,7 +222,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-eighty-six gates. Specified in `docs/restricted-profile.md`.
+eighty-seven gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -210,7 +290,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-six gates.
+state eighty-seven gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -251,7 +331,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-six gates.
+eighty-seven gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -300,7 +380,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-six gates.
+eighty-seven gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -330,7 +410,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-six gates.
+sites state eighty-seven gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -571,7 +651,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-six gates.
+checks). Calls one new gate; the count sites state eighty-seven gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -588,7 +668,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-six gates, and the battery has
+gate; the count sites state eighty-seven gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

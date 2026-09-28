@@ -828,3 +828,30 @@
 (pub :: sysWakeWordNum Int)
 (pub fn (sysWakeWordNum)
   202)
+
+; ETIMEDOUT - 110, as on linux-aarch64: what a timed FUTEX_WAIT
+; answers, negated, when its time ran out (`sysWaitWordTimeout`)
+(pub :: eTimedOut Int)
+(pub fn (eTimedOut)
+  110)
+
+; How a parent looks at a child without reaping it (`sysChildExited`):
+; 1, `waitid` with WNOWAIT, the answer read from `si_signo`
+(pub :: childPollKind Int)
+(pub fn (childPollKind)
+  1)
+
+; waitid(which, upid, infop, options, ru) - 247
+(pub :: sysWaitIdNum Int)
+(pub fn (sysWaitIdNum)
+  247)
+
+; P_PID
+(pub :: waitIdPidType Int)
+(pub fn (waitIdPidType)
+  1)
+
+; WEXITED | WNOHANG | WNOWAIT = 0x04 | 0x01 | 0x01000000
+(pub :: waitPollOptions Int)
+(pub fn (waitPollOptions)
+  16777221)

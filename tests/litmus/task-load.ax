@@ -1,0 +1,499 @@
+; Structured tasks under the conditions a fixture cannot pin, for
+; `scripts/check-task.sh` (R-C2, MM-PAR-13). One mode per run, chosen
+; by the first argument.
+;
+;   results N W  `taskMap` over N tasks at width W, each answering a
+;                string a function of its index computes; prints
+;                `equal N` when every answer equals the sequential one
+;                and `differ I` at the first that does not.
+;   mixed        eight tasks at width 3 with a deadline of 300 ms: one
+;                traps, one sleeps past the deadline, one answers more
+;                than the byte limit. Prints one line per task in submit
+;                order and then `survived`.
+;   slowtrap     four tasks at width 2 with NO deadline; task 1 traps
+;                and task 0 sleeps 300 ms. The trap must be seen by
+;                looking at the child (`sysChildExited`): no answer is
+;                written, no clock ends a wait, and task 1 is not the
+;                oldest. Prints the answers.
+;   deadline     four tasks, two of which record their pids in a shared
+;                page and sleep for ever, under a 200 ms deadline.
+;                Prints the answers, `pids P Q`, and `gone K` - how many
+;                of the two `kill(pid, 0)` finds gone after the pool.
+;   cancel       two bindings: one runs a pool of eight at width 2 (a
+;                cooperative task that polls the token, a stubborn one
+;                that ignores it), the other cancels the token after
+;                300 ms. Prints the answers, `pids P`, `gone K` and the
+;                elapsed time.
+;   failfast     six tasks at width 3 with `failFast`: one traps at
+;                once, two sleep for ever. Prints the answers, `gone K`
+;                and the elapsed time.
+;   fold N W     `taskFold` over N tasks of 4 KiB answers, summing their
+;                lengths: `fold S`. Memory must not grow with N.
+;   keep N W     the same answers kept by `taskMap` - the control that
+;                must grow, so a flat `fold` means something.
+;   parenttrap   `taskFold` whose step divides by zero once two stubborn
+;                tasks are running; prints `pids P Q` first. The program
+;                dies with status 72 and the gate requires both pids
+;                gone - MM-PAR-7's sweep, reached from inside the pool.
+;   orphan       two stubborn tasks record their pids and the parent
+;                prints them and waits: the gate SIGKILLs the parent and
+;                requires the tasks STILL ALIVE - the limit the header of
+;                `stdlib/Task.ax` states, and the control that shows the
+;                gate's `kill -0` can see a survivor.
+;   siblingtrap  under `--threads` only: one binding runs a pool whose
+;                one task records its pid and never returns, and a
+;                sibling binding waits for that pid, prints it and
+;                divides by zero. The program ends 72 with the task
+;                STILL ALIVE - the registry is per thread, and the
+;                trapping thread's holds no task (MM-PAR-7's stated
+;                limit). The gate measures it as a control and kills
+;                the task itself.
+;   grace G      one task cancels its own pool and then works 200 ms
+;                more; the grace is G nanoseconds. With G the largest
+;                `Int` the task must finish: `0 ok finished`.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Task)
+
+(:: argInt (-> Int Int))
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)))
+
+(:: say (-> String Int Int))
+;@axiom:effect(io)
+(fn (say what v)
+  {
+    (println "{what} {v}")
+    0
+  })
+
+; Sleep `ms` milliseconds on a word nobody changes.
+(:: nap (-> Int Int Int))
+;@axiom:effect(io)
+(fn (nap idle ms)
+  {
+    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    0
+  })
+
+(:: forever (-> Int Int))
+;@axiom:effect(io)
+(fn (forever idle)
+  {
+    (while (== 0 0)
+      (nap idle 1000))
+    0
+  })
+
+; Record this process's pid in word `k` of `page`, then never return.
+(:: stubborn (-> Int Int Int String))
+;@axiom:effect(io)
+(fn (stubborn page idle k)
+  {
+    (memSetWord page k sysGetPid)
+    (sysWakeWord page)
+    (forever idle)
+    "unreachable"
+  })
+
+(:: showResult (-> Int (Result String Error) Int))
+;@axiom:effect(io)
+(fn (showResult i r)
+  (match r
+    ((Ok s) (println "{i} ok {s}"))
+    ((Err e)
+      (let (
+        (c (errCode e))
+        (m (errMessage e))
+      )
+        (println "{i} err {c} {m}"))
+    )))
+
+(:: showAll (-> (Vec (Result String Error)) Int))
+;@axiom:effect(io)
+(fn (showAll rs)
+  {
+    (for i 0 (vecLen rs)
+      (showResult i (vecGet rs i)))
+    0
+  })
+
+; How many of the pids in words `lo .. hi` of `page` no longer exist.
+(:: goneCount (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (goneCount page lo hi)
+  (let ((mut gone 0))
+    {
+      (for k lo hi
+        (match (sysKill (memGetWord page k) 0)
+          ((Ok z) 0)
+          ((Err e)
+            (if (== (errCode e) 3)
+              (set gone (+ gone 1))
+              0)
+          )))
+      gone
+    }))
+
+(:: pids2 (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (pids2 page a b)
+  (let (
+    (p (memGetWord page a))
+    (q (memGetWord page b))
+  )
+    {
+      (println "pids {p} {q}")
+      0
+    }))
+
+; Wait until words `lo .. hi` of `page` all hold a pid.
+(:: awaitPids (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (awaitPids page lo hi)
+  (let ((mut missing 1))
+    {
+      (while (== missing 1)
+        {
+          (set missing 0)
+          (for k lo hi
+            (if (== (memGetWord page k) 0)
+              (set missing 1)
+              0))
+          (if (== missing 1)
+            (sysWaitWordTimeout page 0 1000000)
+            0)
+        })
+      0
+    }))
+
+(:: elapsedMs (-> Int Int Int))
+;@axiom:effect(io)
+(fn (elapsedMs buf t0)
+  (/ (- (sysTimeoutMicros buf) t0) 1000))
+
+; ---- results ---------------------------------------------------------------
+(:: answer (-> Int String))
+(fn (answer i)
+  (strConcat (fmtInt i) (strConcat ":" (fmtInt (+ (* i i) (* 7 i))))))
+
+(:: results (-> Int Int Int))
+;@axiom:effect(io)
+(fn (results n w)
+  (let (
+    (rs (taskMap answer n w 64))
+    (mut bad (- 0 1))
+  )
+    {
+      (for i 0 n
+        (match (vecGet rs i)
+          ((Ok s)
+            (if (&&
+              (< bad 0)
+              (if (strEq s (answer i))
+                false
+                true))
+              (set bad i)
+              0)
+          )
+          ((Err e)
+            (if (< bad 0)
+              (set bad i)
+              0)
+          )))
+      (if (< bad 0)
+        (say "equal" (vecLen rs))
+        (say "differ" bad))
+    }))
+
+; ---- mixed -----------------------------------------------------------------
+(:: mixedWork (-> Int Int String))
+;@axiom:effect(io)
+(fn (mixedWork idle i)
+  (if (== i 3)
+    (fmtInt (/ 10 (- i 3)))
+    (if (== i 5)
+      {
+        (forever idle)
+        "slow"
+      }
+      (if (== i 6)
+        "this answer is much longer than the limit of thirty-two bytes allows"
+        (answer i)))))
+
+; ---- trap ------------------------------------------------------------------
+(:: trapOne (-> Int Int String))
+;@axiom:effect(io)
+(fn (trapOne idle i)
+  (if (== i 1)
+    (fmtInt (/ i (- i 1)))
+    {
+      (if (== i 0)
+        (nap idle 300)
+        0)
+      (answer i)
+    }))
+
+; ---- deadline --------------------------------------------------------------
+(:: deadlineWork (-> Int Int Int String))
+;@axiom:effect(io)
+(fn (deadlineWork page idle i)
+  (if (== (% i 2) 1)
+    (stubborn page idle i)
+    (answer i)))
+
+; ---- siblingtrap -----------------------------------------------------------
+(:: poolForever (-> Int Int Int))
+;@axiom:effect(io)
+(fn (poolForever page idle)
+  (vecLen
+    (taskMap
+      (lambda (i) (stubborn page idle 1))
+      1
+      1
+      64)))
+
+(:: trapAfterPid (-> Int Int))
+;@axiom:effect(io)
+(fn (trapAfterPid page)
+  {
+    (awaitPids page 1 2)
+    (let ((p (memGetWord page 1)))
+      (println "pids {p}"))
+    (/ 1 (- (memGetWord page 0) (memGetWord page 0)))
+  })
+
+; ---- grace -----------------------------------------------------------------
+(:: graceWork (-> Int Int Int String))
+;@axiom:effect(io)
+(fn (graceWork idle tok i)
+  {
+    (taskCancel tok)
+    (nap idle 200)
+    "finished"
+  })
+
+(:: graceRun (-> Int Int Int))
+;@axiom:effect(io)
+(fn (graceRun idle g)
+  (match taskTokenNew
+    ((Ok tok)
+      (showAll
+        (taskMapWith
+          (lambda (i) (graceWork idle tok i))
+          1
+          (taskWithGrace (taskWithToken (taskOpts 1 64) tok) g)))
+    )
+    ((Err e) 3)))
+
+; ---- cancel ----------------------------------------------------------------
+(:: cancelWork (-> Int Int Int Int String))
+;@axiom:effect(io)
+(fn (cancelWork page idle tok i)
+  (if (== i 0)
+    (let ((mut waited 0))
+      {
+        (while (&&
+          (if (taskCancelled tok)
+            false
+            true)
+          (< waited 10000))
+          {
+            (nap idle 10)
+            (set waited (+ waited 10))
+          })
+        "stopped"
+      })
+    (if (== i 1)
+      (stubborn page idle 1)
+      (answer i))))
+
+(:: runCancelled (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (runCancelled page idle tok)
+  (showAll
+    (taskMapWith
+      (lambda (i) (cancelWork page idle tok i))
+      8
+      (taskWithGrace (taskWithToken (taskOpts 2 64) tok) 150000000))))
+
+(:: cancelLater (-> Int Int Int))
+;@axiom:effect(io)
+(fn (cancelLater idle tok)
+  {
+    (nap idle 300)
+    (taskCancel tok)
+  })
+
+; ---- failfast --------------------------------------------------------------
+(:: failWork (-> Int Int Int String))
+;@axiom:effect(io)
+(fn (failWork page idle i)
+  (if (== i 1)
+    (fmtInt (/ 1 (- i 1)))
+    (if (|| (== i 0) (== i 2))
+      (stubborn page idle i)
+      (answer i))))
+
+; ---- fold / keep -----------------------------------------------------------
+(:: big (-> Int String))
+(fn (big i)
+  (let ((s (strAlloc 4096)))
+    {
+      (memSet (strData s) (+ 97 (% i 26)) 4096)
+      s
+    }))
+
+(:: addLen (-> Int Int (Result String Error) Int))
+(fn (addLen acc i r)
+  (match r
+    ((Ok s) (+ acc (strLen s)))
+    ((Err e) (- acc 1000000))))
+
+; ---- parenttrap ------------------------------------------------------------
+(:: trapStep (-> Int Int Int (Result String Error) Int))
+;@axiom:effect(io)
+(fn (trapStep page acc i r)
+  (if (== i 1)
+    {
+      (awaitPids page 2 4)
+      (pids2 page 2 3)
+      (/ acc (- i 1))
+    }
+    (+ acc 1)))
+
+(:: trapWork (-> Int Int Int String))
+;@axiom:effect(io)
+(fn (trapWork page idle i)
+  (if (>= i 2)
+    (stubborn page idle i)
+    (answer i)))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let (
+    (mode (sysArg 1))
+    (buf (memAlloc 16))
+  )
+    (match (sysMapShared 4096)
+      ((Ok idle)
+        (match (sysMapShared 4096)
+          ((Ok page)
+            (let ((t0 (sysTimeoutMicros buf)))
+              (if (strEq mode "results")
+                (results (argInt 2) (argInt 3))
+                (if (strEq mode "mixed")
+                  {
+                    (showAll
+                      (taskMapWith
+                        (lambda (i) (mixedWork idle i))
+                        8
+                        (taskWithDeadline (taskOpts 3 32) 300000000)))
+                    (println "survived")
+                    0
+                  }
+                  (if (strEq mode "slowtrap")
+                    (showAll
+                      (taskMap
+                        (lambda (i) (trapOne idle i))
+                        4
+                        2
+                        64))
+                    (if (strEq mode "deadline")
+                      {
+                        (showAll
+                          (taskMapWith
+                            (lambda (i) (deadlineWork page idle i))
+                            4
+                            (taskWithDeadline (taskOpts 4 64) 200000000)))
+                        (pids2 page 1 3)
+                        (say "gone" (+ (goneCount page 1 2) (goneCount page 3 4)))
+                      }
+                      (if (strEq mode "cancel")
+                        (match taskTokenNew
+                          ((Ok tok)
+                            {
+                              (parallel p (
+                                (a (runCancelled page idle tok))
+                                (b (cancelLater idle tok))
+                              )
+                                (+ a b))
+                              (let ((p (memGetWord page 1)))
+                                (println "pids {p}"))
+                              (say "gone" (goneCount page 1 2))
+                              (say "ms" (elapsedMs buf t0))
+                            }
+                          )
+                          ((Err e) 3))
+                        (if (strEq mode "failfast")
+                          {
+                            (showAll
+                              (taskMapWith
+                                (lambda (i) (failWork page idle i))
+                                6
+                                (taskWithGrace (taskWithFailFast (taskOpts 3 64) true) 100000000)))
+                            (say "gone" (+ (goneCount page 0 1) (goneCount page 2 3)))
+                            (say "ms" (elapsedMs buf t0))
+                          }
+                          (if (strEq mode "fold")
+                            (say
+                              "fold"
+                              (taskFold
+                                big
+                                (argInt 2)
+                                (taskOpts (argInt 3) 8192)
+                                0
+                                (lambda (acc i r) (addLen acc i r))))
+                            (if (strEq mode "keep")
+                              (let ((rs (taskMap big (argInt 2) (argInt 3) 8192)))
+                                (say "keep" (vecLen rs)))
+                              (if (strEq mode "parenttrap")
+                                (say
+                                  "fold"
+                                  (taskFold
+                                    (lambda (i) (trapWork page idle i))
+                                    4
+                                    (taskOpts 4 64)
+                                    0
+                                    (lambda (acc i r) (trapStep page acc i r))))
+                                (if (strEq mode "orphan")
+                                  (taskFold
+                                    (lambda (i) (trapWork page idle i))
+                                    4
+                                    (taskOpts 4 64)
+                                    0
+                                    (lambda (acc i r)
+                                      (if (== i 1)
+                                        {
+                                          (awaitPids page 2 4)
+                                          (pids2 page 2 3)
+                                          (forever idle)
+                                        }
+                                        0)
+                                    ))
+                                  (if (strEq mode "grace")
+                                    (graceRun idle (argInt 2))
+                                    (if (strEq mode "siblingtrap")
+                                      (parallel p (
+                                        (a (poolForever page idle))
+                                        (b (trapAfterPid page))
+                                      )
+                                        (+ a b))
+                                      {
+                                        (println "usage: task-load MODE ...")
+                                        2
+                                      })))))))))))))
+          )
+          ((Err e) 2))
+      )
+      ((Err e) 1))))

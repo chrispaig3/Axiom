@@ -1,0 +1,155 @@
+; stdlib/Sync.ax: a mutex between `parallel` bindings (R-C2, MM-PAR-11).
+;
+; One binding first: a free mutex's lock and unlock, a held mutex
+; refusing a second try and timing out a timed lock (the mutex is not
+; reentrant, so the holder waits for itself until the time runs out),
+; and every unlock the holder did not earn refused with `syncNotHeld`.
+; Then two forked bindings add to one plain word in a shared mapping
+; 3,000 times each under the lock - the total is exact. Then a holder
+; that dies: a forked binding takes the lock and is SIGKILLed and
+; reaped holding it, and the next lock calls answer `syncOwnerDead`.
+; `scripts/check-task.sh` runs the same shapes under `--threads`, at
+; four bindings, against an unlocked control and an ablated lock.
+(import IO)
+(import Sys)
+(import Mem)
+(import Err)
+(import Sync)
+
+(:: bit (-> Bool Int))
+(fn (bit b)
+  (if b
+    1
+    0))
+
+(:: codeOf (-> (Result Int Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok g) 0)
+    ((Err e) (errCode e))))
+
+(:: guardOf (-> (Result Int Error) Int))
+(fn (guardOf r)
+  (match r
+    ((Ok g) g)
+    ((Err e) 0)))
+
+(:: tryCode (-> (Option Int) Int))
+(fn (tryCode o)
+  (match o
+    ((Some g) 0)
+    ((None) 1)))
+
+(:: bump (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (bump m cell n)
+  {
+    (for i 0 n
+      (match (mutexLock m)
+        ((Ok g)
+          {
+            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
+            (codeOf (mutexUnlock m g))
+          }
+        )
+        ((Err e) 0)))
+    0
+  })
+
+(:: hold (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (hold m flag x)
+  (match (mutexLock m)
+    ((Ok g)
+      {
+        (memSetWord flag 0 1)
+        (sysWakeWord flag)
+        (while (== 0 0)
+          (sysWaitWordTimeout (+ flag 8) 0 1000000000))
+        0
+      }
+    )
+    ((Err e) 9)))
+
+(:: handlePid (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (handlePid h)
+  (__load64 h 0))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (mutexNew)
+    ((Ok m)
+      {
+        (println syncNotHeld)  ; 1005
+        (println syncOwnerDead)  ; 1004
+        (println (codeOf (mutexUnlock m 1)))  ; 1005
+        (let ((g (guardOf (mutexLock m))))
+          {
+            (println (bit (> g 0)))  ; 1
+            (println (tryCode (mutexTryLock m)))  ; 1
+            (println (codeOf (mutexLockTimeout m 30000000)))  ; 1001
+            (println (codeOf (mutexUnlock m (+ g 1))))  ; 1005
+            (println (codeOf (mutexUnlock m 0)))  ; 1005
+            (println (codeOf (mutexUnlock m g)))  ; 0
+            (println (codeOf (mutexUnlock m g)))  ; 1005
+          })
+        (let ((g2 (guardOf (mutexLockTimeout m 30000000))))
+          {
+            (println (bit (> g2 0)))  ; 1
+            (println (codeOf (mutexUnlock m g2)))  ; 0
+          })
+        (match (mutexTryLock m)
+          ((Some g3) (println (codeOf (mutexUnlock m g3))))
+          ; 0
+          ((None) (println "busy")))
+        ; Two forked bindings, one plain word.
+        (match (sysMapShared 4096)
+          ((Ok cell)
+            {
+              (parallel p (
+                (a (bump m cell 3000))
+                (b (bump m cell 3000))
+              )
+                (+ a b))
+              (println (memGetWord cell 0))  ; 6000
+            }
+          )
+          ((Err e) (println "no mapping")))
+        (println (bit (mutexOwnerDead m)))  ; 0
+        (println (codeOf (mutexFree m)))  ; 0
+        ; A holder that dies holding it.
+        (match (mutexNew)
+          ((Ok d)
+            (match (sysMapShared 4096)
+              ((Ok flag)
+                (let (
+                  (cell (memAlloc 8))
+                  (h (__proc_spawn
+                    (lambda (x) (hold d flag x))
+                    0))
+                )
+                  {
+                    (while (== (memGetWord flag 0) 0)
+                      (sysWaitWordTimeout flag 0 1000000))
+                    (println (tryCode (mutexTryLock d)))  ; 1
+                    (match (sysKill (handlePid h) 9)
+                      ((Ok z) 0)
+                      ((Err e) 0))
+                    (__proc_join_nr h cell)
+                    (println (memGetWord cell 0))  ; 137
+                    (println (codeOf (mutexLockTimeout d 2000000000)))  ; 1004
+                    (println (bit (mutexOwnerDead d)))  ; 1
+                    (println (codeOf (mutexLock d)))  ; 1004
+                    (println (tryCode (mutexTryLock d)))  ; 1
+                    (println (codeOf (mutexFree d)))  ; 0
+                  })
+              )
+              ((Err e) (println "no mapping")))
+          )
+          ((Err e) (println "no mutex")))
+        0
+      }
+    )
+    ((Err e) 1)))

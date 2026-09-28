@@ -4321,7 +4321,7 @@ both cases the thunk is released and the page unmapped.
 | When | What is swept |
 |---|---|
 | a recovery abort, before it resets the arena | every child spawned since that recovery point was armed |
-| a trap that nothing recovers, before it exits | every child |
+| a trap that nothing recovers, before it exits | every child on the trapping thread's registry |
 | `main` returning | every child the program never joined |
 | a forked child's or a thread's own end | the children that binding spawned and did not join |
 
@@ -4346,10 +4346,16 @@ This rule also closed four defects:
   binding`. So is a handle joined by a thread that didn't spawn it: the
   two registries are unsynchronised, so that join is refused, not raced.
 
-Three limits:
+Four limits:
 
 - A killed child can't sweep its own children, so the grandchildren of
   a killed binding are reparented, not killed.
+- Under `--threads` each thread has its own registry. A trap that
+  nothing recovers ends the whole process after sweeping only the
+  trapping thread's children, so a process child that another thread
+  forked, such as a task in a pool that thread runs, is left running.
+  A raw exit (`sysExitWith`) sweeps nothing. `scripts/check-task.sh`
+  §4 measures this as a control.
 - A thread can't be interrupted, so a sweep of a binding that never
   finishes never finishes.
 - A handle is a word, so joining one twice is refused only while the
@@ -4404,12 +4410,14 @@ visible to another binding's read.
    write made before the store is visible to a plain read made after
    the load. This is publication, the message-passing shape.
 
-There is no mutex, condition variable, timeout or volatile access
-(R-C2 in `docs/assurance/requirements.md`). A bounded channel exists
-(`MM-PAR-10`), but it adds no edge of its own: its ordering follows
-from edge 4, the atomics its lock is built from. The blocking
-operations are a join, and a channel's send and receive. None has a
-timeout.
+There is no condition variable and no volatile access between
+bindings. A bounded channel (`MM-PAR-10`), a mutex (`MM-PAR-11`),
+timed waits (`MM-PAR-12`) and a task pool's cancellation token
+(`MM-PAR-13`) are built on the atomics. None adds an edge of its own:
+each one's ordering follows from edge 4, and a wait that times out
+orders nothing. The blocking operations are a join, a channel's send
+and receive, a mutex's lock, and a pool's wait for its tasks. The
+untimed ones wait for ever, and each has a timed form.
 
 *The atomics, precisely.* There is one width, a 64-bit word, and one
 ordering, `seq_cst`, with no weaker spelling in the language. The
@@ -4535,9 +4543,10 @@ channel serves both lowerings without the program choosing.
 
 *Limits.*
 
-- No timeout. A receive on a channel nobody sends to or closes waits
-  forever, and a thread can't be killed out of it, because `MM-PAR-7`
-  joins threads.
+- `chanSend` and `chanRecv` have no timeout. A receive on a channel
+  nobody sends to or closes waits forever, and a thread can't be killed
+  out of it, because `MM-PAR-7` joins threads. `chanSendTimeout` and
+  `chanRecvTimeout` are the bounded forms (`MM-PAR-12`).
 - No fairness between waiters. A wake wakes all, and the first to take
   the lock wins. The load gate prints the consumers' shares instead of
   asserting them.
@@ -4549,13 +4558,15 @@ channel serves both lowerings without the program choosing.
   good, and the next call on that channel blocks forever. An
   independent review saw it hang in 6 of 10 trap-and-recover runs.
   After a sweep, the only safe call on a channel the swept bindings
-  used is `chanFree`, which takes no lock. A lock that noticed a dead
-  owner would need a timeout, and this contract has none.
+  used is `chanFree`, which takes no lock. The channel's lock doesn't
+  notice a dead owner. The mutex of `MM-PAR-11` does, because its lock
+  word names its holder. A channel guarded by that kind of lock is
+  future work.
 
 *Program obligations.* What crosses a channel is an `Int`. A heap value
 would name memory the receiver doesn't own: a forked child's arena, or
-a thread's, which is unmapped when it ends (`MM-PAR-6a`). Typed
-transfer is R-C2's open half.
+a thread's, which is unmapped when it ends (`MM-PAR-6a`). Typed values
+cross between tasks by serialization (`MM-PAR-13`).
 
 The handle is an `Int` too, because `AX3064` admits only a word
 capture. A program must pass only a handle that `chanNew` answered, and
@@ -4585,6 +4596,335 @@ claim.
   over ten times the words.
 - `scripts/check-platform-constants.sh`: the library's `mmap` and
   `munmap` numbers agree with the runtime's on all six targets.
+
+**MM-PAR-11 (H). A mutex excludes between bindings, in both
+lowerings.** In `stdlib/Sync.ax`, `mutexNew` maps one page,
+`MAP_SHARED` and made before the spawn, as `Chan` does. So the parent,
+every forked child and every thread see one lock word. `mutexLock`
+waits until the caller holds the mutex. `mutexTryLock` doesn't wait,
+`mutexLockTimeout` waits at most a given time (`MM-PAR-12`), and
+`mutexUnlock` lets the next holder in.
+
+*What it promises.*
+
+- **Mutual exclusion.** At most one binding holds the mutex at a time.
+  The lock word goes from 0 to the holder's mark only by a seq_cst
+  compare-and-swap, and back to 0 only in `mutexUnlock`.
+- **Happens-before.** An unlock synchronizes with the lock that next
+  acquires the mutex. The release is a seq_cst compare-and-swap or
+  store, and the acquire is a seq_cst compare-and-swap that reads it
+  (`MM-PAR-9`, edge 4). Everything the holder did before `mutexUnlock`
+  is visible to the next holder once its lock call answers. Between
+  processes, the memory that edge carries is a shared mapping. Between
+  threads, it is all of memory.
+- **Blocking is the kernel's.** A waiter marks the word contended and
+  sleeps in `sysWaitWordTimeout` on it, in slices of at most 100 ms. An
+  unlock that finds the mark wakes every waiter. An uncontended lock and
+  unlock make no wait or wake call, though each lock call asks `getpid`
+  once for the mark.
+- **The holder is named.** The mark is the holder's pid shifted left
+  twice, with bit 0 as the waiters' flag. Bit 0 is in the low half, the
+  half Linux's `futex` compares. The compare-and-swap that takes the
+  lock also writes the pid, so the word names the holder at every
+  instant the lock is held.
+- **Misuse is refused.** Every acquisition draws a *guard* from a
+  counter and publishes it as the holder's, right after its
+  compare-and-swap takes the lock word. `mutexUnlock` claims the
+  published guard with one compare-and-swap, from the guard to 0,
+  before it touches the lock word. An unlock of a free mutex, with a
+  stale guard (a double unlock), or with any guard but the holder's
+  fails that compare-and-swap, answers `Err` code `syncNotHeld` (1005),
+  and changes nothing. That includes a stale guard that lands between
+  a new holder's lock and its publication, because the published word
+  holds 0 then.
+- **The guard is the check**, because every binding has the same pid
+  under `--threads`. Each mutex's counter starts at its page number
+  times 2^24, so the guards of two live mutexes differ unless one has
+  been locked 2^24 times.
+- **A dead holder is found.** When a slice of a wait runs out, the
+  waiter asks `kill(pid, 0)` of the pid the word names. `ESRCH` while
+  the word still names that pid means the holder died holding the lock,
+  for example a forked binding that `MM-PAR-7`'s sweep killed. The mutex
+  is then poisoned: a flag is set and every waiter is woken. From then
+  on every lock call answers `Err` code `syncOwnerDead` (1004),
+  `mutexTryLock` answers `None`, and `mutexOwnerDead` says why. The
+  lock isn't handed over, because what it protected may be half-written
+  and only the program can say whether that is survivable. On H3 a timed
+  lock answered 1004 101 ms after the holder was killed and reaped, and
+  an untimed one at once.
+
+*Limits.*
+
+- No fairness. A wake wakes every waiter and the first
+  compare-and-swap wins, so a binding can starve.
+- No priority inheritance. A low-priority holder can be preempted while
+  a high-priority waiter waits. Priority inversion is possible, and
+  nothing raises the holder.
+- Not reentrant. A holder that locks again waits for itself, for ever
+  with `mutexLock`. So it isn't callable from a signal or interrupt
+  handler.
+- A holder that is dead but not yet reaped still answers `kill(pid, 0)`,
+  because a zombie exists until its parent joins it. A pid that an
+  unrelated process has taken looks alive too. In both cases the lock
+  looks held: a timed lock answers timed out and an untimed one waits.
+- A thread can't die holding the lock alone. A trap under `--threads`
+  ends the process.
+
+*Program obligations.* The handle is an `Int`, as `Chan`'s is, for
+`MM-PAR-8`'s reason. Pass only a word `mutexNew` answered, and call
+`mutexFree` only once no binding can reach the mutex. A guard forged by
+reading the page isn't refused. What the lock protects is protected
+only if every access to it happens under the lock. A plain access
+outside it is a data race (`MM-PAR-9`).
+
+*Evidence.*
+
+- `tests/stdlib/541-sync-mutex.ax`: every answer above, one binding at
+  a time; two forked bindings making 3,000 increments each, exact; and
+  a holder killed and reaped while holding the lock. Its `.optstable`
+  pins `--opt` 0 to 3.
+- `scripts/check-task.sh` §1: four bindings each add 1 to one plain
+  shared word 100,000 times under the mutex, exact in both lowerings at
+  `--opt` 0 and 2. Beside each run, an unlocked control must lose
+  updates. On H3 the four controls lost 230,071 to 272,503 of 400,000.
+- `scripts/check-task.sh` §2 checks the dead holder and the refused
+  unlocks. One of them is the stale guard presented in the window
+  between a new holder's lock and its publication, built exactly
+  rather than raced for. Under load, one binding double-unlocks
+  200,000 times beside two correct ones: every stale unlock is refused,
+  every earned one accepted, and the count exact, in both lowerings.
+- `scripts/check-task.sh` §6 ablates the lock's compare-and-swap, the
+  dead-holder test and the guard claim (compared against the counter
+  instead, which accepts the stale guard in the window), each on a copy
+  of the library, and each turns its check red.
+
+A load test that passes is evidence about the runs made. The protocol
+isn't proved.
+
+**MM-PAR-12 (H). A wait may be bounded, and says why it ended.**
+`sysWaitWordTimeout addr expected nanos` blocks while the word at
+`addr` holds `expected`, for at most `nanos`. It answers:
+
+- **0**, woken: by a wake, a signal, or spuriously.
+- **1**, timed out: the kernel measured the whole wait and nobody woke
+  it.
+- **2**, changed: the word didn't hold `expected` when the call began.
+
+Every answer means "check your own condition again". None is a promise
+about the word.
+
+*How each target measures it.*
+
+- Linux (`waitWordKind` 1): `FUTEX_WAIT` without the private flag, with
+  a relative timespec the kernel measures on `CLOCK_MONOTONIC`.
+- Darwin (2): `__ulock_wait`, whose timeout is in microseconds. The
+  library rounds up, so the wait is never shorter than asked, and caps
+  it at 2^32-1 µs (71.6 minutes), deciding the cap before it rounds so
+  a request near the largest `Int` can't wrap. A longer request that
+  times out answers 0, and the caller waits again. A 200,000 µs wait answered
+  `-ETIMEDOUT` after 200,201 µs. A word that already differed answered
+  0 at once, which is why the library decides answer 2 with a load
+  before it asks the kernel.
+- No blocking wait (0, FreeBSD for now): a spin that reads the word and
+  the clock. It is correct, and it costs a core.
+
+*The timed library calls.* `chanRecvTimeout`, `chanSendTimeout`,
+`mutexLockTimeout` and a task's deadline (`MM-PAR-13`) answer `Err`
+with code `sysTimedOut` (1001) when their time runs out. By then they
+have taken nothing out of the channel, put nothing in, and acquired
+nothing. 1001 isn't an errno, because `ETIMEDOUT` is 60 on Darwin and
+110 on Linux.
+
+These calls wait in slices of at most 100 ms. A slice costs the whole
+slice when the kernel timed it out, and otherwise the clock's step
+clamped to [0, slice]. So a wait nobody ends is never shorter than asked on any
+target, because the kernel measured the last slice. A wait that is
+woken early and must wait again is charged what `sysTimeoutMicros`
+saw.
+
+That clock is `CLOCK_MONOTONIC` on Linux and FreeBSD. On Darwin it is
+the realtime clock, because Darwin has no monotonic clock reachable
+without libSystem (`clockHasMonotonic`). A step of the Darwin clock
+moves a wait by at most the one slice it lands in. Each timed call
+checks its condition once more after its last wait, so a word that
+arrives as the time runs out is still taken.
+
+*Timeouts add no edge.* A wait that times out has synchronized with
+nothing. What a caller may read afterwards is what `MM-PAR-9`'s edges
+already ordered.
+
+*An implementation reliance.* `sysWaitWordTimeout`'s entry load is a
+plain 64-bit load of a word other bindings write with atomics. By
+`MM-PAR-9`'s definition that is a data race. `Sys.ax` is compiled by
+the committed seed, which has no atomic primitive. Three facts keep the
+load sound in practice:
+
+- its answer is only advisory;
+- the syscall that follows clobbers memory, so the compiler can neither
+  hoist nor merge the load;
+- an aligned 64-bit load is single-copy atomic on both instruction sets
+  the blocking kinds run on.
+
+This relies on the implementation and sits outside the language's
+guarantee. Linux's `futex` also compares only the word's low 32 bits
+(`MM-PAR-10`'s caveat).
+
+*Evidence.*
+
+- `tests/stdlib/540-wait-timeout.ax`: the three answers, a timed-out
+  wait no shorter than asked, and the channel's timed forms and their
+  answers after close. It has an `.optstable`.
+- `scripts/check-task.sh` §2: a receive, a send and a lock each asked
+  to wait 200 ms answer 1001 within [200, 1000] ms in both lowerings
+  (200 to 203 ms on H3). A receive and a lock satisfied at about 100 ms
+  of a 2 s wait answer then.
+- `scripts/check-task.sh` §6 asks the kernel for a tenth of the time,
+  on a copy of the library. The timed receive comes back early and the
+  check turns red.
+
+The bounds hold on the runs made. A loaded host can exceed any slack.
+
+**MM-PAR-13 (H). Tasks answer typed results across the process
+boundary by serialization, bounded, with deadlines, cancellation and
+per-task failure, and no child outlives the call.** In
+`stdlib/Task.ax`, `taskMap f n width limit` runs `f i` for every `i` in
+`0 .. n`, each in a forked child, at most `width` at once. It answers
+one `(Result String Error)` per task, in submit order. `taskMapWith`
+takes every option (`TaskOpts`), and `taskFold` streams the answers
+into an accumulator instead of keeping them. A task always uses
+`__proc_spawn`, whatever `--threads` says, because `MM-PAR-3`'s
+isolation is what makes a task's captures its own.
+
+*What it promises.*
+
+- **Transfer is by serialization, and bounded.** A task answers a
+  `String`. Its bytes are written into the task's slot of a
+  `MAP_SHARED` slab, then copied into the parent's arena when the
+  result is delivered. A heap value can't cross, because its handle
+  would name the child's arena. A program that wants a record back
+  encodes it in the task and decodes it in the parent. An answer over
+  `limit` bytes answers `Err` code `taskTooLargeCode` (1003): none of
+  it crosses, and the parent is unharmed.
+- **Failure is a value in its slot.** A task that traps or dies answers
+  `Err` with its wait status: 1 to 255, an exit code or 128 plus the
+  signal, as in `Par.ax`. Its siblings still run and answer. The
+  library's own codes are above 255, so none can be mistaken for a
+  status.
+- **A deadline** runs per task from the clock read after its spawn,
+  and is enforced by `SIGKILL` and a reap. The task answers
+  `sysTimedOut` (1001). A task that finished, or died on its own,
+  before the kill answers that instead. Durations are converted to
+  microseconds with saturation, so a deadline or grace near the
+  largest `Int` means for ever.
+- **Cancellation** uses a token: a shared word from `taskTokenNew`
+  that `taskCancel` sets from anywhere, a sibling binding or a task,
+  and `taskCancelled` polls. A pool that sees it set starts nothing
+  more, and every unstarted task answers `taskCancelledCode` (1002).
+  Running tasks get `grace` to finish, then the pool kills and reaps
+  the rest, which answer 1002. `failFast` sets the pool's token at the
+  first task that answers an error. `taskCancel`'s store synchronizes
+  with the `taskCancelled` load that reads it (`MM-PAR-9`, edge 4).
+- **Results are deterministic, side effects are not.** The answers are
+  in submit order and depend only on what each task answered. What
+  tasks write to fd 1, a file or a shared mapping interleaves as the
+  scheduler ran them, and the clock decides a deadline or a grace.
+- **Everything is bounded.** At most `width` children exist at once.
+  The parent's per-slot state is a ring of `width` entries, and the
+  slab is `width × limit` bytes, reused. Submission blocks while
+  `width` tasks are outstanding, so there is no queue. A slot is freed
+  when its result is delivered in submit order, so a slow task holds
+  back the tasks `width` places behind it (`MM-PAR-5`'s price).
+  `taskMap`'s answer is O(n), because it is n results. `taskFold`
+  delivers each answer inside a `region` (`MM-RGN-1`) and keeps
+  nothing. On H3 its peak RSS was 1,888 KiB at 500, 5,000 and 20,000
+  tasks of 4 KiB answers.
+- **No child outlives the call** on any path the program has. A normal
+  return has joined every child. A trap in the parent in the middle of
+  a pool is `MM-PAR-7`'s case: the children are on the spawning
+  thread's registry, and the unrecovered trap, or the recovery point
+  armed around the pool, kills and reaps them.
+- **The join owns the reap.** The parent looks at a running child with
+  `sysChildExited`, which is `waitid` with `WNOWAIT` on Linux and
+  Darwin and `wait6` on FreeBSD. The look doesn't reap the child, so a
+  handle's pid names its child until the join, and a sweep can never
+  kill a pid the kernel has reused. The look runs every 10 ms while the
+  parent sleeps. A task that answers, or a cancellation, wakes the
+  parent at once through the token's event counter.
+- **An answer isn't an exit.** A task is joined when the look reports
+  its exit. One that has answered but not exited, because its process
+  is still ending, stays under its deadline and a cancellation's grace
+  like any running task, and the look runs every 1 ms while one
+  exists. So a task that answers and then can't exit can't block the
+  pool in the kernel.
+
+*Limits.*
+
+- A parent killed by a signal nothing handles, such as `SIGKILL` from
+  outside, runs no sweep. Its tasks are reparented and run on. The
+  gate's control measures exactly that.
+- A pool inside a `parallel` binding that `MM-PAR-7`'s sweep kills
+  can't sweep its own tasks (`MM-PAR-7`'s grandchildren limit). A
+  task's own children are the task's responsibility.
+- Under `--threads`, a trap in another thread ends the process with
+  only that thread's children swept, so this pool's tasks are left
+  running (`MM-PAR-7`). A raw `sysExitWith` sweeps nothing.
+- On Darwin, a thread spawned inside a task, or inside any forked
+  binding, crashes that process with `SIGSEGV` (139): the runtime forks
+  with the raw system call, and the child's libSystem still holds the
+  parent's Mach task port. Linux doesn't have this limit. So under
+  `--threads` on Darwin, a task's body must not use `parallel`.
+- A `__proc_spawn` the kernel refuses traps 78 through the runtime, as
+  in `Par.ax`, instead of answering in its slot.
+- A pool's mappings aren't returned on the trap path.
+- Where no look at a child exists (`sysChildExited` answers `Err`), a
+  death without an answer is found at the task's deadline. With no
+  deadline, it is found by blocking on the oldest running task's join,
+  and a cancellation then waits for that join.
+- On Darwin, deadlines are measured on the realtime clock
+  (`MM-PAR-12`).
+
+*Program obligations.*
+
+- A task is killed by the pid in word 0 of its `__proc_spawn` handle
+  page. `self_host/codegen.ax` owns that layout and this module borrows
+  it. The gate checks it end to end: a wrong pid leaves the task alive
+  and turns the check red.
+- `taskFold`'s step may keep only what its `Int` accumulator carries.
+  The region check sees the pool's call but not into the step's
+  captures. A step that stores an answer, or grows a captured `Vec`,
+  names reclaimed memory, which is why `taskFold` claims
+  `effect(unsafe)`.
+- A token passed in is shared state: cancelling it cancels every pool
+  using it.
+- The token and the handles are `Int`s (`MM-PAR-8`).
+
+*Evidence.*
+
+- `tests/stdlib/542-task-codec.ax`: twelve tasks each build a record
+  with a `Vec` in it and send it through JSON. The decoded records equal
+  the sequential ones, and an encoding over the limit is refused whole.
+- `tests/stdlib/543-task-failures.ax`: a trap, a deadline and an
+  oversized answer, each in its slot with the siblings answering; a
+  cancelled token starting nothing; and `failFast` killing two stuck
+  tasks after the grace. Both fixtures have an `.optstable`.
+- `scripts/check-task.sh` §3: 300 answers equal to the sequential ones
+  in both lowerings at `--opt` 0 and 2; a trap with no deadline, found
+  by looking; the deadline's two pids gone before the pool returned and
+  after; a cancellation from a sibling binding at 300 ms that stops the
+  cooperative task, kills the stubborn one and starts nothing more, in
+  about 450 ms; and `failFast`.
+- `scripts/check-task.sh` §3 also runs a grace of the largest `Int`,
+  which must let a cancelled task finish.
+- `scripts/check-task.sh` §4: the parent's trap mid-pool takes both
+  running tasks with it. Two controls measure the stated limits: an
+  external `SIGKILL` leaves the tasks alive, and under `--threads` so
+  does a trap in a sibling thread. §5: the fold stays within 1 MiB from
+  500 to 5,000 tasks, and the keeping control must grow by 8 MiB.
+- `scripts/check-task.sh` §6 ablates the deadline's kill, the borrowed
+  layout, the child look, the result slot, the byte limit, the
+  cancellation's kill and the saturating microseconds conversion, each
+  on a copy of the library, and each turns its check red. §7 builds and runs the three programs in
+  `examples/concurrency/`, which check themselves, in both lowerings.
 
 ---
 
@@ -4912,7 +5252,7 @@ opposite of that rule's status.
 | Regions | RGN-1…4, 5a, 6 | RGN-7 | RGN-5 | — |
 | Mutation | MUT-1…5a | — | — | MUT-6 |
 | Lifetimes | LIFE-1, 3, 4, 6, 2g…2i, 2k | LIFE-7 | LIFE-2a…2f (superseded by ALLOC-22), LIFE-5 (superseded by LIFE-4/RGN-6) | LIFE-2 |
-| Parallelism | PAR-1…5, 6a, 7 | PAR-6, PAR-8 | — | — |
+| Parallelism | PAR-1…5, 6a, 7, 9…13 | PAR-6, PAR-8 | — | — |
 | Foreign | FFI-1…7 | — | — | — |
 
 `MM-VAL-21` is in no column. It is neither held, planned nor refused,

@@ -3149,8 +3149,8 @@
 ; changes would sleep through them. Darwin compares all 64
 ; (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it
 ; returns at once and the caller spins, which is correct and costs a
-; core. No timeout: a timed wait would need a timespec some call must
-; allocate.
+; core. No timeout here: `sysWaitWordTimeout` below is the timed form,
+; and it pays for the timespec this one does not need.
 ;
 ; IT ANSWERS 0, AND DISCARDS THE KERNEL'S ANSWER, deliberately. Woken,
 ; EINTR, EAGAIN (the word differed): every one leads to the same
@@ -3221,3 +3221,250 @@
     (if (== waitWordKind 2)
       (__syscall3 sysWakeWordNum 262 addr 0)
       0)))
+
+; ------------------------------------------------------------------
+; A TIMED wait on a shared word, and a look at a child that does not
+; reap it (R-C2; docs/memory-model.md MM-PAR-12 and MM-PAR-13).
+;
+; `stdlib/Chan.ax`, `stdlib/Sync.ax` and `stdlib/Task.ax` are built on
+; these. Everything here is the seed's language - no atomic, no new
+; primitive - because this file is compiled by the committed seed.
+; ------------------------------------------------------------------
+; The `Error` code every timed operation in the concurrency modules
+; answers when its time ran out: `chanRecvTimeout`, `chanSendTimeout`,
+; `mutexLockTimeout`, a task past its deadline. NOT an errno: ETIMEDOUT
+; is 60 on Darwin and FreeBSD and 110 on Linux, so a code borrowed from
+; the kernel would need one comparison and one fixture per target. It
+; is above 255 so that it can never be mistaken for a wait status,
+; which is what `Task.ax` puts in the same field for a task that
+; trapped.
+(pub :: sysTimedOut Int)
+(pub fn (sysTimedOut)
+  1001)
+
+; A block of `n` bytes with a share taken, and the share given back.
+; The release files the block for reuse (MM-LIFE-2k), so a timed loop
+; that asks for a timespec on every pass does not grow the arena. Two
+; private helpers so the `Unsafe` claim sits on the two lines that
+; touch a count, not on the public functions above them - `Chan.ax`'s
+; shape.
+(:: sysScratch (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (sysScratch n)
+  (let ((b (memAlloc n)))
+    {
+      (__retain b)
+      b
+    }))
+
+(:: sysScratchDone (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (sysScratchDone b)
+  {
+    (__release b)
+    0
+  })
+
+; Block while the word at `addr` still holds `expected`, for at most
+; `nanos` nanoseconds. `sysWaitWord`'s contract - an 8-aligned word in
+; a `sysMapShared` mapping, and every answer means "re-check your own
+; condition" - plus a bound, and an answer that says why it returned:
+;
+;   0  woken - by a wake, a signal, or spuriously
+;   1  timed out: the kernel measured `nanos` and nobody woke it
+;   2  the word did not hold `expected` when the call began
+;
+; A caller must treat all three as advice. 2 is decided by a load made
+; before the kernel is asked, so a change that lands between that load
+; and the kernel's own compare answers 0 on Darwin (whose `__ulock_wait`
+; reports a mismatch as a wake - measured: 0 at once, where a timeout
+; answers -ETIMEDOUT after 200,201 us for 200,000 asked) and 2 on Linux
+; (`futex` says EAGAIN). A non-positive `nanos` never sleeps: it
+; answers 2 or 1 from that load alone.
+;
+; THE ENTRY LOAD IS A PLAIN ONE, and that is a stated reliance, not an
+; oversight: this file is compiled by the seed, which has no atomic
+; primitive, and the word is one other bindings write with atomics. An
+; aligned 64-bit load is single-copy atomic on both ISAs the blocking
+; kinds run on (x86-64, AArch64), the answer it feeds is advisory, and
+; the syscall after it clobbers memory, so the compiler can neither
+; hoist nor merge it. MM-PAR-12 names it beside MM-PAR-9's definition
+; of a race.
+;
+; HOW EACH KIND TIMES OUT.
+;   Linux (`waitWordKind` 1): FUTEX_WAIT with a RELATIVE timespec,
+;     which the kernel measures on CLOCK_MONOTONIC. The timespec is 16
+;     bytes some call must allocate; `sysScratch` takes and returns it.
+;   Darwin (2): `__ulock_wait`'s fourth argument, in MICROseconds,
+;     rounded UP so the wait is never shorter than asked, and at most
+;     2^32-1 (71.6 minutes). A longer request that times out answers 0,
+;     not 1 - the kernel did not measure the whole of it - and the
+;     caller's loop waits again.
+;   None (0): a spin that reads the word and the clock until one of
+;     them answers - correct, and it costs a core, as `sysWaitWord`
+;     does there.
+(pub :: sysWaitWordTimeout (-> Int Int Int Int))
+;@axiom:effect(io)
+(pub fn (sysWaitWordTimeout addr expected nanos)
+  (if (!= (memGetWord addr 0) expected)
+    2
+    (if (<= nanos 0)
+      1
+      (if (== waitWordKind 0)
+        (sysWaitWordSpin addr expected nanos)
+        (sysWaitWordTimed addr expected nanos)))))
+
+(:: sysWaitWordTimed (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysWaitWordTimed addr expected nanos)
+  (if (== waitWordKind 1)
+    (let ((ts (sysScratch 16)))
+      {
+        (memSetWord ts 0 (/ nanos 1000000000))
+        (memSetWord ts 1 (% nanos 1000000000))
+        (let ((r (__syscall6
+          sysWaitWordNum
+          addr
+          0
+          expected
+          ts
+          0
+          0)))
+          {
+            (sysScratchDone ts)
+            (sysWaitAnswer r 0)
+          })
+      })
+    ; A wait past the kernel's 32-bit microseconds goes straight to the
+    ; clamped path: rounding such a `nanos` up by adding 999 could wrap
+    ; it negative, skip the clamp, and hand the kernel a truncated,
+    ; SHORTER wait that it then reports as timed out.
+    (let ((us (if (> nanos 4294967295000)
+      4294967296
+      (/ (+ nanos 999) 1000))))
+      (if (> us 4294967295)
+        (sysWaitAnswer (sysUlockWait addr expected 4294967295) 1)
+        (sysWaitAnswer (sysUlockWait addr expected us) 0)))))
+
+; `__ulock_wait(UL_COMPARE_AND_WAIT64_SHARED, addr, expected, us)`: the
+; kernel's raw answer.
+(:: sysUlockWait (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysUlockWait addr expected us)
+  (__syscall4
+    sysWaitWordNum
+    6
+    addr
+    expected
+    us))
+
+; The kernel's answer as the three codes. `clamped` is 1 when the
+; kernel was asked for less than the caller's whole wait, so its
+; timeout is a wake, not the end of the wait.
+(:: sysWaitAnswer (-> Int Int Int))
+(fn (sysWaitAnswer r clamped)
+  (if (== r (- 0 eTimedOut))
+    (if (== clamped 1)
+      0
+      1)
+    (if (== r (- 0 eAgain))
+      2
+      0)))
+
+; `waitWordKind` 0: no blocking wait exists, so read the word and the
+; clock until one of them answers.
+(:: sysWaitWordSpin (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sysWaitWordSpin addr expected nanos)
+  (let (
+    (buf (sysScratch 16))
+    (mut state 0)
+  )
+    (let ((start (sysTimeoutMicros buf)))
+      {
+        (while (== state 0)
+          (if (!= (memGetWord addr 0) expected)
+            (set state 2)
+            (if (>= (* (- (sysTimeoutMicros buf) start) 1000) nanos)
+              (set state 1)
+              0)))
+        (sysScratchDone buf)
+        state
+      })))
+
+; Microseconds from the clock a timeout is measured on: the monotonic
+; one where the platform has it and - DELIBERATELY, since nothing
+; better is reachable without libSystem - the realtime clock on Darwin
+; (`clockHasMonotonic` there says why). The timed loops above this file
+; add only non-negative steps of this clock, each clamped to the slice
+; the kernel was asked to wait, so a step of the realtime clock moves a
+; wait by at most one slice; MM-PAR-12 states the bound. `buf` is 16
+; bytes of caller scratch. A clock that cannot be read answers 0, which
+; a caller reads as no time having passed: its wait then ends on the
+; kernel's own timeout rather than early.
+(pub :: sysTimeoutMicros (-> Int Int))
+;@axiom:effect(io)
+(pub fn (sysTimeoutMicros buf)
+  (if (== clockHasMonotonic 1)
+    (match (sysNowMonotonic buf)
+      ((Ok t) t)
+      ((Err e) 0))
+    (match (sysNowMicros buf)
+      ((Ok t) t)
+      ((Err e) 0))))
+
+; Bytes of caller scratch `sysChildExited` needs: a `siginfo_t` is 104
+; bytes on Darwin and 128 on Linux.
+(pub :: sysChildPollBytes Int)
+(pub fn (sysChildPollBytes)
+  128)
+
+; Has the child `pid` ended? Without reaping it: `Ok True` means it has
+; exited or been killed and is waiting to be reaped - so a join on it
+; will not block - and it is STILL this process's child, still
+; waitable, its pid not free for reuse. `Ok False` means it is running.
+;
+; WHY NOT `wait4` WITH WNOHANG. That reaps. `__proc_join_nr` then finds
+; nothing to wait for and answers 78, and in the window between the two
+; the pid is free - a sweep that SIGKILLs it (MM-PAR-7) could hit an
+; unrelated process that has taken the number. WNOWAIT leaves the child
+; a zombie until its owner joins it, which keeps the runtime's
+; invariant: a handle's pid names its child until the join.
+;
+;   `childPollKind` 1 (Linux, Darwin): `waitid(P_PID, pid, info,
+;     WEXITED|WNOHANG|WNOWAIT)`, which answers 0 either way; the
+;     `si_signo` it writes (SIGCHLD) is what says a child was found, so
+;     that word is zeroed before the call. Measured on Darwin: si_signo
+;     0 while the child ran, then 20 with si_code 1 (CLD_EXITED), and a
+;     join afterwards still reaped it with its status.
+;   `childPollKind` 2 (FreeBSD): `wait6` with the same flags, which
+;     answers the pid when one was found and 0 when none.
+;   `childPollKind` 0: nothing can look, and the answer is `Err` 78.
+;
+; `buf` is `sysChildPollBytes` of caller scratch. `Err` carries the
+; errno - ECHILD for a pid that is not this process's unreaped child.
+; EINTR answers `Ok False`: not seen yet, ask again.
+(pub :: sysChildExited (-> Int Int (Result Bool Error)))
+;@axiom:effect(io)
+(pub fn (sysChildExited pid buf)
+  (if (== childPollKind 0)
+    (Err (mkError 78 "sysChildExited"))
+    {
+      (memSetWord buf 0 0)
+      (memSetWord buf 1 0)
+      (let ((r (__syscall6
+        sysWaitIdNum
+        waitIdPidType
+        pid
+        buf
+        waitPollOptions
+        0
+        0)))
+        (if (< r 0)
+          (if (== r (- 0 4))
+            (Ok false)
+            (Err (mkError (- 0 r) "sysChildExited")))
+          (if (== childPollKind 2)
+            (Ok (> r 0))
+            (Ok (!= (& (memGetWord buf 0) 4294967295) 0)))))
+    }))

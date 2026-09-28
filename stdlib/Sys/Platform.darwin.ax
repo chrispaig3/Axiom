@@ -1022,3 +1022,32 @@
 (pub :: sysWakeWordNum Int)
 (pub fn (sysWakeWordNum)
   33554948)
+
+; ETIMEDOUT - 60 here and on FreeBSD, 110 on Linux: what a timed
+; `__ulock_wait` answers, negated, when its time ran out
+; (`sysWaitWordTimeout`; measured -60 after a 200 ms wait).
+(pub :: eTimedOut Int)
+(pub fn (eTimedOut)
+  60)
+
+; How a parent looks at a child without reaping it (`sysChildExited`):
+; 1, `waitid` with WNOWAIT, the answer read from `si_signo`. 2 is
+; FreeBSD's `wait6`; 0 none.
+(pub :: childPollKind Int)
+(pub fn (childPollKind)
+  1)
+
+; waitid(idtype, id, infop, options) - BSD 173
+(pub :: sysWaitIdNum Int)
+(pub fn (sysWaitIdNum)
+  33554605)
+
+; P_PID - 1 here and on Linux, 0 on FreeBSD
+(pub :: waitIdPidType Int)
+(pub fn (waitIdPidType)
+  1)
+
+; WEXITED | WNOHANG | WNOWAIT = 0x04 | 0x01 | 0x20 (SDK sys/wait.h)
+(pub :: waitPollOptions Int)
+(pub fn (waitPollOptions)
+  37)

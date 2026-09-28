@@ -618,3 +618,28 @@
 (pub :: sysWakeWordNum Int)
 (pub fn (sysWakeWordNum)
   0)
+
+; ETIMEDOUT in its Linux spelling, as `eAgain` above
+(pub :: eTimedOut Int)
+(pub fn (eTimedOut)
+  110)
+
+; no way to look at a child: nothing here spawns one
+(pub :: childPollKind Int)
+(pub fn (childPollKind)
+  0)
+
+; none
+(pub :: sysWaitIdNum Int)
+(pub fn (sysWaitIdNum)
+  0)
+
+; none
+(pub :: waitIdPidType Int)
+(pub fn (waitIdPidType)
+  0)
+
+; none
+(pub :: waitPollOptions Int)
+(pub fn (waitPollOptions)
+  0)

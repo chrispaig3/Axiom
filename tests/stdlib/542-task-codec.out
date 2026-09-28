@@ -1,0 +1,16 @@
+0 0..99 sum 4950 primes 25
+1 100..199 sum 14950 primes 21
+2 200..299 sum 24950 primes 16
+3 300..399 sum 34950 primes 16
+4 400..499 sum 44950 primes 17
+5 500..599 sum 54950 primes 14
+6 600..699 sum 64950 primes 16
+7 700..799 sum 74950 primes 14
+8 800..899 sum 84950 primes 15
+9 900..999 sum 94950 primes 14
+10 1000..1099 sum 104950 primes 16
+11 1100..1199 sum 114950 primes 12
+equal 12
+0 err 1003
+1 err 1003
+1003

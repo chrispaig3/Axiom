@@ -1,0 +1,192 @@
+; Typed parallel processing with `stdlib/Task.ax`: records across the
+; process boundary by explicit serialization (docs/memory-model.md
+; MM-PAR-13).
+;
+;   axiom run examples/concurrency/typed-tasks.ax [N [W]]   (default 24 4)
+;
+; THE JOB. N "documents" - generated text, a few thousand words each -
+; are summarised in parallel, W at a time: word count, the longest
+; word, and a histogram of word lengths (a `Vec`). The summary is a
+; `struct`, and a struct cannot cross a process boundary - its handle
+; would name the forked child's arena. So each task ENCODES its summary
+; as JSON (`stdlib/Json.ax`), `taskMapWith` carries the bytes home under
+; a 4 KiB limit per task, and the parent DECODES them into a summary of
+; its own. That is the whole of typed transfer here: explicit, bounded,
+; and checked on arrival.
+;
+; THE CHECK. The parent computes every summary again, sequentially, and
+; compares field by field and bucket by bucket; the last line is `ok`
+; only if all N agree and none failed. The answers arrive in submit
+; order whatever order the children finished in (MM-PAR-5), so the
+; table this prints is the same on every run. `scripts/check-task.sh`
+; runs it.
+;
+; WHY A PROCESS PER TASK, even under `--threads`: `Task` names
+; `__proc_spawn`, the forked lowering, so a task's captures are its
+; own copy (MM-PAR-3) - the closure below captures nothing, but a task
+; that captured a `Vec` would be just as safe.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Json)
+(import Task)
+
+(struct Summary
+  (words : Int)
+  (longest : String)
+  (lengths : (Vec Int)))
+
+(:: argOr (-> Int Int Int))
+;@axiom:effect(io)
+(fn (argOr i fallback)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) fallback)))
+
+; Word `k` of document `d`: letters chosen by a small congruential mix,
+; 1 to 12 of them, so every document differs and none needs a file.
+(:: wordOf (-> Int Int String))
+(fn (wordOf d k)
+  (let (
+    (seed (+ (* d 7919) (* k 104729)))
+    (len (+ 1 (% (+ (* d 31) (* k 17)) 12)))
+  )
+    (let ((s (strAlloc len)))
+      {
+        (for j 0 len
+          (memPutByte (strData s) j (+ 97 (% (+ seed (* j (+ 5 (% k 7)))) 26))))
+        s
+      })))
+
+(:: summarise (-> Int Summary))
+(fn (summarise d)
+  (let (
+    (n (+ 2000 (* 37 (% d 11))))
+    (hist vecNew)
+    (mut longest "")
+  )
+    {
+      (for b 0 13
+        (vecPush hist 0))
+      (for k 0 n
+        (let ((w (wordOf d k)))
+          {
+            (vecSet hist (strLen w) (+ (vecGet hist (strLen w)) 1))
+            (if (> (strLen w) (strLen longest))
+              (set longest w)
+              longest)
+          }))
+      (Summary n longest hist)
+    }))
+
+(:: encode (-> Summary String))
+(fn (encode s)
+  (let (
+    (o jsonObj)
+    (arr jsonArr)
+  )
+    {
+      (for b 0 (vecLen s.lengths)
+        (jsonArrPush arr (jsonNum (vecGet s.lengths b))))
+      (jsonObjPut o "words" (jsonNum s.words))
+      (jsonObjPut o "longest" (jsonStr s.longest))
+      (jsonObjPut o "lengths" arr)
+      (jsonWrite o)
+    }))
+
+(:: decode (-> String Summary))
+(fn (decode text)
+  (let (
+    (v (jsonParse text))
+    (hist vecNew)
+  )
+    (let ((arr (jsonGet v "lengths")))
+      {
+        (for b 0 (jsonArrLen arr)
+          (vecPush hist (jsonInt (jsonArrGet arr b))))
+        (Summary (jsonGetInt v "words") (jsonGetStr v "longest") hist)
+      })))
+
+(:: same (-> Summary Summary Bool))
+(fn (same a b)
+  (if (||
+    (!= a.words b.words)
+    (if (strEq a.longest b.longest)
+      false
+      true))
+    false
+    (if (!= (vecLen a.lengths) (vecLen b.lengths))
+      false
+      (let ((mut ok true))
+        {
+          (for i 0 (vecLen a.lengths)
+            (set ok (&& ok (== (vecGet a.lengths i) (vecGet b.lengths i)))))
+          ok
+        }))))
+
+(:: row (-> Int Summary Int))
+;@axiom:effect(io)
+(fn (row d s)
+  (let (
+    (words s.words)
+    (longest s.longest)
+    (ones (vecGet s.lengths 1))
+    (twelves (vecGet s.lengths 12))
+  )
+    {
+      (println "doc {d}: {words} words, longest {longest}, {ones} of length 1, {twelves} of length 12")
+      0
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (n (argOr 1 24))
+    (w (argOr 2 4))
+  )
+    (let (
+      (rs (taskMapWith
+        (lambda (d) (encode (summarise d)))
+        n
+        (taskOpts w 4096)))
+      (mut agree 0)
+      (mut failed 0)
+    )
+      {
+        (for d 0 (vecLen rs)
+          (match (vecGet rs d)
+            ((Ok text)
+              (let ((s (decode text)))
+                {
+                  (row d s)
+                  (if (same s (summarise d))
+                    (set agree (+ agree 1))
+                    0)
+                })
+            )
+            ((Err e)
+              (let (
+                (c (errCode e))
+                (m (errMessage e))
+              )
+                {
+                  (println "doc {d}: failed, code {c}: {m}")
+                  (set failed (+ failed 1))
+                })
+            )))
+        (println "{agree} of {n} summaries decoded equal to the sequential ones; {failed} failed")
+        (if (&& (== agree n) (== failed 0))
+          {
+            (println "ok")
+            0
+          }
+          {
+            (println "FAILED")
+            1
+          })
+      })))

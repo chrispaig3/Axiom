@@ -1,0 +1,151 @@
+; Timed waits (R-C2, docs/memory-model.md MM-PAR-12): `Sys.ax`'s
+; `sysWaitWordTimeout` and `sysChildExited`, and `Chan.ax`'s
+; `chanRecvTimeout` and `chanSendTimeout`, one binding at a time.
+;
+; Every line is an answer the source decides, not a duration: a wait
+; that times out prints the code it answered and whether it waited at
+; least as long as it was asked (1), measured on `sysTimeoutMicros`'s
+; clock. How LATE it may be is a load question, and
+; `scripts/check-task.sh` asks it with a bound; a fixture that printed
+; the microseconds would fail on a busy runner while the code is right.
+(import IO)
+(import Sys)
+(import Mem)
+(import Err)
+(import Chan)
+
+(:: bit (-> Bool Int))
+(fn (bit b)
+  (if b
+    1
+    0))
+
+(:: recvCode (-> (Result (Option Int) Error) Int))
+(fn (recvCode r)
+  (match r
+    ((Ok (Some v)) v)
+    ((Ok (None)) (- 0 1))
+    ((Err e) (errCode e))))
+
+(:: sendCode (-> (Result Bool Error) Int))
+(fn (sendCode r)
+  (match r
+    ((Ok b) (bit b))
+    ((Err e) (errCode e))))
+
+; 1 when at least `ms` milliseconds passed since `t0`.
+(:: waited (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (waited buf t0 ms)
+  (bit (>= (- (sysTimeoutMicros buf) t0) (* ms 1000))))
+
+; Poll until the child behind handle `h` is seen to have ended; answer
+; how the first look went (0 running, 1 ended, 2 the look failed).
+(:: firstLook (-> Int Int Int))
+;@axiom:effect(io)
+(fn (firstLook pid pbuf)
+  (match (sysChildExited pid pbuf)
+    ((Ok b) (bit b))
+    ((Err e) 2)))
+
+(:: awaitEnd (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (awaitEnd pid pbuf idle)
+  (let ((mut seen 0))
+    {
+      (while (== seen 0)
+        (match (sysChildExited pid pbuf)
+          ((Ok b)
+            (if b
+              (set seen 1)
+              (sysWaitWordTimeout idle 0 1000000))
+          )
+          ((Err e)
+            (set seen 2)
+          )))
+      seen
+    }))
+
+; A child that answers 42 once the word at `w` stops holding 7.
+(:: spawnWaiter (-> Int Int))
+;@axiom:effect(io)
+(fn (spawnWaiter w)
+  (__proc_spawn
+    (lambda (x)
+      {
+        (while (== (memGetWord w 0) 7)
+          (sysWaitWordTimeout w 7 1000000000))
+        (+ x 1)
+      }
+    )
+    41))
+
+(:: handlePid (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (handlePid h)
+  (__load64 h 0))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (sysMapShared 4096)
+    ((Ok w)
+      (let (
+        (buf (memAlloc 16))
+        (pbuf (memAlloc sysChildPollBytes))
+        (cell (memAlloc 8))
+      )
+        {
+          (memSetWord w 0 7)
+          ; The three codes.
+          (println (sysWaitWordTimeout w 5 1000000000))  ; 2
+          (println (sysWaitWordTimeout w 7 0))  ; 1
+          (println (sysWaitWordTimeout w 7 (- 0 5)))  ; 1
+          (let ((t0 (sysTimeoutMicros buf)))
+            {
+              (println (sysWaitWordTimeout w 7 50000000))  ; 1
+              (println (waited buf t0 50))  ; 1
+            })
+          (println sysTimedOut)  ; 1001
+          ; A child seen without being reaped: running - it cannot end
+          ; before the parent lets it, by changing the word it waits on -
+          ; then ended, then still joinable with its status and answer.
+          (let ((h (spawnWaiter w)))
+            {
+              (println (firstLook (handlePid h) pbuf))  ; 0
+              (memSetWord w 0 8)
+              (sysWakeWord w)
+              (println (awaitEnd (handlePid h) pbuf (+ w 8)))  ; 1
+              (println (firstLook (handlePid h) pbuf))  ; 1
+              (println (__proc_join_nr h cell))  ; 42
+              (println (memGetWord cell 0))  ; 0
+            })
+          ; The channel's timed forms.
+          (match (chanNew 1)
+            ((Ok ch)
+              {
+                (let ((t0 (sysTimeoutMicros buf)))
+                  {
+                    (println (recvCode (chanRecvTimeout ch 40000000)))  ; 1001
+                    (println (waited buf t0 40))  ; 1
+                  })
+                (println (recvCode (chanRecvTimeout ch 0)))  ; 1001
+                (println (sendCode (chanSendTimeout ch 9 40000000)))  ; 1
+                (let ((t0 (sysTimeoutMicros buf)))
+                  {
+                    (println (sendCode (chanSendTimeout ch 10 40000000)))  ; 1001
+                    (println (waited buf t0 40))  ; 1
+                  })
+                (println (chanLen ch))  ; 1
+                (println (recvCode (chanRecvTimeout ch 40000000)))  ; 9
+                (chanClose ch)
+                (println (recvCode (chanRecvTimeout ch 40000000)))  ; -1
+                (println (sendCode (chanSendTimeout ch 11 40000000)))  ; 0
+                (println (bit (isOk (chanFree ch))))  ; 1
+              }
+            )
+            ((Err e) (println "chanNew failed")))
+          0
+        })
+    )
+    ((Err e) 1)))

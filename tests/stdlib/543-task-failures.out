@@ -1,0 +1,24 @@
+0 ok square 0
+1 ok square 1
+2 ok square 4
+3 err 72
+4 ok square 16
+5 err 1001
+6 err 1003
+7 ok square 49
+--
+1
+0 err 1002
+1 err 1002
+2 err 1002
+--
+0 err 72
+1 err 1002
+2 err 1002
+3 err 1002
+4 err 1002
+5 err 1002
+--
+1001
+1002
+1003

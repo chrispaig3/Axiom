@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-six of the gates below build the compiler under test from
+    # eighty-seven of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -578,6 +578,18 @@ jobs:
       # required to turn the load red.
       - name: A bounded channel carries every word once, in both lowerings
         run: ./scripts/check-chan.sh
+
+      # R-C2's second half, MM-PAR-11..13: `stdlib/Sync.ax`'s mutex holds
+      # four bindings' plain increments exact in both lowerings beside an
+      # unlocked control that must lose some; timed receive, send and lock
+      # answer within [T, T + slack]; a SIGKILLed holder is found; and
+      # `stdlib/Task.ax`'s pool answers traps, deadlines, oversized
+      # answers and cancellations in their slots with every pid reaped,
+      # takes its tasks with it when the parent traps, keeps memory flat
+      # when folding - nine ablations on copies of the library each
+      # turning it red - and runs examples/concurrency/.
+      - name: A mutex excludes, timed waits keep time, and tasks fail, time out and cancel in their slots
+        run: ./scripts/check-task.sh
 
       # The fuzzing half of R-E1: 600 mutants of the corpus from a fixed
       # seed, each held to three properties - `check` answers with a code

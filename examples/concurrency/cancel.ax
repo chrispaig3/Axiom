@@ -1,0 +1,213 @@
+; Cancellation and failure during active work, with `stdlib/Task.ax`
+; (docs/memory-model.md MM-PAR-13).
+;
+;   axiom run examples/concurrency/cancel.ax
+;
+; THE JOB. A search over 16,000 numbers in 16 shards of 1,000, four
+; shards at a time, for the one number that is the needle. Each shard
+; works through its range in eight chunks of 125 (a 20 ms nap stands in
+; for each chunk's work) and polls the pool's cancellation token
+; between chunks. Three shards misbehave on purpose:
+;
+;   shard 3  fails at once (a division by zero): its slot answers the
+;            wait status 72, and the search carries on - `failFast` is
+;            off, so one broken shard does not cancel the rest;
+;   shard 8  is stuck - it ignores the token, as a task blocked in a
+;            syscall would - so when the search is cancelled it is
+;            given the 100 ms grace and then SIGKILLed and reaped;
+;   shard 9  holds the needle. It CANCELS ITS OWN POOL through the token
+;            (a task can: the token is a shared word) and answers where
+;            it found it.
+;
+; After the cancellation every running shard that polls stops at its
+; next chunk and says so, the stuck one is killed, and the shards never
+; started answer `taskCancelledCode` without being spawned. A deadline
+; of 5 s per shard is the backstop, never reached here.
+;
+; THE CHECK, by the program itself: the needle found in the right
+; place; shard 3 failed with 72; shard 8 cancelled; every shard after
+; the needle either stopped at a chunk boundary or was cancelled, and
+; at least one was never started; nothing took longer than 3 s; and
+; every pid a shard recorded is gone once the pool returns. WHICH
+; shards were running when the needle turned up is scheduling - shard
+; 3's instant failure frees its place in the window early - so it is
+; printed rather than checked. Last line `ok` or
+; `FAILED`; `scripts/check-task.sh` runs it.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Task)
+
+(:: needle Int)
+(fn (needle)
+  9123)
+
+(:: nap (-> Int Int Int))
+;@axiom:effect(io)
+(fn (nap idle ms)
+  {
+    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    0
+  })
+
+; Search shard `s`; record this process's pid in word `s` of `pids`.
+(:: shard (-> Int Int Int Int String))
+;@axiom:effect(io)
+(fn (shard pids idle tok s)
+  {
+    (memSetWord pids s sysGetPid)
+    (if (== s 3)
+      (fmtInt (/ s (- s 3)))
+      (if (== s 8)
+        {
+          (while (== 0 0)
+            (nap idle 1000))
+          "unreachable"
+        }
+        (let (
+          (lo (* s 1000))
+          (mut chunk 0)
+          (mut answer "not here")
+        )
+          {
+            (while (< chunk 8)
+              (if (taskCancelled tok)
+                {
+                  (set answer (strConcat "stopped before chunk " (fmtInt chunk)))
+                  (set chunk 8)
+                }
+                (let (
+                  (from (+ lo (* chunk 125)))
+                  (upto (+ lo (* (+ chunk 1) 125)))
+                )
+                  {
+                    (nap idle 20)
+                    (if (&& (>= needle from) (< needle upto))
+                      {
+                        (taskCancel tok)
+                        (set answer (strConcat "found " (fmtInt needle)))
+                        (set chunk 8)
+                      }
+                      (set chunk (+ chunk 1)))
+                  })))
+            answer
+          })))
+  })
+
+; The pool: 16 shards, four at a time, on the caller's token, with a
+; 5 s deadline per shard as the backstop.
+(:: search (-> Int Int Int (Vec (Result String Error))))
+;@axiom:effect(io)
+(fn (search pids idle tok)
+  (taskMapWith
+    (lambda (s) (shard pids idle tok s))
+    16
+    (taskWithDeadline (taskWithToken (taskOpts 4 64) tok) 5000000000)))
+
+(:: codeOf (-> (Result String Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok s) 0)
+    ((Err e) (errCode e))))
+
+(:: textOf (-> (Result String Error) String))
+(fn (textOf r)
+  (match r
+    ((Ok s) s)
+    ((Err e) (errMessage e))))
+
+; How many of the pids recorded in `pids` still exist.
+(:: stillAlive (-> Int Int Int))
+;@axiom:effect(io)
+(fn (stillAlive pids n)
+  (let ((mut alive 0))
+    {
+      (for s 0 n
+        (let ((p (memGetWord pids s)))
+          (if (> p 0)
+            (match (sysKill p 0)
+              ((Ok z)
+                (set alive (+ alive 1))
+              )
+              ((Err e) 0))
+            0)))
+      alive
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (sysMapShared 4096)
+    ((Ok idle)
+      (match (sysMapShared 4096)
+        ((Ok pids)
+          (match taskTokenNew
+            ((Ok tok)
+              (let (
+                (clk (memAlloc 16))
+                (mut good 1)
+              )
+                (let ((t0 (sysTimeoutMicros clk)))
+                  (let ((rs (search pids idle tok)))
+                    (let (
+                      (ms (/ (- (sysTimeoutMicros clk) t0) 1000))
+                      (alive (stillAlive pids 16))
+                    )
+                      {
+                        (for s 0 16
+                          (let (
+                            (c (codeOf (vecGet rs s)))
+                            (t (textOf (vecGet rs s)))
+                          )
+                            (println "shard {s}: code {c}, {t}")))
+                        (let ((found (textOf (vecGet rs 9))))
+                          (if (strEq found "found 9123")
+                            0
+                            (set good 0)))
+                        (if (!= (codeOf (vecGet rs 3)) 72)
+                          (set good 0)
+                          0)
+                        (if (!= (codeOf (vecGet rs 8)) taskCancelledCode)
+                          (set good 0)
+                          0)
+                        ; After the needle: stopped at a chunk boundary, or
+                        ; cancelled - and at least one never started.
+                        (let ((mut unstarted 0))
+                          {
+                            (for s 10 16
+                              (if (== (codeOf (vecGet rs s)) taskCancelledCode)
+                                (set unstarted (+ unstarted 1))
+                                (if (strStartsWith (textOf (vecGet rs s)) "stopped")
+                                  0
+                                  (set good 0))))
+                            (if (== unstarted 0)
+                              (set good 0)
+                              0)
+                          })
+                        (println "the search took {ms} ms; {alive} shard process(es) still alive")
+                        (if (|| (> ms 3000) (> alive 0))
+                          (set good 0)
+                          0)
+                        (match (taskTokenFree tok)
+                          ((Ok z) 0)
+                          ((Err e) 0))
+                        (if (== good 1)
+                          {
+                            (println "ok")
+                            0
+                          }
+                          {
+                            (println "FAILED")
+                            1
+                          })
+                      }))))
+            )
+            ((Err e) 3))
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))

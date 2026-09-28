@@ -177,6 +177,34 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-28 (20): the mutex, the timed waits and the task
+# pool (MM-PAR-11..13). Diffed `symbols --calls` rows for HEAD's stdlib
+# and the new one with ONE compiler: removed 0 and changed 0 in both
+# views, so no EXISTING row moved buckets. Compiler view, 16 added -
+# `Sys`'s new rows: `sysWaitWordTimeout`, `sysWaitWordTimed` and
+# `sysChildExited` read `Alloc,IO,Mut,Unsafe` (414 to 417),
+# `sysTimeoutMicros` and `sysWaitWordSpin` `Alloc,IO,Unsafe` (18 to 20),
+# `sysScratch` `Alloc,Unsafe` (48 to 49), `sysUlockWait` exactly `IO`
+# (22 to 23), `sysScratchDone` exactly `Unsafe` (1198 to 1199), and
+# eight constants and the pure answer decoder are pure (567 to 575).
+# Stdlib view, 101 added (875 to 976 rows): those plus `Chan`'s timed
+# forms and helpers, all of `Sync` and all of `Task` - exactly `Alloc`
+# 23 to 30 (the `TaskOpts` builders), `Alloc,IO` 24 to 27 (the token's
+# map and unmap), exactly `IO` 32 to 34, `Alloc,Mut,Unsafe` 182 to 185,
+# exactly `Unsafe` 164 to 181, `Alloc,IO,Mut,Unsafe` 77 to 102,
+# `Mut,Unsafe` 53 to 63, `Alloc,Unsafe` 12 to 14, `Alloc,IO,Unsafe` 13
+# to 17, `IO,Mut,Unsafe` 14 to 20, pure 266 to 288. Six of those rows
+# came with the review fixes: `syncCasAt` and `syncTake` (the guard's
+# claim and publication, `Mut,Unsafe`), `chanSlice` (exactly `Unsafe`),
+# and three pure constants and selectors; `taskStart` reads the clock
+# after its spawn, which adds `Alloc` to its row; `taskFold` and
+# `taskFoldOne` are the two new incomplete rows (a call through the
+# caller's `step`), and eleven `Task` functions taking a closure are
+# the new effect-params rows (8 to 19). Every new row naming `IO`
+# performs it through a declaration that says `effect(io)` - `AX3042`
+# holds silence - and none moved onto or off `IO`, so the
+# required/ambient line sits where it was measured.
+#
 # RE-PINNED 2026-09-27 (19): the bounded channel (MM-PAR-10). Thirty-one
 # rows added, none removed, and no EXISTING row moves buckets - each new
 # row read off `tests/agent/stdlib-effects.allow` by name. Both views
@@ -477,17 +505,17 @@ have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 0 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 2 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
-have "$(bucket "$work/main.axsym" 'IO')" 22 "exactly IO"
+have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2345 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1198 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 414 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1199 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 417 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 130 "Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 49 "Alloc,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 20 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 567 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 575 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
@@ -514,25 +542,25 @@ lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 0 "exactly Alloc,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 0 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 3 "exactly Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc')" 23 "exactly Alloc"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 24 "Alloc,IO"
-have "$(bucket "$work/lib.axsym" 'IO')" 32 "exactly IO"
+have "$(bucket "$work/lib.axsym" 'Alloc')" 30 "exactly Alloc"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 27 "Alloc,IO"
+have "$(bucket "$work/lib.axsym" 'IO')" 34 "exactly IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 0 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 182 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Unsafe')" 164 "exactly Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 77 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 53 "Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 12 "Alloc,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 13 "Alloc,IO,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 185 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Unsafe')" 181 "exactly Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 102 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 63 "Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 14 "Alloc,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 17 "Alloc,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut,Unsafe')" 7 "Alloc,Assert,IO,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 14 "IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 20 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 2 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Fallible')" 1 "exactly Fallible"
 have "$(bucket "$work/lib.axsym" 'Assert')" 1 "exactly Assert"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 266 "pure (neither row nor mark)"
-have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 3 "incomplete rows"
-have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 8 "effect-params rows"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 288 "pure (neither row nor mark)"
+have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 5 "incomplete rows"
+have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 19 "effect-params rows"
 
 echo
 echo "== the pins refuse doctored counts =="

@@ -1,0 +1,916 @@
+; Structured tasks with typed results across the process boundary
+; (R-C2, docs/memory-model.md MM-PAR-13).
+;
+; WHAT IT IS. `taskMap f n width limit` runs `f i` for every `i` in
+; `0 .. n`, each in a forked child, at most `width` at once, and answers
+; one `(Result String Error)` per task in SUBMIT order. A task answers
+; a `String`; what crosses back is its BYTES, copied out of the child
+; into the parent's arena. That is the whole of the typed transfer: a
+; program that wants a record, a `Vec`, a tree back encodes it into
+; those bytes in the child and decodes them in the parent - JSON
+; (`stdlib/Json.ax`) or a codec of its own. `tests/stdlib/542-task-codec.ax`
+; carries a record with a `Vec` in it both ways and compares it with
+; the sequential answer.
+;
+; WHY BYTES AND NOT A HEAP VALUE. A forked child's heap is a copy: a
+; handle it answered would name the child's arena, which is gone once
+; the child is (MM-PAR-3). No typed promotion of a heap value exists
+; (MM-RGN-7 is planned), so serialization is not a workaround here, it
+; is the transfer - explicit, bounded, and checked on arrival.
+;
+; WHY `__proc_spawn`, Par.ax's reason, unchanged: a task is a caller's
+; closure, and its captures are only isolated by the forked lowering
+; (MM-PAR-3), which this primitive names whatever `--threads` says. So
+; a `--threads` program's tasks are processes too, and a task's
+; captured `Vec` is the child's own copy.
+;
+; EVERY FAILURE IS A VALUE, and each has its own code:
+;
+;   Ok s                 the task answered `s`, at most `limit` bytes
+;   Err 1..255           the task trapped or died: its wait status, an
+;                        exit code or 128 plus the signal (Par.ax's
+;                        convention); the runtime's message is on fd 2
+;   Err taskTooLargeCode its answer was over `limit` bytes; nothing of
+;                        it crossed, and the parent is unharmed
+;   Err sysTimedOut      it ran past its deadline, and was SIGKILLed
+;                        and reaped
+;   Err taskCancelledCode the pool was cancelled: never started, or
+;                        still running when the grace period ran out,
+;                        and then SIGKILLed and reaped
+;
+; The codes above 255 cannot be mistaken for a wait status.
+;
+; BOUNDED, ALL OF IT. At most `width` children exist at once; the
+; parent's per-slot state is a ring of `width` entries; each slot's
+; answer is written into a MAP_SHARED slab of `width` slots of `limit`
+; bytes, REUSED - O(width x limit), never O(n). Submission blocks
+; while `width` tasks are outstanding: there is no queue. A task's slot
+; is freed when its result is DELIVERED, in submit order, so a slow
+; task holds back the tasks `width` places behind it (Par.ax's rule,
+; for the same reason: the answer order is the submit order, and a
+; bounded buffer cannot hold results out of order for ever). The
+; answer of `taskMap` is O(n) because it is n results; `taskFold`
+; streams them instead, each one live only while the fold's step runs,
+; so memory stays flat however many tasks go through.
+;
+; DEADLINES, CANCELLATION, FAILURE.
+;   * `deadline` (nanoseconds, 0 for none) runs from a task's spawn. A
+;     task past it is sent SIGKILL and reaped, and answers
+;     `sysTimedOut`; if it had already finished or died of its own
+;     accord, that answer wins.
+;   * A TOKEN is one shared word (`taskTokenNew`). `taskCancel` sets it
+;     from anywhere - another binding, a task, the pool itself - and
+;     wakes every pool sleeping on it; `taskCancelled` is the poll a
+;     cooperative task makes. Once a pool sees it set, it starts
+;     nothing more (every unstarted task answers `taskCancelledCode`),
+;     gives running tasks `grace` nanoseconds to finish, then SIGKILLs
+;     and reaps what is left. A token the caller passes is shared state:
+;     cancelling it cancels every pool using it.
+;   * `failFast` sets the pool's token at the first task that answers
+;     an error (not at a cancellation), which cancels the rest as above.
+;
+; NO CHILD OUTLIVES THE CALL on any path the program has. A normal
+; return joins every child it spawned. A trap in the parent during the
+; pool - `taskFold`'s step, say - is MM-PAR-7's: every child is on the
+; spawning thread's registry, and the unrecovered trap, or the recovery
+; point armed outside the pool, SIGKILLs and reaps them
+; (`scripts/check-task.sh` records the pids and requires them gone).
+; What this cannot cover, stated: a parent killed by a signal it does
+; not handle runs no sweep, so its tasks are reparented; a pool
+; running inside a `parallel` binding that MM-PAR-7's sweep SIGKILLs
+; cannot sweep its own children (MM-PAR-7's grandchildren limit); and
+; under `--threads` the registry is per thread, so a pool's tasks
+; outlive a trap in a SIBLING thread, which ends the process with only
+; its own registry swept (and a raw `sysExitWith` sweeps nothing).
+;
+; HOW THE PARENT WAITS. It sleeps on the token's event counter
+; (`sysWaitWordTimeout`), which a task bumps when its answer is in the
+; slab and `taskCancel` bumps when it cancels - so a normal completion
+; or a cancellation wakes it at once. A task that dies WITHOUT
+; answering (a trap, a signal) bumps nothing, so the parent also looks
+; at each running child every `taskPollNanos` (10 ms) with
+; `sysChildExited` - `waitid` with WNOWAIT, which does not reap, so the
+; join that follows still owns its child. Where no such look exists
+; (`sysChildExited` answers `Err`), a death without an answer is found
+; at the task's deadline, or - with no deadline - by blocking on the
+; oldest running task's join when nothing else can move, and a
+; cancellation then waits for that join.
+;
+; THE HANDLE LAYOUT IS BORROWED. A task is killed by the pid in word 0
+; of its `__proc_spawn` handle page (`self_host/codegen.ax`,
+; `emitParCommon`'s layout). Nothing in the type system says so;
+; `scripts/check-task.sh` checks it through the deadline's kill: with
+; the pid read from anywhere else, the task outlives its deadline and
+; the check goes red (the `layout` ablation).
+;
+; DETERMINISM. The RESULTS are in submit order and depend only on what
+; each task answered - never on scheduling. SIDE EFFECTS are not: tasks
+; run concurrently, so their writes to fd 1, to files or to a shared
+; mapping interleave however the scheduler ran them, and a deadline or
+; cancellation decides by the clock. On Darwin that clock is the
+; realtime one (`sysTimeoutMicros`), so a step of it moves every running
+; deadline by the step.
+(import Mem)
+(import Str)
+(import Vec)
+(import Sys)
+(import Err)
+
+; ---- the options ---------------------------------------------------------
+; `width` children at most (clamped to 1..n); `limit` bytes per answer
+; (0 or more); `deadline` nanoseconds per task from its spawn, 0 for
+; none; `grace` nanoseconds a running task gets after a cancellation;
+; `failFast` cancels the pool at the first error; `token` is a word from
+; `taskTokenNew`, or 0 for one private to the call.
+(pub struct TaskOpts
+  (width : Int)
+  (limit : Int)
+  (deadline : Int)
+  (grace : Int)
+  (failFast : Bool)
+  (token : Int))
+
+; No deadline, a 100 ms grace, no fail-fast, a private token.
+(pub :: taskOpts (-> Int Int TaskOpts))
+(pub fn (taskOpts width limit)
+  (TaskOpts
+    width
+    limit
+    0
+    100000000
+    false
+    0))
+
+(pub :: taskWithDeadline (-> TaskOpts Int TaskOpts))
+(pub fn (taskWithDeadline o nanos)
+  (TaskOpts
+    o.width
+    o.limit
+    nanos
+    o.grace
+    o.failFast
+    o.token))
+
+(pub :: taskWithGrace (-> TaskOpts Int TaskOpts))
+(pub fn (taskWithGrace o nanos)
+  (TaskOpts
+    o.width
+    o.limit
+    o.deadline
+    nanos
+    o.failFast
+    o.token))
+
+(pub :: taskWithFailFast (-> TaskOpts Bool TaskOpts))
+(pub fn (taskWithFailFast o on)
+  (TaskOpts
+    o.width
+    o.limit
+    o.deadline
+    o.grace
+    on
+    o.token))
+
+(pub :: taskWithToken (-> TaskOpts Int TaskOpts))
+(pub fn (taskWithToken o tok)
+  (TaskOpts
+    o.width
+    o.limit
+    o.deadline
+    o.grace
+    o.failFast
+    tok))
+
+; ---- the codes -------------------------------------------------------------
+(pub :: taskCancelledCode Int)
+(pub fn (taskCancelledCode)
+  1002)
+
+(pub :: taskTooLargeCode Int)
+(pub fn (taskTooLargeCode)
+  1003)
+
+; How often a sleeping pool looks at its running children: 10 ms.
+(pub :: taskPollNanos Int)
+(pub fn (taskPollNanos)
+  10000000)
+
+; How often it looks while a task has answered and not yet exited: 1 ms.
+(:: taskExitPollNanos Int)
+(fn (taskExitPollNanos)
+  1000000)
+
+; The poll period: the short one while some task has answered and not
+; yet exited (`answered` 1), else the usual one.
+(:: taskPollPeriod (-> Int Int))
+(fn (taskPollPeriod answered)
+  (if (== answered 1)
+    taskExitPollNanos
+    taskPollNanos))
+
+; ---- the raw words ---------------------------------------------------------
+; The module's only raw accesses, each `effect(unsafe)`; every public
+; function goes through them and claims no more than `effect(io)`.
+(:: taskLoadAt (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (taskLoadAt a)
+  (__atomic_load a))
+
+(:: taskStoreAt (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (taskStoreAt a v)
+  {
+    (__atomic_store a v)
+    0
+  })
+
+(:: taskAddAt (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (taskAddAt a v)
+  (__atomic_add a v))
+
+; The pid in word 0 of a `__proc_spawn` handle page (the header's
+; borrowed layout).
+(:: taskHandlePid (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (taskHandlePid h)
+  (__load64 h 0))
+
+; A block with a share taken, and the share given back.
+(:: taskScratch (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (taskScratch n)
+  (let ((b (memAlloc n)))
+    {
+      (__retain b)
+      b
+    }))
+
+(:: taskScratchDone (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (taskScratchDone b)
+  {
+    (__release b)
+    0
+  })
+
+; ---- the token -------------------------------------------------------------
+; Word 0 the cancelled flag, word 1 the event counter a pool sleeps on.
+(pub :: taskTokenNew (Result Int Error))
+;@axiom:effect(io)
+(pub fn (taskTokenNew)
+  (sysMapShared 4096))
+
+; Set the token and wake every pool sleeping on it. Idempotent.
+(pub :: taskCancel (-> Int Int))
+;@axiom:effect(io)
+(pub fn (taskCancel tok)
+  {
+    (taskStoreAt tok 1)
+    (taskBump tok)
+  })
+
+; Whether the token is set: the poll a cooperative task makes.
+(pub :: taskCancelled (-> Int Bool))
+(pub fn (taskCancelled tok)
+  (== (taskLoadAt tok) 1))
+
+; Unmap a token. Only once no pool and no task can still reach it.
+(pub :: taskTokenFree (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (taskTokenFree tok)
+  (sysUnmapShared tok 4096))
+
+(:: taskBump (-> Int Int))
+;@axiom:effect(io)
+(fn (taskBump tok)
+  {
+    (taskAddAt (+ tok 8) 1)
+    (sysWakeWord (+ tok 8))
+  })
+
+(:: taskEvent (-> Int Int))
+(fn (taskEvent tok)
+  (taskLoadAt (+ tok 8)))
+
+; ---- the child's half ----------------------------------------------------
+; A slot of the slab: word 0 the state (1 running, 2 answered, 3 over
+; the limit), word 1 the answer's length, word 2 the child's pid as the
+; child saw it, then the answer's bytes from byte 32.
+;
+; `arg` is `t * w + s`: task `t` in slot `s`, one word because a spawn
+; hands its thunk one. Runs in the CHILD; the state is stored after the
+; bytes, and the parent reads the bytes only after the join, which
+; orders them (MM-PAR-9, edge 3) - the state is the wake-up, not the
+; publication.
+(:: taskChild (-> (-> Int String) Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskChild f slab slotBytes limit tok w arg)
+  (let ((slot (+ slab (* (% arg w) slotBytes))))
+    {
+      (memSetWord slot 2 sysGetPid)
+      (let ((r (f (/ arg w))))
+        (let ((len (strLen r)))
+          {
+            (memSetWord slot 1 len)
+            (if (> len limit)
+              (taskStoreAt slot 3)
+              {
+                (memCopy (+ slot 32) (strData r) len)
+                (taskStoreAt slot 2)
+              })
+            (taskBump tok)
+            0
+          }))
+    }))
+
+; ---- the parent's half ---------------------------------------------------
+; Per slot, four words of `st`: the handle, the deadline (microseconds on
+; `sysTimeoutMicros`'s clock, 0 for none), the wait status, and why it
+; was joined - 0 not yet, 1 it ended, 2 killed at its deadline, 3 killed
+; at the end of a cancellation's grace.
+(:: taskSt (-> (Vec Int) Int Int Int))
+(fn (taskSt st s k)
+  (vecGet st (+ (* 4 s) k)))
+
+(:: taskSetSt (-> (Vec Int) Int Int Int Int))
+(fn (taskSetSt st s k v)
+  {
+    (vecSet st (+ (* 4 s) k) v)
+    0
+  })
+
+; Join slot `s`'s child - it has ended, or was just killed - and record
+; why. Answers 1 when the outcome is an error `failFast` counts: not a
+; cancellation's kill.
+(:: taskJoin (-> (Vec Int) Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskJoin st s cell slab slotBytes why)
+  (let ((w (__proc_join_nr (taskSt st s 0) cell)))
+    (let (
+      (status (memGetWord cell 0))
+      (state (taskLoadAt (+ slab (* s slotBytes))))
+    )
+      {
+        (taskSetSt st s 2 status)
+        (taskSetSt st s 3 why)
+        ; The same `finished` test `taskResultAt` makes: a task that
+        ; answered and was then SIGKILLed from outside (137, joined as
+        ; ended) is delivered as `Err 137`, so it counts for `failFast`.
+        (if (== why 3)
+          0
+          (if (&& (== state 2) (|| (== status 0) (&& (== status 137) (>= why 2))))
+            0
+            1))
+      })))
+
+; Kill slot `s`'s child and join it.
+(:: taskKillJoin (-> (Vec Int) Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskKillJoin st s cell slab slotBytes why)
+  {
+    (match (sysKill (taskHandlePid (taskSt st s 0)) 9)
+      ((Ok z) 0)
+      ((Err e) 0))
+    (taskJoin
+      st
+      s
+      cell
+      slab
+      slotBytes
+      why)
+  })
+
+; The answer of a joined slot, built in the caller's current region.
+; `slot` is the slab slot, `status` the joined child's wait status and
+; `why` why it was joined (`taskJoin`).
+(:: taskResultAt (-> Int Int Int (Result String Error)))
+(fn (taskResultAt slot status why)
+  (let (
+    (state (taskLoadAt slot))
+    (finished (|| (== status 0) (&& (== status 137) (>= why 2))))
+  )
+    (if (&& finished (== state 2))
+      (Ok (taskCopyOut slot))
+      (if (&& finished (== state 3))
+        (Err (mkError taskTooLargeCode "task answer over the byte limit"))
+        (if (== status 0)
+          (Err (mkError 78 "task ended without an answer"))
+          (if (&& (== status 137) (== why 2))
+            (Err (mkError sysTimedOut "task past its deadline"))
+            (if (&& (== status 137) (== why 3))
+              (Err (mkError taskCancelledCode "task cancelled"))
+              (Err (mkError status "task trapped")))))))))
+
+(:: taskCopyOut (-> Int String))
+(fn (taskCopyOut slot)
+  (let ((len (memGetWord slot 1)))
+    (let ((s (strAlloc len)))
+      {
+        (memCopy (strData s) (+ slot 32) len)
+        s
+      })))
+
+; Hand the answer in slot `s` to the sink, which takes the answers in
+; submit order and so needs no index. Inside a `region` when `scoped`:
+; the answer and everything the sink allocates are reclaimed as it
+; returns (MM-RGN-1), with the mark kept in a stack cell rather than the
+; arena - so, unlike a raw `__axiom_arena_mark`, a delivery leaves no
+; 48-byte mark cell behind. The sink takes ONE argument so the region
+; check can accept the call: a call through a closure is assumed to
+; store every argument into every other (AX3060), and one argument has
+; no other to be stored into.
+(:: taskDeliver (-> (-> (Result String Error) Int) Int (Vec Int) Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskDeliver sink scoped st s slab slotBytes)
+  ; `(+ 0 ...)` is not decoration. A word read out of a `Vec` carries the
+  ; `Vec`'s origin for the region check, so `(mkError status ...)`
+  ; built inside the region read as a region value stored into an outer
+  ; one and was refused (AX3060, measured - and reported against the
+  ; CALLER's file, not this one). The arithmetic answers a plain word.
+  (let (
+    (slot (+ slab (* s slotBytes)))
+    (status (+ 0 (taskSt st s 2)))
+    (why (+ 0 (taskSt st s 3)))
+  )
+    (if (== scoped 1)
+      (region r
+        (sink (taskResultAt slot status why)))
+      (sink (taskResultAt slot status why)))))
+
+(:: taskDeliverCancelled (-> (-> (Result String Error) Int) Int Int))
+;@axiom:effect(io)
+(fn (taskDeliverCancelled sink scoped)
+  (if (== scoped 1)
+    (region r
+      (sink (Err (mkError taskCancelledCode "task not started: the pool was cancelled"))))
+    (sink (Err (mkError taskCancelledCode "task not started: the pool was cancelled")))))
+
+; Earliest instant, in microseconds, the parent must wake by: the
+; nearest deadline of a running task, the end of a cancellation's
+; grace, or `now` plus the poll period - or -1 when none applies. A task
+; that has answered and not yet exited is normally a few microseconds
+; from its exit, so while one exists the period is `taskExitPollNanos`.
+(:: taskWakeBy (-> (Vec Int) Int Int Int Int Int Int Int Int Int Int))
+(fn (taskWakeBy st head next w now canPoll cancelling graceEnd slab slotBytes)
+  (let (
+    (mut wake (if (== cancelling 1)
+      graceEnd
+      (- 0 1)))
+    (mut running 0)
+    (mut answered 0)
+  )
+    {
+      (for t head next
+        (let ((s (% t w)))
+          (if (== (taskSt st s 3) 0)
+            {
+              (set running 1)
+              (if (>= (taskLoadAt (+ slab (* s slotBytes))) 2)
+                (set answered 1)
+                0)
+              (let ((d (taskSt st s 1)))
+                (if (&& (> d 0) (|| (< wake 0) (< d wake)))
+                  (set wake d)
+                  0))
+            }
+            0)))
+      (if (== running 0)
+        (- 0 1)
+        (if (== canPoll 1)
+          (let ((p (+ now (/ (taskPollPeriod answered) 1000))))
+            (if (|| (< wake 0) (< p wake))
+              p
+              wake))
+          wake))
+    }))
+
+; Has slot `s`'s child ended? 1 yes - the kernel says it has exited, or
+; it answered and there is no look to ask - 2 it answered but has not
+; exited yet, 0 not seen, -1 the look itself failed (`sysChildExited`
+; answered `Err`; the caller stops asking). An answer alone is not an
+; end: a task whose `f` returned can still be held up - by a thread its
+; own `parallel` never joins, say - and a join then would block the
+; whole pool in the kernel with no deadline or grace enforced. So an
+; answered task is joined when the kernel reports its exit, and until
+; then stays under its deadline and a cancellation's grace like any
+; other running task.
+(:: taskEnded (-> (Vec Int) Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskEnded st s slab slotBytes pbuf canPoll)
+  (let ((answered (>= (taskLoadAt (+ slab (* s slotBytes))) 2)))
+    (if (== canPoll 1)
+      (match (sysChildExited (taskHandlePid (taskSt st s 0)) pbuf)
+        ((Ok b)
+          (if b
+            1
+            (if answered
+              2
+              0))
+        )
+        ((Err e)
+          (if answered
+            1
+            (- 0 1))
+        ))
+      (if answered
+        1
+        0))))
+
+; Look at running slot `s` once, at `now`: join it if it ended, kill
+; and join it if its deadline or a cancellation's grace has run out.
+; Answers -1 nothing happened, -2 the look at the child failed, else
+; `taskJoin`'s answer (1 an error `failFast` counts, 0 not).
+(:: taskCheck (-> (Vec Int) Int Int Int Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskCheck st s now cancelling graceEnd canPoll cell slab slotBytes pbuf)
+  (let ((ended (taskEnded
+    st
+    s
+    slab
+    slotBytes
+    pbuf
+    canPoll)))
+    (if (== ended 1)
+      (taskJoin
+        st
+        s
+        cell
+        slab
+        slotBytes
+        1)
+      (if (&& (> (taskSt st s 1) 0) (>= now (taskSt st s 1)))
+        (taskKillJoin
+          st
+          s
+          cell
+          slab
+          slotBytes
+          2)
+        (if (&& (== cancelling 1) (>= now graceEnd))
+          (taskKillJoin
+            st
+            s
+            cell
+            slab
+            slotBytes
+            3)
+          (if (== ended (- 0 1))
+            (- 0 2)
+            (- 0 1)))))))
+
+; Start task `t` in its slot `t % w`. Its deadline runs from the clock
+; read AFTER the spawn answered, so a task started late in a batch -
+; after other forks - keeps the whole of its deadline.
+(:: taskStart (-> (Vec Int) (-> Int Int) Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskStart st wrapper t w slab slotBytes clk deadlineUs)
+  (let (
+    (s (% t w))
+    (slot (+ slab (* (% t w) slotBytes)))
+  )
+    {
+      (taskStoreAt slot 1)
+      (memSetWord slot 1 0)
+      (memSetWord slot 2 0)
+      (taskSetSt st s 0 (__proc_spawn wrapper (+ (* t w) s)))
+      (taskSetSt
+        st
+        s
+        1
+        (if (> deadlineUs 0)
+          (+ (sysTimeoutMicros clk) deadlineUs)
+          0))
+      (taskSetSt st s 2 0)
+      (taskSetSt st s 3 0)
+    }))
+
+; Nanoseconds from `now` to `wake` (microseconds), at least one, and at
+; most 2^62: the product must not wrap into a negative sleep.
+(:: taskSleepFor (-> Int Int Int))
+(fn (taskSleepFor now wake)
+  (if (> wake now)
+    (if (> (- wake now) 4611686018427387)
+      4611686018427387000
+      (* (- wake now) 1000))
+    1000))
+
+; Microseconds for a nanosecond option, rounded up; 0 stays 0. A value
+; within 999 of the largest `Int` must not wrap as it rounds - a grace
+; of "for ever" would read as a negative one and kill at once.
+(:: taskMicros (-> Int Int))
+(fn (taskMicros nanos)
+  (if (> nanos 0)
+    (if (> nanos 9223372036854774808)
+      9223372036854776
+      (/ (+ nanos 999) 1000))
+    0))
+
+; The pool itself. Answers how many results it delivered (n).
+(:: taskLoop (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskLoop f n opts sink scoped w limit slotBytes tok slab)
+  (let (
+    (st (vecWithCapacity (* 4 w)))
+    (cell (taskScratch 8))
+    (clk (taskScratch 16))
+    (pbuf (taskScratch sysChildPollBytes))
+    (wrapper (lambda (arg) (taskChild
+      f
+      slab
+      slotBytes
+      limit
+      tok
+      w
+      arg)))
+    (deadlineUs (taskMicros opts.deadline))
+    (graceUs (taskMicros opts.grace))
+    (mut next 0)
+    (mut head 0)
+    (mut cancelling 0)
+    (mut graceEnd 0)
+    (mut canPoll 1)
+    (mut progress 0)
+  )
+    {
+      (for i 0 (* 4 w)
+        (vecPush st 0))
+      (while (< head n)
+        (let (
+          (seen (taskEvent tok))
+          (now (sysTimeoutMicros clk))
+        )
+          {
+            (set progress 0)
+            ; A cancellation seen for the first time.
+            (if (&& (== cancelling 0) (taskCancelled tok))
+              {
+                (set cancelling 1)
+                (set graceEnd (+ now graceUs))
+                (set progress 1)
+              }
+              0)
+            ; Start what the window allows.
+            (while (&& (== cancelling 0) (&& (< next n) (< (- next head) w)))
+              {
+                (taskStart
+                  st
+                  wrapper
+                  next
+                  w
+                  slab
+                  slotBytes
+                  clk
+                  deadlineUs)
+                (set next (+ next 1))
+                (set progress 1)
+              })
+            ; Join what has ended; kill and join what ran out of time.
+            (for t head next
+              (let ((s (% t w)))
+                (if (== (taskSt st s 3) 0)
+                  (let ((r (taskCheck
+                    st
+                    s
+                    now
+                    cancelling
+                    graceEnd
+                    canPoll
+                    cell
+                    slab
+                    slotBytes
+                    pbuf)))
+                    (if (== r (- 0 2))
+                      (set canPoll 0)
+                      (if (>= r 0)
+                        {
+                          (set progress 1)
+                          (if (&& (== r 1) opts.failFast)
+                            (taskCancel tok)
+                            0)
+                        }
+                        0)))
+                  0)))
+            ; Deliver, in submit order, what has been joined.
+            (while (&& (< head next) (!= (taskSt st (% head w) 3) 0))
+              {
+                (taskDeliver
+                  sink
+                  scoped
+                  st
+                  (% head w)
+                  slab
+                  slotBytes)
+                (set head (+ head 1))
+                (set progress 1)
+              })
+            ; Once cancelled, what was never started answers so.
+            (while (&& (== cancelling 1) (&& (== head next) (< next n)))
+              {
+                (taskDeliverCancelled sink scoped)
+                (set next (+ next 1))
+                (set head (+ head 1))
+                (set progress 1)
+              })
+            ; Nothing moved: sleep until something can.
+            (if (== progress 0)
+              (let ((wake (taskWakeBy
+                st
+                head
+                next
+                w
+                now
+                canPoll
+                cancelling
+                graceEnd
+                slab
+                slotBytes)))
+                (if (>= wake 0)
+                  (sysWaitWordTimeout (+ tok 8) seen (taskSleepFor now wake))
+                  ; No clock can end the wait and no look at a child
+                  ; exists: block on the oldest running task's join.
+                  (if (&& (< head next) (== (taskSt st (% head w) 3) 0))
+                    (let ((r (taskJoin
+                      st
+                      (% head w)
+                      cell
+                      slab
+                      slotBytes
+                      1)))
+                      (if (&& (== r 1) opts.failFast)
+                        (taskCancel tok)
+                        0))
+                    0)))
+              0)
+          }))
+      (taskScratchDone cell)
+      (taskScratchDone clk)
+      (taskScratchDone pbuf)
+      (vecFree st)
+      head
+    }))
+
+; Every task answers `e`: the pool could not be set up.
+(:: taskAllFailed (-> Int Error (-> (Result String Error) Int) Int))
+(fn (taskAllFailed n e sink)
+  {
+    (for i 0 n
+      (sink (Err e)))
+    n
+  })
+
+; The pool with its slab mapped around it.
+(:: taskWithSlab (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (taskWithSlab f n opts sink scoped w limit slotBytes tok)
+  (match (sysMapShared (* w slotBytes))
+    ((Err e) (taskAllFailed n e sink))
+    ((Ok slab)
+      (let ((done (taskLoop
+        f
+        n
+        opts
+        sink
+        scoped
+        w
+        limit
+        slotBytes
+        tok
+        slab)))
+        (match (sysUnmapShared slab (* w slotBytes))
+          ((Ok z) done)
+          ((Err e) done)))
+    )))
+
+; The token the pool sleeps on: the caller's, or a fresh one.
+(:: taskTokenFor (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (taskTokenFor tok)
+  (if (== tok 0)
+    taskTokenNew
+    (Ok tok)))
+
+; The width actually used: at least 1, at most n.
+(:: taskWidth (-> Int Int Int))
+(fn (taskWidth width n)
+  (if (< width 1)
+    1
+    (if (> width n)
+      n
+      width)))
+
+; The pool with its mappings made and unmade around it.
+(:: taskRun (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int))
+;@axiom:effect(io)
+(fn (taskRun f n opts sink scoped)
+  (if (<= n 0)
+    0
+    (let (
+      (w (taskWidth opts.width n))
+      (limit (if (< opts.limit 0)
+        0
+        opts.limit))
+    )
+      (if (> limit 1099511627776)
+        (taskAllFailed n (mkError 22 "task limit over 2^40 bytes") sink)
+        (match (taskTokenFor opts.token)
+          ((Err e) (taskAllFailed n e sink))
+          ((Ok tok)
+            (let ((done (taskWithSlab
+              f
+              n
+              opts
+              sink
+              scoped
+              w
+              limit
+              (+ 32 (* 8 (/ (+ limit 7) 8)))
+              tok)))
+              (if (== opts.token 0)
+                (match (taskTokenFree tok)
+                  ((Ok z) done)
+                  ((Err e) done))
+                done))
+          ))))))
+
+; ---- the entries ---------------------------------------------------------
+; `f i` for every `i` in `0 .. n`, at most `width` at once, each answer
+; at most `limit` bytes: one `Result` per task in submit order. No
+; deadline, no fail-fast, a private token.
+(pub :: taskMap (-> (-> Int String) Int Int Int (Vec (Result String Error))))
+;@axiom:effect(io)
+(pub fn (taskMap f n width limit)
+  (taskMapWith f n (taskOpts width limit)))
+
+; `taskMap` with every option (`TaskOpts`).
+(pub :: taskMapWith (-> (-> Int String) Int TaskOpts (Vec (Result String Error))))
+;@axiom:effect(io)
+(pub fn (taskMapWith f n opts)
+  (let ((out vecNew))
+    {
+      (taskRun
+        f
+        n
+        opts
+        (lambda (r)
+          {
+            (vecPush out r)
+            0
+          }
+        )
+        0)
+      out
+    }))
+
+; Fold the answers in submit order without keeping them: `step acc i r`
+; for each task, starting from `init`, answering the last `acc`. Each
+; answer - and EVERYTHING `step` allocates - lives only while that
+; `step` runs: the pool builds the answer and calls `step` inside a
+; `region` (MM-RGN-1) that is reset when `step` returns, so memory
+; stays flat however many tasks go through.
+;
+; THAT IS A CONTRACT THE REGION CHECK CANNOT HOLD, AND THIS FUNCTION
+; SAYS SO in its claim. `step` may keep only what its `Int` accumulator
+; carries: an answer's `String` stored anywhere, or a push onto a
+; captured `Vec` that grew its buffer, names reclaimed memory once
+; `step` returns. The region check sees the call to the pool's internal
+; sink and not into `step`'s body - a closure's captures are outside its
+; tracked origins (MM-RGN-3's domain) - so the obligation is the
+; caller's, as MM-ALLOC-16 makes it for a raw reset, and the claim
+; `effect(unsafe)` is what puts it where a reader and
+; `restrict(no-unsafe)` can see it. `taskMapWith` keeps every answer and
+; has no such contract.
+(pub :: taskFold (-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (taskFold f n opts init step)
+  (let ((acc (taskScratch 16)))
+    {
+      (memSetWord acc 0 init)
+      (memSetWord acc 1 0)
+      (taskRun
+        f
+        n
+        opts
+        (lambda (r) (taskFoldOne acc step r))
+        1)
+      (let ((v (memGetWord acc 0)))
+        {
+          (taskScratchDone acc)
+          v
+        })
+    }))
+
+; One step of the fold: word 0 of `acc` the accumulator, word 1 the
+; index of the answer, which arrives in submit order. `step` is applied
+; to the two words first and to the answer alone after, so the answer
+; is handed to a ONE-argument call - the shape the region check can
+; accept (see `taskDeliver`).
+(:: taskFoldOne (-> Int (-> Int Int (Result String Error) Int) (Result String Error) Int))
+(fn (taskFoldOne acc step r)
+  (let ((i (memGetWord acc 1)))
+    (let ((g (step (memGetWord acc 0) i)))
+      {
+        (memSetWord acc 1 (+ i 1))
+        (memSetWord acc 0 (g r))
+      })))

@@ -1,0 +1,172 @@
+; A bounded producer/consumer pipeline with timeouts, over
+; `stdlib/Chan.ax` (docs/memory-model.md MM-PAR-10 and MM-PAR-12).
+;
+;   axiom run examples/concurrency/pipeline.ax [N]      (default 2000)
+;   axiom build --threads ...                           (same answers)
+;
+; THREE STAGES, TWO CHANNELS OF FOUR WORDS. A producer sends 1..N into
+; `raw`, pausing for 250 ms halfway through - a stalled upstream. A
+; worker squares every word it receives into `out`, waiting at most
+; 100 ms per receive: each timeout is an IDLE TICK it counts and then
+; carries on waiting, which is what a stage with a heartbeat, a
+; metrics flush or a shutdown check does while nothing arrives. A
+; consumer drains `out`. The three are the bindings of one `parallel`
+; form, and every send downstream waits at most 1 s, so
+; a consumer that died would surface as a counted refusal instead of a
+; hang. The stream ends by closing: the producer closes `raw` when it
+; is done, the worker closes `out` when `raw` has ended.
+;
+; WHAT IS CHECKED, by the program itself: the sum of the squares is
+; the one 1..N must give, and the worker saw at least one idle tick
+; (the stall is longer than its timeout). What is NOT fixed: HOW MANY
+; ticks - that depends on the scheduler - so it is printed as a
+; yes/no, and the whole run is `ok` or `FAILED` on its last line.
+; `scripts/check-task.sh` runs it in both lowerings.
+;
+; A CHANNEL CARRIES WORDS. `Chan` moves `Int`s between bindings, not
+; heap values (MM-PAR-10); `typed-tasks.ax` beside this file is how a
+; record crosses.
+(import IO)
+(import Sys)
+(import Str)
+(import Err)
+(import Chan)
+
+(:: argOr (-> Int Int Int))
+;@axiom:effect(io)
+(fn (argOr i fallback)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) fallback)))
+
+; Sleep on a word nobody changes.
+(:: nap (-> Int Int Int))
+;@axiom:effect(io)
+(fn (nap idle ms)
+  {
+    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    0
+  })
+
+; Send 1..n into `raw`, stalling halfway; then close it. Answers the
+; count sent.
+(:: produce (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (produce raw idle n)
+  (let ((mut sent 0))
+    {
+      (for i 1 (+ n 1)
+        {
+          (if (== i (/ n 2))
+            (nap idle 250)
+            0)
+          (match (chanSendTimeout raw i 1000000000)
+            ((Ok true)
+              (set sent (+ sent 1))
+            )
+            ((Ok false) 0)
+            ((Err e) 0))
+        })
+      (chanClose raw)
+      sent
+    }))
+
+; Square what arrives on `raw` into `out` until `raw` ends; close
+; `out`. Answers the idle ticks it counted.
+(:: work (-> Int Int Int))
+;@axiom:effect(io)
+(fn (work raw out)
+  (let (
+    (mut ticks 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (match (chanRecvTimeout raw 100000000)
+          ((Ok (Some v))
+            (match (chanSendTimeout out (* v v) 1000000000)
+              ((Ok b) 0)
+              ((Err e)
+                (set going 0)
+              ))
+          )
+          ((Ok (None))
+            (set going 0)
+          )
+          ((Err e)
+            (set ticks (+ ticks 1))
+          )))
+      (chanClose out)
+      ticks
+    }))
+
+; Drain `out`: the sum of what arrived.
+(:: drainAll (-> Int Int))
+;@axiom:effect(io)
+(fn (drainAll out)
+  (let (
+    (mut sum 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (match (chanRecvTimeout out 2000000000)
+          ((Ok (Some v))
+            (set sum (+ sum v))
+          )
+          ((Ok (None))
+            (set going 0)
+          )
+          ((Err e)
+            (set going 0)
+          )))
+      sum
+    }))
+
+(:: yesNo (-> Bool String))
+(fn (yesNo b)
+  (if b
+    "yes"
+    "no"))
+
+(:: run (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (run raw out idle n)
+  (parallel p (
+    (sent (produce raw idle n))
+    (ticks (work raw out))
+    (sum (drainAll out))
+  )
+    (let (
+      (want (/ (* n (* (+ n 1) (+ (* 2 n) 1))) 6))
+      (idled (yesNo (> ticks 0)))
+    )
+      {
+        (println "sent {sent} words, the sum of their squares is {sum} (want {want})")
+        (println "the worker idled through the stall: {idled}")
+        (if (&& (== sent n) (&& (== sum want) (> ticks 0)))
+          {
+            (println "ok")
+            0
+          }
+          {
+            (println "FAILED")
+            1
+          })
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((n (argOr 1 2000)))
+    (match (chanNew 4)
+      ((Ok raw)
+        (match (chanNew 4)
+          ((Ok out)
+            (match (sysMapShared 4096)
+              ((Ok idle) (run raw out idle n))
+              ((Err e) 4))
+          )
+          ((Err e) 3))
+      )
+      ((Err e) 2))))

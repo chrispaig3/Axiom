@@ -42,9 +42,21 @@
 ; has no blocking wait (`waitWordKind` 0: FreeBSD for now) the same code
 ; spins: correct, and it costs a core.
 ;
-; WHAT IT DOES NOT PROVIDE. No timeout (a receive on a channel nobody
-; closes waits forever, and a thread cannot be killed out of it -
-; MM-PAR-7's sweep JOINS threads); no fairness between waiters (a wake
+; TIMED FORMS (MM-PAR-12). `chanSendTimeout` and
+; `chanRecvTimeout` wait at most a given number of nanoseconds and then
+; answer `Err` with code `sysTimedOut`, having sent or taken nothing.
+; The wait is `sysWaitWordTimeout` on the same counter, in slices; a
+; slice the kernel timed out costs the whole slice and one cut short
+; costs the clock's step, clamped to it, so a wait nobody ends is never
+; shorter than asked. The ring is looked at once more after the last
+; slice: a word that arrives as the time runs out is taken.
+;
+; WHAT IT DOES NOT PROVIDE. No timeout on `chanSend` and `chanRecv`
+; themselves (a receive on a channel nobody closes waits forever, and a
+; thread cannot be killed out of it - MM-PAR-7's sweep JOINS threads;
+; the timed forms above are the way out of a wait nobody ends, though
+; not of a lock a dead binding holds, which they take like every other
+; call); no fairness between waiters (a wake
 ; wakes all, and whoever takes the lock first wins); no priority
 ; inheritance; not callable from a signal handler (the lock is not
 ; reentrant). And no survival of a binding that dies holding the lock:
@@ -55,6 +67,7 @@
 ; sweep - a recovered trap, an abort - the only safe call on a channel
 ; the swept bindings used is `chanFree`, which takes no lock.
 ; Words 3-7: head, tail, capacity, closed, mapping length.
+(import Mem)
 (import Sys)
 (import Err)
 
@@ -127,6 +140,95 @@
     (__atomic_add (+ ch 16) (- 0 1))
     0
   })
+
+; `chanSleep` for at most `nanos`: `sysWaitWordTimeout`'s answer - 1
+; when the kernel measured the whole of it and nobody woke this waiter.
+(:: chanSleepFor (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chanSleepFor ch seen nanos)
+  (let ((code (sysWaitWordTimeout (+ ch 8) seen nanos)))
+    {
+      (__atomic_add (+ ch 16) (- 0 1))
+      code
+    }))
+
+; ---- time left ---------------------------------------------------------
+; A timed call keeps two words in a 32-byte scratch block: word 2 the
+; nanoseconds it has left, word 3 the clock reading it last took (words
+; 0-1 are the clock's own buffer). `chanTimeSpent` charges one wait to
+; it: the whole slice when the kernel measured it (`code` 1), otherwise
+; the clock's step, clamped to [0, slice] - so a step of Darwin's
+; realtime clock (`sysTimeoutMicros`) moves the wait by at most the one
+; slice it landed in, and a wait nobody wakes is never shorter than
+; asked, on any target. `docs/memory-model.md` MM-PAR-12.
+(:: chanScratch (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chanScratch nanos)
+  (let ((b (memAlloc 32)))
+    {
+      (__retain b)
+      (__store64 b 2 nanos)
+      (__store64 b 3 (sysTimeoutMicros b))
+      b
+    }))
+
+(:: chanScratchDone (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (chanScratchDone b)
+  {
+    (__release b)
+    0
+  })
+
+(:: chanTimeLeft (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (chanTimeLeft b)
+  (__load64 b 2))
+
+(:: chanTimeSpent (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chanTimeSpent b code slice)
+  (let (
+    (left (__load64 b 2))
+    (now (sysTimeoutMicros b))
+  )
+    (let ((step (chanStep code slice (* (- now (__load64 b 3)) 1000))))
+      {
+        (__store64 b 2 (- left step))
+        (__store64 b 3 now)
+        0
+      })))
+
+; How long the next wait may be: the time left, or `chanSliceNanos` if
+; that is shorter. A slice bounds what one clock step can cost: with the
+; whole remaining time as ONE slice, a woken wait charged a forward step
+; of Darwin's realtime clock could end the entire wait early.
+(:: chanSlice (-> Int Int))
+(fn (chanSlice b)
+  (if (< (chanTimeLeft b) chanSliceNanos)
+    (chanTimeLeft b)
+    chanSliceNanos))
+
+; The longest one timed wait sleeps before it re-reads the clock: 100 ms,
+; `Sync.ax`'s probe interval.
+(:: chanSliceNanos Int)
+(fn (chanSliceNanos)
+  100000000)
+
+; The nanoseconds one wait costs: all of `slice` when the kernel timed
+; it out, otherwise the clock's step `d` clamped to [0, slice].
+(:: chanStep (-> Int Int Int Int))
+(fn (chanStep code slice d)
+  (if (== code 1)
+    slice
+    (if (< d 0)
+      0
+      (if (> d slice)
+        slice
+        d))))
 
 ; Under the lock: a change a waiter may be waiting for.
 (:: chanBump (-> Int Int))
@@ -260,6 +362,121 @@
       (if (== state 1)
         (Some got)
         None)
+    }))
+
+; `chanSend`, waiting at most `nanos` nanoseconds for room. `Ok True`
+; once `v` is in the ring; `Ok False` if the channel is closed; `Err`
+; with code `sysTimedOut` when the time ran out with the ring still
+; full - and then `v` was not sent. The ring is looked at once more
+; after the last wait, so a slot that opened as the time ran out is
+; taken rather than refused. A non-positive `nanos` is one look, like
+; `chanTrySend`, that says which of the three it was.
+(pub :: chanSendTimeout (-> Int Int Int (Result Bool Error)))
+;@axiom:effect(io)
+(pub fn (chanSendTimeout ch v nanos)
+  (let (
+    (b (chanScratch nanos))
+    (mut state 0)
+  )
+    {
+      (while (== state 0)
+        {
+          (chanLock ch)
+          (let (
+            (head (chanGet ch 3))
+            (tail (chanGet ch 4))
+            (cap (chanGet ch 5))
+          )
+            (if (== (chanGet ch 6) 1)
+              {
+                (chanUnlock ch)
+                (set state 2)
+              }
+              (if (< (- tail head) cap)
+                {
+                  (chanPut ch (+ 8 (% tail cap)) v)
+                  (chanPut ch 4 (+ tail 1))
+                  (chanBump ch)
+                  (chanUnlock ch)
+                  (chanNotify ch)
+                  (set state 1)
+                }
+                (if (<= (chanTimeLeft b) 0)
+                  {
+                    (chanUnlock ch)
+                    (set state 3)
+                  }
+                  (let (
+                    (seen (chanPark ch))
+                    (slice (chanSlice b))
+                  )
+                    {
+                      (chanUnlock ch)
+                      (chanTimeSpent b (chanSleepFor ch seen slice) slice)
+                    })))))
+        })
+      (chanScratchDone b)
+      (if (== state 3)
+        (Err (mkError sysTimedOut "chanSendTimeout: timed out"))
+        (Ok (== state 1)))
+    }))
+
+; `chanRecv`, waiting at most `nanos` nanoseconds for a word. `Ok (Some
+; w)` the oldest word; `Ok None` the end of the stream (closed and
+; drained); `Err` with code `sysTimedOut` when the time ran out with the
+; ring still empty and open - the defined answer on timeout, which
+; takes nothing out of the ring. A non-positive `nanos` is one look.
+(pub :: chanRecvTimeout (-> Int Int (Result (Option Int) Error)))
+;@axiom:effect(io)
+(pub fn (chanRecvTimeout ch nanos)
+  (let (
+    (b (chanScratch nanos))
+    (mut state 0)
+    (mut got 0)
+  )
+    {
+      (while (== state 0)
+        {
+          (chanLock ch)
+          (let (
+            (head (chanGet ch 3))
+            (tail (chanGet ch 4))
+            (cap (chanGet ch 5))
+          )
+            (if (< head tail)
+              {
+                (set got (chanGet ch (+ 8 (% head cap))))
+                (chanPut ch 3 (+ head 1))
+                (chanBump ch)
+                (chanUnlock ch)
+                (chanNotify ch)
+                (set state 1)
+              }
+              (if (== (chanGet ch 6) 1)
+                {
+                  (chanUnlock ch)
+                  (set state 2)
+                }
+                (if (<= (chanTimeLeft b) 0)
+                  {
+                    (chanUnlock ch)
+                    (set state 3)
+                  }
+                  (let (
+                    (seen (chanPark ch))
+                    (slice (chanSlice b))
+                  )
+                    {
+                      (chanUnlock ch)
+                      (chanTimeSpent b (chanSleepFor ch seen slice) slice)
+                    })))))
+        })
+      (chanScratchDone b)
+      (if (== state 1)
+        (Ok (Some got))
+        (if (== state 2)
+          (Ok None)
+          (Err (mkError sysTimedOut "chanRecvTimeout: timed out"))))
     }))
 
 ; Send without waiting: `True` if `v` went into the ring, `False` if it

@@ -79,6 +79,8 @@ stdlib/Rpc.ax
 stdlib/Str.ax
 stdlib/Sys.ax
 stdlib/Sys/Platform.darwin.ax
+stdlib/Sync.ax
+stdlib/Task.ax
 stdlib/Test.ax
 stdlib/Tui/Edit.ax
 stdlib/Tui/Keys.ax

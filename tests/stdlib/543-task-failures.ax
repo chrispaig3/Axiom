@@ -1,0 +1,124 @@
+; stdlib/Task.ax: every failure a task can have is a value in its own
+; slot, in submit order (R-C2, docs/memory-model.md MM-PAR-13).
+;
+; First pool, width 3, deadline 300 ms, limit 32 bytes: task 3 divides
+; by zero (its wait status, 72), task 5 never finishes (SIGKILLed at its
+; deadline and reaped: `sysTimedOut`), task 6 answers 69 bytes
+; (`taskTooLargeCode`), and the others answer - including the ones
+; queued behind the trap and the slow task.
+;
+; Second pool: a token cancelled BEFORE the call. Nothing starts; every
+; task answers `taskCancelledCode`.
+;
+; Third pool: `failFast`, width 3. Task 0 traps at once; tasks 1 and 2
+; never finish and ignore the token, so they are SIGKILLed when the
+; 50 ms grace runs out; tasks 3-5 never start. The trapping task is the
+; OLDEST on purpose: where a platform cannot look at a child without
+; reaping it (`sysChildExited` answers `Err`), the pool finds a death by
+; joining the oldest running task, and this answer must not depend on
+; which of the two ways found it. Every child the pools
+; spawned is reaped before `taskMapWith` returns - `scripts/check-task.sh`
+; checks the pids; here the parent carrying on to print is the check.
+;
+; The trap's message goes to fd 2, which this fixture does not pin: the
+; child wrote it as it died, and its backtrace is the optimiser's.
+(import IO)
+(import Sys)
+(import Str)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Task)
+
+(:: forever (-> Int Int))
+;@axiom:effect(io)
+(fn (forever idle)
+  {
+    (while (== 0 0)
+      (sysWaitWordTimeout idle 0 1000000000))
+    0
+  })
+
+(:: first (-> Int Int String))
+;@axiom:effect(io)
+(fn (first idle i)
+  (if (== i 3)
+    (fmtInt (/ 10 (- i 3)))
+    (if (== i 5)
+      {
+        (forever idle)
+        "slow"
+      }
+      (if (== i 6)
+        "this answer is much longer than the limit of thirty-two bytes allows"
+        (strConcat "square " (fmtInt (* i i)))))))
+
+(:: third (-> Int Int String))
+;@axiom:effect(io)
+(fn (third idle i)
+  (if (== i 0)
+    (fmtInt (/ 1 i))
+    (if (|| (== i 1) (== i 2))
+      {
+        (forever idle)
+        "never"
+      }
+      (fmtInt i))))
+
+(:: show (-> (Vec (Result String Error)) Int))
+;@axiom:effect(io)
+(fn (show rs)
+  {
+    (for i 0 (vecLen rs)
+      (match (vecGet rs i)
+        ((Ok s) (println "{i} ok {s}"))
+        ((Err e)
+          (let ((c (errCode e)))
+            (println "{i} err {c}"))
+        )))
+    (println "--")
+    0
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (sysMapShared 4096)
+    ((Ok idle)
+      {
+        (show
+          (taskMapWith
+            (lambda (i) (first idle i))
+            8
+            (taskWithDeadline (taskOpts 3 32) 300000000)))
+        (match taskTokenNew
+          ((Ok tok)
+            {
+              (taskCancel tok)
+              (println
+                (if (taskCancelled tok)
+                  1
+                  0))
+              (show
+                (taskMapWith
+                  (lambda (i) (fmtInt i))
+                  3
+                  (taskWithToken (taskOpts 2 32) tok)))
+              (match (taskTokenFree tok)
+                ((Ok z) 0)
+                ((Err e) 1))
+            }
+          )
+          ((Err e) (println "no token")))
+        (show
+          (taskMapWith
+            (lambda (i) (third idle i))
+            6
+            (taskWithGrace (taskWithFailFast (taskOpts 3 32) true) 50000000)))
+        (println sysTimedOut)
+        (println taskCancelledCode)
+        (println taskTooLargeCode)
+        0
+      }
+    )
+    ((Err e) 1)))

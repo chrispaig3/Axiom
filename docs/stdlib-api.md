@@ -67,13 +67,15 @@ two differ.
 
 ## `Chan`
 
-`stdlib/Chan.ax` — 10 public names
+`stdlib/Chan.ax` — 12 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `chanNew` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI). |
 | `chanSend` | value | `(-> Int Int Bool)` | `IO,Mut,Unsafe` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - and then `v` was not sent. |
 | `chanRecv` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream. |
+| `chanSendTimeout` | value | `(-> Int Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out with the ring still full - and then `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which of the three it was. |
+| `chanRecvTimeout` | value | `(-> Int Int (Result (Option Int) Error))` | `Alloc,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out with the ring still empty and open - the defined answer on timeout, which takes nothing out of the ring. A non-positive `nanos` is one look. |
 | `chanTrySend` | value | `(-> Int Int Bool)` | `IO,Mut,Unsafe` | Send without waiting: `True` if `v` went into the ring, `False` if it did not - full or closed, which `chanClosed` tells apart, as it does for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
 | `chanTryRecv` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Receive without waiting: the oldest word, or `None` when there is none right now - empty, whether or not it is closed; `chanClosed` tells the two apart. |
 | `chanClose` | value | `(-> Int Int)` | `IO,Mut,Unsafe` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. |
@@ -443,7 +445,7 @@ two differ.
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 92 public names
+`stdlib/Sys.ax` — 97 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -537,12 +539,17 @@ two differ.
 | `sysReadLineFd` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut,Unsafe` | One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at end of input when nothing was read, or `Err` carrying the errno. |
 | `sysMapShared` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Map `len` bytes, readable and writable (PROT_READ\|PROT_WRITE = 3), shared with every binding spawned after this call; answers the address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once no binding can still touch it - a program obligation, as a handle's single join is (MM-PAR-8). |
 | `sysUnmapShared` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` |  |
-| `sysWaitWord` | value | `(-> Int Int Int)` | `IO` | Block while the word at byte address `addr` - 8-aligned, inside a `sysMapShared` mapping - still holds `expected`. It returns when woken, when the word already differs on entry, or spuriously, so the caller re-checks its own condition every time. That is what makes a lost wake impossible: a waker changes the word BEFORE it wakes, so a waiter that read the old value either sees the new one on entry or is already in the queue the wake empties - with one caveat on Linux, which compares only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the shared page): a waiter preempted across exactly a multiple of 2^32 changes would sleep through them. Darwin compares all 64 (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it returns at once and the caller spins, which is correct and costs a core. No timeout: a timed wait would need a timespec some call must allocate. |
+| `sysWaitWord` | value | `(-> Int Int Int)` | `IO` | Block while the word at byte address `addr` - 8-aligned, inside a `sysMapShared` mapping - still holds `expected`. It returns when woken, when the word already differs on entry, or spuriously, so the caller re-checks its own condition every time. That is what makes a lost wake impossible: a waker changes the word BEFORE it wakes, so a waiter that read the old value either sees the new one on entry or is already in the queue the wake empties - with one caveat on Linux, which compares only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the shared page): a waiter preempted across exactly a multiple of 2^32 changes would sleep through them. Darwin compares all 64 (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it returns at once and the caller spins, which is correct and costs a core. No timeout here: `sysWaitWordTimeout` below is the timed form, and it pays for the timespec this one does not need. |
 | `sysWakeWord` | value | `(-> Int Int)` | `IO` | Wake every binding blocked in `sysWaitWord` on `addr`: FUTEX_WAKE (1) for INT_MAX waiters, or `__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED \| ULF_WAKE_ALL (6 \| 0x100). Answers 0 for `sysWaitWord`'s reason: a wake with nobody waiting is not an error anyone can act on. |
+| `sysTimedOut` | value | `Int` |  | The `Error` code every timed operation in the concurrency modules answers when its time ran out: `chanRecvTimeout`, `chanSendTimeout`, `mutexLockTimeout`, a task past its deadline. NOT an errno: ETIMEDOUT is 60 on Darwin and FreeBSD and 110 on Linux, so a code borrowed from the kernel would need one comparison and one fixture per target. It is above 255 so that it can never be mistaken for a wait status, which is what `Task.ax` puts in the same field for a task that trapped. |
+| `sysWaitWordTimeout` | value | `(-> Int Int Int Int)` | `Alloc,IO,Mut,Unsafe` | Block while the word at `addr` still holds `expected`, for at most `nanos` nanoseconds. `sysWaitWord`'s contract - an 8-aligned word in a `sysMapShared` mapping, and every answer means "re-check your own condition" - plus a bound, and an answer that says why it returned: |
+| `sysTimeoutMicros` | value | `(-> Int Int)` | `Alloc,IO,Unsafe` | Microseconds from the clock a timeout is measured on: the monotonic one where the platform has it and - DELIBERATELY, since nothing better is reachable without libSystem - the realtime clock on Darwin (`clockHasMonotonic` there says why). The timed loops above this file add only non-negative steps of this clock, each clamped to the slice the kernel was asked to wait, so a step of the realtime clock moves a wait by at most one slice; MM-PAR-12 states the bound. `buf` is 16 bytes of caller scratch. A clock that cannot be read answers 0, which a caller reads as no time having passed: its wait then ends on the kernel's own timeout rather than early. |
+| `sysChildPollBytes` | value | `Int` |  | Bytes of caller scratch `sysChildExited` needs: a `siginfo_t` is 104 bytes on Darwin and 128 on Linux. |
+| `sysChildExited` | value | `(-> Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | Has the child `pid` ended? Without reaping it: `Ok True` means it has exited or been killed and is waiting to be reaped - so a join on it will not block - and it is STILL this process's child, still waitable, its pid not free for reuse. `Ok False` means it is running. |
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 116 public names
+`stdlib/Sys/Platform.darwin.ax` — 121 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -662,6 +669,51 @@ two differ.
 | `waitWordKind` | value | `Int` |  | How a binding blocks on a shared word: 2, `__ulock_wait`/`__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED, which keys the wait on the page so a waiter and a waker in two processes over one MAP_SHARED page meet. Darwin has no futex. 1 is Linux `futex`; 0 is none (spin) |
 | `sysWaitWordNum` | value | `Int` |  | __ulock_wait(op, addr, value, timeout_us) - BSD 515 (SDK sys/syscall.h) |
 | `sysWakeWordNum` | value | `Int` |  | __ulock_wake(op, addr, wake_value) - BSD 516 |
+| `eTimedOut` | value | `Int` |  | ETIMEDOUT - 60 here and on FreeBSD, 110 on Linux: what a timed `__ulock_wait` answers, negated, when its time ran out (`sysWaitWordTimeout`; measured -60 after a 200 ms wait). |
+| `childPollKind` | value | `Int` |  | How a parent looks at a child without reaping it (`sysChildExited`): 1, `waitid` with WNOWAIT, the answer read from `si_signo`. 2 is FreeBSD's `wait6`; 0 none. |
+| `sysWaitIdNum` | value | `Int` |  | waitid(idtype, id, infop, options) - BSD 173 |
+| `waitIdPidType` | value | `Int` |  | P_PID - 1 here and on Linux, 0 on FreeBSD |
+| `waitPollOptions` | value | `Int` |  | WEXITED \| WNOHANG \| WNOWAIT = 0x04 \| 0x01 \| 0x20 (SDK sys/wait.h) |
+
+## `Sync`
+
+`stdlib/Sync.ax` — 10 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `syncOwnerDead` | value | `Int` |  | Above 255, like `sysTimedOut` (1001, the timeout every lock call here answers), so none can be mistaken for a wait status. |
+| `syncNotHeld` | value | `Int` |  |  |
+| `syncProbeNanos` | value | `Int` |  | How long a waiter sleeps before it looks at the holder: 100 ms. |
+| `mutexNew` | value | `(Result Int Error)` | `Alloc,IO,Mut,Unsafe` |  |
+| `mutexLock` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait until this binding holds the lock. `Ok` the guard `mutexUnlock` wants back; `Err` code `syncOwnerDead` if the holder is found dead while this waits, or the mutex was poisoned before. |
+| `mutexTryLock` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Take the lock if it is free right now: `Some` the guard, `None` if it is held - or poisoned, which `mutexOwnerDead` tells apart. |
+| `mutexLockTimeout` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | `mutexLock`, waiting at most `nanos` nanoseconds. `Ok` the guard; `Err` code `sysTimedOut` when the time ran out with the lock still held by a holder that looks alive; `Err` code `syncOwnerDead` when the holder was found dead. A wait nobody ends is never shorter than `nanos` on a monotonic clock (MM-PAR-12 states Darwin's bound). A non-positive `nanos` is `mutexTryLock` with a reason. |
+| `mutexUnlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Let the next holder in. `guard` must be what this binding's lock call answered: anything else - a free mutex, a stale guard, a sibling's - is `Err` code `syncNotHeld` and leaves the lock as it was. Exactly one unlock per acquisition succeeds, however the calls interleave. |
+| `mutexOwnerDead` | value | `(-> Int Bool)` | `Unsafe` | Whether a holder was found dead holding this mutex (the poisoning in the header). |
+| `mutexFree` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Unmap the mutex. Only once no binding can still reach it - after the `parallel` form that used it. Takes no lock, so it is also the one safe call on a poisoned mutex. |
+
+## `Task`
+
+`stdlib/Task.ax` — 16 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `TaskOpts` | struct |  |  | `width` children at most (clamped to 1..n); `limit` bytes per answer (0 or more); `deadline` nanoseconds per task from its spawn, 0 for none; `grace` nanoseconds a running task gets after a cancellation; `failFast` cancels the pool at the first error; `token` is a word from `taskTokenNew`, or 0 for one private to the call. |
+| `taskOpts` | value | `(-> Int Int TaskOpts)` | `Alloc` | No deadline, a 100 ms grace, no fail-fast, a private token. |
+| `taskWithDeadline` | value | `(-> TaskOpts Int TaskOpts)` | `Alloc` |  |
+| `taskWithGrace` | value | `(-> TaskOpts Int TaskOpts)` | `Alloc` |  |
+| `taskWithFailFast` | value | `(-> TaskOpts Bool TaskOpts)` | `Alloc` |  |
+| `taskWithToken` | value | `(-> TaskOpts Int TaskOpts)` | `Alloc` |  |
+| `taskCancelledCode` | value | `Int` |  |  |
+| `taskTooLargeCode` | value | `Int` |  |  |
+| `taskPollNanos` | value | `Int` |  | How often a sleeping pool looks at its running children: 10 ms. |
+| `taskTokenNew` | value | `(Result Int Error)` | `Alloc,IO` | Word 0 the cancelled flag, word 1 the event counter a pool sleeps on. |
+| `taskCancel` | value | `(-> Int Int)` | `IO,Mut,Unsafe` | Set the token and wake every pool sleeping on it. Idempotent. |
+| `taskCancelled` | value | `(-> Int Bool)` | `Unsafe` | Whether the token is set: the poll a cooperative task makes. |
+| `taskTokenFree` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Unmap a token. Only once no pool and no task can still reach it. |
+| `taskMap` | value | `(-> (-> Int String) Int Int Int (Vec (Result String Error)))` | `Alloc,IO,Mut,Unsafe` | `f i` for every `i` in `0 .. n`, at most `width` at once, each answer at most `limit` bytes: one `Result` per task in submit order. No deadline, no fail-fast, a private token. |
+| `taskMapWith` | value | `(-> (-> Int String) Int TaskOpts (Vec (Result String Error)))` | `Alloc,IO,Mut,Unsafe` | `taskMap` with every option (`TaskOpts`). |
+| `taskFold` | value | `(-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int)` | `Alloc,IO,Mut,Unsafe` | Fold the answers in submit order without keeping them: `step acc i r` for each task, starting from `init`, answering the last `acc`. Each answer - and EVERYTHING `step` allocates - lives only while that `step` runs: the pool builds the answer and calls `step` inside a `region` (MM-RGN-1) that is reset when `step` returns, so memory stays flat however many tasks go through. |
 
 ## `Test`
 

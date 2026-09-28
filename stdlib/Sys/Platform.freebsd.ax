@@ -923,3 +923,34 @@
 (pub :: sysWakeWordNum Int)
 (pub fn (sysWakeWordNum)
   0)
+
+; ETIMEDOUT - 60, as on Darwin. Unused while `waitWordKind` is 0: the
+; spin measures its own timeout.
+(pub :: eTimedOut Int)
+(pub fn (eTimedOut)
+  60)
+
+; How a parent looks at a child without reaping it (`sysChildExited`):
+; 2, `wait6` with WNOWAIT, which answers the pid it found. FreeBSD has
+; no `waitid` syscall - libc builds it over this one. NOT RUN by any
+; gate on this platform: `scripts/check-task.sh` runs on Linux and
+; Darwin, and a `Task.ax` pool that meets an `Err` here stops asking
+; and falls back to deadlines and joins (docs/memory-model.md MM-PAR-13).
+(pub :: childPollKind Int)
+(pub fn (childPollKind)
+  2)
+
+; wait6(idtype, id, status, options, wrusage, info) - 532
+(pub :: sysWaitIdNum Int)
+(pub fn (sysWaitIdNum)
+  532)
+
+; P_PID - 0 here (the first member of `idtype_t`), 1 on Linux and Darwin
+(pub :: waitIdPidType Int)
+(pub fn (waitIdPidType)
+  0)
+
+; WEXITED | WNOHANG | WNOWAIT = 0x10 | 0x01 | 0x08 (sys/wait.h)
+(pub :: waitPollOptions Int)
+(pub fn (waitPollOptions)
+  25)

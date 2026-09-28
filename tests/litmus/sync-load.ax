@@ -1,0 +1,488 @@
+; The mutex and the timed waits under load, for `scripts/check-task.sh`
+; (R-C2, MM-PAR-11 and MM-PAR-12). One mode per run, chosen by the
+; first argument; each prints lines the gate reads.
+;
+;   excl L N   four bindings, released together by a barrier, each add
+;              1 to one PLAIN word in a shared mapping N times - under
+;              the mutex when L is 1, with no lock at all when L is 0.
+;              Prints `count C` and `ok` when C is 4N, `lost K` when K
+;              updates vanished. The unlocked run is the control that
+;              proves the count can see a race: it must LOSE updates.
+;              Each iteration also reads an unrelated word atomically,
+;              so the compiler cannot fold N plain increments into one.
+;   timed MS   the timed waits against the clock: a receive on an empty
+;              channel, a send on a full one, and a lock held by a
+;              sibling for 3 MS, each asked to wait MS; then a receive
+;              and a lock that are satisfied at about MS/2 of a 10 MS
+;              wait. Prints `<what> <code> <elapsed us>`: the gate
+;              requires the timed-out ones in [MS, MS + slack] and never
+;              before MS, and the satisfied ones well before 10 MS.
+;   dead       a forked binding takes the lock and is SIGKILLed and
+;              reaped holding it. Prints what a timed and an untimed
+;              lock answer afterwards, and when.
+;   misuse     unlock a free mutex, unlock with a sibling's guard,
+;              unlock twice: each must be refused with `syncNotHeld`.
+;              Then the window a stale unlock can land in, built
+;              exactly: a lock and unlock leave guard G stale, the lock
+;              word is taken the way a new holder's compare-and-swap
+;              takes it, before that holder has published its guard,
+;              and G is presented. It must be refused
+;              (`stale-in-window 1005`) and the word must stay held
+;              (`still-held 1`). This reads `stdlib/Sync.ax`'s layout
+;              (word 0 the lock), which a test may borrow.
+;   stale N    three bindings released together: one locks, adds 1,
+;              unlocks, and unlocks AGAIN with its now-stale guard, N
+;              times; two lock, add 1 and unlock N times. A stale
+;              unlock that lands while a sibling holds the lock must be
+;              refused like any other. Prints `stale-accepted S
+;              own-refused R count C of W`, and `ok` when S and R are
+;              0 and C is W. `misuse`'s double unlock is on a FREE
+;              mutex; this is the one taken under contention.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Err)
+(import Chan)
+(import Sync)
+
+(:: argInt (-> Int Int))
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)))
+
+; Sleep `ms` milliseconds on a word nobody changes.
+(:: nap (-> Int Int Int))
+;@axiom:effect(io)
+(fn (nap idle ms)
+  {
+    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    0
+  })
+
+(:: codeOf (-> (Result Int Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok g) 0)
+    ((Err e) (errCode e))))
+
+; ---- excl ----------------------------------------------------------------
+(:: arrive (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (arrive bar)
+  {
+    (__atomic_add bar 1)
+    (while (< (__atomic_load bar) 4)
+      0)
+    0
+  })
+
+(:: fence (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (fence w)
+  (__atomic_load w))
+
+(:: bump (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (bump m cell n locked)
+  {
+    (arrive (+ cell 8))
+    (for i 0 n
+      (if (== locked 1)
+        (match (mutexLock m)
+          ((Ok g)
+            {
+              (memSetWord cell 0 (+ (memGetWord cell 0) 1))
+              (codeOf (mutexUnlock m g))
+            }
+          )
+          ((Err e) 0))
+        {
+          (fence (+ cell 16))
+          (memSetWord cell 0 (+ (memGetWord cell 0) 1))
+        }))
+    0
+  })
+
+(:: excl (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (excl m cell n locked)
+  (parallel p (
+    (a (bump m cell n locked))
+    (b (bump m cell n locked))
+    (c (bump m cell n locked))
+    (d (bump m cell n locked))
+  )
+    (+ a (+ b (+ c d)))))
+
+; ---- timed ---------------------------------------------------------------
+(:: elapsedSince (-> Int Int Int))
+;@axiom:effect(io)
+(fn (elapsedSince buf t0)
+  (- (sysTimeoutMicros buf) t0))
+
+(:: say (-> String Int Int))
+;@axiom:effect(io)
+(fn (say what v)
+  {
+    (println "{what} {v}")
+    0
+  })
+
+(:: report (-> String Int Int Int))
+;@axiom:effect(io)
+(fn (report what code us)
+  {
+    (println "{what} {code} {us}")
+    0
+  })
+
+(:: recvCode (-> (Result (Option Int) Error) Int))
+(fn (recvCode r)
+  (match r
+    ((Ok (Some v)) 0)
+    ((Ok (None)) (- 0 1))
+    ((Err e) (errCode e))))
+
+(:: sendCode (-> (Result Bool Error) Int))
+(fn (sendCode r)
+  (match r
+    ((Ok b) 0)
+    ((Err e) (errCode e))))
+
+; Hold the lock for `ms`, raising `flag` once it is held.
+(:: holdFor (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (holdFor m flag idle ms)
+  (match (mutexLock m)
+    ((Ok g)
+      {
+        (memSetWord flag 0 1)
+        (sysWakeWord flag)
+        (nap idle ms)
+        (codeOf (mutexUnlock m g))
+      }
+    )
+    ((Err e) 1)))
+
+; Wait for `flag`, then time a lock that may wait `ms`.
+(:: lockAfter (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (lockAfter m flag ms what)
+  (let ((buf (memAlloc 16)))
+    {
+      (while (== (memGetWord flag 0) 0)
+        (sysWaitWordTimeout flag 0 1000000))
+      (let ((t0 (sysTimeoutMicros buf)))
+        (let ((r (mutexLockTimeout m (* ms 1000000))))
+          (let ((us (elapsedSince buf t0)))
+            {
+              (match r
+                ((Ok g) (codeOf (mutexUnlock m g)))
+                ((Err e) 0))
+              (report
+                (if (== what 0)
+                  "lock-timeout"
+                  "lock-got")
+                (codeOf r)
+                us)
+            })))
+    }))
+
+(:: sendLater (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (sendLater ch idle ms)
+  {
+    (nap idle ms)
+    (if (chanSend ch 42)
+      0
+      1)
+  })
+
+(:: recvWithin (-> Int Int Int))
+;@axiom:effect(io)
+(fn (recvWithin ch ms)
+  (let ((buf (memAlloc 16)))
+    (let ((t0 (sysTimeoutMicros buf)))
+      (let ((r (chanRecvTimeout ch (* ms 1000000))))
+        (report "recv-got" (recvCode r) (elapsedSince buf t0))))))
+
+(:: timed (-> Int Int Int))
+;@axiom:effect(io)
+(fn (timed idle ms)
+  (let ((buf (memAlloc 16)))
+    (match (chanNew 1)
+      ((Ok ch)
+        (match (mutexNew)
+          ((Ok m)
+            (match (sysMapShared 4096)
+              ((Ok flag)
+                {
+                  (let ((t0 (sysTimeoutMicros buf)))
+                    (let ((r (chanRecvTimeout ch (* ms 1000000))))
+                      (report "recv-timeout" (recvCode r) (elapsedSince buf t0))))
+                  (chanSend ch 1)
+                  (let ((t0 (sysTimeoutMicros buf)))
+                    (let ((r (chanSendTimeout ch 2 (* ms 1000000))))
+                      (report "send-timeout" (sendCode r) (elapsedSince buf t0))))
+                  (chanRecv ch)
+                  (parallel p (
+                    (a (holdFor m flag idle (* 3 ms)))
+                    (b (lockAfter m flag ms 0))
+                  )
+                    (+ a b))
+                  (memSetWord flag 0 0)
+                  (parallel q (
+                    (a (holdFor m flag idle (/ ms 2)))
+                    (b (lockAfter m flag (* 10 ms) 1))
+                  )
+                    (+ a b))
+                  (parallel r (
+                    (a (sendLater ch idle (/ ms 2)))
+                    (b (recvWithin ch (* 10 ms)))
+                  )
+                    (+ a b))
+                  0
+                }
+              )
+              ((Err e) 3))
+          )
+          ((Err e) 2))
+      )
+      ((Err e) 1))))
+
+; ---- dead ----------------------------------------------------------------
+(:: holdForever (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (holdForever m flag idle)
+  (match (mutexLock m)
+    ((Ok g)
+      {
+        (memSetWord flag 0 1)
+        (sysWakeWord flag)
+        (while (== 0 0)
+          (nap idle 1000))
+        0
+      }
+    )
+    ((Err e) 9)))
+
+(:: handlePid (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (handlePid h)
+  (__load64 h 0))
+
+(:: dead (-> Int Int))
+;@axiom:effect(io)
+(fn (dead idle)
+  (match (mutexNew)
+    ((Ok m)
+      (match (sysMapShared 4096)
+        ((Ok flag)
+          (let (
+            (buf (memAlloc 16))
+            (cell (memAlloc 8))
+            (h (__proc_spawn
+              (lambda (x) (holdForever m flag idle))
+              0))
+          )
+            {
+              (while (== (memGetWord flag 0) 0)
+                (sysWaitWordTimeout flag 0 1000000))
+              (let ((t0 (sysTimeoutMicros buf)))
+                (let ((r (mutexLockTimeout m 250000000)))
+                  (report "alive-timed" (codeOf r) (elapsedSince buf t0))))
+              (match (sysKill (handlePid h) 9)
+                ((Ok z) 0)
+                ((Err e) 0))
+              (__proc_join_nr h cell)
+              (say "holder-status" (memGetWord cell 0))
+              (let ((t0 (sysTimeoutMicros buf)))
+                (let ((r (mutexLockTimeout m 2000000000)))
+                  (report "dead-timed" (codeOf r) (elapsedSince buf t0))))
+              (let ((t0 (sysTimeoutMicros buf)))
+                (let ((r (mutexLock m)))
+                  (report "dead-untimed" (codeOf r) (elapsedSince buf t0))))
+              (say
+                "poisoned"
+                (if (mutexOwnerDead m)
+                  1
+                  0))
+              0
+            })
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- stale ---------------------------------------------------------------
+(:: arrive3 (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (arrive3 bar)
+  {
+    (__atomic_add bar 1)
+    (while (< (__atomic_load bar) 3)
+      0)
+    0
+  })
+
+(:: tally (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (tally w by)
+  (__atomic_add w by))
+
+; Words of `cell`: 0 the count (plain, under the lock), 1 stale unlocks
+; accepted, 2 own unlocks refused, 3 the barrier.
+(:: staleDoubler (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (staleDoubler m cell n)
+  {
+    (arrive3 (+ cell 24))
+    (for i 0 n
+      (match (mutexLock m)
+        ((Ok g)
+          {
+            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
+            (if (== (codeOf (mutexUnlock m g)) 0)
+              0
+              (tally (+ cell 16) 1))
+            (if (== (codeOf (mutexUnlock m g)) 0)
+              (tally (+ cell 8) 1)
+              0)
+          }
+        )
+        ((Err e) 0)))
+    0
+  })
+
+(:: staleUser (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (staleUser m cell n)
+  {
+    (arrive3 (+ cell 24))
+    (for i 0 n
+      (match (mutexLock m)
+        ((Ok g)
+          {
+            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
+            (if (== (codeOf (mutexUnlock m g)) 0)
+              0
+              (tally (+ cell 16) 1))
+          }
+        )
+        ((Err e) 0)))
+    0
+  })
+
+(:: stale (-> Int Int))
+;@axiom:effect(io)
+(fn (stale n)
+  (match (mutexNew)
+    ((Ok m)
+      (match (sysMapShared 4096)
+        ((Ok cell)
+          {
+            (parallel p (
+              (a (staleDoubler m cell n))
+              (b (staleUser m cell n))
+              (c (staleUser m cell n))
+            )
+              (+ a (+ b c)))
+            (let (
+              (s (memGetWord cell 1))
+              (r (memGetWord cell 2))
+              (c (memGetWord cell 0))
+              (w (* 3 n))
+            )
+              (if (&& (== s 0) (&& (== r 0) (== c w)))
+                (println "stale-accepted {s} own-refused {r} count {c} of {w} ok")
+                (println "stale-accepted {s} own-refused {r} count {c} of {w}")))
+            0
+          }
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- misuse --------------------------------------------------------------
+; Take mutex `m`'s lock word as a new holder's compare-and-swap does,
+; publishing no guard: the instant between its lock and its guard.
+(:: takeWord (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (takeWord m)
+  (__atomic_cas m 0 (* sysGetPid 4)))
+
+(:: heldWord (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (heldWord m)
+  (if (== (__atomic_load m) 0)
+    0
+    1))
+
+(:: misuse Int)
+;@axiom:effect(io)
+(fn (misuse)
+  (match (mutexNew)
+    ((Ok m)
+      {
+        (say "free" (codeOf (mutexUnlock m 1)))
+        (match (mutexLock m)
+          ((Ok g)
+            {
+              (say "wrong-guard" (codeOf (mutexUnlock m (+ g 1))))
+              (say "zero-guard" (codeOf (mutexUnlock m 0)))
+              (say "right" (codeOf (mutexUnlock m g)))
+              (say "twice" (codeOf (mutexUnlock m g)))
+              (takeWord m)
+              (say "stale-in-window" (codeOf (mutexUnlock m g)))
+              (say "still-held" (heldWord m))
+              0
+            }
+          )
+          ((Err e) 3))
+      }
+    )
+    ((Err e) 1)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((mode (sysArg 1)))
+    (match (sysMapShared 4096)
+      ((Ok idle)
+        (if (strEq mode "excl")
+          (match (mutexNew)
+            ((Ok m)
+              (match (sysMapShared 4096)
+                ((Ok cell)
+                  (let ((n (argInt 3)))
+                    {
+                      (excl m cell n (argInt 2))
+                      (let ((c (memGetWord cell 0)))
+                        (if (== c (* 4 n))
+                          (println "count {c} ok")
+                          (let ((lost (- (* 4 n) c)))
+                            (println "count {c} lost {lost}"))))
+                      0
+                    })
+                )
+                ((Err e) 2))
+            )
+            ((Err e) 1))
+          (if (strEq mode "timed")
+            (timed idle (argInt 2))
+            (if (strEq mode "dead")
+              (dead idle)
+              (if (strEq mode "misuse")
+                misuse
+                (if (strEq mode "stale")
+                  (stale (argInt 2))
+                  {
+                    (println "usage: sync-load excl L N | timed MS | dead | misuse | stale N")
+                    2
+                  })))))
+      )
+      ((Err e) 1))))

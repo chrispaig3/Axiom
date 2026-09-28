@@ -229,6 +229,11 @@ F mapSharedAnon stdlib/Sys/Platform.darwin.ax:1004:9-22 "Int" @226414bf4a63f6a0
 F waitWordKind stdlib/Sys/Platform.darwin.ax:1012:9-21 "Int" @76bcd0a378307ca8
 F sysWaitWordNum stdlib/Sys/Platform.darwin.ax:1017:9-23 "Int" @bd7f1e8eb1584dbf
 F sysWakeWordNum stdlib/Sys/Platform.darwin.ax:1022:9-23 "Int" @9279c2c6c3847610
+F eTimedOut stdlib/Sys/Platform.darwin.ax:1029:9-18 "Int" @aa549db068f60e37
+F childPollKind stdlib/Sys/Platform.darwin.ax:1036:9-22 "Int" @36bd998094030714
+F sysWaitIdNum stdlib/Sys/Platform.darwin.ax:1041:9-21 "Int" @15abe68cb6e46534
+F waitIdPidType stdlib/Sys/Platform.darwin.ax:1046:9-22 "Int" @417e56c542031940
+F waitPollOptions stdlib/Sys/Platform.darwin.ax:1051:9-24 "Int" @4f04cb2dcd714a4f
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure #calls=+,<,>

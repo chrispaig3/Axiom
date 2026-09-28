@@ -1,0 +1,165 @@
+; Typed results across the process boundary by explicit serialization
+; (R-C2, docs/memory-model.md MM-PAR-13).
+;
+; Each task builds a RECORD with a `Vec` in it - the numbers of one
+; block of a hundred, their sum, and the primes among them - in a forked
+; child. A record cannot cross: its handle would name the child's arena.
+; So the child ENCODES it as JSON (`stdlib/Json.ax`), `stdlib/Task.ax`
+; carries the bytes back under a per-task limit, and the parent DECODES
+; them into a record of its own and compares it, field by field and
+; prime by prime, with the same record computed sequentially. The line
+; per task is printed from the DECODED record; `equal 12` is the
+; comparison. A limit too small for the encoding answers
+; `taskTooLargeCode` instead of a truncated document.
+(import IO)
+(import Str)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Json)
+(import Task)
+
+(struct Block
+  (lo : Int)
+  (hi : Int)
+  (sum : Int)
+  (primes : (Vec Int)))
+
+(:: isPrime (-> Int Bool))
+(fn (isPrime k)
+  (if (< k 2)
+    false
+    (let (
+      (mut d 2)
+      (mut prime true)
+    )
+      {
+        (while (&& prime (<= (* d d) k))
+          {
+            (set prime (!= (% k d) 0))
+            (set d (+ d 1))
+          })
+        prime
+      })))
+
+; The record for block `i`: the numbers i*100 .. i*100+99.
+(:: compute (-> Int Block))
+(fn (compute i)
+  (let (
+    (lo (* i 100))
+    (ps vecNew)
+    (mut sum 0)
+  )
+    {
+      (for k lo (+ lo 100)
+        {
+          (set sum (+ sum k))
+          (if (isPrime k)
+            (vecPush ps k)
+            ps)
+        })
+      (Block lo (+ lo 99) sum ps)
+    }))
+
+(:: encode (-> Block String))
+(fn (encode b)
+  (let (
+    (o jsonObj)
+    (arr jsonArr)
+  )
+    {
+      (for k 0 (vecLen b.primes)
+        (jsonArrPush arr (jsonNum (vecGet b.primes k))))
+      (jsonObjPut o "lo" (jsonNum b.lo))
+      (jsonObjPut o "hi" (jsonNum b.hi))
+      (jsonObjPut o "sum" (jsonNum b.sum))
+      (jsonObjPut o "primes" arr)
+      (jsonWrite o)
+    }))
+
+(:: decode (-> String Block))
+(fn (decode s)
+  (let (
+    (v (jsonParse s))
+    (ps vecNew)
+  )
+    (let ((arr (jsonGet v "primes")))
+      {
+        (for k 0 (jsonArrLen arr)
+          (vecPush ps (jsonInt (jsonArrGet arr k))))
+        (Block (jsonGetInt v "lo") (jsonGetInt v "hi") (jsonGetInt v "sum") ps)
+      })))
+
+(:: sameBlock (-> Block Block Bool))
+(fn (sameBlock a b)
+  (if (|| (!= a.lo b.lo) (|| (!= a.hi b.hi) (!= a.sum b.sum)))
+    false
+    (if (!= (vecLen a.primes) (vecLen b.primes))
+      false
+      (let ((mut same true))
+        {
+          (for k 0 (vecLen a.primes)
+            (set same (&& same (== (vecGet a.primes k) (vecGet b.primes k)))))
+          same
+        }))))
+
+(:: showBlock (-> Int Block Int))
+;@axiom:effect(io)
+(fn (showBlock i b)
+  (let (
+    (lo b.lo)
+    (hi b.hi)
+    (sum b.sum)
+    (np (vecLen b.primes))
+  )
+    {
+      (println "{i} {lo}..{hi} sum {sum} primes {np}")
+      0
+    }))
+
+; Blocks 0 .. n-1, each encoded in its own task, at most `limit` bytes.
+(:: encoded (-> Int Int (Vec (Result String Error))))
+;@axiom:effect(io)
+(fn (encoded n limit)
+  (taskMap
+    (lambda (i) (encode (compute i)))
+    n
+    4
+    limit))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (rs (encoded 12 512))
+    (mut equal 0)
+  )
+    {
+      (for i 0 (vecLen rs)
+        (match (vecGet rs i)
+          ((Ok s)
+            (let ((b (decode s)))
+              {
+                (showBlock i b)
+                (if (sameBlock b (compute i))
+                  (set equal (+ equal 1))
+                  0)
+              })
+          )
+          ((Err e)
+            (let ((c (errCode e)))
+              (println "{i} err {c}"))
+          )))
+      (println "equal {equal}")
+      ; The same encoding under a 16-byte limit: refused whole.
+      (let ((small (encoded 2 16)))
+        (for i 0 (vecLen small)
+          (match (vecGet small i)
+            ((Ok s) (println "{i} crossed"))
+            ((Err e)
+              (let ((c (errCode e)))
+                (println "{i} err {c}"))
+            ))))
+      (println taskTooLargeCode)
+      0
+    }))
