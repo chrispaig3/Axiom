@@ -336,9 +336,7 @@
     (v (vecNewRef))
   )
     {
-      (vecPush
-        v
-        (cast Int h))
+      (vecPush v h)
       (let ((f 
         (lambda (x) (ffiHandlePtr h))))
         {

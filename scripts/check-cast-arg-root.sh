@@ -41,6 +41,12 @@ gate_build_axc axc
 echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
+# Baseline 379 measured 2026-09-28: eight arrived with the
+# reclamation audit. `tests/stdlib/557-cycle-backlog.ax` seeds its
+# knots with `(cast Node 0)`, MM-LIFE-3's own spelling of a cycle a
+# program can build, and `556-count-balance.ax`'s control releases a
+# string's handle by hand through `(cast Int s)`: in both the cast is
+# the subject under test, the MM-VAL-23 reason.
 # Baseline 371 measured 2026-09-28: six arrived with
 # `1024-type-part-not-a-type`, whose three goldens echo AX3002's help,
 # "`(cast Int e)`", once per refusal. The fixture pins what a cast's
@@ -88,10 +94,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 371 ]; then
-  ok "user-level (cast count $cast_count <= 371)"
+elif [ "$cast_count" -le 379 ]; then
+  ok "user-level (cast count $cast_count <= 379)"
 else
-  bad "user-level (cast count $cast_count > 371): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 379): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"
