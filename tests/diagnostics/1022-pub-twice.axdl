@@ -1,0 +1,1 @@
+E AX2001 1022-pub-twice.ax:5:6-9 unexpected-token "expected a declaration after `pub`, found `pub`" #"found `pub` here" ?"Axiom expected a declaration after `pub` at this position"

@@ -22,6 +22,51 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The formatter and a second optimisation level join the fuzzer; `match` arms must agree — `scripts/check-fuzz.sh`, R-E1 - 2026-09-28
+
+The fuzzer held a mutant `check` accepted only to `emit-llvm` and `llc`
+accepting it, so a miscompilation that makes valid IR, and anything the
+formatter does, went unseen. Two properties join P1 to P3. P4: an
+accepted mutant is one `fmt` rewrites to a fixed point that still
+checks, or refuses with a code. P5: a sample of accepted mutants (from
+`tests/stdlib` and `tests/selfhost`, with a `main`, at most 20,000
+bytes, reaching nothing outside the process) is built at `--opt 0` and
+`--opt 2` and run in a scratch directory; both must print the same and
+exit the same, and a run cut short or an `--opt 0` binary that answers
+two ways is inconclusive. 30 a run, 300 under `--long`. Two new
+controls, a formatted copy that no longer checks and an `--opt 2`
+binary that prints one line more, must each be reported.
+
+The first run found one of each:
+
+- **P5, a type hole.** `match` answered its last arm's type and never
+  compared the arms, so `(match n (0 "x") (_ 1))` in a function
+  declared `Int` checked OK. A mutant of
+  `tests/selfhost/977-todo-arm.ax` returned a string's address, 208 at
+  `--opt 0` and 176 at `--opt 2`. `checkArms` now holds every arm to
+  the first one with a known type (`armJoin`), as `checkIf` holds an
+  `else` to its `then`; a placeholder such as `todo`'s answer
+  constrains nothing, and the report anchors at the disagreeing arm's
+  last expression. Checking the whole corpus before and after, six
+  files had arms that disagreed in statement position, all a `Result`
+  from `sysCloseFd` or `mutexUnlock` beside an `Int`, and one set of
+  handles in `self_host/typecheck.ax`. Each now says what it meant:
+  `(let ((_ (sysCloseFd x))) 0)`, or a `cast Int` where the walk
+  already passes a `Vec` as a handle. Every other file checks exactly
+  as before. `tests/diagnostics/1021-match-arms-disagree.ax`.
+- **P4, a doubled `pub`.** `(pub pub :: f Int)` checked OK, because
+  the parser skipped the second `pub`, and `fmt`, whose grammar is its
+  own, refused the file with no code. `pub` inside an expression was
+  skipped as well, so `(pub "x")` read as `("x")`. Both are `AX2001`
+  now. `tests/diagnostics/1022-pub-twice.axbad`,
+  `1023-pub-in-expression.axbad`.
+
+Both are stored in `tests/fuzz/` and replayed as regressions, and close
+AN-23 and AN-24. P5's watchdog polls rather than sleeping, because a
+`sleep` left behind held the caller's `$(...)` open for the whole 5 s
+deadline on every run. After the fixes: 600 mutants 37/37, P4 89 of 89
+idempotent, P5 19 of 19 agreed.
+
 ### A spawn the kernel refuses is executed — `scripts/check-parallel.sh` §12d, R-A3 - 2026-09-28
 
 `parallel` exits 78 when it can't spawn or join a binding, and the

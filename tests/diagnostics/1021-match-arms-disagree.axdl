@@ -1,0 +1,2 @@
+E AX3004 1021-match-arms-disagree.ax:22:8-9 type-mismatch "type mismatch: expected String, found Int" #"this has type `Int`, expected `String`"
+E AX3004 1021-match-arms-disagree.ax:29:17-20 type-mismatch "type mismatch: expected Int, found String" #"this has type `String`, expected `Int`"

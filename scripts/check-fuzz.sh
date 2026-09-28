@@ -123,11 +123,12 @@ command -v python3 >/dev/null || { echo "FAIL: python3 is not on PATH"; exit 1; 
 
 seed=20260927
 count=600
+diff_max=30
 only=""
 keep=""
 while (( $# )); do
   case "$1" in
-    --long) count=6000 ;;
+    --long) count=6000 diff_max=300 ;;
     --seed) seed="$2"; shift ;;
     --count) count="$2"; shift ;;
     --only) only="$2"; shift ;;
@@ -266,6 +267,114 @@ fuzz_one() {
   fi
   f_llc=1 f_verdict=ok
   rm -f "$b.ll"
+}
+
+# fmt_one <compiler> <input.ax> <AXIOM_PATH>: P4 on one accepted mutant.
+#   f4_verdict  ok | refused | fail;  f4_why, f4_detail as for fuzz_one
+# `fmt` either refuses with a code, or writes a program that formatting
+# again leaves byte-identical and that `check` still accepts. The
+# formatter rewrites in place, so it only ever sees a copy.
+fmt_one() {
+  local cc="$1" m="$2" ap="$3" rc=0 b="${2%.ax}"
+  deadline_used="$deadline"
+  f4_verdict=fail f4_why="" f4_detail=""
+  cp "$m" "$b.f1.ax"
+  AXIOM_PATH="$ap" gate_timeout "$deadline" "$cc" fmt "$b.f1.ax" > "$b.f1.out" 2> "$b.f1.err" < /dev/null || rc=$?
+  if (( rc != 0 )); then
+    if (( rc == 1 )) && grep -a -q 'error\[AX[0-9]\{4\}\]' "$b.f1.err"; then
+      f4_verdict=refused
+    else
+      f4_why="fmt $(describe_rc "$rc") on a program check accepted"
+      f4_detail="$(first_line "$b.f1.err")"
+    fi
+    return
+  fi
+  cp "$b.f1.ax" "$b.f2.ax"
+  rc=0
+  AXIOM_PATH="$ap" gate_timeout "$deadline" "$cc" fmt "$b.f2.ax" > /dev/null 2> "$b.f2.err" < /dev/null || rc=$?
+  if (( rc != 0 )) || ! cmp -s "$b.f1.ax" "$b.f2.ax"; then
+    f4_why="fmt is not idempotent: formatting its own output $( (( rc != 0 )) && describe_rc "$rc" || echo "changed it")"
+    f4_detail="$(diff "$b.f1.ax" "$b.f2.ax" 2>/dev/null | head -4 | tr '\n' ' ' | cut -c1-200)"
+    return
+  fi
+  rc=0
+  AXIOM_PATH="$ap" gate_timeout "$deadline" "$cc" check "$b.f1.ax" > /dev/null 2> "$b.f1.cerr" < /dev/null || rc=$?
+  if (( rc != 0 )); then
+    f4_why="the formatted program no longer checks (check $(describe_rc "$rc"))"
+    f4_detail="$(first_line "$b.f1.cerr")"
+    return
+  fi
+  f4_verdict=ok
+}
+
+# P5's eligibility: a mutant of a test program small enough to build
+# twice, with a `main`, and naming nothing whose answer depends on the
+# run (time, pids, arguments, input, concurrency) or that reaches outside
+# the process (files, processes, the network, raw system calls, foreign
+# code). Conservative by design: an excluded mutant is a comparison not
+# made, never a failure excused.
+diff_deny='parallel|__proc|__thread|__par_|Task|Chan|Sync|Micros|Nanos|GetPid|__argv|__argc|sysArg|sysEnv|readLine|readAll|sysRead|sysOpen|sysWrite[A-Z]|[Uu]nlink|[Rr]emove|[Mm]kdir|[Rr]ename|sysSpawn|sysRun|sysExec|writeFile|appendFile|__syscall|Http|Rpc|[Ss]ocket|sysKill|fetch|MapShared|sysChild|[Ff]fi|extern|__call_word'
+diff_eligible() {  # <mutant.ax> <source path>
+  [[ "$2" == tests/stdlib/* || "$2" == tests/selfhost/* ]] || return 1
+  (( $(wc -c < "$1") <= 20000 )) || return 1
+  grep -q '(fn (main' "$1" || return 1
+  ! grep -qE -- "$diff_deny" "$1"
+}
+
+# diff_run <binary> <out>: run it where it can do no harm - a scratch
+# directory, no input, 5 s, 1 MiB of output at most. Echoes its status.
+diff_run() {
+  local rc=0
+  ( cd "$rundir" && ulimit -f 1024 && exec "$1" ) < /dev/null > "$2" 2> /dev/null &
+  local pid=$!
+  # The watchdog polls rather than sleeping 5 s: a `sleep` left behind
+  # holds the caller's `$(...)` open until it ends, so every run would
+  # take the whole deadline.
+  ( for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || exit 0; sleep 0.1; done
+    kill -KILL "$pid" 2>/dev/null ) > /dev/null 2>&1 &
+  local watch=$!
+  wait "$pid" || rc=$?
+  kill "$watch" 2>/dev/null; wait "$watch" 2>/dev/null
+  echo "$rc"
+}
+
+# diff_one <compiler> <input.ax> <AXIOM_PATH>: P5, the miscompilation
+# oracle. `--opt 0` and `--opt 2` builds of one program must answer the
+# same stdout and exit status.
+#   f5_verdict  agree | inconclusive | fail;  f5_why, f5_detail
+# Inconclusive, and counted apart: a run cut short (killed by the 5 s
+# deadline or the output limit), or an `--opt 0` binary that answers
+# differently twice (its output depends on the run - an address, say).
+# A build the `--opt 0` side refuses is inconclusive too; one only the
+# `--opt 2` side refuses is a failure.
+diff_one() {
+  local cc="$1" m="$2" ap="$3" b="${2%.ax}" rc=0 r0 r0b r2
+  deadline_used="$deadline"
+  f5_verdict=inconclusive f5_why="" f5_detail=""
+  AXIOM_PATH="$ap" gate_timeout "$deadline" "$cc" build --opt 0 --input "$m" --output "$b.o0" > "$b.b0" 2>&1 \
+    || { f5_why="the --opt 0 build failed"; return; }
+  AXIOM_PATH="$ap" gate_timeout "$deadline" "$cc" build --opt 2 --input "$m" --output "$b.o2" > "$b.b2" 2>&1 || rc=$?
+  if (( rc != 0 )); then
+    f5_verdict=fail f5_why="the --opt 2 build $(describe_rc "$rc") where --opt 0 built"
+    f5_detail="$(first_line "$b.b2")"
+    return
+  fi
+  r0="$(diff_run "$b.o0" "$b.r0")"
+  r0b="$(diff_run "$b.o0" "$b.r0b")"
+  r2="$(diff_run "$b.o2" "$b.r2")"
+  for r in "$r0" "$r0b" "$r2"; do
+    if (( r == 137 || r == 153 )); then f5_why="a run was cut short (status $r)"; return; fi
+  done
+  if [[ "$r0" != "$r0b" ]] || ! cmp -s "$b.r0" "$b.r0b"; then
+    f5_why="the --opt 0 binary answered differently twice"; return
+  fi
+  if [[ "$r0" != "$r2" ]] || ! cmp -s "$b.r0" "$b.r2"; then
+    f5_verdict=fail
+    f5_why="--opt 0 and --opt 2 disagree: status $r0 against $r2"
+    f5_detail="$(diff "$b.r0" "$b.r2" 2>/dev/null | head -4 | tr '\n' ' ' | cut -c1-200)"
+    return
+  fi
+  f5_verdict=agree
 }
 
 # json_batch <list> <out>: validate every report named in <list>; <out>
@@ -454,6 +563,40 @@ if (( n_fail == 0 )); then
   ok "no mutant crashed, hung, refused without a code, broke the JSON contract, wrote an unsafe human report or produced IR llc rejects ($n_known known-open)"
 fi
 
+# ---------------------------------------------------------------------
+echo "== 2b. the formatter (P4) and --opt 0 against --opt 2 (P5) on the accepted mutants =="
+# P4 on every mutant P3 passed. P5 on those `diff_eligible` admits, up to
+# $diff_max: each is built at `--opt 0` and `--opt 2`, run in a scratch
+# directory, and the two must agree. Built programs cost seconds each,
+# so the default run compares a sample and `--long` ten times as many.
+rundir="$work/run"; mkdir -p "$rundir"
+n4_ok=0 n4_refused=0 n4_fail=0 n5_eligible=0 n5_agree=0 n5_inconc=0 n5_fail=0
+diff_names=()
+for name in "${ok_names[@]}"; do
+  IFS=$'\t' read -r _ src ops < <(grep "^$name	" "$mdir/manifest.tsv")
+  fmt_one "$axc" "$mdir/$name.ax" "$(dirname "$src")"
+  case "$f4_verdict" in
+    ok) n4_ok=$((n4_ok + 1)) ;;
+    refused) n4_refused=$((n4_refused + 1)) ;;
+    *) n4_fail=$((n4_fail + 1)); f_why="P4: $f4_why" f_detail="$f4_detail"; report_failure "$name" "$src" "$ops" "$mdir" ;;
+  esac
+  if (( n5_eligible < diff_max )) && diff_eligible "$mdir/$name.ax" "$src"; then
+    n5_eligible=$((n5_eligible + 1)); diff_names+=("$name")
+    diff_one "$axc" "$mdir/$name.ax" "$(dirname "$src")"
+    case "$f5_verdict" in
+      agree) n5_agree=$((n5_agree + 1)) ;;
+      inconclusive) n5_inconc=$((n5_inconc + 1)) ;;
+      *) n5_fail=$((n5_fail + 1)); f_why="P5: $f5_why" f_detail="$f5_detail"; report_failure "$name" "$src" "$ops" "$mdir" ;;
+    esac
+    rm -f "$mdir/$name".o0 "$mdir/$name".o2
+  fi
+done
+echo "   P4: ${#ok_names[@]} accepted mutants formatted: $n4_ok idempotent and still accepted, $n4_refused refused with a code, $n4_fail failed"
+echo "   P5: $n5_eligible eligible (of at most $diff_max): $n5_agree agreed, $n5_inconc inconclusive, $n5_fail disagreed"
+if (( n4_fail == 0 && n5_fail == 0 )); then
+  ok "the formatter kept every accepted mutant accepted and was idempotent, and --opt 0 and --opt 2 agreed on every program compared"
+fi
+
 if [[ -n "$only" ]]; then
   echo
   echo "check-fuzz: $checks passed, $failed failed (--only $only: sections 3-6 skipped)"
@@ -496,14 +639,18 @@ else
   cat > "$wrap" <<'SH'
 #!/bin/sh
 # The compiler under test, except on the inputs named in $FUZZ_*.
-json=0 emit=0 in="" out="" prev=""
+json=0 emit=0 fmtcmd=0 build=0 opt="" in="" out="" prev=""
 for a in "$@"; do
   case "$a" in
     *.ax) in="$a" ;;
     json) [ "$prev" = --diagnostic-format ] && json=1 ;;
     emit-llvm) emit=1 ;;
+    fmt) fmtcmd=1 ;;
+    build) build=1 ;;
   esac
   [ "$prev" = -o ] && out="$a"
+  [ "$prev" = --output ] && out="$a"
+  [ "$prev" = --opt ] && opt="$a"
   prev="$a"
 done
 case "$(basename "$in" .ax)" in
@@ -529,6 +676,23 @@ case "$(basename "$in" .ax)" in
       "$FUZZ_REAL" "$@"; rc=$?
       echo "{this line is not JSON" >&2
       exit $rc
+    fi ;;
+  "$FUZZ_FMTBREAK")
+    # P4's control: the formatter's first pass writes a program that
+    # `check` refuses (a signature with no definition, AX3015).
+    if [ "$fmtcmd" = 1 ]; then
+      "$FUZZ_REAL" "$@" || exit $?
+      printf '\n(:: plantedByCheckFuzz Int)\n' >> "$in"
+      exit 0
+    fi ;;
+  "$FUZZ_MISCOMPILE")
+    # P5's control: the `--opt 2` binary prints one line more.
+    if [ "$build" = 1 ] && [ "$opt" = 2 ]; then
+      "$FUZZ_REAL" "$@" || exit $?
+      mv "$out" "$out.real"
+      printf '#!/bin/sh\n"%s" "$@"\nrc=$?\necho planted by check-fuzz.sh\nexit $rc\n' "$out.real" > "$out"
+      chmod +x "$out"
+      exit 0
     fi ;;
   "$FUZZ_BADHUMAN")
     if [ "$json" = 0 ] && [ "$emit" = 0 ]; then
@@ -601,6 +765,41 @@ badhuman $c_badhuman $deadline human raw.control.byte.0x00
 clean $c_clean $deadline - -
 nul $c_nul $deadline - -
 ROWS
+  # P4 and P5 through the same wrapper: one accepted mutant whose
+  # formatted copy is planted with a refusal, and one eligible mutant
+  # whose `--opt 2` binary is planted with an extra line. Each must be
+  # reported as its property's failure; the clean mutant must still
+  # pass P4 through the wrapper.
+  c_fmt="${ok_names[2]:-}"
+  c_diff="${diff_names[0]:-}"
+  if [[ -z "$c_fmt" || -z "$c_diff" ]]; then
+    bad "the run left no mutant for the P4 or P5 control (${#ok_names[@]} accepted, ${#diff_names[@]} eligible for P5)"
+  else
+    export FUZZ_FMTBREAK="$c_fmt.f1" FUZZ_MISCOMPILE="$c_diff"
+    for n in "$c_fmt" "$c_diff" "$c_clean"; do cp "$mdir/$n.ax" "$cdir/$n.ax"; done
+    src="$(awk -F'\t' -v n="$c_fmt" '$1 == n {print $2}' "$mdir/manifest.tsv")"
+    fmt_one "$wrap" "$cdir/$c_fmt.ax" "$(dirname "$src")"
+    if [[ "$f4_verdict" == fail && "$f4_why" == *"no longer checks"* ]]; then
+      ok "control fmtbreak: $c_fmt reported - $f4_why"
+    else
+      bad "control fmtbreak: $c_fmt gave '$f4_verdict' ($f4_why) - P4 cannot see a formatter that changes what checks"
+    fi
+    src="$(awk -F'\t' -v n="$c_clean" '$1 == n {print $2}' "$mdir/manifest.tsv")"
+    fmt_one "$wrap" "$cdir/$c_clean.ax" "$(dirname "$src")"
+    if [[ "$f4_verdict" == ok || "$f4_verdict" == refused ]]; then
+      ok "control clean: $c_clean passes P4 through the wrapper ($f4_verdict)"
+    else
+      bad "control clean: $c_clean failed P4 through the wrapper ($f4_why) - the wrapper is not transparent"
+    fi
+    src="$(awk -F'\t' -v n="$c_diff" '$1 == n {print $2}' "$mdir/manifest.tsv")"
+    diff_one "$wrap" "$cdir/$c_diff.ax" "$(dirname "$src")"
+    if [[ "$f5_verdict" == fail && "$f5_why" == *disagree* ]]; then
+      ok "control miscompile: $c_diff reported - $f5_why${f5_detail:+ - ${f5_detail:0:60}}"
+    else
+      bad "control miscompile: $c_diff gave '$f5_verdict' ($f5_why) - P5 cannot see an --opt 2 binary that answers differently"
+    fi
+    unset FUZZ_FMTBREAK FUZZ_MISCOMPILE
+  fi
   unset FUZZ_REAL FUZZ_CRASH FUZZ_HANG FUZZ_MUTE FUZZ_TRAP FUZZ_BADIR FUZZ_BADJSON FUZZ_LIE FUZZ_NUL FUZZ_BADHUMAN
 fi
 

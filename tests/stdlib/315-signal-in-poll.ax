@@ -163,7 +163,7 @@
                                       (match (netAccept lsn)
                                         ((Ok con) (sysCloseFd con))
                                         ((Err e) (Err e)))
-                                      (sysCloseFd cli)
+                                      (let ((_ (sysCloseFd cli))) 0)
                                     }
                                   ))
                                 ; A SIGNAL, to ourselves, through the same loop.
@@ -206,7 +206,7 @@
                               }
                             ))
                           (let ((_ (sysCloseFd lsn))) 0)
-                          (sysCloseFd pfd)
+                          (let ((_ (sysCloseFd pfd))) 0)
                         }
                       ))
                   ))

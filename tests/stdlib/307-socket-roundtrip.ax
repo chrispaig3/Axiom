@@ -175,7 +175,7 @@
                           "shutdown() closes both directions")
                         (let ((_ (sysCloseFd con))) 0)
                       })
-                    (sysCloseFd cli)
+                    (let ((_ (sysCloseFd cli))) 0)
                   })
               ))
             (say

@@ -2106,6 +2106,13 @@
       (parseTopForm tokens (advance pos))
       (pErrExp pos "("))))
 
+; Is the token at `pos` a second `pub`?
+(pub :: pubFollows (-> (Vec Int) Int Bool))
+(pub fn (pubFollows tokens pos)
+  (if (peekIs tokens pos TK_IDENT)
+    (kwEq (tokenLexeme (vecGet tokens pos)) kwPub)
+    false))
+
 (pub :: parseTopForm (-> (Vec Int) Int Int))
 (pub fn (parseTopForm tokens pos)
   (if (peekIs tokens pos TK_DOUBLE_COLON)
@@ -2130,13 +2137,18 @@
             ; construct they wrote nor what replaced it.
             (pErrRemoved pos name)
             (if (kwEq name kwPub)
-              (let ((r (parseTopForm tokens (advance pos))))
-                (if (== (memGetWord r 0) 0)
-                  r
-                  {
-                    (markPub (memGetWord r 1))
+              ; One `pub` per declaration. A second one used to be
+              ; skipped here and kept by `fmt`'s own grammar, which
+              ; refused the file with no code (tests/fuzz/MANIFEST).
+              (if (pubFollows tokens (advance pos))
+                (pErrExp (advance pos) "a declaration after `pub`")
+                (let ((r (parseTopForm tokens (advance pos))))
+                  (if (== (memGetWord r 0) 0)
                     r
-                  }))
+                    {
+                      (markPub (memGetWord r 1))
+                      r
+                    })))
               (if (|| (kwEq name kwFn) (kwEq name kwDefine))
                 (parseFnDecl tokens (advance pos))
                 (if (kwEq name kwData)
@@ -4497,7 +4509,9 @@
     (let ((kw (vecGet tokens pos)))
       (let ((name (tokenLexeme kw)))
         (if (kwEq name kwPub)
-          (parseInner tokens (advance pos))
+          ; `pub` marks a top-level declaration. In an expression it
+          ; used to be skipped, so `(pub "x")` read as `("x")`.
+          (pErrExp pos "an expression")
           (if (kwEq name kwFn)
             (parseLamExpr tokens (advance pos))
             ; stage0 spells an anonymous function `lambda`; expression

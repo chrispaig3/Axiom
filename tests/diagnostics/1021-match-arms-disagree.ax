@@ -1,0 +1,43 @@
+; The arms of one `match` must agree, as an `if`'s branches do. A match
+; used to answer its LAST arm's type and compare no arm with another,
+; so `pick` below, declared `(-> Int Int)`, checked OK with a `String`
+; arm and ran with the string's address as its answer - one value at
+; `--opt 0` and another at `--opt 2` (tests/fuzz/match-arms-disagree.axfuzz).
+;
+; The report anchors at the arm that disagrees with the first arm that
+; says something. `todo` answers a placeholder, so it constrains
+; nothing: `tail` compares `"R"` with `(* r r)`, and `ok` - every arm
+; an `Int`, one of them a `todo` - still checks.
+(import IO (todo))
+
+(data Shape
+  (Circle Int)
+  (Rect Int Int)
+  (Dot))
+
+(:: pick (-> Int Int))
+(fn (pick n)
+  (match n
+    (0 "zero")
+    (_ 1)))
+
+(:: tail (-> Shape Int))
+;@axiom:effect(io)
+(fn (tail s)
+  (match s
+    ((Circle r) (* r r))
+    ((Rect _ _) "R")
+    ((Dot) (todo "Dot"))))
+
+(:: ok (-> Shape Int))
+;@axiom:effect(io)
+(fn (ok s)
+  (match s
+    ((Circle r) (* r r))
+    ((Rect w h) (* w h))
+    ((Dot) (todo "Dot"))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (+ (pick 0) (+ (tail (Dot)) (ok (Dot)))))

@@ -1,0 +1,6 @@
+; `pub` marks a top-level declaration and means nothing inside an
+; expression. It was skipped there too, so `(pub "Rect")` read as
+; `("Rect")`. It is AX2001 now, at the `pub`.
+(:: main Int)
+(fn (main)
+  (pub 42))

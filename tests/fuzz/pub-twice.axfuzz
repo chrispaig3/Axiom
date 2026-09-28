@@ -1,0 +1,7 @@
+(pub pub :: twice Int)
+(pub fn (twice)
+  2)
+
+(:: main Int)
+(fn (main)
+  (twice))

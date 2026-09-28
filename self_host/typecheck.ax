@@ -15896,7 +15896,8 @@
             scrutTy
             (if (== exhTy 0)
               scrutTy
-              exhTy))))
+              exhTy)
+            0)))
           {
             (let ((ctorChecked 
               (if (&& (== (memGetWord catchall 0) 0) (!= exhTy 0))
@@ -16020,8 +16021,8 @@
 ; `((Red) 1) ((Big) 2)` over a lambda parameter refuses `Big` instead
 ; of checking exhaustiveness over whichever type came first. Binders
 ; still bind at `scrutTy`.
-(pub :: checkArms (-> Int (Vec Int) Int (Vec Int) Int Int Int Int Int))
-(pub fn (checkArms tc arms i covered catchall resTy scrutTy fitTy)
+(pub :: checkArms (-> Int (Vec Int) Int (Vec Int) Int Int Int Int Int Int))
+(pub fn (checkArms tc arms i covered catchall resTy scrutTy fitTy joinTy)
   (if (>= i (vecLen arms))
     resTy
     (let ((arm (vecGet arms i)))
@@ -16054,7 +16055,8 @@
             catchall
             resTy
             scrutTy
-            fitTy)
+            fitTy
+            joinTy)
         }
         (let ((mark (vecLen (tcScopeVec tc))))
           {
@@ -16071,9 +16073,62 @@
                   catchall
                   t
                   scrutTy
-                  fitTy)
+                  fitTy
+                  (armJoin tc joinTy t (nodeB arm)))
               })
           })))))
+
+; The arms of one match must agree, as an `if`'s branches do. `joinTy`
+; is the first arm type that says something: not poisoned, and not a
+; placeholder the checker minted, which is what `todo` and every other
+; diverging call answer. Each later arm is held to it, and the report
+; anchors at the arm that disagrees. The match still answers its last
+; arm's type, so a program that already checked types the same way.
+(pub :: armJoin (-> Int Int Int Int Int))
+(pub fn (armJoin tc joinTy t body)
+  (if (armTyOpen t)
+    joinTy
+    (if (== joinTy 0)
+      t
+      {
+        (if (== (tyCompat tc joinTy t) 0)
+          (emitMismatchTy tc joinTy t (armTailSpan body))
+          0)
+        joinTy
+      })))
+
+; Where an arm's value comes from: the last expression of a block or
+; a `let` body, which is what a reader has to change.
+(pub :: armTailSpan (-> Int Int))
+(pub fn (armTailSpan e)
+  (if (== e 0)
+    0
+    (let ((tg (nodeTag e)))
+      (let ((inner 
+        (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
+          (nodeC e)
+          (if (== tg TAG_E_BEGIN)
+            (let ((v (nodeAVec e)))
+              (if (== (vecLen v) 0)
+                0
+                (vecGet v (- (vecLen v) 1))))
+            0))))
+        (if (== inner 0)
+          (spanOf e)
+          (let ((sp (armTailSpan inner)))
+            (if (== sp 0)
+              (spanOf e)
+              sp)))))))
+
+(pub :: armTyOpen (-> Int Bool))
+(pub fn (armTyOpen t)
+  (if (== t 0)
+    true
+    (if (== (tyIsErr t) 1)
+      true
+      (if (== (nodeTag t) TAG_T_VAR)
+        (== (tyIsSrcVar t) 0)
+        false))))
 
 ; What an arm covers: a parenthesised nullary constructor or a
 ; fieldful pattern's head name. A bare identifier is a catch-all -
@@ -18625,7 +18680,7 @@
     0
     (let ((name (vecGetStr calls i)))
       (match (graphStackIndex stack name)
-        ((Some on) (graphCyclePath stack on (vecGet stack on) vecNew))
+        ((Some on) (cast Int (graphCyclePath stack on (vecGet stack on) vecNew)))
         ((None)
           (if (== (strInVec done name 0) 1)
             (graphCycleEdges

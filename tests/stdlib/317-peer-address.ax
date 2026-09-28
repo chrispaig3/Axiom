@@ -195,7 +195,7 @@
                           "the peer's port is the source port the client bound")
                         (let ((_ (sysCloseFd con))) 0)
                       })
-                    (sysCloseFd cli)
+                    (let ((_ (sysCloseFd cli))) 0)
                   }
                 ))
               ; `netAccept` still works, and still tells nobody who it
@@ -214,10 +214,10 @@
                           "netAccept still answers a socket with no buffer at all")
                         (let ((_ (sysCloseFd con2))) 0)
                       })
-                    (sysCloseFd cli2)
+                    (let ((_ (sysCloseFd cli2))) 0)
                   }
                 ))
-              (sysCloseFd lsn)
+              (let ((_ (sysCloseFd lsn))) 0)
             }
           ))
         ; ------------------------------------------------------- IPv6
@@ -314,7 +314,7 @@
                           "and reads back as [::1]:<source port>")
                         (let ((_ (sysCloseFd con6))) 0)
                       })
-                    (sysCloseFd cli6)
+                    (let ((_ (sysCloseFd cli6))) 0)
                   }
                 ))
               ; ------------------------------ a buffer too small
@@ -384,10 +384,10 @@
                           "and is not a stale or unspecified address")
                         (let ((_ (sysCloseFd con6b))) 0)
                       })
-                    (sysCloseFd cli6b)
+                    (let ((_ (sysCloseFd cli6b))) 0)
                   }
                 ))
-              (sysCloseFd lsn6)
+              (let ((_ (sysCloseFd lsn6))) 0)
             }
           ))
         0

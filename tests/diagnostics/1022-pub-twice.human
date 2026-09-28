@@ -1,0 +1,10 @@
+[1;31merror[AX2001][0m[1m: expected a declaration after `pub`, found `pub`[0m
+ [1;34m--> [0m1022-pub-twice.ax:5:6
+[1;34m  |[0m
+[1;34m5 |[0m (pub pub :: twice Int)
+[1;34m  |[0m      [1;31m^^^ found `pub` here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mAxiom expected a declaration after `pub` at this position
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX2001` for a full explanation
+
+compilation failed due to 1 previous error

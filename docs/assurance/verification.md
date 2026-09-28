@@ -89,7 +89,7 @@ is one to three of these edits:
 - nest a form around the parser's 1,024 limit;
 - repeat a form's last child up to 5,000 times.
 
-`scripts/check-fuzz.sh` holds every mutant to three properties:
+`scripts/check-fuzz.sh` holds every mutant to five properties:
 
 - **P1**, `axiom check` answers: exit 0 with no `error[AXnnnn]` line,
   or exit 1 with one. A signal, a trap status, a refusal with no code,
@@ -104,21 +104,35 @@ is one to three of these edits:
   `llc -O0` accepts, or one `emit-llvm` refuses with `AX4008` alone,
   counted apart. IR with no `@__axiom_user_main` gets a stub first,
   because `emit-llvm` doesn't require `main`.
+- **P4**, a program `check` accepts is one `axiom fmt` rewrites, or
+  refuses with a code. The rewrite must be a fixed point, so formatting
+  it again changes nothing, and it must still check.
+- **P5**, a program `check` accepts prints the same output and exits
+  with the same status built at `--opt 0` and at `--opt 2`. This runs
+  on a sample: mutants of `tests/stdlib` and `tests/selfhost` programs
+  with a `main`, at most 20,000 bytes, naming nothing that reaches out
+  of the process (threads, processes, files, sockets, the clock or
+  FFI). Each runs in a scratch directory with no input, for at most
+  5 s and 1 MiB of output. A run cut short, or an `--opt 0` binary
+  that answers differently twice, is inconclusive and counted apart.
 
-The default budget is 600 mutants from seed 20260927 (about 50 s on
-H3). `--long` runs 6,000 (442 s), nightly in CI. The gate has six sections:
+The default budget is 600 mutants from seed 20260927, with P5 on at
+most 30 of them. `--long` runs 6,000, with P5 on at most 300, nightly
+in CI. The gate has six sections:
 
 1. The generator: its selftest, including a pinned digest of 200
    mutants of an in-memory corpus, so cross-host determinism is
    checked on every CI leg. The run's mutants are also generated twice
    under two hash seeds and compared byte for byte.
-2. The run.
+2. The run, then P4 and P5 over the mutants it accepted.
 3. Stage floors: every stage reached at least once, every mutant run,
    and under 1% identical to their source.
 4. The controls. A planted wrapper compiler's SIGSEGV, hang, silent
    exit 1, exit 77, real refusal re-answered as exit 0, malformed JSON
    and non-IR line must each be reported as that failure, not excused.
-   An untouched mutant through the same wrapper must still pass.
+   So must a formatted copy that no longer checks, and an `--opt 2`
+   binary that prints one line more. An untouched mutant through the
+   same wrapper must still pass P1 to P4.
 5. The stored reproducers.
 6. A tally of what the open rows excused.
 
@@ -137,7 +151,7 @@ refusal paths. About a sixth of its budget reaches code generation.
 
 These came from 10,600 mutants: seed 1 ×1,000 and seed 2 ×3,000 while
 the harness was built, then seed 20260927 ×600 and ×6,000 through the
-gate. Each is minimised in `tests/fuzz/` and listed in its `MANIFEST`,
+gate. P4 and P5 found the last two on the default run. Each is minimised in `tests/fuzz/` and listed in its `MANIFEST`,
 and the gate replays every one.
 
 | Reproducer | What | Status |
@@ -149,6 +163,8 @@ and the gate replays every one.
 | `cast-missing-operand.axfuzz` | `(cast T)` with no operand checked OK and lowered the type name as a variable (`%Int`). | **fixed** (`checkCastForm`); now AX3013 |
 | `primitive-value.axfuzz` | Thirteen one-argument primitives applied to nothing, such as `(__alloc)`, checked OK and lowered to an SSA name nothing defines. | **fixed** (`checkBareValue`); now AX3013 |
 | `json-ax1001-partial-char.axfuzz`, `json-restrict-illformed.axfuzz` | `--diagnostic-format json` wrote ill-formed UTF-8: AX1001 quoted one byte of a multi-byte character, and AX3052 quoted a restriction tag's bytes verbatim. | **fixed**: the lexer's error token covers the whole character, and every renderer writes a byte that isn't UTF-8 as U+FFFD |
+| `pub-twice.axfuzz` | P4: `(pub pub :: f Int)` checked OK, because the parser skipped a second `pub`, and `fmt`, which has its own grammar, refused the file with no code. `pub` inside an expression was skipped the same way. | **fixed** (`self_host/parser.ax`); now AX2001 |
+| `match-arms-disagree.axfuzz` | P5: a `match` answered its last arm's type and compared no arm with another. A `String` arm in a function declared `Int` checked OK, and the program answered from the string's address: 208 at `--opt 0` and 176 at `--opt 2`. | **fixed** (`armJoin` in `self_host/typecheck.ax`): the arms are held to the first arm with a known type, as `if` holds its branches; now AX3004 |
 
 No row is open. An open row would carry a signature, an extended regex
 over the failing tool's own words matched at the row's stage: a mutant
@@ -195,25 +211,30 @@ reproducers:
 
 ### What a green fuzzing run does not show
 
-Green means these mutants, at this seed, on this host, met P1–P3. It
+Green means these mutants, at this seed, on this host, met P1–P5. It
 is evidence about the neighbourhood of the corpus, not about the
 language. `scripts/check-fuzz.sh` won't find a crash that needs a
 construct no corpus file comes near, and nothing guides the search
 toward uncovered code (there is no coverage feedback).
 
-P3 is `llc` accepting the IR, not the IR computing the right answer. A
-miscompilation that yields valid IR is invisible.
+P3 is `llc` accepting the IR, not the IR computing the right answer.
+P5 compares two optimisation levels of one compiler on a sample, so it
+sees a miscompilation only where they disagree. One that both levels
+share, such as a wrong lowering in the emitter, is invisible, and so is
+any program outside the sample.
 
-Not fuzzed at all: `build`/`run` (linking and execution), the runtime,
-`fmt`, the LSP, the REPL, non-host `--target`s and the command line.
+Not fuzzed at all: the runtime, the LSP, the REPL, non-host
+`--target`s and the command line. `fmt` is held only to P4, on
+programs `check` accepts, and `build` and execution only on P5's
+sample.
 The default budget is 600 mutants a CI leg. The 6,000-mutant `--long`
 budget runs nightly, in CI's `long-evidence` job.
 
 ## What is still open
 
-- Coverage-guided fuzzing, and fuzzing of `build`/`run`, the
-  formatter, the LSP and the REPL. A
-  miscompilation oracle (differential execution of accepted mutants).
+- Coverage-guided fuzzing, and fuzzing of the LSP and the REPL. A
+  miscompilation oracle beyond P5's two optimisation levels, such as a
+  reference interpreter.
 - Fuzzing of FFI boundaries and runtime operations. Sanitizers and
   race detectors. Schedule exploration, and memory-ordering litmus
   families beyond the three `scripts/check-atomics.sh` runs (SB, MP

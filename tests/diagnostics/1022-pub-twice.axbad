@@ -1,0 +1,11 @@
+; `pub` is written once. A second one was skipped by the parser, so
+; `check` accepted this file, and refused by the formatter's own
+; grammar with no code (tests/fuzz/pub-twice.axfuzz). It is AX2001 now,
+; at the second `pub`.
+(pub pub :: twice Int)
+(pub fn (twice)
+  2)
+
+(:: main Int)
+(fn (main)
+  (twice))

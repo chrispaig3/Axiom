@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected a declaration after `pub`, found `pub`","file":"1022-pub-twice.ax","span":{"start":{"line":5,"col":6},"end":{"line":5,"col":9},"char_start":233,"char_end":236},"label":"found `pub` here","related":[],"notes":[],"help":["Axiom expected a declaration after `pub` at this position"],"expansion":[]}

@@ -1,0 +1,19 @@
+(import IO (todo))
+
+(data Shape
+  (Circle Int)
+  (Rect Int Int)
+  (Dot))
+
+(:: area (-> Shape Int))
+;@axiom:effect(io)
+(fn (area s)
+  (match s
+    ((Circle r) (* r r))
+    ((Rect _ _) ("Rect"))
+    ((Dot) (todo "Dot"))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (area (Rect 1 2)))

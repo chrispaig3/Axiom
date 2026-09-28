@@ -36,7 +36,7 @@ source.
 | A periodic step runs on real timer interrupts within a checked profile and a stack budget, and a DMA driver keeps a contract-checked ownership protocol with an interrupt deadline (R-D2c) | `scripts/check-embedded.sh` A13 and A14, under QEMU with drills that must go red. Emulator evidence, not hardware |
 | An unhandled CPU exception on bare metal exits 81 naming the fault, and `isr(irq)` binds the IRQ vector (R-D2b) | `scripts/check-embedded.sh` A12: `tests/embedded/fault.ax` under QEMU exits 81 with ESR `0x96000021`. Emulator evidence, not hardware |
 | The executable allocator, arena and region model agrees with the runtime (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 13 pass |
-| Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports, and accepted programs emit IR that `llc` accepts (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 31 pass, on 600 mutants from seed 20260927. All eight findings are fixed and replayed as regressions |
+| Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 37 pass, on 600 mutants from seed 20260927. All ten findings are fixed and replayed as regressions |
 | The qualification-readiness package exists and states its limits (R-E2) | [hazards.md](hazards.md), [threats.md](threats.md), [trusted-components.md](trusted-components.md), [tool-qualification.md](tool-qualification.md), [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), [support-policy.md](support-policy.md), [demonstrators.md](demonstrators.md) |
 
 ## Open defects and gaps
@@ -50,13 +50,14 @@ source.
 - R-C3 limits: litmus families beyond SB, MP and counter (LB, IRIW,
   2+2W) aren't covered, and no LSE-lowered AArch64 code has been
   inspected. A litmus zero is evidence, not proof.
-- R-E1 remainder: no sanitizers or race detectors. `build`, `run`,
-  `fmt`, the LSP and the REPL aren't fuzzed, and there is no
-  miscompilation oracle. The full fuzzing budget runs nightly, not per
-  push.
+- R-E1 remainder: no sanitizers or race detectors. The LSP and the
+  REPL aren't fuzzed, and the miscompilation oracle compares two
+  optimisation levels on a sample. The full fuzzing budget runs
+  nightly, not per push.
 - `MM-PAR-7` limits: reparented grandchildren, uninterruptible sweeps
   and unmapped-handle words (`MM-PAR-8`, planned).
-- R-B5 (`MM-FFI-7`) is stated but not checked.
+- R-B5 (`MM-FFI-7`): the checker can't see foreign code, so a
+  captured `Foreign`'s thread-safety is unchecked.
 - R-B2's budgets are allocator-mark measurements on one shape, not RSS
   or an asymptotic proof.
 
@@ -80,7 +81,7 @@ constants.
 | `check-report.sh` | 36 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 13 pass |
-| `check-fuzz.sh` | 31 pass |
+| `check-fuzz.sh` | 37 pass |
 
 Execution on freebsd, windows and darwin-x86_64 has narrower evidence
 ([configurations.md](configurations.md)). Nothing has run on

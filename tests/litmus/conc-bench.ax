@@ -110,7 +110,7 @@
         ((Ok g)
           {
             (memSetWord cell 0 (+ (memGetWord cell 0) 1))
-            (mutexUnlock m g)
+            (let ((_ (mutexUnlock m g))) 0)
           }
         )
         ((Err e) 0)))

@@ -284,11 +284,11 @@
                                           "both events decode at the right stride")
                                       })
                                     (let ((_ (sysCloseFd cc))) 0)
-                                    (sysCloseFd cb)
+                                    (let ((_ (sysCloseFd cb))) 0)
                                   }
                                 ))
                             ))
-                          (sysCloseFd ca)
+                          (let ((_ (sysCloseFd ca))) 0)
                         }
                       ))
                     (say

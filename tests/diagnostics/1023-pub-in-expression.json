@@ -1,0 +1,1 @@
+{"severity":"error","code":"AX2001","slug":"unexpected-token","message":"expected an expression, found `pub`","file":"1023-pub-in-expression.ax","span":{"start":{"line":6,"col":4},"end":{"line":6,"col":7},"char_start":206,"char_end":209},"label":"found `pub` here","related":[],"notes":[],"help":["Axiom expected an expression at this position"],"expansion":[]}
