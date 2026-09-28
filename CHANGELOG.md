@@ -61,7 +61,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-eighty-five gates. Specified in `docs/restricted-profile.md`.
+eighty-six gates. Specified in `docs/restricted-profile.md`.
 
 ### Seeded compiler fuzzing, and two crashes it found — `scripts/check-fuzz.sh` - 2026-09-27
 
@@ -105,7 +105,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-five gates.
+state eighty-six gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -146,7 +146,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-five gates.
+eighty-six gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -195,7 +195,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-five gates.
+eighty-six gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -225,7 +225,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-five gates.
+sites state eighty-six gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -466,7 +466,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-five gates.
+checks). Calls one new gate; the count sites state eighty-six gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -483,7 +483,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-five gates, and the battery has
+gate; the count sites state eighty-six gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`
