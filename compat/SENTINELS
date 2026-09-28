@@ -244,7 +244,7 @@
 #   E AX3010 ... `pure` claim contradicted: body performs Alloc
 #   E AX3004 stdlib/Sys.ax:160 ... expected Int, found Result Int Error
 #
-# The first is the `;@axiom:pure` tag all three carry - on Darwin they
+# The first is the `;@axiom:effect(pure)` tag all three carry - on Darwin they
 # are `-ENOSYS` stubs, and a `Result` allocates. The second is
 # `sysWriteFd`, which forwards `platformWriteFd` on the target where
 # `usesSyscallAbi` is 0: porting the CALLEE forces the caller this

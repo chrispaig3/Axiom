@@ -352,17 +352,17 @@ compile.
 
 **ERR-PROP-2 (H, amended). Inspecting an error is pure. Constructing
 one is not.** A function that only takes a value apart may carry
-`;@axiom:pure`. A function that builds one allocates, and `pure`
+`;@axiom:effect(pure)`. A function that builds one allocates, and `pure`
 refuses it:
 
 ```scheme refused
 (data Pair (P Int Int) (Nil))
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: mkPair (-> Int Pair))
 (fn (mkPair n) (P n n))
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: first (-> Pair Int))
 (fn (first p) (match p ((P a b) a) ((Nil) 0)))
 
@@ -371,10 +371,10 @@ refuses it:
 ```
 
 ```text
-error[AX3010]: AXTAG mismatch on `mkPair`: `pure` claim contradicted: body performs Alloc
+error[AX3010]: AXTAG mismatch on `mkPair`: `effect(pure)` claim contradicted: body performs Alloc
 ```
 
-`first` is accepted, and `axiom symbols` reports it as `#pure` with no
+`first` is accepted, and `axiom symbols` reports it as `#effect=pure` with no
 `#effects=` beside it. So you can take a `Result` apart inside a
 function that claims purity, but you can't build one there.
 
@@ -402,7 +402,7 @@ rows it moved.
 empty definite effect row. An exemption would have to be carved out for
 every reader of that row, not just for this rule, and `Alloc` is the
 effect `restrict(no-alloc)` exists to name. So construction allocates,
-and a constructing function is not pure. No `;@axiom:pure` claim in
+and a constructing function is not pure. No `;@axiom:effect(pure)` claim in
 `stdlib/` or `self_host/` sits on a constructing function.
 
 **ERR-PROP-3 (H, program obligation). In a recursive function, the
@@ -1098,7 +1098,7 @@ This section records the codes below. All of them are built, and
 |---|---|---|
 | `AX3035` `macro-binder-target` | a macro argument in a binder position that is not a name | The expander defect this model ran into (§7, `B1`). |
 | `AX3036` `extern-type` | an `extern` item whose type can't cross the boundary | |
-| `AX3037` `axtag-unverifiable` | a `pure` claim over a call the effect walk can't resolve | A warning. |
+| `AX3037` `axtag-unverifiable` | an `effect(pure)` claim over a call the effect walk can't resolve | A warning. |
 | `AX3038` `effect-unverifiable` | the same condition under a `handle` | A warning. |
 | `AX3039` `axtag-key-typo` | an AXTAG key one edit away from a key the compiler checks | A warning. |
 | `AX3040` `result-only-tyvar` | a type variable the caller chooses and the callee produces | The slug names the shape it was built for and stays as the machine key. The rule also covers a function-typed parameter's own variable. |
@@ -1220,6 +1220,16 @@ names: a parameter list naming one name twice is `AX3006`
 no value to take is `AX3013` (`partial-application`), `set` on a
 built-in or an imported function is `AX3012`, and an effect's name
 where a value goes is `AX3001`.
+
+`AX3077` (`axtag-misplaced`) and `AX3078` (`pure-tag-spelling`) are
+the two tag refusals that followed. `AX3077` is a key the compiler
+checks on a declaration it can't check it on, such as
+`restrict(no-alloc)` above a `data`: the claim was recorded and never
+read (`tests/diagnostics/1030-axtag-misplaced.ax`). `AX3078` makes
+purity one spelling, `;@axiom:effect(pure)`: `;@axiom:pure` and its
+slips are refused wherever they stand
+(`tests/diagnostics/1031-pure-tag-spelling.ax`). An unknown key is
+still legal metadata, so the tag namespace stays open.
 
 **ERR-DIAG-3 (P). Poisoning, not cascading.** Where a check on an error
 type fails, propagate `TError` and guard downstream comparisons, so one
@@ -1396,7 +1406,7 @@ runs the direct read and the routed one and compares their answers.
 | `ERR-TYPE-4` | **H, gated** | `okOr`/`toOption`, `371` term 4 |
 | `ERR-TYPE-5` | H | `fldClass` classifies from declared types |
 | `ERR-PROP-1` | H | the language having no other mechanism |
-| `ERR-PROP-2` | H | `#pure` accepted when inspecting an error; refused with `AX3010` when constructing one |
+| `ERR-PROP-2` | H | `#effect=pure` accepted when inspecting an error; refused with `AX3010` when constructing one |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
 | `ERR-PROP-4` | **H, gated** | `tests/diagnostics/1005-recursion-in-scrutinee.ax` + `severity.policy` + `scripts/check-diagnostic-coverage.sh` |
 | `ERR-PROP-5` | H | effect inference, unchanged |
@@ -1664,11 +1674,11 @@ The slices, in order, each green before the next starts:
    gave two errors at once:
 
    ```text
-   E AX3010 ... `pure` claim contradicted: body performs Alloc
+   E AX3010 ... `effect(pure)` claim contradicted: body performs Alloc
    E AX3004 stdlib/Sys.ax:160 ... expected Int, found Result Int Error
    ```
 
-   The first came from the `;@axiom:pure` tag on Darwin's `-ENOSYS`
+   The first came from the `;@axiom:effect(pure)` tag on Darwin's `-ENOSYS`
    stubs, since a boxed `Result` allocates. The second is the caller.
    `scripts/check-stdlib-api.sh` requires all five `Sys/Platform.*`
    files to declare the same names, so a change there touches five
@@ -1884,7 +1894,7 @@ A function nobody observes has no outcome to report.
 answer `-ENOSYS` from a stub their own comment calls "never reached".
 Its one caller, `sysExitWith`, puts it in statement position inside a
 `{ ... 0 }` and discards the value. A `(Result Int Error)` there would
-allocate on the process-exit path, break the function's `pure` claim,
+allocate on the process-exit path, break the function's `effect(pure)` claim,
 and encode an outcome no caller reads. `platformWriteFd` and
 `platformReadFd` are not excluded with it, because they answer a real
 count on Windows.

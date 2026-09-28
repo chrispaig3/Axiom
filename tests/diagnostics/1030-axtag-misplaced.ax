@@ -1,0 +1,39 @@
+; A key the compiler checks, on a declaration it can't check it on, is
+; AX3077. The claim was recorded and nothing read it, so a
+; `restrict(no-alloc)` above a `data` said nothing while looking like a
+; guarantee. `unhandled(trap)` belongs on an `effect` declaration, so
+; it is misplaced on a function. A key the compiler doesn't check is
+; still legal anywhere (`agent:owner` below), and the checked keys on a
+; function are the control.
+(import IO)
+
+;@axiom:restrict(no-alloc)
+(data Sample
+  (Reading Int))
+
+;@axiom:effect(io)
+(struct Point
+  (x : Int)
+  (y : Int))
+
+;@axiom:agent:owner(team)
+(data Tag
+  (Tag Int))
+
+;@axiom:unhandled(trap)
+(:: cleanup Int)
+(fn (cleanup)
+  0)
+
+;@axiom:restrict(no-io)
+(:: area (-> Int Int))
+(fn (area n)
+  (* n n))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "ok")
+    (+ (cleanup) (area 0))
+  })

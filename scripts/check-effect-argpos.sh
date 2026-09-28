@@ -6,7 +6,7 @@
 # WHAT THE RULE IS. `#effects-incomplete` marks a row as a LOWER bound:
 # the walk met a call it could not resolve, so an effect absent from the
 # row is not evidence that the body does not perform it. A claim of
-# absence over such a row cannot be answered - `;@axiom:pure` draws
+# absence over such a row cannot be answered - `;@axiom:effect(pure)` draws
 # `AX3037`, `restrict(no-io)` draws `AX3051`, a `handle` draws `AX3038`,
 # each a warning rather than a verdict.
 #

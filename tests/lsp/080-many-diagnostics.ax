@@ -1,5 +1,5 @@
 (:: pure (-> Int Int))
-;@axiom:pur
+;@axiom:restrct(no-io)
 (fn (pure x)
   x)
 

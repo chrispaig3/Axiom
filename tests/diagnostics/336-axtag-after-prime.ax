@@ -20,7 +20,7 @@
   (prime' 1))
 
 (:: quiet (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (quiet fd)
   {
     (__syscall3 1 fd 0 0)

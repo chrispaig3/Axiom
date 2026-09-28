@@ -19,7 +19,7 @@ entity word 3 (type parameters) for `data` and `struct`, plus alias
 parameter counts. One walker over `TAG_T_CON` nodes is called from
 signature validation (`tcCheckSigTypeOf`), struct and data field
 validation, alias bodies and extern items. The error takes the next
-free code, `AX3076`, with an `explain` entry, and `severity.policy`
+free code, with an `explain` entry, and `severity.policy`
 is untouched. Primitives from `typeKeywordCanon` have arity 0.
 `(Int String)` already parses as a tuple and is unaffected.
 

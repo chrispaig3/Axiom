@@ -1,5 +1,5 @@
 (:: emit (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (emit fd)
   {
     (__syscall3 1 fd 0 0)

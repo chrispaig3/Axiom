@@ -1,0 +1,31 @@
+[1;31merror[AX3078][0m[1m: purity on `Reading` is written `;@axiom:effect(pure)`, not `;@axiom:PURE`[0m
+  [1;34m--> [0m1031-pure-tag-spelling.ax:17:7
+[1;34m   |[0m
+[1;34m17 |[0m (data Reading
+[1;34m   |[0m       [1;31m^^^^^^^ write `;@axiom:effect(pure)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man effect claim is always `effect(...)`, so purity has one spelling; the others are refused rather than read as metadata
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(pure)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3078` for a full explanation
+
+[1;31merror[AX3078][0m[1m: purity on `bare` is written `;@axiom:effect(pure)`, not `;@axiom:pure`[0m
+ [1;34m--> [0m1031-pure-tag-spelling.ax:8:6
+[1;34m  |[0m
+[1;34m8 |[0m (fn (bare n)
+[1;34m  |[0m      [1;31m^^^^ write `;@axiom:effect(pure)`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1mnote: [0man effect claim is always `effect(...)`, so purity has one spelling; the others are refused rather than read as metadata
+ [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(pure)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3078` for a full explanation
+
+[1;31merror[AX3078][0m[1m: purity on `slipped` is written `;@axiom:effect(pure)`, not `;@axiom:pur`[0m
+  [1;34m--> [0m1031-pure-tag-spelling.ax:13:6
+[1;34m   |[0m
+[1;34m13 |[0m (fn (slipped n)
+[1;34m   |[0m      [1;31m^^^^^^^ write `;@axiom:effect(pure)`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0man effect claim is always `effect(...)`, so purity has one spelling; the others are refused rather than read as metadata
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(pure)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3078` for a full explanation
+
+compilation failed due to 3 previous errors

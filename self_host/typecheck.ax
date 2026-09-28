@@ -3143,6 +3143,7 @@
           ; an effect reached `main` with nothing handling it, and it
           ; is not final until the fixpoint above has closed.
           (checkEffectDeclAxtags tc allDecls 0)
+          (checkStrayAxtags tc allDecls 0)
           (checkUnhandledAtMain tc allDecls)
           tc
         })
@@ -12858,7 +12859,7 @@
 ; So `(handle BODY (IO) 0)` used to erase IO from everything above it.
 ; The author had to write `(IO)` for the form to compile at all, so it
 ; was never an accident, but the erasure was: a function could claim
-; `;@axiom:pure`, acknowledge IO inside, and be reported `#pure` while
+; `;@axiom:effect(pure)`, acknowledge IO inside, and be reported `#pure` while
 ; writing to stdout - and the only diagnostic landed on its HONEST
 ; CALLER, for truthfully declaring the io the callee had hidden. A
 ; policy reading that build learns the opposite of the truth about both
@@ -12996,7 +12997,7 @@
         ; it attributes what EVALUATING the head performs and says
         ; nothing whatever about what CALLING it performs, and that
         ; difference is the whole of the hole `effIncomplete` was
-        ; declared to record. `((b.f) x)` under a `;@axiom:pure` claim
+        ; declared to record. `((b.f) x)` under a `;@axiom:effect(pure)` claim
         ; was ACCEPTED - not because the body was pure, but because
         ; the set the claim was checked against came back empty - and
         ; `symbols` then printed `#pure` with no `#effects=` beside
@@ -13215,7 +13216,7 @@
 ;         from there to here attributed it to anybody.
 ;
 ; The third answer is new. It used to be spelled -1 along with the
-; second, which is why `(let ((g (b.f))) (g 7))` under `;@axiom:pure`
+; second, which is why `(let ((g (b.f))) (g 7))` under `;@axiom:effect(pure)`
 ; was accepted in silence: the walk could not tell a name it had
 ; followed from a word it had merely read.
 (pub :: bsOpaque Int)
@@ -13491,7 +13492,7 @@
 ; and is what made this promotion sound.
 ;
 ; Three forms, all of stage0's:
-;   `;@axiom:pure`          -> "`pure` claim contradicted: body performs X, Y"
+;   `;@axiom:effect(pure)`          -> "`pure` claim contradicted: body performs X, Y"
 ;   `;@axiom:effect(pure)`  -> "`effect(pure)` claim contradicted: ..."
 ;   `;@axiom:effect(v)`     -> "`effect(v)` claim unsupported: missing X"
 ; and the rendered message is prefixed "AXTAG mismatch on `name`: ".
@@ -18398,7 +18399,7 @@
 ; CHECKED, and until 2026-08-31 it was not merely unchecked but SILENT.
 ;
 ; `docs/reference.md` (Effect Polymorphism) records the reading that
-; makes `;@axiom:pure` on `(fn (apply f x) (f x))` stand: a
+; makes `;@axiom:effect(pure)` on `(fn (apply f x) (f x))` stand: a
 ; higher-order function's summary has two halves, the effects its own
 ; body performs and the parameters it CALLS, and claims are validated
 ; against the concrete half. That is right for `pure`, which is a claim
@@ -20441,7 +20442,7 @@
 ; the way AX3071 and AX3072 already refuse a prim call's shape rather
 ; than its callers. A wrapper contains the unsafety: it declares
 ; `effect(unsafe)`, and its callers inherit `Unsafe` in their rows -
-; checked against `;@axiom:pure` and `restrict(no-unsafe)` like any
+; checked against `;@axiom:effect(pure)` and `restrict(no-unsafe)` like any
 ; other row member - without drawing this themselves.
 ;
 ; ONLY THE UNCLAIMED fire here, the way only the unclaimed draw
@@ -20637,7 +20638,7 @@
 
 ; A tag content the signature's set already carries. `checkAxtags`
 ; checks the signature's tags first, so the function's own walk skips
-; what it would only repeat: a `;@axiom:pure` above BOTH the `::`
+; what it would only repeat: a `;@axiom:effect(pure)` above BOTH the `::`
 ; and the `fn` drew every verdict twice, byte-identical down to the
 ; span, and the summary counted two errors for one wrong claim
 ; (tests/diagnostics/355-tag-over-approximated.axdl, before this).
@@ -20722,21 +20723,21 @@
         ""
         (strSlice content (+ op 1) (- (axtagCloseAt content) (+ op 1)))))
     )
-      (if (strEq key "pure")
-        (axtagContradicted tc d "`pure` claim" eff)
-        (if (strEq key "effect")
-          (if (strEq val "pure")
-            (axtagContradicted tc d "`effect(pure)` claim" eff)
-            (let ((names (effTagWords val)))
-              (if (> (vecLen names) 1)
-                (emitEffectTagList tc d val names)
-                (axtagUnsupported
-                  tc
-                  d
-                  val
-                  eff
-                  eparams))))
-          (axtagKeyTypo tc d key))))))
+      ; Purity has one spelling, `effect(pure)`. A bare `pure` key is
+      ; refused by `axtagKeyTypo` (AX3078) rather than checked here.
+      (if (strEq key "effect")
+        (if (strEq val "pure")
+          (axtagContradicted tc d "`effect(pure)` claim" eff)
+          (let ((names (effTagWords val)))
+            (if (> (vecLen names) 1)
+              (emitEffectTagList tc d val names)
+              (axtagUnsupported
+                tc
+                d
+                val
+                eff
+                eparams))))
+        (axtagKeyTypo tc d key)))))
 
 ; AX3076: `;@axiom:effect(io, unsafe)`. An `effect(...)` tag names ONE
 ; effect, and a list was read as one CUSTOM effect named `io, unsafe` -
@@ -20817,8 +20818,9 @@
 ; records that the key is "metadata stage0 records and does not check" -
 ; and this does not close it. An unknown key stays legal and stays
 ; silent. What this catches is the one shape that COSTS something:
-; `;@axiom:pur` is not a purity claim, so nothing checks it as one, and
-; a body performing IO under it draws no AX3010 at all. The tag reads
+; `;@axiom:efect(pure)` is not a purity claim, so nothing checks it as
+; one, and a body performing IO under it draws no AX3010 at all. A slip
+; of `pure` itself is AX3078, an error, since purity has one spelling. The tag reads
 ; like a guarantee and buys silence instead, which is worse than
 ; writing nothing - a reader spends trust on it.
 ;
@@ -20833,17 +20835,48 @@
       ((None) false)
       ((Some _) true)))
     0
+    ; PURITY FIRST: `pure` and every slip of it (`pur`, `Pure`) are
+    ; refused, because purity is written one way, `effect(pure)`.
     ; RESERVED BEFORE NEAR-MISS, and the order is the point. `effects`
     ; is one edit from `effect`, so the near-miss arm would have
     ; reported it as a typo - a WARNING, and about the wrong thing.
     ; It is not a misspelling of an author's key; it is the compiler's
     ; key, spelled correctly.
-    (if (== (axtagReservedKey key) 1)
-      (emitAxtagKeyReserved tc d key)
-      (let ((want (axtagNearMiss key)))
-        (if (== (strLen want) 0)
-          0
-          (emitAxtagKeyTypo tc d key want))))))
+    (if (== (axtagIsPureSpelling key) 1)
+      (emitAxtagPureSpelling tc d key)
+      (if (== (axtagReservedKey key) 1)
+        (emitAxtagKeyReserved tc d key)
+        (let ((want (axtagNearMiss key)))
+          (if (== (strLen want) 0)
+            0
+            (emitAxtagKeyTypo tc d key want)))))))
+
+; `pure`, or one slip from it. A namespaced key never reaches here, and
+; a key the compiler checks is never one: `pre` is a slip of `pure` by
+; spelling alone.
+(pub :: axtagIsPureSpelling (-> String Int))
+(pub fn (axtagIsPureSpelling key)
+  (if (strEq key "pure")
+    1
+    (if (== (axtagKnownKey key) 1)
+      0
+      (axtagSlip key "pure"))))
+
+; AX3078: purity written any way but `;@axiom:effect(pure)`.
+(pub :: emitAxtagPureSpelling (-> Int Int String Int))
+(pub fn (emitAxtagPureSpelling tc d key)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3078"
+      "pure-tag-spelling"
+      (nodeSpan d)
+      (strConcat (strConcat (strConcat (strConcat "purity on `" (bareOf (nodeAName d))) "` is written `;@axiom:effect(pure)`, not `;@axiom:") key) "`")
+      0
+      0
+      "write `;@axiom:effect(pure)`"
+      "an effect claim is always `effect(...)`, so purity has one spelling; the others are refused rather than read as metadata") "write `;@axiom:effect(pure)`"))))
 
 ; ------------------------------------------------------------------
 ; AX3053: an operation the program reaches with no handler.
@@ -21077,6 +21110,104 @@
       (checkEffectDeclAxtags tc decls (+ i 1))
     }))
 
+; AX3077: a key the compiler checks, on a declaration it can't check it
+; on. A tag belongs to the declaration after it, and `restrict(...)`,
+; `effect(...)`, `pure`, `raw`, `pre`, `post` and `isr` are checked on
+; a function alone, `unhandled` on an `effect` alone. Above a `data`,
+; a `struct`, an import, a macro or an alias, the claim was recorded
+; and nothing ever read it, so `;@axiom:restrict(no-alloc)` in the
+; wrong place said nothing while looking like a guarantee. An unknown
+; key stays legal: the namespace is open (`axtagKeyTypo`).
+(pub :: checkStrayAxtags (-> Int (Vec Int) Int Int))
+(pub fn (checkStrayAxtags tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    {
+      (let ((d (vecGet decls i)))
+        (if (== (nodeAxtags d) 0)
+          0
+          (strayAxtagsOf tc d (memGetWordVec d 7) 0)))
+      (checkStrayAxtags tc decls (+ i 1))
+    }))
+
+(pub :: strayAxtagsOf (-> Int Int (Vec Int) Int Int))
+(pub fn (strayAxtagsOf tc d tags i)
+  (if (>= i (vecLen tags))
+    0
+    {
+      (let ((key (axtagKeyOf (vecGet tags i))))
+        (if (&& (== (axtagIsPureSpelling key) 1) (&& (!= (nodeTag d) TAG_D_EFFECT) (== (axtagKeyFits (nodeTag d) "effect") 0)))
+          (emitAxtagPureSpelling tc d key)
+          (if (&& (== (axtagKnownKey key) 1) (== (axtagKeyFits (nodeTag d) key) 0))
+            (emitAxtagStray tc d key)
+            0)))
+      (strayAxtagsOf tc d tags (+ i 1))
+    }))
+
+(pub :: checkStrayImportAxtags (-> Int (Vec Int) Int Int))
+(pub fn (checkStrayImportAxtags tc decls i)
+  (if (>= i (vecLen decls))
+    0
+    {
+      (let ((d (vecGet decls i)))
+        (if (&& (== (nodeTag d) TAG_D_IMPORT) (!= (nodeAxtags d) 0))
+          (strayAxtagsOf tc d (memGetWordVec d 7) 0)
+          0))
+      (checkStrayImportAxtags tc decls (+ i 1))
+    }))
+
+; 1 when a declaration of this kind reads the key. A declaration-macro
+; invocation hands its tags to what it generates, so its own are
+; checked there.
+(pub :: axtagKeyFits (-> Int String Int))
+(pub fn (axtagKeyFits tag key)
+  (if (|| (== tag TAG_D_MACROCALL) (== tag TAG_D_SYNFOR))
+    1
+    (if (|| (== tag TAG_D_FN) (== tag TAG_D_SIG))
+      (if (strEq key "unhandled")
+        0
+        1)
+      (if (== tag TAG_D_EFFECT)
+        (if (strEq key "unhandled")
+          1
+          0)
+        0))))
+
+(pub :: axtagDeclKind (-> Int String))
+(pub fn (axtagDeclKind tag)
+  (if (== tag TAG_D_DATA)
+    "a `data` declaration"
+    (if (== tag TAG_D_STRUCT)
+      "a `struct`"
+      (if (== tag TAG_D_IMPORT)
+        "an import"
+        (if (== tag TAG_D_MACRO)
+          "a macro"
+          (if (|| (== tag TAG_D_ALIAS) (== tag TAG_D_SUBTYPE))
+            "a type alias"
+            (if (== tag TAG_D_EFFECT)
+              "an `effect` declaration"
+              (if (== tag TAG_D_EXTERN)
+                "an `extern` block"
+                "a function"))))))))
+
+(pub :: emitAxtagStray (-> Int Int String Int))
+(pub fn (emitAxtagStray tc d key)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3077"
+      "axtag-misplaced"
+      (nodeSpan d)
+      (strConcat (strConcat (strConcat (strConcat (strConcat "the `" key) "` tag on `") (bareOf (nodeAName d))) "` is never checked: it is ") (axtagDeclKind (nodeTag d)))
+      0
+      0
+      (if (strEq key "unhandled")
+        "`unhandled(trap)` belongs above an `effect` declaration; move it there, or drop it"
+        "a checked claim belongs above the function it describes - its `(:: ...)` or its `(fn ...)`; move it there, or drop it")
+      "the tag was recorded and nothing read it, so the claim it looks like was never made; an unrecognised key is still legal metadata") "tag not checked here"))))
+
 (pub :: checkEffectDeclTags (-> Int Int (Vec Int) Int Int))
 (pub fn (checkEffectDeclTags tc d tags i)
   (if (==
@@ -21220,48 +21351,44 @@
 
 (pub :: axtagKnownKey (-> String Int))
 (pub fn (axtagKnownKey key)
-  (if (strEq key "pure")
+  (if (strEq key "effect")
     1
-    (if (strEq key "effect")
+    (if (strEq key "raw")
       1
-      (if (strEq key "raw")
+      (if (strEq key "pre")
         1
-        (if (strEq key "pre")
+        (if (strEq key "post")
           1
-          (if (strEq key "post")
+          (if (strEq key "restrict")
             1
-            (if (strEq key "restrict")
+            (if (strEq key "unhandled")
               1
-              (if (strEq key "unhandled")
+              ; `isr` is checked (an implied `no-alloc` plus an
+              ; arity rule), so a near miss of it is a guarantee
+              ; that buys silence, exactly as for the others.
+              (if (strEq key "isr")
                 1
-                ; `isr` is checked (an implied `no-alloc` plus an
-                ; arity rule), so a near miss of it is a guarantee
-                ; that buys silence, exactly as for the six above.
-                (if (strEq key "isr")
-                  1
-                  0)))))))))
+                0))))))))
 
 (pub :: axtagNearMiss (-> String String))
 (pub fn (axtagNearMiss key)
   (if (== (axtagKnownKey key) 1)
     ""
-    (if (== (axtagSlip key "pure") 1)
-      "pure"
-      (if (== (axtagSlip key "effect") 1)
-        "effect"
-        (if (== (axtagSlip key "raw") 1)
-          "raw"
-          (if (== (axtagSlip key "pre") 1)
-            "pre"
-            (if (== (axtagSlip key "post") 1)
-              "post"
-              (if (== (axtagSlip key "restrict") 1)
-                "restrict"
-                (if (== (axtagSlip key "unhandled") 1)
-                  "unhandled"
-                  (if (== (axtagSlip key "isr") 1)
-                    "isr"
-                    ""))))))))))
+    (if (== (axtagSlip key "effect") 1)
+      "effect"
+      (if (== (axtagSlip key "raw") 1)
+        "raw"
+        (if (== (axtagSlip key "pre") 1)
+          "pre"
+          (if (== (axtagSlip key "post") 1)
+            "post"
+            (if (== (axtagSlip key "restrict") 1)
+              "restrict"
+              (if (== (axtagSlip key "unhandled") 1)
+                "unhandled"
+                (if (== (axtagSlip key "isr") 1)
+                  "isr"
+                  "")))))))))
 
 (pub :: axtagSlip (-> String String Int))
 (pub fn (axtagSlip key known)
@@ -21293,7 +21420,7 @@
       (strConcat (strConcat (strConcat (strConcat (strConcat "AXTAG key typo on `" (bareOf (nodeAName d))) "`: unrecognised key `") key) "`; did you mean `") (strConcat want "`?"))
       0
       0
-      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `pure`, `effect(...)`, `restrict(...)`, `pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect` declaration"))))
+      "an unrecognised key is recorded and never checked, so the claim this looks like was not made; the keys that are checked are `effect(...)` (purity is `effect(pure)`), `restrict(...)`, `pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect` declaration"))))
 
 (pub :: axtagCloseAt (-> String Int))
 (pub fn (axtagCloseAt content)
@@ -23937,6 +24064,9 @@
         (checkDuplicates (dupIdxBuild entryDecls) entryDecls out 0)
         (checkReservedNames entryDecls out 0)
         (checkImportNames entryDecls allDecls out 0)
+        ; An import leaves the list before `allDecls` is built, so its
+        ; tags are asked here, over the entry file's own.
+        (checkStrayImportAxtags tc entryDecls 0)
         (checkMissingDefs (defIdxBuild allDecls) entryDecls out 0)
         (tcWalkDecls tc 0)
         ; Stage S3's escape rule, after every body has been checked:

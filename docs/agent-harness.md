@@ -99,7 +99,7 @@ exactly one real ADT. So `(vecLen (parseModule toks))` type-checks,
 answers `OK` and segfaults: everything is `Int`, so the checker protects
 nothing.
 
-**A refuted AXTAG claim is an error.** A false `;@axiom:pure` on a body
+**A refuted AXTAG claim is an error.** A false `;@axiom:effect(pure)` on a body
 that performs I/O is `AX3010`, an error, and no executable is written.
 
 `tests/diagnostics/severity.policy` is a hand-maintained allowlist of
@@ -245,13 +245,13 @@ and the emitted code is `BODY` with nothing added.
 discharges a smaller one. For a built-in effect, the effect still
 reaches the caller, because `handleIsDynamic` installs evidence only
 for a *declared* effect, and otherwise the form lowers to its body. A
-`;@axiom:pure` function that wraps its I/O in `(handle BODY (IO) 0)` is
+`;@axiom:effect(pure)` function that wraps its I/O in `(handle BODY (IO) 0)` is
 refused, and so is an inner handle under a `(Pure)` boundary:
 
 ```console
-$ axiom check --diagnostic-format=ai --input launder.ax   # the laundering `pure` claim
+$ axiom check --diagnostic-format=ai --input launder.ax   # the laundering `effect(pure)` claim
 E AX3010 launder.ax:6:6-12 axtag-mismatch "AXTAG mismatch on `sneaky`:
-    `pure` claim contradicted: body performs IO" ?"an AXTAG is a CLAIM,
+    `effect(pure)` claim contradicted: body performs IO" ?"an AXTAG is a CLAIM,
     and this is the compiler answering it: make the body match the tag,
     or correct the tag to what the body does. Deleting the tag also
     silences this, and an untagged function is never checked - but that
@@ -269,7 +269,7 @@ compilation failed due to 1 previous error          # exit 1
 
 It is the **lying callee** that is refused, and its truthful caller
 draws nothing at all. So an `Agent.Policy` reading a build that
-succeeded is reading a `#pure` the compiler stands behind. What is still advisory is
+succeeded is reading a `#effect=pure` the compiler stands behind. What is still advisory is
 the smaller set below.
 
 Tested by `tests/diagnostics/348-handle-discharge.ax`.
@@ -278,7 +278,7 @@ One hole still bounds what `Agent.Safe` can promise, and a second is
 closed:
 
 - A function value that goes through memory, in a struct field or a
-  `let`-bound local, escapes both the `;@axiom:pure` claim and the
+  `let`-bound local, escapes both the `;@axiom:effect(pure)` claim and the
   `(Pure)` boundary. `AX3037` and `AX3038` report it, as warnings.
 - **CLOSED.** An effect operation reached with no handler anywhere
   still aborts the process with status 71, but it no longer compiles
@@ -609,7 +609,7 @@ they rest on can now be trusted:
   arena is not inferred effect-free (MM-EXEC-9a in
   [`memory-model.md`](memory-model.md)).
 
-A `pure` claim over `(__store64 n 0 1)` draws `AX3010` with "body
+An `effect(pure)` claim over `(__store64 n 0 1)` draws `AX3010` with "body
 performs Mut, Unsafe", and over `(__argc)` it draws `AX3010` with "body
 performs IO".
 
@@ -635,7 +635,7 @@ records as a decision rather than a gap.
   "`effect(io)` claim unsupported: missing IO" looks undecidable but is
   not. It already consults `effPartial`, and stays silent whenever the
   walk hit a lower bound or the function has effect-transparent
-  parameters. "`pure` claim contradicted: body performs IO" looks
+  parameters. "`effect(pure)` claim contradicted: body performs IO" looks
   decidable but was not. It fired on a function that only names an
   effectful function without calling it: `(fn (handoff k) shout)` was
   reported as performing IO and carried `#effects=IO`. Promoting that
@@ -667,7 +667,7 @@ records as a decision rather than a gap.
     it emits `AX3037` *cannot be checked* instead.
 
   `handoff` draws `AX3037`, and a function that really performs IO under
-  a `pure` tag still draws `AX3010`. Across `stdlib/` and `self_host/`,
+  an `effect(pure)` tag still draws `AX3010`. Across `stdlib/` and `self_host/`,
   zero of 3,034 effect rows changed when the rule landed.
 
   Possibility is marked per effect because a single row-wide marker,

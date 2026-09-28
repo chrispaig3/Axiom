@@ -68,7 +68,7 @@
 #
 #      Measured 2026-08-23, against a module holding
 #      `(struct Box (f : (-> Int Int)))`, a `println`-ing `direct`, and
-#      a `;@axiom:pure`-claimed `(fn (viaField b n) ((b.f) n))` called
+#      a `;@axiom:effect(pure)`-claimed `(fn (viaField b n) ((b.f) n))` called
 #      as `(viaField (Box direct) 0)`: the built program PRINTS at run
 #      time, its row reads
 #
@@ -451,7 +451,7 @@ echo "== completeness: no effect row is only a lower bound =="
 # sort.
 #
 # The row still ANNOUNCES itself: `#effects-incomplete` is on it and a
-# `;@axiom:pure` claim over it would draw `AX3037`. A reader is handed
+# `;@axiom:effect(pure)` claim over it would draw `AX3037`. A reader is handed
 # a lower bound labelled as one, which is the honest half of the
 # arrangement and the reason an entry here is acceptable at all.
 # `<name> <file>  <reason>` - one line each, the reason being everything
@@ -580,7 +580,7 @@ cat > "$work/partial.ax" <<'PARTIAL'
 
 (:: viaField (-> Box (-> Int Int)))
 
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (viaField b n) ((b.f) n))
 
 (:: main Int)

@@ -419,7 +419,7 @@
 ; that reads it is not a function of its arguments, which is the thing
 ; `MM-EXEC-9b` says a purity claim ought to exclude. Until 2026-08-25
 ; `__argc`/`__argv` were registered like `__load64`, which computes, so
-; every one of these was inferred effect-free and `;@axiom:pure` over
+; every one of these was inferred effect-free and `;@axiom:effect(pure)` over
 ; one of them was accepted. That was `MM-EXEC-9a`'s second row.
 ; The same applies to the environment block below, which `sysEnvp`
 ; reaches through `__argv` past the end of the argument vector.

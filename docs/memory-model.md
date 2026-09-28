@@ -303,7 +303,7 @@ ablation of the frontier, because a wrong worklist shows up as a
 missing effect on one row, not as a crash.
 
 Effects don't appear in function types. `;@axiom:effect(...)` and
-`;@axiom:pure` are claims, checked against the inference, and a refuted
+`;@axiom:effect(pure)` are claims, checked against the inference, and a refuted
 claim is `AX3010`, an error. Claims aren't opt-in: an untagged function
 claims to perform no `IO`, and a body that performs it anyway is
 `AX3042`. `Alloc` and `Mut` stay ambient and are never required.
@@ -315,7 +315,7 @@ closed, and one remains:
 
 | A function that... | is inferred | why it is still open |
 |---|---|---|
-| calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark | it needs the flow analysis that `MM-EXEC-9b` describes, and the language doesn't have it. The gap announces itself: the row carries `#effects-incomplete`, and a `pure` claim over it draws `AX3037`. You get a lower bound labelled as one, not a set that looks complete |
+| calls through a local, a parameter, or an unresolved name | contributes nothing but a transparency mark | it needs the flow analysis that `MM-EXEC-9b` describes, and the language doesn't have it. The gap announces itself: the row carries `#effects-incomplete`, and an `effect(pure)` claim over it draws `AX3037`. You get a lower bound labelled as one, not a set that looks complete |
 
 A call through an effect-transparent parameter often passes it an
 argument the walk can't follow, such as a load, a call result or an
@@ -377,7 +377,7 @@ withdrawn at their sites, each with the reason beside it: `mkSpan` and
 `mkToken` (`self_host/core.ax`), `mkDiagBase` (`self_host/diag.ax`),
 `vecTry` (`stdlib/Vec.ax`), `strFind` and `strParseInt`
 (`stdlib/Str.ax`), and `histFindBack` (`self_host/replhist.ax`), the
-last through `strFind`'s `Some`. No `;@axiom:pure` claim in the tree
+last through `strFind`'s `Some`. No `;@axiom:effect(pure)` claim in the tree
 broke, since none is on a constructing function. `ERR-PROP-2` in
 [error-model.md](error-model.md) relied on the old behaviour, and its probe
 is what changed: a constructor function tagged `pure` now draws
@@ -408,11 +408,11 @@ The trait-method row no longer applies. `trait` and `impl` are
 functions, passed as an ordinary value. Dispatch is `((c.render) x)`, a
 call through a field the walk can't resolve, so it falls under the open
 row above. This checks `OK` with `AX3037` beside it, and its row reads
-`#pure #effects-incomplete` with no `IO`:
+`#effect=pure #effects-incomplete` with no `IO`:
 
 ```scheme
 (struct Logger (emit : (-> String Int)))
-;@axiom:pure
+;@axiom:effect(pure)
 (:: runIt (-> Logger String Int))
 (fn (runIt l s) ((l.emit) s))
 ```
@@ -464,7 +464,7 @@ corpus, and an inference change has to be measured against both.
 ```
 
 **MM-EXEC-9b (H).** What a purity claim guarantees: **a
-`;@axiom:pure` claim that the checker accepted means the function's
+`;@axiom:effect(pure)` claim that the checker accepted means the function's
 body reaches no effectful primitive by a path the inference can
 follow.** It doesn't mean the function is a mathematical function of
 its arguments. It may still mutate a heap field through an alias
@@ -478,13 +478,13 @@ claim over either is reported. Dispatch through an interface is not
 resolvable: an interface is a capability record, so `((l.emit) s)` is a
 call through a struct field, which is `MM-EXEC-9a`'s remaining row. The
 `runIt` claim in `MM-EXEC-9a` checks `OK`, carries
-`#pure #effects-incomplete` with no `IO`, and prints at run time. That
+`#effect=pure #effects-incomplete` with no `IO`, and prints at run time. That
 route covers every dispatch in the language, and it is always
 announced, by `#effects-incomplete` on the row and `AX3037` on the
 claim.
 
 A program that needs a real purity guarantee can't get one from this
-mechanism today. A `pure` tag doesn't cover the calls in
+mechanism today. An `effect(pure)` tag doesn't cover the calls in
 `MM-EXEC-9a`'s remaining row.
 
 **MM-EXEC-9c (H). `Unsafe` is every primitive that reads, writes, frees
@@ -1161,7 +1161,7 @@ Three more facts make the form unusable, not just unimplemented:
   does. Its *count* operand is fully checked.
 - **`alloc` still contributes the built-in `Alloc` effect.** The effect
   is inferred, shown on AXSYM as `#effects=Alloc`, and checked against
-  a `;@axiom:pure` claim. A form that allocates nothing reports that it
+  a `;@axiom:effect(pure)` claim. A form that allocates nothing reports that it
   allocates.
 
 <!-- doc-gate:negative-exempt a population count, not an existence claim. What falsifies it is any .ax file spelling the form, and the MUST in this same paragraph is what such a file would violate. The honest probe is a corpus counter, which this gate does not have yet. -->

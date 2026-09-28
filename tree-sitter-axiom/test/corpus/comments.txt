@@ -60,7 +60,7 @@ a block comment is trivia anywhere a token may be
 an AXTAG inside a block comment is comment, not metadata
 ================================================================
 
-#| ;@axiom:pure |#
+#| ;@axiom:effect(pure) |#
 (:: main Int)
 (fn (main) 0)
 

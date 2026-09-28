@@ -2,7 +2,7 @@
 ; contradicts it. Companion to 342.
 (import IO)
 
-;@axiom:pure
+;@axiom:effect(pure)
 (pub :: work (-> Int Int))
 (pub fn (work n)
   {

@@ -54,7 +54,7 @@
   (ask n))
 
 (:: launders (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (launders n)
   (handle
     (shout n)
@@ -103,7 +103,7 @@
 ; halves of the file should see that the erasure never depended on
 ; anyone lying.
 (:: guarded (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (guarded n)
   (handle
     (handle

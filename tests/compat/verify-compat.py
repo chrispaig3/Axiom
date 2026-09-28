@@ -377,7 +377,7 @@ SENTINEL_INFALLIBLE = re.compile(r'sysGetPidNum|sysGetPpidNum')
 #     which does not return - and Windows is the only target that
 #     implements it, because it is the only one with no syscall ABI;
 #   * darwin, freebsd and the two linux files answer `(- 0 78)`,
-#     -ENOSYS, under `;@axiom:pure`, and their own comment says the
+#     -ENOSYS, under `;@axiom:effect(pure)`, and their own comment says the
 #     call is "never reached - `Sys.ax` tests this capability first";
 #   * its one caller, `sysExitWith` at `stdlib/Sys.ax:303`, puts it in
 #     STATEMENT position inside a `{ ... 0 }` that answers `0`, so the

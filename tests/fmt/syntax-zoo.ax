@@ -108,7 +108,7 @@
 
 ; --- control flow ---------------------------------------------------
 (:: control (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (control n)
   (let ((mut i 0)
         (mut acc 0))
@@ -403,7 +403,7 @@
 ; `#pure` here, and `#no_refactor` with the two tags swapped.
 ;@axiom:no_refactor
 (:: splitTags (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (splitTags n) (+ n 1))
 
 ; --- parallel: the concurrency form, both binding-list shapes ------

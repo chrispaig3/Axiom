@@ -187,7 +187,7 @@
   [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
 
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `counted`: `pure` claim contradicted: body performs Unsafe[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `counted`: `effect(pure)` claim contradicted: body performs Unsafe[0m
   [1;34m--> [0m1010-unsafe-primitives.ax:70:6
 [1;34m   |[0m
 [1;34m70 |[0m (fn (counted n)

@@ -753,10 +753,11 @@ return a `Result`: `addChecked`, `subChecked`, `mulChecked`,
 ### Operator types
 
 The eighteen operators are built in and always available. No import
-brings them in. A top-level function can't take an operator's name:
-`(fn (+ a b) ...)` is `AX2001`, because every call of `+` reaches the
-built-in. A local binding or parameter with that name does shadow it
-inside its own scope.
+brings them in. No declaration can take an operator's name: a
+function, constructor or type spelled `+`, as in `(fn (+ a b) ...)`,
+is `AX2001`, because every use of `+` reaches the built-in. A local
+binding or parameter with that name does shadow it inside its own
+scope.
 
 Tested by `tests/selfhost/1005-operator-binder-shadows.ax`.
 
@@ -2113,17 +2114,17 @@ and possible effects:
   body may perform is not missing.
 - With no tag at all, `main` is not accused. `AX3042` reads only the
   definite effects, and `IO` here is only possible.
-- `;@axiom:pure` over a call through a field is `AX3037`, a warning,
+- `;@axiom:effect(pure)` over a call through a field is `AX3037`, a warning,
   not the `AX3010` error that a refuted claim gets. On `main` itself,
-  `pure` is still `AX3010`, because building the record is a definite
-  `Alloc`.
+  `effect(pure)` is still `AX3010`, because building the record is a
+  definite `Alloc`.
 
 ```scheme
-;@axiom:pure
+;@axiom:effect(pure)
 (:: greet (-> (ConsoleOf String) Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (greet c) (c.print "hi"))
-; warning[AX3037]: AXTAG unverifiable on `greet`: `pure` claim cannot be
+; warning[AX3037]: AXTAG unverifiable on `greet`: `effect(pure)` claim cannot be
 ;                  checked: the body calls a value the compiler could not resolve
 ```
 
@@ -2225,7 +2226,7 @@ The full contract for the inferred set is `MM-EXEC-9a` in
 | Effect | What performs it |
 |---|---|
 | `IO` | Reaching the outside world: a `__syscallN`, or reading the command line with `__argc` or `__argv`. The AArch64 reads of registers the hardware owns (`__arm_cntvct`, `__arm_cntfrq`, `__arm_ctr`) and `__arm_wfi`, which waits on the outside world, carry it too (MM-FFI-8). |
-| `Pure` | Nothing. `;@axiom:pure` claims it, and `(handle BODY (Pure) 0)` rejects a body that performs any effect. |
+| `Pure` | Nothing. `;@axiom:effect(pure)` claims it, and `(handle BODY (Pure) 0)` rejects a body that performs any effect. |
 | `Alloc` | Heap machinery, which is wider than allocation. Any call that reaches `__alloc` (every `Vec`, `Map` and `Str` growth, every `memAlloc`), the `(alloc T)` keyword, the three arena primitives, and `handle`, which installs its handler's evidence. An arena reset counts because it ends every block allocated since the mark. |
 | `Mut` | Heap state that other code can see: a field store `(set base.field v)`, the `__store8` and `__store64` primitives it lowers to, the atomic writers `__atomic_store`, `__atomic_add` and `__atomic_cas`, and `__fence`. That's why `vecPush` and `mapInsert` carry it. `__atomic_load` is a read and doesn't, just as `__load64` doesn't. A `set` on a `mut` local isn't `Mut`, because nothing outside the function can see it. The eight volatile device accesses carry it (a device read can change device state), as do the `__arm_` barriers, timer writes, interrupt masks, cache maintenance and `__arm_set_tpidr` (MM-FFI-8). |
 | `Div` | Divergence. You can write it, but nothing infers it, so `;@axiom:effect(div)` draws `AX3037` (unverifiable), even over a body that plainly never ends. Inferring it would need a termination analysis the compiler doesn't have. |
@@ -2262,7 +2263,7 @@ declares.
 | `;@axiom:effect(io)` | The function reaches the outside world. Required when it does. |
 | `;@axiom:effect(mut)`, `effect(alloc)`, `effect(unsafe)` | The function performs that ambient effect. `effect(unsafe)` is required on a body that calls a raw memory primitive. |
 | `;@axiom:effect(console)` | The function performs a custom effect. The value matches the `effect` declaration case-insensitively. |
-| `;@axiom:pure` or `;@axiom:effect(pure)` | The function performs nothing. |
+| `;@axiom:effect(pure)` | The function performs nothing. |
 
 Tags that promise *more* than this, such as `restrict(no-io)` and
 contracts, are in [Effect tags](#effect-tags).
@@ -2351,7 +2352,7 @@ happens, and the effect still reaches the caller.
 
 ```scheme
 ; Names IO, as AX3011 requires, but doesn't remove it: IO is still in
-; the enclosing function's inferred set, and a `;@axiom:pure` claim
+; the enclosing function's inferred set, and a `;@axiom:effect(pure)` claim
 ; on that function is contradicted.
 (handle (println "hello") (IO Alloc Unsafe) 0)
 ```
@@ -2457,7 +2458,7 @@ Axiom tracks that without making you declare it:
 (import IO)
 
 (:: apply (-> (-> Int Int) Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (apply f x) (f x))
 
 (:: shout (-> Int Int))
@@ -2484,7 +2485,7 @@ n = 3
 Its `axiom symbols` rows, filtered to `apply.ax` as before:
 
 ```text
-F apply apply.ax:3:5-10 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #pure #effect-params=f
+F apply apply.ax:3:5-10 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect=pure #effect-params=f
 F shout apply.ax:7:5-10 "(Int -> Int)" @cc70b00d8093fca4 #effect=io #effects=Alloc,IO,Mut,Unsafe
 F main apply.ax:15:5-9 "Int" @6159d363201f7f2a #effect=io #effects=Alloc,IO,Mut,Unsafe
 ```
@@ -2499,7 +2500,7 @@ it passes, so `main` picks up `IO` from `shout`.
 
 Claims are checked against the body's own half:
 
-- `;@axiom:pure` on `apply` stands. On a higher-order function, pure
+- `;@axiom:effect(pure)` on `apply` stands. On a higher-order function, pure
   means pure apart from its function parameters.
 - A declared effect the body doesn't perform is accepted when a
   callback could supply it.
@@ -2509,7 +2510,7 @@ Claims are checked against the body's own half:
 `restrict(...)` is read differently. "No I/O apart from its function
 parameters" isn't what a reader takes `restrict(no-io)` to mean, so a
 transitive restriction on a body that calls its own parameter is
-`AX3051`, unverifiable. `pure` describes a body, while a restriction
+`AX3051`, unverifiable. `effect(pure)` describes a body, while a restriction
 is a guarantee about calling it. See
 [restrict](#restrict---what-a-declaration-does-not-do).
 
@@ -2615,7 +2616,7 @@ failed on can hold a function. An `Int` can't, because applying one is
 `axiom symbols` marks a lower bound `#effects-incomplete`, and claims
 split on it:
 
-- **A claim of absence**, `;@axiom:pure` or `;@axiom:effect(pure)`,
+- **A claim of absence**, `;@axiom:effect(pure)`,
   can't be checked against a lower bound. It draws `AX3037`, a warning.
 - **A claim of presence**, such as `;@axiom:effect(io)`, is accepted.
   The unresolved call may be exactly where the effect comes from.
@@ -2640,7 +2641,7 @@ each check reads the half it needs:
 
 - **`AX3042` and a contradicted `AX3010` read the definite half.** An
   untagged function whose `IO` is only possible isn't accused, and
-  `;@axiom:pure` over it draws `AX3037`, as over a lower bound. A
+  `;@axiom:effect(pure)` over it draws `AX3037`, as over a lower bound. A
   definite `IO` is accused, whatever else is possible.
 - **`AX3011`, a missing `AX3010` and `restrict(...)` read both
   halves.** A handle list names everything the body may reach, and a
@@ -2683,10 +2684,22 @@ above the declaration, like any other `;@axiom:` tag.
 | `unhandled(trap)` | reaching this effect with no handler is a deliberate abort | at compile time |
 | `nolint(...)` | quiet the editor's lint Hints for this declaration | by the language server |
 
-The compiler knows eight keys: `pure`, `effect`, `raw`, `pre`,
-`post`, `restrict`, `isr` and `unhandled`. Any other key is metadata:
-the compiler records it and doesn't check it, so `agent:readonly`
-draws nothing.
+The compiler knows seven keys: `effect`, `raw`, `pre`, `post`,
+`restrict`, `isr` and `unhandled`. Any other key is metadata: the
+compiler records it and doesn't check it, so `agent:readonly` draws
+nothing.
+
+**Purity is `effect(pure)`.** An effect claim is always an
+`effect(...)` tag, and purity has that one spelling.
+`;@axiom:pure`, and a slip of it such as `;@axiom:pur`, is `AX3078`
+wherever it stands.
+
+**A checked key belongs on its declaration.** `effect`, `raw`, `pre`,
+`post`, `restrict` and `isr` are checked on a function, above its
+`(:: ...)` or its `(fn ...)`, and `unhandled` on an `effect`
+declaration. Above a `data`, a `struct`, an import, a macro or an
+alias, the claim would be recorded and never read, so it is
+`AX3077`.
 
 **One effect per tag.** A body that performs two effects declares
 them on two lines, `;@axiom:effect(io)` and `;@axiom:effect(unsafe)`.
@@ -2701,11 +2714,11 @@ keywords always were.
 
 A key one edit or one change of case away from a known key draws
 `AX3039`, a warning that suggests the key you probably meant. A
-misspelt key makes no claim, so nothing checks `;@axiom:pur` as a
-purity claim. A key containing `:` is never reported, because a
+misspelt key makes no claim, so nothing checks `;@axiom:efect(io)` as
+an effect claim. A key containing `:` is never reported, because a
 namespaced key is always intentional. The known keys are never
-reported as near misses of each other, so `pre` is safe even though
-it is one letter from `pure`.
+reported as near misses of each other, or of `pure`, so `pre` is safe
+even though it is one letter from `pure`.
 
 <a id="restrict---what-a-declaration-does-not-do"></a>
 ### restrict: what a function never does
@@ -2829,7 +2842,7 @@ follows from what each one reads:
 `no-untrapped`. Each has the type `(-> Int Int (Result Int Error))`.
 Building the `Result` allocates, so calling one puts `Alloc` in your
 function's row. That means a body that needs arithmetic can't keep
-`no-wrap` or `no-untrapped` together with `no-alloc` or `pure`. The
+`no-wrap` or `no-untrapped` together with `no-alloc` or `effect(pure)`. The
 design note is [checked-arithmetic-design.md](checked-arithmetic-design.md).
 
 Two things that look like these operators can't wrap, so neither is
@@ -2894,7 +2907,7 @@ An effect that is present in a lower-bound row, or definite beside a
 possible one, is a violation, `AX3049`. So is a body that performs the
 effect itself and also calls a parameter.
 
-The third case is where `restrict` and `pure` part ways. `;@axiom:pure`
+The third case is where `restrict` and `effect(pure)` part ways. `;@axiom:effect(pure)`
 on `(fn (apply f x) (f x))` stands, because purity describes a body
 and "pure apart from its function parameters" is what purity means for
 a higher-order function. A restriction is a promise about calling the
@@ -5427,7 +5440,7 @@ and `axiom symbols --diagnostic-format ai` prints each accepted tag as
 ;@axiom:effect(io)
 (fn (main) (println "hello"))
 
-;@axiom:pure()
+;@axiom:effect(pure)
 (fn (pureFn x) (* x x))
 
 ;@axiom:no_refactor
@@ -5440,20 +5453,20 @@ and `axiom symbols --diagnostic-format ai` prints each accepted tag as
 | Key | Meaning |
 |---|---|
 | `effect(io)` | The function performs I/O. |
-| `pure` | The function has no side effects. |
+| `effect(pure)` | The function has no side effects. |
 | `no_refactor` | Automated refactoring should leave this declaration alone. |
 | `owned(arena=frame)` | Ownership metadata. It is accepted but not enforced, and its wording comes from before Axiom chose reference counting (`docs/memory-model.md` MM-LIFE-7). |
 
 The compiler checks an `effect(io)` claim against what the body
 performs: a `__syscallN`, or a call to something that performs one. It
-checks a `pure` claim against the absence of any effect. A mismatch it
+checks an `effect(pure)` claim against the absence of any effect. A mismatch it
 can decide is an error, `AX3010`:
 
 ```scheme refused
 (import IO)
 
 (:: shout (-> Int Int))
-;@axiom:pure()
+;@axiom:effect(pure)
 (fn (shout x)
   {
     (println "hi")
@@ -5462,7 +5475,7 @@ can decide is an error, `AX3010`:
 ```
 
 ```text
-error[AX3010]: AXTAG mismatch on `shout`: `pure` claim contradicted: body performs Alloc, IO, Unsafe
+error[AX3010]: AXTAG mismatch on `shout`: `effect(pure)` claim contradicted: body performs Alloc, IO, Unsafe
 ```
 
 A claim it can't check, because the body calls a value it couldn't

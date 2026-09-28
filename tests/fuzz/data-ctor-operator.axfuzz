@@ -1,0 +1,7 @@
+(data M9 a
+  (- a)
+  (N9))
+
+(:: main Int)
+(fn (main)
+  0)

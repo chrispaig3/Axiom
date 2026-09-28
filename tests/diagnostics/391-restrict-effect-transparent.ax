@@ -4,7 +4,7 @@
 ; `docs/reference.md` (Effect Polymorphism) says a higher-order
 ; function's summary has two halves - the effects its own body performs
 ; concretely, and the parameters it CALLS - and that claims are
-; validated against the concrete half. `;@axiom:pure` on `(fn (apply f
+; validated against the concrete half. `;@axiom:effect(pure)` on `(fn (apply f
 ; x) (f x))` stands under that reading, and should: "pure modulo its
 ; function parameters" is what purity means on a higher-order function.
 ;

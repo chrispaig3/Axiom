@@ -1,4 +1,4 @@
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `quiet`: `pure` claim contradicted: body performs IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `quiet`: `effect(pure)` claim contradicted: body performs IO[0m
   [1;34m--> [0m336-axtag-after-prime.ax:24:6
 [1;34m   |[0m
 [1;34m24 |[0m (fn (quiet fd)

@@ -22,6 +22,44 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Purity is written one way, and a tag must sit where it is checked — `AX3077`, `AX3078` - 2026-09-28
+
+**Purity is `;@axiom:effect(pure)`.** Three spellings were accepted:
+`;@axiom:pure`, `;@axiom:effect(pure)`, and a slip such as
+`;@axiom:pur`, which drew the `AX3039` warning and was otherwise read
+as metadata, so it claimed nothing while looking like a purity claim.
+An effect claim is always `effect(...)`, and purity now has that one
+spelling. `;@axiom:pure` and its slips are `AX3078`, an error,
+wherever they stand. `pre` is one letter from `pure` too, and stays a
+key: a key the compiler checks is never taken for a slip.
+
+Every `;@axiom:pure` in the tree now reads `;@axiom:effect(pure)`: the
+four `Sys.Platform` exits, the diagnostics fixtures, the syntax zoo,
+the documentation's examples and the gate scripts. `axiom symbols`
+shows the tag as `#effect=pure`. The fixtures that used `pur` to draw
+an `AX3039` warning (346, 369, 370 and two LSP fixtures) now use slips
+of other keys, `efect`, `RESTRICT` and `restrct`.
+
+**A checked key belongs on its declaration.** `effect`, `raw`, `pre`,
+`post`, `restrict` and `isr` are checked on a function, `unhandled` on
+an `effect` declaration. Above a `data`, a `struct`, an import, a
+macro or an alias, `;@axiom:restrict(no-alloc)` was recorded and
+never read. It is `AX3077` now. An unknown key is still legal
+metadata, so the tag namespace stays open.
+
+**No declaration takes an operator's name.** The second `--long` run's
+last finding was a `data` constructor spelled `-`, which nothing could
+construct because `(- ...)` reaches the built-in. The operator-named
+function refusal moved into `parseDeclName`, so a function,
+constructor, type, macro or signature spelled like an operator is
+`AX2001`.
+
+Checked over the whole tracked corpus with the old and new compiler:
+only the new fixtures change verdict. `explain --list` reports 96
+codes, 85 of them errors. AN-31 to AN-33 close.
+`tests/diagnostics/1030-axtag-misplaced.ax`,
+`tests/diagnostics/1031-pure-tag-spelling.ax`.
+
 ### A trailing `;@axiom:` tag, and operator names as binders — `scripts/check-fuzz.sh` P4, R-E1 - 2026-09-28
 
 The second `--long` run with P4 found two more places `check` and

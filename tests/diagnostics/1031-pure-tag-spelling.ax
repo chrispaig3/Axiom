@@ -1,0 +1,32 @@
+; Purity has one spelling, `;@axiom:effect(pure)`, like every other
+; effect claim. `;@axiom:pure` and any slip of it - `pur`, `PURE` - are
+; AX3078 wherever they stand, a function or a `data` declaration alike.
+; `pre` is one letter from `pure` too, and is a key the compiler checks,
+; so it draws nothing; `effect(pure)` is the control.
+;@axiom:pure
+(:: bare (-> Int Int))
+(fn (bare n)
+  n)
+
+;@axiom:pur
+(:: slipped (-> Int Int))
+(fn (slipped n)
+  n)
+
+;@axiom:PURE
+(data Reading
+  (Reading Int))
+
+;@axiom:pre((> n 0))
+(:: guarded (-> Int Int))
+(fn (guarded n)
+  n)
+
+;@axiom:effect(pure)
+(:: control (-> Int Int))
+(fn (control n)
+  n)
+
+(:: main Int)
+(fn (main)
+  0)

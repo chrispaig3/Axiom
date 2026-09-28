@@ -1,4 +1,4 @@
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `launders`: `pure` claim contradicted: body performs IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `launders`: `effect(pure)` claim contradicted: body performs IO[0m
   [1;34m--> [0m348-handle-discharge.ax:58:6
 [1;34m   |[0m
 [1;34m58 |[0m (fn (launders n)
@@ -15,7 +15,7 @@
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
 
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `guarded`: `pure` claim contradicted: body performs IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `guarded`: `effect(pure)` claim contradicted: body performs IO[0m
    [1;34m--> [0m348-handle-discharge.ax:107:6
 [1;34m    |[0m
 [1;34m107 |[0m (fn (guarded n)

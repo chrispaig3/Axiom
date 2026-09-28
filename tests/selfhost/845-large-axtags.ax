@@ -38,7 +38,7 @@
 
 (:: main Int)
 (fn (main)
-  (let ((src (rep ";@axiom:pure\n(fn (f x) x)\n" 14)))
+  (let ((src (rep ";@axiom:effect(pure)\n(fn (f x) x)\n" 14)))
     (if (&& (> (strLen src) 400000) (== (vecLen (scanAxtags src)) 16384))
       42
       1)))

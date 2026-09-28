@@ -1807,7 +1807,12 @@
               (if (peekIs tokens (memGetWord rr 2) TK_RPAREN)
                 (pOk (strConcat (strConcat (strConcat "syntax/join " (memGetWordStr lr 1)) " ") (memGetWordStr rr 1)) (advance (memGetWord rr 2)))
                 (pErrExp (memGetWord rr 2) ")")))))))
-    (parseIdentName tokens pos)))
+    ; A declared name is a name, not an operator. Every use of `-`
+    ; or `*` reaches the built-in, so a function, constructor or type
+    ; spelled like one could never be reached.
+    (if (&& (peekIs tokens pos TK_IDENT) (nameIsOperator (tokenLexeme (vecGet tokens pos))))
+      (pErrExp pos "a declaration name - an operator is built in")
+      (parseIdentName tokens pos))))
 
 ; A join's operand: a bare identifier, or a nested join. Answers the
 ; operand's own marker text, which the caller splices into its own.
@@ -4460,9 +4465,7 @@
             (fnName (memGetWordStr nr 1))
             (afterName (memGetWord nr 2))
           )
-            (let ((paramsR (if (nameIsOperator fnName)
-              (pErrExp headerStart "a function name - an operator is built in")
-              (parseIdentList tokens afterName vecNew))))
+            (let ((paramsR (parseIdentList tokens afterName vecNew)))
               (if (== (memGetWord paramsR 0) 0)
                 paramsR
                 ; A body of SEVERAL expressions sequences them,

@@ -1,5 +1,5 @@
 (:: w Int)
-;@axiom:pur
+;@axiom:restrct(no-io)
 ;@axiom:effect(io)
 (fn (w)
   {

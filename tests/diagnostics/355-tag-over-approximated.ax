@@ -35,15 +35,15 @@
     n
   })
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: handoff (-> Int Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (handoff k)
   shout)
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: liar (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (liar n)
   {
     (writeStr 1 "!\n")

@@ -1,0 +1,31 @@
+[1;31merror[AX3077][0m[1m: the `restrict` tag on `Sample` is never checked: it is a `data` declaration[0m
+  [1;34m--> [0m1030-axtag-misplaced.ax:11:7
+[1;34m   |[0m
+[1;34m11 |[0m (data Sample
+[1;34m   |[0m       [1;31m^^^^^^ tag not checked here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe tag was recorded and nothing read it, so the claim it looks like was never made; an unrecognised key is still legal metadata
+  [1;34m = [0m[1;32mhelp: [0ma checked claim belongs above the function it describes - its `(:: ...)` or its `(fn ...)`; move it there, or drop it
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3077` for a full explanation
+
+[1;31merror[AX3077][0m[1m: the `effect` tag on `Point` is never checked: it is a `struct`[0m
+  [1;34m--> [0m1030-axtag-misplaced.ax:15:9
+[1;34m   |[0m
+[1;34m15 |[0m (struct Point
+[1;34m   |[0m         [1;31m^^^^^ tag not checked here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe tag was recorded and nothing read it, so the claim it looks like was never made; an unrecognised key is still legal metadata
+  [1;34m = [0m[1;32mhelp: [0ma checked claim belongs above the function it describes - its `(:: ...)` or its `(fn ...)`; move it there, or drop it
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3077` for a full explanation
+
+[1;31merror[AX3077][0m[1m: the `unhandled` tag on `cleanup` is never checked: it is a function[0m
+  [1;34m--> [0m1030-axtag-misplaced.ax:24:5
+[1;34m   |[0m
+[1;34m24 |[0m (:: cleanup Int)
+[1;34m   |[0m     [1;31m^^^^^^^ tag not checked here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe tag was recorded and nothing read it, so the claim it looks like was never made; an unrecognised key is still legal metadata
+  [1;34m = [0m[1;32mhelp: [0m`unhandled(trap)` belongs above an `effect` declaration; move it there, or drop it
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3077` for a full explanation
+
+compilation failed due to 3 previous errors

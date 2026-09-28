@@ -194,10 +194,10 @@ conflicts with two other claims:
   was a hole in `no-alloc`, closed by `MM-EXEC-9a`'s constructor row,
   which withdrew seven claims. [contracts-design.md](contracts-design.md)
   records both runs.
-- `;@axiom:pure` with `restrict(no-wrap)` can't be satisfied either.
+- `;@axiom:effect(pure)` with `restrict(no-wrap)` can't be satisfied either.
   A pure function can't allocate, and the only arithmetic `no-wrap`
-  allows allocates. The compiler reports `AX3010`, "`pure` claim
-  contradicted: body performs Alloc".
+  allows allocates. The compiler reports `AX3010`, "`effect(pure)`
+  claim contradicted: body performs Alloc".
 
 So a checked `add` that returns `Result` can't be used by a `pure`
 function. This is the price of the safety, not a defect to route
@@ -380,7 +380,7 @@ Two of the design's three blockers still hold against the tree:
   still prints `0`, so Shape A's premise holds.
 - `restrict(no-wrap, no-alloc)` on `(unwrapOr (addChecked a b) 0)` is
   still refused with the path
-  `addSafe -> Err$addChecked -> Err$mkError`. `;@axiom:pure` beside
+  `addSafe -> Err$addChecked -> Err$mkError`. `;@axiom:effect(pure)` beside
   `no-wrap` is still `AX3010`. The pair can't be satisfied, and the
   diagnostic's help says so.
 

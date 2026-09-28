@@ -198,7 +198,7 @@ F acceptNonblockFlag stdlib/Sys/Platform.darwin.ax:721:9-27 "Int" @897180219612f
 F usesSyscallAbi stdlib/Sys/Platform.darwin.ax:738:9-23 "Int" @5239c4a4eebd381e
 F platformWriteFd stdlib/Sys/Platform.darwin.ax:742:9-24 "(Int -> (Int -> (Int -> Result Int Error)))" @06b4d89d48f5eb21 #effects=Alloc
 F platformReadFd stdlib/Sys/Platform.darwin.ax:746:9-23 "(Int -> (Int -> (Int -> Result Int Error)))" @27c65d2cf874d88a #effects=Alloc
-F platformExitWith stdlib/Sys/Platform.darwin.ax:750:9-25 "(Int -> Int)" @becafad07ae354fc #pure
+F platformExitWith stdlib/Sys/Platform.darwin.ax:750:9-25 "(Int -> Int)" @becafad07ae354fc #effect=pure
 F ttyUsesTermios stdlib/Sys/Platform.darwin.ax:785:9-23 "Int" @c35c43360059ea61
 F sysIoctlNum stdlib/Sys/Platform.darwin.ax:792:9-20 "Int" @8604ef6ad1e274c3
 F tcGetAttrReq stdlib/Sys/Platform.darwin.ax:806:9-21 "Int" @92b4b419b6a552d3
@@ -236,7 +236,7 @@ F waitIdPidType stdlib/Sys/Platform.darwin.ax:1046:9-22 "Int" @417e56c542031940
 F waitPollOptions stdlib/Sys/Platform.darwin.ax:1051:9-24 "Int" @4f04cb2dcd714a4f
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
-F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure
+F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #effect=pure
 F counted tests/fmt/syntax-zoo.ax:125:5-12 "(Vec Int -> Int)" @a2afd435642141eb #effects=Unsafe
 F arenaSum tests/fmt/syntax-zoo.ax:135:5-13 "(Int -> Int)" @dc206b96c4c2200d #effects=Alloc
 F classify tests/fmt/syntax-zoo.ax:142:5-13 "(Int -> Int)" @0c968703c9c681f5
@@ -270,7 +270,7 @@ F curried tests/fmt/syntax-zoo.ax:354:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4
 F unitArg tests/fmt/syntax-zoo.ax:363:5-12 "(() -> Int)" @6cefab6aa3adb3a3
 F integerName tests/fmt/syntax-zoo.ax:366:5-16 "(Int -> Int)" @78077a35b687a150
 F negatives tests/fmt/syntax-zoo.ax:372:5-14 "Int" @c1e7a0698a782505
-F splitTags tests/fmt/syntax-zoo.ax:405:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #pure
+F splitTags tests/fmt/syntax-zoo.ax:405:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #effect=pure
 F beside tests/fmt/syntax-zoo.ax:413:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effects=Alloc,IO
 F alone tests/fmt/syntax-zoo.ax:417:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effects=Alloc,IO
 F restrictedTwice tests/fmt/syntax-zoo.ax:428:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast

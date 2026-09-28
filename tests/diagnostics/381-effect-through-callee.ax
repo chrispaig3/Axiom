@@ -15,7 +15,7 @@
 ;                              possible only, untagged     -> silent
 ;   `g`                        applies `handoff`'s RESULT, which the
 ;                              walk cannot follow: a lower bound,
-;                              `;@axiom:pure` over it      -> AX3037
+;                              `;@axiom:effect(pure)` over it      -> AX3037
 ;   `liar`                     `writeStr` under `pure`, the control
 ;                              from 355                    -> AX3010
 ;
@@ -47,12 +47,12 @@
   shout)
 
 (:: g (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (g n)
   (handoff 1 n))
 
 (:: liar (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (liar n)
   {
     (writeStr 1 "!\n")

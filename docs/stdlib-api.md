@@ -32,7 +32,7 @@ two differ.
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `Meta` | struct |  |  | One `#key` or `#key=value`. A bare flag - `#pure` - has `val` empty, which `symHasTag` distinguishes from an absent key. |
+| `Meta` | struct |  |  | One `#key` or `#key=value`. A bare flag - `#no_refactor` - has `val` empty, which `symHasTag` distinguishes from an absent key. |
 | `Sym` | struct |  |  | One AXSYM line, parsed. |
 | `axsymSpace` | value | `Int` |  |  |
 | `axsymQuote` | value | `Int` |  |  |

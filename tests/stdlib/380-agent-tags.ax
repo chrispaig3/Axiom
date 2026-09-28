@@ -27,7 +27,7 @@
 ;     the effect row of a key that does not exist.
 ;
 ; The last term is the one that matters for a policy: `quiet` claims
-; `;@axiom:pure` and the checker derived no effect row, so
+; `;@axiom:effect(pure)` and the checker derived no effect row, so
 ; `symDerivedPure` is true - and that is a statement about the
 ; ANALYSIS, not about the program. `shout` carries BOTH the author's
 ; `#effect=io` claim and the checker's `#effects=IO` derivation, and a

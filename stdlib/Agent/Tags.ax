@@ -42,7 +42,7 @@
 (import Str)
 (import Vec)
 
-; One `#key` or `#key=value`. A bare flag - `#pure` - has `val` empty,
+; One `#key` or `#key=value`. A bare flag - `#no_refactor` - has `val` empty,
 ; which `symHasTag` distinguishes from an absent key.
 (pub struct Meta
   (key : String)

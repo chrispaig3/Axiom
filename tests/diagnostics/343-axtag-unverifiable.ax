@@ -51,18 +51,18 @@
 (fn (hold)
   (Wrap doIO))
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: viaField (-> Box Int))
 (fn (viaField b)
   (b.f 7))
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: viaLet (-> Box Int))
 (fn (viaLet b)
   (let ((g b.f))
     (g 7)))
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: viaPattern (-> Holder Int))
 (fn (viaPattern h)
   (match h
@@ -72,7 +72,7 @@
 (fn (apply1 g)
   (g 1))
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: viaTransparent (-> (-> (-> Int Int) Int) Box Int))
 (fn (viaTransparent h b)
   (h b.f))

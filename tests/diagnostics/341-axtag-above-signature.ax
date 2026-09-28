@@ -14,7 +14,7 @@
 ;
 ; The span is the FUNCTION's name, not the tag's line, because the
 ; claim is about the function and `emitAxtag` has always anchored there.
-;@axiom:pure
+;@axiom:effect(pure)
 (:: emit (-> Int Int))
 (fn (emit fd)
   {

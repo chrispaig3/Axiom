@@ -112,7 +112,7 @@ namespace, not the checker's judgements.
 AXTAG metadata (`;@axiom:<key>(<value>)` comments above declarations) is
 compiler-checked. The most important validation is that `effect(io)`
 claims match what the body actually performs — a `__syscallN`, a call to
-something that performs one, or a call to an `extern` — and `pure` claims
+something that performs one, or a call to an `extern` — and `effect(pure)` claims
 match a body that performs nothing. A mismatch emits `AX3010`
 (`axtag-mismatch`), an **error** since 2026-08-25: it fails the build,
 so the exit status is enough. A claim the walk could not check is
@@ -123,10 +123,10 @@ When writing or reviewing Axiom source:
 - Always pair `;@axiom:effect(io)` with code that actually reaches a
   syscall, directly or through a callee, or with a `handle` expression.
 - Never annotate a function as `pure` if anything it calls performs an
-  effect. Probed: a `;@axiom:pure` function whose body calls an `extern`
-  reports `` `pure` claim contradicted: body performs IO ``.
+  effect. Probed: a `;@axiom:effect(pure)` function whose body calls an `extern`
+  reports `` `effect(pure)` claim contradicted: body performs IO ``.
 - Use `axiom --diagnostic-format=ai symbols source.ax` to verify which
-  AXTAG metadata was accepted (`#effect=io`, `#pure`, etc.). Tags the
+  AXTAG metadata was accepted (`#effect=io`, `#effect=pure`, etc.). Tags the
   checker does not validate (`no_refactor`, `owned(arena=frame)`) are
   preserved and emitted unchecked.
 
@@ -394,7 +394,7 @@ axiom --diagnostic-format=ai symbols source.ax
 # Same, including always-in-scope built-in operators
 axiom --diagnostic-format=ai symbols source.ax --builtins
 
-# Verify AXTAG annotations were accepted (`#effect=io`, `#pure`, ...)
+# Verify AXTAG annotations were accepted (`#effect=io`, `#effect=pure`, ...)
 axiom --diagnostic-format=ai symbols source.ax | grep -E '#(effect|pure)'
 ```
 

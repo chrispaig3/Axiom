@@ -880,7 +880,7 @@
 ; declaration position, which is the same attachment stage0 performs -
 ; an AXTAG anywhere other than directly above a declaration is a parse
 ; error under stage0 (probed: `expected expression, found
-; `;@axiom:pure``), so no well-formed program can tell the two rules
+; `;@axiom:effect(pure)``), so no well-formed program can tell the two rules
 ; apart.
 ;
 ; It must skip exactly what the lexer skips, or a `;@axiom:` inside a
@@ -943,7 +943,7 @@
                 (if (&& (== ch 35) (isBlockOpen src pos len))
                   ; The same obligation as the string and char arms above,
                   ; and for the same reason: stage0 consumes a block comment
-                  ; before its `;` arm ever runs, so `#| ;@axiom:pure |#` is
+                  ; before its `;` arm ever runs, so `#| ;@axiom:effect(pure) |#` is
                   ; a comment there and must not become a tag here.
                   (set pos (skipBlockComment src (+ pos 2) len))
                   (if (== ch 59)

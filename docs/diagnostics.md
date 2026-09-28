@@ -548,7 +548,7 @@ and answers in AXSYM.
 | `-` | Replaces `FILE:LOC` for a name with no source span: the built-in operators (`+`, `==`, `&&`, ...), the primitives (`__syscall0`, `__alloc`, ...), an effect's operations, and the built-in types `Option` (with its two constructors) and `Vec`. The operators and primitives never change, so they appear only with `--builtins`. `Option` and `Vec` are always listed |
 | `"TYPE"` | The type as the checker writes it, curried and quoted: `(-> Int Int Int)` in source is `"(Int -> (Int -> Int))"` here. A type can contain `->` and parentheses, so the quotes keep field boundaries clear, the same way AXDL quotes messages |
 | `@NID` | The stable node ID (see [below](#stable-node-ids-and-source-embedded-tags)). Constructors and builtins have none |
-| `#key=value` | Kind-specific metadata (see below). A key with no value, such as `#pure`, is written alone |
+| `#key=value` | Kind-specific metadata (see below). A key with no value, such as `#no_refactor`, is written alone |
 
 The metadata keys:
 
@@ -567,7 +567,7 @@ The metadata keys:
 | `generated` | `F` | The declaration macro that wrote this declaration, for a name no line of the file spells |
 | `calls` | `F` | Only with `--calls`. The call edges the effect walk resolved to derive this row's `#effects=`, sorted and comma-separated. Each names the resolved entry, `Mod$name` where the checker mangled it (the same symbol codegen emits), so an edge tells you which `writeStr`. A bare reference is an edge too, because the effect walk counts it just like a call. See [agent-harness.md](agent-harness.md) §3.5 |
 
-AXTAG keys such as `#effect=io` and `#pure` join these on `F`, `D`,
+AXTAG keys such as `#effect=io` and `#effect=pure` join these on `F`, `D`,
 `S`, `A` and `E` rows (see [AXTAG](#source-embedded-tags-axtag)
 below). On an `E` row, `#unhandled=trap` comes from
 `;@axiom:unhandled(trap)`, which tells the compiler that reaching the
@@ -653,13 +653,13 @@ An AXTAG is a comment of the form `;@axiom:<key>(<value>)` directly
 above a declaration. It records intent, which the compiler checks
 where it can. The lexer keeps the tag, the parser attaches it to the
 declaration, and `axiom symbols` prints each accepted tag as `#`
-metadata on that declaration's line, such as `#effect=io` or `#pure`.
+metadata on that declaration's line, such as `#effect=io` or `#effect=pure`.
 
-Here the first declaration carries `;@axiom:pure`, the second is an
+Here the first declaration carries `;@axiom:effect(pure)`, the second is an
 `extern` item, and the third is a data type:
 
 ```scheme
-;@axiom:pure
+;@axiom:effect(pure)
 (:: double (-> Int Int))
 (fn (double x) (* x 2))
 
@@ -675,7 +675,7 @@ Their AXSYM lines, with the nid after the type and the metadata after
 the nid (constructor and builtin rows left out):
 
 ```text
-F double main.ax:2:5-11 "(Int -> Int)" @c74a58529d6a1016 #pure
+F double main.ax:2:5-11 "(Int -> Int)" @c74a58529d6a1016 #effect=pure
 F addTwo main.ax:6:4-10 "(Int -> (Int -> Int))" @531b42e47de2ddf6 #effects=IO
 D Maybe main.ax:8:7-12 "data Maybe" @247d1682b2330461 #ctors=Nothing,Just
 ```
@@ -697,8 +697,8 @@ The type checker validates the tags it can:
 
 | Code | Severity | Raised for |
 |---|---|---|
-| `AX3010` (`axtag-mismatch`) | error | an `effect(...)` or `pure` claim the body contradicts |
-| `AX3037` | warning | an `effect(...)` or `pure` claim the effect walk can't check |
+| `AX3010` (`axtag-mismatch`) | error | an `effect(...)` or `effect(pure)` claim the body contradicts |
+| `AX3037` | warning | an `effect(...)` or `effect(pure)` claim the effect walk can't check |
 | `AX3049` | error | a violated restriction. The message shows the path of resolved calls to where the effect enters, or the cycle |
 | `AX3051` | warning | a restriction over a row the walk couldn't close |
 | `AX3052` | error | a name in `restrict(...)` that isn't a restriction. The list is closed ([AXTAG metadata](reference.md#axtag-metadata)) |

@@ -562,7 +562,7 @@
   (Err (mkError 38 "platformReadFd")))
 
 (pub :: platformExitWith (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (pub fn (platformExitWith code)
   (- 0 38))
 

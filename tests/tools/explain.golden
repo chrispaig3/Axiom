@@ -89,6 +89,8 @@
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
+  [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
+  [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -236,7 +238,7 @@ parameter type (`(-> Int)`), or a type trailing the result; a `for`
 with more than one body or a `parallel` binding marked `mut`; an
 `extern` item with no `:: type`, or with a clause the block does not
 take; a `pub` written twice, or inside an expression; a field with a
-second type, or a literal where a field type goes; a function named
+second type, or a literal where a field type goes; a declaration named
 with an operator; a `;@axiom:` tag with no declaration after it; and a file whose top level opens with something other than `(`.
 Several of those messages say what the right shape is in the
 expectation itself, so read it in full.
@@ -1447,7 +1449,7 @@ death runs the Rust destructor.
 ### explain AX3037
 AX3037 - an AXTAG claim the effect walk is not in a position to check
 
-A `;@axiom:pure` or `;@axiom:effect(pure)` claim on a function whose
+A `;@axiom:effect(pure)` claim on a function whose
 body CALLS A VALUE the walk could not resolve. Three shapes reach it:
 a head that is not a name (`((b.f) x)`, an `if` or `match` in head
 position); a `let` bound to anything but a name or a lambda literal;
@@ -1480,7 +1482,7 @@ against a lower bound, and `pure` is exactly that claim. So
 
     (struct Box (f : (-> Int Int)))
 
-    ;@axiom:pure
+    ;@axiom:effect(pure)
     (fn (runner b) ((b.f) 7))
 
 compiled clean, ran, and wrote to stdout, while `symbols` printed
@@ -1534,17 +1536,20 @@ not know is metadata, it is recorded, and nothing checks it. That is
 not what this reports.
 
 This reports a key one edit - or one change of case - away from one
-the compiler checks. Seven are: `pure`, `effect(...)`, `restrict(...)`,
+the compiler checks. Seven are: `effect(...)`, `restrict(...)`, `raw`,
 `pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect`
-declaration. `;@axiom:pur` is not a
-purity claim. Nothing validates it, so a body performing IO under it
-draws no AX3010 at all: the tag reads like a guarantee and buys
-silence, which is worse than writing no tag, because a reader spends
-trust on it.
+declaration. `;@axiom:efect(io)` is not an effect claim. Nothing
+validates it, so a body performing IO under it draws no AX3010 at
+all: the tag reads like a guarantee and buys silence, which is worse
+than writing no tag, because a reader spends trust on it.
+
+Purity is the exception, and an error rather than this warning:
+`pure`, or a slip of it such as `pur`, is AX3078, because purity is
+written one way, `;@axiom:effect(pure)`.
 
 A key containing `:` is never reported. `agent:readonly` is namespaced
-and deliberate, and its distance from `pure` is not evidence about
-anything.
+and deliberate, and its distance from a checked key is not evidence
+about anything.
 
 Fix the spelling - or, if the key really is your own metadata,
 namespace it so it cannot be mistaken for a claim.
@@ -1732,7 +1737,7 @@ One shape does not draw this. IO that reaches the row only as
 POSSIBLE - the body NAMES an IO-performing function without calling
 it - is
 not evidence that the body performs IO, and an untagged function
-holding nothing more is silent; `;@axiom:pure` over it is AX3037.
+holding nothing more is silent; `;@axiom:effect(pure)` over it is AX3037.
 The reading is PER EFFECT: IO the body performs is accused whatever
 else the row carries. Until 2026-08-29 one row-global marker excused
 the whole row, so every untagged function one hop above a `println`
@@ -2085,7 +2090,7 @@ readings make a claim unverifiable:
     about this body and answers the wrong question: what the call
     performs is decided by the argument each caller passes.
     `symbols` prints `#effect-params=f`, and this reading is why a
-    restriction is not read the way `;@axiom:pure` is. `pure` on
+    restriction is not read the way `;@axiom:effect(pure)` is. `pure` on
     `(fn (apply f x) (f x))` STANDS - "pure modulo its function
     parameters" is what purity means on a higher-order function -
     because it describes a BODY. `restrict(no-io)` reads to whoever
@@ -2598,7 +2603,7 @@ The body calls a raw-memory primitive - `__load8`, `__store8`, `__store8v`, `__l
 
 Write `;@axiom:effect(unsafe)` above the declaration: on a line of its own, directly above the `fn` (below the `::` signature when there is one).
 
-This fires where the primitive is CALLED, not up the call chain. A transitive refusal through `strData`, `strByte`, `memGetWord` and `memAlloc` would tag every `String` and `Vec` user in the program; the obligation sits at the call site instead, the way AX3071 and AX3072 already refuse a primitive call's shape. A wrapper contains the unsafety, and a caller inherits `Unsafe` in its row - checked against `;@axiom:pure` and `restrict(no-unsafe)` like any other effect - without drawing this itself.
+This fires where the primitive is CALLED, not up the call chain. A transitive refusal through `strData`, `strByte`, `memGetWord` and `memAlloc` would tag every `String` and `Vec` user in the program; the obligation sits at the call site instead, the way AX3071 and AX3072 already refuse a primitive call's shape. A wrapper contains the unsafety, and a caller inherits `Unsafe` in its row - checked against `;@axiom:effect(pure)` and `restrict(no-unsafe)` like any other effect - without drawing this itself.
 
 A declaration that made ANY effect claim belongs to AX3010 instead: this is the silence half, for the function that claimed nothing.
 
@@ -2646,6 +2651,48 @@ taught to each of them.
 Write one tag line per effect; the help on the diagnostic spells them
 out. A single name with blanks around it is not a list and is read as
 before.
+
+### explain AX3077
+AX3077 - a checked AXTAG key on a declaration that can't carry it
+
+A tag belongs to the declaration after it, and the keys the compiler
+checks are checked on some declarations only: `effect(...)`, `raw`,
+`pre(...)`, `post(...)`, `restrict(...)` and `isr` on a
+function, through its `(:: ...)` or its `(fn ...)`, and
+`unhandled(trap)` on an `effect` declaration. Anywhere else the claim
+is recorded and nothing reads it:
+
+    ;@axiom:restrict(no-alloc)
+    (data Sample
+      (Reading Int))
+
+Nothing here allocates or fails to, because a `data` declaration has
+no body, and the line read like a guarantee while saying nothing.
+
+Move the tag above the function it describes, or drop it. A key the
+compiler doesn't check, such as `agent:readonly`, is still legal
+metadata anywhere; AX3039 is the neighbour that catches a checked key
+spelled one slip wrong.
+
+### explain AX3078
+AX3078 - purity written any way but `effect(pure)`
+
+An effect claim is always an `effect(...)` tag, and purity is the
+effect claim that says a function performs nothing:
+
+    ;@axiom:effect(pure)
+    (:: double (-> Int Int))
+    (fn (double n) (* n 2))
+
+That is the only spelling. `;@axiom:pure`, and any slip of it -
+`;@axiom:pur`, `;@axiom:Pure` - is refused wherever it stands. A
+second spelling for one claim is one more thing every reader of tags
+has to know, and a slip of it read as metadata looked like a purity
+claim while nothing checked it.
+
+Write `;@axiom:effect(pure)` above the function, on its `(:: ...)`
+or its `(fn ...)`. The claim is checked as before: a body that
+performs anything draws AX3010.
 
 ### explain AX4001
 AX4001 - no `main` function
@@ -3072,6 +3119,8 @@ run `axiom explain --list` to see all known codes
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
+  [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
+  [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

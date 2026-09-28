@@ -1,4 +1,4 @@
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `sys`: `pure` claim contradicted: body performs Alloc, IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `sys`: `effect(pure)` claim contradicted: body performs Alloc, IO[0m
  [1;34m--> [0m330-axtag-mismatch.ax:6:6
 [1;34m  |[0m
 [1;34m6 |[0m (fn (sys fd)
@@ -7,7 +7,7 @@
  [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `reached`: `pure` claim contradicted: body performs Alloc, IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `reached`: `effect(pure)` claim contradicted: body performs Alloc, IO[0m
   [1;34m--> [0m330-axtag-mismatch.ax:14:6
 [1;34m   |[0m
 [1;34m14 |[0m (fn (reached n)
@@ -25,7 +25,7 @@
   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
-[1;31merror[AX3010][0m[1m: AXTAG mismatch on `leaky`: `pure` claim contradicted: body performs IO[0m
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `leaky`: `effect(pure)` claim contradicted: body performs IO[0m
   [1;34m--> [0m330-axtag-mismatch.ax:34:6
 [1;34m   |[0m
 [1;34m34 |[0m (fn (leaky f x)

@@ -54,7 +54,7 @@
     }))
 
 (:: lies (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (lies n)
   {
     (println "out")

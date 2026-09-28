@@ -11,7 +11,9 @@
 ; What still fires is a slip FROM a known key: `restrct`
 ; suggests `restrict` - a suggestion that did not exist before, so a
 ; compiler without the change fails this case in both directions - and
-; `pur` suggests `pure` as it always did, which is the control.
+; `efect` suggests `effect`, which is the control. `pre` is also one
+; slip from `pure`, and a slip of `pure` is AX3078; `pre` isn't one,
+; because it is a key the compiler knows.
 ;@axiom:pre((> n 0))
 (:: guarded (-> Int Int))
 (fn (guarded n)
@@ -41,7 +43,7 @@
 (fn (slipped n)
   n)
 
-;@axiom:pur
+;@axiom:efect(io)
 (:: control (-> Int Int))
 (fn (control n)
   n)

@@ -827,7 +827,7 @@
 ; may write a tag above either.
 ;
 ; This kept the LAST NON-EMPTY set until 2026-08-29. Measured, both
-; directions: `;@axiom:pure` above the `::` and `;@axiom:no_refactor`
+; directions: `;@axiom:effect(pure)` above the `::` and `;@axiom:no_refactor`
 ; above the `fn` rendered `#no_refactor` alone, and swapped they
 ; rendered `#pure` alone. The checker was never affected - `checkAxtags`
 ; reads the two sets separately - so this was a reporting loss, and it

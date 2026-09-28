@@ -11,7 +11,7 @@
 ; empty golden.
 (:: quiet (-> Int Int))
 #|
-;@axiom:pure
+;@axiom:effect(pure)
 |#
 ;@axiom:effect(io)
 (fn (quiet fd)
@@ -21,7 +21,7 @@
   })
 
 (:: loud (-> Int Int))
-;@axiom:pure
+;@axiom:effect(pure)
 (fn (loud fd)
   {
     (__syscall3 1 fd 0 0)

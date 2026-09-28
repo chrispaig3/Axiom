@@ -6,21 +6,22 @@
 ; nothing, and must not: a key carrying `:` is namespaced and
 ; deliberate by construction, and a genuinely novel key is metadata.
 ;
-; What is reported is the shape that COSTS something. `;@axiom:pur` is
-; not a purity claim, so nothing checks it as one: `slipped` performs
+; What is reported is the shape that COSTS something. `;@axiom:efect(pure)`
+; is not a purity claim, so nothing checks it as one: `slipped` performs
 ; IO under a tag that reads like a guarantee and drew no AX3010 at all.
 ; The tag bought silence, which is worse than writing no tag, because a
 ; reader spends trust on it.
 ;
-; `SHOUTED` is the same slip through case, and `effct` is the other
-; key. `pure` itself is silent, which is the control.
-;@axiom:pur
+; `RESTRICT` is a slip through case, and `effct` is a second slip of
+; `effect`. `effect(pure)` itself is silent, which is the control. A
+; slip of `pure` is AX3078, an error (1031).
+;@axiom:efect(pure)
 (:: slipped (-> Int Int))
 ;@axiom:effect(io)
 (fn (slipped n)
   (__syscall3 1 1 n 0))
 
-;@axiom:PURE
+;@axiom:RESTRICT(no-io)
 (:: shouted (-> Int Int))
 (fn (shouted n)
   n)
@@ -40,7 +41,7 @@
 (fn (novel n)
   n)
 
-;@axiom:pure
+;@axiom:effect(pure)
 (:: control (-> Int Int))
 (fn (control n)
   n)
