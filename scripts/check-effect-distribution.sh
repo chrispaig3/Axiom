@@ -426,6 +426,23 @@
 # moved onto or off `IO`: every bucket naming `IO` holds its pin in
 # both views, so the required/ambient line sits where it was measured.
 #
+# 2026-09-28, after R-D2/A12 (device primitives, the vector table) and
+# the fuzzer-findings fixes: `Alloc,Mut,Unsafe` 2319 to 2345,
+# `Unsafe` 1180 to 1198, `Alloc,IO,Mut,Unsafe` 408 to 414,
+# `Mut,Unsafe` 129 to 130 and pure 566 to 567 in the main view,
+# `Unsafe` 162 to 164 and `Mut,Unsafe` 52 to 53 in the stdlib view.
+# Every delta is new rows landing - no row moved buckets, none moved
+# onto or off IO. R-D2/A12's 38 new emission and predicate functions
+# (eighteen `Alloc,Mut,Unsafe`, thirteen `Unsafe`, six
+# `Alloc,IO,Mut,Unsafe`, `attrGroupZero` pure); the findings' fifteen
+# new checkers and renderers against one removed (`isEffectName`,
+# superseded by `effTagWords`/`effTagLines`); the stdlib view's three
+# (`jsonEscapeOne` `Mut,Unsafe`, `utf8ContIn` and `utf8WellFormedAt`
+# `Unsafe`). The only IO-naming bucket that moves is
+# `Alloc,IO,Mut,Unsafe`, by six new emission rows (`emitPrimVLoad`,
+# `emitPrimVStore`, `emitPrimDevice`, `emitPrimArm`, `emitIsrBinding`,
+# `refuseDeviceIr`); every other IO bucket holds.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -462,15 +479,15 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 22 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2319 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1180 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 408 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 129 "Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2345 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1198 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 414 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 130 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 48 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 18 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 566 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 567 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
@@ -503,9 +520,9 @@ have "$(bucket "$work/lib.axsym" 'IO')" 32 "exactly IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 0 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 182 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Unsafe')" 162 "exactly Unsafe"
+have "$(bucket "$work/lib.axsym" 'Unsafe')" 164 "exactly Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 77 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 52 "Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 53 "Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 12 "Alloc,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 13 "Alloc,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut,Unsafe')" 7 "Alloc,Assert,IO,Mut,Unsafe"

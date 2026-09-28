@@ -60,6 +60,7 @@ calls tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 casts tests/diagnostics/375-restrict-unverifiable.ax no-cast violated
 catStrs self_host/diag.ax no-io,no-foreign ok
 charsToIx self_host/diag.ax no-io,no-alloc,no-foreign ok
+clean tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 clean tests/diagnostics/375-restrict-unverifiable.ax no-cast ok
 colCount self_host/diag.ax no-io,no-alloc,no-foreign ok
 colOf self_host/diag.ax no-io,no-alloc,no-foreign ok
@@ -126,10 +127,12 @@ emitToken self_host/lexer.ax no-io,no-foreign ok
 entry tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 fenced tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
+fenced tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe ok
 fhalf tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
 findNewline self_host/lexer.ax no-io,no-alloc,no-foreign ok
 floats tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
 floats tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
+flush tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 fmtDigits stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 fmtFloat stdlib/Fmt.ax no-io,no-foreign ok
 fmtFloatAbs stdlib/Fmt.ax no-io,no-foreign ok
@@ -392,6 +395,10 @@ quoteBody self_host/diag.ax no-io,no-foreign ok
 quoteHexDigit self_host/diag.ax no-io,no-foreign ok
 quoteStr self_host/diag.ax no-io,no-foreign ok
 quoteUesc self_host/diag.ax no-io,no-foreign ok
+rd16 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
+rd32 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
+rd64 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
+rd8 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 reads tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 reads tests/diagnostics/649-restrict-no-escape.ax no-escape ok
 refuted tests/diagnostics/393-restrict-strict.ax no-io,strict violated
@@ -429,6 +436,7 @@ skipLineComment self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipStringBody self_host/lexer.ax no-io,no-alloc,no-foreign ok
 skipWhitespace self_host/lexer.ax no-io,no-alloc,no-foreign ok
 slipped tests/diagnostics/376-restrict-unknown-name.ax no-fo unknown
+slot tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe ok
 softIo tests/diagnostics/393-restrict-strict.ax no-io unverifiable
 some tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 spanEnd self_host/core.ax no-io,no-alloc,no-foreign ok
@@ -564,4 +572,8 @@ viaIo tests/diagnostics/391-restrict-effect-transparent.ax no-io unverifiable
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
 viaRec tests/diagnostics/391-restrict-effect-transparent.ax no-recursion unverifiable
 visLen self_host/style.ax no-io,no-alloc,no-foreign ok
+wr16 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
+wr32 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
+wr64 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
+wr8 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 wraps tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated
