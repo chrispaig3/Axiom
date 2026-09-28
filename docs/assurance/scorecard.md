@@ -32,7 +32,7 @@ source.
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 69 pass, including eleven ablations and two controls that measure stated limits |
 | Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP, LB, 2+2W and counter litmus tests are clean on two threads and IRIW on four, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 96 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
-| A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns, steady-state allocation and a blocking call under an interrupt handler across the whole program, enumerates each function's trap statuses, and bounds the stack from AArch64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 41 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
+| A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns, steady-state allocation and a blocking call under an interrupt handler across the whole program, enumerates each function's trap statuses, and bounds the stack from AArch64 and x86-64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 49 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
 | Device registers are reached at their own width by volatile accesses the optimiser keeps, with AArch64 barriers, and an instruction the target lacks is `AX4008` (R-D2a) | `scripts/check-embedded.sh` A11 |
 | A periodic step runs on real timer interrupts within a checked profile and a stack budget, and a DMA driver keeps a contract-checked ownership protocol with an interrupt deadline (R-D2c) | `scripts/check-embedded.sh` A13 and A14, under QEMU with drills that must go red. Emulator evidence, not hardware |
 | An unhandled CPU exception on bare metal exits 81 naming the fault, and `isr(irq)` binds the IRQ vector (R-D2b) | `scripts/check-embedded.sh` A12: `tests/embedded/fault.ax` under QEMU exits 81 with ESR `0x96000021`. Emulator evidence, not hardware |
@@ -43,6 +43,10 @@ source.
 
 ## Open defects and gaps
 
+- AN-39 and AN-40: two programs a reordering of their declarations
+  refuses, found by `scripts/check-metamorphic.sh`'s second relation
+  and held there as known divergences. AN-41: a function's NID depends
+  on whether its signature or its definition comes last.
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
   reentrant; a channel's lock doesn't notice a dead holder; Darwin's
   clock is the realtime one; FreeBSD spins.
@@ -85,11 +89,11 @@ constants.
 | `check-atomics.sh` | 96 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |
-| `check-report.sh` | 41 pass, 0 skipped |
+| `check-report.sh` | 49 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 13 pass |
 | `check-fuzz.sh` | 46 pass |
-| `check-metamorphic.sh` | 6 pass |
+| `check-metamorphic.sh` | 8 pass |
 
 Execution on freebsd, windows and darwin-x86_64 has narrower evidence
 ([configurations.md](configurations.md)). Nothing has run on

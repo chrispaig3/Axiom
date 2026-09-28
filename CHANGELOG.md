@@ -22,6 +22,46 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The stack bound reads x86-64 machine code — `scripts/axiom-report.py --stack`, R-D1 - 2026-09-28
+
+`--stack` now bounds a program's stack from an x86-64 ELF object as
+well as an AArch64 one, so `linux-x86_64` and `freebsd-x86_64` get the
+same answer `baremetal-aarch64` and `linux-aarch64` had (AN-13). An
+x86-64 call and a tail jump carry the same relocation, so the report
+reads the opcode byte before the displacement: `E8` is a call, and
+`E9` or a conditional `0F 8x` is a tail jump. A call pushes an 8-byte
+return address `.stack_sizes` doesn't count, so each frame is charged
+8 bytes more. Variable-length code can't be scanned for an indirect
+call without decoding it, so on x86-64 the indirect sites come from
+the IR alone, and the report says so.
+
+`scripts/check-report.sh` §4b, 49 checks in all: `ok-periodic.ax` and
+`blink.ax` bounded at 168 and 296 bytes on `linux-x86_64`, each bound
+equal to its path's frames plus 8 a call; every frame equal to
+`llvm-readobj --stack-sizes` (18 and 41 functions); tree recursion
+unbounded; and a copy that never reads `E8` as a call gets tree
+recursion bounded.
+
+### A second metamorphic relation: reordering declarations — `scripts/check-metamorphic.sh` §2b - 2026-09-28
+
+Reversing a program's top-level declarations must not change its
+verdict or any declaration's `symbols` row. Imports stay first, and a
+`::` moves with its `fn`, with the comment and tag lines above each.
+Over `tests/stdlib`, `tests/selfhost` and `examples`, 259 programs with
+more than one declaration keep the relation.
+
+Two don't, and both are defects, recorded rather than hidden. A
+function with no signature, called above its definition, is refused
+with `AX3004` (AN-39): `(fn (main) (twice 4))` above
+`(fn (twice x) (* x 2))`. A declaration macro whose query names a
+`data` another macro generates below it is refused with `AX3028`
+(AN-40), against `MAC-LANG-3a`. The gate holds each to exactly the
+failure it shows, so fixing one fails the gate until the list is
+updated. The reference now says a function with no signature must be
+defined above its first call. The relation also showed that a
+function's NID depends on whether its `::` or its `fn` comes last
+(AN-41).
+
 ### The compiler joins strings with `strConcat` alone - 2026-09-28
 
 The compiler's source had six private helpers that each nested

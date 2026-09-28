@@ -25,13 +25,18 @@
 # or faulted), and a named pattern's binders missing from the effect
 # walk. `tests/selfhost/1006-cast-type-operand.ax` and `1007` pin them.
 #
-# FOUR SECTIONS.
+# FIVE SECTIONS.
 #   1. The comparator's selftest: each of R1-R3 reported on a planted
 #      difference, the two runtime tables that enumerate every function
 #      allowed to differ, fresh type variables compared by order.
 #   2. The relation over tests/stdlib, tests/selfhost and examples.
 #      A floor on the files that were actually tested, so a glob that
 #      stops matching can't pass by testing nothing.
+#   2b. The second relation: reversing a program's top-level
+#      declarations (imports first, a `::` with its `fn`) changes
+#      neither its verdict nor any `symbols` row. Two programs a
+#      reordering refuses are known defects (AN-39, AN-40): each must
+#      still fail exactly as recorded below, so a fix updates the list.
 #   3. Three compilers each rebuilt with one of the fixes taken out
 #      (`gate_build_tree`), and the relation required to FAIL under
 #      each: the gate watches the defects it was built on.
@@ -87,6 +92,33 @@ if [[ -n "$kept" && "$kept" -ge 300 ]]; then
   ok "$kept accepted programs tested, at least 300"
 else
   bad "only ${kept:-0} accepted programs were tested; the floor is 300"
+fi
+
+echo "== 2b. reordering the declarations changes nothing, over the corpora =="
+cat > "$work/reorder-known.txt" <<'KNOWN'
+# path<TAB>the divergence it must still show, until fixed
+tests/selfhost/381-macro-type-templates.ax	R1 AX3028 AX3028
+tests/selfhost/770-over-application.ax	R1 AX3004
+KNOWN
+rc=0
+( cd "$repo_root" && python3 "$lib" reorder --axiom "$axc" --jobs "$jobs" --known "$work/reorder-known.txt" "${corpus[@]}" ) \
+  >"$work/reorder.log" 2>&1 || rc=$?
+summary="$(grep '^reordered ' "$work/reorder.log" || true)"
+permuted="$(sed -nE 's/^reordered [0-9]+ files: ([0-9]+) permuted.*/\1/p' <<<"$summary")"
+held="$(sed -nE 's/.* ([0-9]+) known divergences held.*/\1/p' <<<"$summary")"
+if [[ $rc -eq 0 && -n "$permuted" ]]; then
+  ok "$summary"
+else
+  bad "the reorder relation does not hold: ${summary:-no summary}"
+  grep -E '^(DIVERGED|FIXED|MISSING|UNPARSED)' "$work/reorder.log" | cut -c1-400 | sed 's/^/     /' || true
+  tail -3 "$work/reorder.log" | sed 's/^/     /'
+fi
+# 259 permuted programs kept it on 2026-09-28. The known divergences
+# are also the proof that the harness sees a verdict change.
+if [[ -n "$permuted" && "$permuted" -ge 250 && "${held:-0}" -eq 2 ]]; then
+  ok "$permuted reordered programs tested, at least 250, and both known divergences seen"
+else
+  bad "only ${permuted:-0} reordered programs tested (floor 250), ${held:-0} of 2 known divergences seen"
 fi
 
 echo "== 3. a compiler with a fix taken out fails the relation =="
