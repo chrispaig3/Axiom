@@ -68,7 +68,11 @@ top-level declaration: you can invoke a macro above the line that
 declares it. `(fn (main) (dbl 21))` placed above
 `(macro (dbl x) (+ x x))` answers 42. Expansion has no "defined before
 use" rule and **MUST NOT** gain one. The macro table is built from the
-whole merged declaration list before any body is walked.
+whole merged declaration list before any body is walked. Not yet: a
+`syntax/*` query naming a `data` that another macro generates below
+the querying invocation is refused with `AX3028` (AN-40 in
+[assurance/anomalies.md](assurance/anomalies.md)), and
+`scripts/check-metamorphic.sh` holds that failure until it is fixed.
 
 **MAC-LANG-4 (H).** A macro's own template is not expanded where it is
 written. It is expanded once per invocation, against that invocation's

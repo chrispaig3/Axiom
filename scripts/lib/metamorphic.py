@@ -28,6 +28,20 @@ every gate then in the battery:
     an entry file's `e` rewrote `Err$errCode`'s parameter: wrong code;
   - the effect walk skipped a named pattern's binders, `{tag = t}`.
 
+THE SECOND RELATION, `reorder`: reversing the order of a program's
+top-level declarations changes neither its verdict (R1: the exit
+status and the diagnostic codes) nor any declaration's `symbols` row
+(R2: type, effect row, tags and NID, with the location dropped).
+Imports stay first, and a `::` travels with its `fn`, keeping their
+own order, together with the comment and tag lines above each. IR is
+not compared: constructor tags, string constants and lambdas are
+numbered in declaration order by design, so a reordered program's IR
+differs in names that no program can observe. Its first run found two
+programs a reordering refuses: an unsigned function called above its
+definition (AN-39) and a declaration macro querying a `data` another
+macro generates below it (AN-40). They are `--known` divergences: each
+must still fail exactly as recorded, so a fix has to update the list.
+
 WHAT IT CANNOT SEE. Only names it adds; only programs the compiler
 already accepts (a refused program's free names are exactly the
 names this adds - `tests/diagnostics/1009-macro-for-innermost.ax`
@@ -39,6 +53,7 @@ enumerate every function by design and are excluded by name,
 
 Usage:
   metamorphic.py run --axiom AXC [--jobs N] FILE...
+  metamorphic.py reorder --axiom AXC [--jobs N] [--known FILE] FILE...
   metamorphic.py selftest
 Exit 0 when every accepted program keeps the relation, 1 otherwise.
 """
@@ -164,6 +179,190 @@ def one(axiom, path):
     return path, "diverged" if probs else "kept", probs
 
 
+OPEN, CLOSE = '([{', ')]}'
+
+
+def skip_atom(s, i):
+    """Index just past the lexical item at s[i] (not a bracket)."""
+    c = s[i]
+    if s.startswith('#|', i):
+        j = s.find('|#', i + 2)
+        return len(s) if j < 0 else j + 2
+    if c == '"':
+        i += 1
+        while i < len(s) and s[i] != '"':
+            i += 2 if s[i] == '\\' else 1
+        return i + 1
+    if c == "'":
+        j = i + 2 if i + 1 < len(s) and s[i + 1] == '\\' else i + 1
+        return j + 2 if j + 1 < len(s) and s[j + 1] == "'" else i + 1
+    if c == ';':
+        while i < len(s) and s[i] != '\n':
+            i += 1
+        return i
+    while i < len(s) and not s[i].isspace() and s[i] not in OPEN + CLOSE + '";':
+        i += 1
+    return i
+
+
+def form_end(s, i):
+    """s[i] opens a bracket: the index just past its match."""
+    depth = 0
+    while i < len(s):
+        c = s[i]
+        if c in OPEN:
+            depth += 1
+            i += 1
+        elif c in CLOSE:
+            depth -= 1
+            i += 1
+            if depth == 0:
+                return i
+        elif c.isspace():
+            i += 1
+        else:
+            i = skip_atom(s, i)
+    raise ValueError('unbalanced')
+
+
+def units(src):
+    """Top-level forms, each with the comment and tag lines above it,
+    and the text after the last one."""
+    i, pend, out = 0, 0, []
+    while i < len(src):
+        c = src[i]
+        if c in OPEN:
+            e = form_end(src, i)
+            out.append(src[pend:e])
+            pend = i = e
+        elif c.isspace():
+            i += 1
+        else:
+            i = skip_atom(src, i)
+    return out, src[pend:]
+
+
+UNIT_HEAD = re.compile(r'^\s*(?:(?:;[^\n]*|#\|.*?\|#)\s*)*\((?:pub\s+)?(\S+)\s+\(?([^\s()]+)', re.S)
+
+
+def reordered(src):
+    """The declarations in reverse order: imports first, and a `::`
+    grouped with its `fn` in their own order."""
+    us, tail = units(src)
+    heads = [UNIT_HEAD.match(u) for u in us]
+    imports = [u for u, h in zip(us, heads) if h and h.group(1) == 'import']
+    groups, placed = [], {}
+    for u, h in zip(us, heads):
+        if h and h.group(1) == 'import':
+            continue
+        kind, name = (h.group(1), h.group(2)) if h else (None, None)
+        if kind in ('::', 'fn') and name in placed:
+            groups[placed[name]] += u
+        else:
+            if kind in ('::', 'fn'):
+                placed[name] = len(groups)
+            groups.append(u)
+    return ''.join(imports) + ''.join(reversed(groups)) + tail, len(groups)
+
+
+def verdict_of(check):
+    """Exit status and the sorted diagnostic codes: positions move."""
+    return check[0], tuple(sorted(re.findall(r'^[EW] (AX\d{4}) ', check[1], re.M)))
+
+
+def plain_rows(table):
+    return {k: re.sub(r'F:\d+:\d+(-\d+(:\d+)?)?', 'LOC', v) for k, v in table.items()}
+
+
+def one_reorder(axiom, path):
+    path = os.path.abspath(path)
+    cwd, base = os.path.split(path)
+    src = open(path, encoding='utf-8', errors='replace').read()
+    orig = run(axiom, ['check', base], cwd)
+    if orig[0] != 0:
+        return path, 'refused', ''
+    try:
+        text, ngroups = reordered(src)
+    except ValueError:
+        return path, 'unparsed', ''
+    if ngroups < 2:
+        return path, 'single', ''
+    vname = '.reorder-%d-%s' % (os.getpid(), base)
+    vpath = os.path.join(cwd, vname)
+    with open(vpath, 'w', encoding='utf-8') as fh:
+        fh.write(text)
+    try:
+        var = run(axiom, ['check', vname], cwd)
+        s0 = run(axiom, ['symbols', base], cwd)
+        s1 = run(axiom, ['symbols', vname], cwd)
+    finally:
+        os.remove(vpath)
+    probs = []
+    v0 = verdict_of((orig[0], orig[2]))
+    v1 = verdict_of((var[0], var[2]))
+    if v0 != v1:
+        probs.append('R1 ' + (' '.join(v1[1]) or 'exit %d' % v1[0]))
+    r0, r1 = plain_rows(rows(s0[1], base)), plain_rows(rows(s1[1], vname))
+    moved = sorted(k[1] for k in r0 if r1.get(k) != r0[k])
+    if moved and not probs:
+        probs.append('R2 ' + ','.join(moved))
+    return path, 'diverged' if probs else 'kept', '; '.join(probs)
+
+
+def cmd_reorder(argv):
+    axiom, jobs, known_file, files = None, 4, None, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == '--axiom':
+            axiom = argv[i + 1]; i += 2
+        elif argv[i] == '--jobs':
+            jobs = int(argv[i + 1]); i += 2
+        elif argv[i] == '--known':
+            known_file = argv[i + 1]; i += 2
+        else:
+            files.append(argv[i]); i += 1
+    if not axiom or not files:
+        print(__doc__)
+        return 2
+    if os.sep in axiom:
+        axiom = os.path.abspath(axiom)
+    known = {}
+    if known_file:
+        for line in open(known_file, encoding='utf-8'):
+            line = line.rstrip('\n')
+            if line and not line.startswith('#'):
+                p, sig = line.split('\t', 1)
+                known[p] = sig
+    counts = dict(kept=0, known=0, diverged=0, fixed=0, refused=0, single=0, unparsed=0)
+    seen = set()
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        for path, verdict, sig in ex.map(lambda f: one_reorder(axiom, f), files):
+            rel = os.path.relpath(path)
+            seen.add(rel)
+            if rel in known:
+                if verdict == 'diverged' and sig == known[rel]:
+                    counts['known'] += 1
+                    print('XFAIL %s: %s (as recorded)' % (rel, sig))
+                else:
+                    counts['fixed'] += 1
+                    print('FIXED? %s: recorded [%s], now %s [%s] - update the known list' % (rel, known[rel], verdict, sig))
+                continue
+            counts[verdict] += 1
+            if verdict == 'diverged':
+                print('DIVERGED %s: %s' % (rel, sig))
+            elif verdict == 'unparsed':
+                print('UNPARSED %s' % rel)
+    for p in known:
+        if p not in seen:
+            counts['fixed'] += 1
+            print('MISSING %s: on the known list and not swept' % p)
+    print('reordered %d files: %d permuted and kept the relation, %d known divergences held, '
+          '%d diverged, %d known entries changed, %d refused, %d with one declaration, %d unparsed'
+          % (len(files), counts['kept'], counts['known'], counts['diverged'], counts['fixed'],
+             counts['refused'], counts['single'], counts['unparsed']))
+    return 1 if counts['diverged'] or counts['fixed'] or counts['unparsed'] else 0
+
+
 def cmd_run(argv):
     axiom, jobs, files = None, 4, []
     i = 0
@@ -223,6 +422,18 @@ def cmd_selftest():
            "fresh type variables are compared by order of appearance")
     expect(declared("(fn (k) 1)\n(:: v Int)\n(macro (w) 9)\n(fn e 2)") == {"k", "v", "w", "e"},
            "declared names are skipped, macros included")
+    prog = ('(import IO)\n; a note\n;@axiom:effect(io)\n(:: f Int)\n(fn (f) 1)\n'
+            '#| block ( |#\n(data D (A))\n(:: g Int)\n(fn (g) (f))\n')
+    text, n = reordered(prog)
+    us, _ = units(text)
+    expect(us[0].strip() == '(import IO)', "reorder keeps imports first")
+    expect(n == 3 and text.index('(fn (g)') < text.index('(data D') < text.index('(:: f Int)'),
+           "reorder reverses the declarations")
+    expect(text.index(';@axiom:effect(io)') < text.index('(:: f Int)') < text.index('(fn (f)'),
+           "a tag line and a signature travel with their function")
+    expect(sorted(prog.split()) == sorted(text.split()), "reorder is a permutation of the source")
+    expect(verdict_of((1, 'E AX3004 a:1:1 x "m"\nW AX3037 b:2:2 y "n"')) == (1, ('AX3004', 'AX3037')),
+           "a verdict is the exit status and the codes")
     print("selftest: %d failed" % fails)
     return 1 if fails else 0
 
@@ -230,6 +441,8 @@ def cmd_selftest():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "run":
         sys.exit(cmd_run(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "reorder":
+        sys.exit(cmd_reorder(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "selftest":
         sys.exit(cmd_selftest())
     print(__doc__)

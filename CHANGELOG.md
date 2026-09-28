@@ -22,6 +22,26 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A second metamorphic relation: reordering declarations — `scripts/check-metamorphic.sh` §2b - 2026-09-28
+
+Reversing a program's top-level declarations must not change its
+verdict or any declaration's `symbols` row. Imports stay first, and a
+`::` moves with its `fn`, with the comment and tag lines above each.
+Over `tests/stdlib`, `tests/selfhost` and `examples`, 259 programs with
+more than one declaration keep the relation.
+
+Two don't, and both are defects, recorded rather than hidden. A
+function with no signature, called above its definition, is refused
+with `AX3004` (AN-39): `(fn (main) (twice 4))` above
+`(fn (twice x) (* x 2))`. A declaration macro whose query names a
+`data` another macro generates below it is refused with `AX3028`
+(AN-40), against `MAC-LANG-3a`. The gate holds each to exactly the
+failure it shows, so fixing one fails the gate until the list is
+updated. The reference now says a function with no signature must be
+defined above its first call. The relation also showed that a
+function's NID depends on whether its `::` or its `fn` comes last
+(AN-41).
+
 ### The compiler joins strings with `strConcat` alone - 2026-09-28
 
 The compiler's source had six private helpers that each nested

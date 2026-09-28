@@ -388,8 +388,26 @@ What it does not show:
 - IR is compared as text. `__axiom_bt_name` and `__axiom_lineinit`
   list every function, so they are allowed to differ, and nothing else
   is.
-- It is one relation. Renaming a binder, reordering declarations or
-  inlining a `let` are other relations, and nothing checks them yet.
+- Renaming a binder and inlining a `let` are other relations, and
+  nothing checks them yet.
+
+The second relation reverses a program's top-level declarations and
+requires the same verdict and the same `symbols` row for every
+declaration, its NID included. Imports stay first, and a `::` moves
+with its `fn`. Of the programs with more than one declaration, all but
+two keep it. Those two are defects, and the gate holds each to the
+failure it shows until it is fixed:
+
+- An unsigned function called above its definition is refused:
+  `(fn (main) (twice 4))` above `(fn (twice x) (* x 2))` draws `AX3004`
+  (AN-39).
+- A declaration macro querying a `data` that another macro generates
+  below it is refused with `AX3028` (AN-40,
+  `tests/selfhost/381-macro-type-templates.ax` reversed).
+
+This relation compares no IR. Constructor tags, string constants and
+lambdas are numbered in declaration order, so reordering renames them
+in ways no program can observe.
 
 ## What is still open
 
@@ -410,4 +428,4 @@ What it does not show:
   assembles at one level per trace, not all four with diffing.
 - Differential and metamorphic compiler tests beyond the bootstrap
   fixpoint (`stage2 == stage3`), the MIR differential, P5's two
-  optimisation levels and the one metamorphic relation above.
+  optimisation levels and the two metamorphic relations above.
