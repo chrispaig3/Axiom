@@ -22,6 +22,33 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The resource report names trap statuses and blocking calls — `scripts/axiom-report.py`, RP-8, R-D1 - 2026-09-28
+
+`scripts/axiom-report.py` now says, for each reachable function, which
+`MM-EXEC-16` statuses a call from it can end the process with, read
+off the call graph and closed over it: 72 for `/` and `%`, 77 for a
+`vecGet` range check, 80 for a contract, 82 for an atomic, 75 and 76
+for an arena reset, 78 for a spawn or join, 70 wherever the row
+allocates and 71 wherever it holds a declared effect. Each root's set
+is an obligation line, and the traps the graph has no edge for (count
+exhaustion, stack exhaustion, a CPU fault) are named beside them.
+
+It also says whether a function may block: a join, or a body passing
+one of ten syscall numbers that can wait on another party (read,
+write, open, a child wait, accept, connect, a poll wait, a futex or
+ulock wait). A new rule, RP-8, refuses a blocking call reachable from
+an `isr` or from a root named with `--nonblocking`
+(`tests/profile/rp8-blocking.ax`). Functions using `<<`, `>>`, `/` or
+`%`, which are undefined on part of their domain, are listed as an
+obligation. The text report's marks gain `T` and `B`.
+
+The tool also read every line opening `E ` as a compiler error, and
+`E` is the `symbols` kind of an `effect` declaration, so a program
+declaring an effect got no report. It reads AXDL errors from stderr
+now. `scripts/check-report.sh` holds the trap statuses of a program
+with one source of each exactly, refuses RP-8's fixture by RP-8 alone,
+and ablates the trap and blocking derivations: 41 checks.
+
 ### Purity is written one way, and a tag must sit where it is checked — `AX3077`, `AX3078` - 2026-09-28
 
 **Purity is `;@axiom:effect(pure)`.** Three spellings were accepted:

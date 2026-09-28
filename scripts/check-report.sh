@@ -14,10 +14,15 @@
 #   2. Facts read off `symbols --calls`: the per-function marks of a
 #      program that has one of everything (allocation, IO, recursion
 #      direct and mutual, a call through a parameter, a spawn, an isr),
-#      compared exactly - and `#extern`, the compiler's own marker.
+#      compared exactly - and `#extern`, the compiler's own marker. Then
+#      the trap statuses each function may end the process with, for a
+#      program with one source of each (division, bounds, a contract, an
+#      atomic, an arena reset, an unhandled effect), and the operators
+#      undefined on part of their domain, compared exactly.
 #   3. The profile: tests/profile/ok-*.ax pass with exit 0; each
 #      tests/profile/rpN-*.ax is refused with exit 1 by exactly the rule
-#      its name gives, and by no other.
+#      its name gives, and by no other. RP-8 is an interrupt handler that
+#      may block, read off the syscall-number constant its body passes.
 #   4. The stack bound, where llc can build an AArch64 ELF object: the
 #      conforming program and tests/embedded/blink.ax are bounded under
 #      the 8 KiB the baremetal-aarch64 link reserves; tree recursion is
@@ -30,12 +35,16 @@
 #      must stop refusing that rule's fixture (so the fixture is caught
 #      by the rule it names, not by accident), and a copy whose bound
 #      treats calls as tail calls must call tree recursion bounded (so
-#      section 4's unbounded verdict is the algorithm's, not luck).
+#      section 4's unbounded verdict is the algorithm's, not luck). A
+#      copy with no trap leaves must get section 2's trap sets wrong,
+#      and one with no blocking kernel entries must pass RP-8's fixture.
 #
 # What a green run does NOT show: that a bounded stack is a bounded
-# latency (it is not; nothing here is a WCET bound), that traps are
-# enumerated (they are not), or anything about targets other than
-# AArch64 ELF for the stack half.
+# latency (it is not; nothing here is a WCET bound), anything about
+# targets other than AArch64 ELF for the stack half, or traps the graph
+# has no edge for (count exhaustion from emitted retains, stack
+# exhaustion, a CPU fault from an Unsafe access), which the report
+# names as obligations.
 set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
@@ -55,7 +64,7 @@ blink="$repo_root/tests/embedded/blink.ax"
 [[ -f "$tool" ]] || { echo "FAIL: $tool is missing"; exit 1; }
 [[ -f "$blink" ]] || { echo "FAIL: $blink is missing"; exit 1; }
 nfx=$(ls "$fxdir"/*.ax 2>/dev/null | wc -l | tr -d ' ')
-(( nfx >= 6 )) || { echo "FAIL: $fxdir holds $nfx fixtures, fewer than the 6 this gate reads"; exit 1; }
+(( nfx >= 7 )) || { echo "FAIL: $fxdir holds $nfx fixtures, fewer than the 7 this gate reads"; exit 1; }
 
 report() {  # report <tool> <out-json> <args...>: exit status of the tool
   local t="$1" out="$2"; shift 2
@@ -141,7 +150,7 @@ if [[ "$rc" != 0 ]]; then
   bad "facts: the tool exited $rc without a profile (only refusals may make it non-zero):"
   head -5 "$work/facts.json.err" | sed 's/^/     /'
 else
-  # name -> the marks the text renderer prints: A I U X R ~ S K
+  # name -> the marks the text renderer prints: A I U X R ~ S K T B
   python3 - "$work/facts.json" > "$work/facts.marks" <<'PY'
 import json, sys
 r = json.load(open(sys.argv[1]))
@@ -151,7 +160,8 @@ for q in sorted(r['functions']):
     print(q, ''.join([
         'A' if fa['alloc'] else '.', 'I' if fa['io'] else '.', 'U' if fa['unsafe'] else '.',
         'X' if fa['extern'] else '.', 'R' if q in rec else '.', '~' if fa['indirect'] else '.',
-        'S' if (fa['spawn'] or fa['join']) else '.', 'K' if fa['kernel'] else '.'])
+        'S' if (fa['spawn'] or fa['join']) else '.', 'K' if fa['kernel'] else '.',
+        'T' if fa['traps'] else '.', 'B' if fa['blocks'] else '.'])
           + (' isr' if fa['isr'] else ''))
 print('roots', ','.join(r['roots']))
 PY
@@ -163,18 +173,88 @@ PY
       bad "facts: $name is [$got], wanted [$want]"
     fi
   done <<'ROWS'
-countdown ....R...
-ping ....R...
-pong ....R...
-apply .....~..
-build A.......
-tick ........ isr
-main AI....S.
-peek AIU.....
-Mem$memAlloc A.U.....
-Sys$sysWriteFd AI.....K
+countdown ....R.....
+ping ....R.....
+pong ....R.....
+apply .....~....
+build A.......T.
+tick .......... isr
+main AI....S.TB
+peek AIU.....TB
+Mem$memAlloc A.U.....T.
+Sys$sysWriteFd AI.....KTB
 roots main,tick
 ROWS
+fi
+
+# Trap statuses and undefined operators, one source of each, compared
+# exactly. `traps` is transitive: `main` answers what `dv` and `half`
+# can end the process with.
+cat > "$work/traps.ax" <<'AX'
+(import Vec)
+
+(:: dv (-> Int Int Int))
+(fn (dv a b)
+  (+ (/ a b) (% a b)))
+
+(:: ix (-> (Vec Int) Int))
+(fn (ix v)
+  (vecGet v 3))
+
+(:: at (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (at p)
+  (__atomic_load p))
+
+(:: rs (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (rs m)
+  (__axiom_arena_reset m))
+
+;@axiom:pre((> n 0))
+(:: half (-> Int Int))
+(fn (half n)
+  (/ n 2))
+
+(effect Ask (ask :: (-> Int Int)))
+
+;@axiom:effect(ask)
+(:: asker Int)
+(fn (asker)
+  (ask 1))
+
+(:: sh (-> Int Int))
+(fn (sh x)
+  (<< x 3))
+
+(:: main Int)
+(fn (main)
+  (+ (dv 1 1) (half 4)))
+AX
+trapfacts() {  # trapfacts <tool> <out>: `name traps undefined` per root
+  report "$1" "$2.json" "$work/traps.ax" --root asker --root at --root rs --root ix --root sh || return 2
+  python3 - "$2.json" > "$2" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+for q in ('main', 'dv', 'ix', 'at', 'rs', 'half', 'asker', 'sh'):
+    fa = r['functions'][q]
+    print(q, ','.join(str(t) for t in fa['traps']) or '-', '|'.join(fa['undefined']) or '-')
+PY
+}
+cat > "$work/traps.want" <<'WANT'
+main 72,80 -
+dv 72 INT_MIN % -1|INT_MIN / -1
+ix 77 -
+at 82 -
+rs 70,75,76 -
+half 72,80 INT_MIN / -1
+asker 71 -
+sh - a shift amount outside 0..63
+WANT
+if trapfacts "$tool" "$work/traps.got" && diff -u "$work/traps.want" "$work/traps.got" > "$work/traps.diff"; then
+  ok "traps: eight functions' statuses and undefined operators, exactly"
+else
+  bad "traps: the statuses or undefined operators differ:"; sed 's/^/     /' "$work/traps.diff" "$work/traps.got.json.err" 2>/dev/null | head -20
 fi
 # `#extern` is the compiler's own marker: without it an extern row is a
 # function with no calls and `#effects=IO`, which is also what a body
@@ -212,6 +292,7 @@ rp3-foreign.ax|--allow-foreign add|none
 rp4-spawn.ax||RP-4
 rp5-steady.ax|--steady step|RP-5
 rp5-steady.ax||none
+rp8-blocking.ax||RP-8
 ROWS
 
 echo
@@ -338,7 +419,30 @@ RP-2|rp2-indirect.ax|
 RP-3|rp3-foreign.ax|
 RP-4|rp4-spawn.ax|
 RP-5|rp5-steady.ax|--steady step
+RP-8|rp8-blocking.ax|
 ROWS
+# The derivations: with no trap leaves the exact statuses above must
+# come out wrong, and with no blocking kernel entry RP-8's fixture must
+# pass. Each shows the fact is read off the graph, not assumed.
+if ablate traps "TRAP_LEAVES = {" "TRAP_LEAVES = {} and {"; then
+  if trapfacts "$work/abl-traps.py" "$work/a-traps.got" && ! diff -q "$work/traps.want" "$work/a-traps.got" >/dev/null; then
+    ok "ablation traps: with no trap leaves, $(diff "$work/traps.want" "$work/a-traps.got" | grep -c '^>') rows come out wrong"
+  else
+    bad "ablation traps: the trap statuses are unchanged with no trap leaves"
+  fi
+else
+  bad "ablation traps: the seam did not match exactly once"
+fi
+if ablate blocking "BLOCKING_KERNEL = {" "BLOCKING_KERNEL = set() and {"; then
+  report "$work/abl-blocking.py" "$work/a-blocking.json" "$fxdir/rp8-blocking.ax" --profile restricted; rc=$?
+  if [[ "$rc" == 0 && -z "$(rules_of "$work/a-blocking.json")" ]]; then
+    ok "ablation blocking: with no blocking kernel entry, rp8-blocking.ax passes - RP-8 reads the syscall its body names"
+  else
+    bad "ablation blocking: rp8-blocking.ax still exits $rc with no blocking kernel entry"
+  fi
+else
+  bad "ablation blocking: the seam did not match exactly once"
+fi
 # The bound: a copy that ignores a call edge inside a cycle - treating
 # recursion as if it held no frame - must answer the selftest wrong and
 # call tree recursion bounded. Section 4's UNBOUNDED is then the

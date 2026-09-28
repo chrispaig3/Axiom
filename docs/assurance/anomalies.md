@@ -59,6 +59,7 @@ It isn't a system severity. The integrator assigns that
 | AN-31 | A checked tag, such as `restrict(no-alloc)`, above a `data`, `struct`, import, macro or alias was recorded and never checked | The tag-rules commit | `tests/diagnostics/1030-axtag-misplaced.ax`; `AX3077` |
 | AN-32 | Purity had three accepted spellings, `pure`, `effect(pure)` and a slip of `pure` read as metadata, and the slip claimed nothing | The tag-rules commit | `tests/diagnostics/1031-pure-tag-spelling.ax`; `AX3078` |
 | AN-33 | A `data` constructor or type spelled like an operator compiled though nothing could reach it | The tag-rules commit | `tests/fuzz/data-ctor-operator.axfuzz`; `tests/diagnostics/1029-operator-fn-name.axbad` |
+| AN-38 | `scripts/axiom-report.py` read every line opening `E ` as a compiler error, and `E` is also the `symbols` kind of an `effect` declaration, so it refused to report on any program declaring an effect | The trap-enumeration commit | `scripts/check-report.sh` §2's trap program declares `Ask` |
 | AN-C1 | The fuzzing harness read a refusal whose report held a NUL as a codeless one | `61f1e0ef` | `scripts/check-fuzz.sh` §4's NUL control |
 | AN-C2 | Two `check` segmentation faults found by the fuzzer, in the human renderer and the region pass | `878b17be` | `tests/fuzz/render-spanless-cross.axfuzz`, `tests/fuzz/region-nonarrow-sig.axfuzz` |
 | AN-C3 | A forked binding that trapped inside a recovery point ran the parent's continuation (F2) | Milestone A | `tests/stdlib/522-parallel-recover.ax` |

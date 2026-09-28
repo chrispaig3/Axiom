@@ -48,19 +48,37 @@ reachable from the roots - `main`, every `#isr` row, and `--root NAME`:
                       cycle, no dynamic stack, no call into code with no
                       frame size) and, with `--stack-budget N`, is at
                       most N bytes including one interrupt frame.
+  RP-8 blocking       no `#isr` row, and no `--nonblocking NAME` root,
+                      reaches a call that may suspend it: a join, or a
+                      body passing one of `BLOCKING_KERNEL`'s syscall
+                      numbers (read, write, open, a child wait, accept,
+                      connect, a poll wait, a futex or ulock wait).
 
 and obligations it lists but does not refuse, because they are the
 explicit trusted boundary rather than a defect: every reachable function
 that calls an Unsafe primitive directly (`#effect=unsafe`), every kernel
 entry (`__syscallN`; on baremetal-aarch64 the compiler lowers these to
-the no-syscall trap), IO, and the stack analysis's assumptions.
+the no-syscall trap), IO, the stack analysis's assumptions, each root's
+trap statuses and whether it may block, and every function using an
+operator undefined on part of its domain (`<<`, `>>`, INT_MIN / -1).
+
+TRAPS. Each function's `traps` is the set of MM-EXEC-16 statuses a call
+from it can end the process with: 72 for `/` and `%`, 77 for
+`__indexTrap`, 80 for a contract, 82 for an atomic, 75 and 76 for an
+arena reset, 78 for a spawn or join, 70 wherever the row has `Alloc`, and
+71 wherever it holds a declared effect (unless a caller handles it). The
+set is closed over the call graph.
 
 WHAT IT DOES NOT DO, stated so a green report is not over-read:
 
   * it does not decide termination or execution time. A bounded stack is
     not a bounded latency; nothing here is a WCET bound;
-  * traps (division by zero, bounds, out-of-memory, count exhaustion)
-    are not enumerated per function - the report says so in its summary;
+  * a trap with no edge in the graph is not in a function's set: count
+    exhaustion from the retains the compiler emits, stack exhaustion,
+    and a CPU fault from an Unsafe access. The report names them;
+  * "may block" is a property of the syscall number, not of the file
+    descriptor: a `read` of a regular file is marked, and a `write` to
+    one too, because the graph can't tell a file from a pipe;
   * the source graph is the checker's: a call the checker resolved is an
     edge, and code the compiler EMITS without a source call (retain,
     release, the allocator, trap exits) is visible only to `--stack`,
@@ -93,6 +111,33 @@ SPAWN_RE = re.compile(r'^__(par|thread|proc)_spawn')
 JOIN_RE = re.compile(r'^__(par|thread|proc)_join')
 KERNEL_RE = re.compile(r'^__syscall[0-6]$')
 INDIRECT_BUILTINS = {'__call_word'}
+
+# The builtins whose call can end the process with a trap status
+# (MM-EXEC-16). The graph shows each as a leaf of the function whose body
+# calls it: `/` and `%` trap on a zero divisor, `__indexTrap` is `vecGet`'s
+# range refusal, `__contract` a violated `pre`/`post`, the arena reset a
+# bad mark (75) or a mark past a live handle (76).
+TRAP_LEAVES = {'/': (72,), '%': (72,), '__indexTrap': (77,), '__contract': (80,),
+               '__axiom_arena_reset': (75, 76), '__axiom_arena_reset_keeping': (75, 76)}
+ATOMIC_RE = re.compile(r'^__atomic_')
+BUILTIN_EFFECTS = {'IO', 'Alloc', 'Mut', 'Unsafe', 'Div', 'Pure'}
+
+# The operators whose result is undefined on part of their domain rather
+# than trapped (AN-14): a shift by an amount outside 0..63, and
+# INT_MIN / -1. `restrict(no-untrapped)` refuses them per declaration.
+UNDEFINED_LEAVES = {'<<': 'a shift amount outside 0..63', '>>': 'a shift amount outside 0..63',
+                    '/': 'INT_MIN / -1', '%': 'INT_MIN % -1'}
+
+# The kernel entries that may suspend the caller until another party
+# acts, named by the syscall-number constants every `Sys.Platform`
+# module declares (the graph has an edge to the constant a body reads):
+# `read` and `write` on a pipe, socket or terminal; `open` of a FIFO;
+# waiting for a child; `accept` and `connect`; `epoll_wait`/`kevent`;
+# a futex or `__ulock` wait, the timed forms included. A join blocks
+# until its child ends.
+BLOCKING_KERNEL = {'sysRead', 'sysWrite', 'sysOpen', 'sysOpenatNum', 'sysWait4',
+                   'sysWaitIdNum', 'sysAcceptNum', 'sysConnectNum', 'sysPollWaitNum',
+                   'sysWaitWordNum'}
 
 
 class ReportError(Exception):
@@ -167,7 +212,10 @@ def load_source_graph(axiom, src, target):
     p = subprocess.run(cmd, capture_output=True)
     out = p.stdout.decode('utf-8', 'replace')
     err = p.stderr.decode('utf-8', 'replace')
-    errors = [l for l in (out + '\n' + err).splitlines() if l.startswith('E ')]
+    # An error is an AXDL line on stderr. `E` is also the AXSYM kind of
+    # an `effect` declaration on stdout, so a program declaring an effect
+    # was read as one that does not check.
+    errors = [l for l in err.splitlines() if re.match(r'E AX\d{4} ', l)]
     if errors:
         raise ReportError('the program does not check:\n' + '\n'.join(errors[:10]))
     if p.returncode != 0 or not out.strip():
@@ -692,7 +740,26 @@ def facts_of(g, q):
     if f.flag('effects-possible'):
         ind.append('row over-approximate')
     ind += ['calls ' + l for l in leaves if l in INDIRECT_BUILTINS]
+    traps = set()
+    for l in leaves:
+        traps.update(TRAP_LEAVES.get(l, ()))
+        if ATOMIC_RE.match(l):
+            traps.add(82)
+        if SPAWN_RE.match(l) or JOIN_RE.match(l):
+            traps.add(78)
+    # The row is transitive already: out of memory wherever it allocates,
+    # an unhandled operation wherever a declared effect is still in it.
+    if 'Alloc' in f.effects:
+        traps.add(70)
+    if any(e not in BUILTIN_EFFECTS for e in f.effects):
+        traps.add(71)
+    blocking = [t for t in g.edges.get(q, [])
+                if t.split('$')[-1] in BLOCKING_KERNEL and g.fns[t].module.endswith('Platform')]
+    blocking += [l for l in leaves if JOIN_RE.match(l)]
     return dict(
+        trap_direct=sorted(traps),
+        block_direct=blocking,
+        undefined=sorted(set(UNDEFINED_LEAVES[l] for l in leaves if l in UNDEFINED_LEAVES)),
         alloc='Alloc' in f.effects,
         io='IO' in f.effects,
         unsafe='unsafe' in f.metas.get('all:effect', []),
@@ -705,6 +772,27 @@ def facts_of(g, q):
         unresolved=g.unresolved.get(q, []),
         restrict=[r for r in str(f.metas.get('restrict', '')).split(',') if r],
     )
+
+
+def close_over(g, reach, direct):
+    """Each reachable function's `direct` set unioned with every set it
+    can reach. Tarjan emits a component after every component it reaches,
+    so one pass in emission order sees each successor's answer first; the
+    members of one component share an answer."""
+    reach = set(reach)
+    comps = g.sccs(reach)
+    comp_of = {q: i for i, c in enumerate(comps) for q in c}
+    out = {}
+    for i, comp in enumerate(comps):
+        acc = set()
+        for q in comp:
+            acc |= set(direct.get(q, ()))
+            for t in g.edges.get(q, []):
+                if t in reach and comp_of[t] != i:
+                    acc |= out[t]
+        for q in comp:
+            out[q] = acc
+    return out
 
 
 def first_hit(g, par_roots, pred):
@@ -733,6 +821,14 @@ def build_report(args):
     par = g.reach(roots)
     reach = list(par)
     facts = {q: facts_of(g, q) for q in reach}
+    traps = close_over(g, reach, {q: facts[q]['trap_direct'] for q in reach})
+    blocks = close_over(g, reach, {q: facts[q]['block_direct'] for q in reach})
+    for q in reach:
+        facts[q]['traps'] = sorted(traps[q])
+        facts[q]['blocks'] = bool(blocks[q])
+    for r in args.nonblocking:
+        if r not in fns:
+            raise ReportError('--nonblocking %s names no function' % r)
     refusals, obligations = [], []
 
     def refuse(rule, msg, path=None):
@@ -782,6 +878,13 @@ def build_report(args):
             if 'Alloc' in fns[s].effects:
                 hit = first_hit(g, [s], lambda q: 'Alloc' in fns[q].effects and not any('Alloc' in fns[c].effects for c in g.edges.get(q, [])))
                 refuse('RP-5', 'steady root %s allocates' % s, hit or [s])
+        # RP-8: an interrupt handler never waits, and nor does a root the
+        # program names nonblocking
+        for s in sorted(set(isrs + list(args.nonblocking))):
+            if s in facts and facts[s]['blocks']:
+                hit = first_hit(g, [s], lambda q: bool(facts.get(q, {}).get('block_direct')))
+                last = facts[hit[-1]]['block_direct'][0] if hit else ''
+                refuse('RP-8', '%s may block: %s' % (s, last), (hit or [s]) + ([last] if last else []))
         # RP-7
         if stack is not None:
             worst_isr = 0
@@ -812,7 +915,22 @@ def build_report(args):
             stack['indirect_sites'] or 'none', stack['indirect_targets'] or 'none',
             ('; the backtrace table @__axiom_symtab is excluded as never called, read only by %s, none of which holds an indirect call' % stack['symtab_users']) if stack.get('symtab_excluded') else '',
             stack['asm'] or 'none'))
-    oblige('traps', 'traps (division, bounds, out-of-memory, count exhaustion) are not enumerated per function by this report')
+    for r in roots:
+        ts = facts[r]['traps']
+        if ts:
+            oblige('traps', 'from %s the process may end with status %s (MM-EXEC-16); each function\'s set is in the report' % (
+                r, ', '.join(str(t) for t in ts)))
+        else:
+            oblige('traps', 'from %s no call reaches a trap status' % r)
+        if facts[r]['blocks']:
+            hit = first_hit(g, [r], lambda q: bool(facts.get(q, {}).get('block_direct')))
+            oblige('blocking', '%s may block: %s' % (r, ' -> '.join((hit or [r]) + [facts[hit[-1]]['block_direct'][0]] if hit else [r])), hit or [r])
+    oblige('traps', 'not enumerated: count exhaustion (70, from retains the compiler emits), stack exhaustion (a signal; --stack bounds it), and a CPU fault from an Unsafe access (81 on baremetal-aarch64)')
+    undef = sorted(q for q in reach if facts[q]['undefined'])
+    if undef:
+        oblige('undefined', '%d reachable functions use an operator undefined on part of its domain (%s); `restrict(no-untrapped)` refuses them, and `stdlib/Err.ax` has checked forms: %s%s' % (
+            len(undef), ', '.join(sorted(set(u for q in undef for u in facts[q]['undefined']))),
+            ', '.join(undef[:12]), ' ...' if len(undef) > 12 else ''))
     oblige('time', 'no execution-time bound: a bounded stack is not a bounded latency, and no loop is proven to terminate')
     return dict(file=args.file, target=args.target or 'host', opt=args.opt,
                 profile=args.profile, roots=roots, isrs=isrs,
@@ -826,15 +944,17 @@ def render_text(rep, out):
     w('axiom-report: %s (target %s, --opt %d, profile %s)\n' % (rep['file'], rep['target'], rep['opt'], rep['profile'] or 'none'))
     w('roots: %s\n' % ', '.join(rep['roots']))
     w('reachable functions: %d\n' % rep['reachable'])
-    w('== per function (A alloc, I io, U unsafe-direct, X extern, R recursive, ~ indirect, S spawn/join, K kernel entry) ==\n')
+    w('== per function (A alloc, I io, U unsafe-direct, X extern, R recursive, ~ indirect, S spawn/join, K kernel entry, T may trap, B may block) ==\n')
     rec = set(q for c in rep['cycles'] for q in c)
     for q in sorted(rep['functions']):
         fa = rep['functions'][q]
         marks = ''.join([
             'A' if fa['alloc'] else '.', 'I' if fa['io'] else '.', 'U' if fa['unsafe'] else '.',
             'X' if fa['extern'] else '.', 'R' if q in rec else '.', '~' if fa['indirect'] else '.',
-            'S' if (fa['spawn'] or fa['join']) else '.', 'K' if fa['kernel'] else '.'])
-        w('  %s %s%s\n' % (marks, q, '  [isr]' if fa['isr'] else ''))
+            'S' if (fa['spawn'] or fa['join']) else '.', 'K' if fa['kernel'] else '.',
+            'T' if fa['traps'] else '.', 'B' if fa['blocks'] else '.'])
+        w('  %s %s%s%s\n' % (marks, q, '  [isr]' if fa['isr'] else '',
+                             ('  traps ' + ','.join(str(t) for t in fa['traps'])) if fa['traps'] else ''))
     if rep['stack']:
         w('== stack (machine code) ==\n')
         for r, res in sorted(rep['stack']['results'].items()):
@@ -896,6 +1016,7 @@ def main(argv):
     ap.add_argument('--profile', choices=['restricted'], default=None)
     ap.add_argument('--root', action='append', default=[])
     ap.add_argument('--steady', action='append', default=[])
+    ap.add_argument('--nonblocking', action='append', default=[])
     ap.add_argument('--allow-foreign', action='append', default=[])
     ap.add_argument('--stack', action='store_true')
     ap.add_argument('--stack-root', action='append', default=[])

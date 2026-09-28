@@ -12,9 +12,10 @@ keeps those words apart).
 1. **What does each reachable function do?** Allocate, perform IO, call
    an Unsafe primitive directly, call an `extern` item, sit on a
    call-graph cycle, make a call the graph cannot follow, spawn or join
-   a binding, enter the kernel.
+   a binding, enter the kernel, end the process with a trap status, or
+   wait on another party.
 2. **Does the program keep the restricted profile?** A fixed set of
-   refusals, RP-1 to RP-7, over everything reachable from the program's
+   refusals, RP-1 to RP-8, over everything reachable from the program's
    roots.
 3. **How much stack can it use?** A bound computed from the machine
    code `llc` emits, or the precise reason there is none.
@@ -72,6 +73,7 @@ and any `--root NAME`. Everything reachable from them is held to:
 | RP-5 | allocation reachable from a steady root: every `isr`, every declaration claiming `restrict(no-alloc)`, every `--steady NAME` | "no allocation after initialisation" is a property of the steady-state code, so it is stated by naming that code |
 | RP-6 | a `#calls=` edge that resolves to no row | fail closed: an edge this tool cannot resolve is a refusal, never a silent leaf |
 | RP-7 | with `--stack`: no bound (a non-tail cycle, a dynamic `alloca`, a call into code with no frame size), or a bound over `--stack-budget` counting one interrupt's worth of stack | a stack is either bounded or it is not; "usually small" is not a bound |
+| RP-8 | a call that may block, reachable from an `isr` or from a `--nonblocking NAME` root: a join, or a body passing a blocking syscall number (read, write, open, a child wait, accept, connect, a poll wait, a futex or ulock wait) | an interrupt handler that waits can wait for ever, and "nonblocking" is a claim the graph can check |
 
 And it lists, without refusing, the obligations that are the explicit
 trusted boundary rather than defects: every reachable function that
@@ -79,6 +81,27 @@ calls an Unsafe primitive directly (their preconditions are stated in
 [memory-model.md](memory-model.md) `MM-EXEC-9c`), every kernel entry
 (`__syscallN`; on `baremetal-aarch64` the compiler lowers these to the
 no-syscall trap, status 74), and the stack analysis's own assumptions.
+
+It also lists, for each root, the trap statuses a call from it can end
+the process with, and whether it may block, with the path. Every
+function using an operator undefined on part of its domain (`<<` and
+`>>` on an amount outside 0 to 63, `INT_MIN / -1`) is listed too.
+
+### Traps
+
+Each function's trap set is closed over the call graph, with the
+statuses of [memory-model.md](memory-model.md) `MM-EXEC-16`:
+
+| Status | Source in the graph |
+|---|---|
+| 70 | `Alloc` in the function's row: out of memory |
+| 71 | a declared effect in the row, unless a caller handles it |
+| 72 | `/` or `%`: a zero divisor |
+| 75, 76 | `__axiom_arena_reset`: a bad mark, or a mark past a live handle |
+| 77 | `__indexTrap`: `vecGet`'s range check |
+| 78 | a spawn or join |
+| 80 | `__contract`: a violated `pre` or `post` |
+| 82 | an atomic: a misaligned address |
 
 ### How it relates to `restrict(...)`
 
@@ -172,8 +195,13 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
   is proven to terminate, and nothing here is a WCET analysis.
   Measured maximum latency and a justified worst-case bound are
   different claims ([assurance/plan.md](assurance/plan.md) milestone D).
-- **Traps are not enumerated** per function (division by zero, bounds,
-  out-of-memory, count exhaustion); the report says so every time.
+- **Some traps have no edge in the graph.** Count exhaustion from the
+  retains the compiler emits, stack exhaustion, and a CPU fault from an
+  Unsafe access aren't in any function's trap set. The report names
+  them every time.
+- **"May block" comes from the syscall number, not the descriptor.** A
+  `read` or `write` of a regular file is marked too, because the graph
+  can't tell a file from a pipe.
 - **The stack half reads AArch64 ELF only** (`baremetal-aarch64`,
   `linux-aarch64`). x86-64 call relocations need instruction decoding
   to tell a call from an address load, and are not attempted.
@@ -187,14 +215,15 @@ The linker script reserves 8 KiB of stack (`baremetalLinkScript`,
 
 ## Evidence
 
-`scripts/check-report.sh`, 35 checks on H3 at the commit that adds
-this document:
+`scripts/check-report.sh` holds the tool to five sections:
 
 1. `--selftest`: the bound on ten hand-answered graphs - a chain, a
    diamond, tail calls, a tail loop entered from two roots, call
    cycles, code outside the object.
 2. Facts: the marks of a program with one of everything, compared
-   exactly; `#extern` on the extern item and nowhere else.
+   exactly; `#extern` on the extern item and nowhere else; the trap
+   statuses and undefined operators of a program with one source of
+   each, compared exactly.
 3. The profile: `tests/profile/ok-periodic.ax` passes; each
    `tests/profile/rpN-*.ax` is refused by exactly RP-N; `--allow-foreign`
    and a missing `--steady` each lift their refusal.
@@ -203,6 +232,9 @@ this document:
    each bound equal to the sum of the frames on its own path; and the
    tool's `.stack_sizes` reader agreeing with `llvm-readobj
    --stack-sizes`, an independent parser, on every function.
-5. Ablations: each of RP-1..RP-5 disabled in a copy of the tool lets
-   its own fixture through; the bound's cycle check removed fails three
-   selftest cases and calls tree recursion bounded.
+5. Ablations: each of RP-1..RP-5 and RP-8 disabled in a copy of the
+   tool lets its own fixture through. With no trap leaves, the trap
+   statuses come out wrong. With no blocking kernel entry,
+   `tests/profile/rp8-blocking.ax` passes. With the bound's cycle check
+   removed, three selftest cases fail and tree recursion comes out
+   bounded.
