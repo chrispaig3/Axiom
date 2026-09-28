@@ -244,12 +244,12 @@
   (if (==
     (cast Int modName)
     0)
-    (cat2 "__axiom_ev_" name)
-    (cat4
+    (strConcat "__axiom_ev_" name)
+    (strConcat
       "__axiom_ev_"
-      (cast String modName)
-      "$"
-      name)))
+      (strConcat (cast String modName)
+      (strConcat "$"
+      name)))))
 
 ; Entry file first, then whatever module defines it - the resolution
 ; rule every other bare-name lookup in this compiler uses. A first
@@ -280,7 +280,7 @@
     (let ((local 
       (if (== m 0)
         0
-        (lookupEffIn tbl (cat3 (memGetWordStr cg 34) "$" name) 0 0))))
+        (lookupEffIn tbl (strConcat (memGetWordStr cg 34) (strConcat "$" name)) 0 0))))
       (if (!= local 0)
         local
         (lookupEff tbl name)))))
@@ -1098,7 +1098,7 @@
               (cast Int m)
               0)
               None
-              (internFind bi (cat3 m "$" name)))))
+              (internFind bi (strConcat m (strConcat "$" name))))))
             (match hit
               ((Some h) (vecGetStr (memGetWordVec cg 12) (vecGet (vecGet (memGetWordVec cg 40) 0) h)))
               ((None) (mangledForBareCg cg bi name)))))))))
@@ -3719,7 +3719,7 @@
 (pub fn (evwaSym d)
   (if (<= d 0)
     "__evwa."
-    (cat2 "__evwa." (fmtInt d))))
+    (strConcat "__evwa." (fmtInt d))))
 
 (pub :: emitEvwaRead (-> Int Int Int))
 (pub fn (emitEvwaRead cg d)
@@ -3752,12 +3752,12 @@
             {
               (emitLine
                 cg
-                (cat4
-                  (cat2 "  " r)
-                  " = load i64, ptr "
-                  (strDup
+                (strConcat
+                  (strConcat "  " r)
+                  (strConcat " = load i64, ptr "
+                  (strConcat (strDup
                     (cast String symReg))
-                  ""))
+                  ""))))
               (memSetWord cg 2 r)
               cg
             }))
@@ -3837,11 +3837,11 @@
                     (if (== hasHigh 1)
                       (let ((hn (allocReg cgX)))
                         (let ((hr (regStr hn)))
-                          (let ((cgH (emitLine cgX (cat2 (cat2 "  " hr) " = shl i64 1, 63"))))
+                          (let ((cgH (emitLine cgX (strConcat (strConcat "  " hr) " = shl i64 1, 63"))))
                             (let ((on (allocReg cgH)))
                               (let ((orr (regStr on)))
                                 {
-                                  (set cgX (emitLine cgH (cat4 (cat3 (cat2 "  " orr) " = or i64 " acc) ", " hr "")))
+                                  (set cgX (emitLine cgH (strConcat (strConcat (strConcat "  " orr) (strConcat " = or i64 " acc)) (strConcat ", " (strConcat hr "")))))
                                   (set acc orr)
                                   0
                                 })))))
@@ -3855,17 +3855,17 @@
                               (let ((k (- v2 2)))
                                 (let ((an (allocReg cgX)))
                                   (let ((ar (regStr an)))
-                                    (let ((cgA (emitLine cgX (cat4 (cat3 (cat2 "  " ar) " = lshr i64 " src) ", " (constStr k) ""))))
+                                    (let ((cgA (emitLine cgX (strConcat (strConcat (strConcat "  " ar) (strConcat " = lshr i64 " src)) (strConcat ", " (strConcat (constStr k) ""))))))
                                       (let ((bn (allocReg cgA)))
                                         (let ((br (regStr bn)))
-                                          (let ((cgB (emitLine cgA (cat3 (cat2 "  " br) " = and i64 " (cat2 ar ", 1")))))
+                                          (let ((cgB (emitLine cgA (strConcat (strConcat "  " br) (strConcat " = and i64 " (strConcat ar ", 1"))))))
                                             (let ((sn (allocReg cgB)))
                                               (let ((sr (regStr sn)))
-                                                (let ((cgS (emitLine cgB (cat4 (cat3 (cat2 "  " sr) " = shl i64 " br) ", " (constStr i2) ""))))
+                                                (let ((cgS (emitLine cgB (strConcat (strConcat (strConcat "  " sr) (strConcat " = shl i64 " br)) (strConcat ", " (strConcat (constStr i2) ""))))))
                                                   (let ((on2 (allocReg cgS)))
                                                     (let ((or2 (regStr on2)))
                                                       {
-                                                        (set cgX (emitLine cgS (cat4 (cat3 (cat2 "  " or2) " = or i64 " acc) ", " sr "")))
+                                                        (set cgX (emitLine cgS (strConcat (strConcat (strConcat "  " or2) (strConcat " = or i64 " acc)) (strConcat ", " (strConcat sr "")))))
                                                         (set acc or2)
                                                         0
                                                       }))))))))))))
@@ -3874,14 +3874,14 @@
                                   (let ((lamSrc (strDup (memGetWordStr cgLr 2))))
                                     (let ((bn3 (allocReg cgLr)))
                                       (let ((br3 (regStr bn3)))
-                                        (let ((cgB3 (emitLine cgLr (cat3 (cat2 "  " br3) " = and i64 " (cat2 lamSrc ", 1")))))
+                                        (let ((cgB3 (emitLine cgLr (strConcat (strConcat "  " br3) (strConcat " = and i64 " (strConcat lamSrc ", 1"))))))
                                           (let ((sn3 (allocReg cgB3)))
                                             (let ((sr3 (regStr sn3)))
-                                              (let ((cgS3 (emitLine cgB3 (cat4 (cat3 (cat2 "  " sr3) " = shl i64 " br3) ", " (constStr i2) ""))))
+                                              (let ((cgS3 (emitLine cgB3 (strConcat (strConcat (strConcat "  " sr3) (strConcat " = shl i64 " br3)) (strConcat ", " (strConcat (constStr i2) ""))))))
                                                 (let ((on3 (allocReg cgS3)))
                                                   (let ((or3 (regStr on3)))
                                                     {
-                                                      (set cgX (emitLine cgS3 (cat4 (cat3 (cat2 "  " or3) " = or i64 " acc) ", " sr3 "")))
+                                                      (set cgX (emitLine cgS3 (strConcat (strConcat (strConcat "  " or3) (strConcat " = or i64 " acc)) (strConcat ", " (strConcat sr3 "")))))
                                                       (set acc or3)
                                                       0
                                                     }))))))))))
@@ -4100,7 +4100,7 @@
 ; as well.
 (pub :: tmpStr (-> String Int String))
 (pub fn (tmpStr kind n)
-  (cat3 "%." kind (fmtInt n)))
+  (strConcat "%." (strConcat kind (fmtInt n))))
 
 (pub :: regStr (-> Int String))
 (pub fn (regStr n)
@@ -4108,7 +4108,7 @@
 
 (pub :: labelStr (-> Int String))
 (pub fn (labelStr n)
-  (cat2 ".L" (fmtInt n)))
+  (strConcat ".L" (fmtInt n)))
 
 (pub :: constStr (-> Int String))
 (pub fn (constStr n)
@@ -4328,8 +4328,8 @@
         (+ i 1)
         n
         (if (|| (== c 34) (== c 92))
-          (cat3 acc "\\" (hex2 c))
-          (cat3 acc (strSlice s i 1) ""))))))
+          (strConcat acc (strConcat "\\" (hex2 c)))
+          (strConcat acc (strConcat (strSlice s i 1) "")))))))
 
 ; The empty name quotes rather than emitting a bare sigil: `@` alone is
 ; not an identifier, and `@""` is.
@@ -4338,7 +4338,7 @@
   (let ((n (strLen name)))
     (if (&& (> n 0) (llvmSymIsPlain name 0 n))
       name
-      (cat3 "\"" (llvmSymBody name 0 n "") "\""))))
+      (strConcat "\"" (strConcat (llvmSymBody name 0 n "") "\"")))))
 
 ; Every byte became exactly three characters, so the byte count is the
 ; escaped length over three; the array is one longer for the terminator.
@@ -4351,7 +4351,7 @@
         (let ((body (escBody lex 1 (- (strLen lex) 1))))
           (let ((n (+ (/ (strLen body) 3) 1)))
             {
-              (emitLine cg (cat4 (cat3 "@str_" (fmtInt i) " = private unnamed_addr constant [") (cat3 (fmtInt n) " x i8]  c\"" body) "\\00\"" ""))
+              (emitLine cg (strConcat (strConcat "@str_" (strConcat (fmtInt i) " = private unnamed_addr constant [")) (strConcat (strConcat (fmtInt n) (strConcat " x i8]  c\"" body)) (strConcat "\\00\"" ""))))
               ; The `Str` header the literal itself evaluates to, over
               ; the bytes just emitted. `n` counts the NUL, the length
               ; word does not.
@@ -4366,7 +4366,7 @@
               ; are loader-resident and no block's death may free
               ; them - a slice of a literal inherits that zero and
               ; retains nothing.
-              (emitLine cg (cat4 (cat3 "@strhdr_" (fmtInt i) " = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 ") (cat3 (fmtInt (- n 1)) ", ptr @str_" (fmtInt i)) ", i64 0 }, align 16" ""))
+              (emitLine cg (strConcat (strConcat "@strhdr_" (strConcat (fmtInt i) " = private unnamed_addr constant { i64, i64, i64, ptr, i64 } { i64 -1, i64 0, i64 ")) (strConcat (strConcat (fmtInt (- n 1)) (strConcat ", ptr @str_" (fmtInt i))) (strConcat ", i64 0 }, align 16" ""))))
               (emitStringGlobals cg (+ i 1))
             }))))))
 
@@ -4483,7 +4483,7 @@
           {
             (vecPush
               tbl
-              (cast Int (EffEnt (cat3 (nodeModuleName node) "$" (nodeAName node)) slot isEntry)))
+              (cast Int (EffEnt (strConcat (nodeModuleName node) (strConcat "$" (nodeAName node))) slot isEntry)))
             0
           })
         (scanEffectOps
@@ -4518,10 +4518,10 @@
           (vecPush
             tbl
             (cast Int (EffEnt
-              (cat3
+              (strConcat
                 (cast String modName)
-                "$"
-                (vecGetStr ops i))
+                (strConcat "$"
+                (vecGetStr ops i)))
               slot
               isEntry)))
           0
@@ -4646,11 +4646,11 @@
     types
     (addTypeNamed
       types
-      (cat3
+      (strConcat
         (strDup
           (cast String modName))
-        "$"
-        (strDup name))
+        (strConcat "$"
+        (strDup name)))
       kind
       arity
       tag
@@ -4964,7 +4964,7 @@
         (let ((lib (searchDirsFor stdlibSearchDirs rel 0)))
           (if (== (strLen lib) 0)
             0
-            (pkgDie (pkg4 (pkg3 "error: a dependency in " mf " provides the standard library's module `") (pkg3 (pkgModuleName rel) "`:\n" "") (pkg3 "       " (strConcat dir rel) "\n") (pkg4 (pkg3 "       " lib "   (the standard library's)\n") "       The dependency's copy sits ABOVE the library in the search order,\n       so it would replace it for the WHOLE program - every module that\n" "       imports it, not only the one that wanted the dependency. Rename\n       the module, or drop the dependency. A module in the ENTRY FILE's\n" "       own directory still shadows a library one; that is a file you\n       wrote, and it is unchanged.\n"))))))
+            (pkgDie (strConcat (strConcat "error: a dependency in " (strConcat mf " provides the standard library's module `")) (strConcat (strConcat (pkgModuleName rel) (strConcat "`:\n" "")) (strConcat (strConcat "       " (strConcat (strConcat dir rel) "\n")) (strConcat (strConcat "       " (strConcat lib "   (the standard library's)\n")) (strConcat "       The dependency's copy sits ABOVE the library in the search order,\n       so it would replace it for the WHOLE program - every module that\n" (strConcat "       imports it, not only the one that wanted the dependency. Rename\n       the module, or drop the dependency. A module in the ENTRY FILE's\n" "       own directory still shadows a library one; that is a file you\n       wrote, and it is unchanged.\n"))))))))))
       (shadowCheckOne dir mods mf (+ i 1))
     }))
 
@@ -5009,19 +5009,19 @@
           {
             (vecPush
               v
-              (cast Int (cat2 found "../stdlib/")))
+              (cast Int (strConcat found "../stdlib/")))
             (vecPush
               v
-              (cast Int (cat2 found "../../stdlib/")))
+              (cast Int (strConcat found "../../stdlib/")))
             0
           }
           0)))
     (vecPush
       v
-      (cast Int (cat2 exe "../stdlib/")))
+      (cast Int (strConcat exe "../stdlib/")))
     (vecPush
       v
-      (cast Int (cat2 exe "../../stdlib/")))
+      (cast Int (strConcat exe "../../stdlib/")))
   })
 
 ; The first `PATH` entry holding a file named `name`, slash-terminated,
@@ -5045,7 +5045,7 @@
           (let ((d (vecGetStr parts i)))
             (if (> (strLen d) 0)
               (let ((dir (pathWithSlash d)))
-                (if (sysFileExists (strCStr (cat2 dir name)))
+                (if (sysFileExists (strCStr (strConcat dir name)))
                   {
                     (set found dir)
                     0
@@ -5105,7 +5105,7 @@
 (pub :: tryModulePath (-> String String String String))
 ;@axiom:effect(io)
 (pub fn (tryModulePath stem suffix entryDir)
-  (searchDirsFor (moduleSearchDirs entryDir) (cat2 stem suffix) 0))
+  (searchDirsFor (moduleSearchDirs entryDir) (strConcat stem suffix) 0))
 
 ; The first search directory in which `base` is a readable, non-empty
 ; file, or "".
@@ -5158,7 +5158,7 @@
 (pub fn (searchDirsFor dirs base i)
   (if (|| (stemEscapes base) (>= i (vecLen dirs)))
     ""
-    (let ((cand (cat2 (vecGetStr dirs i) base)))
+    (let ((cand (strConcat (vecGetStr dirs i) base)))
       (if (!=
         (strLen
           (cast String (sysReadFile (strCStr cand))))
@@ -5214,7 +5214,7 @@
       "AX4002"
       "codegen-failure"
       0
-      (cat2 msg name)
+      (strConcat msg name)
       0
       0
       "this is a compiler bug: the check that should have refused this program did not run"))
@@ -5252,7 +5252,7 @@
           (if (< (+ i 1) sysArgc)
             (vecPush
               v
-              (cast Int (cat2 (pathWithSlash (sysArg (+ i 1))) "axiom/")))
+              (cast Int (strConcat (pathWithSlash (sysArg (+ i 1))) "axiom/")))
             (cast (Vec Int) 0))
           (pushCrateDirs v (+ i 2))
         }
@@ -5260,7 +5260,7 @@
           {
             (vecPush
               v
-              (cast Int (cat2 (pathWithSlash (strSlice a 8 (- (strLen a) 8))) "axiom/")))
+              (cast Int (strConcat (pathWithSlash (strSlice a 8 (- (strLen a) 8))) "axiom/")))
             (pushCrateDirs v (+ i 1))
           }
           (pushCrateDirs v (+ i 1)))))))
@@ -5901,16 +5901,16 @@
 ; what slot 4 answers and what this read until 2026-09-27.
 (pub :: parRuntimeSym (-> String String Int String))
 (pub fn (parRuntimeSym fnName half cg)
-  (cat3
+  (strConcat
     "@__axiom_par_"
-    half
+    (strConcat half
     (if (strStartsWith fnName "__thread_")
       "_thread"
       (if (strStartsWith fnName "__proc_")
         "_proc"
         (if (== (pairSlot cg 10) 1)
           "_thread"
-          "_proc")))))
+          "_proc"))))))
 
 (pub :: emitPrimPar (-> String (Vec Int) Int Int))
 ;@axiom:effect(io)
@@ -5939,8 +5939,8 @@
           )
             {
               (if (== (targetHasSpawn (memGetWord cgA 26)) 1)
-                (emitLine cgA (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "spawn" cgA) "(i64 ") f (cat3 ", i64 " a ")")))
-                (emitLine cgA (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()")))
+                (emitLine cgA (strConcat (strConcat "  " r) (strConcat (strConcat " = call i64 " (strConcat (parRuntimeSym fnName "spawn" cgA) "(i64 ")) (strConcat f (strConcat ", i64 " (strConcat a ")"))))))
+                (emitLine cgA (strConcat (strConcat "  " r) " = call i64 @__axiom_par_unsupported()")))
               (memSetWord cgA 2 r)
               (memSetWord cgA 14 0)
               cgA
@@ -5958,8 +5958,8 @@
       )
         {
           (if (== (targetHasSpawn (memGetWord cgH 26)) 1)
-            (emitLine cgH (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "join" cgH) "(i64 ") h ")"))
-            (emitLine cgH (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()")))
+            (emitLine cgH (strConcat (strConcat "  " r) (strConcat (strConcat " = call i64 " (strConcat (parRuntimeSym fnName "join" cgH) "(i64 ")) (strConcat h ")"))))
+            (emitLine cgH (strConcat (strConcat "  " r) " = call i64 @__axiom_par_unsupported()")))
           (memSetWord cgH 2 r)
           (memSetWord cgH 14 0)
           cgH
@@ -5983,8 +5983,8 @@
         )
           {
             (if (== (targetHasSpawn (memGetWord cgC 26)) 1)
-              (emitLine cgC (cat4 (cat2 "  " r) (cat3 " = call i64 " (parRuntimeSym fnName "join_nr" cgC) "(i64 ") h (cat3 ", i64 " c ")")))
-              (emitLine cgC (cat2 (cat2 "  " r) " = call i64 @__axiom_par_unsupported()")))
+              (emitLine cgC (strConcat (strConcat "  " r) (strConcat (strConcat " = call i64 " (strConcat (parRuntimeSym fnName "join_nr" cgC) "(i64 ")) (strConcat h (strConcat ", i64 " (strConcat c ")"))))))
+              (emitLine cgC (strConcat (strConcat "  " r) " = call i64 @__axiom_par_unsupported()")))
             (memSetWord cgC 2 r)
             (memSetWord cgC 14 0)
             cgC
@@ -5993,7 +5993,7 @@
 ; A syscall call line for the runtime below: number and six operands.
 (pub :: parSys (-> Int String String String))
 (pub fn (parSys cg num rest)
-  (cat4 "call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) (cat3 "(i64 " num ", ") (cat2 rest ")")))
+  (strConcat "call i64 asm sideeffect " (strConcat (targetSyscallAsm (memGetWord cg 26)) (strConcat (strConcat "(i64 " (strConcat num ", ")) (strConcat rest ")")))))
 
 ; The runtime, beside the allocator, and ONLY for a module that names
 ; a primitive (slot 5). The process half declares nothing; the thread
@@ -6422,12 +6422,12 @@
 (pub fn (emitParCommon cg)
   (let ((t (memGetWord cg 26)))
     {
-      (emitLine cg (cat3 "@__axiom_par_live = " (cgMutGlobal cg) " i64 0"))
-      (emitLine cg (cat3 "@__axiom_par_seq = " (cgMutGlobal cg) " i64 0"))
+      (emitLine cg (strConcat "@__axiom_par_live = " (strConcat (cgMutGlobal cg) " i64 0")))
+      (emitLine cg (strConcat "@__axiom_par_seq = " (strConcat (cgMutGlobal cg) " i64 0")))
       (emitLine cg "")
       (emitLine cg "define internal i64 @__axiom_par_page() #0 {")
       (emitLine cg "entry:")
-      (emitLine cg (cat2 "  %addr = " (parSys cg (fmtInt (targetMmapNum t)) (cat3 "i64 0, i64 4096, i64 3, i64 " (fmtInt (targetMapSharedFlags t)) ", i64 -1, i64 0"))))
+      (emitLine cg (strConcat "  %addr = " (parSys cg (fmtInt (targetMmapNum t)) (strConcat "i64 0, i64 4096, i64 3, i64 " (strConcat (fmtInt (targetMapSharedFlags t)) ", i64 -1, i64 0")))))
       (emitLine cg "  %low = icmp ult i64 %addr, 4096")
       (emitLine cg "  %neg = icmp slt i64 %addr, 0")
       (emitLine cg "  %bad = or i1 %low, %neg")
@@ -6459,7 +6459,7 @@
       (emitLine cg "  %p3 = getelementptr i64, ptr %hp, i64 3")
       (emitLine cg "  %res = load i64, ptr %p3")
       (emitLine cg "  call void @axiom_release(i64 %fn)")
-      (emitLine cg (cat2 "  " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %h, i64 4096, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %h, i64 4096, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  ret i64 %res")
       (emitLine cg "}")
       (emitLine cg "")
@@ -6558,7 +6558,7 @@
       (emitLine cg "  %isthr = icmp eq i64 %kind, 2")
       (emitLine cg "  br i1 %isthr, label %thr, label %proc")
       (emitLine cg "proc:")
-      (emitLine cg (cat2 "  %kr = " (parSys cg (fmtInt (targetKillNum t)) "i64 %who, i64 9, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  %kr = " (parSys cg (fmtInt (targetKillNum t)) "i64 %who, i64 9, i64 0, i64 0, i64 0, i64 0")))
       (if (cgThreads cg)
         (emitLine cg "  call void @__axiom_par_gunlink(i64 %h)")
         0)
@@ -6566,7 +6566,7 @@
       (emitLine cg "  %st4 = ptrtoint ptr %p4 to i64")
       (emitLine cg "  br label %wait")
       (emitLine cg "wait:")
-      (emitLine cg (cat2 "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %who, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %who, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  %intr = icmp eq i64 %w, -4")
       (emitLine cg "  br i1 %intr, label %wait, label %fin")
       (emitLine cg "thr:")
@@ -6661,7 +6661,7 @@
         (emitLine cg "  %sibw = ptrtoint ptr %sib to i64")
         (emitLine cg "  br label %exitwait")
         (emitLine cg "exitwait:")
-        (emitLine cg (cat2 "  %wx = " (parSys cg (fmtInt (targetWaitIdNum t)) (cat3 "i64 1, i64 %pid, i64 %sibw, i64 " (fmtInt (targetWaitExitedNoWait t)) ", i64 0, i64 0"))))
+        (emitLine cg (strConcat "  %wx = " (parSys cg (fmtInt (targetWaitIdNum t)) (strConcat "i64 1, i64 %pid, i64 %sibw, i64 " (strConcat (fmtInt (targetWaitExitedNoWait t)) ", i64 0, i64 0")))))
         (emitLine cg "  %wxintr = icmp eq i64 %wx, -4")
         (emitLine cg "  br i1 %wxintr, label %exitwait, label %unlist")
         (emitLine cg "unlist:")
@@ -6695,7 +6695,7 @@
           (emitLine cg "  %pid = sext i32 %pid32 to i64")
           0
         }
-        (emitLine cg (cat2 "  %pid = " (parSys cg (fmtInt (targetForkNum t)) (cat3 "i64 " (fmtInt (targetForkArg t)) ", i64 0, i64 0, i64 0, i64 0, i64 0")))))
+        (emitLine cg (strConcat "  %pid = " (parSys cg (fmtInt (targetForkNum t)) (strConcat "i64 " (strConcat (fmtInt (targetForkArg t)) ", i64 0, i64 0, i64 0, i64 0, i64 0"))))))
       (emitLine cg "  %failed = icmp slt i64 %pid, 0")
       (emitLine cg "  br i1 %failed, label %fail, label %forked")
       ; The page and the thunk's share go back before the trap: it may
@@ -6711,7 +6711,7 @@
       (if (|| (== (targetForkChildIsZero t) 1) (== (parLibcFork cg) 1))
         (emitLine cg "  %ischild = icmp eq i64 %pid, 0")
         {
-          (emitLine cg (cat2 "  %me = " (parSys cg (fmtInt (targetGetPidNum t)) "i64 0, i64 0, i64 0, i64 0, i64 0, i64 0")))
+          (emitLine cg (strConcat "  %me = " (parSys cg (fmtInt (targetGetPidNum t)) "i64 0, i64 0, i64 0, i64 0, i64 0, i64 0")))
           (emitLine cg "  %ischild = icmp eq i64 %pid, %me")
         })
       (emitLine cg "  br i1 %ischild, label %child, label %parent")
@@ -6758,7 +6758,7 @@
       (emitParJoinUnlist cg)
       (emitLine cg "  br label %wait")
       (emitLine cg "wait:")
-      (emitLine cg (cat2 "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %pid, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %pid, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  %intr = icmp eq i64 %w, -4")
       (emitLine cg "  br i1 %intr, label %wait, label %waited")
       (emitLine cg "waited:")
@@ -6810,7 +6810,7 @@
       (emitParJoinUnlist cg)
       (emitLine cg "  br label %wait")
       (emitLine cg "wait:")
-      (emitLine cg (cat2 "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %pid, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %pid, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  %intr = icmp eq i64 %w, -4")
       (emitLine cg "  br i1 %intr, label %wait, label %waited")
       (emitLine cg "waited:")
@@ -6975,7 +6975,7 @@
       (emitLine cg "one:")
       (emitLine cg "  %cp = inttoptr i64 %cur to ptr")
       (emitLine cg "  %who = load i64, ptr %cp")
-      (emitLine cg (cat2 "  %kr = " (parSys cg (fmtInt (targetKillNum t)) "i64 %who, i64 9, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  %kr = " (parSys cg (fmtInt (targetKillNum t)) "i64 %who, i64 9, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  %c10 = getelementptr i64, ptr %cp, i64 10")
       (emitLine cg "  %next = load i64, ptr %c10")
       (emitLine cg "  br label %walk")
@@ -7011,7 +7011,7 @@
       (emitLine cg "  %cl = add i64 %c, 8")
       (emitLine cg "  %clp = inttoptr i64 %cl to ptr")
       (emitLine cg "  %cn = load i64, ptr %clp")
-      (emitLine cg (cat2 "  %cu = " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %c, i64 %csz, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  %cu = " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %c, i64 %csz, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  br label %act")
       (emitLine cg "freel:")
       (emitLine cg "  %f0 = load i64, ptr @__axiom_free")
@@ -7026,7 +7026,7 @@
       (emitLine cg "  %fl = add i64 %f, 8")
       (emitLine cg "  %flp = inttoptr i64 %fl to ptr")
       (emitLine cg "  %fnx = load i64, ptr %flp")
-      (emitLine cg (cat2 "  %fu = " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %f, i64 %fsz, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg (strConcat "  %fu = " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %f, i64 %fsz, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  br label %fre")
       (emitLine cg "done:")
       (emitLine cg "  store i64 0, ptr @__axiom_chunk")
@@ -7434,11 +7434,11 @@
     (let ((parts vecNew))
       {
         (vecPush parts "looked for '")
-        (vecPush parts (cat2 stem (targetOsArchSuffix tcode)))
+        (vecPush parts (strConcat stem (targetOsArchSuffix tcode)))
         (vecPush parts "' or '")
-        (vecPush parts (cat2 stem (targetOsSuffix tcode)))
+        (vecPush parts (strConcat stem (targetOsSuffix tcode)))
         (vecPush parts "' or '")
-        (vecPush parts (cat2 stem ".ax"))
+        (vecPush parts (strConcat stem ".ax"))
         (vecPush parts "' in ")
         (let ((mut i 0))
           (while (< i (vecLen dirs))
@@ -7463,7 +7463,7 @@
       "AX5001"
       "module-not-found"
       0
-      (cat3 "cannot resolve import `" name "`")
+      (strConcat "cannot resolve import `" (strConcat name "`"))
       0
       0
       (importHelpText name tcode entryDir)))
@@ -7615,7 +7615,7 @@
         (cast Int m)
         0)
         (mangledForIn (memGetWordVec cg 12) (memGetWordVec cg 13) name 0)
-        (let ((local (cat3 m "$" name)))
+        (let ((local (strConcat m (strConcat "$" name))))
           (if (mangleHasIn (memGetWordVec cg 12) local 0)
             local
             (mangledForIn (memGetWordVec cg 12) (memGetWordVec cg 13) name 0)))))))
@@ -8505,12 +8505,12 @@
     ; `aarch64-unknown-none-elf` is in none of those either; a `(== t 2)`
     ; here would ship
     ; freebsd-aarch64 with exactly this bug, silently.
-    (cat3
+    (strConcat
       "\"stp x19, x20, [$0, #48]\\0Astp x21, x22, [$0, #64]\\0Astp x23, x24, [$0, #80]\\0Astp x25, x26, [$0, #96]\\0Astp x27, x28, [$0, #112]\\0Amov x9, sp\\0Astr x9, [$0]\\0Astr x29, [$0, #8]\\0Aadr x9, 1f\\0Astr x9, [$0, #16]\\0Ab 2f\\0A1:\\0Aldp x19, x20, [x9, #48]\\0Aldp x21, x22, [x9, #64]\\0Aldp x23, x24, [x9, #80]\\0Aldp x25, x26, [x9, #96]\\0Aldp x27, x28, [x9, #112]\\0A2:\", \"r,~{x0},~{x1},~{x2},~{x3},~{x4},~{x5},~{x6},~{x7},~{x8},~{x9},~{x10},~{x11},~{x12},~{x13},~{x14},~{x15},~{x16},~{x17},~{lr}"
-      (if (|| (== t 2) (|| (== t 5) (== t 7)))
+      (strConcat (if (|| (== t 2) (|| (== t 5) (== t 7)))
         ",~{x18}"
         "")
-      ",~{v0},~{v1},~{v2},~{v3},~{v4},~{v5},~{v6},~{v7},~{v8},~{v9},~{v10},~{v11},~{v12},~{v13},~{v14},~{v15},~{v16},~{v17},~{v18},~{v19},~{v20},~{v21},~{v22},~{v23},~{v24},~{v25},~{v26},~{v27},~{v28},~{v29},~{v30},~{v31},~{memory},~{cc}\"")
+      ",~{v0},~{v1},~{v2},~{v3},~{v4},~{v5},~{v6},~{v7},~{v8},~{v9},~{v10},~{v11},~{v12},~{v13},~{v14},~{v15},~{v16},~{v17},~{v18},~{v19},~{v20},~{v21},~{v22},~{v23},~{v24},~{v25},~{v26},~{v27},~{v28},~{v29},~{v30},~{v31},~{memory},~{cc}\""))
     "\"movq %rbx, 48($0)\\0Amovq %r12, 56($0)\\0Amovq %r13, 64($0)\\0Amovq %r14, 72($0)\\0Amovq %r15, 80($0)\\0Amovq %rsp, ($0)\\0Amovq %rbp, 8($0)\\0Aleaq 1f(%rip), %rax\\0Amovq %rax, 16($0)\\0Ajmp 2f\\0A1:\\0Amovq 48(%rax), %rbx\\0Amovq 56(%rax), %r12\\0Amovq 64(%rax), %r13\\0Amovq 72(%rax), %r14\\0Amovq 80(%rax), %r15\\0A2:\", \"r,~{rax},~{rcx},~{rdx},~{rsi},~{rdi},~{r8},~{r9},~{r10},~{r11},~{xmm0},~{xmm1},~{xmm2},~{xmm3},~{xmm4},~{xmm5},~{xmm6},~{xmm7},~{xmm8},~{xmm9},~{xmm10},~{xmm11},~{xmm12},~{xmm13},~{xmm14},~{xmm15},~{memory},~{cc}\""))
 
 ; ONE x86-64 ARM SERVES THREE TARGETS, Windows included, and the
@@ -8913,7 +8913,7 @@
 (pub fn (emitArenaCarve cg sizeExpr)
   {
     (emitLine cg "  %ar_cur = load i64, ptr @__axiom_arena_cursor")
-    (emitLine cg (cat3 "  %ar_next = add i64 %ar_cur, " sizeExpr ""))
+    (emitLine cg (strConcat "  %ar_next = add i64 %ar_cur, " (strConcat sizeExpr "")))
     (emitLine cg "  %ar_end = load i64, ptr @__axiom_arena_end")
     (emitLine cg "  %ar_room = icmp ule i64 %ar_next, %ar_end")
     (emitLine cg "  %ar_wrap = icmp ult i64 %ar_next, %ar_cur")
@@ -8951,16 +8951,16 @@
     {
       (if (== b 0)
         {
-          (emitLine cg (cat3 "@__axiom_arena = internal global [" (fmtInt n) " x i8] zeroinitializer, align 16"))
+          (emitLine cg (strConcat "@__axiom_arena = internal global [" (strConcat (fmtInt n) " x i8] zeroinitializer, align 16")))
           (emitLine cg "@__axiom_arena_cursor = internal global i64 ptrtoint (ptr @__axiom_arena to i64)")
           ; A one-past-the-end `getelementptr` constant, and not
           ; `add (i64 ptrtoint ..., i64 N)`: LLVM removed the
           ; arithmetic constant expressions and kept this one.
-          (emitLine cg (cat3 (cat3 "@__axiom_arena_end = internal constant i64 ptrtoint (ptr getelementptr inbounds ([" (fmtInt n) " x i8], ptr @__axiom_arena, i64 0, i64 ") (fmtInt n) ") to i64)"))
+          (emitLine cg (strConcat (strConcat "@__axiom_arena_end = internal constant i64 ptrtoint (ptr getelementptr inbounds ([" (strConcat (fmtInt n) " x i8], ptr @__axiom_arena, i64 0, i64 ")) (strConcat (fmtInt n) ") to i64)")))
         }
         {
-          (emitLine cg (cat3 "@__axiom_arena_cursor = internal global i64 " (fmtInt b) ""))
-          (emitLine cg (cat3 "@__axiom_arena_end = internal constant i64 " (fmtInt (+ b n)) ""))
+          (emitLine cg (strConcat "@__axiom_arena_cursor = internal global i64 " (strConcat (fmtInt b) "")))
+          (emitLine cg (strConcat "@__axiom_arena_end = internal constant i64 " (strConcat (fmtInt (+ b n)) "")))
         })
       (emitLine cg "")
     }))
@@ -8974,9 +8974,9 @@
   (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
     (emitArenaCarve cg sizeExpr)
     (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
-      (emitLine cg (strConcat (cat4 "  %addr = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetMmapNum (memGetWord cg 26)))) (cat4 (cat3 ", i64 0, i64 " sizeExpr ", i64 3, i64 ") (fmtInt (targetMapFlags (memGetWord cg 26))) ", i64 -1, i64 0)" "")))
+      (emitLine cg (strConcat (strConcat "  %addr = call i64 asm sideeffect " (strConcat (targetSyscallAsm (memGetWord cg 26)) (strConcat "(i64 " (fmtInt (targetMmapNum (memGetWord cg 26)))))) (strConcat (strConcat ", i64 0, i64 " (strConcat sizeExpr ", i64 3, i64 ")) (strConcat (fmtInt (targetMapFlags (memGetWord cg 26))) (strConcat ", i64 -1, i64 0)" "")))))
       ; MEM_COMMIT|MEM_RESERVE = 0x3000 = 12288, PAGE_READWRITE = 4.
-      (emitLine cg (cat3 "  %addr = call i64 @VirtualAlloc(i64 0, i64 " sizeExpr ", i64 12288, i64 4)")))))
+      (emitLine cg (strConcat "  %addr = call i64 @VirtualAlloc(i64 0, i64 " (strConcat sizeExpr ", i64 12288, i64 4)"))))))
 
 ; `ptrExpr` is a `%name` register; on Windows its name (less the `%`)
 ; tags the two registers the call needs, so six writes in one function
@@ -8986,23 +8986,23 @@
   (if (== (targetTrapSilent (memGetWord cg 26)) 1)
     (emitLine cg "  ; trap message suppressed: the target asked for silent traps")
     (if (> (targetUartBase (memGetWord cg 26)) 0)
-      (emitLine cg (cat4 "  call void @__axiom_uart_write(i64 " ptrExpr ", i64 " (cat2 lenExpr ")")))
+      (emitLine cg (strConcat "  call void @__axiom_uart_write(i64 " (strConcat ptrExpr (strConcat ", i64 " (strConcat lenExpr ")")))))
       (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
-        (emitLine cg (cat4 (cat3 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 ") (fmtInt (targetWriteNum (memGetWord cg 26))) ", i64 2, i64 " (cat4 ptrExpr ", i64 " lenExpr ", i64 0, i64 0, i64 0)")))
+        (emitLine cg (strConcat (strConcat "  call i64 asm sideeffect " (strConcat (targetSyscallAsm (memGetWord cg 26)) "(i64 ")) (strConcat (fmtInt (targetWriteNum (memGetWord cg 26))) (strConcat ", i64 2, i64 " (strConcat ptrExpr (strConcat ", i64 " (strConcat lenExpr ", i64 0, i64 0, i64 0)")))))))
         (let ((tag (strSlice ptrExpr 1 (- (strLen ptrExpr) 1))))
           {
             ; STD_ERROR_HANDLE is -12.
-            (emitLine cg (cat3 "  %" tag "_h = call i64 @GetStdHandle(i64 -12)"))
-            (emitLine cg (cat4 (cat3 "  call i64 @WriteFile(i64 %" tag "_h, i64 ") ptrExpr (cat3 ", i64 " lenExpr ", i64 ptrtoint (ptr @__axiom_win_written to i64), i64 0)") ""))
+            (emitLine cg (strConcat "  %" (strConcat tag "_h = call i64 @GetStdHandle(i64 -12)")))
+            (emitLine cg (strConcat (strConcat "  call i64 @WriteFile(i64 %" (strConcat tag "_h, i64 ")) (strConcat ptrExpr (strConcat (strConcat ", i64 " (strConcat lenExpr ", i64 ptrtoint (ptr @__axiom_win_written to i64), i64 0)")) ""))))
           })))))
 
 (pub :: emitRuntimeExit (-> Int String Int))
 (pub fn (emitRuntimeExit cg status)
   (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
-    (emitLine cg (strConcat (cat4 "  call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg 26)) "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))) (cat3 ", i64 " status ", i64 0, i64 0, i64 0, i64 0, i64 0)")))
+    (emitLine cg (strConcat (strConcat "  call i64 asm sideeffect " (strConcat (targetSyscallAsm (memGetWord cg 26)) (strConcat "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))))) (strConcat ", i64 " (strConcat status ", i64 0, i64 0, i64 0, i64 0, i64 0)"))))
     (if (> (targetUartBase (memGetWord cg 26)) 0)
       (emitBaremetalExit cg status)
-      (emitLine cg (cat3 "  call i64 @ExitProcess(i64 " status ")")))))
+      (emitLine cg (strConcat "  call i64 @ExitProcess(i64 " (strConcat status ")"))))))
 
 ; A trap's exit where there is no kernel to exit to: ARM semihosting
 ; SYS_EXIT (0x18), reason ADP_Stopped_ApplicationExit (0x20026), with
@@ -9021,7 +9021,7 @@
 (pub fn (emitBaremetalExit cg status)
   {
     (emitLine cg "  store i64 131110, ptr @__axiom_exit_block")
-    (emitLine cg (cat3 "  store i64 " status ", ptr getelementptr ([2 x i64], ptr @__axiom_exit_block, i64 0, i64 1)"))
+    (emitLine cg (strConcat "  store i64 " (strConcat status ", ptr getelementptr ([2 x i64], ptr @__axiom_exit_block, i64 0, i64 1)")))
     (emitLine cg "  call void asm sideeffect \"hlt 0xf000\", \"{x0},{x1},~{x0},~{x1},~{memory}\"(i64 24, i64 ptrtoint (ptr @__axiom_exit_block to i64))")
     (emitLine cg "  call void asm sideeffect \"1: wfi\\0Ab 1b\", \"\"()")
     (emitLine cg "  unreachable")
@@ -9128,7 +9128,7 @@
     (emitLine cg "  %a = add i64 %ptr, %i")
     (emitLine cg "  %p = inttoptr i64 %a to ptr")
     (emitLine cg "  %b = load i8, ptr %p")
-    (emitLine cg (cat3 "  store volatile i8 %b, ptr inttoptr (i64 " (fmtInt (targetUartBase (memGetWord cg 26))) " to ptr)"))
+    (emitLine cg (strConcat "  store volatile i8 %b, ptr inttoptr (i64 " (strConcat (fmtInt (targetUartBase (memGetWord cg 26))) " to ptr)")))
     (emitLine cg "  %in = add i64 %i, 1")
     (emitLine cg "  br label %loop")
     (emitLine cg "done:")
@@ -9303,7 +9303,7 @@
       {
         (emitIsrMarkers cg bs t 0)
         (if (> (vecLen irqs) 1)
-          (emitLine cg (cat4 "; axiom-device-refused `isr(irq)` binds " (fmtInt (vecLen irqs)) " functions to the one IRQ vector (`" (cat3 (vecGetStr irqs 0) "`, `" (cat2 (vecGetStr irqs 1) "`) - bind one handler and dispatch on the interrupt id inside it"))))
+          (emitLine cg (strConcat "; axiom-device-refused `isr(irq)` binds " (strConcat (fmtInt (vecLen irqs)) (strConcat " functions to the one IRQ vector (`" (strConcat (vecGetStr irqs 0) (strConcat "`, `" (strConcat (vecGetStr irqs 1) "`) - bind one handler and dispatch on the interrupt id inside it")))))))
           0)
         (if (&& (== t 7) (if cgStaticlib false true))
           (emitBaremetalVectors
@@ -9322,8 +9322,8 @@
       (if (strEq (vecGetStr bs (+ i 1)) "irq")
         (if (== t 7)
           0
-          (emitLine cg (cat4 "; axiom-device-refused `isr(irq)` on `" (bareOfSym (vecGetStr bs i)) "` binds the IRQ exception vector, and " (cat2 (targetSpelling t) " has no vector table this compiler writes - only baremetal-aarch64 does"))))
-        (emitLine cg (cat4 "; axiom-device-refused `isr(" (vecGetStr bs (+ i 1)) (cat3 ")` on `" (bareOfSym (vecGetStr bs i)) "` names no vector this compiler binds - the one it binds is `isr(irq)`, on baremetal-aarch64") "")))
+          (emitLine cg (strConcat "; axiom-device-refused `isr(irq)` on `" (strConcat (bareOfSym (vecGetStr bs i)) (strConcat "` binds the IRQ exception vector, and " (strConcat (targetSpelling t) " has no vector table this compiler writes - only baremetal-aarch64 does"))))))
+        (emitLine cg (strConcat "; axiom-device-refused `isr(" (strConcat (vecGetStr bs (+ i 1)) (strConcat (strConcat ")` on `" (strConcat (bareOfSym (vecGetStr bs i)) "` names no vector this compiler binds - the one it binds is `isr(irq)`, on baremetal-aarch64")) "")))))
       (emitIsrMarkers cg bs t (+ i 2))
     }))
 
@@ -9336,7 +9336,7 @@
 
 (pub :: emitAsmLine (-> Int String Int))
 (pub fn (emitAsmLine cg text)
-  (emitLine cg (cat3 "module asm \"" text "\"")))
+  (emitLine cg (strConcat "module asm \"" (strConcat text "\""))))
 
 (pub :: emitBaremetalVectors (-> Int String Int))
 (pub fn (emitBaremetalVectors cg handler)
@@ -9380,7 +9380,7 @@
       (if (&& bound (== i 5))
         (emitAsmLine cg "b __axiom_irq_entry")
         {
-          (emitAsmLine cg (cat2 "mov x0, #" (fmtInt (* i 128))))
+          (emitAsmLine cg (strConcat "mov x0, #" (fmtInt (* i 128))))
           (emitAsmLine cg "b __axiom_exc_entry")
         })
       (emitVectorSlots cg bound (+ i 1))
@@ -9425,7 +9425,7 @@
   (if (> k 8)
     cg
     {
-      (emitAsmLine cg (cat4 (cat3 op " x" (fmtInt (* 2 k))) (cat2 ", x" (fmtInt (+ (* 2 k) 1))) ", [sp, #" (cat2 (fmtInt (* 16 k)) "]")))
+      (emitAsmLine cg (strConcat (strConcat op (strConcat " x" (fmtInt (* 2 k)))) (strConcat (strConcat ", x" (fmtInt (+ (* 2 k) 1))) (strConcat ", [sp, #" (strConcat (fmtInt (* 16 k)) "]")))))
       (emitGprPairs cg op (+ k 1))
     }))
 
@@ -9438,7 +9438,7 @@
       (* 2 k)
       (+ 16 (* 2 (- k 4))))))
       {
-        (emitAsmLine cg (cat4 (cat3 op " q" (fmtInt r)) (cat2 ", q" (fmtInt (+ r 1))) ", [sp, #" (cat2 (fmtInt (+ 208 (* 32 k))) "]")))
+        (emitAsmLine cg (strConcat (strConcat op (strConcat " q" (fmtInt r))) (strConcat (strConcat ", q" (fmtInt (+ r 1))) (strConcat ", [sp, #" (strConcat (fmtInt (+ 208 (* 32 k))) "]")))))
         (emitQPairs cg op (+ k 1))
       })))
 
@@ -9446,13 +9446,13 @@
 ; hand - the count is what the UART writer believes.
 (pub :: emitMsgGlobal (-> Int String String Int))
 (pub fn (emitMsgGlobal cg name text)
-  (emitLine cg (cat4 (cat3 "@" name " = private unnamed_addr constant [") (fmtInt (strLen text)) " x i8] c\"" (cat2 text "\""))))
+  (emitLine cg (strConcat (strConcat "@" (strConcat name " = private unnamed_addr constant [")) (strConcat (fmtInt (strLen text)) (strConcat " x i8] c\"" (strConcat text "\""))))))
 
 (pub :: emitMsgWrite (-> Int String String Int))
 (pub fn (emitMsgWrite cg name text)
   {
-    (emitLine cg (cat4 "  %" name "_p = ptrtoint ptr @" (cat2 name " to i64")))
-    (emitRuntimeWrite cg (cat3 "%" name "_p") (fmtInt (strLen text)))
+    (emitLine cg (strConcat "  %" (strConcat name (strConcat "_p = ptrtoint ptr @" (strConcat name " to i64")))))
+    (emitRuntimeWrite cg (strConcat "%" (strConcat name "_p")) (fmtInt (strLen text)))
   })
 
 ; The fault exit every unbound vector reaches. Its register state is
@@ -9486,7 +9486,7 @@
       (emitLine cg "  %base = select i1 %alpha, i64 87, i64 48")
       (emitLine cg "  %c = add i64 %d, %base")
       (emitLine cg "  %b = trunc i64 %c to i8")
-      (emitLine cg (cat3 "  store volatile i8 %b, ptr inttoptr (i64 " (fmtInt (targetUartBase (memGetWord cg 26))) " to ptr)"))
+      (emitLine cg (strConcat "  store volatile i8 %b, ptr inttoptr (i64 " (strConcat (fmtInt (targetUartBase (memGetWord cg 26))) " to ptr)")))
       (emitLine cg "  %next = sub i64 %sh, 4")
       (emitLine cg "  %more = icmp sge i64 %sh, 4")
       (emitLine cg "  br i1 %more, label %loop, label %done")
@@ -9531,12 +9531,12 @@
     (emitLine cg "  store i64 0, ptr @__axiom_recover_top")
     (emitLine
       cg
-      (cat3
+      (strConcat
         "  %r = call i64 @"
-        (llvmSym (strDup handler))
+        (strConcat (llvmSym (strDup handler))
         (if (== (fnTakesEvw cg handler) 1)
           "(i64 0)"
-          "()")))
+          "()"))))
     (emitLine cg "  store i64 %rt, ptr @__axiom_recover_top")
     (emitLine cg "  ret void")
     (emitLine cg "}")
@@ -9598,35 +9598,35 @@
 (pub :: emitWinPeek (-> Int String Int))
 (pub fn (emitWinPeek cg tag)
   {
-    (emitLine cg (cat3 "  %" tag "_i = load i64, ptr %ii"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_o = shl i64 %" tag "_i, 1"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_a = add i64 %cmd, %" tag "_o"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_p = inttoptr i64 %" tag "_a to ptr"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_w = load i16, ptr %" tag "_p"))
-    (emitLine cg (cat4 (cat2 "  %" tag) " = zext i16 %" tag "_w to i64"))
+    (emitLine cg (strConcat "  %" (strConcat tag "_i = load i64, ptr %ii")))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_o = shl i64 %" (strConcat tag "_i, 1"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_a = add i64 %cmd, %" (strConcat tag "_o"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_p = inttoptr i64 %" (strConcat tag "_a to ptr"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_w = load i16, ptr %" (strConcat tag "_p"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat " = zext i16 %" (strConcat tag "_w to i64"))))
     cg
   })
 
 (pub :: emitWinAdvance (-> Int String String Int))
 (pub fn (emitWinAdvance cg tag n)
   {
-    (emitLine cg (cat3 "  %" tag "_ai = load i64, ptr %ii"))
-    (emitLine cg (cat4 (cat4 "  %" tag "_an = add i64 %" tag) "_ai, " n ""))
-    (emitLine cg (cat3 "  store i64 %" tag "_an, ptr %ii"))
+    (emitLine cg (strConcat "  %" (strConcat tag "_ai = load i64, ptr %ii")))
+    (emitLine cg (strConcat (strConcat "  %" (strConcat tag (strConcat "_an = add i64 %" tag))) (strConcat "_ai, " (strConcat n ""))))
+    (emitLine cg (strConcat "  store i64 %" (strConcat tag "_an, ptr %ii")))
     cg
   })
 
 (pub :: emitWinPush (-> Int String String Int))
 (pub fn (emitWinPush cg tag unitExpr)
   {
-    (emitLine cg (cat3 "  %" tag "_k = load i64, ptr %kk"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_ko = shl i64 %" tag "_k, 1"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_ka = add i64 %scratch, %" tag "_ko"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_kp = inttoptr i64 %" tag "_ka to ptr"))
-    (emitLine cg (cat4 (cat3 "  %" tag "_kt = trunc i64 ") unitExpr " to i16" ""))
-    (emitLine cg (cat4 (cat2 "  store i16 %" tag) "_kt, ptr %" tag "_kp"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_k1 = add i64 %" tag "_k, 1"))
-    (emitLine cg (cat3 "  store i64 %" tag "_k1, ptr %kk"))
+    (emitLine cg (strConcat "  %" (strConcat tag "_k = load i64, ptr %kk")))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_ko = shl i64 %" (strConcat tag "_k, 1"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_ka = add i64 %scratch, %" (strConcat tag "_ko"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_kp = inttoptr i64 %" (strConcat tag "_ka to ptr"))))
+    (emitLine cg (strConcat (strConcat "  %" (strConcat tag "_kt = trunc i64 ")) (strConcat unitExpr (strConcat " to i16" ""))))
+    (emitLine cg (strConcat (strConcat "  store i16 %" tag) (strConcat "_kt, ptr %" (strConcat tag "_kp"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_k1 = add i64 %" (strConcat tag "_k, 1"))))
+    (emitLine cg (strConcat "  store i64 %" (strConcat tag "_k1, ptr %kk")))
     cg
   })
 
@@ -9636,25 +9636,25 @@
 (pub :: emitWinFinish (-> Int String Int))
 (pub fn (emitWinFinish cg tag)
   {
-    (emitLine cg (cat3 "  %" tag "_n = load i64, ptr %nn"))
-    (emitLine cg (cat3 "  %" tag "_v0 = icmp eq i64 %vec, 0"))
-    (emitLine cg (cat4 (cat3 "  br i1 %" tag "_v0, label %") tag (cat3 "_count, label %" tag "_fill") ""))
-    (emitLine cg (cat3 "" tag "_fill:"))
-    (emitLine cg (cat3 "  %" tag "_k = load i64, ptr %kk"))
-    (emitLine cg (cat3 "  %" tag "_c = load i64, ptr %cc"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_d = add i64 %strs, %" tag "_c"))
-    (emitLine cg (cat4 (cat3 "  %" tag "_b = call i64 @__axiom_win_narrow(i64 %scratch, i64 %") tag (cat3 "_k, i64 %" tag "_d)") ""))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_vo = shl i64 %" tag "_n, 3"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_va = add i64 %vec, %" tag "_vo"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_vp = inttoptr i64 %" tag "_va to ptr"))
-    (emitLine cg (cat4 (cat2 "  store i64 %" tag) "_d, ptr %" tag "_vp"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_b1 = add i64 %" tag "_b, 1"))
-    (emitLine cg (cat4 (cat4 "  %" tag "_c1 = add i64 %" tag) "_c, %" tag "_b1"))
-    (emitLine cg (cat3 "  store i64 %" tag "_c1, ptr %cc"))
-    (emitLine cg (cat3 "  br label %" tag "_count"))
-    (emitLine cg (cat3 "" tag "_count:"))
-    (emitLine cg (cat4 (cat2 "  %" tag) "_n1 = add i64 %" tag "_n, 1"))
-    (emitLine cg (cat3 "  store i64 %" tag "_n1, ptr %nn"))
+    (emitLine cg (strConcat "  %" (strConcat tag "_n = load i64, ptr %nn")))
+    (emitLine cg (strConcat "  %" (strConcat tag "_v0 = icmp eq i64 %vec, 0")))
+    (emitLine cg (strConcat (strConcat "  br i1 %" (strConcat tag "_v0, label %")) (strConcat tag (strConcat (strConcat "_count, label %" (strConcat tag "_fill")) ""))))
+    (emitLine cg (strConcat "" (strConcat tag "_fill:")))
+    (emitLine cg (strConcat "  %" (strConcat tag "_k = load i64, ptr %kk")))
+    (emitLine cg (strConcat "  %" (strConcat tag "_c = load i64, ptr %cc")))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_d = add i64 %strs, %" (strConcat tag "_c"))))
+    (emitLine cg (strConcat (strConcat "  %" (strConcat tag "_b = call i64 @__axiom_win_narrow(i64 %scratch, i64 %")) (strConcat tag (strConcat (strConcat "_k, i64 %" (strConcat tag "_d)")) ""))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_vo = shl i64 %" (strConcat tag "_n, 3"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_va = add i64 %vec, %" (strConcat tag "_vo"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_vp = inttoptr i64 %" (strConcat tag "_va to ptr"))))
+    (emitLine cg (strConcat (strConcat "  store i64 %" tag) (strConcat "_d, ptr %" (strConcat tag "_vp"))))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_b1 = add i64 %" (strConcat tag "_b, 1"))))
+    (emitLine cg (strConcat (strConcat "  %" (strConcat tag (strConcat "_c1 = add i64 %" tag))) (strConcat "_c, %" (strConcat tag "_b1"))))
+    (emitLine cg (strConcat "  store i64 %" (strConcat tag "_c1, ptr %cc")))
+    (emitLine cg (strConcat "  br label %" (strConcat tag "_count")))
+    (emitLine cg (strConcat "" (strConcat tag "_count:")))
+    (emitLine cg (strConcat (strConcat "  %" tag) (strConcat "_n1 = add i64 %" (strConcat tag "_n, 1"))))
+    (emitLine cg (strConcat "  store i64 %" (strConcat tag "_n1, ptr %nn")))
     cg
   })
 
@@ -10246,7 +10246,7 @@
     {
       (emitLine cg "  %mres_tp = inttoptr i64 %r to ptr")
       (emitLine cg "  %mres_tag = load i64, ptr %mres_tp")
-      (emitLine cg (cat3 "  %mres_isok = icmp eq i64 %mres_tag, " (constStr okTag) ""))
+      (emitLine cg (strConcat "  %mres_isok = icmp eq i64 %mres_tag, " (strConcat (constStr okTag) "")))
       (emitLine cg "  br i1 %mres_isok, label %.mres_ok, label %.mres_err")
       (emitLine cg ".mres_ok:")
       (emitLine cg "  %mres_outp = inttoptr i64 %r to ptr")
@@ -10262,7 +10262,7 @@
       (emitLine cg "  %mres_errp = inttoptr i64 %r to ptr")
       (emitLine cg "  %mres_errv = getelementptr i64, ptr %mres_errp, i64 1")
       (emitLine cg "  %mres_errh = load i64, ptr %mres_errv")
-      (emitLine cg (cat4 "  %mres_msg = call i64 @" etext "(i64 " "%mres_errh)"))
+      (emitLine cg (strConcat "  %mres_msg = call i64 @" (strConcat etext (strConcat "(i64 " "%mres_errh)"))))
       (emitLine cg "  %mres_slp = inttoptr i64 %mres_msg to ptr")
       (emitLine cg "  %mres_sll = getelementptr i64, ptr %mres_slp, i64 0")
       (emitLine cg "  %mres_len = load i64, ptr %mres_sll")
@@ -10351,8 +10351,8 @@
     (if (> (arenaStaticBytes (memGetWord cg 26)) 0)
       (emitArenaRegion cg)
       0)
-    (emitLine cg (cat3 "@__axiom_bump = " (cgMutGlobal cg) " i64 0"))
-    (emitLine cg (cat3 "@__axiom_bump_end = " (cgMutGlobal cg) " i64 0"))
+    (emitLine cg (strConcat "@__axiom_bump = " (strConcat (cgMutGlobal cg) " i64 0")))
+    (emitLine cg (strConcat "@__axiom_bump_end = " (strConcat (cgMutGlobal cg) " i64 0")))
     ; Every mapped chunk carries a two-word header - its total size and
     ; the chunk mapped before it - so the chunks form a list in
     ; allocation order. `@__axiom_chunk` is its head; a reset walks it
@@ -10361,13 +10361,13 @@
     ; a reset could only restore a waterline, so every chunk mapped
     ; after the mark was stranded: 576 KiB per iteration measured on a
     ; loop whose body crosses a chunk boundary.
-    (emitLine cg (cat3 "@__axiom_chunk = " (cgMutGlobal cg) " i64 0"))
-    (emitLine cg (cat3 "@__axiom_free = " (cgMutGlobal cg) " i64 0"))
+    (emitLine cg (strConcat "@__axiom_chunk = " (strConcat (cgMutGlobal cg) " i64 0")))
+    (emitLine cg (strConcat "@__axiom_free = " (strConcat (cgMutGlobal cg) " i64 0")))
     ; How far into the current chunk memory has ever been handed out.
     ; Above it is still the zeroes `mmap` gave us; below it is whatever
     ; the program wrote, and has to be scrubbed before it is handed out
     ; again - see `handout`.
-    (emitLine cg (cat3 "@__axiom_high = " (cgMutGlobal cg) " i64 0"))
+    (emitLine cg (strConcat "@__axiom_high = " (strConcat (cgMutGlobal cg) " i64 0")))
     ; MM-LIFE-2e: one free-list head per 16-byte size class, classes
     ; 16..65536 (index = size/16; slot 0 unused). Release at zero
     ; pushes a block - header included - onto its class; the
@@ -10393,7 +10393,7 @@
     ; Int-typed and events 2 and 3 do not emit. What the ceiling costs
     ; is this array (4097 words of BSS, 352 bytes of binary) and the
     ; per-reset scrub below.
-    (emitLine cg (cat3 "@__axiom_slabs = " (cgMutGlobal cg) " [4097 x i64] zeroinitializer"))
+    (emitLine cg (strConcat "@__axiom_slabs = " (strConcat (cgMutGlobal cg) " [4097 x i64] zeroinitializer")))
     (emitLine cg "")
     (emitLine cg "define i64 @axiom_alloc(i64 %size) #0 {")
     (emitLine cg "entry:")
@@ -10466,10 +10466,10 @@
     ; are byte for byte what they were. The two chunk lines read the
     ; EFFECTIVE chunk: under `--heap-ceiling` it is capped by the
     ; region, so the growth unit always fits what it grows in.
-    (emitLine cg (cat3 "  %big = icmp ugt i64 %need, " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))
-    (emitLine cg (cat3 "  %rounded0 = add i64 %need, " (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) ""))
-    (emitLine cg (cat3 "  %rounded = and i64 %rounded0, " (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) ""))
-    (emitLine cg (cat3 "  %chunk = select i1 %big, i64 %rounded, i64 " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))
+    (emitLine cg (strConcat "  %big = icmp ugt i64 %need, " (strConcat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))
+    (emitLine cg (strConcat "  %rounded0 = add i64 %need, " (strConcat (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) "")))
+    (emitLine cg (strConcat "  %rounded = and i64 %rounded0, " (strConcat (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) "")))
+    (emitLine cg (strConcat "  %chunk = select i1 %big, i64 %rounded, i64 " (strConcat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))
     ; First fit over the chunks a reset has freed. The list is short -
     ; it holds only what outlived a mark - and a chunk on it is a whole
     ; mapping, so reuse is what keeps a resetting loop's RSS flat
@@ -11124,7 +11124,7 @@
 (pub fn (emitRecoverRuntime cg)
   {
     (emitLine cg "")
-    (emitLine cg (cat3 "@__axiom_recover_top = " (cgMutGlobal cg) " i64 0"))
+    (emitLine cg (strConcat "@__axiom_recover_top = " (strConcat (cgMutGlobal cg) " i64 0")))
     (emitLine cg "define internal i64 @__axiom_recover_abort(i64 %code) #0 {")
     (emitLine cg "entry:")
     (emitLine cg "  %top = load i64, ptr @__axiom_recover_top")
@@ -11165,7 +11165,7 @@
     ; lives in this arena.
     (if (== (parRegistryOn cg) 1)
       {
-        (emitLine cg (cat3 "  %aseqa = add i64 %top, " (fmtInt (parRecSeqOffset cg)) ""))
+        (emitLine cg (strConcat "  %aseqa = add i64 %top, " (strConcat (fmtInt (parRecSeqOffset cg)) "")))
         (emitLine cg "  %aseqp = inttoptr i64 %aseqa to ptr")
         (emitLine cg "  %aseq = load i64, ptr %aseqp")
         (emitLine cg "  call void @__axiom_par_sweep(i64 %aseq)")
@@ -11174,7 +11174,7 @@
       0)
     (emitLine cg "  call i64 @__axiom_recover_load(i64 %top)")
     (emitLine cg "  call i64 @__axiom_arena_reset_fn(i64 %mark)")
-    (emitLine cg (cat3 "  call void asm sideeffect " (targetRecoverJumpAsm (memGetWord cg 26)) "(i64 %top, i64 %sp, i64 %fp, i64 %pc)"))
+    (emitLine cg (strConcat "  call void asm sideeffect " (strConcat (targetRecoverJumpAsm (memGetWord cg 26)) "(i64 %top, i64 %sp, i64 %fp, i64 %pc)")))
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -11229,21 +11229,21 @@
 (pub fn (emitRecoverSlotMove cg slot k save)
   (let (
     (off (fmtInt (+ 128 (* k 8))))
-    (a (cat2 "%ra" (fmtInt k)))
-    (p (cat2 "%rp" (fmtInt k)))
-    (v (cat2 "%rv" (fmtInt k)))
+    (a (strConcat "%ra" (fmtInt k)))
+    (p (strConcat "%rp" (fmtInt k)))
+    (v (strConcat "%rv" (fmtInt k)))
   )
     {
-      (emitLine cg (cat3 (cat2 "  " a) " = add i64 %rec, " off))
-      (emitLine cg (cat4 (cat2 "  " p) " = inttoptr i64 " a " to ptr"))
+      (emitLine cg (strConcat (strConcat "  " a) (strConcat " = add i64 %rec, " off)))
+      (emitLine cg (strConcat (strConcat "  " p) (strConcat " = inttoptr i64 " (strConcat a " to ptr"))))
       (if (== save 1)
         {
-          (emitLine cg (cat3 (cat2 "  " v) " = load i64, ptr @" slot))
-          (emitLine cg (cat4 "  store i64 " v ", ptr " p))
+          (emitLine cg (strConcat (strConcat "  " v) (strConcat " = load i64, ptr @" slot)))
+          (emitLine cg (strConcat "  store i64 " (strConcat v (strConcat ", ptr " p))))
         }
         {
-          (emitLine cg (cat3 (cat2 "  " v) " = load i64, ptr " p))
-          (emitLine cg (cat4 "  store i64 " v ", ptr @" slot))
+          (emitLine cg (strConcat (strConcat "  " v) (strConcat " = load i64, ptr " p)))
+          (emitLine cg (strConcat "  store i64 " (strConcat v (strConcat ", ptr @" slot))))
         })
       cg
     }))
@@ -11270,8 +11270,8 @@
       "axiom: out of memory (mmap failed)")))
     (let ((n (fmtInt (+ (strLen msg) 1))))
       {
-        (emitLine cg (cat4 "@__axiom_oom_msg = private unnamed_addr constant [" n " x i8] c\"" (cat2 msg "\\0A\"")))
-        (emitLine cg (cat3 "define internal i64 @__axiom_out_of_memory() " trapFnAttrs " {"))
+        (emitLine cg (strConcat "@__axiom_oom_msg = private unnamed_addr constant [" (strConcat n (strConcat " x i8] c\"" (strConcat msg "\\0A\"")))))
+        (emitLine cg (strConcat "define internal i64 @__axiom_out_of_memory() " (strConcat trapFnAttrs " {")))
         (emitLine cg "entry:")
         (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
         (emitLine cg "  %oomp = ptrtoint ptr @__axiom_oom_msg to i64")
@@ -11285,7 +11285,7 @@
         ; blame `mmap` for a request nothing was asked to map - a
         ; negative size, or one past 2^62 bytes.
         (emitLine cg "@__axiom_oom_size_msg = private unnamed_addr constant [52 x i8] c\"axiom: out of memory (allocation size out of range)\\0A\"")
-        (emitLine cg (cat3 "define internal i64 @__axiom_out_of_memory_size() " trapFnAttrs " {"))
+        (emitLine cg (strConcat "define internal i64 @__axiom_out_of_memory_size() " (strConcat trapFnAttrs " {")))
         (emitLine cg "entry:")
         (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
         (emitLine cg "  %oomsp = ptrtoint ptr @__axiom_oom_size_msg to i64")
@@ -11297,7 +11297,7 @@
         ; The count is a finite runtime resource too. It shares the
         ; exhaustion status, but does not claim that allocation failed.
         (emitLine cg "@__axiom_rc_full_msg = private unnamed_addr constant [38 x i8] c\"axiom: reference count limit exceeded\\0A\"")
-        (emitLine cg (cat3 "define internal i64 @__axiom_refcount_exhausted() " trapFnAttrs " {"))
+        (emitLine cg (strConcat "define internal i64 @__axiom_refcount_exhausted() " (strConcat trapFnAttrs " {")))
         (emitLine cg "entry:")
         (emitLine cg "  call i64 @__axiom_recover_abort(i64 70)")
         (emitLine cg "  %rcp = ptrtoint ptr @__axiom_rc_full_msg to i64")
@@ -11362,7 +11362,7 @@
 (pub fn (emitIndexTrap cg)
   {
     (emitLine cg "@__axiom_index_msg = private unnamed_addr constant [33 x i8] c\"axiom: vector index out of range\\0A\"")
-    (emitLine cg (cat3 "define internal i64 @__axiom_index_out_of_range() " trapFnAttrs " {"))
+    (emitLine cg (strConcat "define internal i64 @__axiom_index_out_of_range() " (strConcat trapFnAttrs " {")))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 77)")
     (emitLine cg "  %ixp = ptrtoint ptr @__axiom_index_msg to i64")
@@ -11380,7 +11380,7 @@
 (pub fn (emitAtomicAlignTrap cg)
   {
     (emitLine cg "@__axiom_misaligned_msg = private unnamed_addr constant [32 x i8] c\"axiom: misaligned atomic access\\0A\"")
-    (emitLine cg (cat3 "define internal i64 @__axiom_misaligned_atomic() " trapFnAttrs " {"))
+    (emitLine cg (strConcat "define internal i64 @__axiom_misaligned_atomic() " (strConcat trapFnAttrs " {")))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 82)")
     (emitLine cg "  %map = ptrtoint ptr @__axiom_misaligned_msg to i64")
@@ -11396,7 +11396,7 @@
 (pub fn (emitDivTrap cg)
   {
     (emitLine cg "@__axiom_divzero_msg = private unnamed_addr constant [24 x i8] c\"axiom: division by zero\\0A\"")
-    (emitLine cg (cat3 "define internal i64 @__axiom_div_by_zero() " trapFnAttrs " {"))
+    (emitLine cg (strConcat "define internal i64 @__axiom_div_by_zero() " (strConcat trapFnAttrs " {")))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 72)")
     (emitLine cg "  %dzp = ptrtoint ptr @__axiom_divzero_msg to i64")
@@ -11464,7 +11464,7 @@
     {
       (emitLine cg "")
       (emitLine cg "@__axiom_livehandle_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset past a live handle\\0A\"")
-      (emitLine cg (cat3 "define internal i64 @__axiom_live_handle() " trapFnAttrs " {"))
+      (emitLine cg (strConcat "define internal i64 @__axiom_live_handle() " (strConcat trapFnAttrs " {")))
       (emitLine cg "entry:")
       (emitLine cg "  %lhp = ptrtoint ptr @__axiom_livehandle_msg to i64")
       (emitRuntimeWrite cg "%lhp" "38")
@@ -11511,7 +11511,7 @@
 (pub fn (emitEvCall cg lo hi)
   (if (== (distinctSlotCount (memGetWordVec cg 32) 0 0) 0)
     cg
-    (emitLine cg (cat3 "  call i64 @__axiom_ev_check(i64 " lo (cat3 ", i64 " hi ")")))))
+    (emitLine cg (strConcat "  call i64 @__axiom_ev_check(i64 " (strConcat lo (strConcat ", i64 " (strConcat hi ")")))))))
 
 (pub :: emitEvChunkCall (-> Int Int))
 (pub fn (emitEvChunkCall cg)
@@ -11536,7 +11536,7 @@
         (emitLine cg "entry:")
         (emitLine cg "  br label %evs0")
         (emitEvCheckSlots cg 0 0)
-        (emitLine cg (cat3 "evs" (fmtInt n) ":"))
+        (emitLine cg (strConcat "evs" (strConcat (fmtInt n) ":")))
         (emitLine cg "  ret i64 0")
         (emitLine cg "evlive:")
         (emitLine cg "  call i64 @__axiom_live_handle()")
@@ -11570,14 +11570,14 @@
     (nx (fmtInt (+ k 1)))
   )
     {
-      (emitLine cg (cat3 "evs" n ":"))
-      (emitLine cg (cat4 "  %evv" n " = load i64, ptr @" slot))
-      (emitLine cg (cat4 "  %evnz" n " = icmp ne i64 %evv" (cat2 n ", 0")))
-      (emitLine cg (cat4 "  %evge" n " = icmp uge i64 %evv" (cat2 n ", %lo")))
-      (emitLine cg (cat4 "  %evlt" n " = icmp ult i64 %evv" (cat2 n ", %hi")))
-      (emitLine cg (cat4 "  %evin" n " = and i1 %evge" (cat4 n ", %evlt" n "")))
-      (emitLine cg (cat4 "  %evhit" n " = and i1 %evnz" (cat4 n ", %evin" n "")))
-      (emitLine cg (cat4 "  br i1 %evhit" n ", label %evlive, label %evs" nx))
+      (emitLine cg (strConcat "evs" (strConcat n ":")))
+      (emitLine cg (strConcat "  %evv" (strConcat n (strConcat " = load i64, ptr @" slot))))
+      (emitLine cg (strConcat "  %evnz" (strConcat n (strConcat " = icmp ne i64 %evv" (strConcat n ", 0")))))
+      (emitLine cg (strConcat "  %evge" (strConcat n (strConcat " = icmp uge i64 %evv" (strConcat n ", %lo")))))
+      (emitLine cg (strConcat "  %evlt" (strConcat n (strConcat " = icmp ult i64 %evv" (strConcat n ", %hi")))))
+      (emitLine cg (strConcat "  %evin" (strConcat n (strConcat " = and i1 %evge" (strConcat n (strConcat ", %evlt" (strConcat n "")))))))
+      (emitLine cg (strConcat "  %evhit" (strConcat n (strConcat " = and i1 %evnz" (strConcat n (strConcat ", %evin" (strConcat n "")))))))
+      (emitLine cg (strConcat "  br i1 %evhit" (strConcat n (strConcat ", label %evlive, label %evs" nx))))
       cg
     }))
 
@@ -11586,7 +11586,7 @@
   {
     (emitLine cg "")
     (emitLine cg "@__axiom_badmark_msg = private unnamed_addr constant [38 x i8] c\"axiom: arena reset to an invalid mark\\0A\"")
-    (emitLine cg (cat3 "define internal i64 @__axiom_bad_mark() " trapFnAttrs " {"))
+    (emitLine cg (strConcat "define internal i64 @__axiom_bad_mark() " (strConcat trapFnAttrs " {")))
     (emitLine cg "entry:")
     (emitLine cg "  %bmp = ptrtoint ptr @__axiom_badmark_msg to i64")
     (emitRuntimeWrite cg "%bmp" "38")
@@ -12144,7 +12144,7 @@
     cg
     {
       (let ((body (symtabBody (vecGetStr names i))))
-        (emitLine cg (cat4 (cat3 "@__axiom_symn_" (fmtInt i) " = private unnamed_addr constant [") (fmtInt (symtabBodyBytes body 0 0)) " x i8] c\"" (cat2 body "\""))))
+        (emitLine cg (strConcat (strConcat "@__axiom_symn_" (strConcat (fmtInt i) " = private unnamed_addr constant [")) (strConcat (fmtInt (symtabBodyBytes body 0 0)) (strConcat " x i8] c\"" (strConcat body "\""))))))
       (emitSymNames cg names (+ i 1))
     }))
 
@@ -12168,15 +12168,15 @@
         (let ((body (symtabBody spell)))
           (emitLine
             cg
-            (cat4
-              (cat3 "  i64 ptrtoint (ptr @" spell " to i64), i64 ptrtoint (ptr @__axiom_symn_")
-              (fmtInt i)
-              " to i64), i64 "
-              (cat2
+            (strConcat
+              (strConcat "  i64 ptrtoint (ptr @" (strConcat spell " to i64), i64 ptrtoint (ptr @__axiom_symn_"))
+              (strConcat (fmtInt i)
+              (strConcat " to i64), i64 "
+              (strConcat
                 (fmtInt (symtabBodyBytes body 0 0))
                 (if (< (+ i 1) (vecLen names))
                   ","
-                  ""))))))
+                  ""))))))))
       (emitSymRows cg names (+ i 1))
     }))
 
@@ -12194,11 +12194,11 @@
       (if (== n 0)
         (emitLine cg "@__axiom_symtab = internal constant [3 x i64] zeroinitializer")
         {
-          (emitLine cg (cat3 "@__axiom_symtab = internal constant [" (fmtInt (* 3 n)) " x i64] ["))
+          (emitLine cg (strConcat "@__axiom_symtab = internal constant [" (strConcat (fmtInt (* 3 n)) " x i64] [")))
           (emitSymRows cg names 0)
           (emitLine cg "]")
         })
-      (emitLine cg (cat3 "@__axiom_symtab_n = internal constant i64 " (fmtInt n) ""))
+      (emitLine cg (strConcat "@__axiom_symtab_n = internal constant i64 " (strConcat (fmtInt n) "")))
       cg
     }))
 
@@ -12265,7 +12265,7 @@
 (pub fn (llvmBytes s i acc)
   (if (>= i (strLen s))
     acc
-    (llvmBytes s (+ i 1) (cat3 acc "\\" (hex2 (strByte s i))))))
+    (llvmBytes s (+ i 1) (strConcat acc (strConcat "\\" (hex2 (strByte s i)))))))
 
 ; `; @@line <module> <spanstart>`, or `; @@line <spanstart>` for the
 ; entry file. A marker whose preceding line is not a label, or that
@@ -12591,13 +12591,13 @@
 
 (pub :: lineRowStr (-> Int String Int Int String))
 (pub fn (lineRowStr fi path line col)
-  (let ((a (cat2 "  i64 ptrtoint (ptr @__axiom_filen_" (fmtInt fi))))
-    (let ((b (cat2 a " to i64), i64 ")))
-      (let ((c (cat2 b (fmtInt (strLen path)))))
-        (let ((d (cat2 c ", i64 ")))
-          (let ((e (cat2 d (fmtInt line))))
-            (let ((f (cat2 e ", i64 ")))
-              (cat2 f (fmtInt col)))))))))
+  (let ((a (strConcat "  i64 ptrtoint (ptr @__axiom_filen_" (fmtInt fi))))
+    (let ((b (strConcat a " to i64), i64 ")))
+      (let ((c (strConcat b (fmtInt (strLen path)))))
+        (let ((d (strConcat c ", i64 ")))
+          (let ((e (strConcat d (fmtInt line))))
+            (let ((f (strConcat e ", i64 ")))
+              (strConcat f (fmtInt col)))))))))
 
 ; Filename globals, the meta table, the address array, the count,
 ; and the initialiser that resolves the addresses at startup. The
@@ -12630,11 +12630,11 @@
         cg
       }
       {
-        (emitLine cg (cat3 "@__axiom_linetab = internal constant [" (fmtInt (* 4 n)) " x i64] ["))
+        (emitLine cg (strConcat "@__axiom_linetab = internal constant [" (strConcat (fmtInt (* 4 n)) " x i64] [")))
         (emitLineRows rows 0 n cg)
         (emitLine cg "]")
-        (emitLine cg (cat3 "@__axiom_lineaddrs = internal global [" (fmtInt n) " x i64] zeroinitializer"))
-        (emitLine cg (cat3 "@__axiom_linetab_n = internal constant i64 " (fmtInt n) ""))
+        (emitLine cg (strConcat "@__axiom_lineaddrs = internal global [" (strConcat (fmtInt n) " x i64] zeroinitializer")))
+        (emitLine cg (strConcat "@__axiom_linetab_n = internal constant i64 " (strConcat (fmtInt n) "")))
         (emitLineInit
           addrFns
           addrLbls
@@ -12679,26 +12679,26 @@
 
 (pub :: lineInitStore (-> String String Int Int String))
 (pub fn (lineInitStore func lbl i n)
-  (let ((a (cat2 "  store i64 ptrtoint (ptr blockaddress(" func)))
-    (let ((b (cat2 a ", %")))
-      (let ((c (cat2 b lbl)))
-        (let ((d (cat2 c ") to i64), ptr getelementptr ([")))
-          (let ((e (cat2 d (fmtInt n))))
-            (let ((f (cat2 e " x i64], ptr @__axiom_lineaddrs, i64 0, i64 ")))
-              (let ((g (cat2 f (fmtInt i))))
-                (cat2 g ")")))))))))
+  (let ((a (strConcat "  store i64 ptrtoint (ptr blockaddress(" func)))
+    (let ((b (strConcat a ", %")))
+      (let ((c (strConcat b lbl)))
+        (let ((d (strConcat c ") to i64), ptr getelementptr ([")))
+          (let ((e (strConcat d (fmtInt n))))
+            (let ((f (strConcat e " x i64], ptr @__axiom_lineaddrs, i64 0, i64 ")))
+              (let ((g (strConcat f (fmtInt i))))
+                (strConcat g ")")))))))))
 
 (pub :: emitFilenGlobals (-> (Vec Int) Int Int Int))
 (pub fn (emitFilenGlobals files i cg)
   (if (>= i (vecLen files))
     cg
     (let ((p (vecGetStr files i)))
-      (let ((head (cat2 "@__axiom_filen_" (fmtInt i))))
-        (let ((sized (cat2 head (cat2 " = private unnamed_addr constant [" (fmtInt (strLen p))))))
-          (let ((open (cat2 sized " x i8] c\"")))
-            (let ((body (cat2 open (llvmBytes p 0 ""))))
+      (let ((head (strConcat "@__axiom_filen_" (fmtInt i))))
+        (let ((sized (strConcat head (strConcat " = private unnamed_addr constant [" (fmtInt (strLen p))))))
+          (let ((open (strConcat sized " x i8] c\"")))
+            (let ((body (strConcat open (llvmBytes p 0 ""))))
               {
-                (emitLine cg (cat2 body "\""))
+                (emitLine cg (strConcat body "\""))
                 (emitFilenGlobals files (+ i 1) cg)
               })))))))
 
@@ -12709,7 +12709,7 @@
     {
       (emitLine
         cg
-        (cat2
+        (strConcat
           (vecGetStr rows i)
           (if (< (+ i 1) n)
             ","
@@ -12774,17 +12774,17 @@
           (emitLine cg "  %ba = phi i64 [ 0, %entry ], [ %ba1, %next ]")
           (emitLine cg "  %bn = phi i64 [ 0, %entry ], [ %bn1, %next ]")
           (emitLine cg "  %bl = phi i64 [ 0, %entry ], [ %bl1, %next ]")
-          (emitLine cg (cat3 "  %fin = icmp uge i64 %i, " (fmtInt n) ""))
+          (emitLine cg (strConcat "  %fin = icmp uge i64 %i, " (strConcat (fmtInt n) "")))
           (emitLine cg "  br i1 %fin, label %emit, label %body")
           (emitLine cg "body:")
           (emitLine cg "  %i3 = mul i64 %i, 3")
-          (emitLine cg (cat3 "  %pa = getelementptr [" sz " x i64], ptr @__axiom_symtab, i64 0, i64 %i3"))
+          (emitLine cg (strConcat "  %pa = getelementptr [" (strConcat sz " x i64], ptr @__axiom_symtab, i64 0, i64 %i3")))
           (emitLine cg "  %a = load i64, ptr %pa")
           (emitLine cg "  %j1 = add i64 %i3, 1")
-          (emitLine cg (cat3 "  %pn = getelementptr [" sz " x i64], ptr @__axiom_symtab, i64 0, i64 %j1"))
+          (emitLine cg (strConcat "  %pn = getelementptr [" (strConcat sz " x i64], ptr @__axiom_symtab, i64 0, i64 %j1")))
           (emitLine cg "  %nm = load i64, ptr %pn")
           (emitLine cg "  %j2 = add i64 %i3, 2")
-          (emitLine cg (cat3 "  %pl = getelementptr [" sz " x i64], ptr @__axiom_symtab, i64 0, i64 %j2"))
+          (emitLine cg (strConcat "  %pl = getelementptr [" (strConcat sz " x i64], ptr @__axiom_symtab, i64 0, i64 %j2")))
           (emitLine cg "  %ln = load i64, ptr %pl")
           (emitLine cg "  %le = icmp ule i64 %a, %pc")
           (emitLine cg "  %gt = icmp ugt i64 %a, %ba")
@@ -12836,22 +12836,22 @@
           (emitLine cg "  %lln = phi i64 [ 0, %loc ], [ %lln1, %lnext ]")
           (emitLine cg "  %lco = phi i64 [ 0, %loc ], [ %lco1, %lnext ]")
           (emitLine cg "  %lok = phi i64 [ 0, %loc ], [ %lok1, %lnext ]")
-          (emitLine cg (cat3 "  %lfin = icmp uge i64 %li, " (fmtInt ln) ""))
+          (emitLine cg (strConcat "  %lfin = icmp uge i64 %li, " (strConcat (fmtInt ln) "")))
           (emitLine cg "  br i1 %lfin, label %locdone, label %lrow")
           (emitLine cg "lrow:")
-          (emitLine cg (cat3 "  %lap = getelementptr [" asz " x i64], ptr @__axiom_lineaddrs, i64 0, i64 %li"))
+          (emitLine cg (strConcat "  %lap = getelementptr [" (strConcat asz " x i64], ptr @__axiom_lineaddrs, i64 0, i64 %li")))
           (emitLine cg "  %lra = load i64, ptr %lap")
           (emitLine cg "  %li4 = mul i64 %li, 4")
-          (emitLine cg (cat3 "  %lpf = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %li4"))
+          (emitLine cg (strConcat "  %lpf = getelementptr [" (strConcat lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %li4")))
           (emitLine cg "  %lfpv = load i64, ptr %lpf")
           (emitLine cg "  %lj1 = add i64 %li4, 1")
-          (emitLine cg (cat3 "  %lflp = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj1"))
+          (emitLine cg (strConcat "  %lflp = getelementptr [" (strConcat lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj1")))
           (emitLine cg "  %lflv = load i64, ptr %lflp")
           (emitLine cg "  %lj2 = add i64 %li4, 2")
-          (emitLine cg (cat3 "  %llnp = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj2"))
+          (emitLine cg (strConcat "  %llnp = getelementptr [" (strConcat lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj2")))
           (emitLine cg "  %llnv = load i64, ptr %llnp")
           (emitLine cg "  %lj3 = add i64 %li4, 3")
-          (emitLine cg (cat3 "  %lcop = getelementptr [" lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj3"))
+          (emitLine cg (strConcat "  %lcop = getelementptr [" (strConcat lsz " x i64], ptr @__axiom_linetab, i64 0, i64 %lj3")))
           (emitLine cg "  %lcov = load i64, ptr %lcop")
           (emitLine cg "  %infn = icmp uge i64 %lra, %ba")
           (emitLine cg "  %inpc = icmp ule i64 %lra, %pc")
@@ -12979,7 +12979,7 @@
     (emitLine cg "  %li0 = call i64 @__axiom_lineinit()")
     (emitLine cg "  %hp = ptrtoint ptr @__axiom_bt_hdr to i64")
     (emitBtWrite cg "%hp" "42")
-    (emitLine cg (cat3 "  %fpi = call i64 asm sideeffect " (targetFrameAsm (memGetWord cg 26)) "()"))
+    (emitLine cg (strConcat "  %fpi = call i64 asm sideeffect " (strConcat (targetFrameAsm (memGetWord cg 26)) "()")))
     (emitLine cg "  br label %loop")
     (emitLine cg "loop:")
     (emitLine cg "  %fp = phi i64 [ %fpi, %entry ], [ %nx, %frame ]")
@@ -13107,7 +13107,7 @@
       (emitLine
         cg
         (if (symtabHas names (targetEntryName (memGetWord cg 26)) 0)
-          (cat3 "@__axiom_bt_mainaddr = internal constant i64 ptrtoint (ptr @" (targetEntryName (memGetWord cg 26)) " to i64)")
+          (strConcat "@__axiom_bt_mainaddr = internal constant i64 ptrtoint (ptr @" (strConcat (targetEntryName (memGetWord cg 26)) " to i64)"))
           "@__axiom_bt_mainaddr = internal constant i64 -1"))
       (emitLine cg "")
       (emitBtName cg n ln)
@@ -13285,7 +13285,7 @@
 ;@axiom:effect(io)
 (pub fn (emitArenaKeepHelper cg)
   {
-    (emitLine cg (cat2 "define internal i64 @__axiom_arena_reset_keeping_fn" "(i64 %cell, i64 %src, i64 %bytes) #0 {"))
+    (emitLine cg (strConcat "define internal i64 @__axiom_arena_reset_keeping_fn" "(i64 %cell, i64 %src, i64 %bytes) #0 {"))
     (emitLine cg "entry:")
     (emitLine cg "  %r = call i64 @__axiom_arena_reset_fn(i64 %cell)")
     (emitLine cg "  %sz0 = add i64 %bytes, 15")
@@ -13311,8 +13311,8 @@
     ; the arena's SECOND allocation path, and a 4 KiB-chunk target that
     ; rounded a kept block up to 64 KiB here would exhaust a small
     ; static region on a keep that fits.
-    (emitLine cg (cat3 "  %rounded0 = add i64 %need, " (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) ""))
-    (emitLine cg (cat3 "  %want = and i64 %rounded0, " (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) ""))
+    (emitLine cg (strConcat "  %rounded0 = add i64 %need, " (strConcat (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) "")))
+    (emitLine cg (strConcat "  %want = and i64 %rounded0, " (strConcat (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) "")))
     (emitRuntimeMap cg "%want")
     (emitLine cg "  %failed_low = icmp ult i64 %addr, 4096")
     (emitLine cg "  %failed_neg = icmp ugt i64 %addr, -4096")
@@ -13472,7 +13472,7 @@
           (let ((_idx (buildNameIndexes cg0b)))
             (let ((_own (inferOwnership cg0b allDecls)))
               (let ((_flow (inferFlows cg0b allDecls)))
-                (let ((ttHeader (cat3 "target triple = \"" (targetTriple tcode) "\"")))
+                (let ((ttHeader (strConcat "target triple = \"" (strConcat (targetTriple tcode) "\""))))
                   (let ((cg1 (emitLine cg0b ttHeader)))
                     (let ((cg2 (emitLine cg1 "")))
                       (let ((cg3 (emitAllocator cg2)))
@@ -13575,7 +13575,7 @@
           ; comment the driver reads beside the declares: it is
           ; what lets `axiom build` link `-l<lib>` without being
           ; told, and name the block in a grounding diagnostic
-          (emitExternItems (nodeCVec d) (emitLine cg (cat2 "; axiom-extern-lib " (nodeAName d))) 0 seen)
+          (emitExternItems (nodeCVec d) (emitLine cg (strConcat "; axiom-extern-lib " (nodeAName d))) 0 seen)
           cg)
         (+ i 1)
         seen))))
@@ -13602,7 +13602,7 @@
               cg
               {
                 (vecPush seen sym)
-                (emitLine cg (cat4 "declare i64 @" (llvmSym (strDup sym)) (cat3 "(" (externParams (arrowArity (nodeB f)) 0) ")") " #0"))
+                (emitLine cg (strConcat "declare i64 @" (strConcat (llvmSym (strDup sym)) (strConcat (strConcat "(" (strConcat (externParams (arrowArity (nodeB f)) 0) ")")) " #0"))))
               })
             (+ i 1)
             seen))))))
@@ -13616,7 +13616,7 @@
     (if (==
       (strHasSub
         (cast String (vecGet lines i))
-        (cat3 "@" sym "("))
+        (strConcat "@" (strConcat sym "(")))
       1)
       1
       (linesCallSym lines sym (+ i 1)))))
@@ -13667,7 +13667,7 @@
     ""
     (if (== i (- n 1))
       "i64"
-      (cat2 "i64, " (externParams n (+ i 1))))))
+      (strConcat "i64, " (externParams n (+ i 1))))))
 
 ; ------------------------------------------------------------------
 ; Declaration emission.
@@ -14061,7 +14061,7 @@
       (vecSet
         ops
         (vecGet regs i)
-        (cast Int (cat2 "%" (llvmSym (strDup (vecGetStr names i))))))
+        (cast Int (strConcat "%" (llvmSym (strDup (vecGetStr names i))))))
       (mirParamOps ops regs names (+ i 1))
     }))
 
@@ -14101,8 +14101,8 @@
                 (r (regStr rn))
               )
                 {
-                  (emitLine cg (cat4 (cat3 (cat2 "  " cr) " = icmp " n.name) " i64 " (cat3 a ", " b) ""))
-                  (emitLine cg (cat4 (cat2 "  " r) " = zext i1 " cr " to i64"))
+                  (emitLine cg (strConcat (strConcat (strConcat "  " cr) (strConcat " = icmp " n.name)) (strConcat " i64 " (strConcat (strConcat a (strConcat ", " b)) ""))))
+                  (emitLine cg (strConcat (strConcat "  " r) (strConcat " = zext i1 " (strConcat cr " to i64"))))
                   (vecSet
                     ops
                     n.dst
@@ -14112,7 +14112,7 @@
             (let ((rn (allocReg cg)))
               (let ((r (regStr rn)))
                 {
-                  (emitLine cg (cat4 (cat3 (cat2 "  " r) " = " n.name) " i64 " (cat3 a ", " b) ""))
+                  (emitLine cg (strConcat (strConcat (strConcat "  " r) (strConcat " = " n.name)) (strConcat " i64 " (strConcat (strConcat a (strConcat ", " b)) ""))))
                   (vecSet
                     ops
                     n.dst
@@ -14331,11 +14331,11 @@
             paramStr
             (if (== (strLen paramStr) 0)
               "i64 %__evw.h"
-              (cat2 paramStr ", i64 %__evw.h")))))
+              (strConcat paramStr ", i64 %__evw.h")))))
           (let ((hdr 
             (if (!= (pairSlot cg 0) 0)
-              (strConcat (cat4 "define { i64, i64 } @" (strConcat (llvmSym (strDup name)) "$pair") "(" paramStr2) ") #0 {")
-              (strConcat (cat4 "define i64 @" (llvmSym (strDup name)) "(" paramStr2) ") #0 {"))))
+              (strConcat (strConcat "define { i64, i64 } @" (strConcat (strConcat (llvmSym (strDup name)) "$pair") (strConcat "(" paramStr2))) ") #0 {")
+              (strConcat (strConcat "define i64 @" (strConcat (llvmSym (strDup name)) (strConcat "(" paramStr2))) ") #0 {"))))
             (let ((cg0e 
               (pairSetSlot
                 (if (== takesEv 1)
@@ -14411,7 +14411,7 @@
                                   (if (== wantsTCO 1)
                                     (releaseRefParamSlots cg2)
                                     cg2)))
-                                  (let ((ret (cat3 "  ret i64 " (strDup (memGetWordStr cgP 2)) "")))
+                                  (let ((ret (strConcat "  ret i64 " (strConcat (strDup (memGetWordStr cgP 2)) ""))))
                                     (emitLine (emitLine (closeAllocaMark cgP) ret) "}"))))
                             }))))))))))))))
 
@@ -14593,8 +14593,8 @@
   (let ((an (allocReg cg)))
     (let ((ar (regStr an)))
       {
-        (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
-        (emitLine cg (cat4 "  store i64 " "%__evw.h" ", ptr " ar))
+        (emitLine cg (strConcat (strConcat "  " ar) " = alloca i64"))
+        (emitLine cg (strConcat "  store i64 " (strConcat "%__evw.h" (strConcat ", ptr " ar))))
         (bindSym
           cg
           "__evw."
@@ -14716,11 +14716,11 @@
     ; call arrived with
     (let ((cg1 
       (if (== (curParamRefClass cg i) 1)
-        (emitRetainOf cg (cat2 "%" (llvmSym (strDup (vecGetStr params i)))))
+        (emitRetainOf cg (strConcat "%" (llvmSym (strDup (vecGetStr params i)))))
         (let ((k (curParamEvBit cg i)))
           (if (< k 0)
             cg
-            (emitRetainIfEvBit cg (cat2 "%" (llvmSym (strDup (vecGetStr params i)))) k))))))
+            (emitRetainIfEvBit cg (strConcat "%" (llvmSym (strDup (vecGetStr params i)))) k))))))
       (retainRefParams params cg1 (+ i 1)))))
 
 (pub fn (openTailLoop name params cg)
@@ -14735,7 +14735,7 @@
         (memSetWord cg 27 (strDup name))
         (memSetWord cg 28 slots)
         (memSetWord cg 29 hdrB)
-        (emitLine cg (cat2 "  br label %" hdrB))
+        (emitLine cg (strConcat "  br label %" hdrB))
         (emitLabel cg hdrB)
         cg
       })))
@@ -14752,8 +14752,8 @@
     )
       (let ((ar (tmpStr "s" an)))
         {
-          (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
-          (emitLine cg (cat4 "  store i64 %" (llvmSym (strDup pname)) ", ptr " ar))
+          (emitLine cg (strConcat (strConcat "  " ar) " = alloca i64"))
+          (emitLine cg (strConcat "  store i64 %" (strConcat (llvmSym (strDup pname)) (strConcat ", ptr " ar))))
           ; Kind 2, not 1: the slot is loadable storage exactly as a
           ; `mut` binding's is, which is what makes `emitVar` emit a
           ; load without knowing about tail calls - but `set` must
@@ -14820,12 +14820,12 @@
                   {
                     (emitLine
                       cgV
-                      (cat4
+                      (strConcat
                         "  store i64 "
-                        newW
-                        ", ptr "
+                        (strConcat newW
+                        (strConcat ", ptr "
                         (strDup
-                          (cast String sreg))))
+                          (cast String sreg))))))
                     (vecPush
                       words
                       (cast Int oldW))
@@ -14903,7 +14903,7 @@
       ; their scope ends are past the jump and will not be reached on
       ; this path; the values the slots keep were retained above
       (releasePending cg (memGetWordVec cg 42) 0)
-      (emitLine cg (cat2 "  br label %" (memGetWordStr cg 29)))
+      (emitLine cg (strConcat "  br label %" (memGetWordStr cg 29)))
       (memSetWord cg 31 1)
       (memSetWord cg 2 "0")
       cg
@@ -15147,7 +15147,7 @@
   (let ((rn (allocReg cg)))
     (let ((r (regStr rn)))
       {
-        (emitLine cg (cat4 (cat2 "  " r) " = load i64, ptr " slot ""))
+        (emitLine cg (strConcat (strConcat "  " r) (strConcat " = load i64, ptr " (strConcat slot ""))))
         (memSetWord cg 2 r)
         cg
       })))
@@ -15168,7 +15168,7 @@
   (if (>= i (vecLen slots))
     0
     {
-      (emitLine cg (cat4 "  store i64 " (vecGetStr vals i) ", ptr " (vecGetStr slots i)))
+      (emitLine cg (strConcat "  store i64 " (strConcat (vecGetStr vals i) (strConcat ", ptr " (vecGetStr slots i)))))
       (storeTailSlots slots vals cg (+ i 1))
     }))
 
@@ -15428,7 +15428,7 @@
       ""))
     (cn (allocReg cg1))
     (cell (regStr cn))
-    (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
+    (_1 (emitLine cg1 (strConcat (strConcat "  " cell) (strConcat " = ptrtoint ptr %__scr.h to i64" ""))))
     (mn (allocReg cg1))
     (mergeB (labelStr mn))
     (rel (if (== gotPair 2)
@@ -15481,7 +15481,7 @@
     ; the explicit fall-through zero - see emitArms' comment
     {
       (storeWordAt cg cell 0 "0")
-      (emitLine cg (cat2 "  br label %" mergeB))
+      (emitLine cg (strConcat "  br label %" mergeB))
       cg
     }
     ; An arm that jumped back to the loop header has
@@ -15512,7 +15512,7 @@
                 0
                 {
                   (storeWordAt cgB cell 0 (strDup (memGetWordStr cgB 2)))
-                  (emitLine cgB (cat2 "  br label %" mergeB))
+                  (emitLine cgB (strConcat "  br label %" mergeB))
                   0
                 })
               (memSetWord cgB 31 0)
@@ -15550,8 +15550,8 @@
     (thenB (labelStr thenLbl))
     (elseB (labelStr elseLbl))
     (mergeB (labelStr mergeLbl))
-    (_1 (emitLine cg1 (cat4 (cat2 "  " cmpR) " = icmp ne i64 " testReg ", 0")))
-    (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cmpR ", label %") thenB (cat2 ", label %" elseB) "")))
+    (_1 (emitLine cg1 (strConcat (strConcat "  " cmpR) (strConcat " = icmp ne i64 " (strConcat testReg ", 0")))))
+    (_2 (emitLine cg1 (strConcat (strConcat "  br i1 " (strConcat cmpR ", label %")) (strConcat thenB (strConcat (strConcat ", label %" elseB) "")))))
     (_3 (emitLabel cg1 thenB))
     (cg2 (emitExprTail thenExpr cg1))
     (thenTerm (memGetWord cg2 31))
@@ -15560,7 +15560,7 @@
     (thenPred (strDup (memGetWordStr cg2 11)))
     (_4 (if (== thenTerm 1)
       0
-      (emitLine cg2 (cat2 "  br label %" mergeB))))
+      (emitLine cg2 (strConcat "  br label %" mergeB))))
     (_4b (memSetWord cg2 31 0))
     (_5 (emitLabel cg2 elseB))
     (cg3 (emitExprTail elseExpr cg2))
@@ -15569,7 +15569,7 @@
     (elsePred (strDup (memGetWordStr cg3 11)))
     (_6 (if (== elseTerm 1)
       0
-      (emitLine cg3 (cat2 "  br label %" mergeB))))
+      (emitLine cg3 (strConcat "  br label %" mergeB))))
   )
     (if (&& (== thenTerm 1) (== elseTerm 1))
       ; Neither arm falls through: the whole `if` is a jump, there is
@@ -15603,7 +15603,7 @@
           )
             (let ((phiR (regStr phiN)))
               {
-                (emitLine cg3 (cat4 (cat3 (cat2 "  " phiR) " = phi i64 [ " thenVal) (cat3 ", %" thenPred " ], [ ") (cat3 elseVal ", %" elsePred) " ]"))
+                (emitLine cg3 (strConcat (strConcat (strConcat "  " phiR) (strConcat " = phi i64 [ " thenVal)) (strConcat (strConcat ", %" (strConcat thenPred " ], [ ")) (strConcat (strConcat elseVal (strConcat ", %" elsePred)) " ]"))))
                 (memSetWord cg3 2 phiR)
                 (memSetWord cg3 14 thenFlag)
                 (memSetWord cg3 31 0)
@@ -15619,8 +15619,8 @@
       (rest (emitParams params cg (+ i 1)))
     )
       (if (== (strLen rest) 0)
-        (cat3 "i64 %" (llvmSym (strDup pname)) "")
-        (cat3 (cat3 "i64 %" (llvmSym (strDup pname)) ", ") rest "")))))
+        (strConcat "i64 %" (strConcat (llvmSym (strDup pname)) ""))
+        (strConcat (strConcat "i64 %" (strConcat (llvmSym (strDup pname)) ", ")) (strConcat rest ""))))))
 
 ; ------------------------------------------------------------------
 ; Lambda expressions: capture, lifting, and the record convention.
@@ -15673,7 +15673,7 @@
   (let ((suf (strSlice n 7 (- (strLen n) 7))))
     (if (== (strLen suf) 0)
       "__evwa.1"
-      (cat2 "__evwa." (fmtInt (+ 1 (strToInt suf)))))))
+      (strConcat "__evwa." (fmtInt (+ 1 (strToInt suf)))))))
 
 (pub :: collectCapNames (-> Int (Vec String) Int (Vec a)))
 (pub fn (collectCapNames cg lparams body)
@@ -15790,7 +15790,7 @@
     (n (memGetWord cg 22))
   )
     (let (
-      (lname (cat2 "_lam_" (fmtInt n)))
+      (lname (strConcat "_lam_" (fmtInt n)))
       (capNames (collectCapNames cg lparams body))
       (capRegs vecNew)
       (capFloats vecNew)
@@ -15813,8 +15813,8 @@
             (fr (tmpStr "f" fn2))
           )
             {
-              (emitLine cg (strConcat (cat3 (cat2 "  " pr) " = call i64 @axiom_alloc(i64 " (fmtInt (* (+ k 1) 8))) ")"))
-              (emitLine cg (cat4 (cat2 "  " fr) " = ptrtoint ptr @" (llvmSym (strDup lname)) " to i64"))
+              (emitLine cg (strConcat (strConcat (strConcat "  " pr) (strConcat " = call i64 @axiom_alloc(i64 " (fmtInt (* (+ k 1) 8)))) ")"))
+              (emitLine cg (strConcat (strConcat "  " fr) (strConcat " = ptrtoint ptr @" (strConcat (llvmSym (strDup lname)) " to i64"))))
               (storeWordAt cg pr 0 fr)
               ; A1: the record births owned.
               (storeCountOneAt cg pr)
@@ -15988,15 +15988,15 @@
     )
       (let ((hdr 
         (strConcat
-          (cat4
+          (strConcat
             "define i64 @"
-            (strDup lname)
-            "(i64 %.env"
-            (cat2
+            (strConcat (strDup lname)
+            (strConcat "(i64 %.env"
+            (strConcat
               (if (== (strLen paramStr) 0)
                 ""
-                (cat2 ", " paramStr))
-              ", i64 %__evwa.h"))
+                (strConcat ", " paramStr))
+              ", i64 %__evwa.h"))))
           ") #0 {")))
         (let ((cg1 
           (openAllocaMark
@@ -16012,7 +16012,7 @@
             0)))
             (let ((cg1c (bindCaps cg1b capNames capFloats 0)))
               (let ((cg2 (emitExpr body cg1c)))
-                (let ((ret (cat3 "  ret i64 " (strDup (memGetWordStr cg2 2)) "")))
+                (let ((ret (strConcat "  ret i64 " (strConcat (strDup (memGetWordStr cg2 2)) ""))))
                   (pairSetSlot (pairSetSlot (emitLine (emitLine (closeAllocaMark cg2) ret) "}") 7 0) 9 rgnSaved))))))))))
 
 (pub :: bindCaps (-> Int (Vec a) (Vec Int) Int Int))
@@ -16088,7 +16088,7 @@
     (full (vecGetStr (memGetWordVec cg 23) i))
     (ar (vecGet (memGetWordVec cg 24) i))
   )
-    (let ((cg1 (emitLine cg (strConcat (cat4 "define i64 @_thunk_" (fmtInt i) "(i64 %.env" (thunkParamStr ar 0)) ", i64 %__evwa.h) #0 {"))))
+    (let ((cg1 (emitLine cg (strConcat (strConcat "define i64 @_thunk_" (strConcat (fmtInt i) (strConcat "(i64 %.env" (thunkParamStr ar 0)))) ", i64 %__evwa.h) #0 {"))))
       (let ((evTail 
         (if (== (fnTakesEvw cg1 full) 1)
           (if (==
@@ -16097,26 +16097,26 @@
             "i64 0"
             ", i64 0")
           "")))
-        (let ((cg2 (emitLine cg1 (strConcat (cat3 (cat4 "  %.r = call i64 @" (llvmSym (strDup full)) "(" (thunkArgStr ar 0)) evTail "") ")"))))
+        (let ((cg2 (emitLine cg1 (strConcat (strConcat (strConcat "  %.r = call i64 @" (strConcat (llvmSym (strDup full)) (strConcat "(" (thunkArgStr ar 0)))) (strConcat evTail "")) ")"))))
           (emitLine (emitLine cg2 "  ret i64 %.r") "}"))))))
 
 (pub :: thunkParamStr (-> Int Int String))
 (pub fn (thunkParamStr ar j)
   (if (>= j ar)
     ""
-    (cat3 (cat2 ", i64 %.a" (fmtInt j)) (thunkParamStr ar (+ j 1)) "")))
+    (strConcat (strConcat ", i64 %.a" (fmtInt j)) (strConcat (thunkParamStr ar (+ j 1)) ""))))
 
 (pub :: thunkArgStr (-> Int Int String))
 (pub fn (thunkArgStr ar j)
   (if (>= j ar)
     ""
     (let ((rest (thunkArgStr ar (+ j 1))))
-      (cat3
-        (cat2 "i64 %.a" (fmtInt j))
-        (if (== (strLen rest) 0)
+      (strConcat
+        (strConcat "i64 %.a" (fmtInt j))
+        (strConcat (if (== (strLen rest) 0)
           ""
-          (cat2 ", " rest))
-        ""))))
+          (strConcat ", " rest))
+        "")))))
 
 ; ------------------------------------------------------------------
 ; `match`.
@@ -16145,13 +16145,13 @@
   (let (
     (pn (allocReg cg))
     (pr (regStr pn))
-    (_1 (emitLine cg (cat4 (cat2 "  " pr) " = inttoptr i64 " base " to ptr")))
+    (_1 (emitLine cg (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat base " to ptr")))))
     (an (allocReg cg))
     (ar (regStr an))
-    (_2 (emitLine cg (cat4 (cat3 (cat2 "  " ar) " = getelementptr i64, ptr " pr) ", i64 " (fmtInt idx) "")))
+    (_2 (emitLine cg (strConcat (strConcat (strConcat "  " ar) (strConcat " = getelementptr i64, ptr " pr)) (strConcat ", i64 " (strConcat (fmtInt idx) "")))))
     (vn (allocReg cg))
     (vr (regStr vn))
-    (_3 (emitLine cg (cat4 (cat2 "  " vr) " = load i64, ptr " ar "")))
+    (_3 (emitLine cg (strConcat (strConcat "  " vr) (strConcat " = load i64, ptr " (strConcat ar "")))))
     (_4 (memSetWord cg 2 vr))
   )
     cg))
@@ -16231,7 +16231,7 @@
   (if (>= i (vecLen arms))
     {
       (storeWordAt cg cell 0 "0")
-      (emitLine cg (cat2 "  br label %" mergeB))
+      (emitLine cg (strConcat "  br label %" mergeB))
       cg
     }
     ; WORD 31 IS "THE BODY WROTE ITS OWN TERMINATOR", and this
@@ -16309,7 +16309,7 @@
             (storeWordAt cgB cell 0 bv)))
           (_e (if (== termd 1)
             0
-            (emitLine cgB (cat2 "  br label %" mergeB))))
+            (emitLine cgB (strConcat "  br label %" mergeB))))
           (_z (memSetWord cgB 31 0))
           (_f (emitLabel cgB nextB))
           (_g (symRestore cgB mark))
@@ -16352,7 +16352,7 @@
   (if (>= i (vecLen arms))
     {
       (storeWordAt cg cell 0 "0")
-      (emitLine cg (cat2 "  br label %" mergeB))
+      (emitLine cg (strConcat "  br label %" mergeB))
       cg
     }
     (let (
@@ -16381,7 +16381,7 @@
                 0
                 {
                   (storeWordAt cgB cell 0 (strDup (memGetWordStr cgB 2)))
-                  (emitLine cgB (cat2 "  br label %" mergeB))
+                  (emitLine cgB (strConcat "  br label %" mergeB))
                   0
                 })
               (memSetWord cgB 31 0)
@@ -16491,7 +16491,7 @@
       ""))
     (cn (allocReg cg1))
     (cell (regStr cn))
-    (_1 (emitLine cg1 (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" "")))
+    (_1 (emitLine cg1 (strConcat (strConcat "  " cell) (strConcat " = ptrtoint ptr %__scr.h to i64" ""))))
     (mn (allocReg cg1))
     (mergeB (labelStr mn))
     (rel (scrutineeReleasable node scrutExpr cg1))
@@ -16606,7 +16606,7 @@
     ; program.
     {
       (storeWordAt cg cell 0 "0")
-      (emitLine cg (cat2 "  br label %" mergeB))
+      (emitLine cg (strConcat "  br label %" mergeB))
       cg
     }
     ; The pattern compiles to a chain of tests that each branch to
@@ -16649,7 +16649,7 @@
             (storeWordAt cgB cell 0 bv)))
           (_e (if (== termd 1)
             0
-            (emitLine cgB (cat2 "  br label %" mergeB))))
+            (emitLine cgB (strConcat "  br label %" mergeB))))
           (_z (memSetWord cgB 31 0))
           (_f (emitLabel cgB nextB))
           (_g (symRestore cgB mark))
@@ -16830,16 +16830,16 @@
       (boxB (labelStr boxN))
       (mergeB (labelStr mergeN))
     )
-      (let ((cg1 (emitLine cg (cat3 (cat2 "  " cell) " = ptrtoint ptr %__scr.h to i64" ""))))
-        (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " cr) " = icmp slt i64 " (strDup vr) ", 4096"))))
-          (let ((cg3 (emitLine cg2 (cat4 (cat3 "  br i1 " cr ", label %") immB (cat2 ", label %" boxB) ""))))
+      (let ((cg1 (emitLine cg (strConcat (strConcat "  " cell) (strConcat " = ptrtoint ptr %__scr.h to i64" "")))))
+        (let ((cg2 (emitLine cg1 (strConcat (strConcat "  " cr) (strConcat " = icmp slt i64 " (strConcat (strDup vr) ", 4096"))))))
+          (let ((cg3 (emitLine cg2 (strConcat (strConcat "  br i1 " (strConcat cr ", label %")) (strConcat immB (strConcat (strConcat ", label %" boxB) ""))))))
             (let ((cg4 (emitLabel cg3 immB)))
               (let ((cg5 (storeWordAt cg4 cell 0 (strDup vr))))
-                (let ((cg6 (emitLine cg5 (cat2 "  br label %" mergeB))))
+                (let ((cg6 (emitLine cg5 (strConcat "  br label %" mergeB))))
                   (let ((cg7 (emitLabel cg6 boxB)))
                     (let ((cg8 (loadWordAt cg7 vr 0)))
                       (let ((cg9 (storeWordAt cg8 cell 0 (strDup (memGetWordStr cg8 2)))))
-                        (let ((cg10 (emitLine cg9 (cat2 "  br label %" mergeB))))
+                        (let ((cg10 (emitLine cg9 (strConcat "  br label %" mergeB))))
                           (let ((cg11 (emitLabel cg10 mergeB)))
                             (loadWordAt cg11 cell 0)))))))))))))))
 
@@ -16856,8 +16856,8 @@
       (contB (labelStr cn))
     )
       {
-        (emitLine cg (cat4 (cat2 "  " tr) " = icmp eq i64 " (strDup vr) (cat2 ", " want)))
-        (emitLine cg (cat4 (cat3 "  br i1 " tr ", label %") contB (cat2 ", label %" failB) ""))
+        (emitLine cg (strConcat (strConcat "  " tr) (strConcat " = icmp eq i64 " (strConcat (strDup vr) (strConcat ", " want)))))
+        (emitLine cg (strConcat (strConcat "  br i1 " (strConcat tr ", label %")) (strConcat contB (strConcat (strConcat ", label %" failB) ""))))
         (emitLabel cg contB)
         cg
       })))
@@ -16868,7 +16868,7 @@
 (pub :: emitPatStrTest (-> String String String Int Int))
 (pub fn (emitPatStrTest want vr failB cg)
   (let ((r (regStr (allocReg cg))))
-    (let ((cg1 (emitLine cg (cat4 (cat2 "  " r) " = call i64 @__axiom_str_eq(i64 " (strDup vr) (cat3 ", i64 " want ")")))))
+    (let ((cg1 (emitLine cg (strConcat (strConcat "  " r) (strConcat " = call i64 @__axiom_str_eq(i64 " (strConcat (strDup vr) (strConcat ", i64 " (strConcat want ")"))))))))
       (emitPatTest (constStr 1) r failB cg1))))
 
 ; Load each field of the block in `vr` (fields start at word 1, past
@@ -17107,17 +17107,17 @@
           (old (regStr oldN))
         )
           (let (
-            (_1 (emitLine cgH (cat2 (cat2 "  " rec) " = call i64 @axiom_alloc(i64 16)")))
+            (_1 (emitLine cgH (strConcat (strConcat "  " rec) " = call i64 @axiom_alloc(i64 16)")))
             (_1a (storeShapeAt cgH rec (+ (* (paddedWords 2) 2) (+ (pow2 16) (pow2 17)))))
             (_1b (storeCountOneAt cgH rec))
             (_1c (if (== (argIsDirectCon cgH (nodeC node)) 1)
               cgH
               (emitRetainOf cgH hval)))
             (_2 (storeWordAt cgH rec 0 hval))
-            (_3 (emitLine cgH (cat4 (cat2 "  " old) " = load i64, ptr @" slot "")))
+            (_3 (emitLine cgH (strConcat (strConcat "  " old) (strConcat " = load i64, ptr @" (strConcat slot "")))))
             (_3b (emitRetainOf cgH old))
             (_4 (storeWordAt cgH rec 1 old))
-            (_5 (emitLine cgH (cat4 "  store i64 " rec ", ptr @" slot)))
+            (_5 (emitLine cgH (strConcat "  store i64 " (strConcat rec (strConcat ", ptr @" slot)))))
             (_6 (memSetWord cgH 30 0))
           )
             (let ((cgB (emitExpr (nodeA node) cgH)))
@@ -17127,7 +17127,7 @@
               )
                 {
                   {
-                    (emitLine cgB (cat4 "  store i64 " old ", ptr @" slot))
+                    (emitLine cgB (strConcat "  store i64 " (strConcat old (strConcat ", ptr @" slot))))
                     ; MM-LIFE-2c event 7: the evidence record dies at
                     ; the pop, closing sixteen of MM-ALLOC-9a's
                     ; sixteen bytes per loop entry; the block files
@@ -17186,9 +17186,9 @@
           (goB (labelStr goN))
         )
           (let (
-            (_1 (emitLine cgA (cat4 (cat2 "  " rec) " = load i64, ptr @" slot "")))
-            (_2 (emitLine cgA (cat4 (cat2 "  " cmpR) " = icmp eq i64 " rec ", 0")))
-            (_3 (emitLine cgA (cat4 (cat3 "  br i1 " cmpR ", label %") trapB (cat2 ", label %" goB) "")))
+            (_1 (emitLine cgA (strConcat (strConcat "  " rec) (strConcat " = load i64, ptr @" (strConcat slot "")))))
+            (_2 (emitLine cgA (strConcat (strConcat "  " cmpR) (strConcat " = icmp eq i64 " (strConcat rec ", 0")))))
+            (_3 (emitLine cgA (strConcat (strConcat "  br i1 " (strConcat cmpR ", label %")) (strConcat trapB (strConcat (strConcat ", label %" goB) "")))))
             (_4 (emitLabel cgA trapB))
             (_4b (emitLineMark snode cgA))
             (_5 (emitLine cgA "  call i64 @__axiom_unhandled_effect()"))
@@ -17199,7 +17199,7 @@
               (let ((handler (strDup (memGetWordStr cgL 2))))
                 (let ((cgP (loadWordAt cgL rec 1)))
                   (let ((prev (strDup (memGetWordStr cgP 2))))
-                    (let ((_8 (emitLine cgP (cat4 "  store i64 " prev ", ptr @" slot))))
+                    (let ((_8 (emitLine cgP (strConcat "  store i64 " (strConcat prev (strConcat ", ptr @" slot))))))
                       (let ((cgR (emitApplyRegs
                         args
                         regs
@@ -17209,7 +17209,7 @@
                         snode)))
                         (let ((res (strDup (memGetWordStr cgR 2))))
                           {
-                            (emitLine cgR (cat4 "  store i64 " rec ", ptr @" slot))
+                            (emitLine cgR (strConcat "  store i64 " (strConcat rec (strConcat ", ptr @" slot))))
                             (memSetWord cgR 2 res)
                             (memSetWord cgR 14 0)
                             cgR
@@ -17328,7 +17328,7 @@
       ; `emitHandle`/`emitEffectOp` quote the same way.
       {
         (if (== (slotFirstIndex tbl (effSlot (vecGet tbl i)) 0) i)
-          (emitLine cg (cat4 "@" (llvmSym (effSlot (vecGet tbl i))) " = " (cat2 (cgMutGlobal cg) " i64 0")))
+          (emitLine cg (strConcat "@" (strConcat (llvmSym (effSlot (vecGet tbl i))) (strConcat " = " (strConcat (cgMutGlobal cg) " i64 0")))))
           0)
         (emitEffectGlobals cg (+ i 1))
       })))
@@ -17374,7 +17374,7 @@
   {
     (emitLine cg "")
     (emitLine cg "@__axiom_unhandled_msg = private unnamed_addr constant [24 x i8] c\"axiom: unhandled effect\\0A\"")
-    (emitLine cg (cat3 "define internal i64 @__axiom_unhandled_effect() " trapFnAttrs " {"))
+    (emitLine cg (strConcat "define internal i64 @__axiom_unhandled_effect() " (strConcat trapFnAttrs " {")))
     (emitLine cg "entry:")
     (emitLine cg "  call i64 @__axiom_recover_abort(i64 71)")
     (emitLine cg "  %uep = ptrtoint ptr @__axiom_unhandled_msg to i64")
@@ -17692,12 +17692,12 @@
                 {
                   (emitLine
                     cg
-                    (cat4
-                      (cat2 "  " r)
-                      " = load i64, ptr "
-                      (strDup
+                    (strConcat
+                      (strConcat "  " r)
+                      (strConcat " = load i64, ptr "
+                      (strConcat (strDup
                         (cast String symReg))
-                      ""))
+                      ""))))
                   (memSetWord cg 2 r)
                   (memSetWord cg 14 (lookupSymFloat cg name))
                   cg
@@ -17762,7 +17762,7 @@
                             ; marks like every other call site. `node`
                             ; here is the snode `emitCallMark` wants.
                             (emitCallMark node cg rn)
-                            (emitLine cg (cat4 (cat2 "  " r) " = call i64 @" (llvmSym (strDup full)) "()"))
+                            (emitLine cg (strConcat (strConcat "  " r) (strConcat " = call i64 @" (strConcat (llvmSym (strDup full)) "()"))))
                             (memSetWord cg 2 r)
                             (memSetWord cg 14 (fnRetIsFloat cg full))
                             cg
@@ -17788,8 +17788,8 @@
                             (fr (tmpStr "f" fn2))
                           )
                             {
-                              (emitLine cg (cat2 (cat2 "  " pr) " = call i64 @axiom_alloc(i64 8)"))
-                              (emitLine cg (cat4 (cat2 "  " fr) " = ptrtoint ptr @_thunk_" (fmtInt ti) " to i64"))
+                              (emitLine cg (strConcat (strConcat "  " pr) " = call i64 @axiom_alloc(i64 8)"))
+                              (emitLine cg (strConcat (strConcat "  " fr) (strConcat " = ptrtoint ptr @_thunk_" (strConcat (fmtInt ti) " to i64"))))
                               (storeWordAt cg pr 0 fr)
                               ; born at 1, as a lambda is (A1): the
                               ; frame that built it holds it, and a
@@ -17805,7 +17805,7 @@
                         ; A parameter reference: `%name` was emitted in
                         ; the function header, and the signature says
                         ; whether it is a float.
-                        (let ((x (cat2 "%" (llvmSym (strDup name)))))
+                        (let ((x (strConcat "%" (llvmSym (strDup name)))))
                           {
                             (memSetWord cg 2 x)
                             (memSetWord cg 14 (paramFloatByName cg name))
@@ -18294,9 +18294,9 @@
         (r (regStr rn))
       )
         {
-          (emitLine cgL (cat4 (cat2 "  " fp) " = inttoptr i64 " cp " to ptr"))
+          (emitLine cgL (strConcat (strConcat "  " fp) (strConcat " = inttoptr i64 " (strConcat cp " to ptr"))))
           (emitCallMark snode cgL rn)
-          (emitLine cgL (strConcat (cat4 (cat3 (cat2 "  " r) " = call i64 " fp) "(i64 " (strDup rec) (cat2 ", i64 " a)) (cat3 (cat2 ", i64 " ev) ")" "")))
+          (emitLine cgL (strConcat (strConcat (strConcat (strConcat "  " r) (strConcat " = call i64 " fp)) (strConcat "(i64 " (strConcat (strDup rec) (strConcat ", i64 " a)))) (strConcat (strConcat ", i64 " ev) (strConcat ")" ""))))
           (memSetWord cgL 2 r)
           cgL
         }))))
@@ -18511,12 +18511,12 @@
     (cr (regStr cn))
     (okB (labelStr okL))
     (badB (labelStr badL))
-    (_1 (emitLine cg1 (cat4 (cat2 "  " cr) " = icmp ne i64 " c ", 0")))
-    (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cr ", label %") okB (cat2 ", label %" badB) "")))
+    (_1 (emitLine cg1 (strConcat (strConcat "  " cr) (strConcat " = icmp ne i64 " (strConcat c ", 0")))))
+    (_2 (emitLine cg1 (strConcat (strConcat "  br i1 " (strConcat cr ", label %")) (strConcat okB (strConcat (strConcat ", label %" badB) "")))))
     (_3 (emitLabel cg1 badB))
     (cg2 (emitExpr (vecGet args 1) cg1))
     (m (strDup (memGetWordStr cg2 2)))
-    (_4 (emitLine cg2 (cat3 "  call i64 @__axiom_contract_fail(i64 " m ")")))
+    (_4 (emitLine cg2 (strConcat "  call i64 @__axiom_contract_fail(i64 " (strConcat m ")"))))
     (_5 (emitLine cg2 "  unreachable"))
     (_6 (emitLabel cg2 okB))
     (_7 (memSetWord cg2 2 (constStr 0)))
@@ -18548,8 +18548,8 @@
         (c1r (regStr c1))
         (okB (labelStr okL))
         (badB (labelStr badL))
-        (_1 (emitLine cg1 (cat3 (cat4 (cat2 "  " c1r) " = icmp sge i64 " v ", ") lo "")))
-        (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " c1r ", label %") okB (cat2 ", label %" badB) "")))
+        (_1 (emitLine cg1 (strConcat (strConcat (strConcat "  " c1r) (strConcat " = icmp sge i64 " (strConcat v ", "))) (strConcat lo ""))))
+        (_2 (emitLine cg1 (strConcat (strConcat "  br i1 " (strConcat c1r ", label %")) (strConcat okB (strConcat (strConcat ", label %" badB) "")))))
       )
         (if (== (vecLen bounds) 1)
           {
@@ -18570,8 +18570,8 @@
               (ok2L (allocReg cg2))
               (c2r (regStr c2))
               (ok2B (labelStr ok2L))
-              (_3 (emitLine cg2 (cat3 (cat4 (cat2 "  " c2r) " = icmp slt i64 " v ", ") hi "")))
-              (_4 (emitLine cg2 (cat4 (cat3 "  br i1 " c2r ", label %") ok2B (cat2 ", label %" badB) "")))
+              (_3 (emitLine cg2 (strConcat (strConcat (strConcat "  " c2r) (strConcat " = icmp slt i64 " (strConcat v ", "))) (strConcat hi ""))))
+              (_4 (emitLine cg2 (strConcat (strConcat "  br i1 " (strConcat c2r ", label %")) (strConcat ok2B (strConcat (strConcat ", label %" badB) "")))))
             )
               {
                 (emitLabel cg2 badB)
@@ -18592,7 +18592,7 @@
   (let (
     (cg2 (emitExpr (nodeC node) cg))
     (m (strDup (memGetWordStr cg2 2)))
-    (_4 (emitLine cg2 (cat3 "  call i64 @__axiom_contract_fail(i64 " m ")")))
+    (_4 (emitLine cg2 (strConcat "  call i64 @__axiom_contract_fail(i64 " (strConcat m ")"))))
     (_5 (emitLine cg2 "  unreachable"))
     (_6 (emitLabel cg2 okB))
     (_7 (memSetWord cg2 2 v))
@@ -18697,8 +18697,8 @@
             (rr (regStr rn))
           )
             {
-              (emitLine cg2 (cat4 (cat2 "  " pr) " = inttoptr i64 " fnv " to ptr"))
-              (emitLine cg2 (cat4 (cat3 (cat2 "  " rr) " = call i64 " pr) "(i64 " av ")"))
+              (emitLine cg2 (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat fnv " to ptr"))))
+              (emitLine cg2 (strConcat (strConcat (strConcat "  " rr) (strConcat " = call i64 " pr)) (strConcat "(i64 " (strConcat av ")"))))
               (memSetWord cg2 2 rr)
               (memSetWord cg2 14 0)
               cg2
@@ -18715,7 +18715,7 @@
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let ((h (strDup (memGetWordStr cg1 2))))
       {
-        (emitLine cg1 (cat4 "  call void " sym "(i64 " (cat2 h ")")))
+        (emitLine cg1 (strConcat "  call void " (strConcat sym (strConcat "(i64 " (strConcat h ")")))))
         (memSetWord cg1 2 "0")
         (memSetWord cg1 14 0)
         cg1
@@ -18787,14 +18787,14 @@
           (b (strDup (memGetWordStr cg2 2)))
           (r (regStr (allocReg cg2)))
         )
-          (let ((cg3 (emitLine cg2 (cat4 (cat2 "  " r) " = call i64 @__axiom_str_eq(i64 " a (cat3 ", i64 " b ")")))))
+          (let ((cg3 (emitLine cg2 (strConcat (strConcat "  " r) (strConcat " = call i64 @__axiom_str_eq(i64 " (strConcat a (strConcat ", i64 " (strConcat b ")"))))))))
             (if (== want 1)
               {
                 (memSetWord cg3 2 r)
                 cg3
               }
               (let ((n (regStr (allocReg cg3))))
-                (let ((cg4 (emitLine cg3 (cat4 (cat2 "  " n) " = xor i64 " r ", 1"))))
+                (let ((cg4 (emitLine cg3 (strConcat (strConcat "  " n) (strConcat " = xor i64 " (strConcat r ", 1"))))))
                   {
                     (memSetWord cg4 2 n)
                     cg4
@@ -18869,26 +18869,26 @@
       (armB (labelStr (allocReg cg0)))
       (runB (labelStr (allocReg cg0)))
       (doneB (labelStr (allocReg cg0)))
-      (_0 (emitLine cg0 (cat2 "  br label %" armB)))
+      (_0 (emitLine cg0 (strConcat "  br label %" armB)))
       (_0b (emitLabel cg0 armB))
-      (_1 (emitLine cg0 (cat4 (cat2 "  " rec) " = call i64 @axiom_alloc(i64 " size ")")))
-      (_2 (emitLine cg0 (cat2 (cat2 "  " pv) " = load i64, ptr @__axiom_recover_top")))
-      (_3 (emitLine cg0 (cat4 (cat2 "  " a3) " = add i64 " rec ", 24")))
-      (_4 (emitLine cg0 (cat4 (cat2 "  " p3) " = inttoptr i64 " a3 " to ptr")))
-      (_5 (emitLine cg0 (cat4 "  store i64 " mark ", ptr " p3)))
-      (_6 (emitLine cg0 (cat4 (cat2 "  " a4) " = add i64 " rec ", 32")))
-      (_7 (emitLine cg0 (cat4 (cat2 "  " p4) " = inttoptr i64 " a4 " to ptr")))
-      (_8 (emitLine cg0 (cat4 "  store i64 " pv ", ptr " p4)))
-      (_9 (emitLine cg0 (cat4 (cat2 "  " a5) " = add i64 " rec ", 40")))
-      (_10 (emitLine cg0 (cat4 (cat2 "  " p5) " = inttoptr i64 " a5 " to ptr")))
-      (_11 (emitLine cg0 (cat2 "  store i64 0, ptr " p5)))
-      (_12 (emitLine cg0 (cat3 "  call i64 @__axiom_recover_save(i64 " rec ")")))
+      (_1 (emitLine cg0 (strConcat (strConcat "  " rec) (strConcat " = call i64 @axiom_alloc(i64 " (strConcat size ")")))))
+      (_2 (emitLine cg0 (strConcat (strConcat "  " pv) " = load i64, ptr @__axiom_recover_top")))
+      (_3 (emitLine cg0 (strConcat (strConcat "  " a3) (strConcat " = add i64 " (strConcat rec ", 24")))))
+      (_4 (emitLine cg0 (strConcat (strConcat "  " p3) (strConcat " = inttoptr i64 " (strConcat a3 " to ptr")))))
+      (_5 (emitLine cg0 (strConcat "  store i64 " (strConcat mark (strConcat ", ptr " p3)))))
+      (_6 (emitLine cg0 (strConcat (strConcat "  " a4) (strConcat " = add i64 " (strConcat rec ", 32")))))
+      (_7 (emitLine cg0 (strConcat (strConcat "  " p4) (strConcat " = inttoptr i64 " (strConcat a4 " to ptr")))))
+      (_8 (emitLine cg0 (strConcat "  store i64 " (strConcat pv (strConcat ", ptr " p4)))))
+      (_9 (emitLine cg0 (strConcat (strConcat "  " a5) (strConcat " = add i64 " (strConcat rec ", 40")))))
+      (_10 (emitLine cg0 (strConcat (strConcat "  " p5) (strConcat " = inttoptr i64 " (strConcat a5 " to ptr")))))
+      (_11 (emitLine cg0 (strConcat "  store i64 0, ptr " p5)))
+      (_12 (emitLine cg0 (strConcat "  call i64 @__axiom_recover_save(i64 " (strConcat rec ")"))))
       (_12s (emitArmSeq cg0 rec))
-      (_13 (emitLine cg0 (cat3 "  store i64 " rec ", ptr @__axiom_recover_top")))
-      (_14 (emitLine cg0 (cat3 "  call void asm sideeffect " (targetRecoverArmAsm (memGetWord cg0 26)) (cat3 "(i64 " rec ")"))))
-      (_15 (emitLine cg0 (cat3 (cat2 "  " st) " = load i64, ptr " p5)))
-      (_17 (emitLine cg0 (cat4 (cat2 "  " ok) " = icmp eq i64 " st ", 0")))
-      (_18 (emitLine cg0 (cat4 (cat3 "  br i1 " ok ", label %") runB (cat2 ", label %" doneB) "")))
+      (_13 (emitLine cg0 (strConcat "  store i64 " (strConcat rec ", ptr @__axiom_recover_top"))))
+      (_14 (emitLine cg0 (strConcat "  call void asm sideeffect " (strConcat (targetRecoverArmAsm (memGetWord cg0 26)) (strConcat "(i64 " (strConcat rec ")"))))))
+      (_15 (emitLine cg0 (strConcat (strConcat "  " st) (strConcat " = load i64, ptr " p5))))
+      (_17 (emitLine cg0 (strConcat (strConcat "  " ok) (strConcat " = icmp eq i64 " (strConcat st ", 0")))))
+      (_18 (emitLine cg0 (strConcat (strConcat "  br i1 " (strConcat ok ", label %")) (strConcat runB (strConcat (strConcat ", label %" doneB) "")))))
       (_19 (emitLabel cg0 runB))
     )
       (let ((cgT (emitExpr (vecGet args 1) cg0)))
@@ -18906,11 +18906,11 @@
               (let (
                 (r (strDup (memGetWordStr cgA 2)))
                 (_20 (emitReleaseOf cgA (strDup f)))
-                (_21 (emitLine cgA (cat2 "  br label %" doneB)))
+                (_21 (emitLine cgA (strConcat "  br label %" doneB)))
                 (runEnd (strDup (memGetWordStr cgA 11)))
                 (_22 (emitLabel cgA doneB))
-                (_23 (emitLine cgA (strConcat (strConcat (cat4 (cat2 "  " res) " = phi i64 [ " st ", %") (cat4 armB " ], [ " r ", %")) (cat2 runEnd " ]"))))
-                (_24 (emitLine cgA (cat3 "  store i64 " pv ", ptr @__axiom_recover_top")))
+                (_23 (emitLine cgA (strConcat (strConcat (strConcat (strConcat "  " res) (strConcat " = phi i64 [ " (strConcat st ", %"))) (strConcat armB (strConcat " ], [ " (strConcat r ", %")))) (strConcat runEnd " ]"))))
+                (_24 (emitLine cgA (strConcat "  store i64 " (strConcat pv ", ptr @__axiom_recover_top"))))
               )
                 {
                   (memSetWord cgA 2 res)
@@ -18931,17 +18931,17 @@
       (v (regStr (allocReg cg)))
     )
       {
-        (emitLine cg (cat4 (cat2 "  " a) " = add i64 " rec (cat2 ", " (fmtInt (parRecSeqOffset cg)))))
-        (emitLine cg (cat4 (cat2 "  " p) " = inttoptr i64 " a " to ptr"))
-        (emitLine cg (cat2 (cat2 "  " v) " = load i64, ptr @__axiom_par_seq"))
-        (emitLine cg (cat4 "  store i64 " v ", ptr " p))
+        (emitLine cg (strConcat (strConcat "  " a) (strConcat " = add i64 " (strConcat rec (strConcat ", " (fmtInt (parRecSeqOffset cg)))))))
+        (emitLine cg (strConcat (strConcat "  " p) (strConcat " = inttoptr i64 " (strConcat a " to ptr"))))
+        (emitLine cg (strConcat (strConcat "  " v) " = load i64, ptr @__axiom_par_seq"))
+        (emitLine cg (strConcat "  store i64 " (strConcat v (strConcat ", ptr " p))))
         0
       })))
 
 (pub :: emitPrimArenaMark (-> Int Int))
 (pub fn (emitPrimArenaMark cg)
   (let ((r (regStr (allocReg cg))))
-    (let ((cg1 (emitLine cg (cat2 (cat2 "  " r) " = call i64 @__axiom_arena_mark_fn()"))))
+    (let ((cg1 (emitLine cg (strConcat (strConcat "  " r) " = call i64 @__axiom_arena_mark_fn()"))))
       {
         (memSetWord cg1 2 r)
         cg1
@@ -18953,7 +18953,7 @@
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
     (let ((cell (strDup (memGetWordStr cg0 2))))
       (let ((r (regStr (allocReg cg0))))
-        (let ((cg1 (emitLine cg0 (cat4 (cat2 "  " r) " = call i64 @__axiom_arena_reset_fn(i64 " cell ")"))))
+        (let ((cg1 (emitLine cg0 (strConcat (strConcat "  " r) (strConcat " = call i64 @__axiom_arena_reset_fn(i64 " (strConcat cell ")"))))))
           {
             (memSetWord cg1 2 (constStr 0))
             cg1
@@ -18972,7 +18972,7 @@
           (let ((cg2 (emitExpr (vecGet args 2) cg1)))
             (let ((n (strDup (memGetWordStr cg2 2))))
               (let ((r (regStr (allocReg cg2))))
-                (let ((cg3 (emitLine cg2 (strConcat (cat4 (cat2 "  " r) " = call i64 @__axiom_arena_reset_keeping_fn(i64 " cell ", i64 ") (cat4 src ", i64 " n ")")))))
+                (let ((cg3 (emitLine cg2 (strConcat (strConcat (strConcat "  " r) (strConcat " = call i64 @__axiom_arena_reset_keeping_fn(i64 " (strConcat cell ", i64 "))) (strConcat src (strConcat ", i64 " (strConcat n ")")))))))
                   {
                     (memSetWord cg3 2 r)
                     cg3
@@ -18992,7 +18992,7 @@
   (let ((rn (allocReg cg)))
     (let ((r (regStr rn)))
       {
-        (emitLine cg (cat2 (cat2 "  " r) " = call i64 @__axiom_index_out_of_range()"))
+        (emitLine cg (strConcat (strConcat "  " r) " = call i64 @__axiom_index_out_of_range()"))
         (memSetWord cg 2 r)
         cg
       })))
@@ -19001,7 +19001,7 @@
   (let ((rn (allocReg cg)))
     (let ((r (regStr rn)))
       {
-        (emitLine cg (cat2 (cat2 "  " r) " = load i64, ptr @__axiom_argc"))
+        (emitLine cg (strConcat (strConcat "  " r) " = load i64, ptr @__axiom_argc"))
         (memSetWord cg 2 r)
         cg
       })))
@@ -19027,10 +19027,10 @@
         (r (regStr rn))
       )
         {
-          (emitLine cg1 (cat2 (cat2 "  " b) " = load i64, ptr @__axiom_argv"))
-          (emitLine cg1 (cat4 (cat2 "  " p) " = inttoptr i64 " b " to ptr"))
-          (emitLine cg1 (strConcat (cat4 (cat2 "  " g) " = getelementptr i64, ptr " p ", i64 ") i))
-          (emitLine cg1 (cat4 (cat2 "  " r) " = load i64, ptr " g ""))
+          (emitLine cg1 (strConcat (strConcat "  " b) " = load i64, ptr @__axiom_argv"))
+          (emitLine cg1 (strConcat (strConcat "  " p) (strConcat " = inttoptr i64 " (strConcat b " to ptr"))))
+          (emitLine cg1 (strConcat (strConcat (strConcat "  " g) (strConcat " = getelementptr i64, ptr " (strConcat p ", i64 "))) i))
+          (emitLine cg1 (strConcat (strConcat "  " r) (strConcat " = load i64, ptr " (strConcat g ""))))
           (memSetWord cg1 2 r)
           cg1
         }))))
@@ -19052,8 +19052,8 @@
         (r (regStr rn))
       )
         {
-          (emitLine cg1 (cat4 (cat2 "  " dr) " = sitofp i64 " v " to double"))
-          (emitLine cg1 (cat4 (cat2 "  " r) " = bitcast double " dr " to i64"))
+          (emitLine cg1 (strConcat (strConcat "  " dr) (strConcat " = sitofp i64 " (strConcat v " to double"))))
+          (emitLine cg1 (strConcat (strConcat "  " r) (strConcat " = bitcast double " (strConcat dr " to i64"))))
           (memSetWord cg1 2 r)
           (memSetWord cg1 14 1)
           cg1
@@ -19073,8 +19073,8 @@
         (r (regStr rn))
       )
         {
-          (emitLine cg1 (cat4 (cat2 "  " dr) " = bitcast i64 " v " to double"))
-          (emitLine cg1 (cat4 (cat2 "  " r) " = fptosi double " dr " to i64"))
+          (emitLine cg1 (strConcat (strConcat "  " dr) (strConcat " = bitcast i64 " (strConcat v " to double"))))
+          (emitLine cg1 (strConcat (strConcat "  " r) (strConcat " = fptosi double " (strConcat dr " to i64"))))
           (memSetWord cg1 2 r)
           (memSetWord cg1 14 0)
           cg1
@@ -19129,7 +19129,7 @@
 (pub fn (emitAtomicPtr cg addr)
   (let ((pr (regStr (allocReg cg))))
     {
-      (emitLine cg (cat4 (cat2 "  " pr) " = inttoptr i64 " addr " to ptr"))
+      (emitLine cg (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat addr " to ptr"))))
       pr
     }))
 
@@ -19162,13 +19162,13 @@
     (let (
       (a (regStr an))
       (c (regStr cn))
-      (zb (cat2 "atomicmis_" (fmtInt zn)))
-      (kb (cat2 "atomicok_" (fmtInt kn)))
+      (zb (strConcat "atomicmis_" (fmtInt zn)))
+      (kb (strConcat "atomicok_" (fmtInt kn)))
     )
       {
-        (emitLine cg (cat4 (cat2 "  " a) " = and i64 " addr ", 7"))
-        (emitLine cg (cat4 (cat2 "  " c) " = icmp ne i64 " a ", 0"))
-        (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") zb (cat2 ", label %" kb) ""))
+        (emitLine cg (strConcat (strConcat "  " a) (strConcat " = and i64 " (strConcat addr ", 7"))))
+        (emitLine cg (strConcat (strConcat "  " c) (strConcat " = icmp ne i64 " (strConcat a ", 0"))))
+        (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c ", label %")) (strConcat zb (strConcat (strConcat ", label %" kb) ""))))
         (emitLabel cg zb)
         (emitLine cg "  call i64 @__axiom_misaligned_atomic()")
         (emitLine cg "  unreachable")
@@ -19191,7 +19191,7 @@
     (let ((pr (emitAtomicCheckedPtr cg1 (strDup (memGetWordStr cg1 2)))))
       (let ((vr (regStr (allocReg cg1))))
         {
-          (emitLine cg1 (cat4 (cat2 "  " vr) " = load atomic i64, ptr " pr " seq_cst, align 8"))
+          (emitLine cg1 (strConcat (strConcat "  " vr) (strConcat " = load atomic i64, ptr " (strConcat pr " seq_cst, align 8"))))
           (memSetWord cg1 2 vr)
           cg1
         }))))
@@ -19207,7 +19207,7 @@
   )
     (let ((pr (emitAtomicCheckedPtr cg2 addr)))
       {
-        (emitLine cg2 (cat4 (cat2 "  store atomic i64 " val) ", ptr " pr " seq_cst, align 8"))
+        (emitLine cg2 (strConcat (strConcat "  store atomic i64 " val) (strConcat ", ptr " (strConcat pr " seq_cst, align 8"))))
         (memSetWord cg2 2 (constStr 0))
         cg2
       })))
@@ -19224,7 +19224,7 @@
     (let ((pr (emitAtomicCheckedPtr cg2 addr)))
       (let ((vr (regStr (allocReg cg2))))
         {
-          (emitLine cg2 (cat4 (cat3 (cat2 "  " vr) " = atomicrmw add ptr " pr) ", i64 " val " seq_cst, align 8"))
+          (emitLine cg2 (strConcat (strConcat (strConcat "  " vr) (strConcat " = atomicrmw add ptr " pr)) (strConcat ", i64 " (strConcat val " seq_cst, align 8"))))
           (memSetWord cg2 2 vr)
           cg2
         }))))
@@ -19248,8 +19248,8 @@
       (let ((pairR (regStr (allocReg cg3))))
         (let ((vr (regStr (allocReg cg3))))
           {
-            (emitLine cg3 (cat4 (cat4 (cat2 "  " pairR) " = cmpxchg ptr " pr ", i64 ") expected (cat2 ", i64 " fresh) " seq_cst seq_cst, align 8"))
-            (emitLine cg3 (cat4 (cat2 "  " vr) " = extractvalue { i64, i1 } " pairR ", 0"))
+            (emitLine cg3 (strConcat (strConcat (strConcat "  " pairR) (strConcat " = cmpxchg ptr " (strConcat pr ", i64 "))) (strConcat expected (strConcat (strConcat ", i64 " fresh) " seq_cst seq_cst, align 8"))))
+            (emitLine cg3 (strConcat (strConcat "  " vr) (strConcat " = extractvalue { i64, i1 } " (strConcat pairR ", 0"))))
             (memSetWord cg3 2 vr)
             cg3
           })))))
@@ -19428,16 +19428,16 @@
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
     (let ((pr (emitAtomicPtr cg1 (strDup (memGetWordStr cg1 2)))))
       (let (
-        (ty (cat2 "i" (fmtInt bits)))
+        (ty (strConcat "i" (fmtInt bits)))
         (vr (regStr (allocReg cg1)))
       )
         {
-          (emitLine cg1 (cat4 (cat2 "  " vr) (cat3 " = load volatile " ty ", ptr ") pr (cat2 ", align " (fmtInt (/ bits 8)))))
+          (emitLine cg1 (strConcat (strConcat "  " vr) (strConcat (strConcat " = load volatile " (strConcat ty ", ptr ")) (strConcat pr (strConcat ", align " (fmtInt (/ bits 8)))))))
           (if (== bits 64)
             (memSetWord cg1 2 vr)
             (let ((wr (regStr (allocReg cg1))))
               {
-                (emitLine cg1 (cat4 (cat2 "  " wr) (cat3 " = zext " ty " ") vr " to i64"))
+                (emitLine cg1 (strConcat (strConcat "  " wr) (strConcat (strConcat " = zext " (strConcat ty " ")) (strConcat vr " to i64"))))
                 (memSetWord cg1 2 wr)
               }))
           cg1
@@ -19454,18 +19454,18 @@
   )
     (let (
       (pr (emitAtomicPtr cg2 addr))
-      (ty (cat2 "i" (fmtInt bits)))
+      (ty (strConcat "i" (fmtInt bits)))
     )
       (let ((sv
         (if (== bits 64)
           val
           (let ((tr (regStr (allocReg cg2))))
             {
-              (emitLine cg2 (cat4 (cat2 "  " tr) " = trunc i64 " val (cat2 " to " ty)))
+              (emitLine cg2 (strConcat (strConcat "  " tr) (strConcat " = trunc i64 " (strConcat val (strConcat " to " ty)))))
               tr
             }))))
         {
-          (emitLine cg2 (cat4 (cat4 "  store volatile " ty " " sv) ", ptr " pr (cat2 ", align " (fmtInt (/ bits 8)))))
+          (emitLine cg2 (strConcat (strConcat "  store volatile " (strConcat ty (strConcat " " sv))) (strConcat ", ptr " (strConcat pr (strConcat ", align " (fmtInt (/ bits 8)))))))
           (memSetWord cg2 2 (constStr 0))
           cg2
         }))))
@@ -19479,7 +19479,7 @@
         (if (== (devicePrimTargetOK fnName (memGetWord cg1 26)) 0)
           (emitDeviceRefused cg1 fnName)
           {
-            (emitLine cg1 (cat4 "  call void asm sideeffect \"" (armPrimAsm fnName) "\", \"r,~{memory}\"(i64 " (cat2 a ")")))
+            (emitLine cg1 (strConcat "  call void asm sideeffect \"" (strConcat (armPrimAsm fnName) (strConcat "\", \"r,~{memory}\"(i64 " (strConcat a ")")))))
             (memSetWord cg1 2 (constStr 0))
             cg1
           })))
@@ -19488,12 +19488,12 @@
       (if (armPrimReads fnName)
         (let ((r (regStr (allocReg cg))))
           {
-            (emitLine cg (cat4 (cat2 "  " r) " = call i64 asm sideeffect \"" (armPrimAsm fnName) (cat2 "\", " (armPrimReadCons fnName))))
+            (emitLine cg (strConcat (strConcat "  " r) (strConcat " = call i64 asm sideeffect \"" (strConcat (armPrimAsm fnName) (strConcat "\", " (armPrimReadCons fnName))))))
             (memSetWord cg 2 r)
             cg
           })
         {
-          (emitLine cg (cat3 "  call void asm sideeffect \"" (armPrimAsm fnName) "\", \"~{memory}\"()"))
+          (emitLine cg (strConcat "  call void asm sideeffect \"" (strConcat (armPrimAsm fnName) "\", \"~{memory}\"()")))
           (memSetWord cg 2 (constStr 0))
           cg
         }))))
@@ -19508,17 +19508,17 @@
   {
     (emitLine
       cg
-      (cat4
+      (strConcat
         "  ; axiom-device-refused `"
-        nm
-        (if (targetIsAArch64 (memGetWord cg 26))
+        (strConcat nm
+        (strConcat (if (targetIsAArch64 (memGetWord cg 26))
           "` needs EL1, the privilege a kernel runs at, and "
           "` is an AArch64 instruction, and ")
-        (cat2
+        (strConcat
           (targetSpelling (memGetWord cg 26))
           (if (targetIsAArch64 (memGetWord cg 26))
             " runs programs at EL0 - only baremetal-aarch64 runs one at EL1"
-            " is not an AArch64 target"))))
+            " is not an AArch64 target"))))))
     (memSetWord cg 2 (constStr 0))
     cg
   })
@@ -19546,8 +19546,8 @@
         ; it and dies saying why, rather than executing a `syscall`
         ; instruction the OS gives no meaning to.
         (if (== (targetUsesSyscallAsm (memGetWord cg1 26)) 1)
-          (emitLine cg1 (cat4 (cat3 (cat2 "  " r) (cat4 " = call i64 asm sideeffect " (targetSyscallAsm (memGetWord cg1 26)) "(i64 " "") at) pad ")" ""))
-          (emitLine cg1 (cat3 (cat2 "  " r) " = call i64 @__axiom_no_syscall()" "")))
+          (emitLine cg1 (strConcat (strConcat (strConcat "  " r) (strConcat (strConcat " = call i64 asm sideeffect " (strConcat (targetSyscallAsm (memGetWord cg1 26)) (strConcat "(i64 " ""))) at)) (strConcat pad (strConcat ")" ""))))
+          (emitLine cg1 (strConcat (strConcat "  " r) (strConcat " = call i64 @__axiom_no_syscall()" ""))))
         (memSetWord cg1 2 r)
         cg1
       })))
@@ -19556,7 +19556,7 @@
 (pub fn (padZeros n acc)
   (if (<= n 0)
     acc
-    (padZeros (- n 1) (cat2 acc ", i64 0"))))
+    (padZeros (- n 1) (strConcat acc ", i64 0"))))
 
 (pub :: emitPrimAlloc (-> (Vec Int) Int Int))
 ;@axiom:effect(io)
@@ -19568,7 +19568,7 @@
   )
     (let ((r (regStr rn)))
       {
-        (emitLine cg1 (cat4 (cat2 "  " r) " = call i64 @axiom_alloc(i64 " n ")"))
+        (emitLine cg1 (strConcat (strConcat "  " r) (strConcat " = call i64 @axiom_alloc(i64 " (strConcat n ")"))))
         (memSetWord cg1 2 r)
         cg1
       })))
@@ -19594,13 +19594,13 @@
     (pn (allocReg cg2))
   )
     (let ((pr (regStr pn)))
-      (let ((cg3 (emitLine cg2 (cat4 (cat2 "  " pr) " = inttoptr i64 " base " to ptr"))))
+      (let ((cg3 (emitLine cg2 (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat base " to ptr"))))))
         (let ((gn (allocReg cg3)))
           (let ((gr (regStr gn)))
-            (let ((cg4 (emitLine cg3 (cat4 (cat3 (cat2 "  " gr) " = getelementptr " ty) (cat3 ", ptr " pr ", i64 ") idx ""))))
+            (let ((cg4 (emitLine cg3 (strConcat (strConcat (strConcat "  " gr) (strConcat " = getelementptr " ty)) (strConcat (strConcat ", ptr " (strConcat pr ", i64 ")) (strConcat idx ""))))))
               (let ((vn (allocReg cg4)))
                 (let ((vr (regStr vn)))
-                  (let ((cg5 (emitLine cg4 (cat4 (cat3 (cat2 "  " vr) " = load " ty) ", ptr " gr ""))))
+                  (let ((cg5 (emitLine cg4 (strConcat (strConcat (strConcat "  " vr) (strConcat " = load " ty)) (strConcat ", ptr " (strConcat gr ""))))))
                     (if (== width 8)
                       {
                         (memSetWord cg5 2 vr)
@@ -19609,7 +19609,7 @@
                       (let ((wn (allocReg cg5)))
                         (let ((wr (regStr wn)))
                           {
-                            (emitLine cg5 (cat4 (cat2 "  " wr) " = zext i8 " vr " to i64"))
+                            (emitLine cg5 (strConcat (strConcat "  " wr) (strConcat " = zext i8 " (strConcat vr " to i64"))))
                             (memSetWord cg5 2 wr)
                             cg5
                           })))))))))))))
@@ -19633,10 +19633,10 @@
     (pn (allocReg cg3))
   )
     (let ((pr (regStr pn)))
-      (let ((cg4 (emitLine cg3 (cat4 (cat2 "  " pr) " = inttoptr i64 " base " to ptr"))))
+      (let ((cg4 (emitLine cg3 (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat base " to ptr"))))))
         (let ((gn (allocReg cg4)))
           (let ((gr (regStr gn)))
-            (let ((cg5 (emitLine cg4 (cat4 (cat3 (cat2 "  " gr) " = getelementptr " ty) (cat3 ", ptr " pr ", i64 ") idx ""))))
+            (let ((cg5 (emitLine cg4 (strConcat (strConcat (strConcat "  " gr) (strConcat " = getelementptr " ty)) (strConcat (strConcat ", ptr " (strConcat pr ", i64 ")) (strConcat idx ""))))))
               (let ((sv 
                 (if (== width 8)
                   val
@@ -19644,16 +19644,16 @@
                 {
                   (emitLine
                     cg5
-                    (cat4
-                      (cat3
+                    (strConcat
+                      (strConcat
                         (if (== vol 1)
                           "  store volatile "
                           "  store ")
-                        ty
-                        " ")
-                      sv
-                      (cat2 ", ptr " gr)
-                      ""))
+                        (strConcat ty
+                        " "))
+                      (strConcat sv
+                      (strConcat (strConcat ", ptr " gr)
+                      ""))))
                   (memSetWord cg5 2 (constStr 0))
                   cg5
                 }))))))))
@@ -19663,7 +19663,7 @@
   (let ((tn (allocReg cg)))
     (let ((tr (regStr tn)))
       {
-        (emitLine cg (cat4 (cat2 "  " tr) " = trunc i64 " val " to i8"))
+        (emitLine cg (strConcat (strConcat "  " tr) (strConcat " = trunc i64 " (strConcat val " to i8"))))
         tr
       })))
 
@@ -19688,7 +19688,7 @@
       )
         (let ((r (regStr rn)))
           {
-            (emitLine cg (cat4 (cat2 "  " r) " = ptrtoint ptr @str_" (fmtInt id) " to i64"))
+            (emitLine cg (strConcat (strConcat "  " r) (strConcat " = ptrtoint ptr @str_" (strConcat (fmtInt id) " to i64"))))
             (memSetWord cg 2 r)
             cg
           })))))
@@ -19849,7 +19849,7 @@
     (let ((rn (allocReg cgG)))
       (let ((r (regStr rn)))
         {
-          (emitLine cgG (cat4 (cat3 (cat2 "  " r) " = " (binopToLLVM fnName)) " i64 " (cat3 a ", " b) ""))
+          (emitLine cgG (strConcat (strConcat (strConcat "  " r) (strConcat " = " (binopToLLVM fnName))) (strConcat " i64 " (strConcat (strConcat a (strConcat ", " b)) ""))))
           (memSetWord cgG 2 r)
           (memSetWord cgG 14 0)
           cgG
@@ -19870,12 +19870,12 @@
     )
       (let (
         (c (regStr cn))
-        (zb (cat2 "divzero_" (fmtInt zn)))
-        (kb (cat2 "divok_" (fmtInt kn)))
+        (zb (strConcat "divzero_" (fmtInt zn)))
+        (kb (strConcat "divok_" (fmtInt kn)))
       )
         {
-          (emitLine cg (cat4 (cat2 "  " c) " = icmp eq i64 " b ", 0"))
-          (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") zb (cat2 ", label %" kb) ""))
+          (emitLine cg (strConcat (strConcat "  " c) (strConcat " = icmp eq i64 " (strConcat b ", 0"))))
+          (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c ", label %")) (strConcat zb (strConcat (strConcat ", label %" kb) ""))))
           (emitLabel cg zb)
           (emitLineMark snode cg)
           (emitLine cg "  call i64 @__axiom_div_by_zero()")
@@ -19902,10 +19902,10 @@
       (r (regStr rn))
     )
       {
-        (emitLine cg (cat4 (cat2 "  " ar) " = bitcast i64 " a " to double"))
-        (emitLine cg (cat4 (cat2 "  " br) " = bitcast i64 " b " to double"))
-        (emitLine cg (cat4 (cat3 (cat2 "  " fr) " = " (fbinopToLLVM fnName)) " double " (cat3 ar ", " br) ""))
-        (emitLine cg (cat4 (cat2 "  " r) " = bitcast double " fr " to i64"))
+        (emitLine cg (strConcat (strConcat "  " ar) (strConcat " = bitcast i64 " (strConcat a " to double"))))
+        (emitLine cg (strConcat (strConcat "  " br) (strConcat " = bitcast i64 " (strConcat b " to double"))))
+        (emitLine cg (strConcat (strConcat (strConcat "  " fr) (strConcat " = " (fbinopToLLVM fnName))) (strConcat " double " (strConcat (strConcat ar (strConcat ", " br)) ""))))
+        (emitLine cg (strConcat (strConcat "  " r) (strConcat " = bitcast double " (strConcat fr " to i64"))))
         (memSetWord cg 2 r)
         (memSetWord cg 14 1)
         cg
@@ -19939,8 +19939,8 @@
       (r (regStr rn))
     )
       {
-        (emitLine cg (cat4 (cat3 (cat2 "  " cr) " = icmp " (cmpToLLVM fnName)) " i64 " (cat3 a ", " b) ""))
-        (emitLine cg (cat4 (cat2 "  " r) " = zext i1 " cr " to i64"))
+        (emitLine cg (strConcat (strConcat (strConcat "  " cr) (strConcat " = icmp " (cmpToLLVM fnName))) (strConcat " i64 " (strConcat (strConcat a (strConcat ", " b)) ""))))
+        (emitLine cg (strConcat (strConcat "  " r) (strConcat " = zext i1 " (strConcat cr " to i64"))))
         (memSetWord cg 2 r)
         (memSetWord cg 14 0)
         cg
@@ -19963,10 +19963,10 @@
       (r (regStr rn))
     )
       {
-        (emitLine cg (cat4 (cat2 "  " ar) " = bitcast i64 " a " to double"))
-        (emitLine cg (cat4 (cat2 "  " br) " = bitcast i64 " b " to double"))
-        (emitLine cg (cat4 (cat3 (cat2 "  " cr) " = fcmp " (fcmpToLLVM fnName)) " double " (cat3 ar ", " br) ""))
-        (emitLine cg (cat4 (cat2 "  " r) " = zext i1 " cr " to i64"))
+        (emitLine cg (strConcat (strConcat "  " ar) (strConcat " = bitcast i64 " (strConcat a " to double"))))
+        (emitLine cg (strConcat (strConcat "  " br) (strConcat " = bitcast i64 " (strConcat b " to double"))))
+        (emitLine cg (strConcat (strConcat (strConcat "  " cr) (strConcat " = fcmp " (fcmpToLLVM fnName))) (strConcat " double " (strConcat (strConcat ar (strConcat ", " br)) ""))))
+        (emitLine cg (strConcat (strConcat "  " r) (strConcat " = zext i1 " (strConcat cr " to i64"))))
         (memSetWord cg 2 r)
         (memSetWord cg 14 0)
         cg
@@ -20016,7 +20016,7 @@
                   argStrCg)))
                 (let ((evStr 
                   (if (== takesEv 1)
-                    (cat2 ", i64 " (strDup (memGetWordStr cgE 2)))
+                    (strConcat ", i64 " (strDup (memGetWordStr cgE 2)))
                     "")))
                   (let ((rn (allocReg cgE)))
                     (let ((r (regStr rn)))
@@ -20033,9 +20033,9 @@
                           )
                             {
                               (emitCallMark snode cgE rn)
-                              (emitLine cgE (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair")) "(i64 " (cat3 argStrT evStr ")")))
-                              (emitLine cgE (cat3 (cat2 "  " tr) " = extractvalue { i64, i64 } " (cat2 r ", 0")))
-                              (emitLine cgE (cat3 (cat2 "  " pr) " = extractvalue { i64, i64 } " (cat2 r ", 1")))
+                              (emitLine cgE (strConcat (strConcat (strConcat "  " r) (strConcat " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair"))) (strConcat "(i64 " (strConcat argStrT (strConcat evStr ")")))))
+                              (emitLine cgE (strConcat (strConcat "  " tr) (strConcat " = extractvalue { i64, i64 } " (strConcat r ", 0"))))
+                              (emitLine cgE (strConcat (strConcat "  " pr) (strConcat " = extractvalue { i64, i64 } " (strConcat r ", 1"))))
                               (releaseOwnedArgs
                                 cgE
                                 fnName
@@ -20062,7 +20062,7 @@
                             ; any path, so its `no-alloc` claim is its own.
                             {
                               (emitCallMark snode cgE rn)
-                              (emitLine cgE (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair")) "(i64 " (cat3 argStrT evStr ")")))
+                              (emitLine cgE (strConcat (strConcat (strConcat "  " r) (strConcat " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair"))) (strConcat "(i64 " (strConcat argStrT (strConcat evStr ")")))))
                               (releaseOwnedArgs
                                 cgE
                                 fnName
@@ -20084,14 +20084,14 @@
                               ; them - `mustTailOK` is the list of everything
                               ; that could have.
                               {
-                                (emitLine cgE (cat3 (cat3 (cat2 "  " r) " = musttail call i64 @" (llvmSym (strDup full))) "(i64 " (cat3 argStrT evStr ")")))
-                                (emitLine cgE (cat2 "  ret i64 " r))
+                                (emitLine cgE (strConcat (strConcat (strConcat "  " r) (strConcat " = musttail call i64 @" (llvmSym (strDup full)))) (strConcat "(i64 " (strConcat argStrT (strConcat evStr ")")))))
+                                (emitLine cgE (strConcat "  ret i64 " r))
                                 (memSetWord cgE 2 r)
                                 (memSetWord cgE 14 (fnRetIsFloat cgE full))
                                 (memSetWord cgE 31 1)
                                 cgE
                               }
-                              (let ((callInst (cat3 (cat3 (cat2 "  " r) " = call i64 @" (llvmSym (strDup full))) "(i64 " (cat3 argStrT evStr ")"))))
+                              (let ((callInst (strConcat (strConcat (strConcat "  " r) (strConcat " = call i64 @" (llvmSym (strDup full)))) (strConcat "(i64 " (strConcat argStrT (strConcat evStr ")"))))))
                                 {
                                   (emitCallMark snode cgE rn)
                                   (emitLine cgE callInst)
@@ -20138,8 +20138,8 @@
                     restCg
                   }
                   {
-                    (memSetWord restCg 2 (cat3 reg ", " rest))
-                    (memSetWord restCg 9 (cat3 (strDup reg) ", i64 " restT))
+                    (memSetWord restCg 2 (strConcat reg (strConcat ", " rest)))
+                    (memSetWord restCg 9 (strConcat (strDup reg) (strConcat ", i64 " restT)))
                     restCg
                   })))
           })))))
@@ -20509,34 +20509,34 @@
     (rhsB (labelStr rhsL))
     (shortB (labelStr shortL))
     (mergeB (labelStr mergeL))
-    (_1 (emitLine cg1 (cat4 (cat2 "  " cr) " = icmp ne i64 " ra ", 0")))
+    (_1 (emitLine cg1 (strConcat (strConcat "  " cr) (strConcat " = icmp ne i64 " (strConcat ra ", 0")))))
     (tgtT (if isAnd
       rhsB
       shortB))
     (tgtF (if isAnd
       shortB
       rhsB))
-    (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cr ", label %") tgtT (cat2 ", label %" tgtF) "")))
+    (_2 (emitLine cg1 (strConcat (strConcat "  br i1 " (strConcat cr ", label %")) (strConcat tgtT (strConcat (strConcat ", label %" tgtF) "")))))
     (_3 (emitLabel cg1 rhsB))
     (cg2 (emitExpr (vecGet args 1) cg1))
     (rb (strDup (memGetWordStr cg2 2)))
     (bn (allocReg cg2))
     (bcr (regStr bn))
-    (_4 (emitLine cg2 (cat4 (cat2 "  " bcr) " = icmp ne i64 " rb ", 0")))
+    (_4 (emitLine cg2 (strConcat (strConcat "  " bcr) (strConcat " = icmp ne i64 " (strConcat rb ", 0")))))
     (zn (allocReg cg2))
     (zr (regStr zn))
-    (_5 (emitLine cg2 (cat4 (cat2 "  " zr) " = zext i1 " bcr " to i64")))
+    (_5 (emitLine cg2 (strConcat (strConcat "  " zr) (strConcat " = zext i1 " (strConcat bcr " to i64")))))
     (rhsPred (strDup (memGetWordStr cg2 11)))
-    (_6 (emitLine cg2 (cat2 "  br label %" mergeB)))
+    (_6 (emitLine cg2 (strConcat "  br label %" mergeB)))
     (_7 (emitLabel cg2 shortB))
-    (_8 (emitLine cg2 (cat2 "  br label %" mergeB)))
+    (_8 (emitLine cg2 (strConcat "  br label %" mergeB)))
     (_9 (emitLabel cg2 mergeB))
     (pn (allocReg cg2))
     (pr (regStr pn))
     (shortVal (if isAnd
       (constStr 0)
       (constStr 1)))
-    (_10 (emitLine cg2 (cat4 (cat3 (cat2 "  " pr) " = phi i64 [ " zr) (cat3 ", %" rhsPred " ], [ ") (cat3 shortVal ", %" shortB) " ]")))
+    (_10 (emitLine cg2 (strConcat (strConcat (strConcat "  " pr) (strConcat " = phi i64 [ " zr)) (strConcat (strConcat ", %" (strConcat rhsPred " ], [ ")) (strConcat (strConcat shortVal (strConcat ", %" shortB)) " ]")))))
     (_11 (memSetWord cg2 2 pr))
   )
     cg2))
@@ -20681,8 +20681,8 @@
                   restCg
                 }
                 {
-                  (memSetWord restCg 2 (cat3 reg ", " rest))
-                  (memSetWord restCg 9 (cat3 (strDup reg) ", i64 " restT))
+                  (memSetWord restCg 2 (strConcat reg (strConcat ", " rest)))
+                  (memSetWord restCg 9 (strConcat (strDup reg) (strConcat ", i64 " restT)))
                   restCg
                 }))))))))
 
@@ -20894,11 +20894,11 @@
 (pub fn (storeShapeValAt cg base val)
   (let ((sn (allocReg cg)))
     (let ((sr (regStr sn)))
-      (let ((cg1 (emitLine cg (cat4 (cat2 "  " sr) " = add i64 " base ", -8"))))
+      (let ((cg1 (emitLine cg (strConcat (strConcat "  " sr) (strConcat " = add i64 " (strConcat base ", -8"))))))
         (let ((pn (allocReg cg1)))
           (let ((pr (regStr pn)))
-            (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " pr) " = inttoptr i64 " sr " to ptr"))))
-              (emitLine cg2 (cat4 "  store i64 " val ", ptr " pr)))))))))
+            (let ((cg2 (emitLine cg1 (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat sr " to ptr"))))))
+              (emitLine cg2 (strConcat "  store i64 " (strConcat val (strConcat ", ptr " pr)))))))))))
 
 (pub :: storeShapeAt (-> Int String Int Int))
 (pub fn (storeShapeAt cg base shape)
@@ -20913,19 +20913,19 @@
 (pub fn (storeCountOneAt cg base)
   (let ((sn (allocReg cg)))
     (let ((sr (regStr sn)))
-      (let ((cg1 (emitLine cg (cat4 (cat2 "  " sr) " = add i64 " base ", -16"))))
+      (let ((cg1 (emitLine cg (strConcat (strConcat "  " sr) (strConcat " = add i64 " (strConcat base ", -16"))))))
         (let ((pn (allocReg cg1)))
           (let ((pr (regStr pn)))
-            (let ((cg2 (emitLine cg1 (cat4 (cat2 "  " pr) " = inttoptr i64 " sr " to ptr"))))
-              (emitLine cg2 (cat3 "  store i64 1, ptr " pr "")))))))))
+            (let ((cg2 (emitLine cg1 (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat sr " to ptr"))))))
+              (emitLine cg2 (strConcat "  store i64 1, ptr " (strConcat pr ""))))))))))
 
 (pub :: emitRetainOf (-> Int String Int))
 (pub fn (emitRetainOf cg v)
-  (emitLine cg (cat3 "  call void @axiom_retain(i64 " v ")")))
+  (emitLine cg (strConcat "  call void @axiom_retain(i64 " (strConcat v ")"))))
 
 (pub :: emitReleaseOf (-> Int String Int))
 (pub fn (emitReleaseOf cg v)
-  (emitLine cg (cat3 "  call void @axiom_release(i64 " v ")")))
+  (emitLine cg (strConcat "  call void @axiom_release(i64 " (strConcat v ")"))))
 
 ; retain V only when bit k of the enclosing evidence word is set -
 ; the conditional twin every symbolic witness needs (a retain on a
@@ -20974,13 +20974,13 @@
     (an (allocReg cgR))
   )
     (let ((ar (regStr an)))
-      (let ((cgA (emitLine cgR (cat4 (cat3 (cat2 "  " ar) " = lshr i64 " src) ", " (constStr k) ""))))
+      (let ((cgA (emitLine cgR (strConcat (strConcat (strConcat "  " ar) (strConcat " = lshr i64 " src)) (strConcat ", " (strConcat (constStr k) ""))))))
         (let ((bn (allocReg cgA)))
           (let ((br (regStr bn)))
-            (let ((cgB (emitLine cgA (cat3 (cat2 "  " br) " = and i64 " (cat2 ar ", 1")))))
+            (let ((cgB (emitLine cgA (strConcat (strConcat "  " br) (strConcat " = and i64 " (strConcat ar ", 1"))))))
               (let ((cn (allocReg cgB)))
                 (let ((cr (regStr cn)))
-                  (let ((cgC (emitLine cgB (cat4 (cat3 (cat2 "  " cr) " = icmp ne i64 " br) ", " "0" ""))))
+                  (let ((cgC (emitLine cgB (strConcat (strConcat (strConcat "  " cr) (strConcat " = icmp ne i64 " br)) (strConcat ", " (strConcat "0" ""))))))
                     (let (
                       (dn (allocReg cgC))
                       (kn (allocReg cgC))
@@ -20989,13 +20989,13 @@
                         (doB (labelStr dn))
                         (skB (labelStr kn))
                       )
-                        (let ((cgD (emitLine cgC (cat4 (cat3 "  br i1 " cr ", label %") doB (cat2 ", label %" skB) ""))))
+                        (let ((cgD (emitLine cgC (strConcat (strConcat "  br i1 " (strConcat cr ", label %")) (strConcat doB (strConcat (strConcat ", label %" skB) ""))))))
                           (let ((cgE (emitLabel cgD doB)))
                             (let ((cgF 
                               (if (== op 1)
                                 (emitRetainOf cgE v)
                                 (emitReleaseOf cgE v))))
-                              (let ((cgG (emitLine cgF (cat2 "  br label %" skB))))
+                              (let ((cgG (emitLine cgF (strConcat "  br label %" skB))))
                                 (emitLabel cgG skB)))))))))))))))))
 
 ; MM-LIFE-2d, the evidence consumer: a data cell whose declared
@@ -21129,30 +21129,30 @@
                                     (let ((cgA 
                                       (emitLine
                                         cgX
-                                        (cat4
-                                          (cat3 (cat2 "  " ar) " = lshr i64 " src)
-                                          ", "
-                                          (constStr
+                                        (strConcat
+                                          (strConcat (strConcat "  " ar) (strConcat " = lshr i64 " src))
+                                          (strConcat ", "
+                                          (strConcat (constStr
                                             (cast Int (vecGet symK q)))
-                                          ""))))
+                                          ""))))))
                                       (let ((bn (allocReg cgA)))
                                         (let ((br (regStr bn)))
-                                          (let ((cgB (emitLine cgA (cat3 (cat2 "  " br) " = and i64 " (cat2 ar ", 1")))))
+                                          (let ((cgB (emitLine cgA (strConcat (strConcat "  " br) (strConcat " = and i64 " (strConcat ar ", 1"))))))
                                             (let ((sn2 (allocReg cgB)))
                                               (let ((sr2 (regStr sn2)))
                                                 (let ((cgS 
                                                   (emitLine
                                                     cgB
-                                                    (cat4
-                                                      (cat3 (cat2 "  " sr2) " = shl i64 " br)
-                                                      ", "
-                                                      (constStr
+                                                    (strConcat
+                                                      (strConcat (strConcat "  " sr2) (strConcat " = shl i64 " br))
+                                                      (strConcat ", "
+                                                      (strConcat (constStr
                                                         (cast Int (vecGet symPos q)))
-                                                      ""))))
+                                                      ""))))))
                                                   (let ((on (allocReg cgS)))
                                                     (let ((orr (regStr on)))
                                                       {
-                                                        (set cgX (emitLine cgS (cat4 (cat3 (cat2 "  " orr) " = or i64 " acc) ", " sr2 "")))
+                                                        (set cgX (emitLine cgS (strConcat (strConcat (strConcat "  " orr) (strConcat " = or i64 " acc)) (strConcat ", " (strConcat sr2 "")))))
                                                         (set acc orr)
                                                       })))))))))))
                                 (set q (+ q 1))
@@ -21186,28 +21186,28 @@
                                         (let ((cgB 
                                           (emitLine
                                             cgX
-                                            (cat3
-                                              (cat2 "  " br)
-                                              " = and i64 "
-                                              (cat2
+                                            (strConcat
+                                              (strConcat "  " br)
+                                              (strConcat " = and i64 "
+                                              (strConcat
                                                 (strDup
                                                   (cast String symReg))
-                                                ", 1")))))
+                                                ", 1"))))))
                                           (let ((sn2 (allocReg cgB)))
                                             (let ((sr2 (regStr sn2)))
                                               (let ((cgS 
                                                 (emitLine
                                                   cgB
-                                                  (cat4
-                                                    (cat3 (cat2 "  " sr2) " = shl i64 " br)
-                                                    ", "
-                                                    (constStr
+                                                  (strConcat
+                                                    (strConcat (strConcat "  " sr2) (strConcat " = shl i64 " br))
+                                                    (strConcat ", "
+                                                    (strConcat (constStr
                                                       (cast Int (vecGet lamPos q)))
-                                                    ""))))
+                                                    ""))))))
                                                 (let ((on (allocReg cgS)))
                                                   (let ((orr (regStr on)))
                                                     {
-                                                      (set cgX (emitLine cgS (cat4 (cat3 (cat2 "  " orr) " = or i64 " acc) ", " sr2 "")))
+                                                      (set cgX (emitLine cgS (strConcat (strConcat (strConcat "  " orr) (strConcat " = or i64 " acc)) (strConcat ", " (strConcat sr2 "")))))
                                                       (set acc orr)
                                                       0
                                                     }))))))))))
@@ -21628,14 +21628,14 @@
         (r (regStr (allocReg cgA)))
       )
         {
-          (emitLine cgA (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair")) "(i64 " (cat2 argStrT ")")))
+          (emitLine cgA (strConcat (strConcat (strConcat "  " r) (strConcat " = call { i64, i64 } @" (strConcat (llvmSym (strDup full)) "$pair"))) (strConcat "(i64 " (strConcat argStrT ")"))))
           (releaseOwnedArgs
             cgA
             name
             args
             argRegs
             0)
-          (emitLine cgA (cat2 "  ret { i64, i64 } " r))
+          (emitLine cgA (strConcat "  ret { i64, i64 } " r))
           (memSetWord cgA 31 1)
           cgA
         }))))
@@ -21655,11 +21655,11 @@
     (_r (memSetWord cg 1 0))
   )
     (let ((sym (llvmSym (strDup name))))
-      (let ((cgH (emitLine cg (strConcat (cat4 "define i64 @" sym "(" paramStr) ") #0 {"))))
+      (let ((cgH (emitLine cg (strConcat (strConcat "define i64 @" (strConcat sym (strConcat "(" paramStr))) ") #0 {"))))
         (let ((r (regStr (allocReg cgH))))
-          (let ((cgC (emitLine cgH (cat3 (cat3 (cat2 "  " r) " = call { i64, i64 } @" (strConcat sym "$pair")) "(" (cat2 paramStr ")")))))
+          (let ((cgC (emitLine cgH (strConcat (strConcat (strConcat "  " r) (strConcat " = call { i64, i64 } @" (strConcat sym "$pair"))) (strConcat "(" (strConcat paramStr ")"))))))
             (let ((cgB (emitPairBox cgC rt r)))
-              (emitLine (emitLine cgB (cat2 "  ret i64 " (strDup (memGetWordStr cgB 2)))) "}"))))))))
+              (emitLine (emitLine cgB (strConcat "  ret i64 " (strDup (memGetWordStr cgB 2)))) "}"))))))))
 
 ; Box the pair in register `r` into the block a boxed constructor of
 ; `rt` would have built - the same shape word, tag, count and field
@@ -21676,8 +21676,8 @@
   (let (
     (tr (regStr (allocReg cg)))
     (pr (regStr (allocReg cg)))
-    (_1 (emitLine cg (cat3 (cat2 "  " tr) " = extractvalue { i64, i64 } " (cat2 r ", 0"))))
-    (_2 (emitLine cg (cat3 (cat2 "  " pr) " = extractvalue { i64, i64 } " (cat2 r ", 1"))))
+    (_1 (emitLine cg (strConcat (strConcat "  " tr) (strConcat " = extractvalue { i64, i64 } " (strConcat r ", 0")))))
+    (_2 (emitLine cg (strConcat (strConcat "  " pr) (strConcat " = extractvalue { i64, i64 } " (strConcat r ", 1")))))
   )
     (if (strEq
       (cast String (nodeA rt))
@@ -21695,16 +21695,16 @@
     (lSome (labelStr (allocReg cg)))
     (lMerge (labelStr (allocReg cg)))
     (c (regStr (allocReg cg)))
-    (_1 (emitLine cg (cat4 (cat2 "  " c) " = icmp eq i64 " tr (cat2 ", " (constStr (eTag noneE))))))
-    (_2 (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") lNone (cat2 ", label %" lSome) "")))
+    (_1 (emitLine cg (strConcat (strConcat "  " c) (strConcat " = icmp eq i64 " (strConcat tr (strConcat ", " (constStr (eTag noneE))))))))
+    (_2 (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c ", label %")) (strConcat lNone (strConcat (strConcat ", label %" lSome) "")))))
     (_3 (emitLabel cg lSome))
     (blk (emitPairBoxBlock cg someE (pairPayloadClass cg rt "Some") pr))
-    (_4 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_4 (emitLine cg (strConcat "  br label %" lMerge)))
     (_5 (emitLabel cg lNone))
-    (_6 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_6 (emitLine cg (strConcat "  br label %" lMerge)))
     (_7 (emitLabel cg lMerge))
     (res (regStr (allocReg cg)))
-    (_8 (emitLine cg (cat4 (cat3 (cat2 "  " res) " = phi i64 [ " blk) (cat3 ", %" lSome " ], [ ") (cat3 (constStr (eTag noneE)) ", %" lNone) " ]")))
+    (_8 (emitLine cg (strConcat (strConcat (strConcat "  " res) (strConcat " = phi i64 [ " blk)) (strConcat (strConcat ", %" (strConcat lSome " ], [ ")) (strConcat (strConcat (constStr (eTag noneE)) (strConcat ", %" lNone)) " ]")))))
   )
     {
       (memSetWord cg 2 res)
@@ -21723,17 +21723,17 @@
     (lErr (labelStr (allocReg cg)))
     (lMerge (labelStr (allocReg cg)))
     (c (regStr (allocReg cg)))
-    (_1 (emitLine cg (cat4 (cat2 "  " c) " = icmp eq i64 " tr (cat2 ", " (constStr (eTag okE))))))
-    (_2 (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") lOk (cat2 ", label %" lErr) "")))
+    (_1 (emitLine cg (strConcat (strConcat "  " c) (strConcat " = icmp eq i64 " (strConcat tr (strConcat ", " (constStr (eTag okE))))))))
+    (_2 (emitLine cg (strConcat (strConcat "  br i1 " (strConcat c ", label %")) (strConcat lOk (strConcat (strConcat ", label %" lErr) "")))))
     (_3 (emitLabel cg lOk))
     (b1 (emitPairBoxBlock cg okE (pairPayloadClass cg rt "Ok") pr))
-    (_4 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_4 (emitLine cg (strConcat "  br label %" lMerge)))
     (_5 (emitLabel cg lErr))
     (b2 (emitPairBoxBlock cg errE (pairPayloadClass cg rt "Err") pr))
-    (_6 (emitLine cg (cat2 "  br label %" lMerge)))
+    (_6 (emitLine cg (strConcat "  br label %" lMerge)))
     (_7 (emitLabel cg lMerge))
     (res (regStr (allocReg cg)))
-    (_8 (emitLine cg (cat4 (cat3 (cat2 "  " res) " = phi i64 [ " b1) (cat3 ", %" lOk " ], [ ") (cat3 b2 ", %" lErr) " ]")))
+    (_8 (emitLine cg (strConcat (strConcat (strConcat "  " res) (strConcat " = phi i64 [ " b1)) (strConcat (strConcat ", %" (strConcat lOk " ], [ ")) (strConcat (strConcat b2 (strConcat ", %" lErr)) " ]")))))
   )
     {
       (memSetWord cg 2 res)
@@ -21750,7 +21750,7 @@
 (pub fn (emitPairBoxBlock cg entry cls pr)
   (let ((p (regStr (allocReg cg))))
     {
-      (emitLine cg (cat3 (cat2 "  " p) " = call i64 @axiom_alloc(i64 16)" ""))
+      (emitLine cg (strConcat (strConcat "  " p) (strConcat " = call i64 @axiom_alloc(i64 16)" "")))
       (storeShapeAt
         cg
         p
@@ -21791,7 +21791,7 @@
 (pub fn (emitPairRet e entry cg)
   (if (== (eArity entry) 0)
     {
-      (emitLine cg (strConcat (cat2 "  ret { i64, i64 } { i64 " (constStr (eTag entry))) ", i64 0 }"))
+      (emitLine cg (strConcat (strConcat "  ret { i64, i64 } { i64 " (constStr (eTag entry))) ", i64 0 }"))
       (memSetWord cg 31 1)
       cg
     }
@@ -21824,9 +21824,9 @@
         (r1 (regStr (allocReg cgA)))
       )
         {
-          (emitLine cgA (strConcat (cat4 "  " r0 " = insertvalue { i64, i64 } undef, i64 " (constStr (eTag entry))) ", 0"))
-          (emitLine cgA (strConcat (cat4 "  " r1 " = insertvalue { i64, i64 } " r0) (cat3 ", i64 " v ", 1")))
-          (emitLine cgA (cat2 "  ret { i64, i64 } " r1))
+          (emitLine cgA (strConcat (strConcat "  " (strConcat r0 (strConcat " = insertvalue { i64, i64 } undef, i64 " (constStr (eTag entry))))) ", 0"))
+          (emitLine cgA (strConcat (strConcat "  " (strConcat r1 (strConcat " = insertvalue { i64, i64 } " r0))) (strConcat ", i64 " (strConcat v ", 1"))))
+          (emitLine cgA (strConcat "  ret { i64, i64 } " r1))
           (memSetWord cgA 31 1)
           cgA
         }))))
@@ -21873,7 +21873,7 @@
             (* arity 8))))
           (let ((ptrN (allocReg cg)))
             (let ((ptr (regStr ptrN)))
-              (let ((allocInst (cat3 (cat2 "  " ptr) " = call i64 @axiom_alloc(i64 " (cat2 (constStr size) ")"))))
+              (let ((allocInst (strConcat (strConcat "  " ptr) (strConcat " = call i64 @axiom_alloc(i64 " (strConcat (constStr size) ")")))))
                 (let ((cg1 (emitLine cg allocInst)))
                   (let ((cgS (ctorShapeEmit cg1 ptr entry stamp)))
                     (let ((cg2 
@@ -21906,11 +21906,11 @@
 (pub fn (storeWordAt cg base idx val)
   (let ((pn (allocReg cg)))
     (let ((pr (regStr pn)))
-      (let ((cg1 (emitLine cg (cat4 (cat2 "  " pr) " = inttoptr i64 " base " to ptr"))))
+      (let ((cg1 (emitLine cg (strConcat (strConcat "  " pr) (strConcat " = inttoptr i64 " (strConcat base " to ptr"))))))
         (let ((an (allocReg cg1)))
           (let ((ar (regStr an)))
-            (let ((cg2 (emitLine cg1 (cat4 (cat3 (cat2 "  " ar) " = getelementptr i64, ptr " pr) ", i64 " (fmtInt idx) ""))))
-              (emitLine cg2 (cat4 "  store i64 " val ", ptr " ar)))))))))
+            (let ((cg2 (emitLine cg1 (strConcat (strConcat (strConcat "  " ar) (strConcat " = getelementptr i64, ptr " pr)) (strConcat ", i64 " (strConcat (fmtInt idx) ""))))))
+              (emitLine cg2 (strConcat "  store i64 " (strConcat val (strConcat ", ptr " ar)))))))))))
 
 ; MM-LIFE-2c event 6: a block's REFERENCE fields are stored owned -
 ; a borrowed value is retained on the way in, a directly-built
@@ -23238,11 +23238,11 @@
 (pub :: emitAlloca (-> Int String Int))
 (pub fn (emitAlloca cg ar)
   (if (< (memGetWord cg 43) 0)
-    (emitLine cg (cat2 (cat2 "  " ar) " = alloca i64"))
+    (emitLine cg (strConcat (strConcat "  " ar) " = alloca i64"))
     {
       (vecPush
         (memGetWordVec cg 44)
-        (cast Int (cat2 (cat2 "  " ar) " = alloca i64")))
+        (cast Int (strConcat (strConcat "  " ar) " = alloca i64")))
       cg
     }))
 
@@ -23337,7 +23337,7 @@
         (let ((ar (tmpStr "s" an)))
           {
             (emitAlloca cg1 ar)
-            (emitLine cg1 (cat4 "  store i64 " valReg ", ptr " ar))
+            (emitLine cg1 (strConcat "  store i64 " (strConcat valReg (strConcat ", ptr " ar))))
             (bindSym
               cg1
               name
@@ -23375,12 +23375,12 @@
               {
                 (emitLine
                   cg1
-                  (cat4
+                  (strConcat
                     "  store i64 "
-                    v
-                    ", ptr "
+                    (strConcat v
+                    (strConcat ", ptr "
                     (strDup
-                      (cast String storage))))
+                      (cast String storage))))))
                 (memSetWord cg1 2 v)
                 cg1
               })))))))
@@ -23404,7 +23404,7 @@
       (exitB (labelStr xn))
     )
       (let (
-        (_1 (emitLine cg (cat2 "  br label %" hdrB)))
+        (_1 (emitLine cg (strConcat "  br label %" hdrB)))
         (_2 (emitLabel cg hdrB))
         (cgC (emitExpr cnd cg))
         (cr (strDup (memGetWordStr cgC 2)))
@@ -23412,11 +23412,11 @@
       )
         (let ((tr (regStr tn)))
           (let (
-            (_3 (emitLine cgC (cat4 (cat2 "  " tr) " = icmp ne i64 " cr ", 0")))
-            (_4 (emitLine cgC (cat4 (cat3 "  br i1 " tr ", label %") bodyB (cat2 ", label %" exitB) "")))
+            (_3 (emitLine cgC (strConcat (strConcat "  " tr) (strConcat " = icmp ne i64 " (strConcat cr ", 0")))))
+            (_4 (emitLine cgC (strConcat (strConcat "  br i1 " (strConcat tr ", label %")) (strConcat bodyB (strConcat (strConcat ", label %" exitB) "")))))
             (_5 (emitLabel cgC bodyB))
             (cgB (emitSeq body cgC 0))
-            (_6 (emitLine cgB (cat2 "  br label %" hdrB)))
+            (_6 (emitLine cgB (strConcat "  br label %" hdrB)))
             (_7 (emitLabel cgB exitB))
           )
             {
@@ -23476,11 +23476,11 @@
 (pub :: emitRegionCell (-> Int String Int))
 (pub fn (emitRegionCell cg cell)
   (if (< (memGetWord cg 43) 0)
-    (emitLine cg (cat2 (cat2 "  " cell) " = alloca i64, i64 3, align 16"))
+    (emitLine cg (strConcat (strConcat "  " cell) " = alloca i64, i64 3, align 16"))
     {
       (vecPush
         (memGetWordVec cg 44)
-        (cast Int (cat2 (cat2 "  " cell) " = alloca i64, i64 3, align 16")))
+        (cast Int (strConcat (strConcat "  " cell) " = alloca i64, i64 3, align 16")))
       cg
     }))
 
@@ -23502,14 +23502,14 @@
   )
     (let (
       (_0 (emitRegionCell cg cell))
-      (_1 (emitLine cg (cat4 (cat2 "  " p1) " = getelementptr i64, ptr " cell ", i64 1")))
-      (_2 (emitLine cg (cat4 (cat2 "  " p2) " = getelementptr i64, ptr " cell ", i64 2")))
-      (_3 (emitLine cg (cat2 (cat2 "  " br) " = load i64, ptr @__axiom_bump")))
-      (_4 (emitLine cg (cat2 (cat2 "  " er) " = load i64, ptr @__axiom_bump_end")))
-      (_5 (emitLine cg (cat2 (cat2 "  " kr) " = load i64, ptr @__axiom_chunk")))
-      (_6 (emitLine cg (cat4 (cat2 "  store i64 " br) ", ptr " cell "")))
-      (_7 (emitLine cg (cat4 (cat2 "  store i64 " er) ", ptr " p1 "")))
-      (_8 (emitLine cg (cat4 (cat2 "  store i64 " kr) ", ptr " p2 "")))
+      (_1 (emitLine cg (strConcat (strConcat "  " p1) (strConcat " = getelementptr i64, ptr " (strConcat cell ", i64 1")))))
+      (_2 (emitLine cg (strConcat (strConcat "  " p2) (strConcat " = getelementptr i64, ptr " (strConcat cell ", i64 2")))))
+      (_3 (emitLine cg (strConcat (strConcat "  " br) " = load i64, ptr @__axiom_bump")))
+      (_4 (emitLine cg (strConcat (strConcat "  " er) " = load i64, ptr @__axiom_bump_end")))
+      (_5 (emitLine cg (strConcat (strConcat "  " kr) " = load i64, ptr @__axiom_chunk")))
+      (_6 (emitLine cg (strConcat (strConcat "  store i64 " br) (strConcat ", ptr " (strConcat cell "")))))
+      (_7 (emitLine cg (strConcat (strConcat "  store i64 " er) (strConcat ", ptr " (strConcat p1 "")))))
+      (_8 (emitLine cg (strConcat (strConcat "  store i64 " kr) (strConcat ", ptr " (strConcat p2 "")))))
       (rgnSaved (pairSlot cg 9))
       (_rgn (pairSetSlot cg 9 (+ rgnSaved 1)))
       (cgB (emitExpr (nodeB node) cg))
@@ -23524,8 +23524,8 @@
           (rr (regStr (allocReg cgB)))
         )
           (let (
-            (_9 (emitLine cgB (cat4 (cat2 "  " ci) " = ptrtoint ptr " cell " to i64")))
-            (_10 (emitLine cgB (cat4 (cat2 "  " rr) " = call i64 @__axiom_arena_reset_fn(i64 " ci ")")))
+            (_9 (emitLine cgB (strConcat (strConcat "  " ci) (strConcat " = ptrtoint ptr " (strConcat cell " to i64")))))
+            (_10 (emitLine cgB (strConcat (strConcat "  " rr) (strConcat " = call i64 @__axiom_arena_reset_fn(i64 " (strConcat ci ")")))))
           )
             {
               (memSetWord cgB 2 val)
@@ -23557,23 +23557,23 @@
     (thenB (labelStr thenLbl))
     (elseB (labelStr elseLbl))
     (mergeB (labelStr mergeLbl))
-    (_1 (emitLine cg1 (cat4 (cat2 "  " cmpR) " = icmp ne i64 " testReg ", 0")))
-    (_2 (emitLine cg1 (cat4 (cat3 "  br i1 " cmpR ", label %") thenB (cat2 ", label %" elseB) "")))
+    (_1 (emitLine cg1 (strConcat (strConcat "  " cmpR) (strConcat " = icmp ne i64 " (strConcat testReg ", 0")))))
+    (_2 (emitLine cg1 (strConcat (strConcat "  br i1 " (strConcat cmpR ", label %")) (strConcat thenB (strConcat (strConcat ", label %" elseB) "")))))
     (_3 (emitLabel cg1 thenB))
     (cg2 (emitExpr thenExpr cg1))
     (thenVal (strDup (memGetWordStr cg2 2)))
     (thenFlag (memGetWord cg2 14))
     (thenPred (strDup (memGetWordStr cg2 11)))
-    (_4 (emitLine cg2 (cat2 "  br label %" mergeB)))
+    (_4 (emitLine cg2 (strConcat "  br label %" mergeB)))
     (_5 (emitLabel cg2 elseB))
     (cg3 (emitExpr elseExpr cg2))
     (elseVal (strDup (memGetWordStr cg3 2)))
     (elsePred (strDup (memGetWordStr cg3 11)))
-    (_6 (emitLine cg3 (cat2 "  br label %" mergeB)))
+    (_6 (emitLine cg3 (strConcat "  br label %" mergeB)))
     (_7 (emitLabel cg3 mergeB))
     (phiN (allocReg cg3))
     (phiR (regStr phiN))
-    (_8 (emitLine cg3 (cat4 (cat3 (cat2 "  " phiR) " = phi i64 [ " thenVal) (cat3 ", %" thenPred " ], [ ") (cat3 elseVal ", %" elsePred) " ]")))
+    (_8 (emitLine cg3 (strConcat (strConcat (strConcat "  " phiR) (strConcat " = phi i64 [ " thenVal)) (strConcat (strConcat ", %" (strConcat thenPred " ], [ ")) (strConcat (strConcat elseVal (strConcat ", %" elsePred)) " ]")))))
     (_9 (memSetWord cg3 2 phiR))
     (_10 (memSetWord cg3 14 thenFlag))
   )
@@ -23583,7 +23583,7 @@
 (pub :: emitLabel (-> Int String Int))
 (pub fn (emitLabel cg name)
   {
-    (emitLine cg (cat2 name ":"))
+    (emitLine cg (strConcat name ":"))
     (memSetWord cg 11 (strDup name))
     cg
   })
@@ -23623,9 +23623,9 @@
 (pub fn (emitCallMark snode cg regnum)
   (if (== snode 0)
     cg
-    (let ((lbl (cat2 ".LL" (fmtInt regnum))))
+    (let ((lbl (strConcat ".LL" (fmtInt regnum))))
       {
-        (emitLine cg (cat2 "  br label %" lbl))
+        (emitLine cg (strConcat "  br label %" lbl))
         (emitLabel cg lbl)
         (emitLineMark snode cg)
       })))
@@ -23646,8 +23646,8 @@
         cg
         (let ((mod (nodeModule snode)))
           (if (== mod 0)
-            (emitLine cg (cat2 "; @@line " (fmtInt (spanStart sp))))
-            (emitLine cg (cat4 (cat2 "; @@line " (nodeModuleName snode)) " " (fmtInt (spanStart sp)) ""))))))))
+            (emitLine cg (strConcat "; @@line " (fmtInt (spanStart sp))))
+            (emitLine cg (strConcat (strConcat "; @@line " (nodeModuleName snode)) (strConcat " " (strConcat (fmtInt (spanStart sp)) ""))))))))))
 
 (pub :: emitBegin (-> Int Int Int))
 ;@axiom:effect(io)
@@ -23699,7 +23699,7 @@
   )
     (let ((r (regStr rn)))
       {
-        (emitLine cg (cat4 (cat2 "  " r) " = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_" (fmtInt id) ", i64 0, i32 2) to i64"))
+        (emitLine cg (strConcat (strConcat "  " r) (strConcat " = ptrtoint ptr getelementptr inbounds ({ i64, i64, i64, ptr, i64 }, ptr @strhdr_" (strConcat (fmtInt id) ", i64 0, i32 2) to i64"))))
         (memSetWord cg 2 r)
         (memSetWord cg 14 0)
         cg
