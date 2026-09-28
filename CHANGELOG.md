@@ -82,7 +82,7 @@ the corpus grew. In four of them `check` was wrong:
   convert: a literal nested as an argument, `(:: e (quietLet 2))`, or
   an `if`. A top-level literal was already refused. `castTypeBadPart`
   now refuses every such part as `AX3002`, at the part.
-  `tests/diagnostics/1024-type-part-not-a-type.ax`.
+  `tests/diagnostics/1024-type-part-not-a-type.axbad`.
 - **A field type that didn't parse became the wildcard.** In a `data`
   constructor, `(Lo (Vec 1))` declared a field of any type, because
   `typeNodeOrWildcard` swallowed the parse failure. A struct field

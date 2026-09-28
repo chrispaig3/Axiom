@@ -452,15 +452,18 @@
 # REFUSED by the formatter: `tests/diagnostics/1024-type-part-not-a-type.ax`,
 # whose non-types are what it tests.
 #
-# REGENERATED 2026-09-28 again, at 758 entries from 757, after the
+# REGENERATED 2026-09-28 again, at 757 entries from 757, after the
 # trailing-tag and operator-binder fixes changed the parser, the
-# formatter and `explain`, and added
-# `tests/selfhost/1005-operator-binder-shadows.ax`.
+# formatter and `explain`, added
+# `tests/selfhost/1005-operator-binder-shadows.ax`, and moved the one
+# refused file, `tests/diagnostics/1024-type-part-not-a-type`, to
+# `.axbad` beside 1019, since the formatter and tree-sitter can't read
+# the non-types it tests.
 #
 # Verified before blessing: of the 754 source hashes present in BOTH
 # tables, ZERO map to a different formatted hash. The formatter now
 # prints an operator-spelled binder, a shape no other file in the tree
-# has. 1 of 759 files is REFUSED, as before.
+# has. 0 of 758 files are REFUSED.
 #
 48216ed1e518f534e6d1cfa10a436a1c9b69e0004de88a39a6e3365d5c67a2ba 48216ed1e518f534e6d1cfa10a436a1c9b69e0004de88a39a6e3365d5c67a2ba self_host/Host.baremetal-aarch64.ax
 9526b57cacdfff1fc90efb9dae10ee9dbb21cbb3682600fa3de6eb175a06d169 9526b57cacdfff1fc90efb9dae10ee9dbb21cbb3682600fa3de6eb175a06d169 self_host/Host.darwin-aarch64.ax
@@ -563,7 +566,6 @@ a9d526d2d14a40f46e9dc72c66b81a3747a71ca545473cdeaa20326880ebc026 a9d526d2d14a40f
 6d5298ece9b452db1456107c7c48466b8a08cd3a3f905bceb8145e8464a43c2a 6d5298ece9b452db1456107c7c48466b8a08cd3a3f905bceb8145e8464a43c2a tests/diagnostics/1018-effect-tag-list.ax
 a308872836e633de47d7112aa761edd7051031482321d24ebad0a577b0aa6859 a308872836e633de47d7112aa761edd7051031482321d24ebad0a577b0aa6859 tests/diagnostics/1020-unsafe-device-primitives.ax
 27a8ec23fbc714c1c348646f7cb63c73013dbc03e6827b311c1ada610e4cbcec 27a8ec23fbc714c1c348646f7cb63c73013dbc03e6827b311c1ada610e4cbcec tests/diagnostics/1021-match-arms-disagree.ax
-4c84209697f1a47dba6d2aed36544c697d1b40277f542d6074e891a04e3afe5d REFUSED tests/diagnostics/1024-type-part-not-a-type.ax
 837339873c1bdbd735ec136b226121b5c26a24ae77874ce07bdd47607428a60d 837339873c1bdbd735ec136b226121b5c26a24ae77874ce07bdd47607428a60d tests/diagnostics/110-partial-application.ax
 5ba93728d26fb0c747f7efb397258f66d623963d76b6ff41fe0b1e331ba0c8d6 5ba93728d26fb0c747f7efb397258f66d623963d76b6ff41fe0b1e331ba0c8d6 tests/diagnostics/120-partial-in-nested-scope.ax
 eab1cc28f3135f1dd6af3733770abd559b2406648e39e9155fcbe36cd14e9171 eab1cc28f3135f1dd6af3733770abd559b2406648e39e9155fcbe36cd14e9171 tests/diagnostics/130-order-all-three.ax
