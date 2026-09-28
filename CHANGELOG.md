@@ -22,6 +22,30 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
+
+Every page in the repository now reads like the website: written to
+the reader, examples first, and upfront about limits. The language
+reference is reorganised into 34 chapters in six groups, from *Hello,
+Axiom* to the appendix, with loops and `parallel` in chapters of their
+own and compiler internals moved to short notes or to the
+specifications. The guides, the three specifications, the design
+records and the directory READMEs keep every fact, rule id, status
+marker, diagnostic code and gated sentence, and lose the dates, the
+history and the CI narration, which live here instead.
+
+Each page was rewritten, then reviewed against its original, and every
+program the docs show was compiled. The review also corrected claims
+that had gone stale against the compiler. Examples: the old reference's
+handler example no longer compiled, the REPL has line editing and
+history, `memSetWord` into an outer block is refused with `AX3060`,
+and `vecGet` is generic.
+
+The house style is the `docs-style` skill, and
+`scripts/lib/doc-style.py` checks a page against it and against the
+gates that read prose. `CLAUDE.md` and `AGENTS.md` point agents at
+both.
+
 ### Seeded compiler fuzzing, and two crashes it found — `scripts/check-fuzz.sh` - 2026-09-27
 
 The fuzzing half of R-E1. `scripts/lib/fuzz.py` mutates the tracked

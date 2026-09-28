@@ -131,7 +131,10 @@ a small "proof" token under each claim, and the docs do the same.
 - **Anchors**: before renaming a heading, search the tree (the web
   sources included) for `page.md#anchor` and `${REF}#anchor`. Either
   keep the heading, add `<a id="old-anchor"></a>` above the new one, or
-  update every link.
+  update every link. The website's links are checked by
+  `web/scripts/smoke.mjs` against real headings only, so a link from
+  `web/src/` must be updated to the new heading. An `<a id>` alone
+  won't satisfy it.
 - **Lists** for three or more parallel items. **Tables** for reference
   data. Otherwise, write prose.
 - **Numbers that go stale**, such as file counts, line counts and
@@ -171,6 +174,19 @@ green. The ones that bite most often:
   - The `| AXNNNN | slug |` rows in `docs/error-model.md`, the `| 70 |`
     to `| 80 |` trap rows in `docs/memory-model.md`, and the
     `~~ID~~ | **CLOSED**` defect rows.
+  - The reference's `### Modules at a Glance` heading, spelled exactly
+    that way (the one exception to sentence case), its `` | `Module` | ``
+    rows, and the sentence opening "Twenty-four modules, all of them
+    Axiom source". `docs/status.md`'s Standard library row keeps the
+    form `| Standard library | **…** | Twenty-four modules — `A`, … — …`.
+    `scripts/check-stdlib-api.sh` reads all of it, and the spelled
+    number tracks the module count.
+  - "eighty-four gates" in `CONTRIBUTING.md` and in the Unreleased
+    section of `CHANGELOG.md` (`scripts/check-gate-lib.sh`).
+  - `bootstrap/README.md`'s `axiom-<target>.ll` box lines, its two
+    "28,082 lines" sentences, and `bootstrap/THREATS.md`'s table and its
+    "This table has N rows, M defended," sentence
+    (`scripts/check-seed-supply-chain.sh`).
 - **`docs/status.md` rows.** The feature column and the bold status
   column must match `web/src/data/content.ts` word for word. Every
   `**Complete**` row names a fixture that exists.

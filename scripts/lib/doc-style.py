@@ -344,7 +344,7 @@ def inbound_anchors(dest):
                     cand = os.path.normpath(full)
                 if cand == dest:
                     want.setdefault(m.group(2), set()).add(rel)
-            if dest == os.path.join('docs', 'reference.md'):
+            if dest == os.path.join('docs', 'reference.md') and rel.startswith('web' + os.sep):
                 for m in ref.finditer(text):
                     want.setdefault(m.group(1), set()).add(rel)
     return want

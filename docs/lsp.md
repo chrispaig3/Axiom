@@ -1,40 +1,36 @@
 # The Axiom language server
 
-`axiom lsp` is the language server. It is `self_host/lsp.ax`, one
-module of the self-hosted compiler, and it owns the protocol and
-nothing else: every diagnostic it publishes comes from the same
-`parseModuleWith`/`checkModule` pair that `axiom check` runs, and every
-answer below is read off the compiler's own parse tree. This document
-says how to run it, how to point four editors at it, what each request
-answers and what it deliberately refuses, the legend its highlighting
-uses, and the one cost rule the whole design follows.
+`axiom lsp` gives your editor the same diagnostics `axiom check` prints,
+plus navigation, hover, completion, formatting and fixes. This page
+shows how to run it, how to connect Neovim, Helix, Emacs and VS Code,
+and what each request answers and refuses. It ends with how
+highlighting works and the cost rule the server follows.
 
-Every claim here is held by `scripts/check-lsp-selfhost.sh`, which
-builds a server from `self_host/` and drives it with
-`tests/lsp/drive.py`; each section names the part of that gate that
-holds it. Counts are kept out of the prose on purpose —
-`scripts/check-doc-drift.sh` recomputes every number a document
-states, and the gate's own output prints the current ones — and the
-one release that grew the server from four questions to the set below
-is [CHANGELOG.md](../CHANGELOG.md) `## 0.3.5`, which records what was
-measured when each request landed.
+The server is `self_host/lsp.ax`, one module of the self-hosted
+compiler, and it handles the protocol and nothing else. Every
+diagnostic it publishes comes from the same
+`parseModuleWith`/`checkModule` pair that `axiom check` runs. Every
+answer is read off the compiler's own parse tree.
 
-## Running it
+Tested by `scripts/check-lsp-selfhost.sh`, which builds a server from
+`self_host/` and drives it with `tests/lsp/drive.py`.
+
+<a id="running-it"></a>
+## Run the server
 
 ```bash
 axiom lsp
 ```
 
-That is the whole command line, and `axiom help lsp` says so: the
-server speaks JSON-RPC 2.0 over stdin and stdout with the base
-protocol's `Content-Length` framing, takes no operand, accepts no flag
-of its own, and writes nothing else to stdout. It writes nothing to
-stderr either — a session of `initialize`, `shutdown`, `exit` leaves
-stderr empty. `scripts/check-driver.sh` holds `--help` to the
-driver's accept-chain, so a flag the subcommand grew would have to
-appear there.
+That's the whole command line, and `axiom help lsp` says the same. The
+server speaks JSON-RPC 2.0 over stdin and stdout, with the base
+protocol's `Content-Length` framing. It takes no operand and no flags
+of its own.
 
-A session from a shell, for when an editor's log is not enough:
+It writes nothing else to stdout, and nothing to stderr: a session of
+`initialize`, `shutdown`, `exit` leaves stderr empty.
+
+To try a session from a shell, when an editor's log isn't enough:
 
 ```bash
 python3 - <<'PY'
@@ -53,103 +49,121 @@ print("exit", p.returncode)
 PY
 ```
 
-The first reply is the `initialize` result: the capabilities object
-the rest of this document walks through, and `serverInfo` naming
-`axiom` and the compiler's version. The exit status is `0` after a
-`shutdown`, and `1` when the client sent `exit` without one or closed
-the pipe — measured on all three endings against the release binary.
-The framed byte stream of a fixed session, capabilities included, is
-pinned by the goldens under `tests/lsp/`.
+The first reply is the `initialize` result. It holds the capabilities
+object that the rest of this page walks through, and a `serverInfo`
+naming `axiom` and the compiler's version.
 
-What the lifecycle does, and what it does not:
+The exit status is `0` after a `shutdown`. It is `1` when the client
+sends `exit` without one, or closes the pipe. The goldens under
+`tests/lsp/` pin the framed byte stream of a fixed session,
+capabilities included.
 
-- **Sync is full-text**, `textDocumentSync: 1`. Every `didChange`
-  carries the whole document — the server reads the LAST content
-  change of the notification — because the checker takes a whole
-  source string anyway, and an incremental store would exist only to
-  be re-flattened before every check. `didOpen`, `didChange` and
-  `didClose` are the three notifications it reads; a `didSave` is
-  dropped, as any notification it does not know is.
-- **Diagnostics are published on every `didOpen` and `didChange`**,
-  under the document's own URI, and they are `axiom check`'s: a
-  lexical error first, then a parse error with a span on the token
-  that failed, then `AX5001` for an import that does not resolve, then
-  the expander's refusals alone when it refused, else the expander's
-  and the checker's diagnostics merged in the compiler's order. Each
-  carries the `AX` code as `code`, `axiom` as `source`, and
-  everything the terminal prints about it: the message's first line,
-  the LABEL the terminal draws at the caret, and its `note:` and
-  `help:` paragraphs. A SECONDARY span — `AX3006`'s "first defined
-  here", `AX3012`'s "`x` is bound here" — is published as
-  `relatedInformation`, which an editor renders as a link: before
-  2026-09-03 a duplicate `main` said "duplicate definition `main`" and
-  pointed at nothing while `axiom check` pointed at the other one. The
-  gate holds that as a differential against
-  `axiom check --diagnostic-format json` over every fixture — every
-  label carried into the message, every secondary published at the
-  UTF-16 position converted in Python from the terminal's character
-  offset — and refuses to run if the corpus stops producing either.
-  Only THIS document's diagnostics are published: a diagnostic the checker
-  raised inside an imported module is not attributed to the file that
-  imports it — open that module and it is published there. `didClose`
-  publishes an empty list, which is how a server retracts squiggles.
-  `tests/lsp/expected-diagnostics.txt` is the manifest every fixture's
-  diagnostics are held to, by severity, code, an anchor string and the
-  message line, with positions recomputed in Python from the bytes.
-- **Imports resolve as `axiom check` resolves them** from the file the
-  URI names: the entry file's directory, an `axiom.pkg`'s `depend` and
-  `crate` directories, then `$AXIOM_PATH`. If `axiom check f.ax` finds
-  the standard library from the shell your editor launches, the server
-  finds it too; a half-typed `(import Fo` is answered as "this
-  document alone", never as an error and never by a dead server
-  (`lspPreflight` in `self_host/lsp.ax` walks the imports non-fatally
-  before anything resolves).
-- **Positions are UTF-16 code units**, the protocol's default.
-  `tests/lsp/030-utf16-columns.ax` is the fixture that pins it.
-- **A request the server does not know is answered with `-32601`**
-  (`method not found: <name>`), a notification it does not know is
-  dropped, and a message that is not JSON is dropped; `shutdown` is
-  answered `null`. One `initialize` per process: there is no
+### How a session behaves
+
+- Sync is full text: `textDocumentSync: 1`. Every `didChange` carries
+  the whole document, and the server reads the last content change in
+  the notification. The checker takes a whole source string anyway, so
+  an incremental store would only be flattened again before each
+  check.
+- The server reads three notifications: `didOpen`, `didChange` and
+  `didClose`. It drops `didSave`, as it drops any notification it
+  doesn't know.
+- Positions are UTF-16 code units, the protocol's default.
+  `tests/lsp/030-utf16-columns.ax` pins this.
+- A request the server doesn't know gets the error `-32601`
+  (`method not found: <name>`). A notification it doesn't know is
+  dropped, and so is a message that isn't JSON.
+- `shutdown` is answered with `null`.
+- There is one `initialize` per process, because there is no
   workspace-folder state to update.
-- **Memory is flat across a session.** The arena is reset after every
-  message, keeping the document store and the reader's unconsumed
-  bytes; `drive.py`'s editing session, which edits one document many
-  times and requires the process not to grow, is the check.
+- Memory stays flat across a session. The server resets its arena
+  after every message, keeping the document store and the reader's
+  unconsumed bytes. `drive.py`'s editing session edits one document
+  many times and checks that the process doesn't grow.
+
+### Diagnostics
+
+The server publishes diagnostics on every `didOpen` and `didChange`,
+under the document's own URI. They are `axiom check`'s diagnostics. As
+in the compiler, the first stage that fails decides what you see:
+
+1. a lexical error;
+2. a parse error, with its span on the token that failed;
+3. `AX5001`, for an import that doesn't resolve;
+4. the expander's refusals alone, when it refuses;
+5. otherwise, the expander's and the checker's diagnostics, merged in
+   the compiler's order.
+
+Each diagnostic carries its `AX` code as `code` and `axiom` as
+`source`. It also carries everything the terminal prints about it: the
+message's first line, the label drawn at the caret, and the `note:`
+and `help:` paragraphs.
+
+A secondary span is published as `relatedInformation`, which your
+editor shows as a link. Examples are `AX3006`'s "first defined here"
+and `AX3012`'s "`x` is bound here".
+
+Only this document's diagnostics are published. A diagnostic the
+checker raises inside an imported module isn't attributed to the file
+that imports it. Open that module and you'll see it there. `didClose`
+publishes an empty list, which is how a server clears its squiggles.
+
+Tested against the manifest `tests/lsp/expected-diagnostics.txt`, and
+by a comparison with `axiom check --diagnostic-format json` over every
+fixture.
+
+### Imports
+
+The server resolves imports the way `axiom check` does, starting from
+the file the URI names. It looks in the entry file's directory, then
+in the `depend` and `crate` directories of an `axiom.pkg`, then in
+`$AXIOM_PATH`. If `axiom check f.ax` finds the standard library from
+the shell your editor launches, the server finds it too.
+
+A half-typed `(import Fo` doesn't break anything. Requests are
+answered from that document alone, never with an error response, and
+the server keeps running. This works because `lspPreflight` in
+`self_host/lsp.ax` walks the imports without failing before anything
+resolves.
 
 ## Editor setup
 
-Two things are separate, and an editor can have either without the
-other — which is the confusion worth naming before the configurations:
+Your editor can use two separate pieces, and it can have either one
+without the other:
 
 | | What it gives | Which editors use it |
 |---|---|---|
-| the **language server** (`axiom lsp`) | every request in this document: navigation, hover, completion, hints, formatting, fixes, expansion | all of them |
-| the **tree-sitter grammar** (`tree-sitter-axiom/`) | **all of the highlighting** — `highlights.scm` colours by syntactic role, `rainbows.scm` colours bracket pairs by depth | Helix, Neovim (nvim-treesitter), Emacs 29+ (`treesit`), Zed, the `tree-sitter` CLI |
+| the language server (`axiom lsp`) | every request on this page: navigation, hover, completion, hints, formatting, fixes, expansion | all of them |
+| the tree-sitter grammar ([`tree-sitter-axiom/`](../tree-sitter-axiom/README.md)) | all of the highlighting: `highlights.scm` colours by syntactic role, and `rainbows.scm` colours bracket pairs by depth | Helix, Neovim (nvim-treesitter), Emacs 29+ (`treesit`), Zed, the `tree-sitter` CLI |
 
-The server colours nothing: it offers no semantic tokens (0.3.5 did,
-and they came out again in favour of one source of colour — see
-`CHANGELOG.md`). So a buffer with the server attached and no grammar
-installed is plain text, however well every request is being
-answered; install the grammar or the file stays uncoloured. VS Code
-has no tree-sitter, so its highlighting needs a TextMate grammar, which
-this repository does not ship. Every section below ends with the
-command that tells you which of the two you actually have.
+The server colours nothing, because it offers no semantic tokens. See
+[Highlighting](#highlighting) for why. With the server attached and no
+grammar installed, a buffer stays plain text, however well every
+request is answered. Install the grammar to get colour.
 
-The server is found through the editor's `PATH`, so `axiom` must be on
-it — or write the absolute path where the configurations below say
-`"axiom"`. Source files end in `.ax`; the server does not read the
-`languageId` a client sends, so name the filetype whatever your editor
-wants, and the configurations below call it `axiom`. The two code-lens
-commands `axiom.run` and `axiom.expandMacro` are the client's to
-define (see [Changing and running](#changing-and-running)); each
-configuration below defines them where the editor can.
+VS Code has no tree-sitter, so its highlighting needs a TextMate
+grammar, which this repository doesn't ship. The Neovim, Helix and
+VS Code sections each end with a check that tells you which of the two
+pieces you have.
+
+The editor finds the server through its `PATH`, so `axiom` must be on
+it. Otherwise, write the absolute path where the configurations below
+say `"axiom"`.
+
+Source files end in `.ax`. The server doesn't read the `languageId` a
+client sends, so name the filetype whatever your editor wants. The
+configurations below call it `axiom`.
+
+The two code-lens commands, `axiom.run` and `axiom.expandMacro`, are
+the client's to define (see [Changing and running](#changing-and-running)).
+Each configuration below defines them where the editor can.
 
 ### Neovim
 
-Neovim's built-in client, for every request; nvim-treesitter for the
-colour. Nothing in the client configuration turns highlighting on,
-because highlighting is not the server's — the grammar block after it
-is what colours the buffer.
+Neovim's built-in client handles every request, and nvim-treesitter
+provides the colour. Nothing in the client configuration turns
+highlighting on, because highlighting isn't the server's job. The
+grammar block further down is what colours the buffer.
 
 ```lua
 -- init.lua
@@ -207,16 +221,11 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 ```
 
-**Verify:** open a `.ax` file and run `:checkhealth vim.lsp` — the
-client must be listed as attached. Highlighting is the grammar's, so
-register it with nvim-treesitter, pointed at
-[`tree-sitter-axiom/`](../tree-sitter-axiom/README.md) in a checkout,
-and then `:Inspect` on any identifier must name a `@...axiom` capture
-such as `@function.call.axiom` — that is the proof colour is arriving.
-`:TSInstall axiom` failing, or `:Inspect` showing no treesitter
-capture, means the grammar is not built for this Neovim. For rainbow
-brackets, rainbow-delimiters.nvim reads `queries/rainbows.scm`'s
-capture names when pointed at it.
+To check the client, open a `.ax` file and run `:checkhealth vim.lsp`.
+The client should be listed as attached.
+
+For colour, register the grammar with nvim-treesitter, pointed at
+`tree-sitter-axiom/` in a checkout:
 
 ```lua
 require("nvim-treesitter.parsers").get_parser_configs().axiom = {
@@ -230,17 +239,25 @@ require("nvim-treesitter.parsers").get_parser_configs().axiom = {
 -- to a queries/axiom/highlights.scm directory on the runtimepath.
 ```
 
+To check the colour, run `:Inspect` on any identifier. It should name
+an `@...axiom` capture, such as `@function.call.axiom`. If
+`:TSInstall axiom` fails, or `:Inspect` shows no treesitter capture,
+the grammar isn't built for this Neovim.
+
+For rainbow brackets, point rainbow-delimiters.nvim at
+`queries/rainbows.scm`, and it reads the capture names there.
+
 ### Helix
 
-Helix highlights with tree-sitter alone and does not consume code
-lenses, so the grammar is where every colour comes from and the two
-lens commands are out of reach. Everything else — definition, references, rename, hover,
-completion, signature help, inlay hints, document and workspace
-symbols, formatting, code actions — is the built-in client's.
+Helix highlights with tree-sitter alone and doesn't use code lenses.
+So every colour comes from the grammar, and the two lens commands are
+out of reach. The built-in client handles everything else: definition,
+references, rename, hover, completion, signature help, inlay hints,
+document and workspace symbols, formatting and code actions.
 
-Three parts have to be in place, and `hx --health axiom` is the one
-command that says which are: the server, the compiled grammar, and the
-highlight queries in the runtime directory. Configuration first:
+You need three parts in place: the server, the compiled grammar, and
+the highlight queries in the runtime directory. `hx --health axiom`
+tells you which ones are. Start with the configuration:
 
 ```toml
 # ~/.config/helix/languages.toml
@@ -264,19 +281,22 @@ name = "axiom"
 source = { path = "/path/to/axiom/tree-sitter-axiom" }
 ```
 
-**Do not set `formatter` for this language.** `axiom fmt` rewrites a
-file in place and has no `--stdin`, and Helix formats by piping the
-buffer through a command's standard input — so a
-`formatter = { command = "axiom fmt", args = ["--stdin"] }` line cannot
-work, and, because a configured formatter takes precedence over the
-language server, it turns off the formatting that does. `hx --health
-axiom` reports such a line as `✘ 'axiom fmt' not found in $PATH`
-(Helix reads the whole string as one command name). With no `formatter`
-line, `auto-format` uses the server's `textDocument/formatting`, which
-runs the same `fmtFormat` the command does.
+**Don't set `formatter` for this language.** Helix formats by piping
+the buffer through a command's standard input. `axiom fmt` rewrites a
+file in place and has no `--stdin`, so a
+`formatter = { command = "axiom fmt", args = ["--stdin"] }` line can't
+work.
 
-Then build the grammar and install the queries — Helix loads queries
-from its runtime directory, **not** from the grammar's own `queries/`:
+A configured formatter also takes precedence over the language
+server, so that line turns off the formatting that does work.
+`hx --health axiom` reports it as `✘ 'axiom fmt' not found in $PATH`,
+because Helix reads the whole string as one command name. With no
+`formatter` line, `auto-format` uses the server's
+`textDocument/formatting`, which runs the same `fmtFormat` as the
+command.
+
+Then build the grammar and install the queries. Helix loads queries
+from its runtime directory, not from the grammar's own `queries/`:
 
 ```bash
 mkdir -p ~/.config/helix/runtime/queries/axiom
@@ -286,10 +306,10 @@ cp /path/to/axiom/tree-sitter-axiom/queries/highlights.scm \
 hx --grammar build            # compiles the [[grammar]] entries above
 ```
 
-**Verify, and do not skip this:** `hx --health axiom` must print a
-green tick on the server, the parser and the highlight queries.
+Always check the result. `hx --health axiom` must show a green tick
+for the server, the parser and the highlight queries:
 
-```
+```text
 Configured language servers:
   ✓ axiom: /path/to/axiom
 Configured formatter: None          <- correct; the server formats
@@ -298,23 +318,21 @@ Highlight queries: ✓
 Rainbow queries: ✓
 ```
 
-Rainbow brackets — every `(`, `[` and `{` pair coloured by its nesting
-depth, from `rainbows.scm` — are off until `~/.config/helix/config.toml`
-says `[editor] rainbow-brackets = true`.
-
 `Tree-sitter parser: None` or `Highlight queries: ✘` means the buffer
-will render as plain text no matter what the language server answers.
-That is the whole failure mode: the server can be attached and answering
-every request while nothing in the file is coloured — measured on
-2026-08-28, when it read exactly that way on a machine whose server was
-green.
+renders as plain text, whatever the language server answers. That's
+the whole failure mode: the server can be attached and answering every
+request while nothing in the file is coloured.
+
+Rainbow brackets colour every `(`, `[` and `{` pair by its nesting
+depth, using `rainbows.scm`. They're off until
+`~/.config/helix/config.toml` says `[editor] rainbow-brackets = true`.
 
 Capture names in `highlights.scm` follow nvim-treesitter's convention.
-Helix resolves a scope it does not spell by trimming the last segment —
-`@keyword.modifier` falls back to `keyword`, `@number.float` to
-`number` — so a theme that names only the coarse scopes still colours
-everything; a theme that names the fine ones colours it more precisely.
-Measured on `stdlib/Vec.ax`: 2,392 captures over 15 distinct names.
+When a theme doesn't name a scope, Helix trims its last segment:
+`@keyword.modifier` falls back to `keyword`, and `@number.float` to
+`number`. So a theme that names only the coarse scopes still colours
+everything, and one that names the fine scopes colours it more
+precisely.
 
 Inlay hints are off until `~/.config/helix/config.toml` says:
 
@@ -325,15 +343,19 @@ display-inlay-hints = true
 
 ### Emacs (eglot)
 
-Eglot is in Emacs 29 and later. It does not consume code lenses, so
-the `Run` lens is not reachable (`lsp-mode` does, with `lsp-lens-mode`,
-and is configured the same way with `lsp-register-client`).
-Highlighting is the major mode's: Emacs 29's `treesit` can load the
-grammar built from `tree-sitter-axiom/` and use `highlights.scm`'s
-captures through a `treesit-font-lock-rules` mapping. Definition is `M-.`,
-references `M-?`, hover and signature help are `eldoc`, the outline is
-`imenu`, and `eglot-rename`, `eglot-code-actions` and
-`eglot-format-buffer` are the rest.
+Eglot is part of Emacs 29 and later. It doesn't use code lenses, so the
+`Run` lens isn't available. `lsp-mode` does support lenses, through
+`lsp-lens-mode`, and you configure it the same way with
+`lsp-register-client`.
+
+Highlighting comes from the major mode. Emacs 29's `treesit` can load
+the grammar built from `tree-sitter-axiom/`, and use the captures in
+`highlights.scm` through a `treesit-font-lock-rules` mapping.
+
+In Eglot, definition is `M-.` and references are `M-?`. Hover and
+signature help come through `eldoc`, and the outline is `imenu`.
+`eglot-rename`, `eglot-code-actions` and `eglot-format-buffer` cover
+the rest.
 
 ```elisp
 ;; init.el
@@ -365,17 +387,20 @@ references `M-?`, hover and signature help are `eldoc`, the outline is
 
 ### VS Code
 
-There is no published Axiom extension. What follows is a snippet to
-build one from: two files in a directory, `npm install`, then open the
-directory in VS Code and press F5 for an Extension Development Host
-with the extension loaded. `vscode-languageclient` asks the server for
-inlay hints, code lenses and everything else it advertises without
-being told to; the two commands are the only code that is not
-boilerplate. Highlighting is NOT among what it gets: VS Code has no
-tree-sitter and the server will not send semantic tokens (see
-[Highlighting](#highlighting) for why that is settled rather than
-pending), so a `.ax` file is uncoloured until the extension
-contributes a TextMate grammar, which this repository does not ship.
+There is no published Axiom extension. You can build one from the two
+files below, `package.json` and `extension.js`, in a directory of their
+own. Run `npm install`, open the directory in VS Code, and press F5.
+That starts an Extension Development Host with the extension loaded.
+
+`vscode-languageclient` asks the server for inlay hints, code lenses
+and everything else it advertises, with no extra setup. The two
+commands are the only code that isn't boilerplate.
+
+Highlighting isn't included. VS Code has no tree-sitter, and the
+server doesn't send semantic tokens. [Highlighting](#highlighting)
+explains why that's settled. So a `.ax` file stays uncoloured until
+the extension contributes a TextMate grammar, which this repository
+doesn't ship.
 
 ```json
 {
@@ -425,45 +450,53 @@ function deactivate() { return client && client.stop(); }
 module.exports = { activate, deactivate };
 ```
 
-**Verify:** with the Extension Development Host open on a `.ax` file,
-hover a function name — a tooltip quoting its `(:: f T)` signature is
-the proof the client connected (the *Output* panel, channel *Axiom*,
-carries the server's stderr when it did not). Colour is a separate
-matter: *Developer: Inspect Editor Tokens and Scopes* shows a TextMate
-scope only once a grammar is contributed under `contributes.grammars`;
-until then the row reads *no grammar*. A `language-configuration.json`
-naming `;` as the line comment and the bracket pairs is the other file
-a builder adds.
+To check the client, open a `.ax` file in the Extension Development
+Host and hover a function name. A tooltip quoting its `(:: f T)`
+signature means the client connected. If it didn't, the *Output*
+panel's *Axiom* channel shows the server's stderr.
+
+Colour is a separate check. *Developer: Inspect Editor Tokens and
+Scopes* shows a TextMate scope only once a grammar is contributed
+under `contributes.grammars`. Without one, the row reads *no grammar*.
+You'll also want a `language-configuration.json` that names `;` as the
+line comment and lists the bracket pairs.
 
 ## What each request answers
 
-The requests are grouped as README.md's *Editor support* row groups
-them. Each paragraph says what the request answers, what it
-deliberately does not, and where in `tests/lsp/drive.py` the derived
-check lives — a check whose expected answer is computed from a
-document the driver writes itself, so that re-blessing a golden cannot
-satisfy it. `SECTION NAV TESTS`, `SECTION VIEW TESTS` and
-`SECTION FIX TESTS` are the marker comments to search for.
+The requests below fall into three groups: navigation, reading, and
+changing and running. The editor-only lint hints come last. Each paragraph
+says what a request answers, what it doesn't, and where its check
+lives in `tests/lsp/drive.py`. Search that file for the marker
+comments `SECTION NAV TESTS`, `SECTION VIEW TESTS` and
+`SECTION FIX TESTS`.
 
-Two facts hold for every request that takes a position. The word
-under the cursor is found by the same string-and-comment-aware
-scanner (`lspWordSpan`, `lspFormEnd`), so no two requests disagree
-about where a form ends; and a document that does not parse answers
-`null` or `[]` — except for the requests that work from the bytes,
-which are named below. The sweep at the end of
-`scripts/check-lsp-selfhost.sh` fires every advertised request at
-every 97th byte of a real standard-library module, at the positions
-that break scanners (offset 0, EOF, one past EOF, a line past the end,
-inside a string, inside a comment, on `(`, on `)`), at the same module
-cut off mid-form, and at an empty document, and requires an answer to
-every id, no error, and a server still alive to say `shutdown`. Its
-method table is DERIVED from the capabilities the server advertises,
-so a key it cannot build a request for fails the gate.
+Those checks compute each expected answer from a document the driver
+writes itself, so re-blessing a golden can't satisfy them.
 
-This document is used for the examples below; it checks clean, and
-the answers quoted are the release binary's.
+Two things hold for every request that takes a position:
 
-```axiom
+- One string- and comment-aware scanner (`lspWordSpan`, `lspFormEnd`)
+  finds the word under the cursor, so no two requests disagree about
+  where a form ends.
+- A document that doesn't parse answers `null` or `[]`. The exceptions
+  are the requests that work from the bytes, which are named below.
+
+The sweep at the end of `scripts/check-lsp-selfhost.sh` checks that
+requests survive awkward positions. It fires every advertised request
+at every 97th byte of a real standard-library module, and at the
+positions that break scanners: offset 0, EOF, one past EOF, a line
+past the end, inside a string, inside a comment, on `(` and on `)`.
+
+It does the same on that module cut off mid-form, and on an empty
+document. Every id must get an answer with no error, and the server
+must still be alive to answer `shutdown`. The sweep builds its method
+table from the capabilities the server advertises, so a capability it
+can't build a request for fails the gate.
+
+The examples below use this document. It checks clean, and the answers
+quoted come from the release binary.
+
+```scheme
 (import IO)
 
 ; A tag function for the data it is given.
@@ -492,192 +525,253 @@ the answers quoted are the release binary's.
 
 ### Navigation
 
-**`textDocument/definition`.** Where the name under the cursor is
-bound, asked in the language's own order: the innermost local binding
-first — a `let` name, a `fn` or `lambda` parameter, a pattern
-variable, landing on the binder — then this document's declarations,
-then the merged declarations of every module this document imports,
-answering a `Location` in that module's own file. A macro invocation
-is a reference to its `macro` declaration (`MAC-TOOL-2` in
-[macro-system.md](macro-system.md)). A CONSTRUCTOR is a declaration
-too, and since 2026-09-03 this says where: the answer is the
-constructor's OWN name span inside the `data` — `Green` in
-`(data Colour (Red) (Green))`, not `Colour` — from a pattern head,
-from an application, from its own declaration, and from another
-document that imports it. `lspFindDecl` matches whole declarations and
-never looks inside a constructor list, which is why five requests
-could see a constructor and three could not. What it does not do: a builtin
-(`Int`, `+`), a keyword and a name nothing declares answer `null`; a
-name a macro would generate has no definition, because nothing has
-expanded it; and an import that does not resolve narrows the search
-to this document rather than failing it.
+#### Go to definition
 
-**`textDocument/declaration`.** The `(:: f T)` signature, where the
-language has one to point at — and in Axiom it usually does, which is
-why this is not a second name for `definition`. A function is written
-twice, `(:: bump (-> Int Int))` declaring it and `(fn (bump x) ...)`
-defining it, and the parser keeps both as nodes with their own name
-spans; so `declaration` on any occurrence of `bump` lands on the `::`
-and `definition` on the `fn` below it. The order is `definition`'s
-with one step inserted: a local binding first, then this document's
-`::`, then this document's declaration of that name, then the imported
-modules, signature first. A `data`, a `struct`, a macro, a CONSTRUCTOR and a
-local are not written twice, so for them the two requests agree, by
-construction rather than by fallback — the gate asks both at a
-constructor and requires the two answers to be EQUAL, where at a `fn`
-it requires them to differ. There is one position where this
-answers and `definition` cannot: a signature whose `fn` has not been
-written yet — what an editor sees mid-keystroke, and what `AX3015`
-reports. `null` for a keyword, a builtin, a name nothing declares and
-a document that does not parse. Derived in `SECTION NAV TESTS`, which
-asks both requests at the same position and requires the two ranges to
-DIFFER, each equal to a whole-identifier position computed from the
-document's own bytes, in `tests/lsp/drive.py`.
+`textDocument/definition` jumps to where the name under the cursor is
+bound. It searches in the language's own scope order:
 
-**`textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`
-and `callHierarchy/outgoingCalls`.** Who calls this function, and what
-it calls. A call site here is an occurrence that the scope-aware walk
-resolved to a top-level name AND that stands in the head position of a
-form — two questions the server already answers, intersected by byte
-offset. That definition is what makes the answer right in the two
-cases a spelling match gets wrong: `(fn (apply k v) (k v))` calls the
-parameter `k`, not the top-level `fn` of that name, so neither
-direction reports an edge; and `(fn (handoff z) helper)` NAMES
-`helper` without applying it, so it is not among `helper`'s callers.
-Incoming calls read this document and every OTHER open document whose
-imports resolve to this file, the same workspace `references` uses,
-and a caller that calls twice is one entry with two ranges. Outgoing
-calls name every callee this server can point at — one this document
-declares, or one an imported module declares, resolved as
-`definition` resolves it — and leave out what it cannot: a builtin, an
-operator, a constructor. `prepare` answers `null` for a local, for a
-`data`, `struct` or macro, for a document that does not parse, and for
-an IMPORTED name: the two requests that follow carry the item and
-nothing else, so go to the definition first and ask there. An item
-whose document the server has not opened answers `null` rather than
-`[]`, because `[]` claims the function has no callers and a server
-that cannot read the file has not earned that claim.
+1. The innermost local binding: a `let` name, a `fn` or `lambda`
+   parameter, or a pattern variable. The answer lands on the binder.
+2. This document's declarations.
+3. The merged declarations of every module this document imports. The
+   answer is a `Location` in that module's own file.
 
-This is not `axiom symbols --calls`. That key is the checker's edge
-set, harvested from the effect walk, so it costs a full typecheck and
-carries no positions at all — measured on the gate's own fixture,
-`handoff` gets `#calls=helper` for a body that never applies it, while
-`CallHierarchyIncomingCall.fromRanges` is a list of ranges the
-protocol requires. The two agree where they overlap and this one is a
-strict subset. Derived in `tests/lsp/drive.py`'s `SECTION NAV TESTS`,
-whose five documents carry both confusable shapes and which refuses to
-run if either ever leaves them.
+A macro invocation is a reference to its `macro` declaration
+(`MAC-TOOL-2` in [macro-system.md](macro-system.md)).
 
-**`textDocument/prepareTypeHierarchy`, `typeHierarchy/supertypes`
-and `typeHierarchy/subtypes`.** What this type derives from, and what
-derives from it. The graph has exactly one edge kind: a `subtype`
-derives from its BASE. That is a survey verdict, not an omission. A
-range check runs at every narrowing conversion and widening is free,
-so a `Positive` IS an `Int` in exactly one direction; constructors
-are VALUES, not types — introduction forms, answered as outline
-children and by `definition` — and a `struct` field is a member, not
-a derivation, so neither can stand in an item that denotes a type;
-and an alias is transparent, the checker expanding it, so a
-parent/child direction over `Age = Int` would be arbitrary. The graph
-today is therefore two levels — the checker refuses every base but
-bare `Int` — and the requests are written for the general one: a base
-that names a declared type resolves to that declaration by the same
-rule that resolves it to a builtin item now. Nodes are the four type
-declarations plus the builtin type names, a builtin item anchored at
-the word that named it since no declaration exists to point at, and a
-declaration shadows a builtin of the same spelling. `prepare` answers
-for a type named in this document or an imported one, `supertypes` of
-a subtype is its base (a `data`, `struct`, alias or builtin derives
-from nothing, which is `[]`), and `subtypes` searches the open
-documents — the item's own first, then the rest in open order — for
-`subtype` declarations constraining it. What it does not do: a local,
-a constructor, an effect name and a `fn` answer `null`, as does an
-item nothing declares or whose document is not open or does not
-parse — `[]` claims the type stands alone, which a server that cannot
-read the file has not earned. Derived in `SECTION NAV TESTS`, whose
-four documents derive every item from their own bytes: the supertype
-anchor is the `Int` of the subtype's own `is Int range`, the same
-four subtypes are listed in a different order per asking document,
-and `references` on the `Positive` binder finds the binder, the
-signature use and the `cast` target, which pins the walk change this
-needed.
+A constructor is a declaration too. Its definition is the constructor's
+own name inside the `data`: `Green` in `(data Colour (Red) (Green))`,
+not `Colour`. That holds from a pattern head, from an application, from
+the declaration itself, and from another document that imports it.
 
-**`textDocument/references` and `textDocument/documentHighlight`.**
-Every occurrence of the same BINDING, not the same spelling: the
-walk records each occurrence with the key of what it resolves to, so
-the `i` of one function is not the `i` of another, and a `let` that
-shadows a parameter is a different name from it. Type positions —
-the names inside every `::`, `data`, `struct` and `type` form — are
-read from the bytes, since type nodes carry no span, and resolved
-against the type table alone, so a `fn` spelled like a `data` is not
-the same name. `references` reaches every OTHER
-open document whose imports resolve to this file, each under its own
-URI, and honours `includeDeclaration`; it does not open files the
-editor has not, so a reference in a closed module is not listed.
-`documentHighlight` is the same set within one document, with the
-binder as the `Write` kind and reads as `Read`. A form the parser
-DESUGARS contributes only what the user wrote: a binder whose name
-holds `$` — `for$v`, `for$i`, unwritable by AX1001 — is never
-recorded, and a reference is recorded only where the document's bytes
-at its span spell its bare name, which drops the loop's `Vec$vecGet`
-read and the `<`/`+` it emits on the keyword while keeping a user's
-`Vec::vecLen` and a template's `IO$writeStr` (what `println`'s
-`writeStr` is rewritten to). So `documentHighlight`
-and `prepareRename` at the word `for` answer `null`, as at `while`;
-before that rule, `prepareRename` there answered the placeholder
-`for$v` with the keyword's own range, and highlight listed ten
-occurrences the document does not contain. The gate derives every
-expected `Location` from documents the driver writes — a parameter
-with and without its declaration, a `let` from its read, a type in a
-signature, a struct field and an alias — and the changelog's review
-section records the measurement beyond it: on four real files,
-`references` on twenty top-level names equals a whole-identifier grep
-of the code.
+A builtin (`Int`, `+`), a keyword and a name nothing declares answer
+`null`. A name a macro would generate has no definition, because
+nothing has expanded it. An import that doesn't resolve narrows the
+search to this document instead of failing it.
 
-**`textDocument/prepareRename` and `textDocument/rename`.**
-`prepareRename` answers the word's range for a name this server will
-rename, and `null` for one it will not: a name declared in another
-module, even an open one — renaming across files the server did not
-open would leave a broken workspace, and a standard-library name must
-never be renamed from a client — a builtin, an effect, a keyword,
-`_`, and a parameter whose position could not be recovered from the
-header's bytes. `rename` refuses, with `null`, a new name the lexer
-would not read as one identifier, a keyword, the old name itself, and
-a collision: for a local, a name already bound in an enclosing or the
-same scope or one the renamed binding would capture (a second walk
-with a probe decides this, inside the scope stack); for a declaration,
-a name this document or any importing document already spells
-anywhere, because a rename that makes a call resolve somewhere else
-is a change of meaning disguised as a change of spelling. The edit
-covers every open importing document. The gate APPLIES a cross-file
-rename in Python, writes both files, reopens them and requires the
-checker to publish nothing for the pair.
+#### Go to declaration
 
-**`textDocument/typeDefinition`.** From a signed function's result,
-a header parameter or a constructor to the `data`, `struct` or `type`
-that declares its type, in this document or an imported one. On a
-constructor this is the one request that answers the `data` rather
-than the constructor, because the type of `Green` is `Colour`;
-`definition` at the same character answers `Green`, and
-`SECTION NAV TESTS` asks both there and requires the two to differ.
-The imported half of that was missing until 2026-09-03 — `null` at a
-character where `signatureHelp` was rendering the constructor's own
-shape. `null` for a builtin type, for a `fn` with no `::`, and for a
-position that is none of those three.
+`textDocument/declaration` jumps to the `(:: f T)` signature. In Axiom
+this is a different place from the definition, because a function is
+written twice:
+
+```scheme
+(:: bump (-> Int Int))
+(fn (bump x) (+ x 1))
+```
+
+The parser keeps both forms, each with its own name span. So
+`declaration` on any occurrence of `bump` lands on the `::`, and
+`definition` lands on the `fn` below it.
+
+The search order is `definition`'s with one extra step: a local
+binding, then this document's `::`, then this document's declaration
+of the name, then the imported modules, signature first.
+
+A `data`, a `struct`, a macro, a constructor and a local are written
+only once, so for them the two requests give the same answer. There is
+one place where `declaration` answers and `definition` can't: a
+signature whose `fn` isn't written yet. That's what an editor sees
+mid-keystroke, and what `AX3015` reports.
+
+It answers `null` for a keyword, a builtin, a name nothing declares and
+a document that doesn't parse.
+
+Tested by `SECTION NAV TESTS` in `tests/lsp/drive.py`, which asks both
+requests at the same position. The ranges must differ at a `fn` and
+match at a constructor.
+
+#### Call hierarchy
+
+`textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls` and
+`callHierarchy/outgoingCalls` show who calls a function and what it
+calls.
+
+A call site is an occurrence that the scope-aware walk resolves to a
+top-level name *and* that stands in the head position of a form. That
+rule gets right two cases that a spelling match gets wrong:
+
+- `(fn (apply k v) (k v))` calls the parameter `k`, not a top-level
+  `fn` named `k`, so neither direction reports an edge.
+- `(fn (handoff z) helper)` names `helper` without applying it, so it
+  isn't among `helper`'s callers.
+
+Incoming calls read this document and every other open document whose
+imports resolve to this file, the same workspace `references` uses. A
+caller that calls twice is one entry with two ranges.
+
+Outgoing calls name every callee the server can point at: one this
+document declares, or one an imported module declares, resolved the
+way `definition` resolves it. They leave out builtins, operators and
+constructors.
+
+`prepareCallHierarchy` answers `null` for a local, for a `data`,
+`struct` or macro, for a document that doesn't parse, and for an
+imported name. The two follow-up requests carry only the item, so go to
+the definition first and ask there. An item whose document the server
+hasn't opened answers `null`, not `[]`. An empty list would claim the
+function has no callers, and the server can't know that without reading
+the file.
+
+Call hierarchy differs from `axiom symbols --calls`. That key is the
+checker's edge set, taken from the effect walk, so it costs a full
+typecheck and carries no positions. For `handoff` above it reports
+`#calls=helper`, although the body never applies `helper`. Call
+hierarchy has to send ranges (`CallHierarchyIncomingCall.fromRanges`).
+The two agree where they overlap, and call hierarchy's edges are a
+strict subset.
+
+Tested by `SECTION NAV TESTS` in `tests/lsp/drive.py`, whose documents
+contain both of the shapes above.
+
+#### Type hierarchy
+
+`textDocument/prepareTypeHierarchy`, `typeHierarchy/supertypes` and
+`typeHierarchy/subtypes` show what a type derives from and what derives
+from it.
+
+The graph has one kind of edge: a `subtype` derives from its base. A
+range check runs at every narrowing conversion and widening is free, so
+a `Positive` is an `Int` in one direction only. Nothing else is an
+edge:
+
+- Constructors are values, not types. The outline lists them as
+  children, and `definition` finds them.
+- A `struct` field is a member, not a derivation.
+- An alias is transparent, because the checker expands it. A parent and
+  child direction over `Age = Int` would be arbitrary.
+
+The graph is two levels deep for now, because the checker accepts only
+bare `Int` as a base. The requests are written for the general case: a
+base that names a declared type resolves to that declaration by the
+same rule that resolves it to a builtin item today.
+
+The nodes are the four type declarations (`data`, `struct`, `type` and
+`subtype`) plus the builtin type names.
+A builtin item is anchored at the word that named it, since it has no
+declaration to point at. A declaration shadows a builtin of the same
+spelling.
+
+- `prepareTypeHierarchy` answers for a type named in this document or
+  an imported one.
+- `supertypes` of a subtype is its base. A `data`, `struct`, alias or
+  builtin derives from nothing, so it answers `[]`.
+- `subtypes` searches the open documents for `subtype` declarations
+  that constrain the item. It looks in the item's own document first,
+  then the rest in the order they were opened.
+
+A local, a constructor, an effect name and a `fn` answer `null`. So
+does an item nothing declares, or whose document isn't open or doesn't
+parse. An empty list would claim the type stands alone, which the
+server can't know without reading the file.
+
+Tested by `SECTION NAV TESTS` in `tests/lsp/drive.py`. There the
+supertype anchor is the `Int` of the subtype's own `is Int range`, and
+`references` on the `Positive` binder finds the binder, the signature
+use and the `cast` target.
+
+#### Find references and highlights
+
+`textDocument/references` and `textDocument/documentHighlight` find
+every occurrence of the same *binding*, not the same spelling. The walk
+records each occurrence with the key of what it resolves to. So the `i`
+of one function isn't the `i` of another, and a `let` that shadows a
+parameter is a different name from it.
+
+Type positions are the names inside every `::`, `data`, `struct` and
+`type` form. Type nodes carry no span, so these names are read from the
+bytes and resolved against the type table alone. A `fn` spelled like a
+`data` isn't the same name.
+
+`references` reaches every other open document whose imports resolve
+to this file, each under its own URI, and honours
+`includeDeclaration`. It doesn't open files your editor hasn't, so a
+reference in a closed module isn't listed.
+
+`documentHighlight` is the same set within one document. The binder has
+the `Write` kind and reads have `Read`.
+
+A form the parser desugars contributes only what you wrote:
+
+- A binder whose name holds `$`, such as `for$v` or `for$i`, is never
+  recorded. `AX1001` stops you writing that name yourself.
+- A reference is recorded only where the document's bytes at its span
+  spell its bare name. That drops the loop's `Vec$vecGet` read and the
+  `<` and `+` it emits on the keyword. It keeps your own `Vec::vecLen`
+  and a template's `IO$writeStr`, which is what `println`'s `writeStr`
+  is rewritten to.
+
+So `documentHighlight` and `prepareRename` at the word `for` answer
+`null`, as they do at `while`.
+
+Tested by `SECTION NAV TESTS` in `tests/lsp/drive.py`: a parameter with
+and without its declaration, a `let` from its read, a type in a
+signature, a struct field and an alias.
+
+#### Rename
+
+`textDocument/prepareRename` answers the word's range for a name the
+server will rename. It answers `null` for:
+
+- a name declared in another module, even an open one. Renaming across
+  files the server didn't open would leave a broken workspace, and a
+  client must never rename a standard-library name.
+- a builtin, an effect, a keyword or `_`.
+- a parameter whose position can't be recovered from the header's
+  bytes.
+
+`textDocument/rename` refuses these new names with `null`:
+
+- a name the lexer wouldn't read as one identifier.
+- a keyword.
+- the old name itself.
+- a collision. For a local, that's a name already bound in the same or
+  an enclosing scope, or one the renamed binding would capture. A second
+  walk with a probe decides this, inside the scope stack. For a
+  declaration, it's a name this document or any importing document
+  already spells anywhere, because a rename that makes a call resolve
+  somewhere else changes what the program means.
+
+The edit covers every open importing document.
+
+Tested by `SECTION NAV TESTS` in `tests/lsp/drive.py`, which applies a
+cross-file rename, writes both files, reopens them and requires the
+checker to report nothing for the pair.
+
+#### Go to type definition
+
+`textDocument/typeDefinition` jumps to the `data`, `struct` or `type`
+that declares a value's type, in this document or an imported one. It
+works from a function's result when the function has a `::` signature,
+from a header parameter, and from a constructor.
+
+On a constructor it's the one request that answers the `data`, because
+the type of `Green` is `Colour`. `definition` at the same character
+answers `Green`.
+
+It answers `null` for a builtin type, for a `fn` with no `::`, and for
+any other position.
+
+Tested by `SECTION NAV TESTS` in `tests/lsp/drive.py`, which asks both
+requests at a constructor and requires the answers to differ.
 
 ### Reading
 
-**`textDocument/hover`.** Markdown with an `axiom` fence quoting the
+#### Hover
+
+`textDocument/hover` answers Markdown: an `axiom` fence quoting the
 declaration, the module below it when the name was imported, and the
-comment paragraph written above the declaration. A `fn` is quoted as
-its `(:: f T)` signature rather than its body, and its paragraph is
-read from above the signature, because that is where this language
-puts it; a `fn` with no signature is quoted as its first line. A
-`data`, `struct` or `macro` is quoted whole, cut to a tooltip's
-height by `lspClampLines`. A CONSTRUCTOR is read at the whole `data`
-that declares it — its siblings and its field types are what a reader
-wants — with one line under the fence naming which of them the cursor
-is on:
+comment paragraph written above the declaration.
+
+- A `fn` is quoted as its `(:: f T)` signature, not its body. Its
+  paragraph is read from above the signature, because that's where
+  Axiom puts it. A `fn` with no signature is quoted as its first line.
+- A `data`, `struct` or `macro` is quoted whole, cut to a tooltip's
+  height by `lspClampLines`.
+
+A constructor is quoted as the whole `data` that declares it, since its
+siblings and field types are what you want to see. One line under the
+fence names the constructor under the cursor:
 
 ```text
 (data Colour
@@ -687,7 +781,13 @@ is on:
 constructor `Green` of `Colour`
 ```
 
-and the module below that when the `data` came from another file. A field reads the same way: `base.field` resolves as a path - the parameter's struct from the owning signature, a `let`'s from the constructor application its value builds - and the fence quotes the whole `struct` with one line naming the field, at the use and where it is declared:
+The module comes below that, when the `data` came from another file.
+
+A field works the same way, at a use and where it's declared.
+`base.field` resolves as a path. A parameter's struct comes from the
+owning signature, and a `let`'s from the constructor application its
+value builds. The fence quotes the whole `struct`, with one line naming
+the field:
 
 ```text
 (struct Point (x : Int) (y : Int))
@@ -695,10 +795,12 @@ and the module below that when the `data` came from another file. A field reads 
 field `x` of `struct Point`
 ```
 
-Anything the path cannot resolve - a lambda parameter, a call
-result, a name from another module, a `data` payload, which is not
-a field - answers null rather than a guess. A local answers from the walk: a parameter
-of `bump` answers
+When the path can't be resolved, hover answers `null` instead of
+guessing. That covers a lambda parameter, a call result, a name from
+another module and a `data` payload, which isn't a field.
+
+A local answers from the walk. A parameter of `bump` answers this, with
+the type cut from the signature's arrow:
 
 ```text
 x : Int
@@ -706,10 +808,9 @@ x : Int
 parameter of `bump`
 ```
 
-with the type cut from the signature's arrow. A `let` answers its
-binding pair with the value's shape under it when the walk knows
-one — `(ph (+ ph 1))` with `ph : Int`, from the checker's own row
-for `+`:
+A `let` answers its binding pair, with the value's shape under it when
+the walk knows one. Here `(ph (+ ph 1))` gets `ph : Int` from the
+checker's own row for `+`:
 
 ```text
 (ph (+ ph 1))
@@ -718,227 +819,304 @@ ph : Int
 bound by `let` in `area`
 ```
 
-The shape is read off the raw tree and never elaborated: a
-literal's kind, a `::` call's result, a constructor's `data`, a
-builtin's row, a variable through its binder. What the walk cannot
-determine — a name from another module, a `lambda`, a parameter
-the call leaves unbound — leaves the pair exactly as it was,
-rather than a guess. The `range` is the word
-under the cursor, not the declaration, which for an imported name is
-in a different file. `null` for a builtin, a keyword or a name nothing
-declares. The gate cuts every quoted form and every paragraph out of
-the document itself — a second implementation, in Python, of
-`lspFormText` and `lspDocComment` — and compares, and `SECTION NAV
-TESTS` cuts every `::` result, every `data` and `struct` name, and
-the checker's builtin rows from the modules that declare them, so
-the shape the server shows is derived three ways and blessed none.
+The shape is read off the raw tree and never elaborated. It comes from
+a literal's kind, a `::` call's result, a constructor's `data`, a
+builtin's row, or a variable through its binder. When the walk can't
+tell, as for a name from another module, a `lambda` or a parameter the
+call leaves unbound, the pair is shown on its own with no guess.
 
-**`textDocument/completion`.** In this order: the head keywords the
-parser dispatches on (extracted from the `kwEq` call sites of
-`self_host/parser.ax` by the gate, so the copy in `lsp.ax` is a
-checked claim), this document's declarations and the constructors its
-`data` forms name, and every imported module's declarations under
-their bare names — a local name shadowing an imported one and both
-shadowing a keyword. The list is filtered on the prefix under the
-cursor, capped at `LSP_COMPL_MAX`, and sent `isIncomplete: true`,
-which tells the client to ask again on the next keystroke; `(` is the
-trigger character. A document that does not parse still completes
-keywords — the normal case, since a file is unparseable exactly while
-a form is half written. It does not offer a name a macro would
-generate: `(deriveTag Colour)` does not put `tagColour` in the menu,
-and the gate asserts that absence.
+The `range` is the word under the cursor, not the declaration, which
+for an imported name is in a different file. Hover answers `null` for a
+builtin, a keyword or a name nothing declares.
 
-**`textDocument/signatureHelp`.** The call the cursor is inside — a
-`fn` of this document, one of its constructors, or an imported `fn`
-with its module named — as `(bump x) : (-> Int Int)`, the type cut
-from the `::` beside the `fn`, each parameter as the UTF-16 offset
-pair that slices the label to its name, the paragraph above the
-declaration as `documentation`, and `activeParameter` counted from
-the bytes. `(` and space trigger it, space retriggers. A local
-shadowing a top-level `fn` of the same name is asked first, so
-`(fn (t7 f) (f 1 2))` beside a top-level `f` answers nothing for
-`f`; a `fn` header does not answer its own signature; outside any
-call it is `null`.
+Tested by `tests/lsp/drive.py`, which cuts every quoted form and
+paragraph out of the document with its own Python copy of
+`lspFormText` and `lspDocComment`. `SECTION NAV TESTS` takes every
+expected shape from the modules that declare it.
 
-**`textDocument/inlayHint`.** Four hints the source does not spell:
-`x:` before each argument of a call to a declared or imported `fn`
-(kind `Parameter`, never before a variable spelled like the
-parameter), `: Int` after each parameter in a `fn` header and
-` -> Int` after the header (kind `Type`), the last two from the
-signature's arrow — so a `fn` with no `::` gets no type hints — and
-`: T` after each `let`/`letm` binder whose value resolves (kind
-`Type`), from the value-shape reader, so generated binders and `_`
-stay quiet. The callee lookup is indexed per request; the measured
-cost of not doing so is in the changelog.
+#### Completion
 
-**`textDocument/foldingRange`.** Every form and brace block whose
-opener and closer sit on different lines, a run of `;` comment lines
-as kind `comment`, a run of imports as kind `imports` — from a bracket
-scan of the bytes, so a half-typed file still folds.
+`textDocument/completion` offers, in this order:
 
-**`textDocument/selectionRange`.** Word, then the enclosing form,
-then each form around it, then the document, for each position sent.
+1. The head keywords the parser dispatches on.
+2. This document's declarations, and the constructors its `data` forms
+   name.
+3. Every imported module's declarations, under their bare names.
 
-**`textDocument/documentLink`.** One link per `(import M)` whose
-module the resolver's own search finds, over the dotted name as
-written, targeting that file. An import that does not resolve is no
-link, not an error; `resolveProvider` is false.
+A local name shadows an imported one, and both shadow a keyword. The
+keyword list in `lsp.ax` is checked against the `kwEq` call sites in
+`self_host/parser.ax`, so the two can't drift apart.
 
-**`textDocument/documentSymbol`.** The outline: every `fn` and
-`macro` as `Function`, every `data` as `Enum`, every `struct` as
-`Struct`, and every `type` alias as `Class` — the protocol has no
-`TypeAlias` kind, so the server collapses it the way it collapses a
-macro to `Function` — straight off the parse tree with no checker
-running — a file with a type error still has an outline, and a file
-that does not parse has an empty one. A `::` signature is not listed beside its `fn`, and
-neither is an `effect` declaration.
+The list is filtered on the prefix under the cursor and capped at
+`LSP_COMPL_MAX`. It's sent with `isIncomplete: true`, which tells the
+client to ask again on the next keystroke. `(` is the trigger
+character.
 
-`range` is the whole top-level form and `selectionRange` is the name
-inside it. Both used to be the name, which the protocol permits and an
-editor cannot use: `range` is what a client highlights in the
-breadcrumb, keeps in sticky scroll, and expands a selection to, and
-four characters of it is none of those. The extent is recovered from
-the BYTES by the same `lspFormStart`/`lspFormEnd` pair hover quotes a
-declaration with; when it cannot be — a declaration indented mid-edit,
-where `lspFormStart`'s column-zero rule has nothing to find — this
-answers the name span and publishes no children, rather than a range
-that does not contain what it claims to.
+A document that doesn't parse still completes keywords. That's the
+normal case, since a file is unparseable exactly while a form is half
+written.
 
-And it NESTS: a `data`'s constructors are `EnumMember` children and a
-`struct`'s fields are `Field` children, each at its own name span.
-`workspace/symbol` had been listing constructors at those spans all
-along while the outline of the same file showed neither them nor a
-field, which is two views of one document disagreeing. `children` is
-omitted rather than sent empty, so no client draws an expander over
-nothing.
+Completion doesn't offer a name a macro would generate:
+`(deriveTag Colour)` doesn't put `tagColour` in the menu. The tests
+check that it's absent.
 
-`tests/lsp/expected-outline.txt` is total: a fixture publishes exactly
-those rows, in that order, with the CONTAINER each belongs to, and
-`tests/lsp/060-outline.ax` is the one that carries a `data` and a
-`struct` with members. Four invariants hold for every symbol of every
-document with no row at all — `selectionRange` inside `range`, a
-parent containing its `selectionRange` STRICTLY, every child inside its
-parent, and the source at `selectionRange` spelling the symbol's name.
+#### Signature help
 
-**`workspace/symbol`.** Every declaration the OPEN documents can see
-— their own and every module each imports — whose bare name holds the
-query, case-folded, with constructors as `EnumMember`, aliases as
-`Class`, and the module
-as `containerName` for an imported one; a declaration reached twice
-through two open documents is listed once. The workspace this server
-knows is the document store: it does not walk a directory, so a module
-nothing open imports is not searched. The list stops at
-`LSP_COMPL_MAX`.
+`textDocument/signatureHelp` shows the call the cursor is inside. That
+can be a `fn` of this document, one of its constructors, or an imported
+`fn` with its module named. The label reads `(bump x) : (-> Int Int)`,
+with the type cut from the `::` beside the `fn`.
+
+- Each parameter is sent as the UTF-16 offset pair that slices the
+  label to its name.
+- The paragraph above the declaration is the `documentation`.
+- `activeParameter` is counted from the bytes.
+
+`(` and space trigger it, and space retriggers it. A local that shadows
+a top-level `fn` of the same name is looked up first, so
+`(fn (t7 f) (f 1 2))` beside a top-level `f` answers nothing for `f`. A
+`fn` header doesn't answer its own signature. Outside any call, the
+answer is `null`.
+
+#### Inlay hints
+
+`textDocument/inlayHint` shows four hints the source doesn't spell out:
+
+| Hint | Where | Kind |
+|---|---|---|
+| `x:` | Before each argument of a call to a declared or imported `fn`, but never before a variable spelled like the parameter | `Parameter` |
+| `: Int` | After each parameter in a `fn` header | `Type` |
+| ` -> Int` | After the `fn` header | `Type` |
+| `: T` | After each `let` or `letm` binder whose value resolves | `Type` |
+
+The header hints come from the signature's arrow, so a `fn` with no
+`::` gets no type hints. The binder hints come from the value-shape
+reader that hover uses, so generated binders and `_` get none.
+
+#### Folding ranges
+
+`textDocument/foldingRange` folds every form and brace block whose
+opener and closer sit on different lines. A run of `;` comment lines
+folds as kind `comment`, and a run of imports as kind `imports`. It
+works from a bracket scan of the bytes, so a half-typed file still
+folds.
+
+#### Selection ranges
+
+`textDocument/selectionRange` expands from the word to the enclosing
+form, then to each form around it, then to the whole document. It
+answers for each position sent.
+
+#### Document links
+
+`textDocument/documentLink` gives one link per `(import M)` whose
+module the resolver's own search finds. The link covers the dotted name
+as written and targets that file. An import that doesn't resolve gets
+no link and no error. `resolveProvider` is false.
+
+#### Outline
+
+`textDocument/documentSymbol` answers the outline straight from the
+parse tree, with no checker running. A file with a type error still has
+an outline, and a file that doesn't parse has an empty one.
+
+| Declaration | Symbol kind |
+|---|---|
+| `fn`, `macro` | `Function` |
+| `data` | `Enum` |
+| `struct` | `Struct` |
+| `type` alias | `Class` |
+| A `data`'s constructor | `EnumMember`, as a child of the `data` |
+| A `struct`'s field | `Field`, as a child of the `struct` |
+
+The protocol has no `TypeAlias` kind, so an alias becomes `Class`, just
+as a macro becomes `Function`. A `::` signature isn't listed beside its
+`fn`, and neither is an `effect` declaration.
+
+`range` is the whole top-level form, and `selectionRange` is the name
+inside it. Your editor uses `range` for the breadcrumb, sticky scroll
+and expanding a selection. The server finds the form's extent from the
+bytes, with the same `lspFormStart` and `lspFormEnd` pair that hover
+quotes a declaration with.
+
+Sometimes it can't. A declaration indented mid-edit gives
+`lspFormStart`'s column-zero rule nothing to find. Then the symbol's
+`range` is just the name span and it has no children. That's better
+than a range that doesn't contain what it claims to.
+
+Each child sits at its own name span. `children` is left out, not sent
+empty, so no client draws an expander over nothing.
+
+`tests/lsp/expected-outline.txt` lists exactly the rows each fixture
+publishes, in order, with the container each belongs to.
+`tests/lsp/060-outline.ax` is the fixture with a `data` and a `struct`
+that have members. Four invariants hold for every symbol of every
+document, with no row in that file needed:
+
+- `selectionRange` is inside `range`.
+- A symbol with children contains its own `selectionRange` strictly.
+- Every child is inside its parent.
+- The source at `selectionRange` spells the symbol's name.
+
+#### Workspace symbols
+
+`workspace/symbol` finds every declaration the open documents can see,
+their own and those of every module each imports, whose bare name
+contains the query, case-folded. Constructors are `EnumMember` and
+aliases are `Class`. An imported declaration has its module as
+`containerName`. A declaration reached through two open documents is
+listed once.
+
+The workspace is the server's document store. The server doesn't walk
+a directory, so a module that nothing open imports isn't searched. The
+list stops at `LSP_COMPL_MAX`.
+
+Signature help, inlay hints, folding ranges, selection ranges, document
+links and workspace symbols are tested by `SECTION VIEW TESTS` in
+`tests/lsp/drive.py`.
 
 ### Changing and running
 
-**`textDocument/formatting`.** One `TextEdit` over the whole document
-holding the output of the same `fmtFormat` that `axiom fmt` runs;
-`[]` for a document already in the formatter's normal form; `null`
-for one that does not parse. The gate holds the edit's text equal,
-byte for byte, to what `axiom fmt` wrote to a copy.
-`textDocument/rangeFormatting` is deliberately not offered, and the
-reason is measured rather than assumed. `fmtFormat` proves its output
-a fixed point of the WHOLE file, so a range formatter would have to
-format a slice and hope the answer matched. Over `stdlib/` and
-`self_host/` on 2026-08-31 — 8,437 slices, each one a whole run of
-top-level forms, formatted alone and compared against the same forms
-cut out of the whole document's formatted output — 8,416 matched and
-**21 did not**. Every disagreement is comment placement, and both
-shapes are real: `(pub :: SGR_ERROR String)  ; bold red` in
-`self_host/style.ax` keeps its trailing comment when the slice is
-formatted and loses it to the next declaration when the file is, and a
-comment block inside `codegen.ax`'s `CG` struct migrates ACROSS a
-top-level form boundary in the whole-document pass and stays put in
-the slice. An editor with format-on-save and format-selection both
-bound would therefore rewrite bytes that the other had just written.
-Whole-document formatting is the one answer this server gives.
+#### Formatting
 
-**`textDocument/codeAction`.** Three kinds, all advertised in
-`codeActionKinds`. `quickfix`: every machine-applicable fix the
-compiler attaches to a diagnostic in the range — a help carrying a
-fix span, exactly what AXDL prints after `~>` — as a preferred action,
-so a code that gains a fix in `typecheck.ax` gains a quickfix without
-a line changing in `lsp.ax`; and five the server writes itself. *Import
-`name` from `Mod`*, on an AX3001 whose reference is a bare name: every
-module the resolver could reach — the entry file's directory,
-`axiom.pkg`'s `depend` and `crate` directories, `AXIOM_PATH`,
-`AXIOM_STDLIB`, each walked three levels deep for a nested
-`Sys.Platform` — is a candidate under the name `moduleSrcPath` would
-resolve it by, so a `Str.ax` beside the entry file shadows the stdlib's
-exactly as it does for the compiler; a file is parsed only when its
-bytes spell the name as a whole word, and one action is offered per
-module that declares it `pub`. The edit adds the name to an existing
-`(import Mod (...))` list, else writes `(import Mod (name))` on its own line after the last
-import, else as the first line. A qualified `Mod::name` gets no
-action: it names its module already. *Make `name` public in `Mod`*, on
-AX3023: a `WorkspaceEdit` keyed by the **declaring file's** URI that
-inserts `pub ` after the opening paren of the `fn` and of its `::` —
-`check` refuses either alone — with the written visibility read from
-that file's bytes, since the resolver's `nodeVis` records exportedness
-rather than what was written; an AX3023 on a name that IS written
-`pub` is one the document's import list left out, and gets the import
-action instead. `refactor.rewrite`: *Add type signature for `f`* on a
-`fn` with no `::`, written from the type the checker inferred in the
-parser's own spelling `(-> Int Int)`, with an unresolved type variable
-lettered in order of appearance. `refactor.extract`: *Extract to
-`let`*, with no diagnostic, when the range trimmed of whitespace is
-exactly one item — a form, a brace block, a literal or an identifier —
-inside the body of a `fn` of this document. The statement it is
-hoisted above is the innermost enclosing item that is a direct child
-of a `{ }` block, else the fn body; it becomes `(let ((x E)) S')` with
-`x` for `E`, where `x` is `extracted` or the first `extractedN` the
-document does not spell. It is refused wherever hoisting would change
-how often or whether `E` runs — under a `lambda`, `while` or
-`handle`, in a branch of an `if` or an arm of a `match` (the test and
-the scrutinee are fine), in a head position or a binding list, and
-past the first operand of a `for`: the container, or a range's start,
-is hoisted into a binding the loop reads once and stays extractable,
-while the third item is `hi` in one shape and the body in the other
-and the rule sees the head and the position but not the arity, so it
-is refused in both (measured before the rule: extraction was offered
-on a per-iteration `(mk 5)` in a `for` body) — and
-whenever `E` references a binder bound inside the statement. What it
-changes on purpose: `E` now runs before whatever the statement
-evaluated ahead of it. This request runs the pipeline for the
-diagnostic-attached kinds (see [The cost rule](#the-cost-rule)) and
-the raw tree for the extraction; `[]` on a document that does not
-parse. The gate applies AX3012's `mut x` at the BINDER, AX3001's
-respelling at the call, and the signature assist, in Python, reopens
-the result and requires no diagnostics at all; applies each import and
-the `pub ` edits and requires `check` to answer OK; and runs the
-extracted program to require the same output and exit status as the
-original, on a document whose extracted call performs a side effect
-exactly once.
+`textDocument/formatting` answers one `TextEdit` over the whole
+document, holding the output of the same `fmtFormat` that `axiom fmt`
+runs. The edit's text is byte for byte what `axiom fmt` writes. A
+document already in the formatter's normal form gets `[]`, and one that
+doesn't parse gets `null`.
 
-Three more assists hang off the editor-only lints and AX3053.
-*Suppress `RULE` on `F`*, on every live Hint: `;@axiom:nolint(RULE)`
-on its own line above the declaration, once per declaration and
-rule — two unread bindings in one body answer two suppressions
-with different owners, not two copies of one action — and never
-for a Hint the client cannot see, since suppressed records never
-reach the assist walk. *Simplify to `c`*, on the boolean lint
-alone: the whole `(if c true false)` for the condition's own
-bytes, with the lint's own guards as the edit's (a dead branch
-draws no rewrite, because a live arm has no exact span to write
-back). *Treat unhandled `E` as a deliberate abort*, on an AX3053
-whose effect this document declares: `;@axiom:unhandled(trap)`
-above the `(effect E ...)` line — never into another file, and
-never beside an `unhandled` tag of any value already there. The
-gate holds all three beside the older assists: the exact edits
-derived from the documents' bytes, the suppressions reopening
-silent, the simplified program exiting 11 like the original, and
-the acknowledge silencing exactly the one warning while the
-program still traps 71 both ways.
+`textDocument/rangeFormatting` isn't offered. `fmtFormat` proves its
+output is a fixed point of the whole file, and a slice formatted alone
+doesn't always give the same bytes. Across `stdlib/` and `self_host/`,
+a few runs of top-level forms formatted differently alone than inside
+their file. Every difference was about where a comment lands:
 
-**`textDocument/codeLens`.** A `▶ Run` lens over `(fn (main) ...)`
-when `main` takes no parameters — that is what `axiom run` runs — and
-an `Expand macro` lens over every `pub macro`. A lens carries a command
-NAME and its arguments, and the server runs nothing: `axiom.run`
-carries the document's filesystem path, `axiom.expandMacro` the
-document's URI and the macro declaration's position, and the editor
-does the rest, as rust-analyzer's `Run` lens works. On the document
-above:
+- A trailing comment such as `(pub :: SGR_ERROR String)  ; bold red`
+  stays on its line when the slice is formatted, and moves to the next
+  declaration when the whole file is.
+- A comment block inside `codegen.ax`'s `CG` struct moves across a
+  top-level form boundary in the whole-document pass, and stays put in
+  the slice.
+
+With format-on-save and format-selection both bound, each would
+rewrite bytes the other had just written. So whole-document formatting
+is the only formatting the server does.
+
+#### Code actions
+
+`textDocument/codeAction` offers three kinds, all advertised in
+`codeActionKinds`: `quickfix`, `refactor.rewrite` and
+`refactor.extract`.
+
+Every machine-applicable fix the compiler attaches to a diagnostic in
+the range is offered as a preferred `quickfix`. That's a help carrying a
+fix span, exactly what AXDL prints after `~>`. So when a code gains a
+fix in `typecheck.ax`, it gains a quick fix with no change to `lsp.ax`.
+
+The server also writes these assists itself:
+
+| Action | Kind | Offered on |
+|---|---|---|
+| *Import `name` from `Mod`* | `quickfix` | An `AX3001` whose reference is a bare name |
+| *Make `name` public in `Mod`* | `quickfix` | `AX3023` |
+| *Suppress `RULE` on `F`* | `quickfix` | Every live lint Hint |
+| *Treat unhandled `E` as a deliberate abort* | `quickfix` | An `AX3053` whose effect this document declares |
+| *Add type signature for `f`* | `refactor.rewrite` | A `fn` with no `::` |
+| *Simplify to `c`* | `refactor.rewrite` | The `lint-bool-if` Hint |
+| *Extract to `let`* | `refactor.extract` | A selected range, with no diagnostic |
+
+This request runs the pipeline for the kinds attached to diagnostics
+(see [The cost rule](#the-cost-rule)), and reads the raw tree for
+extraction. It answers `[]` on a document that doesn't parse.
+
+*Import `name` from `Mod`* looks at every module the resolver could
+reach: the entry file's directory, `axiom.pkg`'s `depend` and `crate`
+directories, `AXIOM_PATH` and `AXIOM_STDLIB`. Each is walked three
+levels deep, to find a nested module such as `Sys.Platform`. Each
+candidate gets the name `moduleSrcPath` would resolve it by, so a
+`Str.ax` beside the entry file shadows the standard library's, exactly
+as it does for the compiler. A file is parsed only when its bytes spell
+the name as a whole word, and one action is offered per module that
+declares the name `pub`.
+
+The edit adds the name to an existing `(import Mod (...))` list.
+Otherwise it writes `(import Mod (name))` on its own line after the
+last import, or as the first line. A qualified `Mod::name` gets no
+action, because it already names its module.
+
+*Make `name` public in `Mod`* is a `WorkspaceEdit` keyed by the
+declaring file's URI. It inserts `pub ` after the opening paren of the
+`fn` and of its `::`, since `check` refuses either alone. The server
+reads what visibility is written from that file's bytes. An `AX3023` on
+a name that *is* written `pub` means the document's import list left it
+out, so it gets the import action instead.
+
+*Add type signature for `f`* is written from the type the checker
+inferred, in the parser's own spelling, such as `(-> Int Int)`. An
+unresolved type variable is lettered in order of appearance.
+
+*Extract to `let`* is offered when the range, trimmed of whitespace, is
+exactly one item inside the body of a `fn` in this document. An item is
+a form, a brace block, a literal or an identifier. The expression `E`
+is hoisted above a statement `S`: the innermost enclosing item that is
+a direct child of a `{ }` block, or else the `fn` body. `S` becomes
+`(let ((x E)) S')`, with `x` in place of `E`. The name `x` is
+`extracted`, or the first `extractedN` the document doesn't already
+spell.
+
+Extraction is refused wherever hoisting would change how often, or
+whether, `E` runs:
+
+- under a `lambda`, `while` or `handle`.
+- in a branch of an `if` or an arm of a `match`. The test and the
+  scrutinee are fine.
+- in a head position or a binding list.
+- past the first operand of a `for`.
+- whenever `E` references a binder bound inside the statement.
+
+A `for`'s first operand, the container or a range's start, is hoisted
+into a binding the loop reads once, so it stays extractable. The third
+item is `hi` in one `for` shape and the body in the other. The rule
+sees the head and the position but not the arity, so it refuses both.
+
+Extraction does make one change: `E` now runs before whatever the
+statement evaluated ahead of it.
+
+*Suppress `RULE` on `F`* puts `;@axiom:nolint(RULE)` on its own line
+above the declaration. It's offered once per declaration and rule, so
+two unread bindings in one body give two suppressions with different
+owners, not two copies of one action. It's never offered for a Hint the
+client can't see, since suppressed records never reach the assist walk.
+
+*Simplify to `c`* replaces the whole `(if c true false)` with the
+condition's own bytes. The edit uses the lint's own guards. A dead
+branch gets no rewrite, because a live arm has no exact span to write
+back.
+
+*Treat unhandled `E` as a deliberate abort* puts
+`;@axiom:unhandled(trap)` above the `(effect E ...)` line. It never
+edits another file, and it's never offered when an `unhandled` tag of
+any value is already there. It silences exactly that one warning, and
+the program still traps with 71.
+
+Tested by `SECTION FIX TESTS` in `tests/lsp/drive.py`. It applies
+`AX3012`'s `mut x` at the binder, `AX3001`'s respelling at the call and
+the signature assist, and requires no diagnostics after reopening. It
+requires `check` to answer OK after each import and `pub ` edit. Each
+suppression must reopen silent, and the extracted and simplified
+programs must keep the original's output and exit status.
+
+#### Code lenses
+
+`textDocument/codeLens` puts a `▶ Run` lens over `(fn (main) ...)` when
+`main` takes no parameters, since that's what `axiom run` runs. It puts
+an `Expand macro` lens over every `pub macro`.
+
+A lens carries a command name and its arguments, and the server runs
+nothing. `axiom.run` carries the document's filesystem path.
+`axiom.expandMacro` carries the document's URI and the macro
+declaration's position. Your editor does the rest, the way
+rust-analyzer's `Run` lens works. On the example document:
 
 ```json
 {"range": {"start": {"line": 3, "character": 11}, "end": {"line": 3, "character": 20}},
@@ -949,10 +1127,12 @@ above:
              "arguments": ["/path/to/doc.ax"]}}
 ```
 
-`resolveProvider` is false; `[]` on a document that does not parse.
+`resolveProvider` is false. A document that doesn't parse gets `[]`.
 
-**`axiom/expandMacro`.** The analogue of `rust-analyzer/expandMacro`,
-advertised as `experimental.expandMacro: true`. Params are a text
+#### Macro expansion
+
+`axiom/expandMacro` is the analogue of `rust-analyzer/expandMacro`,
+advertised as `experimental.expandMacro: true`. Its params are a text
 document and a position:
 
 ```json
@@ -960,168 +1140,202 @@ document and a position:
  "position": {"line": 12, "character": 0}}
 ```
 
-and the result is the macro's name and what it generated, as Axiom
-source, or `null`:
+The result is the macro's name and what it generated, as Axiom source,
+or `null`:
 
 ```json
 {"name": "deriveTag",
  "expansion": "(pub :: tagColour Int)\n\n(pub fn (tagColour)\n  7)"}
 ```
 
-On a top-level invocation — by its head or anywhere inside its bytes
-— it answers that invocation's own products; on a macro declaration,
-by its name or its form, everything the macro generated in this
-document. The rendering is the compiler's first `ASTNode`-to-source
-printer, whose promise is that the output parses and means what the
-tree meant: the gate reopens the expansion as a document and requires
-a clean parse with an outline of exactly the generated name, and a
-differential over every top-level invocation under `tests/` and
-`docs/` splices each expansion into a copy in place of the invocation
-and holds `check`'s codes and `symbols`' names equal. What it does not
-answer: an invocation in expression position inside a body (phase E
-rewrites it in place and records nothing to attribute), an expansion
-the expander refused (the refusal is already on screen as a
-diagnostic), a position on anything else, and a document that does not
-parse — all `null`. Three things the printer says out loud: a hygiene
-binder `x.3` is written `x_3`, a `syntax/binders` variable `x#0` is
-written with `_` for every byte the lexer refuses, and `Mod$name` is
-written `Mod::name`. A macro whose template queries declarations
-another invocation would have generated is shown without them, since
-each invocation is expanded with every other removed. And a generated
-`struct`'s fields print with their types, since the expander was fixed
-to carry the type node where it had been carrying the parser's float
-flag — an expander defect, not a printer choice, recorded beside
-`MAC-TOOL-3` in [macro-system.md](macro-system.md).
+On a top-level invocation, at its head or anywhere inside its bytes, it
+answers that invocation's own products. On a macro declaration, at its
+name or anywhere in its form, it answers everything the macro generated
+in this document.
 
-### Lint Hints
+The expansion is printed by the compiler's first `ASTNode`-to-source
+printer, which promises that the output parses and means what the tree
+meant. The printer changes three spellings:
 
-Beneath the checker's diagnostics, every document that parses gets
-three Hints the server walks the raw tree for and `axiom check`
-never emits. They are severity `Hint`, on for every document, and
-they never refuse a build: a Hint is the editor thinking out loud,
-and a thought is not a verdict. That is why they live here and not
-in the checker, whose warnings are the ones the project promises
-about every build. The walk expands nothing, so a lint can never
-disagree with the checker about what the code means — it sees what
-the author wrote, not what it expands to.
+- A hygiene binder `x.3` is written `x_3`.
+- A `syntax/binders` variable `x#0` is written with `_` for every byte
+  the lexer refuses.
+- `Mod$name` is written `Mod::name`.
 
-- `lint-dead-branch`: `(if true A B)` or `(if false A B)`. One arm
-  can never run — usually a condition left literal while debugging,
+A generated `struct`'s fields print with their types. The note beside
+`MAC-TOOL-3` in [macro-system.md](macro-system.md) has the details.
+
+It answers `null` for:
+
+- An invocation in expression position inside a body. Phase E rewrites
+  it in place and records nothing to attribute.
+- An expansion the expander refused. The refusal is already on screen
+  as a diagnostic.
+- A position on anything else, and a document that doesn't parse.
+
+Each invocation is expanded with every other invocation removed. So a
+macro whose template queries declarations another invocation would have
+generated is shown without them.
+
+Tested by `tests/lsp/drive.py`, which reopens each expansion as a
+document and requires a clean parse with an outline of exactly the
+generated name. It also splices every top-level invocation's expansion
+under `tests/` and `docs/` into a copy in its place, and requires
+`check`'s codes and `symbols`' names to stay the same.
+
+### Lint hints
+
+On top of the checker's diagnostics, the server adds three lint Hints
+to every document that parses. `axiom check` never emits them. They
+have severity `Hint`, they're on for every document, and they never
+fail a build. A Hint is your editor thinking out loud, so it lives in
+the server. The checker's warnings are what the project promises about
+every build.
+
+The lints read the raw tree and expand nothing. They see what you
+wrote, not what it expands to, so a lint can never disagree with the
+checker about what your code means.
+
+- `lint-dead-branch`: `(if true A B)` or `(if false A B)`. One arm can
+  never run. This is usually a condition left literal while debugging,
   or a copy-pasted arm. The squiggle sits on the literal. A `while`
-  with a literal condition is not linted: an infinite loop is an
-  idiom, and flagging one would be dogma.
+  with a literal condition isn't linted, because an infinite loop is a
+  normal idiom.
 - `lint-bool-if`: `(if c true false)` where `c` is a bare name. The
-  `if` answers its condition unchanged. The other order is not
-  linted: `(if c false true)` is this language's boolean negation —
-  `stdlib/Http.ax` spells `httpNot` exactly that way, and there is
-  no `not` operator — so suggesting one would rule against the
-  standard library.
-- `lint-unused-let`: a `let` (or `mut`) binding nothing reads.
-  Usually a forgotten use or a leftover. Only reads keep a binding
-  alive, so a binding that is written and never read still draws
-  the Hint. `_` is the explicit discard and stays silent, as do
-  pattern binders, parameters, and anything inside a macro body.
+  `if` returns its condition unchanged. The reverse,
+  `(if c false true)`, isn't linted. Axiom has no `not` operator, so
+  that form is how you write boolean negation, and `stdlib/Http.ax`
+  spells `httpNot` exactly that way.
+- `lint-unused-let`: a `let` or `mut` binding that nothing reads. This
+  is usually a forgotten use or a leftover. Only reads keep a binding
+  alive, so a binding that is written but never read still draws the
+  Hint. `_` is the explicit discard and stays silent, as do pattern
+  binders, parameters and anything inside a macro body.
 
-Three precision rules keep them honest, and the gate holds each one:
-a lint that cannot point precisely does not fire (every range must
-spell exactly what its message quotes); a `true` the author rebound
-with a `let` is not the boolean; and the walk recurses into every
-expression form the navigation walk knows, because a missed use
-would be a false positive. Opting out is one tag on either half of
-the declaration ([reference.md](reference.md), AXTAG Keys):
-`;@axiom:nolint(lint-unused-let)` quiets one rule,
-`;@axiom:nolint(all)` quiets all three. `tests/lsp/100-` through
-`103-lint-*.ax` pin the three rules and the opt-out, each with the
-controls that keep it from being a blanket refusal.
+Three rules keep the lints precise:
 
-Each Hint carries its own way out, as a code action. `Suppress
-RULE on F` writes the `nolint` tag above the declaration - the
-same placement `103` pins - and is offered once per declaration
-and rule, only where the Hint is drawn: a suppressed record never
-reaches the assist walk, so there is no action for a Hint the
-client cannot see. `Simplify to C` rewrites `(if c true false)`
-to its condition; it is the lint's own guards as an edit, so a
-dead branch draws no rewrite (a live arm has no exact span to
-write back) and the suppressor covers those sites. On AX3053,
-`Treat unhandled E as a deliberate abort` writes
-`;@axiom:unhandled(trap)` above this document's own `(effect E
-...)` declaration - never into another file, and never beside an
-`unhandled` tag of any value already there. The gate holds all
-three in `tests/lsp/drive.py`'s code-action session: the exact
-edits derived from the documents' bytes, the suppressions reopening
-silent, the simplified program exiting 11 like the original, and
-the acknowledge silencing exactly the one warning while the
-program still traps 71 both ways.
+- A lint that can't point precisely doesn't fire. Every range spells
+  exactly what its message quotes.
+- A `true` that you rebound with a `let` isn't the boolean.
+- The lint walk recurses into every expression form the navigation
+  walk knows, because a missed use would be a false positive.
+
+To opt out, put one tag above either half of the declaration, the
+signature or the `fn`:
+
+```scheme
+;@axiom:nolint(lint-dead-branch)
+(:: quietIf (-> Int Int))
+(fn (quietIf n)
+  (if true n 0))
+```
+
+`;@axiom:nolint(RULE)` quiets one rule, and `;@axiom:nolint(all)`
+quiets all three. The tag syntax is in
+[the reference](reference.md#nolint---quieting-the-editors-hints).
+
+Tested by `tests/lsp/100-lint-dead-branch.ax` through
+`tests/lsp/103-lint-nolint.ax`, each with controls that must stay silent.
+
+#### Code actions for hints
+
+Each Hint comes with a code action that clears it, and one checker
+warning has its own:
+
+- `Suppress RULE on F` writes the `nolint` tag above the declaration,
+  in the same place `103-lint-nolint.ax` puts it. It's offered once
+  per declaration and rule, and only where the Hint is drawn. A Hint
+  that's already suppressed gets no action, since your editor can't
+  see it.
+- `Simplify to C` rewrites `(if c true false)` to its condition. It
+  follows the lint's own guards. A dead branch gets no rewrite, because
+  a live arm has no exact span to write back, so use the suppression
+  there.
+- On AX3053, an effect operation with no handler,
+  `Treat unhandled E as a deliberate abort` writes
+  `;@axiom:unhandled(trap)` above this document's own `(effect E ...)`
+  declaration. It never edits another file, and it never writes beside
+  an `unhandled` tag of any value that's already there.
+
+Tested by the code-action session in `tests/lsp/drive.py`. It checks
+the exact edits, that suppressed documents reopen silent, that the
+simplified program still exits 11, and that the acknowledgement
+silences exactly one warning while the program still traps 71.
 
 ## Highlighting
 
-**The server will not send `textDocument/semanticTokens`.** That is a
-decision and not a gap, and it is closed: highlighting is
-`tree-sitter-axiom/queries/highlights.scm`'s alone. Release 0.3.5
-shipped semantic tokens — every identifier coloured by what the
-occurrence walk resolved it to — and they came out again before the
-next release, with the whole of `SECTION HL`, because two sources of
-colour can disagree about the same token and one cannot. One
-highlighter means the editor cannot contradict itself; a second one in
-the server would be a second thing to keep in step with the grammar,
-forever, for a result the grammar already gives.
+The server doesn't send `textDocument/semanticTokens`, and we don't
+plan to add it. Highlighting comes only from
+`tree-sitter-axiom/queries/highlights.scm`. Two sources of colour can
+disagree about the same token, and one can't. A single highlighter
+means your editor never contradicts itself, and there's no second
+highlighter to keep in step with the grammar.
 
-`highlights.scm` colours by syntactic role — a declaration's name by
-what it declares, an application's head as a call, a constructor in a
-pattern as a constructor, an AXTAG as an attribute rather than a
-comment — and `queries/rainbows.scm` colours every bracket pair by its
-nesting depth, with every bracket-opening rule of the grammar as a
-scope. `scripts/check-tree-sitter.sh` holds both against every `.ax`
-file in the repository. An editor that consumes semantic tokens but
-not tree-sitter (VS Code) therefore has no highlighting from this
-repository; one that consumes tree-sitter (Helix, Neovim, Emacs 29,
-Zed) has all of it.
+`highlights.scm` colours by syntactic role:
 
-**`self_host/replhl.ax` is not an argument to revisit this.** It
-paints Axiom source from the compiler's own lexer, and the reason is
-the REPL's situation rather than a general one: a REPL has no
-tree-sitter grammar loaded and no editor to consult, so it either
-paints from the lexer or shows plain text. An editor has both already.
-Giving it a second opinion is precisely how the two drift apart, which
-is the failure 0.3.5 shipped and the next release withdrew.
+- a declaration's name by what it declares;
+- an application's head as a call;
+- a constructor in a pattern as a constructor;
+- an AXTAG as an attribute, not a comment.
+
+`queries/rainbows.scm` colours each bracket pair by its nesting depth,
+with every bracket-opening rule of the grammar as a scope.
+`scripts/check-tree-sitter.sh` tests both against every `.ax` file in
+the repository.
+
+Editors that use tree-sitter (Helix, Neovim, Emacs 29 and Zed) get all
+of this. VS Code reads semantic tokens but not tree-sitter, so it gets
+no highlighting from this repository.
+
+The REPL is the one place that colours Axiom another way.
+`self_host/replhl.ax` paints source from the compiler's own lexer,
+because a REPL has no tree-sitter grammar loaded and no editor to
+consult. An editor has both, and a second opinion there would only let
+the two drift apart.
 
 ## The cost rule
 
-Every request that is asked per keystroke or per cursor move reads
-the RAW parse tree and the document's bytes and expands no macro.
-That is `MAC-TOOL-3` in [macro-system.md](macro-system.md), and the
-reason is measured there: expansion is bounded but not free, and an
-editor cannot wait. Each such request costs one parse, one line index
-and one walk — the walk that `references` and its siblings share, the
-bracket scan that folding and selection share, the bucket index that
-parameter hints and signature help share — and its answer is derived
-from what the file SAYS, which is why a name a macro would generate is
-absent from completion, from the outline and from navigation.
+Every request your editor sends per keystroke or per cursor move reads
+the raw parse tree and the document's bytes, and expands no macros.
+This is `MAC-TOOL-3` in [macro-system.md](macro-system.md), which
+gives the measured reason: expansion is bounded but not free, and an
+editor can't wait.
 
-Three things run the pipeline, each because the pipeline's output is
-the answer: `didOpen` and `didChange`, which publish diagnostics,
-because a diagnostic about generated code is exactly what expansion
-is for; `codeAction`, because a quickfix is a checker diagnostic's own
-fix and the assist writes what the checker inferred; and
-`axiom/expandMacro`, because rendering what a macro generated is the
-question being asked. None of the three is sent per keystroke — a
-client asks for code actions when the cursor rests and for an
-expansion on demand — and each costs about one `didOpen` of the same
-document, which the editor paid on the last keystroke anyway.
+Each such request costs one parse, one line index and one walk.
+Requests share their walks:
 
-The gate that holds it is `scripts/check-lsp-selfhost.sh`, and it
-holds a RATIO rather than a stopwatch, so a slow runner cannot fail it
-and a fast one cannot hide a regression: on a generated document with
-at least `sym_floor` declarations it times `didOpen` — the whole
-parse-and-check — and then `documentSymbol` and `completion` at an
-empty and a filtered prefix, and fails any of them over a ceiling of
-2.00x. A server that answers nothing is fast, so each measurement
-carries a floor on the answer's size — the outline must carry
-`sym_floor` symbols, the empty-prefix menu `item_floor` items — below
-which the gate fails rather than measures. The same document and the
-same `didOpen`-ratio method were used to measure every request that
-landed in 0.3.5, and the numbers are in [CHANGELOG.md](../CHANGELOG.md)
-`## 0.3.5` beside the change each one forced: the per-request
-declaration index that replaced a first-byte bucket, and the
-is-there-a-signature question the whole-document code action asks
-before it walks. Run the gate and read its `ratio` lines for today's.
+- `references` and its siblings share one walk;
+- folding and selection share the bracket scan;
+- parameter hints and signature help share the bucket index.
+
+Answers come from what the file says. A name that a macro would
+generate doesn't appear in completion, the outline or navigation.
+
+Three things run the full pipeline, because its output is the answer:
+
+- `didOpen` and `didChange`, which publish diagnostics. A diagnostic
+  about generated code is exactly what expansion is for.
+- `codeAction`, because a quickfix is a checker diagnostic's own fix,
+  and the assist writes what the checker inferred.
+- `axiom/expandMacro`, because showing what a macro generated is the
+  question being asked.
+
+None of the three is sent per keystroke. A client asks for code
+actions when the cursor rests, and for an expansion on demand. Each
+costs about one `didOpen` of the same document, which the editor
+already paid for on the last keystroke.
+
+`scripts/check-lsp-selfhost.sh` holds the rule with a ratio instead of
+a stopwatch, so a slow runner can't fail it and a fast one can't hide a
+regression. It generates a document with at least `sym_floor`
+declarations and times `didOpen`, the whole parse and check. It then
+times `documentSymbol`, and `completion` with an empty and a filtered
+prefix. The gate fails if any of them costs more than 2.00x the
+`didOpen`.
+
+A server that answers nothing is fast, so each measurement also has a
+floor on the answer's size. The outline must carry `sym_floor` symbols
+and the empty-prefix menu `item_floor` items, or the gate fails instead
+of measuring. Run the gate and read its `ratio` lines for current
+numbers. The measurements for each request added in 0.3.5 are in
+[CHANGELOG.md](../CHANGELOG.md) under `## 0.3.5`.
