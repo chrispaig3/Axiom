@@ -177,6 +177,10 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-28 (22): `Task.ax`'s exit backoff. Stdlib view only:
+# `taskExitPollNanos` went and `taskExitNapFirst` and `taskNapNext` came,
+# all pure (288 to 289; 976 to 977 rows). No row moved.
+#
 # RE-PINNED 2026-09-28 (21): the kill list and Darwin's libSystem fork
 # (R-C5, MM-PAR-7). Compiler view only, 5 rows added (4859 to 4864),
 # none removed or moved: `targetWaitIdNum` and `targetWaitExitedNoWait`
@@ -566,7 +570,7 @@ have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 20 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 2 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Fallible')" 1 "exactly Fallible"
 have "$(bucket "$work/lib.axsym" 'Assert')" 1 "exactly Assert"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 288 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 289 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 5 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 19 "effect-params rows"
 

@@ -22,6 +22,32 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### What the concurrency primitives cost — `scripts/bench-concurrency.sh` - 2026-09-28
+
+The measurements the assurance programme asked for: spawn and join in
+both lowerings, a task's round trip and its answer's copy, the mutex
+with and without contention, a channel's throughput, and a task's
+latency spread. `tests/litmus/conc-bench.ax` times its own work with
+the runtime's clock, so start-up and the build are outside every
+figure, and checks its own answer; a wrong answer stops the script
+rather than report a time for work that was not done. On H3, best of
+seven at `--opt 2`: a `parallel` binding's spawn and join 71.5 µs as a
+process and 15.5 µs as a thread; a task at width 8 51 µs of wall time
+with 64-byte answers and 66 µs with 64 KiB ones (992 MB/s); an
+uncontended lock and unlock 129 ns, of which `getpid` is 113; a
+channel word 793 ns. The figures are in `docs/assurance/scorecard.md`.
+It is a measurement, not a gate, and builds no compiler of its own.
+
+It found a regression the review fix for stuck tasks had introduced: a
+task that has answered is joined only once the kernel reports its exit,
+and the pool looked again after a fixed millisecond, while the process
+is normally microseconds from its `exit`. A pool of one task had a p50
+round trip of 1,465 µs against 240 µs before the fix. The look now
+starts 20 µs after the answer and doubles each time it finds nothing,
+up to the 10 ms period, and resets on progress: 180 µs at the median,
+258 µs at the 99th percentile, and `check-task.sh`'s stuck task still
+ends at its deadline.
+
 ### A periodic workload on the timer's interrupt, and a DMA driver — `tests/embedded/`, R-D2c - 2026-09-28
 
 The last two demonstrators, both under QEMU `virt` and both checking

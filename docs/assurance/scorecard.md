@@ -115,9 +115,25 @@ These are measured latencies on H3, not bounds.
   ends the pool in about 450 ms (`scripts/check-task.sh` §3).
 - A mutex whose holder was killed and reaped answers `syncOwnerDead`
   101 ms later to a timed lock, and at once to an untimed one.
-- 2,000 trivial tasks at width 8 take about 0.1 s end to end: about
-  50 µs of wall time per task, with eight forks, answers and joins in
-  flight at once.
+
+`scripts/bench-concurrency.sh` measures what each primitive costs. Every
+figure below is the best of seven runs on H3 at `--opt 2`, with the
+median in brackets, and each run checks its own answer.
+
+| Workload | Processes | Threads |
+|---|---|---|
+| `parallel` spawn and join, per binding | 71.5 µs (73.7) | 15.5 µs (16.0) |
+| Mutex lock and unlock, uncontended | 129 ns (129) | 131 ns (132) |
+| Mutex lock and unlock, four bindings contending, per operation | 121 ns (124) | 119 ns (120) |
+| Channel, one sender to one receiver, capacity 64, per word | 793 ns (963) | 812 ns (911) |
+
+- A task pool at width 8 costs 51 µs of wall time per task with
+  64-byte answers, 54 µs with 4 KiB answers and 66 µs with 64 KiB ones,
+  whose bytes cross at 992 MB/s.
+- A pool of one task, 500 in a row, has a round trip of 180 µs at the
+  median, 258 µs at the 99th percentile and 290 µs at worst.
+- Of an uncontended lock and unlock's 129 ns, the `getpid` the lock
+  makes for its mark (`MM-PAR-11`) is 113 ns when measured alone.
 
 No worst-case execution time is claimed for anything.
 

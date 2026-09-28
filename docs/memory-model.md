@@ -4873,9 +4873,11 @@ isolation is what makes a task's captures its own.
 - **An answer isn't an exit.** A task is joined when the look reports
   its exit. One that has answered but not exited, because its process
   is still ending, stays under its deadline and a cancellation's grace
-  like any running task, and the look runs every 1 ms while one
-  exists. So a task that answers and then can't exit can't block the
-  pool in the kernel.
+  like any running task. While one exists the look starts 20 µs after
+  the answer and doubles each time it finds nothing, up to the 10 ms
+  period, so a task that exits promptly is joined at once and one that
+  can't exit neither blocks the pool in the kernel nor keeps it
+  polling.
 
 *Limits.*
 

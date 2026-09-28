@@ -195,17 +195,29 @@
 (pub fn (taskPollNanos)
   10000000)
 
-; How often it looks while a task has answered and not yet exited: 1 ms.
-(:: taskExitPollNanos Int)
-(fn (taskExitPollNanos)
-  1000000)
+; The first look after a task has answered and not yet exited: 20 us.
+; Its process is normally microseconds from its `exit`, so a fixed
+; millisecond here held every single-task pool for one (a p50 round
+; trip of 1.4 ms against 0.24 ms before, `scripts/bench-concurrency.sh`).
+; Each look that finds nothing doubles it, up to `taskPollNanos`, so a
+; task that answered and cannot exit costs no busy loop while its
+; deadline runs.
+(:: taskExitNapFirst Int)
+(fn (taskExitNapFirst)
+  20000)
 
-; The poll period: the short one while some task has answered and not
-; yet exited (`answered` 1), else the usual one.
-(:: taskPollPeriod (-> Int Int))
-(fn (taskPollPeriod answered)
+(:: taskNapNext (-> Int Int))
+(fn (taskNapNext nap)
+  (if (> (* nap 2) taskPollNanos)
+    taskPollNanos
+    (* nap 2)))
+
+; The poll period: `nap` while some task has answered and not yet exited
+; (`answered` 1), else the usual one.
+(:: taskPollPeriod (-> Int Int Int))
+(fn (taskPollPeriod answered nap)
   (if (== answered 1)
-    taskExitPollNanos
+    nap
     taskPollNanos))
 
 ; ---- the raw words ---------------------------------------------------------
@@ -450,9 +462,10 @@
 ; nearest deadline of a running task, the end of a cancellation's
 ; grace, or `now` plus the poll period - or -1 when none applies. A task
 ; that has answered and not yet exited is normally a few microseconds
-; from its exit, so while one exists the period is `taskExitPollNanos`.
-(:: taskWakeBy (-> (Vec Int) Int Int Int Int Int Int Int Int Int Int))
-(fn (taskWakeBy st head next w now canPoll cancelling graceEnd slab slotBytes)
+; from its exit, so while one exists the period is `nap`, the backoff
+; `taskLoop` keeps.
+(:: taskWakeBy (-> (Vec Int) Int Int Int Int Int Int Int Int Int Int Int))
+(fn (taskWakeBy st head next w now canPoll cancelling graceEnd slab slotBytes nap)
   (let (
     (mut wake (if (== cancelling 1)
       graceEnd
@@ -478,7 +491,7 @@
       (if (== running 0)
         (- 0 1)
         (if (== canPoll 1)
-          (let ((p (+ now (/ (taskPollPeriod answered) 1000))))
+          (let ((p (+ now (/ (taskPollPeriod answered nap) 1000))))
             (if (|| (< wake 0) (< p wake))
               p
               wake))
@@ -631,6 +644,7 @@
     (mut graceEnd 0)
     (mut canPoll 1)
     (mut progress 0)
+    (mut nap taskExitNapFirst)
   )
     {
       (for i 0 (* 4 w)
@@ -712,7 +726,8 @@
                 (set head (+ head 1))
                 (set progress 1)
               })
-            ; Nothing moved: sleep until something can.
+            ; Nothing moved: sleep until something can. The exit backoff
+            ; grows with each empty look and starts again on progress.
             (if (== progress 0)
               (let ((wake (taskWakeBy
                 st
@@ -724,24 +739,28 @@
                 cancelling
                 graceEnd
                 slab
-                slotBytes)))
-                (if (>= wake 0)
-                  (sysWaitWordTimeout (+ tok 8) seen (taskSleepFor now wake))
-                  ; No clock can end the wait and no look at a child
-                  ; exists: block on the oldest running task's join.
-                  (if (&& (< head next) (== (taskSt st (% head w) 3) 0))
-                    (let ((r (taskJoin
-                      st
-                      (% head w)
-                      cell
-                      slab
-                      slotBytes
-                      1)))
-                      (if (&& (== r 1) opts.failFast)
-                        (taskCancel tok)
-                        0))
-                    0)))
-              0)
+                slotBytes
+                nap)))
+                {
+                  (set nap (taskNapNext nap))
+                  (if (>= wake 0)
+                    (sysWaitWordTimeout (+ tok 8) seen (taskSleepFor now wake))
+                    ; No clock can end the wait and no look at a child
+                    ; exists: block on the oldest running task's join.
+                    (if (&& (< head next) (== (taskSt st (% head w) 3) 0))
+                      (let ((r (taskJoin
+                        st
+                        (% head w)
+                        cell
+                        slab
+                        slotBytes
+                        1)))
+                        (if (&& (== r 1) opts.failFast)
+                          (taskCancel tok)
+                          0))
+                      0))
+                })
+              (set nap taskExitNapFirst))
           }))
       (taskScratchDone cell)
       (taskScratchDone clk)

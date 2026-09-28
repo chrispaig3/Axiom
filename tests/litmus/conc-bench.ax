@@ -1,0 +1,268 @@
+; What the concurrency primitives cost, for `scripts/bench-concurrency.sh`
+; (docs/assurance/scorecard.md). One mode per run, chosen by the first
+; argument. Each mode times itself with `sysTimeoutMicros` around the
+; work alone - process start-up and the build are outside it - checks
+; its own answer, and prints `<mode> <answer> <microseconds>`; a wrong
+; answer prints `WRONG` and exits 1, so no figure comes from work that
+; was skipped.
+;
+;   spawn N      N `parallel` forms of two trivial bindings, one after
+;                another: the spawn-and-join round trip, in whichever
+;                lowering the program was built with.
+;   tasks N W B  `taskMap` over N tasks at width W, each answering B
+;                bytes: the fork, the answer's copy through the slab and
+;                the join.
+;   mutex N K    K bindings each lock, add 1 to a plain shared word and
+;                unlock, N times; K 1 is the uncontended cost.
+;   chan N       one binding sends 1..N through a 64-word channel, one
+;                receives and sums them.
+;   latency N    N pools of one task each, one after another; prints the
+;                50th, 90th and 99th percentile and the worst round trip.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+(import Err)
+(import Chan)
+(import Sync)
+(import Task)
+
+(:: argInt (-> Int Int))
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)))
+
+(:: report (-> String Int Int Int Int))
+;@axiom:effect(io)
+(fn (report mode answer want us)
+  (if (== answer want)
+    {
+      (println "{mode} {answer} {us}")
+      0
+    }
+    {
+      (println "{mode} WRONG {answer} wanted {want}")
+      1
+    }))
+
+; ---- spawn -------------------------------------------------------------
+(:: pair (-> Int Int))
+;@axiom:effect(io)
+(fn (pair i)
+  (parallel p (
+    (a (+ i 1))
+    (b (+ i 2))
+  )
+    (+ a b)))
+
+(:: spawnRun (-> Int Int Int))
+;@axiom:effect(io)
+(fn (spawnRun buf n)
+  (let (
+    (t0 (sysTimeoutMicros buf))
+    (mut sum 0)
+  )
+    {
+      (for i 0 n
+        (set sum (+ sum (pair i))))
+      (report "spawn" sum (+ (* n 3) (* n (- n 1))) (- (sysTimeoutMicros buf) t0))
+    }))
+
+; ---- tasks -------------------------------------------------------------
+(:: answerOf (-> Int Int String))
+(fn (answerOf bytes i)
+  (strAlloc bytes))
+
+(:: lenOf (-> (Result String Error) Int))
+(fn (lenOf r)
+  (match r
+    ((Ok s) (strLen s))
+    ((Err e) 0)))
+
+(:: tasksRun (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (tasksRun buf n w bytes)
+  (let ((t0 (sysTimeoutMicros buf)))
+    (let (
+      (rs (taskMap
+        (lambda (i) (answerOf bytes i))
+        n
+        w
+        (+ bytes 16)))
+      (mut total 0)
+    )
+      {
+        (for i 0 n
+          (set total (+ total (lenOf (vecGet rs i)))))
+        (report "tasks" total (* n bytes) (- (sysTimeoutMicros buf) t0))
+      })))
+
+; ---- mutex -------------------------------------------------------------
+(:: bump (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (bump m cell n)
+  {
+    (for i 0 n
+      (match (mutexLock m)
+        ((Ok g)
+          {
+            (memSetWord cell 0 (+ (memGetWord cell 0) 1))
+            (mutexUnlock m g)
+          }
+        )
+        ((Err e) 0)))
+    0
+  })
+
+(:: bumpK (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (bumpK m cell n k)
+  (if (== k 1)
+    (bump m cell n)
+    (parallel p (
+      (a (bump m cell n))
+      (b (bump m cell n))
+      (c (bump m cell n))
+      (d (bump m cell n))
+    )
+      (+ a (+ b (+ c d))))))
+
+(:: mutexRun (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (mutexRun buf n k)
+  (match (mutexNew)
+    ((Ok m)
+      (match (sysMapShared 4096)
+        ((Ok cell)
+          (let ((t0 (sysTimeoutMicros buf)))
+            {
+              (bumpK m cell n k)
+              (let ((us (- (sysTimeoutMicros buf) t0)))
+                (report
+                  "mutex"
+                  (memGetWord cell 0)
+                  (*
+                    n
+                    (if (== k 1)
+                      1
+                      4))
+                  us))
+            })
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- chan --------------------------------------------------------------
+(:: produce (-> Int Int Int))
+;@axiom:effect(io)
+(fn (produce ch n)
+  {
+    (for i 1 (+ n 1)
+      (chanSend ch i))
+    (chanClose ch)
+    0
+  })
+
+(:: drain (-> Int Int Int))
+;@axiom:effect(io)
+(fn (drain ch cell)
+  (let (
+    (mut sum 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (match (chanRecv ch)
+          ((Some v)
+            (set sum (+ sum v))
+          )
+          ((None)
+            (set going 0)
+          )))
+      (memSetWord cell 0 sum)
+      0
+    }))
+
+(:: chanRun (-> Int Int Int))
+;@axiom:effect(io)
+(fn (chanRun buf n)
+  (match (chanNew 64)
+    ((Ok ch)
+      (match (sysMapShared 4096)
+        ((Ok cell)
+          (let ((t0 (sysTimeoutMicros buf)))
+            {
+              (parallel p (
+                (a (produce ch n))
+                (b (drain ch cell))
+              )
+                (+ a b))
+              (let ((us (- (sysTimeoutMicros buf) t0)))
+                (report "chan" (memGetWord cell 0) (/ (* n (+ n 1)) 2) us))
+            })
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- latency -----------------------------------------------------------
+(:: one (-> Int Int))
+;@axiom:effect(io)
+(fn (one buf)
+  (let ((t0 (sysTimeoutMicros buf)))
+    {
+      (taskMap
+        (lambda (i) "ok")
+        1
+        1
+        16)
+      (- (sysTimeoutMicros buf) t0)
+    }))
+
+(:: pct (-> (Vec Int) Int Int))
+(fn (pct v p)
+  (vecGet v (/ (* (- (vecLen v) 1) p) 100)))
+
+(:: latencyRun (-> Int Int Int))
+;@axiom:effect(io)
+(fn (latencyRun buf n)
+  (let ((v (vecWithCapacity n)))
+    {
+      (for i 0 n
+        (vecPush v (one buf)))
+      (let (
+        (sorted (vecSort v))
+        (p50 (pct sorted 50))
+        (p90 (pct sorted 90))
+        (p99 (pct sorted 99))
+        (worst (pct sorted 100))
+      )
+        (println "latency {n} p50 {p50} p90 {p90} p99 {p99} max {worst}"))
+      0
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mode (sysArg 1))
+    (buf (memAlloc 16))
+  )
+    (if (strEq mode "spawn")
+      (spawnRun buf (argInt 2))
+      (if (strEq mode "tasks")
+        (tasksRun buf (argInt 2) (argInt 3) (argInt 4))
+        (if (strEq mode "mutex")
+          (mutexRun buf (argInt 2) (argInt 3))
+          (if (strEq mode "chan")
+            (chanRun buf (argInt 2))
+            (if (strEq mode "latency")
+              (latencyRun buf (argInt 2))
+              {
+                (println "usage: conc-bench spawn N | tasks N W B | mutex N K | chan N | latency N")
+                2
+              })))))))
