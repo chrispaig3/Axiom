@@ -22,6 +22,37 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A periodic workload on the timer's interrupt, and a DMA driver — `tests/embedded/`, R-D2c - 2026-09-28
+
+The last two demonstrators, both under QEMU `virt` and both checking
+themselves. `tests/embedded/periodic.ax` sets up the GICv2 and the
+virtual timer once and then only waits in `wfi`; an `isr(irq)` handler
+acknowledges, re-arms the timer and counts ticks, and a
+`restrict(no-alloc, no-recursion, strict)` step runs once per tick.
+Twenty timed steps must equal the same steps run straight through, and
+every counted tick must be a step, a counted miss, or the one that lands
+after the last step. It is the first program to take a real interrupt
+through the handler `isr(irq)` binds. `tests/embedded/dma.ax` reads the
+file directory of `virt`'s `fw_cfg` by DMA under an ownership protocol
+whose every step is a contract (give: clean the lines, DSB, the device
+owns it; take: DSB, invalidate, DSB; a CPU read only while the CPU owns
+it), with the timer's interrupt as the completion deadline, and requires
+the DMA copy to equal the one read a byte at a time through the data
+register.
+
+`scripts/check-embedded.sh` A13 runs the restricted profile over the
+periodic program on every host (no refusal; stack 384 bytes from
+`_start`, the handler's own 16, under a 2 KiB budget), boots it, and
+drills it: with the handler's end-of-interrupt write deleted the GIC
+never delivers the timer again and the guest must not finish. A14 boots
+the driver and two drills: a read while the device owns the buffer must
+trap 80 through its contract, and a transfer never started must end at
+the deadline with `dma: timed out` rather than hang. Emulator evidence:
+the lateness the periodic program prints is TCG's, the MMU and cache
+are off so the cache maintenance is exercised for ordering only, and
+no drill claims to catch a missing barrier. `tests/embedded/fault.ax`
+no longer cites `Mmio.mmioReg`, a module that never landed.
+
 ### A trap in one thread takes every thread's process children; Darwin children can start threads — R-C5 - 2026-09-28
 
 Two runtime limits the concurrency review measured, both closed.

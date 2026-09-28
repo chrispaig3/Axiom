@@ -1,0 +1,317 @@
+; A driver with interrupt and DMA ownership boundaries, on
+; `baremetal-aarch64` (docs/assurance/demonstrators.md D-6).
+;
+; The device is QEMU `virt`'s firmware configuration interface, whose
+; DMA engine reads a descriptor from guest memory and writes the
+; requested item into a guest buffer. The driver reads the file
+; directory twice - once by DMA, once a byte at a time through the data
+; register - and requires the two copies to be equal: the DMA really
+; wrote the buffer.
+;
+; OWNERSHIP. A `DmaBuf` is owned by the CPU or by the device, and every
+; access says which it needs as a contract, checked on every call:
+;   dmaGive   CPU -> device: clean the cache lines, DSB, then the device
+;             owns it. Only then is the doorbell rung.
+;   dmaTake   device -> CPU, after completion: DSB, invalidate the lines,
+;             DSB, and the CPU owns it again.
+;   dmaByte   a CPU read, only while the CPU owns it.
+; A read while the device owns the buffer is a violated precondition,
+; status 80: `scripts/check-embedded.sh` builds a copy with the
+; `dmaTake` below replaced by nothing and requires that exit.
+;
+; THE INTERRUPT. Completion is polled, with the virtual timer as a
+; deadline: before the doorbell, the timer is armed 50 ms ahead, and its
+; interrupt handler raises a flag the wait loop reads. A transfer that
+; never completes ends in `dma: timed out` rather than a hang; the gate
+; builds a copy that never rings the doorbell and requires exactly that.
+;
+; The port runs with the MMU off, so the data cache is off and the cache
+; maintenance is exercised for ordering only (docs/embedded-guide.md
+; section 6). The device speaks big-endian; every field is swapped in
+; software (section 4).
+(import IO)
+(import Mem)
+
+; ---- the device --------------------------------------------------------
+; fw_cfg on QEMU `virt`: data register +0, selector +8 (16-bit,
+; big-endian), DMA address +16 (64-bit, big-endian).
+(:: cfgBase Int)
+(fn (cfgBase)
+  151126016)
+
+; The file directory item, and the DMA control bits.
+(:: itemFileDir Int)
+(fn (itemFileDir)
+  25)
+
+(:: ctlError Int)
+(fn (ctlError)
+  1)
+
+(:: ctlRead Int)
+(fn (ctlRead)
+  2)
+
+(:: ctlSelect Int)
+(fn (ctlSelect)
+  8)
+
+(:: bswap16 (-> Int Int))
+(fn (bswap16 x)
+  (| (<< (& x 255) 8) (& (>> x 8) 255)))
+
+(:: bswap32 (-> Int Int))
+(fn (bswap32 x)
+  (let (
+    (b0 (& x 255))
+    (b1 (& (>> x 8) 255))
+    (b2 (& (>> x 16) 255))
+    (b3 (& (>> x 24) 255))
+  )
+    (| (| (<< b0 24) (<< b1 16)) (| (<< b2 8) b3))))
+
+(:: bswap64 (-> Int Int))
+(fn (bswap64 x)
+  (let (
+    (lo (bswap32 (& x 4294967295)))
+    (hi (bswap32 (& (>> x 32) 4294967295)))
+  )
+    (| (<< lo 32) hi)))
+
+; ---- the DMA buffer and its owner ----------------------------------------
+; A header of three words: 0 the owner (0 the CPU, 1 the device), 1 the
+; data's address, 2 its length in bytes.
+(struct DmaBuf
+  (hdr : Int))
+
+(:: dmaOwner (-> DmaBuf Int))
+;@axiom:effect(unsafe)
+(fn (dmaOwner b)
+  (__load64 b.hdr 0))
+
+(:: dmaData (-> DmaBuf Int))
+;@axiom:effect(unsafe)
+(fn (dmaData b)
+  (__load64 b.hdr 1))
+
+(:: dmaLen (-> DmaBuf Int))
+;@axiom:effect(unsafe)
+(fn (dmaLen b)
+  (__load64 b.hdr 2))
+
+(:: dmaNew (-> Int DmaBuf))
+;@axiom:effect(unsafe)
+(fn (dmaNew len)
+  (let (
+    (h (memAlloc 32))
+    (d (memAlloc len))
+  )
+    {
+      (__store64 h 0 0)
+      (__store64 h 1 d)
+      (__store64 h 2 len)
+      (DmaBuf h)
+    }))
+
+; Clean (`dc cvac`) or clean-and-invalidate (`dc civac`) every 64-byte
+; line of the buffer.
+(:: dmaLines (-> DmaBuf Int Int))
+;@axiom:effect(unsafe)
+(fn (dmaLines b invalidate)
+  {
+    (for off 0 (+ (/ (dmaLen b) 64) 1)
+      (let ((a (+ (dmaData b) (* off 64))))
+        (if (== invalidate 1)
+          (__arm_dc_civac a)
+          (__arm_dc_cvac a))))
+    0
+  })
+
+; CPU -> device.
+;@axiom:pre((== (dmaOwner b) 0))
+(:: dmaGive (-> DmaBuf Int))
+;@axiom:effect(unsafe)
+(fn (dmaGive b)
+  {
+    (dmaLines b 0)
+    __arm_dsb
+    (__store64 b.hdr 0 1)
+    0
+  })
+
+; Device -> CPU, once the transfer is complete.
+;@axiom:pre((== (dmaOwner b) 1))
+(:: dmaTake (-> DmaBuf Int))
+;@axiom:effect(unsafe)
+(fn (dmaTake b)
+  {
+    __arm_dsb
+    (dmaLines b 1)
+    __arm_dsb
+    (__store64 b.hdr 0 0)
+    0
+  })
+
+; A CPU read of byte `i`: only while the CPU owns the buffer.
+;@axiom:pre((== (dmaOwner b) 0))
+(:: dmaByte (-> DmaBuf Int Int))
+;@axiom:effect(unsafe)
+(fn (dmaByte b i)
+  (__load8 (dmaData b) i))
+
+; ---- the deadline --------------------------------------------------------
+(:: gicd Int)
+(fn (gicd)
+  134217728)
+
+(:: gicc Int)
+(fn (gicc)
+  134283264)
+
+(:: timerId Int)
+(fn (timerId)
+  27)
+
+; TPIDR_EL1 holds one word: 1 once the deadline has passed.
+;@axiom:isr(irq)
+(:: onIrq Int)
+;@axiom:effect(unsafe)
+(fn (onIrq)
+  (let ((iar (__vload32 (+ gicc 12))))
+    {
+      (if (== (& iar 1023) timerId)
+        {
+          (__vstore64 __arm_tpidr 1)
+          (__arm_set_cntv_ctl 0)
+          0
+        }
+        0)
+      (__vstore32 (+ gicc 16) iar)
+      0
+    }))
+
+(:: gicInit Int)
+;@axiom:effect(unsafe)
+(fn (gicInit)
+  {
+    (__vstore32 gicd 0)
+    (__vstore8 (+ gicd (+ 1024 timerId)) 0)
+    (__vstore32 (+ gicd 256) (<< 1 timerId))
+    (__vstore32 gicd 1)
+    (__vstore32 (+ gicc 4) 255)
+    (__vstore32 gicc 1)
+    __arm_dsb
+    0
+  })
+
+; ---- one transfer --------------------------------------------------------
+; Read item `item` into `b` by DMA. Answers 0 done, 1 the device reported
+; an error, 2 the deadline passed first.
+(:: dmaRead (-> DmaBuf Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (dmaRead b desc flag item)
+  {
+    ; The descriptor: control and length (big-endian 32 bits each),
+    ; then the buffer's address (big-endian 64 bits).
+    (__store64 desc 0 (| (bswap32 (| (<< item 16) (| ctlSelect ctlRead))) (<< (bswap32 (dmaLen b)) 32)))
+    (__store64 desc 1 (bswap64 (dmaData b)))
+    (__arm_dc_cvac desc)
+    (dmaGive b)
+    ; The deadline: 50 ms of the generic timer.
+    (__vstore64 flag 0)
+    (__arm_set_cntv_cval (+ __arm_cntvct (/ __arm_cntfrq 20)))
+    (__arm_set_cntv_ctl 1)
+    __arm_irq_unmask
+    ; RING: the doorbell - the descriptor's address, high half then
+    ; low; the low half's write starts the transfer.
+    (__vstore32 (+ cfgBase 16) (bswap32 (& (>> desc 32) 4294967295)))
+    (__vstore32 (+ cfgBase 20) (bswap32 (& desc 4294967295)))
+    (let ((mut state 3))
+      {
+        (while (== state 3)
+          {
+            (__arm_dc_civac desc)
+            __arm_dsb
+            (let ((ctl (bswap32 (& (__vload32 desc) 4294967295))))
+              (if (== (& ctl (- 0 2)) 0)
+                (set state (if (== (& ctl ctlError) 0)
+                  0
+                  1))
+                (if (== (__vload64 flag) 1)
+                  (set state 2)
+                  0)))
+          })
+        __arm_irq_mask
+        (__arm_set_cntv_ctl 0)
+        state
+      })
+  })
+
+; The same item a byte at a time through the data register.
+(:: pioRead (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (pioRead dst len item)
+  {
+    (__vstore16 (+ cfgBase 8) (bswap16 item))
+    (for i 0 len
+      (__store8 dst i (__vload8 cfgBase)))
+    0
+  })
+
+(:: be32At (-> DmaBuf Int Int))
+(fn (be32At b i)
+  (let (
+    (b0 (dmaByte b i))
+    (b1 (dmaByte b (+ i 1)))
+    (b2 (dmaByte b (+ i 2)))
+    (b3 (dmaByte b (+ i 3)))
+  )
+    (| (| (<< b0 24) (<< b1 16)) (| (<< b2 8) b3))))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let (
+    (len 4096)
+    (b (dmaNew 4096))
+    (desc (memAlloc 16))
+    (flag (memAlloc 16))
+    (copy (memAlloc 4096))
+  )
+    {
+      (__arm_set_tpidr flag)
+      (gicInit)
+      ; The DMA register reads back "QEMU CFG" where DMA exists.
+      (if (== (__vload64 (+ cfgBase 16)) 5135866231211771217)
+        (println "dma: the interface answers QEMU CFG")
+        (println "dma: no DMA interface here"))
+      (let ((st (dmaRead b desc flag itemFileDir)))
+        {
+          (if (== st 2)
+            (println "dma: timed out")
+            (if (== st 1)
+              (println "dma: the device reported an error")
+              (println "dma: transfer complete")))
+          (dmaTake b)
+          (pioRead copy len itemFileDir)
+          (let (
+            (files (be32At b 0))
+            (mut differ 0)
+          )
+            {
+              (for i 0 len
+                (if (== (dmaByte b i) (__load8 copy i))
+                  0
+                  (set differ (+ differ 1))))
+              (println "dma: {files} files in the directory, {differ} of {len} bytes differ from the data register's copy")
+              (if (&& (== st 0) (&& (== differ 0) (> files 0)))
+                {
+                  (println "ok")
+                  0
+                }
+                1)
+            })
+        })
+    }))

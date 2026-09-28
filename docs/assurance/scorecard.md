@@ -33,6 +33,7 @@ source.
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
 | A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns and steady-state allocation across the whole program, and bounds the stack from AArch64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 36 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
 | Device registers are reached at their own width by volatile accesses the optimiser keeps, with AArch64 barriers, and an instruction the target lacks is `AX4008` (R-D2a) | `scripts/check-embedded.sh` A11 |
+| A periodic step runs on real timer interrupts within a checked profile and a stack budget, and a DMA driver keeps a contract-checked ownership protocol with an interrupt deadline (R-D2c) | `scripts/check-embedded.sh` A13 and A14, under QEMU with drills that must go red. Emulator evidence, not hardware |
 | An unhandled CPU exception on bare metal exits 81 naming the fault, and `isr(irq)` binds the IRQ vector (R-D2b) | `scripts/check-embedded.sh` A12: `tests/embedded/fault.ax` under QEMU exits 81 with ESR `0x96000021`. Emulator evidence, not hardware |
 | The executable allocator, arena and region model agrees with the runtime (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 13 pass |
 | Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports, and accepted programs emit IR that `llc` accepts (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 31 pass, on 600 mutants from seed 20260927. All eight findings are fixed and replayed as regressions |
@@ -40,9 +41,6 @@ source.
 
 ## Open defects and gaps
 
-- R-D2c: no embedded periodic workload driven by the timer interrupt,
-  and no DMA-ownership driver ([demonstrators.md](demonstrators.md),
-  D-5 and D-6).
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
   reentrant; a channel's lock doesn't notice a dead holder; Darwin's
   clock is the realtime one; FreeBSD spins.

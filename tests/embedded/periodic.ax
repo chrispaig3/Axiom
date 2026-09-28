@@ -1,0 +1,216 @@
+; A periodic workload on `baremetal-aarch64`, driven by the virtual
+; timer's interrupt (docs/assurance/demonstrators.md D-5).
+;
+; `main` initialises once - the state block, the interrupt controller,
+; the timer - and then only waits: `wfi` until the handler has counted a
+; tick, one run of `step` per tick, twenty ticks. The handler takes the
+; interrupt from QEMU `virt`'s GICv2, records how late it ran, sets the
+; next deadline and acknowledges. Everything the two share is in one
+; block found through TPIDR_EL1, read and written with volatile accesses
+; (docs/embedded-guide.md section 5).
+;
+; The budgets are explicit and checked:
+;   * `step` and `onIrq` allocate nothing, and `step` doesn't recurse:
+;     the compiler holds their `restrict` tags, and
+;     `scripts/axiom-report.py --profile restricted` holds the whole
+;     program (RP-1, RP-5);
+;   * the stack is bounded from the machine code, under a budget
+;     (`--stack --stack-budget`);
+;   * the period is 10 ms of the generic timer; the program records the
+;     worst lateness it saw and every tick it missed.
+;
+; The program checks itself: the twenty steps it ran on the timer must
+; equal twenty steps run straight through at the end, and every tick the
+; handler counted must be a step, a counted miss, or the one that can
+; land after the last step and before interrupts are masked. It prints one
+; summary line and `ok`. The lateness is QEMU TCG's, an emulator's, and
+; says nothing about hardware.
+(import IO)
+(import Mem)
+
+; QEMU `virt`, GICv2: distributor and CPU interface.
+(:: gicd Int)
+(fn (gicd)
+  134217728)
+
+(:: gicc Int)
+(fn (gicc)
+  134283264)
+
+; The virtual timer's interrupt: PPI 11, interrupt ID 27.
+(:: timerId Int)
+(fn (timerId)
+  27)
+
+(:: ticksWanted Int)
+(fn (ticksWanted)
+  20)
+
+; The state block, words: 0 ticks counted, 1 the period in counter
+; ticks, 2 the next deadline, 3 the worst lateness, 4 interrupts that
+; were not the timer's.
+(:: stGet (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (stGet st i)
+  (__vload64 (+ st (* 8 i))))
+
+(:: stSet (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (stSet st i v)
+  (__vstore64 (+ st (* 8 i)) v))
+
+; Route the timer's interrupt to this CPU and let it through.
+(:: gicInit Int)
+;@axiom:effect(unsafe)
+(fn (gicInit)
+  {
+    (__vstore32 gicd 0)
+    ; priority 0 (highest) for interrupt 27: byte 27 of IPRIORITYR
+    (__vstore8 (+ gicd (+ 1024 timerId)) 0)
+    ; enable interrupt 27: bit 27 of ISENABLER0
+    (__vstore32 (+ gicd 256) (<< 1 timerId))
+    (__vstore32 gicd 1)
+    ; the CPU interface: every priority passes, then enabled
+    (__vstore32 (+ gicc 4) 255)
+    (__vstore32 gicc 1)
+    __arm_dsb
+    0
+  })
+
+; The interrupt handler. It runs with interrupts masked, allocates
+; nothing (`isr` implies `restrict(no-alloc)`), and returns quickly.
+;@axiom:isr(irq)
+(:: onIrq Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (onIrq)
+  (let (
+    (st __arm_tpidr)
+    (iar (__vload32 (+ gicc 12)))
+  )
+    {
+      (if (== (& iar 1023) timerId)
+        (let (
+          (late (- __arm_cntvct (stGet st 2)))
+          (next (+ (stGet st 2) (stGet st 1)))
+        )
+          {
+            (if (> late (stGet st 3))
+              (stSet st 3 late)
+              0)
+            (stSet st 2 next)
+            (__arm_set_cntv_cval next)
+            (stSet st 0 (+ (stGet st 0) 1))
+          })
+        (stSet st 4 (+ (stGet st 4) 1)))
+      (__vstore32 (+ gicc 16) iar)
+      0
+    }))
+
+; The periodic work: fold tick `k` into a 16-word filter state and
+; answer the new checksum. No allocation, no recursion, and the same
+; answer whenever it runs.
+;@axiom:restrict(no-alloc, no-recursion, strict)
+(:: step (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (step buf k)
+  (let (
+    (slot (% k 16))
+    (old (__load64 buf slot))
+  )
+    (let ((new (& (+ (* old 31) (+ (* k k) 7)) 1073741823)))
+      {
+        (__store64 buf slot new)
+        (& (+ (__load64 buf 16) new) 1073741823)
+      })))
+
+(:: runStep (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (runStep buf k)
+  (let ((sum (step buf k)))
+    {
+      (__store64 buf 16 sum)
+      sum
+    }))
+
+(:: zeroed (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (zeroed buf words)
+  {
+    (for i 0 words
+      (__store64 buf i 0))
+    buf
+  })
+
+; The same twenty steps, straight through: what the timed run must equal.
+(:: straight (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (straight buf)
+  (let ((mut sum 0))
+    {
+      (zeroed buf 17)
+      (for k 0 ticksWanted
+        (set sum (runStep buf k)))
+      sum
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let (
+    (st (zeroed (memAlloc 64) 8))
+    (buf (zeroed (memAlloc 136) 17))
+    (check (memAlloc 136))
+    (period (/ __arm_cntfrq 100))
+    (mut seen 0)
+    (mut steps 0)
+    (mut missed 0)
+    (mut sum 0)
+  )
+    {
+      (__arm_set_tpidr st)
+      (stSet st 1 period)
+      (gicInit)
+      (stSet st 2 (+ __arm_cntvct period))
+      (__arm_set_cntv_cval (stGet st 2))
+      (__arm_set_cntv_ctl 1)
+      __arm_irq_unmask
+      (while (< steps ticksWanted)
+        {
+          __arm_wfi
+          (let ((t (stGet st 0)))
+            (if (> t seen)
+              {
+                (set missed (+ missed (- t (+ seen 1))))
+                (set seen t)
+                (set sum (runStep buf steps))
+                (set steps (+ steps 1))
+              }
+              0))
+        })
+      __arm_irq_mask
+      (__arm_set_cntv_ctl 0)
+      (let (
+        (ticks (stGet st 0))
+        (worst (stGet st 3))
+        (other (stGet st 4))
+        (want (straight check))
+      )
+        {
+          (println "periodic: {steps} steps on {ticks} ticks, {missed} missed, {other} other interrupts")
+          (println "periodic: period {period} counter ticks, worst lateness {worst}")
+          ; A tick may land after the last step and before the mask:
+          ; every counted tick is a step, a miss, or that one.
+          (if (&& (== sum want) (&& (>= ticks (+ steps missed)) (<= ticks (+ steps (+ missed 1)))))
+            {
+              (println "periodic: checksum {sum} equals the straight run")
+              (println "ok")
+              0
+            }
+            {
+              (println "periodic: checksum {sum}, straight run {want} - MISMATCH")
+              1
+            })
+        })
+    }))

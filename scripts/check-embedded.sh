@@ -143,8 +143,22 @@
 #       81 with the fault's registers on the UART, `isr(irq)` wires
 #       the IRQ slot, AX4008 refuses a binding no target honours.
 #       IR-level on every host; `tests/embedded/fault.ax` under QEMU.
+#   A13 A PERIODIC WORKLOAD ON THE TIMER'S INTERRUPT.
+#       `tests/embedded/periodic.ax`: the restricted profile refuses
+#       nothing across the whole program and bounds its stack under a
+#       2 KiB budget, on every host; under QEMU, twenty steps run on
+#       twenty real timer interrupts through the GICv2 and equal the
+#       straight run. Drill: the handler's end-of-interrupt write
+#       deleted, and the guest must not finish.
+#   A14 A DRIVER WITH INTERRUPT AND DMA OWNERSHIP BOUNDARIES.
+#       `tests/embedded/dma.ax` reads fw_cfg's file directory by DMA
+#       under an explicit CPU/device ownership protocol and a timer
+#       deadline, and the DMA copy must equal the data register's.
+#       Drills: a read while the device owns the buffer must trap 80
+#       (the contract), and a transfer never started must end at the
+#       deadline, not hang.
 #
-# SKIPS. A12-A15's QEMU legs print SKIP, count as skipped and never as
+# SKIPS. A12-A14's QEMU legs print SKIP, count as skipped and never as
 # ok, and the summary says how many. CI runners have no QEMU, so there
 # they skip - which is said, not passed.
 #
@@ -1678,6 +1692,164 @@ if qemu_or_skip "A12 fault under QEMU"; then
   (( prob )) || note "an alignment fault exits 81 naming vector 0x200, ESR 0x96000021, the faulting PC and the odd address (QEMU TCG)"
 fi
 
+# ---------------------------------------------------------------------
+echo "== A13. a periodic workload on the timer's interrupt, within its budgets =="
+# ---------------------------------------------------------------------
+# docs/assurance/demonstrators.md D-5. `main` initialises once and then
+# only waits; the virtual timer's interrupt, routed through QEMU virt's
+# GICv2 to the `isr(irq)` handler, counts ticks and re-arms; one run of a
+# `restrict(no-alloc, no-recursion, strict)` step per tick. The program
+# checks itself (the timed steps equal the same steps run straight
+# through, and every counted tick is a step, a miss, or the one that
+# lands after the last step) and ends `ok`.
+#
+# Compile-level half, every host: `scripts/axiom-report.py` under the
+# restricted profile refuses nothing across the whole program - the
+# handler and the step are steady roots, so an allocation reachable from
+# either is RP-5 - and the stack bound read from the machine code fits
+# a 2 KiB budget. QEMU half: the boot, and a drill.
+#
+# Drill (a copy of the PROGRAM, not the compiler): the handler's
+# end-of-interrupt write deleted. The GICv2 then keeps the timer's
+# interrupt active and never delivers it again, so the guest waits in
+# `wfi` for ever; it must not finish, which is what shows the boot above
+# rode on the interrupt and not on a loop that would end anyway.
+periodic="$repo_root/tests/embedded/periodic.ax"
+[[ -f "$periodic" ]] || abort "$periodic is gone; A13 has no workload."
+checks=$((checks + 1))
+prob=0
+if ! AXIOM="$axc" python3 "$repo_root/scripts/axiom-report.py" --axiom "$axc" --profile restricted \
+      --target "$bm" --stack --stack-budget 2048 "$periodic" > "$work/periodic.report" 2>&1; then
+  bad "the restricted profile refuses periodic.ax, or cannot bound its stack under 2 KiB:"
+  tail -8 "$work/periodic.report" | sed 's/^/       /'; prob=1
+elif ! grep -q '^verdict: no refusal$' "$work/periodic.report"; then
+  bad "the report on periodic.ax ends without its verdict line:"; tail -4 "$work/periodic.report" | sed 's/^/       /'; prob=1
+fi
+(( prob )) || note "periodic.ax: the restricted profile refuses nothing; stack $(grep -o '_start: [0-9]* bytes' "$work/periodic.report" | head -1), the handler's own $(grep -o 'onIrq: [0-9]* bytes' "$work/periodic.report" | head -1 | sed 's/onIrq: //'), under a 2 KiB budget"
+if qemu_or_skip "A13 periodic under QEMU"; then
+  checks=$((checks + 1))
+  prob=0
+  if ! build_bm periodic.bm "$periodic" --target="$bm"; then
+    bad "periodic.ax does not build for $bm:"; sed 's/^/       /' "$work/periodic.bm.build.log" | head -6; prob=1
+  else
+    st="$(qemu_boot "$work/periodic.bm" "$work/periodic.uart" "$work/periodic.qemu.err" virt,gic-version=2)"
+    echo "     periodic: exit $st"
+    sed 's/^/     | /' "$work/periodic.uart" | head -4
+    [[ "$st" == 0 ]] || { bad "periodic exits [$st], not 0"; prob=1; }
+    grep -qE '^periodic: 20 steps on [0-9]+ ticks, [0-9]+ missed, 0 other interrupts$' "$work/periodic.uart" \
+      || { bad "periodic's first line is not twenty steps with no stray interrupt"; prob=1; }
+    grep -qE '^periodic: checksum [0-9]+ equals the straight run$' "$work/periodic.uart" \
+      || { bad "periodic's timed steps did not equal the straight run"; prob=1; }
+    [[ "$(tail -1 "$work/periodic.uart")" == ok ]] || { bad "periodic did not end ok"; prob=1; }
+  fi
+  (( prob )) || note "twenty steps on twenty-odd real timer interrupts through the GICv2, equal to the straight run (QEMU TCG: the lateness it prints is the emulator's)"
+  checks=$((checks + 1))
+  if python3 - "$periodic" "$work/periodic-noeoi.ax" <<'PY'
+import sys
+s = open(sys.argv[1], encoding="utf-8").read()
+old = "      (__vstore32 (+ gicc 16) iar)\n      0"
+if s.count(old) != 1:
+    sys.exit("the end-of-interrupt write is not in periodic.ax as the drill expects")
+open(sys.argv[2], "w", encoding="utf-8").write(s.replace(old, "      0"))
+PY
+  then
+    if build_bm periodic-noeoi.bm "$work/periodic-noeoi.ax" --target="$bm"; then
+      st="$(qemu_boot "$work/periodic-noeoi.bm" "$work/periodic-noeoi.uart" "$work/periodic-noeoi.qemu.err" virt,gic-version=2 20)"
+      if [[ "$st" == TIMEOUT ]] && ! grep -qx ok "$work/periodic-noeoi.uart"; then
+        note "drill: with the end-of-interrupt write deleted the timer is never delivered again and the guest does not finish"
+      else
+        bad "drill: without the end-of-interrupt write the guest still answered [$st] - the boot above cannot show the interrupt did the work"
+      fi
+    else
+      bad "drill: the copy without the end-of-interrupt write does not build"; sed 's/^/       /' "$work/periodic-noeoi.bm.build.log" | head -4
+    fi
+  else
+    bad "drill: the seam is gone from periodic.ax, so the drill proves nothing"
+  fi
+fi
+
+# ---------------------------------------------------------------------
+echo "== A14. a driver with interrupt and DMA ownership boundaries =="
+# ---------------------------------------------------------------------
+# docs/assurance/demonstrators.md D-6. QEMU virt's fw_cfg has a DMA
+# engine: it reads a descriptor from guest memory and writes the item
+# into a guest buffer. `tests/embedded/dma.ax` reads the file directory
+# that way under a CPU/device ownership protocol whose every step is a
+# contract checked on every call (give: clean, DSB, device owns; take:
+# DSB, invalidate, DSB, CPU owns; a CPU read only while the CPU owns
+# it), with the virtual timer's interrupt as the completion deadline,
+# then reads the same directory a byte at a time through the data
+# register. The two copies must be equal, and the directory non-empty:
+# the DMA really wrote the buffer.
+#
+# Two drills, each a copy of the PROGRAM:
+#   misuse  `dmaTake` deleted, so the driver reads the buffer while the
+#           device owns it: the contract must stop it, status 80;
+#   silent  the doorbell deleted, so the transfer never starts: the
+#           timer's interrupt must end the wait, `dma: timed out`, and
+#           the program answers 1 rather than hanging.
+# With the MMU off the data cache is off (docs/embedded-guide.md section
+# 6), so the cache maintenance is exercised for ordering only, and TCG
+# models no reordering a missing barrier would expose: deleting a DSB
+# cannot turn this red here, and no drill claims it does.
+dmaprog="$repo_root/tests/embedded/dma.ax"
+[[ -f "$dmaprog" ]] || abort "$dmaprog is gone; A14 has no driver."
+if qemu_or_skip "A14 DMA driver under QEMU"; then
+  checks=$((checks + 1))
+  prob=0
+  if ! build_bm dma.bm "$dmaprog" --target="$bm"; then
+    bad "dma.ax does not build for $bm:"; sed 's/^/       /' "$work/dma.bm.build.log" | head -6; prob=1
+  else
+    st="$(qemu_boot "$work/dma.bm" "$work/dma.uart" "$work/dma.qemu.err" virt,gic-version=2)"
+    echo "     dma: exit $st"
+    sed 's/^/     | /' "$work/dma.uart" | head -4
+    [[ "$st" == 0 ]] || { bad "dma exits [$st], not 0"; prob=1; }
+    grep -qx 'dma: the interface answers QEMU CFG' "$work/dma.uart" || { bad "fw_cfg's DMA signature was not read"; prob=1; }
+    grep -qx 'dma: transfer complete' "$work/dma.uart" || { bad "the transfer did not complete"; prob=1; }
+    grep -qE '^dma: [1-9][0-9]* files in the directory, 0 of 4096 bytes differ from the data register.s copy$' "$work/dma.uart" \
+      || { bad "the DMA copy is empty or differs from the data register's"; prob=1; }
+    [[ "$(tail -1 "$work/dma.uart")" == ok ]] || { bad "dma did not end ok"; prob=1; }
+  fi
+  (( prob )) || note "fw_cfg's directory by DMA under the ownership protocol, byte-equal to the data register's copy (QEMU TCG)"
+  for drill in misuse silent; do
+    checks=$((checks + 1))
+    if ! python3 - "$dmaprog" "$work/dma-$drill.ax" "$drill" <<'PY'
+import sys
+src, dst, drill = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(src, encoding="utf-8").read()
+if drill == "misuse":
+    old, new = "          (dmaTake b)\n          (pioRead copy len itemFileDir)", "          (pioRead copy len itemFileDir)"
+else:
+    old = ("    (__vstore32 (+ cfgBase 16) (bswap32 (& (>> desc 32) 4294967295)))\n"
+           "    (__vstore32 (+ cfgBase 20) (bswap32 (& desc 4294967295)))")
+    new = "    0"
+if s.count(old) != 1:
+    sys.exit("the %s seam is not in dma.ax as the drill expects" % drill)
+open(dst, "w", encoding="utf-8").write(s.replace(old, new))
+PY
+    then
+      bad "drill $drill: its seam is gone from dma.ax, so it proves nothing"; continue
+    fi
+    if ! build_bm "dma-$drill.bm" "$work/dma-$drill.ax" --target="$bm"; then
+      bad "drill $drill: the copy does not build"; sed 's/^/       /' "$work/dma-$drill.bm.build.log" | head -4; continue
+    fi
+    st="$(qemu_boot "$work/dma-$drill.bm" "$work/dma-$drill.uart" "$work/dma-$drill.qemu.err" virt,gic-version=2 30)"
+    if [[ "$drill" == misuse ]]; then
+      if [[ "$st" == 80 ]] && grep -q 'precondition failed in `dmaByte`' "$work/dma-$drill.uart"; then
+        note "drill misuse: a CPU read while the device owns the buffer is stopped by its contract (80)"
+      else
+        bad "drill misuse: a read of a device-owned buffer answered [$st] - the ownership contract did not stop it"
+      fi
+    else
+      if [[ "$st" == 1 ]] && grep -qx 'dma: timed out' "$work/dma-$drill.uart"; then
+        note "drill silent: a transfer that never starts ends at the timer interrupt's deadline, not in a hang"
+      else
+        bad "drill silent: a transfer never started answered [$st] - the deadline did not end the wait"
+      fi
+    fi
+  done
+fi
+
 echo
 if (( skipped > 0 )); then
   echo "check-embedded: $skipped QEMU leg(s) SKIPPED - booted nothing, proved nothing, and are not counted below"
@@ -1692,4 +1864,6 @@ echo "                per target - and where the bare-metal port and QEMU are bo
 echo "                present, blink boots under QEMU with its UART bytes, its exit"
 echo "                status and the oversized 70 asserted; the device primitives"
 echo "                lower to volatile accesses at their widths and to their"
-echo "                AArch64 instructions, and AX4008 refuses what a target lacks"
+echo "                AArch64 instructions, and AX4008 refuses what a target lacks;"
+echo "                a periodic step runs on the timer's interrupt within its"
+echo "                budgets, and a DMA driver keeps its ownership protocol"

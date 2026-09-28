@@ -14,10 +14,8 @@
 ; table existed the same program spun until the gate's timeout killed
 ; it: a fault was a hang, and nothing said which instruction.
 ;
-; The raw primitive, and not `Mmio.mmioReg`, on purpose: a handle
-; refuses a misaligned address when it is made (status 80, a contract),
-; which is the point of the typed layer; this probe is about what the
-; CPU does when nothing refused it first.
+; The raw primitive: this probe is about what the CPU does when nothing
+; refused the access first.
 (import IO)
 (import Mem)
 

@@ -64,7 +64,7 @@ Nothing here is legal or certification advice.
 | Configuration management, change impact and anomaly tracking | [support-policy.md](support-policy.md) and [anomalies.md](anomalies.md) |
 | Known limitations, errata and a user safety manual | [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), and the Gaps column of [requirements.md](requirements.md) |
 | Support, vulnerability-response and regression policy | [support-policy.md](support-policy.md) and [SECURITY.md](../../SECURITY.md) |
-| Demonstrators | [demonstrators.md](demonstrators.md): four of six built and gated |
+| Demonstrators | [demonstrators.md](demonstrators.md): all six built and gated, the two embedded ones under QEMU |
 
 ## 4. AI-assisted work is not independent assessment
 
@@ -85,11 +85,11 @@ approved, and no document here says it is.
 
 In dependency order:
 
-1. The periodic and DMA demonstrators of R-D2c, under QEMU.
-2. Sanitizer and race-detector runs on the hosted configurations, and
+1. Sanitizer and race-detector runs on the hosted configurations, and
    a scheduled `--long` fuzzing run.
-3. Hardware execution on a named board, recorded apart from QEMU runs.
-4. Frozen toolchain versions for one reference configuration.
-5. Only then, a per-standard tool-qualification argument over that
+2. Hardware execution on a named board, recorded apart from QEMU runs,
+   with the MMU and caches on.
+3. Frozen toolchain versions for one reference configuration.
+4. Only then, a per-standard tool-qualification argument over that
    frozen configuration, written against the licensed standards and
    reviewed independently.

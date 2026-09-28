@@ -211,6 +211,12 @@ main-loop side and with IRQs masked around any multi-word read that
 must be consistent. The handler takes no arguments and finds its state
 through `TPIDR_EL1` (`__arm_tpidr`), set before interrupts are unmasked.
 
+Two complete examples run under QEMU. `tests/embedded/periodic.ax`
+sets up the GICv2 and the virtual timer, re-arms the timer from its
+handler, and runs a restricted step once per tick.
+`tests/embedded/dma.ax` moves a buffer between the CPU and a DMA engine
+under contract-checked ownership, with the timer as a deadline.
+
 ## 6. MMU, MPU and caches
 
 The port runs with the **MMU off**, and says so rather than implying
@@ -243,6 +249,8 @@ is not in this port.
 | blink and its out-of-memory twin | QEMU `virt` (TCG) | A10 |
 | the vector table's shape, `_start`'s writes, `+strict-align`, the IRQ entry and dispatch, AX4008 on bindings | compile-only, every host | A12 |
 | an alignment fault exiting 81 with its registers | QEMU `virt` (TCG) | A12 |
+| a periodic step on the virtual timer's interrupt through the GICv2, the restricted profile and a stack budget | QEMU `virt` (TCG); the profile and the bound compile-time | A13 |
+| `fw_cfg` DMA under an ownership protocol, a contract stopping a device-owned read, a timer deadline | QEMU `virt` (TCG) | A14 |
 | anything on hardware | **nothing** | - |
 
 Where `qemu-system-aarch64` is not on PATH - every CI runner today -

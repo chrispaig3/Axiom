@@ -444,6 +444,7 @@ spanStart self_host/core.ax no-io,no-alloc,no-foreign ok
 srcIxChars self_host/diag.ax no-io,no-alloc,no-foreign ok
 srcIxStarts self_host/diag.ax no-io,no-alloc,no-foreign ok
 srcLineIndex self_host/diag.ax no-io,no-foreign ok
+step tests/embedded/periodic.ax no-alloc,no-recursion,strict ok
 step tests/profile/ok-periodic.ax no-alloc,no-recursion,strict ok
 stepCharToken self_host/lexer.ax no-io,no-foreign ok
 stepIdentToken self_host/lexer.ax no-io,no-foreign ok
