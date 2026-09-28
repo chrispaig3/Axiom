@@ -293,6 +293,7 @@
     (axsymParseFrom lines 0 vecNew)))
 
 (pub :: axsymParseFrom (-> (Vec Int) Int (Vec Sym) (Vec Sym)))
+;@axiom:effect(unsafe)
 (pub fn (axsymParseFrom lines i out)
   (if (>= i (vecLen lines))
     out

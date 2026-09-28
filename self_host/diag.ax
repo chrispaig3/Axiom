@@ -175,17 +175,15 @@
 ; constructor application contributed nothing to the effect row
 ; (`MM-EXEC-9a`); `no-io` and `no-foreign` are unchanged.
 ;@axiom:restrict(no-io,no-foreign)
-(pub :: mkDiagBase (-> Int String String Int String Int))
-(pub fn (mkDiagBase sev code slug span msg)
-  ; The absent label is the 0 sentinel, spelled with the cast the
-  ; optional-string convention uses (MM-ALLOC-20).
+(pub :: mkDiagBase (-> Int String String Int String String Int))
+(pub fn (mkDiagBase sev code slug span msg label)
   (Diag
     sev
     code
     slug
     span
     msg
-    (cast String 0)
+    label
     0
     0
     0
@@ -197,36 +195,43 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSev (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagSev d)
   (memGetWord d 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagCode (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagCode d)
   (memGetWordStr d 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSlug (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagSlug d)
   (memGetWordStr d 2))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSpan (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagSpan d)
   (memGetWord d 3))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagMsg (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagMsg d)
   (memGetWordStr d 4))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagLabel (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagLabel d)
   (memGetWordStr d 5))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagUnit (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagUnit d)
   (memGetWord d 6))
 
@@ -234,6 +239,7 @@
 ; without the site having to name a local.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSetLabel (-> Int String Int))
+;@axiom:effect(unsafe)
 (pub fn (diagSetLabel d s)
   {
     (memSetWord d 5 s)
@@ -242,6 +248,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSetUnit (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagSetUnit d u)
   (memSetWord d 6 u))
 
@@ -249,6 +256,7 @@
 ; was never touched and when its vector is empty.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagCountAt (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagCountAt d w)
   (let ((v (memGetWordVec d w)))
     (if (==
@@ -260,6 +268,7 @@
 ; The slot's vector, allocating it on first use.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: diagVecAt (-> Int Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (diagVecAt d w)
   (let ((v (memGetWordVec d w)))
     (if (==
@@ -279,11 +288,13 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecSpan (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagSecSpan d i)
   (memGetWord (vecGet (memGetWordVec d 7) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecMsg (-> Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagSecMsg d i)
   (memGetWordStr (vecGet (memGetWordVec d 7) i) 1))
 
@@ -293,6 +304,7 @@
 ; also depends on whether there is a unit table to resolve it against.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagSecUnit (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagSecUnit d i)
   (memGetWord (vecGet (memGetWordVec d 7) i) 2))
 
@@ -342,6 +354,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagNote (-> Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagNote d i)
   (vecGetStr (memGetWordVec d 8) i))
 
@@ -352,16 +365,19 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpMsg (-> Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagHelpMsg d i)
   (memGetWordStr (vecGet (memGetWordVec d 9) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpFixSpan (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagHelpFixSpan d i)
   (memGetWord (vecGet (memGetWordVec d 9) i) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagHelpFixText (-> Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagHelpFixText d i)
   (memGetWordStr (vecGet (memGetWordVec d 9) i) 2))
 
@@ -372,16 +388,19 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceName (-> Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (diagTraceName d i)
   (memGetWordStr (vecGet (memGetWordVec d 10) i) 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceSpan (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagTraceSpan d i)
   (memGetWord (vecGet (memGetWordVec d 10) i) 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagTraceUnit (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagTraceUnit d i)
   (memGetWord (vecGet (memGetWordVec d 10) i) 2))
 
@@ -427,6 +446,7 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: diagAddHelp (-> Int String Int))
+;@axiom:effect(unsafe)
 (pub fn (diagAddHelp d s)
   {
     (vecPush
@@ -462,6 +482,7 @@
 ; call.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: diagDisarmFixes (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (diagDisarmFixes d)
   (let ((hs (memGetWordVec d 9)))
     (if (==
@@ -543,6 +564,7 @@
 ; one sentence.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkDiagNote (-> Int String String Int String Int a b c Int))
+;@axiom:effect(unsafe)
 (pub fn (mkDiagNote sev code slug span msg relSpan relMsg help note)
   (diagAddNote
     (mkDiag
@@ -558,17 +580,25 @@
 
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkDiagFix2 (-> Int String String Int String Int a b Int c d Int))
+;@axiom:effect(unsafe)
 (pub fn (mkDiagFix2 sev code slug span msg relSpan relMsg help fixSpan fixText help2)
   ; The optional strings arrive as TYPE VARIABLES - `0` means
   ; absent, so the position genuinely carries both, and the cast
   ; at consumption is the boundary marker MM-ALLOC-20's
   ; convention asks for.
+  ; The absent label is the 0 sentinel, spelled with the cast the
+  ; optional-string convention uses (MM-ALLOC-20). It is a null
+  ; `String` - a forging cast (R-B6) - and it is made here, beside the
+  ; convention's other casts, rather than in `mkDiagBase`: a header
+  ; whose only work is one construction has no unsafe operation of its
+  ; own to declare.
   (let ((d (mkDiagBase
     sev
     code
     slug
     span
-    msg)))
+    msg
+    (cast String 0))))
     {
       (if (== relSpan 0)
         0
@@ -714,23 +744,27 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: srcIxStarts (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (srcIxStarts x)
   (memGetWord x 0))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: srcIxStartsVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (srcIxStartsVec x)
   (cast (Vec a) (srcIxStarts x)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: srcIxChars (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (srcIxChars x)
   (memGetWord x 1))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: srcIxCharsVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (srcIxCharsVec x)
   (cast (Vec a) (srcIxChars x)))
 
@@ -743,6 +777,7 @@
 ; than here.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: srcLineIndex (-> String Int))
+;@axiom:effect(unsafe)
 (pub fn (srcLineIndex src)
   (let (
     (starts vecNew)
@@ -837,6 +872,7 @@
 ; renders against a DIFFERENT source than the diagnostic's own.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: unitIndexes (-> (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (unitIndexes units)
   (let (
     (out vecNew)
@@ -992,6 +1028,7 @@
 ; the same about its own loop).
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: quoteBody (-> String Int String String))
+;@axiom:effect(unsafe)
 (pub fn (quoteBody s i acc)
   ; Start of the current escape-free run of bytes.
   (let (
@@ -1093,6 +1130,7 @@
 ; `renderDiagIx` and builds one index for the whole run instead.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: renderDiag (-> Int String String (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (renderDiag d src file units)
   (renderDiagIx
     d
@@ -1111,6 +1149,7 @@
 ; when `units` is, on the single-unit path.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: renderDiagIx (-> Int String String (Vec Int) Int (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (renderDiagIx d src file units ix ixs)
   (let ((parts vecNew))
     {
@@ -1269,6 +1308,7 @@
 ; names the one its spans index.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: renderDiagsUnits (-> (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (renderDiagsUnits ds units)
   ; A linear join rather than the old recursive strConcat fold, whose
   ; peak was measured at 829 MiB RSS for a 2000-diagnostic file - the
@@ -1315,6 +1355,7 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: catStrs (-> (Vec String) String))
+;@axiom:effect(unsafe)
 (pub fn (catStrs v)
   (let (
     (n (vecLen v))
@@ -1355,6 +1396,7 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: orderDiags (-> (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (orderDiags ds)
   (let (
     (out vecNew)

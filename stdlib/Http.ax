@@ -245,6 +245,7 @@
 ; Move the live region to the front, then double the buffer if it is
 ; still full and the ceiling allows. Answers nothing useful.
 (:: httpGrow (-> HttpReader Int))
+;@axiom:effect(unsafe)
 (fn (httpGrow r)
   {
     (if (> r.consumed 0)
@@ -381,6 +382,7 @@
 
 ; The index of header `name` (lowercased on both sides), or -1.
 (:: httpHeaderIndex (-> HttpReq String Int))
+;@axiom:effect(unsafe)
 (fn (httpHeaderIndex r name)
   (region tmp
     (let (
@@ -407,6 +409,7 @@
 ; `dflt` when the request did not carry it. A header sent twice
 ; answers its first value.
 (pub :: httpHeader (-> HttpReq String String String))
+;@axiom:effect(unsafe)
 (pub fn (httpHeader r name dflt)
   (let ((i (httpHeaderIndex r name)))
     (if (< i 0)
@@ -617,6 +620,7 @@
 
 ; Every value of header `name` (lowercased on both sides), in order.
 (:: httpHeaderAll (-> HttpReq String (Vec String)))
+;@axiom:effect(unsafe)
 (fn (httpHeaderAll r name)
   (let (
     (want (strLower name))
@@ -673,6 +677,7 @@
 ; `1*DIGIT` and is refused before any integer is parsed; so is an empty
 ; element (`3,`). Answers the digits, or the refusal's message.
 (:: httpContentLength (-> (Vec String) (Result String String)))
+;@axiom:effect(unsafe)
 (fn (httpContentLength vals)
   (let (
     (mut i 0)
@@ -905,6 +910,7 @@
 ; request with its body, or the refusal when the peer closed first.
 (:: httpReadBody (-> HttpReader HttpReq Int (Result HttpReq Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (httpReadBody r req n)
   (let (
     (body (strAlloc n))
@@ -1061,6 +1067,7 @@
 ; one copy per piece, `Json.ax`'s `jsonJoin`.
 ;@axiom:restrict(no-io,no-foreign)
 (:: httpJoin (-> (Vec String) String))
+;@axiom:effect(unsafe)
 (fn (httpJoin pieces)
   (let ((mut total 0))
     {
@@ -1337,6 +1344,7 @@
 
 ; The index of the exact route for `method` and `path`, or -1.
 (:: routeFind (-> HttpRouter String String Int))
+;@axiom:effect(unsafe)
 (fn (routeFind rt method path)
   (let (
     (n (vecLen rt.paths))
@@ -1360,6 +1368,7 @@
 ; Whether any route, whatever its method, is at exactly `path` - the
 ; 405 question.
 (:: routeHasPath (-> HttpRouter String Bool))
+;@axiom:effect(unsafe)
 (fn (routeHasPath rt path)
   (let (
     (n (vecLen rt.paths))
@@ -1382,6 +1391,7 @@
 
 ; The index of the static prefix `path` starts with, or -1.
 (:: routeFindStatic (-> HttpRouter String Int))
+;@axiom:effect(unsafe)
 (fn (routeFindStatic rt path)
   (let (
     (n (vecLen rt.prefixes))
@@ -1409,6 +1419,7 @@
 ; the handler answered.
 (pub :: routeDispatch (-> HttpRouter Int HttpReq Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (routeDispatch rt fd req)
   (if (httpPathSafe req.path)
     (let ((i (routeFind rt req.method req.path)))

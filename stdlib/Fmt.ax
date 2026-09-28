@@ -147,6 +147,7 @@
 ; `s` padded on the left with spaces to at least `width` bytes.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadLeft (-> String Int String))
+;@axiom:effect(unsafe)
 (pub fn (fmtPadLeft s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -161,6 +162,7 @@
 ; `s` padded on the right with spaces to at least `width` bytes.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadRight (-> String Int String))
+;@axiom:effect(unsafe)
 (pub fn (fmtPadRight s width)
   (let ((len (strLen s)))
     (if (>= len width)
@@ -177,6 +179,7 @@
 ; column of centred labels line up with a left-aligned header.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: fmtPadCenter (-> String Int String))
+;@axiom:effect(unsafe)
 (pub fn (fmtPadCenter s width)
   (let ((len (strLen s)))
     (if (>= len width)

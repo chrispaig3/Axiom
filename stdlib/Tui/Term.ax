@@ -188,6 +188,7 @@
 ; ------------------------------------------------------------------
 (pub :: keyInFill (-> KeyIn Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (keyInFill kin timeoutMs)
   {
     (if (> kin.pos 0)
@@ -302,6 +303,7 @@
 ; delivered.
 (pub :: termReadSize (-> KeyIn Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (termReadSize kin)
   (if (< (sysTermSize 1 kin.ws) 0)
     {
@@ -318,6 +320,7 @@
 ; VALUE and not only on the return code.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: termWsCols (-> KeyIn Int))
+;@axiom:effect(unsafe)
 (pub fn (termWsCols kin)
   (if (< (sysTermCols kin.ws) 2)
     80
@@ -325,6 +328,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: termWsRows (-> KeyIn Int))
+;@axiom:effect(unsafe)
 (pub fn (termWsRows kin)
   (if (< (sysTermRows kin.ws) 2)
     24

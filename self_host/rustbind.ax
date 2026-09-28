@@ -76,6 +76,7 @@
 ; "may another module name it", which is 1 for everything in the
 ; entry file (codegen.ax, `resolveDeclsPhase`).
 (pub :: rbPubNames (-> (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (rbPubNames decls)
   (let (
     (out vecNew)
@@ -96,6 +97,7 @@
     }))
 
 (pub :: rbNamed (-> (Vec Int) String Bool))
+;@axiom:effect(unsafe)
 (pub fn (rbNamed names n)
   (let (
     (mut i 0)
@@ -275,6 +277,7 @@
 ; 3-slot Vec: [name, Vec of field types (instantiated), Vec of field
 ; names or 0]. `Option`, `Result` and the entry's declarations.
 (pub :: rbCtorsOf (-> (Vec Int) Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (rbCtorsOf decls t)
   (let (
     (n (nodeAName t))
@@ -359,6 +362,7 @@
     }))
 
 (pub :: rbCtor (-> String (Vec Int) (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (rbCtor name tys names)
   (let ((v vecNew))
     {
@@ -371,6 +375,7 @@
     }))
 
 (pub :: rbCtorName (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (rbCtorName c)
   (cast String (vecGet c 0)))
 
@@ -435,6 +440,7 @@
     }))
 
 (pub :: rbIndexOfName (-> (Vec Int) String Int))
+;@axiom:effect(unsafe)
 (pub fn (rbIndexOfName names n)
   (if (==
     (cast Int names)
@@ -554,6 +560,7 @@
 ; so every `pub fn` mentioning the type becomes a `//` note instead of
 ; a wrapper.
 (pub :: rbTypeNamesSpellable (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rbTypeNamesSpellable decls t)
   (if (rbIsRustIdent (nodeAName t))
     (let (
@@ -603,6 +610,7 @@
 ; identifier, or "" when every one of them is. A binder name is never
 ; empty, so "" is unambiguous.
 (pub :: rbFirstUnspellable (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (rbFirstUnspellable names)
   (let (
     (mut i 0)
@@ -786,6 +794,7 @@
     }))
 
 (pub :: rbShimsFor (-> (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (rbShimsFor decls t)
   ; the tag
   (let (
@@ -886,6 +895,7 @@
 ; failure here is a compiler bug and says so.
 (pub :: rbAppendShims (-> (Vec Int) (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (rbAppendShims decls pubNames)
   (let ((src (rbShimSource decls pubNames)))
     (let ((toks (lex src)))
@@ -1035,6 +1045,7 @@
     (strConcat "// Not bound - call these through the archive by hand, or change the type:\n" (rbJoin notes))))
 
 (pub :: rbJoin (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (rbJoin v)
   (let (
     (mut out "")
@@ -1480,6 +1491,7 @@
             }))))))
 
 (pub :: rbFieldName (-> (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (rbFieldName c k)
   (let ((names (rbCtorNames c)))
     (if (||
@@ -1714,6 +1726,7 @@
       (strConcat rels (strConcat (rbResultExpr res rty) "}\n\n")))))))
 
 (pub :: rbSigLine (-> (Vec Int) (Vec Int) (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (rbSigLine decls params names i)
   (if (>= i (vecLen params))
     ""
@@ -1731,6 +1744,7 @@
 ; A `&str` argument becomes an `AxString` for the call's duration; a
 ; data argument becomes an owned word released after it.
 (pub :: rbArgLets (-> (Vec Int) (Vec Int) (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (rbArgLets decls params names i)
   (if (>= i (vecLen params))
     ""
@@ -1758,6 +1772,7 @@
       (rbArgRels decls params (+ i 1)))))
 
 (pub :: rbArgList (-> (Vec Int) (Vec Int) (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (rbArgList decls params names i)
   (if (>= i (vecLen params))
     ""

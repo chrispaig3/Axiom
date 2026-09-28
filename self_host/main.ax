@@ -153,6 +153,7 @@
 ; not a silent short file.
 (pub :: symbolsAxirReadBack (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (symbolsAxirReadBack src)
   (if (axirLooksLikeFile src)
     (let (
@@ -381,6 +382,7 @@
         }))))
 
 (pub :: strInVecStr (-> (Vec String) String Int Bool))
+;@axiom:effect(unsafe)
 (pub fn (strInVecStr v s i)
   (if (>= i (vecLen v))
     false
@@ -405,6 +407,7 @@
 ; has a second thing to try.
 (pub :: compileFile (-> String String Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (compileFile fileName tname doEmit needMain)
   ; `--crate DIR` first: a stale or missing binding module is
   ; regenerated and a missing archive built, before the module
@@ -996,6 +999,7 @@
 ; entry into - one allocation per test, never freed, in a process that
 ; is about to exec or exit.
 (pub :: testMkRec (-> String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (testMkRec name xfail)
   (let ((v (memAlloc (* 2 8))))
     {
@@ -1091,6 +1095,7 @@
 ; the generated program was emitting the hole syntax instead of
 ; interpolating it.
 (pub :: testCallLines (-> (Vec Int) Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (testCallLines names hasSetup hasTeardown)
   (let (
     (n (vecLen names))
@@ -1154,6 +1159,7 @@
 ; pointer, failed, and `test` exited 4 with nothing on either stream.
 ; `runArgv` beside it has the shape this must have.
 (pub :: testArgv (-> String Int))
+;@axiom:effect(unsafe)
 (pub fn (testArgv name)
   (let ((v (memAlloc (* 2 8))))
     {
@@ -1175,6 +1181,7 @@
 ; fails.
 (pub :: testRunFile (-> String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (testRunFile file filter)
   (let (
     (src (sysReadFile (strData file)))
@@ -1262,6 +1269,7 @@
 ; name rather than compiled as tests of their own.
 (pub :: testFilesIn (-> String (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (testFilesIn dir)
   (let (
     (entries (listDir dir))
@@ -1291,6 +1299,7 @@
 ; directory.
 (pub :: testMain Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (testMain)
   (let (
     (target (positionalFrom operandStart))
@@ -1478,6 +1487,7 @@
 ; checkout and which names the process that owned it.
 (pub :: fetchUrls (-> (Vec Int) String Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (fetchUrls urls base i)
   (if (>= i (vecLen urls))
     (if (== i 0)
@@ -1599,6 +1609,7 @@
 
 (pub :: runSubcommand (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (runSubcommand cmd)
   (if (|| (strEq cmd "help") (|| (strEq cmd "--help") (strEq cmd "-h")))
     ; `axiom help build` answers for `build`. The operand used to be
@@ -2097,6 +2108,7 @@
 ; that way is passed through untouched, which is what the heading and
 ; any future blank line are.
 (pub :: explainListColored String)
+;@axiom:effect(unsafe)
 (pub fn (explainListColored)
   (let (
     (n (strLen explainListText))
@@ -2318,6 +2330,7 @@
 ; otherwise be ambiguous can be forced across with `--`.
 (pub :: runArgv (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (runArgv name)
   ; In manifest mode the operands after `--` are PROGRAM arguments -
   ; `runInputOperand` read the first of them as nothing, so starting
@@ -2348,6 +2361,7 @@
 ; marker, not an argument the program asked for.
 (pub :: fillRunArgv (-> Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (fillRunArgv v from to slot)
   (if (>= from to)
     {

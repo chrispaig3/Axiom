@@ -170,6 +170,7 @@
 
 ; The value of the first `key` line in `text`, or "".
 (pub :: pkgValue (-> String String String))
+;@axiom:effect(unsafe)
 (pub fn (pkgValue text key)
   (let (
     (lines (strSplit text 10))
@@ -197,6 +198,7 @@
 
 ; Every value of `key`, in file order.
 (pub :: pkgValues (-> String String (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (pkgValues text key)
   (let (
     (lines (strSplit text 10))
@@ -351,6 +353,7 @@
 ; read from, and `pkgVerify` refuses the latter with the clone that
 ; fills it when it is not there.
 (pub :: pkgDirsIn (-> String String String (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (pkgDirsIn text base key)
   (let ((raw (pkgValues text key)))
     (let (
@@ -377,6 +380,7 @@
 
 ; `DIR/axiom/` for each directory in `dirs`.
 (pub :: pkgAxiomSub (-> (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (pkgAxiomSub dirs)
   (let (
     (out vecNew)
@@ -841,6 +845,7 @@
 ; checkout that is not there at all, so each one here exists.
 (pub :: pkgCheckOrigins (-> (Vec Int) String String Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgCheckOrigins urls base mf i)
   (if (>= i (vecLen urls))
     0
@@ -860,6 +865,7 @@
   (pkgFetchUrlsFrom (pkgValues text "depend") 0 vecNew))
 
 (pub :: pkgFetchUrlsFrom (-> (Vec Int) Int (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (pkgFetchUrlsFrom vs i out)
   (if (>= i (vecLen vs))
     out
@@ -881,6 +887,7 @@
   (pkgUrlHintVals (pkgValues text "depend") base dir 0))
 
 (pub :: pkgUrlHintVals (-> (Vec Int) String String Int String))
+;@axiom:effect(unsafe)
 (pub fn (pkgUrlHintVals vs base dir i)
   (if (>= i (vecLen vs))
     ""
@@ -1020,6 +1027,7 @@
 ;   5. An `opt` that is not one of `0`, `1`, `2`, `3`.
 (pub :: pkgCheckLines (-> String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgCheckLines text mf)
   (let (
     (lines (strSplit text 10))
@@ -1118,6 +1126,7 @@
 ; Answers 0, so a caller can bind it. Every failure exits.
 (pub :: pkgVerify (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgVerify entryDir)
   (let ((mf (pkgFindManifest entryDir)))
     (if (== (strLen mf) 0)
@@ -1150,6 +1159,7 @@
 ; both of them, and `pkgCrateAxiomDirs`' answer is also what
 ; `moduleSearchDirs` pushes.
 (pub :: pkgConcatDirs (-> (Vec Int) (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (pkgConcatDirs a b)
   (let (
     (out vecNew)
@@ -1180,6 +1190,7 @@
 ; told, not one they can infer from a path.
 (pub :: pkgCheckCrates (-> (Vec Int) String Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgCheckCrates dirs mf i)
   (if (>= i (vecLen dirs))
     0
@@ -1210,6 +1221,7 @@
 
 (pub :: pkgCheckPair (-> (Vec Int) String Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgCheckPair dirs mf i j)
   (if (>= j (vecLen dirs))
     0
@@ -1231,6 +1243,7 @@
 ; directory down. `pkgModules` descends.
 (pub :: pkgFirstShared (-> String String String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgFirstShared a b)
   (let ((mods (pkgModules a)))
     (let (
@@ -1285,6 +1298,7 @@
 
 (pub :: pkgWalkEntries (-> (Vec Int) String String (Vec Int) Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgWalkEntries out root rel entries i depth)
   (if (>= i (vecLen entries))
     0

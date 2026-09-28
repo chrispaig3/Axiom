@@ -287,6 +287,7 @@
 ; Answers the guard, or -1 timed out, or -2 the holder is dead.
 (:: syncAcquire (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (syncAcquire m b timed)
   (let (
     (me syncMe)

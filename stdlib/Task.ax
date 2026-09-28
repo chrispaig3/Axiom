@@ -317,6 +317,7 @@
 ; publication.
 (:: taskChild (-> (-> Int String) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskChild f slab slotBytes limit tok w arg)
   (let ((slot (+ slab (* (% arg w) slotBytes))))
     {
@@ -357,6 +358,7 @@
 ; cancellation's kill.
 (:: taskJoin (-> (Vec Int) Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskJoin st s cell slab slotBytes why)
   (let ((w (__proc_join_nr (taskSt st s 0) cell)))
     (let (
@@ -415,6 +417,7 @@
               (Err (mkError status "task trapped")))))))))
 
 (:: taskCopyOut (-> Int String))
+;@axiom:effect(unsafe)
 (fn (taskCopyOut slot)
   (let ((len (memGetWord slot 1)))
     (let ((s (strAlloc len)))
@@ -510,6 +513,7 @@
 ; other running task.
 (:: taskEnded (-> (Vec Int) Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskEnded st s slab slotBytes pbuf canPoll)
   (let ((answered (>= (taskLoadAt (+ slab (* s slotBytes))) 2)))
     (if (== canPoll 1)
@@ -577,6 +581,7 @@
 ; after other forks - keeps the whole of its deadline.
 (:: taskStart (-> (Vec Int) (-> Int Int) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskStart st wrapper t w slab slotBytes clk deadlineUs)
   (let (
     (s (% t w))
@@ -622,6 +627,7 @@
 ; The pool itself. Answers how many results it delivered (n).
 (:: taskLoop (-> (-> Int String) Int TaskOpts (-> (Result String Error) Int) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (taskLoop f n opts sink scoped w limit slotBytes tok slab)
   (let (
     (st (vecWithCapacity (* 4 w)))
@@ -926,6 +932,7 @@
 ; is handed to a ONE-argument call - the shape the region check can
 ; accept (see `taskDeliver`).
 (:: taskFoldOne (-> Int (-> Int Int (Result String Error) Int) (Result String Error) Int))
+;@axiom:effect(unsafe)
 (fn (taskFoldOne acc step r)
   (let ((i (memGetWord acc 1)))
     (let ((g (step (memGetWord acc 0) i)))

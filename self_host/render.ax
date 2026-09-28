@@ -58,6 +58,7 @@
 ; a wide span would pay it per character.
 ; ------------------------------------------------------------------
 (pub :: repByte (-> Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (repByte n ch)
   (let ((m 
     (if (< n 0)
@@ -132,6 +133,7 @@
 ; ASCII-lowercased copy, for flag-value comparison - stage0 accepts
 ; `HUMAN` and `Json` (`to_ascii_lowercase` in render.rs).
 (pub :: lowerAscii (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (lowerAscii s)
   (let ((n (strLen s)))
     (let (
@@ -355,6 +357,7 @@
 ; whole, a control byte as its picture, a byte that is not UTF-8 as
 ; U+FFFD.
 (pub :: expandWindow (-> String Int Int Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (expandWindow src ls le a b)
   (let (
     (parts vecNew)
@@ -563,6 +566,7 @@
 ; A byte that begins no well-formed UTF-8 sequence is written as
 ; U+FFFD, the rule `jsonEsc` states for all three surfaces (2026-09-27).
 (pub :: ctlEsc (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (ctlEsc s)
   (if (==
     (cast Int s)
@@ -690,6 +694,7 @@
 ; segment is the leading or trailing line break and prints nothing;
 ; an empty segment between two others prints its indentation only.
 (pub :: fixBlock (-> Int String String))
+;@axiom:effect(unsafe)
 (pub fn (fixBlock indent repl)
   (let (
     (segs (strSplit repl 10))
@@ -736,18 +741,22 @@
   (sgr : String))
 
 (pub :: rowSpan (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rowSpan r)
   (memGetWord r 0))
 
 (pub :: rowCh (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rowCh r)
   (memGetWord r 1))
 
 (pub :: rowMsg (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (rowMsg r)
   (memGetWordStr r 2))
 
 (pub :: rowSgr (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (rowSgr r)
   (memGetWordStr r 3))
 
@@ -851,6 +860,7 @@
 ; span, which is a SIGSEGV in `spanStart`. Found by
 ; `scripts/check-fuzz.sh` (tests/fuzz/render-spanless-cross.axfuzz).
 (pub :: secNoteText (-> Int Int (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (secNoteText d i units ixs)
   (if (== (diagSecSpan d i) 0)
     (strConcat (diagSecMsg d i) " (no declaration to point at)")
@@ -884,6 +894,7 @@
 ; The labeled blocks, in order, with a `...` row wherever two adjacent
 ; rows are more than one line apart.
 (pub :: snipBody (-> String Int Int (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (snipBody src ix gw rows)
   (let (
     (out vecNew)
@@ -920,6 +931,7 @@
 ; parenthetical repeats fmtSpan's exact text, so the derivation is a
 ; concatenation and not a re-parse.
 (pub :: traceNoteText (-> Int Int (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (traceNoteText d i units ixs)
   (let ((base (strConcat (strConcat "in this expansion of `" (diagTraceName d i)) "`")))
     (let (
@@ -972,6 +984,7 @@
 ; can be wider than the primary's, and two blocks whose bars do not
 ; line up read as two reports.
 (pub :: traceGutterWidth (-> Int (Vec Int) (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (traceGutterWidth d units ixs w0)
   (let (
     (mut i 0)
@@ -993,6 +1006,7 @@
     }))
 
 (pub :: traceBlocks (-> Int (Vec Int) (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (traceBlocks d units ixs gw)
   (let (
     (out vecNew)
@@ -1166,6 +1180,7 @@
 ; Every diagnostic, each rendered against the source file its `unit`
 ; field names - the same table renderDiagsUnits (AXDL) reads.
 (pub :: renderDiagsHumanUnits (-> (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (renderDiagsHumanUnits ds units)
   ; ONE index per unit for the whole report. The number of
   ; diagnostics is uncapped and each used to rescan its source from
@@ -1301,6 +1316,7 @@
 ; the LSP's writer, takes the same rule; the AXDL and human
 ; renderers write the character itself, U+FFFD.
 (pub :: jsonEsc (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (jsonEsc s)
   (let (
     (n (strLen s))
@@ -1370,6 +1386,7 @@
 
 ; A JSON array of quoted strings.
 (pub :: jsonStrArray (-> (Vec String) String))
+;@axiom:effect(unsafe)
 (pub fn (jsonStrArray items)
   (let (
     (parts vecNew)
@@ -1427,6 +1444,7 @@
 ; resolve. The numbers are the same ones the AXDL LOC prints, which is
 ; what lets verify-json.py derive this array from that field.
 (pub :: jsonTraceArray (-> Int (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (jsonTraceArray d units ixs)
   (let (
     (parts vecNew)
@@ -1486,6 +1504,7 @@
 ; all, when the location is absent. A consumer reads the three the way
 ; it reads a spanless diagnostic: the pair is there or it is not.
 (pub :: jsonRelatedArray (-> Int String Int (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (jsonRelatedArray d src ix units ixs)
   (let (
     (parts vecNew)
@@ -1576,6 +1595,7 @@
       (strConcat (strConcat (strConcat (strConcat "\"help\":" (jsonHelpArray d)) ",\"expansion\":") (jsonTraceArray d units ixs)) "}"))))
 
 (pub :: renderDiagsJsonUnits (-> (Vec Int) (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (renderDiagsJsonUnits ds units)
   ; One index per unit for the whole report, as the other two
   ; surfaces build.

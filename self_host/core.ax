@@ -120,26 +120,31 @@
 ; Token accessors for readability.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenKind (-> Int TokenKind))
+;@axiom:effect(unsafe)
 (pub fn (tokenKind t)
   (cast TokenKind (memGetWord t 0)))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenLexeme (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (tokenLexeme t)
   (memGetWordStr t 1))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: tokenSpan (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tokenSpan t)
   (memGetWord t 2))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: spanStart (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (spanStart s)
   (memGetWord s 0))
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: spanEnd (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (spanEnd s)
   (memGetWord s 1))
 
@@ -248,6 +253,7 @@
 ; each had a copy under a phase-prefixed name.
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strVecHas (-> (Vec a) String Int))
+;@axiom:effect(unsafe)
 (pub fn (strVecHas xs n)
   (let (
     (mut i 0)
@@ -268,6 +274,7 @@
 
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (pub :: strVecIdx (-> (Vec a) String Int))
+;@axiom:effect(unsafe)
 (pub fn (strVecIdx xs n)
   (let (
     (mut i 0)

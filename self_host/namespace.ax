@@ -93,6 +93,7 @@
 ; Absorb every entry of `bares` from `done` to its end. Answers the
 ; new `done`.
 (pub :: mangleIdxSync (-> Int (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (mangleIdxSync idx bares)
   (let ((mut i (memGetWord idx 2)))
     {
@@ -111,6 +112,7 @@
 ; Is `name` in `bares`? The indexed form of `mangleHasIn`, and the
 ; one every writer here asks.
 (pub :: mangleIdxHas (-> Int (Vec String) String Bool))
+;@axiom:effect(unsafe)
 (pub fn (mangleIdxHas idx bares name)
   {
     (mangleIdxSync idx bares)
@@ -125,6 +127,7 @@
 ; `(vecSet fulls i name)`, so a miss that reached the index is a wild
 ; WRITE - it would store into the word before the vector's first.
 (pub :: mangleIdxIndexOf (-> Int (Vec String) String (Option Int)))
+;@axiom:effect(unsafe)
 (pub fn (mangleIdxIndexOf idx bares name)
   {
     (mangleIdxSync idx bares)
@@ -226,6 +229,7 @@
 ; hold and is emitted unchanged - an undefined symbol reported by
 ; `opt` against generated code.
 (pub :: mangleDecl (-> Int String Int (Vec String) (Vec String) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (mangleDecl node modName idx bares fulls exported)
   (if (==
     (cast Int modName)
@@ -331,6 +335,7 @@
 ; rather than beside its first caller because its SECOND caller is
 ; the filter test below, which expansion needs.
 (pub :: seenHasIn (-> (Vec String) String Int Bool))
+;@axiom:effect(unsafe)
 (pub fn (seenHasIn seen name i)
   (if (>= i (vecLen seen))
     false
@@ -391,6 +396,7 @@
     (modFilterForIn mods name 0)))
 
 (pub :: modFilterForIn (-> (Vec (Vec Int)) String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (modFilterForIn mods name i)
   (if (>= i (vecLen mods))
     0
@@ -409,6 +415,7 @@
 ; the checker's `exportedFromModule` for a repeat import's list, and
 ; the repeat import itself when it widens what the module exports.
 (pub :: modPubsFor (-> (Vec Int) String (Vec String)))
+;@axiom:effect(unsafe)
 (pub fn (modPubsFor mods name)
   (if (==
     (cast Int mods)
@@ -417,6 +424,7 @@
     (modPubsForIn mods name 0)))
 
 (pub :: modPubsForIn (-> (Vec Int) String Int (Vec String)))
+;@axiom:effect(unsafe)
 (pub fn (modPubsForIn mods name i)
   (if (>= i (vecLen mods))
     (cast (Vec String) 0)
@@ -446,6 +454,7 @@
     (modPubsAddIn mods name pubName 0)))
 
 (pub :: modPubsAddIn (-> (Vec Int) String String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (modPubsAddIn mods name pubName i)
   (if (>= i (vecLen mods))
     0
@@ -476,6 +485,7 @@
     (modFilterWidenIn mods name widened 0)))
 
 (pub :: modFilterWidenIn (-> (Vec Int) String (Vec String) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (modFilterWidenIn mods name widened i)
   (if (>= i (vecLen mods))
     0

@@ -902,6 +902,7 @@
 ; repository is the largest input anything in this project reads.
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: scanAxtags (-> String (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (scanAxtags src)
   (let (
     (acc vecNew)

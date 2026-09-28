@@ -68,11 +68,13 @@
 ; buffer.
 (:: printLit (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (printLit cstr)
   (sysWriteAllFd stdout cstr (cstrLen cstr 0) 0))
 
 (pub :: printlnLit (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (printlnLit cstr)
   {
     (printLit cstr)
@@ -378,6 +380,7 @@
 ; and its own ordering.
 (pub :: listDir (-> String (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (listDir path)
   (let (
     (raw (sysReadDir (ioPath path)))
@@ -389,6 +392,8 @@
     }))
 
 (:: listDirKeep (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(every word of `raw` is a live `String`)
 (fn (listDirKeep raw i out)
   (if (>= i (vecLen raw))
     0
@@ -405,6 +410,7 @@
 ; below it is already sorted, so this settles in one comparison when
 ; the listing arrives in order.
 (:: listDirInsert (-> (Vec Int) String Int))
+;@axiom:effect(unsafe)
 (fn (listDirInsert v s)
   {
     (vecPush
@@ -414,6 +420,8 @@
   })
 
 (:: listDirSift (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(every word of `out` is a live `String`)
 (fn (listDirSift v i)
   (if (<= i 0)
     0

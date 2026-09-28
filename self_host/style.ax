@@ -123,6 +123,7 @@
 ; ------------------------------------------------------------------
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: paint (-> String String String))
+;@axiom:effect(unsafe)
 (pub fn (paint sgr text)
   (let (
     (np (strLen sgr))
