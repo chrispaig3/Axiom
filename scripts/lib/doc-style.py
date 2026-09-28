@@ -29,6 +29,9 @@ Usage:
   --dest PATH    where the file will live in the repository, when it
                  is being checked from somewhere else; links and
                  inbound anchors are resolved as if it were there
+  --anchors-from PAGE
+                 when checking one part of a longer page, also accept
+                 in-page links to headings in PAGE (the whole page)
   --quiet-style  print errors only
 
 Exit status is 1 if any error was found, 0 otherwise.
@@ -142,6 +145,9 @@ GATED = [
     ('a **Complete** status row', r'^\| [^|\n]+ \| \*\*Complete\*\* \|'),
     ('a doc-gate marker', r'<!-- doc-gate:[a-z-]+'),
     ('a link-base declaration', r'doc-links-resolve-from:'),
+    ('a seed line in the bootstrap box', r'^axiom-[a-z0-9_]+-[a-z0-9_]+\.ll'),
+    ('the Rust anchor size', r'430a138`,\s+[0-9][0-9,]*\s+lines|[0-9][0-9,]*\s+lines of Rust'),
+    ('the threat table count', r'This table has \d+ rows, \d+ defended,'),
 ]
 
 # ------------------------------------------------------------- style
@@ -262,7 +268,7 @@ def check_code(text, axiom, errors):
                 errors.append((line, 'program does not compile: %s' % out.split('\n')[0][:160]))
 
 
-def check_refs(text, dest, errors):
+def check_refs(text, dest, errors, extra_anchors=frozenset()):
     base = os.path.dirname(dest)
     tests_index = set()
     for r, _d, files in os.walk(os.path.join(ROOT, 'tests')):
@@ -295,8 +301,9 @@ def check_refs(text, dest, errors):
             if m.group(2)[1:] not in anchors_of(target_text):
                 errors.append((line, 'links to %s%s, and that heading does not exist'
                                % (tgt, m.group(2))))
+    here = anchors_of(text) | extra_anchors
     for m in re.finditer(r'\]\((#[^)\s]+)\)', text):
-        if m.group(1)[1:] not in anchors_of(text):
+        if m.group(1)[1:] not in here:
             errors.append((text.count('\n', 0, m.start()) + 1,
                            'links to %s, and this page has no such heading' % m.group(1)))
 
@@ -415,6 +422,7 @@ def main():
     ap.add_argument('--before')
     ap.add_argument('--dest')
     ap.add_argument('--quiet-style', action='store_true')
+    ap.add_argument('--anchors-from', action='append', default=[])
     ap.add_argument('--no-inbound', action='store_true',
                     help='skip the inbound-anchor check (for a fragment of a page)')
     args = ap.parse_args()
@@ -426,7 +434,10 @@ def main():
         dest = args.dest or os.path.relpath(os.path.abspath(f), ROOT)
         errors, info = [], []
         check_code(text, args.axiom, errors)
-        check_refs(text, dest, errors)
+        extra = set()
+        for page in args.anchors_from:
+            extra |= anchors_of(open(page, encoding='utf-8').read())
+        check_refs(text, dest, errors, frozenset(extra))
         check_gate_rules(text, errors)
         if not args.no_inbound:
             check_inbound(text, dest, errors)
