@@ -328,7 +328,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-three of the gates below build the compiler under test from
+    # eighty-four of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -578,6 +578,17 @@ jobs:
       # required to turn the load red.
       - name: A bounded channel carries every word once, in both lowerings
         run: ./scripts/check-chan.sh
+
+      # The fuzzing half of R-E1: 600 mutants of the corpus from a fixed
+      # seed, each held to three properties - `check` answers with a code
+      # or exits 0 (never a signal, a hang or a trap status), a refusal's
+      # JSON is well formed, and IR from a program `check` accepted is IR
+      # `llc` accepts. A planted wrapper compiler's crash, hang, silent
+      # refusal, trap, false exit 0, bad JSON and bad IR must each be
+      # reported, and the stored reproducers in tests/fuzz/ replay: fixed
+      # ones pass, open ones still fail exactly as recorded.
+      - name: Seeded compiler fuzzing finds no crash, and can see one
+        run: ./scripts/check-fuzz.sh
 
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is

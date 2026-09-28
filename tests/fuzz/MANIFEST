@@ -1,0 +1,26 @@
+# Minimized reproducers of what scripts/check-fuzz.sh found. Tab-separated:
+#
+#   file  status  AXIOM_PATH  stage  signature  what
+#
+# status    `fixed`: the gate replays it and it must now pass every
+#           property (check answers, JSON well formed, emitted IR llc
+#           accepts) - a regression test. `open`: it must still fail,
+#           at `stage`, with the tool's own words matching `signature`
+#           (an extended regex); the gate prints it as XFAIL and excuses
+#           a fuzzed mutant that fails the same way. An open row that
+#           stops failing, or fails differently, turns the gate red.
+# AXIOM_PATH  the directory imports resolve against, or `-`.
+# stage     check | json | emit | llc (`-` for a fixed row).
+#
+# `.axfuzz`, not `.ax`: a repository-wide sweep (census counts, `fmt`,
+# the tree-sitter parse) reads every `.ax`, and a crasher must not be
+# one. Found, minimized and recorded 2026-09-27; the findings are in
+# docs/assurance/verification.md.
+render-spanless-cross.axfuzz	fixed	-	-	-	`check` SIGSEGV in the human renderer: `secNoteText` asked `diagSecCross` before the span, so a restriction path's spanless hop in another unit reached `fmtSpanIx` with a null span (fixed in self_host/render.ax)
+region-nonarrow-sig.axfuzz	fixed	-	-	-	`check` SIGSEGV in the region pass: `rgnKnownCall` asked `rgTyScalar` about `(nthParamTy sig i 0)`, whose fallback 0 (a signature that is not an arrow, `(:: wrapBox ())`) reached `nodeTag` as a null pointer; now refused as AX3004 (fixed in self_host/typecheck.ax)
+dup-param-llc.axfuzz	open	-	llc	redefinition of argument	a parameter list naming one variable twice checks OK and emits a `define` llc refuses; `build` fails at the toolchain with exit 4. No refusal exists for it (AX3020 is macros only)
+builtin-name-value.axfuzz	open	-	llc	use of undefined value '%(cast|sizeof|alignof|handle|IO|Pure|Alloc|Mut|Div)'	nine names `isBuiltinName` admits as variables - `cast`, `sizeof`, `alignof`, `handle` and the effect names `IO`, `Pure`, `Alloc`, `Mut`, `Div`, admitted because a `handle` list parses as an application - check OK in value position and lower to an SSA name nothing defines; every other name in that list is refused there (AX3013, AX3004)
+cast-missing-operand.axfuzz	open	-	llc	use of undefined value '%[A-Z][A-Za-z0-9_]*'	`(cast T)` with its operand missing checks OK and lowers the TYPE name as a variable (`%Int`, `%Bool`, a user `%Foo`); the checker refuses a surplus operand (AX3069) but not a missing one, and `isCastLike` exempts `cast` from the saturation check. The signature has to admit any capitalized name, so it would also excuse an unrelated defect that emits an undefined capitalized SSA name
+primitive-value.axfuzz	open	-	llc	use of undefined value '%__[A-Za-z0-9_]+'	a one-argument primitive applied to nothing, or named bare, in a position `check` accepts - `(__floatToInt)`, `(__alloc)`, thirteen of them - lowers to an SSA name nothing defines, because a primitive has no function symbol to take the address of; every primitive of two or more arguments is refused as AX3013
+json-ax1001-partial-char.axfuzz	open	-	json	not UTF-8	`--diagnostic-format json` writes ill-formed UTF-8: AX1001 quotes ONE byte of a multi-byte character (and a raw non-UTF-8 byte verbatim), and `jsonEsc` passes it through
+json-restrict-illformed.axfuzz	open	-	json	not UTF-8	the same `jsonEsc` pass-through from a second site: AX3052 quotes a restriction tag's ill-formed bytes verbatim

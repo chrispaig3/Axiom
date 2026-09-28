@@ -6939,21 +6939,29 @@
 ; address? The four scalar constructors, `Unit`, and the empty tuple.
 ; A bare type variable answers 0: what it stands for is not known
 ; here, and the safe direction is to refuse.
+;
+; NO type at all answers 0 for the same reason. `rgnKnownCall` asks
+; about `(nthParamTy sig i 0)`, whose fallback is 0 when the signature
+; is not an arrow - `(:: wrapBox ())` over `(fn (wrapBox x) ...)` - and
+; that 0 reached `nodeTag` as a null pointer: a `check` SIGSEGV, found
+; by scripts/check-fuzz.sh (tests/fuzz/region-nonarrow-sig.axfuzz).
 (pub :: rgTyScalar (-> Int Int Int))
 (pub fn (rgTyScalar tc ty0)
-  (let ((ty (tyExpandAliases tc (tyResolve ty0) 0)))
-    (if (== (nodeTag ty) TAG_T_CON)
-      (if (== (vecLen (nodeBVec ty)) 0)
-        (let ((n (nodeAName ty)))
-          (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (strEq n "Unit")))))
-            1
-            0))
-        0)
-      (if (== (nodeTag ty) TAG_T_TUP)
-        (if (== (vecLen (nodeAVec ty)) 0)
-          1
+  (if (== ty0 0)
+    0
+    (let ((ty (tyExpandAliases tc (tyResolve ty0) 0)))
+      (if (== (nodeTag ty) TAG_T_CON)
+        (if (== (vecLen (nodeBVec ty)) 0)
+          (let ((n (nodeAName ty)))
+            (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (strEq n "Unit")))))
+              1
+              0))
           0)
-        0))))
+        (if (== (nodeTag ty) TAG_T_TUP)
+          (if (== (vecLen (nodeAVec ty)) 0)
+            1
+            0)
+          0)))))
 
 (pub :: emitRegionShadow (-> Int String Int Int))
 (pub fn (emitRegionShadow tc name span)

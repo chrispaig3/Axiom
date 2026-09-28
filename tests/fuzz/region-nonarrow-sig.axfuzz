@@ -1,0 +1,5 @@
+; check-fuzz reproducer (tests/fuzz/MANIFEST): a signature that is not an
+; arrow over a function with a parameter, called inside a region.
+(:: wrapBox ())
+(fn (wrapBox x) (x))
+(fn (n) {((region r ((wrapBox) 2)))})

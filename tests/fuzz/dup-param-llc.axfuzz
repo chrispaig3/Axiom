@@ -1,0 +1,3 @@
+; check-fuzz reproducer (tests/fuzz/MANIFEST): one parameter name, twice.
+(fn (f x x) x)
+(fn (main) (f 1 2))

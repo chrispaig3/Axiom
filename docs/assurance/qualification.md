@@ -77,9 +77,11 @@ approved, and no document here says otherwise.
 ## 5. What would come next
 
 In dependency order: anomaly log; hazard and threat analyses;
-fuzzing with a fixed seed budget in CI (R-E1); sanitizer and
-coverage runs on the hosted configurations; machine-code inspection
-of atomics lowering (R-C3); the restricted embedded profile with its
+the open fuzzing findings (R-E1, `tests/fuzz/MANIFEST`); sanitizer and
+coverage runs on the hosted configurations; the rest of R-C2 (mutex,
+timeout, cancellation, typed results - the channel and the atomics'
+machine-code inspection, R-C2a and R-C3, have landed); the restricted
+embedded profile with its
 resource report (R-D1); QEMU execution evidence marked as emulator
 evidence (R-D2); and only then a per-standard tool-qualification
 argument over a frozen configuration.

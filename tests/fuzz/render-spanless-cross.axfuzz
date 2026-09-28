@@ -1,0 +1,5 @@
+; check-fuzz reproducer (tests/fuzz/MANIFEST): a user fn spelled `*` whose
+; body allocates makes every stdlib `no-alloc` claim that multiplies fail,
+; with a restriction path whose last hop has no span.
+(import Str)
+(fn (*) (strConcat "a" "b"))

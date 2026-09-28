@@ -1,0 +1,569 @@
+#!/usr/bin/env bash
+# Seeded compiler-input fuzzing: the fuzzing half of R-E1.
+#
+# WHY. Every other gate feeds the compiler programs somebody wrote on
+# purpose - the corpus, the fixtures, the compiler's own source - and
+# every one of those was fixed until it passed. What that cannot show is
+# how the compiler behaves on the inputs nobody wrote: a form with one
+# operand missing, a keyword where a name was, a byte that is not UTF-8,
+# a let with five thousand bindings. `scripts/lib/fuzz.py` makes those
+# from the corpus, deterministically, and this gate holds the compiler
+# under test to three properties on every one:
+#
+#   P1  `axiom check` ANSWERS: exit 0 with no `error[AXnnnn]` line, or
+#       exit 1 with at least one. Death by a signal (139 SIGSEGV, 134
+#       abort, 138 SIGBUS), no answer by the deadline, a runtime trap's
+#       status (70-79), a refusal that names no code, or an error
+#       printed under exit 0 is a failure.
+#   P2  a refusal says the same thing as JSON: `--diagnostic-format json
+#       check` exits 1 too, and its stderr is well-formed JSON Lines as
+#       docs/diagnostics.md states them (`json_ok` in fuzz.py spells the
+#       contract out, the trailer line and the optional keys included).
+#   P3  a mutant `check` accepts is a mutant `emit-llvm` compiles (exit
+#       0, IR written) and `llc` accepts. `emit-llvm` deliberately does
+#       not require `main` (main.ax's `needMain`) while the prelude's
+#       wrapper calls `@__axiom_user_main` unconditionally, so IR that
+#       does not define it gets a stub definition before `llc` - measured
+#       2026-09-27: all 115 corpus files with no `main` are llc-clean
+#       with the stub and none of them is without it.
+#
+# SIX SECTIONS.
+#
+#   1. The generator: its selftest (splitmix64's published outputs, a
+#      pinned digest of 200 mutants of an in-memory corpus - the check
+#      that the same seed gives the same mutants on EVERY host, since a
+#      digest of the tree's mutants moves with every `.ax` edit - the
+#      scanner, and the JSON checker refusing twelve malformed reports),
+#      then this run's mutants generated twice, in two processes under
+#      two PYTHONHASHSEED values, and required byte-identical.
+#   2. The run: every mutant through P1-P3. A failure prints the diff
+#      against its corpus file, the tool's first lines and the one
+#      command that reproduces it.
+#   3. Stage floors: the run reached every stage - parsed, checked OK,
+#      emitted, llc-accepted, refused, JSON-validated - at least once,
+#      ran every mutant it generated, and at most 1% of mutants came out
+#      identical to their source. A property no mutant reached was not
+#      tested, and a green run that tested nothing is this repository's
+#      commonest defect.
+#   4. Controls: a planted wrapper compiler - the real one, except that
+#      on six chosen mutants it dies by SIGSEGV, sleeps past the
+#      deadline, exits 1 in silence, exits with a trap's 77, answers a
+#      real refusal with exit 0, or appends a malformed line to its
+#      JSON; on a seventh it appends a line that is not IR to what
+#      `emit-llvm` wrote - is run through the SAME harness, which must
+#      report each as the failure it is and must not excuse any of them
+#      as a known one; an eighth, untouched, must still pass. If a planted crash is not reported, the gate
+#      fails: without this, "no mutant crashed" could mean "no crash
+#      can be seen".
+#   5. Stored reproducers, `tests/fuzz/MANIFEST`: every crash the fuzzer
+#      found, minimized, with a non-`.ax` extension so no census or
+#      sweep reads it. A FIXED row must now pass P1-P3 (the regression
+#      test). An OPEN row must still fail exactly as recorded - at its
+#      stage, with the tool's own words matching its signature - and is
+#      printed as XFAIL; if it stops failing, or fails differently, the
+#      gate fails, so the list cannot go stale.
+#   6. A tally of which OPEN rows excused mutants in section 2, where a
+#      mutant failing at an OPEN row's stage with a message matching its
+#      signature is printed as XFAIL and not counted red. A signature is
+#      matched against the failure's DETAIL - the failing tool's own
+#      first line, or for the JSON stage the validator's reason - never
+#      the harness's summary sentence, and an empty detail matches
+#      nothing: a silent signal death can never be excused. Section 5
+#      refuses a signature that would match an empty message.
+#
+# LIMITS, stated because a green gate invites reading more into it.
+# Green means: these mutants, at this seed, on this host, met P1-P3.
+# Mutation explores the neighbourhood of the corpus, not the language:
+# a crash that needs a construct no corpus file comes near is not
+# found, and most mutants are refused before code generation (stage 3
+# prints how many got there). P3 is `llc -O0` accepting the IR - it
+# says nothing about what the IR computes; a miscompilation that yields
+# valid IR is invisible here. The deadline measures hangs, not speed:
+# the `long` edit is capped below a measured superlinear cliff (see
+# fuzz.py `op_long`). Not fuzzed: `build`/`run` (linking, execution),
+# the formatter, the LSP, the REPL, `--target` other than the host,
+# and every command-line flag.
+#
+# Usage: check-fuzz.sh [--long] [--seed N] [--count N] [--only I] [--keep DIR]
+#   --long     the scheduled budget: 6,000 mutants instead of 600
+#   --seed N   another seed (the default is fixed, so CI is repeatable)
+#   --count N  another count
+#   --only I   generate and run mutant I of the seed alone - the
+#              reproduce command every failure prints; skips 3-6
+#   --keep DIR copy every failing mutant (with --only, that mutant
+#              whatever its verdict) and its tool output into DIR
+set -uo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
+gate_init
+gate_build_axc axc
+
+command -v llc >/dev/null || { echo "FAIL: llc is not on PATH"; exit 1; }
+command -v python3 >/dev/null || { echo "FAIL: python3 is not on PATH"; exit 1; }
+
+seed=20260927
+count=600
+only=""
+keep=""
+while (( $# )); do
+  case "$1" in
+    --long) count=6000 ;;
+    --seed) seed="$2"; shift ;;
+    --count) count="$2"; shift ;;
+    --only) only="$2"; shift ;;
+    --keep) keep="$2"; shift ;;
+    *) echo "usage: $0 [--long] [--seed N] [--count N] [--only I] [--keep DIR]" >&2; exit 2 ;;
+  esac
+  shift
+done
+for v in "$seed" "$count" ${only:+"$only"}; do
+  [[ "$v" =~ ^[0-9]+$ ]] || { echo "usage: --seed, --count and --only take a number, not '$v'" >&2; exit 2; }
+done
+[[ -n "$keep" ]] && { mkdir -p "$keep" || exit 2; keep="$(cd "$keep" && pwd)"; }
+
+fuzz="$repo_root/scripts/lib/fuzz.py"
+failed=0
+checks=0
+ok()  { echo "ok   $*"; checks=$((checks + 1)); }
+bad() { echo "FAIL $*"; failed=$((failed + 1)); }
+
+# The deadline per tool invocation. Measured 2026-09-27 on darwin-
+# aarch64: over 9,000 mutants the slowest `check` of an ordinary one
+# took 3.7s and the slowest emit-plus-llc 3.8s, but ONE took 35s and
+# finished - `(import Vec)` mutated to `(import main)`, which the
+# resolver's working-directory fallback answers with `self_host/main.ax`,
+# so the mutant checked the whole compiler and drew 46 refusals. A 30s
+# deadline called that a hang on this machine, and CI runners are
+# slower. 120s is still a hang and not a slow input.
+deadline=120
+
+# ---------------------------------------------------------------------
+# The harness. One function runs one input through P1-P3 and leaves its
+# verdict in globals, so that the run, the controls and the stored
+# reproducers are judged by the SAME code - a control that re-implemented
+# the check would prove only that the control works.
+#
+# fuzz_one <compiler> <input.ax> <AXIOM_PATH> <deadline>
+#   f_verdict  ok | refused | fail
+#   f_stage    where it failed: check | json | emit | llc
+#   f_why      the harness's sentence
+#   f_detail   the failing tool's own first relevant line (for the JSON
+#              stage, the validator's reason) - what signatures match
+#   f_parsed f_ok f_emitted f_llc   the stages reached
+#   f_json     for a refusal, the JSON report to validate (deferred, in
+#              one python call per batch - see json_batch)
+describe_rc() {  # <status> -> "exited N" / "killed by signal N (NAME)" / "timed out"
+  local rc="$1"
+  if (( rc == 124 )); then
+    echo "timed out after ${deadline_used}s"
+  elif (( rc > 128 )); then
+    echo "killed by signal $((rc - 128)) (SIG$(kill -l $((rc - 128)) 2>/dev/null || echo '?'))"
+  else
+    echo "exited $rc"
+  fi
+}
+
+first_line() {  # <file>: its first non-blank line, colour codes stripped, cut to 200
+  { grep -m1 -v '^[[:space:]]*$' "$1" 2>/dev/null || true; } \
+    | sed $'s/\x1b\\[[0-9;]*m//g' | cut -c1-200
+}
+
+fuzz_one() {
+  local cc="$1" m="$2" ap="$3" rc=0 codes
+  local b="${m%.ax}"
+  deadline_used="$4"
+  f_verdict=fail f_stage="" f_why="" f_detail="" f_json=""
+  f_parsed=0 f_ok=0 f_emitted=0 f_llc=0
+
+  AXIOM_PATH="$ap" gate_timeout "$4" "$cc" check "$m" > "$b.cout" 2> "$b.cerr" < /dev/null || rc=$?
+  if (( rc == 1 )); then
+    codes="$(grep -o 'error\[AX[0-9]\{4\}\]' "$b.cerr" || true)"
+    if [[ -z "$codes" ]]; then
+      f_stage=check f_why="check exited 1 with no error[AXnnnn] line"
+      f_detail="$(first_line "$b.cerr")"
+      return
+    fi
+    grep -q 'AX[12]' <<< "$codes" || f_parsed=1
+    rc=0
+    AXIOM_PATH="$ap" gate_timeout "$4" "$cc" --diagnostic-format json check "$m" \
+      > "$b.jout" 2> "$b.jerr" < /dev/null || rc=$?
+    if (( rc != 1 )); then
+      f_stage=json f_why="--diagnostic-format json check $(describe_rc "$rc") where the human check exited 1"
+      f_detail="$(first_line "$b.jerr")"
+      return
+    fi
+    f_json="$b.jerr" f_verdict=refused
+    return
+  fi
+  if (( rc != 0 )); then
+    f_stage=check f_why="check $(describe_rc "$rc")"
+    f_detail="$(first_line "$b.cerr")"
+    return
+  fi
+  # The status and the report must agree: an error printed under exit 0
+  # is a refusal a build script would read as success.
+  if grep -q 'error\[AX[0-9]\{4\}\]' "$b.cerr"; then
+    f_stage=check f_why="check exited 0 and printed an error[AXnnnn] line"
+    f_detail="$( { grep -m1 'error\[AX' "$b.cerr" || true; } | sed $'s/\x1b\\[[0-9;]*m//g' | cut -c1-200)"
+    return
+  fi
+  f_parsed=1 f_ok=1
+
+  rc=0
+  AXIOM_PATH="$ap" gate_timeout "$4" "$cc" emit-llvm "$m" -o "$b.ll" > "$b.eout" 2> "$b.eerr" < /dev/null || rc=$?
+  if (( rc != 0 )); then
+    f_stage=emit f_why="emit-llvm $(describe_rc "$rc") on a program check accepted"
+    f_detail="$(first_line "$b.eerr")"
+    return
+  fi
+  if [[ ! -s "$b.ll" ]]; then
+    f_stage=emit f_why="emit-llvm exited 0 and wrote no IR"
+    return
+  fi
+  f_emitted=1
+  grep -q '^define [^@]*@__axiom_user_main(' "$b.ll" \
+    || printf '\ndefine i64 @__axiom_user_main() {\n  ret i64 0\n}\n' >> "$b.ll"
+  rc=0
+  gate_timeout "$4" llc -O0 -filetype=obj "$b.ll" -o "$b.o" > "$b.lerr" 2>&1 || rc=$?
+  rm -f "$b.o"
+  if (( rc != 0 )); then
+    f_stage=llc f_why="llc $(describe_rc "$rc") on the IR emit-llvm wrote"
+    f_detail="$( { grep -m1 'error:' "$b.lerr" || true; } | sed 's/.*error: //' | cut -c1-200)"
+    return
+  fi
+  f_llc=1 f_verdict=ok
+  rm -f "$b.ll"
+}
+
+# json_batch <list> <out>: validate every report named in <list>; <out>
+# gets `<file><TAB><why>` for each malformed one. Answers the count
+# checked in $json_checked.
+json_batch() {
+  local res
+  res="$(python3 "$fuzz" json "$1")"
+  json_checked="$(sed -n 's/^checked //p' <<< "$res")"
+  grep -v '^checked ' <<< "$res" > "$2" || true
+  [[ "$json_checked" =~ ^[0-9]+$ ]] || { bad "the JSON checker did not report a count: $res"; json_checked=0; }
+}
+
+# The OPEN rows of tests/fuzz/MANIFEST, as `<stage><TAB><signature>`.
+manifest="$repo_root/tests/fuzz/MANIFEST"
+open_sigs="$work/open.sigs"
+if [[ -f "$manifest" ]]; then
+  awk -F'\t' '!/^#/ && NF >= 5 && $2 == "open" {print $4 "\t" $5 "\t" $1}' "$manifest" > "$open_sigs"
+else
+  : > "$open_sigs"
+fi
+
+# match_known: sets f_known to the reproducer whose OPEN row excuses
+# this failure, or empty. The signature is an extended regex matched
+# against f_detail - the failing tool's first line, or the JSON
+# validator's reason - and an empty detail matches nothing, which is
+# what keeps a silent SIGSEGV from ever being excused.
+match_known() {
+  local stage sig file
+  f_known=""
+  [[ "$f_verdict" == fail && -n "$f_detail" ]] || return 0
+  while IFS=$'\t' read -r stage sig file; do
+    [[ "$stage" == "$f_stage" && -n "$sig" ]] || continue
+    if grep -qE -- "$sig" <<< "$f_detail"; then
+      f_known="$file"
+      return 0
+    fi
+  done < "$open_sigs"
+}
+
+# report_failure <name> <source> <ops> <mutant dir>
+report_failure() {
+  local name="$1" src="$2" ops="$3" dir="$4" f
+  bad "$name ($src; $ops): $f_why${f_detail:+ - $f_detail}"
+  echo "    reproduce: scripts/check-fuzz.sh --seed $seed --only $((10#${name#m})) --keep <dir>"
+  python3 "$fuzz" diff --corpus-root "$repo_root" "$dir/manifest.tsv" "$dir" "$name" --lines 40 \
+    | sed 's/^/    | /'
+  for f in "$dir/$name.cerr" "$dir/$name.jerr" "$dir/$name.eerr" "$dir/$name.lerr"; do
+    [[ -s "$f" ]] || continue
+    echo "    ${f##*/}:"
+    head -6 "$f" | sed $'s/\x1b\\[[0-9;]*m//g' | cut -c1-200 | sed 's/^/    > /'
+  done
+  if [[ -n "$keep" ]]; then
+    cp "$dir/$name".* "$keep/" 2>/dev/null
+    echo "    kept: $keep/$name.ax"
+  fi
+}
+
+# ---------------------------------------------------------------------
+echo "== 1. the generator: selftest, and one seed makes one set of mutants =="
+if out="$(python3 "$fuzz" selftest 2>&1)"; then
+  ok "$out"
+else
+  bad "the generator's selftest failed:"; echo "$out" | sed 's/^/    /'
+fi
+
+git ls-files '*.ax' > "$work/corpus.all" 2>"$work/corpus.err" \
+  || { bad "git ls-files could not list the corpus: $(cat "$work/corpus.err")"; echo "check-fuzz: $checks passed, $failed failed"; exit 1; }
+while IFS= read -r f; do [[ -f "$f" ]] && printf '%s\n' "$f"; done < "$work/corpus.all" > "$work/corpus"
+ncorpus="$(wc -l < "$work/corpus" | tr -d ' ')"
+if (( ncorpus == 0 )); then
+  bad "the corpus is empty: git ls-files '*.ax' named no file on disk"
+  echo "check-fuzz: $checks passed, $failed failed"; exit 1
+fi
+
+start=0
+if [[ -n "$only" ]]; then start="$only"; count=1; fi
+gen() {  # <out dir> <hash seed>
+  PYTHONHASHSEED="$2" python3 "$fuzz" gen --seed "$seed" --count "$count" --start "$start" \
+    --corpus "$work/corpus" --root "$repo_root" --out "$1"
+}
+mdir="$work/m"
+if ! g1="$(gen "$mdir" 0 2>&1)" || ! g2="$(gen "$work/m2" 1 2>&1)"; then
+  bad "the generator failed:"; printf '%s\n%s\n' "$g1" "${g2:-}" | sed 's/^/    /'
+  echo "check-fuzz: $checks passed, $failed failed"; exit 1
+fi
+read -r _ digest _ identical <<< "$g1"
+if [[ "$g1" == "$g2" ]] && diff -r "$mdir" "$work/m2" > /dev/null; then
+  ok "seed $seed: $count mutants of $ncorpus corpus files, byte-identical from two processes (digest ${digest:0:16})"
+else
+  bad "seed $seed generated different mutants in two processes: '$g1' vs '$g2'"
+fi
+rm -rf "$work/m2"
+echo "   reproduce any mutant I: scripts/check-fuzz.sh --seed $seed --only I --keep <dir>"
+
+# ---------------------------------------------------------------------
+echo "== 2. $count mutants through check, the JSON renderer, emit-llvm and llc =="
+n_run=0 n_parsed=0 n_ok=0 n_emitted=0 n_llc=0 n_refused=0 n_fail=0 n_known=0
+: > "$work/json.list"; : > "$work/json.names"
+ok_names=() refused_names=()
+t0=$SECONDS
+while IFS=$'\t' read -r name src ops; do
+  [[ -n "$name" ]] || continue
+  fuzz_one "$axc" "$mdir/$name.ax" "$(dirname "$src")" "$deadline"
+  n_run=$((n_run + 1))
+  n_parsed=$((n_parsed + f_parsed)); n_ok=$((n_ok + f_ok))
+  n_emitted=$((n_emitted + f_emitted)); n_llc=$((n_llc + f_llc))
+  case "$f_verdict" in
+    ok) ok_names+=("$name") ;;
+    refused)
+      n_refused=$((n_refused + 1)); refused_names+=("$name")
+      printf '%s\n' "$f_json" >> "$work/json.list"
+      printf '%s\t%s\t%s\n' "$name" "$src" "$ops" >> "$work/json.names" ;;
+    fail)
+      match_known
+      if [[ -n "$f_known" ]]; then
+        n_known=$((n_known + 1))
+        echo "XFAIL $name ($src): $f_stage - $f_detail [open: tests/fuzz/$f_known]" | tee -a "$work/xfail.log"
+      else
+        n_fail=$((n_fail + 1))
+        report_failure "$name" "$src" "$ops" "$mdir"
+      fi ;;
+  esac
+  if [[ -n "$only" && -n "$keep" ]]; then
+    cp "$mdir/$name".* "$keep/" 2>/dev/null
+    echo "   $name ($src; $ops): $f_verdict${f_why:+ - $f_why}; kept in $keep/$name.ax"
+  elif [[ -n "$only" ]]; then
+    echo "   $name ($src; $ops): $f_verdict${f_why:+ - $f_why}"
+  fi
+done < "$mdir/manifest.tsv"
+
+json_batch "$work/json.list" "$work/json.bad"
+n_json=$((json_checked))
+while IFS=$'\t' read -r jf why; do
+  [[ -n "$jf" ]] || continue
+  n_json=$((n_json - 1))
+  name="$(basename "$jf" .jerr)"
+  IFS=$'\t' read -r _ src ops < <(grep "^$name	" "$work/json.names")
+  f_verdict=fail f_stage=json f_why="the JSON report is malformed" f_detail="$why"
+  match_known
+  if [[ -n "$f_known" ]]; then
+    n_known=$((n_known + 1))
+    echo "XFAIL $name ($src): json - $why [open: tests/fuzz/$f_known]" | tee -a "$work/xfail.log"
+  else
+    n_fail=$((n_fail + 1))
+    report_failure "$name" "$src" "$ops" "$mdir"
+  fi
+done < "$work/json.bad"
+
+echo "   $n_run run in $((SECONDS - t0))s: $n_parsed parsed, $n_ok checked OK, $n_emitted emitted, $n_llc llc-accepted, $n_refused refused ($n_json with well-formed JSON); $n_known known-open (XFAIL), $n_fail new failures"
+if (( n_fail == 0 )); then
+  ok "no mutant crashed, hung, refused without a code, broke the JSON contract or produced IR llc rejects ($n_known known-open)"
+fi
+
+if [[ -n "$only" ]]; then
+  echo
+  echo "check-fuzz: $checks passed, $failed failed (--only $only: sections 3-6 skipped)"
+  (( failed == 0 )); exit
+fi
+
+# ---------------------------------------------------------------------
+echo "== 3. stage floors: every property was reached =="
+floor() {  # <n> <what>
+  if (( $1 >= 1 )); then ok "$2: $1 of $n_run"; else bad "$2: none of $n_run mutants - that property was not tested"; fi
+}
+if (( n_run == count )); then ok "all $count generated mutants ran"; else bad "$n_run of $count generated mutants ran"; fi
+floor "$n_parsed" "reached the checker (parsed)"
+floor "$n_ok" "checked OK"
+floor "$n_emitted" "emitted IR"
+floor "$n_llc" "llc accepted the IR"
+floor "$n_refused" "refused with a code"
+floor "$n_json" "refused with a well-formed JSON report"
+if (( identical * 100 < count )); then
+  ok "$identical of $count mutants identical to their source (under 1%)"
+else
+  bad "$identical of $count mutants are identical to their source - the mutator is not mutating"
+fi
+
+# ---------------------------------------------------------------------
+echo "== 4. controls: a planted wrapper compiler's failures are reported =="
+# Targets from the run's own verdicts: two it checked OK (IR corruption,
+# and the untouched control) and six it refused.
+if (( ${#ok_names[@]} < 2 || ${#refused_names[@]} < 6 )); then
+  bad "the run produced ${#ok_names[@]} OK and ${#refused_names[@]} refused mutants; the controls need 2 and 6"
+else
+  c_badir="${ok_names[0]}" c_clean="${ok_names[1]}"
+  c_crash="${refused_names[0]}" c_hang="${refused_names[1]}" c_mute="${refused_names[2]}"
+  c_trap="${refused_names[3]}" c_badjson="${refused_names[4]}" c_lie="${refused_names[5]}"
+  wrap="$work/planted-axc"
+  cat > "$wrap" <<'SH'
+#!/bin/sh
+# The compiler under test, except on the inputs named in $FUZZ_*.
+json=0 emit=0 in="" out="" prev=""
+for a in "$@"; do
+  case "$a" in
+    *.ax) in="$a" ;;
+    json) [ "$prev" = --diagnostic-format ] && json=1 ;;
+    emit-llvm) emit=1 ;;
+  esac
+  [ "$prev" = -o ] && out="$a"
+  prev="$a"
+done
+case "$(basename "$in" .ax)" in
+  "$FUZZ_CRASH") kill -SEGV $$ ;;
+  "$FUZZ_HANG") exec sleep 120 ;;
+  "$FUZZ_MUTE") exit 1 ;;
+  "$FUZZ_TRAP") echo "axiom: trap: planted by check-fuzz.sh" >&2; exit 77 ;;
+  "$FUZZ_LIE") "$FUZZ_REAL" "$@"; exit 0 ;;
+  "$FUZZ_BADIR")
+    if [ "$emit" = 1 ]; then
+      "$FUZZ_REAL" "$@" || exit $?
+      echo "this line is not LLVM IR" >> "$out"
+      exit 0
+    fi ;;
+  "$FUZZ_BADJSON")
+    if [ "$json" = 1 ]; then
+      "$FUZZ_REAL" "$@"; rc=$?
+      echo "{this line is not JSON" >&2
+      exit $rc
+    fi ;;
+esac
+exec "$FUZZ_REAL" "$@"
+SH
+  chmod +x "$wrap"
+  export FUZZ_REAL="$axc" FUZZ_CRASH="$c_crash" FUZZ_HANG="$c_hang" FUZZ_MUTE="$c_mute" \
+         FUZZ_TRAP="$c_trap" FUZZ_BADIR="$c_badir" FUZZ_BADJSON="$c_badjson" FUZZ_LIE="$c_lie"
+  cdir="$work/control"
+  mkdir -p "$cdir"
+  cp "$mdir/manifest.tsv" "$cdir/"
+  # <kind> <mutant> <deadline> <want stage> <want why (ERE)>
+  while read -r kind name dl want_stage want_why; do
+    cp "$mdir/$name.ax" "$cdir/$name.ax"
+    src="$(awk -F'\t' -v n="$name" '$1 == n {print $2}' "$mdir/manifest.tsv")"
+    fuzz_one "$wrap" "$cdir/$name.ax" "$(dirname "$src")" "$dl"
+    if [[ "$kind" == badjson && "$f_verdict" == refused ]]; then
+      printf '%s\n' "$f_json" > "$cdir/json.list"
+      json_batch "$cdir/json.list" "$cdir/json.bad"
+      if [[ -s "$cdir/json.bad" ]]; then
+        f_verdict=fail f_stage=json f_why="the JSON report is malformed"
+        f_detail="$(cut -f2- "$cdir/json.bad")"
+      fi
+    fi
+    match_known
+    if [[ "$kind" == clean ]]; then
+      if [[ "$f_verdict" == ok ]]; then
+        ok "control clean: $name, untouched by the wrapper, still passes P1-P3"
+      else
+        bad "control clean: $name failed through the wrapper ($f_why) - the wrapper is not transparent"
+      fi
+    elif [[ "$f_verdict" == fail && "$f_stage" == "$want_stage" && -z "$f_known" ]] \
+         && grep -qE -- "$want_why" <<< "$f_why $f_detail"; then
+      ok "control $kind: $name reported at $f_stage - $f_why${f_detail:+ - ${f_detail:0:60}}"
+    else
+      bad "control $kind: $name gave verdict '$f_verdict' stage '$f_stage' known '${f_known:-}' ($f_why) - wanted a $want_stage failure matching /$want_why/; the harness cannot see this failure"
+    fi
+  done <<ROWS
+crash $c_crash $deadline check signal.11.\(SIGSEGV\)
+hang $c_hang 3 check timed.out
+mute $c_mute $deadline check no.error\[AXnnnn\].line
+trap $c_trap $deadline check exited.77
+lie $c_lie $deadline check exited.0.and.printed.an.error
+badir $c_badir $deadline llc this.line.is.not.LLVM.IR|expected
+badjson $c_badjson $deadline json not.JSON
+clean $c_clean $deadline - -
+ROWS
+  unset FUZZ_REAL FUZZ_CRASH FUZZ_HANG FUZZ_MUTE FUZZ_TRAP FUZZ_BADIR FUZZ_BADJSON FUZZ_LIE
+fi
+
+# ---------------------------------------------------------------------
+echo "== 5. stored reproducers (tests/fuzz/MANIFEST) =="
+rdir="$work/repro"
+mkdir -p "$rdir"
+if [[ ! -f "$manifest" ]]; then
+  bad "tests/fuzz/MANIFEST is missing"
+else
+  # Every stored reproducer is listed, and every listed one is stored.
+  ls "$repo_root/tests/fuzz" | grep '\.axfuzz$' | LC_ALL=C sort > "$rdir/on-disk"
+  awk -F'\t' '!/^#/ && NF {print $1}' "$manifest" | LC_ALL=C sort > "$rdir/listed"
+  if cmp -s "$rdir/on-disk" "$rdir/listed"; then
+    ok "tests/fuzz: $(wc -l < "$rdir/listed" | tr -d ' ') reproducers, each listed in MANIFEST once"
+  else
+    bad "tests/fuzz and its MANIFEST disagree:"; diff "$rdir/on-disk" "$rdir/listed" | sed 's/^/    /'
+  fi
+  while IFS=$'\t' read -r file status ap stage sig what; do
+    [[ -z "$file" || "$file" == \#* ]] && continue
+    [[ -f "$repo_root/tests/fuzz/$file" ]] || continue
+    stem="${file%.axfuzz}"
+    cp "$repo_root/tests/fuzz/$file" "$rdir/$stem.ax"
+    [[ "$ap" == - ]] && ap=""
+    fuzz_one "$axc" "$rdir/$stem.ax" "$ap" "$deadline"
+    if [[ "$f_verdict" == refused ]]; then
+      printf '%s\n' "$f_json" > "$rdir/json.list"
+      json_batch "$rdir/json.list" "$rdir/json.bad"
+      if [[ -s "$rdir/json.bad" ]]; then
+        f_verdict=fail f_stage=json f_why="the JSON report is malformed"
+        f_detail="$(cut -f2- "$rdir/json.bad")"
+      fi
+    fi
+    case "$status" in
+      fixed)
+        if [[ "$f_verdict" == ok || "$f_verdict" == refused ]]; then
+          ok "fixed $file: $f_verdict - $what"
+        else
+          bad "REGRESSION $file: $f_why${f_detail:+ - $f_detail} (was fixed: $what)"
+        fi ;;
+      open)
+        if [[ ! "$stage" =~ ^(check|json|emit|llc)$ ]] || [[ -z "$sig" ]] || grep -qE -- "$sig" <<< ""; then
+          bad "$file: an OPEN row needs a stage (check, json, emit or llc) and a signature that does not match an empty message - got '$stage' /$sig/"
+        elif [[ "$f_verdict" == fail && "$f_stage" == "$stage" && -n "$f_detail" ]] \
+           && grep -qE -- "$sig" <<< "$f_detail"; then
+          ok "XFAIL $file: still fails at $stage - $f_detail (OPEN: $what)"
+        elif [[ "$f_verdict" == fail ]]; then
+          bad "$file fails DIFFERENTLY: $f_stage - $f_why${f_detail:+ - $f_detail}; MANIFEST says $stage /$sig/"
+        else
+          bad "$file no longer fails ($f_verdict): mark it fixed in tests/fuzz/MANIFEST and docs/assurance/verification.md"
+        fi ;;
+      *) bad "$file: status '$status' is neither fixed nor open" ;;
+    esac
+  done < "$manifest"
+fi
+
+# ---------------------------------------------------------------------
+echo "== 6. the open rows that excused mutants in section 2 =="
+# Informational, and deliberately not a check: every excusal already
+# printed an XFAIL line naming its row, and section 5 holds each row to
+# failing exactly as recorded.
+while IFS=$'\t' read -r stage sig file; do
+  n="$(grep -c "\[open: tests/fuzz/$file\]" "$work/xfail.log" 2>/dev/null || true)"
+  echo "   OPEN tests/fuzz/$file ($stage /$sig/): excused ${n:-0} of this run's mutants"
+done < "$open_sigs"
+
+echo
+echo "check-fuzz: $checks passed, $failed failed"
+(( failed == 0 ))

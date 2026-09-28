@@ -789,13 +789,21 @@
 ; span the parenthetical says THAT, rather than being left off: a bare
 ; `note: __syscall3` reads like a truncated line, and the reason there
 ; is no position is the information.
+;
+; The span is asked about FIRST, as the AXDL renderer's `^` field
+; (`renderDiagIx` in diag.ax) and the JSON renderer ask it: a related
+; location can name another unit and still have no span - the
+; restriction path's hop to a user function spelled `*` does - and
+; asking `diagSecCross` first sent that one to `fmtSpanIx` with a null
+; span, which is a SIGSEGV in `spanStart`. Found by
+; `scripts/check-fuzz.sh` (tests/fuzz/render-spanless-cross.axfuzz).
 (pub :: secNoteText (-> Int Int (Vec Int) (Vec Int) String))
 (pub fn (secNoteText d i units ixs)
-  (if (== (diagSecCross d i units ixs) 1)
-    (let ((u (vecGet units (diagSecUnit d i))))
-      (strConcat (strConcat (strConcat (diagSecMsg d i) " (") (memGetWordStr u 0)) (strConcat (strConcat ":" (fmtSpanIx (memGetWordStr u 1) (vecGet ixs (diagSecUnit d i)) (diagSecSpan d i))) ")")))
-    (if (== (diagSecSpan d i) 0)
-      (strConcat (diagSecMsg d i) " (no declaration to point at)")
+  (if (== (diagSecSpan d i) 0)
+    (strConcat (diagSecMsg d i) " (no declaration to point at)")
+    (if (== (diagSecCross d i units ixs) 1)
+      (let ((u (vecGet units (diagSecUnit d i))))
+        (strConcat (strConcat (strConcat (diagSecMsg d i) " (") (memGetWordStr u 0)) (strConcat (strConcat ":" (fmtSpanIx (memGetWordStr u 1) (vecGet ixs (diagSecUnit d i)) (diagSecSpan d i))) ")")))
       ; Another unit, and no table to name it with. There is a
       ; position; this renderer cannot say where, and says nothing
       ; rather than something false.

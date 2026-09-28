@@ -1,0 +1,5 @@
+; check-fuzz reproducer (tests/fuzz/MANIFEST): an ill-formed UTF-8 sequence
+; (an encoded surrogate) inside a restriction tag.
+;@axiom:restrict(no-unsafeí €)
+(:: f (-> Int Int))
+(fn (f x) x)
