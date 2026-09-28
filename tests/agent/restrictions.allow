@@ -50,6 +50,7 @@ SGR_TITLE self_host/style.ax no-io,no-alloc,no-foreign ok
 SGR_WARN self_host/style.ax no-io,no-alloc,no-foreign ok
 adds tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 allocates tests/diagnostics/371-restrict-no-io.ax no-io ok
+area tests/diagnostics/1030-axtag-misplaced.ax no-io ok
 badEscapeIn self_host/lexer.ax no-io,no-alloc,no-foreign ok
 bareOf self_host/core.ax no-io,no-foreign ok
 bareOfFrom self_host/core.ax no-io,no-foreign ok
