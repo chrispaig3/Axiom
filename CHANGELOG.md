@@ -22,6 +22,24 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Decision coverage of the compiler's object code — `scripts/measure-coverage.sh`, R-E2 - 2026-09-28
+
+The coverage measurement counted blocks only. It now also reads every
+decision, a conditional branch or `switch` in the instrumented IR, by
+its outcomes: SanitizerCoverage splits critical edges before it places
+counters, so each outcome has a counter of its own, and
+`scripts/lib/coverage.py decisions` maps them back from the IR. Before
+the number is read, a fourth instrument check runs a program that
+branches on its argument count: its decision must read one outcome of
+two after a run with no argument, and both after a second run with one.
+
+On H3 at `--opt 1`, 578 runs: 25,715 of 61,827 blocks (41.6%); 18,943
+decisions, 10,251 reached, 14,114 of 37,321 outcomes taken (37.8%),
+and 4,175 decisions with every outcome taken (22.0%). It isn't MC/DC,
+because a decision's conditions are the source's and nothing below the
+front end keeps them. `docs/assurance/tool-qualification.md` carries
+the figures.
+
 ### Seven more places `check` and `fmt` disagreed, and two more type holes — `scripts/check-fuzz.sh` P4, R-E1 - 2026-09-28
 
 The first `--long` run with P4 found six programs `check` accepted and

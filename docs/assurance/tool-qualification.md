@@ -49,8 +49,8 @@ tool to, with the evidence that exists today.
 
 ## Structural coverage
 
-`scripts/measure-coverage.sh` measures block coverage of the
-compiler's own object code over its test corpora. The compiler is
+`scripts/measure-coverage.sh` measures block and decision coverage of
+the compiler's own object code over its test corpora. The compiler is
 rebuilt with SanitizerCoverage (one 8-bit counter per basic block,
 pruning off), and each run's counters land in a shared mapping, so a
 run that ends in a trap is still recorded. The instrument is checked
@@ -60,17 +60,30 @@ before its number is believed:
   a sample of inputs;
 - a program that divides by zero enters the backtracer, and one that
   doesn't never enters it;
-- every run leaves both a counter file and a metadata file.
+- every run leaves both a counter file and a metadata file;
+- a program that branches on its argument count reads that decision as
+  one outcome of two after a run with no argument, and both after a
+  second run with one.
 
-On H3 at `--opt 1`, 563 runs hit 25,290 of 60,864 blocks (41.6%) and
-entered 2,043 of 4,508 functions (45.3%). The diagnostics module
-reaches 86.6%, and the LSP, REPL, `Json` and `Tui` modules have no
-corpus that drives them, so they read as unmeasured.
+A decision is a conditional branch or a `switch` in the instrumented
+IR. SanitizerCoverage splits critical edges before it places counters,
+so each outcome has a counter of its own, and `scripts/lib/coverage.py
+decisions` reads them back per decision.
 
-This is block coverage of the compiler over its own tests. It isn't
-decision coverage or MC/DC, and it says nothing about coverage of an
-application's object code, which the application's own verification
-must measure.
+On H3 at `--opt 1`, 578 runs hit 25,715 of 61,827 blocks (41.6%) and
+entered 2,075 of 4,578 functions (45.3%). Of 18,943 decisions, 10,251
+were reached; 14,114 of 37,321 outcomes were taken (37.8%), and 4,175
+decisions had every outcome taken (22.0%). Three decisions have an
+outcome with no counter and aren't counted. The diagnostics module
+reaches 86.5% of its blocks. The LSP, REPL, `Json` and `Tui` modules
+read as unmeasured, because `scripts/measure-coverage.sh` runs nothing
+that drives them.
+
+This is block and decision coverage of the compiler's object code over
+its own tests. It isn't MC/DC: a decision's conditions are the
+source's, and nothing below the front end keeps them. It says nothing
+about coverage of an application's object code, which the
+application's own verification must measure.
 
 ## Standards mapping
 

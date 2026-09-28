@@ -60,7 +60,7 @@ Nothing here is legal or certification advice.
 | Trusted-component list | [trusted-components.md](trusted-components.md). The toolchain isn't version-pinned by the repository |
 | Tool operational requirements and qualification strategy | [tool-qualification.md](tool-qualification.md): TOR-1 to TOR-7 and a strategy per standard, from public text only |
 | Verification independence | Not satisfied by repository evidence (§4) |
-| Structural coverage evidence | Block coverage of the compiler's own object code (`scripts/measure-coverage.sh`). No decision coverage or MC/DC, and none of an application's code |
+| Structural coverage evidence | Block and decision coverage of the compiler's own object code (`scripts/measure-coverage.sh`). No MC/DC, and none of an application's code |
 | Configuration management, change impact and anomaly tracking | [support-policy.md](support-policy.md) and [anomalies.md](anomalies.md) |
 | Known limitations, errata and a user safety manual | [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), and the Gaps column of [requirements.md](requirements.md) |
 | Support, vulnerability-response and regression policy | [support-policy.md](support-policy.md) and [SECURITY.md](../../SECURITY.md) |

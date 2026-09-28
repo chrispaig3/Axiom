@@ -34,10 +34,17 @@
 #      does not - hits are recorded, trap paths included, and they are
 #      not recorded everywhere;
 #   3. every run left a counter file and a metadata file (a run that
-#      died before start-up finished would leave one without the other).
+#      died before start-up finished would leave one without the other);
+#   4. a program branching on its argument count reads its decision as
+#      one outcome of two after a run with no argument, and both after a
+#      second run with one.
 #
-# WHAT THE NUMBER IS: block coverage of the object code at --opt 1 over
-# the inputs run. Not decision coverage, not MC/DC. A block LLVM deleted
+# WHAT THE NUMBERS ARE: block coverage of the object code at --opt 1 over
+# the inputs run, and decision coverage of the same object code - every
+# conditional branch and switch of the instrumented IR, each outcome a
+# counter of its own because level 3 splits critical edges first
+# (`coverage.py decisions`). Not MC/DC: a decision's conditions are the
+# source's, and below the front end nothing keeps them. A block LLVM deleted
 # is in neither the numerator nor the denominator. SanitizerCoverage
 # does not instrument a function whose entry block ends in
 # `unreachable` - the single-block trap exits - so those are reached
@@ -120,6 +127,28 @@ else
   bad "the backtracer reads [$bt_clean] clean and [$bt_trap] trapping; wanted 0 and 1"
 fi
 
+# The decision half: a program that branches on its argument count.
+# Run with none, its first decision must read one outcome hit and one
+# not; run again with an argument, both. A decision report that could
+# not see an outcome missed would read 1 1 the first time.
+printf '(import IO)\n\n(:: main Int)\n;@axiom:effect(io)\n(fn (main)\n  {\n    (if (> (__argc) 1)\n      (println "an argument")\n      (println "none"))\n    0\n  })\n' > "$work/arg.ax"
+if "$axc" emit-llvm "$work/arg.ax" -o "$work/arg.ll" >/dev/null 2>&1 && instrument "$work/arg.ll" "$work/arg" > /dev/null 2>&1; then
+  mkdir -p "$work/c-arg"
+  AXIOM_COV_DIR="$work/c-arg" "$work/arg" > /dev/null 2>&1
+  python3 "$lib" merge "$work/c-arg" "$work/c-arg/acc" > /dev/null
+  one="$(python3 "$lib" decisions "$work/c-arg" "$work/c-arg/acc" "$work/arg" "$work/arg.cov.ll" --fn __axiom_user_main | head -1 | awk '{print $4, $5}')"
+  AXIOM_COV_DIR="$work/c-arg" "$work/arg" x > /dev/null 2>&1
+  python3 "$lib" merge "$work/c-arg" "$work/c-arg/acc" > /dev/null
+  both="$(python3 "$lib" decisions "$work/c-arg" "$work/c-arg/acc" "$work/arg" "$work/arg.cov.ll" --fn __axiom_user_main | head -1 | awk '{print $4, $5}')"
+  if [[ "$one" == "0 1" && "$both" == "1 1" ]]; then
+    echo "   decisions: main's branch read [0 1] with no argument and [1 1] with one"
+  else
+    bad "main's branch read [$one] with no argument and [$both] after one too; wanted [0 1] then [1 1]"
+  fi
+else
+  bad "the decision control program does not build"
+fi
+
 (( failed == 0 )) || { echo "measure-coverage: the instrument is broken ($failed); no number reported"; exit 1; }
 
 echo "== 3. the corpora =="
@@ -165,9 +194,10 @@ after="$(git status --porcelain | LC_ALL=C sort)"
 
 echo "== 4. the report =="
 python3 "$lib" report "$d" "$d/acc" "$cov" ${json:+--json "$json"}
+python3 "$lib" decisions "$d" "$d/acc" "$cov" "$work/axc-cov.cov.ll"
 echo
 if (( failed > 0 )); then
   echo "measure-coverage: $failed instrument check(s) failed - the number above is not evidence"
   exit 1
 fi
-echo "measure-coverage: $runs runs; block coverage of the compiler's object code at --opt 1"
+echo "measure-coverage: $runs runs; block and decision coverage of the compiler's object code at --opt 1"

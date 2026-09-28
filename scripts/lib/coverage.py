@@ -12,13 +12,20 @@ ONE binary together and attributes each block to the function whose
 symbol precedes its address.
 
 WHAT IT IS, IN A STANDARD'S WORDS: block (statement-level) coverage of
-object code at one `--opt`, over the inputs run. It is not decision
-coverage and not MC/DC; a block LLVM removed as dead is not counted
-anywhere; and the blocks are those of the optimised IR, so coverage is
-of the code that ships at that level, not of source lines.
+object code at one `--opt`, over the inputs run; and, from the same
+counters, DECISION (branch-outcome) coverage of the object code. Level 3
+splits every critical edge before it instruments, so each successor of
+a conditional `br` or a `switch` in the instrumented IR is a block with
+a counter of its own: an outcome is hit when that counter is. It is not
+MC/DC - conditions inside a decision are the source's, and nothing below
+the front end keeps them - a block LLVM removed as dead is not counted
+anywhere, and the blocks are those of the optimised IR, so coverage is of
+the code that ships at that level, not of source lines.
 
     coverage.py merge  DIR ACC       OR every DIR/run.*.cnt into ACC, delete them
     coverage.py report DIR ACC BIN   print the report (and --json PATH)
+    coverage.py decisions DIR ACC BIN COV.LL [--fn NAME]   decision coverage from the
+                                     instrumented IR (--fn: one function's decisions)
 """
 
 import glob
@@ -133,6 +140,108 @@ def report(d, acc_path, binary, json_path=None):
     return out
 
 
+def fn_starts(d, binary):
+    """{function name: index of its first counter} - the pc table lists a
+    function's blocks consecutively, entry first, in the order its
+    counter array holds them."""
+    import bisect
+    pcs = load_pcs(d)
+    syms = symbols(binary)
+    addrs = [a for a, _ in syms]
+    main_addr = next(a for a, n in syms if n == 'main')
+    starts = {}
+    for i, (delta, flags) in enumerate(pcs):
+        k = bisect.bisect_right(addrs, main_addr + delta) - 1
+        fn = syms[k][1] if k >= 0 else '?'
+        if fn not in starts:
+            starts[fn] = i
+    return starts
+
+
+GEN = re.compile(r'@__sancov_gen_(?:\.\d+)?(?:, i64 0, i64 (\d+))?\)?')
+
+
+def ir_decisions(cov_ll):
+    """[(function, block, [successor labels], {label: counter index})]
+    for every conditional `br` and `switch` in the instrumented IR."""
+    out = []
+    fn = None
+    label = None
+    idx = {}
+    pending = []
+    for line in open(cov_ll):
+        if line.startswith('define '):
+            m = re.search(r'@("?)([^"(]+)\1\(', line)
+            fn = m.group(2) if m else None
+            label = 'entry0'
+            idx = {}
+            pending = []
+            continue
+        if fn is None:
+            continue
+        if line.startswith('}'):
+            for blk, succ in pending:
+                out.append((fn, blk, succ, idx))
+            fn = None
+            continue
+        m = re.match(r'^([A-Za-z0-9_.$"-]+):', line)
+        if m:
+            label = m.group(1).strip('"')
+            continue
+        if '__sancov_gen_' in line and 'load i8' in line and label not in idx:
+            g = GEN.search(line)
+            idx[label] = int(g.group(1)) if g and g.group(1) else 0
+            continue
+        s = line.strip()
+        if s.startswith('br i1 '):
+            succ = re.findall(r'label %("?)([^",\s]+)\1', s)
+            pending.append((label, [x[1] for x in succ]))
+        elif s.startswith('switch '):
+            succ = re.findall(r'label %("?)([^",\s\]]+)\1', s)
+            seen = []
+            for x in succ:
+                if x[1] not in seen:
+                    seen.append(x[1])
+            pending.append((label, seen))
+    return out
+
+
+def decisions(d, acc_path, binary, cov_ll, only_fn=None):
+    acc = open(acc_path, 'rb').read()
+    starts = fn_starts(d, binary)
+    total = hit = full = reached = measured = unmeasured = 0
+    groups = {}
+    for fn, blk, succ, idx in ir_decisions(cov_ll):
+        if fn not in starts or any(x not in idx for x in succ) or blk not in idx:
+            unmeasured += 1
+            continue
+        base = starts[fn]
+        outs = [1 if acc[base + idx[x]] else 0 for x in succ]
+        if only_fn is not None:
+            if fn == only_fn:
+                print('decision %s outcomes %s' % (blk, ' '.join(map(str, outs))))
+            continue
+        measured += 1
+        total += len(outs)
+        hit += sum(outs)
+        full += 1 if all(outs) else 0
+        reached += 1 if acc[base + idx[blk]] else 0
+        g = groups.setdefault(group_of(fn), [0, 0])
+        g[0] += len(outs)
+        g[1] += sum(outs)
+    if only_fn is not None:
+        return None
+    print('decisions: %d measured (%d unmeasurable), %d reached; outcomes %d of %d hit (%.1f%%); '
+          '%d decisions with every outcome hit (%.1f%%)' % (
+              measured, unmeasured, reached, hit, total, 100.0 * hit / max(total, 1),
+              full, 100.0 * full / max(measured, 1)))
+    for k in sorted(groups, key=lambda k: -groups[k][0])[:12]:
+        t, h = groups[k]
+        print('  %-20s outcomes %6d/%-6d %5.1f%%' % (k, h, t, 100.0 * h / max(t, 1)))
+    return dict(measured=measured, unmeasured=unmeasured, reached=reached,
+                outcomes=total, outcomes_hit=hit, full=full)
+
+
 def entered(d, acc_path, binary, fn):
     """1 if `fn`'s entry block was hit, 0 if not, -1 if the binary has
     no instrumented entry block attributed to `fn`."""
@@ -159,6 +268,9 @@ if __name__ == '__main__':
     elif cmd == 'report':
         jp = sys.argv[sys.argv.index('--json') + 1] if '--json' in sys.argv else None
         report(sys.argv[2], sys.argv[3], sys.argv[4], jp)
+    elif cmd == 'decisions':
+        fn = sys.argv[sys.argv.index('--fn') + 1] if '--fn' in sys.argv else None
+        decisions(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], fn)
     elif cmd == 'entered':
         print(entered(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]))
     else:
