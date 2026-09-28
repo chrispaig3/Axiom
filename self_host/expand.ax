@@ -185,7 +185,9 @@
   (scChain : (Vec Int))
   (scTpl : (Vec Int))
   (scSeq : Int)
-  (scVerify : Int))
+  (scVerify : Int)
+  (defer : Int)
+  (deferHits : Int))
 
 ; The two budgets on the OUTPUT, which the parser's
 ; own AX2005 guard cannot see: it measures the source,
@@ -1558,6 +1560,27 @@
         (strSlice s from (- sp from))
         (strSlice s (+ sp 1) (- (strLen s) (+ sp 1)))))))
 
+; A query naming a declaration that doesn't exist YET. Phase D expands
+; declaration-position invocations in rounds, in list order, so a
+; `(deriveEq Mode)` written above the `(defFlag Mode)` that generates
+; `Mode` asked before the answer existed and was refused with AX3028,
+; though MAC-LANG-3a says macros are order-independent (AN-40,
+; `tests/selfhost/1008-macro-query-order.ax`). While a round may still
+; generate declarations (`defer`, word 29), the query records the miss
+; in `deferHits` (word 30) and answers nothing; `expInstantiateDecl`
+; then throws that instantiation away and the invocation is tried in
+; the next round. Only when a round generates nothing is the last round
+; run with `defer` off, so a name nothing declares is still this
+; refusal, with the same words.
+(pub :: expQueryMissing (-> Int Int String String a Int))
+(pub fn (expQueryMissing env sp msg help m)
+  (if (== (memGetWord env 29) 1)
+    {
+      (memSetWord env 30 1)
+      0
+    }
+    (expQueryErr env sp msg help m)))
+
 ; The family's one diagnostic. `m` is the module whose file the span
 ; indexes (0 = the entry file), resolved to a unit exactly as the
 ; other expander diagnostics resolve theirs.
@@ -1705,7 +1728,7 @@
             (strConcat (strConcat (strConcat "`" s) "` is private to module `") (strConcat (nodeModuleName any) "`"))
             "a query answers what an entry-file reference could name; mark the struct `pub`, or derive by hand inside its module"
             (expMacMod env)))
-          (cast (Vec String) (expQueryErr
+          (cast (Vec String) (expQueryMissing
             env
             isp
             (strConcat (strConcat "no declaration named `" s) "` for syntax/fields to answer")
@@ -1753,7 +1776,7 @@
             (strConcat (strConcat (strConcat "`" t) "` is private to module `") (strConcat (nodeModuleName any) "`"))
             "a query answers what an entry-file reference could name; mark the type `pub`, or derive by hand inside its module"
             (expMacMod env)))
-          (cast (Vec String) (expQueryErr
+          (cast (Vec String) (expQueryMissing
             env
             isp
             (strConcat (strConcat "no declaration named `" t) "` for syntax/constructors to answer")
@@ -7551,7 +7574,9 @@
       vecNew
       vecNew
       0
-      scVerify))))
+      scVerify
+      0
+      0))))
     {
       (expCheckMacros env 0)
       (expCheckDeclNames decls env 0)
@@ -7613,7 +7638,35 @@
 
 (pub :: expandDeclPhase (-> (Vec Int) (Vec Int) Int Int))
 (pub fn (expandDeclPhase entryDecls decls env)
-  (expandDeclRounds entryDecls decls env 0))
+  {
+    ; Rounds run with queries deferring (`expQueryMissing`) while
+    ; a round can still generate the declaration they name.
+    (memSetWord env 29 1)
+    (expandDeclRounds entryDecls decls env 0)
+    (memSetWord env 29 0)
+    0
+  })
+
+; Pops `v` back to `n` elements.
+(pub :: expTruncate (-> (Vec a) Int Int))
+(pub fn (expTruncate v n)
+  (if (<= (vecLen v) n)
+    0
+    {
+      (vecPop v)
+      (expTruncate v n)
+    }))
+
+; Is an invocation still waiting - neither expanded nor refused?
+; After a round that generated nothing, only a deferred one can be.
+(pub :: expAnyWaiting (-> (Vec Int) Int Int))
+(pub fn (expAnyWaiting decls i)
+  (if (>= i (vecLen decls))
+    0
+    (let ((d (vecGet decls i)))
+      (if (&& (== (nodeTag d) TAG_D_MACROCALL) (== (memGetWord d 3) 0))
+        1
+        (expAnyWaiting decls (+ i 1))))))
 
 (pub :: expandDeclRounds (-> (Vec Int) (Vec Int) Int Int Int))
 (pub fn (expandDeclRounds entryDecls decls env round)
@@ -7644,7 +7697,15 @@
         env
         0
         0) 0)
-        0
+        ; Nothing generated. A deferred invocation's subject can no
+        ; longer appear, so one more round with deferring off reports
+        ; it (AX3028), exactly as a single pass always did.
+        (if (&& (== (memGetWord env 29) 1) (== (expAnyWaiting decls 0) 1))
+          {
+            (memSetWord env 29 0)
+            (expandDeclRounds entryDecls decls env (+ round 1))
+          }
+          0)
         (expandDeclRounds entryDecls decls env (+ round 1))))))
 
 (pub :: expFirstMacroCall (-> (Vec Int) Int Int))
@@ -7786,6 +7847,13 @@
     (prevFors (memGetWord env 13))
     (prevSeqs (memGetWord env 20))
     (prevSc (expScEnterDeclInst env))
+    ; What a deferred build (`expQueryMissing`) must leave as it found
+    ; it: the diagnostics it emitted, the frame pushed below, and the
+    ; fresh-name counter its hygiene renaming advanced.
+    (outLen0 (vecLen (expOutVec env)))
+    (framesLen0 (vecLen (memGetWordVec env 10)))
+    (fresh0 (memGetWord env 2))
+    (_h (memSetWord env 30 0))
   )
     {
       (memSetWord env 20 (expMatchSeqs m))
@@ -7860,6 +7928,17 @@
           ; set, so the `expBlown` test just below and the one that
           ; stops the round fixpoint carry the refusal out with no new
           ; control flow here.
+          (if (== (memGetWord env 30) 1)
+            ; A query named a declaration that doesn't exist yet:
+            ; nothing of this build is kept, and the invocation stays
+            ; unrefused for the next round.
+            {
+              (expTruncate (expOutVec env) outLen0)
+              (expTruncate (memGetWordVec env 10) framesLen0)
+              (memSetWord env 2 fresh0)
+              (memSetWord env 30 0)
+              0
+            }
           (if (||
             (==
               (cast Int made)
@@ -7901,7 +7980,7 @@
                     (expGiveTags d made tags)
                     (expRecordGens env made (nodeAName mac) 0)
                     1
-                  }))))
+                  })))))
         })
     }))
 

@@ -13,9 +13,13 @@
 # names are wanted. Two numbers, both pinned here:
 #
 #   population  every `#generated=` AXSYM row over the corpus that can
-#               carry one - 129 today, all in tests/selfhost's decl-macro
+#               carry one - 130 today, all in tests/selfhost's decl-macro
 #               family plus one frontend case, none in stdlib or the
 #               compiler itself. The surface that could want locating.
+#               130 since tests/selfhost/1008-macro-query-order.ax: its
+#               `eqMode` is generated to test expansion ORDER, which is
+#               not a user wanting a generated name located, so
+#               MAC-TOOL-3 stands.
 #   demand      requests in tests/lsp/drive.py targeting a generated
 #               name - 4 today (definition, declaration and hover
 #               answered from the cache, references seeing the
@@ -38,7 +42,7 @@ failed=0; passed=0
 ok()   { echo "ok   $*"; passed=$((passed + 1)); }
 fail() { echo "FAIL: $*"; failed=$((failed + 1)); }
 
-WANT_POPULATION=129
+WANT_POPULATION=130
 WANT_DEMAND=4
 
 echo "== population: every #generated= row over the corpus =="
