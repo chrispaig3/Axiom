@@ -1,11 +1,12 @@
 # Verification programme (R-E1)
 
-This page covers what the executable model, the compiler fuzzer and
-the race detector check, how each gate runs, what they found, and what
-none of them covers. It goes with R-E1 in
-[requirements.md](requirements.md). The scope statements of record are
-two docstrings and a gate header: `scripts/lib/runtime-model.py` for
-the model, `scripts/lib/fuzz.py` for the fuzzer and
+This page covers what the executable model, the compiler fuzzer, the
+race detector and the metamorphic relation check, how each gate runs,
+what they found, and what none of them covers. It goes with R-E1 and
+R-A10 in [requirements.md](requirements.md). The scope statements of
+record are three docstrings and a gate header:
+`scripts/lib/runtime-model.py` for the model, `scripts/lib/fuzz.py`
+for the fuzzer, `scripts/lib/metamorphic.py` for the relation and
 `scripts/check-race.sh` for the race detector.
 
 ## The model
@@ -360,6 +361,36 @@ start under qemu's user-mode emulation.
   go through the C library, one function isn't inlined, and every
   access calls into the TSan runtime.
 
+## Metamorphic compiler testing
+
+`scripts/check-metamorphic.sh` checks one relation: a declaration
+nothing uses changes nothing else the compiler says. For every program
+the compiler accepts in `tests/stdlib`, `tests/selfhost` and
+`examples`, it appends top-level functions named `a` to `z`, each
+performing IO, once nullary and once taking one argument. The verdict
+and diagnostics, every original declaration's `symbols` row and every
+original function's IR must stay the same. `scripts/lib/metamorphic.py`
+states the relation, and its selftest plants each kind of difference.
+
+Its first run found three name-resolution defects. A parameter spelled
+like a nullary function compiled as a call to it, which was wrong
+code. The effect walk read a cast's type operand as a reference, and
+it skipped a named pattern's binders. `tests/selfhost/1006-cast-type-operand.ax`
+and `tests/selfhost/1007-param-shadows-nullary.ax` pin them, and the
+gate rebuilds three compilers, each with one fix taken out, and
+requires the relation to fail under each.
+
+What it does not show:
+
+- It checks only the names it adds, `a` to `z`, and only programs the
+  compiler accepts. A refused program's free names are exactly those
+  names, so its answer may rightly change.
+- IR is compared as text. `__axiom_bt_name` and `__axiom_lineinit`
+  list every function, so they are allowed to differ, and nothing else
+  is.
+- It is one relation. Renaming a binder, reordering declarations or
+  inlining a `let` are other relations, and nothing checks them yet.
+
 ## What is still open
 
 - Coverage-guided fuzzing, and fuzzing of the LSP and the REPL. A
@@ -378,4 +409,5 @@ start under qemu's user-mode emulation.
   `check-atomics.sh` counts theirs at all four levels. The model
   assembles at one level per trace, not all four with diffing.
 - Differential and metamorphic compiler tests beyond the bootstrap
-  fixpoint (`stage2 == stage3`) and the MIR differential.
+  fixpoint (`stage2 == stage3`), the MIR differential, P5's two
+  optimisation levels and the one metamorphic relation above.

@@ -22,6 +22,42 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A parameter is never a call, and a type names nothing — `scripts/check-metamorphic.sh`, R-A10 - 2026-09-28
+
+**Wrong code, fixed.** A parameter spelled like a nullary top-level
+function compiled as a call to that function. Beside `(fn (k) 100)`,
+`(fn (inc k) (+ k 1))` answered 101 for `(inc 10)`, where the checker
+had typed `k` as the parameter. Lambda parameters and captured
+parameters went the same way; `let`, `match` and `for` binders were
+right. The lookup reached across modules: an entry file declaring a
+nullary `e` turned `Err$errCode`'s parameter `e` into a call, and a
+program reading an error's code faulted. The emitter now asks whether
+the name is a parameter first, as its function-value arm already did.
+
+**Two false refusals, fixed.** The effect walk read the type operand
+of `cast`, `sizeof` and `alignof` as a reference. `Vec.ax` reads an
+element with `(cast a (memGetWord ...))`, so an entry file declaring
+an IO-performing function `a` gave every `Vec` reader IO: 53 false
+`AX3042` and `AX3049` errors inside `stdlib/`, and the program didn't
+compile. The same walk skipped a named pattern's binders, so the `t`
+in `(Wrap {tag = t})` was a free name and drew a false `AX3042` beside
+an IO-performing `t`. Neither changes anything the tree itself
+emits: the compiler's IR is byte-identical, and so is every stdlib
+module's `symbols` output.
+
+A new gate, `scripts/check-metamorphic.sh`, found all three. For every
+program the compiler accepts in `tests/stdlib`, `tests/selfhost` and
+`examples`, it appends top-level functions nobody calls, named `a` to
+`z`, each performing IO, and requires the verdict, every original
+declaration's `symbols` row and every original function's IR to stay
+put. 334 programs keep that relation. Three compilers rebuilt with
+one fix each taken out must fail it. `--long` adds the compiler and
+every stdlib module as entry files, nightly. The fixes are pinned by
+`tests/selfhost/1006-cast-type-operand.ax` and
+`tests/selfhost/1007-param-shadows-nullary.ax`, which dies with
+SIGSEGV on the unfixed compiler. Calls one new gate; the count sites
+state eighty-nine gates.
+
 ### Purity is written one way, and a tag must sit where it is checked — `AX3077`, `AX3078` - 2026-09-28
 
 **Purity is `;@axiom:effect(pure)`.** Three spellings were accepted:
@@ -209,7 +245,7 @@ in `docs/assurance/verification.md`.
 action and `scripts/run-gates-linux.sh`'s image install
 `libclang-rt-dev`; CI sets `AXIOM_TSAN_REQUIRED=1`, so a missing
 runtime fails there and skips elsewhere. Calls one new gate; the count
-sites state eighty-eight gates.
+sites state eighty-nine gates.
 ### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` §3 ran three litmus families, store
@@ -533,7 +569,7 @@ as the control); RSS flat from 500 to 5,000 folded tasks beside a
 keeping control that must grow; nine ablations on copies of the
 library each turning it red; and the three new programs in
 `examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
-new gate; the count sites state eighty-eight gates.
+new gate; the count sites state eighty-nine gates.
 
 An independent review before landing found six defects, two confirmed
 by probes. The mutex compared an unlock's guard against the guard
@@ -690,7 +726,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-eighty-eight gates. Specified in `docs/restricted-profile.md`.
+eighty-nine gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -758,7 +794,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-eight gates.
+state eighty-nine gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -799,7 +835,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-eight gates.
+eighty-nine gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -848,7 +884,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-eight gates.
+eighty-nine gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -878,7 +914,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-eight gates.
+sites state eighty-nine gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -1119,7 +1155,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-eight gates.
+checks). Calls one new gate; the count sites state eighty-nine gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -1136,7 +1172,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-eight gates, and the battery has
+gate; the count sites state eighty-nine gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

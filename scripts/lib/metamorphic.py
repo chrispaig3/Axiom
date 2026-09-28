@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""Metamorphic compiler testing: an unused declaration changes nothing.
+
+THE RELATION. Take a program the compiler accepts. Append top-level
+functions nobody calls, named like the names programs are full of -
+type variables, parameters, pattern binders: `a`, `e`, `k`, `t`, ...
+Nothing in the original program refers to them, so nothing the
+compiler says about the original program may change:
+
+  R1  `check` answers the same exit status and the same diagnostics;
+  R2  `symbols` prints the same row for every original declaration
+      (its type, effect row, tags and location);
+  R3  `emit-llvm` emits the same body for every original function.
+
+Two variants per program: the added functions NULLARY (`(fn (a) ...)`,
+which a bare `a` calls) and UNARY (`(fn (a x) ...)`, which a bare `a`
+names as a function value). Each performs IO, so an analysis that
+mistakes a local name for one of them imports an effect the original
+never had.
+
+WHAT IT FOUND ON ITS FIRST RUN (2026-09-28), all three silent to
+every gate then in the battery:
+  - the effect walk read `(cast a x)`'s TYPE operand as a reference,
+    so an entry file's `a` gave `Vec`'s element readers IO: 136 of 136
+    `tests/stdlib/` programs stopped compiling;
+  - codegen resolved a nullary function before a parameter, so a
+    parameter `k` beside `(fn (k) 100)` compiled as `call @k()`, and
+    an entry file's `e` rewrote `Err$errCode`'s parameter: wrong code;
+  - the effect walk skipped a named pattern's binders, `{tag = t}`.
+
+WHAT IT CANNOT SEE. Only names it adds; only programs the compiler
+already accepts (a refused program's free names are exactly the
+names this adds - `tests/diagnostics/1009-macro-for-innermost.ax`
+rightly changes answer). Equal IR is equal code, but R3 compares
+text, so an emitter that renumbers registers for an unrelated reason
+would read as a divergence (none does today). Two runtime tables
+enumerate every function by design and are excluded by name,
+`ENUMERATORS` below; any other difference is reported.
+
+Usage:
+  metamorphic.py run --axiom AXC [--jobs N] FILE...
+  metamorphic.py selftest
+Exit 0 when every accepted program keeps the relation, 1 otherwise.
+"""
+import concurrent.futures as cf
+import os
+import re
+import subprocess
+import sys
+
+NAMES = list("abcdefghijkmnprstuvwxyz")
+ENUMERATORS = {"__axiom_bt_name", "__axiom_lineinit"}
+DEADLINE = 600
+
+DEF_RE = re.compile(r"^define [^@\n]*@\"?([^\"(\s]+)\"?\(.*?^}", re.M | re.S)
+TYVAR_RE = re.compile(r"_t\d+")
+
+
+def declared(src):
+    names = set(re.findall(r"\(fn \(([a-z][A-Za-z0-9_]*)", src))
+    names |= set(re.findall(r"\(fn ([a-z][A-Za-z0-9_]*) ", src))
+    names |= set(re.findall(r"^\(:: ([a-z][A-Za-z0-9_]*) ", src, re.M))
+    names |= set(re.findall(r"\(e?macro \(([a-z][A-Za-z0-9_]*)", src))
+    return names
+
+
+def addition(names, unary):
+    out = ["\n; metamorphic: unused declarations"]
+    for n in names:
+        if unary:
+            out.append(f";@axiom:effect(io)\n(:: {n} (-> Int Int))\n"
+                       f"(fn ({n} q) (__syscall3 1 1 0 q))")
+        else:
+            out.append(f";@axiom:effect(io)\n(:: {n} Int)\n"
+                       f"(fn ({n}) (__syscall3 1 1 0 0))")
+    return "\n".join(out) + "\n"
+
+
+def defs(ir):
+    return {m.group(1): m.group(0) for m in DEF_RE.finditer(ir)}
+
+
+def norm_row(line, fname):
+    line = line.replace(fname, "F")
+    seen = {}
+    return TYVAR_RE.sub(lambda m: seen.setdefault(m.group(0), "_T%d" % len(seen)), line)
+
+
+def rows(out, fname):
+    table = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) > 2:
+            table[(parts[0], parts[1])] = norm_row(line, fname)
+    return table
+
+
+def run(axiom, args, cwd):
+    try:
+        p = subprocess.run([axiom, "--diagnostic-format=ai"] + args, cwd=cwd,
+                           capture_output=True, text=True, timeout=DEADLINE,
+                           errors="replace")
+        return p.returncode, p.stdout, p.stderr
+    except subprocess.TimeoutExpired:
+        return -1, "", "timeout"
+
+
+def observe(axiom, fname, cwd):
+    c = run(axiom, ["check", fname], cwd)
+    s = run(axiom, ["symbols", fname], cwd)
+    e = run(axiom, ["emit-llvm", fname], cwd) if c[0] == 0 else (None, "", "")
+    return {"check": (c[0], c[2].replace(fname, "F")),
+            "rows": rows(s[1], fname),
+            "defs": defs(e[1]) if e[0] == 0 else None,
+            "emit": e[0]}
+
+
+def compare(base, var):
+    probs = []
+    if base["check"] != var["check"]:
+        probs.append("R1 check %s -> %s" % (base["check"][0], var["check"][0]))
+    moved = [k[1] for k, v in base["rows"].items()
+             if k in var["rows"] and var["rows"][k] != v]
+    lost = [k[1] for k in base["rows"] if k not in var["rows"]]
+    if moved or lost:
+        probs.append("R2 symbols rows changed: " + ",".join((moved + lost)[:8]))
+    if base["defs"] is not None:
+        if var["defs"] is None:
+            probs.append("R3 emit-llvm failed on the variant")
+        else:
+            bodies = [k for k, v in base["defs"].items()
+                      if k not in ENUMERATORS and var["defs"].get(k) != v]
+            if bodies:
+                probs.append("R3 IR differs: " + ",".join(bodies[:8]))
+    return probs
+
+
+def one(axiom, path):
+    path = os.path.abspath(path)
+    cwd, base = os.path.split(path)
+    src = open(path, encoding="utf-8", errors="replace").read()
+    orig = observe(axiom, base, cwd)
+    if orig["check"][0] != 0:
+        return path, "refused", []
+    # what `symbols` lists is declared, macro-generated names included
+    # (`tests/selfhost/372-decl-macro.ax` makes a `p` no scan of its
+    # source can see), and so is every name its source scan finds
+    taken = declared(src) | {k[1] for k in orig["rows"]}
+    names = [n for n in NAMES if n not in taken]
+    probs = []
+    for unary in (False, True):
+        vname = ".metamorphic-%d-%s" % (os.getpid(), base)
+        vpath = os.path.join(cwd, vname)
+        with open(vpath, "w", encoding="utf-8") as fh:
+            fh.write(src + addition(names, unary))
+        try:
+            var = observe(axiom, vname, cwd)
+        finally:
+            os.remove(vpath)
+        # the variant's own file name in its diagnostics and rows
+        var["check"] = (var["check"][0], var["check"][1].replace(vname, "F"))
+        var["rows"] = {k: v.replace(vname, "F") for k, v in var["rows"].items()}
+        probs += [("unary " if unary else "nullary ") + p for p in compare(orig, var)]
+    return path, "diverged" if probs else "kept", probs
+
+
+def cmd_run(argv):
+    axiom, jobs, files = None, 4, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--axiom":
+            axiom = argv[i + 1]; i += 2
+        elif argv[i] == "--jobs":
+            jobs = int(argv[i + 1]); i += 2
+        else:
+            files.append(argv[i]); i += 1
+    if not axiom or not files:
+        print(__doc__)
+        return 2
+    # each program is compiled from its own directory, so a relative
+    # compiler path would name nothing there
+    if os.sep in axiom:
+        axiom = os.path.abspath(axiom)
+    counts = {"refused": 0, "kept": 0, "diverged": 0}
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        for path, verdict, probs in ex.map(lambda f: one(axiom, f), files):
+            counts[verdict] += 1
+            rel = os.path.relpath(path)
+            if verdict == "diverged":
+                print("DIVERGED %s: %s" % (rel, "; ".join(probs)))
+    print("swept %d files: %d accepted and kept the relation, %d diverged, "
+          "%d refused (not tested)" % (len(files), counts["kept"],
+                                       counts["diverged"], counts["refused"]))
+    return 1 if counts["diverged"] else 0
+
+
+def cmd_selftest():
+    fails = 0
+
+    def expect(cond, what):
+        nonlocal fails
+        print(("ok   " if cond else "FAIL ") + what)
+        fails += 0 if cond else 1
+
+    ir = ("define i64 @f(i64 %x) #0 {\n  ret i64 %x\n}\n"
+          "define internal i64 @\"Vec$vecGet\"(i64 %v) #0 {\n  ret i64 0\n}\n"
+          "define i64 @__axiom_bt_name(i64 %i) {\n  ret i64 1\n}\n")
+    d = defs(ir)
+    expect(sorted(d) == ["Vec$vecGet", "__axiom_bt_name", "f"], "defs finds three bodies, quoted names too")
+    base = {"check": (0, ""), "rows": {("F", "f"): "F f F:1 \"_t3\""}, "defs": d, "emit": 0}
+    same = {"check": (0, ""), "rows": {("F", "f"): "F f F:1 \"_t3\""}, "defs": dict(d), "emit": 0}
+    expect(compare(base, same) == [], "an identical variant keeps the relation")
+    table = dict(d); table["__axiom_bt_name"] = "define i64 @__axiom_bt_name() {\n}"
+    expect(compare(base, dict(same, defs=table)) == [], "an enumerator table may differ")
+    body = dict(d); body["f"] = "define i64 @f(i64 %x) #0 {\n  %.t0 = call i64 @k()\n}"
+    expect(any("R3" in p for p in compare(base, dict(same, defs=body))), "a changed body is R3")
+    expect(any("R1" in p for p in compare(base, dict(same, check=(1, "E AX3042")))), "a changed verdict is R1")
+    expect(any("R2" in p for p in compare(base, dict(same, rows={("F", "f"): "F f F:1 \"_t3\" #effects=IO"}))),
+           "a changed row is R2")
+    expect(any("R2" in p for p in compare(base, dict(same, rows={}))), "a lost row is R2")
+    expect(any("R3" in p for p in compare(base, dict(same, defs=None))), "a variant that does not emit is R3")
+    expect(norm_row("F f F:1 \"(_t13 -> _t9)\"", "F") == norm_row("F f F:1 \"(_t3 -> _t4)\"", "F"),
+           "fresh type variables are compared by order of appearance")
+    expect(declared("(fn (k) 1)\n(:: v Int)\n(macro (w) 9)\n(fn e 2)") == {"k", "v", "w", "e"},
+           "declared names are skipped, macros included")
+    print("selftest: %d failed" % fails)
+    return 1 if fails else 0
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "run":
+        sys.exit(cmd_run(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "selftest":
+        sys.exit(cmd_selftest())
+    print(__doc__)
+    sys.exit(2)

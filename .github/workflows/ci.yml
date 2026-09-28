@@ -330,7 +330,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-eight of the gates below build the compiler under test from
+    # eighty-nine of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -618,6 +618,14 @@ jobs:
       # ones pass, open ones still fail exactly as recorded.
       - name: Seeded compiler fuzzing finds no crash, and can see one
         run: ./scripts/check-fuzz.sh
+
+      # R-A10: an unused declaration changes nothing else the compiler
+      # says. Every program the corpora hold that the compiler accepts
+      # gains top-level functions named a to z; its verdict, symbols
+      # rows and emitted bodies must stay put. Three compilers rebuilt
+      # with one name-resolution fix taken out must fail it.
+      - name: An unused declaration changes nothing, and three fixes are watched
+        run: ./scripts/check-metamorphic.sh
 
       # R-D1: `scripts/axiom-report.py`, the per-function resource report
       # read off the compiler's own call graph and effect rows, and the
@@ -1948,6 +1956,8 @@ jobs:
         run: ./scripts/check-fuzz.sh --long
       - name: Every model trace at every --opt level
         run: ./scripts/check-runtime-model.sh --long
+      - name: The metamorphic relation over the compiler and every stdlib module
+        run: ./scripts/check-metamorphic.sh --long
 
   reproducible:
     name: Reproducible build
