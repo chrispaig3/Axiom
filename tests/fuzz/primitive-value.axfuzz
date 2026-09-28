@@ -1,0 +1,4 @@
+; check-fuzz reproducer (tests/fuzz/MANIFEST): a one-argument primitive
+; applied to nothing.
+(:: main Int)
+(fn (main) (__floatToInt))

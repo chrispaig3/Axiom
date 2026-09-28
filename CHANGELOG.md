@@ -22,6 +22,49 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Seeded compiler fuzzing, and two crashes it found — `scripts/check-fuzz.sh` - 2026-09-27
+
+The fuzzing half of R-E1. `scripts/lib/fuzz.py` mutates the tracked
+`.ax` corpus from a fixed seed with its own splitmix64 - deleting,
+duplicating, swapping and splicing balanced forms, swapping atoms and
+form heads for ones from other files, pushing integer literals to the
+64-bit edges, dropping and inserting delimiters, truncating, inserting
+NUL, control and non-UTF-8 bytes, nesting past the parser's 1,024 limit
+and repeating a child 5,000 times - and the gate holds every mutant to
+three properties: `axiom check` exits 0 with no `error[AXnnnn]` line
+or 1 with one (never a signal, a trap status or a hang past 120s); a
+refusal's
+`--diagnostic-format json` output is well-formed JSON Lines as
+`docs/diagnostics.md` states them; and IR from a program `check`
+accepted is IR `llc` accepts. 600 mutants per run (32s on
+darwin-aarch64), 6,000 under `--long`; the seed and a digest of the
+mutants are printed, a failure prints its diff and a one-line
+reproduce command, and a pinned digest of an in-memory corpus checks
+the generator is deterministic on every host. It cannot pass blind: a
+planted wrapper compiler that segfaults, hangs, exits 1 in silence,
+exits 77, answers a refusal with exit 0, corrupts its JSON or appends a
+line that is not IR must be reported as each, and a run that reached no OK, emitted, llc-accepted
+or JSON-validated mutant fails.
+
+It found two `check` crashes, both fixed. A user `fn` spelled `*`
+whose body allocates made the human renderer SIGSEGV: `secNoteText`
+asked whether a related location was in another unit before asking
+whether it had a span, unlike the AXDL and JSON renderers, and handed
+`fmtSpanIx` a null one (`self_host/render.ax`). And a signature that
+is not an arrow over a function with a parameter, called inside a
+`region`, sent a null type from `nthParamTy`'s fallback into
+`rgTyScalar` (`self_host/typecheck.ax`); it is now AX3004. Both
+reproducers replay as regressions from `tests/fuzz/`. Six more are
+recorded OPEN there and print as XFAIL until fixed: duplicate
+parameter names, and three kinds of name codegen has no value for -
+nine builtin names, a `cast` missing its operand, thirteen
+one-argument primitives applied to nothing - each check OK and emit IR
+`llc` refuses; and `--diagnostic-format json` writes ill-formed UTF-8
+when a diagnostic quotes non-ASCII source (two sites).
+`docs/assurance/verification.md` lists them with the measurements,
+including a compile time that grows faster than quadratically in one
+`let`'s bindings.
+
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
 `docs/memory-model.md` said which bindings run where and what crosses

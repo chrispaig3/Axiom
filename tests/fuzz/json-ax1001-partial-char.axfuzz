@@ -1,0 +1,5 @@
+; check-fuzz reproducer (tests/fuzz/MANIFEST): a character outside the
+; identifier set that is more than one byte long.
+(:: main Int)
+(fn (main) 0)
+中

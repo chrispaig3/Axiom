@@ -570,6 +570,17 @@ jobs:
       - name: Atomics lower to their ordering instructions and hold on two threads
         run: ./scripts/check-atomics.sh
 
+      # The fuzzing half of R-E1: 600 mutants of the corpus from a fixed
+      # seed, each held to three properties - `check` answers with a code
+      # or exits 0 (never a signal, a hang or a trap status), a refusal's
+      # JSON is well formed, and IR from a program `check` accepted is IR
+      # `llc` accepts. A planted wrapper compiler's crash, hang, silent
+      # refusal, trap, false exit 0, bad JSON and bad IR must each be
+      # reported, and the stored reproducers in tests/fuzz/ replay: fixed
+      # ones pass, open ones still fail exactly as recorded.
+      - name: Seeded compiler fuzzing finds no crash, and can see one
+        run: ./scripts/check-fuzz.sh
+
       # The FFI boundary is a C ABI, and until this gate the only thing
       # that exercised it was a Rust crate. `check-ffi.sh` below is
       # excellent and it tests the Rust CLIENT: cargo, `#[axiom_export]`,

@@ -1,0 +1,5 @@
+; check-fuzz reproducer (tests/fuzz/MANIFEST): an effect name in value position.
+(:: g (-> Int Int))
+(fn (g x) x)
+(:: main Int)
+(fn (main) (g IO))
