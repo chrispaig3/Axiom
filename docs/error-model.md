@@ -1125,6 +1125,7 @@ This section records the codes below. All of them are built, and
 | `AX3071` `unretained-store` | a bare `__store64` of a reference-typed value through `cast` | `tests/diagnostics/1002-unretained-store.ax` |
 | `AX3072` `addr-nonliteral` | `__addr` of anything but a string literal | `tests/diagnostics/1003-addr-nonliteral.ax` |
 | `AX3073` `undeclared-unsafe` | a function whose own body calls a raw-memory primitive and carries no `;@axiom:effect(unsafe)` | An error. `tests/diagnostics/1004-undeclared-unsafe.ax` |
+| `AX3089` `signature-needed` | a function with no signature, called from inside its own body or from a declaration above it, before its type is known | An error. `tests/diagnostics/1032-signature-needed.ax` |
 
 Every warning in the table is listed, with its reason, in
 `tests/diagnostics/severity.policy`. The `restrict(...)` codes are

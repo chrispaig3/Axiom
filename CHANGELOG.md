@@ -22,6 +22,27 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A function that needs its signature says so — `AX3089` - 2026-09-28
+
+A function with no signature is typed by checking its body, and
+declarations are checked in the order they are written. So a call
+from inside that body, or from a declaration above it, arrives before
+there is a type to check it against. Every recursive function with no
+signature was refused, and so was a call to one from above:
+
+```scheme refused
+(fn (fact n)
+  (if (== n 0) 1 (* n (fact (- n 1)))))
+```
+
+It said `AX3004`, "expected function type, found `_a`", naming no
+mistake you made. It is `AX3089` now, which names the function and
+asks for its signature. The refusal stays: typing the callee first
+would reorder every diagnostic in the file, and a provisional type
+that matched anything would accept `(strLen (twice 4))` above `twice`
+and then crash. The reference no longer says the signature is always
+optional. Tested by `tests/diagnostics/1032-signature-needed.ax`.
+
 ### The stack bound reads x86-64 machine code — `scripts/axiom-report.py --stack`, R-D1 - 2026-09-28
 
 `--stack` now bounds a program's stack from an x86-64 ELF object as

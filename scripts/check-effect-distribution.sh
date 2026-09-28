@@ -177,6 +177,11 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-28 (28): AX3089. Compiler view only, 2 rows added
+# (4881 to 4883), none moved: `signatureNeeded` reads a function entry
+# and `emitSignatureNeeded` builds and emits the diagnostic, both
+# `Alloc,Mut,Unsafe` (2356 to 2358). None names `IO`.
+#
 # RE-PINNED 2026-09-28 (27): the string-joining helpers go. Compiler
 # view only, 6 rows removed (4887 to 4881), none moved: `cat2`, `cat3`
 # and `cat4` in codegen.ax, `pkg3` and `pkg4` in pkg.ax and `mcat3` in
@@ -554,7 +559,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2356 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2358 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1207 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 417 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 130 "Mut,Unsafe"

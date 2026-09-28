@@ -91,6 +91,7 @@
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
+  [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -2694,6 +2695,26 @@ Write `;@axiom:effect(pure)` above the function, on its `(:: ...)`
 or its `(fn ...)`. The claim is checked as before: a body that
 performs anything draws AX3010.
 
+### explain AX3089
+AX3089 - a function with no signature, called before its type is known
+
+A function with no `(:: ...)` signature is typed by checking its body,
+and declarations are checked in the order they are written. A call
+from inside that body, or from a declaration above it, comes first,
+so there is no type yet to check it against:
+
+    (fn (fact n)
+      (if (== n 0) 1 (* n (fact (- n 1)))))
+
+Write the signature above the definition:
+
+    (:: fact (-> Int Int))
+    (fn (fact n)
+      (if (== n 0) 1 (* n (fact (- n 1)))))
+
+A function called only below its definition, and not by itself,
+needs no signature.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -3121,6 +3142,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
+  [93mAX3089[0m  a function with no signature, called before its type is known  (signature-needed)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

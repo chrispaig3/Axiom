@@ -9939,7 +9939,9 @@
                                     (if (== (tyIsSilentWild funcTy) 1)
                                       mkSilentWild
                                       {
-                                        (emitMismatch tc "function type" (tyRender funcTy) (spanOf e))
+                                        (if (== (signatureNeeded tc hname headIsVar) 1)
+                                          (emitSignatureNeeded tc hname (spanOf e))
+                                          (emitMismatch tc "function type" (tyRender funcTy) (spanOf e)))
                                         (mkNode TAG_T_ERR 0 0 0)
                                       })))
                               })))))))))))))))
@@ -20904,6 +20906,53 @@
       0
       "write `;@axiom:effect(pure)`"
       "an effect claim is always `effect(...)`, so purity has one spelling; the others are refused rather than read as metadata") "write `;@axiom:effect(pure)`"))))
+
+; AX3089: a function with no signature, applied before its own body
+; has been checked.
+;
+; A function with no signature holds a minted placeholder variable
+; until its body is checked, and declarations are checked in the order
+; they are written, so a call from inside that body (recursion) or from
+; a declaration above it meets the placeholder. Applying a variable is
+; the "function type" mismatch, and it used to say exactly that:
+; `expected function type, found _a` for `(fact (- n 1))`, which names
+; no mistake the author made. The refusal stays, because inferring the
+; callee first would reorder every diagnostic in the file and a
+; provisional result type that matched anything would accept
+; `(strLen (twice 4))` above `twice` and then fault. What changes is
+; that it says what to write: a signature, which is where the answer
+; goes (AN-39, `tests/diagnostics/1032-signature-needed.ax`).
+;
+; The head must be a name no local binds, naming a function entry
+; whose type is still a named placeholder and whose arity is known:
+; an unchecked `fn` with parameters. A parameter or `let` of unknown
+; type keeps AX3004.
+(pub :: signatureNeeded (-> Int String Int Int))
+(pub fn (signatureNeeded tc hname headIsVar)
+  (if (|| (!= headIsVar 1) (!= (scopeFindFrame tc hname) 0))
+    0
+    (let ((ent (findFnEnt tc hname)))
+      (if (== ent 0)
+        0
+        (let ((ty (memGetWord ent 1)))
+          (if (&& (!= ty 0) (&& (== (nodeTag ty) TAG_T_VAR) (&& (!= (strLen (nodeAName ty)) 0) (> (memGetWord ent 2) 0))))
+            1
+            0))))))
+
+(pub :: emitSignatureNeeded (-> Int String Int Int))
+(pub fn (emitSignatureNeeded tc hname span)
+  (if (== span 0)
+    0
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3089"
+      "signature-needed"
+      span
+      (strConcat "`" (strConcat (bareOf hname) "` has no signature, and its type isn't known until its own body has been checked"))
+      0
+      0
+      (strConcat "write its signature above its definition, such as `(:: " (strConcat (bareOf hname) " (-> Int Int))`"))
+      "a function with no signature is typed by checking its body, and declarations are checked in the order they are written: a call from inside that body, or from above it, needs the signature") "called before its type is known"))))
 
 ; ------------------------------------------------------------------
 ; AX3053: an operation the program reaches with no handler.

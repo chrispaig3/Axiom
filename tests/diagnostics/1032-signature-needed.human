@@ -1,0 +1,31 @@
+[1;31merror[AX3089][0m[1m: `fact` has no signature, and its type isn't known until its own body has been checked[0m
+  [1;34m--> [0m1032-signature-needed.ax:12:11
+[1;34m   |[0m
+[1;34m12 |[0m     (* n (fact (- n 1)))))
+[1;34m   |[0m           [1;31m^^^^ called before its type is known[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma function with no signature is typed by checking its body, and declarations are checked in the order they are written: a call from inside that body, or from above it, needs the signature
+  [1;34m = [0m[1;32mhelp: [0mwrite its signature above its definition, such as `(:: fact (-> Int Int))`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3089` for a full explanation
+
+[1;31merror[AX3089][0m[1m: `od` has no signature, and its type isn't known until its own body has been checked[0m
+  [1;34m--> [0m1032-signature-needed.ax:17:6
+[1;34m   |[0m
+[1;34m17 |[0m     (od (- n 1))))
+[1;34m   |[0m      [1;31m^^ called before its type is known[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma function with no signature is typed by checking its body, and declarations are checked in the order they are written: a call from inside that body, or from above it, needs the signature
+  [1;34m = [0m[1;32mhelp: [0mwrite its signature above its definition, such as `(:: od (-> Int Int))`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3089` for a full explanation
+
+[1;31merror[AX3089][0m[1m: `twice` has no signature, and its type isn't known until its own body has been checked[0m
+  [1;34m--> [0m1032-signature-needed.ax:25:4
+[1;34m   |[0m
+[1;34m25 |[0m   (twice 4))
+[1;34m   |[0m    [1;31m^^^^^ called before its type is known[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma function with no signature is typed by checking its body, and declarations are checked in the order they are written: a call from inside that body, or from above it, needs the signature
+  [1;34m = [0m[1;32mhelp: [0mwrite its signature above its definition, such as `(:: twice (-> Int Int))`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3089` for a full explanation
+
+compilation failed due to 3 previous errors

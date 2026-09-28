@@ -1,0 +1,46 @@
+; AX3089: a function with no signature, called before its body has
+; been checked. Declarations are checked in the order they are
+; written, so each of the three shapes below meets `fact`, `od` or
+; `twice` before its type is known: a function calling itself, two
+; calling each other, and a call from above the definition. Each draws
+; one AX3089 naming the function and asking for its signature. The
+; last three functions are the same shapes with signatures, and stay
+; silent.
+(fn (fact n)
+  (if (== n 0)
+    1
+    (* n (fact (- n 1)))))
+
+(fn (ev n)
+  (if (== n 0)
+    1
+    (od (- n 1))))
+
+(fn (od n)
+  (if (== n 0)
+    0
+    (ev (- n 1))))
+
+(fn (early)
+  (twice 4))
+
+(fn (twice x)
+  (* x 2))
+
+(:: factS (-> Int Int))
+(fn (factS n)
+  (if (== n 0)
+    1
+    (* n (factS (- n 1)))))
+
+(:: earlyS Int)
+(fn (earlyS)
+  (twiceS 4))
+
+(:: twiceS (-> Int Int))
+(fn (twiceS x)
+  (* x 2))
+
+(:: main Int)
+(fn (main)
+  (+ (factS 3) (earlyS)))

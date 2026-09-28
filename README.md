@@ -24,7 +24,7 @@ into the C library.
   S-expressions, and the compiler can describe errors and symbols in a
   compact machine-readable form, so tools see the same facts you do.
 - **Read the compiler, in Axiom.** The compiler is written in Axiom:
-  108,143 lines of it. A clean checkout rebuilds it from committed LLVM
+  108,194 lines of it. A clean checkout rebuilds it from committed LLVM
   IR, and the build stops unless two generations come out
   byte-identical.
 - **Bring Rust along.** Declare Rust functions in an `extern` block,
