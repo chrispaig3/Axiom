@@ -65,7 +65,16 @@ echo "--- 1. user-level cast count does not grow ---"
 # (found 2026-09-27, when the local count was 340 and CI's was 0).
 # `git grep` exists wherever the repository does and reads exactly the
 # tracked files, so a stray local file cannot move the number either.
-cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples | wc -l | tr -d ' ')"
+#
+# `tests/fuzz/` is NOT counted, and that is a narrowing with a reason
+# rather than a convenience: its `.axfuzz` files are minimized fuzzer
+# reproducers - deliberately ill-formed programs no build reads - and
+# `MANIFEST` is prose describing them. `878b17be` recorded
+# `cast-missing-operand.axfuzz`, whose whole subject is `(cast T)` with
+# its operand missing, and moved this count to 342 while CI stopped at
+# an earlier red; counted, every future fuzzer finding about `cast`
+# would be a ratchet failure over a file that is not user code.
+cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
 elif [ "$cast_count" -le 340 ]; then
