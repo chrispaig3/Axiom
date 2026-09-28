@@ -4321,7 +4321,7 @@ both cases the thunk is released and the page unmapped.
 | When | What is swept |
 |---|---|
 | a recovery abort, before it resets the arena | every child spawned since that recovery point was armed |
-| a trap that nothing recovers, before it exits | every child on the trapping thread's registry |
+| a trap that nothing recovers, before it exits | every child on the trapping thread's registry; under `--threads`, then every process child any thread forked |
 | `main` returning | every child the program never joined |
 | a forked child's or a thread's own end | the children that binding spawned and did not join |
 
@@ -4346,16 +4346,32 @@ This rule also closed four defects:
   binding`. So is a handle joined by a thread that didn't spawn it: the
   two registries are unsynchronised, so that join is refused, not raced.
 
+Under `--threads` each thread has its own registry, so a trap that
+nothing recovers can't see a process child another thread forked, such
+as a task in a pool that thread runs. Every process child is therefore
+also on one kill list shared by all threads. The fork and the link
+happen under the list's lock, and the trap's sweep takes that lock,
+sends `SIGKILL` to every listed pid, and keeps the lock while the
+process ends, so no fork can follow it.
+
+A join waits for its child's
+exit without reaping it (`waitid` with `WNOWAIT`) and leaves the list
+before it reaps, so a listed pid is never one the kernel has reused.
+A forked child starts with an empty list. Tested by
+`scripts/check-task.sh` §4 and its §8 `gkill` ablation.
+
+On Darwin a process child is forked through libSystem's `fork` in a
+module that uses threads, so the child can start a thread of its own.
+With the raw system call, the child's libSystem kept the parent's Mach
+task port and `pthread_create` faulted. Tested by
+`tests/litmus/thread-in-fork.ax` and `scripts/check-task.sh` §8's
+`libcfork` ablation.
+
 Four limits:
 
 - A killed child can't sweep its own children, so the grandchildren of
   a killed binding are reparented, not killed.
-- Under `--threads` each thread has its own registry. A trap that
-  nothing recovers ends the whole process after sweeping only the
-  trapping thread's children, so a process child that another thread
-  forked, such as a task in a pool that thread runs, is left running.
-  A raw exit (`sysExitWith`) sweeps nothing. `scripts/check-task.sh`
-  §4 measures this as a control.
+- A raw exit (`sysExitWith`) sweeps nothing.
 - A thread can't be interrupted, so a sweep of a binding that never
   finishes never finishes.
 - A handle is a word, so joining one twice is refused only while the
@@ -4366,7 +4382,9 @@ What it costs: the registry adds two thread-local globals, so the
 eight of `MM-PAR-3` become ten in a module that spawns
 (`scripts/check-thread-local.sh`). It also adds five words per handle
 page, and a sweep call in the abort, in `@main`'s wrapper and at each
-child's end. A module that names no spawn primitive emits none of it,
+child's end. Under `--threads` the kill list adds two plain globals,
+three more words per process page, a `waitid` per process join, and,
+on Darwin, the `fork` import. A module that names no spawn primitive emits none of it,
 and its output is byte for byte what it would be without the registry.
 
 **MM-PAR-8 (P). A spawn handle SHALL be a value the type system
@@ -4842,7 +4860,9 @@ isolation is what makes a task's captures its own.
   return has joined every child. A trap in the parent in the middle of
   a pool is `MM-PAR-7`'s case: the children are on the spawning
   thread's registry, and the unrecovered trap, or the recovery point
-  armed around the pool, kills and reaps them.
+  armed around the pool, kills and reaps them. Under `--threads`, a
+  trap in any other thread reaches them through `MM-PAR-7`'s kill
+  list.
 - **The join owns the reap.** The parent looks at a running child with
   `sysChildExited`, which is `waitid` with `WNOWAIT` on Linux and
   Darwin and `wait6` on FreeBSD. The look doesn't reap the child, so a
@@ -4865,14 +4885,7 @@ isolation is what makes a task's captures its own.
 - A pool inside a `parallel` binding that `MM-PAR-7`'s sweep kills
   can't sweep its own tasks (`MM-PAR-7`'s grandchildren limit). A
   task's own children are the task's responsibility.
-- Under `--threads`, a trap in another thread ends the process with
-  only that thread's children swept, so this pool's tasks are left
-  running (`MM-PAR-7`). A raw `sysExitWith` sweeps nothing.
-- On Darwin, a thread spawned inside a task, or inside any forked
-  binding, crashes that process with `SIGSEGV` (139): the runtime forks
-  with the raw system call, and the child's libSystem still holds the
-  parent's Mach task port. Linux doesn't have this limit. So under
-  `--threads` on Darwin, a task's body must not use `parallel`.
+- A raw `sysExitWith` sweeps nothing.
 - A `__proc_spawn` the kernel refuses traps 78 through the runtime, as
   in `Par.ax`, instead of answering in its slot.
 - A pool's mappings aren't returned on the trap path.
@@ -4915,15 +4928,19 @@ isolation is what makes a task's captures its own.
   about 450 ms; and `failFast`.
 - `scripts/check-task.sh` §3 also runs a grace of the largest `Int`,
   which must let a cancelled task finish.
+- `scripts/check-task.sh` §3 also runs a task that answers and then
+  can't exit, which its deadline ends with its answer kept.
 - `scripts/check-task.sh` §4: the parent's trap mid-pool takes both
-  running tasks with it. Two controls measure the stated limits: an
-  external `SIGKILL` leaves the tasks alive, and under `--threads` so
-  does a trap in a sibling thread. §5: the fold stays within 1 MiB from
-  500 to 5,000 tasks, and the keeping control must grow by 8 MiB.
+  running tasks with it, and under `--threads` so does a trap in a
+  sibling thread. A control measures the stated limit: an external
+  `SIGKILL` leaves the tasks alive. §5: the fold stays within 1 MiB
+  from 500 to 5,000 tasks, and the keeping control must grow by 8 MiB.
 - `scripts/check-task.sh` §6 ablates the deadline's kill, the borrowed
   layout, the child look, the result slot, the byte limit, the
-  cancellation's kill and the saturating microseconds conversion, each
-  on a copy of the library, and each turns its check red. §7 builds and runs the three programs in
+  cancellation's kill, the saturating microseconds conversion and the
+  exit wait, each on a copy of the library, and each turns its check
+  red. §8 ablates the runtime's kill list and Darwin's libSystem fork
+  in copies of the compiler. §7 builds and runs the three programs in
   `examples/concurrency/`, which check themselves, in both lowerings.
 
 ---

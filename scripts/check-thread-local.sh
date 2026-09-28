@@ -168,7 +168,9 @@ echo "== 2. off: and imports no thread-local machinery =="
 # one extra symbol shows up.
 source "$(dirname "${BASH_SOURCE[0]}")/lib/imports.sh"
 tls_syms='__tlv_bootstrap|__tls_get_addr|__tlsdesc_resolve|_tlv_bootstrap'
-thread_syms="$tls_syms|pthread_create|pthread_join"
+# `fork` too, on Darwin: a module with threads forks its process
+# children through libSystem there (MM-PAR-7, `parLibcFork`).
+thread_syms="$tls_syms|pthread_create|pthread_join|fork"
 
 "$axc" build --input "$probe" --output "$work/off.bin" >/dev/null 2>&1
 imports_of "$work/off.bin" | LC_ALL=C sort > "$work/off.imports"

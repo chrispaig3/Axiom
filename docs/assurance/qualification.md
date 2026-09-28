@@ -85,14 +85,11 @@ approved, and no document here says it is.
 
 In dependency order:
 
-1. The two runtime fixes of R-C5: a process-wide sweep of process
-   children on an unrecovered trap under `--threads`, and threads
-   inside forked children on Darwin.
-2. The periodic and DMA demonstrators of R-D2c, under QEMU.
-3. Sanitizer and race-detector runs on the hosted configurations, and
+1. The periodic and DMA demonstrators of R-D2c, under QEMU.
+2. Sanitizer and race-detector runs on the hosted configurations, and
    a scheduled `--long` fuzzing run.
-4. Hardware execution on a named board, recorded apart from QEMU runs.
-5. Frozen toolchain versions for one reference configuration.
-6. Only then, a per-standard tool-qualification argument over that
+3. Hardware execution on a named board, recorded apart from QEMU runs.
+4. Frozen toolchain versions for one reference configuration.
+5. Only then, a per-standard tool-qualification argument over that
    frozen configuration, written against the licensed standards and
    reviewed independently.

@@ -14,7 +14,7 @@ source.
 | Claim | Evidence |
 |---|---|
 | A recovery point gets a single, correct trap answer (R-A1) | `tests/stdlib/522-parallel-recover.ax`; `scripts/check-parallel.sh` §12b |
-| No child outlives its scope on abort, trap, return or end, within one thread's registry (R-A2) | The same gate, with `kill -0` on the recorded pids. Under `--threads`, a sibling thread's trap is a stated limit (AN-16) |
+| No child outlives its scope on abort, trap, return or end (R-A2, R-C5) | The same gate, with `kill -0` on the recorded pids; under `--threads`, `scripts/check-task.sh` §4 and its §8 `gkill` ablation |
 | Join and spawn failures surface as status 78, never as success (R-A3) | The same gate: `foreign 78` in every §12c probe |
 | Thread arenas are returned, so 6,000 threads hold VmSize flat (R-A4) | §12a on H1 and H2 (6.16 GB was mapped before the fix) |
 | The allocator refuses negative sizes and sizes it can't hold (R-A5) | The `6527bea0` fixtures |
@@ -40,12 +40,6 @@ source.
 
 ## Open defects and gaps
 
-- R-C5 (AN-16): under `--threads`, a trap in one thread sweeps only
-  that thread's registry, so a pool's tasks on a sibling thread outlive
-  the process.
-- R-C5 (AN-20): on Darwin, a thread spawned inside a forked child
-  crashes it with `SIGSEGV`, because the runtime forks with the raw
-  system call.
 - R-D2c: no embedded periodic workload driven by the timer interrupt,
   and no DMA-ownership driver ([demonstrators.md](demonstrators.md),
   D-5 and D-6).

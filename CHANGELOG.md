@@ -22,6 +22,50 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A trap in one thread takes every thread's process children; Darwin children can start threads — R-C5 - 2026-09-28
+
+Two runtime limits the concurrency review measured, both closed.
+
+Under `--threads` each thread's registry of children is thread-local,
+so a trap that nothing recovered swept only the trapping thread's
+children and then ended the process. A process child another thread
+had forked, such as a task in a pool that thread ran, was reparented
+and ran on. Every process child is now also on one kill list shared by
+all threads (three more words of its handle page, two plain globals).
+The fork and the link happen under the list's spinlock, and the trap's
+sweep takes the lock, sends SIGKILL to every listed pid and keeps the
+lock while the process ends, so no fork can follow the walk. A join
+waits for its child's exit with `waitid(WNOWAIT)` and leaves the list
+before `wait4` reaps it, so a listed pid is never one the kernel has
+reused. A forked child starts with an empty list and a free lock.
+
+On Darwin the runtime forked with the raw system call, which leaves the
+child's libSystem holding the parent's Mach task port, so a thread
+started inside any forked child died with SIGSEGV (139): a raw
+`__proc_spawn` whose child starts a thread, and any task whose body
+does. Linux ran the same program. A module that uses threads now forks
+through libSystem's `fork` on Darwin (`parLibcFork`), so the child
+handlers run; `fork` joins `pthread_create` and `pthread_join` as the
+platform-grounded imports of a thread-lowered module (`driver.ax`), and
+`check-parallel.sh` and `check-thread-local.sh` admit it on Darwin.
+
+That also lets Darwin run the reproducer for a `Task` fix that landed
+with R-C2: a task that answers and then cannot exit. Its deadline now
+ends it with its answer kept, where the pre-review pool blocked in
+`wait4` (measured: still blocked when a 10 s alarm killed it).
+
+Tests: `tests/litmus/thread-in-fork.ax` (a raw fork's child, a
+task's body and a stuck task each start a thread), run by
+`check-task.sh` §4 in both lowerings - a litmus program, because the
+stdlib corpus is emitted for every target and FreeBSD and Windows have
+no threads. §3 runs the stuck task in both lowerings, §4's sibling-trap
+control is now a check that the task is gone, §6 adds the `exitjoin`
+ablation, and a new §8 builds two ablated COMPILERS from copies of
+`self_host/`: with the abort's kill-list sweep deleted the sibling-trap
+task survives, and on Darwin with the raw fork restored the litmus
+program dies. On Linux that second drill cannot go red, and the gate
+prints it as not applicable.
+
 ### The qualification-readiness package — `docs/assurance/` - 2026-09-28
 
 R-E2: the documents a qualification effort starts from, each written

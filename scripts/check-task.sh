@@ -34,7 +34,10 @@
 #      earned unlock is.
 #   3. Tasks. Results equal the sequential answer (300 tasks, width 8,
 #      both lowerings, --opt 0 and 2); a grace of the largest `Int` is
-#      for ever, not a wrapped negative; a trapping task answers its
+#      for ever, not a wrapped negative; a task that answers and then
+#      cannot exit (a thread its process joins for ever) is ended by
+#      its deadline with its answer, rather than blocking the pool in
+#      `wait4`; a trapping task answers its
 #      status while its siblings complete, found by looking at the
 #      child with no deadline to help; a task past its deadline answers
 #      the timeout and its pid is GONE (the program asks `kill(pid, 0)`
@@ -49,9 +52,12 @@
 #      And the CONTROL that shows `kill -0` can see a survivor: a parent
 #      SIGKILLed from outside runs no sweep, and its tasks must still be
 #      alive (the limit `stdlib/Task.ax` states), after which this gate
-#      kills them itself. The second control is the per-thread
-#      registry's limit: under --threads, a trap in a SIBLING thread
-#      ends the process and the pool's task must still be alive.
+#      kills them itself. And under --threads a trap in a SIBLING
+#      thread, which ends the process with its own registry swept,
+#      must take the pool's task with it: the process-wide kill list's
+#      job (MM-PAR-7). A thread started inside a forked child - a raw
+#      fork's, a task's, a stuck task's - must run, in both lowerings
+#      (`tests/litmus/thread-in-fork.ax`).
 #   5. Retained memory. `taskFold` over 500 and 5,000 tasks of 4 KiB
 #      answers: peak RSS may differ by at most 1 MiB. The control keeps
 #      the same answers with `taskMap` and must grow by at least 8 MiB,
@@ -64,10 +70,19 @@
 #      the result slot (a task answers into its neighbour's), the byte
 #      limit, the cancellation's kill, the unlock's guard (compared
 #      against the counter again, which accepts the stale guard in
-#      the window) and the microseconds conversion (rounding that
-#      wraps a grace of the largest `Int`).
+#      the window), the microseconds conversion (rounding that wraps
+#      a grace of the largest `Int`) and the exit wait (a task joined
+#      on its answer alone, which blocks the pool on a task that
+#      cannot exit).
 #   7. The examples under examples/concurrency/ build and run, in both
 #      lowerings, each checking its own answers and ending `ok`.
+#   8. The runtime's half, ablated in the COMPILER: a copy of
+#      `self_host/` with the abort's kill-list sweep deleted must leave
+#      the sibling-trap task alive; and on Darwin a copy forking with
+#      the raw system call again must crash a thread started inside a
+#      forked child (`tests/litmus/thread-in-fork.ax`). Linux's raw
+#      fork leaves the child's threads working, so there that drill
+#      cannot go red and is reported as not applicable, not passed.
 #
 # WHAT THE NUMBERS ARE. Peak RSS (`max_rss_kb`), in KiB, of the whole
 # program. Times are the programs' own `sysTimeoutMicros` readings -
@@ -289,6 +304,16 @@ for lowering in processes threads; do
     bad "$lowering: grace max exit $rc, '$out' - wanted '0 ok finished'"
   fi
 
+  # Written to a FILE: the stuck task's process outlives the answer
+  # until its deadline, and a `$(...)` would wait on its pipe too.
+  rc=0; gate_timeout 30 "$bin" stuck > "$work/stuck-$lowering.out" 2>/dev/null || rc=$?
+  out="$(cat "$work/stuck-$lowering.out")"; ms="$(field "$out" ms)"
+  if [[ "$rc" == 0 && "$(field "$out" 0)" == "ok answered" && "$ms" =~ ^[0-9]+$ ]] && (( ms < 3000 )); then
+    ok "$lowering: a task that answered and could not exit was ended by its 300 ms deadline, answer kept ($ms ms)"
+  else
+    bad "$lowering: stuck exit $rc, '$(printf '%s' "$out" | tr '\n' ';')' - wanted '0 ok answered' well before 3 s"
+  fi
+
   rc=0; out="$(gate_timeout 30 "$bin" failfast 2>/dev/null)" || rc=$?
   ms="$(field "$out" ms)"
   if [[ "$rc" == 0 && "$(field "$out" 1)" == "err 72 task trapped" && "$(printf '%s\n' "$out" | grep -c 'err 1002')" == 5 \
@@ -334,11 +359,9 @@ if [[ -x "$bin" ]]; then
   fi
   kill -KILL $pids 2>/dev/null || true
 fi
-# The second stated limit, measured the same way: under --threads the
-# registry is per thread, so a trap in a SIBLING thread ends the process
-# having swept only its own children, and the pool's task runs on. When
-# the runtime sweeps process children process-wide, this goes red and
-# becomes a check that they are gone.
+# Under --threads the registry is per thread, so a trap in a SIBLING
+# thread ends the process having swept only its own children. The
+# process-wide kill list takes the pool's task down anyway.
 # The output goes to a FILE, as `orphan`'s does: the task that outlives
 # the program inherits its stdout, and a `$(...)` would wait for that
 # pipe's end for as long as the task lives.
@@ -349,13 +372,35 @@ if [[ -x "$bin" ]]; then
   pids="$(field "$out" pids)"
   sleep 0.3
   alive=0; for p in $pids; do kill -0 "$p" 2>/dev/null && alive=$((alive + 1)); done
-  if [[ "$rc" == 72 && -n "$pids" && "$alive" == 1 ]]; then
-    ok "control: under --threads a sibling thread's trap (72) left the pool's task alive ($pids) - MM-PAR-7's per-thread limit"
+  if [[ "$rc" == 72 && -n "$pids" && "$alive" == 0 ]]; then
+    ok "threads: a sibling thread's trap (72) took the pool's running task ($pids) with it - the kill list"
   else
-    bad "control: siblingtrap exit $rc, pids '$pids', $alive alive - wanted 72 and the task alive (the stated limit)"
+    bad "threads: siblingtrap exit $rc, pids '$pids', $alive still alive - a trap in one thread left another thread's task running"
   fi
   kill -KILL $pids 2>/dev/null || true
 fi
+# A thread started inside a forked child: a raw fork's child, a task's
+# body, and a task that answers and then cannot exit. On Darwin the first
+# two died with SIGSEGV while the runtime forked with the raw system
+# call; the third blocked the pool. Output to a FILE, as above.
+tif="$repo_root/tests/litmus/thread-in-fork.ax"
+want_tif='raw fork: 42
+task: ran
+stuck task: answered'
+for lowering in processes threads; do
+  flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
+  bin="$work/tif-$lowering"
+  if ! build "$bin" "$tif" ${flags[@]+"${flags[@]}"} --opt 2; then
+    bad "$lowering: thread-in-fork did not build"; sed 's/^/    /' "$bin.build" | head -6; continue
+  fi
+  rc=0; gate_timeout 30 "$bin" > "$bin.out" 2>/dev/null || rc=$?
+  if [[ "$rc" == 0 && "$(cat "$bin.out")" == "$want_tif" ]]; then
+    ok "$lowering: a thread started inside a raw fork's child, a task's body and a stuck task, and each answered"
+  else
+    bad "$lowering: thread-in-fork exit $rc, '$(tr '\n' ';' < "$bin.out")'"
+  fi
+  pkill -KILL -f "$bin" 2>/dev/null || true
+done
 
 # ---------------------------------------------------------------------
 echo "== 5. retained memory does not grow with the tasks run =="
@@ -415,6 +460,8 @@ cuts = {
   "grace": [("Task.ax", "(if (&& (== cancelling 1) (>= now graceEnd))", "(if (&& (== cancelling 2) (>= now graceEnd))")],
   # The unlock compares the guard COUNTER again, as it first did.
   "guard": [("Sync.ax", "(if (|| (<= guard 0) (!= (syncCasAt m 1 guard 0) guard))", "(if (|| (<= guard 0) (|| (== (syncLoad m 0) 0) (!= (syncLoad m 2) guard)))")],
+  # A task is joined on its answer alone, as it first was.
+  "exitjoin": [("Task.ax", "        ((Ok b)\n          (if b\n            1\n            (if answered\n              2\n              0))", "        ((Ok b)\n          (if (|| b answered)\n            1\n            0)")],
   # The microseconds conversion rounds without saturating.
   "micros": [("Task.ax", "    (if (> nanos 9223372036854774808)\n      9223372036854776\n      (/ (+ nanos 999) 1000))", "    (/ (+ nanos 999) 1000)")],
 }[kind]
@@ -495,6 +542,16 @@ fi
 if run_ablation micros "$task" 30 "$work/abl-micros/prog" grace 9223372036854775807; then
   red micros "$([[ "$rc" == 0 && "$out" == "0 ok finished" ]] && echo 1 || echo 0)"
 fi
+# The stuck task's run goes to a file, as in section 3, and whatever
+# the ablated pool left behind is killed after it.
+if ablate exitjoin "$task"; then
+  rc=0; gate_timeout 10 "$work/abl-exitjoin/prog" stuck > "$work/abl-exitjoin/out" 2>/dev/null || rc=$?
+  out="$(cat "$work/abl-exitjoin/out")"
+  red exitjoin "$([[ "$rc" == 0 && "$(field "$out" 0)" == "ok answered" ]] && echo 1 || echo 0)"
+  pkill -KILL -f "$work/abl-exitjoin/prog" 2>/dev/null || true
+else
+  bad "exitjoin: the ablation did not apply or build"; sed 's/^/    /' "$work/abl-exitjoin/build.log" 2>/dev/null | head -6
+fi
 
 # ---------------------------------------------------------------------
 echo "== 7. the examples run and check themselves =="
@@ -514,6 +571,62 @@ for ex in pipeline typed-tasks cancel; do
     fi
   done
 done
+
+# ---------------------------------------------------------------------
+echo "== 8. the runtime's half, ablated in the compiler =="
+# ablate_cc <tag> <python old> <python new>: a compiler built from a copy
+# of self_host/ with one exact string replaced - aborting when the
+# string is not there, so a drill that silently did not apply cannot
+# pass as one that could not fail.
+ablate_cc() {
+  local tag="$1" old="$2" new="$3" dir="$work/cc-$1"
+  rm -rf "$dir"; mkdir -p "$dir"
+  cp -R "$repo_root/self_host" "$dir/self_host"
+  python3 - "$dir/self_host/codegen.ax" "$old" "$new" <<'PY' || return 1
+import sys
+p, old, new = sys.argv[1], sys.argv[2].encode().decode("unicode_escape"), sys.argv[3].encode().decode("unicode_escape")
+s = open(p, encoding="utf-8").read()
+if s.count(old) != 1:
+    sys.exit("seam %r found %d times" % (old[:60], s.count(old)))
+open(p, "w", encoding="utf-8").write(s.replace(old, new))
+PY
+  gate_build_tree "$axc" "$dir" "$repo_root/stdlib" "$dir/axc" > "$dir/build.log" 2>&1
+}
+if ablate_cc gkill '          (emitLine cg "  call void @__axiom_par_gkill()")' '          0'; then
+  (cd "$repo_root" && "$work/cc-gkill/axc" build --threads --opt 2 --input "$task" --output "$work/cc-gkill/prog") > "$work/cc-gkill/prog.build" 2>&1
+  rc=0; gate_timeout 30 "$work/cc-gkill/prog" siblingtrap > "$work/cc-gkill/out" 2>/dev/null || rc=$?
+  pids="$(field "$(cat "$work/cc-gkill/out")" pids)"
+  sleep 0.3
+  alive=0; for p in $pids; do kill -0 "$p" 2>/dev/null && alive=$((alive + 1)); done
+  if [[ "$rc" == 72 && -n "$pids" && "$alive" == 1 ]]; then
+    ok "gkill: red - with the abort's kill-list sweep deleted, the sibling trap left the task alive ($pids)"
+  else
+    bad "gkill: the ablated compiler's run exit $rc, pids '$pids', $alive alive - the check cannot see a surviving task"
+  fi
+  kill -KILL $pids 2>/dev/null || true
+else
+  bad "gkill: the compiler ablation did not apply or build"; tail -4 "$work/cc-gkill/build.log" 2>/dev/null | sed 's/^/    /'
+fi
+case "$(uname -s)" in
+  Darwin)
+    fx="$repo_root/tests/litmus/thread-in-fork.ax"
+    if ablate_cc libcfork '    (let ((t (memGetWord cg 26)))\n      (if (|| (== t 0) (== t 1))\n        1\n        0))\n    0))' '    0\n    0))'; then
+      (cd "$repo_root" && "$work/cc-libcfork/axc" build --input "$fx" --output "$work/cc-libcfork/prog") > "$work/cc-libcfork/prog.build" 2>&1
+      rc=0; gate_timeout 30 "$work/cc-libcfork/prog" > "$work/cc-libcfork/out" 2>/dev/null || rc=$?
+      if [[ "$rc" != 0 ]] && ! grep -q '^raw fork: 42$' "$work/cc-libcfork/out"; then
+        ok "libcfork: red - forking with the raw system call again, a thread inside the child died (exit $rc)"
+      else
+        bad "libcfork: the raw-fork compiler's fixture exit $rc, '$(tr '\n' ';' < "$work/cc-libcfork/out")' - the fixture cannot see the crash"
+      fi
+      pkill -KILL -f "$work/cc-libcfork/prog" 2>/dev/null || true
+    else
+      bad "libcfork: the compiler ablation did not apply or build"; tail -4 "$work/cc-libcfork/build.log" 2>/dev/null | sed 's/^/    /'
+    fi
+    ;;
+  *)
+    echo "n/a  libcfork: a raw fork leaves a thread working in the child on $(uname -s), so this drill cannot go red here (not counted)"
+    ;;
+esac
 
 echo
 if (( failed > 0 )); then

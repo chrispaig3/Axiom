@@ -5612,6 +5612,44 @@
         39
         20))))
 
+; `waitid`, for the thread lowering's joins (`emitParProc`): darwin BSD
+; 173 with the class bit, linux-aarch64 95, linux-x86_64 247. Only the
+; targets with threads need it - FreeBSD's `--threads` is AX4006 - so
+; the rest answer 0, which no emitted line reads.
+(pub :: targetWaitIdNum (-> Int Int))
+(pub fn (targetWaitIdNum t)
+  (if (|| (== t 0) (== t 1))
+    33554605
+    (if (== t 2)
+      95
+      (if (== t 3)
+        247
+        0))))
+
+; `WEXITED | WNOWAIT`: wait for an exit without reaping it. Darwin
+; spells WNOWAIT 0x20, Linux 0x01000000; WEXITED is 4 on both.
+(pub :: targetWaitExitedNoWait (-> Int Int))
+(pub fn (targetWaitExitedNoWait t)
+  (if (|| (== t 0) (== t 1))
+    36
+    16777220))
+
+; Whether the process lowering forks through libSystem's `fork` rather
+; than the system call: on Darwin, and only in a module that already
+; links pthreads. A raw `fork` leaves the child's libSystem holding the
+; PARENT's Mach task port, so the first `pthread_create` the child makes
+; faults (SIGSEGV, 139); `fork` runs libSystem's child handlers, which
+; reset it. Linux's raw `fork`/`clone` leaves the child's pthreads
+; working, and a module with no thread keeps its zero imports.
+(pub :: parLibcFork (-> Int Int))
+(pub fn (parLibcFork cg)
+  (if (cgThreads cg)
+    (let ((t (memGetWord cg 26)))
+      (if (|| (== t 0) (== t 1))
+        1
+        0))
+    0))
+
 (pub :: targetWait4Num (-> Int Int))
 (pub fn (targetWait4Num t)
   (if (|| (== t 0) (== t 1))
@@ -6027,6 +6065,10 @@
 ; spawn's sequence number, 9 the address of the registry head it was
 ; linked on - which is the spawning THREAD's, because the head is a
 ; mutable runtime global and so thread-local exactly when the rest are.
+; Under threads a process child also uses 10 and 11, its links on the
+; process-wide kill list, and 12, set while it is linked there; words 16
+; to 31 are the siginfo buffer its join's `waitid` writes
+; (`emitParKillList`, `emitParJoinUnlist`).
 ;
 ; WHY A REGISTRY (MM-PAR-7). A child was reachable only through the
 ; handle word its parent held, so every path that dropped the handle
@@ -6200,6 +6242,9 @@
       (emitLine cg "  br i1 %isthr, label %thr, label %proc")
       (emitLine cg "proc:")
       (emitLine cg (cat2 "  %kr = " (parSys cg (fmtInt (targetKillNum t)) "i64 %who, i64 9, i64 0, i64 0, i64 0, i64 0")))
+      (if (cgThreads cg)
+        (emitLine cg "  call void @__axiom_par_gunlink(i64 %h)")
+        0)
       (emitLine cg "  %p4 = getelementptr i64, ptr %hp, i64 4")
       (emitLine cg "  %st4 = ptrtoint ptr %p4 to i64")
       (emitLine cg "  br label %wait")
@@ -6280,6 +6325,34 @@
 ; PARENT's arm site in the child and run the parent's continuation
 ; there, while the parent read the child's exit 0 as success
 ; (`tests/stdlib/522-parallel-recover.ax`).
+; Under threads, a process join's first half: wait for the child's
+; EXIT without reaping it (`waitid` with WNOWAIT, retried on EINTR,
+; into a siginfo buffer at word 16 of the page), then take the page off
+; the process-wide kill list, and only then let the `wait4` below reap.
+; A pid on the list is always one the kernel has not freed - running,
+; or a zombie - so a trap's sweep that SIGKILLs every listed pid can
+; never hit a pid the kernel has handed to someone else. While the
+; child runs it stays listed, so a trap in any thread takes it down.
+; A `waitid` that fails for any other reason falls through: the `wait4`
+; after it fails the same way and takes the lost-join path.
+(pub :: emitParJoinUnlist (-> Int Int))
+(pub fn (emitParJoinUnlist cg)
+  (if (cgThreads cg)
+    (let ((t (memGetWord cg 26)))
+      {
+        (emitLine cg "  %sib = getelementptr i64, ptr %hp, i64 16")
+        (emitLine cg "  %sibw = ptrtoint ptr %sib to i64")
+        (emitLine cg "  br label %exitwait")
+        (emitLine cg "exitwait:")
+        (emitLine cg (cat2 "  %wx = " (parSys cg (fmtInt (targetWaitIdNum t)) (cat3 "i64 1, i64 %pid, i64 %sibw, i64 " (fmtInt (targetWaitExitedNoWait t)) ", i64 0, i64 0"))))
+        (emitLine cg "  %wxintr = icmp eq i64 %wx, -4")
+        (emitLine cg "  br i1 %wxintr, label %exitwait, label %unlist")
+        (emitLine cg "unlist:")
+        (emitLine cg "  call void @__axiom_par_gunlink(i64 %h)")
+        cg
+      })
+    cg))
+
 (pub :: emitParProc (-> Int Int))
 (pub fn (emitParProc cg)
   (let ((t (memGetWord cg 26)))
@@ -6292,17 +6365,33 @@
       (emitLine cg "  store i64 %fn, ptr %p1")
       (emitLine cg "  %p2 = getelementptr i64, ptr %hp, i64 2")
       (emitLine cg "  store i64 %arg, ptr %p2")
-      (emitLine cg (cat2 "  %pid = " (parSys cg (fmtInt (targetForkNum t)) (cat3 "i64 " (fmtInt (targetForkArg t)) ", i64 0, i64 0, i64 0, i64 0, i64 0"))))
+      ; Under threads the fork and the kill list's link happen inside the
+      ; list's lock, so a trap's sweep (`@__axiom_par_gkill`) never runs
+      ; between them: a child either is on the list when the sweep walks
+      ; it, or is forked after the process has already ended.
+      (if (cgThreads cg)
+        (emitLine cg "  call void @__axiom_par_glock()")
+        0)
+      (if (== (parLibcFork cg) 1)
+        {
+          (emitLine cg "  %pid32 = call i32 @fork()")
+          (emitLine cg "  %pid = sext i32 %pid32 to i64")
+          0
+        }
+        (emitLine cg (cat2 "  %pid = " (parSys cg (fmtInt (targetForkNum t)) (cat3 "i64 " (fmtInt (targetForkArg t)) ", i64 0, i64 0, i64 0, i64 0, i64 0")))))
       (emitLine cg "  %failed = icmp slt i64 %pid, 0")
       (emitLine cg "  br i1 %failed, label %fail, label %forked")
       ; The page and the thunk's share go back before the trap: it may
       ; recover, and a recovered spawn failure used to leak both.
       (emitLine cg "fail:")
+      (if (cgThreads cg)
+        (emitLine cg "  call void @__axiom_par_gunlock()")
+        0)
       (emitLine cg "  %dis = call i64 @__axiom_par_finish(i64 %page)")
       (emitLine cg "  call i64 @__axiom_par_spawn_failed()")
       (emitLine cg "  unreachable")
       (emitLine cg "forked:")
-      (if (== (targetForkChildIsZero t) 1)
+      (if (|| (== (targetForkChildIsZero t) 1) (== (parLibcFork cg) 1))
         (emitLine cg "  %ischild = icmp eq i64 %pid, 0")
         {
           (emitLine cg (cat2 "  %me = " (parSys cg (fmtInt (targetGetPidNum t)) "i64 0, i64 0, i64 0, i64 0, i64 0, i64 0")))
@@ -6312,6 +6401,17 @@
       (emitLine cg "child:")
       (emitLine cg "  store i64 0, ptr @__axiom_recover_top")
       (emitLine cg "  store i64 0, ptr @__axiom_par_live")
+      ; The child's copy of the kill list names its SIBLINGS, and its lock
+      ; is held - by the thread that forked, which the child does not
+      ; have. Both start empty, or the child's own unrecovered trap would
+      ; SIGKILL its siblings and a spawn of its own would spin for ever.
+      (if (cgThreads cg)
+        {
+          (emitLine cg "  store i64 0, ptr @__axiom_par_procs")
+          (emitLine cg "  store i64 0, ptr @__axiom_par_procs_lock")
+          0
+        }
+        0)
       (emitLine cg "  %r = call i64 @__axiom_par_call(i64 %fn, i64 %arg)")
       (emitLine cg "  %p3 = getelementptr i64, ptr %hp, i64 3")
       (emitLine cg "  store i64 %r, ptr %p3")
@@ -6321,6 +6421,13 @@
       (emitLine cg "parent:")
       (emitLine cg "  store i64 %pid, ptr %hp")
       (emitLine cg "  call void @__axiom_par_link(i64 %page, i64 1)")
+      (if (cgThreads cg)
+        {
+          (emitLine cg "  call void @__axiom_par_glink(i64 %page)")
+          (emitLine cg "  call void @__axiom_par_gunlock()")
+          0
+        }
+        0)
       (emitLine cg "  ret i64 %page")
       (emitLine cg "}")
       (emitLine cg "")
@@ -6331,6 +6438,7 @@
       (emitLine cg "  %pid = load i64, ptr %hp")
       (emitLine cg "  %p4 = getelementptr i64, ptr %hp, i64 4")
       (emitLine cg "  %st4 = ptrtoint ptr %p4 to i64")
+      (emitParJoinUnlist cg)
       (emitLine cg "  br label %wait")
       (emitLine cg "wait:")
       (emitLine cg (cat2 "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %pid, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
@@ -6382,6 +6490,7 @@
       (emitLine cg "  %pid = load i64, ptr %hp")
       (emitLine cg "  %p4 = getelementptr i64, ptr %hp, i64 4")
       (emitLine cg "  %st4 = ptrtoint ptr %p4 to i64")
+      (emitParJoinUnlist cg)
       (emitLine cg "  br label %wait")
       (emitLine cg "wait:")
       (emitLine cg (cat2 "  %w = " (parSys cg (fmtInt (targetWait4Num t)) "i64 %pid, i64 %st4, i64 0, i64 0, i64 0, i64 0")))
@@ -6433,13 +6542,144 @@
 ; obligation is the rest - a word that is the address of thread-arena
 ; memory, laundered through `cast`, dangles after the join
 ; (`scripts/check-parallel.sh` section 12a).
+; THE PROCESS-WIDE KILL LIST (MM-PAR-7), under threads only. Each
+; thread's registry is thread-local, so an unrecovered trap swept only
+; the trapping thread's children and then ended the process: a process
+; child that ANOTHER thread forked - a task in a pool that thread ran -
+; was reparented and ran on. So every process child is also linked on
+; one list shared by all threads (page words 10 and 11, word 12 set
+; while linked), under a spinlock whose critical sections are a few
+; stores - and the fork itself, so a sweep never runs between a fork
+; and its link. `@__axiom_par_gkill` takes the lock and never gives it
+; back: it SIGKILLs every listed pid and returns to a caller that ends
+; the process, so nothing can fork after the walk. The three words are
+; plain globals, not thread-local, which is the point of them; a
+; forked child resets them (`emitParProc`). A module lowered to
+; processes has one thread, whose registry already is the whole list.
+(pub :: emitParKillList (-> Int Int))
+(pub fn (emitParKillList cg)
+  (let ((t (memGetWord cg 26)))
+    {
+      (emitLine cg "@__axiom_par_procs = internal global i64 0")
+      (emitLine cg "@__axiom_par_procs_lock = internal global i64 0")
+      (emitLine cg "")
+      (emitLine cg "define internal void @__axiom_par_glock() #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  br label %spin")
+      (emitLine cg "spin:")
+      (emitLine cg "  %old = cmpxchg ptr @__axiom_par_procs_lock, i64 0, i64 1 seq_cst seq_cst")
+      (emitLine cg "  %got = extractvalue { i64, i1 } %old, 1")
+      (emitLine cg "  br i1 %got, label %done, label %spin")
+      (emitLine cg "done:")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      (emitLine cg "define internal void @__axiom_par_gunlock() #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  store atomic i64 0, ptr @__axiom_par_procs_lock seq_cst, align 8")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; Link page `h` at the head. The caller holds the lock.
+      (emitLine cg "define internal void @__axiom_par_glink(i64 %h) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %head = load i64, ptr @__axiom_par_procs")
+      (emitLine cg "  %p10 = getelementptr i64, ptr %hp, i64 10")
+      (emitLine cg "  store i64 %head, ptr %p10")
+      (emitLine cg "  %p11 = getelementptr i64, ptr %hp, i64 11")
+      (emitLine cg "  store i64 0, ptr %p11")
+      (emitLine cg "  %p12 = getelementptr i64, ptr %hp, i64 12")
+      (emitLine cg "  store i64 1, ptr %p12")
+      (emitLine cg "  %has = icmp ne i64 %head, 0")
+      (emitLine cg "  br i1 %has, label %back, label %done")
+      (emitLine cg "back:")
+      (emitLine cg "  %headp = inttoptr i64 %head to ptr")
+      (emitLine cg "  %hb11 = getelementptr i64, ptr %headp, i64 11")
+      (emitLine cg "  store i64 %h, ptr %hb11")
+      (emitLine cg "  br label %done")
+      (emitLine cg "done:")
+      (emitLine cg "  store i64 %h, ptr @__axiom_par_procs")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; Take page `h` off the list if it is on it. Takes the lock.
+      (emitLine cg "define internal void @__axiom_par_gunlink(i64 %h) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  call void @__axiom_par_glock()")
+      (emitLine cg "  %hp = inttoptr i64 %h to ptr")
+      (emitLine cg "  %p12 = getelementptr i64, ptr %hp, i64 12")
+      (emitLine cg "  %on = load i64, ptr %p12")
+      (emitLine cg "  %listed = icmp ne i64 %on, 0")
+      (emitLine cg "  br i1 %listed, label %cut, label %out")
+      (emitLine cg "cut:")
+      (emitLine cg "  %p10 = getelementptr i64, ptr %hp, i64 10")
+      (emitLine cg "  %nx = load i64, ptr %p10")
+      (emitLine cg "  %p11 = getelementptr i64, ptr %hp, i64 11")
+      (emitLine cg "  %pv = load i64, ptr %p11")
+      (emitLine cg "  %hasp = icmp ne i64 %pv, 0")
+      (emitLine cg "  br i1 %hasp, label %mid, label %first")
+      (emitLine cg "mid:")
+      (emitLine cg "  %pvp = inttoptr i64 %pv to ptr")
+      (emitLine cg "  %pv10 = getelementptr i64, ptr %pvp, i64 10")
+      (emitLine cg "  store i64 %nx, ptr %pv10")
+      (emitLine cg "  br label %fwd")
+      (emitLine cg "first:")
+      (emitLine cg "  store i64 %nx, ptr @__axiom_par_procs")
+      (emitLine cg "  br label %fwd")
+      (emitLine cg "fwd:")
+      (emitLine cg "  %hasn = icmp ne i64 %nx, 0")
+      (emitLine cg "  br i1 %hasn, label %fix, label %clear")
+      (emitLine cg "fix:")
+      (emitLine cg "  %nxp = inttoptr i64 %nx to ptr")
+      (emitLine cg "  %nx11 = getelementptr i64, ptr %nxp, i64 11")
+      (emitLine cg "  store i64 %pv, ptr %nx11")
+      (emitLine cg "  br label %clear")
+      (emitLine cg "clear:")
+      (emitLine cg "  store i64 0, ptr %p12")
+      (emitLine cg "  br label %out")
+      (emitLine cg "out:")
+      (emitLine cg "  call void @__axiom_par_gunlock()")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      ; SIGKILL every listed pid, keeping the lock: the caller ends the
+      ; process. No reap: a listed pid is unreaped by construction, and
+      ; what is left becomes init's.
+      (emitLine cg "define internal void @__axiom_par_gkill() #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  call void @__axiom_par_glock()")
+      (emitLine cg "  %first = load i64, ptr @__axiom_par_procs")
+      (emitLine cg "  br label %walk")
+      (emitLine cg "walk:")
+      (emitLine cg "  %cur = phi i64 [ %first, %entry ], [ %next, %one ]")
+      (emitLine cg "  %end = icmp eq i64 %cur, 0")
+      (emitLine cg "  br i1 %end, label %done, label %one")
+      (emitLine cg "one:")
+      (emitLine cg "  %cp = inttoptr i64 %cur to ptr")
+      (emitLine cg "  %who = load i64, ptr %cp")
+      (emitLine cg (cat2 "  %kr = " (parSys cg (fmtInt (targetKillNum t)) "i64 %who, i64 9, i64 0, i64 0, i64 0, i64 0")))
+      (emitLine cg "  %c10 = getelementptr i64, ptr %cp, i64 10")
+      (emitLine cg "  %next = load i64, ptr %c10")
+      (emitLine cg "  br label %walk")
+      (emitLine cg "done:")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "")
+      cg
+    }))
+
 (pub :: emitParThread (-> Int Int))
 (pub fn (emitParThread cg)
   (let ((t (memGetWord cg 26)))
     {
       (emitLine cg "declare i32 @pthread_create(ptr, ptr, ptr, ptr) #0")
       (emitLine cg "declare i32 @pthread_join(ptr, ptr) #0")
+      (if (== (parLibcFork cg) 1)
+        (emitLine cg "declare i32 @fork() #0")
+        0)
       (emitLine cg "")
+      (emitParKillList cg)
       (emitLine cg "define internal void @__axiom_arena_unmap_thread() #0 {")
       (emitLine cg "entry:")
       (emitLine cg "  %a0 = load i64, ptr @__axiom_chunk")
@@ -10575,7 +10815,15 @@
     ; MM-PAR-7: every caller exits when this returns, so no child it
     ; spawned may outlive it - swept only in a module that can spawn.
     (if (== (parRegistryOn cg) 1)
-      (emitLine cg "  call void @__axiom_par_sweep(i64 -1)")
+      {
+        (emitLine cg "  call void @__axiom_par_sweep(i64 -1)")
+        ; Under threads, the process children OTHER threads forked are on
+        ; no registry this thread can see; the kill list has them all.
+        (if (cgThreads cg)
+          (emitLine cg "  call void @__axiom_par_gkill()")
+          0)
+        0
+      }
       0)
     (emitLine cg "  ret i64 0")
     (emitLine cg "jump:")

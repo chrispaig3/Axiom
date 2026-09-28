@@ -1,0 +1,123 @@
+; A thread started inside a forked child (MM-PAR-7, R-C5), for
+; `scripts/check-task.sh`, which runs it in both lowerings and requires
+; the three lines it prints. It is a litmus program rather than a
+; stdlib fixture because the stdlib corpus is emitted for every target,
+; and FreeBSD and Windows have no threads (`AX4006`).
+;
+; A process binding spawns a thread, joins it and answers through the
+; parent's join, three ways: a raw `__proc_spawn`, a `Task` pool whose
+; task starts a thread, and a task that starts one and never joins it -
+; its process cannot exit, because the end of the binding joins the
+; thread for ever, and its deadline must still end it with the answer
+; it gave. On Darwin the first two died with SIGSEGV (139) while the
+; runtime forked with the raw system call: the child's libSystem still
+; held the parent's Mach task port, and `pthread_create` needs it. The
+; third blocked the pool in `wait4` before `stdlib/Task.ax` learned to
+; wait for an exit rather than an answer. Linux answered all three.
+(import IO)
+(import Sys)
+(import Mem)
+(import Vec)
+(import Err)
+(import Task)
+
+(:: inner (-> Int Int))
+(fn (inner x)
+  (+ x 1))
+
+(:: spawnInner (-> Int Int))
+;@axiom:effect(io)
+(fn (spawnInner i)
+  (__thread_spawn
+    (lambda (x) (inner x))
+    i))
+
+(:: joined (-> Int Int))
+;@axiom:effect(io)
+(fn (joined i)
+  (__thread_join (spawnInner i)))
+
+(:: nap (-> Int Int Int))
+;@axiom:effect(io)
+(fn (nap idle ms)
+  {
+    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    0
+  })
+
+(:: forever (-> Int Int))
+;@axiom:effect(io)
+(fn (forever idle)
+  {
+    (while (== 0 0)
+      (nap idle 1000))
+    0
+  })
+
+; Answers, and leaves a thread its process must join for ever.
+(:: stuck (-> Int Int String))
+;@axiom:effect(io)
+(fn (stuck idle i)
+  {
+    (__thread_spawn
+      (lambda (x) (forever idle))
+      i)
+    "answered"
+  })
+
+(:: first (-> (Vec (Result String Error)) String))
+(fn (first rs)
+  (match (vecGet rs 0)
+    ((Ok s) s)
+    ((Err e) "failed")))
+
+(:: rawFork Int)
+;@axiom:effect(io)
+(fn (rawFork)
+  (__proc_join
+    (__proc_spawn
+      (lambda (x) (joined x))
+      41)))
+
+(:: ranOrWrong (-> Int String))
+;@axiom:effect(io)
+(fn (ranOrWrong i)
+  (if (== (joined i) 1)
+    "ran"
+    "wrong"))
+
+(:: taskRan String)
+;@axiom:effect(io)
+(fn (taskRan)
+  (first
+    (taskMap
+      (lambda (i) (ranOrWrong i))
+      1
+      1
+      64)))
+
+(:: stuckTask (-> Int String))
+;@axiom:effect(io)
+(fn (stuckTask idle)
+  (first
+    (taskMapWith
+      (lambda (i) (stuck idle i))
+      1
+      (taskWithDeadline (taskOpts 1 64) 300000000))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (sysMapShared 4096)
+    ((Ok idle)
+      {
+        (let ((r rawFork))
+          (println "raw fork: {r}"))
+        (let ((s taskRan))
+          (println "task: {s}"))
+        (let ((s (stuckTask idle)))
+          (println "stuck task: {s}"))
+        0
+      }
+    )
+    ((Err e) 1)))

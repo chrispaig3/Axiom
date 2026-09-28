@@ -43,11 +43,14 @@
 ;   siblingtrap  under `--threads` only: one binding runs a pool whose
 ;                one task records its pid and never returns, and a
 ;                sibling binding waits for that pid, prints it and
-;                divides by zero. The program ends 72 with the task
-;                STILL ALIVE - the registry is per thread, and the
-;                trapping thread's holds no task (MM-PAR-7's stated
-;                limit). The gate measures it as a control and kills
-;                the task itself.
+;                divides by zero. The program ends 72 and the task must
+;                be GONE: the trapping thread's registry holds no task,
+;                and the process-wide kill list (MM-PAR-7) holds it.
+;   stuck        one task answers but leaves behind a thread that never
+;                ends, so its process cannot exit: the end of the
+;                binding joins that thread for ever. Under a 300 ms
+;                deadline the pool must still return, with the answer.
+;                Prints it and the elapsed time.
 ;   grace G      one task cancels its own pool and then works 200 ms
 ;                more; the grace is G nanoseconds. With G the largest
 ;                `Int` the task must finish: `0 ok finished`.
@@ -271,6 +274,17 @@
     (/ 1 (- (memGetWord page 0) (memGetWord page 0)))
   })
 
+; ---- stuck -----------------------------------------------------------------
+(:: stuckWork (-> Int Int String))
+;@axiom:effect(io)
+(fn (stuckWork idle i)
+  {
+    (__thread_spawn
+      (lambda (x) (forever idle))
+      i)
+    "answered"
+  })
+
 ; ---- grace -----------------------------------------------------------------
 (:: graceWork (-> Int Int Int String))
 ;@axiom:effect(io)
@@ -489,10 +503,19 @@
                                         (b (trapAfterPid page))
                                       )
                                         (+ a b))
-                                      {
-                                        (println "usage: task-load MODE ...")
-                                        2
-                                      })))))))))))))
+                                      (if (strEq mode "stuck")
+                                        {
+                                          (showAll
+                                            (taskMapWith
+                                              (lambda (i) (stuckWork idle i))
+                                              1
+                                              (taskWithDeadline (taskOpts 1 64) 300000000)))
+                                          (say "ms" (elapsedMs buf t0))
+                                        }
+                                        {
+                                          (println "usage: task-load MODE ...")
+                                          2
+                                        }))))))))))))))
           )
           ((Err e) 2))
       )

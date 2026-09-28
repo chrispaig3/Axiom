@@ -1407,12 +1407,14 @@
 ; writes their `declare`s only when `cgThreads` is on
 ; (`emitParThread`), and only for a target `targetHasThreads` admits,
 ; so grounding them against the link line would refuse every
-; thread-lowered program for a library it cannot name. They are the
-; thread lowering's whole import surface, and `scripts/check-parallel.sh`
-; measures exactly that.
+; thread-lowered program for a library it cannot name. `fork` is the
+; third, on Darwin only: a thread-lowered module forks through
+; libSystem there (`parLibcFork`), because a raw `fork` leaves the
+; child unable to start a thread. They are the thread lowering's whole
+; import surface, and `scripts/check-parallel.sh` measures exactly that.
 (pub :: platformGroundedSym (-> String Bool))
 (pub fn (platformGroundedSym n)
-  (|| (strEq n "pthread_create") (strEq n "pthread_join")))
+  (|| (strEq n "pthread_create") (|| (strEq n "pthread_join") (strEq n "fork"))))
 
 ; The name in each `declare i64 @NAME(` line of the IR - less the two
 ; the platform grounds (`platformGroundedSym`).
