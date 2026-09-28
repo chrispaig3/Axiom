@@ -1,0 +1,228 @@
+; The channel under load, for `scripts/check-chan.sh` (R-C2, MM-PAR-10).
+; Three modes, chosen by the first argument; each prints one line.
+;
+;   stress CAP N  three producers send 1..3N through a channel of
+;                 capacity CAP, three consumers drain it, and each
+;                 consumer reports its count, its sum and its sum of
+;                 squares (wrapping) through a channel of its own. The
+;                 line is `ok c1 c2 c3` - the three consumers' shares -
+;                 when the totals equal what 1..3N must give, and `bad`
+;                 with the totals otherwise. A lost word and a duplicated
+;                 one cancel in the count; they cannot cancel in both
+;                 sums unless they are the same word.
+;   wait          one binding blocks in `sysWaitWord` while its sibling
+;                 spins ~200 ms and then wakes it: `wait calls N`. A
+;                 wait that blocks makes one call, or a few if woken
+;                 spuriously; a wait that returns at once makes
+;                 thousands.
+;   stuck         a receive on a channel nobody closes and nobody sends
+;                 to. It never returns: the gate runs it under a
+;                 timeout, under `--threads` so the kill takes every
+;                 binding with it.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Chan)
+
+(:: produce (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (produce ch lo hi)
+  (let (
+    (mut i lo)
+    (mut sent 0)
+  )
+    {
+      (while (< i hi)
+        {
+          (if (chanSend ch i)
+            (set sent (+ sent 1))
+            0)
+          (set i (+ i 1))
+        })
+      sent
+    }))
+
+(:: feed (-> Int Int Int))
+;@axiom:effect(io)
+(fn (feed ch n)
+  (parallel q (
+    (x (produce ch 1 (+ n 1)))
+    (y (produce ch (+ n 1) (+ (* 2 n) 1)))
+    (z (produce ch (+ (* 2 n) 1) (+ (* 3 n) 1)))
+  )
+    {
+      (chanClose ch)
+      (+ x (+ y z))
+    }))
+
+; Drain `ch` to the end; send the sum and the sum of squares to `out`;
+; answer the count.
+(:: tally (-> Int Int Int))
+;@axiom:effect(io)
+(fn (tally ch out)
+  (let (
+    (mut count 0)
+    (mut sum 0)
+    (mut sq 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (match (chanRecv ch)
+          ((Some v)
+            {
+              (set count (+ count 1))
+              (set sum (+ sum v))
+              (set sq (+ sq (* v v)))
+            }
+          )
+          ((None)
+            (set going 0)
+          )))
+      (chanSend out sum)
+      (chanSend out sq)
+      count
+    }))
+
+(:: recvOr (-> Int Int))
+;@axiom:effect(io)
+(fn (recvOr ch)
+  (match (chanRecv ch)
+    ((Some v) v)
+    ((None) 0)))
+
+(:: argInt (-> Int Int Int))
+;@axiom:effect(io)
+(fn (argInt i d)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) d)))
+
+(:: newOr (-> Int Int))
+;@axiom:effect(io)
+(fn (newOr cap)
+  (match (chanNew cap)
+    ((Ok ch) ch)
+    ((Err e) 0)))
+
+(:: stress (-> Int Int Int))
+;@axiom:effect(io)
+(fn (stress cap n)
+  (let (
+    (ch (newOr cap))
+    (o1 (newOr 2))
+    (o2 (newOr 2))
+    (o3 (newOr 2))
+    (mut i 1)
+    (mut wantSum 0)
+    (mut wantSq 0)
+  )
+    {
+      (while (<= i (* 3 n))
+        {
+          (set wantSum (+ wantSum i))
+          (set wantSq (+ wantSq (* i i)))
+          (set i (+ i 1))
+        })
+      (parallel p (
+        (fed (feed ch n))
+        (c1 (tally ch o1))
+        (c2 (tally ch o2))
+        (c3 (tally ch o3))
+      )
+        (let (
+          (count (+ c1 (+ c2 c3)))
+          (sum (+ (recvOr o1) (+ (recvOr o2) (recvOr o3))))
+          (sq (+ (recvOr o1) (+ (recvOr o2) (recvOr o3))))
+        )
+          {
+            (if (&& (== fed (* 3 n)) (&& (== count (* 3 n)) (&& (== sum wantSum) (== sq wantSq))))
+              (println "ok {c1} {c2} {c3}")
+              (println "bad fed {fed} count {count} sum {sum}/{wantSum} sq {sq}/{wantSq}"))
+            0
+          }))
+    }))
+
+(:: now (-> Int Int))
+;@axiom:effect(io)
+(fn (now buf)
+  (match (sysNowMicros buf)
+    ((Ok t) t)
+    ((Err e) 0)))
+
+; Word 0 of `m` is the flag; answer how many waits it took to see it.
+(:: waiter (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (waiter m)
+  (let ((mut calls 0))
+    {
+      (while (== (__atomic_load m) 0)
+        {
+          (sysWaitWord m 0)
+          (set calls (+ calls 1))
+        })
+      calls
+    }))
+
+(:: waker (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (waker m)
+  (let (
+    (buf (memAlloc 16))
+    (t0 (now (memAlloc 16)))
+  )
+    {
+      (while (< (- (now buf) t0) 200000)
+        0)
+      (__atomic_store m 1)
+      (sysWakeWord m)
+    }))
+
+(:: waitMode Int)
+;@axiom:effect(io)
+(fn (waitMode)
+  (match (sysMapShared 4096)
+    ((Ok m)
+      (parallel p (
+        (w (waiter m))
+        (k (waker m))
+      )
+        {
+          (println "wait calls {w}")
+          0
+        })
+    )
+    ((Err e)
+      {
+        (println "no shared mapping")
+        1
+      }
+    )))
+
+(:: stuck Int)
+;@axiom:effect(io)
+(fn (stuck)
+  (let ((ch (newOr 1)))
+    (parallel p ((r (recvOr ch)))
+      {
+        (println "received {r}")
+        0
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((mode (sysArg 1)))
+    (if (strEq mode "stress")
+      (stress (argInt 2 4) (argInt 3 1000))
+      (if (strEq mode "wait")
+        waitMode
+        (if (strEq mode "stuck")
+          stuck
+          {
+            (println "usage: chan-load (stress CAP N | wait | stuck)")
+            2
+          })))))

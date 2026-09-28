@@ -223,6 +223,12 @@ F sysSymlinkNum stdlib/Sys/Platform.darwin.ax:962:9-22 "Int" @a1658f19134fc529
 F oNoFollow stdlib/Sys/Platform.darwin.ax:967:9-18 "Int" @7f419e2abda0741e
 F oDirectory stdlib/Sys/Platform.darwin.ax:972:9-19 "Int" @0352f03f7f9fdad7
 F eXdev stdlib/Sys/Platform.darwin.ax:979:9-14 "Int" @29287ef0ba89a22d
+F sysMmapNum stdlib/Sys/Platform.darwin.ax:993:9-19 "Int" @60cbe8282a0d1e35
+F sysMunmapNum stdlib/Sys/Platform.darwin.ax:998:9-21 "Int" @0e70e8ae7f6c36b6
+F mapSharedAnon stdlib/Sys/Platform.darwin.ax:1004:9-22 "Int" @226414bf4a63f6a0
+F waitWordKind stdlib/Sys/Platform.darwin.ax:1012:9-21 "Int" @76bcd0a378307ca8
+F sysWaitWordNum stdlib/Sys/Platform.darwin.ax:1017:9-23 "Int" @bd7f1e8eb1584dbf
+F sysWakeWordNum stdlib/Sys/Platform.darwin.ax:1022:9-23 "Int" @9279c2c6c3847610
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #pure #calls=+,<,>

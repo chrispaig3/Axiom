@@ -3105,3 +3105,119 @@
           (Ok None)
           (Ok (Some (strSlice buf 0 used)))))
     }))
+
+; ------------------------------------------------------------------
+; Memory two bindings can share, and blocking on a word in it.
+;
+; A `parallel` binding runs in a forked child by default and in a
+; thread under `--threads`, and an arena page is private either way -
+; after a fork it is a COPY. A MAP_SHARED|MAP_ANON mapping made BEFORE
+; the spawn is the same pages in both, so a word in it is visible to
+; both lowerings (MM-PAR-10). `stdlib/Chan.ax` is built on these four.
+; ------------------------------------------------------------------
+; Map `len` bytes, readable and writable (PROT_READ|PROT_WRITE = 3),
+; shared with every binding spawned after this call; answers the
+; address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once
+; no binding can still touch it - a program obligation, as a handle's
+; single join is (MM-PAR-8).
+(pub :: sysMapShared (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (sysMapShared len)
+  (sysResult "sysMapShared" (__syscall6
+    sysMmapNum
+    0
+    len
+    3
+    mapSharedAnon
+    (- 0 1)
+    0)))
+
+(pub :: sysUnmapShared (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (sysUnmapShared addr len)
+  (sysResult "sysUnmapShared" (__syscall3 sysMunmapNum addr len 0)))
+
+; Block while the word at byte address `addr` - 8-aligned, inside a
+; `sysMapShared` mapping - still holds `expected`. It returns when woken,
+; when the word already differs on entry, or spuriously, so the caller
+; re-checks its own condition every time. That is what makes a lost wake
+; impossible: a waker changes the word BEFORE it wakes, so a waiter that
+; read the old value either sees the new one on entry or is already in
+; the queue the wake empties - with one caveat on Linux, which compares
+; only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the
+; shared page): a waiter preempted across exactly a multiple of 2^32
+; changes would sleep through them. Darwin compares all 64
+; (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it
+; returns at once and the caller spins, which is correct and costs a
+; core. No timeout: a timed wait would need a timespec some call must
+; allocate.
+;
+; IT ANSWERS 0, AND DISCARDS THE KERNEL'S ANSWER, deliberately. Woken,
+; EINTR, EAGAIN (the word differed): every one leads to the same
+; re-check, so there is no failure a caller could act on - and a raw
+; syscall result is what `tests/compat/verify-compat.py` counts as a
+; failure sentinel wanting `Result`, rightly, everywhere a caller could.
+; A wrong operation code would make every wait return at once; that is
+; caught by running, not by an answer (`scripts/check-chan.sh` §2). The
+; branch on `waitWordKind` is where the answer is consumed rather than
+; passed on - the census reads a body with a branch of its own that way.
+(pub :: sysWaitWord (-> Int Int Int))
+;@axiom:effect(io)
+(pub fn (sysWaitWord addr expected)
+  (if (== waitWordKind 0)
+    0
+    {
+      (sysWaitWordRaw addr expected)
+      0
+    }))
+
+(:: sysWaitWordRaw (-> Int Int Int))
+;@axiom:effect(io)
+(fn (sysWaitWordRaw addr expected)
+  (if (== waitWordKind 1)
+    (__syscall6
+      sysWaitWordNum
+      addr
+      0
+      expected
+      0
+      0
+      0)
+    (if (== waitWordKind 2)
+      (__syscall4
+        sysWaitWordNum
+        6
+        addr
+        expected
+        0)
+      0)))
+
+; Wake every binding blocked in `sysWaitWord` on `addr`: FUTEX_WAKE (1)
+; for INT_MAX waiters, or `__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED
+; | ULF_WAKE_ALL (6 | 0x100). Answers 0 for `sysWaitWord`'s reason: a
+; wake with nobody waiting is not an error anyone can act on.
+(pub :: sysWakeWord (-> Int Int))
+;@axiom:effect(io)
+(pub fn (sysWakeWord addr)
+  (if (== waitWordKind 0)
+    0
+    {
+      (sysWakeWordRaw addr)
+      0
+    }))
+
+(:: sysWakeWordRaw (-> Int Int))
+;@axiom:effect(io)
+(fn (sysWakeWordRaw addr)
+  (if (== waitWordKind 1)
+    (__syscall6
+      sysWakeWordNum
+      addr
+      1
+      2147483647
+      0
+      0
+      0)
+    (if (== waitWordKind 2)
+      (__syscall3 sysWakeWordNum 262 addr 0)
+      0)))

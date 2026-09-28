@@ -662,3 +662,42 @@
 (pub :: eXdev Int)
 (pub fn (eXdev)
   18)
+
+; ------------------------------------------------------------------
+; Memory two bindings can share, and blocking on a word in it
+; (`stdlib/Chan.ax`, docs/memory-model.md MM-PAR-10). `Sys.ax` branches
+; on `waitWordKind`, never on an OS name. The mmap/munmap numbers are
+; the emitted runtime's own (`targetMmapNum`, `targetMunmapNum`), and
+; `scripts/check-platform-constants.sh` compares them. The flags, the
+; wait kind and the wait/wake numbers are checked only by running:
+; `scripts/check-chan.sh` on Linux and Darwin.
+; ------------------------------------------------------------------
+; no syscall ABI: `usesSyscallAbi` 0, and `parallel` is status 79 here
+(pub :: sysMmapNum Int)
+(pub fn (sysMmapNum)
+  0)
+
+; no syscall ABI
+(pub :: sysMunmapNum Int)
+(pub fn (sysMunmapNum)
+  0)
+
+; no syscall ABI
+(pub :: mapSharedAnon Int)
+(pub fn (mapSharedAnon)
+  0)
+
+; 0: no blocking wait wired on this target
+(pub :: waitWordKind Int)
+(pub fn (waitWordKind)
+  0)
+
+; none
+(pub :: sysWaitWordNum Int)
+(pub fn (sysWaitWordNum)
+  0)
+
+; none
+(pub :: sysWakeWordNum Int)
+(pub fn (sysWakeWordNum)
+  0)

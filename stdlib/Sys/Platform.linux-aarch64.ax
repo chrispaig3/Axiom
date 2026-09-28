@@ -801,3 +801,44 @@
 (pub :: eXdev Int)
 (pub fn (eXdev)
   18)
+
+; ------------------------------------------------------------------
+; Memory two bindings can share, and blocking on a word in it
+; (`stdlib/Chan.ax`, docs/memory-model.md MM-PAR-10). `Sys.ax` branches
+; on `waitWordKind`, never on an OS name. The mmap/munmap numbers are
+; the emitted runtime's own (`targetMmapNum`, `targetMunmapNum`), and
+; `scripts/check-platform-constants.sh` compares them. The flags, the
+; wait kind and the wait/wake numbers are checked only by running:
+; `scripts/check-chan.sh` on Linux and Darwin.
+; ------------------------------------------------------------------
+; mmap - 222 (the generic table)
+(pub :: sysMmapNum Int)
+(pub fn (sysMmapNum)
+  222)
+
+; munmap - 215
+(pub :: sysMunmapNum Int)
+(pub fn (sysMunmapNum)
+  215)
+
+; MAP_SHARED | MAP_ANONYMOUS = 0x01 | 0x20
+(pub :: mapSharedAnon Int)
+(pub fn (mapSharedAnon)
+  33)
+
+; How a binding blocks on a shared word: 1, `futex` - FUTEX_WAIT and
+; FUTEX_WAKE WITHOUT the PRIVATE flag, so a wait keyed on a MAP_SHARED
+; page meets a wake from another process. 2 is Darwin's ulock; 0 none
+(pub :: waitWordKind Int)
+(pub fn (waitWordKind)
+  1)
+
+; futex - 98, for the wait
+(pub :: sysWaitWordNum Int)
+(pub fn (sysWaitWordNum)
+  98)
+
+; futex - 98, for the wake
+(pub :: sysWakeWordNum Int)
+(pub fn (sysWakeWordNum)
+  98)

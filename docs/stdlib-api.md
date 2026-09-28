@@ -65,6 +65,23 @@ See [reference.md](reference.md) for the language, and
 | `symAgentTag` | value | `(-> Sym String String)` | `Alloc,Mut,Unsafe` | The `agent:*` namespace, which the compiler records and does not check. `(symAgentTag s "rewrite")` reads `#agent:rewrite`. |
 | `symHasAgentTag` | value | `(-> Sym String Bool)` | `Alloc,Mut,Unsafe` |  |
 
+## `Chan`
+
+`stdlib/Chan.ax` — 10 public names
+
+| Name | Kind | Type | Effects | Summary |
+|---|---|---|---|---|
+| `chanNew` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI). |
+| `chanSend` | value | `(-> Int Int Bool)` | `IO,Mut,Unsafe` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - and then `v` was not sent. |
+| `chanRecv` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream. |
+| `chanTrySend` | value | `(-> Int Int Bool)` | `IO,Mut,Unsafe` | Send without waiting: `True` if `v` went into the ring, `False` if it did not - full or closed, which `chanClosed` tells apart, as it does for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
+| `chanTryRecv` | value | `(-> Int (Option Int))` | `IO,Mut,Unsafe` | Receive without waiting: the oldest word, or `None` when there is none right now - empty, whether or not it is closed; `chanClosed` tells the two apart. |
+| `chanClose` | value | `(-> Int Int)` | `IO,Mut,Unsafe` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. |
+| `chanClosed` | value | `(-> Int Bool)` | `IO,Mut,Unsafe` |  |
+| `chanLen` | value | `(-> Int Int)` | `IO,Mut,Unsafe` | Words in the ring now. |
+| `chanCap` | value | `(-> Int Int)` | `Unsafe` |  |
+| `chanFree` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). |
+
 ## `Err`
 
 `stdlib/Err.ax` — 36 public names
@@ -426,7 +443,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 88 public names
+`stdlib/Sys.ax` — 92 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -518,10 +535,14 @@ See [reference.md](reference.md) for the language, and
 | `sysTermCols` | value | `(-> Int Int)` | `Unsafe` | Columns: `ws_col`, the second `unsigned short`. |
 | `sysReadAllFd` | value | `(-> Int (Result String Error))` | `Alloc,IO,Mut,Unsafe` | Read `fd` to end of input: `Ok` the whole stream, `Ok ""` when nothing arrived, or `Err` carrying the errno of the `read` that failed. |
 | `sysReadLineFd` | value | `(-> Int (Result (Option String) Error))` | `Alloc,IO,Mut,Unsafe` | One line of `fd`: `Ok (Some line)` without its newline, `Ok None` at end of input when nothing was read, or `Err` carrying the errno. |
+| `sysMapShared` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Map `len` bytes, readable and writable (PROT_READ\|PROT_WRITE = 3), shared with every binding spawned after this call; answers the address, page-aligned and zeroed. Unmap it with `sysUnmapShared` once no binding can still touch it - a program obligation, as a handle's single join is (MM-PAR-8). |
+| `sysUnmapShared` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` |  |
+| `sysWaitWord` | value | `(-> Int Int Int)` | `IO` | Block while the word at byte address `addr` - 8-aligned, inside a `sysMapShared` mapping - still holds `expected`. It returns when woken, when the word already differs on entry, or spuriously, so the caller re-checks its own condition every time. That is what makes a lost wake impossible: a waker changes the word BEFORE it wakes, so a waiter that read the old value either sees the new one on entry or is already in the queue the wake empties - with one caveat on Linux, which compares only the word's low 32 bits (FUTEX_WAIT, not PRIVATE: the key is the shared page): a waiter preempted across exactly a multiple of 2^32 changes would sleep through them. Darwin compares all 64 (UL_COMPARE_AND_WAIT64_SHARED = 6). Where `waitWordKind` is 0 it returns at once and the caller spins, which is correct and costs a core. No timeout: a timed wait would need a timespec some call must allocate. |
+| `sysWakeWord` | value | `(-> Int Int)` | `IO` | Wake every binding blocked in `sysWaitWord` on `addr`: FUTEX_WAKE (1) for INT_MAX waiters, or `__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED \| ULF_WAKE_ALL (6 \| 0x100). Answers 0 for `sysWaitWord`'s reason: a wake with nobody waiting is not an error anyone can act on. |
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 110 public names
+`stdlib/Sys/Platform.darwin.ax` — 116 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -635,6 +656,12 @@ See [reference.md](reference.md) for the language, and
 | `oNoFollow` | value | `Int` |  | O_NOFOLLOW = 0x100 |
 | `oDirectory` | value | `Int` |  | O_DIRECTORY = 0x100000 |
 | `eXdev` | value | `Int` |  | EXDEV, 18 on every kernel here: what `sysOpenBeneath` answers for a path that would leave its directory, the errno Linux's `openat2(RESOLVE_BENEATH)` answers for the same thing. |
+| `sysMmapNum` | value | `Int` |  | mmap - BSD 197 (SDK sys/syscall.h), in the 0x2000000 class |
+| `sysMunmapNum` | value | `Int` |  | munmap - BSD 73 |
+| `mapSharedAnon` | value | `Int` |  | MAP_SHARED \| MAP_ANON = 0x1 \| 0x1000: a fork keeps these pages the SAME pages, where the arena's MAP_PRIVATE pages become copies |
+| `waitWordKind` | value | `Int` |  | How a binding blocks on a shared word: 2, `__ulock_wait`/`__ulock_wake` with UL_COMPARE_AND_WAIT64_SHARED, which keys the wait on the page so a waiter and a waker in two processes over one MAP_SHARED page meet. Darwin has no futex. 1 is Linux `futex`; 0 is none (spin) |
+| `sysWaitWordNum` | value | `Int` |  | __ulock_wait(op, addr, value, timeout_us) - BSD 515 (SDK sys/syscall.h) |
+| `sysWakeWordNum` | value | `Int` |  | __ulock_wake(op, addr, wake_value) - BSD 516 |
 
 ## `Test`
 

@@ -22,6 +22,47 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
+
+R-C2's first half. `chanNew cap` maps a ring of words MAP_SHARED
+before the spawn, so one channel serves forked children and threads
+alike; `chanSend`/`chanRecv` block while full/empty, `chanClose` ends
+the stream (sends refused, receivers drain then get `None`), and
+`chanTrySend`/`chanTryRecv`/`chanLen`/`chanClosed`/`chanFree` complete
+it. A waiter sleeps in the kernel - the new `Sys.ax` `sysWaitWord`/
+`sysWakeWord` are Linux `futex` (not PRIVATE) and Darwin `__ulock_wait`
+with the 64-bit shared compare - on an event counter it read under a
+three-state futex lock, so no wake is lost and an uncontended
+operation makes no syscall; FreeBSD spins (`waitWordKind` 0), stated.
+`sysMapShared`/`sysUnmapShared` and six constants per platform module
+are new; the library's `mmap`/`munmap` numbers are now compared with
+the runtime's by `check-platform-constants.sh` on all six targets (its
+own guard demanded the pairing). `MM-PAR-10` states what the channel
+promises, its publication edge, and what it does not provide: no
+timeout, no fairness, words only, an `Int` handle freed only after the
+`parallel` form that used it. `tests/stdlib/528-chan.ax` pins the
+answers (21 source-derived values) and three forked producers into two
+consumers; the new gate runs three producers into three consumers in
+both lowerings at `--opt` 0 and 2 with exact count and two sums, shows
+one wait call through a 200 ms delay, a receive nobody satisfies still
+blocked at 2 s, and both the lock and the wake ablated on a copy of the
+standard library turning the load red (the ablation first compiled the
+tree's library - `gate_init` exports `AXIOM_STDLIB` - and the IR check
+caught it). Peak RSS is flat from 60,000 to 600,000 words. An
+independent review found no lost wake or ordering bug and four things,
+all acted on: a binding SIGKILLed by `MM-PAR-7`'s sweep while holding
+the lock deadlocks the channel (a stated limit now - after a sweep only
+`chanFree` is safe); `gate_timeout`'s perl fallback signalled only its
+direct child, so a cross-process deadlock HUNG a gate on a Mac without
+GNU `timeout` - it now kills the command's whole process group, and
+`check-chan.sh` holds it to that; Linux's 32-bit futex compare is a
+stated caveat; and `MM-PAR-9` names a third hole, a forged or freed
+word handed to a library function that dereferences it. Found on the
+way: on a case-insensitive filesystem a program named `chan.ax` that
+says `(import Chan)` imports ITSELF, because the source's own directory
+is searched first. Calls one new gate; the count sites state
+eighty-three gates.
+
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
 `docs/memory-model.md` said which bindings run where and what crosses
@@ -69,7 +110,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-two gates.
+eighty-three gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -99,7 +140,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-two gates.
+sites state eighty-three gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -340,7 +381,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-two gates.
+checks). Calls one new gate; the count sites state eighty-three gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -357,7 +398,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-two gates, and the battery has
+gate; the count sites state eighty-three gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

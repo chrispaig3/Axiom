@@ -3680,7 +3680,7 @@ Axiom ships a standard library written **in Axiom**. It reaches the operating sy
 
 ### Modules at a Glance
 
-Twenty-three modules, all of them Axiom source under `stdlib/`. A name a
+Twenty-four modules, all of them Axiom source under `stdlib/`. A name a
 module does not mark `pub` is not part of its surface — reaching one is
 `AX3023` — so `grep '^(pub' stdlib/M.ax` is always the authoritative
 answer to what a module exports. The table below says what each module
@@ -3711,6 +3711,7 @@ requires the result to be byte-identical.
 | `Json` | `jsonParse`, `jsonWrite`, and the constructors and accessors between them — written for JSON-RPC |
 | `Rpc` | the LSP base protocol's framing over a file descriptor: `rpcRead`, `rpcWrite`, and the reader `rdNew`/`rdBuf`/`rdFilled` |
 | `Par` | `parMapWords` — a bounded pool of concurrent tasks over `__proc_spawn`/`__proc_join`, joined in submit order; `parRunAll` is that pool over external commands, and `parRunOne`/`parArgvVector` the pieces underneath. Replaced `Job` at 0.7.4 |
+| `Chan` | `chanNew` — a bounded channel of words between `parallel` bindings, in a MAP_SHARED ring so forked children and threads share it; `chanSend`/`chanRecv` block while full/empty, `chanClose` ends the stream, and `chanTrySend`, `chanTryRecv`, `chanLen`, `chanClosed`, `chanCap`, `chanFree` ([memory-model.md](memory-model.md) `MM-PAR-10`) |
 | `Http` | the request parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`), the `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`, the writer `httpRespond`/`httpRespondRaw`/`httpFail` with `httpStatusText` and `httpContentType`, the router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells, `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the ceilings `httpMaxHead`/`httpMaxBody` |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs — what `axiom test` discovers and isolates ([error-model.md](error-model.md) ERR-REC-6) |
 | `Agent.Tags` | `axsymParse`, `axsymLine`, and the accessors over one parsed line: `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag`. Reads the AXSYM stream rather than the compiler's internals ([agent-harness.md](agent-harness.md) §3.2) |

@@ -1,0 +1,147 @@
+; stdlib/Chan.ax: a bounded channel of words (R-C2, MM-PAR-10).
+;
+; The first half is one binding, so every answer is deterministic: the
+; capacity, FIFO order, a full ring refusing a non-blocking send, a
+; closed channel refusing every send while it drains, the end of the
+; stream, and an out-of-range capacity refused with EINVAL.
+;
+; The second half crosses processes, which is the default lowering of
+; `parallel`: three forked producers send 1..3000 through a channel of
+; capacity 2 - so nearly every send blocks - and two consumers drain it.
+; The producers are grandchildren of one feeder binding, which closes
+; the channel after it has joined all three; that is how a stream ends
+; when its writers are siblings. What each consumer got depends on the
+; schedule; their totals do not, and the totals are what is printed.
+; `scripts/check-chan.sh` runs the same shapes under `--threads`, at
+; more sizes, and against an ablated lock.
+(import IO)
+(import Chan)
+(import Err)
+
+(:: orElse (-> (Option Int) Int Int))
+(fn (orElse o d)
+  (match o
+    ((Some v) v)
+    ((None) d)))
+
+(:: bit (-> Bool Int))
+(fn (bit b)
+  (if b
+    1
+    0))
+
+; Send lo..hi-1; answer how many were accepted.
+(:: produce (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (produce ch lo hi)
+  (let (
+    (mut i lo)
+    (mut sent 0)
+  )
+    {
+      (while (< i hi)
+        {
+          (if (chanSend ch i)
+            (set sent (+ sent 1))
+            0)
+          (set i (+ i 1))
+        })
+      sent
+    }))
+
+; Receive to the end of the stream; answer the sum.
+(:: drain (-> Int Int))
+;@axiom:effect(io)
+(fn (drain ch)
+  (let (
+    (mut sum 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (match (chanRecv ch)
+          ((Some v)
+            (set sum (+ sum v))
+          )
+          ((None)
+            (set going 0)
+          )))
+      sum
+    }))
+
+(:: feed (-> Int Int))
+;@axiom:effect(io)
+(fn (feed ch)
+  (parallel q (
+    (x (produce ch 1 1001))
+    (y (produce ch 1001 2001))
+    (z (produce ch 2001 3001))
+  )
+    {
+      (chanClose ch)
+      (+ x (+ y z))
+    }))
+
+; 1 if the channel was unmapped, 0 if the kernel refused.
+(:: freedOk (-> Int Int))
+;@axiom:effect(io)
+(fn (freedOk ch)
+  (match (chanFree ch)
+    ((Ok n) 1)
+    ((Err e) 0)))
+
+; The errno a capacity is refused with, or 0 if it was accepted.
+(:: refusedCode (-> Int Int))
+;@axiom:effect(io)
+(fn (refusedCode cap)
+  (match (chanNew cap)
+    ((Ok ch) 0)
+    ((Err e) (errCode e))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (match (chanNew 3)
+      ((Ok ch)
+        {
+          (println (chanCap ch))  ; 3
+          (println (bit (chanTrySend ch 10)))  ; 1
+          (println (bit (chanTrySend ch 20)))  ; 1
+          (println (bit (chanTrySend ch 30)))  ; 1
+          (println (bit (chanTrySend ch 40)))  ; 0
+          (println (chanLen ch))  ; 3
+          (println (orElse (chanRecv ch) (- 0 1)))  ; 10
+          (println (orElse (chanTryRecv ch) (- 0 1)))  ; 20
+          (println (bit (chanSend ch 50)))  ; 1
+          (chanClose ch)
+          (println (bit (chanClosed ch)))  ; 1
+          (println (bit (chanSend ch 60)))  ; 0
+          (println (bit (chanTrySend ch 70)))  ; 0
+          (println (orElse (chanRecv ch) (- 0 1)))  ; 30
+          (println (orElse (chanRecv ch) (- 0 1)))  ; 50
+          (println (orElse (chanRecv ch) (- 0 1)))  ; -1
+          (println (orElse (chanTryRecv ch) (- 0 1)))  ; -1
+          (println (freedOk ch))  ; 1
+          0
+        }
+      )
+      ((Err e) (println "chanNew failed")))
+    (println (refusedCode 0))  ; 22
+    (match (chanNew 2)
+      ((Ok ch)
+        (parallel p (
+          (fed (feed ch))
+          (s1 (drain ch))
+          (s2 (drain ch))
+        )
+          {
+            (println fed)  ; 3000
+            (println (+ s1 s2))  ; 4501500
+            (println (freedOk ch))  ; 1
+            0
+          })
+      )
+      ((Err e) (println "chanNew failed")))
+    0
+  })

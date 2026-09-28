@@ -329,7 +329,7 @@ gate_axdl_unknown_kind() {
 # first - which is also what makes an ablation of `self_host/` visible
 # to that gate rather than invisible.
 #
-# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Eighty-two gates
+# THE CACHE, AND WHY IT DOES NOT COST THAT PROPERTY. Eighty-three gates
 # call this, each rebuilding the same 60,881 lines. Measured on the
 # three CI legs on 2026-08-24: the `test` job took 17m38s / 18m54s /
 # 10m01s before the cache and 10m48s / 11m51s / 7m46s after it, so the
@@ -505,6 +505,19 @@ gate_build_tree() {
 # every macOS install carry: fork, exec the command, SIGTERM it at the
 # deadline. A command killed by a signal answers 128+signal, as with
 # `timeout`.
+#
+# THE WHOLE PROCESS GROUP, not the one child, since 2026-09-27. GNU
+# `timeout` runs the command in a group of its own and signals the
+# group; this fallback signalled only its direct child. A program whose
+# `parallel` bindings are FORKED children left them running after the
+# kill, holding the `$(...)` pipe open, so a gate reading the output
+# hung instead of failing at its deadline - an independent review of
+# `scripts/check-chan.sh` measured a 2 s timeout on a stuck forked
+# receive returning only when the orphan was killed by hand at 15 s.
+# The child is now a group leader (set on both sides of the fork, so no
+# signal can race it), the deadline sends TERM to the group and KILL a
+# second later, and an INT or TERM to this wrapper is passed on to the
+# group, since the group is no longer the terminal's.
 gate_timeout() {
   local secs="$1"; shift
   if command -v timeout >/dev/null 2>&1; then
@@ -512,11 +525,17 @@ gate_timeout() {
   elif command -v gtimeout >/dev/null 2>&1; then
     gtimeout "$secs" "$@"
   else
-    perl -e '
+    perl -MPOSIX -e '
       my $t = shift; my $p = fork;
       die "fork: $!" unless defined $p;
-      if ($p == 0) { exec @ARGV; exit 127 }
-      $SIG{ALRM} = sub { kill "TERM", $p; waitpid($p, 0); exit 124 };
+      if ($p == 0) { POSIX::setpgid(0, 0); exec @ARGV; exit 127 }
+      POSIX::setpgid($p, $p);
+      $SIG{INT}  = sub { kill "INT",  -$p };
+      $SIG{TERM} = sub { kill "TERM", -$p };
+      $SIG{ALRM} = sub {
+        kill "TERM", -$p; sleep 1; kill "KILL", -$p;
+        waitpid($p, 0); exit 124
+      };
       alarm $t; waitpid($p, 0);
       exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
     ' "$secs" "$@"

@@ -4448,9 +4448,12 @@ about *when* one binding's write is visible to another's read.
    plain write made before the store is visible to a plain read made
    after the load (publication, the message-passing shape).
 
-There is no mutex, channel, condition variable, timeout or volatile
-access (R-C2 in `docs/assurance/requirements.md`). The only blocking
-operation is a join, which waits for its child without a timeout.
+There is no mutex, condition variable, timeout or volatile access
+(R-C2 in `docs/assurance/requirements.md`). A bounded channel exists
+since 2026-09-27 (`MM-PAR-10`); it adds no edge of its own - its
+ordering follows from edge 4, the atomics its lock is built from. The
+blocking operations are a join, and a channel's send and receive; none
+has a timeout.
 
 *The atomics, precisely.* One width: a 64-bit word. One ordering:
 `seq_cst`, with no weaker spelling in the language. At a BYTE address
@@ -4498,13 +4501,16 @@ things:
   standard library's own typed accessors, which cast by design
   (`MM-VAL-23`).
 
-Two holes, then, with no refusal that admits ordinary programs: a user
-`cast` of a word into a handle, and a call to an `effect(unsafe)`
+Three holes, then, with no refusal that admits ordinary programs: a
+user `cast` of a word into a handle; a call to an `effect(unsafe)`
 wrapper from a declaration that does not itself say so (`AX3073` fires
-only where a primitive is called). Each is findable by reading - the
-word `cast`, the callee's tag - and each is a **program obligation**
-until a claim can separate the trusted layer's internal use from a
-user's.
+only where a primitive is called); and a word handed to a library
+function that dereferences it as a handle or a buffer - `Chan`'s
+handle (`MM-PAR-10`), `Sys`'s buffer addresses - which cannot tell a
+forged or freed word from a live one. The first two are findable by
+reading - the word `cast`, the callee's tag - and the third by the
+parameter's documented meaning; each is a **program obligation** until
+a claim or a type can separate the trusted layer's use from a user's.
 
 *Evidence.* `scripts/check-atomics.sh` (the instructions, their
 ablations, and store-buffering, message-passing and counter litmus tests
@@ -4515,6 +4521,88 @@ refusals); `scripts/check-thread-local.sh` (the thread-local globals).
 The spawn and join edges are the platform's, cited rather than tested:
 no litmus can show a missing `pthread_create` barrier more directly
 than every parallel fixture already would.
+
+**MM-PAR-10 (H, 2026-09-27). A bounded channel carries words between
+bindings, in both lowerings.** `stdlib/Chan.ax`: `chanNew cap` maps a
+ring of `cap` words (1 to 1,048,576) with a lock and an event counter
+beside it, MAP_SHARED and made before the spawn - so the parent, every
+forked child and every thread see the same pages, and one channel
+serves both lowerings without the program choosing.
+
+*What it promises.*
+
+- **Order.** The words received are the words sent, each once, in one
+  total order over all senders that is FIFO within each sender.
+- **Blocking.** `chanSend` waits while the ring is full; `chanRecv`
+  waits while it is empty and open. `chanTrySend` answers whether the
+  word went in and `chanTryRecv` answers `None` when nothing is there
+  now; `chanClosed` tells full or empty from closed, so neither needs a
+  sentinel.
+- **The end of the stream.** `chanClose` is idempotent; after it every
+  send is refused (`False`) - including one already waiting - and
+  a receive drains what is left and then answers `None`, the stream's
+  end, to every receiver.
+- **Publication.** A send of `w` happens-before the receive that
+  answers `w`: both run their ring access inside the lock, whose
+  acquire is a seq_cst compare-and-swap and whose release a seq_cst
+  add (`MM-PAR-9`, edge 4). Between threads that orders any plain
+  memory the sender wrote before the send; between processes the only
+  shared memory is the mapping, so what the edge carries is the word.
+- **Waiting is the kernel's.** A waiter sleeps in `sysWaitWord` - Linux
+  `futex` without the PRIVATE flag, Darwin `__ulock_wait` with the
+  64-bit shared compare - on a counter every change bumps, having read
+  it under the lock, so a change between its release and its sleep is
+  seen on entry and no wake is lost. One caveat, on Linux only: `futex`
+  compares the counter's low 32 bits, so a waiter preempted across
+  exactly a multiple of 2^32 changes would sleep through them. The lock itself is a three-state
+  futex mutex: an uncontended acquire and release make no syscall.
+  FreeBSD has no blocking wait wired (`waitWordKind` 0) and spins,
+  which is correct and costs a core.
+- **Retained memory is the mapping.** Nothing is allocated per word:
+  peak RSS measured the same at 60,000 and 600,000 words.
+
+*What it does not provide*, each a stated limit rather than a defect
+waiting to be found: no timeout - a receive on a channel nobody sends
+to or closes waits forever, and a thread cannot be killed out of it
+(`MM-PAR-7` joins threads); no fairness between waiters (a wake wakes
+all, and the first to take the lock wins; the load gate prints the
+consumers' shares rather than asserting them); no priority inheritance;
+not usable from a signal handler (the lock does not re-enter); and no
+survival of a binding that dies holding the lock. `MM-PAR-7`'s sweep
+sends SIGKILL to a forked sibling wherever it is; one killed between
+`chanLock` and `chanUnlock` leaves the lock word held for good, and the
+next call on that channel blocks forever - an independent review
+measured it hanging in 6 of 10 trap-and-recover runs. After a sweep the
+only safe call on a channel the swept bindings used is `chanFree`, which
+takes no lock. (A lock that noticed a dead owner would need a timeout
+this contract does not have.)
+
+*Program obligations.* What crosses is an `Int`: a heap value would
+name memory the receiver does not own (a forked child's arena, or a
+thread's, unmapped when it ends - `MM-PAR-6a`), and typed transfer is
+R-C2's open half. The handle is an `Int` too, because `AX3064` admits
+only a word capture: a program must pass only a handle `chanNew`
+answered, and call `chanFree` only once no binding can reach the
+channel - after the `parallel` form that used it (`MM-PAR-8`'s
+obligation for a spawn handle, for the same reason). The public
+functions claim only `effect(io)`; the raw words are two private
+helpers that say `effect(unsafe)`, which is what keeps the module a
+safe interface in `MM-PAR-9`'s reading. Their effect ROWS still carry
+`Unsafe` (`docs/stdlib-api.md`), as `vecPush`'s and `strConcat`'s do:
+a row reports what the implementation reaches, a claim what the
+interface asks of its caller, and `MM-PAR-9`'s boundary is drawn on
+the claim.
+
+*Evidence.* `tests/stdlib/528-chan.ax` (every answer above one binding
+at a time, and three forked producers into two consumers with exact
+totals); `scripts/check-chan.sh` (three producers and three consumers
+at capacities 1 and 64 in both lowerings at `--opt` 0 and 2 with exact
+count, sum and sum of squares; one wait call through a 200 ms delay; a
+receive nobody satisfies still blocked at 2 s; the lock and the wake
+each ablated on a copy of the standard library and each turning the
+load red; RSS flat over ten times the words);
+`scripts/check-platform-constants.sh` (the library's `mmap` and
+`munmap` numbers agree with the runtime's on all six targets).
 
 ---
 

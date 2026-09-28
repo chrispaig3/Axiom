@@ -25,13 +25,14 @@ row names another.
 | `MM-RGN-1…7` normative with H/P markers (R-B3) | `memory-model.md` §3.6; `bash scripts/check-region-scope.sh check-region-escape.sh …` |
 | Obligation dispositions registered (R-B4) | [memory-audit.md](memory-audit.md); `bash scripts/check-doc-drift.sh` |
 | No `Vec` shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; `642` row 5; `471` builds inside |
+| A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel (R-C2a) | `tests/stdlib/528-chan.ax`; `bash scripts/check-chan.sh` — 15 pass on H3 |
 | Happens-before, the atomics' meaning and the data-race boundary stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; evidence as R-C3 plus `check-parallel.sh` |
 | Atomics lower to their ordering instructions on 7 targets × 4 levels; SB/MP/counter litmus clean on two threads, beside controls that show the forbidden outcomes (R-C3) | `bash scripts/check-atomics.sh` — 69 pass on H3 (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Executable allocator/arena/region model agrees with the runtime (R-E1 partial) | `scripts/lib/runtime-model.py`; `bash scripts/check-runtime-model.sh` — 13 pass (selftest, 18 trace builds at opt 0+3, canary, hand control, 5 ablations) |
 
 ## Open defects and gaps
 
-- R-C2 (plan F12): no mutex/channel/timeout/cancellation.
+- R-C2 (plan F12): no mutex, timed wait or cancellation; only words cross a join or a channel. R-C2a limits: no fairness, FreeBSD spins, `Int` handle freed by obligation.
 - R-C4 limits: a misaligned atomic is SIGBUS, not a trap (measured, exit 138); no practical checkable refusal for a call to an `effect(unsafe)` wrapper or a user `cast` of a word into a handle - `restrict(no-unsafe)` also refuses `vecPush`.
 - R-C3 limits: litmus families beyond SB/MP/counter (LB, IRIW, 2+2W); no LSE-lowered AArch64 inspected; a litmus zero is evidence, not proof.
 - R-A3 remainder: no dedicated spawn-refused fixture.
@@ -39,7 +40,7 @@ row names another.
 - `MM-PAR-7` stated limits: reparented grandchildren, uninterruptible sweeps, unmapped-handle words (`MM-PAR-8` planned).
 - R-B5 (`MM-FFI-7`) is stated and unchecked.
 - R-B2 budgets are allocator-mark measurements on one shape, not RSS or asymptotic proof.
-- `stdlib/Task.ax` / `stdlib/Chan.ax` do not exist yet (plan §3 names them as the implementation split).
+- `stdlib/Task.ax` does not exist yet (plan §3); `stdlib/Chan.ax` landed (R-C2a).
 - R-D1/R-D2: no checked restricted profile, no resource report, no QEMU execution, no MMIO/interrupt/DMA demonstrator.
 
 ## Verified configurations
@@ -48,7 +49,7 @@ H1, H2, H3 via CI; E1 emission-only. Local full runs on H3-class
 hardware: `check-parallel.sh` 69/69 (with a `timeout` shim; 12a
 SKIP), `check-diagnostics.sh` 245/245, `check-render-selfhost.sh`
 238/238, `run-stdlib-tests.sh 527` pass with optstable,
-`check-runtime-model.sh` 13/13, `check-atomics.sh` 69/69,
+`check-runtime-model.sh` 13/13, `check-atomics.sh` 69/69, `check-chan.sh` 15/15,
 `check-doc-drift.sh` green.
 `timeout(1)` is absent from the macOS image, so §12b/§12c fail there
 on the harness; freebsd/windows/darwin-x86_64 execution is

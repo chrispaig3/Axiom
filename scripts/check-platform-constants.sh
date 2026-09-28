@@ -26,7 +26,8 @@
 # a runtime that `TerminateProcess`es where the library `ExitProcess`es.
 # The Windows arm below reads the calls out of the emitted module as
 # the POSIX arm reads the syscall operands, and its census is a floor
-# the same way. `VirtualAlloc` is emitted-only, as `mmap` is.
+# the same way. `VirtualAlloc` is emitted-only (`mmap` was, until
+# 2026-09-27).
 #
 # ONE MORE FACT WITH TWO COPIES, on every target: whether the target
 # HAS a syscall ABI at all. `targetUsesSyscallAsm` in codegen decides
@@ -80,12 +81,13 @@
 # should BE is pinned by the platform modules' own prose and, in the
 # end, by the CI matrix running these programs on the real kernels.
 #
-# WHAT IS COMPARED: every syscall named in both tables - `exit` and
-# `write` today. `mmap` is emitted-only, because nothing in the standard
-# library maps memory, so there is no second copy to compare it
-# against; the guard for that is in the report below and fails the day
-# `Sys.Platform` grows an mmap number without this gate being told, so
-# the intersection cannot quietly shrink out from under the comparison.
+# WHAT IS COMPARED: every syscall named in both tables - `exit`,
+# `write` and, since 2026-09-27, `mmap`. `mmap` was emitted-only until
+# `stdlib/Chan.ax` needed shared mappings and `Sys.Platform` grew
+# `sysMmapNum`; the guard below that fails when a library copy appears
+# unmapped is what forced the pairing, and it stays for the next one,
+# so the intersection cannot quietly shrink out from under the
+# comparison.
 #
 # AND ONE THING THAT IS NOT A NUMBER: since 2026-08-29 every syscall
 # template the runtime emits is read for its errno convention - the
@@ -168,7 +170,7 @@ cat > "$probe" <<'PROBE'
 
 (:: main Int)
 
-(fn (main) (+ (sysExit) (sysWrite)))
+(fn (main) (+ (sysExit) (+ (sysWrite) (sysMmapNum))))
 PROBE
 
 # Compare one emitted module's two tables, printing one `ok`/`FAIL` line
@@ -193,7 +195,7 @@ platform_table_report() {
       # block below is what keeps that claim honest.
       std_of["exit"]  = "sysExit";  cg_of["exit"]  = "targetExitNum"
       std_of["write"] = "sysWrite"; cg_of["write"] = "targetWriteNum"
-      std_of["mmap"]  = "-";        cg_of["mmap"]  = "targetMmapNum"
+      std_of["mmap"]  = "sysMmapNum"; cg_of["mmap"] = "targetMmapNum"
 
       # The census of syscall sites the emitted runtime contains today,
       # as a floor. Three exits: allocator OOM (status 70), an unhandled
@@ -364,7 +366,7 @@ platform_table_report() {
 
         # Every site of one syscall must carry ONE number. Against a
         # standard-library counterpart that follows from comparing each
-        # site to it; mmap has none, so it is stated here.
+        # site to it; an emitted-only name has none, so it is stated here.
         m = split(site[name], sv, " ")
         first = ""
         split_ok = 1
@@ -440,9 +442,10 @@ platform_table_report() {
 # `parallel`, so the runtime is in the module; the census is a floor
 # of one site per number.
 #
-# `munmap` has no `Sys.Platform` counterpart today, and the END block
-# holds that the way `mmap`'s arm does: the day the library grows one,
-# this is told rather than left to notice nothing.
+# `munmap` is paired with `Sys.Platform.sysMunmapNum` since 2026-09-27
+# (`stdlib/Chan.ax` unmaps its channels); until then it had no library
+# copy, and the END block's guard for an unmapped copy is what forced
+# the pairing.
 par_table_report() {
   local target="$1" ir="$2" platfile="$3"
   awk -v target="$target" -v platfile="$platfile" '
@@ -450,7 +453,7 @@ par_table_report() {
       std_of["fork"]   = "sysFork";      cg_of["fork"]   = "targetForkNum"
       std_of["getpid"] = "sysGetPidNum"; cg_of["getpid"] = "targetGetPidNum"
       std_of["wait4"]  = "sysWait4";     cg_of["wait4"]  = "targetWait4Num"
-      std_of["munmap"] = "-";            cg_of["munmap"] = "targetMunmapNum"
+      std_of["munmap"] = "sysMunmapNum"; cg_of["munmap"] = "targetMunmapNum"
       std_arg["fork"]  = "sysForkArg"
     }
     /^define / {
@@ -556,7 +559,7 @@ cat > "$par_probe" <<'PROBE'
 ;@axiom:effect(io)
 (fn (main)
   (parallel p ((a 1))
-    (+ a (+ (sysFork) (+ (sysForkArg) (+ (sysGetPidNum) (sysWait4)))))))
+    (+ a (+ (sysFork) (+ (sysForkArg) (+ (sysGetPidNum) (+ (sysWait4) (sysMunmapNum))))))))
 PROBE
 
 # The Windows shape of the same comparison. The runtime's kernel32
@@ -869,13 +872,12 @@ mutate_stdlib_constant sysExit '%no_longer_a_constant' < "$real" > "$work/p5.ll"
 probe_expects "a platform constant that stopped being one reads as absent" \
   "$work/p5.ll" 'exposes no integer constant .sysExit.'
 
-# 6. The emitted-only claim is guarded: the day `Sys.Platform` grows an
-#    mmap number, `mmap` stops being one copy of one fact and this gate
-#    has to be told, rather than going on comparing nothing.
-cp "$real" "$work/p6.ll"
-printf 'define i64 @Sys.Platform$sysMmapNum() #0 {\n\n  ret i64 222\n}\n' >> "$work/p6.ll"
-probe_expects "a Sys.Platform mmap number demands to be mapped, not ignored" \
-  "$work/p6.ll" 'mmap: .* now defines sysMmapNum'
+# 6. `mmap` is compared since the library grew `sysMmapNum` (this probe
+#    was the guard that demanded it): a platform module carrying the
+#    x86-64 mmap number on aarch64 disagrees with the runtime's 222.
+mutate_stdlib_constant sysMmapNum 9 < "$real" > "$work/p6.ll"
+probe_expects "a platform module carrying the x86-64 mmap number on aarch64" \
+  "$work/p6.ll" 'mmap: the emitted runtime uses 222 in @.*, Sys.Platform.sysMmapNum is 9'
 
 # 7. A syscall shape the classifier does not know is a FAIL, not a skip.
 #    Today the emitted runtime makes exactly three kinds of call; the

@@ -326,6 +326,15 @@
 # the 639-of-639 agreement above is the measurement of that). 0 of 706
 # files are REFUSED by the formatter.
 #
+# APPENDED 2026-09-27, not regenerated: three new files, each already a
+# fixed point of `axiom fmt` from the tree compiler (`fmt --check` answers
+# `is already formatted`), so each maps its source hash to itself -
+# `stdlib/Chan.ax`, `tests/stdlib/528-chan.ax`, `tests/litmus/chan-load.ax`.
+# They brought the unpinned count to 62, past the ceiling of 60; these
+# three take it to 59. No existing entry was touched; the edited
+# `stdlib/Sys.ax` and platform modules retired their own entries, as
+# the header says an edit does, and wait for the next regeneration.
+#
 a74e99303dfebd868760f6f1d3825885c617bed3d549b900fa3e465b251c2a42 a74e99303dfebd868760f6f1d3825885c617bed3d549b900fa3e465b251c2a42 self_host/axir.ax
 b79eb3a97ffbccf4c82eaad7ee42befa1a00ed9ea88e6c98382fb930aad5bac9 b79eb3a97ffbccf4c82eaad7ee42befa1a00ed9ea88e6c98382fb930aad5bac9 self_host/build.ax
 75a47dd1bea65a09c53bb16eb2e06250f0ae4a1362158697cc97065ba34ca991 51a8f10f7bb37bcd645b523f5d0dfa93e69a0aa5267b6ae07505ec212854db92 self_host/codegen.ax
@@ -1032,3 +1041,6 @@ dc32f49cdebf1e927f72c3b2c09d68e0208d46dfd5aca4115dda380ed96ac965 dc32f49cdebf1e9
 c3e94876498fc736242bfd81a7a2f0ebcae39827cb6bb3d42cba80ba441f64bc c3e94876498fc736242bfd81a7a2f0ebcae39827cb6bb3d42cba80ba441f64bc tests/testrunner/xfail-tests.ax
 aed49b51dfcc74503c09e7d3fef5885f7ecbf1ab6dfc11ae19152f04dc3fe399 aed49b51dfcc74503c09e7d3fef5885f7ecbf1ab6dfc11ae19152f04dc3fe399 tests/tools/TagLib.ax
 23bf36b18a5753ba0d135f1ec2162f923bd50a928b24eccc753bdbae8088e9e7 23bf36b18a5753ba0d135f1ec2162f923bd50a928b24eccc753bdbae8088e9e7 tests/tools/TagLibImport.ax
+e9f9122e82c45edb4b2d3600d6fa226d48391e7ed251427be2fad44ac55062ed e9f9122e82c45edb4b2d3600d6fa226d48391e7ed251427be2fad44ac55062ed stdlib/Chan.ax
+23ba9b7f6a6f08228411dc7cf8172da273bd6ec290411964ecd434b3f98262e4 23ba9b7f6a6f08228411dc7cf8172da273bd6ec290411964ecd434b3f98262e4 tests/stdlib/528-chan.ax
+c50c312638bfed74dd26298f2c4773873a5c44e9b749cb8a0ecd159e385cfb18 c50c312638bfed74dd26298f2c4773873a5c44e9b749cb8a0ecd159e385cfb18 tests/litmus/chan-load.ax

@@ -61,6 +61,7 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 # of which one to carry is a decision this list makes visible.
 modules="
 stdlib/Agent/Tags.ax
+stdlib/Chan.ax
 stdlib/Err.ax
 stdlib/Fallible.ax
 stdlib/Ffi.ax
