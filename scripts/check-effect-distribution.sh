@@ -177,6 +177,11 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-28 (23): the misaligned-atomic trap (R-C4). Compiler
+# view only, 3 rows added (4864 to 4867), none moved:
+# `emitAtomicAlignGuard`, `emitAtomicCheckedPtr` and `emitAtomicAlignTrap`
+# emit lines, `Alloc,Mut,Unsafe` (2347 to 2350).
+#
 # RE-PINNED 2026-09-28 (22): `Task.ax`'s exit backoff. Stdlib view only:
 # `taskExitPollNanos` went and `taskExitNapFirst` and `taskNapNext` came,
 # all pure (288 to 289; 976 to 977 rows). No row moved.
@@ -519,7 +524,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2347 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2350 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1200 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 417 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 130 "Mut,Unsafe"

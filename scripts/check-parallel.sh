@@ -1545,6 +1545,77 @@ OWNER
   done
 done
 
+# --------------------------------------------------------------------
+echo "== 12d. a spawn the kernel refuses is status 78, recoverable (R-A3) =="
+# --------------------------------------------------------------------
+# The 78 path for a REFUSED spawn was emitted and never executed: a
+# refusal needs a process at its limits. RLIMIT_NPROC below the number
+# of processes the user already runs makes `fork` answer EAGAIN for a
+# non-root user, and `exec` keeps the shell from needing a fork of its
+# own. Root is exempt from the limit, so under root (the podman
+# container) this section says so and counts nothing. On Linux the limit
+# counts threads as well, so the thread lowering is refused too; on
+# Darwin it counts processes only, and the thread lowering is not a
+# spawn this section can refuse.
+cat > "$work/refuse.ax" <<'AX'
+(import IO)
+
+(:: pair (-> Int Int))
+;@axiom:effect(io)
+(fn (pair x)
+  (parallel p (
+    (a (+ x 1))
+    (b (+ x 2))
+  )
+    (+ a b)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "before")
+    (let ((st (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (pair x)))))
+      (println "recovered {st}"))
+    (println (pair 1))
+    (println "NOT REACHED")
+    0
+  })
+AX
+if [[ "$(id -u)" == 0 ]]; then
+  echo "SKIP 12d: running as root, which RLIMIT_NPROC does not bind - nothing was refused, and this is not a pass"
+else
+  lowerings=(processes)
+  [[ "$(uname -s)" == Linux ]] && lowerings+=(threads)
+  for lowering in "${lowerings[@]}"; do
+    flag=""; [[ "$lowering" == threads ]] && flag="--threads"
+    if "$axc" build $flag --input "$work/refuse.ax" --output "$work/refuse-$lowering.bin" > "$work/refuse-$lowering.build" 2>&1; then
+      rc=0
+      bash -c "ulimit -u 1 && exec \"$work/refuse-$lowering.bin\"" > "$work/refuse-$lowering.out" 2> "$work/refuse-$lowering.err" || rc=$?
+      out="$(tr '\n' ';' < "$work/refuse-$lowering.out")"
+      if [[ "$rc" == 78 && "$out" == "before;recovered 78;" ]] \
+         && grep -q '^axiom: parallel: could not spawn the binding$' "$work/refuse-$lowering.err"; then
+        ok "12d ($lowering): a refused spawn answered 78 to its recovery point, then, unrecovered, exited 78 with its sentence"
+      else
+        bad "12d ($lowering): under a process limit of 1 the program exited $rc with [$out] - wanted 78 after 'recovered 78'"
+        sed 's/^/     /' "$work/refuse-$lowering.err" | head -4
+      fi
+    else
+      bad "12d ($lowering): the refusal probe did not build"
+      sed 's/^/     /' "$work/refuse-$lowering.build" | head -5
+    fi
+  done
+  # The control: the same binary without the limit joins, so the 78
+  # above is the limit's and not the program's.
+  rc=0; out="$("$work/refuse-processes.bin" 2>/dev/null)" || rc=$?
+  if [[ "$rc" == 0 && "$(tr '\n' ';' <<< "$out")" == "before;recovered 3;5;NOT REACHED;" ]]; then
+    ok "12d control: without the limit the same binary spawns, joins and runs to the end"
+  else
+    bad "12d control: without the limit the probe exited $rc with [$(tr '\n' ';' <<< "$out")]"
+  fi
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-parallel: $failed of $((checks + failed)) checks failed"

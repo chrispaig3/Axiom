@@ -1,0 +1,73 @@
+; An atomic on an address that is not 8-byte aligned traps with status
+; 82 (docs/memory-model.md MM-EXEC-16, MM-PAR-9), on every target and at
+; every `--opt` (the `.optstable`). It was a different program on each
+; architecture: an alignment fault on AArch64 (SIGBUS, exit 138) and a
+; slow split-lock access on x86-64.
+;
+; Aligned accesses answer first. Then each of the four atomics is
+; handed an address 4 bytes into a word, inside a recovery point, and
+; must answer 82 there - the trap is recoverable, like the index trap.
+; The last misaligned load is not recovered: the program prints the
+; trap's sentence and exits 82, and nothing after it runs.
+(import IO)
+(import Mem)
+(import Str)
+
+(:: loadAt (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (loadAt a)
+  (__atomic_load a))
+
+(:: storeAt (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (storeAt a)
+  (__atomic_store a 7))
+
+(:: addAt (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (addAt a)
+  (__atomic_add a 1))
+
+(:: casAt (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (casAt a)
+  (__atomic_cas a 0 1))
+
+(:: which (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (which k a)
+  (if (== k 0)
+    (loadAt a)
+    (if (== k 1)
+      (storeAt a)
+      (if (== k 2)
+        (addAt a)
+        (casAt a)))))
+
+(:: trapped (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (trapped k a)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x) (which k a))))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let ((p (memAlloc 32)))
+    {
+      (storeAt p)
+      (println (loadAt p))
+      (println (addAt (+ p 8)))
+      (println (casAt (+ p 16)))
+      (for k 0 4
+        (let ((st (trapped k (+ p 4))))
+          (println "misaligned {k}: status {st}")))
+      (println (loadAt (+ p 12)))
+      ; Not reached, and not a bare numeral: the stdlib gate models a
+      ; case's exit status from `main`'s tail when that tail is one,
+      ; and this status is the trap's. If the trap ever returns, this
+      ; line runs and the golden says so (`464-index-trap.ax`'s shape).
+      (printlnLit (strCStr "UNREACHABLE: the trap returned"))
+    }))

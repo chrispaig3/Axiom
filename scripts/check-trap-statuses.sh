@@ -16,23 +16,28 @@
 #
 #   1. The emitter's census: every `emitRuntimeExit cg "<n>"` in
 #      `self_host/codegen.ax` with a numeric operand is exactly
-#      70 71 72 74 75 76 77 78 79 80, each once. `0` (normal exit) and
+#      70 71 72 74 75 76 77 78 79 80 82, each once. `0` (normal exit) and
 #      `%status` (the parallel join re-raising a child's status) are
 #      dynamic sites, not traps, and are named rather than counted.
 #   2. The documents' table: every `| NN |` row of the MM-EXEC-16 table
-#      in `docs/memory-model.md` names the same ten statuses. A row
+#      in `docs/memory-model.md` names the same eleven statuses (81, the
+#      bare-metal CPU exception, is written by the vector table's module
+#      assembly, not by `emitRuntimeExit`, and is read by neither). A row
 #      edited without its emitter - or an emitter moved without its
 #      row - fails here rather than shipping a second collision.
-#   3. The live exits: seven small programs each exit their own status
+#   3. The live exits: eight small programs each exit their own status
 #      (70 OOM, 71 unhandled effect, 72 division by zero, 75 bad mark,
 #      76 reset past a live handle, 77 index out of range, 80 violated
-#      contract / subtype range). The seven answers must be pairwise
+#      contract / subtype range, 82 misaligned atomic). The eight
+#      answers must be pairwise
 #      distinct - that distinctness IS the cross-trap comparison no
 #      gate performed - and each must equal its documented owner.
 #
 # 74 (no syscall ABI), 78 (spawn refused) and 79 (parallel unsupported)
-# are emitted, not executed: no runner reaches them, so section 3 cannot
-# run them and section 4 holds their emit sites to the tree instead -
+# are not run here: 74 and 79 need a target no runner executes, and 78
+# needs a process at its limits, which `check-parallel.sh` §12d builds
+# with RLIMIT_NPROC. Section 3 cannot run them, so section 4 holds their
+# emit sites to the tree instead -
 # the `define` lines `codegen.ax` writes - without duplicating the
 # emission assertions `check-platform-constants.sh` (74) and
 # `check-parallel.sh` (79) already own.
@@ -58,9 +63,10 @@ bad() { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL $*"; }
 # programs below run from a directory that can see the tree's stdlib.
 ln -sfn "$repo_root/stdlib" "$work/stdlib"
 
-# The ten trap statuses MM-EXEC-16 reserves. 73 is the FFI's, not the
-# emitter's, so it is absent here by decision rather than by omission.
-EXPECTED_TRAPS="70 71 72 74 75 76 77 78 79 80"
+# The eleven trap statuses MM-EXEC-16 reserves that `emitRuntimeExit`
+# writes. 73 is the FFI's, not the emitter's, and 81 the vector table's
+# module assembly's, so both are absent here by decision.
+EXPECTED_TRAPS="70 71 72 74 75 76 77 78 79 80 82"
 
 # Every numeric `emitRuntimeExit cg "<n>"` in a file, one per line,
 # excluding the normal-exit `0` (a successful `main`, not a trap).
@@ -69,14 +75,14 @@ emitter_trap_list() {
     | grep -oE '[0-9]+' | grep -vx '0' | LC_ALL=C sort -n | uniq -c | awk '{print $2}'
 }
 
-echo "== 1. the emitter's trap census is exactly the ten reserved statuses =="
+echo "== 1. the emitter's trap census is exactly the eleven reserved statuses =="
 census="$work/census.txt"
 emitter_trap_list "$repo_root/self_host/codegen.ax" > "$census"
 # Distinctness first: a reused status shows up here as a missing one,
-# because `uniq -c` collapses the pair and the count drops below ten.
+# because `uniq -c` collapses the pair and the count drops below eleven.
 got_n="$(wc -l < "$census" | tr -d ' ')"
-if [[ "$got_n" != 10 ]]; then
-  bad "emitter census found $got_n distinct numeric statuses, not 10: $(tr '\n' ' ' < "$census")"
+if [[ "$got_n" != 11 ]]; then
+  bad "emitter census found $got_n distinct numeric statuses, not 11: $(tr '\n' ' ' < "$census")"
 else
   want="$work/want.txt"
   printf '%s\n' $EXPECTED_TRAPS | LC_ALL=C sort -n > "$want"
@@ -94,13 +100,13 @@ else
   bad "dynamic emitRuntimeExit sites 0 / %status missing from codegen.ax"
 fi
 
-echo "== 2. the MM-EXEC-16 table names the same ten statuses =="
+echo "== 2. the MM-EXEC-16 table names the same eleven statuses =="
 # Rows read `| 70 |`, `| 80 |` at the start of the table. The parse is
 # deliberately narrow: a status mentioned in prose elsewhere in the
 # document must not satisfy it.
 docs_traps="$work/docs.txt"
 grep -oE '^\| 7[0-9] \|' "$repo_root/docs/memory-model.md" | grep -oE '[0-9]+' > "$work/docs7.txt" || true
-grep -oE '^\| 80 \|' "$repo_root/docs/memory-model.md" | grep -oE '[0-9]+' > "$work/docs80.txt" || true
+grep -oE '^\| 8[02] \|' "$repo_root/docs/memory-model.md" | grep -oE '[0-9]+' > "$work/docs80.txt" || true
 cat "$work/docs7.txt" "$work/docs80.txt" | LC_ALL=C sort -n -u > "$docs_traps"
 if cmp -s <(printf '%s\n' $EXPECTED_TRAPS | LC_ALL=C sort -n) "$docs_traps"; then
   ok "MM-EXEC-16 table names $EXPECTED_TRAPS"
@@ -108,7 +114,7 @@ else
   bad "MM-EXEC-16 table names [$(tr '\n' ' ' < "$docs_traps")] not [$EXPECTED_TRAPS]"
 fi
 
-echo "== 3. seven traps exit their own statuses, all distinct =="
+echo "== 3. eight traps exit their own statuses, all distinct =="
 run_exit() { # <file> -> prints exit status
   local f="$1" rc=0
   ( cd "$work" && "$axc" run --opt 1 --input "$f" >"$work/run.out" 2>"$work/run.err" ) || rc=$?
@@ -135,6 +141,7 @@ got76="$(run_exit "$repo_root/tests/stdlib/167-arena-live-handle.ax")"
 got77="$(run_exit "$repo_root/tests/stdlib/464-index-trap.ax")"
 got80a="$(run_exit "$work/pre-violated.ax")"
 got80b="$(run_exit "$repo_root/tests/selfhost/135-subtype-violated.ax")"
+got82="$(run_exit "$repo_root/tests/stdlib/544-misaligned-atomic.ax")"
 
 check_one() { # <want> <got> <name>
   if [[ "$2" == "$1" ]]; then ok "$3 exits $1";
@@ -148,14 +155,15 @@ check_one 76 "$got76" "arena reset past a live handle (167)"
 check_one 77 "$got77" "index out of range (464)"
 check_one 80 "$got80a" "violated pre"
 check_one 80 "$got80b" "subtype range violation (135)"
+check_one 82 "$got82" "misaligned atomic (544)"
 
-# The cross-trap comparison no gate performed: the seven answers must
-# be seven different numbers. Each `check_one` above is internally
+# The cross-trap comparison no gate performed: the eight answers must
+# be eight different numbers. Each `check_one` above is internally
 # consistent on its own - the 77 collision proved that is not enough.
 seen="$work/seen.txt"
-printf '%s\n' "$got70" "$got71" "$got72" "$got75" "$got76" "$got77" "$got80a" | LC_ALL=C sort -n -u > "$seen"
-if [[ "$(wc -l < "$seen" | tr -d ' ')" == 7 ]]; then
-  ok "seven traps, seven distinct statuses"
+printf '%s\n' "$got70" "$got71" "$got72" "$got75" "$got76" "$got77" "$got80a" "$got82" | LC_ALL=C sort -n -u > "$seen"
+if [[ "$(wc -l < "$seen" | tr -d ' ')" == 8 ]]; then
+  ok "eight traps, eight distinct statuses"
 else
   bad "trap statuses collide: [$(tr '\n' ' ' < "$seen")]"
 fi

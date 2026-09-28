@@ -707,10 +707,11 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 75 | `__axiom_arena_reset` handed a mark whose chunk is no longer on the active list (`MM-ALLOC-16a`) | measured: `tests/stdlib/166-arena-bad-mark.ax` resets an inner mark after its outer one; the run prints `axiom: arena reset to an invalid mark` to fd 2 and exits 75. The fixture's first two blocks (nested marks reset innermost-first, and one mark reset twice) must still exit silently, so the trap is pinned against firing on legal use |
 | 76 | `__axiom_arena_reset` handed a mark taken before a `handle` whose extent is still live (`MM-ALLOC-16b`) | measured: `tests/stdlib/167-arena-live-handle.ax` resets a mark that predates the extent; the run prints `axiom: arena reset past a live handle` to fd 2 and exits 76. Its first two blocks (a mark taken inside the extent, and a mark with no handle in scope) must still exit silently. `tests/stdlib/401-recover-effect.ax` must still exit 71, because a recovery abort performs this same reset legitimately |
 | 77 | an index out of range, raised by `(__indexTrap)` | measured: `tests/stdlib/464-index-trap.ax` prints `axiom: vector index out of range` to fd 2 and exits 77 |
-| 78 | `parallel`: the kernel refused the fork or the pthread (`__axiom_par_spawn_failed`) | emitted, not yet executed, because a refused spawn needs a process at its limits. The trap is recoverable, like 77, and prints `axiom: parallel: could not spawn the binding` |
+| 78 | `parallel`: the kernel refused the fork or the pthread (`__axiom_par_spawn_failed`) | measured by `scripts/check-parallel.sh` §12d: under a per-user process limit of 1 a `parallel` form's fork answers EAGAIN, a recovery point armed around it answers 78, and the unrecovered spawn prints `axiom: parallel: could not spawn the binding` and exits 78 (processes on every non-root runner, threads too on Linux, where the limit counts threads) |
 | 79 | `parallel` on a target with neither `fork` nor a pthread (windows-x86_64) | emitted, not executed: both primitives compile there to `__axiom_par_unsupported`, which prints `axiom: parallel is not available on this target` and exits 79. The program builds for every target and says at its first spawn what it can't do (`scripts/check-parallel.sh` reads the IR) |
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured by `scripts/check-contracts.sh` §1: a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level. Inside `__axiom_recover` it answers 80 to the arming call |
 | 81 | an unhandled CPU exception on `baremetal-aarch64` | measured under QEMU (TCG): `tests/embedded/fault.ax` takes an alignment fault; the vector table writes the vector offset, ESR, ELR and FAR to the UART and exits 81 (`MM-EXEC-18`, `scripts/check-embedded.sh` A12). Not recoverable: no armed recovery point is jumped to |
+| 82 | an atomic whose address is not 8-byte aligned (`emitAtomicAlignGuard`, `MM-PAR-9`) | measured: `tests/stdlib/544-misaligned-atomic.ax` hands each of the four atomics an address 4 bytes into a word inside a recovery point, which answers 82 each time, then prints `axiom: misaligned atomic access` to fd 2 and exits 82, at every `--opt` level |
 
 `(__indexTrap)` never returns, so it fits every result type. It exists
 because traps are `internal` LLVM functions emitted by the runtime
@@ -4439,17 +4440,19 @@ untimed ones wait for ever, and each has a timed form.
 
 *The atomics, precisely.* There is one width, a 64-bit word, and one
 ordering, `seq_cst`, with no weaker spelling in the language. The
-operand is a byte address that **MUST** be 8-aligned. That is a
-precondition of the unsafe layer these primitives belong to
-(`MM-EXEC-9c`), and it isn't checked. The IR claims `align 8`, and a
-misaligned address is outside this contract.
+operand is a byte address that **MUST** be 8-aligned, and the compiler
+checks it: before each of the four that take an address, a misaligned
+one traps with status 82 (`MM-EXEC-16`), recoverable like the index
+trap. Without the check the same program was different on each
+architecture: on darwin-aarch64 a word crossing a 16-byte granule died
+of `SIGBUS` (exit 138, no message), and on x86-64 it was a slow
+split-lock access. The check is an `and`, a compare and a predictable
+branch beside the atomic instruction. Tested by
+`tests/stdlib/544-misaligned-atomic.ax` at every `--opt`.
 
-On darwin-aarch64, a word at offset 4 of a 16-byte granule works. A
-word at offset 12, crossing into the next granule, dies of `SIGBUS`: exit
-138, no message, and no trap a recovery point can catch. Not yet: a
-misaligned atomic has no defined trap. All five primitives lower inline
-on every target, to the instructions `scripts/check-atomics.sh` counts,
-so they are lock-free everywhere. There is no locking fallback.
+All five primitives lower inline on every target, to the instructions
+`scripts/check-atomics.sh` counts, so they are lock-free everywhere.
+There is no locking fallback.
 
 *A data race* is two accesses to one location from different bindings,
 where at least one is a write, at least one is not atomic, and neither

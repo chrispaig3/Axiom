@@ -44,15 +44,12 @@ source.
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
   reentrant; a channel's lock doesn't notice a dead holder; Darwin's
   clock is the realtime one; FreeBSD spins.
-- R-C4 limits: a misaligned atomic raises `SIGBUS` rather than a trap
-  (exit 138). `restrict(no-unsafe)` also refuses `vecPush`, so there is
-  no practical, checkable refusal for a call to an `effect(unsafe)`
+- R-C4 limits: `restrict(no-unsafe)` also refuses `vecPush`, so there
+  is no practical, checkable refusal for a call to an `effect(unsafe)`
   wrapper, or for a user `cast` of a word into a handle.
 - R-C3 limits: litmus families beyond SB, MP and counter (LB, IRIW,
   2+2W) aren't covered, and no LSE-lowered AArch64 code has been
   inspected. A litmus zero is evidence, not proof.
-- R-A3 remainder: a spawn the kernel refuses has no dedicated fixture.
-  `scripts/check-parallel.sh` §12c executes the other status-78 paths.
 - R-E1 remainder: no sanitizers or race detectors. `build`, `run`,
   `fmt`, the LSP and the REPL aren't fuzzed, and there is no
   miscompilation oracle. The full fuzzing budget runs nightly, not per

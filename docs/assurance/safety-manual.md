@@ -115,6 +115,7 @@ device.
 | 79 | `parallel` on a target with no fork or threads |
 | 80 | A violated `pre` or `post` contract |
 | 81 | An unhandled CPU exception on `baremetal-aarch64` |
+| 82 | An atomic whose address isn't 8-byte aligned |
 
 The authoritative table, with the fixture that measures each status,
 is in [memory-model.md](../memory-model.md). A trap inside a recovery

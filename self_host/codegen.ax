@@ -10627,6 +10627,7 @@
     (emitEvCheck cg)
     (emitDivTrap cg)
     (emitIndexTrap cg)
+    (emitAtomicAlignTrap cg)
     (emitOomTrap cg)
     (emitRecoverRuntime cg)
     (emitStrEqHelper cg)
@@ -11050,6 +11051,24 @@
     (emitRuntimeWrite cg "%ixp" "33")
     (emitLine cg "  call void @__axiom_backtrace()")
     (emitRuntimeExit cg "77")
+    (emitLine cg "  unreachable")
+    (emitLine cg "}")
+    cg
+  })
+
+; Status 82: an atomic whose address is not 8-byte aligned
+; (`emitAtomicAlignGuard`). Recoverable, as the index trap is.
+(pub :: emitAtomicAlignTrap (-> Int Int))
+(pub fn (emitAtomicAlignTrap cg)
+  {
+    (emitLine cg "@__axiom_misaligned_msg = private unnamed_addr constant [32 x i8] c\"axiom: misaligned atomic access\\0A\"")
+    (emitLine cg (cat3 "define internal i64 @__axiom_misaligned_atomic() " trapFnAttrs " {"))
+    (emitLine cg "entry:")
+    (emitLine cg "  call i64 @__axiom_recover_abort(i64 82)")
+    (emitLine cg "  %map = ptrtoint ptr @__axiom_misaligned_msg to i64")
+    (emitRuntimeWrite cg "%map" "32")
+    (emitLine cg "  call void @__axiom_backtrace()")
+    (emitRuntimeExit cg "82")
     (emitLine cg "  unreachable")
     (emitLine cg "}")
     cg
@@ -18783,7 +18802,9 @@
           (emitPrimAtomicCas args cg))))))
 
 ; The address operand, `inttoptr`ed into a register the caller names
-; in its own instruction - `narrowByte`'s shape, for an address.
+; in its own instruction - `narrowByte`'s shape, for an address. The
+; volatile device accesses use it as it is: a 16- or 32-bit register at
+; an address aligned to its own width is correct there.
 (pub :: emitAtomicPtr (-> Int String String))
 (pub fn (emitAtomicPtr cg addr)
   (let ((pr (regStr (allocReg cg))))
@@ -18791,6 +18812,49 @@
       (emitLine cg (cat4 (cat2 "  " pr) " = inttoptr i64 " addr " to ptr"))
       pr
     }))
+
+; The four atomics' address: checked to be 8-byte aligned first
+; (`emitAtomicAlignGuard`), then `emitAtomicPtr`.
+(pub :: emitAtomicCheckedPtr (-> Int String String))
+(pub fn (emitAtomicCheckedPtr cg addr)
+  {
+    (emitAtomicAlignGuard cg addr)
+    (emitAtomicPtr cg addr)
+  })
+
+; `if address % 8 != 0 then trap 82` - `emitDivGuard`'s shape. A
+; misaligned atomic was a different program on each architecture: an
+; alignment fault on AArch64 (SIGBUS, exit 138, measured) and, on
+; x86-64, a split-lock access that is atomic but slow, or #AC where
+; split-lock detection is on. A trap with its own status makes it one
+; program everywhere, recoverable like the index trap, and the check is
+; an `and`, a compare and a predictable branch beside an instruction
+; that costs far more. MM-PAR-9's alignment precondition is checked
+; here rather than stated.
+(pub :: emitAtomicAlignGuard (-> Int String Int))
+(pub fn (emitAtomicAlignGuard cg addr)
+  (let (
+    (an (allocReg cg))
+    (cn (allocReg cg))
+    (zn (allocReg cg))
+    (kn (allocReg cg))
+  )
+    (let (
+      (a (regStr an))
+      (c (regStr cn))
+      (zb (cat2 "atomicmis_" (fmtInt zn)))
+      (kb (cat2 "atomicok_" (fmtInt kn)))
+    )
+      {
+        (emitLine cg (cat4 (cat2 "  " a) " = and i64 " addr ", 7"))
+        (emitLine cg (cat4 (cat2 "  " c) " = icmp ne i64 " a ", 0"))
+        (emitLine cg (cat4 (cat3 "  br i1 " c ", label %") zb (cat2 ", label %" kb) ""))
+        (emitLabel cg zb)
+        (emitLine cg "  call i64 @__axiom_misaligned_atomic()")
+        (emitLine cg "  unreachable")
+        (emitLabel cg kb)
+        cg
+      })))
 
 (pub :: emitPrimFence (-> Int Int))
 (pub fn (emitPrimFence cg)
@@ -18804,7 +18868,7 @@
 ;@axiom:effect(io)
 (pub fn (emitPrimAtomicLoad args cg)
   (let ((cg1 (emitExpr (vecGet args 0) cg)))
-    (let ((pr (emitAtomicPtr cg1 (strDup (memGetWordStr cg1 2)))))
+    (let ((pr (emitAtomicCheckedPtr cg1 (strDup (memGetWordStr cg1 2)))))
       (let ((vr (regStr (allocReg cg1))))
         {
           (emitLine cg1 (cat4 (cat2 "  " vr) " = load atomic i64, ptr " pr " seq_cst, align 8"))
@@ -18821,7 +18885,7 @@
     (cg2 (emitExpr (vecGet args 1) cg1))
     (val (strDup (memGetWordStr cg2 2)))
   )
-    (let ((pr (emitAtomicPtr cg2 addr)))
+    (let ((pr (emitAtomicCheckedPtr cg2 addr)))
       {
         (emitLine cg2 (cat4 (cat2 "  store atomic i64 " val) ", ptr " pr " seq_cst, align 8"))
         (memSetWord cg2 2 (constStr 0))
@@ -18837,7 +18901,7 @@
     (cg2 (emitExpr (vecGet args 1) cg1))
     (val (strDup (memGetWordStr cg2 2)))
   )
-    (let ((pr (emitAtomicPtr cg2 addr)))
+    (let ((pr (emitAtomicCheckedPtr cg2 addr)))
       (let ((vr (regStr (allocReg cg2))))
         {
           (emitLine cg2 (cat4 (cat3 (cat2 "  " vr) " = atomicrmw add ptr " pr) ", i64 " val " seq_cst, align 8"))
@@ -18860,7 +18924,7 @@
     (cg3 (emitExpr (vecGet args 2) cg2))
     (fresh (strDup (memGetWordStr cg3 2)))
   )
-    (let ((pr (emitAtomicPtr cg3 addr)))
+    (let ((pr (emitAtomicCheckedPtr cg3 addr)))
       (let ((pairR (regStr (allocReg cg3))))
         (let ((vr (regStr (allocReg cg3))))
           {

@@ -21,10 +21,8 @@ It isn't a system severity. The integrator assigns that
 
 | ID | Sev | Summary | Evidence | Workaround |
 |---|---|---|---|---|
-| AN-8 | L | A misaligned atomic faults with `SIGBUS` (exit 138) instead of trapping | R-C4 in [requirements.md](requirements.md) | Keep atomic words 8-byte aligned |
 | AN-9 | L | Grandchildren of a swept child are reparented, not swept, and a sweep over a thread that never finishes never finishes | `MM-PAR-7`'s stated limits | Don't spawn from a binding, and bound every binding's work |
 | AN-10 | L | A binding killed while holding a channel's lock leaves it held, and later calls on that channel block, the timed forms included | `MM-PAR-10` | After a sweep, only `chanFree` the channel. The mutex (`MM-PAR-11`) doesn't have this limit |
-| AN-12 | L | A spawn the kernel refuses has no dedicated fixture: the 78 path is emitted, not executed | R-A3's gap; `scripts/check-parallel.sh` §12c executes the other status-78 paths | Treat 78 as fatal |
 | AN-13 | L | The stack bound reads AArch64 ELF only; x86-64 is unsupported | [restricted-profile.md](../restricted-profile.md) | Bound on an AArch64 configuration |
 | AN-14 | L | Integer `+`, `-` and `*` wrap silently. `<<` and `>>` out of range, and `INT_MIN / -1`, are undefined in LLVM's terms | `no-wrap` and `no-untrapped` in [reference.md](../reference.md) | Claim `restrict(no-wrap, no-untrapped)` and use the checked operations |
 | AN-15 | L | Waits on FreeBSD spin, because that target has no blocking wait | `MM-PAR-10`, `MM-PAR-12` | None; it costs a core |
@@ -45,6 +43,8 @@ It isn't a system severity. The integrator assigns that
 | AN-11 | No mutex, timed wait, cancellation, or typed transfer across a join | The R-C2 commit | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh` |
 | AN-19 | A double unlock landing between another binding's lock and its guard being drawn was accepted, and released a lock someone else held | The R-C2 commit, before it landed | `scripts/check-task.sh` §2's exact stale-in-window check and the `guard` ablation |
 | AN-21 | A grace or deadline near the largest `Int` wrapped negative while it was rounded to microseconds, so a cancelled pool killed its tasks at once | The R-C2 commit, before it landed | `scripts/check-task.sh` §3's largest-grace run and the `micros` ablation |
+| AN-8 | A misaligned atomic faulted with `SIGBUS` (exit 138) on AArch64 and was a split-lock access on x86-64, instead of trapping | The R-C4 commit | `tests/stdlib/544-misaligned-atomic.ax`; `scripts/check-trap-statuses.sh` |
+| AN-12 | A spawn the kernel refuses had no test: the 78 path was emitted and never executed | The R-A3 commit | `scripts/check-parallel.sh` §12d |
 | AN-16 | Under `--threads`, a trap in one thread ended the process having swept only that thread's registry, so a task pool on a sibling thread left its tasks running | The R-C5 commit | `scripts/check-task.sh` §4's sibling-trap check and §8's `gkill` ablation |
 | AN-20 | On Darwin, a thread spawned inside a forked binding or a task crashed that process with `SIGSEGV` (139), because the runtime forked with the raw system call | The R-C5 commit | `tests/litmus/thread-in-fork.ax` and `scripts/check-task.sh` §8's `libcfork` ablation |
 | AN-22 | A task that answered was joined at once, so one whose process could not then exit blocked the pool in `wait4` with no deadline enforced | The R-C2 commit; its test landed with R-C5, when Darwin could run it | `scripts/check-task.sh` §3's stuck task and §6's `exitjoin` ablation; `tests/litmus/thread-in-fork.ax` |

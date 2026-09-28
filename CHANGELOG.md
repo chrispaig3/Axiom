@@ -22,6 +22,44 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A spawn the kernel refuses is executed — `scripts/check-parallel.sh` §12d, R-A3 - 2026-09-28
+
+`parallel` exits 78 when it can't spawn or join a binding, and the
+refused-spawn path had never run. §12d builds a two-binding `parallel`
+and runs it under `ulimit -u 1`, where `fork` answers EAGAIN. Inside a
+recovery point the refusal must answer 78; outside one the program
+must exit 78 with `axiom: parallel: could not spawn the binding`. The
+same binary with no limit must join and run to the end. It runs for
+processes, and on Linux for threads, whose limit counts threads too.
+Root isn't bound by the limit, so under root the section prints SKIP.
+The anomaly log closes AN-12, and `MM-EXEC-16`'s 78 row names the
+section.
+
+### A misaligned atomic traps with status 82 — R-C4 - 2026-09-28
+
+The atomics' 8-byte alignment was a stated precondition and nothing
+checked it, so a misaligned atomic was a different program on each
+architecture: on darwin-aarch64 a word crossing a 16-byte granule died
+of SIGBUS (exit 138, no message, no recovery), and on x86-64 it was a
+split-lock access, atomic but slow, or #AC where split-lock detection
+is on. Before each of the four atomics that take an address the
+compiler now emits `emitDivGuard`'s shape (`emitAtomicAlignGuard`): an
+`and`, a compare and a branch to `@__axiom_misaligned_atomic`, which
+prints `axiom: misaligned atomic access` and exits 82, and answers 82
+to an armed recovery point first, like the index trap. The volatile
+device accesses share the address helper and are not checked: a 16- or
+32-bit register at its own width's alignment is correct there, which
+the first build of this change got wrong and `check-embedded.sh` said
+so on every bare-metal program.
+
+`tests/stdlib/544-misaligned-atomic.ax` hands a load, a store, an add
+and a compare-and-swap an address 4 bytes into a word, each inside a
+recovery point that must answer 82, then ends on an unrecovered one, at
+every `--opt` (`.optstable`). `scripts/check-trap-statuses.sh` census,
+table and live exits now hold eleven emitted statuses and eight live
+traps, all distinct. `MM-EXEC-16` gains the 82 row; `MM-PAR-9` states
+the check; the anomaly log closes AN-8.
+
 ### The fuzzer's full budget and the model's every trace run nightly — `.github/workflows/ci.yml` - 2026-09-28
 
 A push runs a sample of each: 600 mutants of the corpus
