@@ -429,6 +429,15 @@
 # is unchanged in the commit that regenerates this. 0 of 755 files are
 # REFUSED by the formatter.
 #
+# REGENERATED 2026-09-28 again, at 754 entries from 754, after the R-C3
+# litmus commit added the load-buffering, 2+2W and IRIW families to
+# `tests/litmus/atomics.ax`, retiring its hash.
+#
+# Verified before blessing: of the 753 source hashes present in BOTH
+# tables, ZERO map to a different formatted hash. `self_host/format.ax`
+# is unchanged in the commit that regenerates this. 0 of 755 files are
+# REFUSED by the formatter.
+#
 48216ed1e518f534e6d1cfa10a436a1c9b69e0004de88a39a6e3365d5c67a2ba 48216ed1e518f534e6d1cfa10a436a1c9b69e0004de88a39a6e3365d5c67a2ba self_host/Host.baremetal-aarch64.ax
 9526b57cacdfff1fc90efb9dae10ee9dbb21cbb3682600fa3de6eb175a06d169 9526b57cacdfff1fc90efb9dae10ee9dbb21cbb3682600fa3de6eb175a06d169 self_host/Host.darwin-aarch64.ax
 5786c535f48f345992fc84613e56932fdfb9a02f71123007a2df3ae8b23c536f 5786c535f48f345992fc84613e56932fdfb9a02f71123007a2df3ae8b23c536f self_host/Host.darwin-x86_64.ax
@@ -769,7 +778,7 @@ e4b100e20067ad2a94b33d24c5c5b1c454fe7a351bdcc507544bdd7df7f5a00e e4b100e20067ad2
 ff0e059f01e28a24674e38892bda99d46dc6d5611c7d4b0bdd2eddb5754e21ee ff0e059f01e28a24674e38892bda99d46dc6d5611c7d4b0bdd2eddb5754e21ee tests/frontend/070-import.ax
 b7a751be45786244f8f07d2476aa9025fb2704b0da5d2cb9b1bf43fb70c87b71 b7a751be45786244f8f07d2476aa9025fb2704b0da5d2cb9b1bf43fb70c87b71 tests/frontend/080-dotted-mangle.ax
 64559635bff7155f2e04699504507dab4ebe9e82c12d34e4bb18a4fe0c64abd2 64559635bff7155f2e04699504507dab4ebe9e82c12d34e4bb18a4fe0c64abd2 tests/frontend/080-dotted-mangle/Math/Ops.ax
-1a9a1e027e8201d884cbb6368ef0995f919725fc3dd0f3df9eaa154877421873 1a9a1e027e8201d884cbb6368ef0995f919725fc3dd0f3df9eaa154877421873 tests/litmus/atomics.ax
+142acb9805d5e35aa133cc48ed4a6e950fbdcf411f4e8412c98201b924cd3a82 142acb9805d5e35aa133cc48ed4a6e950fbdcf411f4e8412c98201b924cd3a82 tests/litmus/atomics.ax
 c50c312638bfed74dd26298f2c4773873a5c44e9b749cb8a0ecd159e385cfb18 c50c312638bfed74dd26298f2c4773873a5c44e9b749cb8a0ecd159e385cfb18 tests/litmus/chan-load.ax
 818f782c233f841b878cd56dc569c1c054e4efee7be3a00192856c5209578691 818f782c233f841b878cd56dc569c1c054e4efee7be3a00192856c5209578691 tests/litmus/conc-bench.ax
 3fa846b6f2cab9df581dac14ecdeb7ffccf8a64eece3ea66c8be695482e6f81f 3fa846b6f2cab9df581dac14ecdeb7ffccf8a64eece3ea66c8be695482e6f81f tests/litmus/sync-load.ax

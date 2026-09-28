@@ -4085,12 +4085,22 @@ instruction each primitive lowers to on all seven targets at
 `-O0`…`-O3`: `xchg`, `lock xadd`, `lock cmpxchg` and a locked `or` to
 the stack on x86-64, and `ldar`, `stlr`, an `ldaxr`/`stlxr` loop and
 `dmb ish` on AArch64. Five weakenings of the IR must each turn that
-count red. It also runs store-buffering, message-passing and counter
-litmus tests on two `--threads` threads (`tests/litmus/atomics.ax`),
-each beside a plain-access control that must show the outcome the
-atomics exclude. A seq_cst load on x86-64 is a plain `mov`, which looks
-the same in machine code as a monotonic one. The gate checks that the
-two assemble identically rather than skipping the case.
+count red.
+
+It also runs six litmus families on `--threads` threads
+(`tests/litmus/atomics.ax`): store buffering, message passing, load
+buffering (LB), two writes on each thread (2+2W) and a counter on two
+threads, and IRIW (independent reads of independent writes) on four.
+Store buffering and the counter each have a plain-access control that
+must show the outcome the atomics exclude. LB, 2+2W and IRIW each run
+again with the reordering written into the program, which must show
+it too. The other plain-access controls are reported, because the
+hardware shows them rarely or never. The exception is 2+2W on Apple
+silicon above `-O0`, which must show.
+
+A seq_cst load on x86-64 is a plain `mov`, which looks the same in
+machine code as a monotonic one. The gate checks that the two assemble
+identically rather than skipping the case.
 
 Threads are a matter of price, not possibility. On macOS, thread
 creation needs `bsdthread_register`, and Mach-O has no local-exec TLS,
@@ -4510,8 +4520,9 @@ separate the trusted layer's use from a user's.
 *Evidence.*
 
 - `scripts/check-atomics.sh`: the instructions, their ablations, and
-  store-buffering, message-passing and counter litmus tests on two
-  threads.
+  litmus tests on two threads (store buffering, message passing, load
+  buffering, 2+2W and a counter) and on four (IRIW). Not yet: WRC,
+  ISA2 and the coherence tests aren't run.
 - `scripts/check-parallel.sh`: both lowerings answer byte-identically;
   joins, sweeps and foreign-join refusal.
 - `tests/diagnostics/642`, `643`, `644` and `656`: the capture

@@ -22,6 +22,40 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
+
+`scripts/check-atomics.sh` §3 ran three litmus families, store
+buffering, message passing and a counter, and R-C3 listed LB, 2+2W and
+IRIW as missing. It now runs all six at every `--opt`. Load buffering
+and 2+2W run on two `--threads` threads at 500,000 rounds a run, and
+IRIW on four at 200,000, three runs a level. Every atomic row showed
+its forbidden outcome zero times. Each also has a witness it must show,
+so that a zero means the rounds overlapped the way the outcome needs:
+both LB loads answering 0, 2+2W ending with x 2 and y 2, and each IRIW
+reader seeing one write without the other.
+
+The controls needed measuring. x86-64's TSO forbids all three
+outcomes for plain accesses, and on H3's M1 plain LB never showed in
+98 runs. So each family also runs with its reordering written into the
+program with the atomics: LB stores before it loads, 2+2W swaps its
+two stores, and IRIW gives each reader its own copy of the other
+writer's word, stored after a pause. Sequential consistency allows
+those outcomes, so that row must show them on every host, and it did
+in every run measured, 58 to about 90,000 times a run.
+
+Plain 2+2W showed in 138 of 141 runs at `-O1`…`-O3`, idle or with
+every core busy, and is required there on darwin-aarch64; at `-O0` it
+showed in 22 of 47 and is reported. Plain IRIW showed in 15 of 76
+runs, in bursts, and is reported. ARMv8's multi-copy atomicity doesn't
+forbid that: plain loads may pass each other, which `ldar` prevents.
+
+IRIW's four-thread barrier spins 2,048 times, then waits 2 µs on the
+word, so a host with fewer cores than threads still makes progress.
+Waiting after 64 spins lost the rounds' overlap, and after 256 made an
+`-O2` run seven to nine times slower. On H3 the gate runs 96 checks
+against 69, in 18.6 s against 13.2 s, and in 26.4 s with every core
+busy. WRC, ISA2 and the coherence tests remain unrun, as
+`docs/assurance/requirements.md` and `docs/assurance/scorecard.md` say.
 ### The formatter and a second optimisation level join the fuzzer; `match` arms must agree — `scripts/check-fuzz.sh`, R-E1 - 2026-09-28
 
 The fuzzer held a mutant `check` accepted only to `emit-llvm` and `llc`
