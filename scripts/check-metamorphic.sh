@@ -34,9 +34,11 @@
 #      stops matching can't pass by testing nothing.
 #   2b. The second relation: reversing a program's top-level
 #      declarations (imports first, a `::` with its `fn`) changes
-#      neither its verdict nor any `symbols` row. Two programs a
-#      reordering refuses are known defects (AN-39, AN-40): each must
-#      still fail exactly as recorded below, so a fix updates the list.
+#      neither its verdict nor any `symbols` row. One program a
+#      reordering refuses is a known limit (AN-39: a function with no
+#      signature called above its definition): it must still fail
+#      exactly as recorded below, so a fix updates the list. AN-40, a
+#      macro query answered before its subject was generated, is fixed.
 #   2c. The third relation: moving every `::` to just below its own
 #      `fn` changes no verdict and no `symbols` row, NID included
 #      (AN-41: a NID hashed whichever declaration came last).
@@ -100,7 +102,6 @@ fi
 echo "== 2b. reordering the declarations changes nothing, over the corpora =="
 cat > "$work/reorder-known.txt" <<'KNOWN'
 # path<TAB>the divergence it must still show, until fixed
-tests/selfhost/381-macro-type-templates.ax	R1 AX3028 AX3028
 tests/selfhost/770-over-application.ax	R1 AX3089
 KNOWN
 rc=0
@@ -118,10 +119,10 @@ else
 fi
 # 259 permuted programs kept it on 2026-09-28. The known divergences
 # are also the proof that the harness sees a verdict change.
-if [[ -n "$permuted" && "$permuted" -ge 250 && "${held:-0}" -eq 2 ]]; then
-  ok "$permuted reordered programs tested, at least 250, and both known divergences seen"
+if [[ -n "$permuted" && "$permuted" -ge 250 && "${held:-0}" -eq 1 ]]; then
+  ok "$permuted reordered programs tested, at least 250, and the known divergence seen"
 else
-  bad "only ${permuted:-0} reordered programs tested (floor 250), ${held:-0} of 2 known divergences seen"
+  bad "only ${permuted:-0} reordered programs tested (floor 250), ${held:-0} of 1 known divergence seen"
 fi
 
 echo "== 2c. moving a signature below its function changes nothing =="

@@ -1,0 +1,32 @@
+; expect 25
+; A declaration macro's query may name a declaration another macro
+; generates BELOW it (MAC-LANG-3a: macros are order-independent).
+; `(deriveEq Mode)` asks `syntax/constructors` about `Mode` before
+; `(defFlag Mode)` has generated it. Declaration macros expand in
+; rounds, in list order, and the query used to answer AX3028 "no
+; declaration named `Mode`" in the first round, though the next round
+; would have had it. A query that finds nothing now waits for a later
+; round, and only a name no round ever generates is refused
+; (tests/diagnostics/ keeps that refusal). 20 + 5 = 25.
+(import Pre)
+
+(deriveEq Mode)
+
+(macro defFlag ((defFlag N)
+   (data N ((syntax/join Off N)) ((syntax/join On N)))))
+
+(defFlag Mode)
+
+(:: b2i (-> Bool Int))
+(fn (b2i x)
+  (if x
+    1
+    0))
+
+(:: main Int)
+(fn (main)
+  (+
+    (* 20 (b2i (eqMode OffMode OffMode)))
+    (+
+      (* 10 (b2i (eqMode OffMode OnMode)))
+      (* 5 (b2i (eqMode OnMode OnMode))))))

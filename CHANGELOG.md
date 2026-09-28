@@ -58,6 +58,24 @@ its `fn` must change no verdict and no `symbols` row. 329 programs keep
 it; with the fix taken out, 328 diverge, and the gate's `nid-fn-wins`
 ablation requires that.
 
+### A macro query waits for the declaration it names — `MAC-LANG-3a` - 2026-09-28
+
+Declaration macros expand in rounds, in the order they are written,
+and a `syntax/*` query is answered from the declarations that exist
+when it runs. So `(deriveEq Mode)` written above the `(defFlag Mode)`
+that generates `Mode` was refused with `AX3028`, "no declaration named
+`Mode`", though the next round would have had it and `MAC-LANG-3a`
+says macros are order-independent (AN-40).
+
+A query whose subject doesn't exist yet now waits: its invocation's
+build is thrown away, with the diagnostics, frame and fresh names it
+made, and tried again next round. When a round generates nothing, one
+last round runs with waiting off, so a name nothing declares is still
+`AX3028`, word for word. `tests/selfhost/1008-macro-query-order.ax`
+answers 25, where the unfixed compiler refuses it, and
+`tests/selfhost/381-macro-type-templates.ax` reversed answers the 32
+it answers as written.
+
 ### The stack bound reads x86-64 machine code — `scripts/axiom-report.py --stack`, R-D1 - 2026-09-28
 
 `--stack` now bounds a program's stack from an x86-64 ELF object as
