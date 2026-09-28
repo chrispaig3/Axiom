@@ -150,14 +150,16 @@ command -v "$engine" >/dev/null 2>&1 || die "AXIOM_CONTAINER='$engine' is not on
 # `git` (build-id), `bsdmainutils`/`xxd` where a gate reads bytes.
 #
 # `llvm` brings `llc` and `opt`; `clang` is the linker driver the
-# emitter calls as `cc`. `nm` comes from binutils and is the ELF one -
+# emitter calls as `cc`. `libclang-rt-dev` is clang's sanitizer
+# runtimes, which `check-race.sh` links; `--no-install-recommends`
+# leaves them out otherwise. `nm` comes from binutils and is the ELF one -
 # which is the whole point, since the Mach-O/ELF difference is what
 # `check-thread-local.sh` got wrong.
 read -r -d '' dockerfile <<'DOCKER'
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      llvm clang lld binutils \
+      llvm clang lld libclang-rt-dev binutils \
       bash coreutils findutils diffutils grep sed gawk \
       python3 curl ca-certificates git file xxd time make \
       nodejs npm \

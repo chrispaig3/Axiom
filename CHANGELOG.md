@@ -22,6 +22,45 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A race detector over the thread lowering — `scripts/check-race.sh`, R-E1 - 2026-09-28
+
+ThreadSanitizer runs over `--threads` programs. The gate emits each
+program's IR, marks every function `sanitize_thread`, sends the
+runtime's `mmap` and `munmap` through the C library so TSan's
+interceptors see the arenas, runs LLVM's TSan passes after `opt -O<n>`
+and links with `clang -fsanitize=thread`. Without that routing, an
+arena a finished thread unmapped and a sibling mapped again at the
+same address read as a race between `axiom_alloc` and
+`__axiom_arena_unmap_thread`.
+
+`tests/litmus/sync-load.ax`'s unlocked control must be reported as a
+data race. The mutex, a stale guard under contention, the channel at
+capacities 1 and 64, `examples/concurrency/pipeline.ax` and the
+seq_cst rows of `tests/litmus/atomics.ax` must run clean at `--opt` 0
+and 2. `add split` must run clean too, while it loses updates: a lost
+update made of atomics is not a data race. The mutex's
+compare-and-swap, the channel's lock and `add sc`'s atomic add, each
+ablated, must be reported. An ASan probe must report a read past a
+string literal's header, after clean reads inside it; a read past a
+heap block is printed as the limit it is, because the arena's blocks
+are invisible to ASan.
+
+TSan found one race in the runtime and library code these programs
+reach: `sysWaitWordTimeout`'s plain entry load of a word others write
+with atomics, which `MM-PAR-12` already states as an implementation
+reliance. It is the only rule in `tests/litmus/tsan-suppressions.txt`,
+with its reason; the gate fails a stale rule, and runs the locked and
+pipeline programs without the list to show it hides nothing else. It
+also found that `atomics.ax`'s `mp sc` reader loads the data word
+before it tests the flag, a race by `MM-PAR-9`'s definition in the
+litmus program itself; that row is not run under TSan and is recorded
+in `docs/assurance/verification.md`.
+
+32 checks on H3, and on linux-aarch64 in a container. The provision
+action and `scripts/run-gates-linux.sh`'s image install
+`libclang-rt-dev`; CI sets `AXIOM_TSAN_REQUIRED=1`, so a missing
+runtime fails there and skips elsewhere. Calls one new gate; the count
+sites state eighty-eight gates.
 ### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` §3 ran three litmus families, store
@@ -345,7 +384,7 @@ as the control); RSS flat from 500 to 5,000 folded tasks beside a
 keeping control that must grow; nine ablations on copies of the
 library each turning it red; and the three new programs in
 `examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
-new gate; the count sites state eighty-seven gates.
+new gate; the count sites state eighty-eight gates.
 
 An independent review before landing found six defects, two confirmed
 by probes. The mutex compared an unlock's guard against the guard
@@ -502,7 +541,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-eighty-seven gates. Specified in `docs/restricted-profile.md`.
+eighty-eight gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -570,7 +609,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-seven gates.
+state eighty-eight gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -611,7 +650,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-seven gates.
+eighty-eight gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -660,7 +699,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-seven gates.
+eighty-eight gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -690,7 +729,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-seven gates.
+sites state eighty-eight gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -931,7 +970,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-seven gates.
+checks). Calls one new gate; the count sites state eighty-eight gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -948,7 +987,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-seven gates, and the battery has
+gate; the count sites state eighty-eight gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

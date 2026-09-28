@@ -85,7 +85,9 @@ approved, and no document here says it is.
 
 In dependency order:
 
-1. Sanitizer and race-detector runs on the hosted configurations.
+1. Race detection between forked bindings, and a heap sanitizer the
+   arena works with. `scripts/check-race.sh` covers threads and
+   globals.
 2. Hardware execution on a named board, recorded apart from QEMU runs,
    with the MMU and caches on.
 3. Frozen toolchain versions for one reference configuration.

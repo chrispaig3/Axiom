@@ -20,12 +20,16 @@ runs:
     # `lld-link` on every host - cross, from an import library
     # `llvm-dlltool` generates - as the negative probe that its PE
     # reader sees imports at all. No Windows SDK is involved anywhere.
+    # `libclang-rt-dev` is clang's sanitizer runtimes
+    # (`libclang_rt.tsan*`, `libclang_rt.asan*`), which
+    # `check-race.sh` links; a preinstalled clang need not carry them.
+    # Homebrew's llvm ships them.
     - name: Install LLVM tools (Linux)
       if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y llvm clang lld
+        sudo apt-get install -y llvm clang lld libclang-rt-dev
         echo "$(llvm-config --bindir)" >> "$GITHUB_PATH"
     # `brew --prefix <formula>` prints the path a formula *would* be
     # installed at and exits zero even when it is absent, so the version
