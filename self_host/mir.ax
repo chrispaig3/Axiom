@@ -273,10 +273,6 @@
 ; not Axiom's source operators, so the backend slice is a rename
 ; rather than a translation.
 ; ------------------------------------------------------------------
-(pub :: mcat3 (-> String String String String))
-(pub fn (mcat3 a b c)
-  (strConcat (strConcat a b) c))
-
 (pub :: mirReg (-> Int String))
 (pub fn (mirReg r)
   (strConcat "%" (fmtInt r)))
@@ -309,27 +305,27 @@
 (pub fn (mCondTarget b args)
   (if (== (vecLen args) 0)
     (mirBB b)
-    (mcat3 (mirBB b) "(" (strConcat (mirRegList args 0 "") ")"))))
+    (strConcat (mirBB b) (strConcat "(" (strConcat (mirRegList args 0 "") ")")))))
 
 (pub :: mirInst (-> MInst String))
 (pub fn (mirInst n)
   (if (== n.op MO_CONST)
-    (mcat3 "  " (mirReg n.dst) (strConcat " = const " (fmtInt n.a)))
+    (strConcat "  " (strConcat (mirReg n.dst) (strConcat " = const " (fmtInt n.a))))
     (if (== n.op MO_BIN)
-      (mcat3 (strConcat "  " (mirReg n.dst)) (mcat3 " = " n.name " ") (mcat3 (mirReg n.a) ", " (mirReg n.b)))
+      (strConcat (strConcat "  " (mirReg n.dst)) (strConcat (strConcat " = " (strConcat n.name " ")) (strConcat (mirReg n.a) (strConcat ", " (mirReg n.b)))))
       (if (== n.op MO_CALL)
-        (mcat3 (strConcat "  " (mirReg n.dst)) (mcat3 " = call " n.name "(") (strConcat (mirRegList n.args 0 "") ")"))
+        (strConcat (strConcat "  " (mirReg n.dst)) (strConcat (strConcat " = call " (strConcat n.name "(")) (strConcat (mirRegList n.args 0 "") ")")))
         (if (== n.op MT_RET)
           (strConcat "  ret " (mirReg n.a))
           (if (== n.op MT_BR)
-            (mcat3 "  br " (mirBB n.tgt) (mcat3 "(" (mirRegList n.args 0 "") ")"))
+            (strConcat "  br " (strConcat (mirBB n.tgt) (strConcat "(" (strConcat (mirRegList n.args 0 "") ")"))))
             (if (== n.op MT_CONDBR)
-              (mcat3 (mcat3 "  condbr " (mirReg n.a) ", ") (mCondTarget n.tgt n.args) (strConcat ", " (mCondTarget n.alt n.args)))
+              (strConcat (strConcat "  condbr " (strConcat (mirReg n.a) ", ")) (strConcat (mCondTarget n.tgt n.args) (strConcat ", " (mCondTarget n.alt n.args))))
               (if (== n.op MT_TRAPZ)
-                (mcat3 (mcat3 "  trapz " (mirReg n.a) ", ") (mirBB n.tgt) (strConcat ", " (mirBB n.alt)))
+                (strConcat (strConcat "  trapz " (strConcat (mirReg n.a) ", ")) (strConcat (mirBB n.tgt) (strConcat ", " (mirBB n.alt))))
                 (if (== n.op MT_TRAP)
                   (if (>= n.a 0)
-                    (mcat3 "  trap " n.name (strConcat ", " (mirReg n.a)))
+                    (strConcat "  trap " (strConcat n.name (strConcat ", " (mirReg n.a))))
                     (strConcat "  trap " n.name))
                   (strConcat "  <unknown op " (strConcat (fmtInt n.op) ">")))))))))))
 
@@ -337,25 +333,25 @@
 (pub fn (mirInsts v i acc)
   (if (>= i (vecLen v))
     acc
-    (mirInsts v (+ i 1) (mcat3 acc (mirInst (vecGet v i)) "\n"))))
+    (mirInsts v (+ i 1) (strConcat acc (strConcat (mirInst (vecGet v i)) "\n")))))
 
 (pub :: mirBlock (-> MBlock String))
 (pub fn (mirBlock b)
-  (mcat3
-    (mcat3
+  (strConcat
+    (strConcat
       (mirBB b.id)
-      (if (== (vecLen b.params) 0)
+      (strConcat (if (== (vecLen b.params) 0)
         ""
-        (mcat3 "(" (mirRegList b.params 0 "") ")"))
-      ":\n")
-    (mirInsts b.instrs 0 "")
+        (strConcat "(" (strConcat (mirRegList b.params 0 "") ")")))
+      ":\n"))
+    (strConcat (mirInsts b.instrs 0 "")
     (if (== (vecLen b.term) 0)
       ; A block with no terminator is a broken block, and the printer
       ; says so rather than printing nothing: a silently short block
       ; would read as a legal fall-through, which this IR does not
       ; have. `mirVerify` fails the same case.
       "  <missing terminator>\n"
-      (strConcat (mirInst (vecGet b.term 0)) "\n"))))
+      (strConcat (mirInst (vecGet b.term 0)) "\n")))))
 
 (pub :: mirBlocks (-> (Vec MBlock) Int String String))
 (pub fn (mirBlocks v i acc)
@@ -365,7 +361,7 @@
 
 (pub :: mirFunc (-> MFunc String))
 (pub fn (mirFunc f)
-  (mcat3 (mcat3 "fn " f.name (mcat3 "(" (mirRegList f.params 0 "") ") {\n")) (mirBlocks f.blocks 0 "") "}\n"))
+  (strConcat (strConcat "fn " (strConcat f.name (strConcat "(" (strConcat (mirRegList f.params 0 "") ") {\n")))) (strConcat (mirBlocks f.blocks 0 "") "}\n")))
 
 ; ------------------------------------------------------------------
 ; The lowering.
@@ -1649,7 +1645,7 @@
 (pub :: mvDefine (-> (Vec Int) (Vec Int) (Vec String) String Int Int Int Int))
 (pub fn (mvDefine defBlk defIdx out what r blk idx)
   (if (|| (< r 0) (>= r (vecLen defBlk)))
-    (mvSay out (mcat3 what " defines out-of-range register " (mirReg r)))
+    (mvSay out (strConcat what (strConcat " defines out-of-range register " (mirReg r))))
     (if (>= (vecGet defBlk r) 0)
       {
         (vecSet defBlk r (- 0 2))
@@ -1664,17 +1660,17 @@
 (pub :: mvUse (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) String Int Int Int Int))
 (pub fn (mvUse f dom defBlk defIdx out what r blk idx)
   (if (|| (< r 0) (>= r (vecLen defBlk)))
-    (mvSay out (mcat3 what " uses out-of-range register " (mirReg r)))
+    (mvSay out (strConcat what (strConcat " uses out-of-range register " (mirReg r))))
     (let ((db (vecGet defBlk r)))
       (if (< db 0)
-        (mvSay out (mcat3 what " uses " (strConcat (mirReg r) " which is never defined")))
+        (mvSay out (strConcat what (strConcat " uses " (strConcat (mirReg r) " which is never defined"))))
         (if (== db blk)
           (if (< (vecGet defIdx r) idx)
             0
-            (mvSay out (mcat3 what " uses " (strConcat (mirReg r) " before it is defined"))))
+            (mvSay out (strConcat what (strConcat " uses " (strConcat (mirReg r) " before it is defined")))))
           (if (== (mDomAt dom (vecLen f.blocks) blk db) 1)
             0
-            (mvSay out (mcat3 (strConcat what " uses ") (mirReg r) (mcat3 " whose definition in " (mirBB db) " does not dominate the use")))))))))
+            (mvSay out (strConcat (strConcat what " uses ") (strConcat (mirReg r) (strConcat " whose definition in " (strConcat (mirBB db) " does not dominate the use")))))))))))
 
 (pub :: mvWhere (-> Int String))
 (pub fn (mvWhere b)
@@ -1788,7 +1784,7 @@
       {
         (if (mIsBinSpelling n.name)
           0
-          (mvSay out (mcat3 what " holds binop spelling " (strConcat n.name ", which `mBinOp` never writes"))))
+          (mvSay out (strConcat what (strConcat " holds binop spelling " (strConcat n.name ", which `mBinOp` never writes")))))
         (mvUse
           f
           dom
@@ -1836,7 +1832,7 @@
           ; opcode 7 made the printer say `<unknown op 7>` five times
           ; while `mirtool verify` exited 0 with no output. `mireval.ax`'s
           ; header claims this function refuses exactly that. It does now.
-          (mvSay out (mcat3 what " holds opcode " (strConcat (fmtInt n.op) ", which is not an instruction"))))))))
+          (mvSay out (strConcat what (strConcat " holds opcode " (strConcat (fmtInt n.op) ", which is not an instruction")))))))))
 
 (pub :: mvCheckInsts (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) (Vec MInst) Int Int Int))
 (pub fn (mvCheckInsts f dom defBlk defIdx out insts blk i)
@@ -1873,7 +1869,7 @@
 (pub :: mvCheckTerm (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec String) MBlock Int))
 (pub fn (mvCheckTerm f dom defBlk defIdx out b)
   (if (!= (vecLen b.term) 1)
-    (mvSay out (mcat3 (mvWhere b.id) " has " (strConcat (fmtInt (vecLen b.term)) " terminators, want exactly 1")))
+    (mvSay out (strConcat (mvWhere b.id) (strConcat " has " (strConcat (fmtInt (vecLen b.term)) " terminators, want exactly 1"))))
     (let (
       (t (vecGet b.term 0))
       (idx (vecLen b.instrs))
@@ -1893,10 +1889,10 @@
         (if (== t.op MT_BR)
           (let ((np (mvBlockAt f t.tgt)))
             (if (< np 0)
-              (mvSay out (mcat3 what " branches to " (strConcat (mirBB t.tgt) ", which does not exist")))
+              (mvSay out (strConcat what (strConcat " branches to " (strConcat (mirBB t.tgt) ", which does not exist"))))
               {
                 (if (!= np (vecLen t.args))
-                  (mvSay out (mcat3 (mcat3 what " passes " (fmtInt (vecLen t.args))) (mcat3 " arguments to " (mirBB t.tgt) ", which takes ") (fmtInt np)))
+                  (mvSay out (strConcat (strConcat what (strConcat " passes " (fmtInt (vecLen t.args)))) (strConcat (strConcat " arguments to " (strConcat (mirBB t.tgt) ", which takes ")) (fmtInt np))))
                   0)
                 (mvUseList
                   f
@@ -1964,7 +1960,7 @@
                     b.id
                     idx)
                   0)
-                (mvSay out (mcat3 what " ends in opcode " (strConcat (fmtInt t.op) ", which is not a terminator")))))))))))
+                (mvSay out (strConcat what (strConcat " ends in opcode " (strConcat (fmtInt t.op) ", which is not a terminator"))))))))))))
 
 ; A `condbr`/`trapz` successor must exist and take exactly the
 ; arguments it is passed - `want` of them. The complaint mirrors
@@ -1974,9 +1970,9 @@
 (pub fn (mvCondTarget f out what id want)
   (let ((np (mvBlockAt f id)))
     (if (< np 0)
-      (mvSay out (mcat3 what " branches to " (strConcat (mirBB id) ", which does not exist")))
+      (mvSay out (strConcat what (strConcat " branches to " (strConcat (mirBB id) ", which does not exist"))))
       (if (!= np want)
-        (mvSay out (mcat3 (mcat3 what " passes " (fmtInt want)) (mcat3 " arguments to " (mirBB id) ", which takes ") (fmtInt np)))
+        (mvSay out (strConcat (strConcat what (strConcat " passes " (fmtInt want))) (strConcat (strConcat " arguments to " (strConcat (mirBB id) ", which takes ")) (fmtInt np))))
         0))))
 
 (pub :: mvCheckBlocks (-> MFunc (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec String) Int Int))
@@ -1986,7 +1982,7 @@
     (let ((b (vecGet f.blocks i)))
       {
         (if (!= b.id i)
-          (mvSay out (mcat3 (mcat3 "block at index " (fmtInt i) " carries id ") (fmtInt b.id) " - a branch names a block by its index"))
+          (mvSay out (strConcat (strConcat "block at index " (strConcat (fmtInt i) " carries id ")) (strConcat (fmtInt b.id) " - a branch names a block by its index")))
           0)
         (if (== (vecGet seen i) 0)
           (mvSay out (strConcat (mvWhere i) " is not reachable from bb0"))

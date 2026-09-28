@@ -607,8 +607,8 @@ def-tracking and joins need per-arm reasoning, and each is its own
 later slice.
 
 The top callees show why the witness must be computed rather than
-syntactic. `strConcat` (1,203), `cat2`/`cat3`/`cat4`, `strDup`,
-`strSlice` and `fmtInt` construct their result. `memGetWordStr`,
+syntactic. `strConcat` (1,203), `strDup`, `strSlice` and `fmtInt`
+construct their result. `memGetWordStr`,
 `vecGetStr`, `tokenLexeme`, `bareOf`, `nodeAName`, `fpSrc` and `sysArg`
 read into memory the callee didn't build. A witness that called every
 call result fresh would say so for the readers too. Telling the two

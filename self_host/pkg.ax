@@ -134,17 +134,6 @@
 (import Path)
 (import Fmt)
 
-; `strConcat` three and four ways. `codegen.ax` has `cat3`/`cat4` and
-; this module cannot import it: `codegen` imports THIS one, for the
-; search path, and a cycle is worse than eight lines.
-(pub :: pkg3 (-> String String String String))
-(pub fn (pkg3 a b c)
-  (strConcat (strConcat a b) c))
-
-(pub :: pkg4 (-> String String String String String))
-(pub fn (pkg4 a b c d)
-  (strConcat (strConcat a (strConcat b c)) d))
-
 ; The manifest's file name. One place, because three functions here
 ; and one message all say it.
 (pub :: pkgManifestName String)
@@ -845,7 +834,7 @@
 (pub fn (pkgOriginWhy origin url)
   (if (== (strLen origin) 0)
     "it holds no git checkout with an `origin` (an interrupted or failed clone leaves one like this)"
-    (pkg3 "git records its origin as `" origin "`")))
+    (strConcat "git records its origin as `" (strConcat origin "`"))))
 
 ; Every URL dependency's checkout was cloned from that URL - the build's
 ; half of what `pkgOrigin` says. Called after `pkgVerify` has refused a
@@ -862,7 +851,7 @@
       (let ((origin (pkgOrigin dest)))
         (if (strEq origin url)
           (pkgCheckOrigins urls base mf (+ i 1))
-          (pkgDie (pkg4 (pkg3 "error: " mf " depends on a registry URL whose checkout is not a clone of it:\n") (pkg3 "       " url "\n") (pkg3 "       " dest "\n") (pkg3 "       - " (pkgOriginWhy origin url) ".\n       Remove that directory and run `axiom fetch`.\n"))))))))
+          (pkgDie (strConcat (strConcat "error: " (strConcat mf " depends on a registry URL whose checkout is not a clone of it:\n")) (strConcat (strConcat "       " (strConcat url "\n")) (strConcat (strConcat "       " (strConcat dest "\n")) (strConcat "       - " (strConcat (pkgOriginWhy origin url) ".\n       Remove that directory and run `axiom fetch`.\n")))))))))))
 
 ; Every registry (`depend` URL) value in an already-read manifest,
 ; in file order: what `fetch` checks out and nothing else.
@@ -897,7 +886,7 @@
     ""
     (let ((v (vecGetStr vs i)))
       (if (&& (pkgIsUrl v) (strEq (pkgDepCheckout base v) dir))
-        (strConcat (pkg3 "       `" v "` is a registry dependency: check it out with `axiom fetch`,\n") (pkg4 "       or by hand with\n       git clone " v " " (strConcat dir "\n")))
+        (strConcat (strConcat "       `" (strConcat v "` is a registry dependency: check it out with `axiom fetch`,\n")) (strConcat "       or by hand with\n       git clone " (strConcat v (strConcat " " (strConcat dir "\n")))))
         (pkgUrlHintVals vs base dir (+ i 1))))))
 
 ; The `name` the manifest at or above `entryDir` declares, or "".
@@ -1001,7 +990,7 @@
 ; file at it.
 (pub :: pkgAt (-> String Int String))
 (pub fn (pkgAt mf line)
-  (pkg4 "error: " mf ":" (pkg3 (fmtInt line) ": " "")))
+  (strConcat "error: " (strConcat mf (strConcat ":" (strConcat (fmtInt line) (strConcat ": " ""))))))
 
 ; Walk the manifest once and refuse every line that cannot mean what it
 ; says. Answers 0; every failure exits.
@@ -1051,22 +1040,22 @@
                 (let ((v (pkgTrim (strSlice t (strLen k) (- (strLen t) (strLen k))))))
                   (if (pkgKnownKey k)
                     (if (== (strLen v) 0)
-                      (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`" k "` has no value\n") (pkg3 "       `depend` takes a directory of modules and `crate` a crate\n" "       directory; `name` and `version` take a word. The key and its value\n" "       are separated by any run of spaces or tabs.\n")))
+                      (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat (strConcat "`" (strConcat k "` has no value\n")) (strConcat "       `depend` takes a directory of modules and `crate` a crate\n" (strConcat "       directory; `name` and `version` take a word. The key and its value\n" "       are separated by any run of spaces or tabs.\n")))))
                       (if (strEq k "name")
                         {
                           (if (> sawName 0)
-                            (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`name` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                            (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat "`name` is given twice\n" (strConcat "       The first would win and this one would be ignored, which is a\n" (strConcat "       manifest that says two things and means one.\n" "")))))
                             0)
                           (set sawName 1)
                           (if (pkgNameOk v)
                             0
-                            (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`name` is not a package name: `" v "`\n") (pkg4 "       A package name is letters, digits, `.`, `-` and `_`, and is\n" "       neither `.` nor `..`. It is the file `axiom build` writes when\n" "       no --output is given, so it names a FILE and not a path.\n" ""))))
+                            (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat (strConcat "`name` is not a package name: `" (strConcat v "`\n")) (strConcat "       A package name is letters, digits, `.`, `-` and `_`, and is\n" (strConcat "       neither `.` nor `..`. It is the file `axiom build` writes when\n" (strConcat "       no --output is given, so it names a FILE and not a path.\n" "")))))))
                           0
                         }
                         (if (strEq k "version")
                           {
                             (if (> sawVersion 0)
-                              (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`version` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                              (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat "`version` is given twice\n" (strConcat "       The first would win and this one would be ignored, which is a\n" (strConcat "       manifest that says two things and means one.\n" "")))))
                               0)
                             (set sawVersion 1)
                             0
@@ -1074,24 +1063,24 @@
                           (if (strEq k "opt")
                             {
                               (if (> sawOpt 0)
-                                (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`opt` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                                (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat "`opt` is given twice\n" (strConcat "       The first would win and this one would be ignored, which is a\n" (strConcat "       manifest that says two things and means one.\n" "")))))
                                 0)
                               (set sawOpt 1)
                               (if (pkgOptOk v)
                                 0
-                                (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "`opt` is not an optimisation level: `" v "`\n") (pkg3 "       The manifest's `opt` is the project's default, honoured where\n" "       `--opt` is silent; it answers one of `0`, `1`, `2` or `3`.\n" ""))))
+                                (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat (strConcat "`opt` is not an optimisation level: `" (strConcat v "`\n")) (strConcat "       The manifest's `opt` is the project's default, honoured where\n" (strConcat "       `--opt` is silent; it answers one of `0`, `1`, `2` or `3`.\n" ""))))))
                               0
                             }
                             (if (strEq k "main")
                               {
                                 (if (> sawMain 0)
-                                  (pkgDie (pkg3 (pkgAt mf (+ i 1)) "`main` is given twice\n" (pkg3 "       The first would win and this one would be ignored, which is a\n" "       manifest that says two things and means one.\n" "")))
+                                  (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat "`main` is given twice\n" (strConcat "       The first would win and this one would be ignored, which is a\n" (strConcat "       manifest that says two things and means one.\n" "")))))
                                   0)
                                 (set sawMain 1)
                                 0
                               }
                               0)))))
-                    (pkgDie (pkg3 (pkgAt mf (+ i 1)) (pkg3 "unknown key `" k "`\n") (pkg4 "       The manifest's keys are `name`, `version`, `depend`, `crate`, `opt`\n" "       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n" "       made a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n"))))))))
+                    (pkgDie (strConcat (pkgAt mf (+ i 1)) (strConcat (strConcat "unknown key `" (strConcat k "`\n")) (strConcat "       The manifest's keys are `name`, `version`, `depend`, `crate`, `opt`\n" (strConcat "       and `main`, and `#` starts a comment. An unknown key used to be ignored, which\n" (strConcat "       made a misspelled `depend` report as every module it would have\n" "       provided going missing - one at a time, naming this file never.\n")))))))))))
           (set i (+ i 1))
         })
       0
@@ -1145,7 +1134,7 @@
                   {
                     (if (sysIsDir (strCStr (vecGetStr dirs i)))
                       0
-                      (pkgDie (pkg4 (pkg3 "error: " mf " names a dependency directory that is not there:\n") (pkg3 "       " (vecGetStr dirs i) "\n") "       `depend` names a DIRECTORY of modules, resolved against the\n" (strConcat "       manifest's own directory.\n" (pkgUrlHint text (pathDir mf) (vecGetStr dirs i))))))
+                      (pkgDie (strConcat (strConcat "error: " (strConcat mf " names a dependency directory that is not there:\n")) (strConcat (strConcat "       " (strConcat (vecGetStr dirs i) "\n")) (strConcat "       `depend` names a DIRECTORY of modules, resolved against the\n" (strConcat "       manifest's own directory.\n" (pkgUrlHint text (pathDir mf) (vecGetStr dirs i))))))))
                     (set i (+ i 1))
                   })
                 (pkgCheckOrigins (pkgFetchUrls text) (pathDir mf) mf 0)
@@ -1200,9 +1189,9 @@
           (if (sysFileExists (strCStr (strConcat d "Cargo.toml")))
             (if (sysIsDir (strCStr (strConcat d "axiom/")))
               0
-              (pkgDie (pkg4 (pkg3 "error: " mf " names a crate with no generated module directory:\n") (pkg3 "       " (strConcat d "axiom/") "\n") "       A crate's binding module is written to `DIR/axiom/` by\n       `axiom-bindgen`, and a manifest `crate` does not run it: run\n" "       `axiom build --crate DIR` (or `axiom-bindgen`) once, or commit the\n       generated module, and this line is enough from then on.\n")))
-            (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory with no Cargo.toml:\n") (pkg3 "       " (strConcat d "Cargo.toml") "\n") "       `crate` names a CARGO CRATE - a `Cargo.toml` beside an `axiom/`\n" "       holding its generated module. A plain directory of `.ax` modules\n       is `depend`, not `crate`.\n")))
-          (pkgDie (pkg4 (pkg3 "error: " mf " names a crate directory that is not there:\n") (pkg3 "       " d "\n") "       `crate` names a DIRECTORY holding a `Cargo.toml` and an `axiom/`,\n" "       resolved against the manifest's own directory.\n"))))
+              (pkgDie (strConcat (strConcat "error: " (strConcat mf " names a crate with no generated module directory:\n")) (strConcat (strConcat "       " (strConcat (strConcat d "axiom/") "\n")) (strConcat "       A crate's binding module is written to `DIR/axiom/` by\n       `axiom-bindgen`, and a manifest `crate` does not run it: run\n" "       `axiom build --crate DIR` (or `axiom-bindgen`) once, or commit the\n       generated module, and this line is enough from then on.\n")))))
+            (pkgDie (strConcat (strConcat "error: " (strConcat mf " names a crate directory with no Cargo.toml:\n")) (strConcat (strConcat "       " (strConcat (strConcat d "Cargo.toml") "\n")) (strConcat "       `crate` names a CARGO CRATE - a `Cargo.toml` beside an `axiom/`\n" "       holding its generated module. A plain directory of `.ax` modules\n       is `depend`, not `crate`.\n")))))
+          (pkgDie (strConcat (strConcat "error: " (strConcat mf " names a crate directory that is not there:\n")) (strConcat (strConcat "       " (strConcat d "\n")) (strConcat "       `crate` names a DIRECTORY holding a `Cargo.toml` and an `axiom/`,\n" "       resolved against the manifest's own directory.\n"))))))
       (pkgCheckCrates dirs mf (+ i 1))
     }))
 
@@ -1228,7 +1217,7 @@
       (let ((clash (pkgFirstShared (vecGetStr dirs i) (vecGetStr dirs j))))
         (if (== (strLen clash) 0)
           0
-          (pkgDie (pkg4 (pkg3 "error: two dependencies in " mf " provide the module `") (pkg3 (pkgModuleName clash) "`:\n" "") (pkg3 "       " (strConcat (vecGetStr dirs i) clash) "\n") (pkg4 "       " (strConcat (vecGetStr dirs j) clash) "\n" "       One of them would win by declaration order and the other's\n       modules would compile against declarations they never named.\n")))))
+          (pkgDie (strConcat (strConcat "error: two dependencies in " (strConcat mf " provide the module `")) (strConcat (strConcat (pkgModuleName clash) (strConcat "`:\n" "")) (strConcat (strConcat "       " (strConcat (strConcat (vecGetStr dirs i) clash) "\n")) (strConcat "       " (strConcat (strConcat (vecGetStr dirs j) clash) (strConcat "\n" "       One of them would win by declaration order and the other's\n       modules would compile against declarations they never named.\n")))))))))
       (pkgCheckPair dirs mf i (+ j 1))
     }))
 
@@ -1344,7 +1333,7 @@
   (if (>= i (strLen s))
     s
     (if (== (strByte s i) 47)
-      (pkgDotSlashes (pkg3 (strSlice s 0 i) "." (strSlice s (+ i 1) (- (strLen s) (+ i 1)))) (+ i 1))
+      (pkgDotSlashes (strConcat (strSlice s 0 i) (strConcat "." (strSlice s (+ i 1) (- (strLen s) (+ i 1))))) (+ i 1))
       (pkgDotSlashes s (+ i 1)))))
 
 ; The driver's refusal shape: the message on fd 2, exit 3 - this

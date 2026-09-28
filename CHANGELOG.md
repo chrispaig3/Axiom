@@ -22,6 +22,27 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The compiler joins strings with `strConcat` alone - 2026-09-28
+
+The compiler's source had six private helpers that each nested
+`strConcat` calls: `cat2`, `cat3` and `cat4` in `self_host/codegen.ax`,
+`pkg3` and `pkg4` in `self_host/pkg.ax`, and `mcat3` in
+`self_host/mir.ax`, the last two copies because those modules can't
+import `codegen.ax`. They are gone, and all 1,336 call sites write the
+`strConcat` calls themselves, right-nested so the pieces read left to
+right: `(strConcat a (strConcat b c))`. The pieces are evaluated in the
+same order and allocate the same number of times.
+
+Nothing a program sees changes. The rewritten compiler and the one
+before it answer `check` identically and emit byte-identical IR for
+551 programs: every file under `tests/stdlib`, `tests/selfhost`,
+`tests/diagnostics` and `examples`, and the compiler's own source.
+Compiling that source takes 3.70 s against 3.73 s before, best of
+three. The six rows leave `scripts/check-effect-distribution.sh`'s
+`Alloc,Mut,Unsafe` bucket (2362 to 2356), and the two exact-string
+seams `scripts/lib/embedded-patch.py` ablates in `codegen.ax` are
+re-anchored to the new spelling.
+
 ### The resource report names trap statuses and blocking calls — `scripts/axiom-report.py`, RP-8, R-D1 - 2026-09-28
 
 `scripts/axiom-report.py` now says, for each reachable function, which

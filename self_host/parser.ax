@@ -1108,9 +1108,9 @@
 ; a substitution rather than a search.
 (pub :: ax3047Diag (-> (Vec Int) Int String Int))
 (pub fn (ax3047Diag tokens pos n)
-  ; `strConcat` rather than `cat3`/`cat4`: those live in `codegen.ax`,
-  ; and `parser.ax` must not depend on it. Whole-program splicing hides
-  ; the mistake from a build of `main.ax` - every module is in one
+  ; Only `Str`'s names here: `parser.ax` must not depend on
+  ; `codegen.ax`. Whole-program splicing hides that
+  ; mistake from a build of `main.ax` - every module is in one
   ; namespace by then - and it surfaces the moment anything imports the
   ; parser ALONE, which `tests/selfhost/280-parse.ax` does and three
   ; other compiler modules do.
@@ -5238,9 +5238,9 @@
 ; index in base 36 with the digits and the lowercase letters, which is
 ; what LLVM admits in a name and what this file has to hand without an
 ; import - `Str` has no decimal renderer, `Fmt` is not imported here.
-; `strConcat` and not codegen's `cat2`: a bare name resolves through
-; the entry file's imports, and `tests/selfhost/280-parse.ax` imports
-; this module without codegen (`check-diagnostics.sh` compiles the
+; Only names this module imports: a bare name resolves through the
+; entry file's imports, and `tests/selfhost/280-parse.ax` imports this
+; module without codegen (`check-diagnostics.sh` compiles the
 ; compiler's own sources one module at a time and found the capture).
 (pub :: parHandleName (-> Int String))
 (pub fn (parHandleName i)

@@ -67,10 +67,10 @@ ABLATIONS = {
     # stand - the two chunk lines read the EFFECTIVE chunk since the
     # ceiling flag landed, and re-anchoring here is part of that move.
     "literal": (
-        """    (emitLine cg (cat3 "  %big = icmp ugt i64 %need, " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))
-    (emitLine cg (cat3 "  %rounded0 = add i64 %need, " (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) ""))
-    (emitLine cg (cat3 "  %rounded = and i64 %rounded0, " (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) ""))
-    (emitLine cg (cat3 "  %chunk = select i1 %big, i64 %rounded, i64 " (fmtInt (arenaChunkBytes (memGetWord cg 26))) ""))""",
+        """    (emitLine cg (strConcat "  %big = icmp ugt i64 %need, " (strConcat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))
+    (emitLine cg (strConcat "  %rounded0 = add i64 %need, " (strConcat (fmtInt (- (targetArenaGrainBytes (memGetWord cg 26)) 1)) "")))
+    (emitLine cg (strConcat "  %rounded = and i64 %rounded0, " (strConcat (fmtInt (- 0 (targetArenaGrainBytes (memGetWord cg 26)))) "")))
+    (emitLine cg (strConcat "  %chunk = select i1 %big, i64 %rounded, i64 " (strConcat (fmtInt (arenaChunkBytes (memGetWord cg 26))) "")))""",
         """    (emitLine cg "  %big = icmp ugt i64 %need, 1048576")
     (emitLine cg "  %rounded0 = add i64 %need, 65535")
     (emitLine cg "  %rounded = and i64 %rounded0, -65536")
@@ -153,10 +153,10 @@ ABLATIONS = {
     # edits, one drill - the keyword is one property of one family, and
     # stripping half of it would leave A11 half-tested.
     "volatile": (
-        [(""" = load volatile " ty ", ptr ") pr (cat2 ", align " """,
-          """ = load " ty ", ptr ") pr (cat2 ", align " """),
-         ("""(cat4 "  store volatile " ty " " sv)""",
-          """(cat4 "  store " ty " " sv)""")],
+        [(""" = load volatile " (strConcat ty ", ptr ")) (strConcat pr (strConcat ", align " """,
+          """ = load " (strConcat ty ", ptr ")) (strConcat pr (strConcat ", align " """),
+         ("""(strConcat "  store volatile " (strConcat ty (strConcat " " sv)))""",
+          """(strConcat "  store " (strConcat ty (strConcat " " sv)))""")],
         None,
         "A11 - the volatile keyword reaching the emitted accesses",
     ),

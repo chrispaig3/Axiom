@@ -3566,8 +3566,8 @@
             (cast Int modName)
             0)
             0
-            ; `strConcat` twice rather than `cat3`, which lives in
-            ; codegen.ax and is not imported here - stage0's flat
+            ; `strConcat` twice, from `Str`: nothing from codegen.ax
+            ; is imported here - stage0's flat
             ; namespace resolves it across the merged declaration list
             ; and stage1 refuses it, which is the open B4 item and the
             ; stricter of the two answers.
