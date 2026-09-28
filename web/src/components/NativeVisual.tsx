@@ -1,3 +1,5 @@
+import brand from '../../../assets/logo/geometry.json'
+
 /** A lightweight, decorative view of the source-to-native pipeline. */
 export function NativeVisual() {
   return (
@@ -18,7 +20,7 @@ export function NativeVisual() {
         <g className="native-prism">
           <path d="M250 79 380 317 250 371 120 317Z" fill="url(#axiom-prism)" stroke="currentColor" strokeOpacity=".5" />
           <path d="m250 79 0 292M120 317l130-63 130 63M250 79 180 290m70-211 70 211" stroke="currentColor" strokeOpacity=".22" />
-          <path d="m186 287 64-126 64 126m-106-39h84" stroke="currentColor" strokeWidth="9" strokeLinecap="square" />
+          <path d={brand.markPath} transform="translate(178 152) scale(2.25)" fill="currentColor" />
           <path d="M250 79 380 317 250 371 120 317Z" className="native-prism__trace" stroke="currentColor" strokeWidth="2" />
         </g>
         <g fill="currentColor"><circle cx="250" cy="79" r="3" /><circle cx="120" cy="317" r="3" /><circle cx="380" cy="317" r="3" /><circle cx="250" cy="371" r="3" /></g>

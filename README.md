@@ -4,7 +4,7 @@
 
 **Functional programming that ships a binary, not a runtime.**
 
-<img width="1500" height="1024" alt="Image" src="https://github.com/user-attachments/assets/38a9afb6-3570-4797-ba57-488e004f4e66" />
+<img width="1600" height="900" alt="Axiom — High-level thinking. Native-level control. Electric lime symbol and warm white wordmark on graphite." src="https://raw.githubusercontent.com/chrispaig3/Axiom/trunk/assets/logo/Axiom_Logo.png" />
 
 > Algebraic data types, exhaustive matching and an effect system the compiler checks, lowered through LLVM to a native executable with no VM, no collector and no libc inside it.
 

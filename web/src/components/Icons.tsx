@@ -1,3 +1,5 @@
+import brand from '../../../assets/logo/geometry.json'
+
 interface IconProps {
   size?: number
   className?: string
@@ -16,25 +18,18 @@ const base = (size: number) => ({
   focusable: false as const,
 })
 
-/** The wordmark glyph: an A whose crossbar is an orbit, after the repo logo. */
+/** The split-A silhouette shared with the brand kit. */
 export function Mark({ size = 22, className }: IconProps) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 32 32"
+      viewBox="0 0 64 64"
       className={className}
       aria-hidden
       focusable="false"
     >
-      <path d="M16 4 L28 28 H23.2 L16 11.6 L8.8 28 H4 Z" fill="currentColor" />
-      <path
-        d="M10.5 20.5 H21.5"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        opacity="0.55"
-      />
+      <path d={brand.markPath} fill="currentColor" />
     </svg>
   )
 }

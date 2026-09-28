@@ -1,4 +1,4 @@
-import { asset } from '../lib/asset.ts'
+import { BrandLogo } from '../components/BrandLogo.tsx'
 import { BLOB, DOCS, RELEASES, REPO, VERSION } from '../data/site.ts'
 
 const COLUMNS: { title: string; links: [string, string][] }[] = [
@@ -42,9 +42,8 @@ export function Footer() {
     <footer className="footer">
       <div className="container footer__inner">
         <div className="footer__brand">
-          <a className="brand" href="#top">
-            <img className="brand__mark" src={asset('axiom-mark.png')} alt="" width={26} height={24} />
-            <span className="brand__word">Axiom</span>
+          <a className="brand" href="#top" aria-label="Axiom, back to the top">
+            <BrandLogo />
           </a>
           <p>
             A small language for ambitious ideas. Built in the open, with room for your contribution.{' '}

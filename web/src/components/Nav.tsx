@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react'
-import { asset } from '../lib/asset.ts'
+import { BrandLogo } from './BrandLogo.tsx'
 import { DOCS, REPO, VERSION } from '../data/site.ts'
 import { GitHub, Menu, Moon, Sun, X } from './Icons.tsx'
 
@@ -49,14 +49,7 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
     <header className="nav" data-open={open}>
       <div className="container nav__inner">
         <a className="brand" href="#top" aria-label="Axiom, back to the top">
-          <img
-            className="brand__mark"
-            src={asset('axiom-mark.png')}
-            alt=""
-            width={26}
-            height={24}
-          />
-          <span className="brand__word">Axiom</span>
+          <BrandLogo />
           <span className="brand__version">{VERSION}</span>
         </a>
 
