@@ -1,0 +1,21 @@
+[1;31merror[AX3012][0m[1m: cannot assign to `true`: it is a built-in, not a binding[0m
+  [1;34m--> [0m1015-set-not-binding.ax:16:12
+[1;34m   |[0m
+[1;34m16 |[0m       (set true 1)
+[1;34m   |[0m            [1;31m^^^^ `true` cannot be assigned[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthis used to pass `check` and fail inside codegen as AX4002
+  [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`; bind a mutable local of your own
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+[1;31merror[AX3012][0m[1m: cannot assign to `strLen`: it is an imported function, not a binding[0m
+  [1;34m--> [0m1015-set-not-binding.ax:24:12
+[1;34m   |[0m
+[1;34m24 |[0m       (set strLen 1)
+[1;34m   |[0m            [1;31m^^^^^^ `strLen` cannot be assigned[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthis used to pass `check` and fail inside codegen as AX4002
+  [1;34m = [0m[1;32mhelp: [0monly a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`; bind a mutable local of your own
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3012` for a full explanation
+
+compilation failed due to 2 previous errors

@@ -308,6 +308,74 @@
                 (utf8ValidFrom s (+ i n))
                 false))))))))
 
+; The length of the WELL-FORMED UTF-8 sequence that begins at byte `i`
+; of `s` and ends at or before byte `end`: 1 to 4, or 0 when the bytes
+; there are not one.
+;
+; Strict where `utf8Valid` is structural - this is Unicode's Table 3-7
+; exactly, so an overlong form (`C0 AF`), an encoded surrogate
+; (`ED A0 80`), a code point above U+10FFFF (`F4 90 ..`), a stray
+; continuation byte, a truncated sequence and the bytes `F5`-`FF` all
+; answer 0. Those are the inputs a strict decoder refuses - Python's,
+; and every JSON parser's - so a writer that must never emit text such
+; a reader rejects asks this, and replaces what answers 0.
+;
+; Added 2026-09-27 for exactly that writer: the compiler's JSON
+; diagnostics passed ill-formed bytes from a source file straight
+; through (`tests/fuzz/json-ax1001-partial-char.axfuzz`).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: utf8WellFormedAt (-> String Int Int Int))
+(pub fn (utf8WellFormedAt s i end)
+  (if (|| (< i 0) (>= i end))
+    0
+    (let ((b (strByte s i)))
+      (if (< b 128)
+        1
+        (if (&& (>= b 194) (<= b 223))
+          (if (utf8ContIn s (+ i 1) end 128 191)
+            2
+            0)
+          (if (&& (>= b 224) (<= b 239))
+            (if (&&
+              (utf8ContIn
+                s
+                (+ i 1)
+                end
+                (if (== b 224)
+                  160
+                  128)
+                (if (== b 237)
+                  159
+                  191))
+              (utf8ContIn s (+ i 2) end 128 191))
+              3
+              0)
+            (if (&& (>= b 240) (<= b 244))
+              (if (&&
+                (utf8ContIn
+                  s
+                  (+ i 1)
+                  end
+                  (if (== b 240)
+                    144
+                    128)
+                  (if (== b 244)
+                    143
+                    191))
+                (&& (utf8ContIn s (+ i 2) end 128 191) (utf8ContIn s (+ i 3) end 128 191)))
+                4
+                0)
+              0)))))))
+
+; Is byte `i` of `s`, before `end`, in [lo, hi]?
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: utf8ContIn (-> String Int Int Int Int Bool))
+(fn (utf8ContIn s i end lo hi)
+  (if (>= i end)
+    false
+    (let ((c (strByte s i)))
+      (&& (>= c lo) (<= c hi)))))
+
 ; Are the next `k` bytes from `i` all continuation bytes?
 ;@axiom:restrict(no-io,no-alloc,no-foreign)
 (:: utf8ContRun (-> String Int Int Bool))

@@ -7367,6 +7367,27 @@
         0
       })))
 
+; `set` on a name that is no binding at all: a built-in or an imported
+; function. Answers poison, the type a refused target has everywhere
+; else; nothing is emitted for a spanless target.
+(pub :: emitSetNotBinding (-> Int String Int String Int))
+(pub fn (emitSetNotBinding tc name tspan what)
+  {
+    (if (== tspan 0)
+      0
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR
+        "AX3012"
+        "assign-to-immutable"
+        tspan
+        (strConcat (strConcat (strConcat (strConcat "cannot assign to `" (srcSpelling name)) "`: it is ") what) ", not a binding")
+        0
+        0
+        "only a binding introduced by `(let ((mut x ...)) ...)` may be the target of `set`; bind a mutable local of your own"
+        "this used to pass `check` and fail inside codegen as AX4002") (strConcat (strConcat "`" (srcSpelling name)) "` cannot be assigned"))))
+    (mkNode TAG_T_ERR 0 0 0)
+  })
+
 ; `set` from inside a lambda on a binding OUTSIDE it. The binding may
 ; well be `mut` - but a closure captures the VALUE it saw when its
 ; record was built (docs/memory-model.md MM-VAL-16), so there is no
@@ -7490,33 +7511,32 @@
                                         1
                                         (if (strEq n "false")
                                           1
+                                          ; The cast forms. As a HEAD each is claimed by
+                                          ; `checkCastForm` before any name is resolved;
+                                          ; named bare, `checkBareValue` refuses it
+                                          ; (AX3013) before this list is asked.
+                                          ;
+                                          ; `handle` and the five built-in effect names
+                                          ; `IO`, `Pure`, `Alloc`, `Mut`, `Div` were here
+                                          ; until 2026-09-27, because a `handle` list used
+                                          ; to be parsed as an APPLICATION and put each name
+                                          ; where an argument goes. `parseHandleExpr` has
+                                          ; built a TAG_E_HANDLE since, whose effect names
+                                          ; no variable lookup ever reads - so the only
+                                          ; references left reaching this answer were the
+                                          ; ones in VALUE position, and each checked OK and
+                                          ; emitted `%IO`, a register nothing defines
+                                          ; (`tests/fuzz/builtin-name-value.axfuzz`). They
+                                          ; are AX3001 now, as the sixth built-in effect
+                                          ; `Unsafe` and the keywords `if`/`let`/`match`
+                                          ; always were.
                                           (if (strEq n "cast")
                                             1
                                             (if (strEq n "sizeof")
                                               1
                                               (if (strEq n "alignof")
                                                 1
-                                                ; `handle` is a keyword form stage1's parser does not implement, so
-                                                ; `(handle body (E) h)` arrives here as an ordinary application with
-                                                ; `handle` as its head. stage1 cannot lower the effect system, but
-                                                ; reporting its keyword as an undefined *variable* is a false
-                                                ; positive on a program stage0 compiles silently.
-                                                (if (strEq n "handle")
-                                                  1
-                                                  ; The built-in effect names. A `handle` list is parsed as an
-                                                  ; application by a parser with no `handle` form, so `(Console IO
-                                                  ; Alloc)` puts each of these where an argument goes.
-                                                  (if (strEq n "IO")
-                                                    1
-                                                    (if (strEq n "Pure")
-                                                      1
-                                                      (if (strEq n "Alloc")
-                                                        1
-                                                        (if (strEq n "Mut")
-                                                          1
-                                                          (if (strEq n "Div")
-                                                            1
-                                                            0))))))))))))))))))))))))))))))
+                                                0))))))))))))))))))))))))
 
 (pub :: strInVec (-> (Vec a) String Int Int))
 (pub fn (strInVec v n i)
@@ -7654,12 +7674,6 @@
       (if (&& (strEq (nodeAName m) bare) (&& (!= (nodeModule m) 0) (strEq (nodeModuleName m) qm)))
         1
         (isMacroQualNamedIn ms bare qm (+ i 1))))))
-
-(pub :: isEffectName (-> Int String Int))
-(pub fn (isEffectName tc n)
-  (if (== (findEffectDecl tc n) 0)
-    0
-    1))
 
 ; The TAG_D_EFFECT node declaring `n`, or 0. Its ops vector's length
 ; is what AX3017 reports.
@@ -8546,7 +8560,17 @@
                           ; dispatch rewrote the CALL - and the
                           ; disjunct asking `tcTraits` went with the
                           ; construct.
-                          (if (|| (== (isBuiltinName name) 1) (|| (== (isMacroName tc name) 1) (|| (== (isEffectName tc name) 1) (&& (== inHead 1) (== (showIsHead name) 1)))))
+                          ;
+                          ; A declared EFFECT's name was quiet here
+                          ; too, for the reason `isBuiltinName` gives
+                          ; for the built-in ones - a `handle` list
+                          ; parsed as an application - and went with
+                          ; them on 2026-09-27: `(g Console)` and
+                          ; `(Console 1)` checked OK and emitted
+                          ; `%Console` / `@Console`, which nothing
+                          ; defines. A handle list's names are never
+                          ; looked up here now.
+                          (if (|| (== (isBuiltinName name) 1) (|| (== (isMacroName tc name) 1) (&& (== inHead 1) (== (showIsHead name) 1))))
                             mkSilentWild
                             (emitUndefinedVar tc name (nodeSpan e))))))))))))))))
 
@@ -8594,7 +8618,42 @@
                   "a partial application has to hold the arguments it was not given, and a top-level function has no closure record to hold them in") (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (decStr ar)) " arguments, so it cannot be used as a bare value")))
                 1
               })
-            0)))
+            ; A ONE-argument BUILT-IN (FnEnt word 3): a primitive is
+            ; lowered in place at every call and has no function
+            ; symbol, so unlike a one-parameter `fn` - whose bare name
+            ; is a thunk - it has no value to take. `(__floatToInt)`,
+            ; `(__alloc)` and eleven more checked OK and emitted
+            ; `%__floatToInt`, a register nothing defines, which `llc`
+            ; refused (`tests/fuzz/primitive-value.axfuzz`, found by
+            ; the seeded fuzzer 2026-09-27). Every built-in of two or
+            ; more took the arm above already.
+            (if (&& (== ar 1) (== (memGetWord ent 3) 1))
+              (refuseBareForm
+                tc
+                name
+                1
+                span
+                (strConcat (strConcat "call it, or wrap it in a lambda to pass it as a value: `(lambda (x) (" name) " x))`")
+                "a primitive is lowered in place at each call and has no function symbol, so a bare reference to one has no value to take")
+              0))))
+      ; `cast`, `sizeof` and `alignof` are FORMS: their first argument
+      ; is a type, and there is no function behind any of them. Named
+      ; bare they reached `isBuiltinName`'s silent wildcard, checked
+      ; OK, and emitted `%cast` (`tests/fuzz/builtin-name-value.axfuzz`).
+      ; Asked only when no `fn` of the name exists, the way the
+      ; constructor refusal below is.
+      (if (== (isCastLike name) 1)
+        (refuseBareForm
+          tc
+          name
+          (if (strEq name "cast")
+            2
+            1)
+          span
+          (if (strEq name "cast")
+            "write the value to convert after the type - `(cast Int e)` - or, for a function value, `(lambda (x) (cast Int x))`"
+            (strConcat (strConcat "write the type it measures: `(" name) " Int)`"))
+          "`cast`, `sizeof` and `alignof` are forms whose first argument is a type, not functions: there is nothing for a bare one to be")
       (let ((ctor (rfindCtor tc name)))
         (if (== ctor 0)
           0
@@ -8614,7 +8673,29 @@
                     0
                     (strConcat (strConcat "this constructor takes exactly " (decStr fc)) " field(s); add or remove arguments to match")) "0 argument(s) provided here"))
                   1
-                }))))))))
+                })))))))))
+
+; AX3013 for a bare name that takes `ar` arguments and has no value
+; without them - a one-argument primitive, or one of the cast forms.
+; Answers 1 (refused; the caller poisons), with nothing emitted for a
+; spanless reference, as the arity arm above does.
+(pub :: refuseBareForm (-> Int String Int Int String String Int))
+(pub fn (refuseBareForm tc name ar span help note)
+  {
+    (if (== span 0)
+      0
+      (emitDiag tc (diagSetLabel (mkDiagNote
+        SEV_ERROR
+        "AX3013"
+        "partial-application"
+        span
+        (strConcat (strConcat (strConcat (strConcat "partial application of `" name) "`: it takes ") (decStr ar)) " argument(s) and 0 were supplied")
+        0
+        0
+        help
+        note) (strConcat (strConcat (strConcat (strConcat "`" name) "` takes ") (decStr ar)) " argument(s), so it cannot be used as a bare value"))))
+    1
+  })
 
 ; A name that IS defined, in a module that does not export it, is a
 ; different mistake from a name that is defined nowhere, and it used
@@ -11444,6 +11525,31 @@
           0
           "remove the extra argument"
           "it used to be discarded in silence") "extra argument"))
+        0)
+      ; The other side of the same count: `(cast T)` with its VALUE
+      ; missing. `isCastLike` keeps `cast` out of `checkSaturation`,
+      ; which is right for the surplus it exempts above and left the
+      ; shortfall unasked - it checked OK and the emitter lowered the
+      ; TYPE name as a variable, `%Int`, which `llc` refused as an
+      ; undefined value (`tests/fuzz/cast-missing-operand.axfuzz`,
+      ; found by the seeded fuzzer 2026-09-27). The code is the one
+      ; a missing argument gets everywhere else. `sizeof`/`alignof`
+      ; cannot reach this with none: `(sizeof)` is the bare name,
+      ; which `checkBareValue` refuses. A lone LITERAL is not asked:
+      ; AX3002 below already refuses it as "not a type", with the
+      ; same `(cast Int e)` advice, and two reports would be one
+      ; mistake said twice.
+      (if (&& (strEq hname "cast") (&& (< (vecLen args) 2) (|| (== (vecLen args) 0) (== (castTypeIsLiteral (vecGet args 0)) 0))))
+        (emitDiag tc (diagSetLabel (mkDiagNote
+          SEV_ERROR
+          "AX3013"
+          "partial-application"
+          (spanOf (spineHead e))
+          (strConcat (strConcat "partial application of `cast`: it takes 2 argument(s) and " (decStr (vecLen args))) " were supplied")
+          0
+          0
+          "write the value to convert after the type - `(cast Int e)` - or, for a function value, `(lambda (x) (cast Int x))`"
+          "`cast` is a form and not a function: with its value missing there was nothing to convert, and the emitter read the type name as a variable the native toolchain refused") "`cast` takes a type and a value; the value is missing"))
         0)
       (if (strEq hname "cast")
         (if (>= (vecLen args) 1)
@@ -15485,11 +15591,20 @@
                 (sEntTy ent)
               }))
         )
+        ; A built-in (`+`, `true`, `cast`) or an IMPORTED function as
+        ; the target was silent here - the first by the same wildcard
+        ; `checkVar` answers, the second because stage0's AX3012 for
+        ; it was anchored in the other file, which this renderer once
+        ; could not quote. Silence meant `check` said OK and
+        ; `emit-llvm` refused as AX4002 "set target is not a mut
+        ; binding", whose own help calls it a compiler bug. Both are
+        ; AX3012 now, anchored at the target in THIS file, which
+        ; needs nothing from the other one.
         ((None)
           (if (== (isBuiltinName name) 1)
-            mkSilentWild
+            (emitSetNotBinding tc name (nodeSpan e) "a built-in")
             (if (== (setTargetCovered tc name) 1)
-              mkSilentWild
+              (emitSetNotBinding tc name (nodeSpan e) "an imported function")
               (let ((best newBest))
                 {
                   (offerScope best name (tcScopeVec tc) 0)
@@ -20526,13 +20641,87 @@
         (if (strEq key "effect")
           (if (strEq val "pure")
             (axtagContradicted tc d "`effect(pure)` claim" eff)
-            (axtagUnsupported
-              tc
-              d
-              val
-              eff
-              eparams))
+            (let ((names (effTagWords val)))
+              (if (> (vecLen names) 1)
+                (emitEffectTagList tc d val names)
+                (axtagUnsupported
+                  tc
+                  d
+                  val
+                  eff
+                  eparams))))
           (axtagKeyTypo tc d key))))))
+
+; AX3076: `;@axiom:effect(io, unsafe)`. An `effect(...)` tag names ONE
+; effect, and a list was read as one CUSTOM effect named `io, unsafe` -
+; which nothing declares and nothing produces, so AX3010 answered
+; "claim unsupported: missing io, unsafe" about a body that performed
+; both. The message was true of the parse and false of the program.
+; `restrict(...)` does take a comma list, which is what makes the
+; spelling an easy one to reach for.
+;
+; Refused rather than accepted: one line per effect is the spelling
+; every tool that reads tags (`symbols`, the effect walk, the LSP)
+; already agrees on, and a second spelling would have to be taught to
+; each of them. Whitespace separates too - `effect(io unsafe)` is the
+; same mistake - while a single name with blanks round it is not a
+; list and keeps its old reading.
+(pub :: effTagWords (-> String (Vec String)))
+(pub fn (effTagWords val)
+  (let (
+    (out vecNew)
+    (n (strLen val))
+    (mut i 0)
+    (mut start (- 0 1))
+  )
+    {
+      (while (<= i n)
+        (let ((b (if (< i n)
+          (strByte val i)
+          44)))
+          {
+            (if (|| (== b 44) (|| (== b 32) (== b 9)))
+              (if (>= start 0)
+                {
+                  (vecPush out (strSlice val start (- i start)))
+                  (set start (- 0 1))
+                }
+                0)
+              (if (< start 0)
+                (set start i)
+                0))
+            (set i (+ i 1))
+          }))
+      out
+    }))
+
+(pub :: emitEffectTagList (-> Int Int String (Vec String) Int))
+(pub fn (emitEffectTagList tc d val names)
+  (if (== (nodeSpan d) 0)
+    0
+    (emitDiag tc (diagSetLabel (mkDiagNote
+      SEV_ERROR
+      "AX3076"
+      "effect-tag-list"
+      (nodeSpan d)
+      (strConcat (strConcat (strConcat (strConcat (strConcat "`effect(" val) ")` on `") (bareOf (nodeAName d))) "` names ") (strConcat (decStr (vecLen names)) " effects, and an `effect(...)` tag names one"))
+      0
+      0
+      (strConcat "write one tag line per effect: " (effTagLines names 0 ""))
+      "a list here was read as ONE effect spelled with the comma in it, which nothing declares - so the claim could never be satisfied, and AX3010 reported it missing from a body that performed it. `restrict(...)` takes a comma list; `effect(...)` does not") "one effect per `effect(...)` tag"))))
+
+(pub :: effTagLines (-> (Vec String) Int String String))
+(pub fn (effTagLines names i acc)
+  (if (>= i (vecLen names))
+    acc
+    (effTagLines
+      names
+      (+ i 1)
+      (strConcat
+        (if (== i 0)
+          acc
+          (strConcat acc " and "))
+        (strConcat (strConcat "`;@axiom:effect(" (vecGetStr names i)) ")`")))))
 
 ; The LAST `)`, scanned backwards, which is stage0's `rfind` - a
 ; value may contain parens of its own.
@@ -21359,6 +21548,7 @@
                     (cast Int sv)))
               })
             (memSetWord tc 23 0))
+          (checkDupParams tc d params 1)
           (bindFnParams
             tc
             params
@@ -21434,6 +21624,59 @@
               }))
         })
     }))
+
+; One name, twice, in one `fn`'s parameter list: AX3006, the code for
+; two definitions of one name in one scope - which a parameter list
+; is. This checked OK until 2026-09-27 and the emitter wrote
+; `define i64 @f(i64 %x, i64 %x)`, which `llc` refuses as a
+; redefinition of argument, so `build` failed at the toolchain (exit
+; 4) on a program `check` had called well-typed; found by the seeded
+; fuzzer (`tests/fuzz/dup-param-llc.axfuzz`). The checker bound both
+; and the body read the LAST, while the emitter's by-name parameter
+; lookups answer the FIRST - two readings of one reference, so the
+; refusal is the only sound answer and not merely the cheap one.
+;
+; `_` is not exempt. In a `fn`'s parameter list it is a name like any
+; other - `(fn (f _) _)` answers its argument - so `(fn (f _ _) 0)`
+; is the same collision, and it died in `llc` the same way. A LAMBDA
+; is a different case: the parser curries `(lambda (x x) x)` into two
+; nested one-parameter lambdas before this pass sees it, so there the
+; second `x` shadows the first and the emitted code agrees.
+;
+; Parameters carry no span of their own, so the report anchors at the
+; function's name and names the parameter in the message. Reported
+; once per repeated name, at its second occurrence.
+(pub :: checkDupParams (-> Int Int (Vec Int) Int Int))
+(pub fn (checkDupParams tc d params i)
+  (if (>= i (vecLen params))
+    0
+    (let ((p (vecGetStr params i)))
+      {
+        (if (== (strCountIn params p 0 i) 1)
+          (emitDiag tc (diagSetLabel (mkDiagNote
+            SEV_ERROR
+            "AX3006"
+            "duplicate-definition"
+            (nodeSpan d)
+            (strConcat (strConcat (strConcat (strConcat "duplicate parameter `" (srcSpelling p)) "` in the definition of `") (srcSpelling (bareOf (nodeAName d)))) "`")
+            0
+            0
+            "give each parameter its own name; an unused one can be `_a`, `_b` - `_` is a name here like any other, so two of them collide too"
+            "the body could only ever read one of them, and the emitted function declared both, which the native toolchain refused after `check` said OK") (strConcat (strConcat "`" (srcSpelling p)) "` names two parameters of this function")))
+          0)
+        (checkDupParams tc d params (+ i 1))
+      })))
+
+; How many of `v`'s first `end` entries equal `s`.
+(pub :: strCountIn (-> (Vec Int) String Int Int Int))
+(pub fn (strCountIn v s i end)
+  (if (>= i end)
+    0
+    (+
+      (if (strEq (vecGetStr v i) s)
+        1
+        0)
+      (strCountIn v s (+ i 1) end))))
 
 ; The signature's result type: its arrows peeled by as many
 ; parameters as the definition has. 0 when the signature runs out of

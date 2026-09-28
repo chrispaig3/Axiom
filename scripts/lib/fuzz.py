@@ -51,9 +51,14 @@ Subcommands:
        LIST names, one per line, files each holding one
        `--diagnostic-format json` stderr; prints `<file><TAB><why>` for
        every malformed one (see `json_ok`) and `checked N`
+  human LIST
+       the same for human-format `check` stderr: prints `<file><TAB><why>`
+       for every report a terminal cannot safely print (see `human_ok`)
+       and `checked N`
   selftest
        the PRNG's first outputs, the scanner on fixed text, and the JSON
-       checker refusing malformed lines - the generator's own canaries
+       and human checkers refusing malformed reports - the generator's
+       own canaries
   reduce --cmd CMD FILE OUT
        shrink FILE while `sh -c CMD` (with $FUZZ_INPUT set) still exits
        0; a triage tool for a red run, not used by the gate
@@ -732,6 +737,67 @@ def cmd_json(pos):
     return 1 if bad else 0
 
 
+# One SGR colour sequence - the only escape the human renderer writes.
+# Its parameters must be one of self_host/style.ax's palette entries
+# (the render gate's check 5 reads the same table), or `0`, the reset:
+# a source file that smuggles `ESC [ 31 m` into a quoted line writes a
+# sequence of exactly this SHAPE, so the shape alone would excuse it.
+SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
+
+
+def style_palette(root):
+    """The SGR parameter strings self_host/style.ax declares, and `0`."""
+    with open(os.path.join(root, "self_host", "style.ax"), encoding="utf-8") as f:
+        pal = set(re.findall(r'"([0-9;]+)"', f.read()))
+    pal.add("0")
+    return pal
+
+
+def human_ok(data, palette):
+    """None when `data` (the stderr of one human-format `check`) is safe
+    to print to a terminal, else the reason.
+
+    Safe is: well-formed UTF-8, and no control byte but the newline once
+    the colour sequences are taken out. A raw ESC lets a source file
+    write escape sequences - a colour, a cursor move, a window title -
+    into the report; a NUL, a backspace or a carriage return hides or
+    moves what the caret row points at; a tab is drawn by the renderer
+    as spaces wherever it has a column to keep. The message surfaces
+    have escaped control bytes since 2026-08-16; the QUOTED SOURCE LINE
+    echoed them raw until 2026-09-27 (`dispUnitText` in render.ax)."""
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        return "not UTF-8: %s" % e
+    for m in SGR_RE.finditer(data):
+        if m.group(1).decode("ascii") not in palette:
+            return "an SGR sequence ESC[%sm on report line %d that style.ax does not declare" % (
+                m.group(1).decode("ascii"), data[:m.start()].count(b"\n") + 1)
+    plain = SGR_RE.sub(b"", data)
+    for i, b in enumerate(plain):
+        if (b < 32 and b != 10) or b == 127:
+            return "raw control byte 0x%02X on report line %d" % (b, plain[:i].count(b"\n") + 1)
+    return None
+
+
+def cmd_human(pos):
+    """`human LIST`: as `json`, for human-format reports and `human_ok`,
+    against the palette of the tree this file is in."""
+    palette = style_palette(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    bad = n = 0
+    with open(pos[0], encoding="utf-8") as f:
+        files = [ln.rstrip("\n") for ln in f if ln.strip()]
+    for p in files:
+        with open(p, "rb") as f:
+            why = human_ok(f.read(), palette)
+        n += 1
+        if why is not None:
+            print("%s\t%s" % (p, why.replace("\t", " ").replace("\n", " ")))
+            bad += 1
+    print("checked %d" % n)
+    return 1 if bad else 0
+
+
 # A corpus that is not the tree, and the digest of 200 mutants of it at
 # seed 1. The tree's own mutants move with every edit to any `.ax`, so
 # no digest of them can be pinned; this one can, and pinning it is what
@@ -806,9 +872,23 @@ def cmd_selftest():
         if json_ok(broken) is None:
             print("the JSON checker accepted a malformed report: %r" % broken[:80])
             return 1
+    h_accepted = (b"", b"error[AX3001]: m\n", b"\x1b[1;31merror\x1b[0m: \xe4\xb8\xad \\u{1}\n",
+                  b"2 | (s \"\xe2\x90\x9b[31m\")\n")
+    h_palette = {"0", "1", "1;31", "1;34"}
+    h_refused = (b"\x1b[31mred\x1b[0m\n", b"a\x00b\n", b"\x1b]0;title\x07\n", b"\x1b[31m\x1b[2J\x1b[H\n", b"\xe4\n",
+                 b"\xed\xa0\x80\n", b"a\rb\n", b"a\tb\n", b"a\x7fb\n", b"\x1b\n")
+    for ok in h_accepted:
+        if human_ok(ok, h_palette) is not None:
+            print("the human checker refused a safe report: %s" % human_ok(ok, h_palette))
+            return 1
+    for broken in h_refused:
+        if human_ok(broken, h_palette) is None:
+            print("the human checker accepted an unsafe report: %r" % broken[:80])
+            return 1
     print("selftest: splitmix64, the pinned-corpus digest %s..., the scanner, "
-          "the JSON checker (%d accepted, %d refused)"
-          % (d[:12], len(accepted), len(refused)))
+          "the JSON checker (%d accepted, %d refused), the human checker "
+          "(%d accepted, %d refused)"
+          % (d[:12], len(accepted), len(refused), len(h_accepted), len(h_refused)))
     return 0
 
 
@@ -889,6 +969,8 @@ def main(argv):
         return cmd_diff(args, pos)
     if cmd == "json":
         return cmd_json(pos)
+    if cmd == "human":
+        return cmd_human(pos)
     if cmd == "selftest":
         return cmd_selftest()
     if cmd == "reduce":

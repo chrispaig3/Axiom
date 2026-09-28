@@ -1,0 +1,13 @@
+; AX1001 quotes the whole CHARACTER. The lexer's error token was one
+; byte long, so a character outside the identifier set that takes more
+; than one byte in UTF-8 was reported by its lead byte alone: the
+; message quoted a byte that is not text, the span ended in the middle
+; of the character, and the JSON line carrying it was not UTF-8 - no
+; strict reader could parse it (tests/fuzz/json-ax1001-partial-char,
+; found by the seeded fuzzer 2026-09-27). The token covers the character
+; now; the span is one column wide and the quote is the character.
+;
+; A `.axbad` because it is a LEXICAL error: every `.ax` in the repository
+; must parse (scripts/check-tree-sitter.sh).
+(:: main Int)
+(fn (main) (+ 1 中))

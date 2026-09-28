@@ -19,6 +19,14 @@
 #       check` exits 1 too, and its stderr is well-formed JSON Lines as
 #       docs/diagnostics.md states them (`json_ok` in fuzz.py spells the
 #       contract out, the trailer line and the optional keys included).
+#   P2h every answer `check` gives in the human format - a refusal, or
+#       an acceptance that printed warnings - is safe to print to a
+#       terminal: well-formed UTF-8, no control byte but the newline,
+#       and no escape sequence but a colour from self_host/style.ax's
+#       palette (`human_ok` in fuzz.py). Added 2026-09-27 when the
+#       quoted source line was found echoing a mutant's raw NUL and ESC
+#       bytes; a NUL cannot sit in a diagnostics fixture (the harness
+#       reads lines through bash), and this is what pins it.
 #   P3  a mutant `check` accepts is a mutant `emit-llvm` compiles (exit
 #       0, IR written) and `llc` accepts. `emit-llvm` deliberately does
 #       not require `main` (main.ax's `needMain`) while the prelude's
@@ -46,13 +54,14 @@
 #      tested, and a green run that tested nothing is this repository's
 #      commonest defect.
 #   4. Controls: a planted wrapper compiler - the real one, except that
-#      on six chosen mutants it dies by SIGSEGV, sleeps past the
+#      on seven chosen mutants it dies by SIGSEGV, sleeps past the
 #      deadline, exits 1 in silence, exits with a trap's 77, answers a
-#      real refusal with exit 0, or appends a malformed line to its
-#      JSON; on a seventh it appends a line that is not IR to what
-#      `emit-llvm` wrote - is run through the SAME harness, which must
-#      report each as the failure it is and must not excuse any of them
-#      as a known one. Two more must NOT be reported: an untouched
+#      real refusal with exit 0, appends a malformed line to its JSON,
+#      or appends a raw NUL and an OSC escape to its human report; on
+#      an eighth it appends a line that is not IR to what `emit-llvm`
+#      wrote - is run through the SAME harness, which must report each
+#      as the failure it is and must not excuse any of them as a known
+#      one. Two more must NOT be reported: an untouched
 #      mutant must still pass, and a real refusal with a raw NUL
 #      appended to its report must still read as a refusal (grep reads
 #      a file holding a NUL as binary and prints no match; that turned
@@ -156,6 +165,8 @@ deadline=120
 #   f_parsed f_ok f_emitted f_llc   the stages reached
 #   f_json     for a refusal, the JSON report to validate (deferred, in
 #              one python call per batch - see json_batch)
+#   f_human    when `check` answered (refused, or accepted), its human
+#              report, for P2h (deferred the same way - human_batch)
 describe_rc() {  # <status> -> "exited N" / "killed by signal N (NAME)" / "timed out"
   local rc="$1"
   if (( rc == 124 )); then
@@ -176,7 +187,7 @@ fuzz_one() {
   local cc="$1" m="$2" ap="$3" rc=0 codes
   local b="${m%.ax}"
   deadline_used="$4"
-  f_verdict=fail f_stage="" f_why="" f_detail="" f_json=""
+  f_verdict=fail f_stage="" f_why="" f_detail="" f_json="" f_human=""
   f_parsed=0 f_ok=0 f_emitted=0 f_llc=0
 
   AXIOM_PATH="$ap" gate_timeout "$4" "$cc" check "$m" > "$b.cout" 2> "$b.cerr" < /dev/null || rc=$?
@@ -191,6 +202,7 @@ fuzz_one() {
       f_detail="$(first_line "$b.cerr")"
       return
     fi
+    f_human="$b.cerr"
     grep -q 'AX[12]' <<< "$codes" || f_parsed=1
     rc=0
     AXIOM_PATH="$ap" gate_timeout "$4" "$cc" --diagnostic-format json check "$m" \
@@ -215,7 +227,7 @@ fuzz_one() {
     f_detail="$( { grep -a -m1 'error\[AX' "$b.cerr" || true; } | sed $'s/\x1b\\[[0-9;]*m//g' | cut -c1-200)"
     return
   fi
-  f_parsed=1 f_ok=1
+  f_parsed=1 f_ok=1 f_human="$b.cerr"
 
   rc=0
   AXIOM_PATH="$ap" gate_timeout "$4" "$cc" emit-llvm "$m" -o "$b.ll" > "$b.eout" 2> "$b.eerr" < /dev/null || rc=$?
@@ -252,6 +264,16 @@ json_batch() {
   json_checked="$(sed -n 's/^checked //p' <<< "$res")"
   grep -v '^checked ' <<< "$res" > "$2" || true
   [[ "$json_checked" =~ ^[0-9]+$ ]] || { bad "the JSON checker did not report a count: $res"; json_checked=0; }
+}
+
+# human_batch <list> <out>: the same for P2h's human reports; the count
+# checked in $human_checked.
+human_batch() {
+  local res
+  res="$(python3 "$fuzz" human "$1")"
+  human_checked="$(sed -n 's/^checked //p' <<< "$res")"
+  grep -v '^checked ' <<< "$res" > "$2" || true
+  [[ "$human_checked" =~ ^[0-9]+$ ]] || { bad "the human checker did not report a count: $res"; human_checked=0; }
 }
 
 # The OPEN rows of tests/fuzz/MANIFEST, as `<stage><TAB><signature>`.
@@ -340,6 +362,7 @@ echo "   reproduce any mutant I: scripts/check-fuzz.sh --seed $seed --only I --k
 echo "== 2. $count mutants through check, the JSON renderer, emit-llvm and llc =="
 n_run=0 n_parsed=0 n_ok=0 n_emitted=0 n_llc=0 n_refused=0 n_fail=0 n_known=0
 : > "$work/json.list"; : > "$work/json.names"
+: > "$work/human.list"; : > "$work/human.names"
 ok_names=() refused_names=()
 t0=$SECONDS
 while IFS=$'\t' read -r name src ops; do
@@ -348,6 +371,10 @@ while IFS=$'\t' read -r name src ops; do
   n_run=$((n_run + 1))
   n_parsed=$((n_parsed + f_parsed)); n_ok=$((n_ok + f_ok))
   n_emitted=$((n_emitted + f_emitted)); n_llc=$((n_llc + f_llc))
+  if [[ -n "$f_human" ]]; then
+    printf '%s\n' "$f_human" >> "$work/human.list"
+    printf '%s\t%s\t%s\n' "$name" "$src" "$ops" >> "$work/human.names"
+  fi
   case "$f_verdict" in
     ok) ok_names+=("$name") ;;
     refused)
@@ -390,9 +417,27 @@ while IFS=$'\t' read -r jf why; do
   fi
 done < "$work/json.bad"
 
-echo "   $n_run run in $((SECONDS - t0))s: $n_parsed parsed, $n_ok checked OK, $n_emitted emitted, $n_llc llc-accepted, $n_refused refused ($n_json with well-formed JSON); $n_known known-open (XFAIL), $n_fail new failures"
+human_batch "$work/human.list" "$work/human.bad"
+n_human=$((human_checked))
+while IFS=$'\t' read -r hf why; do
+  [[ -n "$hf" ]] || continue
+  n_human=$((n_human - 1))
+  name="$(basename "$hf" .cerr)"
+  IFS=$'\t' read -r _ src ops < <(grep "^$name	" "$work/human.names")
+  f_verdict=fail f_stage=human f_why="the human report is not safe to print to a terminal" f_detail="$why"
+  match_known
+  if [[ -n "$f_known" ]]; then
+    n_known=$((n_known + 1))
+    echo "XFAIL $name ($src): human - $why [open: tests/fuzz/$f_known]" | tee -a "$work/xfail.log"
+  else
+    n_fail=$((n_fail + 1))
+    report_failure "$name" "$src" "$ops" "$mdir"
+  fi
+done < "$work/human.bad"
+
+echo "   $n_run run in $((SECONDS - t0))s: $n_parsed parsed, $n_ok checked OK, $n_emitted emitted, $n_llc llc-accepted, $n_refused refused ($n_json with well-formed JSON); $n_human human reports terminal-safe; $n_known known-open (XFAIL), $n_fail new failures"
 if (( n_fail == 0 )); then
-  ok "no mutant crashed, hung, refused without a code, broke the JSON contract or produced IR llc rejects ($n_known known-open)"
+  ok "no mutant crashed, hung, refused without a code, broke the JSON contract, wrote an unsafe human report or produced IR llc rejects ($n_known known-open)"
 fi
 
 if [[ -n "$only" ]]; then
@@ -413,6 +458,7 @@ floor "$n_emitted" "emitted IR"
 floor "$n_llc" "llc accepted the IR"
 floor "$n_refused" "refused with a code"
 floor "$n_json" "refused with a well-formed JSON report"
+floor "$n_human" "answered with a terminal-safe human report"
 if (( identical * 100 < count )); then
   ok "$identical of $count mutants identical to their source (under 1%)"
 else
@@ -422,14 +468,16 @@ fi
 # ---------------------------------------------------------------------
 echo "== 4. controls: a planted wrapper compiler's failures are reported =="
 # Targets from the run's own verdicts: two it checked OK (IR corruption,
-# and the untouched control) and seven it refused (the NUL control).
-if (( ${#ok_names[@]} < 2 || ${#refused_names[@]} < 7 )); then
-  bad "the run produced ${#ok_names[@]} OK and ${#refused_names[@]} refused mutants; the controls need 2 and 7"
+# and the untouched control) and eight it refused (the NUL and
+# bad-human-report controls).
+if (( ${#ok_names[@]} < 2 || ${#refused_names[@]} < 8 )); then
+  bad "the run produced ${#ok_names[@]} OK and ${#refused_names[@]} refused mutants; the controls need 2 and 8"
 else
   c_badir="${ok_names[0]}" c_clean="${ok_names[1]}"
   c_crash="${refused_names[0]}" c_hang="${refused_names[1]}" c_mute="${refused_names[2]}"
   c_trap="${refused_names[3]}" c_badjson="${refused_names[4]}" c_lie="${refused_names[5]}"
   c_nul="${refused_names[6]}"
+  c_badhuman="${refused_names[7]}"
   wrap="$work/planted-axc"
   cat > "$wrap" <<'SH'
 #!/bin/sh
@@ -468,13 +516,19 @@ case "$(basename "$in" .ax)" in
       echo "{this line is not JSON" >&2
       exit $rc
     fi ;;
+  "$FUZZ_BADHUMAN")
+    if [ "$json" = 0 ] && [ "$emit" = 0 ]; then
+      "$FUZZ_REAL" "$@"; rc=$?
+      printf 'planted by check-fuzz.sh: \000 \033]0;title\007\n' >&2
+      exit $rc
+    fi ;;
 esac
 exec "$FUZZ_REAL" "$@"
 SH
   chmod +x "$wrap"
   export FUZZ_REAL="$axc" FUZZ_CRASH="$c_crash" FUZZ_HANG="$c_hang" FUZZ_MUTE="$c_mute" \
          FUZZ_TRAP="$c_trap" FUZZ_BADIR="$c_badir" FUZZ_BADJSON="$c_badjson" FUZZ_LIE="$c_lie" \
-         FUZZ_NUL="$c_nul"
+         FUZZ_NUL="$c_nul" FUZZ_BADHUMAN="$c_badhuman"
   cdir="$work/control"
   mkdir -p "$cdir"
   cp "$mdir/manifest.tsv" "$cdir/"
@@ -489,6 +543,14 @@ SH
       if [[ -s "$cdir/json.bad" ]]; then
         f_verdict=fail f_stage=json f_why="the JSON report is malformed"
         f_detail="$(cut -f2- "$cdir/json.bad")"
+      fi
+    fi
+    if [[ "$kind" == badhuman && "$f_verdict" == refused ]]; then
+      printf '%s\n' "$f_human" > "$cdir/human.list"
+      human_batch "$cdir/human.list" "$cdir/human.bad"
+      if [[ -s "$cdir/human.bad" ]]; then
+        f_verdict=fail f_stage=human f_why="the human report is not safe to print to a terminal"
+        f_detail="$(cut -f2- "$cdir/human.bad")"
       fi
     fi
     match_known
@@ -521,10 +583,11 @@ trap $c_trap $deadline check exited.77
 lie $c_lie $deadline check exited.0.and.printed.an.error
 badir $c_badir $deadline llc this.line.is.not.LLVM.IR|expected
 badjson $c_badjson $deadline json not.JSON
+badhuman $c_badhuman $deadline human raw.control.byte.0x00
 clean $c_clean $deadline - -
 nul $c_nul $deadline - -
 ROWS
-  unset FUZZ_REAL FUZZ_CRASH FUZZ_HANG FUZZ_MUTE FUZZ_TRAP FUZZ_BADIR FUZZ_BADJSON FUZZ_LIE
+  unset FUZZ_REAL FUZZ_CRASH FUZZ_HANG FUZZ_MUTE FUZZ_TRAP FUZZ_BADIR FUZZ_BADJSON FUZZ_LIE FUZZ_NUL FUZZ_BADHUMAN
 fi
 
 # ---------------------------------------------------------------------
@@ -557,6 +620,14 @@ else
         f_detail="$(cut -f2- "$rdir/json.bad")"
       fi
     fi
+    if [[ ( "$f_verdict" == refused || "$f_verdict" == ok ) && -n "$f_human" ]]; then
+      printf '%s\n' "$f_human" > "$rdir/human.list"
+      human_batch "$rdir/human.list" "$rdir/human.bad"
+      if [[ -s "$rdir/human.bad" ]]; then
+        f_verdict=fail f_stage=human f_why="the human report is not safe to print to a terminal"
+        f_detail="$(cut -f2- "$rdir/human.bad")"
+      fi
+    fi
     case "$status" in
       fixed)
         if [[ "$f_verdict" == ok || "$f_verdict" == refused ]]; then
@@ -565,8 +636,8 @@ else
           bad "REGRESSION $file: $f_why${f_detail:+ - $f_detail} (was fixed: $what)"
         fi ;;
       open)
-        if [[ ! "$stage" =~ ^(check|json|emit|llc)$ ]] || [[ -z "$sig" ]] || grep -qE -- "$sig" <<< ""; then
-          bad "$file: an OPEN row needs a stage (check, json, emit or llc) and a signature that does not match an empty message - got '$stage' /$sig/"
+        if [[ ! "$stage" =~ ^(check|json|human|emit|llc)$ ]] || [[ -z "$sig" ]] || grep -qE -- "$sig" <<< ""; then
+          bad "$file: an OPEN row needs a stage (check, json, human, emit or llc) and a signature that does not match an empty message - got '$stage' /$sig/"
         elif [[ "$f_verdict" == fail && "$f_stage" == "$stage" && -n "$f_detail" ]] \
            && grep -qE -- "$sig" <<< "$f_detail"; then
           ok "XFAIL $file: still fails at $stage - $f_detail (OPEN: $what)"

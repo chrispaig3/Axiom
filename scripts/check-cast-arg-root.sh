@@ -41,6 +41,12 @@ gate_build_axc axc
 echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
+# Baseline 365 measured 2026-09-27: 25 arrived with the fuzzer's cast
+# findings - `1013-cast-form-value` (2 in the `.ax`, echoed in its three
+# goldens) and `1019-cast-missing-operand` (5 in the `.axbad`, echoed in
+# its three goldens) pin refusals of `(cast T)`, which cannot be pinned
+# without writing `(cast T)`, plus one in the `explain` golden's AX3013
+# prose. The casts ARE the subjects, which is the MM-VAL-23 reason.
 # Baseline 340 measured 2026-09-27 (337 on 2026-09-25): three arrived
 # with tests/stdlib/521-release-filed.ax (`a28d7a02`), which hands a
 # static literal's handle to `__retain` once and `__release` twice to
@@ -77,8 +83,8 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 340 ]; then
-  ok "user-level (cast count $cast_count <= 340)"
+elif [ "$cast_count" -le 365 ]; then
+  ok "user-level (cast count $cast_count <= 365)"
 else
   bad "user-level (cast count $cast_count > 340): new casts need a MM-VAL-23 reason and a baseline bump"
 fi

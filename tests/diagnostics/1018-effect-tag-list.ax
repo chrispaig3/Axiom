@@ -1,0 +1,41 @@
+; An `effect(...)` tag names ONE effect. A list - comma- or
+; blank-separated - was read as a single CUSTOM effect spelled with the
+; separator in it, which nothing declares or performs, so AX3010 said
+; "claim unsupported: missing io, unsafe" about a body that performed
+; both: true of the parse, false of the program. `restrict(...)` does
+; take a comma list, which is what makes the spelling easy to reach for.
+; AX3076 refuses the list and spells the lines to write instead.
+;
+; `both` is the right spelling and draws nothing; ` io ` with blanks
+; round ONE name is not a list and is read as before.
+(import IO)
+
+;@axiom:effect(io, unsafe)
+(:: comma (-> Int Int))
+(fn (comma p)
+  {
+    (println "x")
+    (__load64 p 0)
+  })
+
+;@axiom:effect(io unsafe)
+(:: blank (-> Int Int))
+(fn (blank p)
+  {
+    (println "x")
+    (__load64 p 0)
+  })
+
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(:: both (-> Int Int))
+(fn (both p)
+  {
+    (println "x")
+    (__load64 p 0)
+  })
+
+;@axiom:effect(io)
+(:: main Int)
+(fn (main)
+  (+ (comma 0) (+ (blank 0) (both 0))))

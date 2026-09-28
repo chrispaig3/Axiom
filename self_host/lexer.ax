@@ -692,15 +692,36 @@
                                             src)
                                           ep
                                         })
-                                      {
-                                        (emitToken
-                                          TK_ERROR
-                                          pos
-                                          (+ pos 1)
-                                          tokens
-                                          src)
-                                        (+ pos 1)
-                                      })))))))))))))))))))
+                                      ; The error token covers the whole CHARACTER
+                                      ; when the byte begins a well-formed UTF-8
+                                      ; one, and the byte alone when it does not.
+                                      ; It was always one byte, so a multi-byte
+                                      ; character was reported by its lead byte
+                                      ; alone - AX1001 quoted `\xE4` of `中`, a
+                                      ; span ended mid-character, and the JSON
+                                      ; line carrying it was not UTF-8 (found by
+                                      ; the seeded fuzzer 2026-09-27,
+                                      ; `tests/fuzz/json-ax1001-partial-char`).
+                                      (let ((ce (+ pos (lexErrCharLen src pos len))))
+                                        {
+                                          (emitToken
+                                            TK_ERROR
+                                            pos
+                                            ce
+                                            tokens
+                                            src)
+                                          ce
+                                        }))))))))))))))))))))
+
+; Bytes in the unexpected character at `pos`: its well-formed UTF-8
+; length, or 1 for a byte that begins none.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: lexErrCharLen (-> String Int Int Int))
+(pub fn (lexErrCharLen src pos len)
+  (let ((w (utf8WellFormedAt src pos len)))
+    (if (< w 1)
+      1
+      w)))
 
 ; A character literal, following stage0's `consume_char`
 ; (axiom-lexer/src/lib.rs:546) step for step, because the ORDER of its

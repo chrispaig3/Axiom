@@ -1,0 +1,34 @@
+; `set` on a name that is no binding at all. A built-in answered the
+; silent wildcard (`true` here; `(set + 1)` is the same path, but the
+; formatter refuses an operator as a `set` target, and every `.ax` must
+; format) and an IMPORTED function was left silent (stage0 had
+; anchored its refusal in the other file, which this renderer once could
+; not quote), so both checked OK - and `emit-llvm` then refused as
+; AX4002 "set target is not a mut binding", whose own help calls it a
+; compiler bug. Found 2026-09-27 beside the fuzzer's builtin-name
+; findings. Both are AX3012 now, anchored at the target in this file.
+(import Str)
+
+(:: builtin Int)
+(fn (builtin)
+  (let ((mut x 0))
+    {
+      (set true 1)
+      x
+    }))
+
+(:: imported Int)
+(fn (imported)
+  (let ((mut x 0))
+    {
+      (set strLen 1)
+      x
+    }))
+
+(:: main Int)
+(fn (main)
+  (let ((mut x 0))
+    {
+      (set x 1)
+      x
+    }))

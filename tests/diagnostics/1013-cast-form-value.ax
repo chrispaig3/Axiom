@@ -1,0 +1,24 @@
+; `cast`, `sizeof` and `alignof` are FORMS whose first argument is a
+; type; there is no function behind any of them. Named bare - where a
+; value goes - they checked OK and emitted `%cast`, a register nothing
+; defines, which llc refused (tests/fuzz/builtin-name-value.axfuzz,
+; found by the seeded fuzzer 2026-09-27). Each is AX3013 now, the code
+; a missing argument gets everywhere else. The missing-VALUE half,
+; `(cast Int)`, is 1019-cast-missing-operand.axbad: the formatter and
+; the tree-sitter grammar both refuse that shape, so it cannot be an
+; `.ax` file.
+(:: g (-> Int Int))
+(fn (g x)
+  x)
+
+(:: bareCast Int)
+(fn (bareCast)
+  (g cast))
+
+(:: bareSizeof Int)
+(fn (bareSizeof)
+  (g sizeof))
+
+(:: main Int)
+(fn (main)
+  (+ (cast Int 1) (sizeof Int)))

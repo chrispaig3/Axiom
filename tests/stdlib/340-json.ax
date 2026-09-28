@@ -144,7 +144,14 @@
       ; A code point above the BMP survives parse and re-serialisation
       ; as raw UTF-8 bytes rather than as an escape.
       (set bad (+ bad (eqInt "round trip astral length" (strLen (jsonWrite (jsonParse "\"\\ud83d\\ude00\""))) 6)))
-      (set n (+ n 7))
+      ; A byte that begins no well-formed UTF-8 character is written as
+      ; `�`, one per byte, where it went out raw until 2026-09-27
+      ; and made text no strict reader parses; well-formed multi-byte
+      ; text still passes through as itself.
+      (set bad (+ bad (eq "write lone lead byte" (jsonWrite (jsonStr (strConcat "a" (strConcat (strFromByte 228) "b")))) "\"a\\ufffdb\"")))
+      (set bad (+ bad (eq "write surrogate bytes" (jsonWrite (jsonStr (strConcat (strFromByte 237) (strConcat (strFromByte 160) (strFromByte 128))))) "\"\\ufffd\\ufffd\\ufffd\"")))
+      (set bad (+ bad (eq "write well-formed" (jsonWrite (jsonStr "é世")) "\"é世\"")))
+      (set n (+ n 10))
       ; --- depth ------------------------------------------------------
       ; Nesting is refused rather than crashed past the limit; a depth
       ; well inside it still parses.

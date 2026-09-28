@@ -822,7 +822,7 @@ See [reference.md](reference.md) for the language, and
 
 ## `Utf8`
 
-`stdlib/Utf8.ax` — 12 public names
+`stdlib/Utf8.ax` — 13 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
@@ -838,6 +838,7 @@ See [reference.md](reference.md) for the language, and
 | `utf8Width` | value | `(-> Int Int)` |  | How many bytes code point `cp` occupies when encoded - counting what `utf8FromChar` will actually write, so the two never disagree. |
 | `utf8FromChar` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | A freshly allocated `Str` holding `cp` alone. |
 | `utf8Valid` | value | `(-> String Bool)` | `Unsafe` | Is every byte of `s` part of a well-formed UTF-8 sequence? |
+| `utf8WellFormedAt` | value | `(-> String Int Int Int)` | `Unsafe` | The length of the WELL-FORMED UTF-8 sequence that begins at byte `i` of `s` and ends at or before byte `end`: 1 to 4, or 0 when the bytes there are not one. |
 
 ## `Vec`
 

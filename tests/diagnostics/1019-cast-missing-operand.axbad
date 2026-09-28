@@ -1,0 +1,27 @@
+; `(cast T)` with its VALUE missing checked OK, and the emitter read the
+; TYPE name as a variable: `%Int`, an undefined value llc refused
+; (tests/fuzz/cast-missing-operand.axfuzz, found by the seeded fuzzer
+; 2026-09-27). `isCastLike` keeps `cast` out of the saturation check,
+; which is right for the SURPLUS it exempts - a cast's result is often
+; a function value, and a further argument applies it - and left the
+; shortfall unasked. It is AX3013 now, as a missing argument is
+; everywhere else; AX3069 was already the surplus side for `sizeof`.
+;
+; A lone LITERAL after `cast` is AX3002's alone - "a literal is not a
+; type", with the same `(cast Int e)` advice - and is not reported
+; twice.
+;
+; An `.axbad`, like 395-sizeof-surplus: `format.ax` and the tree-sitter
+; grammar both encode the form's arity and refuse this shape, and every
+; `.ax` in the repository must parse and format.
+(:: noValue Int)
+(fn (noValue)
+  (cast Int))
+
+(:: literal Int)
+(fn (literal)
+  (cast 4))
+
+(:: main Int)
+(fn (main)
+  (cast Int 1))

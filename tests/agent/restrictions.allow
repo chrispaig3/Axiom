@@ -320,6 +320,7 @@ ledYank stdlib/Tui/Edit.ax no-io,no-foreign ok
 ledYankPop stdlib/Tui/Edit.ax no-io,no-foreign ok
 lex self_host/lexer.ax no-io,no-foreign ok
 lexCast tests/diagnostics/391-restrict-effect-transparent.ax no-cast ok
+lexErrCharLen self_host/lexer.ax no-io,no-alloc,no-foreign ok
 lexStrict tests/diagnostics/393-restrict-strict.ax no-cast,strict ok
 lexTokens self_host/lexer.ax no-io,no-foreign ok
 lexWrap tests/diagnostics/391-restrict-effect-transparent.ax no-wrap ok
@@ -495,6 +496,7 @@ typed tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
 unescByte self_host/core.ax no-io,no-alloc,no-foreign ok
 unitIndexes self_host/diag.ax no-io,no-foreign ok
 utf8CharAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
+utf8ContIn stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8ContRun stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8DecodeAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8Encodable stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
@@ -511,6 +513,7 @@ utf8SeqLen stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8Slice stdlib/Utf8.ax no-io,no-foreign ok
 utf8Valid stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8ValidFrom stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
+utf8WellFormedAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8Width stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 vecAppendFrom self_host/core.ax no-io,no-foreign ok
 vecBuild stdlib/Vec.ax no-io,no-foreign ok

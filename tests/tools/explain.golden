@@ -88,6 +88,7 @@
   [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
+  [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)
@@ -108,6 +109,12 @@ Operators are not a separate lexical class - `+` is an identifier - so
 not identifier characters at all, and `#` is one only as the `#|` that
 opens a block comment. Check for typos, stray punctuation copied from
 another language, or an unsupported Unicode character.
+
+The report quotes the whole character, however many bytes it takes
+in UTF-8. A byte that begins no UTF-8 character at all - a file in
+another encoding, or damaged - is named by its value instead,
+`unexpected byte 0xE4`, because quoting it would put a byte that is
+not text into every renderer's output.
 
 ### explain AX1002
 AX1002 - unterminated string literal
@@ -657,6 +664,16 @@ too.
 
 Rename one, or delete the one that is a copy.
 
+A PARAMETER LIST is one scope too. `(fn (f x x) x)` names `x` twice,
+and the report lands on the function's name - parameters carry no
+span of their own - and says which parameter it was. It checked OK
+until 2026-09-27 and emitted a definition the native toolchain
+refused. `_` is no exception in a `fn`: there it is a name like any
+other, `(fn (f _) _)` answers its argument, so two of them collide -
+spell unused parameters `_a`, `_b`. A `lambda` is different: the
+parser curries `(lambda (x x) x)` into two nested lambdas, and the
+second `x` shadows the first.
+
 Two neighbours are about one name in two PLACES rather than two
 definitions in one: AX3014 is a name defined by two imported modules
 that the entry file must qualify, and AX3044 the same for a type
@@ -808,6 +825,10 @@ declared `mut` and says nothing about `b`, because the store mutates
 the value `b` points at rather than the `b` slot. `memSetWord` writes
 a block by word index and is outside the rule.
 
+A name that is no binding at all is refused with the same code: a
+built-in (`(set + 1)`) or a function another module declares. Both
+used to pass `check` and fail inside code generation as AX4002.
+
 ### explain AX3013
 AX3013 - partial application is not supported
 
@@ -825,6 +846,16 @@ a closure record, which is the representation partial application
 would need and lambdas already have. Saturated calls, calls with
 *extra* arguments applied to a returned function value, and
 one-parameter functions used as values are all unaffected.
+
+A BUILT-IN is the exception to that last sentence. A primitive -
+`__floatToInt`, `__alloc`, `__atomic_load` - is lowered in place at
+every call and has no function behind it, so even a one-argument one
+has no value to take: `(__floatToInt)` and a bare `__alloc` are this
+code. So are the forms `cast`, `sizeof` and `alignof` named bare, and
+`(cast T)` with its value missing. Each of these checked OK until
+2026-09-27 and emitted a register nothing defines, which the native
+toolchain refused. Wrap one in a lambda to pass it as a value:
+`(lambda (x) (__floatToInt x))`.
 
 ### explain AX3014
 AX3014 - a bare name is defined in more than one imported module
@@ -2585,6 +2616,35 @@ This diagnostic only fires under AXIOM_VERIFY_SCOPES=1, the MAC-HYG-9 equivalenc
 
 What remains is drift between the two tracks, and the message says so: a template binder pushed or truncated one track without the other. That is a compiler bug rather than a program bug - the track is new, and a missed pairing is its failure mode. The diagnostic's other shape, the precedence parting where renaming answered a template binder and scopes would have taken a for-binding, retired with the tier rule at M3: innermost-wins is the shipped rule now, and `tests/diagnostics/1009-macro-for-innermost.ax` pins what it means for the one program that ever parted.
 
+### explain AX3076
+AX3076 - an `effect(...)` tag naming more than one effect
+
+An effect tag names ONE effect. A function that performs IO and
+touches raw memory declares both with one line each:
+
+    ;@axiom:effect(io)
+    ;@axiom:effect(unsafe)
+    (:: dump (-> Int Int))
+
+Written as a list - `;@axiom:effect(io, unsafe)`, or
+`effect(io unsafe)` - the value used to be read as a single CUSTOM
+effect spelled with the comma in it. Nothing declares an effect of
+that name and nothing performs one, so the claim could never be
+satisfied, and AX3010 answered it with `claim unsupported: missing
+io, unsafe` about a body that performed both: true of the parse and
+false of the program.
+
+`restrict(...)` does take a comma list - `restrict(no-io,no-alloc)` -
+which is what makes this spelling an easy one to reach for.
+`effect(...)` is refused rather than taught the list, because every
+reader of tags - the effect walk, `axiom symbols`, the LSP - already
+agrees on one effect per tag, and a second spelling would have to be
+taught to each of them.
+
+Write one tag line per effect; the help on the diagnostic spells them
+out. A single name with blanks around it is not a list and is read as
+before.
+
 ### explain AX4001
 AX4001 - no `main` function
 
@@ -3009,6 +3069,7 @@ run `axiom explain --list` to see all known codes
   [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
+  [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX4001[0m  no `main` function  (missing-main)
   [93mAX4002[0m  code generation failed  (codegen-failure)
   [93mAX4003[0m  external toolchain command failed  (toolchain-failure)

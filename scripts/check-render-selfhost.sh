@@ -340,17 +340,34 @@ LEFT_CTX=20
 # Byte values, so a UTF-8 continuation byte can be recognised without a
 # locale. `LC_ALL=C` makes awk's substr index bytes, which is what lets
 # the same loop count characters and copy them intact.
+#
+# Two more rules since 2026-09-27, when the renderer stopped echoing a
+# source line's CONTROL BYTES raw to the terminal (self_host/render.ax
+# `dispUnitText`; tests/diagnostics/1017-control-bytes-in-source.ax):
+#
+#   * a control byte other than the tab - below 0x20, or DEL - is drawn
+#     as its Unicode control picture, U+2400 + byte (DEL U+2421), and is
+#     one column, exactly as the byte was counted before;
+#   * the carriage return of a CRLF line ending is the line's
+#     terminator, not a character on it: it is not drawn or counted.
+#
+# A byte that is not UTF-8 is drawn as U+FFFD, one column per byte; no
+# fixture can hold one (every `.ax` must parse, and the grammar gate
+# reads text), so that rule is not re-derived here.
 awk_ord='BEGIN { for (n = 1; n < 256; n++) ord[sprintf("%c", n)] = n }
-         function iscont(c) { return (ord[c] >= 128 && ord[c] < 192) }'
+         function iscont(c) { return (ord[c] >= 128 && ord[c] < 192) }
+         function isctl(c) { return (c != "\t" && (ord[c] < 32 || ord[c] == 127)) }
+         function pic(c) { return sprintf("%c%c%c", 226, 144, ord[c] == 127 ? 161 : 128 + ord[c]) }'
 
-# A line with its tabs expanded.
+# A line with its tabs expanded and its control bytes drawn.
 expand_tabs() {
   printf '%s' "$1" | LC_ALL=C awk -v tw="$TAB_WIDTH" "$awk_ord"'
-    { out = ""; col = 0; n = length($0)
+    { sub(/\r$/, ""); out = ""; col = 0; n = length($0)
       for (i = 1; i <= n; i++) {
         c = substr($0, i, 1)
         if (c == "\t") { stop = int(col / tw + 1) * tw
                          while (col < stop) { out = out " "; col++ } }
+        else if (isctl(c)) { out = out pic(c); col++ }
         else { out = out c; if (!iscont(c)) col++ }
       }
       print out }'
@@ -359,7 +376,7 @@ expand_tabs() {
 # Display width of a line, in columns.
 disp_width() {
   printf '%s' "$1" | LC_ALL=C awk -v tw="$TAB_WIDTH" "$awk_ord"'
-    { col = 0; n = length($0)
+    { sub(/\r$/, ""); col = 0; n = length($0)
       for (i = 1; i <= n; i++) {
         c = substr($0, i, 1)
         if (c == "\t") col = int(col / tw + 1) * tw
@@ -373,7 +390,7 @@ disp_width() {
 # character, which is where an end-of-file caret sits.
 disp_col() {
   printf '%s' "$1" | LC_ALL=C awk -v want="$2" -v tw="$TAB_WIDTH" "$awk_ord"'
-    { ch = 0; col = 0; n = length($0)
+    { sub(/\r$/, ""); ch = 0; col = 0; n = length($0)
       for (i = 1; i <= n; i++) {
         c = substr($0, i, 1)
         if (iscont(c)) continue

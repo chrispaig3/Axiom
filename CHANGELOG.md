@@ -22,6 +22,41 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The fuzzer's six open findings, fixed; `AX3076`; terminal-safe human reports - 2026-09-27
+
+Every OPEN row of `tests/fuzz/MANIFEST` is `fixed`, and the gate
+replays each as a regression. Each was a program `check` called OK
+whose emitted IR `llc` refused, or a JSON report no strict reader
+parses:
+
+- a `fn` parameter list naming one name twice (`_` included - in a
+  `fn` it is a readable name) is `AX3006` (1011);
+- `IO`, `Pure`, `Alloc`, `Mut`, `Div`, a declared effect's name, and
+  `handle` where a value goes are `AX3001`, as `Unsafe` and the
+  keywords always were (1012);
+- `cast`, `sizeof`, `alignof` named bare, and `(cast T)` with its value
+  missing, are `AX3013` (1013); so is a one-argument primitive applied
+  to nothing or passed bare, `(__floatToInt)` (1014);
+- `set` on a built-in or an imported function is `AX3012` - it passed
+  `check` and failed in codegen as `AX4002` (1015);
+- `AX1001` quotes the whole character, not its lead byte, and names a
+  byte that begins no character (`unexpected byte 0xE4`) (1016); every
+  renderer - AXDL, human, JSON, and `stdlib/Json.ax`'s escaper - writes
+  a byte that is not well-formed UTF-8 as U+FFFD, judged by the new
+  `utf8WellFormedAt` (Unicode Table 3-7);
+- an `;@axiom:effect(io, unsafe)` list is the new `AX3076`
+  (`effect-tag-list`), which spells the one-tag-per-line form; it was
+  read as one custom effect and reported "missing" (1018).
+
+The human renderer's QUOTED SOURCE LINE echoed control bytes raw - an
+ESC in a string literal wrote its colour into the report. Each is drawn
+as its Unicode control picture now, one column wide so the caret stays
+put, and a CRLF line's CR is not drawn (1017). `check-fuzz.sh` holds
+every human report to a new property, P2h: UTF-8, no control byte but
+the newline, and no escape but a colour from `style.ax`'s palette - the
+check that pins a NUL, which a fixture cannot carry. Numbers in
+parentheses are `tests/diagnostics/` fixtures.
+
 ### A fault on bare metal is a status, and `isr(irq)` binds the IRQ vector — `MM-EXEC-18`, status 81, `check-embedded.sh` A12 - 2026-09-27
 
 Every `baremetal-aarch64` executable now carries an exception vector

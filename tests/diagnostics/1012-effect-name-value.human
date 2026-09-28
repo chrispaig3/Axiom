@@ -1,0 +1,28 @@
+[1;31merror[AX3001][0m[1m: undefined variable `IO`[0m
+  [1;34m--> [0m1012-effect-name-value.ax:21:6
+[1;34m   |[0m
+[1;34m21 |[0m   (g IO))
+[1;34m   |[0m      [1;31m^^ no binding named `IO` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `Console`[0m
+  [1;34m--> [0m1012-effect-name-value.ax:25:4
+[1;34m   |[0m
+[1;34m25 |[0m   (Console 1))
+[1;34m   |[0m    [1;31m^^^^^^^ no binding named `Console` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `handle`[0m
+  [1;34m--> [0m1012-effect-name-value.ax:29:6
+[1;34m   |[0m
+[1;34m29 |[0m   (g handle))
+[1;34m   |[0m      [1;31m^^^^^^ no binding named `handle` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 3 previous errors

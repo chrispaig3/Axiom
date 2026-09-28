@@ -2540,6 +2540,19 @@ again since 2026-09-21: `Unsafe` joined the table as raw memory's
 effect (row above), inferred at the seven primitives and, since
 2026-09-22, required of the body that calls one (`AX3073`).
 
+**One effect per tag.** A body that performs two effects declares
+them on two lines, `;@axiom:effect(io)` and `;@axiom:effect(unsafe)`.
+A list inside one tag - `effect(io, unsafe)`, or `effect(io unsafe)` -
+is `AX3076` since 2026-09-27; before, it was read as a single custom
+effect spelled with the comma, and `AX3010` reported it missing from a
+body that performed both. `restrict(...)` is the tag that takes a comma
+list.
+
+An effect's NAME is not a value: `IO`, a declared `Console`, or
+`handle` where an expression goes is `AX3001`, as `Unsafe` and the
+keywords always were. They checked OK until 2026-09-27 and emitted a
+register nothing defines.
+
 ### Declaring an Effect Type
 
 ```scheme
@@ -3730,7 +3743,7 @@ requires the result to be byte-identical.
 | `Pre` | the prelude macros: `when`, `unless` (conditional macros), `deriveEq`, `deriveShow`, `deriveArity`, `showOr` |
 | `Mem` | raw memory: `memAlloc`, `memAllocMapped`, `memMarkArray`/`memMarkLeaf`, `memCopy`, `memSet`, `memCmp`, `memGetByte`/`memPutByte`, `memGetWord`/`memSetWord` |
 | `Str` | the byte view of a `Str`: `strFromLit`, `strAlloc`, `strLen`, `strByte`, `strCmp`, `strEq`, `strSlice`, `strDup`, `strConcat`, `strFindByte`, `strStartsWith`, `strSplit`, `strCStr`. String *literals* are already `Str` values — see [String Literals Are `Str` Values](#string-literals-are-str-values) |
-| `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid` (the character view of a `Str`) |
+| `Utf8` | `utf8Len`, `utf8CharAt`, `utf8DecodeAt`, `utf8FromChar`, `utf8Next`, `utf8Offset`, `utf8Slice`, `utf8Width`, `utf8SeqLen`, `utf8IsCont`, `utf8Valid`, `utf8WellFormedAt` (the character view of a `Str`) |
 | `Vec` | growable `Int` array: `vecNew`, `vecNewRef`, `vecWithCapacity`, `vecWithCapacityRef`, `vecFree`, `vecPush`, `vecPop`, `vecGet`, `vecSet`, `vecLen`, `vecCap`, `vecLast`, `vecClear`, `vecSort`, `vecSortBy` |
 | `Map` | `mapNew`, `mapNewRefVals`, `mapWithCapacity`, `mapWithCapacityRefVals`, `mapFree`, `mapHas`, `mapGet`, `mapGetStr`, `mapInsert`, `mapRemove`, `mapLen`, `mapCap`, `mapUsed` (open-addressing `Int→Int` hash map) |
 | `Fmt` | the `format` macro, and the functions a format specifier selects: `fmtInt`, `fmtHex`, `fmtHexUpper`, `fmtFloat`, `fmtFloatPrec`, `fmtPadLeft`, `fmtPadRight`, `fmtPadCenter`, `fmtPadZerosLeft`, `fmtIntWidth`. A hole's rendering is chosen by the **compiler** from the value's static type (`Int`, `Float`, `Bool`, `Char`, `String`, and any `data` or `struct` of those) and lowered to the functions in this module; an argument shape with no rendering is `AX3025`. `format` lived in a `Show` module until 0.7.4 |
@@ -3959,6 +3972,13 @@ Iteration is never blocked by bad input, though: `utf8SeqLen` answers
 1 for a byte it does not understand, so `utf8Next` always advances and
 no decoding loop can hang on a corrupt file. `utf8Valid` is the
 explicit question when a caller needs a verdict on the whole string.
+`utf8Valid` checks STRUCTURE - lead byte and continuation count - and
+not ranges; `utf8WellFormedAt` is the strict question, Unicode's Table
+3-7 at one offset, so an overlong form, an encoded surrogate and a code
+point past U+10FFFF answer 0 there. It is what the compiler's
+diagnostic writers ask before they copy a byte: every renderer writes a
+byte that begins no well-formed character as U+FFFD (`\ufffd` in the
+JSON), and so does `Json`'s string escaper.
 
 Encoding is total in the other direction: `utf8FromChar` always
 produces well-formed UTF-8, because anything that is not a Unicode

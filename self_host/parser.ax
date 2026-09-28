@@ -1401,16 +1401,38 @@
                       0
                       ""
                       "check for a value that overflows i64/f64 or a malformed exponent") (strConcat (strConcat "`" (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))) "` cannot be parsed as Int or Float"))
-                    (diagSetLabel (mkDiag
-                      SEV_ERROR
-                      "AX1001"
-                      "unexpected-char"
-                      sp
-                      (strConcat (strConcat "unexpected character `" (strSlice src (spanStart sp) 1)) "`")
-                      0
-                      ""
-                      "an identifier is letters, digits, `_`, `'` and `+ - * / % < > = ! & | ^`, and cannot begin with a digit or `'`; operators are not a separate class - `+` is simply an identifier - and `?`, `~` and `@` are not identifier characters at all") (strConcat (strConcat "`" (strSlice src (spanStart sp) 1)) "` is not valid here")))))))))
+                    ; The lexer's error token covers the whole
+                    ; character (`lexErrCharLen`), so the quote does
+                    ; too; a byte that begins no UTF-8 character is
+                    ; NAMED rather than quoted, since quoting it
+                    ; would put a byte that is not text into every
+                    ; renderer's output.
+                    (let ((ch (strSlice src (spanStart sp) (- (spanEnd sp) (spanStart sp)))))
+                      (if (&& (>= b 128) (== (strLen ch) 1))
+                        (diagSetLabel (mkDiag
+                          SEV_ERROR
+                          "AX1001"
+                          "unexpected-char"
+                          sp
+                          (strConcat (strConcat "unexpected byte 0x" (hexByteUpper b)) ", which begins no UTF-8 character")
+                          0
+                          ""
+                          "Axiom source is UTF-8; this byte is not part of a well-formed character - the file may be in another encoding, or damaged") "not UTF-8")
+                        (diagSetLabel (mkDiag
+                          SEV_ERROR
+                          "AX1001"
+                          "unexpected-char"
+                          sp
+                          (strConcat (strConcat "unexpected character `" ch) "`")
+                          0
+                          ""
+                          "an identifier is letters, digits, `_`, `'` and `+ - * / % < > = ! & | ^`, and cannot begin with a digit or `'`; operators are not a separate class - `+` is simply an identifier - and `?`, `~` and `@` are not identifier characters at all") (strConcat (strConcat "`" ch) "` is not valid here")))))))))))
     }))
+
+; Two upper-case hex digits for byte `b`.
+(pub :: hexByteUpper (-> Int String))
+(pub fn (hexByteUpper b)
+  (strConcat (strSlice "0123456789ABCDEF" (/ b 16) 1) (strSlice "0123456789ABCDEF" (% b 16) 1)))
 
 ; The EOF token has no lexeme; stage0 spells it `EOF` in the message.
 (pub :: foundText (-> Int String))

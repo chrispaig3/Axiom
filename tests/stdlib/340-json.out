@@ -51,6 +51,9 @@ ok   write object
 ok   round trip
 ok   round trip escape
 ok   round trip astral length
+ok   write lone lead byte
+ok   write surrogate bytes
+ok   write well-formed
 ok   depth 8 ok
-checks 54
+checks 57
 failures 0

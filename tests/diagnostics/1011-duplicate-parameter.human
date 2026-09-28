@@ -1,0 +1,31 @@
+[1;31merror[AX3006][0m[1m: duplicate parameter `x` in the definition of `pick`[0m
+  [1;34m--> [0m1011-duplicate-parameter.ax:15:6
+[1;34m   |[0m
+[1;34m15 |[0m (fn (pick x x)
+[1;34m   |[0m      [1;31m^^^^ `x` names two parameters of this function[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe body could only ever read one of them, and the emitted function declared both, which the native toolchain refused after `check` said OK
+  [1;34m = [0m[1;32mhelp: [0mgive each parameter its own name; an unused one can be `_a`, `_b` - `_` is a name here like any other, so two of them collide too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+[1;31merror[AX3006][0m[1m: duplicate parameter `_` in the definition of `ignore`[0m
+  [1;34m--> [0m1011-duplicate-parameter.ax:19:6
+[1;34m   |[0m
+[1;34m19 |[0m (fn (ignore _ _)
+[1;34m   |[0m      [1;31m^^^^^^ `_` names two parameters of this function[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe body could only ever read one of them, and the emitted function declared both, which the native toolchain refused after `check` said OK
+  [1;34m = [0m[1;32mhelp: [0mgive each parameter its own name; an unused one can be `_a`, `_b` - `_` is a name here like any other, so two of them collide too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+[1;31merror[AX3006][0m[1m: duplicate parameter `y` in the definition of `third`[0m
+  [1;34m--> [0m1011-duplicate-parameter.ax:23:6
+[1;34m   |[0m
+[1;34m23 |[0m (fn (third y y y)
+[1;34m   |[0m      [1;31m^^^^^ `y` names two parameters of this function[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mthe body could only ever read one of them, and the emitted function declared both, which the native toolchain refused after `check` said OK
+  [1;34m = [0m[1;32mhelp: [0mgive each parameter its own name; an unused one can be `_a`, `_b` - `_` is a name here like any other, so two of them collide too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3006` for a full explanation
+
+compilation failed due to 3 previous errors

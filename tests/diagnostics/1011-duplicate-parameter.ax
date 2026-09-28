@@ -1,0 +1,28 @@
+; One name, twice, in one `fn`'s parameter list: AX3006, the code for
+; two definitions of one name in one scope. Found by the seeded fuzzer
+; 2026-09-27 (tests/fuzz/dup-param-llc.axfuzz): `check` said OK and the
+; emitter wrote `define i64 @pick(i64 %x, i64 %x)`, which llc refuses as
+; a redefinition of argument, so `build` failed at the toolchain.
+;
+; Parameters carry no span, so each report lands on the function's name
+; and names the parameter. `_` is a name in a `fn` - `(fn (f _) _)`
+; answers its argument - so `ignore` collides the same way; it died in
+; llc as `%_` twice. `third` repeats one name three times and draws ONE
+; report, at the second occurrence. The lambda at the end is curried by
+; the parser into two nested lambdas, where the second `a` shadows the
+; first, and it stays legal.
+(:: pick (-> Int Int Int))
+(fn (pick x x)
+  x)
+
+(:: ignore (-> Int Int Int))
+(fn (ignore _ _)
+  0)
+
+(:: third (-> Int Int Int Int))
+(fn (third y y y)
+  y)
+
+(:: main Int)
+(fn (main)
+  ((lambda (a a) a) 1 2))

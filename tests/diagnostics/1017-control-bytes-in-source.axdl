@@ -1,0 +1,1 @@
+E AX3001 1017-control-bytes-in-source.ax:19:30-43 undefined-variable "undefined variable `undefinedHere`" #"no binding named `undefinedHere` in scope" ?"variables must be defined (via `define`/`fn`, a `let` binding, or a lambda parameter) before they are used; check for typos"

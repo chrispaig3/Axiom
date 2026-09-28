@@ -1151,6 +1151,21 @@ site, so a caller inherits `Unsafe` in its row and draws nothing
 itself. An error from its first day, like `AX3042` - unannotated
 unsafe code fails to compile. From the free end as well.
 
+`AX3076` was spent on 2026-09-27 by `effect-tag-list`: an
+`;@axiom:effect(...)` tag naming more than one effect -
+`effect(io, unsafe)` - which was read as ONE custom effect spelled with
+the comma, so `AX3010` reported it "missing" from a body that performed
+both (`tests/diagnostics/1018-effect-tag-list.ax`). A list is refused
+rather than accepted: one tag line per effect is the spelling every
+reader of tags already agrees on. From the free end as well. The four
+other refusals the seeded fuzzer's findings added that day reuse
+existing codes, because each is the mistake an existing code already
+names: a parameter list naming one name twice is `AX3006`
+(`duplicate-definition`), a cast form or one-argument primitive with
+no value to take is `AX3013` (`partial-application`), `set` on a
+built-in or an imported function is `AX3012`, and an effect's name
+where a value goes is `AX3001`.
+
 **ERR-DIAG-3 (P). Poisoning, not cascading.** Where a check on an error
 type fails, propagate `TError` and guard downstream comparisons, so one
 mistake draws one diagnostic. Reach for a group key only when a real

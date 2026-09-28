@@ -326,10 +326,20 @@
 ;
 ; Two walks again, for the same reason. Escaped: `"` and `\` as their
 ; two-character forms, the five control characters with short spellings,
-; and every other byte below 0x20 as `\u00XX`. Bytes above 0x7F pass
-; through unchanged: the input is already UTF-8 and JSON is defined over
+; and every other byte below 0x20 as `\u00XX`. Bytes above 0x7F that
+; form WELL-FORMED UTF-8 pass through unchanged: JSON is defined over
 ; Unicode text, so re-encoding them as `\u` escapes would be legal and
 ; pointless.
+;
+; A byte above 0x7F that begins no well-formed sequence
+; (`utf8WellFormedAt`: Unicode's Table 3-7, so an overlong form, an
+; encoded surrogate and a truncated sequence count) is written as
+; `�`, one per byte. "The input is already UTF-8" was an
+; assumption, and a `String` is bytes: the LSP writes a document's own
+; text back through here, and the compiler's JSON diagnostics - which
+; took the same rule on 2026-09-27 (`jsonEsc` in self_host/render.ax)
+; - were shown writing lines no strict reader parses. Not `\u00XX`:
+; that names the character U+00XX, not the byte.
 ;
 ; DEL (0x7F) is NOT escaped - JSON does not require it, and every
 ; implementation this must interoperate with leaves it alone.
@@ -358,10 +368,29 @@
 
 (:: jsonEscapeLen (-> String Int))
 (fn (jsonEscapeLen s)
-  (let ((mut n 0))
+  (let (
+    (mut n 0)
+    (mut k 0)
+    (len (strLen s))
+  )
     {
-      (for k 0 (strLen s)
-        (set n (+ n (jsonEscLen (strByte s k)))))
+      (while (< k len)
+        (let ((b (strByte s k)))
+          (if (< b 128)
+            {
+              (set n (+ n (jsonEscLen b)))
+              (set k (+ k 1))
+            }
+            (let ((w (utf8WellFormedAt s k len)))
+              (if (== w 0)
+                {
+                  (set n (+ n 6))
+                  (set k (+ k 1))
+                }
+                {
+                  (set n (+ n w))
+                  (set k (+ k w))
+                })))))
       n
     }))
 
@@ -377,11 +406,50 @@
 (fn (jsonEscapeFill s out)
   (let (
     (mut off 0)
+    (mut skip 0)
+    (len (strLen s))
     (d (strData out))
   )
     {
-      (for k 0 (strLen s)
+      ; `skip` counts the continuation bytes still owed to a
+      ; well-formed sequence whose lead byte was just copied; they are
+      ; copied as they come. A byte that begins no well-formed sequence
+      ; is `�` - the rule `jsonEscapeLen` sized the buffer by.
+      (for k 0 len
         (let ((b (strByte s k)))
+          (if (> skip 0)
+            {
+              (__store8 d off b)
+              (set off (+ off 1))
+              (set skip (- skip 1))
+            }
+            (let ((w (if (< b 128)
+              1
+              (utf8WellFormedAt s k len))))
+              (if (== w 0)
+                {
+                  (__store8 d off 92)
+                  (__store8 d (+ off 1) 117)
+                  (__store8 d (+ off 2) 102)
+                  (__store8 d (+ off 3) 102)
+                  (__store8 d (+ off 4) 102)
+                  (__store8 d (+ off 5) 100)
+                  (set off (+ off 6))
+                }
+                {
+                  (set skip (- w 1))
+                  (jsonEscapeOne d off b)
+                  (set off (+ off (jsonEscLen b)))
+                })))))
+      off
+    }))
+
+; One byte that is text: its escape, or itself, written at `off`.
+(:: jsonEscapeOne (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (jsonEscapeOne d off0 b)
+  (let ((mut off off0))
+    {
           (if (== b 34)
             {
               (__store8 d off 92)
@@ -437,7 +505,7 @@
                           {
                             (__store8 d off b)
                             (set off (+ off 1))
-                          }))))))))))
+                          }))))))))
       off
     }))
 

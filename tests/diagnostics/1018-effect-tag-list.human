@@ -1,0 +1,21 @@
+[1;31merror[AX3076][0m[1m: `effect(io, unsafe)` on `comma` names 2 effects, and an `effect(...)` tag names one[0m
+  [1;34m--> [0m1018-effect-tag-list.ax:15:6
+[1;34m   |[0m
+[1;34m15 |[0m (fn (comma p)
+[1;34m   |[0m      [1;31m^^^^^ one effect per `effect(...)` tag[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma list here was read as ONE effect spelled with the comma in it, which nothing declares - so the claim could never be satisfied, and AX3010 reported it missing from a body that performed it. `restrict(...)` takes a comma list; `effect(...)` does not
+  [1;34m = [0m[1;32mhelp: [0mwrite one tag line per effect: `;@axiom:effect(io)` and `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3076` for a full explanation
+
+[1;31merror[AX3076][0m[1m: `effect(io unsafe)` on `blank` names 2 effects, and an `effect(...)` tag names one[0m
+  [1;34m--> [0m1018-effect-tag-list.ax:23:6
+[1;34m   |[0m
+[1;34m23 |[0m (fn (blank p)
+[1;34m   |[0m      [1;31m^^^^^ one effect per `effect(...)` tag[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma list here was read as ONE effect spelled with the comma in it, which nothing declares - so the claim could never be satisfied, and AX3010 reported it missing from a body that performed it. `restrict(...)` takes a comma list; `effect(...)` does not
+  [1;34m = [0m[1;32mhelp: [0mwrite one tag line per effect: `;@axiom:effect(io)` and `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3076` for a full explanation
+
+compilation failed due to 2 previous errors

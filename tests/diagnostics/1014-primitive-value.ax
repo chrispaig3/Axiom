@@ -1,0 +1,36 @@
+; A one-argument primitive applied to nothing, or passed bare. A
+; primitive is lowered in place at every call and has no function
+; symbol, so unlike a one-parameter `fn` - whose bare name is a thunk -
+; it has no value to take. Both shapes checked OK and emitted
+; `%__floatToInt`, a register nothing defines, which llc refused
+; (tests/fuzz/primitive-value.axfuzz, found by the seeded fuzzer
+; 2026-09-27); thirteen primitives were open to it. Every primitive of
+; two or more arguments was AX3013 already, and these are now the same.
+;
+; `(__argc)` takes NO argument, so the one-element list is its call, and
+; it stays legal; so does `useOne`, a one-parameter `fn` passed as a
+; value.
+(:: apply (-> (-> Int Int) Int Int))
+(fn (apply f x)
+  (f x))
+
+(:: one (-> Int Int))
+(fn (one x)
+  x)
+
+(:: appliedToNothing Int)
+(fn (appliedToNothing)
+  (__floatToInt))
+
+(:: passedBare Int)
+(fn (passedBare)
+  (apply __atomic_load 8))
+
+(:: useOne Int)
+(fn (useOne)
+  (apply one 8))
+
+;@axiom:effect(io)
+(:: main Int)
+(fn (main)
+  (__argc))

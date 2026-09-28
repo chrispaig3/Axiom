@@ -230,21 +230,26 @@
 ; `ix` is `src`'s line index (diag.ax): the line start it begins at
 ; used to be a rescan from byte 0, which made every caret position
 ; O(offset) and the whole render O(diagnostics x file size).
+;
+; It counts in `dispStep`s, the unit `expandWindow` draws in: a tab to
+; the next stop, and every other step - a well-formed character, a
+; control byte drawn as its picture, a byte that is not UTF-8 drawn as
+; U+FFFD - one column. On well-formed text that is the old count, one
+; column per byte that is not a continuation byte.
 (pub :: dispColAt (-> String Int Int Int))
 (pub fn (dispColAt src ix off)
   (let (
     (mut i (pastBom src (lineStartOfIx ix off)))
     (mut col 0)
+    (n (strLen src))
   )
     {
       (while (< i off)
         {
           (if (== (strByte src i) 9)
             (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
-            (if (utf8IsCont (strByte src i))
-              0
-              (set col (+ col 1))))
-          (set i (+ i 1))
+            (set col (+ col 1)))
+          (set i (+ i (dispStep src i n)))
         })
       (+ col 1)
     }))
@@ -261,13 +266,56 @@
         {
           (if (== (strByte src i) 9)
             (set col (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH))
-            (if (utf8IsCont (strByte src i))
-              0
-              (set col (+ col 1))))
-          (set i (+ i 1))
+            (set col (+ col 1)))
+          (set i (+ i (dispStep src i le)))
         })
       col
     }))
+
+; Bytes in the one-column unit that begins at `i`: a well-formed UTF-8
+; character's length, or 1 for anything else - an ASCII byte, or a
+; byte that begins no character, which is drawn as U+FFFD by itself.
+(pub :: dispStep (-> String Int Int Int))
+(pub fn (dispStep src i end)
+  (let ((w (utf8WellFormedAt src i end)))
+    (if (< w 1)
+      1
+      w)))
+
+; What one `dispStep` unit is DRAWN as in a quoted source line. A
+; source line is echoed to a terminal, so its bytes are not all safe to
+; echo: a raw ESC in a string literal wrote escape sequences into the
+; report - a colour, a cursor move, a title - that `style.ax` did not
+; choose, and a NUL, a backspace or a carriage return mid-line moved or
+; hid what the caret row points at. Each control byte is drawn as its
+; Unicode CONTROL PICTURE instead (U+2400 + byte, so NUL is U+2400 and
+; ESC U+241B; DEL is U+2421): one column wide, like the byte it stands
+; for in `dispColAt`, so the caret row below needs no correction. A
+; byte that begins no UTF-8 character is U+FFFD, the rule the message
+; surfaces follow (`ctlEsc`, `jsonEsc`). Found 2026-09-27 by the
+; fuzzer's control-byte edits; `tests/diagnostics/1017-*` pins it.
+(pub :: dispUnitText (-> String Int Int String))
+(pub fn (dispUnitText src i n)
+  (let ((by (strByte src i)))
+    (if (|| (< by 32) (== by 127))
+      (utf8FromChar
+        (if (== by 127)
+          9249
+          (+ 9216 by)))
+      (if (< n 1)
+        "�"
+        (strSlice src i n)))))
+
+; The end of the line `off` is on, as QUOTED: `lineEndOf`, less the
+; carriage return of a CRLF line ending, which is the line's terminator
+; and not a character on it - drawn, it would be a picture of a CR at
+; the end of every line of a Windows file.
+(pub :: quotedLineEnd (-> String Int Int))
+(pub fn (quotedLineEnd src off)
+  (let ((le (lineEndOf src off)))
+    (if (&& (> le 0) (== (strByte src (- le 1)) 13))
+      (- le 1)
+      le)))
 
 ; Where the quoted window of a line of display width `dw` begins, given
 ; a span starting at 1-based display column `dcol`. 0 whenever the whole
@@ -302,8 +350,10 @@
 
 ; The bytes of [ls, le) whose display columns lie in [a, b), with tabs
 ; expanded. A tab is emitted column by column, so one straddling the
-; window's edge contributes only the columns inside it; a multi-byte
-; character is emitted whole at its lead byte.
+; window's edge contributes only the columns inside it; every other
+; `dispStep` unit is one column, drawn by `dispUnitText` - a character
+; whole, a control byte as its picture, a byte that is not UTF-8 as
+; U+FFFD.
 (pub :: expandWindow (-> String Int Int Int Int String))
 (pub fn (expandWindow src ls le a b)
   (let (
@@ -314,8 +364,8 @@
     {
       (while (< i le)
         (let ((by (strByte src i)))
-          {
-            (if (== by 9)
+          (if (== by 9)
+            {
               (let ((stop (* (+ (/ col TAB_WIDTH) 1) TAB_WIDTH)))
                 (while (< col stop)
                   {
@@ -324,21 +374,18 @@
                       (cast (Vec String) 0))
                     (set col (+ col 1))
                   }))
-              (if (utf8IsCont by)
-                0
-                (let ((n0 (utf8SeqLen by)))
-                  (let ((n 
-                    (if (> (+ i n0) le)
-                      (- le i)
-                      n0)))
-                    {
-                      (if (&& (>= col a) (< col b))
-                        (vecPush parts (strSlice src i n))
-                        (cast (Vec String) 0))
-                      (set col (+ col 1))
-                    }))))
-            (set i (+ i 1))
-          }))
+              (set i (+ i 1))
+            }
+            (let ((w (utf8WellFormedAt src i le)))
+              {
+                (if (&& (>= col a) (< col b))
+                  (vecPush parts (dispUnitText src i w))
+                  (cast (Vec String) 0))
+                (set col (+ col 1))
+                (set i (+ i (if (< w 1)
+                  1
+                  w)))
+              }))))
       (catStrs parts)
     }))
 
@@ -352,7 +399,7 @@
   ; Clamp the underline to the window it is drawn in.
   (let (
     (ls (lineStartOfIx ix start))
-    (le (lineEndOf src start))
+    (le (quotedLineEnd src start))
     (ln (lineOfIx ix start))
   )
     (let (
@@ -512,6 +559,9 @@
 ; in the original order and produce the same bytes, and `run` reaching
 ; the end unmoved means no byte needed escaping, so answering `s` is
 ; answering the copy the old code would have built.
+;
+; A byte that begins no well-formed UTF-8 sequence is written as
+; U+FFFD, the rule `jsonEsc` states for all three surfaces (2026-09-27).
 (pub :: ctlEsc (-> String String))
 (pub fn (ctlEsc s)
   (if (==
@@ -529,26 +579,29 @@
       {
         (while (< i n)
           (let ((b (strByte s i)))
-            {
-              (if (|| (< b 32) (== b 127))
+            (let ((w (if (< b 128)
+              1
+              (utf8WellFormedAt s i n))))
+              (if (|| (== w 0) (|| (< b 32) (== b 127)))
                 {
                   (if (> i run)
                     (vecPush parts (strSlice s run (- i run)))
                     (cast (Vec String) 0))
                   (vecPush
                     parts
-                    (if (== b 10)
-                      "\\n"
-                      (if (== b 9)
-                        "\\t"
-                        (if (== b 13)
-                          "\\r"
-                          (quoteUesc b)))))
-                  (set run (+ i 1))
+                    (if (== w 0)
+                      "�"
+                      (if (== b 10)
+                        "\\n"
+                        (if (== b 9)
+                          "\\t"
+                          (if (== b 13)
+                            "\\r"
+                            (quoteUesc b))))))
+                  (set i (+ i 1))
+                  (set run i)
                 }
-                0)
-              (set i (+ i 1))
-            }))
+                (set i (+ i w))))))
         (if (== run 0)
           s
           {
@@ -1232,6 +1285,21 @@
 ; the bytes are unchanged. Note the set differs from `ctlEsc`'s: `"`
 ; and `\` are escaped because this IS quoted, and DEL is not, per the
 ; comment above.
+;
+; ILL-FORMED UTF-8 IS REPLACED, one `�` per byte that begins no
+; well-formed sequence (`utf8WellFormedAt`, Unicode's Table 3-7 - so
+; an overlong form, an encoded surrogate and a truncated sequence are
+; ill-formed too). "Bytes at or above 0x20 are copied as-is" above was
+; true only of TEXT: a diagnostic quotes source bytes, a source file
+; is whatever bytes it is, and RFC 8259 text is UTF-8, so a stray
+; `0xE4` went out verbatim and no strict reader could parse the line -
+; found by the seeded fuzzer 2026-09-27 through AX1001 and AX3052
+; (`tests/fuzz/json-*.axfuzz`; 99 of 6,000 `--long` mutants). The
+; replacement and not a `\u00XX` escape, because `ä` is the
+; character U+00E4 and not the byte 0xE4 - an escape would state
+; something the file does not say. `stdlib/Json.ax`'s `jsonEscape`,
+; the LSP's writer, takes the same rule; the AXDL and human
+; renderers write the character itself, U+FFFD.
 (pub :: jsonEsc (-> String String))
 (pub fn (jsonEsc s)
   (let (
@@ -1243,34 +1311,37 @@
     {
       (while (< i n)
         (let ((b (strByte s i)))
-          {
-            (if (|| (< b 32) (|| (== b 34) (== b 92)))
+          (let ((w (if (< b 128)
+            1
+            (utf8WellFormedAt s i n))))
+            (if (|| (== w 0) (|| (< b 32) (|| (== b 34) (== b 92))))
               {
                 (if (> i run)
                   (vecPush parts (strSlice s run (- i run)))
                   (cast (Vec String) 0))
                 (vecPush
                   parts
-                  (if (== b 34)
-                    "\\\""
-                    (if (== b 92)
-                      "\\\\"
-                      (if (== b 10)
-                        "\\n"
-                        (if (== b 9)
-                          "\\t"
-                          (if (== b 13)
-                            "\\r"
-                            (if (== b 8)
-                              "\\b"
-                              (if (== b 12)
-                                "\\f"
-                                (jsonUesc b)))))))))
-                (set run (+ i 1))
+                  (if (== w 0)
+                    "\\ufffd"
+                    (if (== b 34)
+                      "\\\""
+                      (if (== b 92)
+                        "\\\\"
+                        (if (== b 10)
+                          "\\n"
+                          (if (== b 9)
+                            "\\t"
+                            (if (== b 13)
+                              "\\r"
+                              (if (== b 8)
+                                "\\b"
+                                (if (== b 12)
+                                  "\\f"
+                                  (jsonUesc b))))))))))
+                (set i (+ i 1))
+                (set run i)
               }
-              0)
-            (set i (+ i 1))
-          }))
+              (set i (+ i w))))))
       (if (== run 0)
         s
         {

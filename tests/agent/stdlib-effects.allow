@@ -172,6 +172,7 @@ jsonBoolVal Json.ax Unsafe
 jsonEscape Json.ax Alloc,Mut,Unsafe
 jsonEscapeFill Json.ax Mut,Unsafe
 jsonEscapeLen Json.ax Unsafe
+jsonEscapeOne Json.ax Mut,Unsafe
 jsonGet Json.ax Unsafe
 jsonGetFrom Json.ax Unsafe
 jsonGetInt Json.ax Unsafe
@@ -548,6 +549,7 @@ todo IO.ax Alloc,IO,Mut,Unsafe
 tuiCat Edit.ax Alloc,Mut,Unsafe
 tuiVisLen Edit.ax Unsafe
 utf8CharAt Utf8.ax Unsafe
+utf8ContIn Utf8.ax Unsafe
 utf8ContRun Utf8.ax Unsafe
 utf8DecodeAt Utf8.ax Unsafe
 utf8FromChar Utf8.ax Alloc,Mut,Unsafe
@@ -559,6 +561,7 @@ utf8OffsetFrom Utf8.ax Unsafe
 utf8Slice Utf8.ax Alloc,Mut,Unsafe
 utf8Valid Utf8.ax Unsafe
 utf8ValidFrom Utf8.ax Unsafe
+utf8WellFormedAt Utf8.ax Unsafe
 vecBuild Vec.ax Alloc,Mut,Unsafe
 vecCap Vec.ax Unsafe
 vecClear Vec.ax Mut,Unsafe

@@ -1,0 +1,33 @@
+; An effect's name, or `handle`, where a value goes. Each checked OK and
+; emitted a register or a symbol nothing defines - `%IO`, `@Console`,
+; `%handle` - which llc refused (tests/fuzz/builtin-name-value.axfuzz,
+; found by the seeded fuzzer 2026-09-27). They were quiet because a
+; `handle` list used to be parsed as an APPLICATION and put each effect
+; name where an argument goes; `handle` has been its own form since, and
+; its effect list is never read as variables.
+;
+; Now each is the AX3001 the sixth built-in effect `Unsafe`, and the
+; keywords `if`, `let` and `match`, always drew. The `handle` form at the
+; end still names `Console` in its list, and draws nothing.
+(effect Console
+  (say :: (-> Int Int)))
+
+(:: g (-> Int Int))
+(fn (g x)
+  x)
+
+(:: asValue Int)
+(fn (asValue)
+  (g IO))
+
+(:: asHead Int)
+(fn (asHead)
+  (Console 1))
+
+(:: keyword Int)
+(fn (keyword)
+  (g handle))
+
+(:: main Int)
+(fn (main)
+  (handle (say 1) (Console) (lambda (n) n)))

@@ -1,0 +1,19 @@
+; A source line holding CONTROL BYTES, quoted under a caret by the human
+; renderer. The quoted line is echoed to a terminal, and it went out raw:
+; the ESC in the string below wrote `[31m` - red - into the report, a
+; colour `style.ax` did not choose, and a NUL, backspace or carriage
+; return mid-line moves or hides what the caret points at. The MESSAGE
+; surfaces escaped such bytes since 2026-08-16 (478-json-control-bytes);
+; the quoted source line did not. Found 2026-09-27 from the seeded
+; fuzzer's control-byte edits.
+;
+; Each control byte is drawn as its Unicode CONTROL PICTURE now - ESC as
+; U+241B, SOH as U+2401, DEL as U+2421 - one column wide, like the byte
+; it stands for, so the caret under `undefinedHere` still lands on it. A NUL
+; is drawn the same way (U+2400) but cannot sit in a fixture: this
+; harness reads lines through bash, which drops it. The same code path
+; draws it, and scripts/check-fuzz.sh holds every refusal's human report
+; to "no raw control byte" over mutants that insert NULs.
+(:: main Int)
+(fn (main)
+  (let ((s "red:[31mXY")) undefinedHere))
