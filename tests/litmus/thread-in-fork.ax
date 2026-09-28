@@ -39,6 +39,7 @@
 
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (nap idle ms)
   {
     (sysWaitWordTimeout idle 0 (* ms 1000000))

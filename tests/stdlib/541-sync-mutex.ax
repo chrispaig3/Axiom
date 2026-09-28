@@ -42,6 +42,7 @@
 
 (:: bump (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (bump m cell n)
   {
     (for i 0 n
@@ -58,6 +59,7 @@
 
 (:: hold (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (hold m flag x)
   (match (mutexLock m)
     ((Ok g)
@@ -78,6 +80,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (match (mutexNew)
     ((Ok m)

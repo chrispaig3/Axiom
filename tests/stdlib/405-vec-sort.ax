@@ -76,6 +76,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   ; the bounds cases: empty, one, already sorted, exactly reversed
   {

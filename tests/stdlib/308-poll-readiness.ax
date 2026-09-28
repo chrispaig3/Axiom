@@ -39,6 +39,7 @@
 ; A bound, listening, non-blocking socket on `port`, or a negative.
 (:: listenOn (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (listenOn addr optb port)
   (match netSocketTcp
     ((Err e) (- 0 1))
@@ -86,6 +87,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((base (+ 20000 (% sysGetPid 9000))))
     (let ((addr (memAlloc 16)))

@@ -88,6 +88,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   ; A bare reference to a nullary constructor constructs it too.
   ; --- match arm orders, over every list shape ---

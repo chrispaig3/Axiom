@@ -60,6 +60,7 @@
 ; the one that came out of the struct field. `pick` names it so the
 ; reader can see the four cases differ in exactly that.
 (:: parkedByte (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (parkedByte pick)
   (let ((log vecNew))
     (let ((h (Holder (strDup "alice"))))

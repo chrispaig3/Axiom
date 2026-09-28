@@ -95,6 +95,7 @@
 
 ; The headers of `r` as `name=value;...`, in order.
 (:: headersText (-> HttpReq String))
+;@axiom:effect(unsafe)
 (fn (headersText r)
   (let (
     (mut i 0)
@@ -123,6 +124,7 @@
 ; reader sees end-of-stream where a real peer would still be silent.
 (:: parseVia (-> Int String Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (parseVia lsn request cap)
   (let ((addr (memAlloc 16)))
     (match netSocketTcp
@@ -167,6 +169,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (addr (memAlloc 16))

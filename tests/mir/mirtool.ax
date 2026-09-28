@@ -66,6 +66,7 @@
 ; ------------------------------------------------------------------
 (:: frontend (-> String (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (frontend path)
   (let ((src (sysReadFile (strCStr path))))
     (let ((pr (parseModuleWith (lex src) (scanAxtags src))))
@@ -118,6 +119,7 @@
 ; differ.
 (:: parseOnly (-> String (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (parseOnly path)
   (let ((src (sysReadFile (strCStr path))))
     (let ((pr (parseModuleWith (lex src) (scanAxtags src))))

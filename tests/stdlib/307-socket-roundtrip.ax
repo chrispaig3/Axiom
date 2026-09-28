@@ -68,6 +68,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((port (+ 20000 (% sysGetPid 10000))))
     (let (

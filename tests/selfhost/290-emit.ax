@@ -8,6 +8,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((pr (parseModule (lex "(fn (f) 1)"))))
     (if (== (memGetWord pr 0) 0)

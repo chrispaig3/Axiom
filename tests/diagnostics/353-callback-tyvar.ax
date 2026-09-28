@@ -58,6 +58,7 @@
 
 ;@axiom:raw
 (:: declared (-> (-> a Int) Int))
+;@axiom:effect(unsafe)
 (fn (declared f)
   (f
     (cast a 42)))

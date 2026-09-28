@@ -18,6 +18,7 @@
 (import diag)
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (src "(:: main Int)\n(fn (main) 0)\n(fn (main) 1)\n")

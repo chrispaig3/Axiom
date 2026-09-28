@@ -15,6 +15,7 @@
 (import parser)
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((pr (parseModule (lex "(fn (fname) 1)\n(:: s Int)"))))
     (if (== (memGetWord pr 0) 0)

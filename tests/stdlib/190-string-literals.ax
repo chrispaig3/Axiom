@@ -16,6 +16,7 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   ; Same length, same bytes, same comparison result.
   (let (

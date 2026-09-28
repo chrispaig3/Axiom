@@ -96,6 +96,7 @@
 ; it is on or off.
 (:: serve (-> Int Int Int Bool Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (serve lsn arenaOn varied reportPeer)
   (let (
     (rec (memAlloc 64))
@@ -210,6 +211,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((port (argInt 1)))
     (let ((nworkers (argInt 2)))

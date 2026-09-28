@@ -103,6 +103,7 @@
 ; ---- mutex -------------------------------------------------------------
 (:: bump (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (bump m cell n)
   {
     (for i 0 n
@@ -132,6 +133,7 @@
 
 (:: mutexRun (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (mutexRun buf n k)
   (match (mutexNew)
     ((Ok m)
@@ -169,6 +171,7 @@
 
 (:: drain (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (drain ch cell)
   (let (
     (mut sum 0)
@@ -189,6 +192,7 @@
 
 (:: chanRun (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (chanRun buf n)
   (match (chanNew 64)
     ((Ok ch)

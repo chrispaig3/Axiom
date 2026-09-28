@@ -48,6 +48,7 @@
 ; The bytes `httpRespond` writes for a status, a type and a body.
 (:: captured (-> Int String String String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (captured status ctype body)
   (match (sysOpenPath (__addr "resp.tmp") oWronlyCreateTrunc)
     ((Err e) (strConcat "ERR open resp.tmp: " (errMessage e)))
@@ -62,6 +63,7 @@
 ; The bytes `httpFail` writes.
 (:: capturedFail (-> Int String String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (capturedFail status why)
   (match (sysOpenPath (__addr "fail.tmp") oWronlyCreateTrunc)
     ((Err e) (strConcat "ERR open fail.tmp: " (errMessage e)))
@@ -75,6 +77,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   ; --- the shape of a response -------------------------------
   {

@@ -33,6 +33,7 @@
 ; every element is copied through `strDup` - a slice of a larger string
 ; shares storage and stops at no NUL.
 (pub :: argv3 (-> String String String Int))
+;@axiom:effect(unsafe)
 (pub fn (argv3 a b c)
   (let ((v (memAlloc 32)))
     {

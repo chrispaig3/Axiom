@@ -76,6 +76,7 @@
   ))
 
 (:: parkedByte (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (parkedByte pick)
   (let ((log vecNew))
     (let ((h (Holder (strDup "alice"))))

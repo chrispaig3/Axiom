@@ -11830,6 +11830,16 @@
         (ta (nodeTag a))
         (tb (nodeTag b))
       )
+        ; An INSTANTIATION placeholder on the source side that nothing
+        ; pinned says the value's type was never constrained: `vecNew`
+        ; is `(Vec _i)` until something typed is pushed, and pinning
+        ; binds `_i` the moment one is (`tyIsMintedVar`). Casting it is
+        ; the ascription `(:: vecNew (Vec Int))` spells, which chooses
+        ; the type rather than forging one. A `_t` placeholder - a
+        ; value whose type the checker does not know - is not this, and
+        ; neither is a variable the signature wrote.
+        (if (&& (== tb TAG_T_VAR) (== (tyIsMintedVar b) 1))
+          1
         (if (!= ta tb)
           0
           (if (== ta TAG_T_VAR)
@@ -11848,7 +11858,7 @@
                   (castSameVec tc (nodeAVec a) (nodeAVec b) 0)
                   (if (|| (== ta TAG_T_LIST) (== ta TAG_T_PTR))
                     (castSameTy tc (nodeA a) (nodeA b))
-                    0))))))))))
+                    0)))))))))))
 
 (pub :: castSameVec (-> Int (Vec Int) (Vec Int) Int Int))
 (pub fn (castSameVec tc xs ys i)

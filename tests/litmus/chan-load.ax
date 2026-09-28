@@ -146,6 +146,7 @@
 
 (:: now (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (now buf)
   (match (sysNowMicros buf)
     ((Ok t) t)

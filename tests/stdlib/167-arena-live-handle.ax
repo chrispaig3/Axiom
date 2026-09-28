@@ -48,6 +48,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     ; --- LEGAL: the mark is taken inside the extent ---

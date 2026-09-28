@@ -74,6 +74,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     ; --- 1. let-bound fresh call in a region ---

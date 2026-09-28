@@ -51,11 +51,13 @@
 ; were not the timer's.
 (:: stGet (-> Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live block of at least `i` + 1 words)
 (fn (stGet st i)
   (__vload64 (+ st (* 8 i))))
 
 (:: stSet (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`st` names a live block of at least `i` + 1 words)
 (fn (stSet st i v)
   (__vstore64 (+ st (* 8 i)) v))
 
@@ -113,6 +115,7 @@
 ;@axiom:restrict(no-alloc, no-recursion, strict)
 (:: step (-> Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names a live block of 17 words)
 (fn (step buf k)
   (let (
     (slot (% k 16))
@@ -126,6 +129,7 @@
 
 (:: runStep (-> Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names a live block of 17 words)
 (fn (runStep buf k)
   (let ((sum (step buf k)))
     {
@@ -135,6 +139,7 @@
 
 (:: zeroed (-> Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names a live block of at least `words` words)
 (fn (zeroed buf words)
   {
     (for i 0 words

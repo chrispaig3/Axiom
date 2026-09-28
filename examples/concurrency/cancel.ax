@@ -48,6 +48,7 @@
 
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (nap idle ms)
   {
     (sysWaitWordTimeout idle 0 (* ms 1000000))
@@ -57,6 +58,7 @@
 ; Search shard `s`; record this process's pid in word `s` of `pids`.
 (:: shard (-> Int Int Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (shard pids idle tok s)
   {
     (memSetWord pids s sysGetPid)
@@ -123,6 +125,7 @@
 ; How many of the pids recorded in `pids` still exist.
 (:: stillAlive (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (stillAlive pids n)
   (let ((mut alive 0))
     {

@@ -35,6 +35,7 @@
   (memAlloc 1152921504606846976))
 
 (:: usable (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (usable x)
   (let ((p (memAlloc 64)))
     {

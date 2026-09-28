@@ -43,6 +43,7 @@
 ; how the first look went (0 running, 1 ended, 2 the look failed).
 (:: firstLook (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (firstLook pid pbuf)
   (match (sysChildExited pid pbuf)
     ((Ok b) (bit b))
@@ -50,6 +51,7 @@
 
 (:: awaitEnd (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (awaitEnd pid pbuf idle)
   (let ((mut seen 0))
     {
@@ -69,6 +71,7 @@
 ; A child that answers 42 once the word at `w` stops holding 7.
 (:: spawnWaiter (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (spawnWaiter w)
   (__proc_spawn
     (lambda (x)
@@ -87,6 +90,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (match (sysMapShared 4096)
     ((Ok w)

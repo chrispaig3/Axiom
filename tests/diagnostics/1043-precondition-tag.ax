@@ -1,0 +1,49 @@
+; `;@axiom:precondition(...)` states what a caller must make true for a
+; call to be safe (R-B6, docs/memory-model.md MM-EXEC-9d).
+;
+;   `loose`   a precondition without `effect(unsafe)`: AX3079
+;   `blank`   a precondition that states nothing: AX3080
+;   `onData`  a precondition above a `data` declaration, which has no
+;             callers to owe it: AX3077
+;   `slip`    `precondtion`, one edit from the key: AX3039, a warning
+;   `forged`  `unsafe(...)`, the key `symbols` writes itself: AX3065
+;
+; `stated` is the control: both tags, with its precondition in words, on
+; a body that performs the operation.
+(import Mem)
+
+(:: loose (-> Int Int))
+;@axiom:precondition(`a` names a live word)
+(fn (loose a)
+  (+ a 1))
+
+(:: blank (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition()
+(fn (blank a)
+  (memGetWord a 0))
+
+;@axiom:precondition(never read)
+(data Pair
+  (Pair Int Int))
+
+(:: slip (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondtion(`a` names a live word)
+(fn (slip a)
+  (memGetWord a 0))
+
+(:: forged (-> Int Int))
+;@axiom:unsafe(trusted)
+(fn (forged a)
+  (+ a 1))
+
+(:: stated (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a live block of at least two words)
+(fn (stated a)
+  (memGetWord a 1))
+
+(:: main Int)
+(fn (main)
+  0)

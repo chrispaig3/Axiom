@@ -38,6 +38,7 @@
   (Pt a b))
 
 (:: roundTrip (-> Int Box))
+;@axiom:effect(unsafe)
 (fn (roundTrip w)
   (cast Box w))
 
@@ -47,6 +48,7 @@
     ((Wrap v) v)))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((h (mkPt 30 5)))
     (let ((p 

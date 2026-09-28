@@ -23,6 +23,7 @@
   (vecLen (strSplit s b)))
 
 (:: segEq (-> String Int Int String Bool))
+;@axiom:effect(unsafe)
 (fn (segEq s b i want)
   (strEq (vecGetStr (strSplit s b) i) want))
 

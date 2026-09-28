@@ -81,6 +81,7 @@
 ; rather than a length check that passes and a content check that does
 ; not exist.
 (:: joined (-> (Vec Int) Int String String))
+;@axiom:effect(unsafe)
 (fn (joined v i acc)
   (if (>= i (vecLen v))
     acc

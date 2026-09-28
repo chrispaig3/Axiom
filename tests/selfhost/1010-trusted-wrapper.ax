@@ -1,0 +1,62 @@
+; expect 42
+; A trusted encapsulation written in a program (R-B6,
+; docs/memory-model.md MM-EXEC-9d). `Cells` keeps words in a raw block
+; and checks every index against its length, so its functions make
+; `memGetWord`'s and `memSetWord`'s preconditions true themselves and
+; say `;@axiom:effect(unsafe)` alone. `cellsOf` forges a `Cells` out of
+; the block it has just built, which is the one place that is honest.
+;
+; `sum` and `main` use it with no tag, and `sum` claims
+; `restrict(no-unsafe)`, which holds: a trusted function's `Unsafe`
+; stays with it. An index past the end traps with status 77.
+(import Mem)
+
+(struct Cells
+  (len : Int)
+  (base : Int))
+
+(:: cellsOf (-> Int Cells))
+;@axiom:effect(unsafe)
+(fn (cellsOf n)
+  (cast Cells (let ((blk (memAlloc 16)))
+    {
+      (memSetWord blk 0 n)
+      (memSetWord blk 1 (memAlloc (* 8 n)))
+      blk
+    })))
+
+(:: cellGet (-> Cells Int Int))
+;@axiom:effect(unsafe)
+(fn (cellGet c i)
+  (if (|| (< i 0) (>= i c.len))
+    __indexTrap
+    (memGetWord c.base i)))
+
+(:: cellSet (-> Cells Int Int Int))
+;@axiom:effect(unsafe)
+(fn (cellSet c i v)
+  (if (|| (< i 0) (>= i c.len))
+    __indexTrap
+    {
+      (memSetWord c.base i v)
+      v
+    }))
+
+(:: sum (-> Cells Int))
+;@axiom:restrict(no-unsafe)
+(fn (sum c)
+  (let ((mut t 0))
+    {
+      (for i 0 c.len
+        (set t (+ t (cellGet c i))))
+      t
+    }))
+
+(:: main Int)
+(fn (main)
+  (let ((c (cellsOf 4)))
+    {
+      (for i 0 4
+        (cellSet c i (+ i 9)))
+      (sum c)
+    }))

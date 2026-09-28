@@ -29,6 +29,7 @@
 (import diag)
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((src "(fn (a) 0)\n(fn (b) 1)\n(fn (c) 2)\n"))
     (let ((d (mkDiagBase
@@ -36,9 +37,9 @@
       "AX9999"
       "kitchen-sink"
       (mkSpan 5 6)
-      "everything at once")))
+      "everything at once"
+      "the label")))
       {
-        (diagSetLabel d "the label")
         ; Two of each, so the difference between "renders the field" and
         ; "renders the field once" is visible.
         (diagAddSecondary d (mkSpan 16 17) "first related")

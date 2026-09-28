@@ -3,6 +3,7 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   {
     (printlnLit (__addr "hello, world"))

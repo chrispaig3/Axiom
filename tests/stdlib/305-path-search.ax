@@ -42,6 +42,7 @@
 ; NUL-terminated bytes, so both are copied through `strDup` - a slice of
 ; a larger string shares storage and stops at no NUL.
 (pub :: argv2 (-> String String Int))
+;@axiom:effect(unsafe)
 (pub fn (argv2 a b)
   (let ((v (memAlloc 24)))
     {
@@ -55,6 +56,7 @@
 ; nothing at all when `e` is "" - which is how a child gets a `PATH`
 ; that is unset rather than empty.
 (pub :: envp1 (-> String Int))
+;@axiom:effect(unsafe)
 (pub fn (envp1 e)
   (let ((v (memAlloc 16)))
     (if (== (strLen e) 0)
@@ -72,6 +74,7 @@
 ; name a search takes, naming the file the search would find.
 (pub :: selfName String)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (selfName)
   (let ((parts (strSplit (sysArg 0) 47)))
     (vecGetStr parts (- (vecLen parts) 1))))

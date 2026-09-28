@@ -78,6 +78,7 @@
 
 ; Is `want` one of the names in `v`?
 (:: holds (-> (Vec Int) String Int Bool))
+;@axiom:effect(unsafe)
 (fn (holds v want i)
   (if (>= i (vecLen v))
     false

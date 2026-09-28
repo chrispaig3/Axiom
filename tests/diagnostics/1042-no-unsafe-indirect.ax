@@ -1,0 +1,92 @@
+; `restrict(no-unsafe)` refuses a body that performs an unsafe
+; operation, or reaches one through a callee that is not a trusted
+; encapsulation (R-B6, docs/memory-model.md MM-EXEC-9d). The walk stops
+; at a function that says `effect(unsafe)` without a precondition.
+;
+; Refused, directly: `forges` casts a word into a `Box`, and `peeks`
+; calls `memGetWord`. Each draws AX3073 beside its AX3049, as a raw
+; primitive does.
+;
+; Refused, through one indirection: `viaForge` calls `boxOf`, which
+; forges and says nothing, and `viaPeek` calls `wordAt`, which calls
+; `memGetWord` and says nothing. Both callees draw AX3073, and the
+; restriction names the path. `viaForge` is declared before `boxOf`, so
+; the answer does not depend on which body is checked first.
+; `viaInterface` calls `cellAt`, a precondition interface, which is an
+; unsafe operation of its own.
+;
+; Accepted: `pushes` fills a `Vec` and builds a `String`, and `safely`
+; calls `firstByte`, a trusted wrapper written here.
+(import Mem)
+(import Str)
+(import Vec)
+
+(data Box
+  (Wrap Int))
+
+(:: forges (-> Int Int))
+;@axiom:restrict(no-unsafe)
+(fn (forges k)
+  (match (cast Box k)
+    ((Wrap n) n)))
+
+(:: peeks (-> Int Int))
+;@axiom:restrict(no-unsafe)
+(fn (peeks a)
+  (memGetWord a 0))
+
+(:: viaForge (-> Int Int))
+;@axiom:restrict(no-unsafe)
+(fn (viaForge k)
+  (match (boxOf k)
+    ((Wrap n) n)))
+
+(:: boxOf (-> Int Box))
+(fn (boxOf k)
+  (cast Box k))
+
+(:: wordAt (-> Int Int))
+(fn (wordAt a)
+  (memGetWord a 1))
+
+(:: viaPeek (-> Int Int))
+;@axiom:restrict(no-unsafe)
+(fn (viaPeek a)
+  (wordAt a))
+
+(:: cellAt (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`c` names a live block of at least 3 words)
+(fn (cellAt c)
+  (memGetWord c 2))
+
+(:: viaInterface (-> Int Int))
+;@axiom:restrict(no-unsafe)
+(fn (viaInterface c)
+  (cellAt c))
+
+(:: pushes (-> Int Int))
+;@axiom:restrict(no-unsafe)
+(fn (pushes n)
+  (let ((v vecNew))
+    {
+      (vecPush v n)
+      (vecPush v (strLen (strConcat "a" "b")))
+      (vecLen v)
+    }))
+
+(:: firstByte (-> String Int))
+;@axiom:effect(unsafe)
+(fn (firstByte s)
+  (if (== (strLen s) 0)
+    0
+    (memGetByte (strData s) 0)))
+
+(:: safely (-> String Int))
+;@axiom:restrict(no-unsafe)
+(fn (safely s)
+  (+ (firstByte s) 1))
+
+(:: main Int)
+(fn (main)
+  (+ (pushes 1) (safely "b")))

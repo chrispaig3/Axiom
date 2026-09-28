@@ -1,0 +1,99 @@
+; A cast that makes a reference out of a word is an unsafe operation
+; (R-B6, docs/memory-model.md MM-EXEC-9d), and a declaration performing
+; one says `;@axiom:effect(unsafe)` or draws AX3073 at the cast.
+;
+; `toHid` is the probe the rule was built from: `(cast Hid 7)` checked
+; OK in a function with no tag, and reading a field of it died with
+; SIGSEGV (exit 139). The next five forge the other reference kinds: a
+; `data` type with a field, a `String`, a `Vec`, a function (`Step`
+; names the type, since a cast cannot spell an arrow) and a type
+; variable. `toVecOf` forges a `(Vec Int)` out of a `(Vec String)`,
+; which is a reference, but not the same one.
+;
+; The controls draw nothing. `observe` reads references and numbers as
+; words, and a `Foreign` as an `Int` and back. `same` casts a value to
+; the type it already has, and `fresh` ascribes an empty vector its
+; element type. `diverge` casts a value that never returns. `trusted`
+; forges and says so, and `caller` calls it with no tag of its own.
+(import IO)
+(import Vec)
+
+(struct Hid
+  (name : String)
+  (n : Int))
+
+(data Shape
+  (Circle Int)
+  (Empty))
+
+(data Colour
+  (Red)
+  (Green))
+
+(type Step = (-> Int Int))
+
+(:: toHid (-> Int Int))
+(fn (toHid k)
+  (let ((h (cast Hid k)))
+    h.n))
+
+(:: toShape (-> Int Shape))
+(fn (toShape k)
+  (cast Shape k))
+
+(:: toString (-> Int String))
+(fn (toString k)
+  (cast String k))
+
+(:: toVec (-> Int (Vec Int)))
+(fn (toVec k)
+  (cast (Vec Int) k))
+
+(:: toFn (-> Int Int))
+(fn (toFn k)
+  (let ((f (cast Step k)))
+    k))
+
+(:: toAny (-> Int a))
+;@axiom:raw
+(fn (toAny k)
+  (cast a k))
+
+(:: toVecOf (-> (Vec String) (Vec Int)))
+(fn (toVecOf v)
+  (cast (Vec Int) v))
+
+(:: observe (-> String Hid Float Foreign Int))
+(fn (observe s h f p)
+  (+ (cast Int s) (+ (cast Int h) (+ (cast Int f) (+ (cast Int p) (cast Int (cast Foreign 8)))))))
+
+(:: same (-> String Colour))
+(fn (same s)
+  (let ((t (cast String s)))
+    (if (== (strLen t) 0)
+      (cast Colour 0)
+      (cast Colour 1))))
+
+(:: fresh Int)
+(fn (fresh)
+  (vecLen (:: vecNew (Vec String))))
+
+(:: diverge (-> Int a))
+;@axiom:effect(io)
+(fn (diverge k)
+  (cast a (exit k)))
+
+(:: trusted (-> Int String))
+;@axiom:effect(unsafe)
+(fn (trusted k)
+  (if (== k 0)
+    ""
+    (cast String 0)))
+
+(:: caller Int)
+(fn (caller)
+  (strLen (trusted 0)))
+
+(:: main Int)
+(fn (main)
+  (caller))
