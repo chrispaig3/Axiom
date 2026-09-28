@@ -1,0 +1,211 @@
+[1;31merror[AX3049][0m[1m: `rd8` claims `restrict(no-unsafe)` and the body performs Unsafe: rd8 -> __vload8[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:15:6
+[1;34m   |[0m
+[1;34m15 |[0m (fn (rd8 a)
+[1;34m   |[0m      [1;31m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vload8 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `rd8` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:16:4
+[1;34m   |[0m
+[1;34m16 |[0m   (__vload8 a))
+[1;34m   |[0m    [1;31m^^^^^^^^ __vload8[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `rd16` claims `restrict(no-unsafe)` and the body performs Unsafe: rd16 -> __vload16[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:20:6
+[1;34m   |[0m
+[1;34m20 |[0m (fn (rd16 a)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vload16 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `rd16` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:21:4
+[1;34m   |[0m
+[1;34m21 |[0m   (__vload16 a))
+[1;34m   |[0m    [1;31m^^^^^^^^^ __vload16[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `rd32` claims `restrict(no-unsafe)` and the body performs Unsafe: rd32 -> __vload32[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:25:6
+[1;34m   |[0m
+[1;34m25 |[0m (fn (rd32 a)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vload32 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `rd32` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:26:4
+[1;34m   |[0m
+[1;34m26 |[0m   (__vload32 a))
+[1;34m   |[0m    [1;31m^^^^^^^^^ __vload32[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `rd64` claims `restrict(no-unsafe)` and the body performs Unsafe: rd64 -> __vload64[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:30:6
+[1;34m   |[0m
+[1;34m30 |[0m (fn (rd64 a)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vload64 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `rd64` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:31:4
+[1;34m   |[0m
+[1;34m31 |[0m   (__vload64 a))
+[1;34m   |[0m    [1;31m^^^^^^^^^ __vload64[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `wr8` claims `restrict(no-unsafe)` and the body performs Unsafe: wr8 -> __vstore8[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:35:6
+[1;34m   |[0m
+[1;34m35 |[0m (fn (wr8 a)
+[1;34m   |[0m      [1;31m^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vstore8 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `wr8` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:36:4
+[1;34m   |[0m
+[1;34m36 |[0m   (__vstore8 a 1))
+[1;34m   |[0m    [1;31m^^^^^^^^^ __vstore8[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `wr16` claims `restrict(no-unsafe)` and the body performs Unsafe: wr16 -> __vstore16[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:40:6
+[1;34m   |[0m
+[1;34m40 |[0m (fn (wr16 a)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vstore16 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `wr16` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:41:4
+[1;34m   |[0m
+[1;34m41 |[0m   (__vstore16 a 1))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __vstore16[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `wr32` claims `restrict(no-unsafe)` and the body performs Unsafe: wr32 -> __vstore32[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:45:6
+[1;34m   |[0m
+[1;34m45 |[0m (fn (wr32 a)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vstore32 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `wr32` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:46:4
+[1;34m   |[0m
+[1;34m46 |[0m   (__vstore32 a 1))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __vstore32[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `wr64` claims `restrict(no-unsafe)` and the body performs Unsafe: wr64 -> __vstore64[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:50:6
+[1;34m   |[0m
+[1;34m50 |[0m (fn (wr64 a)
+[1;34m   |[0m      [1;31m^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__vstore64 (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `wr64` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:51:4
+[1;34m   |[0m
+[1;34m51 |[0m   (__vstore64 a 1))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ __vstore64[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `clean` claims `restrict(no-unsafe)` and the body performs Unsafe: clean -> __arm_dc_cvac[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:55:6
+[1;34m   |[0m
+[1;34m55 |[0m (fn (clean a)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__arm_dc_cvac (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `clean` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:56:4
+[1;34m   |[0m
+[1;34m56 |[0m   (__arm_dc_cvac a))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ __arm_dc_cvac[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `flush` claims `restrict(no-unsafe)` and the body performs Unsafe: flush -> __arm_dc_civac[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:60:6
+[1;34m   |[0m
+[1;34m60 |[0m (fn (flush a)
+[1;34m   |[0m      [1;31m^^^^^[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m__arm_dc_civac (no declaration to point at)
+  [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `flush` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1020-unsafe-device-primitives.ax:61:4
+[1;34m   |[0m
+[1;34m61 |[0m   (__arm_dc_civac a))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^ __arm_dc_civac[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the primitive is CALLED, not up the call chain: a wrapper contains the unsafety, and a caller inherits `Unsafe` in its row without drawing this itself. If the raw access is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 20 previous errors

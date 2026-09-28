@@ -324,6 +324,51 @@
         true
         (declsHaveMainFrom ds (+ i 1))))))
 
+; AX4008: a device primitive, or an interrupt-vector binding, that the
+; target cannot execute. Codegen does not lower one - it writes a
+; `; axiom-device-refused <sentence>` line where the instruction would
+; have been (`emitDeviceRefused`, `emitIsrBinding`) - and this refuses
+; the module when such a line SURVIVED `pruneDeadDefs`, so a function
+; nothing calls is never refused. Asked of the finished IR because the
+; emitter cannot report a diagnostic and the driver can: AX4006's
+; arrangement, from the other end of emission. Spanless, like AX4006 -
+; the IR line no longer knows which call wrote it - and the sentence
+; names the primitive, which is the thing to search for.
+(pub :: refuseDeviceIr (-> String Int (Vec Int) String))
+;@axiom:effect(io)
+(pub fn (refuseDeviceIr ir dfmt units)
+  (let ((k (strFindSub ir "; axiom-device-refused " 0)))
+    (if (< k 0)
+      ir
+      (let (
+        (from (+ k 23))
+        (mut e (+ k 23))
+      )
+        {
+          (while (&& (< e (strLen ir)) (!= (strByte ir e) 10))
+            (set e (+ e 1)))
+          (let ((mds
+            (let ((v vecNew))
+              {
+                (vecPush v (mkDiag
+                  SEV_ERROR
+                  "AX4008"
+                  "target-device-unsupported"
+                  0
+                  (strSlice ir from (- e from))
+                  0
+                  0
+                  "the volatile accesses (`__vload8`..`__vstore64`) lower on every target; the barriers and the two counter reads (`__arm_dmb`, `__arm_dsb`, `__arm_isb`, `__arm_cntvct`, `__arm_cntfrq`) on any AArch64 target; everything else in the `__arm_` family only on baremetal-aarch64. Build for a target that has it, or keep the call off every path `main` reaches - a function nothing calls is pruned before this check"))
+                v
+              })))
+            {
+              (writeStderrStr (renderDiagsFormat dfmt mds units))
+              (writeStderrStr (renderFailTrailer 1))
+              (sysExitWith 1)
+              ""
+            })
+        }))))
+
 ; Compile `fileName` for `tname`, answering its LLVM text - or the empty
 ; string when `doEmit` is 0, which is what `check` wants.
 ;
@@ -661,7 +706,7 @@
                                                   })
                                                 units))
                                             0)
-                                          (emitResolved allDecls bares fulls tcode)
+                                          (refuseDeviceIr (emitResolved allDecls bares fulls tcode) dfmt units)
                                         }))
                                         {
                                           (if (&& (== needMain 0) (> (strLen (flagValue "--emit-rust-binding" 1)) 0))

@@ -22,6 +22,31 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Device access at device widths — `MM-FFI-8`, `AX4008`, `check-embedded.sh` A11 - 2026-09-27
+
+The bare-metal port had one device primitive, `__store8v`, a volatile
+byte store. It now has eight volatile accesses - `__vload8/16/32/64 a`
+and `__vstore8/16/32/64 a v`, one `load/store volatile iN` at the byte
+address with natural alignment - and fifteen AArch64 primitives: the
+`DMB SY`/`DSB SY`/`ISB` barriers, the counter (`CNTVCT_EL0`,
+`CNTFRQ_EL0`), the cache geometry, the virtual timer, the IRQ mask,
+`wfi`, `dc cvac`/`dc civac` and `TPIDR_EL1`. The volatile accesses and
+the two cache operations are `Unsafe` (twenty-six in the set now);
+`docs/memory-model.md` MM-FFI-8 states what volatile keeps - every
+access, its width, its order against other volatile accesses - and
+what it is not: an ordering against ordinary memory (that is the
+barriers) or a synchronisation edge (that is MM-PAR-9's atomics). A
+primitive the target cannot execute is refused at build time as
+`AX4008`: the volatile set lowers everywhere, the barriers and counter
+reads on any AArch64 target, the rest only on `baremetal-aarch64`, and
+the check reads the module after pruning, so an uncalled helper is never
+refused. A11 holds the IR widths, the writes surviving `opt -O2` against
+a plain-store control that loses its dead store, `llc`'s widths, each
+instruction, and the target line; the `volatile`, `barrier` and
+`refusal` drills turn it red. `tests/diagnostics/1020-unsafe-device-primitives.ax`
+pins the ten new `Unsafe` rows. Compile-only and host evidence; nothing
+here ran on hardware (`docs/embedded-guide.md`).
+
 ### The resource report and the restricted profile — `scripts/axiom-report.py`, `scripts/check-report.sh` - 2026-09-27
 
 R-D1. `scripts/axiom-report.py FILE.ax` prints, for every function

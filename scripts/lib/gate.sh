@@ -684,6 +684,7 @@ docs/generics-design.md
 docs/mir-design.md
 docs/status.md
 docs/embedded-proposal.md
+docs/embedded-guide.md
 docs/restricted-profile.md
 docs/cast-arg-root.md
 docs/recovery-audit-2026-09-27.md

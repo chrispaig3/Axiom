@@ -782,6 +782,24 @@ prim_case "__call_word"                 "(__call_word n 1)"                    "
 # ever grew to cover it, every row above would still pass - this is
 # the case that would not.
 prim_case "__retainref (control)"       "(__retainref n)"                      ""
+# The device primitives of 2026-09-27 (R-D2, docs/memory-model.md
+# MM-FFI-8), registered with their effects on arrival as the atomics
+# were. A volatile access carries `Mut` and `Unsafe` - the LOAD too,
+# because a device read can change device state, which is the
+# difference from `__load8` above; a barrier carries `Mut` alone, for
+# `__fence`'s reason; a read of a register the hardware owns, and the
+# wait for an interrupt, carry `IO`, for `__argc`'s; a cache operation
+# takes an address and is `Unsafe`. The thread-ID read is the control:
+# state the program itself stored, read with no effect, so the prefix
+# `__arm_` is not what these rows measure.
+prim_case "__vload32"                   "(__vload32 n)"                        "Mut,Unsafe"
+prim_case "__vstore64"                  "(__vstore64 n 1)"                     "Mut,Unsafe"
+prim_case "__arm_dmb"                   "(+ n __arm_dmb)"                      "Mut"
+prim_case "__arm_cntvct"                "(+ n __arm_cntvct)"                   "IO"
+prim_case "__arm_wfi"                   "(+ n __arm_wfi)"                      "IO"
+prim_case "__arm_set_cntv_cval"         "(__arm_set_cntv_cval n)"              "Mut"
+prim_case "__arm_dc_civac"              "(__arm_dc_civac n)"                   "Mut,Unsafe"
+prim_case "__arm_tpidr (control)"       "(+ n __arm_tpidr)"                    ""
 if (( failed_prim > 0 )); then
   echo "     $failed_prim primitive(s) disagree with docs/memory-model.md MM-EXEC-9a"
   exit 1

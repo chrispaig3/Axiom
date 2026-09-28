@@ -147,6 +147,35 @@ ABLATIONS = {
         "(pub fn (targetTrapSilent t) 1)",
         "A8 - the supported targets' emitted trap writes",
     ),
+    # The device primitives lose `volatile`: both emitters write an
+    # ordinary load and store, so the probe's dead-looking first write
+    # is `opt`'s to delete and every volatile count in A11 is 0. TWO
+    # edits, one drill - the keyword is one property of one family, and
+    # stripping half of it would leave A11 half-tested.
+    "volatile": (
+        [(""" = load volatile " ty ", ptr ") pr (cat2 ", align " """,
+          """ = load " ty ", ptr ") pr (cat2 ", align " """),
+         ("""(cat4 "  store volatile " ty " " sv)""",
+          """(cat4 "  store " ty " " sv)""")],
+        None,
+        "A11 - the volatile keyword reaching the emitted accesses",
+    ),
+    # `__arm_dmb` becomes a `nop`: the program still builds and runs,
+    # and orders nothing.
+    "barrier": (
+        '  (if (strEq nm "__arm_dmb")\n    "dmb sy"',
+        '  (if (strEq nm "__arm_dmb")\n    "nop"',
+        "A11 - each __arm_ primitive being its instruction",
+    ),
+    # Every target may run every primitive: nothing is ever refused as
+    # AX4008, and an EL1 instruction reaches an x86-64 assembler.
+    "refusal": (
+        """(pub fn (devicePrimTargetOK nm t)
+  (if (> (devicePrimBits nm) 0)""",
+        """(pub fn (devicePrimTargetOK nm t)
+  (if (>= (devicePrimBits nm) 0)""",
+        "A11 - AX4008 drawing the target line",
+    ),
 }
 
 
@@ -257,13 +286,17 @@ def main():
     elif name in ABLATIONS:
         old, new, aims = ABLATIONS[name]
         label = "ablation %s (aims at %s)" % (name, aims)
-        n_edits = 1
-        n = src.count(old)
-        if n != 1:
-            die("%s did not apply - its anchor occurs %d times in %s, not once.\n"
-                "       An edit that does not apply proves nothing. Re-anchor it on:\n"
-                "       %s" % (label, n, path, old.strip().splitlines()[0]))
-        src = src.replace(old, new, 1)
+        # A drill is one edit, or - where one property has two emission
+        # sites - a list of them, every one of which must apply.
+        edits = old if isinstance(old, list) else [(old, new)]
+        n_edits = len(edits)
+        for o, nw in edits:
+            n = src.count(o)
+            if n != 1:
+                die("%s did not apply - its anchor occurs %d times in %s, not once.\n"
+                    "       An edit that does not apply proves nothing. Re-anchor it on:\n"
+                    "       %s" % (label, n, path, o.strip().splitlines()[0]))
+            src = src.replace(o, nw, 1)
     else:
         die("no ablation named %r; try one of: %s" % (name, " ".join(sorted(ABLATIONS))))
 

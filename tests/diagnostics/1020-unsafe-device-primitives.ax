@@ -1,0 +1,75 @@
+; The ten device primitives of 2026-09-27 (R-D2) are Unsafe from their
+; first commit (docs/memory-model.md MM-EXEC-9c, MM-FFI-8): the eight
+; volatile accesses load or store at an arbitrary word, and the two
+; cache operations clean or invalidate the line holding one. One
+; declaration per primitive under `restrict(no-unsafe)`: each is refused
+; as AX3049 at its name, and each draws AX3073 as well, because the
+; declaration calling a raw primitive says nothing about it.
+;
+; The controls below them are the rest of the family and stay silent:
+; a barrier, and the thread-ID register, touch no address. `check`
+; refuses none of them on the host - that is AX4008's job, at build
+; time, where the target is known (scripts/check-embedded.sh A11).
+;@axiom:restrict(no-unsafe)
+(:: rd8 (-> Int Int))
+(fn (rd8 a)
+  (__vload8 a))
+
+;@axiom:restrict(no-unsafe)
+(:: rd16 (-> Int Int))
+(fn (rd16 a)
+  (__vload16 a))
+
+;@axiom:restrict(no-unsafe)
+(:: rd32 (-> Int Int))
+(fn (rd32 a)
+  (__vload32 a))
+
+;@axiom:restrict(no-unsafe)
+(:: rd64 (-> Int Int))
+(fn (rd64 a)
+  (__vload64 a))
+
+;@axiom:restrict(no-unsafe)
+(:: wr8 (-> Int Int))
+(fn (wr8 a)
+  (__vstore8 a 1))
+
+;@axiom:restrict(no-unsafe)
+(:: wr16 (-> Int Int))
+(fn (wr16 a)
+  (__vstore16 a 1))
+
+;@axiom:restrict(no-unsafe)
+(:: wr32 (-> Int Int))
+(fn (wr32 a)
+  (__vstore32 a 1))
+
+;@axiom:restrict(no-unsafe)
+(:: wr64 (-> Int Int))
+(fn (wr64 a)
+  (__vstore64 a 1))
+
+;@axiom:restrict(no-unsafe)
+(:: clean (-> Int Int))
+(fn (clean a)
+  (__arm_dc_cvac a))
+
+;@axiom:restrict(no-unsafe)
+(:: flush (-> Int Int))
+(fn (flush a)
+  (__arm_dc_civac a))
+
+;@axiom:restrict(no-unsafe)
+(:: fenced Int)
+(fn (fenced)
+  __arm_dmb)
+
+;@axiom:restrict(no-unsafe)
+(:: slot Int)
+(fn (slot)
+  __arm_tpidr)
+
+(:: main Int)
+(fn (main)
+  0)

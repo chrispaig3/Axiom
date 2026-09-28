@@ -2763,6 +2763,69 @@
         (collectPrivatesSeen decls out seen (+ i 1))
       })))
 
+; ------------------------------------------------------------------
+; THE DEVICE PRIMITIVES (R-D2, 2026-09-27): memory-mapped I/O at the
+; widths a device register has, and the AArch64 system operations a
+; bare-metal program needs around it. Registered in one block, called
+; from `tcNew` beside `__store8v` - the byte store that was the whole
+; of this family before - so the family reads as one list and a merge
+; touching the rest of `tcNew` does not touch it.
+;
+; `__vloadN addr` / `__vstoreN addr v` for N in 8, 16, 32, 64: ONE
+; access of N bits at the byte address `addr` itself (not `base + i`,
+; which is `__store8v`'s older shape), lowered to LLVM `load volatile`
+; / `store volatile` of `iN` with natural alignment; a load answers
+; the value zero-extended to the word, a store narrows `v` and answers
+; 0. `docs/memory-model.md` MM-FFI-8 is the rule: volatile keeps every
+; access, its width and its order against other volatile accesses, and
+; is NOT a synchronisation edge - that is what the atomics are for
+; (MM-PAR-9). All eight are `Unsafe` (`isUnsafeDevicePrim`) and carry
+; `Mut`: a store writes, and a device READ may change device state (a
+; FIFO pops, an interrupt is acknowledged), so a load is not the
+; side-effect-free read `__load64` is and its row says so - the
+; over-approximation MM-EXEC-9a asks for.
+;
+; `__arm_*`: AArch64 only, refused on any other target at build time
+; as AX4008 (`devicePrimRefused` in codegen.ax, reported by `main.ax`
+; the way AX4006 is). The rows follow the rules the older primitives
+; set: a barrier orders writes and carries `Mut` as `__fence` does; a
+; read of a register the HARDWARE owns - the counter, its frequency,
+; the cache geometry - is input the program did not compute and
+; carries `IO` as `__argc` does, and so does `__arm_wfi`, which waits
+; on the outside world; a write that arms the timer, masks interrupts
+; or maintains the cache carries `Mut`; the thread-ID register is
+; state the program itself stored, read with no effect as `__load64`
+; reads a word. The two cache operations take an address and are
+; `Unsafe` beside the eight accesses; the rest touch no address.
+(pub :: tcRegDevicePrims (-> (Vec Int) Int))
+(pub fn (tcRegDevicePrims fns)
+  {
+    (regFnEff fns "__vload8" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFnEff fns "__vload16" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFnEff fns "__vload32" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFnEff fns "__vload64" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFnEff fns "__vstore8" (mkIntArrow 2) (builtinEff "Mut"))
+    (regFnEff fns "__vstore16" (mkIntArrow 2) (builtinEff "Mut"))
+    (regFnEff fns "__vstore32" (mkIntArrow 2) (builtinEff "Mut"))
+    (regFnEff fns "__vstore64" (mkIntArrow 2) (builtinEff "Mut"))
+    (regFnEff fns "__arm_dmb" (mkIntArrow 0) (builtinEff "Mut"))
+    (regFnEff fns "__arm_dsb" (mkIntArrow 0) (builtinEff "Mut"))
+    (regFnEff fns "__arm_isb" (mkIntArrow 0) (builtinEff "Mut"))
+    (regFnEff fns "__arm_cntvct" (mkIntArrow 0) (builtinEff "IO"))
+    (regFnEff fns "__arm_cntfrq" (mkIntArrow 0) (builtinEff "IO"))
+    (regFnEff fns "__arm_ctr" (mkIntArrow 0) (builtinEff "IO"))
+    (regFnEff fns "__arm_set_cntv_cval" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFnEff fns "__arm_set_cntv_ctl" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFnEff fns "__arm_irq_mask" (mkIntArrow 0) (builtinEff "Mut"))
+    (regFnEff fns "__arm_irq_unmask" (mkIntArrow 0) (builtinEff "Mut"))
+    (regFnEff fns "__arm_wfi" (mkIntArrow 0) (builtinEff "IO"))
+    (regFnEff fns "__arm_dc_cvac" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFnEff fns "__arm_dc_civac" (mkIntArrow 1) (builtinEff "Mut"))
+    (regFn fns "__arm_tpidr" (mkIntArrow 0))
+    (regFnEff fns "__arm_set_tpidr" (mkIntArrow 1) (builtinEff "Mut"))
+    0
+  })
+
 (pub :: tcNew (-> (Vec Int) (Vec Int) (Vec Int) Int))
 (pub fn (tcNew entryDecls allDecls units)
   (let (
@@ -2803,6 +2866,7 @@
       ; which would pessimize every ordinary byte store). Same shape
       ; and row as `__store8` in every other respect.
       (regFnEff fns "__store8v" (mkIntArrow 3) (builtinEff "Mut"))
+      (tcRegDevicePrims fns)
       (regFn fns "__load64" (mkIntArrow 2))
       ; `(__call_word fn arg)`: call a C function `i64 (i64)` by its
       ; ADDRESS - the destructor word of a foreign-form block
@@ -13604,15 +13668,22 @@
 ; reach this list: the region form is its own node and lowers to the
 ; runtime directly, and `parallel` desugars to the spawn primitives
 ; (`tests/diagnostics/1010-unsafe-primitives.ax`, MM-EXEC-9c).
+;
+; TEN MORE JOINED ON THE SAME DAY with the device primitives
+; (`isUnsafeDevicePrim`, R-D2): twenty-six in all. They were Unsafe
+; from their first commit rather than found outside the set later,
+; and `1010-unsafe-primitives.ax` refuses each of them too.
 (pub :: isUnsafePrim (-> String Int))
 (pub fn (isUnsafePrim n)
   (if (== (isUnsafeRawPrim n) 1)
     1
-    (isUnsafeWordPrim n)))
+    (if (== (isUnsafeWordPrim n) 1)
+      1
+      (isUnsafeDevicePrim n))))
 
 ; The original seven address and allocation primitives. The lexical
 ; declaration check and the transitive effect walk both read the full
-; `isUnsafePrim` set; this helper only keeps the two families legible.
+; `isUnsafePrim` set; this helper only keeps the three families legible.
 ; The seed now recognizes the word primitives too, so stdlib wrappers
 ; can declare their direct raw operations without breaking bootstrap.
 (pub :: isUnsafeRawPrim (-> String Int))
@@ -13647,6 +13718,27 @@
         (if (|| (strEq n "__axiom_arena_reset") (strEq n "__axiom_arena_reset_keeping"))
           1
           0)))))
+
+; The ten device primitives of 2026-09-27 (R-D2, `tcRegDevicePrims`):
+; the eight volatile accesses, which load or store at an arbitrary
+; word exactly as `__load8`/`__store8v` do, and the two cache
+; operations, which clean or invalidate the line holding one - an
+; `__arm_dc_civac` of a word the program does not own discards nothing
+; but still faults on an address nothing maps. The barriers, the
+; counter and timer registers, the interrupt mask and the thread-ID
+; register touch no address and are not here, for `__fence`'s reason.
+; The seed does not know these names, so no module the compiler
+; imports may spell one (`stdlib/Mmio.ax`, `Arm.ax` and `Dma.ax` are
+; new modules and are never compiled by it).
+(pub :: isUnsafeDevicePrim (-> String Int))
+(pub fn (isUnsafeDevicePrim n)
+  (if (|| (strEq n "__vload8") (|| (strEq n "__vload16") (|| (strEq n "__vload32") (strEq n "__vload64"))))
+    1
+    (if (|| (strEq n "__vstore8") (|| (strEq n "__vstore16") (|| (strEq n "__vstore32") (strEq n "__vstore64"))))
+      1
+      (if (|| (strEq n "__arm_dc_cvac") (strEq n "__arm_dc_civac"))
+        1
+        0))))
 
 ; ------------------------------------------------------------------
 ; The walk's scope. `names` is the shadow list - one entry per `let`,

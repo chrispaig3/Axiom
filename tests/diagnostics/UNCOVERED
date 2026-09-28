@@ -4,16 +4,17 @@
 # (`scripts/check-doc-drift.sh` holds that in both directions), and every
 # code a `check` build can emit should have a primary golden pinning its
 # code, span, severity and exit status (`scripts/check-diagnostics.sh`).
-# The nine codes below satisfy the first and not the second: they are
+# The eleven codes below satisfy the first and not the second: they are
 # real construction sites, and no `.axdl` golden names one of them as
 # its primary diagnostic.
 #
 # This is a hole in the corpus and it is written down rather than left
-# to be discovered. It is compared as a SET, not a count: an eleventh
+# to be discovered. It is compared as a SET, not a count: a twelfth
 # code without a primary fixture fails the gate, and closing a hole is
 # this file losing a line and `tests/diagnostics/` gaining a fixture.
 # Measured 2026-09-23: 90 constructed, 81 with a primary golden
-# (AX3022 retired by tests/diagnostics/591-macro-set-target.ax).
+# (AX3022 retired by tests/diagnostics/591-macro-set-target.ax); AX3075
+# and AX4008 (2026-09-27, build-time, R-D2) joined since.
 #
 # Each entry names the construction site, why no `.axdl` fixture pins
 # it, and what DOES cover the path today (a different suite, or
@@ -63,6 +64,16 @@ AX4006
 # AX4007 (self_host/main.ax:645). Windows-spawn warning path.
 # Driver-level, platform-gated. Alternative coverage: NONE as a golden.
 AX4007
+
+# AX4008 (self_host/main.ax: refuseDeviceIr). A device primitive the
+# target cannot execute. Read off the pruned IR at emission, so a
+# `check` never draws it and no `.axdl` can pin it. Covered by
+# scripts/check-embedded.sh A11: the `__arm_` probe refused for
+# linux-x86_64 and (EL1 tier) linux-aarch64 by code in the ai
+# rendering, the EL0 tier and an uncalled EL1 use accepted, and the
+# `refusal` drill turning it red. Alternative coverage: PARTIAL (gate,
+# no .axdl).
+AX4008
 
 # AX5001 (self_host/codegen.ax:6352, self_host/lsp.ax:520). Unresolvable
 # import. Covered by tests/lsp/040-missing-import.golden (LSP surface),

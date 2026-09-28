@@ -17412,7 +17412,9 @@
                                                   true
                                                   (if (isAtomicPrimName nm)
                                                     true
-                                                    (isSyscallName nm)))))))))))))))))))))))))))
+                                                    (if (isDevicePrimName nm)
+                                                      true
+                                                      (isSyscallName nm))))))))))))))))))))))))))))
 
 ; `__syscall0` through `__syscall6`, distinguished only by how many
 ; arguments follow the syscall number.
@@ -17439,7 +17441,9 @@
       true
       (if (strEq nm "__axiom_arena_mark")
         true
-        (strEq nm "__fence")))))
+        (if (strEq nm "__fence")
+          true
+          (isNullaryDevicePrimName nm))))))
 
 ; The five atomic primitives, and the gate into `emitPrimAtomic`. The
 ; two must agree: a name here that the dispatch does not know falls
@@ -17513,7 +17517,9 @@
                                                     (emitPrimPar fnName args cg)
                                                     (if (isAtomicPrimName fnName)
                                                       (emitPrimAtomic fnName args cg)
-                                                      (emitPrimSyscall args cg))))))))))))))))))))))))))))
+                                                      (if (isDevicePrimName fnName)
+                                                        (emitPrimDevice fnName args cg)
+                                                        (emitPrimSyscall args cg)))))))))))))))))))))))))))))
 
 ; `(__contract cond "message")` - the run-time half of a
 ; `;@axiom:pre(...)` / `;@axiom:post(...)`, and the only thing that
@@ -18238,6 +18244,275 @@
             (memSetWord cg3 2 vr)
             cg3
           })))))
+
+; ------------------------------------------------------------------
+; THE DEVICE PRIMITIVES (R-D2, 2026-09-27; `tcRegDevicePrims` in
+; typecheck.ax registers them and says what each one's row is).
+;
+; THE VOLATILE ACCESSES, `__vloadN addr` and `__vstoreN addr v` for N in
+; 8/16/32/64, are one `load volatile iN` / `store volatile iN` at the
+; byte address `addr` with NATURAL alignment (`align N/8`), and nothing
+; else: no index scaling (`__store8v`'s `base + i` is the older shape),
+; no fence, no retry. A load zero-extends to the word; a store truncates
+; `v` and answers 0. Every target lowers them - `volatile` is portable
+; LLVM - and on a hosted target they are an honest way to read memory
+; a signal handler or another mapping changes, which is also why the
+; periodic fixture reads its interrupt-shared words through them.
+;
+; WHAT VOLATILE BUYS, stated where the lowering is decided
+; (`docs/memory-model.md` MM-FFI-8): the middle end neither deletes,
+; merges, splits, widens nor reorders a volatile access against another
+; volatile access, and keeps its width, which is what a device register
+; needs - a 32-bit register read as two 16-bit halves, or a write
+; dropped because nothing reads it back, is a wrong program. What it
+; does NOT buy is ordering against ordinary memory or any other core:
+; that is `__arm_dmb`/`__arm_dsb` for a device, and the atomics
+; (MM-PAR-9) for another thread. The misaligned address is the caller's
+; obligation, not checked here - it is UB in the IR and an alignment
+; fault on a core running with the MMU off (docs/embedded-guide.md);
+; `stdlib/Mmio.ax` checks it once, where a register handle is made.
+;
+; THE AArch64 SET, `__arm_*`, is one inline-assembly statement each,
+; `sideeffect` so none is deleted or merged, and `~{memory}` on every
+; one that orders, waits or writes, so the compiler moves no load or
+; store across a barrier, a mask or a timestamp. Two tiers: the
+; barriers and the two counter reads run at EL0 on an aarch64 HOST
+; (Linux and Darwin both let user code read CNTVCT_EL0 and CNTFRQ_EL0),
+; and everything else needs EL1, which only `baremetal-aarch64` runs
+; programs at. A primitive this target cannot run is not lowered:
+; `emitDeviceRefused` writes a marker line where the instruction would
+; have been and `main.ax` refuses the module as AX4008 when the marker
+; survives `pruneDeadDefs` - so a function nothing calls, which the
+; prune deletes, is never refused, and a portable module may carry an
+; AArch64 helper that an x86 program never reaches.
+; ------------------------------------------------------------------
+(pub :: isDevicePrimName (-> String Bool))
+(pub fn (isDevicePrimName nm)
+  (if (> (devicePrimBits nm) 0)
+    true
+    (isArmPrimName nm)))
+
+; The access width in bits of a volatile primitive, or 0 for any other
+; name - which is also the test `isDevicePrimName` asks.
+(pub :: devicePrimBits (-> String Int))
+(pub fn (devicePrimBits nm)
+  (if (|| (strEq nm "__vload8") (strEq nm "__vstore8"))
+    8
+    (if (|| (strEq nm "__vload16") (strEq nm "__vstore16"))
+      16
+      (if (|| (strEq nm "__vload32") (strEq nm "__vstore32"))
+        32
+        (if (|| (strEq nm "__vload64") (strEq nm "__vstore64"))
+          64
+          0)))))
+
+(pub :: isArmPrimName (-> String Bool))
+(pub fn (isArmPrimName nm)
+  (if (isHostedArmPrimName nm)
+    true
+    (if (|| (strEq nm "__arm_ctr") (|| (strEq nm "__arm_tpidr") (strEq nm "__arm_set_tpidr")))
+      true
+      (if (|| (strEq nm "__arm_set_cntv_cval") (strEq nm "__arm_set_cntv_ctl"))
+        true
+        (if (|| (strEq nm "__arm_irq_mask") (|| (strEq nm "__arm_irq_unmask") (strEq nm "__arm_wfi")))
+          true
+          (|| (strEq nm "__arm_dc_cvac") (strEq nm "__arm_dc_civac")))))))
+
+; The EL0 tier: what an aarch64 host lets user code execute.
+(pub :: isHostedArmPrimName (-> String Bool))
+(pub fn (isHostedArmPrimName nm)
+  (if (|| (strEq nm "__arm_dmb") (|| (strEq nm "__arm_dsb") (strEq nm "__arm_isb")))
+    true
+    (|| (strEq nm "__arm_cntvct") (strEq nm "__arm_cntfrq"))))
+
+; The device primitives written by NAME alone, `isNullaryPrimName`'s
+; rule: `(__arm_dmb)` and `__arm_dmb` both reach `emitVar`.
+(pub :: isNullaryDevicePrimName (-> String Bool))
+(pub fn (isNullaryDevicePrimName nm)
+  (if (isHostedArmPrimName nm)
+    true
+    (if (|| (strEq nm "__arm_ctr") (strEq nm "__arm_tpidr"))
+      true
+      (|| (strEq nm "__arm_irq_mask") (|| (strEq nm "__arm_irq_unmask") (strEq nm "__arm_wfi"))))))
+
+; Can target `t` execute `nm`? The volatile accesses run everywhere;
+; the EL0 tier on any AArch64 target; the rest on baremetal-aarch64.
+(pub :: devicePrimTargetOK (-> String Int Int))
+(pub fn (devicePrimTargetOK nm t)
+  (if (> (devicePrimBits nm) 0)
+    1
+    (if (== t 7)
+      1
+      (if (targetIsAArch64 t)
+        (if (isHostedArmPrimName nm)
+          1
+          0)
+        0))))
+
+; The assembly each `__arm_*` primitive is. `$0` is the operand: the
+; result of a read, the value or address of a one-argument write.
+(pub :: armPrimAsm (-> String String))
+(pub fn (armPrimAsm nm)
+  (if (strEq nm "__arm_dmb")
+    "dmb sy"
+    (if (strEq nm "__arm_dsb")
+      "dsb sy"
+      (if (strEq nm "__arm_isb")
+        "isb"
+        (if (strEq nm "__arm_cntvct")
+          "mrs $0, cntvct_el0"
+          (if (strEq nm "__arm_cntfrq")
+            "mrs $0, cntfrq_el0"
+            (if (strEq nm "__arm_ctr")
+              "mrs $0, ctr_el0"
+              (if (strEq nm "__arm_tpidr")
+                "mrs $0, tpidr_el1"
+                (if (strEq nm "__arm_set_tpidr")
+                  "msr tpidr_el1, $0"
+                  (if (strEq nm "__arm_set_cntv_cval")
+                    "msr cntv_cval_el0, $0"
+                    (if (strEq nm "__arm_set_cntv_ctl")
+                      "msr cntv_ctl_el0, $0"
+                      (if (strEq nm "__arm_irq_mask")
+                        "msr daifset, #2"
+                        (if (strEq nm "__arm_irq_unmask")
+                          "msr daifclr, #2"
+                          (if (strEq nm "__arm_wfi")
+                            "wfi"
+                            (if (strEq nm "__arm_dc_cvac")
+                              "dc cvac, $0"
+                              "dc civac, $0")))))))))))))))
+
+; The reads answer a register. The counter read carries `~{memory}`
+; because it is a TIMESTAMP: a load or store the compiler moved across
+; it would be timed on the wrong side.
+(pub :: armPrimReadCons (-> String String))
+(pub fn (armPrimReadCons nm)
+  (if (strEq nm "__arm_cntvct")
+    "\"=r,~{memory}\"()"
+    "\"=r\"()"))
+
+(pub :: armPrimReads (-> String Bool))
+(pub fn (armPrimReads nm)
+  (if (|| (strEq nm "__arm_cntvct") (strEq nm "__arm_cntfrq"))
+    true
+    (|| (strEq nm "__arm_ctr") (strEq nm "__arm_tpidr"))))
+
+(pub :: armPrimTakesArg (-> String Bool))
+(pub fn (armPrimTakesArg nm)
+  (if (|| (strEq nm "__arm_set_tpidr") (|| (strEq nm "__arm_set_cntv_cval") (strEq nm "__arm_set_cntv_ctl")))
+    true
+    (|| (strEq nm "__arm_dc_cvac") (strEq nm "__arm_dc_civac"))))
+
+(pub :: emitPrimDevice (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimDevice fnName args cg)
+  (if (> (devicePrimBits fnName) 0)
+    (if (strStartsWith fnName "__vload")
+      (emitPrimVLoad args cg (devicePrimBits fnName))
+      (emitPrimVStore args cg (devicePrimBits fnName)))
+    (emitPrimArm fnName args cg)))
+
+(pub :: emitPrimVLoad (-> (Vec Int) Int Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimVLoad args cg bits)
+  (let ((cg1 (emitExpr (vecGet args 0) cg)))
+    (let ((pr (emitAtomicPtr cg1 (strDup (memGetWordStr cg1 2)))))
+      (let (
+        (ty (cat2 "i" (fmtInt bits)))
+        (vr (regStr (allocReg cg1)))
+      )
+        {
+          (emitLine cg1 (cat4 (cat2 "  " vr) (cat3 " = load volatile " ty ", ptr ") pr (cat2 ", align " (fmtInt (/ bits 8)))))
+          (if (== bits 64)
+            (memSetWord cg1 2 vr)
+            (let ((wr (regStr (allocReg cg1))))
+              {
+                (emitLine cg1 (cat4 (cat2 "  " wr) (cat3 " = zext " ty " ") vr " to i64"))
+                (memSetWord cg1 2 wr)
+              }))
+          cg1
+        }))))
+
+(pub :: emitPrimVStore (-> (Vec Int) Int Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimVStore args cg bits)
+  (let (
+    (cg1 (emitExpr (vecGet args 0) cg))
+    (addr (strDup (memGetWordStr cg1 2)))
+    (cg2 (emitExpr (vecGet args 1) cg1))
+    (val (strDup (memGetWordStr cg2 2)))
+  )
+    (let (
+      (pr (emitAtomicPtr cg2 addr))
+      (ty (cat2 "i" (fmtInt bits)))
+    )
+      (let ((sv
+        (if (== bits 64)
+          val
+          (let ((tr (regStr (allocReg cg2))))
+            {
+              (emitLine cg2 (cat4 (cat2 "  " tr) " = trunc i64 " val (cat2 " to " ty)))
+              tr
+            }))))
+        {
+          (emitLine cg2 (cat4 (cat4 "  store volatile " ty " " sv) ", ptr " pr (cat2 ", align " (fmtInt (/ bits 8)))))
+          (memSetWord cg2 2 (constStr 0))
+          cg2
+        }))))
+
+(pub :: emitPrimArm (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimArm fnName args cg)
+  (if (armPrimTakesArg fnName)
+    (let ((cg1 (emitExpr (vecGet args 0) cg)))
+      (let ((a (strDup (memGetWordStr cg1 2))))
+        (if (== (devicePrimTargetOK fnName (memGetWord cg1 26)) 0)
+          (emitDeviceRefused cg1 fnName)
+          {
+            (emitLine cg1 (cat4 "  call void asm sideeffect \"" (armPrimAsm fnName) "\", \"r,~{memory}\"(i64 " (cat2 a ")")))
+            (memSetWord cg1 2 (constStr 0))
+            cg1
+          })))
+    (if (== (devicePrimTargetOK fnName (memGetWord cg 26)) 0)
+      (emitDeviceRefused cg fnName)
+      (if (armPrimReads fnName)
+        (let ((r (regStr (allocReg cg))))
+          {
+            (emitLine cg (cat4 (cat2 "  " r) " = call i64 asm sideeffect \"" (armPrimAsm fnName) (cat2 "\", " (armPrimReadCons fnName))))
+            (memSetWord cg 2 r)
+            cg
+          })
+        {
+          (emitLine cg (cat3 "  call void asm sideeffect \"" (armPrimAsm fnName) "\", \"~{memory}\"()"))
+          (memSetWord cg 2 (constStr 0))
+          cg
+        }))))
+
+; The AX4008 marker, where an instruction this target cannot execute
+; would have been. The value is 0 and nothing reads it: `main.ax`
+; refuses the module before any tool sees the IR, and when the marker
+; sits in a function `pruneDeadDefs` deleted there is nothing to refuse.
+; The line carries the whole sentence, so the refusal is written once.
+(pub :: emitDeviceRefused (-> Int String Int))
+(pub fn (emitDeviceRefused cg nm)
+  {
+    (emitLine
+      cg
+      (cat4
+        "  ; axiom-device-refused `"
+        nm
+        (if (targetIsAArch64 (memGetWord cg 26))
+          "` needs EL1, the privilege a kernel runs at, and "
+          "` is an AArch64 instruction, and ")
+        (cat2
+          (targetSpelling (memGetWord cg 26))
+          (if (targetIsAArch64 (memGetWord cg 26))
+            " runs programs at EL0 - only baremetal-aarch64 runs one at EL1"
+            " is not an AArch64 target"))))
+    (memSetWord cg 2 (constStr 0))
+    cg
+  })
 
 ; The inline-assembly sequence takes the syscall number and six argument
 ; registers, so a call with fewer arguments is padded with zeros.

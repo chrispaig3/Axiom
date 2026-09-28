@@ -445,7 +445,7 @@ axiom symbols main.ax
 axiom --diagnostic-format=ai symbols main.ax
 
 # Also list the always-in-scope builtins - 18 operators (+, ==, &&, ...)
-# and 26 primitives (__syscall0, __alloc, ...) - omitted by default
+# and 67 primitives (__syscall0, __alloc, ...) - omitted by default
 axiom symbols main.ax --builtins
 ```
 
@@ -479,7 +479,7 @@ answering with something else, since the flag selects the format of
 | `KIND` | One letter: `F` function, `D` data type, `C` constructor, `S` struct, `A` type alias, `E` effect declaration, `M` macro. `T` was a trait; `trait` is `AX2004` since 0.6.0, so no row can carry it |
 | `NAME` | The declared name, exactly as written |
 | `FILE:LOC` | Same `file:line:col[-col\|:line:col]` addressing as AXDL, via the same source map in [`self_host/diag.ax`](../self_host/diag.ax) - for a program with `(import ...)`s, `FILE` is the *actual* file that declared this symbol (an imported module's own file), not always the entry file, exactly like AXDL's own multi-file attribution |
-| `-` | In place of `FILE:LOC`, for a name with no source span at all: the 18 built-in operators (`+`, `==`, `&&`, ...) and the 26 primitives (`__syscall0`, `__alloc`, ...), which `axiom symbols` omits unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid), and the built-in `Option` type with its two constructors, which is always listed because a file's own code names it |
+| `-` | In place of `FILE:LOC`, for a name with no source span at all: the 18 built-in operators (`+`, `==`, `&&`, ...) and the 67 primitives (`__syscall0`, `__alloc`, ...), which `axiom symbols` omits unless `--builtins` is passed (they never change, so printing them on every call is exactly the restating-what's-already-known token waste this notation exists to avoid), and the built-in `Option` type with its two constructors, which is always listed because a file's own code names it |
 | `"TYPE"` | Axiom's own curried type syntax, quoted (it can itself contain `->`/parens, so quoting keeps the line's field boundaries unambiguous the same way AXDL quotes messages) |
 | `#key=value` | Kind-specific metadata (see below) |
 

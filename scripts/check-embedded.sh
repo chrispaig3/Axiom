@@ -132,6 +132,12 @@
 #       the status `tests/stdlib/314-out-of-memory.exit` pins against
 #       a control that exits 0. Skips loudly when the target has not
 #       landed or QEMU is not on PATH, and for no other reason.
+#   A11 THE DEVICE PRIMITIVES, COMPILE-ONLY (docs/memory-model.md
+#       MM-FFI-8). Each volatile width is its own `load/store volatile
+#       iN` at natural alignment; the writes survive `opt -O2` where a
+#       control's plain double write does not; `llc` keeps each width;
+#       every `__arm_` primitive is its instruction; and AX4008 draws
+#       the target line. Needs no QEMU, so it runs on every host.
 #
 # ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
 # directory, breaks ONE thing in `codegen.ax` there, builds every
@@ -139,7 +145,7 @@
 # The patch is applied by exact string match by
 # `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
 # there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all nine and requires each to go red.
+# gate can pass. `--ablations` runs all twelve and requires each to go red.
 #
 #   chunk     every target answers 4 KiB                   -> A1
 #   literal   `refill:` goes back to the hardcoded 1 MiB   -> A2, A4
@@ -154,6 +160,10 @@
 #             target still writes                          -> A9
 #   allsilent every target is silent, so the supported
 #             targets stop emitting their trap writes      -> A8
+#   volatile  both device emitters drop `volatile`         -> A11
+#   barrier   `__arm_dmb` lowers to a `nop`                -> A11
+#   refusal   every target may run every primitive, so
+#             nothing is refused as AX4008                 -> A11
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
 # discovered: the board itself. The bare-metal TARGET is in the tree -
@@ -166,7 +176,7 @@
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
-#   scripts/check-embedded.sh --ablations  # the nine drills, each red
+#   scripts/check-embedded.sh --ablations  # the twelve drills, each red
 #   AXIOM_ABLATE=literal scripts/check-embedded.sh
 # ---------------------------------------------------------------------
 
@@ -207,7 +217,8 @@ if [[ "${1:-}" == "--ablations" ]]; then
   self="${BASH_SOURCE[0]}"
   red=0
   ran=0
-  for ab in chunk literal grain strategy cursor oomsig ceiling trapwrite allsilent; do
+  for ab in chunk literal grain strategy cursor oomsig ceiling trapwrite allsilent \
+            volatile barrier refusal; do
     ran=$((ran + 1))
     echo "== ablation: $ab =="
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
@@ -1217,6 +1228,272 @@ if (( prob == 0 )); then
 fi
 fi
 
+# ---------------------------------------------------------------------
+echo "== A11. device primitives: volatile at device widths, barriers, AX4008 =="
+# ---------------------------------------------------------------------
+# docs/memory-model.md MM-FFI-8. The eight volatile accesses and the
+# fifteen `__arm_*` primitives (`tcRegDevicePrims`, `emitPrimDevice`),
+# asserted on what the compiler EMITS - no QEMU, so this section runs on
+# every host, CI runners included:
+#
+#   * each width is ONE `load volatile iN` / `store volatile iN` with
+#     natural alignment, two of each in a probe that writes every
+#     register twice and reads it twice;
+#   * the volatile writes SURVIVE `opt -O2`, and the proof that this
+#     means something is a CONTROL: the same double write through the
+#     plain `__store8`/`__store64`, whose dead first store `opt`
+#     deletes. A volatile that the optimiser could have removed but
+#     didn't is the only evidence the keyword is doing its job;
+#   * `llc` keeps each WIDTH - strb/strh/str w/str x and their loads -
+#     because a 32-bit device register read as two halves is a wrong
+#     program even when the value is right;
+#   * every `__arm_*` is its instruction, in the IR and in the AArch64
+#     assembly;
+#   * AX4008 draws the target line: the volatile set emits for x86-64,
+#     the EL0 tier (barriers, counter reads) for an aarch64 host, the
+#     EL1 tier only for baremetal-aarch64 - and an EL1 primitive in a
+#     function nothing calls is NOT refused, because the check reads
+#     the pruned module.
+#
+# Drills: `volatile` strips the keyword from both emitters (the probe's
+# accesses become ordinary and `opt` deletes the first store), `barrier`
+# lowers `__arm_dmb` to a `nop`, and `refusal` lets every target run
+# every primitive.
+cat > "$work/vol.ax" <<'AX'
+(import IO)
+(import Mem)
+
+(:: twice (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (twice p)
+  {
+    (__vstore8 p 11)
+    (__vstore8 p 22)
+    (__vstore16 (+ p 2) 1111)
+    (__vstore16 (+ p 2) 2222)
+    (__vstore32 (+ p 4) 33333333)
+    (__vstore32 (+ p 4) 44444444)
+    (__vstore64 (+ p 8) 5555555555555)
+    (__vstore64 (+ p 8) 6666666666666)
+    (+ (+ (__vload8 p) (__vload8 p))
+      (+ (+ (__vload16 (+ p 2)) (__vload16 (+ p 2)))
+        (+ (+ (__vload32 (+ p 4)) (__vload32 (+ p 4)))
+          (+ (__vload64 (+ p 8)) (__vload64 (+ p 8))))))
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((p (memAlloc 16)))
+    {
+      (println (twice p))
+      0
+    }))
+AX
+# The control: the same double write, through the ordinary primitives.
+cat > "$work/plain.ax" <<'AX'
+(import IO)
+(import Mem)
+
+(:: twice (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (twice p)
+  {
+    (__store8 p 0 11)
+    (__store8 p 0 22)
+    (__store64 p 1 5555555555555)
+    (__store64 p 1 6666666666666)
+    (+ (__load8 p 0) (__load64 p 1))
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((p (memAlloc 16)))
+    {
+      (println (twice p))
+      0
+    }))
+AX
+# Every `__arm_*`, each once, in one function `main` calls.
+cat > "$work/arm.ax" <<'AX'
+(import Mem)
+
+(:: sys (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (sys p)
+  {
+    __arm_dmb
+    __arm_dsb
+    __arm_isb
+    (__arm_set_cntv_cval (+ __arm_cntvct __arm_cntfrq))
+    (__arm_set_cntv_ctl 0)
+    (__arm_set_tpidr p)
+    __arm_irq_mask
+    __arm_irq_unmask
+    __arm_wfi
+    (__arm_dc_cvac p)
+    (__arm_dc_civac p)
+    (+ __arm_ctr __arm_tpidr)
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (sys (memAlloc 64)))
+AX
+# The EL0 tier alone - what an aarch64 host may run - and an EL1
+# primitive in a function nothing calls.
+cat > "$work/el0.ax" <<'AX'
+(import IO)
+
+(:: unused Int)
+(fn (unused)
+  {
+    __arm_irq_unmask
+    0
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    __arm_dmb
+    __arm_dsb
+    __arm_isb
+    (println (> __arm_cntfrq 0))
+    (println (> __arm_cntvct 0))
+    0
+  })
+AX
+checks=$((checks + 1))
+prob=0
+bm=baremetal-aarch64
+if ! emit "$axc" "$bm" "$work/vol.ax" "$work/vol.bm.ll"; then
+  bad "the volatile probe does not emit for $bm:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+else
+  for w in 8 16 32 64; do
+    a=$((w / 8))
+    nl=$(grep -cE "= load volatile i$w, ptr %[^,]+, align $a\$" "$work/vol.bm.ll" || true)
+    ns=$(grep -cE "^  store volatile i$w [^,]+, ptr %[^,]+, align $a\$" "$work/vol.bm.ll" || true)
+    [[ "$nl" == 2 && "$ns" == 2 ]] \
+      || { bad "i$w: $nl volatile loads and $ns volatile stores at align $a, not 2 and 2"; prob=1; }
+  done
+fi
+(( prob )) || note "each of i8/i16/i32/i64 is two volatile loads and two volatile stores at natural alignment"
+checks=$((checks + 1))
+prob=0
+if ! command -v opt >/dev/null 2>&1; then
+  bad "opt is not on PATH; the survival half of this section cannot run"
+  prob=1
+elif ! emit "$axc" "$bm" "$work/plain.ax" "$work/plain.bm.ll"; then
+  bad "the control does not emit:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+elif ! opt -O2 -S "$work/vol.bm.ll" -o "$work/vol.O2.ll" 2> "$work/opt.log" \
+     || ! opt -O2 -S "$work/plain.bm.ll" -o "$work/plain.O2.ll" 2>> "$work/opt.log"; then
+  bad "opt -O2 refused the probe or the control:"; head -6 "$work/opt.log" | sed 's/^/       /'; prob=1
+else
+  # The probe's own function, as `opt` left it: `twice` is also
+  # inlined into `main`, and counting the module would count it twice.
+  awk '/^define .*@twice\(/{on=1} on{print} on&&/^}/{exit}' "$work/vol.O2.ll" > "$work/vol.twice.ll"
+  awk '/^define .*@twice\(/{on=1} on{print} on&&/^}/{exit}' "$work/plain.O2.ll" > "$work/plain.twice.ll"
+  [[ -s "$work/vol.twice.ll" && -s "$work/plain.twice.ll" ]] \
+    || { bad "opt -O2 left no @twice in the probe or the control to count in"; prob=1; }
+  # The FIRST of each pair is the store nothing reads before it is
+  # overwritten - a dead store, unless it is volatile.
+  for pat in "store volatile i8 11," "store volatile i16 1111," \
+             "store volatile i32 33333333," "store volatile i64 5555555555555,"; do
+    grep -qF -- "$pat" "$work/vol.twice.ll" \
+      || { bad "after opt -O2 the probe has no [$pat] - the dead-looking first write was deleted"; prob=1; }
+  done
+  nvl=$(grep -c 'load volatile' "$work/vol.twice.ll" || true)
+  [[ "$nvl" == 8 ]] || { bad "after opt -O2 the probe has $nvl volatile loads, not 8 - a read was merged"; prob=1; }
+  for pat in "store i8 11," "store i64 5555555555555,"; do
+    if grep -qF -- "$pat" "$work/plain.twice.ll"; then
+      bad "the CONTROL kept [$pat] through opt -O2, so the optimiser did not delete a dead
+     store here and the probe's survival above proves nothing"
+      prob=1
+    fi
+  done
+fi
+(( prob )) || note "opt -O2 keeps all eight volatile writes and eight reads; it deletes the control's plain dead stores"
+checks=$((checks + 1))
+prob=0
+if ! llc -O2 -mtriple=aarch64-unknown-none-elf "$work/vol.bm.ll" -o "$work/vol.bm.s" 2> "$work/llc.log"; then
+  bad "llc refused the probe:"; head -6 "$work/llc.log" | sed 's/^/       /'; prob=1
+else
+  # The probe's function alone, so the runtime's own UART stores and
+  # spills do not count.
+  awk '/^twice:/{on=1} on{print} on&&/\.Lfunc_end/{exit}' "$work/vol.bm.s" > "$work/twice.s"
+  for m in 'strb	w' 'strh	w' 'str	w' 'str	x' 'ldrb	w' 'ldrh	w' 'ldr	w' 'ldr	x'; do
+    n=$(grep -cF -- "$m" "$work/twice.s" || true)
+    (( n >= 2 )) || { bad "the AArch64 code for the probe carries $n [$m], not 2 - a width was not kept"; prob=1; }
+  done
+fi
+(( prob )) || note "llc keeps every width: strb/strh/str w/str x and ldrb/ldrh/ldr w/ldr x, two of each"
+checks=$((checks + 1))
+prob=0
+if ! emit "$axc" "$bm" "$work/arm.ax" "$work/arm.bm.ll"; then
+  bad "the __arm_ probe does not emit for $bm:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+else
+  for s in '"dmb sy", "~{memory}"' '"dsb sy", "~{memory}"' '"isb", "~{memory}"' \
+           '"mrs $0, cntvct_el0", "=r,~{memory}"' '"mrs $0, cntfrq_el0", "=r"' '"mrs $0, ctr_el0", "=r"' \
+           '"mrs $0, tpidr_el1", "=r"' '"msr tpidr_el1, $0", "r,~{memory}"' \
+           '"msr cntv_cval_el0, $0", "r,~{memory}"' '"msr cntv_ctl_el0, $0", "r,~{memory}"' \
+           '"msr daifset, #2", "~{memory}"' '"msr daifclr, #2", "~{memory}"' '"wfi", "~{memory}"' \
+           '"dc cvac, $0", "r,~{memory}"' '"dc civac, $0", "r,~{memory}"'; do
+    n=$(grep -cF -- "asm sideeffect $s" "$work/arm.bm.ll" || true)
+    [[ "$n" == 1 ]] || { bad "the IR carries $n [asm sideeffect $s], not 1"; prob=1; }
+  done
+  if ! llc -O2 -mtriple=aarch64-unknown-none-elf "$work/arm.bm.ll" -o "$work/arm.bm.s" 2> "$work/llc.log"; then
+    bad "llc refused the __arm_ probe:"; head -6 "$work/llc.log" | sed 's/^/       /'; prob=1
+  else
+    for m in 'dmb	sy' 'dsb	sy' 'isb' 'CNTVCT_EL0' 'CNTFRQ_EL0' 'CTR_EL0' 'TPIDR_EL1' \
+             'CNTV_CVAL_EL0' 'CNTV_CTL_EL0' 'DAIFSet' 'DAIFClr' 'wfi' 'dc	cvac' 'dc	civac'; do
+      grep -qiF -- "$m" "$work/arm.bm.s" || { bad "the AArch64 code carries no [$m]"; prob=1; }
+    done
+  fi
+fi
+(( prob )) || note "every __arm_ primitive is its instruction, in the IR and in the assembly"
+checks=$((checks + 1))
+prob=0
+# The target line. `emit` answers the compiler's own status; AX4008 is
+# looked for by code in the ai rendering.
+if emit "$axc" linux-x86_64 "$work/arm.ax" "$work/arm.x86.ll" --diagnostic-format=ai \
+   || ! grep -q '^E AX4008 ' "$work/emit.log"; then
+  bad "the __arm_ probe was not refused as AX4008 for linux-x86_64:"; head -4 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if emit "$axc" linux-aarch64 "$work/arm.ax" "$work/arm.la.ll" --diagnostic-format=ai \
+   || ! grep -q '^E AX4008 .*needs EL1' "$work/emit.log"; then
+  bad "the EL1 primitives were not refused as AX4008 for linux-aarch64:"; head -4 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if ! emit "$axc" linux-aarch64 "$work/el0.ax" "$work/el0.la.ll" --diagnostic-format=ai; then
+  bad "the EL0 tier (and an EL1 primitive in an uncalled function) was refused for linux-aarch64:"; head -4 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if ! emit "$axc" linux-x86_64 "$work/vol.ax" "$work/vol.x86.ll" --diagnostic-format=ai; then
+  bad "the volatile accesses were refused for linux-x86_64 - they are portable:"; head -4 "$work/emit.log" | sed 's/^/       /'; prob=1
+elif [[ "$(grep -c 'store volatile' "$work/vol.x86.ll" || true)" != 8 ]]; then
+  bad "the x86-64 IR carries $(grep -c 'store volatile' "$work/vol.x86.ll" || true) volatile stores, not 8"; prob=1
+fi
+(( prob )) || note "AX4008: __arm_ refused off AArch64, the EL1 tier off bare metal, the EL0 tier and volatile accepted, a dead use pruned"
+checks=$((checks + 1))
+prob=0
+# And they RUN on this host: the volatile probe answers 22*2+2222*2+
+# 44444444*2+6666666666666*2 = 13333422226708 - the second write of
+# every pair, read back twice at its own width - and on an aarch64 host
+# the EL0 tier executes.
+vol_run="$(run_probe "$axc" "$work/vol.ax" vol.host)"
+[[ "$vol_run" == "0 13333422226708" ]] \
+  || { bad "the volatile probe answered [$vol_run] on this host, not [0 13333422226708]"; prob=1; }
+if [[ "$host_arch" == aarch64 ]]; then
+  el0_run="$(run_probe "$axc" "$work/el0.ax" el0.host)"
+  [[ "$el0_run" == "0 true
+true" ]] || { bad "the EL0 tier answered [$el0_run] on this aarch64 host, not [0 true true]"; prob=1; }
+  (( prob )) || note "the volatile probe answers 13333422226708 here and the EL0 tier executes on this aarch64 host"
+else
+  (( prob )) || note "the volatile probe answers 13333422226708 here (an x86-64 host: the EL0 tier is refused, above)"
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-embedded: $failed of $checks checks failed"
@@ -1226,4 +1503,6 @@ echo "check-embedded: $checks checks - the arena's chunk size is a target consta
 echo "                mmap is one of two strategies, and traps write or stay silent"
 echo "                per target - and where the bare-metal port and QEMU are both"
 echo "                present, blink boots under QEMU with its UART bytes, its exit"
-echo "                status and the oversized 70 asserted"
+echo "                status and the oversized 70 asserted; the device primitives"
+echo "                lower to volatile accesses at their widths and to their"
+echo "                AArch64 instructions, and AX4008 refuses what a target lacks"

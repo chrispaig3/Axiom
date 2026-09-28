@@ -513,7 +513,7 @@ rows walk straight through.
 
 **MM-EXEC-9c (H, 2026-09-27). `Unsafe` is every primitive that reads,
 writes, frees or calls through a word the type system does not bound.**
-Sixteen primitives: the original seven (`__load8`, `__store8`,
+Twenty-six primitives: the original seven (`__load8`, `__store8`,
 `__store8v`, `__load64`, `__store64`, `__alloc`, `__addr`) and nine that
 joined them on 2026-09-27 — `__retain` and `__release`, which write the
 count word below an arbitrary address and can file it on a free list;
@@ -526,13 +526,24 @@ refused now, as `AX3049` and `AX3010` respectively
 `__retainref` (a typed value) and `__axiom_arena_mark` stay outside the
 set, and that fixture holds them silent.
 
+The ten device primitives of the same day (`MM-FFI-8`) were in the set
+from their first commit rather than found outside it: the eight
+volatile accesses `__vload8`…`__vstore64`, which load or store at an
+arbitrary word exactly as `__load8` and `__store8v` do, and the two
+cache operations `__arm_dc_cvac`/`__arm_dc_civac`, which clean or
+invalidate the line holding one. The same fixture refuses each of them.
+The rest of the `__arm_` family touches no address and stays outside,
+for `__fence`'s reason.
+
 *The stage landed with the reseed.* `AX3073` — the lexical rule that
 the declaration CALLING a raw primitive says `effect(unsafe)` — read
 the original seven until the seed learned the nine, because the
 fifteen standard-library wrappers calling `__retain` or `__release`
 directly could not carry the claim before it did (the bootstrap
 stopped at stage1, measured). Since the reseed the rule reads all
-sixteen (`isUnsafePrim` in `self_host/typecheck.ax`), the fifteen
+sixteen (`isUnsafePrim` in `self_host/typecheck.ax`) - twenty-six with
+the device primitives, which no seed-compiled module spells, so the rule
+read them from their first commit - the fifteen
 wrappers carry `effect(unsafe)`, and every row of
 `tests/diagnostics/1010-unsafe-primitives.ax` draws `AX3073` beside
 its `AX3049` — except the `pure` row, which draws `AX3010`, and the
@@ -4774,6 +4785,100 @@ holds its own copy-on-write copy of any foreign state in the process
 image, and a foreign object backed by something outside the image - a
 file descriptor, a mapping, a device - is shared exactly as the kernel
 shares it.
+
+**MM-FFI-8 (H, 2026-09-27). Device memory is reached by volatile
+access at the device's width, and volatile is not synchronisation.** A
+memory-mapped device register is foreign memory in `MM-FFI-3`'s sense -
+outside the arena, never scrubbed, reclaimed or counted - and it has
+two properties ordinary memory does not: an access can have an effect
+beyond the value (a read pops a FIFO or acknowledges an interrupt, a
+write rings a doorbell), and the WIDTH of the access is part of its
+meaning. The eight primitives for it:
+
+| Primitive | Lowers to | Answers |
+|---|---|---|
+| `(__vload8 a)` `(__vload16 a)` `(__vload32 a)` `(__vload64 a)` | one `load volatile iN, ptr a, align N/8` | the value, zero-extended to the word |
+| `(__vstore8 a v)` `(__vstore16 a v)` `(__vstore32 a v)` `(__vstore64 a v)` | one `store volatile iN (trunc v), ptr a, align N/8` | 0 |
+
+`a` is the byte address itself - not `__store8v`'s `base + i` (that
+older primitive is unchanged and keeps working). Each is `Unsafe`
+(`MM-EXEC-9c`) and carries `Mut`: a store writes, and a device read may
+change device state, so a load is not the side-effect-free read
+`__load64` is.
+
+*What the implementation guarantees* (implementation obligation). The
+compiler **MUST NOT** delete, duplicate, merge, split, widen or narrow a
+volatile access, and **MUST NOT** reorder two volatile accesses against
+each other in one thread of execution. That is LLVM's `volatile`
+contract, and it is what a device needs: a 32-bit register read as two
+16-bit halves, or a doorbell write dropped because nothing reads it
+back, is a wrong program even when every value is right.
+
+*What it does NOT guarantee*, and each is a program obligation:
+
+- **Alignment.** `a` **MUST** be a multiple of the access width. A
+  misaligned volatile access is undefined in the IR, and on an AArch64
+  core running with the MMU off - the bare-metal port - every data
+  access is Device-nGnRnE memory and a misaligned one is an alignment
+  fault. `stdlib/Mmio.ax` checks alignment once, where a register handle
+  is made.
+- **Ordering against ordinary memory.** The compiler may move a
+  non-volatile load or store across a volatile one. Where a device
+  reads memory the CPU wrote with ordinary stores - a DMA descriptor -
+  the program **MUST** place a barrier between them: `__arm_dmb` orders
+  (`DMB SY`: every memory access before it, as observed by every
+  observer in the system, device included, before every access after
+  it) and `__arm_dsb` completes (`DSB SY`: no instruction after it
+  executes until the accesses before it have completed). Every
+  `__arm_` primitive that orders, waits or writes is also a COMPILER
+  barrier (`~{memory}`), so no load or store is moved across one.
+- **Synchronisation.** A volatile access is not an atomic and creates
+  no happens-before edge. A flag written volatile by one binding and
+  polled volatile by another does not publish the data written before
+  it: that is `MM-PAR-9`'s atomics, and a race through volatile is
+  still a data race. Volatile IS the right tool on ONE core for a word
+  an interrupt handler writes and the interrupted code polls, because
+  what must be prevented there is the compiler caching the word in a
+  register - interrupt entry and return are context-synchronising, so
+  the hardware needs nothing more (`MM-EXEC-18`, where the handler's
+  rules are).
+- **Atomicity beyond one access.** A naturally aligned access of 8 to 64
+  bits is single-copy atomic on AArch64; a read-modify-write
+  (`mmioModify`) is three operations and is not.
+
+*The AArch64 set*, `__arm_*`, is one instruction each: `__arm_dmb`,
+`__arm_dsb`, `__arm_isb` (`DMB SY`, `DSB SY`, `ISB`); `__arm_cntvct`
+and `__arm_cntfrq` (read `CNTVCT_EL0`, `CNTFRQ_EL0` - the counter read
+is also a compiler barrier, because it is a timestamp); `__arm_ctr`
+(`CTR_EL0`, the cache geometry); `__arm_set_cntv_cval`,
+`__arm_set_cntv_ctl` (the virtual timer's compare value and control);
+`__arm_irq_mask`, `__arm_irq_unmask` (`msr daifset/daifclr, #2`);
+`__arm_wfi`; `__arm_dc_cvac`, `__arm_dc_civac` (clean, and clean and
+invalidate, the data-cache line holding an address to the point of
+coherency - both `Unsafe`); `__arm_tpidr`, `__arm_set_tpidr`
+(`TPIDR_EL1`, a word of software state the hardware keeps for the
+program). The barriers and the two counter reads run at EL0 on an
+aarch64 host; everything else needs EL1, which only
+`baremetal-aarch64` runs a program at. A primitive the target cannot
+execute is refused at build time as `AX4008`, reading the module after
+unreachable functions are pruned, so a helper nothing calls is never
+refused - a refusal rather than a lowering to nothing, because a
+barrier that silently vanished is a program that is wrong at run time
+for a reason known at build time.
+
+*Evidence:* `scripts/check-embedded.sh` A11 - each width is two
+volatile loads and two volatile stores at natural alignment in the IR;
+after `opt -O2` the dead-looking first write of every pair survives
+while the same double write through `__store8`/`__store64` - the
+control - loses it; `llc` keeps each width (`strb`/`strh`/`str w`/
+`str x` and their loads); every `__arm_` primitive is its instruction in
+the IR and in the assembly; and `AX4008` draws the target line, with
+an EL1 primitive in an uncalled function accepted. The `volatile`,
+`barrier` and `refusal` drills each turn it red. *Limit:* QEMU's TCG
+models neither caches nor the reordering a real memory system does, so
+no execution in this tree can observe a missing barrier; the barriers
+are verified as EMITTED, not as effective on hardware
+(`docs/embedded-guide.md`).
 
 ---
 
