@@ -1,0 +1,118 @@
+; MM-ALLOC-23: arming a recovery point allocates nothing.
+;
+; `(__axiom_recover mark thunk)` keeps a record for the extent: the saved
+; stack and registers, the mark, the displaced point, one word per
+; evidence slot. It was an arena block, so an abort reclaimed it with
+; everything else the extent made, but a thunk that ANSWERED left it
+; behind: 144 bytes an arm, gone only at the next outer reset. The
+; record is now a cell in the arming function's own frame, which is
+; exactly as long as it is needed, and an arm allocates nothing.
+;
+;   answered  10,000 arms whose thunk answers, one mark taken before
+;             the loop: the arena holds no more afterwards
+;   trapped   10,000 arms whose thunk divides by zero: the same
+;   nested    an arm inside an arm's thunk, 10,000 times, both at the
+;             same mark and the inner one trapping: the same
+;   inline    10,000 arms each taking a FRESH mark: a mark's cell sits
+;             below its own waterline so that it can be reset twice
+;             (MM-ALLOC-12), and nothing releases it, so this costs 48
+;             bytes an arm. That is the program's to avoid - take the
+;             mark once - and the line pins the price.
+(import IO)
+
+(:: boom (-> Int Int))
+(fn (boom d)
+  (/ 7 d))
+
+(:: answered (-> Int Int Int Int))
+(fn (answered m k acc)
+  (if (== k 0)
+    acc
+    (answered
+      m
+      (- k 1)
+      (+
+        acc
+        (__axiom_recover
+          m
+          (lambda (x) (boom 1)))))))
+
+(:: trapped (-> Int Int Int Int))
+(fn (trapped m k acc)
+  (if (== k 0)
+    acc
+    (trapped
+      m
+      (- k 1)
+      (+
+        acc
+        (__axiom_recover
+          m
+          (lambda (x) (boom 0)))))))
+
+(:: nested (-> Int Int Int Int))
+(fn (nested m k acc)
+  (if (== k 0)
+    acc
+    (nested
+      m
+      (- k 1)
+      (+
+        acc
+        (__axiom_recover
+          m
+          (lambda (x)
+            (+
+              1
+              (__axiom_recover
+                m
+                (lambda (y) (boom 0))))
+          ))))))
+
+(:: inline (-> Int Int Int))
+(fn (inline k acc)
+  (if (== k 0)
+    acc
+    (inline
+      (- k 1)
+      (+
+        acc
+        (__axiom_recover
+          __axiom_arena_mark
+          (lambda (x) (boom 1)))))))
+
+(:: held Int)
+(fn (held)
+  (__axiom_mem_stat 0))
+
+(:: measure (-> String Int Int))
+;@axiom:effect(io)
+(fn (measure name which)
+  ; one warm-up arm, so the record's class list is primed
+  (let ((m __axiom_arena_mark))
+    (let ((w (answered m 1 0)))
+      (let ((h0 (held)))
+        (let ((r 
+          (if (== which 0)
+            (answered m 10000 0)
+            (if (== which 1)
+              (trapped m 10000 0)
+              (if (== which 2)
+                (nested m 10000 0)
+                (inline 10000 0))))))
+          (let ((per (/ (+ (- (held) h0) 5000) 10000)))
+            {
+              (println "{name}: statuses sum to {r}, the arena grew {per} bytes an arm")
+              per
+            }))))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (a (measure "answered" 0))
+    (t (measure "trapped" 1))
+    (n (measure "nested" 2))
+    (i (measure "inline" 3))
+  )
+    0))

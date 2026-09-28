@@ -10904,8 +10904,8 @@
 ; ABORT TO AN ARENA MARK (docs/error-model.md, docs/memory-model.md
 ; MM-ALLOC-16a/16b).
 ;
-; A recovery point is a record in the arena and one global pointing at
-; the innermost armed one. `emitPrimRecover` writes the arm; this is
+; A recovery point is a record in its arming function's frame and one
+; global pointing at the innermost armed one. `emitPrimRecover` writes the arm; this is
 ; the other end - the function every trap asks before it writes its
 ; sentence and exits.
 ;
@@ -10934,8 +10934,8 @@
 ; the end of its body; a jump past that pop leaves the slot pointing at
 ; a record the reset just reclaimed, and the next operation dispatches
 ; through it. So the arm snapshots every slot and the abort writes them
-; all back - before the reset, because the snapshot lives in the record
-; and the record is above the mark.
+; all back - before the reset, so the reset's live-handle check
+; (MM-ALLOC-16b) sees every slot at its arm-time value.
 ;
 ; AND A PROGRAM THAT NEVER ARMS ONE PAYS NOTHING. This function is the
 ; only reader of `@__axiom_recover_top` and it never writes it - the
@@ -18771,7 +18771,8 @@
   (let ((cg0 (emitExpr (vecGet args 0) cg)))
     (let (
       (mark (strDup (memGetWordStr cg0 2)))
-      (size (fmtInt (* (+ (+ 16 (parRegistryOn cg0)) (distinctSlotCount (memGetWordVec cg0 32) 0 0)) 8)))
+      (size (fmtInt (+ (+ 16 (parRegistryOn cg0)) (distinctSlotCount (memGetWordVec cg0 32) 0 0))))
+      (cell (regStr (allocReg cg0)))
       (rec (regStr (allocReg cg0)))
       (pv (regStr (allocReg cg0)))
       (a3 (regStr (allocReg cg0)))
@@ -18788,7 +18789,20 @@
       (doneB (labelStr (allocReg cg0)))
       (_0 (emitLine cg0 (strConcat "  br label %" armB)))
       (_0b (emitLabel cg0 armB))
-      (_1 (emitLine cg0 (strConcat (strConcat "  " rec) (strConcat " = call i64 @axiom_alloc(i64 " (strConcat size ")")))))
+      ; THE RECORD IS A STACK CELL of the arming function, hoisted to
+      ; its entry block like a region's cell (`emitRegionCell`), not an
+      ; arena block. Its lifetime is exactly the arming call's: the
+      ; abort jumps back INTO this frame, so the cell is intact when the
+      ; jump lands, and nothing reads it once the merge below has
+      ; restored the displaced point. Until 2026-09-28 it was
+      ; `axiom_alloc`ed, and a thunk that answered left its record in
+      ; the arena - 144 bytes an arm, measured over 10,000 arms of a
+      ; reset-free loop, gone only at the next outer reset (MM-ALLOC-23,
+      ; `tests/stdlib/560-recover-record.ax`). On the stack it costs no
+      ; allocation at all, and no reset - the abort's own, or a raw one
+      ; inside the extent - can reclaim it while it is armed.
+      (_1c (emitRecoverCell cg0 cell size))
+      (_1 (emitLine cg0 (strConcat (strConcat "  " rec) (strConcat " = ptrtoint ptr " (strConcat cell " to i64")))))
       (_2 (emitLine cg0 (strConcat (strConcat "  " pv) " = load i64, ptr @__axiom_recover_top")))
       (_3 (emitLine cg0 (strConcat (strConcat "  " a3) (strConcat " = add i64 " (strConcat rec ", 24")))))
       (_4 (emitLine cg0 (strConcat (strConcat "  " p3) (strConcat " = inttoptr i64 " (strConcat a3 " to ptr")))))
@@ -23400,6 +23414,21 @@
 ; this and emits exactly what it emitted before, which is the half of
 ; MM-RGN-4 a gate can hold: `scripts/check-region-scope.sh`.
 ; ------------------------------------------------------------------
+; A recovery point's record, `words` words, 16-byte aligned, in the
+; entry block (`emitPrimRecover`): the alloca rule above, for a cell
+; whose size is the record's.
+(pub :: emitRecoverCell (-> Int String String Int))
+(pub fn (emitRecoverCell cg cell words)
+  (let ((line (strConcat "  " (strConcat cell (strConcat " = alloca i64, i64 " (strConcat words ", align 16"))))))
+    (if (< (memGetWord cg 43) 0)
+      (emitLine cg line)
+      {
+        (vecPush
+          (memGetWordVec cg 44)
+          (cast Int line))
+        cg
+      })))
+
 (pub :: emitRegionCell (-> Int String Int))
 (pub fn (emitRegionCell cg cell)
   (if (< (memGetWord cg 43) 0)

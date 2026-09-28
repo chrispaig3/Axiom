@@ -22,6 +22,25 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Arming a recovery point allocates nothing — `MM-ALLOC-23`, R-B9 - 2026-09-28
+
+**A leak the runtime owned, fixed.** A recovery point kept its record,
+the saved stack and registers, the mark, the displaced point and the
+evidence snapshot, in an arena block. An abort reclaimed it with the
+rest of the extent, but a thunk that answered left it behind: 144
+bytes an arm in a reset-free loop, gone only at the next outer reset.
+The record is now a cell in the arming function's own frame, hoisted to
+its entry block as a region's cell is. The abort jumps back into that
+frame, so the cell is intact when it lands, and no reset can reclaim it
+while it is armed.
+
+`tests/stdlib/560-recover-record.ax` arms 10,000 points whose thunk
+answers, 10,000 that trap, and 10,000 nested pairs, and the arena grows
+by nothing in each. The runtime before this change grows 144 bytes an
+answered arm there. Its last line pins what stays the program's: an
+arm that takes a fresh `__axiom_arena_mark` each time still pays that
+mark's 48-byte cell (`MM-ALLOC-12`), so take the mark once.
+
 ### Size classes that share, and a count a program can read — `MM-ALLOC-24`, `MM-ALLOC-25`, R-B8 - 2026-09-28
 
 **Memory that grew with time, fixed.** Every free-list class was an

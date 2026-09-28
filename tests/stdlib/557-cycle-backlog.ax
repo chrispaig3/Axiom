@@ -33,7 +33,14 @@
 
 (:: knot (-> Int Int))
 (fn (knot i)
-  (let ((a (Node i (cast Node 0))) (b (Node (+ i 1) (cast Node 0))))
+  (let (
+    (a (Node
+      i
+      (cast Node 0)))
+    (b (Node
+      (+ i 1)
+      (cast Node 0)))
+  )
     {
       (set a.next b)
       (set b.next a)
@@ -42,13 +49,23 @@
 
 (:: chain (-> Int Int))
 (fn (chain i)
-  (let ((b (Node (+ i 1) (cast Node 0))))
+  (let ((b 
+    (Node
+      (+ i 1)
+      (cast Node 0))))
     (let ((a (Node i b)))
       (+ a.v b.v))))
 
 (:: broken (-> Int Int))
 (fn (broken i)
-  (let ((a (Node i (cast Node 0))) (b (Node (+ i 1) (cast Node 0))))
+  (let (
+    (a (Node
+      i
+      (cast Node 0)))
+    (b (Node
+      (+ i 1)
+      (cast Node 0)))
+  )
     {
       (set a.next b)
       (set b.next a)
@@ -63,8 +80,11 @@
 (fn (loop shape k acc)
   (if (== k 0)
     acc
-    (loop shape (- k 1)
-      (+ acc
+    (loop
+      shape
+      (- k 1)
+      (+
+        acc
         (if (== shape 0)
           (knot k)
           (if (== shape 1)
@@ -91,9 +111,10 @@
 ;@axiom:effect(unsafe)
 (fn (measure name shape)
   (let ((b0 (backlog)))
-    (let ((r (if (== shape 3)
-      (scoped __axiom_arena_mark 1000 0)
-      (loop shape 1000 0))))
+    (let ((r 
+      (if (== shape 3)
+        (scoped __axiom_arena_mark 1000 0)
+        (loop shape 1000 0))))
       (let ((per (/ (- (backlog) b0) 1000)))
         {
           (println "{name}: answer {r}, backlog {per} bytes a knot")
@@ -104,8 +125,16 @@
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
 (fn (main)
-  (let ((k (measure "knots" 0)) (c (measure "chains" 1)) (b (measure "broken" 2)) (s (measure "scoped" 3)))
-    (let ((mapped (>= (__axiom_mem_stat 2) (__axiom_mem_stat 0))) (unknown (__axiom_mem_stat 3)))
+  (let (
+    (k (measure "knots" 0))
+    (c (measure "chains" 1))
+    (b (measure "broken" 2))
+    (s (measure "scoped" 3))
+  )
+    (let (
+      (mapped (>= (__axiom_mem_stat 2) (__axiom_mem_stat 0)))
+      (unknown (__axiom_mem_stat 3))
+    )
       {
         (println "mapped covers held: {mapped}; an unknown count answers {unknown}")
         0

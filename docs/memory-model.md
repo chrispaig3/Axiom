@@ -1746,6 +1746,17 @@ extent begins, and the abort writes them all back before the reset. On
 this one path, the sharpest case of `MM-ALLOC-16` is discharged
 mechanically.
 
+The recovery point's record, which holds the saved stack and registers,
+the mark, the displaced point and the evidence snapshot, is a cell in
+the arming function's own frame. The abort jumps back into that frame,
+so the record is intact when it lands, and arming allocates nothing:
+10,000 arms whose thunk answers leave the arena where it was
+(`tests/stdlib/560-recover-record.ax`). An arm still evaluates its mark
+argument, and `__axiom_arena_mark` allocates a cell that no reset
+reclaims (`MM-ALLOC-12`), so a loop that writes
+`(__axiom_recover __axiom_arena_mark thunk)` pays 48 bytes an arm. Take
+the mark once, before the loop.
+
 The jump abandons N frames of pending `axiom_release` calls. They are
 harmless because of `MM-ALLOC-14` and `MM-LIFE-2e`: the reset reclaims
 everything above the mark regardless of any count, and scrubs all 4,097
@@ -5457,6 +5468,7 @@ only written down.
 | `scripts/check-net.sh` | ALLOC-22 (a request handler scoped as an arena uses 100–313× less memory than the same binary unscoped, with the negative probe that makes the flat column mean something) and ALLOC-4b (request sizes varying across three orders of magnitude don't ratchet the watermark) |
 | `tests/stdlib/557-cycle-backlog.ax` | LIFE-2f's cost and ALLOC-24: 64 bytes a two-node knot, none for a chain, a broken knot or a scoped one |
 | `tests/stdlib/558-size-classes.ax` | ALLOC-25 and ALLOC-24: each request's class, reuse across sizes of one class, and the exact filed count of one block per class |
+| `tests/stdlib/560-recover-record.ax` | ALLOC-23: an arm allocates nothing, whether its thunk answers or traps |
 
 Some rules are only covered incidentally. Fixtures written for another
 purpose exercise them, so a regression would surface, but under a name

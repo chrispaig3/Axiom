@@ -58,9 +58,18 @@
     (let ((f0 (__axiom_mem_stat 1)))
       {
         (__release p)
-        (let ((f1 (__axiom_mem_stat 1)) (q (counted second)))
-          (let ((f2 (__axiom_mem_stat 1)) (same (== p q)))
-            (let ((filed (- f1 f0)) (popped (- f1 f2)))
+        (let (
+          (f1 (__axiom_mem_stat 1))
+          (q (counted second))
+        )
+          (let (
+            (f2 (__axiom_mem_stat 1))
+            (same (== p q))
+          )
+            (let (
+              (filed (- f1 f0))
+              (popped (- f1 f2))
+            )
               {
                 (println "{first} freed, {second} asked: reused {same}, lists +{filed} then -{popped}")
                 (__release q)
@@ -71,7 +80,10 @@
 (:: fileEvery (-> Int Int))
 ;@axiom:effect(unsafe)
 (fn (fileEvery step)
-  (let ((mut sz step) (mut k 0))
+  (let (
+    (mut sz step)
+    (mut k 0)
+  )
     {
       (while (<= sz 65536)
         {
