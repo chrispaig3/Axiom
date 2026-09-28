@@ -783,7 +783,12 @@ ROWS
     for n in "$c_fmt" "$c_diff" "$c_clean"; do cp "$mdir/$n.ax" "$cdir/$n.ax"; done
     src="$(awk -F'\t' -v n="$c_fmt" '$1 == n {print $2}' "$mdir/manifest.tsv")"
     fmt_one "$wrap" "$cdir/$c_fmt.ax" "$(dirname "$src")"
-    if [[ "$f4_verdict" == fail && "$f4_why" == *"no longer checks"* ]]; then
+    # The mutant passed P4 unplanted, so any P4 failure here is the
+    # plant's. It is usually "no longer checks"; where the file ends in
+    # a comment, the second pass re-lays the planted line out and the
+    # failure is reported one step earlier, as output that isn't a
+    # fixed point.
+    if [[ "$f4_verdict" == fail && ( "$f4_why" == *"no longer checks"* || "$f4_why" == *"not idempotent"* ) ]]; then
       ok "control fmtbreak: $c_fmt reported - $f4_why"
     else
       bad "control fmtbreak: $c_fmt gave '$f4_verdict' ($f4_why) - P4 cannot see a formatter that changes what checks"

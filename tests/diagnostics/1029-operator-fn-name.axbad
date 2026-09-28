@@ -1,0 +1,12 @@
+; A top-level function can't take an operator's name. Every call of `*`
+; reaches the built-in and an operator can't be passed as a value, so
+; this definition could never run; it used to compile anyway. A
+; parameter or local spelled `*` is fine (tests/selfhost/1005). AX2001
+; at the name.
+(:: * (-> Int Int Int))
+(fn (* a b)
+  (+ a b))
+
+(:: main Int)
+(fn (main)
+  (* 6 7))

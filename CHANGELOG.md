@@ -22,6 +22,36 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A trailing `;@axiom:` tag, and operator names as binders — `scripts/check-fuzz.sh` P4, R-E1 - 2026-09-28
+
+The second `--long` run with P4 found two more places `check` and
+`fmt` disagreed:
+
+- **A tag with no declaration after it was dropped.** `attachAxtags`
+  hands each `;@axiom:` tag to the declaration that follows it, and
+  the ones after the last declaration were discarded, so a claim such
+  as `restrict(no-alloc)` at the end of a file applied to nothing. The
+  retired stage0 parser refused the file, and so did the formatter. It
+  is `AX2001` now. `tests/diagnostics/1028-trailing-axtag.axbad`.
+- **Operator names as binders.** A parameter or `let` binder spelled
+  like an operator shadows it in its scope, as the reference says, and
+  `tests/selfhost/1005-operator-binder-shadows.ax` now pins that; the
+  formatter printed binders through stage0's pattern rule and refused
+  one. It prints them now. A top-level function spelled like an
+  operator is different: every call of `*` reaches the built-in and an
+  operator can't be passed as a value, so `(fn (* a b) ...)` compiled
+  and could never run, while the effect walk charged its effects to
+  every stdlib use of `*`. It is `AX2001` now, and the reference says
+  so. `tests/diagnostics/1029-operator-fn-name.axbad`.
+
+The P4 control plants a declaration in the formatter's output. Where
+the file ends in a comment, the second pass re-lays the planted line
+out, and P4 reports it one step earlier, as output that isn't a fixed
+point; the control accepts that too, since its mutant passed P4
+unplanted. The whole tracked corpus checks and formats as before.
+AN-29 and AN-30 close. After the fixes: 600 mutants 46/46, P4 79 of 79
+and P5 28 of 28.
+
 ### Decision coverage of the compiler's object code — `scripts/measure-coverage.sh`, R-E2 - 2026-09-28
 
 The coverage measurement counted blocks only. It now also reads every

@@ -1831,6 +1831,21 @@
         (parseIdentList tokens (advance pos) (vecPush acc (tokenLexeme t))))
       (pErrExp pos "identifier"))))
 
+; Does this name start with an operator character? A top-level
+; function spelled like one is refused: every call of `*` reaches the
+; built-in, and an operator can't be passed as a value, so the
+; definition could never run. A parameter or local spelled like one is
+; fine, and shadows the operator in its scope.
+(pub :: nameIsOperator (-> String Bool))
+(pub fn (nameIsOperator s)
+  (if (== (strLen s) 0)
+    false
+    (let ((c (strByte s 0)))
+      (|| (|| (|| (== c 43) (== c 45)) (|| (== c 42) (== c 47)))
+        (|| (|| (|| (== c 37) (== c 94)) (|| (== c 61) (== c 60)))
+          (|| (|| (|| (== c 62) (== c 33)) (|| (== c 38) (== c 124)))
+            (|| (== c 63) (|| (== c 126) (== c 36)))))))))
+
 ; ------------------------------------------------------------------
 ; A MACRO RULE's pattern (macro-system.md MAC-LANG-15).
 ;
@@ -4445,7 +4460,9 @@
             (fnName (memGetWordStr nr 1))
             (afterName (memGetWord nr 2))
           )
-            (let ((paramsR (parseIdentList tokens afterName vecNew)))
+            (let ((paramsR (if (nameIsOperator fnName)
+              (pErrExp headerStart "a function name - an operator is built in")
+              (parseIdentList tokens afterName vecNew))))
               (if (== (memGetWord paramsR 0) 0)
                 paramsR
                 ; A body of SEVERAL expressions sequences them,
@@ -6193,10 +6210,13 @@
       (let ((r (parseDecls tokens 0 vecNew)))
         (if (== (memGetWord r 0) 0)
           r
-          {
-            (attachAxtags (memGetWordVec r 1) 0 axtags 0)
-            r
-          })))))
+          ; A tag belongs to the declaration after it, so one with none
+          ; after it is refused, as the formatter refuses it. It used to
+          ; be dropped with no word, and a claim such as
+          ; `restrict(no-alloc)` then applied to nothing.
+          (if (< (attachAxtags (memGetWordVec r 1) 0 axtags 0) (vecLen axtags))
+            (pErrExp (- (vecLen tokens) 1) "a declaration after the `;@axiom:` tag")
+            r))))))
 
 (pub :: attachAxtags (-> (Vec Int) Int (Vec Int) Int Int))
 (pub fn (attachAxtags decls i axtags next)

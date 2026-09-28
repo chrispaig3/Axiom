@@ -1,0 +1,7 @@
+(:: internFinishHash (-> Int (-> Int (-> Int (-> Int Int)))))
+(fn (internFinishHash h)
+  (fn (* h internStrMul) h))
+
+(:: main Int)
+(fn (main)
+  0)

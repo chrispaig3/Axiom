@@ -1,0 +1,1 @@
+E AX2001 1029-operator-fn-name.ax:7:6-7 unexpected-token "expected a function name - an operator is built in, found `*`" #"found `*` here" ?"Axiom expected a function name - an operator is built in at this position"

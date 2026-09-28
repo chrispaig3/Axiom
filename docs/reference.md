@@ -753,10 +753,12 @@ return a `Result`: `addChecked`, `subChecked`, `mulChecked`,
 ### Operator types
 
 The eighteen operators are built in and always available. No import
-brings them in. A top-level function with an operator's name doesn't
-replace it: `(fn (+ a b) ...)` compiles, and `(+ 1 2)` still calls the
+brings them in. A top-level function can't take an operator's name:
+`(fn (+ a b) ...)` is `AX2001`, because every call of `+` reaches the
 built-in. A local binding or parameter with that name does shadow it
 inside its own scope.
+
+Tested by `tests/selfhost/1005-operator-binder-shadows.ax`.
 
 An operator can't be passed as a bare value:
 handing `+` to another function is `AX3013`. Pass a lambda instead,

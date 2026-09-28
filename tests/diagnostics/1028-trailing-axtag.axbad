@@ -1,0 +1,9 @@
+; A `;@axiom:` tag belongs to the declaration after it, so one with no
+; declaration after it is refused, as the formatter refuses it. It used
+; to be dropped with no word, so the claim below applied to nothing
+; (tests/fuzz/axtag-trailing.axfuzz). AX2001 at the end of the file.
+(:: main Int)
+(fn (main)
+  0)
+
+;@axiom:restrict(no-alloc)

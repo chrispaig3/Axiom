@@ -36,7 +36,7 @@ source.
 | A periodic step runs on real timer interrupts within a checked profile and a stack budget, and a DMA driver keeps a contract-checked ownership protocol with an interrupt deadline (R-D2c) | `scripts/check-embedded.sh` A13 and A14, under QEMU with drills that must go red. Emulator evidence, not hardware |
 | An unhandled CPU exception on bare metal exits 81 naming the fault, and `isr(irq)` binds the IRQ vector (R-D2b) | `scripts/check-embedded.sh` A12: `tests/embedded/fault.ax` under QEMU exits 81 with ESR `0x96000021`. Emulator evidence, not hardware |
 | The executable allocator, arena and region model agrees with the runtime (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 13 pass |
-| Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 43 pass, on 600 mutants from seed 20260927. All seventeen reproducers are fixed and replayed as regressions |
+| Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 46 pass, on 600 mutants from seed 20260927. All nineteen reproducers are fixed and replayed as regressions |
 | ThreadSanitizer reports an unlocked shared word and three ablated synchronisers, and nothing in the mutex, the channel, the pipeline example or the seq_cst litmus rows but `MM-PAR-12`'s documented read, whose suppression hides nothing else on the runs made (R-E1, race detector) | `scripts/check-race.sh`: 32 pass on H3 and on linux-aarch64 in a container; `tests/litmus/tsan-suppressions.txt` |
 | The qualification-readiness package exists and states its limits (R-E2) | [hazards.md](hazards.md), [threats.md](threats.md), [trusted-components.md](trusted-components.md), [tool-qualification.md](tool-qualification.md), [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), [support-policy.md](support-policy.md), [demonstrators.md](demonstrators.md) |
 
@@ -87,7 +87,7 @@ constants.
 | `check-report.sh` | 36 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 13 pass |
-| `check-fuzz.sh` | 43 pass |
+| `check-fuzz.sh` | 46 pass |
 
 Execution on freebsd, windows and darwin-x86_64 has narrower evidence
 ([configurations.md](configurations.md)). Nothing has run on

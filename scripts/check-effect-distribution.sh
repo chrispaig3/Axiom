@@ -183,7 +183,9 @@
 # `armTyOpen` and `armTailSpan` read token or node words, exactly
 # `Unsafe` (1200 to 1205), and `collectBareTyParams`, `castTypeBadPart`,
 # `castTypeBadArgs`, `armJoin` and `fpCastSurplus` build vectors or
-# print, `Alloc,Mut,Unsafe` (2350 to 2355). None names `IO`.
+# print, `Alloc,Mut,Unsafe` (2350 to 2355). None names `IO`. Then
+# `nameIsOperator` (the operator-named function refusal) reads a
+# string's first byte, exactly `Unsafe` (1205 to 1206).
 #
 # RE-PINNED 2026-09-28 (23): the misaligned-atomic trap (R-C4). Compiler
 # view only, 3 rows added (4864 to 4867), none moved:
@@ -533,7 +535,7 @@ have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2355 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1205 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1206 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 417 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 130 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 49 "Alloc,Unsafe"

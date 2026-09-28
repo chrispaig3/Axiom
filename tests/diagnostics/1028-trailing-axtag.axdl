@@ -1,0 +1,1 @@
+E AX2001 1028-trailing-axtag.ax:10:1 unexpected-token "expected a declaration after the `;@axiom:` tag, found `EOF`" #"found `EOF` here" ?"Axiom expected a declaration after the `;@axiom:` tag at this position"

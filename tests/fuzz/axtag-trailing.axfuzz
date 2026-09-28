@@ -1,0 +1,6 @@
+(:: main Int)
+(fn (main)
+  0)
+
+; 1-based column of byte offset `off`.
+;@axiom:restrict(no-io,no-allo

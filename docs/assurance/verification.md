@@ -137,14 +137,15 @@ in CI. The gate has six sections:
 5. The stored reproducers.
 6. A tally of what the open rows excused.
 
-Reach on the default run over the 764-file corpus: of 600 mutants,
-274 (46%) got past the reader and 82 (14%) checked OK. Of those, 81
-emitted and were llc-clean, and one was a bare-metal program refused
-at emit by `AX4008`. The other 518 were refused with a code, all with
-well-formed JSON. None hit an open row.
+Reach on the default run over the 768-file corpus: of 600 mutants,
+284 (47%) got past the reader and 79 (13%) checked OK. All 79 emitted
+and were llc-clean, and P4 formatted every one to a fixed point that
+still checks. P5 ran 28 of them at both levels, and all 28 agreed. The
+other 521 were refused with a code, all with well-formed JSON. None
+hit an open row.
 
 The corpus is `git ls-files`, so a new file moves the mutants. On the
-734-file corpus the same counts were 280, 81, 81, 519 and 507. A
+764-file corpus the counts were 274, 82, 81 and 518. A
 fuzzer of this kind mostly tests the reader's and the checker's
 refusal paths. About a sixth of its budget reaches code generation.
 
@@ -152,9 +153,9 @@ refusal paths. About a sixth of its budget reaches code generation.
 
 These came from 10,600 mutants: seed 1 ×1,000 and seed 2 ×3,000 while
 the harness was built, then seed 20260927 ×600 and ×6,000 through the
-gate. P4 and P5 found the last nine: two on the default run, six on
-the first `--long` run with them, and one on the default run after
-the corpus grew. Each is minimised in `tests/fuzz/` and listed in its `MANIFEST`,
+gate. P4 and P5 found the last eleven: two on the default run, six on
+the first `--long` run with them, one on the default run after the
+corpus grew, and two on the second `--long` run. Each is minimised in `tests/fuzz/` and listed in its `MANIFEST`,
 and the gate replays every one.
 
 | Reproducer | What | Status |
@@ -173,6 +174,8 @@ and the gate replays every one.
 | `struct-field-one-type.axfuzz` | P4: `(y : Int Int Int)` checked OK as `Int`, because what followed a field's type was skipped. A `data` field type that didn't parse became the wildcard. | **fixed** (`fieldTyOverruns`, `parseFieldTypes`); now AX2001 |
 | `cast-surplus-flat.axfuzz` | P4: `(cast Int s s s)`, whose surplus operands apply the result, checked OK, and the formatter printed a cast with one value only. | **fixed** in the formatter, which prints the surplus |
 | `deep-field-chain.axfuzz` | P4: at the nesting limit, the formatter counts each `.name` link as a level and the parser doesn't, so `fmt` refused a file `check` accepted, with no code. | **fixed**: the formatter keeps its count, because its printer recurses per link, and refuses with AX2005 |
+| `axtag-trailing.axfuzz` | P4: a `;@axiom:` tag with no declaration after it was dropped with no word, so a claim such as `restrict(no-alloc)` applied to nothing. | **fixed** (`parseModuleWith`); now AX2001, as stage0 refused it |
+| `operator-param.axfuzz` | P4: a parameter or `let` binder spelled like an operator shadows it, as the reference says, but the formatter printed binders through stage0's pattern rule and refused one. A top-level function spelled like an operator compiled and could never run: every call reached the built-in, while the effect walk charged its effects to every stdlib use of the operator. | **fixed**: the formatter prints such a binder, and the function is AX2001 |
 | `operator-name-template.axfuzz` | P4: `=` is a name to this compiler's parser, and an unexpanded macro template isn't resolved, so `(macro (q x) (+ = 100))` checked OK. The formatter refused every operator outside the retired stage0 parser's list. | **fixed**: the formatter prints such a name as itself |
 
 No row is open. An open row would carry a signature, an extended regex
@@ -208,12 +211,6 @@ reproducers:
   `(import main)` checked `self_host/main.ax` and its imports. It drew
   46 refusals and took 35 s, but finished. The gate's deadline is
   120 s because of it.
-- **An operator-named `fn` is resolved two ways.** With `(fn (* a b)
-  (+ a b))` in the entry file, `(* 6 7)` still answers 42, because
-  codegen keeps the built-in. The effect walk, though, attributes the
-  user function's effects to every stdlib use of `*`
-  (`Vec$vecGrownCap -> *`). Nothing says the definition is
-  unreachable.
 - **A signature that is not an arrow is accepted over a function with
   parameters.** `(:: f ())(fn (f x) x)` and `(:: f (Int))(fn (f x) 0)`
   check OK. Only the calls are refused.

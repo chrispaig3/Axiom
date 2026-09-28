@@ -3754,11 +3754,10 @@
     (if (== k FN_ATOM)
       (let ((tk (ftKind (fnTok n))))
         (if (== tk FT_IDENT)
-          ; An operator run is not a pattern - stage0's
-          ; `parse_pattern` has no case for one.
-          (if (isFOperChar (strByte src (fnStart n)))
-            (fpBad p)
-            (fpP p (fnText src n)))
+          ; An operator run is a name to this compiler's parser, in a
+          ; pattern as anywhere else: a parameter or a `let` binder
+          ; spelled `*` shadows the operator in its scope.
+          (fpP p (fnText src n))
           (if (== tk FT_INT)
             (fpInt p (fnStart n) (fnEnd n))
             (if (== tk FT_FLOAT)
