@@ -50,18 +50,48 @@
 #      byte-identical: that is the invisibility above, measured.
 #
 #   3. LITMUS, ON THIS HOST. tests/litmus/atomics.ax, built with
-#      `--threads` at --opt 0..3, runs three families on two threads,
-#      each printing `<forbidden> <witnessed>`:
+#      `--threads` at --opt 0..3, runs six families on two threads (four
+#      for iriw), each printing `<forbidden> <witnessed>`. A run is
+#      500,000 rounds (200,000 for iriw); an atomic row is three runs per
+#      level, and a required control gets up to five runs to show:
 #
 #        sb sc | sb fence   forbidden 0 in every run
 #        mp sc              forbidden 0 in every run, flag seen > 0
 #        add sc | add cas   forbidden (lost updates) 0 in every run
+#        lb sc              forbidden 0 in every run, both loads 0 > 0
+#        2+2w sc            forbidden 0 in every run, x 2 and y 2 > 0
+#        iriw sc            forbidden 0 in every run, each reader's
+#                           half of the outcome seen > 0
 #        sb plain           CONTROL: forbidden > 0 in some run
 #        add split          CONTROL: forbidden > 0 in some run
+#        lb | 2+2w | iriw reorder
+#                           CONTROL: forbidden > 0 in some run. The
+#                           reordering is written into the program with
+#                           the atomics, so sequential consistency allows
+#                           the outcome and any host can show it: these
+#                           prove the harness sees it when it happens
+#        2+2w plain         CONTROL on darwin-aarch64 at -O1..-O3 only;
+#                           reported elsewhere (below)
 #        mp plain           reported, not required - x86 hardware never
 #                           reorders this pattern, so at -O0 there is
 #                           nothing to show and a requirement would fail
 #                           on the one ISA whose answer is "correct"
+#        lb | iriw plain    reported, not required. x86-64 is TSO, which
+#        2+2w plain         forbids all three outcomes for plain accesses.
+#                           On darwin-aarch64 (Apple M1, 2026-09-28, idle
+#                           and with every core busy) lb plain showed in
+#                           0 of 98 runs. iriw plain showed in 15 of 76,
+#                           at every level but in bursts: 4 of 4 in each
+#                           of two gate runs, 3 of 40 in a batch of runs.
+#                           2+2w plain showed in 138 of 141 runs at
+#                           -O1..-O3 and 22 of 47 at -O0, so it is
+#                           required at -O1..-O3, with five tries. Other
+#                           AArch64 cores, linux-aarch64's among them,
+#                           were not measured, so it is reported there.
+#                           (ARMv8's multi-copy atomicity forbids iriw
+#                           only when each reader's loads stay in order,
+#                           as `ldar` keeps them; plain loads may pass
+#                           each other)
 #
 #      A control that never shows its outcome is a FAILURE, not a pass:
 #      the zeros above it would then mean only that this harness cannot
@@ -72,8 +102,11 @@
 # because the IR names no LSE-capable CPU, and a host with LSE runs
 # those same loops. Section 3 is the rounds run, on this host, at these
 # levels: an absent outcome is evidence, not proof, and a litmus pass
-# on x86 says nothing about AArch64. The linux-x86_64, linux-aarch64
-# and darwin-aarch64 CI legs are the three hosts it runs on.
+# on x86 says nothing about AArch64. The six families are the classic
+# two-and-four-thread shapes, not an exhaustive suite: WRC, ISA2, the
+# coherence tests and the rest are not run. The linux-x86_64,
+# linux-aarch64 and darwin-aarch64 CI legs are the three hosts it runs
+# on.
 #
 # Usage: check-atomics.sh
 set -uo pipefail
@@ -248,8 +281,11 @@ fence     a64  0,2  $n_fence  s/^\s*fence seq_cst\n//
 ROWS
 
 # ---------------------------------------------------------------------
-echo "== 3. litmus on this host, two threads =="
+echo "== 3. litmus on this host, two threads (four for iriw) =="
 runs=3
+# Apple silicon, the one host the 2+2w plain requirement was measured
+# on: `uname` answers Darwin arm64 nowhere else.
+apple=0; [[ "$(uname -s) $(uname -m)" == "Darwin arm64" ]] && apple=1
 # run_row <bin> <family> <mode> -> sets $r_forb $r_wit (sums over runs) and $r_max; 1 on a bad run
 run_once() {
   local out rc=0
@@ -266,7 +302,7 @@ for lvl in 0 1 2 3; do
   if ! "$axc" build --threads --input "$litmus" --output "$bin" --opt "$lvl" > "$work/litmus.O$lvl.build" 2>&1; then
     bad "litmus --threads --opt $lvl did not build:"; sed 's/^/    /' "$work/litmus.O$lvl.build" | head -12; continue
   fi
-  for row in "sb sc" "sb fence" "mp sc" "add sc" "add cas"; do
+  for row in "sb sc" "sb fence" "mp sc" "add sc" "add cas" "lb sc" "2+2w sc" "iriw sc"; do
     set -- $row
     forb=0; wit=0; good=1
     for ((k = 0; k < runs; k++)); do
@@ -274,15 +310,27 @@ for lvl in 0 1 2 3; do
       forb=$((forb + (r_f < 0 ? -r_f : r_f))); wit=$((wit + r_w))
     done
     (( good )) || continue
+    # What a zero witness means: the rounds never overlapped the way the
+    # forbidden outcome needs, so its absence says nothing.
+    case "$1" in
+      mp)   none="no round saw the flag" ;;
+      lb)   none="no round had both loads answer 0, so the threads never overlapped" ;;
+      2+2w) none="no round ended x 2 and y 2, so the stores never interleaved" ;;
+      iriw) none="one reader never saw one write without the other" ;;
+      *)    none="" ;;
+    esac
     if (( forb != 0 )); then
       bad "$row -O$lvl: the forbidden outcome $forb time(s) in $runs runs"
-    elif [[ "$1" == mp ]] && (( wit == 0 )); then
-      bad "$row -O$lvl: no round saw the flag, so the test tested nothing"
+    elif [[ -n "$none" ]] && (( wit == 0 )); then
+      bad "$row -O$lvl: $none, so the test tested nothing"
     else
       ok "$row -O$lvl: forbidden 0 in $runs runs (witnessed $wit)"
     fi
   done
-  for row in "sb plain" "add split"; do
+  required=("sb plain" "add split" "lb reorder" "2+2w reorder" "iriw reorder")
+  reported=("lb plain" "iriw plain")
+  if (( apple && lvl > 0 )); then required+=("2+2w plain"); else reported+=("2+2w plain"); fi
+  for row in "${required[@]}"; do
     set -- $row
     seen=0; tries=0
     while (( seen == 0 && tries < 5 )); do
@@ -299,6 +347,12 @@ for lvl in 0 1 2 3; do
   if run_once "$bin" mp plain; then
     echo "     mp plain -O$lvl: $r_f of $r_w flag-seen rounds read stale data (reported, not required)"
   fi
+  for row in "${reported[@]}"; do
+    set -- $row
+    if run_once "$bin" "$1" "$2"; then
+      echo "     $row -O$lvl: the forbidden outcome $r_f time(s) in one run, witnessed $r_w (reported, not required)"
+    fi
+  done
 done
 
 echo
@@ -308,4 +362,5 @@ if (( failed > 0 )); then
 fi
 echo "check-atomics: $checks checks - the five primitives lower to their ordering"
 echo "               instructions on every target and level, and in the rounds run"
-echo "               two threads on this host saw nothing sequential consistency forbids"
+echo "               two and four threads on this host saw nothing sequential"
+echo "               consistency forbids"

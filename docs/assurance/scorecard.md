@@ -29,7 +29,7 @@ source.
 | No `Vec` is shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; row 5 of `642`; `471` builds inside |
 | A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel (R-C2a) | `tests/stdlib/528-chan.ax`; `scripts/check-chan.sh`: 15 pass |
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 69 pass, including eleven ablations and two controls that measure stated limits |
-| Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP and counter litmus tests are clean on two threads, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 69 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
+| Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP, LB, 2+2W and counter litmus tests are clean on two threads and IRIW on four, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 96 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
 | A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns and steady-state allocation across the whole program, and bounds the stack from AArch64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 36 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
 | Device registers are reached at their own width by volatile accesses the optimiser keeps, with AArch64 barriers, and an instruction the target lacks is `AX4008` (R-D2a) | `scripts/check-embedded.sh` A11 |
@@ -48,9 +48,12 @@ source.
   (exit 138). `restrict(no-unsafe)` also refuses `vecPush`, so there is
   no practical, checkable refusal for a call to an `effect(unsafe)`
   wrapper, or for a user `cast` of a word into a handle.
-- R-C3 limits: litmus families beyond SB, MP and counter (LB, IRIW,
-  2+2W) aren't covered, and no LSE-lowered AArch64 code has been
-  inspected. A litmus zero is evidence, not proof.
+- R-C3 limits: six litmus families run, not the whole catalogue (no
+  WRC, ISA2 or coherence tests). The LB and IRIW plain-access controls
+  are reported, not required, because H3 shows LB never and IRIW only
+  in bursts; each family's reordered-program control is required
+  instead. No LSE-lowered AArch64 code has been inspected. A litmus
+  zero is evidence, not proof.
 - R-A3 remainder: a spawn the kernel refuses has no dedicated fixture.
   `scripts/check-parallel.sh` §12c executes the other status-78 paths.
 - R-E1 remainder: no sanitizers or race detectors. `build`, `run`,
@@ -77,7 +80,7 @@ constants.
 | `check-parallel.sh` | 69 pass, §12a skipped (procfs) |
 | `check-diagnostics.sh` | 255 pass |
 | `check-render-selfhost.sh` | 248 pass |
-| `check-atomics.sh` | 69 pass |
+| `check-atomics.sh` | 96 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |
 | `check-report.sh` | 36 pass, 0 skipped |

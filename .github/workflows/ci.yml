@@ -566,9 +566,9 @@ jobs:
       # targets at -O0..-O3 - each ordering instruction counted against
       # the fixture's uses, a no-atomics control clean, and IR weakenings
       # required to turn the count red - then store-buffering,
-      # message-passing and counter litmus tests on two `--threads`
-      # threads on this runner, each beside a control that must show the
-      # outcome the zeros exclude.
+      # message-passing, load-buffering, 2+2W and counter litmus tests
+      # on two `--threads` threads and IRIW on four, on this runner,
+      # beside controls that must show the outcomes the zeros exclude.
       - name: Atomics lower to their ordering instructions and hold on two threads
         run: ./scripts/check-atomics.sh
 
