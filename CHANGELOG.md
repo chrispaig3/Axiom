@@ -22,6 +22,27 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A fault on bare metal is a status, and `isr(irq)` binds the IRQ vector — `MM-EXEC-18`, status 81, `check-embedded.sh` A12 - 2026-09-27
+
+Every `baremetal-aarch64` executable now carries an exception vector
+table (16 slots, 2 KiB aligned, trusted `module asm` written by
+`emitBaremetalVectors`), and `_start` turns the FP unit on and installs
+it before `main`. An unhandled exception - an alignment fault, an abort,
+an undefined instruction, an unbound IRQ - writes the vector offset,
+ESR_EL1, ELR_EL1 and FAR_EL1 to the UART and exits **81** (a new
+`MM-EXEC-16` row); before, it jumped through the reset VBAR and hung.
+`;@axiom:isr(irq)` binds a function to the IRQ vector: a 592-byte save
+of every register AAPCS64 lets a callee clobber, a dispatch that runs the
+handler with no recovery point armed, restore, `eret`. `MM-EXEC-18`
+states the rules - no nesting, no allocation, no recovery across the
+boundary, state shared through the unsafe layer with the main loop
+masking IRQs around multi-word reads. The binding is `AX4008` on any
+other target, for another vector name, and for a second handler. The
+bare target also compiles with `+strict-align`, because with the MMU off
+a misaligned access faults. A12 counts the table and the entry in the IR
+and boots `tests/embedded/fault.ax` under QEMU: exit 81, ESR 0x96000021
+(an alignment fault), the `vbar` drill turns it red. Emulator evidence.
+
 ### Device access at device widths — `MM-FFI-8`, `AX4008`, `check-embedded.sh` A11 - 2026-09-27
 
 The bare-metal port had one device primitive, `__store8v`, a volatile

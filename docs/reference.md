@@ -2217,6 +2217,21 @@ heap corruption. Only `pub` functions become symbols; a private `isr`
 is still checked, which is what makes the tag meaningful on a helper
 nobody calls from C.
 
+**`isr(irq)` binds the function to a vector.** On `baremetal-aarch64`
+every executable carries an exception vector table, and
+`;@axiom:isr(irq)` makes the tagged function the IRQ vector's handler:
+the vector saves the interrupted code's caller-saved registers, calls
+it with IRQs masked and no recovery point armed, restores them and
+`eret`s ([memory-model.md](memory-model.md) MM-EXEC-18 has the rules -
+no nesting, no allocation, state shared only through the unsafe layer
+with the main loop masking around multi-word reads). Every vector that
+is not bound - a synchronous fault, an SError, an unbound IRQ - exits
+with status **81** and the fault's registers on the UART. The binding
+is refused as `AX4008` on any other target, for a vector name other
+than `irq`, and for a second handler: there is one IRQ vector, and a
+handler dispatches on the interrupt id inside it.
+[embedded-guide.md](embedded-guide.md) is the whole story.
+
 #### `pre(...)` / `post(...)` - a claim the compiler CANNOT decide
 
 `;@axiom:pre(EXPR)` and `;@axiom:post(EXPR)` are the one pair of keys

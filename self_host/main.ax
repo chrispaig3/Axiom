@@ -337,37 +337,56 @@
 (pub :: refuseDeviceIr (-> String Int (Vec Int) String))
 ;@axiom:effect(io)
 (pub fn (refuseDeviceIr ir dfmt units)
-  (let ((k (strFindSub ir "; axiom-device-refused " 0)))
-    (if (< k 0)
+  (let ((mds (deviceRefusals ir vecNew vecNew 0)))
+    (if (== (vecLen mds) 0)
       ir
+      {
+        (writeStderrStr (renderDiagsFormat dfmt mds units))
+        (writeStderrStr (renderFailTrailer (vecLen mds)))
+        (sysExitWith 1)
+        ""
+      })))
+
+; Every marker from `from` on, one diagnostic per DISTINCT sentence: a
+; primitive called in three places is one refusal, not three.
+(pub :: deviceRefusals (-> String (Vec Int) (Vec String) Int (Vec Int)))
+(pub fn (deviceRefusals ir mds seen from)
+  (let ((k (strFindSub ir "; axiom-device-refused " from)))
+    (if (< k 0)
+      mds
       (let (
-        (from (+ k 23))
+        (s (+ k 23))
         (mut e (+ k 23))
       )
         {
           (while (&& (< e (strLen ir)) (!= (strByte ir e) 10))
             (set e (+ e 1)))
-          (let ((mds
-            (let ((v vecNew))
+          (let ((msg (strSlice ir s (- e s))))
+            (if (strInVecStr seen msg 0)
+              0
               {
-                (vecPush v (mkDiag
+                (vecPush seen msg)
+                (vecPush mds (mkDiag
                   SEV_ERROR
                   "AX4008"
                   "target-device-unsupported"
                   0
-                  (strSlice ir from (- e from))
+                  msg
                   0
                   0
-                  "the volatile accesses (`__vload8`..`__vstore64`) lower on every target; the barriers and the two counter reads (`__arm_dmb`, `__arm_dsb`, `__arm_isb`, `__arm_cntvct`, `__arm_cntfrq`) on any AArch64 target; everything else in the `__arm_` family only on baremetal-aarch64. Build for a target that has it, or keep the call off every path `main` reaches - a function nothing calls is pruned before this check"))
-                v
-              })))
-            {
-              (writeStderrStr (renderDiagsFormat dfmt mds units))
-              (writeStderrStr (renderFailTrailer 1))
-              (sysExitWith 1)
-              ""
-            })
+                  "the volatile accesses (`__vload8`..`__vstore64`) lower on every target; the barriers and the two counter reads (`__arm_dmb`, `__arm_dsb`, `__arm_isb`, `__arm_cntvct`, `__arm_cntfrq`) on any AArch64 target; everything else in the `__arm_` family, and an `isr(irq)` binding to the IRQ vector, only on baremetal-aarch64. Build for a target that has it, or keep the call off every path `main` reaches - a function nothing calls is pruned before this check"))
+                0
+              }))
+          (deviceRefusals ir mds seen e)
         }))))
+
+(pub :: strInVecStr (-> (Vec String) String Int Bool))
+(pub fn (strInVecStr v s i)
+  (if (>= i (vecLen v))
+    false
+    (if (strEq (vecGetStr v i) s)
+      true
+      (strInVecStr v s (+ i 1)))))
 
 ; Compile `fileName` for `tname`, answering its LLVM text - or the empty
 ; string when `doEmit` is 0, which is what `check` wants.

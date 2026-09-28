@@ -1,0 +1,37 @@
+; A synchronous exception on `baremetal-aarch64`, taken on purpose: a
+; 32-bit volatile load from an address one byte past a 16-byte-aligned
+; block. The port runs with the MMU off, so every data access is Device
+; memory and a misaligned one is an alignment fault (QEMU enforces it,
+; measured: ESR_EL1 0x96000021 - EC 0x25, a data abort at the current
+; exception level, DFSC 0x21, alignment).
+;
+; `scripts/check-embedded.sh` A12 boots it under QEMU `virt` and
+; requires the boot line, then the fault report the vector table writes
+; - the vector offset (0x200, "current EL, SPx, synchronous"), ESR_EL1,
+; the faulting instruction's address (ELR_EL1) and the faulting data
+; address (FAR_EL1) - and exit status 81, docs/memory-model.md
+; MM-EXEC-16's row for an unhandled CPU exception. Before the vector
+; table existed the same program spun until the gate's timeout killed
+; it: a fault was a hang, and nothing said which instruction.
+;
+; The raw primitive, and not `Mmio.mmioReg`, on purpose: a handle
+; refuses a misaligned address when it is made (status 80, a contract),
+; which is the point of the typed layer; this probe is about what the
+; CPU does when nothing refused it first.
+(import IO)
+(import Mem)
+
+(:: misaligned (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (misaligned a)
+  (__vload32 (+ a 1)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "FAULT PROBE")
+    (println (misaligned (memAlloc 16)))
+    (println "NOT REACHED")
+    0
+  })

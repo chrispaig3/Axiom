@@ -742,6 +742,7 @@ runtime and **MUST NOT** be reused by a program as a normal result:
 | 79 | `parallel` on a target with neither `fork` nor a pthread - windows-x86_64 | emitted, not executed: both primitives compile there to `__axiom_par_unsupported`, which prints `axiom: parallel is not available on this target` and exits 79, so the program builds for every target and says at its first spawn what it cannot do (`scripts/check-parallel.sh` reads the IR) |
 | 76 | `__axiom_arena_reset` handed a mark taken before a `handle` whose extent is still live (`MM-ALLOC-16b`) | measured: `tests/stdlib/167-arena-live-handle.ax` resets a mark that predates the extent, the run prints `axiom: arena reset past a live handle` to fd 2 and exits 76. Its first two blocks — a mark taken inside the extent, and a mark with no handle in scope — must still exit silently, and `tests/stdlib/401-recover-effect.ax` must still exit 71, because a recovery abort performs this very reset legitimately |
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured: `scripts/check-contracts.sh` §1 — a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level; inside `__axiom_recover` it answers 80 to the arming call. DECIDED 2026-09-08 (roadmap item 11, D3): 80 is the first free number. The trap was designed as 75, moved to 76 and then to 77 — the last move a merge conflict resolution onto `__indexTrap`'s number — so two broken invariants shared one status, which `docs/ffi.md` §5.1's own precedent (73, taken because a panic and a division were indistinguishable at 72) refuses. `__indexTrap` held 77 on trunk first, so the contract trap is the one that moves. History in `docs/subtypes-design.md` |
+| 81 | an unhandled CPU exception on `baremetal-aarch64` - a synchronous exception (an alignment fault, a data abort, an undefined instruction), an SError, an FIQ, or an IRQ with no `isr(irq)` handler bound (`MM-EXEC-18`) | measured under QEMU (TCG), 2026-09-27: `tests/embedded/fault.ax` takes an alignment fault and the vector table's exit (`__axiom_cpu_exception`) writes `axiom: unhandled CPU exception at vector 0x0000000000000200 esr 0x0000000096000021 elr 0x... far 0x...` to the UART and exits 81 (`scripts/check-embedded.sh` A12). NOT recoverable: a recovery point armed in the interrupted code is not jumped to, because the jump would resume it in exception context with interrupts masked. Before the vector table the same fault was a hang |
 `tests/stdlib/310-effect-unhandled.err` pins its sentence beside the
 `.exit` that had pinned the status alone since the case was written.
 
@@ -756,6 +757,56 @@ so output produced before one of these aborts is still visible.
 **MM-EXEC-17 (H).** There are **no finalizers, no destructors and no
 atexit hooks.** A process's memory is reclaimed by the operating system
 at exit and by nothing else before it (`MM-LIFE-1`).
+
+**MM-EXEC-18 (H, 2026-09-27). Interrupt handlers: one at a time, no
+allocation, no recovery, state shared only through the unsafe layer.**
+On `baremetal-aarch64` a function tagged `;@axiom:isr(irq)` is the IRQ
+exception vector's handler (`emitIsrBinding`, `emitBaremetalVectors`);
+the tag is refused as `AX4008` on every other target, for a vector name
+other than `irq`, and for a second handler. The rules:
+
+- **No nesting.** The core masks IRQs on exception entry and `eret`
+  restores the interrupted code's mask, and the handler runs with them
+  masked throughout, so a handler is never re-entered and never
+  interrupted by another IRQ. Nothing in the port unmasks inside one.
+- **The interrupted code is preserved.** The entry saves every register
+  AAPCS64 lets a callee clobber - x0-x18, x29, x30, ELR_EL1, SPSR_EL1,
+  FPCR, FPSR, q0-q7, q16-q31 - in 592 bytes of the interrupted stack,
+  and restores them before `eret`. That stack must have room: the
+  handler's own frames sit on top of the deepest point the main loop
+  reaches.
+- **No allocation** (implementation obligation, checked). `isr` implies
+  `restrict(no-alloc)`, refused as `AX3049`: the bump allocator is not
+  reentrant (`docs/embedded-proposal.md` section 7), and a handler that
+  allocated while the main loop was mid-allocation would corrupt the
+  arena. No `region`, no `parallel`, no `Vec` growth, no string
+  building, and no `println` - which builds its line.
+- **No recovery across the boundary** (implementation obligation). The
+  dispatch clears the recovery slot for the handler's extent and puts
+  it back before returning, so a trap inside a handler - a division by
+  zero, a violated contract, an index out of range - exits with its
+  own status rather than unwinding into a recovery point the
+  interrupted code armed, which would resume that code in exception
+  context with interrupts still masked. An effect operation inside a
+  handler finds no handler in extent and traps 71.
+- **What is interrupt-safe** (program obligation). A handler MUST NOT
+  wait for anything the main loop does (it cannot run until the handler
+  returns), so no lock the main loop can hold and no unbounded poll; it
+  SHOULD be bounded, since the main loop's deadlines wait on it. State
+  shared with the main loop is reached through the unsafe layer - the
+  language has no top-level mutable state (`MM-PAR-9`) - and on one core
+  that sharing needs two things: volatile accesses on the main-loop
+  side, so the compiler re-reads a word the handler writes
+  (`MM-FFI-8`), and the main loop MASKING IRQs around any read or
+  write of more than one word that must be consistent, which is the
+  only lock a single core needs. A handler finds its state through
+  `TPIDR_EL1` (`__arm_tpidr`), set before interrupts are unmasked,
+  pointing at a block that is not reclaimed while they are.
+
+*Evidence:* `scripts/check-embedded.sh` A12 holds the table, the entry's
+save/restore and the dispatch in the IR, and the fault exit under QEMU.
+Emulator evidence at most: whether a given part's interrupt latency
+meets a deadline is a hardware question this tree does not answer.
 
 ---
 

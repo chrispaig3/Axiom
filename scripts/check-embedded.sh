@@ -138,6 +138,15 @@
 #       control's plain double write does not; `llc` keeps each width;
 #       every `__arm_` primitive is its instruction; and AX4008 draws
 #       the target line. Needs no QEMU, so it runs on every host.
+#   A12 THE EXCEPTION VECTOR TABLE. Every bare-metal executable
+#       carries one and `_start` installs it; an unbound vector exits
+#       81 with the fault's registers on the UART, `isr(irq)` wires
+#       the IRQ slot, AX4008 refuses a binding no target honours.
+#       IR-level on every host; `tests/embedded/fault.ax` under QEMU.
+#
+# SKIPS. A12-A15's QEMU legs print SKIP, count as skipped and never as
+# ok, and the summary says how many. CI runners have no QEMU, so there
+# they skip - which is said, not passed.
 #
 # ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
 # directory, breaks ONE thing in `codegen.ax` there, builds every
@@ -145,7 +154,7 @@
 # The patch is applied by exact string match by
 # `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
 # there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all twelve and requires each to go red.
+# gate can pass. `--ablations` runs all thirteen and requires each to go red.
 #
 #   chunk     every target answers 4 KiB                   -> A1
 #   literal   `refill:` goes back to the hardcoded 1 MiB   -> A2, A4
@@ -164,6 +173,8 @@
 #   barrier   `__arm_dmb` lowers to a `nop`                -> A11
 #   refusal   every target may run every primitive, so
 #             nothing is refused as AX4008                 -> A11
+#   vbar      `_start` no longer points VBAR_EL1 at the
+#             table, so a fault is a hang again            -> A12
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
 # discovered: the board itself. The bare-metal TARGET is in the tree -
@@ -176,7 +187,7 @@
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
-#   scripts/check-embedded.sh --ablations  # the twelve drills, each red
+#   scripts/check-embedded.sh --ablations  # the thirteen drills, each red
 #   AXIOM_ABLATE=literal scripts/check-embedded.sh
 # ---------------------------------------------------------------------
 
@@ -218,7 +229,7 @@ if [[ "${1:-}" == "--ablations" ]]; then
   red=0
   ran=0
   for ab in chunk literal grain strategy cursor oomsig ceiling trapwrite allsilent \
-            volatile barrier refusal; do
+            volatile barrier refusal vbar; do
     ran=$((ran + 1))
     echo "== ablation: $ab =="
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
@@ -249,8 +260,13 @@ gate_init
 
 failed=0
 checks=0
+# A SKIP is its own word and its own count, never a pass: A12-A15 skip
+# where QEMU is not on PATH - every CI runner today - and the summary
+# says how many did, so a green run that booted nothing reads as one.
+skipped=0
 note() { echo "ok   $1"; }
 bad()  { echo "FAIL $1"; failed=$((failed + 1)); }
+skip() { echo "SKIP $1"; skipped=$((skipped + 1)); }
 abort() { echo "ABORT: $1" >&2; exit 1; }
 
 # ---------------------------------------------------------------------
@@ -1494,7 +1510,178 @@ else
   (( prob )) || note "the volatile probe answers 13333422226708 here (an x86-64 host: the EL0 tier is refused, above)"
 fi
 
+# ---------------------------------------------------------------------
+# The QEMU sections below share one runner and one precondition. The
+# runner takes the machine and a timeout: A13-A15 need a GICv2 (`virt`'s
+# default has moved between QEMU releases, so it is named), and a
+# healthy guest here is out in a second or two, so a hang is 60s rather
+# than A10's 120.
+# ---------------------------------------------------------------------
+qemu_live=1
+command -v qemu-system-aarch64 >/dev/null 2>&1 || qemu_live=0
+qemu_boot() {  # qemu_boot <elf> <uart_out> <qemu_err> [machine] [timeout]
+  python3 - "$1" "$2" "$3" "${4:-virt}" "${5:-60}" <<'PY'
+import subprocess, sys
+elf, out, err, mach, to = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
+cmd = ["qemu-system-aarch64", "-machine", mach, "-cpu", "cortex-a72",
+       "-nographic", "-monitor", "none", "-no-reboot",
+       "-semihosting", "-semihosting-config", "enable=on,target=native",
+       "-kernel", elf]
+try:
+    p = subprocess.run(cmd, stdout=open(out, "wb"), stderr=open(err, "wb"), timeout=to)
+    print(p.returncode)
+except subprocess.TimeoutExpired:
+    print("TIMEOUT")
+PY
+}
+# A QEMU leg's precondition, said once per section: SKIP, never ok.
+qemu_or_skip() {  # qemu_or_skip <section>
+  if (( qemu_live )); then return 0; fi
+  skip "$1: qemu-system-aarch64 is not on PATH - nothing was booted, and this is not a pass"
+  return 1
+}
+
+# ---------------------------------------------------------------------
+echo "== A12. the exception vector table: a fault is a status, the IRQ vector a tag =="
+# ---------------------------------------------------------------------
+# Every baremetal-aarch64 executable carries a vector table
+# (`emitBaremetalVectors`, TRUSTED assembly: docs/embedded-guide.md
+# section 5). `_start` turns the FP unit on and points VBAR_EL1 at it;
+# every slot but a bound IRQ reaches `@__axiom_cpu_exception`, which
+# writes the vector offset, ESR_EL1, ELR_EL1 and FAR_EL1 to the UART and
+# exits 81 (MM-EXEC-16); `;@axiom:isr(irq)` wires slot 5 (current EL,
+# SPx, IRQ) to a save/call/restore/`eret` entry around the tagged
+# function. Before this a synchronous exception jumped through whatever
+# VBAR_EL1 held at reset and the guest spun until killed.
+#
+# Compile-level half, every host: the table's shape in the IR, the
+# `_start` writes, `+strict-align` on the bare target's attribute group
+# and on no hosted one, the bound entry and its dispatch, and AX4008 for
+# a binding no target can honour. QEMU half: `tests/embedded/fault.ax`
+# takes an alignment fault and must exit 81 with the report.
+#
+# Drill: `vbar` drops VBAR_EL1's write from `_start` - the IR check
+# goes red, and under QEMU the fault is a hang again.
+cat > "$work/isr.ax" <<'AX'
+;@axiom:isr(irq)
+(:: onTick Int)
+(fn (onTick)
+  (+ 1 2))
+
+(:: main Int)
+(fn (main)
+  0)
+AX
+sed 's/;@axiom:isr(irq)/;@axiom:isr(timer)/' "$work/isr.ax" > "$work/isr-name.ax"
+cat > "$work/isr-two.ax" <<'AX'
+;@axiom:isr(irq)
+(:: first Int)
+(fn (first)
+  0)
+
+;@axiom:isr(irq)
+(:: second Int)
+(fn (second)
+  0)
+
+(:: main Int)
+(fn (main)
+  0)
+AX
+checks=$((checks + 1))
+prob=0
+if ! emit "$axc" "$bm" "$blink" "$work/blink.vec.ll"; then
+  bad "blink does not emit for $bm:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+else
+  n2k=$(grep -cxF 'module asm ".balign 2048"' "$work/blink.vec.ll" || true)
+  nslot=$(grep -cxF 'module asm ".balign 128"' "$work/blink.vec.ll" || true)
+  nfault=$(grep -cxF 'module asm "b __axiom_exc_entry"' "$work/blink.vec.ll" || true)
+  [[ "$n2k" == 1 && "$nslot" == 16 && "$nfault" == 16 ]] \
+    || { bad "blink's table: $n2k 2 KiB alignments, $nslot slots, $nfault fault branches - not 1, 16, 16"; prob=1; }
+  for w in 'msr vbar_el1, x9' 'orr x9, x9, #0x300000' 'msr cpacr_el1, x9'; do
+    awk '/^define void @_start\(\)/{on=1} on{print} on&&/^}/{exit}' "$work/blink.vec.ll" | grep -qF -- "$w" \
+      || { bad "\`_start\` does not write [$w]"; prob=1; }
+  done
+  grep -qF '"target-features"="+strict-align"' "$work/blink.vec.ll" \
+    || { bad "the bare target's attribute group lacks +strict-align"; prob=1; }
+  grep -qF 'define void @__axiom_cpu_exception(' "$work/blink.vec.ll" \
+    || { bad "no fault exit is defined"; prob=1; }
+fi
+if ! emit "$axc" "$host_target" "$blink" "$work/blink.hostvec.ll"; then
+  bad "blink does not emit for the host:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+elif grep -qE 'module asm|strict-align|__axiom_cpu_exception' "$work/blink.hostvec.ll"; then
+  bad "the HOST's IR carries vector-table or strict-align lines - a hosted target must not move"; prob=1
+fi
+(( prob )) || note "blink carries a 2 KiB table of 16 fault slots, _start writes CPACR and VBAR, +strict-align on bare metal only"
+checks=$((checks + 1))
+prob=0
+if ! emit "$axc" "$bm" "$work/isr.ax" "$work/isr.bm.ll"; then
+  bad "the isr(irq) probe does not emit for $bm:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+else
+  nfault=$(grep -cxF 'module asm "b __axiom_exc_entry"' "$work/isr.bm.ll" || true)
+  nirq=$(grep -cxF 'module asm "b __axiom_irq_entry"' "$work/isr.bm.ll" || true)
+  slot5=$(grep -E '^module asm "(mov x0, #[0-9]+|b __axiom_irq_entry)"$' "$work/isr.bm.ll" | sed -n 6p)
+  [[ "$nfault" == 15 && "$nirq" == 1 && "$slot5" == 'module asm "b __axiom_irq_entry"' ]] \
+    || { bad "bound table: $nfault fault slots and $nirq IRQ branches, slot 5 [$slot5] - not 15, 1 and the IRQ entry"; prob=1; }
+  nsave=$(grep -cE '^module asm "stp (x|q)' "$work/isr.bm.ll" || true)
+  nload=$(grep -cE '^module asm "ldp (x|q)' "$work/isr.bm.ll" || true)
+  [[ "$nsave" == 24 && "$nload" == 24 ]] \
+    || { bad "the IRQ entry saves $nsave and restores $nload register pairs, not 24 and 24 (x0-x17, x18/x29, x30/ELR, SPSR/FPCR, 12 q pairs)"; prob=1; }
+  for w in 'sub sp, sp, #592' 'add sp, sp, #592' 'eret' 'bl __axiom_irq_dispatch' 'msr elr_el1, x0' 'msr spsr_el1, x0'; do
+    grep -qxF "module asm \"$w\"" "$work/isr.bm.ll" || { bad "the IRQ entry lacks [$w]"; prob=1; }
+  done
+  awk '/^define void @__axiom_irq_dispatch\(\)/{on=1} on{print} on&&/^}/{exit}' "$work/isr.bm.ll" > "$work/dispatch.ll"
+  grep -qF 'call i64 @onTick()' "$work/dispatch.ll" \
+    || { bad "the dispatch does not call the tagged handler"; prob=1; }
+  grep -qF 'store i64 0, ptr @__axiom_recover_top' "$work/dispatch.ll" \
+    || { bad "the dispatch leaves a recovery point armed across the handler"; prob=1; }
+  grep -qF '[ptr @__axiom_cpu_exception, ptr @__axiom_irq_dispatch]' "$work/isr.bm.ll" \
+    || { bad "@llvm.used does not keep both entries"; prob=1; }
+fi
+(( prob )) || note "isr(irq) wires slot 5 to a 592-byte save, a dispatch that calls the handler with no recovery point armed, and eret"
+checks=$((checks + 1))
+prob=0
+if emit "$axc" linux-aarch64 "$work/isr.ax" "$work/isr.la.ll" --diagnostic-format=ai \
+   || ! grep -q '^E AX4008 .*binds the IRQ exception vector' "$work/emit.log"; then
+  bad "isr(irq) was not refused as AX4008 for linux-aarch64:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if emit "$axc" "$bm" "$work/isr-name.ax" "$work/isr-name.ll" --diagnostic-format=ai \
+   || ! grep -q '^E AX4008 .*names no vector' "$work/emit.log"; then
+  bad "isr(timer) was not refused as AX4008:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if emit "$axc" "$bm" "$work/isr-two.ax" "$work/isr-two.ll" --diagnostic-format=ai \
+   || ! grep -q '^E AX4008 .*binds 2 functions' "$work/emit.log"; then
+  bad "two isr(irq) handlers were not refused as AX4008:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+(( prob )) || note "AX4008 refuses isr(irq) off bare metal, a vector name it does not bind, and two handlers for one vector"
+fault="$repo_root/tests/embedded/fault.ax"
+[[ -f "$fault" ]] || abort "$fault is gone; A12 has no fault probe."
+if qemu_or_skip "A12 fault under QEMU"; then
+  checks=$((checks + 1))
+  prob=0
+  if ! build_bm fault.bm "$fault" --target="$bm"; then
+    bad "the fault probe does not build for $bm:"; sed 's/^/       /' "$work/fault.bm.build.log" | head -6; prob=1
+  else
+    st_fault="$(qemu_boot "$work/fault.bm" "$work/fault.uart" "$work/fault.qemu.err")"
+    echo "     fault probe: exit $st_fault"
+    sed 's/^/     | /' "$work/fault.uart" | head -4
+    [[ "$st_fault" == 81 ]] \
+      || { bad "the fault probe exits [$st_fault], not 81 - an unhandled CPU exception must be MM-EXEC-16's status, not a hang"; prob=1; }
+    [[ "$(sed -n 1p "$work/fault.uart")" == "FAULT PROBE" ]] \
+      || { bad "the UART's first line is not the boot line"; prob=1; }
+    rep="$(sed -n 2p "$work/fault.uart")"
+    [[ "$rep" =~ ^axiom:\ unhandled\ CPU\ exception\ at\ vector\ 0x0000000000000200\ esr\ 0x0000000096000021\ elr\ 0x[0-9a-f]{16}\ far\ 0x[0-9a-f]{15}[13579bdf]$ ]] \
+      || { bad "the report is [$rep], not vector 0x200 with ESR 0x96000021 (EC 0x25 data abort, DFSC 0x21 alignment) and an odd FAR"; prob=1; }
+    ! grep -q 'NOT REACHED' "$work/fault.uart" \
+      || { bad "the program ran past its fault"; prob=1; }
+  fi
+  (( prob )) || note "an alignment fault exits 81 naming vector 0x200, ESR 0x96000021, the faulting PC and the odd address (QEMU TCG)"
+fi
+
 echo
+if (( skipped > 0 )); then
+  echo "check-embedded: $skipped QEMU leg(s) SKIPPED - booted nothing, proved nothing, and are not counted below"
+fi
 if (( failed > 0 )); then
   echo "check-embedded: $failed of $checks checks failed"
   exit 1

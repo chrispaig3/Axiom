@@ -196,9 +196,9 @@ the one door out ([docs/ffi.md](docs/ffi.md)) and the one
 
 Run `axiom fmt` over anything you touch — and do not assume the tree
 is already in the formatter's normal form, because it is not. Measured
-2026-09-27, `axiom fmt --check` over every one of the 741 `.ax` files
-in the repository answers `is already formatted` for 700 of them and
-`needs formatting` for 41. Four are deliberate and are named here:
+2026-09-27, `axiom fmt --check` over every one of the 742 `.ax` files
+in the repository answers `is already formatted` for 702 of them and
+`needs formatting` for 40. Four are deliberate and are named here:
 `tests/fmt/syntax-zoo.ax` and `tests/diagnostics/940-long-line.ax`,
 whose text is the fixture; `examples/batch-fallible/batch-fallible.ax`,
 a program that stays as it is until someone edits it; and

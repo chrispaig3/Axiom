@@ -176,6 +176,16 @@ ABLATIONS = {
   (if (>= (devicePrimBits nm) 0)""",
         "A11 - AX4008 drawing the target line",
     ),
+    # `_start` stops writing VBAR_EL1: the table is still emitted and
+    # linked, and nothing points the core at it, so a fault jumps
+    # through the reset value and spins - the hang the table exists to
+    # end. The FP enable and the ISB stay, so the drill removes exactly
+    # the installation.
+    "vbar": (
+        '\\\\0Amsr vbar_el1, x9\\\\0Aisb',
+        '\\\\0Aisb',
+        "A12 - the vector table being installed",
+    ),
 }
 
 

@@ -95,7 +95,7 @@
   [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
   [93mAX4006[0m  a thread lowering the target does not have  (threads-unsupported)
   [93mAX4007[0m  a `parallel` lowering the target has neither of  (parallel-unsupported)
-  [93mAX4008[0m  a device primitive the target cannot run  (target-device-unsupported)
+  [93mAX4008[0m  a device primitive or vector binding the target cannot run  (target-device-unsupported)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 ### explain AX1001
 AX1001 - unexpected character
@@ -2770,7 +2770,7 @@ Build for a target that can spawn - darwin, linux or freebsd all
 fork - or keep the `parallel` off the path this target takes.
 
 ### explain AX4008
-AX4008 - a device primitive the target cannot run
+AX4008 - a device primitive or vector binding the target cannot run
 
 The device primitives lower to what a device needs, and not every
 target has it. The volatile accesses - `__vload8` to `__vstore64` -
@@ -2780,7 +2780,10 @@ AArch64 instructions: the barriers and the two counter reads
 `__arm_cntfrq`) run at EL0 on an aarch64 host, and the rest - the
 timer, the interrupt mask, `wfi`, the cache maintenance, the
 thread-ID register - need EL1, which only baremetal-aarch64 runs a
-program at.
+program at. `;@axiom:isr(irq)` binds a function to the IRQ
+exception vector, and only baremetal-aarch64 has a vector table this
+compiler writes; a vector name other than `irq`, and two functions
+bound to the one IRQ vector, are refused on every target.
 
 The build refuses rather than lowering to nothing: a barrier that
 silently vanished, or an `msr` a host kernel answers with SIGILL, is
@@ -3013,7 +3016,7 @@ run `axiom explain --list` to see all known codes
   [93mAX4005[0m  an `extern` item's shape disagrees with the crate's shim  (extern-shape)
   [93mAX4006[0m  a thread lowering the target does not have  (threads-unsupported)
   [93mAX4007[0m  a `parallel` lowering the target has neither of  (parallel-unsupported)
-  [93mAX4008[0m  a device primitive the target cannot run  (target-device-unsupported)
+  [93mAX4008[0m  a device primitive or vector binding the target cannot run  (target-device-unsupported)
   [93mAX5001[0m  cannot resolve import  (module-not-found)
 
 Usage: axiom explain <CODE>

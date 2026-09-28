@@ -8613,6 +8613,12 @@
     (emitLine cg "entry:")
     (emitLine cg "  %sp = ptrtoint ptr @__stack_top to i64")
     (emitLine cg "  call void asm sideeffect \"mov sp, $0\", \"r,~{memory}\"(i64 %sp)")
+    ; CPACR_EL1.FPEN := 0b11, so an FP or SIMD instruction the compiler
+    ; chose does not trap (it resets to 0 at EL1, and a `Float`, or a
+    ; vectorised copy, is then an undefined-instruction exception);
+    ; then VBAR_EL1 := the vector table, and an ISB so both are in force
+    ; before `main` runs a single instruction.
+    (emitLine cg "  call void asm sideeffect \"mrs x9, cpacr_el1\\0Aorr x9, x9, #0x300000\\0Amsr cpacr_el1, x9\\0Aadrp x9, __axiom_vectors\\0Aadd x9, x9, :lo12:__axiom_vectors\\0Amsr vbar_el1, x9\\0Aisb\", \"~{x9},~{memory}\"()")
     (emitLine cg "  %st = call i64 @main(i64 0, i64 0)")
     (emitLine cg "  store i64 131110, ptr @__axiom_exit_block")
     (emitLine cg "  store i64 %st, ptr getelementptr ([2 x i64], ptr @__axiom_exit_block, i64 0, i64 1)")
@@ -8622,6 +8628,361 @@
     (emitLine cg "}")
     (emitLine cg "")
     cg
+  })
+
+; ------------------------------------------------------------------
+; THE EXCEPTION VECTOR TABLE (R-D2, 2026-09-27) - on baremetal-aarch64
+; only, in every executable, and the one piece of hand-written assembly
+; the port carries beyond `_start`. It is TRUSTED CODE: nothing in the
+; checker looks inside a `module asm` string, so what follows is kept
+; to what the architecture requires and is written out here in full,
+; where a reviewer reads it (docs/embedded-guide.md section 5).
+;
+; WHY ALWAYS, NOT ONLY WHEN A HANDLER IS BOUND. Before this table a
+; synchronous exception - an alignment fault, an undefined instruction,
+; a data abort - jumped to whatever VBAR_EL1 held at reset and the
+; guest spun until something killed it: a gate saw a TIMEOUT and a
+; board would see a hang. Now every vector but a bound IRQ reaches
+; `@__axiom_cpu_exception`, which writes the vector offset, ESR_EL1,
+; ELR_EL1 and FAR_EL1 to the UART once and exits with status 81
+; (MM-EXEC-16) through the semihosting door every other trap uses. It
+; is not recoverable and does not pretend to be: a recovery point armed
+; in the interrupted code is not jumped to, because the jump would
+; leave the core in exception context with interrupts masked.
+;
+; THE LAYOUT is the architecture's: 16 slots of 128 bytes, 2 KiB
+; aligned (VBAR_EL1 ignores bits 10:0), four groups of synchronous /
+; IRQ / FIQ / SError. The port runs at EL1 on SP_EL1, so the group that
+; fires is "current EL with SPx" at 0x200; the other three groups can
+; only fire after something the port never does (switching to SP_EL0,
+; dropping to EL0), and reach the same fault exit. Each slot is two
+; instructions - the slot offset into x0, a branch - because a slot is
+; 32 instructions and the save below is 60.
+;
+; THE IRQ ENTRY, when one function is bound with `;@axiom:isr(irq)`:
+; save every register AAPCS64 lets a callee clobber - x0-x18, x29, x30
+; (x18 is allocatable on this triple), ELR_EL1 and SPSR_EL1, FPCR/FPSR
+; and q0-q7, q16-q31, since `_start` turns the FP unit on and compiled
+; Axiom may use it - call `@__axiom_irq_dispatch`, restore, `eret`.
+; 592 bytes of the interrupted stack, a multiple of 16. The core masks
+; IRQ on entry and `eret` restores the interrupted mask, so a handler
+; is never re-entered: there is no nesting, by construction.
+; ------------------------------------------------------------------
+
+; The value of an `isr(...)` tag in one tag set: "" for no tag or a
+; plain `isr`, else what is between the parentheses.
+(pub :: isrTagValueIn (-> (Vec Int) Int String))
+(pub fn (isrTagValueIn tags i)
+  (if (==
+    (cast Int tags)
+    0)
+    ""
+    (if (>= i (vecLen tags))
+      ""
+      (let ((content (memGetWordStr (vecGet tags i) 1)))
+        (if (&& (strStartsWith content "isr(") (== (strByte content (- (strLen content) 1)) 41))
+          (strTrim (strSlice content 4 (- (strLen content) 5)))
+          (isrTagValueIn tags (+ i 1)))))))
+
+; Every declaration carrying `isr(<vector>)`: name then vector, two
+; Strings per binding. A `::` and its `fn` are one declaration and both
+; may carry the tag, so a name is recorded once.
+(pub :: isrBindings (-> (Vec Int) (Vec String) Int (Vec String)))
+(pub fn (isrBindings decls acc i)
+  (if (>= i (vecLen decls))
+    acc
+    (let ((d (vecGet decls i)))
+      {
+        (if (|| (== (nodeTag d) TAG_D_FN) (== (nodeTag d) TAG_D_SIG))
+          (let ((v (isrTagValueIn (memGetWordVec d 7) 0)))
+            (if (&& (> (strLen v) 0) (== (isrBound acc (nodeAName d) 0) 0))
+              {
+                (vecPush acc (nodeAName d))
+                (vecPush acc v)
+                0
+              }
+              0))
+          0)
+        (isrBindings decls acc (+ i 1))
+      })))
+
+(pub :: isrBound (-> (Vec String) String Int Int))
+(pub fn (isrBound acc name i)
+  (if (>= i (vecLen acc))
+    0
+    (if (strEq (vecGetStr acc i) name)
+      1
+      (isrBound acc name (+ i 2)))))
+
+; The functions bound to the IRQ vector, in declaration order.
+(pub :: isrIrqNames (-> (Vec String) Int (Vec String) (Vec String)))
+(pub fn (isrIrqNames bs i acc)
+  (if (>= i (vecLen bs))
+    acc
+    {
+      (if (strEq (vecGetStr bs (+ i 1)) "irq")
+        {
+          (vecPush acc (vecGetStr bs i))
+          0
+        }
+        0)
+      (isrIrqNames bs (+ i 2) acc)
+    }))
+
+; What every module does about `isr(...)` bindings, beside `_start`:
+; on baremetal-aarch64 it writes the vector table and wires the bound
+; handler; everywhere, a binding this target cannot honour - any vector
+; on a hosted target, a vector name the compiler does not bind, two
+; handlers for one vector - leaves an AX4008 marker at top level, where
+; `pruneDeadDefs` cannot delete it, and `main.ax` refuses the module.
+(pub :: emitIsrBinding (-> Int Int))
+;@axiom:effect(io)
+(pub fn (emitIsrBinding cg)
+  (let (
+    (bs (isrBindings (memGetWordVec cg 8) vecNew 0))
+    (t (memGetWord cg 26))
+  )
+    (let ((irqs (isrIrqNames bs 0 vecNew)))
+      {
+        (emitIsrMarkers cg bs t 0)
+        (if (> (vecLen irqs) 1)
+          (emitLine cg (cat4 "; axiom-device-refused `isr(irq)` binds " (fmtInt (vecLen irqs)) " functions to the one IRQ vector (`" (cat3 (vecGetStr irqs 0) "`, `" (cat2 (vecGetStr irqs 1) "`) - bind one handler and dispatch on the interrupt id inside it"))))
+          0)
+        (if (&& (== t 7) (if cgStaticlib false true))
+          (emitBaremetalVectors
+            cg
+            (if (> (vecLen irqs) 0)
+              (vecGetStr irqs 0)
+              ""))
+          cg)
+      })))
+
+(pub :: emitIsrMarkers (-> Int (Vec String) Int Int Int))
+(pub fn (emitIsrMarkers cg bs t i)
+  (if (>= i (vecLen bs))
+    cg
+    {
+      (if (strEq (vecGetStr bs (+ i 1)) "irq")
+        (if (== t 7)
+          0
+          (emitLine cg (cat4 "; axiom-device-refused `isr(irq)` on `" (bareOfSym (vecGetStr bs i)) "` binds the IRQ exception vector, and " (cat2 (targetSpelling t) " has no vector table this compiler writes - only baremetal-aarch64 does"))))
+        (emitLine cg (cat4 "; axiom-device-refused `isr(" (vecGetStr bs (+ i 1)) (cat3 ")` on `" (bareOfSym (vecGetStr bs i)) "` names no vector this compiler binds - the one it binds is `isr(irq)`, on baremetal-aarch64") "")))
+      (emitIsrMarkers cg bs t (+ i 2))
+    }))
+
+; `Mod$name` -> `name`, for a sentence.
+(pub :: bareOfSym (-> String String))
+(pub fn (bareOfSym s)
+  (match (strFindByte s 36 0)
+    ((None) s)
+    ((Some k) (strSlice s (+ k 1) (- (strLen s) (+ k 1))))))
+
+(pub :: emitAsmLine (-> Int String Int))
+(pub fn (emitAsmLine cg text)
+  (emitLine cg (cat3 "module asm \"" text "\"")))
+
+(pub :: emitBaremetalVectors (-> Int String Int))
+(pub fn (emitBaremetalVectors cg handler)
+  (let ((bound (> (strLen handler) 0)))
+    {
+      (emitAsmLine cg ".pushsection .text.vectors,\\22ax\\22,@progbits")
+      (emitAsmLine cg ".balign 2048")
+      (emitAsmLine cg ".globl __axiom_vectors")
+      (emitAsmLine cg "__axiom_vectors:")
+      (emitVectorSlots cg bound 0)
+      (emitAsmLine cg "__axiom_exc_entry:")
+      (emitAsmLine cg "mrs x1, esr_el1")
+      (emitAsmLine cg "mrs x2, elr_el1")
+      (emitAsmLine cg "mrs x3, far_el1")
+      (emitAsmLine cg "bl __axiom_cpu_exception")
+      (emitAsmLine cg "1: wfi")
+      (emitAsmLine cg "b 1b")
+      (if bound
+        (emitIrqEntryAsm cg)
+        cg)
+      (emitAsmLine cg ".popsection")
+      (emitCpuExceptionFn cg)
+      (if bound
+        {
+          (emitIrqDispatch cg handler)
+          (emitLine cg "@llvm.used = appending global [2 x ptr] [ptr @__axiom_cpu_exception, ptr @__axiom_irq_dispatch], section \"llvm.metadata\"")
+        }
+        (emitLine cg "@llvm.used = appending global [1 x ptr] [ptr @__axiom_cpu_exception], section \"llvm.metadata\""))
+      (emitLine cg "")
+    }))
+
+; Slot `i` of 16: the bound IRQ slot (current EL, SPx: slot 5, 0x280)
+; branches to the entry below; every other slot loads its own offset
+; into x0 and takes the fault exit.
+(pub :: emitVectorSlots (-> Int Bool Int Int))
+(pub fn (emitVectorSlots cg bound i)
+  (if (>= i 16)
+    cg
+    {
+      (emitAsmLine cg ".balign 128")
+      (if (&& bound (== i 5))
+        (emitAsmLine cg "b __axiom_irq_entry")
+        {
+          (emitAsmLine cg (cat2 "mov x0, #" (fmtInt (* i 128))))
+          (emitAsmLine cg "b __axiom_exc_entry")
+        })
+      (emitVectorSlots cg bound (+ i 1))
+    }))
+
+; The save area, from the stack pointer up: x0..x17 in pairs at 0-143,
+; x18/x29 at 144, x30/ELR at 160, SPSR/FPCR at 176, FPSR at 192, then
+; q0-q7 at 208-335 and q16-q31 at 336-591.
+(pub :: emitIrqEntryAsm (-> Int Int))
+(pub fn (emitIrqEntryAsm cg)
+  {
+    (emitAsmLine cg "__axiom_irq_entry:")
+    (emitAsmLine cg "sub sp, sp, #592")
+    (emitGprPairs cg "stp" 0)
+    (emitAsmLine cg "stp x18, x29, [sp, #144]")
+    (emitAsmLine cg "mrs x0, elr_el1")
+    (emitAsmLine cg "stp x30, x0, [sp, #160]")
+    (emitAsmLine cg "mrs x0, spsr_el1")
+    (emitAsmLine cg "mrs x1, fpcr")
+    (emitAsmLine cg "stp x0, x1, [sp, #176]")
+    (emitAsmLine cg "mrs x0, fpsr")
+    (emitAsmLine cg "str x0, [sp, #192]")
+    (emitQPairs cg "stp" 0)
+    (emitAsmLine cg "bl __axiom_irq_dispatch")
+    (emitQPairs cg "ldp" 0)
+    (emitAsmLine cg "ldr x0, [sp, #192]")
+    (emitAsmLine cg "msr fpsr, x0")
+    (emitAsmLine cg "ldp x0, x1, [sp, #176]")
+    (emitAsmLine cg "msr spsr_el1, x0")
+    (emitAsmLine cg "msr fpcr, x1")
+    (emitAsmLine cg "ldp x30, x0, [sp, #160]")
+    (emitAsmLine cg "msr elr_el1, x0")
+    (emitAsmLine cg "ldp x18, x29, [sp, #144]")
+    (emitGprPairs cg "ldp" 0)
+    (emitAsmLine cg "add sp, sp, #592")
+    (emitAsmLine cg "eret")
+  })
+
+; x(2k), x(2k+1) at 16k, for k in 0..8.
+(pub :: emitGprPairs (-> Int String Int Int))
+(pub fn (emitGprPairs cg op k)
+  (if (> k 8)
+    cg
+    {
+      (emitAsmLine cg (cat4 (cat3 op " x" (fmtInt (* 2 k))) (cat2 ", x" (fmtInt (+ (* 2 k) 1))) ", [sp, #" (cat2 (fmtInt (* 16 k)) "]")))
+      (emitGprPairs cg op (+ k 1))
+    }))
+
+; q0-q7 and q16-q31, two per instruction, 32 bytes apart from 208.
+(pub :: emitQPairs (-> Int String Int Int))
+(pub fn (emitQPairs cg op k)
+  (if (> k 11)
+    cg
+    (let ((r (if (< k 4)
+      (* 2 k)
+      (+ 16 (* 2 (- k 4))))))
+      {
+        (emitAsmLine cg (cat4 (cat3 op " q" (fmtInt r)) (cat2 ", q" (fmtInt (+ r 1))) ", [sp, #" (cat2 (fmtInt (+ 208 (* 32 k))) "]")))
+        (emitQPairs cg op (+ k 1))
+      })))
+
+; A NUL-free message constant, its length counted here rather than by
+; hand - the count is what the UART writer believes.
+(pub :: emitMsgGlobal (-> Int String String Int))
+(pub fn (emitMsgGlobal cg name text)
+  (emitLine cg (cat4 (cat3 "@" name " = private unnamed_addr constant [") (fmtInt (strLen text)) " x i8] c\"" (cat2 text "\""))))
+
+(pub :: emitMsgWrite (-> Int String String Int))
+(pub fn (emitMsgWrite cg name text)
+  {
+    (emitLine cg (cat4 "  %" name "_p = ptrtoint ptr @" (cat2 name " to i64")))
+    (emitRuntimeWrite cg (cat3 "%" name "_p") (fmtInt (strLen text)))
+  })
+
+; The fault exit every unbound vector reaches. Its register state is
+; the interrupted code's except x0-x3, which the slot and the entry
+; loaded, so ELR_EL1 names the faulting instruction. Written ONCE: a
+; second exception while reporting the first - the UART itself
+; faulting, say - finds the busy word set and exits without writing.
+(pub :: emitCpuExceptionFn (-> Int Int))
+(pub fn (emitCpuExceptionFn cg)
+  (let (
+    (m0 "axiom: unhandled CPU exception at vector 0x")
+    (m1 " esr 0x")
+    (m2 " elr 0x")
+    (m3 " far 0x")
+  )
+    {
+      (emitLine cg "@__axiom_exc_busy = internal global i64 0")
+      (emitMsgGlobal cg "__axiom_exc_m0" m0)
+      (emitMsgGlobal cg "__axiom_exc_m1" m1)
+      (emitMsgGlobal cg "__axiom_exc_m2" m2)
+      (emitMsgGlobal cg "__axiom_exc_m3" m3)
+      (emitLine cg "@__axiom_exc_nl = private unnamed_addr constant [1 x i8] c\"\\0A\"")
+      (emitLine cg "define internal void @__axiom_uart_hex(i64 %v) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  br label %loop")
+      (emitLine cg "loop:")
+      (emitLine cg "  %sh = phi i64 [ 60, %entry ], [ %next, %loop ]")
+      (emitLine cg "  %x = lshr i64 %v, %sh")
+      (emitLine cg "  %d = and i64 %x, 15")
+      (emitLine cg "  %alpha = icmp ugt i64 %d, 9")
+      (emitLine cg "  %base = select i1 %alpha, i64 87, i64 48")
+      (emitLine cg "  %c = add i64 %d, %base")
+      (emitLine cg "  %b = trunc i64 %c to i8")
+      (emitLine cg (cat3 "  store volatile i8 %b, ptr inttoptr (i64 " (fmtInt (targetUartBase (memGetWord cg 26))) " to ptr)"))
+      (emitLine cg "  %next = sub i64 %sh, 4")
+      (emitLine cg "  %more = icmp sge i64 %sh, 4")
+      (emitLine cg "  br i1 %more, label %loop, label %done")
+      (emitLine cg "done:")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "define void @__axiom_cpu_exception(i64 %vec, i64 %esr, i64 %elr, i64 %far) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %busy = load volatile i64, ptr @__axiom_exc_busy")
+      (emitLine cg "  store volatile i64 1, ptr @__axiom_exc_busy")
+      (emitLine cg "  %again = icmp ne i64 %busy, 0")
+      (emitLine cg "  br i1 %again, label %out, label %say")
+      (emitLine cg "say:")
+      (emitMsgWrite cg "__axiom_exc_m0" m0)
+      (emitLine cg "  call void @__axiom_uart_hex(i64 %vec)")
+      (emitMsgWrite cg "__axiom_exc_m1" m1)
+      (emitLine cg "  call void @__axiom_uart_hex(i64 %esr)")
+      (emitMsgWrite cg "__axiom_exc_m2" m2)
+      (emitLine cg "  call void @__axiom_uart_hex(i64 %elr)")
+      (emitMsgWrite cg "__axiom_exc_m3" m3)
+      (emitLine cg "  call void @__axiom_uart_hex(i64 %far)")
+      (emitMsgWrite cg "__axiom_exc_nl" "\n")
+      (emitLine cg "  br label %out")
+      (emitLine cg "out:")
+      (emitBaremetalExit cg "81")
+      (emitLine cg "}")
+    }))
+
+; The IRQ vector's call into Axiom: the bound handler, run with no
+; recovery point armed - a trap inside a handler ends the program with
+; its own status instead of unwinding into whatever the interrupted
+; code had armed, which would resume it with interrupts still masked -
+; and the slot put back before `eret`. A handler that performs an effect
+; operation gets evidence 0, so the operation is the no-handler trap,
+; status 71: nothing is in extent inside an interrupt.
+(pub :: emitIrqDispatch (-> Int String Int))
+(pub fn (emitIrqDispatch cg handler)
+  {
+    (emitLine cg "define void @__axiom_irq_dispatch() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %rt = load i64, ptr @__axiom_recover_top")
+    (emitLine cg "  store i64 0, ptr @__axiom_recover_top")
+    (emitLine
+      cg
+      (cat3
+        "  %r = call i64 @"
+        (llvmSym (strDup handler))
+        (if (== (fnTakesEvw cg handler) 1)
+          "(i64 0)"
+          "()")))
+    (emitLine cg "  store i64 %rt, ptr @__axiom_recover_top")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
   })
 
 ; ------------------------------------------------------------------
@@ -9423,6 +9784,10 @@
       (if (== (memGetWord cg 26) 7)
         (emitBaremetalStart cg)
         0))
+    ; `isr(...)` bindings: the vector table on the bare target, an
+    ; AX4008 marker for a binding a target cannot honour, and nothing
+    ; at all for a program with no binding on a hosted target.
+    (emitIsrBinding cg)
     ; 4.2's region, before the bump pointer that will point into it.
     ; Nothing is emitted here on a target whose arena comes from the
     ; kernel, which is every supported one.
@@ -12585,8 +12950,20 @@
       ; was measured. A stripped function can never appear in a
       ; backtrace, so a table over the survivors is the complete table.
       (let ((tailCg (pruneDeadDefs (emitExternDeclares decls (emitRecoverSlotHelpers (emitEffectGlobals (emitStringGlobals nextCg 0) 0)) 0 (runtimeDeclaredSyms (memGetWord nextCg 26))))))
-        (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWordVec tailCg 0))) "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }")))
+        (renderCG (emitLine (emitBacktrace tailCg (symtabNames (memGetWordVec tailCg 0))) (attrGroupZero (memGetWord tailCg 26)))))
       (emitModuleTail decls nextCg (+ i 1)))))
+
+; `attributes #0`, per target. The bare target adds `+strict-align`:
+; the port runs with the MMU off, where every data access is Device
+; memory and a misaligned one is an alignment fault, so LLVM may not
+; merge byte accesses into a wider unaligned one there - which it does
+; freely where the target allows unaligned access, and aarch64 does.
+; Every hosted target keeps the line it always had, byte for byte.
+(pub :: attrGroupZero (-> Int String))
+(pub fn (attrGroupZero t)
+  (if (== t 7)
+    "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" \"target-features\"=\"+strict-align\" }"
+    "attributes #0 = { \"no-builtins\" \"frame-pointer\"=\"all\" }"))
 
 ; ------------------------------------------------------------------
 ; `declare i64 @sym(i64, ...)` for every `extern` item in the module.
