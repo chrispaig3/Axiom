@@ -1,25 +1,23 @@
 # The `.axir` record file, and the MIR projection through AXSYM
 
-**Status.** The format, its reader, and the AXSYM projection shipped in
-0.7.3, gated by `scripts/check-mir-roundtrip.sh` and
-`scripts/check-mir-projection.sh`. The AXDL half **shipped in 0.7.5**,
-gated by `scripts/check-diagnostics.sh` and the span verifier it runs;
-§5 is the record of what it is and what it does not reach. The
-block-and-instruction
-half of the grammar was **specified and read, and written by nothing**
-until 2026-09-04, because there was no mid-level IR in the tree for it
-to describe. There is one now — `self_host/mir.ax` — and
-`symbols --axir --mir` writes it; §2 says what that means in practice.
+This record covers two ways the compiler hands its mid-level facts to
+tools: the `.axir` record file, and the `#mir-*` keys that
+`axiom symbols --mir` adds to AXSYM. It also records the AXDL change
+that puts a diagnostic's call chain into related-location fields. For
+the user-facing text, run `axiom help symbols`.
 
-This document is the design record for both halves. It is not a
-tutorial: `axiom help symbols` is the user-facing text.
+| Part | Status | Gated by |
+| --- | --- | --- |
+| The `.axir` format, its reader, and the AXSYM `--mir` projection | Shipped in 0.7.3 | `scripts/check-mir-roundtrip.sh`, `scripts/check-mir-projection.sh` |
+| Body lines (`blk`, `op`, `term`) from `self_host/mir.ax`, written by `symbols --axir --mir` | Shipped in 0.7.5 | `scripts/check-mir-roundtrip.sh`, `scripts/check-mir.sh` |
+| The AXDL half: call chains as related locations (§5) | Shipped in 0.7.5 | `scripts/check-diagnostics.sh` and the span verifier it runs |
 
 ## 1. Why the extension is not `.mir`
 
-LLVM owns `.mir`. It is Machine IR — the post-instruction-selection form
-`llc -stop-after=<pass>` writes — and this toolchain writes it today.
-Measured 2026-09-03 on the development machine: `llc --version` reports
-Homebrew LLVM 23.1.0 for arm64-apple-darwin25.6.0, and
+LLVM already uses `.mir` for Machine IR: the post-instruction-selection
+form that `llc -stop-after=<pass>` writes. This toolchain produces it
+today. With `llc` from Homebrew LLVM 23.1.0 for
+arm64-apple-darwin25.6.0, this exits 0:
 
 ```console
 $ axiom emit-llvm s1.ax > s1.ll        # 1,312 lines
@@ -28,31 +26,28 @@ $ wc -c s1.mir
   248183 s1.mir
 ```
 
-exits 0. Axiom's own mid-level IR sits **above** LLVM IR; LLVM's Machine
-IR sits **below** it. Two different intermediate representations in one
-tree cannot share one file extension without every later tool sniffing
-content to work out which one it is holding.
+Axiom's mid-level IR sits above LLVM IR, and LLVM's Machine IR sits
+below it. If two IRs in one tree shared an extension, every later tool
+would have to sniff a file's contents to learn which one it held.
 
-So the extension is `.axir`, and the first line of every file is a magic
-line rather than a comment:
+So the extension is `.axir`, and every file starts with a magic line
+rather than a comment:
 
 ```text
 axir 1 <target> <version>
 ```
 
-The magic line is **load-bearing on day one**, not decoration for a
-future reader. `axiom symbols --axir <FILE>` decides what to do with
-`<FILE>` by reading it: a file that opens `axir 1 ` is read back and
-re-emitted, anything else is compiled. `scripts/check-mir-roundtrip.sh`
-asserts both directions — a record file named `.ax` still reads back,
-and a source file named `.axir` still compiles — so the name of the file
-never decides.
+The magic line does real work. `axiom symbols --axir` reads its input
+file to decide what to do with it: a file that starts with `axir 1 ` is
+read back and re-emitted, and anything else is compiled. `scripts/check-mir-roundtrip.sh` checks both directions: a
+record file named `.ax` still reads back, and a source file named
+`.axir` still compiles. The file name never decides.
 
 ## 2. The grammar
 
-One fact per line, LF-terminated, ASCII, whitespace-delimited, and
-colourless. These are AXSYM's rules, deliberately: a second set of rules
-for a second agent-facing stream is a second thing to get wrong.
+One fact per line: LF-terminated, ASCII, whitespace-delimited and
+colourless. These are AXSYM's rules. A second set of rules for a second
+agent-facing stream would be a second thing to get wrong.
 
 ```text
 axir 1 <target> <version>
@@ -66,111 +61,136 @@ term <opcode> <operand>...
 end
 ```
 
-The kind set is **closed**. `axirRead` refuses a line whose first word
-it does not know and a line whose field count is wrong, with a message
-naming the kind, the way the driver's flag table refuses an unknown
-flag. A format that silently drops a line it does not recognise is a
-format that reports less than it was given, which is this repository's
-named hazard.
+The set of line kinds is closed. `axirRead` refuses a line whose first
+word it doesn't know, or whose field count is wrong, with a message
+naming the kind. The driver's flag table refuses an unknown flag the
+same way. A format that silently dropped an unrecognised line would
+report less than it was given, which is a hazard this repository
+names.
 
-**What is written today.** The header, `sig`, `param`, and — under
-`--mir` — `region` followed by the function's body: one `blk` per basic
-block, one `op` per instruction and one `term` per terminator, of the
-SSA IR in `self_host/mir.ax` as `mLowerFn` lowered it. `self_host/axir.ax`
-imports `mir` for exactly that, and is the one module of the compiler
-that does; `scripts/check-mir.sh` §6 pins the importer set rather than
-leaving it to grow.
+### 2.1 What is written
 
-**A body is all or nothing, and it is verified before it is written.**
-`mLowerFn` lowers a subset of the checked AST and refuses the whole
-function outside it — it never answers a partial one — and what it does
-answer goes through `mirVerify` before a line is rendered. A record
-carrying a body its own verifier complains about would publish a defect
-in the lowering as a fact about the program. Measured 2026-09-04: 389 of
-the 839 records for a probe importing every stdlib module carry a body,
-and 1,457 of `self_host/main.ax`'s 4,097.
+Every record has its header, a `sig` line and one `param` line per
+parameter. Under `--mir` it also has `region`, followed by the function's body: one `blk` per basic
+block, one `op` per instruction and one `term` per terminator. The body
+is the SSA IR in `self_host/mir.ax`, as `mLowerFn` lowered it.
 
-**Under `--mir`, not without it.** `--mir` is the flag documented as
-slow — it forces the region-facts fixpoint — and lowering plus verifying
-every function is the same kind of cost on the same stream. Measured
-2026-09-04 on `self_host/main.ax`: `--axir` 7.2s, `--axir --mir` 31.7s,
-and the AXSYM `symbols --mir` on the same file — which lowers nothing —
-37.6s, so nearly all of the difference is the fixpoint that flag already
-forced. `check-mir-roundtrip.sh` asserts that the default stream carries
-no body line, and that the `--mir` stream with its body lines deleted is
-the default stream.
+`self_host/axir.ax` imports `mir` to write the body.
+`scripts/check-mir.sh` §6 pins the exact set of modules that import
+`mir` (`axir.ax`, `codegen.ax` and the test-only evaluator
+`mireval.ax`), so a new consumer can't arrive unnoticed.
 
-**`blk` widened when the body started being written**, and that is a
-change to the grammar rather than to its implementation. It was a fixed
-two atoms; it is now a label plus a block-parameter list. This IR has
-block parameters instead of phi nodes, so a join block names its
-incoming value once and each `br` names the argument — and a `blk` that
-could write the arguments down but not the parameter they land in is a
-record no reader can turn back into a function. The parameters carry the
-`%` sigil and the reader strips it, so a register spelled without one is
-refused: `tests/axir/blk-param-without-sigil.bad`.
+### 2.2 A body is all or nothing, and verified first
 
-**What is read and still written by nothing.** The grammar is a format
-rather than a spelling of one lowering, so the reader accepts block
-labels and opcodes this IR does not have — a reader that took only
-today's output would refuse tomorrow's. `tests/axir/body.axir` is that
-corpus: `entry`, `loop`, `alloc`, `store`, `phi`.
-`tests/axir/lowered.axir` is the other side, the emitted shape verbatim.
+`mLowerFn` lowers a subset of the checked AST. Outside that subset it
+refuses the whole function and never returns a partial one. What it
+does return goes through `mirVerify` before a line is rendered. A
+function that is refused, or whose lowering fails verification, keeps
+its record with no body lines.
 
-**`term condbr` carries block arguments.** A `while` passes its
-carried `mut`s to the body and the exit alike, so the `condbr` line
-names both successors and then the shared argument list: `term
-condbr %9 bb2 bb3 %3 %4`. An `if` passes nothing and the line ends
-at the second successor, exactly as before — the reader takes a
-variable operand list, so the bare and applied forms are one rule,
-not two. This is the same uniformity the `.mir` printer keeps:
-`condbr %9, bb2, bb3` beside `condbr %9, bb2(%3, %4),
-bb3(%3, %4)`.
+A body that failed its own verifier would publish a defect in the
+lowering as a fact about the program. For a probe importing every
+stdlib module, 389 of the 839 records carry a body. For
+`self_host/main.ax`, 1,457 of 4,097 do.
 
-**Escaping.** A parameter name goes through `saAxSafe`, the escaper
-`symbols.ax` already uses for AXTAG payloads on an AXSYM line: every
-structural byte as `%XX`. The header name does **not**, and that is a
-decision rather than an oversight — see §3.
+### 2.3 Bodies are written only under `--mir`
+
+`--mir` is the flag documented as slow, because it forces the
+region-facts fixpoint. Lowering and verifying every function is the
+same kind of cost on the same stream. On `self_host/main.ax`:
+
+| command | time |
+| --- | --- |
+| `axiom symbols --axir` | 7.2s |
+| `axiom symbols --axir --mir` | 31.7s |
+| `axiom symbols --mir` (AXSYM, which lowers nothing) | 37.6s |
+
+Nearly all of the difference is the fixpoint the flag already forced.
+`check-mir-roundtrip.sh` checks that the default stream carries no body
+line, and that the `--mir` stream with its `region` and body lines
+deleted is the default stream.
+
+### 2.4 `blk` carries block parameters
+
+A `blk` line is a label followed by a block-parameter list. It was a
+fixed two atoms before bodies were written, so this is a change to the
+grammar itself.
+
+This IR uses block parameters instead of phi nodes. A join block names
+its incoming value once, and each `br` names the argument. A `blk` line
+that wrote the arguments but not the parameters they land in would be
+a record no reader could turn back into a function.
+
+The parameters carry the `%` sigil and the reader strips it, so a
+register spelled without one is refused:
+`tests/axir/blk-param-without-sigil.bad`.
+
+### 2.5 `term condbr` carries block arguments
+
+A `while` passes its carried `mut`s to both the body and the exit. So
+the `condbr` line names both successors, then the shared argument list:
+`term condbr %9 bb2 bb3 %3 %4`. An `if` passes nothing, and its line
+ends at the second successor.
+
+The reader takes a variable operand list, so the bare and applied forms
+are one rule. The `.mir` printer keeps the same uniformity:
+`condbr %9, bb2, bb3` beside `condbr %9, bb2(%3, %4), bb3(%3, %4)`.
+
+### 2.6 What the reader accepts that nothing writes
+
+The grammar is a format, not the spelling of one lowering. So the
+reader accepts block labels and opcodes this IR doesn't have. A reader
+that took only today's output would refuse tomorrow's.
+
+`tests/axir/body.axir` is that corpus: `entry`, `loop`, `alloc`,
+`store`, `phi`. `tests/axir/lowered.axir` is the other side: the
+emitted shape, verbatim.
+
+### 2.7 Escaping
+
+A parameter name goes through `saAxSafe`, the escaper `symbols.ax`
+already uses for AXTAG payloads on an AXSYM line. It writes every
+structural byte as `%XX`. The name in the header line is not escaped,
+for the reason in §3.
 
 ## 3. The join key is the whole header tuple, not the nid
 
-`docs/compatibility.md` COMPAT-2 says the nid *is* a name's identity.
-Across modules that is measurably false.
+[`compatibility.md`](compatibility.md) COMPAT-2 says the nid *is* a
+name's identity. Across modules, that doesn't hold.
 
-Measured 2026-09-03 over `axiom symbols self_host/main.ax --builtins
---diagnostic-format ai`: 4,153 lines, 4,068 carrying a nid, **4,066
-distinct**. The two collisions are between genuinely different
-functions:
+Over `axiom symbols self_host/main.ax --builtins --diagnostic-format ai`
+there are 4,153 lines, 4,068 of them carrying a nid, and 4,066 distinct
+nids. The two collisions are between genuinely different functions:
 
 | name | one | the other | nid |
 | --- | --- | --- | --- |
 | `die` | `stdlib/IO.ax:501` | `self_host/main.ax:2009` | `@52fb9ccad9feab1b` |
 | `jsonHexDigit` | `self_host/render.ax:1184` | `stdlib/Json.ax:453` | `@9adebbbea99ca85b` |
 
-The nid is FNV-1a 64 over `DKind:name` and the name it hashes is the
-**bare** one, so two modules declaring the same unmangled name collide
-by construction. A record's header line therefore repeats AXSYM's whole
-tuple verbatim — name, location, quoted type, nid — and a tool joining
-the two streams joins on the tuple.
+The nid is FNV-1a 64 over `DKind:name`, and the name it hashes is the
+bare one. So two modules declaring the same unmangled name collide by
+construction. A record's header line therefore repeats AXSYM's whole
+tuple verbatim (name, location, quoted type, nid), and a tool joins the
+two streams on the tuple.
 
-Because the join is byte equality, the record must spell the tuple
-**exactly** as `symLine` does. `symLine` does not escape the name; nor
-does `axirHeader`. What makes that safe is that a declared name is an
-identifier and an operator is punctuation, neither of which can carry a
-structural byte — a name that could is a generated one, and
-`symFnRowSkipped` drops it before either renderer sees it.
-`scripts/check-mir-projection.sh` asserts the two tuple sequences are
-equal, in order, so the day the spellings diverge is the day that gate
-reddens rather than the day a join silently misses a row.
+The join is byte equality, so the record must spell the tuple exactly
+as `symLine` does. `symLine` doesn't escape the name, and neither does
+`axirHeader`. That is safe because a declared name is an identifier and
+an operator is punctuation, and neither can carry a structural byte. A
+name that could is a generated one, and `symFnRowSkipped` drops it
+before either renderer sees it.
+
+`scripts/check-mir-projection.sh` checks that the two tuple sequences
+are equal, in order. If the spellings ever diverge, that gate fails,
+rather than a join silently missing a row.
 
 ## 4. The AXSYM projection: `--mir`
 
-`FnEnt` word 8 is the region-facts record `rgnFactsNew` builds in
-`self_host/typecheck.ax` (stage S3 of the memory-model design): a
-per-function interprocedural dataflow summary. Until this release it was
-computed, spent on `AX3049` and `AX3060`–`AX3063`, and thrown away.
-
-`axiom symbols --mir` prints it as metadata:
+`FnEnt` word 8 is the region-facts record that `rgnFactsNew` builds in
+`self_host/typecheck.ax` (stage S3 of the memory-model design). It is a
+per-function, interprocedural dataflow summary. The checker spends it
+on `AX3049` and `AX3060`–`AX3063`, and `axiom symbols --mir` prints it
+as metadata:
 
 ```console
 F keep p.ax:3:5-9 "(Int -> (Int -> Int))" @ee8bd13… #effects=Alloc,Mut #mir-params=2 #mir-escapes=p #mir-result-from=v
@@ -179,7 +199,7 @@ F fresh p.ax:16:5-10 "(Int -> Int)" @24c9891… #effects=Alloc #mir-params=1 #mi
 F idf p.ax:20:5-8 "(Int -> (Int -> Int))" @e27158c… #mir-params=2 #mir-result-from=a
 ```
 
-`pass` calls `keep` and does nothing else; the summary is
+`pass` calls `keep` and does nothing else. The summary is
 interprocedural, so `pass`'s row carries the escape too.
 
 | key | what it says |
@@ -191,23 +211,24 @@ interprocedural, so `pass`'s row carries the escape too.
 | `#mir-incomplete` | the walk hit a call head it could not resolve, so this row is a lower bound |
 | `#mir-truncated` | the module's facts fixpoint stopped at its round cap, so **every** row is a lower bound |
 
-**The keys are placed after the author's AXTAGs**, like every other
-derived key, for the reason `symbols.ax` spells out at `smTagMetas`:
-`symTagFrom` answers the *last* `#key` on the line, so a compiler-owned
-key placed after the tags cannot be shadowed by a forged one.
+The keys go after the author's AXTAGs, like every other derived key,
+for the reason `symbols.ax` gives at `smTagMetas`. `symTagFrom` answers
+the *last* `#key` on the line, so a compiler-owned key placed after the
+tags can't be shadowed by a forged one.
 
-**Silence by default has two independent guards.** The first is the
-flag. The second is that `rgnEnsureFacts` runs **on demand** — for a
-program that names a region or claims `restrict(no-escape)`, and
-otherwise never — so a program that does neither has word 8 at 0 and
-there is nothing to print whatever anyone asks. Measured 2026-09-03:
-removing the flag guard alone leaves `check-mir-projection.sh` green,
-because the fixpoint still has not run. Both guards must go for the
-silence assertion to fire, and the gate's header says so.
+Two independent guards keep the stream silent by default. The first is
+the flag. The second is that `rgnEnsureFacts` runs on demand: only for
+a program that names a region or claims `restrict(no-escape)`. A
+program that does neither has word 8 at 0, so there is nothing to
+print, whatever the flags.
 
-**`--mir` is slow, and the help text says so.** It forces a walk that
-would otherwise not run at all. Measured 2026-09-03, three runs each
-way with `/usr/bin/time -p`:
+Removing the flag guard alone leaves `check-mir-projection.sh` green,
+because the fixpoint still hasn't run. Both guards must go before the
+silence assertion fires, and the gate's header says so.
+
+`--mir` is slow, and the help text says so. It forces a walk that
+otherwise wouldn't run at all. Three runs each way with
+`/usr/bin/time -p`:
 
 | command | without | with |
 | --- | --- | --- |
@@ -216,196 +237,207 @@ way with `/usr/bin/time -p`:
 
 ### 4.1 The two sentinels, and why they are not optional
 
-`#effects=` has carried `#effects-incomplete` since it shipped, for the
-same reason and in the same shape: the key is a **lower bound**, and a
-reader who cannot tell a lower bound from a set learns something false.
-`docs/agent-harness.md` §3.4 already has `Agent.Policy` reading
-`#effects=` that way. A dataflow summary published without its
-admissions would be a policy gate reporting a guarantee the compiler
-does not have — the AXTAG forgery hole's shape, arriving through the
-compiler's own front door instead of through a forged tag.
+`#effects=` has always carried `#effects-incomplete`, for the same
+reason and in the same shape. The key is a lower bound, and a reader
+who can't tell a lower bound from a set learns something false.
+[`agent-harness.md`](agent-harness.md) §3.4 already has `Agent.Policy`
+reading `#effects=` that way.
+
+Without its admissions, a dataflow summary would let a policy gate
+report a guarantee the compiler doesn't have. That is the AXTAG forgery
+hole, arriving through the compiler's own output instead of a forged
+tag.
 
 `#mir-truncated` is the sharper of the two, because the truncation it
-reports was real and was silent. `rgnRounds` capped at **40 rounds**
-until 2026-09-17, and before that returned with no diagnostic on the
-truncating branch. A monotone chain fixpoint over N functions needs up
-to N rounds, so a call chain deeper than the cap stopped propagating
-before it had converged. Measured 2026-09-03 on generated chains
-`f0 -> f1 -> … -> fN` whose leaf does `(memSetWord p 0 (memAlloc 8))`,
-with `restrict(no-escape)` on `f0`:
+reports was real and silent. `rgnRounds` once had a fixed cap of 40
+rounds, and at first returned from the truncating branch with no
+diagnostic. A monotone chain fixpoint over N functions needs up to N
+rounds, so a call chain deeper than the cap stopped propagating before
+it converged.
 
-| depth | `axiom check`, under the old cap |
+The evidence came from generated chains `f0 -> f1 -> … -> fN` whose
+leaf does `(memSetWord p 0 (memAlloc 8))`, with `restrict(no-escape)`
+on `f0`:
+
+| depth | `axiom check`, under the 40-round cap |
 | --- | --- |
-| 5, 20, 30, 38, 39 | `AX3049` — refused |
-| 40, 41, 42, 60 | `OK` — **accepted** |
+| 5, 20, 30, 38, 39 | `AX3049`: refused |
+| 40, 41, 42, 60 | `OK`: **accepted** |
 
-The bisect was exact: depth 39 refused, depth 40 accepted a claim the
-analysis can itself refute one round later. Timing confirms saturation
-rather than convergence — 0.05s at depth 5, 0.11s at 20, 0.24s at 39,
-and 0.24s at 60: linear in rounds, then flat. Since 2026-09-17 the
-bound is `(vecLen decls) + 1`, as `inferEffects` passes it, so every
-depth in that table is refused and the sentinel is a net no program
-reaches.
+The bisect was exact. Depth 39 was refused, and depth 40 accepted a
+claim the analysis could refute one round later. Timing confirmed
+saturation rather than convergence: 0.05s at depth 5, 0.11s at 20,
+0.24s at 39 and 0.24s at 60. That is linear in rounds, then flat.
 
-**Fixing the cap was the region workstream's job, and the bound half
-landed there.** `inferEffects` in the same file is the shape it wants:
-it passes `limit = (vecLen decls) + 1`, runs forward and reverse
-passes, and switches to a worklist over `callersIdxBuild` after round
-1 — a bound that cannot truncate a monotone chain fixpoint, with the
-worklist still to come for adversarial declaration orders. What the
-silence fix recorded stays: `rgnRounds` records a truncation it never
-reaches, and `check-mir-projection.sh` pins absence at depth 5 and at
-depth 60 with the escape carried all the way to `f0`'s row. That is
-the only assertion in the tree that watches the cap at all, and it is
-what said the replacement worked.
+The bound is now `(vecLen decls) + 1`, as `inferEffects` passes it, so
+every depth in that table is refused. `inferEffects`, in the same file,
+is the model: it passes `limit = (vecLen decls) + 1`, runs forward and
+reverse passes, and switches to a worklist over `callersIdxBuild` after
+round 1. That bound can't truncate a monotone chain fixpoint. Not yet:
+`rgnRounds` has the bound but not the worklist, which is still to come
+for adversarial declaration orders.
 
-Measured on real code the sentinel is not noise: `axiom symbols --mir`
-over `self_host/main.ax` reports **0** truncated rows out of 4,541 -
-the sentinel fires nowhere on real code - with 1,322 rows carrying an
-escaping parameter and 2,061 the per-row `#mir-incomplete`.
+`rgnRounds` still records a truncation, though it never reaches one, so
+the sentinel is a net no program reaches. `check-mir-projection.sh`
+checks that it is absent at depth 5 and at depth 60, with the escape
+carried all the way to `f0`'s row. That is the one assertion in the
+tree that watches the cap, and it is what showed the new bound works.
 
-## 5. The AXDL half: shipped 2026-09-04
+On real code the sentinel is not noise. `axiom symbols --mir` over
+`self_host/main.ax` reports 0 truncated rows out of 4,541, with 1,322
+rows carrying an escaping parameter and 2,061 carrying the per-row
+`#mir-incomplete`.
 
-An `AX3049` message used to name the call path in prose, inside the
-quoted message, and carry **no** related location at all:
+<a id="5-the-axdl-half-shipped-2026-09-04"></a>
+## 5. The AXDL half: call chains as related locations
+
+### 5.1 The problem
+
+An `AX3049` message named the call path in prose, inside the quoted
+message, and carried no related location at all:
 
 ```text
 E AX3049 f.ax:9:5-16 restrict-violated "`parseConfig` performs IO through parseConfig -> readSection -> IO$writeStr -> Sys$sysWriteAllFd -> Sys$sysWriteFd -> __syscall3" …
 ```
 
-Measured 2026-09-03: `grep -h AX3049 tests/diagnostics/*.axdl | grep -c
-' \^'` was **0**, and the JSON sibling showed `"related":[]` beside that
-same message — `render.ax`'s `jsonRelatedArray` was wired and merely
-empty. 16 of the 204 `.axdl` goldens carried a resolved `->` chain in a
-message. An agent reading any of them had to re-resolve every hop
-itself.
+`grep -h AX3049 tests/diagnostics/*.axdl | grep -c ' \^'` counted 0,
+and the JSON form showed `"related":[]` beside the same message.
+`render.ax`'s `jsonRelatedArray` was wired, and merely empty. 16 of the
+204 `.axdl` goldens carried a resolved `->` chain in a message, and an
+agent reading any of them had to re-resolve every hop itself.
 
-It was **blocked on one struct.** `DLabel` was `(span, msg)`, with no
-`unit`, so a related location could only point into the diagnostic's
-*own* source file — and four of the six hops above are in `stdlib/`, so
-cross-unit is the common case here, not the corner. The decision it was
-waiting on was a change to AXDL's grammar, which is a stable format.
+The blocker was one struct. `DLabel` was `(span, msg)`, with no unit,
+so a related location could only point into the diagnostic's own
+source file. Four of the six hops above are in `stdlib/`, so cross-unit
+is the common case here. Fixing it meant changing AXDL's grammar, which
+is a stable format.
 
-**What shipped.** The four steps, in order, and the measurement each
-one is held to.
+### 5.2 What shipped
 
-1. `DLabel` gained a `unit` slot, sentinel `-1` for "the diagnostic's
-   own" — `-1` and not `0`, because `0` is a real unit index (the entry
-   file) and a secondary genuinely in unit 0 has to stay
-   distinguishable from one that never named a unit. `diagSecUnit`
-   reads it; `diagAddSecondaryIn` writes it; `diagAddSecondary` keeps
-   its arity and writes the sentinel, so the two fixtures that call it
-   (`tests/selfhost/640-axdl-render.ax`, `645-axdl-repetition.ax`) did
-   not move and neither did any golden that already carried a `^`.
-2. Three spellings, not two. `^LOC:"msg"` is the one the grammar always
-   had; `^FILE:LOC:"msg"` is the cross-unit one, exactly the shape `&`
-   had already demonstrated; and `^-:"msg"` is a related location with
-   **no** location, `-` being what the primary `FILE:LOC` field already
-   says for a spanless diagnostic. The third is the one the design
-   above did not have, and it is what makes the whole thing checkable:
-   a hop that is a builtin or an `extern` item has no declaration in
-   any unit, and *dropping* it is precisely the "field list that looks
-   complete when it is not" this document warned against. No new line
-   kind — the trap below is intact.
-3. `AX3049`, `AX3051` and `AX3057` populate `secs` from the very vector
-   the prose was rendered from. `witnessTextOf` and `witnessSecPath`
-   take the path rather than walking for one, so the message and the
-   fields cannot come to disagree about which hops there are.
-4. The gate. `verify-axdl-spans.py` — which `check-diagnostics.sh` runs
-   on the check path *and before returning from a bless* — parses the
-   two new spellings and makes the hop-for-hop equality: the k-th `^`
-   field's label is the (k+1)-th hop of the chain, spelled the same
-   way, and there are exactly as many fields as hops after the first.
+Four steps, in order, each held to a check.
 
-**The rule, stated, because it is the part that could have been
-vacuous.** One field per hop *after the first*: the first hop is the
+1. `DLabel` gained a `unit` slot, with the sentinel `-1` for "the
+   diagnostic's own". It is `-1` rather than `0` because `0` is a real
+   unit index (the entry file), and a secondary genuinely in unit 0
+   must stay distinguishable from one that named no unit.
+   `diagSecUnit` reads it and `diagAddSecondaryIn` writes it.
+   `diagAddSecondary` keeps its arity and writes the sentinel. So the
+   two fixtures that call it (`tests/selfhost/640-axdl-render.ax` and
+   `tests/selfhost/645-axdl-repetition.ax`) didn't change, and neither
+   did any golden that already carried a `^`.
+2. Three spellings for a related location:
+   - `^LOC:"msg"`, which the grammar always had;
+   - `^FILE:LOC:"msg"`, for another unit, in the shape `&` already
+     used;
+   - `^-:"msg"`, for a hop with no location. `-` is what the primary
+     `FILE:LOC` field already says for a spanless diagnostic.
+
+   The third is what makes the whole thing checkable. A hop that is a
+   builtin or an `extern` item has no declaration in any unit. Dropping
+   it would give a field list that looks complete when it isn't. None
+   of this adds a line kind, so the trap in §5.5 is untouched.
+3. `AX3049`, `AX3051` and `AX3057` fill `secs` from the same vector the
+   prose is rendered from. `witnessTextOf` and `witnessSecPath` take
+   the path rather than walking for one, so the message and the fields
+   can't disagree about which hops there are.
+4. The gate. `tests/diagnostics/verify-axdl-spans.py` parses the two
+   new spellings and checks hop-for-hop equality: the k-th `^` field's
+   label is the (k+1)-th hop of the chain, spelled the same way, and
+   there are exactly as many fields as hops after the first.
+   `check-diagnostics.sh` runs it on the check path, and again before a
+   bless returns.
+
+### 5.3 The rule
+
+There is one field per hop after the first. The first hop is the
 declaration the diagnostic is already reported at, and its span is the
 primary field. A hop with no declaration gets a field with `-` where
-its location would be. Both halves are needed for the count to be
-exact — without the second, "one per hop" would be satisfied by a
-shorter chain and the comparison would pass, silently, over a field
-list that is not the whole chain.
+its location would be.
 
-Measured on the corpus after the change: 22 lines carry a chain, 51
-hops are checked against a `^` field, 13 of them have no declaration to
-point at and 22 are in another unit. Four floors under those four
-numbers refuse a corpus that stops exercising any of them; a fifth,
-in `check-diagnostics.sh` itself, reads the population off the
-checked-in goldens with `grep`, because the equality says nothing at
-all when it holds over zero lines.
+The count is exact only with both halves. Without the second, a shorter
+chain would satisfy "one per hop", and the comparison would pass over a
+field list that isn't the whole chain.
 
-**Ablation, run 2026-09-04.** In a copied tree, `restrictPathSecs` was
-started at hop 2 instead of hop 1 — one hop dropped from `secs`, the
-prose untouched — and the corpus re-blessed from the resulting
-compiler. The bless is **refused**: 22 goldens report the disagreement
-by name (`the message names 4 hop(s) after the first [...] and the line
-carries 3`), and two of the floors fail as well. A wrong chain cannot
-be blessed into the corpus.
+After the change, the corpus has 22 lines carrying a chain, and 51 hops
+checked against a `^` field. Of those hops, 13 have no declaration to
+point at and 22 are in another unit. Four floors on those four numbers
+refuse a corpus that stops exercising any of them. A fifth, in
+`check-diagnostics.sh` itself, reads the population off the checked-in
+goldens with `grep`, because the equality says nothing when it holds
+over zero lines.
 
-**Where it does not reach.** A cross-unit related location cannot be
-drawn in the human snippet — that snippet is quoted out of one source,
-and another file's line number would put a caret under the wrong text —
-so it renders as a note carrying its own file and position, which is
-the degradation an expansion frame with no reachable unit already
-takes. The LSP publishes neither the cross-unit nor the location-less
-kind: the server holds one document and no unit table, so a hop it
-cannot place is dropped rather than aimed at the open file's uri.
+The ablation: in a copied tree, `restrictPathSecs` was started at hop 2
+instead of hop 1. That drops one hop from `secs` and leaves the prose
+alone. The corpus was then re-blessed from the resulting compiler, and
+the bless is refused. 22 goldens report the disagreement by name (`the
+message names 4 hop(s) after the first [...] and the line carries 3`),
+and two of the floors fail as well. A wrong chain can't be blessed into
+the corpus.
 
-Two consequences worth writing down. A golden now cites `stdlib/IO.ax`
-by line, so an edit that moves a line in `stdlib/` reddens
-`check-diagnostics.sh` — with a diff a reader can see and a one-command
-re-bless. And the file names have to be *repository* paths: both corpus
-gates now export a RELATIVE `AXIOM_STDLIB`, because the absolute one
-`gate_init` sets would put `/Users/somebody/checkout/stdlib/IO.ax` in a
-checked-in file. `verify-axdl-spans.py` refuses an absolute path
-outright, so that cannot go wrong quietly.
+### 5.4 Where it doesn't reach
 
-**What is still only in the `.axir` file.** The `.axir` record carries
-the file of every function in its header tuple, so an agent holding an
-`AX3049` and the record file could already resolve every hop by name.
-That join is now one line shorter, which is what this half was ever
-going to be.
+A cross-unit related location can't be drawn in the human snippet. The
+snippet is quoted from one source, and another file's line number would
+put a caret under the wrong text. So it renders as a note carrying its
+own file and position, the same way an expansion frame with no
+reachable unit already degrades.
 
-**The trap this half was written around, and it is still live.**
-`check-diagnostics.sh` line 161 is `axdl_only() { grep -E '^[EWNH] ' ||
-true; }`, and the same regex appears in `check-frontend-parity.sh` and
-three places in `check-render-selfhost.sh`. The corpus uses only `E`
-(382 lines) and `W` (40); `N` and `H` are reserved and unused. A new
-AXDL line kind outside that set would be dropped in silence by five
-gates — a gate that reports less than it knows. Nothing here added
-one: three field spellings, one of them new, and no line kind.
+The LSP publishes neither the cross-unit kind nor the location-less
+kind. The server holds one document and no unit table, so it drops a
+hop it can't place rather than aiming it at the open file's URI.
+
+Two consequences follow:
+
+- A golden now cites `stdlib/IO.ax` by line. An edit that moves a line
+  in `stdlib/` fails `check-diagnostics.sh`, with a diff you can read
+  and a one-command re-bless.
+- File names must be repository paths. Both corpus gates export a
+  relative `AXIOM_STDLIB`, because the absolute one `gate_init` sets
+  would put `/Users/somebody/checkout/stdlib/IO.ax` in a checked-in
+  file. `verify-axdl-spans.py` refuses an absolute path outright.
+
+An agent holding an `AX3049` and the `.axir` file could already resolve
+every hop by name, because each header tuple carries the function's
+file. This change makes that join one line shorter.
+
+### 5.5 The line-kind trap
+
+`check-diagnostics.sh` filters AXDL lines with
+`axdl_only() { grep -E '^[EWNH] ' || true; }`. The same regex appears
+in `check-frontend-parity.sh`, and in three places in
+`check-render-selfhost.sh`. The corpus uses only `E` (382 lines) and
+`W` (40). `N` and `H` are reserved and unused.
+
+A new AXDL line kind outside that set would be dropped in silence by
+five gates: a gate that reports less than it knows. This change added
+three field spellings and no line kind.
 
 ## 6. What is gated
 
 | claim | gate |
 | --- | --- |
 | a record file survives its own reader unchanged, over the stdlib corpus and `self_host/main.ax` | `scripts/check-mir-roundtrip.sh` |
-| the reader decomposes rather than passing lines through — a non-normal file is normalised, and the normal form is a fixed point | `scripts/check-mir-roundtrip.sh` |
+| the reader decomposes rather than passing lines through: a non-normal file is normalised, and the normal form is a fixed point | `scripts/check-mir-roundtrip.sh` |
 | the grammar is closed: every `tests/axir/*.bad` fixture is refused, with a message | `scripts/check-mir-roundtrip.sh` |
-| the magic line, not the file name, selects the reader — in both directions | `scripts/check-mir-roundtrip.sh` |
+| the magic line, not the file name, selects the reader, in both directions | `scripts/check-mir-roundtrip.sh` |
+| the body is written under `--mir` and nowhere else, and `--mir` is additive on the byte level | `scripts/check-mir-roundtrip.sh` |
+| a floor under how many records carry a body, and an opcode census derived from `mBinOp` and `axirTermLine` rather than listed | `scripts/check-mir-roundtrip.sh` |
+| `mir` is imported by exactly `axir.ax`, `codegen.ax` and `mireval.ax`, and `mireval` by nothing in the compiler | `scripts/check-mir.sh` §6 |
 | every `#mir-*` value is re-derivable from its record's raw words, decoded independently | `scripts/check-mir-projection.sh` |
 | every AXSYM row has a record, in order, with the same header tuple | `scripts/check-mir-projection.sh` |
 | without `--mir` the stream is unchanged, and with it the stream is additive on the byte level | `scripts/check-mir-projection.sh` |
-| `#mir-truncated` is present at chain depth 41 and absent at depth 5 | `scripts/check-mir-projection.sh` |
-| the AXSYM goldens do not move | `scripts/check-tools-selfhost.sh` |
-| a `#mir-*` key is not a compatibility contract | `scripts/check-compat.sh` — `CONTRACT_META` is an explicit allowlist and `#mir-` is not on it |
-
-| the body is written under `--mir` and nowhere else, and `--mir` is additive on the byte level | `scripts/check-mir-roundtrip.sh` |
-| a floor under how many records carry a body, and an opcode census derived from `mBinOp` and `axirTermLine` rather than listed | `scripts/check-mir-roundtrip.sh` |
-| `mir` is imported by `axir.ax` alone, and `mireval` by nothing in the compiler | `scripts/check-mir.sh` §6 |
-
-| a diagnostic's call chain is in its `^` fields and not only in its prose: one field per hop after the first, labelled with the hop's resolved name, in order | `tests/diagnostics/verify-axdl-spans.py`, run by `scripts/check-diagnostics.sh` on the check path AND before a bless returns |
-| a hop with no declaration is still a field - `^-:"name"` - so the list is the whole chain | the same equality, plus a floor on how many location-less fields the corpus carries |
+| `#mir-truncated` is absent at chain depths 5 and 60, and the depth-60 chain carries its escape to `f0`'s row | `scripts/check-mir-projection.sh` |
+| the AXSYM goldens don't move | `scripts/check-tools-selfhost.sh` |
+| a `#mir-*` key is not a compatibility contract | `scripts/check-compat.sh`: `CONTRACT_META` is an explicit allowlist, and `#mir-` isn't on it |
+| a diagnostic's call chain is in its `^` fields, not only in its prose: one field per hop after the first, labelled with the hop's resolved name, in order | `tests/diagnostics/verify-axdl-spans.py`, run by `scripts/check-diagnostics.sh` on the check path and before a bless returns |
+| a hop with no declaration is still a field (`^-:"name"`), so the list is the whole chain | the same equality, plus a floor on how many location-less fields the corpus carries |
 | the cross-unit spelling is still produced, and its spans are true of `stdlib/`'s own bytes | the same verifier: every `^FILE:LOC` claim is recomputed from that file, and an absolute path is refused outright |
-| the corpus has not stopped carrying chains, which would make the equality hold over nothing | `scripts/check-diagnostics.sh` — the population is read off the checked-in goldens by `grep` and floored |
-| the human and JSON surfaces say the same thing about every related location, including the two that cannot be drawn in a snippet | `scripts/check-render-selfhost.sh` — one dash row per same-file field as an equality, and the note text derived from the AXDL field |
+| the corpus still carries chains, so the equality doesn't hold over nothing | `scripts/check-diagnostics.sh`: the population is read off the checked-in goldens by `grep`, and floored |
+| the human and JSON surfaces say the same thing about every related location, including the two kinds that can't be drawn in a snippet | `scripts/check-render-selfhost.sh`: one dash row per same-file field as an equality, and the note text derived from the AXDL field |
 
-**Formerly not gated by the emitted corpus, and now gated by it:** the
-`blk`/`op`/`term` half of the grammar rested on the hand-written
-`tests/axir/body.axir` alone, because nothing emitted those lines. Since
-2026-09-04 the emitted corpus covers them — 1,846 bodies over the two
-corpora, every one of the 13 opcode spellings and 5 terminator spellings
-reached, 1,236 blocks carrying a parameter — and that file is a
-supplement rather than the whole evidence. What it supplements is the
-half nothing emits: labels and opcodes outside this lowering, which the
-reader must still accept.
+The emitted corpus covers the body half of the grammar: 1,846 bodies
+over the two corpora, every one of the 13 opcode spellings and 5
+terminator spellings, and 1,236 blocks carrying a parameter.
+`tests/axir/body.axir` supplements it with the half nothing emits:
+labels and opcodes outside this lowering, which the reader must still
+accept.

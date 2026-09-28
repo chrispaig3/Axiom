@@ -1,59 +1,76 @@
 # Examples
 
-Two programs. Each one is a real thing the repository uses rather than a
-toy, and each one is the load-bearing artefact of a gate — which is the only
-reason both still compile and still answer correctly across every compiler
-change since they were written. An example CI does not run is an example
-that has already rotted and has not been told.
+Complete programs you can read, run and borrow from. Each one is real
+code this repository depends on, and CI runs every one of them, so they
+keep working as the compiler changes.
 
-`scripts/check-examples.sh` holds this table and the directory to each other
-in both directions, so a third program cannot land without a row here and a
-row cannot outlive its program. The count in the line above is part of the
-table.
+Run the commands from the repository root. Each program opens with a
+header comment that explains why it's written the way it is, and it's
+worth reading before the code.
 
-Run every command from the repository root.
+## batch-fallible
 
-| Example | What it teaches | Run it | Pinned by |
-| --- | --- | --- | --- |
-| [`examples/batch-fallible/batch-fallible.ax`](batch-fallible/batch-fallible.ax) | The `Fallible` effect: a parser six calls down performs `fallibleMalformed`, and the **loop** decides what happens — `fallibleSkip`, `(fallibleDefault d)`, or a counting handler around either — with no unwinding and **0 bytes a record** | `axiom run examples/batch-fallible/batch-fallible.ax [N [k]]` — defaults `1000000 7`; the three numbers it prints are checkable by the arithmetic in its own header | [`scripts/check-steady-state.sh`](../scripts/check-steady-state.sh) |
-| [`examples/axdoc/axdoc.ax`](axdoc/axdoc.ax) | Reading a program's own public surface: `(pub :: …)` heads parsed out of the **source** (visibility is written nowhere else) joined against `axiom symbols` AXSYM rows for the **effect** column. It is also the program that writes [`docs/stdlib-api.md`](../docs/stdlib-api.md) | `axdoc <axsym-file> <module.ax>…`, where the AXSYM file is one concatenated `axiom --diagnostic-format=ai symbols` stream — the gate assembles both; see its header | [`scripts/check-stdlib-api.sh`](../scripts/check-stdlib-api.sh) |
+[`examples/batch-fallible/batch-fallible.ax`](batch-fallible/batch-fallible.ax)
+processes a million records and shows the `Fallible` effect at work. A
+parser six calls down reports a bad record with `fallibleMalformed`,
+and the loop at the top decides what happens next:
 
-Every one of those headers is longer than this table and says *why* the
-program is written the way it is. Read the header before the code.
+- skip the record, with `fallibleSkip`;
+- use a default value, with `(fallibleDefault d)`;
+- or count the failures, with a handler around either.
 
-## What was here and is not
+Nothing unwinds, and handling a bad record allocates nothing: 0 bytes
+per record.
 
-A templated web server, `server.ax` under `examples/web` — `Html` and
-`Http`, a pre-forked worker pool, escaping in text and in attribute
-position, and the request handler as an arena scope (`docs/memory-model.md`
-MM-ALLOC-22) — was deleted on 2026-09-04, together with `stdlib/Html.ax`,
-the DSL it was the one program for, and `scripts/check-web.sh`, the gate
-that served its pages byte for byte and held its memory flat across ten
-thousand requests. MM-ALLOC-22 is still measured, by `scripts/check-net.sh`
-over `tests/net/echo-server.ax`, and `Http` is exercised by the
-`tests/stdlib/` cases numbered 430 to 432; what no gate measures any more is
-a page rendered per request. `git log -- examples/web` has the program. (The
-path is not spelled out above on purpose: the gate reads every
-`examples/…​.ax` this file names as a table row and requires it to exist.)
+```bash
+axiom run examples/batch-fallible/batch-fallible.ax [N [k]]
+```
 
-## What these do NOT show
+`N` and `k` default to `1000000` and `7`. The header shows the
+arithmetic behind the three numbers it prints, so you can check them.
 
-Counted across the two sources on 2026-09-04: `region` 0, `parallel` 0,
-`simd` 0, and `;@axiom:restrict` 0. Four features that shipped in the
-0.5–0.7 window have no worked example here, and their own gates
-(`check-region-scope.sh`, `check-parallel.sh`, `check-simd.sh`,
-`check-restrictions.sh`) pin them against fixtures under `tests/` instead.
-That is a real gap in this directory and it is written down rather than
-left for a reader to discover by grepping.
+Tested by `scripts/check-steady-state.sh`.
 
-## The rule for adding one
+## axdoc
 
-An example here must be something a gate runs. `scripts/check-examples.sh`
-also sweeps this directory and refuses any tracked file that is not `.ax` or
-`.md`, and any file tracked executable — `axiom run` builds
-`axiom_temp_output.<pid>` into the working directory, one such binary was
-committed here in `d1e4a71` and lived in the tree until 2026-09-03 with
-every gate green. The web example's stylesheet and script were the only
-`.css` and `.js` here, and the allowance for them went with them. Adding a
-legitimate new asset type is a deliberate edit to `ex_allowed` in that gate
-and to the table above, in that order.
+[`examples/axdoc/axdoc.ax`](axdoc/axdoc.ax) reads a program's public
+surface and writes a reference page for it. It's the program that
+writes [`docs/stdlib-api.md`](../docs/stdlib-api.md).
+
+It reads the `(pub :: …)` declarations from the source, because that's
+the only place visibility is written. It then joins them with the rows
+`axiom symbols` prints, which supply the effects column.
+
+```bash
+axdoc <axsym-file> <module.ax>…
+```
+
+The AXSYM file is the output of `axiom --diagnostic-format=ai symbols`
+for every module, concatenated. `scripts/check-stdlib-api.sh` builds
+both inputs and runs the whole pipeline, so it's the place to look for
+a working command line.
+
+Tested by `scripts/check-stdlib-api.sh`.
+
+## Not covered here yet
+
+Regions, `parallel`, SIMD and `;@axiom:restrict` don't have a worked
+example in this directory yet. The language reference covers each one:
+[Regions](../docs/reference.md#regions),
+[Concurrency](../docs/reference.md#concurrency) and
+[Effects](../docs/reference.md#effects). Their CI checks show them in
+use: `scripts/check-region-scope.sh`, `scripts/check-parallel.sh`,
+`scripts/check-simd.sh` and `scripts/check-restrictions.sh`.
+
+## Adding an example
+
+An example must be something CI runs. Add a gate that runs it, or
+extend an existing one, and give it a section here.
+
+`scripts/check-examples.sh` keeps this page and the directory in step.
+It fails when a program here has no section, or when a section names a
+program that doesn't exist. It also rejects any tracked file that isn't
+`.ax` or `.md`, and any file tracked as executable. That catches the
+`axiom_temp_output.<pid>` binary that `axiom run` writes into the
+working directory. To allow a new kind of file, add its extension to
+`ex_allowed` in that script, and describe it here.

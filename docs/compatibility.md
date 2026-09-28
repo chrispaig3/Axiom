@@ -1,138 +1,120 @@
 # Compatibility
 
-What a version number promises, and what checks it.
+This page says what an Axiom version number promises about the
+standard library, and how `scripts/check-compat.sh` checks each
+promise. Every rule names the check that keeps it.
 
-This document is a policy, and like every other normative document here
-each claim names the gate that holds it. A claim with no keeper is a
-comment.
+In short:
 
----
+- Adding a public name is always allowed.
+- Removing or changing a public name is allowed at any version, as long
+  as `compat/BREAKING` declares it.
+- A name that shipped with a deprecation notice in an earlier release
+  can be removed without a declaration.
 
-## 1. Why this exists
+<a id="1-why-this-exists"></a>
+## How the check works
 
-`scripts/check-version.sh` holds nineteen literals across sixteen files
-to `VERSION`, each named with the count it must yield, plus the number
-the built binary prints. That is a strong gate and it proves one thing:
-the number is **stated** consistently.
+`scripts/check-version.sh` checks that the version number is stated
+consistently. `scripts/check-stdlib-api.sh` checks that
+`docs/stdlib-api.md` matches the library. Neither remembers a previous
+release: the second compares the library against a page regenerated
+from the same tree, and a re-bless satisfies it.
 
-It does not prove the number is **earned**. Before `0.3.2`, nothing in
-this repository compared the public surface against what a PREVIOUS
-release promised. One gate came close and is worth naming precisely,
-because the difference is the whole point: `check-stdlib-api.sh`
-regenerates `docs/stdlib-api.md` from the library and diffs it, so it
-does see a name change type or stop existing — but it compares the
-library against a document regenerated **from the same tree**, and it
-has a bless path. A re-bless satisfies it by construction. It proves
-the documentation matches the library; it cannot prove the library
-matches a promise, because it has no memory of one.
+`scripts/check-compat.sh` compares the standard library's public
+surface against a baseline from the last release, stored as
+`compat/<X.Y.Z>.axsym`. It classifies every difference, and a breaking
+difference fails unless it is declared.
 
-So a consumer pinning `0.3.1` and moving to `0.3.2` had nothing but a
-changelog entry somebody remembered to write.
-
-`CHANGELOG.md`'s `0.2.0` release named the gap in its own Compatibility
-section — *"a deprecation policy and a compatibility gate over the
-symbol stream are the next release's work"*. This is that work.
-
----
-
-## 2. What the public surface is
+<a id="2-what-the-public-surface-is"></a>
+## What the public surface is
 
 **COMPAT-1 (H).** The public surface of the standard library is every
 name declared `pub` in one of the modules `compat/` covers, together
-with its **type** and its **effect row**.
+with its type and its effect row.
 
-Both halves are load-bearing. A type says what a caller may pass and
-what it gets back. An effect row says what the call may do — and since
-`0.3.0` it is checked rather than claimed, so widening one is a real
-change to what a caller can rely on.
+Both parts matter. The type says what a caller can pass and what comes
+back. The effect row says what the call may do, and the compiler checks
+it, so widening one changes what a caller can rely on.
 
-*Kept by:* `scripts/check-compat.sh`, over
-`axiom symbols --diagnostic-format=ai` joined with `pub` visibility
-read from the source. Visibility is not in AXSYM, so the join is the
-one `examples/axdoc/axdoc.ax` already makes for `docs/stdlib-api.md`;
-the two must agree about what "public" means.
+*Kept by:* `scripts/check-compat.sh`, which reads
+`axiom symbols --diagnostic-format=ai` and joins it with `pub`
+visibility read from the source. AXSYM doesn't carry visibility, so the
+check makes the same join `examples/axdoc/axdoc.ax` makes for
+`docs/stdlib-api.md`. The two must agree about what "public" means.
 
-**COMPAT-2 (H).** A name's **identity** is its AXSYM `@nid`, and its
-**contract** is everything else on the row.
+**COMPAT-2 (H).** A name's identity is its AXSYM `@nid`, and its
+contract is everything else on the row.
 
-This is measured, not assumed. The nid is location-independent — the
-same hash comes back when a module is read from a different path — and
-it is contract-independent: it did not move when a signature went from
-`(Int -> Int)` to `(Int -> (Int -> Int))`. So a diff can separate *this
-name is gone* from *this name changed* with no heuristic.
+The nid doesn't depend on location: reading a module from a different
+path gives the same hash. It doesn't depend on the contract either: it
+stays the same when a signature changes from `(Int -> Int)` to
+`(Int -> (Int -> Int))`. So a diff can tell "this name is gone" from
+"this name changed" without guessing.
 
-**WITHIN ONE COMPARISON. It is not unique across modules, and a tool
-that joins two streams must not assume it is.** The nid is FNV-1a 64
-over `DKind:name` and the name it hashes is the **bare** one, so two
-modules declaring the same unmangled name collide by construction.
-Measured 2026-09-03 over `axiom symbols self_host/main.ax --builtins
---diagnostic-format ai`: 4,153 lines, 4,068 carrying a nid, **4,066
-distinct**. Both collisions are between genuinely different functions —
-`die` at `stdlib/IO.ax:501` and at `self_host/main.ax:2009`, both
-`@52fb9ccad9feab1b`; `jsonHexDigit` at `self_host/render.ax:1184` and
-`stdlib/Json.ax:453`, both `@9adebbbea99ca85b`.
+The nid is unique within one comparison, not across modules, so a tool
+that joins two streams must not assume it is unique. It is FNV-1a 64
+over `DKind:name`, using the bare name, so two modules that declare the
+same unmangled name get the same nid. For example,
+`axiom symbols self_host/main.ax --builtins --diagnostic-format ai`
+gives two different functions named `die`, one in `stdlib/IO.ax` and
+one in `self_host/main.ax`, the same nid, `@52fb9ccad9feab1b`. The same
+happens to `jsonHexDigit` in `self_host/render.ax` and `stdlib/Json.ax`.
 
-That does not weaken this rule, because `check-compat.sh` compares one
-library's stream against a baseline of the same library, where the name
-set is the module's own. It does constrain anything that joins AXSYM to
-another stream: `docs/mir-design.md` §3 joins `.axir` records to AXSYM
-rows on the **whole header tuple** — name, location, quoted type and
-nid — for exactly this reason, and `scripts/check-mir-projection.sh`
-asserts the two tuple sequences are equal in order rather than looking
-the nid up.
+That doesn't weaken this rule, because `check-compat.sh` compares one
+library against a baseline of the same library. It does matter to
+anything that joins AXSYM to another stream. [MIR design](mir-design.md)
+§3 joins `.axir` records to AXSYM rows on the whole header tuple (name,
+location, quoted type and nid) for this reason.
+`scripts/check-mir-projection.sh` checks that the two tuple sequences
+are equal, in order, instead of looking the nid up.
 
-**COMPAT-3 (H, and the hole it recorded is CLOSED).** This rule used to
-read: "Thirteen public names are outside the symbol stream: twelve
-macros — `println` and `format` among them — and one effect
-declaration. `self_host/symbols.ax` has no arm for `TAG_D_MACRO` and
-none for `TAG_D_IMPL`, and its `TAG_D_EFFECT` arm registers the
-effect's operations rather than the effect."
+**COMPAT-3 (H).** Every public name has a row in the symbol stream,
+macros and effect declarations included. `self_host/symbols.ax`
+records each macro and each `(effect ...)` declaration's own name, and
+[diagnostics.md](diagnostics.md) lists their AXSYM kinds, `M` and `E`.
 
-That was true until 2026-08-26, when `symbols.ax` gained a
-`TAG_D_MACRO` arm and an arm recording an `(effect ...)` declaration's
-own name. `compat/UNCOVERED` has been **empty** since, and says so in
-its own header; `docs/diagnostics.md`'s KIND table now lists `M` and
-`E` beside the other six. The rule below is what the emptiness is
-worth.
+`compat/UNCOVERED` lists public names the stream doesn't carry, and it
+is empty. The file stays, and the check compares it as a set, not a
+count. An empty file asserts that no name has left the stream, which a
+deleted file couldn't. A count would let one name leave while another
+joined.
 
-The file is still **compared as a set**, not a count, and it stays in
-the tree precisely because it is empty: an empty file is the assertion
-that nothing has *left* the stream, which a deleted file could not
-make. A count would let one name leave while another joined.
+### What isn't part of the surface
 
-**What is deliberately NOT in the surface.** `#calls=` is the graph
-*behind* the effect row, not part of the promise — a function may
-reorganise its callees freely. `file:line:col` is not either: a
-contract does not move when a declaration moves down its file. Nor is
-any `#mir-*` key: `tests/compat/verify-compat.py`'s `CONTRACT_META` is
-an explicit allowlist and `#mir-` is not on it, so a dataflow summary
-that widens or narrows is not a compatibility event. That is the right
-default while the facts behind it are a lower bound with two sentinels
-on it (`docs/mir-design.md` §4.1); whether `#mir-escapes=` should one
-day become contract, as `#effects=` is, is a later decision and needs
-the round-cap fix first.
+- **`#calls=`** is the call graph behind the effect row. A function can
+  reorganise its callees freely.
+- **`file:line:col`** isn't either. A contract doesn't change when a
+  declaration moves down its file.
+- **Any `#mir-*` key.** `CONTRACT_META` in
+  `tests/compat/verify-compat.py` is an explicit allowlist, and `#mir-`
+  isn't on it, so a dataflow summary that widens or narrows isn't a
+  compatibility event. That's the right default while the facts behind
+  it are a lower bound with two sentinels on it ([MIR
+  design](mir-design.md) §4.1). Whether `#mir-escapes=` should become
+  contract, as `#effects=` is, is a later decision, and it needs the
+  round-cap fix first.
 
----
+<a id="3-what-a-version-number-promises"></a>
+## What a version number promises
 
-## 3. What a version number promises
+Axiom is `0.x`. SemVer §4 says anything may change at any time in
+`0.x`, and we don't pretend otherwise. There is one maintainer and no
+LTS branch, and [SECURITY.md](../SECURITY.md) supports one minor line
+at a time, the newest. So the version component doesn't decide whether
+a break is allowed. A declaration does.
 
-Axiom is `0.x`. SemVer's own §4 says that anything MAY change at any
-time in `0.x`, and this project does not pretend otherwise: there is
-one maintainer, no LTS branch, and `SECURITY.md` supports one minor line
-at a time — the newest, until the next minor lands. So the version component is **not** what decides
-whether a break is allowed.
+**COMPAT-4 (H).** A breaking change is allowed at any bump, but only
+when someone wrote down that they meant it. `compat/BREAKING` names
+each break against a version strictly newer than the baseline's.
 
-**COMPAT-4 (H).** A breaking change is allowed at any bump, and only
-when somebody wrote down that they meant it. `compat/BREAKING` names
-each one against a version strictly newer than the baseline's — newer
-rather than equal to `VERSION`, because a break lands *before* the
-release carrying it is bumped, and a permit keyed on `VERSION` would
-refuse every change the release exists to make until its last commit.
+The version is compared with the baseline's, not with `VERSION`,
+because a break lands before the release that carries it is bumped. A
+permit keyed on `VERSION` would refuse every change the release exists
+to make until its last commit.
 
-An undeclared break fails the gate. That is the whole enforcement, and
-it is deliberately small: the gate does not decide whether a break is
-wise, it decides that a break is **deliberate** — which is the part a
-machine can check and the part that was missing.
+An undeclared break fails the check. The check doesn't judge whether a
+break is wise. It checks that the break was intended.
 
 | Change | Verdict |
 |---|---|
@@ -143,125 +125,158 @@ machine can check and the part that was missing.
 | a struct's fields are reordered or retyped | allowed, **declared** |
 | an effect row widens | allowed, **declared** |
 
-**What the component signals**, which is guidance and not a gate:
+### Declare a breaking change
 
-- **patch** — the surface is unchanged, or a break is small enough that
-  the declaration in `compat/BREAKING` is the whole migration note.
-- **minor** — the surface changed in a way a consumer must read about
+Add one line to `compat/BREAKING`, with whitespace between the fields:
+
+```text
+<version>  <kind-letter>  <name>  <why>
+```
+
+The kind letter is the row's AXSYM `KIND`, such as `F` for a function
+or `M` for a macro. [diagnostics.md](diagnostics.md) lists them all.
+This line declared one of the `0.3.3` breaks:
+
+```text
+0.3.3  F  writeFile   -errno -> (Result Int Error): the failure is in the type
+```
+
+### What the version component signals
+
+This is guidance. The check compares the declared version with the
+baseline's and doesn't look at which component moved.
+
+- **Patch:** the surface is unchanged, or a break is small enough that
+  its line in `compat/BREAKING` is the whole migration note.
+- **Minor:** the surface changed in a way a consumer must read about
   before upgrading. The changelog entry is the migration note.
 
-> **This section was wrong when it was written, and the correction is
-> recorded rather than made quietly.** Its first version carried a
-> table saying a *patch* bump **refuses** a breaking change and only a
-> *minor* permits one. `scripts/check-compat.sh` never checked that,
-> and could not have: it compares the declared version against the
-> baseline's and has no notion of which component moved. So the
-> document claimed a rule the gate did not hold — which is the exact
-> defect this whole release exists to remove, in the one document
-> describing it. The rule above is the one the gate actually enforces.
+### Adding names
 
-**COMPAT-5 (H).** Adding a public name is not a breaking change, and
-the gate has a probe that must stay green to prove it. A gate that
-reddens on every difference is a freeze, not a contract — it would make
-adding a function to the standard library a breaking change.
+**COMPAT-5 (H).** Adding a public name is not a breaking change. A
+check that failed on every difference would freeze the library, and
+adding a function to it would count as a break.
 
-**COMPAT-7 (H).** A name may be retired **gracefully**, and that path
-needs no line in `compat/BREAKING`:
+*Kept by:* a probe in `scripts/check-compat.sh` that adds a public name
+and must see it reported `ADDED`, not breaking.
 
-```
+### Retire a name gracefully
+
+**COMPAT-7 (H).** You can retire a name gracefully, with no line in
+`compat/BREAKING`. First, mark it deprecated and ship a release:
+
+```scheme
 ;@axiom:deprecated(use vecLen instead)
 (pub :: oldLen (-> Int Int))
+(pub fn (oldLen v)
+  0)
+
+(:: main Int)
+(fn (main)
+  (oldLen 7))
 ```
 
-Removing a name is permitted outright when **the baseline row carried
-`#deprecated=`** — that is, when the notice shipped in a previous
-release. Such a difference is reported `RETIRED` rather than `REMOVED`
-and is not breaking. Deprecating and removing in the same release does
-**not** qualify, and the rule gets that right for free: the baseline
-*is* the last release, so a notice added this cycle is not in it.
+Callers still compile, and each use draws warning `AX3048`, quoting the
+tag's text:
 
-This costs no compiler change. The AXTAG key namespace is open by
-design — an unknown key already parses, is recorded, and is re-emitted
+```text
+warning[AX3048]: `oldLen` is deprecated
+ --> retire.ax:8:4
+  |
+8 |   (oldLen 7))
+  |    ^^^^^^ declared `;@axiom:deprecated(use vecLen instead)`
+```
+
+In a later release, you can remove the name outright. The removal is
+allowed when the baseline row carried `#deprecated=`, which means the
+notice shipped in an earlier release. The check reports it as `RETIRED`
+instead of `REMOVED`, and it isn't breaking. Deprecating and removing
+in the same release doesn't qualify: the baseline is the last release,
+so a notice added this cycle isn't in it.
+
+The check needs no compiler change to see the notice. The AXTAG key
+namespace is open: an unknown key parses, is recorded and is re-emitted
 on the AXSYM line, so `;@axiom:deprecated(...)` arrives as
-`#deprecated=` with nothing to build. What the gate adds is the
-reading.
+`#deprecated=`. The check adds the reading.
 
-The annotation is deliberately **not** contract. If it were, adding a
-deprecation notice would read as a signature change and be refused as
-breaking — which would make the graceful path the forbidden one. It is
-carried in the baseline row and stripped before comparison.
+The annotation isn't part of the contract. If it were, adding a notice
+would look like a signature change and be refused as breaking, which
+would forbid the graceful path. The baseline row carries it, and the
+check strips it before comparing.
 
-*Kept by:* `scripts/check-compat.sh`'s deprecation probe, which plants
-one removal and compares it against two baselines differing only in the
-notice: with it `RETIRED` and zero breaking, without it `REMOVED`.
+*Kept by:* the deprecation probe in `scripts/check-compat.sh`. It plants
+one removal and compares it against two baselines that differ only in
+the notice. With the notice, the result is `RETIRED` with nothing
+breaking. Without it, the result is `REMOVED`.
 
-**The other half is a diagnostic.** A reference to a deprecated name
-draws `AX3048`, a **warning**, quoting the tag's own text. So the
-notice reaches a caller at the moment they use the name, and reaches
-this gate at the moment someone removes it.
+`AX3048` is a warning by design, not a step towards an error. The
+release that announces a removal is the one release in which callers
+must still build, and making it an error would make deprecation and
+removal the same event. The notice reaches callers when they use the
+name, and reaches the check when someone removes it.
+`tests/diagnostics/severity.policy` records this reasoning beside the
+code.
 
-It is a warning by design and not as a staging step: the release that
-*announces* a removal is the one release in which the callers must
-still build. Promoting it would make deprecation and removal the same
-event, which is the distinction the notice exists to draw.
-`tests/diagnostics/severity.policy` records that reasoning beside the
-code, and `497-deprecated-name.ax` is the fixture.
+Tested by `tests/diagnostics/497-deprecated-name.ax`.
 
-**COMPAT-6 (P).** At `1.0`, the component becomes enforceable: a break
-declared against a version whose MINOR did not move should fail. The
-arm is one comparison beside `declared_newer` in
-`scripts/check-compat.sh`, and it is planned rather than built because
-under `0.x` it would refuse releases this project intends to make.
+### At 1.0
 
----
+**COMPAT-6 (P).** At `1.0`, the version component becomes enforceable:
+a break declared against a version whose minor didn't move should fail.
+It is one comparison beside `declared_newer` in
+`scripts/check-compat.sh`. It's planned, not built, because under `0.x`
+it would refuse releases we intend to make.
 
-## 4. What is not promised
+<a id="4-what-is-not-promised"></a>
+## What isn't promised
 
-Said out loud rather than left unstated:
+- **The compiler's internals.** `self_host/` is not a library, and
+  nothing in `compat/` covers it.
+- **The IR.** Emitted LLVM text isn't a function of source and flags
+  alone ([agent harness](agent-harness.md)), and nothing pins its shape.
+- **`Sys/Platform` per-target values.** The per-target
+  `Sys/Platform` files declare the same names, and the baseline folds
+  them into one entry, so the surface is the same on every target. The
+  values behind those names belong to each target and aren't promised.
+- **A registry, a lockfile or version constraints.** A dependency is a
+  path on your machine (`self_host/pkg.ax` states this), and so is a
+  `crate`, a native dependency. This policy doesn't change that. A
+  lockfile isn't a step towards a fetcher either: over a path you
+  already control, a digest protects nothing and changes on every edit
+  of your own code.
+- **Windows as a host.** The compiler doesn't run on Windows, although
+  `windows-x86_64` is a supported target.
 
-- **The compiler's own internals.** `self_host/` is not a library.
-  Nothing in `compat/` covers it.
-- **The IR.** Emitted LLVM text is not a function of source and flags
-  alone (`docs/agent-harness.md`), and nothing pins its shape.
-- **`Sys/Platform` per-target values.** The four platform files
-  (darwin, linux-x86_64, linux-aarch64, freebsd) declare the same
-  names, and the baseline folds them to one entry, so the surface is
-  identical on all three CI legs. The *values* behind those names are
-  a target's, not a promise.
-- **A registry, a lockfile, or version constraints.** A dependency is
-  a path on this machine (`self_host/pkg.ax` states this deliberately),
-  and `crate` — a native dependency, since 0.7.4 — is a path on this
-  machine too. Nothing here changes that. A lockfile is not a step
-  toward a fetcher either: over a path the user already controls a
-  digest closes no surface and churns on every edit of their own code.
-- **Windows.** Explicitly out until a customer needs it.
+<a id="5-cutting-a-release"></a>
+## Cut a release
 
----
-
-## 5. Cutting a release
-
-`CONTRIBUTING.md` § *Cutting a release* is the procedure; this adds one
-step to it.
+[Cutting a release](../CONTRIBUTING.md#cutting-a-release) in
+CONTRIBUTING.md is the full procedure. Compatibility adds step 3:
 
 1. Land the work on `trunk` and let CI go green.
-2. `scripts/bump-version.sh <X.Y.Z>`.
-3. **Generate the new baseline** and commit it beside the old one:
+2. Run `scripts/bump-version.sh <X.Y.Z>`.
+3. Generate the new baseline and commit it beside the old ones:
 
    ```bash
    python3 tests/compat/verify-compat.py generate \
        ./.axiom-bin/axiom "$(mktemp -d)" ./stdlib > compat/<X.Y.Z>.axsym
    ```
 
-   The previous baseline stays. The history is the point: it is what a
-   consumer moving between two versions actually diffs.
-4. Write the `CHANGELOG.md` entry, run the battery, push, tag.
+   Keep the previous baselines. They are what a consumer moving between
+   two versions diffs.
+4. Write the `CHANGELOG.md` entry, run the test battery, push and tag.
 
-The gate compares against the **newest** baseline under `compat/`. So
-the moment step 3 lands, the baseline becomes the version just
-released, and no break can be declared until the next bump — you must
-bump before you may break. That is the rule, not an accident of
-ordering.
+The check compares against the newest baseline under `compat/`. Once
+step 3 lands, the baseline is the version you just released, and no
+break can be declared until the next bump. Bump first, then break.
 
-It also refuses a baseline that is modified in the working tree — a baseline
-regenerated by the run that checks it agrees with itself by
-construction, which is no check at all.
+The check also refuses a baseline that is modified in the working tree.
+A baseline regenerated by the run that checks it always agrees with
+itself, so it would check nothing.
+
+## See also
+
+- [compat/README.md](../compat/README.md): the baselines and the
+  files the check reads.
+- [diagnostics.md](diagnostics.md): the AXSYM format.
+- [stdlib-api.md](stdlib-api.md): the standard library's public names.

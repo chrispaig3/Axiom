@@ -1,17 +1,21 @@
 # Requirements matrix
 
-Each guarantee names its normative rule, the implementation that
-carries it, who is responsible for it, the evidence that checks it,
-the configurations it holds on, and the gaps that remain. Status
-words are plan.md's: implemented, verified, qualification-ready,
-approved. Nothing here is approved.
+Each guarantee below names its normative rule, the implementation
+that carries it, who is responsible for it, the evidence that checks
+it, the configurations it holds on, and the gaps that remain. Status
+words are the ones defined in [plan.md](plan.md): implemented,
+verified, qualification-ready, approved. Nothing here is approved.
 
-Configurations are [configurations.md](configurations.md) IDs: `H1`
-is hosted linux-x86_64, `H2` hosted linux-aarch64, `H3` hosted
-darwin-aarch64, `E1` the freestanding emitter check. A gate that runs
-on all three CI runners covers H1–H3; a gate that needs procfs or a
-behaviour this host cannot show is marked with where it was actually
-observed.
+Configurations are [configurations.md](configurations.md) IDs:
+
+- `H1`: hosted linux-x86_64;
+- `H2`: hosted linux-aarch64;
+- `H3`: hosted darwin-aarch64;
+- `E1`: the freestanding emitter check.
+
+A gate (a CI check script under `scripts/`) that runs on all three CI
+runners covers H1–H3. A gate that needs procfs, or a behaviour this
+host can't show, is marked with where it was actually observed.
 
 ## Milestone A — baseline and correctness fixes
 
@@ -51,7 +55,7 @@ observed.
 | ID | Guarantee | Status |
 |---|---|---|
 | R-C2 | Mutex, timeout, cancellation; typed results by explicit serialization with a per-task byte bound; typed transfer of heap values | open: the bounded channel landed as R-C2a; no mutex or timed wait exists, a thread cannot be cancelled, and only a word crosses a join or a channel |
-| R-D1 | Checked restricted profile with transitive enforcement and a per-function resource report | open; one worktree holds a typecheck fragment referencing undefined profile/MMIO helpers and a missing doc — not integrated |
+| R-D1 | Checked restricted profile with transitive enforcement and a per-function resource report | open; one worktree holds a typecheck fragment referencing undefined profile/MMIO helpers and a missing doc; it is not integrated |
 | R-D2 | Bare-metal image executed under QEMU; MMIO/interrupt/DMA ownership demonstrator | open |
-| R-E1 | Executable model with differential harness; seeded compiler fuzzing in CI | verified, both halves, with open findings. Model: `scripts/lib/runtime-model.py`, `scripts/check-runtime-model.sh` (13 checks). Fuzzing: `scripts/lib/fuzz.py`, `scripts/check-fuzz.sh` in the `test` job on H1–H3 - 600 mutants of the corpus from a fixed seed per run (6,000 under `--long`), each held to `check` answering (no signal, trap status, hang or codeless refusal), well-formed JSON refusals and llc-clean IR for accepted programs; a planted wrapper compiler's seven failure kinds must each be reported, and a real refusal whose report carries a raw NUL must still read as one; 29 checks. It found two `check` SIGSEGVs, fixed with reproducers replayed as regressions, and six OPEN reproducers (`tests/fuzz/MANIFEST`) the gate holds failing: duplicate parameters, three kinds of value-less name reaching codegen, ill-formed UTF-8 in JSON diagnostics ([verification.md](verification.md#findings)). Gaps: mutation of the corpus's neighbourhood only, no coverage guidance; `llc` acceptance is not a miscompilation oracle; `build`/`run`, `fmt`, LSP, REPL and non-host targets unfuzzed; `--long` not scheduled; sanitizers and race detectors absent |
+| R-E1 | Executable model with differential harness; seeded compiler fuzzing in CI | verified, both halves. Model: `scripts/lib/runtime-model.py`, `scripts/check-runtime-model.sh` (13 checks). Fuzzing: `scripts/lib/fuzz.py`, `scripts/check-fuzz.sh` in the `test` job on H1–H3: 600 mutants of the corpus from a fixed seed per run (6,000 under `--long`), each held to `check` answering (no signal, trap status, hang or codeless refusal), well-formed JSON refusals, terminal-safe human reports and llc-clean IR for accepted programs; a planted wrapper compiler's eight failure kinds must each be reported, and a real refusal whose report carries a raw NUL must still read as one; 31 checks. It found two `check` SIGSEGVs and six wrongly-accepted programs, all eight fixed with reproducers replayed as regressions (`tests/fuzz/MANIFEST` holds no open row). Gaps: mutation of the corpus's neighbourhood only, no coverage guidance; `llc` acceptance is not a miscompilation oracle; `build`/`run`, `fmt`, LSP, REPL and non-host targets unfuzzed; `--long` not scheduled; sanitizers and race detectors absent |
 | R-E2 | Hazard/threat analysis, trusted components, tool qualification strategy, coverage, safety manual, support policy | open; strategy skeleton in [qualification.md](qualification.md) |

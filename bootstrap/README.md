@@ -1,7 +1,27 @@
 # The bootstrap seed
 
-The Axiom compiler is written in Axiom. These six files are how a
-clean checkout builds it without already having it.
+The Axiom compiler is written in Axiom. The files in this directory let
+a clean checkout build it without already having a compiler.
+
+## Build from the seed
+
+```bash
+./scripts/bootstrap-from-seed.sh --install .axiom-bin
+```
+
+You need `llc` and a C compiler on `PATH`, and nothing else: no `cargo`
+and no `rustc`.
+
+The script picks the seed that matches your host and runs `llc` and
+`cc` over it to get a `seed` compiler. That compiler builds `self_host/`
+into `stage1`. Then the usual ladder runs, `stage1 -> stage2 ->
+stage3`, and `stage2` and `stage3` must be byte-identical.
+
+With `--install DIR`, the script copies `stage3` to `DIR/axiom`, which
+is where every other gate looks for a compiler. That is the compiler
+that came out of the fixpoint, not the seed or `stage1`.
+
+## What's here
 
 ```
 axiom-darwin-aarch64.ll   the compiler, as LLVM IR, one file per target
@@ -13,44 +33,37 @@ axiom-freebsd-aarch64.ll
 SHA256SUMS                what each of them should hash to
 STAMP                     the hash of the source they were generated from
 CHAIN                     every seed ever committed, and what reproduces it
+CHAIN.checkpoint          the prefix of CHAIN a push run may skip
 THREATS.md                what the seed is defended against, and what it is not
 lineage/                  the commit list and the one patch a CHAIN row names
 ```
 
-The two FreeBSD seeds (2026-08-29) are emitted, hashed, regenerated
-and assembled exactly as the other four are. `freebsd-x86_64` has been
-EXECUTED since 2026-08-30 - `Tests (freebsd-x86_64)` boots FreeBSD 14.4
-in a VM and bootstraps from this very seed - and is a supported target.
-`freebsd-aarch64` has not: an aarch64 guest is TCG-emulated on every
-runner GitHub offers. A seed
-is not evidence that its target runs - `darwin-x86_64`'s has sat here
-under the same gates since the beginning and ships no artifact for the
-same reason.
+All six seeds are emitted, hashed, regenerated and assembled the same
+way. A seed is not evidence that its target runs, though:
 
-`scripts/bootstrap-from-seed.sh` picks the file matching the host, runs
-`llc` and `cc` over it to get a `seed` compiler, has that seed compile
-`self_host/` into `stage1`, and then runs the ordinary ladder
-`stage1 -> stage2 -> stage3`, requiring `stage2` and `stage3` to be
-byte-identical. It needs `llc` and a C compiler on `PATH` and nothing
-else. Not `cargo`, not `rustc`. With `--install DIR` it copies `stage3`
-— the compiler that came out of the fixpoint, not the seed and not the
-first thing built from it — to `DIR/axiom`, which is where every other
-gate looks for one.
+- `freebsd-x86_64` is executed. The `Tests (freebsd-x86_64)` job boots
+  FreeBSD 14.4 in a VM and bootstraps from this seed, so it is a
+  supported target.
+- `freebsd-aarch64` is not executed, because an aarch64 guest is
+  emulated by TCG on every runner GitHub offers.
+- `darwin-x86_64` sits under the same gates and ships no prebuilt
+  archive, for the same reason: no runner executes it.
+
+The [README's Targets section](../README.md#targets) has the full list.
 
 ## Why the IR and not a binary
 
-A binary would in fact be *smaller* than the IR that produces it. It is
-still the wrong artifact: it is opaque, so nobody can review what they
-are about to trust, and it would have to be rebuilt for every libc and
-linker anyone might have. The IR is text, so it is reviewable in a
-diff; `git` delta-compresses the six files against each other well,
-because they are one program compiled for six targets and differ only
-in the target triple, the syscall instruction and the syscall numbers;
-and the same `llc` invocation the project already relies on turns it
-into whatever the host needs.
+A binary would be smaller than the IR that produces it, but it is the
+wrong thing to commit. Nobody can review an opaque binary before
+trusting it, and it would need rebuilding for every libc and linker.
 
-Every one of those sizes moves with every reseed, so measure them
-rather than read them here:
+The IR is text, so you can review it in a diff. The six files are one
+program compiled for six targets, differing only in the target triple,
+the syscall instruction and the syscall numbers, so `git`
+delta-compresses them well. The same `llc` call the project already
+uses turns the IR into whatever your host needs.
+
+Every size moves with every reseed, so measure them yourself:
 
 ```bash
 du -sh bootstrap                       # all six, plus SHA256SUMS and STAMP
@@ -62,173 +75,203 @@ diff bootstrap/axiom-darwin-aarch64.ll \
 
 ## Why it is allowed to lag the source
 
-The seed is **not** asserted to be the IR of the source next to it, and
-`bootstrap-from-seed.sh` does not check that it is. If it were, every
-commit touching the compiler would carry the whole seed regenerated in
-its diff, and the property that buys — "the seed is exactly this
-source" — is not what a fresh clone needs.
+The seed isn't required to be the IR of the source beside it, and
+`bootstrap-from-seed.sh` doesn't check that it is. If it did, every commit that
+touched the compiler would carry a regenerated seed in its diff. A
+fresh clone doesn't need "the seed is exactly this source".
 
-What a clone needs is *"the seed can build this source"*, and that is
-what the script checks, by building it. A seed that falls behind far
-enough to stop compiling `self_host/` fails there, naming the stage
-that could not do it, and `scripts/reseed.sh` moves it forward. This is
-the same arrangement Go and Rust have with their bootstrap toolchains,
-for the same reason.
+A clone needs "the seed can build this source", and the script checks
+that by building it. If the seed falls far enough behind that it can't
+compile `self_host/`, the build fails and names the stage that
+couldn't. `scripts/reseed.sh` then moves the seed forward. Go and Rust
+treat their bootstrap toolchains the same way, for the same reason.
 
-Measured, so the arrangement is not merely asserted: a seed generated
-from the *previous commit's* compiler builds the current tree to a
-byte-identical `stage2 == stage3`.
+A seed generated from the previous commit's compiler builds the current
+tree to a byte-identical `stage2 == stage3`.
 
-Lagging the tree is not the same as corresponding to nothing, and the
-distinction is the whole of the next section. The seed is not the IR of
-the source *beside* it; it is the IR of the source at the commit that
-last wrote the six `.ll` files, and since 2026-08-25 that is asserted by
-regenerating it (`scripts/check-seed-provenance.sh`). The lag is a lag
-in TIME, not a gap in provenance.
+Lagging in time is not a gap in provenance. The seed is the IR of the
+source at the commit that last wrote the six `.ll` files, and
+`scripts/check-seed-provenance.sh` asserts that by regenerating it.
 
 ## What this does and does not prove
 
-`SHA256SUMS` is a corruption check, not a trust check: a hash and a
-file committed together move together. It exists so that a damaged
-seed is reported here, by name, instead of as a link error three steps
-downstream.
+### Corruption: `SHA256SUMS`
 
-Until 2026-09-03 it was a corruption check with a hole in it, and the
-hole was on the one path that has no CI and no compiler. `shasum -a 256
--c` verifies the rows it is handed and says nothing about a file it was
-handed no row for, so deleting a row and replacing the file it named
-exits 0 — measured, three files, two `OK`s and `rc=0`. The rows and the
-`.ll` files are now compared as sets, both directions, before any hash
-is verified, by one function (`seed_sums_verify`, in
-`scripts/lib/seed-sums.sh`) that both `bootstrap-from-seed.sh` and
-`check-bootstrap.sh` call, and `scripts/check-seed-supply-chain.sh`
-runs that exact attack against a copy of these seeds on every CI run.
+`SHA256SUMS` catches corruption. It can't establish trust, because a
+hash and a file committed together move together. It exists so that a
+damaged seed is reported here, by name, instead of as a link error
+three steps later.
 
-**`THREATS.md`**, beside this file, is the table version of the rest of
-this section: one row per adversary capability, what is defended, by
-which gate and which assertion inside it, and what is left. More of its
-rows say "not defended" than "defended", which is the point — a `yes`
-row that no gate backs is refused by
-`scripts/check-seed-supply-chain.sh` before it can be committed.
+`shasum -a 256 -c` on its own checks only the rows it is given, so
+deleting a row and replacing the file it named would pass. The rows and
+the `.ll` files are therefore compared as sets, in both directions,
+before any hash is checked. One function does this, `seed_sums_verify`
+in `scripts/lib/seed-sums.sh`, and both `bootstrap-from-seed.sh` and
+`check-bootstrap.sh` call it. `scripts/check-seed-supply-chain.sh` runs
+that attack against a copy of the seeds on every CI run.
 
-**The trust check is `scripts/check-seed-provenance.sh`**, added
-2026-08-25. It regenerates all six of these files from the source at
-the commit that last wrote THEM - the `.ll` files, not this directory,
-which also holds metadata about them - and requires the result to be
-byte-identical - so the seed is not an artifact you have to take on
-trust, it is a build product of `.ax` files you can read, and the
-regeneration is the proof. Until that gate existed nothing in this
-repository related the seed to any source in either direction, and the
-one file that claimed a provenance fact was wrong: `STAMP` recorded
-`git rev-parse HEAD` at the moment `reseed.sh` ran, which is the commit
-BEFORE the one that carries the seed, because the tree is dirty by
-construction when you reseed. Measured 2026-08-25: it named `ee0e4e1`,
-and regenerating from `ee0e4e1` differs from the committed seed by
-1,532 lines. It now records a hash of the source bytes instead, which
-cannot be wrong at the moment it is written, and the gate resolves the
-commit the other way round.
+[`THREATS.md`](THREATS.md) turns the rest of this section into a table.
+It has one row per adversary capability, saying what is defended, by
+which gate and which assertion, and what is left.
+`scripts/check-seed-supply-chain.sh` refuses a `yes` row that no gate
+backs.
 
-What that alone does not answer is Ken Thompson's *Reflections on
-Trusting Trust*: the compiler doing the regenerating is itself
-descended from this seed, so a compiler that reproduces a backdoor in
-its own output reproduces it there too. Answering that needs a
-compiler that is NOT descended from any Axiom seed, and this repository
-has one in its history: the Rust implementation it deleted on
-2026-08-08 (`430a138`, 28,082 lines), whose last commit `bb730db` still
-builds with `cargo`. The next section is what that buys.
+### Provenance: `check-seed-provenance.sh`
+
+The trust check is `scripts/check-seed-provenance.sh`. It finds the
+commit that last wrote the six `.ll` files, regenerates all six from
+that commit's source, and requires the result to be byte-identical. It
+looks for the `.ll` files specifically, because this directory also
+holds metadata about them. So the seed is a build product of `.ax`
+files you can read, and the regeneration is the proof.
+
+`STAMP` records a hash of the source bytes, which is always right when
+it is written, and the gate works back from that to the commit. A
+commit id recorded by `reseed.sh` would be wrong: the tree is dirty
+while you reseed, so `git rev-parse HEAD` names the commit before the
+one that carries the seed.
+
+### Trusting trust
+
+Regeneration alone doesn't answer Ken Thompson's *Reflections on
+Trusting Trust*. The compiler doing the regenerating descends from this
+seed, so a compiler that copies a backdoor into its own output would
+copy it there too.
+
+The answer needs a compiler that doesn't descend from any Axiom seed,
+and this repository's history has one. It is the Rust implementation the
+repository later deleted (`430a138`, 28,082 lines). Its last commit,
+`bb730db`, still builds with `cargo`. The next section shows what that
+buys.
 
 ## The lineage
 
-**`scripts/check-seed-lineage.sh`** (2026-08-29) replays `CHAIN`: one
-row per seed ever committed, each naming the seed it reproduces from
-and how. The first row is the root and it is not an Axiom seed: the
-Rust compiler at `bb730db` compiles the `self_host/` tree of the first
-seed commit `60445dc` into a stage1 whose emission of that tree is
-byte-identical to the first seed - Wheeler's diverse double-compile,
-with the Rust codegen's own IR (93,471 lines) demonstrably not the
-seed (61,473). Every row after it is a seed reproduced from the seed
-before it: the previous seed is built with `llc` and `cc`, compiles the
-next seed's tree, and the emission - or its own re-emission, when the
-two compilers differ - must equal the next seed byte for byte. So a
-seed on this chain is the honest emission of readable source by a
-compiler that is itself on the chain, back to a root anyone can read in
-Rust; a backdoor would have to be in that Rust, or in the `.ax` files,
-and in no 7 MB of IR. The gate replays every row nightly (`--full`);
-on a push that touches `bootstrap/` it replays the rows
-`CHAIN.checkpoint` does not certify, and never fewer than the newest
-one. Each run refuses one byte flipped in a copy of the seed and a row
-re-pointed at another predecessor.
+`scripts/check-seed-lineage.sh` replays `CHAIN`. `CHAIN` has one row
+per seed ever committed, and each row names the seed it reproduces from
+and how.
 
-`CHAIN.checkpoint` is what makes the push run cheap without making it
-possible to hide a broken link. It names a PREFIX of `CHAIN` and the
-sha256 of exactly that prefix - the rows verbatim, their short hashes
-resolved to full commits, the git object id of every seed those commits
-carry, and the sha256 of every walk list and patch file they name - and
-the gate RECOMPUTES that digest from `CHAIN` as it stands on every run
-before it skips anything. A covered row that moved by a byte digests
-differently, and the checkpoint is then void: the gate replays the
-whole chain from the Rust anchor and stays red until the prefix is
-blessed again. Editing an old row cannot shrink the work.
+The first row is the root, and it isn't an Axiom seed. The Rust
+compiler at `bb730db` compiles the `self_host/` tree of the first seed
+commit, `60445dc`, into a `stage1`. That `stage1`'s emission of the
+same tree is byte-identical to the first seed. This is Wheeler's
+diverse double-compile. The Rust codegen's own IR (93,471 lines)
+differs from the seed (61,473 lines).
 
-It is written only by `AXIOM_BLESS=1 scripts/check-seed-lineage.sh
---full`, over rows that same process replayed from the anchor, and
-never as a side effect of a passing run - a gate that writes its own
-trust anchor when it passes proves nothing. It never covers the newest
-row, so the link a push adds is replayed on that push. And it is a
-record rather than a signature: whoever can edit a row can recompute
-the digest too, and what the file buys is that they must do it in the
-same diff, in front of a reviewer, while the nightly `--full` re-derives
-every row from `bb730db` regardless.
+Every later row reproduces a seed from the one before it. The previous
+seed is built with `llc` and `cc` and compiles the next seed's tree.
+That emission, or its own re-emission when the two compilers differ,
+must equal the next seed byte for byte.
 
-**What is answered, and what remains.** Answered: the seed in the tree
-descends, by replayable steps, from a compiler that no Axiom seed ever
-touched. What remains is the trust base of that replay, and it is
-this list and nothing shorter: `git` (the history the rows name),
-`llc` and `cc` (and `opt`, optional - they turn every seed on the path
-into a running compiler), `cargo` and `rustc` and the 84 crates
-`bb730db`'s `Cargo.lock` pins (they build the root), and the 28,082
-lines of Rust at `bb730db` - which share an author with `self_host/`,
-a weakness of "diverse" in the social sense and not the technical one.
-No Axiom binary is called before the comparison, and the gate reads its
-own text to assert it. Removing `llc` and `cc` from that list needs a
-witness that never assembles anything - an interpreter for the
-compiler's subset - and that is a separate track, not this one.
+So every seed on the chain is the faithful emission of readable source,
+by a compiler that is itself on the chain, back to a root anyone can
+read in Rust. A backdoor would have to be in that Rust or in the `.ax`
+files, not hidden in megabytes of generated IR.
 
-**The gap, by name.** Three committed seeds are not their own tree's
-emission - `1c682ef` and `24bdf29` (2026-08-15) and `79c8ebc`
-(2026-08-29) - because `reseed.sh` used to generate with whatever
-compiler `$AXIOM` named, and those three were generated by compilers
-built from trees that were never committed. Nothing in the history
-reproduces them; they are declared `orphan` in `CHAIN`, have no row,
-and are bypassed: `93a74e5` reproduces from `74a0680` by a walk over
-the 63 commits between that touched the sources, each compiled by the
-compiler built from the one before, with two recorded bridges where the
-plain step yields a compiler that cannot run (a mixed tree at
-`1c682ef`, where the `Str` header widened; a seven-site patch at
-`24bdf29`, where `__retainref` was defined and used in one commit -
-`lineage/` holds both, and the gate requires the plain step to fail
-before it takes a bridge); and `991e8bd` reproduces from `c98924c`
-directly, over `79c8ebc`. The walk measures the orphans as it passes:
-the compiler each bridge builds re-emits its own tree to a fixpoint
-67 and 1,282 lines from what was committed, and `79c8ebc`'s tree
-reaches a fixpoint from `c98924c` 87,624 lines from its seed. The plain
-walk over the same commits - no bridges - was run first and fails at
-the seventh step, because the compiler built from `1c682ef`'s tree by
-its predecessor SIGSEGVs on any input: that is the finding the bridges
-answer. An orphan is not evidence of tampering; each is explained by
-the line in `reseed.sh` that has since been removed. But none can sit
-on a trusted path, and this paragraph is where that is said.
+The gate replays every row nightly (`--full`). On a push that touches
+`bootstrap/`, it replays the rows `CHAIN.checkpoint` doesn't certify,
+and never fewer than the newest one. Every run also checks that it
+refuses a copy of the seed with one byte flipped, and a row re-pointed
+at a different predecessor.
 
-Two more facts the replay established. The first link, `60445dc ->
-3b6d485`, cannot be replayed seed-to-seed (the commit changed which
-names leave a module and its own message says the seed could not
-survive it); the mixed tree closes it, and a 53-commit walk closes it
-independently. And reproduction at *stage2* is a property of the tree,
-not of the predecessor: any working compiler reaches the tree's own
-fixpoint, so a nearby seed reproduces a stage2 row as well as the named
-one does. A *stage1* row is the stronger statement - the previous
-seed's direct emission IS the next seed - and every reseed generated
-the way `reseed.sh` now generates is one.
+### The checkpoint
+
+`CHAIN.checkpoint` keeps the push run cheap without letting it hide a
+broken link. It names a prefix of `CHAIN` and the sha256 of exactly
+that prefix. The digest covers:
+
+- the rows, verbatim;
+- their short hashes, resolved to full commits;
+- the git object id of every seed those commits carry;
+- the sha256 of every walk list and patch file they name.
+
+The gate recomputes that digest from `CHAIN` on every run, before it
+skips anything. If a covered row changes by one byte, the checkpoint is
+void. The gate then replays the whole chain from the Rust anchor and
+stays red until the prefix is blessed again. Editing an old row can't
+shrink the work.
+
+Only `AXIOM_BLESS=1 scripts/check-seed-lineage.sh --full` writes the
+checkpoint, over rows that the same process replayed from the anchor. An
+ordinary passing run never writes it, because a gate that writes its own trust
+anchor when it passes proves nothing. It never covers the newest row,
+so the link a push adds is replayed on that push.
+
+The checkpoint is a record rather than a signature. Whoever can edit a
+row can recompute the digest too, but they must do it in the same diff,
+in front of a reviewer. The nightly `--full` run re-derives every row
+from `bb730db` regardless.
+
+### What is answered, and what remains
+
+Answered: the seed in the tree descends, by replayable steps, from a
+compiler that no Axiom seed ever touched.
+
+What remains is the trust base of that replay, and it is exactly this
+list:
+
+- `git`, for the history the rows name;
+- `llc` and `cc`, and optionally `opt`, which turn every seed on the
+  path into a running compiler;
+- `cargo`, `rustc` and the 84 crates that `bb730db`'s `Cargo.lock`
+  pins, which build the root;
+- the 28,082 lines of Rust at `bb730db`.
+
+That Rust shares an author with `self_host/`. This is a weakness of
+"diverse" in the social sense, not the technical one.
+
+No Axiom binary runs before the comparison, and the gate reads its own
+text to assert that. Taking `llc` and `cc` off the list needs a witness
+that never assembles anything, such as an interpreter for the
+compiler's subset. That is separate work.
+
+### The orphan seeds
+
+Three committed seeds are not their own tree's emission: `1c682ef`,
+`24bdf29` and `79c8ebc`. Each was generated by a compiler built from a
+tree that was never committed, because `reseed.sh` once generated with
+whatever compiler `$AXIOM` named. That line has been removed. An orphan
+is not evidence of tampering, but nothing in the history reproduces
+these three, so none of them can sit on a trusted path.
+
+`CHAIN` declares them `orphan`, gives them no row, and bypasses them:
+
+- `93a74e5` reproduces from `74a0680` by a walk over the 63 commits in
+  between that touched the sources. Each commit is compiled by the
+  compiler built from the one before.
+- `991e8bd` reproduces from `c98924c` directly, skipping `79c8ebc`.
+
+The walk needs two recorded bridges, at the two places where the plain
+step yields a compiler that can't run:
+
+- a mixed tree at `1c682ef`, where the `Str` header widened;
+- a seven-site patch at `24bdf29`, where `__retainref` was defined and
+  used in the same commit.
+
+`lineage/` holds the walk's commit list and the patch. The gate
+requires the plain step to fail before it takes a bridge.
+
+The plain walk over the same commits, without bridges, fails at the
+seventh step. The compiler built from `1c682ef`'s tree by its
+predecessor crashes with `SIGSEGV` on any input, and the bridges
+answer that.
+
+The walk also measures the orphans as it passes. The compiler each
+bridge builds re-emits its own tree to a fixpoint 67 and 1,282 lines
+from what was committed. `79c8ebc`'s tree reaches a fixpoint from
+`c98924c` that is 87,624 lines from its seed.
+
+### Two more facts from the replay
+
+The first link, `60445dc -> 3b6d485`, can't be replayed seed to seed.
+That commit changed which names leave a module, and its own message
+says the seed couldn't survive it. The mixed tree closes the link, and
+a 53-commit walk closes it independently.
+
+Reproduction at *stage2* is a property of the tree, not of the
+predecessor. Any working compiler reaches the tree's own fixpoint, so a
+nearby seed reproduces a `stage2` row as well as the named one does. A
+*stage1* row is the stronger statement: the previous seed's direct
+emission is the next seed.
 
 ## Regenerating
 
@@ -238,40 +281,59 @@ scripts/bootstrap-from-seed.sh          # always, before committing
 ```
 
 `reseed.sh` builds its generator from the committed seed and nothing
-else: the host's seed through `llc` and `cc` compiles this tree, and
-the result emits the six files. So the seed it writes is the previous
-seed's emission of this tree, or that emission's own re-emission, and
-the row it appends to `CHAIN` says which (`stage1` or `stage2`); the
-row's first column is `next` until the commit that carries the seed
-exists, and the following reseed fills the hash in. When the committed
-seed cannot compile the tree - the routine reason to reseed - it says
-so and stops, because that is the moment a link would break:
-`--bridge <compiler>` generates with a named compiler and records the
-row as `bridge-needed`, which the lineage gate refuses until the link
-is certified by a method that replays. The way to never need that is
-the rule every reseed since `991e8bd` has followed: land the construct
-the compiler must learn, reseed, then use it.
+else. The host's seed goes through `llc` and `cc`, compiles this tree,
+and the result emits the six files. So the new seed is the previous
+seed's emission of this tree, or that emission's own re-emission. The
+row `reseed.sh` appends to `CHAIN` says which, `stage1` or `stage2`.
 
-Re-running `reseed.sh` against an unchanged tree leaves all six `.ll`
-files and `SHA256SUMS` byte-identical, because the compiler is
-deterministic. `scripts/check-reproducible.sh` is the gate that holds
-it to that: it compiles every case in `tests/stdlib/` twice, in
-separate processes, and compares the IR — separate processes because a
-per-process hash seed is exactly the kind of nondeterminism that would
-otherwise show up first as a seed that moves on its own. If a `.ll`
-here moves without the compiler moving, that determinism has broken,
-and the bug is the thing to fix rather than the diff to commit.
+The row's first column reads `next` until the commit that carries the
+seed exists. The following reseed fills in the hash.
 
-`STAMP` moves on every run: it records the time as well as the source
-hash. Both halves are read - the hash by
-`scripts/check-seed-provenance.sh`, which will not regenerate anything
-until the commit it found hashes to it, and by
-`scripts/check-seed-lineage.sh`, which will not replay a link into a
-tree the stamp does not describe.
+### When the seed can't compile the tree
 
-A seed may also land in a commit of its own, after the source change
-it answers to rather than with it - the FreeBSD seeds did, because
-only a compiler that already knows a target can emit that target's
-seed. Such a commit's parent is the same source tree and hashes the
-same, and the provenance gate compares STAMP against the nearest
-ancestor whose sources moved rather than against the parent.
+Sometimes the committed seed can't compile the tree, which is the usual
+reason to reseed. `reseed.sh` then says so and stops, because this is
+the moment a link would break.
+
+`--bridge <compiler>` generates with a compiler you name and records
+the row as `bridge-needed`. The lineage gate refuses that row until the
+link is certified by a method that replays.
+
+To avoid needing a bridge, land the construct the compiler must learn,
+reseed, and only then use it.
+
+### Determinism
+
+Re-running `reseed.sh` on an unchanged tree leaves all six `.ll` files
+and `SHA256SUMS` byte-identical, because the compiler is deterministic.
+
+`scripts/check-reproducible.sh` holds it to that. It compiles every
+case in `tests/stdlib/` twice, in separate processes, and compares the
+IR. Separate processes catch a per-process hash seed, the kind of
+nondeterminism that would otherwise first show up as a seed that moves
+on its own. If a `.ll` file here changes when the compiler hasn't,
+determinism has broken: fix that bug instead of committing the diff.
+
+### `STAMP`
+
+`STAMP` changes on every run, because it records the time as well as
+the source hash. Two gates read the hash:
+
+- `scripts/check-seed-provenance.sh` won't regenerate anything until
+  the commit it found hashes to `STAMP`.
+- `scripts/check-seed-lineage.sh` won't replay a link into a tree that
+  `STAMP` doesn't describe.
+
+A seed can also land in a commit of its own, after the source change
+it answers to. The FreeBSD seeds did, because only a compiler that
+already knows a target can emit that target's seed. That commit's
+parent has the same source tree and the same hash, so the provenance
+gate compares `STAMP` with the nearest ancestor whose sources changed,
+not with the parent.
+
+## See also
+
+- [`THREATS.md`](THREATS.md): what each gate defends, and what it
+  leaves to the trust base.
+- [CONTRIBUTING](../CONTRIBUTING.md#quick-start): where the bootstrap
+  fits in a first build.

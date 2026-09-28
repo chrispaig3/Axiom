@@ -608,7 +608,7 @@ test: 4 pauses recorded, 0 ms slept`,
       { at: "(let ((total (+ us (+ eu apac))))", text: "The body sees all three counts, joined in written order." },
       { at: "; A join carries one machine word", text: "Only a machine word crosses a join, and the compiler enforces it." },
     ],
-    docs: { label: "parallel", href: `${REF}#parallel--bindings-that-run-beside-the-caller` },
+    docs: { label: "parallel", href: `${REF}#run-expressions-side-by-side-with-parallel` },
     output: `errors  us 1  eu 2  apac 0  total 3`,
     code: `(import IO)
 (import Str)

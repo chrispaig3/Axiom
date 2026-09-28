@@ -1,61 +1,66 @@
 # Diagnostic corpus
 
-Each `NAME.ax` (or `NAME.axbad`, for a case that deliberately does not
-parse) is a program that should draw a diagnostic. Three goldens sit
-beside it:
+Each `NAME.ax` here is a program that should draw a diagnostic. A case
+that must not parse at all is named `NAME.axbad`. Three goldens sit
+beside each case:
 
-| File | Surface | Gate |
+| File | Surface | Checked by |
 |---|---|---|
 | `NAME.axdl` | AXDL, one line per diagnostic | `scripts/check-diagnostics.sh` |
 | `NAME.human` | the rendered report, colour and all | `scripts/check-render-selfhost.sh` |
 | `NAME.json` | JSON Lines, one object per diagnostic | same |
 
-This asserted `golden == stage0 == stage1` until the Rust compiler was
-deleted. A differential does not fail when its reference disappears -
-point it at a self-hosted binary and every comparison becomes a compiler
-against itself - so the third leg was replaced rather than repointed.
-Each gate now has a half that reads a DIFFERENT artifact and that a
-re-bless therefore cannot satisfy:
+A golden records what the compiler printed when it was blessed, so
+re-blessing can make any output match. Each check therefore also reads
+a *different* artifact, one that re-blessing can't satisfy:
 
 * `verify-axdl-spans.py` recomputes every span claim from the fixture's
-  own bytes;
-* `verify-json.py` reconstructs every JSON field from `NAME.axdl` and
-  the fixture;
-* the render gate derives the exit status, the heading, the caret
-  geometry and every quoted source row from `NAME.axdl` and the fixture,
-  and checks the escape stream against the palette the compiler
+  own bytes.
+* `verify-json.py` rebuilds every JSON field from `NAME.axdl` and the
+  fixture.
+* The render check derives the exit status, the heading, the caret
+  geometry and every quoted source row from `NAME.axdl` and the fixture.
+  It also checks the escape stream against the palette the compiler
   declares.
 
-## The layout of these files is load-bearing
+<a id="the-layout-of-these-files-is-load-bearing"></a>
+## Don't reformat the cases
 
 Every golden contains `line:col`, so **reformatting a case invalidates
 its golden**. `axiom fmt` inserts blank lines between declarations and
-splits multiple declarations off a shared line, which moves every
-position in the file. These cases are deliberately left unformatted —
-the same state most of `self_host/` is in, and the reason
-`scripts/check-fmt.sh` formats a COPY of the tree and re-runs the suites against it; it does not ask whether the working tree is already formatted.
+splits declarations that share a line, which moves every position in
+the file. So these cases stay unformatted, like most of `self_host/`.
+`scripts/check-fmt.sh` formats a copy of the tree and re-runs the
+suites against it. It doesn't require the working tree to be formatted.
 
-`070-nonascii-same-line.ax` is the sharpest instance: it puts two
-declarations on **one line** with an em-dash between them, precisely so
-that the second declaration's name sits after a multi-byte character on
-the same line. Split that line and the case still passes while testing
-nothing.
+`070-nonascii-same-line.ax` is the sharpest instance. It is meant to
+put two declarations on one line with an em dash between them, so the
+second declaration's name sits after a multi-byte character on the same
+line. Split that line and the case still passes while testing nothing.
+The copy in the tree has its declarations on separate lines, so it
+needs rejoining before it tests this.
 
-## Why a non-ASCII case exists at all
+<a id="why-a-non-ascii-case-exists-at-all"></a>
+## Why a non-ASCII case exists
 
-stage0's lexer tokenizes a `Vec<char>`, so its spans are character
-indices; stage1's lexer walks bytes. Line numbers agree either way, but
-columns do not, and the compiler's own sources are full of em-dashes.
-An ASCII-only corpus would have shipped that divergence silently and
-detonated at phase 5, when stage1 checks its own source. Here stage0
-says column 22 and a byte count says 24.
+Diagnostic columns count characters, starting at 1. On a line with a
+multi-byte character, a character count and a byte count disagree,
+though line numbers still agree. The compiler's own sources are full of
+em dashes, so an ASCII-only corpus would miss a lexer that counted
+bytes. That is what `tests/diagnostics/070-nonascii-same-line.ax` is
+for: with the second declaration's name after an em dash on the same
+line, the right column is 22 and a byte count gives 24.
 
-## Regenerating a golden
+<a id="regenerating-a-golden"></a>
+## Regenerate a golden
 
-Deliberately, and never as a reflex — a changed golden is a changed
-compiler, which is the whole point of checking them in:
+Regenerate a golden only when you mean to change the compiler's output.
+A changed golden means a changed compiler, which is why the goldens are
+checked in.
 
-    AXIOM_BLESS=1 scripts/check-diagnostics.sh          # every case
-    AXIOM_BLESS=1 scripts/check-diagnostics.sh 010      # one case
+```bash
+AXIOM_BLESS=1 scripts/check-diagnostics.sh          # every case
+AXIOM_BLESS=1 scripts/check-diagnostics.sh 010      # one case
+```
 
-Then read the diff before committing it.
+Then read the diff before you commit it.

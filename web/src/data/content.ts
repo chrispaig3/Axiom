@@ -41,7 +41,7 @@ export const PILLARS: Pillar[] = [
     title: 'Make side effects explicit.',
     body: 'Keep computation separate from I/O. The compiler infers effects, checks `restrict(no-io)`, and requires functions that perform I/O to declare it.',
     proof: ';@axiom:restrict(no-io)',
-    href: `${REF}#restrict---what-a-declaration-does-not-do`,
+    href: `${REF}#restrict-what-a-function-never-does`,
   },
   {
     icon: 'terminal',

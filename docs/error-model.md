@@ -1,51 +1,64 @@
-# The Axiom Error Model
+# The Axiom error model
 
-How an Axiom program represents failure, propagates it, recovers from
-it, and is told about it by the compiler.
+How an Axiom program represents failure, passes it along, recovers from
+it, and hears about it from the compiler.
 
-This document is written the way [memory-model.md](memory-model.md) is:
-every claim about the implementation carries the observation that
-established it, and every claim about the *design* is marked as such so
-nobody mistakes a specification for a description. It was written after
-a measurement pass and not before one, which is why several of its rules
-say the opposite of what the obvious design would have said.
+## In brief
+
+In Axiom, failure is a value. A function that can fail returns a
+`Result` from `stdlib/Err.ax`, and its caller matches on it. There are
+no exceptions and no unwinding.
+
+This page is the contract behind that: the types, how errors travel,
+what they cost in memory, how a program recovers from a trap, and what
+the compiler reports. You don't need it to write everyday code. For
+that, read [Standard library](reference.md#standard-library) in the
+reference, and [Fallible main](reference.md#fallible-main) for a
+`main` that returns a `Result`. Read on if you're writing a library,
+porting code that returns sentinel values, or changing the compiler.
 
 ---
 
 ## 0. How to read this document
 
+Like [memory-model.md](memory-model.md), this page backs every claim
+about the implementation with the probe that shows it, and marks every
+claim about the design as one.
+
 ### 0.1 Rule identifiers
 
-Every normative statement carries a stable identifier — `ERR-TYPE-2`,
-`ERR-PROP-3`. Identifiers follow the same discipline as diagnostic
-codes: **never renamed, never reused**. A withdrawn rule keeps its
-number and is marked withdrawn.
+Every normative statement has a stable identifier, such as `ERR-TYPE-2`
+or `ERR-PROP-3`. Like diagnostic codes, identifiers are never renamed
+and never reused. A withdrawn rule keeps its number and is marked
+retired.
 
 ### 0.2 Conformance language
 
-`MUST`, `MUST NOT`, `SHOULD`, `MAY` as in RFC 2119, binding two
-audiences, each rule saying which:
+`MUST`, `MUST NOT`, `SHOULD` and `MAY` are used as in RFC 2119. Each
+rule says which of two audiences it binds:
 
-- **Implementation obligations** bind the compiler and its emitted
-  runtime.
-- **Program obligations** bind the Axiom programmer. Nothing checks
-  these; each is named rather than left implicit. `ERR-PROP-3` is the
-  one that costs a program its stack if ignored.
+- **Implementation obligations** bind the compiler and the runtime it
+  emits.
+- **Program obligations** bind you, the programmer. Nothing checks
+  them, so each one is written down. `ERR-PROP-3` is the one that costs
+  a program its stack if you ignore it.
 
 ### 0.3 Status markers
 
 | Marker | Meaning |
 |---|---|
 | **H** | **Holds today.** The rule names the probe that shows it. |
-| **P** | **Planned.** Normative for a conforming implementation; this one does not conform. The rule states what happens *today* instead. |
-| **R** | **Refused.** The language deliberately does not provide this, and the rule says why. |
-| **B** | **Blocked.** Specified, and prevented from being implemented by a defect elsewhere, which the rule names. |
+| **P** | **Planned.** Required of a conforming implementation, and this one doesn't conform yet. The rule says what happens today instead. |
+| **R** | **Refused.** The language doesn't provide this, by design, and the rule says why. |
+| **B** | **Blocked.** Specified, but a defect elsewhere prevents it. The rule names the defect. |
 
-An **H** rule with no evidence is a bug in this document.
+An **H** rule with no evidence is a bug in this document. A marker can
+carry a note: *gated* means a test or check in CI holds the rule, and
+*program obligation* is defined in §0.2.
 
 ### 0.4 Reproducing the measurements
 
-Every probe here runs against the compiler in the working tree:
+Every probe here runs against the compiler in your working tree:
 
 ```bash
 axiom="$PWD/.axiom-bin/axiom"
@@ -55,41 +68,53 @@ axiom="$PWD/.axiom-bin/axiom"
 ```
 
 A program's answer is its **exit status**, the low 8 bits of `main`'s
-result. That is why several numbers below are reported modulo 256, and
-why `ERR-PROP-3`'s probe asserts *completion* rather than a value.
+result. That's why several numbers below are reported modulo 256, and
+why `ERR-PROP-3`'s probe checks that the program finishes rather than
+what it returns.
 
-**A `memAlloc` address delta is only a valid measure of allocation
-below the allocator's chunk size.** The same loop reads 32.0 bytes per
-iteration at 10,000 and at 50,000 iterations and 795.7 at 100,000,
-because at roughly 3.2 MB the bump crosses into a chunk that is not
-contiguous with the last and the subtraction counts the gap. Every
-delta quoted below stays inside one chunk; measurements that cannot be
-kept there are reported as per-iteration costs derived from two points.
+**A `memAlloc` address delta measures allocation only below the
+allocator's chunk size.** The same loop reads 32.0 bytes per iteration
+at 10,000 and at 50,000 iterations, but 795.7 at 100,000. At about
+3.2 MB the allocator moves into a chunk that isn't next to the last
+one, and the subtraction counts the gap. Every delta below stays inside
+one chunk. Where that isn't possible, the page reports a per-iteration
+cost worked out from two points.
 
 ---
 
 ## 1. What exists today
 
-Measured 2026-08-16 against `.axiom-bin/axiom` 0.1.0 (self-hosted), and
-re-counted 2026-08-22 where the numbers below say so.
-
 ### 1.1 `Option` is built in, `Result` is imported
 
-`Some` and `None` are built-in constructors, registered ahead of every
-user constructor (`self_host/typecheck.ax`), usable with no declaration
-and no import, and spelled in signatures as `(Option Int)`.
+`Some` and `None` are built-in constructors. They are registered before
+any user constructor (`self_host/typecheck.ax`), need no declaration and
+no import, and are written `(Option Int)` in a signature.
 
 `Ok`, `Err` and `Result` are not built in. They are ordinary
-declarations in `stdlib/Err.ax` since 2026-08-16 (§2), reached by
-`(import Err)`; without that import `(Ok 1)` is still `AX3001` in
-expression position and `AX3003` in pattern position. That asymmetry is
-`ERR-TYPE-2` holding rather than a gap, and it is the one difference a
-reader of §2 has to carry: `Option` needs no import and `Result` does.
+declarations in `stdlib/Err.ax` (§2), and you reach them with
+`(import Err)`. Without that import, `(Ok 1)` is `AX3001` in an
+expression and `AX3003` in a pattern. That asymmetry is `ERR-TYPE-2`
+holding, not a gap. It's the one difference to carry into §2: `Option`
+needs no import, and `Result` does.
 
-### 1.2 Failure was a sentinel, in 64 places by a proxy that has since inverted
+<a id="12-failure-was-a-sentinel-in-64-places-by-a-proxy-that-has-since-inverted"></a>
+### 1.2 Sentinel values, and how the migration is sized
 
-The standard library signals failure by returning a value from the
-success type's own range:
+A *sentinel* signals failure with a value from the success type's own
+range, such as `-1` or a negated `errno`. The standard library was
+written that way, and most of it has since moved to `Result` and
+`Option` (§10).
+
+A sentinel is worse than inelegant. It is a value of the success type,
+so nothing in the type system tells "the file is 4 bytes long" from
+"the call failed with `errno` 4, negated". Every sentinel depends on
+the caller remembering to check.
+
+The migration's baseline came from a `grep` proxy:
+`grep -cE "errno|sentinel|\(- 0 1\)"` across `stdlib/*.ax` and
+`stdlib/Sys/*.ax`, excluding `Err.ax` itself. As the baseline, it
+counted 64 sites over 12 files. This is the table `ERR-ADOPT-1` and §10
+refer to:
 
 | Module | Sites | Convention |
 |---|---|---|
@@ -99,121 +124,80 @@ success type's own range:
 | `stdlib/Map.ax` | 6 | `-1` / absent-key |
 | `stdlib/Json.ax`, `stdlib/Path.ax`, `stdlib/Rpc.ax` | 3 each | `-1` |
 | `stdlib/Str.ax`, `stdlib/Intern.ax`, `stdlib/Sys/Platform.darwin.ax` | 2 each | `-1` / `-errno` |
-| `stdlib/Par.ax` | 1 | `-errno`, in the private `parRunWord` only — the one word a join can carry |
+| `stdlib/Par.ax` | 1 | `-errno`, in the private `parRunWord` only: the one word a join can carry |
 | `stdlib/Vec.ax` | 1 | `-1` |
 
-64 sites over 12 files, counted 2026-08-22 with
-`grep -cE "errno|sentinel|\(- 0 1\)"` across `stdlib/*.ax` and
-`stdlib/Sys/*.ax`, excluding `Err.ax` itself. Recompute it rather than
-quoting it: it is a proxy, and the tree moves under it — deleting
-`IO.readAll` as unreachable on 2026-08-22 took a site with it. The
-count is the migration's size and the baseline for `ERR-ADOPT-1`; the
-platform shim is in it because
-`Platform.darwin.ax` is where the carry-flag protocol is normalised,
-which is the one place the convention is *implemented* rather than
-forwarded.
+The platform shim is counted because `Platform.darwin.ax` is where the
+carry-flag protocol is normalised. It is the one place the convention is
+implemented rather than forwarded.
 
-**RECOMPUTED 2026-09-04, AND THE PROXY HAS INVERTED.** The same command
-reads **120 over 17 files** today, while the population it stands for
-has fallen from 38 public declarations to 2. Per file:
+**The proxy no longer sizes anything.** Recounted once the migration
+was well under way, the same command read 120 hits over 17 files, while
+the public declarations it stood for had fallen from 38 to 2. It has
+kept rising since.
 
-| file | hits | in comments | in code |
-|---|---|---|---|
-| `stdlib/Sys.ax` | 57 | 52 | 5 |
-| `stdlib/IO.ax` | 17 | 16 | 1 |
-| `stdlib/Http.ax` | 6 | 1 | 5 |
-| `stdlib/Map.ax` | 6 | 2 | 4 |
-| `stdlib/Sys/Platform.freebsd.ax` | 5 | 4 | 1 |
-| `stdlib/Sys/Platform.darwin.ax` | 4 | 3 | 1 |
-| `stdlib/Sys/Platform.windows.ax` | 4 | 4 | 0 |
-| `Intern`, `Path`, `Rpc`, `Str` | 3 each | 1, 1, 0, 2 | 2, 2, 3, 1 |
-| `Fallible`, `Json`, `Par` | 2 each | 2, 1, 2 | 0, 1, 0 |
-| `Vec`, `Platform.linux-aarch64`, `Platform.linux-x86_64` | 1 each | 1 | 0 |
-| **total** | **120** | **94** | **26** |
+Of those 120 hits, 94 were comment lines, and the migration wrote them.
+`stdlib/Sys.ax` alone had 52 in comments against 5 in code, each
+comment explaining what an `errno` meant at a call that no longer
+returns one. *The proxy rises when the migration succeeds.* The header
+of `compat/SENTINELS` records the same flaw in that census's old
+metric, which counted doc-comments and so rewarded silence. Both sized
+a population by matching text instead of reading declarations.
 
-**Ninety-four of the hundred and twenty are comment lines**, and they
-are there because this migration wrote them. `stdlib/Sys.ax` alone
-carries 52 in prose against 5 in code, and each of the 52 explains what
-an errno used to mean at a call that no longer returns one. *The proxy
-rises when the migration succeeds.* That is the same defect
-`compat/SENTINELS`' header records for the metric this one was supposed
-to be safer than — the old census "rewarded silence" by counting a
-doc-comment, this one rewards prose by counting any line that mentions
-`errno` — and both are one mistake: a population sized by matching TEXT
-instead of by reading declarations.
+None of the 26 code hits is a public declaration that answers a
+sentinel:
 
-**And the 26 code hits are not 26 sentinels.** Classified 2026-09-04,
-every one:
+| What the line does | Hits | Where |
+|---|---|---|
+| Seeds a loop accumulator, such as `(mut found (- 0 1))`; never an answer | 9 | `Str.strFind` (which already answers `(Option Int)`), `httpHeadEnd`, `httpHeaderIndex`, `httpRead`, `routeFind`, `routeFindStatic`, `rdFindHeaderEnd`, `rdContentLength`, `rpcRead` |
+| A private helper below a wrapper that already answers `Option`, keeping `-1` on the recursion (§10's rule for `internFindFrom`) | 4 | `internFindFrom` (twice), `pathLastSlashFrom`, `pathLastDotFrom` |
+| `Map.ax`'s private probe walk below `mapGet`, whose absent-key answer is a caller-supplied default and not a sentinel | 4 | `mapFindSlot`, `mapFindLoop` (twice), `mapInsertNoGrow` |
+| Passes `-1` as an argument, or sets a local to it, in `stdlib/Sys.ax` | 3 | `netAddrText`'s zero-run seed, `netSignalOpenRaw`'s syscall slot, `sysRandomBytes`' `(set rc (- 0 1))` |
+| A bitwise NOT written as XOR with all ones, `(^ x (- 0 1))` | 2 | `netSetBlocking`, `termFlagClear` |
+| `EVFILT_READ`, a kernel constant that happens to be -1 | 2 | `pollReadFilter` on Darwin and FreeBSD |
+| A private peek | 1 | `Json.ax`'s `jcPeek` |
+| Renders an `errno` into a message | 1 | `IO.ax`'s `ioResult` |
 
-- **nine** initialise a loop accumulator, `(mut found (- 0 1))` and its
-  spellings — never an answer. `Str.strFind` is one of them and it
-  already answers `(Option Int)`; the other eight are
-  `httpHeadEnd`, `httpHeaderIndex`, `httpRead`, `routeFind`,
-  `routeFindStatic`, `rdFindHeaderEnd`, `rdContentLength` and
-  `rpcRead`;
-- **four** are private helpers below a public wrapper that answers
-  `Option` already, keeping the `-1` on the recursion by the rule §10
-  states for `internFindFrom`: `internFindFrom` (twice),
-  `pathLastSlashFrom` and `pathLastDotFrom`;
-- **four** are `Map.ax`'s private probe walk — `mapFindSlot`,
-  `mapFindLoop` twice, `mapInsertNoGrow` — under `mapGet`, whose
-  absent-key answer is a CALLER-SUPPLIED default and therefore not a
-  sentinel at all;
-- **three** are `stdlib/Sys.ax` passing -1 as an ARGUMENT or setting a
-  local: `netAddrText`'s zero-run seed, `netSignalOpenRaw`'s syscall
-  slot, and `sysRandomBytes`' `(set rc (- 0 1))`;
-- **two** are `(^ x (- 0 1))`, a bitwise NOT written as XOR with all
-  ones, in `netSetBlocking` and `termFlagClear`;
-- **two** are `(pub fn (pollReadFilter) (- 0 1))` on Darwin and
-  FreeBSD, which is `EVFILT_READ`'s numeric value — a kernel constant
-  that happens to be -1;
-- **one** is `Json.ax`'s private `jcPeek`;
-- **one** is `IO.ax` rendering an errno INTO a message, in the
-  `ioResult` this migration wrote.
+The two public sentinels that remain, `keyStrEnd` and `keyInFill`
+(§10.1), are invisible to the command for a third reason: they live in
+`stdlib/Tui/`, outside its glob. Counted directly, they hold 6 and 7
+hits. So the proxy over-counts prose in 17 files and misses the only
+two rows still owed.
 
-Not one of the twenty-six is a public declaration answering a sentinel.
-The two that ARE — `keyStrEnd` and `keyInFill`, §10.1's remaining
-column — are invisible to this command for a third reason: they live in
-`stdlib/Tui/`, and the glob is `stdlib/*.ax` and `stdlib/Sys/*.ax`.
-Counted directly they hold 6 and 7 hits. So the proxy over-counts by
-prose in seventeen files and under-counts the only two rows that are
-still debt, which is as complete a failure as a metric can have.
-
-So the proxy is retired as a sizing metric and kept here as the record
-of one. What sizes the migration is `compat/SENTINELS`, which counts
-public DECLARATIONS by what their bodies answer, is recomputed on every
-run of `scripts/check-compat.sh` (`tests/compat/verify-compat.py`'s
-`sentinel_census`), and must agree with the committed file row for row.
-Its reading on 2026-09-04 is **0 failure and 2 absence**; §10.1 names
-both survivors and what refuses each.
-
-A sentinel is not merely inelegant: it is a value of the success type,
-so nothing in the type system distinguishes "the file is 4 bytes long"
-from "the call failed with `errno` 4 negated". Every one of these 64
-sites depends on a caller remembering.
+The proxy is kept here as a record, not as a metric. What sizes the
+migration is `compat/SENTINELS`. It counts public *declarations* by what
+their bodies answer: *failure*, a raw negative `errno` that `Result` is
+for, and *absence*, a `-1` for "not found" that wants `Option`. Every
+run of `scripts/check-compat.sh` recomputes it
+(`tests/compat/verify-compat.py`'s `sentinel_census`), and the result
+must match the committed file row for row. It reads **0 failure and 2
+absence**. §10.1 names both, and what stops each from being ported.
 
 ### 1.3 Two traps and three undefined cases
 
 - **Division or remainder by zero** writes `axiom: division by zero` to
-  fd 2 and exits **72**. Probe: `(fn (main) (/ 10 (- 1 1)))`, run,
-  status 72. Confirms `MM-VAL-3a`.
-- **An effect operation with no handler in dynamic extent** traps and
-  exits **71** (`docs/reference.md` §Handling Effects).
-- **`MM-VAL-3b`**: `INT_MIN / -1` and shifts of 64 or more are
-  genuinely undefined and change answer with `--opt`. No trap.
+  fd 2 and exits with status **72**. Probe: `(fn (main) (/ 10 (- 1 1)))`
+  exits 72. This confirms `MM-VAL-3a`.
+- **An effect operation with no handler in its dynamic extent** traps
+  and exits with status **71**. See [Effects](reference.md#effects) in
+  the reference.
+- **`MM-VAL-3b`**: `INT_MIN / -1`, and a left or right shift by 64 or
+  more, are undefined. Their answers change with `--opt`, and nothing
+  traps.
 
-These are the entire set of ways an Axiom program stops without
-returning. `ERR-REC-2` gives each trap a value-returning alternative the
-program can call instead; `ERR-REC-6` lets a program that did not call
-one CONTAIN the trap rather than die of it, at an arena mark, since
-2026-08-24.
+`ERR-REC-2` gives division, remainder and the undefined cases a
+value-returning alternative you can call instead. `ERR-REC-6` lets a
+program that didn't call one contain the trap at an arena mark, instead
+of dying of it. The runtime has other traps, such as running out of
+memory (70) and an index out of range (77). `MM-EXEC-16` in the memory
+model lists every reserved exit status.
 
 ---
 
 ## 2. The canonical types
 
 **ERR-TYPE-1 (H). The failure type is `Result`, a two-parameter sum.**
-Shipped in `stdlib/Err.ax`.
+It ships in `stdlib/Err.ax`:
 
 ```scheme
 (pub data Result (a e)
@@ -221,30 +205,29 @@ Shipped in `stdlib/Err.ax`.
   (Err e))
 ```
 
-Constructor types come out `(a -> Result a e)` and `(e -> Result a e)`.
-The success parameter comes first because that is the reading order of
-the thing being computed; `Result Int IoErr` is "an `Int`, or an
-`IoErr`".
+The constructors' types are `(a -> Result a e)` and `(e -> Result a e)`.
+The success parameter comes first because that's the order you read the
+computation in: `Result Int IoErr` is "an `Int`, or an `IoErr`".
 
 **ERR-TYPE-2 (H). `Result` ships as an ordinary declaration in
-`stdlib/`, not as a built-in.** This is a deliberate reversal of the
-obvious design, and the reason is that a user-declared two-parameter
-ADT already does everything a built-in would:
+`stdlib/`, not as a built-in.** A user-declared two-parameter ADT
+already does everything a built-in would:
 
-- it checks (`(data Res (a e) (Good a) (Bad e))`, `check` OK — note the
-  type-parameter list is **one** group, `(a e)`; `(a) (e)` reads the
-  second group as a constructor named `e` and fails with a
-  non-exhaustive-match diagnostic pointing somewhere confusing);
-- it is **pure** to construct and inspect (§3);
-- it is classified as a reference and reclaimed at a release boundary
+- It checks: `(data Res (a e) (Good a) (Bad e))` passes `check`. The
+  type parameters are **one** group, `(a e)`. Written `(a) (e)`, the
+  second group reads as a constructor named `e`. The declaration still
+  checks, but a `match` over the type fails with a confusing
+  non-exhaustive-match error (`AX3005`, "missing e").
+- It is pure to inspect (`ERR-PROP-2`).
+- It is classified as a reference and reclaimed at a release boundary,
   even when applied polymorphically (`ERR-MEM-3`).
 
-A built-in costs a change to `self_host/typecheck.ax` and therefore a
-seed rebuild plus `scripts/reseed.sh`, on a compiler whose bootstrap
-fixpoint is a v1 exit criterion. Nothing measured justifies paying that
-before the model has users. Promotion to built-in stays available and
-is deferred, not refused; the trigger would be a measured ergonomic
-cost of the `(import ...)`, not a preference.
+A built-in would mean changing `self_host/typecheck.ax`, and so a seed
+rebuild with `scripts/reseed.sh`, on a compiler whose bootstrap
+fixpoint is a v1 exit criterion. Nothing measured justifies that cost
+before the model has users. Making `Result` built in is deferred, not
+refused. What would trigger it is a measured cost of writing the
+`(import ...)`, not a preference.
 
 **ERR-TYPE-3 (H). The canonical error payload is a concrete record, and
 conversion between error types is explicit.**
@@ -256,164 +239,194 @@ conversion between error types is explicit.**
   (context : String))   ; what the caller was doing, "" when none
 ```
 
-Rust reaches `From<E>` here so `?` can convert on the way out. **Axiom
-does not**, and since 0.6.0 that is a design decision rather than a
-hole: a conversion is an ordinary value the caller supplies, and
-nothing searches for one —
+In Rust, `From<E>` lets `?` convert an error on the way out. Axiom has
+no such mechanism, by design. A conversion is an ordinary value the
+caller supplies, and nothing searches for one:
 
 ```scheme
+(import Err)
+(import IO)
+
 (struct ConvertOf (a b)
-  (convert : (-> a b)))                     ; declares, checks, runs
+  (convert : (-> a b)))
 
 (:: mapErrWith (-> (ConvertOf e f) (Result a e) (Result a f)))
 (fn (mapErrWith c r)
   (match r
     ((Ok x) (Ok x))
     ((Err y) (Err ((c.convert) y)))))       ; dispatch is application
+
+(:: errOfInt (-> Int Error))
+(fn (errOfInt n) (mkError n "low-level failure"))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (mapErrWith (ConvertOf errOfInt) (Err 5))
+    ((Ok x) x)
+    ((Err e) { (println (errorText e)) (errCode e) })))
 ```
 
-— and the caller passes the record: `(mapErrWith (ConvertOf errOfInt) r)`.
-Probed 2026-08-31: `check` OK, and the program runs. So the
-two-parameter shape is no longer the asymmetry it was; what Axiom still
-does not have is INSTANCE SEARCH. `From`'s whole point in Rust is that
-the compiler finds the instance from the types at the call site, and
-nothing in Axiom searches for a conversion — dispatch is application,
-and an instance is a value someone wrote down. (A format hole is
-resolved by the checker from its argument's static type, but that is
-one built-in head rewriting to a known renderer, not a search over
-declared instances.) Conversion therefore stays a function the program
-calls (`mapErr`) or a record it passes, never an instance the compiler
-supplies. This was blocker **B2** in §8, resolved by removal in 0.6.0.
+It prints this and exits with status 5, the error's code:
 
-**ERR-TYPE-3a (RETIRED 2026-08-25). An error-inspecting combinator
-MAY read the error's fields off the `match` binder.** This rule said
-MUST NOT, and it was a checker limitation from the start rather than a
-design choice. The limitation is gone:
+```text
+low-level failure
+```
+
+What Axiom lacks is *instance search*: Rust's compiler finds the
+`From` instance from the types at the call site. In Axiom, dispatch is
+application, and an instance is a value someone wrote down. The checker
+does resolve a format hole from its argument's static type, but that is
+one built-in form rewriting to a known renderer, not a search over
+declared instances. So a conversion is a function the program calls
+(`mapErr`) or a record it passes, never an instance the compiler
+supplies. The two-parameter trait this replaces is blocker `B2` in §8,
+resolved by removal in 0.6.0.
+
+**ERR-TYPE-3a (retired). An error-inspecting combinator MAY read the
+error's fields off the `match` binder.** The rule once said MUST NOT.
+That was a checker limitation, not a design choice, and the limitation
+is gone:
 
 ```scheme
+(import Err)
+(import IO)
+
 (:: reContext (-> (Result a Error) String (Result a Error)))
 (fn (reContext r ctx)
   (match r
     ((Ok x) (Ok x))
     ((Err y) (Err (Error y.code y.message ctx)))))
-; compiles; code 1, message "divided by zero", context as given
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (reContext (divChecked 10 0) "splitting the bill")
+    ((Ok n) n)
+    ((Err e) { (println (errorText e)) (errCode e) })))
 ```
 
-Written 2026-08-16, that was `AX3004 type mismatch: expected struct or
-data type, found _a` — the checker instantiated `(Result a
-Error)`'s constructor field to a fresh variable and never resolved it
-against the signature, so `y` had no fields as far as the arm was
-concerned. `ctorPatEnv` landed 2026-08-21 (`a388fc1`) and resolves
-exactly that: a constructor pattern's field types are instantiated
-against the scrutinee's before its binders are bound. Nothing recorded
-the consequence, and the sweep of 2026-08-22 that re-checked every
-claim in every document did not catch it — that sweep resolves the
-fixtures a document NAMES, and this rule named none.
+It prints this and exits with status 1, the code `divChecked` gives a
+division by zero:
 
-The number is kept and burned rather than reused, and `stdlib/Err.ax`
-keeps `errContextOf`: it is public, `docs/stdlib-api.md` lists it, and
-removing an exported name to tidy a rule that no longer binds would
-break importers for no gain. What changes is why it is there — a
-convenience now, not a requirement. `tests/stdlib/371-err-module.ax`
-term 2 pins both spellings against each other, and mutating the direct
-read's field drops that term and no other (exit 253 against 255).
+```text
+divided by zero while splitting the bill
+```
+
+The checker instantiated `(Result a Error)`'s constructor field to a
+fresh variable and never resolved it against the signature, so `y` had
+no fields: `AX3004 type mismatch: expected struct or data type, found
+_a`. `ctorPatEnv` removed the limitation. A constructor pattern's field
+types are now instantiated against the scrutinee's before its binders
+are bound. §8 (`B5`) records how the rule outlived the limitation.
+
+The number stays burned and is never reused. `stdlib/Err.ax` keeps
+`errContextOf`, because it is public, `docs/stdlib-api.md` lists it,
+and removing an exported name would break importers for no gain. It is
+now a convenience, not a requirement. `tests/stdlib/371-err-module.ax`
+term 2 checks the two spellings against each other: changing the field
+the direct read uses drops that term and no other (exit 253 against
+255).
 
 **ERR-TYPE-4 (H). `Option` is not an error type, and the conversion is
 named.** `Option` says *absent*; `Result` says *failed, and here is
-why*. `(okOr o e)` and `(toOption r)` convert explicitly. There is no
-implicit coercion in either direction: a missing map key and a failed
-syscall are different facts and the type is where they stay different.
+why*. `(okOr o e)` and `(toOption r)` convert explicitly, and there is
+no implicit coercion in either direction. A missing map key and a
+failed syscall are different facts, and the type keeps them apart.
 
 **ERR-TYPE-5 (H). Error payload fields MUST declare their real types.**
-Not `Int`. See `ERR-MEM-1` — this is a memory-safety obligation wearing
-a type-design hat.
+Not `Int`. A `String` stored through a field declared `Int` is
+invisible to reclamation and leaks, so this is a memory-safety
+obligation as much as a type-design one (`ERR-MEM-1`).
 
 ---
 
 ## 3. Propagation
 
-**ERR-PROP-1 (H). An error is an ordinary value.** It propagates
-through calls, lambdas, closures, data structures and pattern matching
-with no special mechanism, because there is none to have: Axiom has no
-unwinding, no early return, and no exception. A function that can fail
-says so in its return type and every caller does something about it or
-does not compile.
+**ERR-PROP-1 (H). An error is an ordinary value.** It travels through
+calls, lambdas, closures, data structures and pattern matching with no
+special mechanism, because Axiom has none to offer: no unwinding, no
+early return and no exceptions. A function that can fail says so in its
+return type, and every caller does something about it or doesn't
+compile.
 
-**ERR-PROP-2 (H, amended 2026-08-31). INSPECTING an error is pure.
-CONSTRUCTING one is not, and this rule used to say it was.**
+**ERR-PROP-2 (H, amended). Inspecting an error is pure. Constructing
+one is not.** A function that only takes a value apart may carry
+`;@axiom:pure`. A function that builds one allocates, and `pure`
+refuses it:
 
-The original probe was a two-parameter ADT, a constructor function and
-a `match` consumer, both tagged `;@axiom:pure`; `check` answered OK and
-`axiom symbols` reported `#pure` on both with no `#effects=` beside it.
-The consumer still does. The constructor no longer does:
-
-```scheme
+```scheme refused
 (data Pair (P Int Int) (Nil))
+
 ;@axiom:pure
 (:: mkPair (-> Int Pair))
 (fn (mkPair n) (P n n))
+
+;@axiom:pure
+(:: first (-> Pair Int))
+(fn (first p) (match p ((P a b) a) ((Nil) 0)))
+
+(:: main Int)
+(fn (main) (first (mkPair 3)))
 ```
 
-now draws `AX3010 axtag-mismatch: \`pure\` claim contradicted: body
-performs Alloc`, while the `match` consumer beside it is accepted
-unchanged. **So a `Result` may still be taken apart inside a function
-that claims purity; it may no longer be BUILT there.**
+```text
+error[AX3010]: AXTAG mismatch on `mkPair`: `pure` claim contradicted: body performs Alloc
+```
 
-**Why the amendment, and what it cost.** This rule used to record, as a
-deliberate under-approximation, that *constructor allocation does not
-enter the inferred effect set* - and it relied on the convenient half
-of that, noting that a conforming implementation which made `Alloc`
-precise "would make every `Result` constructor `#effects=Alloc`, and
-`ERR-PROP-2`'s purity claim would need `Alloc` exempted explicitly
-rather than by omission."
+`first` is accepted, and `axiom symbols` reports it as `#pure` with no
+`#effects=` beside it. So you can take a `Result` apart inside a
+function that claims purity, but you can't build one there.
 
-That implementation arrived, and not for precision's sake.
-`restrict(no-alloc)` reads the effect row and turns it into a refusal,
-and against a row built to omit allocation the refusal could not fire:
+Counting constructor allocation is what lets `restrict(no-alloc)`
+catch a constructor. With constructors left out of the inferred effect
+set, as this rule once allowed, a function that built a value checked `OK` while its
+IR called `axiom_alloc`. With them counted, the same function is
+refused with `AX3049`:
 
-```scheme
+```scheme refused
 (data W (Wrap Int) (Empty))
+
 ;@axiom:restrict(no-alloc)
 (:: mk (-> Int Int))
 (fn (mk n) (match (Wrap n) ((Wrap x) x) ((Empty) 0)))
+
+(:: main Int)
+(fn (main) (mk 3))
 ```
 
-checked `OK` while the emitted IR held a `call i64 @axiom_alloc(i64 16)`
-inside `@mk`. A claim that cannot be refuted is not a claim, and 0.6.0
-shipped 273 of them. `MM-EXEC-9a` records the close and its measured
-blast radius: 123 of 3,725 effect rows gained `Alloc`, and seven
-`no-alloc` claims in the tree turned out to be false.
+`MM-EXEC-9a` in the memory model records the change and the effect
+rows it moved.
 
-**`Alloc` is NOT exempted from `pure`, by decision.** The sentence
-above offered that as the alternative and it is refused: `pure` means
-an empty definite row, an exemption would have to be carved for every
-reader of the row rather than for this one rule, and `Alloc` is the
-effect `restrict(no-alloc)` exists to name. The honest statement is the
-one at the top - construction allocates, and a constructing function is
-not pure. **Measured cost inside this repository: zero.** No
-`;@axiom:pure` claim in `stdlib/` or `self_host/` sits on a
-constructing function, so nothing here changed but this paragraph.
+**`Alloc` is not exempted from `pure`, by decision.** `pure` means an
+empty definite effect row. An exemption would have to be carved out for
+every reader of that row, not just for this rule, and `Alloc` is the
+effect `restrict(no-alloc)` exists to name. So construction allocates,
+and a constructing function is not pure. No `;@axiom:pure` claim in
+`stdlib/` or `self_host/` sits on a constructing function.
 
 **ERR-PROP-3 (H, program obligation). In a recursive function, the
 fallible call MUST be the `match` scrutinee and the recursive call MUST
 be what an arm answers. Never the reverse.**
 
-This is the load-bearing rule of the whole model and it is not a
-stylistic preference:
+The rest of the model depends on this rule, and it isn't a matter of
+style. Here is the safe shape. The self call is in tail position inside
+an arm, so the compiler turns the function into a loop:
 
 ```scheme
-; SAFE - the self call is in tail position inside an arm, and the
-; compiler converts the function to a loop
 (fn (total n acc)
   (if (== n 0)
       (Ok acc)
       (match (step n)
         ((Err e) (Err e))
         ((Ok v) (total (- n 1) (+ acc v))))))
+```
 
-; UNSAFE - the self call is what the match returns INTO, so it is not
-; a tail call, the loop conversion does not fire, and the function
-; costs one frame per iteration
+And the unsafe one. The `match` waits on the self call, so it isn't a
+tail call, the loop conversion doesn't fire, and every level holds a
+stack frame:
+
+```scheme
 (fn (total n acc)
   (if (== n 0)
       (Ok acc)
@@ -422,79 +435,94 @@ stylistic preference:
         ((Ok x) (Ok x)))))
 ```
 
-Measured: the unsafe shape costs **32 bytes of stack per call**,
-survives 250,000 iterations and dies of `SIGSEGV` at **262,144** — 8
-MiB of stack, exactly. The safe shape completes **5,000,000**
-iterations with a flat stack. The same asymmetry killed the lexer once
-already, at a different scale: `lexTokens`/`dispatchChar` cost a frame
-pair per token and died between 96 KB and 146 KB of input
-(the roadmap's phase 4).
+At the default `--opt 1` with an 8 MiB stack, the unsafe shape costs
+**48 bytes of stack per call** and dies of `SIGSEGV` after about
+**174,000** calls. The safe shape completes **5,000,000** iterations
+with a flat stack.
 
-The happy consequence is that the shape a propagation *form* has to
-generate — the continuation in the arm — is the shape that converts.
-The ergonomics and the stack agree, which is not something to rely on
-without checking, and is why this was checked first.
+The shape a propagation form generates, with the continuation in the
+arm, is the shape that converts: `try!` (`ERR-SUGAR-2`) expands to
+exactly this. So the convenient spelling and the safe one agree.
 
-Gated by `tests/stdlib/370-error-propagation.ax`, term 16, with the
+Gated by `tests/stdlib/370-error-propagation.ax` term 16, with the
 scrutinee shape run as its ablation.
 
 **ERR-PROP-4 (H, gated). The compiler warns on a self-recursive call
-in the scrutinee of a `match`.** `AX3045`,
-`recursion-in-scrutinee`, a **warning**, with a help naming the
-arm-tail rewrite. The implemented condition is any call to the
-enclosing function at any depth of any match scrutinee in its body,
-whatever the scrutinee's own type is: a call nested in a larger
-scrutinee holds its frame identically, so the return-type clause the
-proposal carried would have excluded the same hazard one expression
-up. What is not reported is a call to any other function - mutual
-recursion through a scrutinee is the same hazard one call away, and
-the checker sees one declaration at a time - a name the match's own
-scope binds, or a scrutinee that did not check clean. Shallow
-recursions stay silent by staying correct: the warning costs a line
-of output and no build, and an error would refuse working programs.
-Gated by `tests/diagnostics/1005-recursion-in-scrutinee.ax` (two
-warnings: the bare call and one nested deeper; the arm-tail shape,
-a call to another function, shadowing spellings and a poisoned
-scrutinee all silent), `tests/diagnostics/severity.policy`, and
-`scripts/check-diagnostic-coverage.sh`.
+in the scrutinee of a `match`.** The warning is `AX3045`,
+`recursion-in-scrutinee`, and its help names the arm-tail rewrite.
+
+It fires on any call to the enclosing function, at any depth of any
+`match` scrutinee in its body, whatever the scrutinee's own type. A
+call nested inside a larger scrutinee holds its frame just the same. A
+condition on the scrutinee's return type, as first proposed, would
+have missed the same hazard one expression up.
+
+It doesn't report:
+
+- a call to any other function, including mutual recursion through a
+  scrutinee, which is the same hazard one call away, because the
+  checker sees one declaration at a time;
+- a name that the match's own scope binds;
+- a scrutinee that didn't check cleanly.
+
+Shallow recursion is correct, so this is a warning. It costs a line of
+output and no build, where an error would refuse working programs.
+
+Gated by `tests/diagnostics/1005-recursion-in-scrutinee.ax`, which
+expects two warnings, for the bare call and for one nested deeper. The
+arm-tail shape, a call to another function, shadowing spellings and a
+poisoned scrutinee all stay silent. `tests/diagnostics/severity.policy`
+and `scripts/check-diagnostic-coverage.sh` also hold it.
 
 **ERR-PROP-5 (H). Higher-order propagation carries the callee's
-effects, not the error.** A combinator taking a fallible function
-(`mapResult`, `andThen`) is effect-transparent in that parameter and
-`axiom symbols` reports `#effect-params=`; its own body stays pure. No
-rule of this model changes effect inference.
+effects, not the error.** A combinator that takes a fallible function,
+such as `andThen`, is effect-transparent in that parameter, and
+`axiom symbols` reports it with `#effect-params=`. Its own row holds
+only what its body does, which is `Alloc` when it builds a `Result`
+(`ERR-PROP-2`). No rule of this model changes effect inference.
 
 ---
 
 ## 4. Memory
 
-The error model is the first feature designed *after* reference
-counting started landing, so these rules are obligations on the design
-rather than notes about it.
+The rules in this section are obligations on the design. They say what
+gets reclaimed, and what your program must do so a loop that carries
+errors runs in constant memory.
 
 **ERR-MEM-1 (H). A payload field's declared type decides whether its
-contents are reclaimed.** The reference map is computed from declared
-field types by `fldClass` (`self_host/codegen.ax`), which answers
-*reference* for `String`, for a declared `data` or `struct` type, for a
-tuple and for an arrow; *scalar* for the `Int`/`Float`/`Bool`/`Char`
-family; and *unclassifiable* for a type variable, a `Ptr` or an alias —
-which forces the whole block to an empty map. A `String` stored through
-a field declared `Int` is invisible to release and leaks.
+contents are reclaimed.** `fldClass` in `self_host/codegen.ax` builds a
+block's reference map from its declared field types:
 
-So `ERR-TYPE-5`. An error record that declares `(message : Int)` and
-casts is not a style problem, it is a leak.
+- *reference*: `String`, a declared `data` or `struct` type, a tuple
+  and an arrow;
+- *scalar*: the `Int`/`Float`/`Bool`/`Char` family;
+- *unclassifiable*: a type variable, a `Ptr` or an alias. One
+  unclassifiable field forces the whole block to an empty map.
+
+A `String` stored through a field declared `Int` is invisible to
+release, so it leaks. That is why `ERR-TYPE-5` exists: an error record
+that declares `(message : Int)` and casts a `String` into it leaks.
 
 **ERR-MEM-2 (H, program obligation). An error value handed to a self
 tail call MUST pass through a `let` binding.**
 
-A `data` block births owned at count 1. Constructed inline in a
-tail-call argument, the boundary retain (`MM-LIFE-2c` event 4) takes it
-to 2 and the single boundary release returns it to 1 — never 0, so it
-never files. Bound to a `let` first, the frame's scope release spends
-the birth count and the loop is flat.
+```scheme
+; from tests/stdlib/370-error-propagation.ax: bind the error, then pass it
+(fn (carry r n)
+  (if (<= n 0)
+    0
+    (let ((next (Bad (wide n))))
+      (carry next (- n 1)))))
+```
 
-Measured over 2000 iterations, each allocating a fresh 32-byte
-`String` inside the error value:
+A `data` block is born owned, at count 1. Built inline in a tail-call
+argument, the boundary retain (`MM-LIFE-2c` event 4) takes it to 2,
+and the single boundary release brings it back to 1. It never reaches
+0, so it is never reclaimed. Bound to a `let` first, the frame's scope
+release spends the birth count and the loop stays flat.
+
+This measurement set the rule: 2000 iterations, each allocating a fresh
+32-byte `String` inside the error value.
 
 | The value is… | bump moves |
 |---|---|
@@ -502,191 +530,140 @@ Measured over 2000 iterations, each allocating a fresh 32-byte
 | returned from a function, passed inline | 288,176 bytes |
 | **bound to a `let`, then passed** | **176 bytes** |
 
-144 bytes per iteration, leaked, in the two spellings anyone writes
-first. Gated by `370-error-propagation.ax` term 4, whose ablation is
-exactly the removal of that `let`.
+That is 144 bytes leaked per iteration, in the two spellings people
+write first. `tests/stdlib/370-error-propagation.ax` term 4 holds the
+`let`-bound spelling flat.
 
-This rule is a program obligation because nothing enforces it. A
-conforming implementation **SHOULD** make it unnecessary by spending the
-birth count at the boundary, and until one does, the rule stands and
-the fixture holds it.
+The current compiler no longer leaks on the inline spellings: they
+stay flat over the same 2000 iterations too. So removing the `let` is
+no longer an ablation of term 4, and term 64's retained allocation is
+what shows the instrument can see growth. Nothing in
+`tests/stdlib/370-error-propagation.ax` holds the inline spellings
+flat, so the rule stands. A conforming implementation
+**SHOULD** make it unnecessary by spending the birth count at the
+boundary.
 
 **ERR-MEM-3 (H). A polymorphic `Result` applied at concrete arguments
 is classified and reclaimed.** `fldClass` classifies an applied type by
-its head, so the question had to be asked separately from `ERR-MEM-2`'s
-monomorphic probe. Same loop, same 2000 iterations, `let`-bound:
-monomorphic 176 bytes, polymorphic `(Result Int String)` 288 bytes.
-Both flat. The model is viable polymorphically, which is the only way
-it is worth having.
+its head, so this needed its own probe beside `ERR-MEM-2`'s monomorphic
+one. The same loop over 2000 `let`-bound iterations moves the bump 176
+bytes monomorphic and 288 bytes polymorphic, at `(Result Int String)`.
+Both are flat, so the model works polymorphically, which is the only
+way it is worth having. `370-error-propagation.ax` term 4 runs over a
+polymorphic error type.
 
-**ERR-MEM-4 (H). The block a fallible call returns is reclaimed.
-CLOSED 2026-08-25.** This was the model's standing cost for nine days,
-and the specification stated it rather than discovering it later:
+**ERR-MEM-4 (H). The block a fallible call returns is reclaimed.** A
+call answering a `Result` allocates one block. It is released after the
+`match`, whether you match the call directly or bind it first:
 
-> A call returning `Result` allocates one block that nothing frees.
-> Measured at **32 bytes per fallible call**, identically whether the
-> call is matched directly or bound to a `let` first — 32.0 bytes per
-> iteration at both 10,000 and 50,000 iterations, against a flat
-> control loop with no `Result` in it.
+```scheme
+(match (step i) ((Ok v) v) ((Err e) 0))
 
-Every one of those numbers is 0 now, measured the same way. What
-follows is the measurement that closed it, kept in full because the
-two wrong prerequisites this rule carried before it are the reason it
-took three passes to name the right one.
+(let ((r (step i)))
+  (match r ((Ok v) v) ((Err e) 0)))
+```
 
-The prerequisite this rule used to name is gone and the leak was not.
-`MM-LIFE-2c`'s events 2 and 3 — the ownership pair this rule blamed for
-it — shipped on 2026-08-21 (`tests/stdlib/372-arc-owned-results.ax`),
-and the 32 bytes survived them untouched. Re-measured 2026-08-22 with
-the instrument `372` uses, the arena mark cell's word 0, over 10,000
-iterations after a 1,000-iteration warm-up, against
-`step : (-> Int (Result Int String))`:
+A `match` scrutinee is released after the merge only when no arm's
+binder escapes through that arm's body (`scrutineeReleasable` and
+`escapesViaBinders` in `self_host/codegen.ax`). A binder that reaches
+its arm's value, bare or through arithmetic, counts as an escape unless
+it is a machine scalar. A scalar can't alias the block it was copied
+out of. A field read can be classified where it stands
+(`fieldReadIsScalar`), but a match binder is a bare variable by the
+time the escape walk reaches it. So the checker records the binder's
+type.
 
-| the call's result is… | bytes/iteration |
-|---|---|
-| the scrutinee of `(match (step i) ((Ok v) v) ((Err e) 0))` | **32** |
-| `let`-bound, then that same `match` | **32** |
-| the scrutinee of a `match` whose arms bind nothing | 0 |
-| the same call at `(Result String String)` | 0 |
-| the control loop with no `Result` in it | 0 |
-
-So the release is emitted and something suppresses it, and the thing
-that does is a **binder**. A `match` scrutinee is released after the
-merge only when no arm's binder escapes through that arm's body
-(`scrutineeReleasable`, `escapesViaBinders` in `self_host/codegen.ax`),
-and a binder that reaches its arm's value — bare, or through
-arithmetic, which passes value position to its operands — reads as an
-escape whatever its type.
-The decisive pair, same measurement: the same `Int` read out of the
-same frame-owned block by a **field read** costs 0 bytes per iteration
-and by a **match binder** costs 32 — because `escapes` tests
-`fieldReadIsScalar` on the field-read path and has nothing to test on
-the binder path, where the field has already become a bare variable. A
-machine scalar cannot alias the block it was copied out of, so the
-answer is a field-class test inside a walk that already exists. That is
-a narrower prerequisite than the one this rule carried, and naming it
-narrowly is the point of re-measuring.
-
-**And it was still half of one.** A field-class test over the field as
-DECLARED closes `(RInt Int)` and leaves `(Ok v)` exactly where it was,
-because `Ok`'s field is declared `a`. Measured 2026-08-25 before the
-fix, same instrument: a concrete sum type with an `Int` field cost 32
-bytes per iteration, and so did `(Option Int)`, whose field is a type
-variable that happens to arrive as `Int`. `Result` is the second kind.
-A fixture built from the first would have gone green over a fix that
-changed nothing about this rule's own subject.
-
-The useful type is therefore the **instantiated** one, and only the
-match site has it: `(step i)` at `(-> Int (Result Int String))` is what
-makes this `Ok`'s field an `Int`. So the checker records it. In
-`bindOnePatArg` — where a constructor pattern's binders are already
-bound at their instantiated field types — `stampPatBinderTy` writes the
-type's constructor name onto the binder's own node, and codegen's
+The declared type isn't enough. `Ok`'s field is declared `a`, and only
+the match site knows that `(step i)` at `(-> Int (Result Int String))`
+makes it an `Int`. So the checker records the *instantiated* type. In
+`bindOnePatArg`, where a constructor pattern's binders are bound at
+their instantiated field types, `stampPatBinderTy` writes the type
+constructor's name onto the binder's own node. Codegen's
 `binderIsScalar` classifies that name with `scalarTyName`, the same
-list `fldClass` classifies a declared field by. A binder the checker
-could not resolve is left unstamped, which reads as "assume it can
-alias" and is the answer every compiler before this one gave.
+list `fldClass` uses for a declared field. A binder the checker could
+not resolve is left unstamped, which reads as "assume it can alias".
 
-Three things about the shape of that fix, each of which was a choice
-rather than the only option:
+Three details of the stamp:
 
-- It is a **twelfth word on `ASTNode`**, not word 6. Word 6 already
-  carries an evidence stamp for a call's spine head, which is a
-  `TAG_E_VAR` node too, and a type name landing there would be read as
-  a node.
-- It is a **name, not a type node**. The unifier writes through type
-  nodes in place, so a pointer kept across phases can be overwritten;
+- It lives in a twelfth word on `ASTNode`, not in word 6. Word 6
+  already carries an evidence stamp for a call's spine head, which is
+  also a `TAG_E_VAR` node, and a type name there would be read as a
+  node.
+- It is a name, not a type node. The unifier writes through type nodes
+  in place, so a pointer kept across phases can be overwritten.
   `stampFieldStruct` records a name for the same reason.
-- The escape walk gets its **own** binder collection, `patBindersEsc`,
-  rather than a flag on the shared one. The five other callers of
-  `patBindersCg` want the binders as a SCOPE — for shadowing, and for
-  the flow environment — and a scalar binder is still a binding. It is
-  only the escape question it cannot answer yes to.
+- The escape walk has its own binder collection, `patBindersEsc`,
+  instead of a flag on the shared one. The five other callers of
+  `patBindersCg` want the binders as a scope, for shadowing and for
+  the flow environment, and a scalar binder is still a binding. Only
+  the escape question treats it differently.
 
-**The stamp refuses to take a last answer, and that is measured rather
-than defensive.** Its word has three states: `0` for never stamped, a
-NAME for "every check that reached this node agreed", and the EMPTY
-STRING for "two checks disagreed", which reads back conservative. One
-binder node genuinely was checked twice at different types:
-`checkImplComplete` synthesized a trait's DEFAULT body into every impl
-that omitted the method **without copying the body's nodes**, so two
-impls at two types checked one AST, and `impl` declaration order alone
-decided which name would survive.
+The stamp has three states: `0` for never stamped, a name when every
+check that reached the node agreed, and the empty string when two
+checks disagreed. The empty string reads back as conservative.
+Last-write-wins would be unsafe: a binder node checked at two types
+could hand codegen an `Int` for a binder that is really a `String`, and
+codegen would then release a block the binder still points into.
 
-Measured 2026-08-25 on `373-shared-default-binder`, a fixture removed
-with traits in 0.6.0: with the disagreement arm removed,
-`Ident#String#ident` contained
-`call void @axiom_release(i64 %.t0)` — a release of the block the
-returned `String` still lives in — and with it present, none. One line
-of IR from one word in the checker, and
-`scripts/check-fallible-reclaim.sh` asserted both directions until the
-construct went (see below).
+Trait default bodies once reached that state. `checkImplComplete`
+shared one default body's nodes across every impl that omitted the
+method, so two impls at two types checked one AST, and the emitted IR
+released a block a returned `String` still lived in. The same sharing
+caused `MM-LIFE-2j` in [memory-model.md](memory-model.md). Traits were
+removed in 0.6.0, and the path went with them. A compiler built with
+last-write-wins stamps now emits byte-identical IR across 278 fixtures,
+every `stdlib/` module and `self_host/main.ax`, so nothing Axiom can
+express checks one pattern binder twice at two types. The disagreement
+arm stays as a guard against that class of mistake, and
+`scripts/check-fallible-reclaim.sh` asserts that nothing reaches it.
 
-No program was found that **observes** that release: the field has
-another owner at every call site built for it, so nothing reached count
-0 and both compilers answered correctly. The honest statement is that
-the hazard is real in the emitted code and latent at run time — which
-is also why the gate reads the IR rather than an exit status, since a
-golden would be green with the release present.
+Without the stamp, every fallible call leaks its 32-byte block. A
+compiler that runs once can survive a cost linear in fallible calls.
+The LSP, which runs per keystroke, and the pre-forked server, which
+runs per request, can't. `ERR-ADOPT-3`'s workaround for that cost is
+no longer needed.
 
-The same sharing had two other symptoms, neither fixed at the time: a
-default body whose scrutinee was a **dispatched** trait method was
-refused outright (`AX3004`, identically at 0.3.0); and the block's
-**shape word** depended on `impl` declaration order in the compiler as
-shipped, recorded as `MM-LIFE-2j` in `docs/memory-model.md`.
+`tests/stdlib/370-error-propagation.ax` holds the rule with three
+terms:
 
-**All three went with the construct in 0.6.0.** Re-measured 2026-08-31
-by building the last-write-wins compiler and diffing emitted IR across
-278 fixtures, every `stdlib/` module and `self_host/main.ax` itself:
-byte-identical everywhere. Nothing Axiom can now express checks one
-pattern binder twice at two types. The disagreement arm is kept as a
-guard on a *class* of mistake rather than on any one construct, and
-`scripts/check-fallible-reclaim.sh` now asserts that nothing reaches
-it — so the day something does, that gate says so.
+- term 32 asserts the reclamation over 20,000 calls, 10,000 in each
+  spelling;
+- term 8 runs the same loop with no `Result` in it, so a difference is
+  attributed to the error value and not to the loop;
+- term 64 requires a retained allocation to move the same probe pair,
+  because flat lines alone can't tell reclamation from a blind
+  instrument.
 
-The cost was linear in fallible calls, which was survivable for a
-compiler that runs once and was not survivable for either program that
-does not — the LSP per keystroke, the pre-forked server per request.
-`ERR-ADOPT-3` said what to do about that; it no longer has to.
-
-`370-error-propagation.ax` said, of its own term 8, that "a fixture
-asserting the leak would have to be rewritten the day it is fixed".
-This was that day. Term 8 stays — it is what attributes a difference to
-the error value rather than to the loop — and **term 32** asserts the
-reclamation over 20,000 calls in both spellings. Because three flat
-lines cannot tell reclamation from a blind instrument, **term 64**
-requires a retained allocation to move the same probe pair, and
-`scripts/check-fallible-reclaim.sh` requires the fixture to go RED
-under an ablation of `binderIsScalar` — at term 32, and at no other
-term. Ablated: exit 95 against 127, and the probe delta back to 640,032
-bytes over 20,000 calls, which is this rule's 32 to the byte.
+`scripts/check-fallible-reclaim.sh` rebuilds the compiler with
+`binderIsScalar` ablated and requires the fixture to fail at term 32
+and no other. Ablated, it exits 95 instead of 127, and the probe delta
+returns to 640,032 bytes over 20,000 calls: this rule's 32 bytes a
+call, to the byte.
 
 **ERR-MEM-5 (H). An error record may declare at most 46 payload
-words.** `AX3029` refuses a wider block (47 mappable payload words, one
-spent on a data cell's tag), and `AX3030` caps a declaration at 64 type
-variables. `Error` as specified declares 3. The cliff is nowhere near
-for an error record — the widest declaration in this repository, the
-compiler's own `CG`, sits at 45 — and the rule exists so a future
-cause-chain does not walk into it.
+words.** `AX3029` refuses a wider block: the reference map covers 47
+payload words, and a data cell spends one on its tag. `AX3030` caps a
+declaration at 64 type variables. `Error` as specified declares 3
+fields, far below the limit. The rule exists so a future cause chain
+doesn't walk into it.
 
-**ERR-MEM-6 (R). The model does not use linear types, and as of
-2026-08-25 neither does the language.** `linear` and `consume` parsed
-and enforced nothing: no use was counted, so a value could be used twice
-or not at all. `Linear T` *was* a real nominal barrier (`AX3004` against
-`T`), which was enough to keep a wrapper honest in a signature and not
-enough to build ownership on. Every rule above is correct without
-linearity — which is why the keywords were **refused** rather than left
-reserved-and-inert: they now report `AX2004` with migration advice,
-alongside `union`, `foreign` and `deriving` — and `region`, until it
-returned as a checked scope on 2026-09-03. A marker that
-reads as an ownership guarantee and supplies none is worse than no
-marker.
+**ERR-MEM-6 (R). The model does not use linear types, and neither does
+the language.** `linear` and `consume` parsed but enforced nothing: no
+use was counted, so a value could be used twice or not at all.
+`Linear T` was a real nominal barrier (`AX3004` against `T`), enough to
+keep a wrapper distinct in a signature but not enough to build
+ownership on. Every rule above is correct without linearity, and a
+marker that reads as an ownership guarantee but supplies none is worse
+than no marker. So the keywords are refused instead of reserved: they report
+`AX2004` with migration advice, alongside `union`, `foreign` and
+`deriving`. `region` was once in that list and is now a checked scope
+([Regions](reference.md#regions)).
 
 `MM-LIFE-7`, if it lands, would add two things to this model and change
 none of its rules: an error value could **move** into a callee without
 retain/release, and a `Result` discarded on a branch could be dropped
-early instead of at scope end. Both are optimisations of `ERR-MEM-2`
-and `ERR-MEM-4`, not replacements.
+early instead of at scope end. Both would optimise `ERR-MEM-2` and
+`ERR-MEM-4`, not replace them.
 
 ---
 
@@ -694,78 +671,150 @@ and `ERR-MEM-4`, not replacements.
 
 **ERR-REC-1 (R). There is no unwinding, no early return and no
 exception, and the model does not add one.** Recovery is a value
-arriving at a `match`. This is not asceticism; it is the only option
-the runtime leaves open, and `ERR-REC-6` says what the one narrow
-exception is and why it is not the general mechanism this rule refuses.
+arriving at a `match`. The runtime leaves no other option.
+`ERR-REC-6` describes the one narrow exception, and why it is not the
+general mechanism this rule refuses.
 
-General unwinding stays refused, on its own measurements rather than by
-inheritance. Every call would become a two-destination `invoke`, so the
-emitter would have to know the enclosing landing pad — but an `invoke`
-in argument position splits a block underneath a `phi` the emitter is
-building from "whichever block actually reaches the merge", precisely
-because there is no block graph to ask. A cleanup pad must release
-pending values at an arbitrary point, which is liveness, which is a
-control-flow graph, which does not exist. And the unwinder is a hosted
-link: 188 undefined symbols for every program, not only the ones that
-ask.
+General unwinding is refused for three reasons, each measured:
+
+- Every call would become a two-destination `invoke`, so the emitter
+  would need to know the enclosing landing pad. An `invoke` in argument
+  position splits a block underneath a `phi` that the emitter builds
+  from "whichever block actually reaches the merge", because there is
+  no block graph to ask.
+- A cleanup pad must release pending values at an arbitrary point.
+  That needs liveness, which needs a control-flow graph, and there
+  isn't one.
+- The unwinder is a hosted link: 188 undefined symbols for every
+  program, not only the ones that use it.
 
 **ERR-REC-2 (H). Every trap gets a value-returning alternative; the
-raw operator keeps its semantics.** Shipped in `stdlib/Err.ax`. Two of
-the four are gated: `tests/stdlib/371-err-module.ax` term 64 pins
-`divChecked`'s zero case, and term 32 pins its `INT_MIN / -1` guard
-together with `shlChecked` refusing a shift of 100. `remChecked` and
-`shrChecked` ship unpinned, which §10 records with the rest of the
-unreached surface.
+raw operator keeps its semantics.** `stdlib/Err.ax` ships them:
 
-| Trap today | Alternative | Answers |
+```scheme
+(import Err)
+(import IO)
+
+(:: report (-> (Result Int Error) Int))
+;@axiom:effect(io)
+(fn (report r)
+  (match r
+    ((Ok q) (println "quotient {q}"))
+    ((Err e) (println (errorText e)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (report (divChecked 10 2))
+    (report (divChecked 10 0))
+    0
+  })
+```
+
+```text
+quotient 5
+divided by zero
+```
+
+| The trap | Alternative | Answers |
 |---|---|---|
-| `(/ a 0)` — fd 2, exit 72 | `(divChecked a b)` | `(Err DivideByZero)` |
-| `(% a 0)` — the same | `(remChecked a b)` | `(Err DivideByZero)` |
-| `INT_MIN / -1` — UB, `--opt`-dependent | `divChecked` | `(Err Overflow)` |
-| `(<< 1 100)`, `(>> x 64)` — UB | `shlChecked`, `shrChecked` | `(Err ShiftTooWide)` |
+| `(/ a 0)`: fd 2, exit 72 | `(divChecked a b)` | `(Err DivideByZero)` |
+| `(% a 0)`: the same | `(remChecked a b)` | `(Err DivideByZero)` |
+| `INT_MIN / -1`: UB, `--opt`-dependent | `divChecked` | `(Err Overflow)` |
+| `(<< 1 100)`, `(>> x 64)`: UB | `shlChecked`, `shrChecked` | `(Err ShiftTooWide)` |
 
 `/` and `<<` are unchanged. A checked operator is a different function
-with a different type, so no existing program's meaning moves and no
-hot loop pays for a check it did not ask for. This is the same decision
-`MM-VAL-3b` records for the raw cases: name the sharp edge rather than
-round it off silently.
+with a different type, so no existing program changes meaning, and no
+hot loop pays for a check it didn't ask for. `MM-VAL-3b` records the
+same decision for the raw cases: name the sharp edge instead of
+silently rounding it off.
+
+All four are pinned by `tests/stdlib/371-err-module.ax`. Term 64 pins
+`divChecked`'s zero case, term 32 its `INT_MIN / -1` guard together
+with `shlChecked` refusing a shift of 100, and term 128 the codes
+`remChecked` and `shrChecked` raise.
 
 **ERR-REC-3 (R). Effects are not an error channel.** `handle` is
 evidence-passing and **tail-resumptive**: the handler's return value is
-the operation's result and execution continues at the operation's site.
-A handler **cannot abort the computation it handles** — there is no
-mechanism by which it could — and an operation with no handler traps
-and exits 71 rather than answering. So an `effect` cannot express
-"stop, unwind, recover", and a program that models failure as an effect
-gets a trap where it wanted a `catch`. `effect` is for *capabilities*;
-`Result` is for *failure*.
+the operation's result, and execution continues where the operation was
+performed. A handler **cannot abort the computation it handles**,
+because there is no mechanism for it to do so. An operation with no
+handler traps and exits 71 instead of answering. So an `effect` can't
+express "stop, unwind, recover", and a program that models failure as
+an effect gets a trap where it wanted a `catch`. Use `effect` for
+*capabilities* and `Result` for *failure*.
 
-The capability that LOOKS like an error channel and is not: asking the
-caller what to do with a malformed record, and continuing with the
-answer. That is `ERR-REC-7`, and `stdlib/Fallible.ax` ships it — the
-handler decides per record, it cannot abort, and the loop it serves
-never learns anything happened.
+One capability does look like an error channel: asking the caller what
+to do with a malformed record, then carrying on with the answer. That
+is `ERR-REC-7`, shipped as `stdlib/Fallible.ax`. The handler decides
+per record and cannot abort, and the loop it serves never learns that
+anything happened.
 
 **ERR-REC-4 (H, gated). `main` renders an error and exits with a code
-reserved for the purpose.** A `main` answering `(Result Int Error)`
-writes `axiom: {message}` — and `context` when it is non-empty — to fd
-2, and exits **70**. The number is chosen to sit beside the two the
-runtime already owns and below neither: 71 is the unhandled-operation
-trap and 72 is the division trap, so 70 completes the block and a
-reader who has seen one has seen the family. Exit codes 1–69 stay the
-program's own. Held by `tests/stdlib/490-main-result-ok.ax` (an `Ok`
-payload answers as the status) and
-`tests/stdlib/491-main-result-err.ax` (the sentence on fd 2 via
-`NAME.err`, status 70 via `NAME.exit`), run at `--opt` 0 and 2 by
-`scripts/check-stdlib-selfhost.sh` like every stdlib golden. The
-dispatch understands exactly `(Result Int Error)` with `errorText` in
-scope; any other `main` shape keeps today's behaviour.
+reserved for the purpose.**
 
-**ERR-REC-6 (H). A trap may be contained, and only a trap.** Since
-2026-08-24, `(__axiom_recover mark thunk)` arms a **recovery point** at
-an arena mark and runs `thunk`. Each of the three ways a program stops
-without returning then answers the *arming call* with its status
-instead of writing to fd 2 and exiting:
+```scheme
+(import Err)
+
+(:: main (Result Int Error))
+(fn (main)
+  (withContext (Err (mkError 7 "disk full")) "saving records"))
+```
+
+This prints to fd 2 and exits with status 70:
+
+```text
+axiom: disk full while saving records
+```
+
+A `main` answering `(Result Int Error)` writes `axiom: {message}`, plus
+the `context` when it is non-empty, to fd 2 and exits **70**. An `Ok`
+payload is the exit status. 70 sits next to two statuses the runtime
+already owns: 71 is the unhandled-operation trap and 72 the division
+trap. Exit codes 1–69 stay your program's own. The
+dispatch understands exactly `(Result Int Error)` with `errorText` in
+scope, and any other `main` shape behaves as before. The reference
+shows it in use under [Fallible main](reference.md#fallible-main).
+
+Tested by `tests/stdlib/490-main-result-ok.ax` (an `Ok` payload answers
+as the status) and `tests/stdlib/491-main-result-err.ax` (the sentence
+on fd 2 via `NAME.err`, status 70 via `NAME.exit`). Like every stdlib
+golden, `scripts/check-stdlib-selfhost.sh` runs them at `--opt` 0 and
+2.
+
+**ERR-REC-6 (H). A trap may be contained, and only a trap.**
+`(__axiom_recover mark thunk)` arms a **recovery point** at an arena
+mark and runs `thunk`. A trap listed in the table below, raised inside
+it, answers the *arming call* with its status instead of writing to
+fd 2 and exiting:
+
+```scheme
+(import IO)
+
+(:: divide (-> Int Int Int))
+(fn (divide a b)
+  (/ a b))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((status
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (divide 10 0)))))
+    {
+      (println "recovered {status}")
+      (divide 10 0)
+    }))
+```
+
+```text
+recovered 72
+```
+
+The second division runs outside any recovery point, so it ends the
+program: `axiom: division by zero` on fd 2, and exit status 72.
 
 | Inside a recovery point | Outside one |
 |---|---|
@@ -773,182 +822,232 @@ instead of writing to fd 2 and exiting:
 | a reference count at its maximum answers **70** | `axiom: reference count limit exceeded`, exit 70 (`MM-LIFE-2l`, `tests/stdlib/527-retain-overflow.ax`, both halves at `--opt` 0-3) |
 | an unhandled effect answers **71** | `axiom: unhandled effect`, exit 71 |
 | division by zero answers **72** | `axiom: division by zero`, exit 72 |
+| an index out of range answers **77** | `axiom: vector index out of range`, exit 77 (`tests/stdlib/525-vec-set-bounds.ax`) |
 | a violated contract answers **80** | ``axiom: precondition failed in `half`: (> n 0)``, exit 80 |
-| a `parallel` spawn the kernel refused answers **78** | `axiom: parallel: could not spawn the binding`, exit 78 (2026-09-03; emitted, not yet executed) |
+| a `parallel` spawn the kernel refused answers **78** | `axiom: parallel: could not spawn the binding`, exit 78 (emitted, not yet executed) |
 | `parallel` on a target with no lowering answers **79** | `axiom: parallel is not available on this target`, exit 79 (windows-x86_64; emitted, not executed) |
+| a `__syscallN` on a target with no syscall ABI answers **74** | `axiom: no syscall ABI on this target`, exit 74 (windows-x86_64; emitted, not executed) |
 
-The first three have both halves in one program per case, at four
-optimisation levels: `tests/stdlib/401-recover-effect.ax`,
-`402-recover-oom.ax`, `403-recover-div.ax`, gated by
-`scripts/check-recover.sh`.
+Out of memory, an unhandled effect and division by zero each have both
+halves in one program, at four optimisation levels:
+`tests/stdlib/401-recover-effect.ax`, `402-recover-oom.ax` and
+`403-recover-div.ax`, gated by `scripts/check-recover.sh`.
 
-**The fourth row is `;@axiom:pre(...)`/`post(...)`, added 2026-08-31,
-and it is here rather than in that gate because it is a claim about the
-contracts feature.** `@__axiom_contract_fail` opens with
-`__axiom_recover_abort` exactly as the division trap does, so a
-violated contract is *programmer error* in the same sense: the arena is
-intact, nothing half-wrote a structure, and a process that armed a
-recovery point asked to survive precisely this. Both halves are in one
-program, for the reason `403-recover-div.ax` gives for its own — with
-`__axiom_recover` unreferenced the mechanism is dead code and the armed
-test folds to false — and it is section 1 of
-`scripts/check-contracts.sh`: the arming call answers `recovered 80` on
-stdout, the second violation outside every extent exits 80 with the
-sentence on fd 2.
+The contract row covers `;@axiom:pre(...)` and `post(...)`. A violated
+contract is programmer error in the same sense as a division by zero:
+the arena is intact, nothing half-wrote a structure, and a process that
+armed a recovery point asked to survive exactly this. So
+`@__axiom_contract_fail` calls `__axiom_recover_abort` first, as the
+division trap does. Section 1 of `scripts/check-contracts.sh` holds both
+halves in one program: the arming call answers `recovered 80` on
+stdout, and a second violation outside every recovery point exits 80
+with the sentence on fd 2. Both halves share one program for the reason
+`403-recover-div.ax` gives: with `__axiom_recover` unreferenced, the
+mechanism is dead code and the armed test folds to false.
 
-**The table gains no row from status 75.** An
-arena reset handed a mark whose chunk is no longer on the active list
-traps with status **75** since 2026-08-31 (`MM-ALLOC-16a`), and it is
-deliberately outside this mechanism. A recovery point's abort IS an
-arena reset — it resets to the arming mark — so answering an invalid
-reset by performing another one asks the same corrupted structure the
-same question. By the time the trap is reached the unwind walk has
-already pushed every chunk it passed onto the free list hunting for one
-that was not there, which is precisely the list an abort would then
-reset through. 70, 71 and 72 are the *programmer error* class this
-paragraph describes, which a process can be written to survive; 75 and
-76 are violated implementation invariants (`I8`, and `MM-ALLOC-16b`'s
-evidence-record extent), and both are nearer the memory-safety fault
-the paragraph above refuses to contain.
+Two traps are not in the table, 75 and 76, because each fires inside an
+arena reset, and a recovery point's abort *is* an arena reset to the
+arming mark:
 
-**76's exclusion is the sharper of the two.** An abort's whole job is
-restoring evidence slots, so answering "a slot points into memory this
-reset is about to reclaim" by running the slot-restoring abort asks the
-corrupted structure the same question. It is also why the trap needs no
-exemption for the recovery path in the other direction: the abort
-restores every slot *before* it resets, so the check is already false
-by the time it runs (`docs/memory-model.md` `MM-ALLOC-16b`).
-paragraph describes, which a process can be written to survive - and so
-is 76, whose predicate is the programmer's own sentence about their own
-values. 75 is a violated *implementation* invariant (`I8`), and it is
-nearer the memory-safety fault the paragraph above refuses to contain.
-That is the line the table is drawn on: whose invariant broke, not how
-bad it sounds.
+- 75 (`MM-ALLOC-16a`) fires when a reset is handed a mark whose chunk
+  is no longer on the active list. By then the reset's walk has pushed
+  every chunk it passed onto the free list while hunting for the
+  missing one. That is the list an abort would reset through, so
+  answering with another reset asks the corrupted structure the same
+  question.
+- 76 (`MM-ALLOC-16b`) fires when a reset would reclaim the evidence
+  record a live `handle` still dispatches through. An abort's whole job
+  is restoring evidence slots, so running it to answer "a slot points
+  into memory this reset is about to reclaim" repeats the fault. The
+  abort restores every slot *before* it resets, so its own reset never
+  trips this check.
 
-**What it is not.** It is not unwinding, not a `catch`, and not an early
-return, so `ERR-REC-1` stands as written for everything except these
-three. There is no landing pad and no cleanup, nothing runs on the way
-out, the point cannot be placed at a frame of the program's choosing —
-it is wherever `__axiom_recover` was called — and a recovered extent
-cannot be resumed. It also does **not** contain a memory-safety fault: a
-SIGSEGV is not a trap, nothing asks the recovery point, and after one
-the heap invariants are unknown, which is why Java, Go and Rust all
-abort there too.
+The line is drawn on whose invariant broke, not on how bad it sounds.
+The traps in the table are conditions a program can be written to
+survive. A violated contract, for one, is the programmer's own sentence
+about their own values. 75 and 76 are violated implementation invariants
+(`I8`, and `MM-ALLOC-16b`'s evidence-record extent), which sit nearer
+the memory-safety faults this rule refuses to contain.
 
-**Why the narrow version is sound where general unwinding is refused.**
-There are no destructors, no finalizers and no stack-allocated data, so
-"unwinding" degenerates to restoring the stack pointer, the arena and the
-effect slots — and there is nothing to run on the way out.
-`docs/memory-model.md` `MM-ALLOC-23` states the memory argument, including
-the one thing it does not buy for free (a retain abandoned below the
-mark) and the measurement that bounds it: 100,000 aborts hold max RSS at
-1,376 KiB, against 419,328 KiB for the same program with nothing to
+A recovery point is not unwinding, a `catch` or an early return, so
+`ERR-REC-1` stands for everything outside the table. There is no
+landing pad and no cleanup, and nothing runs on the way out. The point
+is wherever `__axiom_recover` was called: a program can't place it at a
+frame of its choosing, and a recovered extent can't be resumed. It does
+**not** contain a memory-safety fault either. A SIGSEGV is not a trap,
+nothing asks the recovery point, and afterwards the heap invariants are
+unknown. Java, Go and Rust all abort there too.
+
+This narrow version is sound because there is nothing to unwind. Axiom
+has no destructors, no finalizers and no stack-allocated data, so
+"unwinding" reduces to restoring the stack pointer, the arena and the
+effect slots. `MM-ALLOC-23` in the memory model gives the memory
+argument, including the one cost it doesn't avoid: a retain abandoned
+below the mark. The measurement bounds it: 100,000 aborts hold max RSS
+at 1,376 KiB, against 419,328 KiB for the same program with nothing to
 recover from.
 
-**What it is for.** Failure divides into three classes, and only one of
-them is this. *Expected* failure — bad input, a missing file, a timeout —
-is `Result` and always was (`ERR-TYPE-1`). A *memory-safety fault* cannot
-be contained by any language: after one the heap invariants are unknown,
-which is why the paragraph above refuses it and why Java, Go and Rust all
-abort there too. Between them sits *programmer error* — out of memory, an
-unhandled effect, a division by zero — which is the only class an
-in-process abort can serve, and all three of its members were `exit` and
-nothing else. A
-worker in a pre-forked pool that divides by zero on one request no longer
-takes the process with it; the request boundary is already an arena
-scope (`MM-ALLOC-22`), and the recovery point is the same boundary
-answering a status. Expected failure is still `Result` (`ERR-TYPE-1`),
-and a recovery point is not a substitute for one: `ERR-REC-5`'s
-obligation applies to a status recovered here exactly as it does to an
-`Err` arriving at a `match`.
+Failure divides into three classes, and a recovery point serves only
+one of them:
 
-**Its first consumer is `axiom test`.** A test runner needs exactly
-what this mechanism gives and nothing more: one failure ends one unit
-of work and the process carries on. So `axiom test` arms one recovery
-point per test and reports the status it answers with — 70, 71 or 72 —
-and `stdlib/Test.ax` makes a failed assertion an unhandled operation of
-an `Assert` effect, which is 71 by the row above rather than by any new
-machinery. Measured on `tests/testrunner/mixed-tests.ax`: a suite that
-fails in three of these ways still reports the test declared after all
-three (`scripts/check-test-runner.sh`).
+- *Expected* failure, such as bad input, a missing file or a timeout,
+  is `Result` (`ERR-TYPE-1`).
+- A *memory-safety fault* can't be contained by any language, because
+  afterwards the heap invariants are unknown.
+- *Programmer error*, such as out of memory, an unhandled effect or a
+  division by zero, sits between them. It is the only class an
+  in-process abort can serve.
 
-**A program that never arms one pays nothing.** The mechanism's only
-mutable state is a single global that the arm site alone writes, so with
-no arm site anywhere `opt` folds the load in the abort to the
-initialiser, deletes the global, deletes the three calls the traps make,
-and folds all three functions to `ret i64 0`. `scripts/check-recover.sh`
-asserts those three properties separately at `opt -O1`, rather than
-asserting a line count, because P1's symbol table takes the address of
-every function a module defines and so keeps three names alive in every
-program either way.
+So a worker in a pre-forked pool that divides by zero on one request no
+longer takes the process with it. The request boundary is already an
+arena scope (`MM-ALLOC-22`), and the recovery point is the same
+boundary answering a status. A recovery point doesn't replace `Result`:
+`ERR-REC-5`'s obligation applies to a recovered status exactly as it
+does to an `Err` arriving at a `match`.
 
-**ERR-REC-7 (H, gated, 2026-08-29). A batch loop's malformed record
-is a question for the loop's handler, answered at the point it arises,
-and the answer costs the record nothing.** `stdlib/Fallible.ax`
-declares one effect with one operation, `(fallibleMalformed message)`,
-answering an `Int`: a callee any depth below the loop performs it on a
-record it cannot parse and continues with what the innermost handler
-answers. Three handlers ship, each a value a program hands to `handle`.
-`fallibleSkip` answers `fallibleSkipped` — the most negative `Int`,
-which `fallibleIsSkipped` reads and the loop checks once per record —
-`(fallibleDefault d)` answers `d`, and `(fallibleCounting tally next)`
-counts in `tally` and answers as `next` would. Nesting shadows and
-restores as `handle` always has: an inner `fallibleSkip` wins while
-its `handle` is live and the outer `(fallibleDefault 100)` answers
-again after it exits. `tests/stdlib/410-fallible.ax` pins all of that
-line by line, and pins the two halves of `ERR-REC-3` this rule does
-not move: the handler cannot abort, and an operation performed with no
-handler is class (ii) of `ERR-REC-6` — 71 to a recovery point,
-`axiom: unhandled effect` and exit 71 outside one.
+`axiom test` is built on it ([Testing](reference.md#testing)). A test
+runner needs exactly what this mechanism gives: one failure ends one
+unit of work, and the process carries on. `axiom test` arms one
+recovery point per test and reports the status it answers with.
+`stdlib/Test.ax` makes a failed assertion an unhandled operation of an
+`Assert` effect, so it answers 71 through the row above, with no new
+machinery. `tests/testrunner/mixed-tests.ax` fails in three of these
+ways and still reports the test declared after all three
+(`scripts/check-test-runner.sh`).
+
+A program that never arms a recovery point pays nothing. The
+mechanism's only mutable state is a single global that only the arm
+site writes. With no arm site anywhere, `opt` folds the load in the
+abort to the initialiser, deletes the global, deletes the three calls
+the traps make, and folds all three functions to `ret i64 0`.
+`scripts/check-recover.sh` asserts those three properties separately at
+`opt -O1` instead of counting lines, because P1's symbol table takes
+the address of every function a module defines, and so keeps three
+names alive in every program either way.
+
+**ERR-REC-7 (H, gated). A batch loop's malformed record is a question
+for the loop's handler, answered where it arises, and the answer costs
+the record nothing.**
+
+```scheme
+(import IO)
+(import Fallible)
+
+; Deep in the batch: report a bad record and carry on with the answer.
+(:: parseRecord (-> Int Int))
+(fn (parseRecord i)
+  (if (== (% i 7) 0)
+    (fallibleMalformed "record malformed")
+    i))
+
+(:: total (-> Int Int))
+(fn (total n)
+  (let (
+    (mut i 1)
+    (mut acc 0)
+  )
+    {
+      (while (<= i n)
+        (let ((v (parseRecord i)))
+          {
+            (set acc (if (fallibleIsSkipped v)
+              acc
+              (+ acc v)))
+            (set i (+ i 1))
+          }))
+      acc
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (cast Int (handle (total 20) (Fallible) fallibleSkip)))
+    (println (cast Int (handle (total 20) (Fallible) (fallibleDefault 100))))
+    0
+  })
+```
+
+```text
+189
+389
+```
+
+`stdlib/Fallible.ax` declares one effect with one operation,
+`(fallibleMalformed message)`, which answers an `Int`. A callee at any
+depth below the loop performs it on a record it can't parse, and
+continues with whatever the innermost handler answers. Three handlers
+ship, each a value you hand to `handle`:
+
+- `fallibleSkip` answers `fallibleSkipped`, the most negative `Int`,
+  which the loop checks once per record with `fallibleIsSkipped`;
+- `(fallibleDefault d)` answers `d`;
+- `(fallibleCounting tally next)` counts in `tally` and answers as
+  `next` would.
+
+Nesting shadows and restores as `handle` always does: an inner
+`fallibleSkip` wins while its `handle` is live, and the outer
+`(fallibleDefault 100)` answers again after it exits.
+`tests/stdlib/410-fallible.ax` pins all of that line by line.
+
+This rule leaves `ERR-REC-3` as it is: the handler cannot abort. An
+operation performed with no handler is the unhandled-effect row of
+`ERR-REC-6`: 71 to a recovery point, and `axiom: unhandled effect` with
+exit 71 outside one. A `main` that reaches `fallibleMalformed` with no
+handler draws the `AX3053` warning at compile time
+(`tests/diagnostics/389-unhandled-at-main.ax`).
 
 *The cost is the rule.* A batch loop has no request boundary, so there
-is no arena reset (`MM-ALLOC-22`) and a byte per record is a byte the
-process keeps for the run. Measured 2026-08-29 by the arena mark cell,
-`370-error-propagation.ax`'s instrument, over 10,000 records of which
-1,428 performed the operation:
+is no arena reset (`MM-ALLOC-22`), and a byte per record is a byte the
+process keeps for the whole run. The operation's shape was chosen by
+measuring the alternatives with the arena mark cell, the instrument
+`370-error-propagation.ax` uses, over 10,000 records of which 1,428
+performed the operation:
 
-| operation shape | bytes per operation |
-|---|---|
-| one argument, a literal message | **0** |
-| one argument, an `Int` | **0** |
-| two arguments, `(op message fallback)` | 32 — the curried handler's inner closure, never released |
-| one argument, a message built per record | 80 — the string, which a handler parameter (a type variable) hides from the release walk |
+| operation shape | bytes per operation, when the shape was chosen | now |
+|---|---|---|
+| one argument, a literal message | 0 | 0 |
+| one argument, an `Int` | 0 | 0 |
+| two arguments, `(op message fallback)` | 32: the curried handler's inner closure, which the dispatch did not release | 0 |
+| one argument, a message built per record | 80: the string, because an application through a closure did not release its owned argument | 0 |
 
-So the operation takes one argument, the fallback comes from the
-handler — `(fallibleDefault d)` allocates its closure once, at the
-`handle` — and a program **MUST** pass a literal, or a value it already
+So the operation takes one argument, and the fallback comes from the
+handler: `(fallibleDefault d)` allocates its closure once, at the
+`handle`. A program **MUST** pass a literal, or a value it already
 holds, never a message built for the record: the loop knows which
-record it is on. `410`'s four memory terms hold the three handlers at
-0 bytes per record and require a handler that KEEPS a string per
-record to move the same instrument. `scripts/check-steady-state.sh`'s
-`batch` probe is the RSS half: 2,000,000 records under `fallibleSkip`
-at **1,376 KiB**, the same as 200,000, with its `keeping` twin
-required to grow past 5×; and the gate builds
+record it is on. `410`'s memory terms hold the three handlers at 0
+bytes per record, and require a handler that keeps a string per record
+to move the same instrument.
+
+`scripts/check-steady-state.sh`'s `batch` probe checks resident memory:
+2,000,000 records under `fallibleSkip` hold **1,376 KiB**, the same as
+200,000, and its `keeping` twin must grow past 5×. The same gate builds
 `examples/batch-fallible/batch-fallible.ax`, the same loop reading
 every record as text, and holds it to the same band at 100,000 and
-1,000,000 records (1,392 KiB at both).
+1,000,000 records.
 
-*Why a sentinel and not `Option`.* `(Some v)` on every WELL-FORMED
-record is a block per record, allocated and released a million times
-where a sentinel is one comparison — and a `handle` expression's own
-type is the checker's wildcard, so the `Option` would arrive through
-a `cast` at every site. A program whose records can hold the most
-negative `Int` writes its own one-line handler answering its own
-sentinel.
+*Why a sentinel and not `Option`.* `(Some v)` on every well-formed
+record is a block per record, allocated and released a million times,
+where a sentinel is one comparison. A `handle` expression's own type is
+also the checker's wildcard, so an `Option` would arrive through a
+`cast` at every site. If your records can hold the most negative `Int`,
+write a one-line handler that answers your own sentinel.
 
 *What this does not change.* `ERR-REC-3` stands: the handler answers,
-it does not unwind. The two costs in the table are facts about the
-dispatch that the module documents rather than defects it fixes — a
-compiler that released the closure and the string would make both
-spellings free, and this rule's obligation would shrink to a
-preference.
+it does not unwind. The two costs in the table were facts about closure
+application, not defects in this module. A compiler that releases the
+closure and the string makes both spellings free, and this rule's
+obligation then shrinks to a preference. The current compiler does both:
+`tests/stdlib/410-fallible.ax` term `e` holds the built message flat,
+and `scripts/check-closure-reclaim.sh` ablates the closure release and
+requires the cost back.
 
 **ERR-REC-5 (P, program obligation). A recovered error MUST NOT be
-discarded silently.** `(match r ((Ok x) x) ((Err _) 0))` compiles and
-is sometimes right; it is also how a 65-site sentinel migration
-recreates the problem it set out to fix. The compiler cannot tell the
-two apart, so the obligation is on the program and the review, and
-`ERR-DIAG-2` proposes the lint that would make it visible.
+discarded silently.** `(match r ((Ok x) x) ((Err _) 0))` compiles, and
+it is sometimes right. It is also how a migration away from sentinel
+values brings back the problem it set out to fix. The compiler can't
+tell the two apart, so the obligation falls on the program and its
+review. `ERR-DIAG-2` proposes the lint that would make it visible.
 
 ---
 
@@ -957,199 +1056,155 @@ two apart, so the obligation is on the program and the review, and
 **ERR-DIAG-1 (H). Every diagnostic this model adds goes through
 `mkDiag`/`mkDiagFix` at the site that detects the condition, carries a
 stable code and a kebab-case slug, and has long-form text in
-`self_host/explain.ax`.** Nothing about error handling changes how the
-compiler reports; the rule is here so a future contributor does not
-invent a second channel for "error-model errors".
+`self_host/explain.ax`.** Error handling doesn't change how the
+compiler reports. This rule keeps it that way, so no one adds a second
+channel for "error-model errors".
 
-**ERR-DIAG-2 (P). Proposed codes.** Eight times now this model has
-proposed a number and the compiler has spent it first. `AX3035` went on
-2026-08-16 to the expander defect that stood in this model's way
-(`macro-binder-target`, §7), `AX3036` went on 2026-08-22 to the FFI
-(`extern-type`, an `extern` item whose type cannot cross the boundary),
-three went to the effect walk: `AX3037` on 2026-08-22
-(`axtag-unverifiable`, a `pure` claim over a call the walk cannot
-resolve), then `AX3038` (`effect-unverifiable`, the same condition
-under a `handle`) and `AX3039` (`axtag-key-typo`, a key one edit from
-one the compiler checks) on 2026-08-23; and `AX3040` the same day to
-the type system (`result-only-tyvar`, a type variable the caller chooses
-and the callee produces - the slug names the shape it was built for and
-is kept as the machine key; the rule covers a function-typed parameter's
-own variable since 2026-08-25).
+**ERR-DIAG-2 (P). Proposed codes.** This section reserves numbers for
+diagnostics this model needs and the compiler doesn't build yet. The
+rest of the compiler keeps growing, so it can spend a reserved number
+first. Three rules keep the numbering straight:
 
-**Then it happened to a number this table had already written down, and
-this table did not notice for two days.** `AX3041` went to the parser on
-2026-08-22 (`extern-library-name`, an `extern` block's library name that
-is not one) and `AX3044` to the namespace pass (`ambiguous-type`) - and
-the row below still proposed `AX3041` for `recursion-in-scrutinee`,
-while the paragraph above still called `AX3041` the next free number.
-Both were false the moment the parser was built, and the sentence that
-was supposed to catch it named the wrong comparison: `check-doc-drift.sh`
-compared **constructed against explained**, which is a statement about
-`explain.ax`, and looked at this document not at all. It compares
-constructed against **proposed** now as well, in the one direction that
-can fail - a proposal whose number is already spent - so the next
-collision is a red gate rather than a paragraph nobody re-read. Found
-2026-08-25 while closing `AX3040`'s second shape.
+- A proposal renumbers when the compiler spends its number first.
+- A new code takes the next number above the highest one in use, the
+  *free end*, and never a number from the reserved block.
+- A retired number **MUST NOT** be reused. `AX3008` and `AX3032` are
+  retired.
 
-The next free semantic number is therefore `AX3053`: `AX3042` was
-SPENT on 2026-08-25 by `undeclared-effect` (a function that performs IO
-and does not declare it), `AX3047` was spent on 2026-08-26 by
-`sized-integer-type` (a C or Rust primitive spelling in type position,
-which is a type VARIABLE and so was silently accepted), `AX3048` the
-same day by `deprecated-name` (a reference to a name its declaration
-marks `;@axiom:deprecated`, a warning by design - see
-`tests/diagnostics/severity.policy`), `AX3049`, `AX3051` and `AX3052`
-on 2026-08-29 by the `restrict(...)` AXTAG (`restriction-violated`, an
-error; `restriction-unverifiable`, a warning in the same policy file;
-`restriction-unknown`, an error - `docs/reference.md`, AXTAG Keys),
-`AX3050` was SPENT on 2026-08-31 by `contract-malformed` (the
-paragraph after next), `AX3043` was SPENT on 2026-09-24 by
-`error-payload-untyped` (a reference smuggled through a field
-declared `Int` - a warning, `tests/diagnostics/1008-error-payload-untyped.ax`),
-`AX3044` is the namespace pass's, and `AX3032` is retired and
-**MUST NOT** be reused. `AX3055` was spent on 2026-08-29 by
-`effect-op-untyped` (an effect operation that declares no type - an
-error, because the handler check and the call's arity check both stand
-on that arrow); it sits above `AX3053` and `AX3054`, which the
-effect-system design of the same day names for `unhandled-operation`
-and `effect-name-reserved`, and it was taken from the free end because
-the number that design named for it, `AX3052`, had been spent by the
-restrictions first - the tenth number this section has had to
-reconcile, and the second allocated from the free end rather than
-surrendered. `AX3056` was spent on 2026-08-30 by `struct-field-untyped`
-(a struct field whose type the parser could not read - an error, for
-AX3055's reason one form over: `fldClass` cannot classify the empty
-type variable the parser answers for a missing `:`, so the field
-leaves the block's reference map and `MM-LIFE-2c` event 5, and a value
-stored into it is freed under the program, measured at exit 139). It
-too was taken from the free end, above `AX3053` and `AX3054`, which
-stayed reserved - the eleventh reconciliation and the third from the
-free end.
-
-`AX3053` was SPENT on 2026-08-30 by `unhandled-operation`: a custom
-effect still in `main`'s effect row when inference finishes, which - a
-`handle` being the only construct that discharges one - means nothing
-handled it, and an operation of it would write `axiom: unhandled
-effect` on fd 2 and exit 71. It is the first number this section has
-recorded as a WARNING that was DESIGNED as one rather than staged
-toward an error, alongside `AX3048`, and the reason is in
-`tests/diagnostics/severity.policy`: on the two closure shapes the
-evidence is one-sided in both directions at once, so an error would
-refuse a program that runs and accept one that traps. This is a
-reserved number reaching its own proposal rather than a
-reconciliation - the first time in this section - so the count of
-reconciliations stays at eleven. `AX3054` was SPENT on the same day by
-`effect-name-reserved` — an `effect` declared with a built-in effect's
-name, which a handle list resolves to the built-in, so the declaration
-can never be handled and the row it produces says the program reaches
-the outside world when it does not. An error with no warning stage,
-because there is no correct program on the other side of it. The same
-commit retired `Err` as a sixth built-in effect name: nothing inferred
-it, and its own AXTAG spelling could not reach it, so a handle list
-naming it draws `AX3016` like any other undeclared name. The reserved
-block below is now empty and the next free semantic number is
-`AX3057`.
-
-`AX3050` was SPENT on 2026-08-31 by `contract-malformed`, and it is the
-one number in this section that reached the work it was reserved for
-rather than being reconciled. It was taken on 2026-08-29 from BETWEEN
-two numbers the restrictions were spending that same day - `AX3049` and
-`AX3051` - for no reason except that the contracts design named it, and
-the contracts landed on it. Eleven reconciliations, and one number kept.
-
-What it refuses is worth stating precisely, because a contract is the
-first claim in the AXTAG namespace this compiler **cannot decide**.
-`restrict(...)` is refused from analysis the checker already performs;
-`(> n 0)` is a statement about a VALUE, and there is no value analysis
-in this tree at all - `grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'` over
-`self_host/typecheck.ax`, `self_host/codegen.ax` and
-`self_host/expand.ax` answers 0, 0, 0, the comment lines excluded
-because the sentence making the claim matches the pattern it quotes. So
-the claim is enforced at RUN TIME: `expLowerContracts` compiles the
-check into the body, and a failure writes ``axiom: precondition failed
-in `half`: (> n 0)`` on fd 2 and exits 80.
-
-`AX3050` is then everything about the contract that IS static, and it
-is four questions under one code:
-
-1. the value must PARSE, as exactly one expression;
-2. it must type as `Bool`, with the parameters in scope and against
-   this declaration's own signature;
-3. `result` must name something - the declared result of a `post`, and
-   nothing anywhere else: a `pre` runs before the body, and a
-   declaration with no `::` declares no result type for it to have;
-4. it must PERFORM nothing, since a contract is evaluated on every
-   call and one that allocates or writes changes the program by being
-   stated.
-
-Four questions and one code because they share a remedy - correct the
-expression, or delete the tag, which withdraws the claim - which is the
-same argument `AX3010` and `AX3049` make for their own arms. Question 4
-is not a blanket refusal, and that is measured rather than asserted:
-`vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and `memGetWord` carry
-an empty effect row, while `strConcat`, `fmtInt` and `vecNew` carry
-`Alloc,Mut`. A contract may compare, index, measure and test; it may not
-build. `docs/contracts-design.md` is the design note and
-`scripts/check-contracts.sh` the gate.
-
-`AX3047` is the ninth number this section has had to reconcile, and the
-first one it allocated rather than surrendered: it was taken from the
-free end deliberately, leaving the three proposals below untouched.
-That is the rule working in the other direction - a new code goes above
-the reserved block, not into it. `discarded-result` renumbered to
-`AX3046` when `AX3042` was built under it - which is this paragraph's
-own rule working, and the collision check below is what caught it. A
-proposal renumbers again if something builds one before this model does,
-which is exactly why these are proposals and not allocations. Eight
-renumberings is itself the evidence: a table of reserved numbers ages
-badly beside a compiler under active repair, and prose saying so is not
-what keeps it honest.
+No codes are proposed right now. When one is, it goes in this table:
 
 | Proposed | Slug | Condition |
 |---|---|---|
 
-Each needs, before it is listed: a construction site, `explain.ax`
-text, a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
-goldens blessed by `AXIOM_BLESS=1 scripts/check-diagnostics.sh NNN`,
-and a run of that case against a compiler built before the change to
-prove it is not vacuous. `scripts/check-doc-drift.sh` checks
-constructed-against-listed in **both** directions, so listing one early
-turns the gate red.
+Before a proposed code is built, it needs:
 
-`AX3008` was SPLIT on 2026-09-21 into `AX3067`–`AX3070`, and `AX3008`
-itself is retired and **MUST NOT** be reused, like `AX3032` before it.
-The catch-all `semantic-error` covered four shapes with unrelated
-remedies - a `struct` built with the wrong field count
-(`struct-arity-mismatch`), a parameterless `lambda` applied
-(`nullary-lambda`), a surplus argument to `sizeof`/`alignof`
-(`sizeof-arity`), and a field read on a `data` type with a nullary
-constructor beside a fielded one (`unsafe-field-access`) - so `grep
-AX3008` conflated a miscount, a non-call, a discarded argument and an
-unsafe load. Each keeps its old message verbatim; only the code and
-slug change, and the four corpus fixtures (`270`, `390`, `395`,
-`480`) are their primaries. Taken from the free end, above the
-reserved block, by this section's own rule.
+- a construction site;
+- `explain.ax` text;
+- a `tests/diagnostics/` case with `.axdl`, `.human` and `.json`
+  goldens, blessed by `AXIOM_BLESS=1 scripts/check-diagnostics.sh NNN`;
+- a run of that case against a compiler built before the change, to
+  show the case isn't vacuous.
 
-`AX3071` was spent on 2026-09-21 by `unretained-store`: a bare
-`__store64` of a reference-typed value through `cast`, which takes no
-share, so the owner's release frees a block the stored word still
-names (`tests/diagnostics/1002-unretained-store.ax`). From the free
-end as well, spending the last proposal: `AX3043` by
-`error-payload-untyped` on 2026-09-24.
+`scripts/check-doc-drift.sh` fails when a row in the table above
+proposes a number the compiler already constructs. It also requires the
+codes the compiler constructs and the codes `explain.ax` explains to be
+the same set, so explaining a code before it is built turns the gate
+red.
 
-`AX3072` was spent the same day by `addr-nonliteral`: `__addr` of
-anything but a string literal, which has no interned bytes behind it
-(`tests/diagnostics/1003-addr-nonliteral.ax`). From the free end as
-well.
+This section records the codes below. All of them are built, and
+`axiom explain` gives the long form of each.
 
-`AX3073` was spent on 2026-09-22 by `undeclared-unsafe`: a function
-whose own body calls a raw-memory primitive (`__load8`, `__store8`,
-`__store8v`, `__load64`, `__store64`, `__alloc`, `__addr`) and carries no
-`;@axiom:effect(unsafe)` (`tests/diagnostics/1004-undeclared-unsafe.ax`).
-Lexical where `AX3042` is transitive: the obligation sits at the call
-site, so a caller inherits `Unsafe` in its row and draws nothing
-itself. An error from its first day, like `AX3042` - unannotated
-unsafe code fails to compile. From the free end as well.
+| Code | What it reports | Notes |
+|---|---|---|
+| `AX3035` `macro-binder-target` | a macro argument in a binder position that is not a name | The expander defect this model ran into (§7, `B1`). |
+| `AX3036` `extern-type` | an `extern` item whose type can't cross the boundary | |
+| `AX3037` `axtag-unverifiable` | a `pure` claim over a call the effect walk can't resolve | A warning. |
+| `AX3038` `effect-unverifiable` | the same condition under a `handle` | A warning. |
+| `AX3039` `axtag-key-typo` | an AXTAG key one edit away from a key the compiler checks | A warning. |
+| `AX3040` `result-only-tyvar` | a type variable the caller chooses and the callee produces | The slug names the shape it was built for and stays as the machine key. The rule also covers a function-typed parameter's own variable. |
+| `AX3041` `extern-library-name` | an `extern` block's library name that isn't one | Reported by the parser. |
+| `AX3042` `undeclared-effect` | a function that performs IO and doesn't declare it | |
+| `AX3043` `error-payload-untyped` | a reference smuggled through a field declared `Int` | A warning. `tests/diagnostics/1008-error-payload-untyped.ax` |
+| `AX3044` `ambiguous-type` | a bare type name declared in more than one imported module | Reported by the namespace pass. |
+| `AX3045` `recursion-in-scrutinee` | a self-recursive call in the scrutinee of a `match` | A warning. `ERR-PROP-4` |
+| `AX3046` `discarded-result` | a `Result`-typed expression in statement position, its value unused | A warning. |
+| `AX3047` `sized-integer-type` | a C or Rust primitive spelling in type position | Without it, the name is read as a type variable and silently accepted. |
+| `AX3048` `deprecated-name` | a reference to a name its declaration marks `;@axiom:deprecated` | A warning by design. |
+| `AX3049` `restriction-violated` | a `restrict(...)` claim the declaration breaks | An error. |
+| `AX3050` `contract-malformed` | a `;@axiom:pre(...)` or `post(...)` that can't be compiled into a check | An error. See below. |
+| `AX3051` `restriction-unverifiable` | a `restrict(...)` claim the effect walk can't check | A warning. |
+| `AX3052` `restriction-unknown` | a name inside `restrict(...)` that isn't a restriction | An error. |
+| `AX3053` `unhandled-operation` | a custom effect still in `main`'s effect row when inference finishes | A warning by design. See below. |
+| `AX3054` `effect-name-reserved` | an `effect` declared with a built-in effect's name | An error with no warning stage. See below. |
+| `AX3055` `effect-op-untyped` | an effect operation that declares no type | An error, because the handler check and the call's arity check both depend on that arrow. |
+| `AX3056` `struct-field-untyped` | a struct field whose type the parser couldn't read | An error. See below. |
+| `AX3067` `struct-arity-mismatch` | a `struct` built with the wrong number of fields | Split from `AX3008`. |
+| `AX3068` `nullary-lambda` | a parameterless `lambda` applied | Split from `AX3008`. |
+| `AX3069` `sizeof-arity` | a surplus argument to `sizeof` or `alignof` | Split from `AX3008`. |
+| `AX3070` `unsafe-field-access` | a field read on a `data` type with a nullary constructor beside a fielded one | Split from `AX3008`. |
+| `AX3071` `unretained-store` | a bare `__store64` of a reference-typed value through `cast` | `tests/diagnostics/1002-unretained-store.ax` |
+| `AX3072` `addr-nonliteral` | `__addr` of anything but a string literal | `tests/diagnostics/1003-addr-nonliteral.ax` |
+| `AX3073` `undeclared-unsafe` | a function whose own body calls a raw-memory primitive and carries no `;@axiom:effect(unsafe)` | An error. `tests/diagnostics/1004-undeclared-unsafe.ax` |
+
+Every warning in the table is listed, with its reason, in
+`tests/diagnostics/severity.policy`. The `restrict(...)` codes are
+described under [AXTAG metadata](reference.md#axtag-metadata) in the
+reference.
+
+`AX3050` gets a closer look, because a contract is the first claim in
+the AXTAG namespace this compiler can't decide. `restrict(...)` is
+checked by analysis the checker already performs. `(> n 0)` is a
+statement about a value, and the compiler has no value analysis:
+`grep -v '^ *;' FILE | grep -c 'constFold\|constantFold\|interval\|rangeOf\|abstractVal'`
+answers 0, 0 and 0 over `self_host/typecheck.ax`, `self_host/codegen.ax`
+and `self_host/expand.ax`. Comment lines are excluded because a comment
+stating this claim matches the pattern.
+
+So the claim is enforced at run time. `expLowerContracts` compiles the
+check into the body, and a failure writes
+``axiom: precondition failed in `half`: (> n 0)`` on fd 2 and exits 80.
+`AX3050` covers everything about the contract that *is* static, as four
+questions under one code:
+
+1. The value must parse, as exactly one expression.
+2. It must type as `Bool`, with the parameters in scope and against
+   this declaration's own signature.
+3. `result` must name something: the declared result of a `post`, and
+   nothing anywhere else. A `pre` runs before the body, and a
+   declaration with no `::` declares no result type for it to have.
+4. It must perform nothing. A contract is evaluated on every call, so
+   one that allocates or writes changes the program just by being
+   stated.
+
+They share one code because they share a remedy: correct the
+expression, or delete the tag to withdraw the claim. `AX3010` and
+`AX3049` group their arms for the same reason. Question 4 isn't a
+blanket refusal. `vecLen`, `vecGet`, `strLen`, `strEq`, `strByte` and
+`memGetWord` carry an empty effect row, while `strConcat`, `fmtInt` and
+`vecNew` carry `Alloc,Mut`. A contract may compare, index, measure and
+test, but it may not build. The design note is
+[contracts-design.md](contracts-design.md), and
+`scripts/check-contracts.sh` is the gate.
+
+`AX3053` means nothing handled a custom effect: a `handle` is the only
+construct that discharges one. An operation of that effect would write
+`axiom: unhandled effect` on fd 2 and exit 71. It is a warning by
+design, like `AX3048`, and `severity.policy` gives the reason. On the
+two closure shapes the evidence is one-sided in both directions, so an
+error would refuse a program that runs and accept one that traps.
+
+`AX3054` has no warning stage, because no correct program is on the
+other side of it. A handle list resolves a built-in effect's name to
+the built-in, so an `effect` declared with that name can never be
+handled. The row it produces would also say the program reaches the
+outside world when it doesn't. `Err` is no longer a built-in effect
+name, because nothing inferred it and its own AXTAG spelling couldn't
+reach it. A handle list naming `Err` draws `AX3016`, like any other
+undeclared name.
+
+`AX3056` is an error for the same kind of reason as `AX3055`, one form
+over. `fldClass` can't classify the empty type variable the parser
+answers for a missing `:`, so the field leaves the block's reference
+map and `MM-LIFE-2c` event 5. Without the error, a value stored into
+it would be freed under the program, which then exits 139.
+
+`AX3008` (`semantic-error`) was a catch-all for four shapes with
+unrelated remedies, so `grep AX3008` conflated a miscount, a non-call,
+a discarded argument and an unsafe load. It is split into
+`AX3067`–`AX3070`, and `AX3008` itself is retired. Each new code keeps
+its old message word for word, and only the code and slug changed. The
+four corpus fixtures `270`, `390`, `395` and `480` are their primaries.
+
+`AX3071` exists because `cast` takes no share: the owner's release
+frees a block the stored word still names. `AX3072` exists because
+anything but a string literal has no interned bytes behind it.
+
+`AX3073` covers the raw-memory primitives `__load8`, `__store8`,
+`__store8v`, `__load64`, `__store64`, `__alloc` and `__addr`. It is
+lexical where `AX3042` is transitive. The obligation sits at the call
+site, so a caller inherits `Unsafe` in its effect row and draws nothing
+itself. Like `AX3042`, it is an error: unannotated unsafe code doesn't
+compile.
 
 `AX3076` was spent on 2026-09-27 by `effect-tag-list`: an
 `;@axiom:effect(...)` tag naming more than one effect -
@@ -1169,28 +1224,48 @@ where a value goes is `AX3001`.
 **ERR-DIAG-3 (P). Poisoning, not cascading.** Where a check on an error
 type fails, propagate `TError` and guard downstream comparisons, so one
 mistake draws one diagnostic. Reach for a group key only when a real
-cascade survives poisoning — the `dedup` pass in the retired Rust
-compiler had no call site for its whole life, and the lesson recorded
-in [diagnostics.md](diagnostics.md) is to build it *with* one.
+cascade survives poisoning. The `dedup` pass in the retired Rust
+compiler never had a call site, and the lesson recorded in
+[diagnostics.md](diagnostics.md) is to build it *with* one.
 
 ---
 
 ## 7. Surface
 
 **ERR-SUGAR-1 (R). There is no `?` postfix operator, and there will not
-be one spelled that way.** `?` is not an identifier byte: `empty?` is
-`AX1001`, and the compiler's own help says so — *"`?`, `~` and `@` are
-not identifier characters at all"*. Admitting it is a language change
-that moves the lexer, `tree-sitter-axiom/` and `self_host/format.ax`
-together. And the change would not be enough, because Rust's `?` means
-*return from the enclosing function* and Axiom has no early return: the
-operator would have nothing to expand into.
+be one spelled that way.** `?` isn't an identifier character: `empty?`
+is `AX1001`, and the compiler's own help says so: *"`?`, `~` and `@`
+are not identifier characters at all"*. Admitting it is a language
+change that moves the lexer, `tree-sitter-axiom/` and
+`self_host/format.ax` together. Even that wouldn't be enough. Rust's
+`?` means *return from the enclosing function*, and Axiom has no early
+return, so the operator would have nothing to expand into.
 
 **ERR-SUGAR-2 (H). The propagation form is a binding form.**
+`(try! x e body)` binds `x` to the success value of `e` and runs
+`body`. If `e` is an `Err`, it answers that error unchanged:
 
-The surface is a macro, because expansion runs before the checker
-(`self_host/expand.ax`) so everything it generates is type-checked, and
-because a macro costs no seed rebuild:
+```scheme
+(import Err)
+
+(:: halveTwice (-> Int (Result Int Error)))
+(fn (halveTwice n)
+  (try! a (divChecked n 2)
+    (try! b (divChecked a 2)
+      (Ok b))))
+
+(fn (main)
+  (match (halveTwice 40)
+    ((Ok v) v)
+    ((Err e) 1)))
+```
+
+`(halveTwice 40)` answers `(Ok 10)`, so the program exits 10.
+
+`try!` is a macro in `stdlib/Err.ax`. Expansion runs before the
+checker (`self_host/expand.ax`), so everything it generates is
+type-checked, and a macro costs no seed rebuild. Here is what it
+expands to:
 
 ```scheme
 (try! x (mayFail 1)
@@ -1202,139 +1277,112 @@ because a macro costs no seed rebuild:
   ((Ok x) (use x)))
 ```
 
-The body lands in the **arm**, which is exactly `ERR-PROP-3`'s safe
-shape — so the sugar makes the TCO-correct spelling the default one and
-the dangerous spelling the one you have to write out by hand. That is
-the whole argument for having it.
+The body lands in the arm, which is exactly `ERR-PROP-3`'s safe shape.
+So the form makes the TCO-correct spelling the default, and you have to
+write the dangerous spelling out by hand. That is the whole case for
+having it.
 
-**It could not be written until 2026-08-16, and this rule is the
-reason the expander changed.** A macro parameter standing in a binder
-position was gensymed like a template's own binder, and the renaming
-did not extend to syntax arriving through a *different* parameter, so
-the caller's body could not see the binding:
+`try!` depends on `MAC-HYG-10` in [macro-system.md](macro-system.md): a
+binder position holding a macro parameter takes the *argument's* name
+and isn't renamed. A binder introduced through one parameter then
+scopes over syntax arriving through another:
 
 ```scheme
 (macro (bind! x e body) (let ((x e)) body))
-(fn (main) (bind! v 41 (+ v 1)))
-; before: E AX3001 undefined-variable "undefined variable `v`"
-; after:  42
+(fn (main) (bind! v 41 (+ v 1)))   ; exits 42
 ```
 
-The mechanism was pinned rather than guessed, and the pinning is what
-made the fix small. A template that binds and reads through the
-**same** parameter always worked —
-
-```scheme
-(macro (bindSelf! x e) (let ((x e)) x))
-(fn (main) (bindSelf! v 42))     ; exits 42, before and after
-```
-
-— because the rename table mapped the template's `x` to the gensym on
-both sides. Right answer, wrong reason, and the caller's chosen name
-appearing nowhere. So it was never "a macro parameter cannot be a
-binder"; it was precisely **a binder introduced through one macro
-parameter did not scope over the syntax arriving through another**.
-
-The fix is `docs/macro-system.md` **MAC-HYG-10**: a binder position
-holding a parameter takes the *argument's* name and is not renamed,
-across all three binder positions the expander owns — `let`, `lambda`
-parameters, and pattern binders. An argument that is not a name is
-`AX3035` rather than the silent wrong expansion it used to be.
-
-`try!` ships in `stdlib/Err.ax` and is gated by
-`tests/stdlib/371-err-module.ax` term 16, which does not compile
-against an expander without the rule.
+This holds in all three binder positions the expander owns: `let`,
+`lambda` parameters and pattern binders. An argument that isn't a name
+is `AX3035`. `tests/stdlib/371-err-module.ax` term 16 gates `try!`, and
+it doesn't compile against an expander without `MAC-HYG-10`.
 
 **ERR-SUGAR-3 (H). A contextual wrapper is a function, not a form.**
 `(withContext r "reading the manifest")` replaces an `Err`'s `context`
 and passes `Ok` through. It needs no binder, so it never depended on
-`MAC-HYG-10`. It reads the error's fields through `errContextOf`
-rather than in the arm because `ERR-TYPE-3a` required that when it was
-written; since that rule's retirement on 2026-08-25 the indirection is
-a kept name rather than a necessity, and `371` term 2 now checks the
-direct spelling against it.
+`MAC-HYG-10`. It reads the error's fields through `errContextOf` rather
+than in the arm, because `ERR-TYPE-3a` required that when it was
+written. That rule is retired, so the indirection is now a kept name
+rather than a necessity, and `371` term 2 checks the direct spelling
+against it.
 
 ---
 
 ## 8. What this specification found
 
-Five defects, none of them recorded anywhere before, each found by
-probing a claim rather than reading one. Four are fixed; the fifth,
-`B2`, was resolved by removal in 0.6.0, so none is open.
+Probing this model's claims, rather than reading them, found five
+defects that nothing had recorded. All five are closed: four are
+fixed, and `B2` was resolved by removal in 0.6.0.
 
-**B1 — a macro binder did not scope over another parameter's syntax.
-FIXED 2026-08-16.** `(macro (bind! x e body) (let ((x e)) body))` put
-the caller's `body` outside the binding `x` introduced, so `body` could
-not see it; the same-parameter form worked and answered 42, which is
-what kept it hidden. It blocked every binding-form macro — `let*`,
-`for`, `with`, and `try!` — and `docs/macro-system.md` recorded
-binder-direction hygiene as complete, which it was for the direction
-anyone had tested. Fixed as `MAC-HYG-10`, with `AX3035` for the
-argument that is not a name; `ERR-SUGAR-2` is the form it unblocked.
+**B1 — A macro binder did not scope over another parameter's syntax.
+Fixed.** `(macro (bind! x e body) (let ((x e)) body))` put the
+caller's `body` outside the binding `x` introduced, so `body` couldn't
+see it and drew `AX3001` (`undefined-variable`). A macro that binds and
+reads through the *same* parameter worked, because the rename table
+mapped the template's `x` to the gensym on both sides:
 
-**B2 — a two-parameter trait declared and checked, and could not be
-implemented. RESOLVED BY REMOVAL 2026-08-31 (0.6.0).**
-`(trait (From a b) where (from :: (-> a b)))` was accepted;
+```scheme
+(macro (bindSelf! x e) (let ((x e)) x))
+(fn (main) (bindSelf! v 42))     ; exits 42
+```
+
+That right answer for the wrong reason kept the defect hidden. It
+blocked every binding-form macro: `let*`, `for`, `with` and `try!`.
+`docs/macro-system.md` recorded binder-direction hygiene as complete,
+which it was only for the direction anyone had tested. It is fixed as
+`MAC-HYG-10`, with `AX3035` for an argument that isn't a name.
+`ERR-SUGAR-2` is the form it unblocked.
+
+**B2 — A two-parameter trait declared and checked, and could not be
+implemented. Resolved by removal in 0.6.0.**
+`(trait (From a b) where (from :: (-> a b)))` was accepted, but
 `(impl (From Int Bool) where ((from ...)))` was `AX2003 syntax error`
 at the `impl`, while the one-parameter control compiled and ran. That
 was `documented-but-inert` in its purest form: the declaration surface
-admitted something the implementation surface could not express. Both
-keywords now report `AX2004` before anything else runs, and the
-capability record that replaced them takes two parameters with no
-asymmetry — `(struct ConvertOf (a b) (convert : (-> a b)))` declares,
-checks and runs, probed 2026-08-31. What the defect blocked,
-`From`-style *implicit* conversion, is refused by design now rather
-than by a hole; `ERR-TYPE-3` states the design.
+admitted something the implementation surface couldn't express. Both
+keywords now report `AX2004` before anything else runs. The capability
+record that replaced them takes two parameters with no asymmetry:
+`(struct ConvertOf (a b) (convert : (-> a b)))` declares, checks and
+runs. `From`-style *implicit* conversion, which the defect blocked, is
+now refused by design, and `ERR-TYPE-3` states the design.
 
 **B3 — `newtype` was a documented keyword the compiler does not
-implement. FIXED 2026-08-22.** `docs/reference.md`'s keyword table
-listed `newtype` with the purpose *"Newtype wrapper"* for as long as
-the table existed. The compiler answers `AX3027`: *"`newtype` is
-neither a declaration keyword nor a visible macro"*. The row is gone
-and the compiler is unchanged — there is still no `newtype`, which is
-now what the table says. Doc drift of the exact class
-`scripts/check-doc-drift.sh` exists to catch, in a table that gate does
-not read, which is why a probe found it and no gate did.
+implement. Fixed.** `docs/reference.md`'s keyword table listed
+`newtype` as a *"Newtype wrapper"*. The compiler answers `AX3027`:
+*"`newtype` is neither a declaration keyword nor a visible macro"*. The
+row is gone and the compiler is unchanged, so the table now says what
+is true: there is no `newtype`. This is the kind of drift
+`scripts/check-doc-drift.sh` exists to catch, but that gate doesn't
+read the keyword table, so a probe found it instead.
 
-**B4 — a fallible call leaks 32 bytes. FIXED 2026-08-25.**
-`ERR-MEM-4`. Not a defect of this model; a defect this model is the
-first to have a number for, and the number is what closed it: the
-release was already emitted and a `match` binder was suppressing it,
-which no amount of reading the ownership rules would have said. The
-first diagnosis blamed `MM-LIFE-2c`'s ownership events and was wrong —
-they shipped and the 32 bytes did not move. The second named a
-field-class test on the binder path and was half right: it closes a
-concrete `Int` field and leaves `(Ok v)` untouched, because the useful
-type is the INSTANTIATED one and only the checker has it.
+**B4 — A fallible call leaked 32 bytes. Fixed.** This is `ERR-MEM-4`.
+It wasn't a defect of this model, but this model was the first to put
+a number on it, and the number is what closed it. The release was
+already emitted, and a `match` binder was suppressing it. `MM-LIFE-2c`'s
+ownership events weren't the cause. A field-class test on the binder
+path alone closes a concrete `Int` field and leaves `(Ok v)` untouched,
+because the useful type is the *instantiated* one, and only the checker
+has it.
 
-**B5 — a `match` binder over a polymorphic scrutinee has no type.
-FIXED 2026-08-21, RECORDED 2026-08-25.** `(match r ((Err y) y.code))`
-where `r : (Result a Error)` was `AX3004 expected struct or data type,
-found _a`: the checker instantiated the constructor's field to a
-fresh variable and never resolved it against the signature, so the
-binder had no fields. Passing the binder to a function whose parameter
-is declared at the concrete type recovered it, which was `ERR-TYPE-3a`.
+**B5 — A `match` binder over a polymorphic scrutinee had no type.
+Fixed.** `(match r ((Err y) y.code))` where `r : (Result a Error)` was
+`AX3004 expected struct or data type, found _a`. The checker
+instantiated the constructor's field to a fresh variable and never
+resolved it against the signature, so the binder had no fields.
+Passing the binder to a function whose parameter is declared at the
+concrete type recovered it, and that workaround was `ERR-TYPE-3a`.
 Every combinator in `stdlib/Err.ax` is still written that way, because
-those are public names and the shape costs nothing — not because the
+those are public names and the shape costs nothing, not because the
 rule still binds.
 
-`ctorPatEnv` closed it five days later (`a388fc1`), as a side effect of
-unrelated work on nested patterns, and **the four days between that
-and the sweep of 2026-08-22 are the interesting part**: that sweep
-re-checked every claim in every document against the compiler that was
-there, and this claim survived it. It could not have done otherwise.
-The sweep resolves the fixtures a document names and re-runs them; B5
-named no fixture, because a defect has none. A claim that something
-does NOT work is invisible to a gate built out of things that do, and
-this repository has now made that mistake twice — the other is
-`ERR-ADOPT-3`'s uniqueness claim, recorded in `docs/memory-model.md`
-§9.1. The fixture that would have existed if the negative had been
-false is `tests/stdlib/371-err-module.ax`, and it exists now: term 2
-runs the direct read and the routed one and compares their answers, so
-the claim is pinned by a program rather than by a sentence.
-
-The fixture it should have had is `tests/stdlib/371-err-module.ax`
-term 2, which now carries both spellings and compares them.
+`ctorPatEnv` closed it (`a388fc1`), as a side effect of unrelated work
+on nested patterns. The claim then survived a sweep that re-ran every
+fixture the documents name, because B5 named no fixture: a defect has
+none. A claim that something does *not* work is invisible to a gate
+built out of things that do. `ERR-ADOPT-3`'s uniqueness claim, recorded
+in [memory-model.md](memory-model.md) §9.1, is the same mistake.
+`tests/stdlib/371-err-module.ax` term 2 now pins it with a program: it
+runs the direct read and the routed one and compares their answers.
 
 ---
 
@@ -1344,11 +1392,11 @@ term 2, which now carries both spellings and compares them.
 |---|---|---|
 | `ERR-TYPE-1`, `2` | **H, gated** | `stdlib/Err.ax`; `tests/stdlib/371-err-module.ax` |
 | `ERR-TYPE-3` | **H, gated** | `mapErr`, `371-err-module.ax` term 8 |
-| `ERR-TYPE-3a` | **R** | retired 2026-08-25 — the limitation it recorded is gone (`ctorPatEnv`); `371` term 2 pins both spellings |
+| `ERR-TYPE-3a` | **R** | Retired: the limitation it recorded is gone (`ctorPatEnv`); `371` term 2 pins both spellings |
 | `ERR-TYPE-4` | **H, gated** | `okOr`/`toOption`, `371` term 4 |
 | `ERR-TYPE-5` | H | `fldClass` classifies from declared types |
 | `ERR-PROP-1` | H | the language having no other mechanism |
-| `ERR-PROP-2` | H | `#pure` accepted on INSPECT; refused on CONSTRUCT with `AX3010` since 2026-08-31 |
+| `ERR-PROP-2` | H | `#pure` accepted when inspecting an error; refused with `AX3010` when constructing one |
 | `ERR-PROP-3` | **H, gated** | `tests/stdlib/370-error-propagation.ax` term 16 + ablation |
 | `ERR-PROP-4` | **H, gated** | `tests/diagnostics/1005-recursion-in-scrutinee.ax` + `severity.policy` + `scripts/check-diagnostic-coverage.sh` |
 | `ERR-PROP-5` | H | effect inference, unchanged |
@@ -1363,421 +1411,312 @@ term 2, which now carries both spellings and compares them.
 | `ERR-REC-3` | R | handlers are tail-resumptive |
 | `ERR-REC-4` | **H, gated** | `tests/stdlib/490-main-result-ok.ax`, `491-main-result-err.ax` (+ `.out`/`.exit`/`.err`) |
 | `ERR-REC-5` | P | — |
-| `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax` — thirteen values, four of them memory terms with an ablation; `389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time since 2026-08-30 (410 gave up its two undischarged terms to it); `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
-| `ERR-REC-8` | **R, superseded 2026-09-09** | range-constrained subtypes refused as a type — decided 2026-09-08 (roadmap item 11, D2); SUPERSEDED: `(subtype N is Int range lo .. hi)` built 2026-09-09 (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal, and the re-measured counts |
+| `ERR-REC-7` | **H, gated** | `stdlib/Fallible.ax`; `410-fallible.ax`: thirteen values, four of them memory terms with an ablation; `tests/diagnostics/389-unhandled-at-main.ax` for the missing handler, which `AX3053` names at compile time; `scripts/check-steady-state.sh`'s `batch` probe, and `examples/batch-fallible` under the same gate |
+| `ERR-REC-8` | **R, superseded** | Range-constrained subtypes were refused as a type (roadmap item 11, D2), then built: `(subtype N is Int range lo .. hi)` (`tests/selfhost/134-subtype-checked.ax`, `135-subtype-violated.ax`), with narrowing conversions checked by the contract trap (80). The `;@axiom:pre(...)` vehicle still stands beside it. `docs/subtypes-design.md` keeps the case for, the reversal and the re-measured counts |
 | `ERR-DIAG-1` | H | `mkDiag` is the only channel |
-| `ERR-DIAG-2`, `3` | P | — `AX3043` constructed 2026-09-24 (`1008-error-payload-untyped.ax`); gated against collision (`AX3042` was, and renumbered `discarded-result`) |
+| `ERR-DIAG-2`, `3` | P | No proposal is open: the last one, `AX3043`, is built (`1008-error-payload-untyped.ax`). `scripts/check-doc-drift.sh` fails on a proposal whose number is spent |
 | `ERR-SUGAR-1` | R | `?` is `AX1001` |
-| `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, MAC-HYG-10 |
+| `ERR-SUGAR-2` | **H, gated** | `try!`; `371` term 16, `MAC-HYG-10` |
 | `ERR-SUGAR-3` | **H, gated** | `withContext`; `371` term 2 |
 
-Twenty-three rules hold, eleven of them named by a fixture that carries an
-ablation — and one of those ten, `ERR-REC-2`, has a fixture that
-reaches two of its four operators, which the row says. What remains is
-`ERR-REC-5`, `ERR-DIAG-2`/`3` and the migration
-itself — and the document says so in every row rather than in a note at
-the end.
+Every rule marked **H** names what holds it. What remains open is
+`ERR-REC-5`, `ERR-DIAG-2` and `ERR-DIAG-3`, whose rows say so, and the
+migration itself (§10).
 
 ---
 
 ## 10. Adoption
 
 **ERR-ADOPT-1 (P). The migration is 64 sites by §1.2's `grep` proxy,
-and 19 public functions over 6 modules by the metric that is gated —
-10 `failure` and 9 `absence`, down from 38 when that metric first read
-bodies instead of prose. It is not one commit.**
+and 19 public functions over 6 modules by the metric that is gated:
+10 `failure` and 9 `absence`. It is not one commit.**
 
-> **THE BLOCKER THIS RULE WAS WAITING ON DOES NOT APPLY, measured
-> 2026-09-01.** `memory-model-v2-proposal.md`'s P6 was named as the
-> thing that "closes the real `ERR-ADOPT-1` blocker": a `Result`
-> wrapper whose `Err` arm explains *why* it failed with a computed
-> message pays `Alloc, Mut`, so it cannot carry `pure`, cannot survive
-> `restrict(no-alloc)`, and cannot sit in a `handle` checked
-> exhaustive against a narrower row. The mechanism is real and
-> reproduces —
->
-> ```
-> F openish  "(Int -> Result Int Error)"  #effects=Alloc,Mut
-> F openLit  "(Int -> Result Int Error)"  #effects=Alloc
-> ```
->
-> — the first with a `strConcat`'d message, the second with a literal.
-> **It bites nowhere this migration goes.** The two populations are
-> almost disjoint: all **29 failure sentinels**, the ones that become
-> `Result`, sit in modules carrying **zero** `no-alloc` and **zero**
-> `restrict` claims (`Sys.ax` has 26 of them and already declares
-> `effect(io)` seventy times — they are syscall wrappers, effectful
-> already). The modules dense with `no-alloc`/`restrict` — `Str.ax`,
-> `Tui/Keys.ax`, `Utf8.ax`, `Tui/Term.ax` — carry **absence**
-> sentinels, which become `Option`, which has no `Error` and no
-> computed message.
->
-> **THAT IS TRUE AND THE CONCLUSION DID NOT FOLLOW, measured
-> 2026-09-01.** `Option` carries no `Error` and builds no message, and
-> it still ALLOCATED: `(Some v)` was a constructor application, and
-> `restrict(no-alloc)` refused it with `AX3049`. Five of the absence
-> sentinels carried that claim themselves — `strHexVal`,
-> `utf8DecodeAt`, `utf8CharAt`, `keyStrEnd` and `strFindByte` — so
-> they could not become `Option` without withdrawing it. The one
-> absence sentinel in a module with NO restriction claim was ported on
-> that reading: `internFind` (§10.1). This was invisible until 0.6.1,
-> which made `restrict(no-alloc)` able to fail at all; before that a
-> constructor contributed nothing to the effect walk and the claim
-> could not be violated.
->
-> **AND THE ALLOCATION IS GONE, 2026-09-03.** A function whose every
-> tail is `None` or `(Some e)` is emitted as a two-register pair with
-> no boxed body beside it, a caller that needs a block builds it at the
-> call, and the effect walk charges the block there — the caller's
-> row, not the lookup's (`docs/unboxed-sums-design.md` §5b). So
-> `restrict(no-alloc)` HOLDS for a lookup of that shape, checked
-> against its IR rather than withdrawn, and the four claims above are
-> no longer a reason not to port; `strFindByte` still is, for a
-> different reason (it tail-calls itself, which the pair does not yet
-> take). `tests/diagnostics/384-restrict-no-alloc-ctor.ax` gates the
-> whole rule: a `some` arm (silent), a `none` arm (silent), and a
-> `held` arm that `let`-binds the answer past its match (`AX3049`) —
-> the block did not vanish, it moved to whoever stores the answer.
-> Recomputed
-> from `compat/SENTINELS` and a claim count per file; P6 stays
-> refuted (its `Mut` half is unsound, see the proposal) and stays
-> irrelevant here. **The migration may proceed, starting with
-> `Sys.ax`.** The proxy sizes the work and is recomputed rather
-than quoted (§1.2). The gated unit is a public function whose own
-doc-comment states a sentinel contract - what the migration ports, and
-what a caller depends on - recorded in `compat/SENTINELS` and
-recomputed by `scripts/check-compat.sh`, which fails any module that
-RISES. A module may fall freely, and the number in `compat/SENTINELS`
-is lowered in the same commit that lowers the count: that is the
-direction, gated before anything is ported. Order, each slice green
-before the next:
+§10.1 has what is left today, and §10.2 has the order in which the
+slices actually landed. `compat/BREAKING` declares every ported
+function against the version that retyped it.
 
-1. ~~`stdlib/Err.ax`~~ **DONE 2026-08-16** — `Result`, `Error`,
-   `mapErr`, `withContext`, `okOr`, `toOption`, `andThen`, `mapOk`,
-   `unwrapOr`, the `ERR-REC-2` checked operators, and `try!`. Nothing
-   else in `stdlib/` changed and nothing there imports it yet, which is
-   the point of doing it first: `tests/stdlib/371-err-module.ax`
-   exercises it across a module boundary and no existing caller moved,
-   and the FFI fixtures match `Ok`/`Err` across the Rust boundary
-   without touching the rest of the module
-   (`tests/ffi/demo/050-fallible.ax`,
+A `Result` whose `Err` arm builds its message pays more than one with a
+literal message. `axiom symbols` shows the difference:
+
+```text
+F openish  "(Int -> Result Int Error)"  #effects=Alloc,Mut
+F openLit  "(Int -> Result Int Error)"  #effects=Alloc
+```
+
+The first builds its message with `strConcat`, and the second uses a
+literal. A function that pays `Alloc, Mut` cannot carry `pure`, cannot
+pass `restrict(no-alloc)`, and cannot sit in a `handle` checked
+exhaustive against a narrower row. P6 in
+[memory-model-v2-proposal.md](memory-model-v2-proposal.md) was proposed
+to remove this cost. It stays refuted, because its `Mut` half is
+unsound, and the migration doesn't need it.
+
+The two populations barely overlap. All 29 failure sentinels, the ones
+that become `Result`, sit in modules with no `no-alloc` or `restrict`
+claim. `Sys.ax` holds 26 of them: syscall wrappers in a module that
+already declares `effect(io)` seventy times. The modules dense with
+`no-alloc` and `restrict` claims (`Str.ax`, `Tui/Keys.ax`, `Utf8.ax`
+and `Tui/Term.ax`) carry absence sentinels. Those become `Option`,
+which carries no `Error` and builds no message.
+
+An `Option` still needs a block once something stores it. `(Some v)` is
+a constructor application, and `restrict(no-alloc)` refuses an
+allocating one with `AX3049`. Five absence lookups carry that claim
+themselves: `strHexVal`, `utf8DecodeAt`, `utf8CharAt`, `keyStrEnd` and
+`strFindByte`.
+
+A function whose every tail is `None` or `(Some e)` is emitted as a
+two-register pair, with no boxed body beside it. A caller that needs a
+block builds it at the call, and the effect walk charges that caller's
+row, not the lookup's
+([unboxed-sums-design.md](unboxed-sums-design.md) §5b). So
+`restrict(no-alloc)` holds for a lookup of that shape, checked against
+its IR. The pair doesn't yet take a function that tail-calls itself,
+which is why `strFindByte` needed a different fix (§10.1).
+
+`tests/diagnostics/384-restrict-no-alloc-ctor.ax` pins the rule. Its
+`some` and `none` arms stay silent. Its `held` arm `let`-binds the
+answer past its match and gets `AX3049`: the block didn't vanish, it
+moved to whoever stores the answer.
+
+The `grep` proxy sizes the work and is recomputed rather than quoted
+(§1.2). The gated unit is a public function whose body answers a
+sentinel: what the migration ports, and what a caller depends on.
+`compat/SENTINELS` records the count per module, split into `failure`
+and `absence`.
+
+`scripts/check-compat.sh` recomputes the census and requires it to
+agree with `compat/SENTINELS` row for row. A module whose count rises
+fails. A port that lowers a count must lower the file in the same
+commit, or it fails too. An ablation probe plants a public function
+that forwards a raw syscall in a copy of `stdlib/`, and the census must
+count it. The gate reports every disagreement before it exits.
+
+The census is `sentinel_census` in `tests/compat/verify-compat.py`.
+A body that mentions a syscall counts as `failure` only when the
+syscall's result reaches the answer, directly or through a `let`
+binder. A version that followed only direct returns wrongly moved
+`sysNowMonotonic`, a real failure that forwards `clock_gettime`'s errno
+through such a binder. A body with no `-1` in return position never
+reaches the rule, so `netAccept` is untouched by it.
+
+The slices, in order, each green before the next starts:
+
+1. `stdlib/Err.ax`. Done. It provides `Result`, `Error`, `mapErr`,
+   `withContext`, `okOr`, `toOption`, `andThen`, `mapOk`, `unwrapOr`,
+   the `ERR-REC-2` checked operators and `try!`. It went first because
+   nothing else in `stdlib/` had to change.
+   `tests/stdlib/371-err-module.ax` exercises it across a module
+   boundary. The FFI fixtures match `Ok` and `Err` across the Rust
+   boundary (`tests/ffi/demo/050-fallible.ax`,
    `tests/ffi/demo/184-nested-fallible.ax`).
 
-   What that fixture reaches, checked 2026-08-22: `divChecked`,
-   `shlChecked`, `try!`, `mapErr`, `andThen`, `okOr`, `toOption`,
-   `withContext`, `errorText`, `errCode`, `mkError`, `intMin` and the
-   three error codes. **Eight exports are reached by nothing** — no
-   fixture, no caller in `self_host/` or `stdlib/`: `isOk`, `isErr`,
-   `errMessage`, `errContext`, `mapOk`, `unwrapOr`, `remChecked` and
-   `shrChecked`. By this repository's own rule they are documentation
-   and not specification until a term reaches them, and there are two
-   honest ways out: a term that calls them, or a deletion. Slice 2
-   decides it, because it is the first slice with a caller.
-2. `stdlib/Utf8.ax`, `stdlib/Str.ax`, `stdlib/Path.ax` — 11 sites, no
-   `errno`, pure, no callers outside `stdlib/`. The rehearsal.
-3. `stdlib/IO.ax` and `stdlib/Sys.ax` — the `-errno` convention. The
-   `Error.code` for these is the errno itself, negated back, so no
-   information is invented and none is lost.
+   By this repository's rule, an export that no term reaches is
+   documentation, not specification. `isOk`, `isErr`, `errMessage`,
+   `errContext`, `mapOk`, `unwrapOr`, `remChecked` and `shrChecked`
+   were once in that state. All eight have callers now, some only
+   through `371-err-module.ax`. Recount before deleting any of them.
+2. `stdlib/Utf8.ax`, `stdlib/Str.ax` and `stdlib/Path.ax`. The proxy
+   counts 11 sites: no `errno`, pure, and no callers outside `stdlib/`.
+   It was planned as the rehearsal. §10.2 recounts it and explains why
+   it landed last.
+3. `stdlib/IO.ax` and `stdlib/Sys.ax`: the `-errno` convention.
+   `Error.code` is the errno, negated back, so no information is
+   invented and none is lost.
 
-   **`IO.ax`'s half is done, 2026-08-26.** Eight calls answer
-   `(Result Int Error)`: `writeFile`, `appendFile`, `removeFile`,
-   `renamePath`, `fileSize`, `makeDirAll`, `removeDir` and `copyFile`,
-   all through one converter, `ioResult`. `IO.ax`'s census went **8 to
-   1** — `writeStr` is what remains, and it is the hot printing path
-   rather than a filesystem call, so it is its own decision.
+   **Files.** In `IO.ax`, `writeFile`, `appendFile`, `removeFile`,
+   `renamePath`, `fileSize`, `makeDirAll`, `removeDir` and `copyFile`
+   answer `(Result Int Error)` through one converter, `ioResult`. In
+   `Sys.ax`, `sysWriteFile`, `sysAppendFile`, `sysUnlink`, `sysMkdir`,
+   `sysRmdir`, `sysRename` and `sysFileSize` answer it through
+   `sysResult`. `IO`'s wrappers re-wrap `Sys`'s `Result` rather than
+   convert it: `Sys` has the errno and `IO` has the path, so the code
+   carries through and only the message is rebuilt.
 
-   It was far smaller than this list implied: `self_host/` calls none
-   of the eight. The real call sites were **one internal use and two
-   test fixtures**, and porting them gave `unwrapOr`, `isErr` and
-   `errCode` the callers §10's own note asks for. `055-filesystem.ax`
-   now asserts an errno through `errCode` rather than comparing
-   against `(- 0 2)` — which is the assertion `Result` makes possible
-   and the sentinel convention did not, because "it failed with 2" and
-   "it answered 2" were the same Int.
+   `IO.writeStr` still answers a byte count or a negative errno. It is
+   the hot printing path rather than a filesystem call, so it is its
+   own decision.
 
-   **`Sys.ax`'s filesystem half is done too, the same day.** Seven raw
-   wrappers answer `(Result Int Error)` through `sysResult`:
-   `sysWriteFile`, `sysAppendFile`, `sysUnlink`, `sysMkdir`,
-   `sysRmdir`, `sysRename`, `sysFileSize`. `IO.ax`'s wrappers RE-WRAP
-   rather than convert now — `Sys` has the errno and `IO` has the path,
-   so the code carries through and only the message is rebuilt.
-   `Sys.ax`'s census: **13 → 7**; the whole library **30 → 17**.
+   `self_host/` calls none of these. Porting the one internal use and
+   two test fixtures gave `unwrapOr`, `isErr` and `errCode` callers.
+   `tests/stdlib/055-filesystem.ax` asserts an errno through `errCode`
+   instead of comparing against `(- 0 2)`. With a sentinel, "it failed
+   with 2" and "it answered 2" are the same `Int`, and a `Result` tells
+   them apart.
 
-   **The claim that `Sys` sits below `Err` was wrong, and it was load
-   bearing.** `Err` imports only `Str`; `Str` imports `Mem` and `Vec`.
-   There is no cycle, and `(import Err)` in `Sys.ax` compiles first
-   try. This slice was deferred once on a dependency that does not
-   exist — *read the import graph before believing an ordering claim
-   about it.*
+   `Sys` doesn't sit below `Err` in the import graph. `Err` imports
+   only `Str`, and `Str` imports `Mem` and `Vec`, so `(import Err)` in
+   `Sys.ax` compiles with no cycle. Read the import graph before you
+   trust an ordering claim about it.
 
-   **The port surfaced a wrong-code path the checker cannot see.**
-   `makeDir`'s body is one `sysMkdir` call and its signature says
-   `Int`. When `sysMkdir` began answering a `Result`, `makeDir` kept
-   type-checking and started returning a **heap address** where an
-   errno belonged — because `Int` is the universal heap-handle type.
-   Nothing refused it; `tests/stdlib/055-filesystem.ax` printed
-   `got=4372103456 want=0`, and that is what caught it. A fixture
-   asserting an observed VALUE stands exactly where the type system
-   does not.
+   A port can also produce wrong code that the checker cannot see.
+   `makeDir`'s body
+   is one `sysMkdir` call, and its signature says `Int`. When `sysMkdir`
+   began answering a `Result`, `makeDir` still type-checked and returned
+   a heap address where an errno belonged, because `Int` is the
+   universal heap-handle type. The compiler accepted it.
+   `tests/stdlib/055-filesystem.ax` caught it by printing
+   `got=4372103456 want=0`. A fixture that asserts an observed value
+   covers the ground the type system doesn't.
 
-   **The process half is done too.** `sysSpawn`, `sysWaitPid`,
-   `sysRun`, `sysRunPath` and `sysRandomBytes` answer
-   `(Result Int Error)`. `sysRun`'s three-way contract is now split by
-   the TYPE rather than by a sign: **`Err` means the child never ran**
-   (the spawn's own errno), `Ok` means it ran and carries what it
-   answered, including `128+n` for a signal. That is the distinction
-   this file's own comment says a driver must not lose. `Sys.ax`'s
-   census: **13 → 3**; the library **30 → 13**.
+   **Processes.** `sysSpawn`, `sysWaitPid`, `sysRun`, `sysRunPath` and
+   `sysRandomBytes` answer `(Result Int Error)`. `sysRun`'s three-way
+   contract is split by type rather than by sign. `Err` means the child
+   never ran, and carries the spawn's own errno. `Ok` means it ran, and
+   carries what it answered, including `128+n` for a signal.
 
-   **The three net calls are deliberately NOT ported.** `netPollWait`
-   runs inside the echo server's event loop, so an `(Ok n)` block would
-   allocate per poll wake, outside the per-connection arena scope —
-   and `scripts/check-net.sh` asserts memory ratios on exactly that
-   server. Risking a measured gate for no safety gain is the wrong
-   trade, and it is the same reasoning that leaves `IO.writeStr` on a
-   sentinel. `runTool` in `self_host/driver.ax` unwraps at the stdlib
-   boundary for the same reason of scope: the compiler's own phases are
+   **Socket configuration.** `netBind`, `netListen`, `netConnect`,
+   `netShutdown`, `netSetOptInt`, `netSetBlocking` and
+   `netSetNonBlocking` answer `(Result Int Error)` through `sysResult`.
+   Each answers only whether it did what it was asked, so `Ok 0` is the
+   whole of success and the errno is `Error.code`. Call sites that
+   compared the answer against `0` use `isOk` or `isErr`, and
+   `tests/net/echo-server.ax` reports a failed bind through
+   `errMessage` and `errCode`.
+
+   **"Did it work" calls.** `sysCloseFd`, `netPollAddRead`,
+   `netPollDelRead`, `sysSignalBlock` and `sysKill` answer
+   `(Result Int Error)`. Porting `sysCloseFd` widened one other row:
+   `sysFileExists` gains `Alloc`, because it closes the descriptor it
+   opened. `verify-compat.py generate` over `stdlib/` differs in
+   exactly those two rows before and after, because every other
+   function that closes a descriptor already allocated. No `no-alloc`
+   module reaches either name.
+
+   **Descriptors.** `sysOpenPath`, `netSocketTcp`, `netSocketTcp6`,
+   `netPollCreate` and `netSignalOpen` answer `(Result Int Error)`.
+   These head a resource lifetime, so they cost the most. A "did it
+   work" call is one expression at each site, but a call that answers a
+   descriptor retypes `lsn`, `cli`, `pfd` and everything downstream.
+   Nine fixtures moved from `(let ((lsn netSocketTcp)) BODY)` to a
+   `match` whose `Err` arm says what the program does with no socket.
+   That is the point: seven of `netSocketTcp`'s seventeen call sites
+   never tested the result.
+
+   **Private raw forms.** `sysOpenPath` keeps a private raw form,
+   `sysOpenRaw`. Ten functions in `Sys.ax` open a descriptor, test it
+   and convert the errno into their own answer: a `sysResult` with
+   their own operation name, a `Bool` or a `String`. Routing them
+   through the public wrapper would build a `Result` only to take it
+   apart. `sysReadFile`, `sysFileExists`, `sysReadDir` and `sysGetCwd`
+   are unchanged in `axiom symbols` across the port.
+
+   `netSetNonBlocking` keeps one too, for a sharper reason.
+   `netAcceptFinish`, shared by `netAccept` and `netAcceptFrom`, calls
+   it once per accepted connection on targets where the kernel doesn't
+   take `SOCK_NONBLOCK`. Porting that callee gave `netAccept` and
+   `netAcceptFrom` `Alloc`: an `(Ok 0)` per connection, allocated below
+   the echo server's arena mark and never reclaimed. The fix is a
+   private `netSetNonBlockingRaw` that answers the raw result, with the
+   `Result` as the public skin over it. `axiom symbols` is what showed
+   the problem, so after porting a callee, check its callers'
+   `#effects=` rows.
+
+   `scripts/check-net.sh` doesn't catch this. With the allocation
+   restored to the accept path, the gate stayed green at 182× against
+   its floor of 50 (344× with the split). The scoped arm's growth over
+   9,800 connections rose from 400 KiB to 512 KiB, about 12 bytes per
+   connection, which is within what a page-granular RSS reading can
+   resolve. The ratio floor is sized to catch an arena that stopped
+   reclaiming, not one 32-byte block per connection. What holds a
+   hot-path exclusion is `#effects=` in `axiom symbols`, which is
+   exact.
+
+   **Hot paths.** The slice line is where a call runs, not what it
+   does. The calls above run once per socket. `netAccept` and
+   `netAcceptFrom` run once per connection, `netPollWait` and
+   `netPollSignalAt` once per wake, and `sysWriteFd` and `sysReadFd`
+   once per write. In `tests/net/echo-server.ax`, `netAccept`,
+   `netAcceptFrom` and `netPollWait` are reached below the
+   per-connection `__axiom_arena_mark`, so a boxed `(Ok n)` there is a
+   block per call that the reset never rewinds.
+
+   The hot-path calls were held out of this slice for that reason (`netPollSignalAt` also
+   for the one below). Once a `Result` became an unboxed pair, a direct
+   match builds no block on success
+   ([unboxed-sums-design.md](unboxed-sums-design.md) §5b), and §10.1
+   records their port. `runTool` in `self_host/driver.ax` unwraps
+   at the stdlib boundary, because the compiler's own phases are
    slice 4.
 
-   **The socket-CONFIGURATION half is done, 2026-08-31.** Seven calls
-   answer `(Result Int Error)` through `sysResult`: `netBind`,
-   `netListen`, `netConnect`, `netShutdown`, `netSetOptInt`,
-   `netSetBlocking` and `netSetNonBlocking`. Each answers nothing but
-   whether it managed what it was asked to do, so `Ok 0` is the whole
-   of the success and the errno is `Error.code`. `stdlib/Sys.ax`'s
-   census: **26 → 19**; the library **29 → 22**
-   (`scripts/check-compat.sh`, 30 checks).
+   `netPollSignalAt` reports an absence. It answers the signal named by
+   event `i`, and every bad-path answer it wrote was a hand-written
+   `-1` meaning "this event is not a signal". All five call sites read
+   it as a presence test, and `tests/stdlib/315-signal-in-poll.ax`
+   checks that a socket event is not read as a signal. That is
+   `ERR-REC-3`'s absence, so it answers `(Option Int)`. The census had
+   filed it under `failure`, because a mention of a syscall in its body
+   outweighed its `-1` returns. On Linux, a short `signalfd` read also
+   answered `-1`, so the port had two outcomes to place, not one. It
+   answers `None` for both.
 
-   **The slice line is WHERE THE CALL RUNS, not what it does.** All
-   seven run once per socket. What is left in `Sys.ax` is per-connection
-   (`netAccept`, `netAcceptFrom`), per-wake (`netPollWait`,
-   `netPollSignalAt`) or per-write (`sysWriteFd`, which `IO.writeStr`
-   forwards) — the exclusions this section already states, and the
-   paragraph below is what actually holds them.
-   `netSocketTcp`/`netSocketTcp6` are left for a different
-   reason: they are nullary and answer the descriptor itself, so
-   porting them retypes every `lsn` and `cli` *binding* in eight files
-   rather than one expression at each call site.
+   The descriptor port surfaced two defects. In `311-preforked-server.ax`, the
+   connect loop's `Err` arm didn't advance `sent`, whose bound is the
+   loop condition, so the fixture could hang. In
+   `315-signal-in-poll.ax`, the assertion `(>= sh 0)` could no longer
+   fail once `sh` was an `Ok` binder, because `sysResult` builds `Ok`
+   only for a non-negative answer. The assertion moved to the `Err`
+   arm, where it can fail.
 
-   The blast radius was **47 call expressions over eight files**, all
-   in `tests/` and `examples/`: `stdlib/` and `self_host/` call none of
-   the seven. Every site that compared the answer against `0` is now
-   `isOk` or `isErr`, and `tests/net/echo-server.ax` renders a failed
-   bind through `errMessage` and `errCode`.
+   Porting a callee can force its caller. `platformWriteFd` in
+   `stdlib/Sys/Platform.darwin.ax` couldn't move before `sysWriteFd`,
+   which forwards it wherever `usesSyscallAbi` is 0. Porting it alone
+   gave two errors at once:
 
-   **Slice 1's "eight exports are reached by nothing" is stale, and
-   this slice is not what closed it.** Counted 2026-08-31 over
-   `stdlib/`, `self_host/`, `tests/` and `examples/`, excluding
-   `Err.ax` itself, at the commit before this one: `isOk` 17, `isErr`
-   21, `unwrapOr` 73, `errMessage` 3, `errContext` 1, `mapOk` 1,
-   `remChecked` 2, `shrChecked` 1. All eight already had a caller —
-   four of them only through `tests/stdlib/371-err-module.ax`, which
-   grew to reach them. This slice takes `isOk` to 28, `isErr` to 25 and
-   `errMessage` to 4. The list above is left in place because it is
-   what the decision was made against; it is not a description of the
-   tree today, and a reader deciding whether to delete a name must
-   recount rather than quote.
-
-   **A CALLEE UNDID THE EXCLUSION FROM UNDERNEATH, and `symbols`
-   is what saw it.** `netAcceptFinish` — shared by `netAccept` and
-   `netAcceptFrom` — calls `netSetNonBlocking` on the target where the
-   kernel does not take `SOCK_NONBLOCK`, which is once per accepted
-   connection. Porting that callee gave **`netAccept` and
-   `netAcceptFrom` `Alloc`**, an `(Ok 0)` per connection allocated
-   *below* the echo server's arena mark and therefore never reclaimed.
-   The fix is a private `netSetNonBlockingRaw` answering the raw
-   result, with the `Result` as the public skin over it.
-
-   **And `check-net.sh` would NOT have caught it.** Measured
-   2026-08-31 with the allocation restored to the accept path: the
-   gate stayed green at **182×** against its floor of 50 (344× with
-   the split), and the scoped arm's growth over 9,800 connections rose
-   from 400 KiB to 512 KiB — about 12 bytes per connection, which is
-   inside what a page-granular RSS reading can be asked to resolve.
-   So the sentence above — "risking a measured gate" — overstates what
-   the gate measures. The ratio floor is sized to catch an arena that
-   stopped reclaiming, not one 32-byte block per connection. The
-   exclusion still stands, and it now stands on `#effects=` in
-   `axiom symbols`, which is exact, rather than on a ratio that is not.
-
-   **The "did it work" half is done, 2026-09-01.** The same rule as the
-   slice above, applied to what was left: every call in `Sys.ax` whose
-   ENTIRE answer is whether it worked. `sysCloseFd`, `netPollAddRead`,
-   `netPollDelRead`, `sysSignalBlock` and `sysKill` answer
-   `(Result Int Error)`. `stdlib/Sys.ax`'s census: **19 → 14** by the
-   port, and **14 → 13 failure with 0 → 1 absence** by a census fix
-   described below. The library is **16 failure + 10 absence**.
-
-   Six WIDENED rows, and the sixth is collateral worth naming:
-   `sysFileExists` gains `Alloc` because it closes the descriptor it
-   opened. That is the **only** such row — `verify-compat.py generate`
-   over `stdlib/` before and after the `sysCloseFd` port differs in
-   exactly two rows, `sysCloseFd` and `sysFileExists` — because every
-   other function in the library that closes a descriptor already
-   allocated. No `no-alloc` module reaches either name.
-
-   **No callee undid an exclusion this time, and it was checked rather
-   than assumed.** `netAccept` is `#effects=IO`, `netAcceptFrom`
-   `#effects=IO,Mut` and `netPollWait` `#effects=IO,Mut` after the
-   port, unchanged. That check is the standing cost of the previous
-   slice's finding.
-
-   **`netPollSignalAt` was never a failure, and the census said it
-   was.** It answers "the signal named by event `i`, or a negative when
-   that event is not a signal at all"; every bad-path answer it writes
-   is a hand-written `-1`, and all five call sites read it as a
-   presence test — `tests/stdlib/315-signal-in-poll.ax:131` asserts
-   `< 0` for "a socket event is not read as a signal". That is
-   `ERR-REC-3`'s **absence**, wanting `Option`. It was filed under
-   `failure` because `sentinel_census` let a body's mere *mention* of a
-   syscall beat its `-1` returns, and its Linux arm reads a `signalfd`
-   whose result is compared and never returned.
-
-   `verify-compat.py` follows the syscall result to the answer now,
-   through a `let` binder as well as directly. The direct-only version
-   was written first and **also moved `sysNowMonotonic`**, which is a
-   real failure forwarding `clock_gettime`'s errno through exactly that
-   binder — a false positive at a population of two, which is the whole
-   argument for following the binding. The rule is narrow by
-   construction: a body with no `-1` in return position never reaches
-   it, so `netAccept` is untouched. Measured over `stdlib/`, it moves
-   exactly one row.
-
-   It is recorded rather than ported. Its Linux arm folds a short
-   `signalfd` read into the same `-1`, so it conflates absence with
-   failure and porting it means **splitting two outcomes**, not
-   rewrapping one.
-
-   **`check-compat.sh`'s census floor expired on this slice, and is
-   gone.** It read `total_now < 30` against a population of 38; this
-   slice takes the census to 26, so the gate went red for the migration
-   *succeeding*. What replaces it is stricter, not looser: the computed
-   census must agree with `compat/SENTINELS` **row for row**, which is
-   the rule this section already states. It additionally catches a port
-   that lowers the count and leaves the file stale — which the floor
-   passed in silence — and the "did the rule stop matching" question
-   the floor was really asking is a named ablation now: a public
-   function forwarding a raw syscall is planted in a copy of `stdlib/`
-   and the census must count it. Both directions were ablated.
-
-   **And the gate died halfway through reporting.** Under
-   `set -euo pipefail`, the `diff a b | sed | head` that prints a
-   census disagreement exits 1 and takes the script with it, so a tree
-   with two faults reported one and the probes below never ran. Three
-   such pipelines are braced now. This is the "a gate that reports
-   LESS than it knows" hazard, found inside the gate written to refuse
-   it.
-
-   **The descriptor-answering half is done, 2026-09-01.**
-   `sysOpenPath`, `netSocketTcp`, `netSocketTcp6`, `netPollCreate` and
-   `netSignalOpen` answer `(Result Int Error)`. `stdlib/Sys.ax`'s
-   census: **13 → 8** failure. These are the head of a resource
-   lifetime, and that is why they were left until last and why they
-   cost the most: a call whose whole answer is "did it work" is one
-   expression at each site, but a call that answers a DESCRIPTOR
-   retypes `lsn`, `cli` and `pfd` and everything downstream, so nine
-   fixtures moved from `(let ((lsn netSocketTcp)) BODY)` to a `match`
-   whose `Err` arm has to say what the program does with no socket.
-   That is also the point: seven of `netSocketTcp`'s seventeen call
-   sites never tested the result.
-
-   **`sysOpenPath` keeps a private raw form, for `netSetNonBlockingRaw`'s
-   reason.** Ten functions in `Sys.ax` open a descriptor, test it, and
-   convert the errno into their own answer — a `sysResult` with their
-   own operation name, a `Bool`, or a `String`. Routing them through
-   the public wrapper would build a `Result` and take it apart again to
-   reach a conversion they already do. Measured: `sysReadFile`,
-   `sysFileExists`, `sysReadDir` and `sysGetCwd` are unchanged in
-   `axiom symbols` across this port.
-
-   **Two defects the port itself surfaced, both of the class this
-   section already names.** In `311-preforked-server.ax` the connect
-   loop's `Err` arm did not advance `sent`, whose bound is the loop
-   condition — the hang shape `Job.jobSubmit` produced when `302-job`
-   hung rather than failed. (`stdlib/Job.ax` and `302-job` were deleted
-   at 0.7.4, replaced by `stdlib/Par.ax` and
-   `tests/stdlib/476-par-pool.ax`; the defect is quoted here as it
-   happened, and `Par.parRunOne` carries the same `match`-not-`unwrapOr`
-   argument forward.) And in `315-signal-in-poll.ax` the
-   assertion `(>= sh 0)` became a check that cannot fail once `sh` is
-   an `Ok` binder, because `sysResult` builds `Ok` only for a
-   non-negative answer; the assertion moved to the `Err` arm, where it
-   can.
-
-   **`netAccept` stays out, re-measured.** Porting it gives it
-   `#effects=Alloc,IO`, and `tests/net/echo-server.ax` reaches it below
-   the per-connection `__axiom_arena_mark`, so that is an `(Ok fd)` per
-   connection the reset never rewinds. `netAcceptFrom` and
-   `netPollWait` are the same case; `sysWriteFd` and `sysReadFd` are
-   the per-write one.
-
-   **`stdlib/Sys/Platform.darwin.ax`'s three cannot be finished before
-   `sysWriteFd` moves, and this was probed rather than argued.**
-   Porting `platformWriteFd` produces two errors at once:
-
-   ```
+   ```text
    E AX3010 ... `pure` claim contradicted: body performs Alloc
    E AX3004 stdlib/Sys.ax:160 ... expected Int, found Result Int Error
    ```
 
-   The first is the `;@axiom:pure` tag all three carry — on Darwin they
-   are `-ENOSYS` stubs, and a `Result` allocates. The second is
-   `sysWriteFd`, which forwards `platformWriteFd` wherever
-   `usesSyscallAbi` is 0: porting the *callee* forces the caller this
-   section excludes, which is slice 1's `netAcceptFinish` finding
-   running backwards. Behind both, `check-stdlib-api.sh` requires all
-   five `Sys/Platform.*` files to declare the same names, so it is a
-   five-file change whose real implementation is in
-   `Platform.windows.ax`.
+   The first came from the `;@axiom:pure` tag on Darwin's `-ENOSYS`
+   stubs, since a boxed `Result` allocates. The second is the caller.
+   `scripts/check-stdlib-api.sh` requires all five `Sys/Platform.*`
+   files to declare the same names, so a change there touches five
+   files, and the real implementation is in `Platform.windows.ax`.
 
-   **`unwrapOr` with a constant is not a port, and it cost three
-   defects here.** Wherever the sentinel carried WHICH failure, a
-   fallback value destroys it and nothing complains:
+   `unwrapOr` with a constant is not a port. Where the sentinel
+   carried which failure happened, a fallback value destroys that and
+   nothing complains. It caused three defects:
 
-   - `Job.jobSubmit` — a failed spawn became pid `0`, which is not
-     `< 0`, so the pool counted it live and `sysWaitPid 0` waited for
-     any child in the group. `302-job` **hung** rather than failed.
-     (That module was replaced by `stdlib/Par.ax` at 0.7.4. The lesson
-     was not: `parRunOne` matches on `sysRunPath`'s `Result` for
-     exactly this reason, and says so where it does it.)
-   - `993-filesystem-verbs` — `(== (unwrapOr … 0) -2)` is silently
+   - A job pool turned a failed spawn into pid `0`. That is not `< 0`,
+     so the pool counted it live, and `sysWaitPid 0` waited for any
+     child in the group. The test hung rather than failed.
+     `stdlib/Par.ax` matches on `parRunOne`'s `Result` instead of
+     unwrapping it, and its comment says why.
+     `tests/stdlib/476-par-pool.ax` checks that a missing program
+     answers a negative errno in its own slot.
+   - In `993-filesystem-verbs`, `(== (unwrapOr … 0) -2)` was silently
      false, so the case counted one fewer success and exited 1 for 77.
-   - `305-path-search` — printed the fallback for every failure, which
-     is the vacuous pass that fixture's own comment exists to prevent.
+   - `305-path-search` printed the fallback for every failure: the
+     vacuous pass that fixture's own comment exists to prevent.
 
-   All three are `match` now. The rule: **`unwrapOr` is safe only where
-   the fallback is genuinely equivalent to the error.**
-4. `self_host/` — the compiler's own phases, which is where the model
-   stops being a library and starts being the thing that proves it.
+   All three use `match` now. **`unwrapOr` is safe only where the
+   fallback is genuinely equivalent to the error.**
+4. `self_host/`: the compiler's own phases, where the model stops
+   being a library and becomes the thing that proves it.
 
-   **Measured 2026-08-26, and this slice is almost entirely
-   mis-specified.** Twenty-five declarations in `self_host/` carry a
-   sentinel contract. Classified by what the sentinel MEANS:
-   **twenty-one are absence, not failure** — `namedFieldIndex` answers
-   "where the pattern mentions field `n`, or -1"; `structFieldOf`
-   answers "0 when the struct does not declare the name";
-   `findExternUnit`, `scopeFindIdx`, `slotFirstIndex`, `expRepIndex`
-   and the rest are the same shape. They are LOOKUPS. A lookup that
-   finds nothing has not failed.
+   Twenty-five declarations in `self_host/` carry a sentinel contract.
+   Classified by what the sentinel means, twenty-one are absence, not
+   failure. `namedFieldIndex` answers "where the pattern mentions field
+   `n`, or -1". `structFieldOf` answers "0 when the struct does not
+   declare the name". `findExternUnit`, `scopeFindIdx`,
+   `slotFirstIndex`, `expRepIndex` and the rest have the same shape.
+   They are lookups, and a lookup that finds nothing has not failed.
 
-   Of the remaining four, `tcAddExtern`'s comment is about a parameter
-   rather than a return, `targetCode`'s `-1` is an unknown target
-   *name* the caller already refuses loudly, and `runTool` is the one
-   genuine failure — bounded at the stdlib edge, where it unwraps
-   `sysRunPath` to 127.
-
-   So the `Result` work in this slice is **one function**, and it is
-   done.
-5. The REPL surface, `check-repl-selfhost.sh`'s session bank extended
+   Of the other four, `tcAddExtern`'s comment is about a parameter,
+   not a return. `targetCode`'s `-1` is an unknown target name, which
+   the caller already refuses loudly. `runTool` is the one genuine
+   failure, bounded at the stdlib edge, where it unwraps `sysRunPath`
+   to 127. So the `Result` work in this slice is one function, and it
+   is done.
+5. The REPL surface: `check-repl-selfhost.sh`'s session bank, extended
    with an `Err` at the prompt.
 
-**The absence column moved for the first time since it was shown to be
-blocked, 2026-09-01: `internFind` answers `(Option Int)`, and the
-library is 10 failure + 9 absence.** It was the only one of the ten
-that the note above left to a measurement rather than to a claim, and
-the measurement is this — two compilers built by the same compiler from
-sources differing only in the port, both compiling the same
-197,338-line input, best of five:
+`internFind` in `stdlib/Intern.ax` answers `(Option Int)`. That module
+carries no `restrict` claim, so its cost was a question for measurement
+rather than a refusal. Two compilers were built by the same compiler
+from sources differing only in this port, and each compiled the same
+197,338-line input, best of five. This measures a boxed `Option`:
 
 | stage | -1 | `(Option Int)` | |
 |---|---|---|---|
@@ -1786,254 +1725,255 @@ sources differing only in the port, both compiling the same
 | in the `axiom` process | 1.7464s | 1.7909s | +2.5% |
 | `axiom build`, end to end | | | +0.4% |
 
-Two pairs were taken and they do not agree to the tenth — an earlier
-one read +4.6% and +3.4% for the same two rows — so the cost is **about
-+4% on code generation**, quoted as a range on purpose. End to end is
-+0.4% because 84% of a build is `opt` and `llc`.
+A second pair read +4.6% and +3.4% for the same two rows, so the cost
+is about +4% on code generation, quoted as a range. End to end it is
++0.4%, because 84% of a build is `opt` and `llc`.
 
-**`#effects=` said in advance which callers would pay, and it was
-right.** Nine external callers, every one of them `(< id 0)`. The two
-in `self_host/namespace.ax` already read `Alloc,Mut` and run during
-resolve — and the check stage did not move. The five in
-`self_host/codegen.ax` had an **empty** row, and the whole +4.6% is in
-the stage those five run in. Reading the effect row before a port is
-not a formality; it partitions the callers into the ones that pay and
-the ones that do not, before a line is edited.
+`#effects=` predicted which callers would pay. `internFind` had nine
+external callers, each testing `(< id 0)`. The two in
+`self_host/namespace.ax` already read `Alloc,Mut` and run during
+resolve, and the check stage didn't move. The five in
+`self_host/codegen.ax` had an empty row, and the whole +4.6% is in the
+stage they run in. Read the effect row before a port: it sorts the
+callers into those that pay and those that don't.
 
-**The interner's own hot path pays nothing**, which is what the
-exclusion on this row had assumed it could not avoid. `internFindFrom`
-keeps the `-1` and stays private, and `internIntern` calls it directly
-rather than through the public wrapper — the same exception
-`Path.ax`'s `pathExtIndex` takes. A public boundary and a recursion are
-not the same place, and only the first is worth a type.
+The interner's own hot path pays nothing. `internFindFrom` keeps the
+`-1` and stays private, and `internIntern` calls it directly rather
+than through the public wrapper. `Path.ax` makes the same exception
+for `pathExtIndex`. A public boundary is worth a type, and a recursion
+is not.
 
-`Intern.ax` carries **no** `restrict` claim, which is the whole reason
-this one was a measurement and the other four are refusals. Check
-`#restrict=` as well as `#effects=`: they answer different questions
-and `axiom symbols` prints both.
+Check `#restrict=` as well as `#effects=`. They answer different
+questions, and `axiom symbols` prints both.
 
-**AND THAT COST IS REMOVABLE, measured 2026-09-01.**
-`docs/unboxed-sums-design.md` prototypes `(Option Int)` as a
-`{tag, payload}` register pair instead of a heap block: the wrapper
-goes from **11.86 ns to 0.36 ns**, 96.9% of the box recovered, through
-the real `opt`/`llc`/`cc` pipeline. If `(Some v)` does not allocate
-then the four `restrict(no-alloc)` rows above stop being blocked at
-all, and every `WIDENED` row in this migration stops widening. **That
-work comes before the rest of ERR-ADOPT-1**, or these functions get
-ported twice.
+The boxed cost is removable.
+[unboxed-sums-design.md](unboxed-sums-design.md) makes `(Option Int)` a
+`{tag, payload}` register pair instead of a heap block. Through the
+real `opt`, `llc` and `cc` pipeline, the wrapper goes from 11.86 ns to
+0.36 ns, recovering 96.9% of the box's cost. With `(Some v)` no longer
+allocating, the absence lookups that carry `restrict(no-alloc)` stop
+being blocked, and a `Result`'s success path stops widening its row.
+Its failure path still builds an `Error`, so those rows still widen
+(§10.1). Unboxed sums come before the rest of ERR-ADOPT-1, so no
+function is ported twice.
 
-### 10.1 What is actually left, measured rather than planned
+<a id="101-what-is-actually-left-measured-rather-than-planned"></a>
+### 10.1 What is left
 
-Classifying every remaining sentinel by whether it reports **absence**
-or **failure** — §5's own distinction, the one this model opens with —
-changes what "finishing the migration" means.
+Every remaining sentinel reports either **absence** (it wants `Option`)
+or **failure** (it wants `Result`). That is §5's distinction, and
+sorting the sentinels by it changes what finishing the migration means.
 
 | | absence (wants `Option`) | failure (wants `Result`) |
 |---|---|---|
 | `stdlib/`, by the census that read prose | 8 | 5 |
 | `stdlib/`, by the census that reads bodies | **9** | **29** |
 | `self_host/`, slice 4's 25 | 21 | 1 |
-| `stdlib/`, after slices 1–4 and the 2026-09-03 type correction | 7 | 9 |
+| `stdlib/`, after slices 1–4 and the type correction below | 7 | 9 |
 | `stdlib/`, after the box moved to the caller (`docs/unboxed-sums-design.md` §5b) and the two ports it permitted | 3 | 0 |
-| `stdlib/`, today — after `strFindByte` was rewritten as a loop (§10.2) | **2** | **0** |
+| `stdlib/`, today, after `strFindByte` became a loop | **2** | **0** |
 
-**THE ROW ABOVE IT WAS WRONG IN BOTH COLUMNS, AND THIS SECTION DREW THE
-WRONG CONCLUSION FROM IT.** Audited 2026-08-30. The census those numbers
-came from matched a doc-comment against six phrases; the one that
-replaced it reads the declared return type and the body. Three things
-follow.
+The floor is two absence rows and no failure rows. The rest of this
+section explains how the census reached those numbers.
 
-*The five failures were four.* `sysRandomNum` is
-`(pub fn (sysRandomNum) 33554932)` — the `getentropy` **syscall
-number**, a constant with no bad path. It was counted because the
-comment walk climbed a `; ---` banner into prose describing
-`getentropy`'s `0 or -errno` contract twelve lines above. The sentence
-below that named it "a platform shim below `Err`" was this document
-inheriting a measurement error. The real entropy call,
-`sysRandomBytes`, answers `(Result Int Error)` and was ported long ago.
+#### The census reads bodies
 
-*And four were twenty-nine.* Almost every `net*` and `sys*` call
-forwards a raw syscall result and says so in wording the six phrases
-did not match, so it went uncounted: `netListen`, `netAccept`,
-`netBind`, `netConnect`, `sysWriteFd`, `sysReadFd`, `sysOpenPath`,
-`sysCloseFd` and eighteen more. `stdlib/Sys.ax` alone is 26. **The old
-metric rewarded silence** — writing the house sentence above any one of
-them would have taken its module's count up and failed
+The first census matched a doc-comment against six phrases. The census
+in `compat/SENTINELS`, gated by `scripts/check-compat.sh`, reads the
+declared return type and the body instead. That changed both columns.
+
+The prose census counted five failures, and one of them was wrong.
+`sysRandomNum` is `(pub fn (sysRandomNum) 33554932)`, the `getentropy`
+syscall number: a constant with no failure path. It was counted because
+the comment walk climbed a `; ---` banner into prose about
+`getentropy`'s `0 or -errno` contract. The real entropy call,
+`sysRandomBytes`, answers `(Result Int Error)`.
+
+The prose census also missed most of the failures. Almost every `net*`
+and `sys*` call forwards a raw syscall result, in wording the six
+phrases did not match: `netListen`, `netAccept`, `netBind`,
+`netConnect`, `sysWriteFd`, `sysReadFd`, `sysOpenPath`, `sysCloseFd`
+and eighteen more. `stdlib/Sys.ax` alone had 26. The prose metric
+rewarded silence: writing the house sentence above any one of them
+would have raised its module's count and failed
 `scripts/check-compat.sh` for a commit that changed no contract.
 
-*So the `Result` migration is NOT complete, and this section's claim
-that it was is withdrawn.* What remained was 29 public functions handing
-a caller a negative errno; the socket-configuration slice took seven of
-them on 2026-08-31, the "did it work" slice five more on 2026-09-01,
-the descriptor slice five more the same day, the working-directory
-slice one more, and one of the remainder turned out to be an absence
-the census had misfiled — so **nine** are left, seven in `stdlib/Sys.ax`
-and two in `stdlib/Sys/Platform.darwin.ax`, every one of them
-excluded on a measurement rather than pending.
+So the `Result` migration started from 29 public functions that hand a
+caller a negative errno, not from four.
 
-**Slice 4 is the one that found an exclusion which was not a
-measurement.** `sysGetCwd` was set aside because "it answers a `String`
-and its failure is `""` rather than an errno, so it is a different
-port" — a remark about shape. Every other exclusion in that module
-rests on `#effects=IO` widening to `Alloc,IO` under `writeStr` and
-`println`; this one did not, and measured before and after the port the
-row is `Alloc,IO,Mut` **both times**, because the function already
-`memAlloc`s its buffer and `strDup`s its answer. It and `IO.cwd` are
-the only ERR-ADOPT-1 rows in `compat/BREAKING` that are `CHANGED`
-rather than `WIDENED`: the first ports in this migration that cost a
-caller nothing. What the sentinel had been costing is that ERANGE,
-ENOENT and EACCES all arrived as the same `""`, and all five call sites
-read it as a presence test. None of them is free:
-`netSocketTcp` has 17 call sites, **seven of which never test the result
-at all**, which is the reason the migration exists rather than an
-argument against it.
+#### The failure column
 
-The hot-path exclusions still stand on their own measurement —
-`IO.writeStr` and the `net` accepting and polling calls allocate an
-`(Ok n)` per call, per connection or per wake, outside the per-request
-arena scope. **What holds them is `#effects=` in `axiom symbols`, not
-`scripts/check-net.sh`**, and §10's slice-3 note carries the
-measurement: with a per-connection allocation deliberately restored to
-the accept path, that gate stayed green at 182× against its floor of
-50. Its ratio is sized to catch an arena that stopped reclaiming, not
-one 32-byte block per connection. And "excluded" is a decision about a
-handful of the twenty-nine, not a description of the whole.
+The `Sys.ax` slices of §10 took most of the 29: seven in the
+socket-configuration slice, five in the "did it work" slice, five in
+the descriptor slice and one in the working-directory slice. One more
+turned out to be an absence the census had misfiled. That left ten,
+and the type correction below removed `platformExitWith`. The nine
+that remained, seven in `stdlib/Sys.ax` and two in
+`stdlib/Sys/Platform.darwin.ax`, were each excluded on a measurement.
 
-The other half is unchanged in kind: **seven** lookups in `stdlib/`
-that answer `-1` for "not found" and want **`Option`**, which is built
-in and needs no import (§1). Two of the seven are in `stdlib/Str.ax`,
-which **cannot** import `Err` — `Err` imports `Str` — so they could
-never have been `Result` debt. One is a declared rise rather than a new
-sentinel: `netPollSignalAt` was counted as a failure until the census
-learned to follow a syscall result through a `let` binder, and it is
-`Option` debt, not `Result` debt. `compat/SENTINELS` records it.
+`sysGetCwd` was the one exclusion that rested on shape rather than a
+measurement: "it answers a `String` and its failure is `""` rather
+than an errno". Every other exclusion in the module rests on
+`#effects=IO` widening to `Alloc,IO` under `writeStr` and `println`.
+`sysGetCwd`'s row is `Alloc,IO,Mut` before and after the port, because
+it already `memAlloc`s its buffer and `strDup`s its answer. It and
+`IO.cwd` are the only ERR-ADOPT-1 rows in `compat/BREAKING` marked
+`CHANGED` rather than `WIDENED`, so they cost a caller nothing. The
+sentinel had a cost: `ERANGE`, `ENOENT` and `EACCES` all arrived as the same
+`""`, and all five call sites read it as a presence test.
 
-**And `Option` is not free — in two different ways.** Measured
-2026-08-30 over 20,000,000 calls at `--opt 2`: a `-1` return costs
-**1.4 ns** and a `(Some v)` costs **10.4 ns**, 7.4×, for the
-allocate/store/match/release round trip. And measured 2026-09-01, that
-allocation is not merely a cost but a **refusal** wherever the lookup
-claims `restrict(no-alloc)`: five of the seven do, and porting them is a
-decision to withdraw a checked claim rather than a port. The
-arena bump moves **zero bytes** for that loop — the block is recycled
-through its size class — so a bytes-only measurement reports `Option` as
-free and is wrong; the cost is instructions. `strFindByte` has 62 call
-sites on the compiler's own scanning path. That is the measurement the
-`Option` decision turns on, and it is why it stays a decision.
+Unchecked sentinels are why the migration exists. `netSocketTcp` has 17
+call sites, and seven of them never test the result at all.
 
-That is a decision to take deliberately, not a slice to grind. It is
-recorded here rather than acted on because renumbering the slices is a
-change to this section, and because the sentinel census
-(`compat/SENTINELS`, gated by `scripts/check-compat.sh`) counts both
-kinds — so the number will not reach zero by porting failures alone,
-and a reader watching it fall should know why it stops.
+The hot-path calls were excluded because a boxed `(Ok n)` would
+allocate per call (`IO.writeStr`), per connection or per wake (the
+`net` accepting and polling calls), outside the per-request arena
+scope. `#effects=` in `axiom symbols` is what holds that line, not
+`scripts/check-net.sh`. §10's slice-3 note has the measurement: with a
+per-connection allocation restored to the accept path, that gate stayed
+green at 182× against its floor of 50. Its ratio is sized to catch an
+arena that stopped reclaiming, not one 32-byte block per connection.
 
-**AND THREE OF THE ROWS WERE NOT DEBT ANYBODY COULD PAY. Corrected
-2026-09-03; 19 → 16, and no line of `stdlib/` moved.** The census that
-reads bodies was right to replace the one that read prose, and it
-inherited one thing from it: it decides from what a body *contains*
+#### The absence column
+
+Seven lookups in `stdlib/` answered `-1` for "not found" and wanted
+**`Option`**, which is built in and needs no import (§1).
+
+- Two of the seven are in `stdlib/Str.ax`, which cannot import `Err`
+  because `Err` imports `Str`. They could never have been `Result`
+  debt.
+- `netPollSignalAt` was counted as a failure until the census learned
+  to follow a syscall result through a `let` binder. It is `Option`
+  debt, and `compat/SENTINELS` records it as a declared rise, not a
+  new sentinel.
+
+`Option` has two costs. At `--opt 2`, over 20,000,000 calls, a `-1`
+return costs **1.4 ns** and a boxed `(Some v)` costs **10.4 ns**
+(7.4×) for the allocate, store, match and release round trip. The
+allocation is also a refusal wherever the lookup claims
+`restrict(no-alloc)`. Five of the seven did, so porting them meant
+withdrawing a checked claim.
+
+The arena bump moves zero bytes for that loop, because the block is
+recycled through its size class. A bytes-only measurement therefore
+reports `Option` as free, and it is wrong: the cost is instructions.
+`strFindByte` has 62 call sites on the compiler's own scanning path.
+
+The census in `compat/SENTINELS` counts both kinds, so its number does
+not reach zero by porting failures alone.
+
+#### Three rows were not debt
+
+A later correction took the census from 19 to 16 without moving a line
+of `stdlib/`. The body census decided from what a body *contains*
 without asking what the declaration can *hold*.
 
-*A struct return has no integer channel.* `mkKeyIn` answers `KeyIn` and
+A struct return has no integer channel. `mkKeyIn` answers `KeyIn` and
 `keyNext` answers `KeyEv`, and the checker refuses a `-1` there
-outright — measured on a two-line probe as `AX3004: type mismatch:
-expected Int, found Pair`. What the census had found in `mkKeyIn` was
-the `pfd` **field** inside its constructor, the descriptor-or-`-1` that
-module documents four lines above it, and in `keyNext` the **timeout
-argument** `(- 0 1)` handed to `keyInFill` to mean "block". Neither is
-an answer and no `(Option Int)` could have replaced either.
-`keyInFill` is the one real absence row of the three and it stays.
+outright. A two-line probe reports `AX3004: type mismatch: expected
+Int, found Pair`. In `mkKeyIn` the census had found the `pfd` field
+inside its constructor, the descriptor-or-`-1` the module documents
+just above it. In `keyNext` it had found the timeout argument
+`(- 0 1)` passed to `keyInFill` to mean "block". Neither is an answer,
+and no `(Option Int)` could replace either. `keyInFill` is the one real
+absence row of the three, and it stays.
 
-*And a function nobody observes has no outcome to report.*
-`platformExitWith` exits the process. Windows is the only target that
-implements it — the only one with no syscall ABI — and there it is
-`(winExitProcess code)`, which does not return; the four syscall-ABI
-files answer `-ENOSYS` from a stub their own comment calls "never
-reached"; and its one caller, `sysExitWith`, puts it in **statement**
-position inside a `{ ... 0 }` and discards the value. A `(Result Int
-Error)` there would allocate on the process-exit path, break the
-function's `pure` claim, and encode an outcome no caller reads.
-`platformWriteFd` and `platformReadFd` are *not* excluded with it —
-those answer a real count on Windows and stay.
+A function nobody observes has no outcome to report.
+`platformExitWith` exits the process. On Windows it is
+`(winExitProcess code)`, which does not return. The four syscall-ABI files
+answer `-ENOSYS` from a stub their own comment calls "never reached".
+Its one caller, `sysExitWith`, puts it in statement position inside a
+`{ ... 0 }` and discards the value. A `(Result Int Error)` there would
+allocate on the process-exit path, break the function's `pure` claim,
+and encode an outcome no caller reads. `platformWriteFd` and
+`platformReadFd` are not excluded with it, because they answer a real
+count on Windows.
 
-**The sister fix was measured and REJECTED, and that is the part worth
-keeping.** Both phantom absence rows are `in_return_position` failing
-to be transitive: it climbs to the enclosing form, sees `if`, and stops
-without asking whether that `if` is an answer or an argument. Fixing it
-there is the obvious move and it **under-reports thirteen rows** —
-`strFindByte`, `utf8DecodeAt` and `keyStrEnd` among them, the realest
-absence sentinels in the tree — because `let` and `fn` are transparent
-to return position and the obvious climb treats them as opaque.
-Under-reporting is the failure the 2026-08-30 rewrite ended, so the
-**type** rule landed and the position rule is left alone and named in
-`tests/compat/verify-compat.py`. Ablated both ways: a new
-`Int`-returning `(- 0 1)` planted in `Utf8.ax` takes it 2 → 3, and the
-same body declared to answer a struct stays at 2.
+We rejected the obvious fix in the census itself. Both phantom absence
+rows come from `in_return_position` not being transitive: it climbs to
+the enclosing form, sees `if`, and stops without asking whether that
+`if` is an answer or an argument. Making it climb further
+under-reports thirteen rows, among them `strFindByte`, `utf8DecodeAt`
+and `keyStrEnd`, the clearest absence sentinels in the tree. That
+happens because `let` and `fn` are transparent to return position, and
+the obvious climb treats them as opaque.
 
-**That correction moved no row of the migration itself, and the
-reason was a decision rather than an effort** — every one of the
-sixteen was blocked or excluded on a measurement. What moved them was
-a change to the measurement's premise, later the same day: a function
-returning `(Option Int)` or `(Result Int Error)` in the pair shape no
-longer allocates on any path, because the emitter writes its body once
-as a two-register pair and a caller that needs a block builds it at
-the call, where the checker charges it (`docs/unboxed-sums-design.md`
-§5b). Two things followed.
+Under-reporting is the failure the body census exists to prevent. So
+the census checks the declared type instead, and the position rule is
+left alone and named in `tests/compat/verify-compat.py`. Both
+directions were checked. A new `Int`-returning `(- 0 1)` planted in
+`Utf8.ax` takes its count from 2 to 3, and the same body declared to
+answer a struct stays at 2.
 
-*The absence column: 7 → 3, and 3 → 2 the following day.* `strHexVal`, `utf8DecodeAt`, `utf8CharAt`
-and `netPollSignalAt` answer `(Option Int)`, and the three
-`restrict(no-alloc)` claims among them STAND, checked against the
-emitted IR by `scripts/check-unboxed-sums.sh` rather than withdrawn.
-`netPollSignalAt`'s row stays `IO` alone. What was left: `strFindByte`
-tail-calls itself, and a self tail call is the one shape the pair does
-not take yet (a loop header and a pair return are not reconciled) — a
-port today would keep the boxed body and refuse its own claim (**that
-sentence is about the BODY and not the function; rewritten as a loop
-it keeps the claim, measured 2026-09-04 — see the floor paragraph
-below**); `keyStrEnd` answers three outcomes (an end index,
-"incomplete", "too long", and `keyScanStr` reads all three), as does
-`keyInFill` (a count, end-of-input, a full buffer that is still a
-prefix), and three outcomes are not `Option`'s shape — they want a
-`data` of their own, which the pair refuses by name until a third sum
-type is admitted.
+#### The pair shape moved the rest
 
-*The failure column: 9 → 0, and the question is answered.* The nine
-waited on whether `println`'s effect row may widen. Measured
-2026-09-03 with `sysWriteFd` ported alone: the row widens from `IO` to
-`Alloc,IO` on **11 functions** in the compiler's whole closure — six
-public (`sysWriteFd`, `sysWriteAllFd`, `writeStr`, `printLit`,
-`printlnLit`, `rpcPut`), five in `self_host/` — and **zero**
+That correction moved no row of the migration. Every one of the sixteen
+was blocked or excluded on a measurement. What moved them was a change
+to the measurement's premise.
+
+A function returning `(Option Int)` or `(Result Int Error)` in the pair
+shape no longer allocates on any path. The emitter writes its body once
+as a two-register pair, and a caller that needs a block builds it at
+the call, where the checker charges it
+(`docs/unboxed-sums-design.md` §5b).
+
+The absence column went from 7 to 3, and then to 2.
+
+- `strHexVal`, `utf8DecodeAt`, `utf8CharAt` and `netPollSignalAt`
+  answer `(Option Int)`. The three `restrict(no-alloc)` claims among
+  them stand, checked against the emitted IR by
+  `scripts/check-unboxed-sums.sh`. `netPollSignalAt`'s row stays `IO`
+  alone.
+- `strFindByte` tail-calls itself, and a self tail call is the one
+  shape the pair does not take yet, because a loop header and a pair
+  return are not reconciled. Ported as it stood, it would keep the
+  boxed body and refuse its own claim. Rewritten as a loop, it keeps
+  its claim.
+  See *The floor is 2* below.
+- `keyStrEnd` and `keyInFill` answer three outcomes each, which is not
+  `Option`'s shape.
+
+The failure column went from 9 to 0. The nine waited on one question:
+may `println`'s effect row widen?
+
+With `sysWriteFd` ported alone, the row widens from `IO` to `Alloc,IO`
+on **11 functions** in the compiler's whole closure. Six are public
+(`sysWriteFd`, `sysWriteAllFd`, `writeStr`, `printLit`, `printlnLit`,
+`rpcPut`) and five are in `self_host/`. There are **zero**
 `restrict(no-alloc)` refusals, because nothing in the tree claims to
-print without allocating. What widens the row is the FAILURE path: a
-failed `write` builds an `Error` through `sysResult`, and a row is a
-fact about every path. The success path is the pair, read from two
-registers by the direct match in `sysWriteAllFd`, and builds nothing
-— which is what the 2026-08-30 attempt could not say, when an `(Ok
-n)` block per `write` was the cost that turned ten gates red. So the
-answer taken is: **`println`'s row may widen, because `println` can
-allocate, and only when a write fails.** `sysWriteFd`, `sysReadFd`,
-`netAccept`, `netAcceptFrom`, `netPollWait`, `sysNowMicros`,
-`sysNowMonotonic`, `platformWriteFd` and `platformReadFd` answer
-`(Result Int Error)`; `sysWriteAllFd` and `writeStr` keep their `Int`
-channel, because `println`'s value is that `Int` in 804 expansions and
-the channel above the seam is a separate decision. The alternative
-measured and not taken: a private raw twin of `sysWriteFd` under
-`sysWriteAllFd`, which keeps `println`'s row at `IO` exactly — and was
-defeated by the seam, since `platformWriteFd` (public, the Windows
-implementation) builds the same `Error` on its own failure path, so
-the row widens through the seam whichever way the wrapper is written.
-Every widened row is declared in `compat/BREAKING` under 0.6.4.
+print without allocating.
 
-**THE FLOOR WAS 3 AND ONE OF THE THREE WAS NOT A REFUSAL. Measured
-2026-09-04; the floor is 2.** `strFindByte` was held out because it
-"tail-calls itself, and a self tail call is the one shape the pair
-does not take yet" — which is true of the emitter (`wantsTCO` is a
-refusal in the pair's eligibility test, `self_host/codegen.ax`) and is
-NOT a fact about the function. It is a fact about the BODY, and the
-body can be written the other way. Both halves were probed on a copy
-of the tree rather than argued:
+The failure path is what widens the row. A failed `write` builds an
+`Error` through `sysResult`, and a row is a fact about every path. The
+success path is the pair, read from two registers by the direct match
+in `sysWriteAllFd`, and it builds nothing.
 
-```
+So the answer is: **`println`'s row may widen, because `println` can
+allocate, and only when a write fails.**
+
+- `sysWriteFd`, `sysReadFd`, `netAccept`, `netAcceptFrom`,
+  `netPollWait`, `sysNowMicros`, `sysNowMonotonic`, `platformWriteFd`
+  and `platformReadFd` answer `(Result Int Error)`.
+- `sysWriteAllFd` and `writeStr` keep their `Int` channel. `println`'s
+  value is that `Int` in 804 expansions, and the channel above the seam
+  is a separate decision.
+- Every widened row is declared in `compat/BREAKING` under 0.6.4.
+
+We measured an alternative and did not take it: a private raw twin of
+`sysWriteFd` under `sysWriteAllFd`, which keeps `println`'s row at `IO`
+exactly. The seam defeats it. `platformWriteFd`, the public Windows
+implementation, builds the same `Error` on its own failure path, so the
+row widens through the seam whichever way the wrapper is written.
+
+#### The floor is 2
+
+`strFindByte` was held out because "a self tail call is the one shape
+the pair does not take yet". That is true of the emitter: `wantsTCO` is
+a refusal in the pair's eligibility test in `self_host/codegen.ax`. It
+is a fact about the body, not the function, and the body can be written
+the other way. Both versions were probed on a copy of the tree:
+
+```text
 ; the recursive spelling, declared (Option Int)
 E AX3049 stdlib/Str.ax:352 `strFindByte` claims `restrict(no-alloc)`
          and the body performs Alloc
@@ -2042,157 +1982,150 @@ E AX3049 stdlib/Str.ax:352 `strFindByte` claims `restrict(no-alloc)`
 OK
 ```
 
-`Str.strFind`, three hundred lines below it in the same file, was
-already a loop for an unrelated reason and has answered `(Option Int)`
-since before this rule was written; nobody compared them. So
-`strFindByte` answers `(Option Int)` and keeps
-`restrict(no-io,no-alloc,no-foreign)` — **71 call expressions over 18
-files** (73 after the port, which adds two arms to
-`tests/stdlib/030-str.ax` and drops the self-call), every one of them a
-`(< x 0)` or `(>= x 0)` test or a printed index, and every one now a
-`match` at the point of production so the pair is consumed in two
-registers and no caller builds the block `384-restrict-no-alloc-ctor`
-calls `held`.
+`Str.strFind`, further down the same file, was already a loop
+that answered `(Option Int)`. So `strFindByte` answers `(Option Int)`
+and keeps `restrict(no-io,no-alloc,no-foreign)`.
 
-**Two defects the port surfaced, both of the class §10 slice 3 already
-names — a `-1` reaching arithmetic that nothing refused.**
-`Http.httpParseHead` bound `eol` to `(strFindByte buf 13 base)` and
-then computed `(strSlice buf base (- eol base))`: with no CR in the
-head that is a slice of NEGATIVE length, held off only by the reader's
-framing, which is a caller's property. `Http.httpParseHeaders` had the
-same shape on `le`. Both are 400 refusals now, in the `None` arm the
-type forced someone to write. And `driver.ax`'s directory walk called
-`strFindByte` a second time to re-find a `.` its own guard had just
-located at `strLen - 3`; that call is the index now.
+It had **71 call expressions over 18 files**, and 73 after the port,
+which adds two arms to `tests/stdlib/030-str.ax` and drops the
+self-call. Each was a `(< x 0)` or `(>= x 0)` test or a printed index.
+Each is now a `match` at the point of production, so the pair is
+consumed in two registers and no caller builds the block that
+`384-restrict-no-alloc-ctor` calls `held`.
 
-**The floor is 2 and it is a floor, not a backlog:** `keyStrEnd` and
-`keyInFill` each answer three outcomes — an index, "incomplete", "too
-long" for the first; a count, end of input, a full buffer that is still
-a prefix for the second — and three outcomes are not `Option`'s shape.
-They want a `data` of their own, which the register pair refuses by
-name until a third sum type is admitted. That is one refusal in the
-design, stated twice.
+The port surfaced two defects of the class §10 slice 3 already names:
+a `-1` reaching arithmetic that nothing refused.
 
+- `Http.httpParseHead` bound `eol` to `(strFindByte buf 13 base)` and
+  then computed `(strSlice buf base (- eol base))`. With no CR in the
+  head, that is a slice of negative length, held off only by the
+  reader's framing, which is a caller's property. `Http.httpParseHeaders`
+  had the same shape on `le`. Both now answer a 400, in the `None` arm
+  the type made someone write.
+- `driver.ax`'s directory walk called `strFindByte` a second time to
+  find a `.` its own guard had just located at `strLen - 3`. That call
+  is now the index.
 
-### 10.2 The order was backwards and the sizes counted prose, re-derived 2026-09-04
+The floor is 2, and these two rows are not a backlog. `keyStrEnd`
+answers an index, "incomplete" or "too long", and `keyScanStr` reads
+all three. `keyInFill` answers a
+count, end of input, or a full buffer that is still a prefix. Three
+outcomes are not `Option`'s shape. Each wants a `data` of its own,
+which the register pair refuses by name until a third sum type is
+admitted. Both rows rest on that one refusal.
 
-The numbered list in §10 is the plan. This is what happened, in the
-order it happened, and the two are not the same list.
+<a id="102-the-order-was-backwards-and-the-sizes-counted-prose-re-derived-2026-09-04"></a>
+### 10.2 How the slices landed, and how to size one
 
-| stated | landed | slice | when |
-|---|---|---|---|
-| 1 | **1st** | `stdlib/Err.ax` | 2026-08-16 |
-| 3 | **2nd** | `stdlib/IO.ax`, then `stdlib/Sys.ax`'s filesystem and process halves | 2026-08-26 |
-| 4 | **3rd** | `self_host/` — one function, `runTool` | 2026-08-26 |
-| 2 (part) | **4th** | `stdlib/Path.ax`'s two, and `stdlib/Agent/Tags.ax`'s two, which the list never named | 2026-08-31 |
-| 3 | 5th–8th | `Sys.ax` socket-configuration, "did it work", descriptor-answering, `sysGetCwd` | 2026-08-31 … 09-01 |
-| — | 9th | `stdlib/Intern.ax`'s `internFind` — a module the list never named | 2026-09-01 |
-| 2 (rest) | **10th** | `stdlib/Str.ax`'s `strHexVal`, `stdlib/Utf8.ax`'s two, `Sys.ax`'s `netPollSignalAt` | 2026-09-03 |
-| 3 | 11th | `sysWriteFd`, `sysReadFd` and seven more — the failure column reaches 0 | 2026-09-03 |
-| 2 (last) | **12th** | `stdlib/Str.ax`'s `strFindByte` | 2026-09-04 |
+The numbered list in §10 is the plan. This table is the order the
+slices actually landed in.
 
-**Slice 2 was called "the rehearsal" and it finished LAST, over four
-separate commits nine days apart.** Slice 3 was called the hard one —
-"the `-errno` convention" — and it went second, in one day, because
-`self_host/` called none of it (§10 slice 3 records that finding). The
-list was ordered by how complicated the CONVENTION looked: `-1` is
-simpler than `-errno`, so the `-1` modules were LISTED first. That is not what
-the work costs. What it costs is two things the list did not ask about:
+| stated | landed | slice |
+|---|---|---|
+| 1 | **1st** | `stdlib/Err.ax` |
+| 3 | **2nd** | `stdlib/IO.ax`, then `stdlib/Sys.ax`'s filesystem and process halves |
+| 4 | **3rd** | `self_host/`: one function, `runTool` |
+| 2 (part) | **4th** | `stdlib/Path.ax`'s two, and `stdlib/Agent/Tags.ax`'s two, which the list never named |
+| 3 | 5th–8th | `Sys.ax` socket-configuration, "did it work", descriptor-answering, `sysGetCwd` |
+| — | 9th | `stdlib/Intern.ax`'s `internFind`, a module the list never named |
+| 2 (rest) | **10th** | `stdlib/Str.ax`'s `strHexVal`, `stdlib/Utf8.ax`'s two, `Sys.ax`'s `netPollSignalAt` |
+| 3 | 11th | `sysWriteFd`, `sysReadFd` and seven more: the failure column reaches 0 |
+| 2 (last) | **12th** | `stdlib/Str.ax`'s `strFindByte` |
+
+Slice 2 was called "the rehearsal", and it finished last, over four
+separate commits. Slice 3 was called the hard one, "the `-errno`
+convention", and it went second, in one day, because `self_host/`
+called none of it (§10 slice 3 records this). The list was ordered by
+how complicated each convention looked: `-1` is simpler than `-errno`,
+so the `-1` modules came first.
+
+What a slice costs depends on two other questions:
 
 1. **Does the module carry a `restrict` claim the port would have to
    withdraw?** `Str.ax` and `Utf8.ax` are the most restricted modules
-   in the tree; `Sys.ax` declares `effect(io)` seventy times and
-   restricts nothing. So slice 2 was blocked from 2026-08-31 to
-   2026-09-03 by `AX3049` on `(Some v)` and slice 3 was never blocked
-   at all — the exact reverse of the order.
-2. **Does the answer get BOUND, or only tested?** A call whose whole
-   answer is "did it work" is one expression at each site; a call that
+   in the tree. `Sys.ax` declares `effect(io)` seventy times and
+   restricts nothing. So slice 2 was blocked by `AX3049` on
+   `(Some v)`, and slice 3 was never blocked at all.
+2. **Does the answer get bound, or only tested?** A call whose whole
+   answer is "did it work" is one expression at each site. A call that
    answers a descriptor or an index retypes every binding downstream
    of it. That is why the descriptor slice cost nine fixtures and the
-   "did it work" slice cost almost nothing, and both are inside the
-   one numbered entry.
+   "did it work" slice cost almost nothing, though both sit inside one
+   numbered entry.
 
-**The sizes were the `grep` proxy's, and it counts comment lines.**
-Slice 2 is stated as "11 sites" — `Utf8.ax` 6, `Path.ax` 3, `Str.ax` 2
-from §1.2's table. Recounted 2026-09-04 against `9f99ccd`, the tree as
-it stood when that table was written, the twelve hits in those three
-files (the table's 11 is one low on `Str.ax`) are:
+The plan's sizes came from the `grep` proxy, which counts comment
+lines. Slice 2 is stated as "11 sites": `Utf8.ax` 6, `Path.ax` 3 and
+`Str.ax` 2, from §1.2's table. Recounted against `9f99ccd`, the tree as
+it stood when that table was written, those three files have twelve
+hits (the table is one low on `Str.ax`):
 
 | module | hits | comments | code | public functions |
 |---|---|---|---|---|
-| `Utf8.ax` | 6 | 2 | 4 | **2** — `utf8DecodeAt` (three of the four), `utf8CharAt` |
-| `Str.ax` | 3 | 1 | 2 | **2** — `strFindByte`, `strHexVal` |
-| `Path.ax` | 3 | 0 | 3 | **2** — `pathLastSlash`, `pathExtIndex` (the third hit is `pathLastDotFrom`, their private helper) |
+| `Utf8.ax` | 6 | 2 | 4 | **2**: `utf8DecodeAt` (three of the four), `utf8CharAt` |
+| `Str.ax` | 3 | 1 | 2 | **2**: `strFindByte`, `strHexVal` |
+| `Path.ax` | 3 | 0 | 3 | **2**: `pathLastSlash`, `pathExtIndex` (the third hit is `pathLastDotFrom`, their private helper) |
 
-**Six public functions, not eleven sites** — the proxy doubled the
-number, three hits by counting prose and three by counting one
+That is six public functions, not eleven sites. The proxy doubled the
+number: three hits were prose, and three more came from counting one
 function's three `(- 0 1)` branches as three items and a private
-recursion as a fourth. And it missed `stdlib/Agent/Tags.ax`'s two
-entirely, which landed in the same slice and are not in §1.2's table at
-all.
+helper as a fourth. It also missed `stdlib/Agent/Tags.ax`'s two, which
+landed in the same slice and are not in §1.2's table at all.
 
-The rule this leaves: **size a migration by counting DECLARATIONS and
-order it by what refuses each one, not by how the convention reads.**
-`compat/SENTINELS` does the first and is gated; §10.1's rightmost
-column does the second and is not, which is why every row there names
-its refusal rather than its difficulty.
+The lesson: **size a migration by counting declarations, and order it
+by what refuses each one, not by how the convention reads.**
+`compat/SENTINELS` does the first and is
+gated by `scripts/check-compat.sh`. The second is not gated, which is
+why §10.1 names the refusal behind each remaining row.
 
 **ERR-ADOPT-2 (P). Every slice keeps `stage2 == stage3`.** No slice
-touches the seed until one has to, and the one that does — a built-in
-`Result` under `ERR-TYPE-2`, if it is ever justified — lands as
-feature-then-`scripts/reseed.sh`, never as both at once.
+touches the seed until one has to. The one that does, a built-in
+`Result` under `ERR-TYPE-2` if it is ever justified, lands as the
+feature first and then `scripts/reseed.sh`, never as both at once.
 
-**ERR-ADOPT-3 (H, amended 2026-08-24, discharged 2026-08-25). The
-long-lived programs were the constraint on `ERR-MEM-4`, and there are
-two of them.** A compiler process runs once and exits; 32 bytes per
-fallible call was noise there. The two programs below are why it was
-not noise everywhere — and since `ERR-MEM-4` closed, the constraint
-this rule existed to state is discharged. The rule is kept because the
-two programs it identified are still the ones any future per-call cost
-has to be measured against, and identifying them is the part that took
-a correction.
+**ERR-ADOPT-3 (H, discharged). The long-lived programs were the
+constraint on `ERR-MEM-4`, and there are two of them.** A compiler
+process runs once and exits, so 32 bytes per fallible call was noise
+there. The two programs below are where it was not. `ERR-MEM-4` has
+closed, so the constraint this rule states is discharged. The rule
+stays because these two programs are still what any future per-call
+cost has to be measured against.
 
-This rule said `self_host/lsp.ax` was "the one long-lived Axiom program
-v1 ships". That stopped being true when the socket work landed:
-`tests/net/echo-server.ax` is a pre-forked server whose workers run
-until they are signalled, driven under CI by `scripts/check-net.sh`, and
-it is the larger of the two constraints — its per-request budget is a
-request handler's rather than a keystroke's, and the gate drives ten
-thousand connections through it. (The sentence was a uniqueness claim
-with no probe behind it, which is the class `docs/memory-model.md` §9.1
-records as structurally invisible to `check-doc-drift.sh`: the gate
-resolves the fixtures a document NAMES and can say nothing about one it
-asserts does not exist.)
+- `self_host/lsp.ax`, the language server, measured per edit by
+  `scripts/check-lsp-selfhost.sh`.
+- `tests/net/echo-server.ax` is a pre-forked server whose workers run
+  until they are signalled, driven in CI by `scripts/check-net.sh`. It
+  is the larger constraint: its budget is a request handler's rather
+  than a keystroke's, and the gate drives ten thousand connections
+  through it.
 
-Both programs hold their memory flat by the same mechanism — a
-`__axiom_arena_mark` / `__axiom_arena_reset` bracket around the unit of
-work, which `docs/memory-model.md`'s `MM-ALLOC-22` states as the
-reclamation strategy rather than as an interim one — so a `Result`
-allocated inside the bracket was reclaimed at the boundary and one that
-escaped it was not. That is what `ERR-MEM-4` had to be measured
-against, and it is why the 32 bytes were a per-*call* figure and not a
-per-*process* one.
+Both hold their memory flat the same way: a `__axiom_arena_mark` /
+`__axiom_arena_reset` bracket around the unit of work.
+`docs/memory-model.md`'s `MM-ALLOC-22` states this as the reclamation
+strategy, not an interim one. A `Result` allocated inside the bracket
+is reclaimed at the boundary, and one that escapes it is not. That is
+what `ERR-MEM-4` had to be measured against, and why the 32 bytes were
+a per-*call* figure and not a per-*process* one.
 
 Migrating the compiler's phases to `Result` **MUST** still be
 re-measured against `scripts/check-lsp-selfhost.sh`'s per-edit figure
-**and** `scripts/check-net.sh`'s scoped-against-unscoped ratio. What is
-no longer a precondition is `ERR-MEM-4` itself: it closed on
-2026-08-25, before either program's own request path migrated, which is
-the order this rule asked for.
+**and** `scripts/check-net.sh`'s scoped-against-unscoped ratio.
+`ERR-MEM-4` itself is no longer a precondition. It closed before either
+program's own request path migrated, which is the order this rule asked
+for.
 
 ---
 
 ## 11. Worked example
 
-The shape every rule above converges on — fallible step in the
-scrutinee, continuation in the arm, error value bound before it
-crosses a boundary:
+Every rule above converges on one shape. The fallible step is the
+scrutinee, the continuation is the arm, and the error value is bound
+before it crosses a boundary:
 
 ```scheme
 (import Err)
 
-; The form: the fallible call is the scrutinee, the recursion is the
-; arm's answer, and `try!` is what writes that without saying it.
+; The fallible call is the scrutinee and the recursion is the arm's
+; answer. `try!` writes that shape for you.
 (:: parseAll (-> Int Int (Result Int Error)))
 (fn (parseAll toks acc)
   (if (== (vecLen toks) 0)
@@ -2200,16 +2133,15 @@ crosses a boundary:
       (try! v (parseOne (vecGet toks 0))
         (parseAll (vecTail toks) (+ acc v)))))   ; ERR-PROP-3: the arm
 
-; The caller attaches what it was doing. `withContext` takes the
-; RESULT, not the error - ERR-TYPE-3a was why nothing here reached into
-; an `Err` binder for its fields.
+; The caller says what it was doing. `withContext` takes the whole
+; `Result`, not the error, so nothing here reads an `Err` binder's
+; fields, which the retired ERR-TYPE-3a once forbade.
 (:: parseManifest (-> Int (Result Int Error)))
 (fn (parseManifest toks)
   (withContext (parseAll toks 0) "parsing the manifest"))
 ```
 
-The recursion sits where `ERR-PROP-3` measured that it must, because
-that is where `try!` puts it. Each rule behind this shape is there
-because a probe said so rather than because it reads well — and the
-one that made the shape *writable* was a hygiene defect in the
-expander, not anything about errors at all.
+The recursion sits where `ERR-PROP-3` requires it, because that is
+where `try!` puts it. Each rule behind this shape rests on a probe.
+What made the shape writable was a hygiene fix in the macro expander,
+not a change to the error types.
