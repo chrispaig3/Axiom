@@ -52,9 +52,13 @@
 #      JSON; on a seventh it appends a line that is not IR to what
 #      `emit-llvm` wrote - is run through the SAME harness, which must
 #      report each as the failure it is and must not excuse any of them
-#      as a known one; an eighth, untouched, must still pass. If a planted crash is not reported, the gate
-#      fails: without this, "no mutant crashed" could mean "no crash
-#      can be seen".
+#      as a known one. Two more must NOT be reported: an untouched
+#      mutant must still pass, and a real refusal with a raw NUL
+#      appended to its report must still read as a refusal (grep reads
+#      a file holding a NUL as binary and prints no match; that turned
+#      a correct AX1001 into "no error line" on CI, 2026-09-28). If a
+#      planted crash is not reported, the gate fails: without this, "no
+#      mutant crashed" could mean "no crash can be seen".
 #   5. Stored reproducers, `tests/fuzz/MANIFEST`: every crash the fuzzer
 #      found, minimized, with a non-`.ax` extension so no census or
 #      sweep reads it. A FIXED row must now pass P1-P3 (the regression
@@ -164,7 +168,7 @@ describe_rc() {  # <status> -> "exited N" / "killed by signal N (NAME)" / "timed
 }
 
 first_line() {  # <file>: its first non-blank line, colour codes stripped, cut to 200
-  { grep -m1 -v '^[[:space:]]*$' "$1" 2>/dev/null || true; } \
+  { grep -a -m1 -v '^[[:space:]]*$' "$1" 2>/dev/null || true; } \
     | sed $'s/\x1b\\[[0-9;]*m//g' | cut -c1-200
 }
 
@@ -177,8 +181,12 @@ fuzz_one() {
 
   AXIOM_PATH="$ap" gate_timeout "$4" "$cc" check "$m" > "$b.cout" 2> "$b.cerr" < /dev/null || rc=$?
   if (( rc == 1 )); then
-    codes="$(grep -o 'error\[AX[0-9]\{4\}\]' "$b.cerr" || true)"
-    if [[ -z "$codes" ]]; then
+    # `-a`, and a code rather than any output: without `-a` a report
+    # holding a NUL is "binary", and BSD grep then prints "Binary file
+    # ... matches" where GNU grep prints nothing - one read as a code,
+    # the other as silence, neither being what the report says.
+    codes="$(grep -a -o 'error\[AX[0-9]\{4\}\]' "$b.cerr" || true)"
+    if [[ "$codes" != *'error[AX'* ]]; then
       f_stage=check f_why="check exited 1 with no error[AXnnnn] line"
       f_detail="$(first_line "$b.cerr")"
       return
@@ -202,9 +210,9 @@ fuzz_one() {
   fi
   # The status and the report must agree: an error printed under exit 0
   # is a refusal a build script would read as success.
-  if grep -q 'error\[AX[0-9]\{4\}\]' "$b.cerr"; then
+  if grep -a -q 'error\[AX[0-9]\{4\}\]' "$b.cerr"; then
     f_stage=check f_why="check exited 0 and printed an error[AXnnnn] line"
-    f_detail="$( { grep -m1 'error\[AX' "$b.cerr" || true; } | sed $'s/\x1b\\[[0-9;]*m//g' | cut -c1-200)"
+    f_detail="$( { grep -a -m1 'error\[AX' "$b.cerr" || true; } | sed $'s/\x1b\\[[0-9;]*m//g' | cut -c1-200)"
     return
   fi
   f_parsed=1 f_ok=1
@@ -221,14 +229,14 @@ fuzz_one() {
     return
   fi
   f_emitted=1
-  grep -q '^define [^@]*@__axiom_user_main(' "$b.ll" \
+  grep -a -q '^define [^@]*@__axiom_user_main(' "$b.ll" \
     || printf '\ndefine i64 @__axiom_user_main() {\n  ret i64 0\n}\n' >> "$b.ll"
   rc=0
   gate_timeout "$4" llc -O0 -filetype=obj "$b.ll" -o "$b.o" > "$b.lerr" 2>&1 || rc=$?
   rm -f "$b.o"
   if (( rc != 0 )); then
     f_stage=llc f_why="llc $(describe_rc "$rc") on the IR emit-llvm wrote"
-    f_detail="$( { grep -m1 'error:' "$b.lerr" || true; } | sed 's/.*error: //' | cut -c1-200)"
+    f_detail="$( { grep -a -m1 'error:' "$b.lerr" || true; } | sed 's/.*error: //' | cut -c1-200)"
     return
   fi
   f_llc=1 f_verdict=ok
@@ -414,13 +422,14 @@ fi
 # ---------------------------------------------------------------------
 echo "== 4. controls: a planted wrapper compiler's failures are reported =="
 # Targets from the run's own verdicts: two it checked OK (IR corruption,
-# and the untouched control) and six it refused.
-if (( ${#ok_names[@]} < 2 || ${#refused_names[@]} < 6 )); then
-  bad "the run produced ${#ok_names[@]} OK and ${#refused_names[@]} refused mutants; the controls need 2 and 6"
+# and the untouched control) and seven it refused (the NUL control).
+if (( ${#ok_names[@]} < 2 || ${#refused_names[@]} < 7 )); then
+  bad "the run produced ${#ok_names[@]} OK and ${#refused_names[@]} refused mutants; the controls need 2 and 7"
 else
   c_badir="${ok_names[0]}" c_clean="${ok_names[1]}"
   c_crash="${refused_names[0]}" c_hang="${refused_names[1]}" c_mute="${refused_names[2]}"
   c_trap="${refused_names[3]}" c_badjson="${refused_names[4]}" c_lie="${refused_names[5]}"
+  c_nul="${refused_names[6]}"
   wrap="$work/planted-axc"
   cat > "$wrap" <<'SH'
 #!/bin/sh
@@ -441,6 +450,12 @@ case "$(basename "$in" .ax)" in
   "$FUZZ_MUTE") exit 1 ;;
   "$FUZZ_TRAP") echo "axiom: trap: planted by check-fuzz.sh" >&2; exit 77 ;;
   "$FUZZ_LIE") "$FUZZ_REAL" "$@"; exit 0 ;;
+  "$FUZZ_NUL")
+    # A real refusal whose report carries a raw NUL, as a renderer
+    # echoing a mutant's source line does: still a refusal.
+    "$FUZZ_REAL" "$@"; rc=$?
+    printf 'raw \000 byte\n' >&2
+    exit $rc ;;
   "$FUZZ_BADIR")
     if [ "$emit" = 1 ]; then
       "$FUZZ_REAL" "$@" || exit $?
@@ -458,7 +473,8 @@ exec "$FUZZ_REAL" "$@"
 SH
   chmod +x "$wrap"
   export FUZZ_REAL="$axc" FUZZ_CRASH="$c_crash" FUZZ_HANG="$c_hang" FUZZ_MUTE="$c_mute" \
-         FUZZ_TRAP="$c_trap" FUZZ_BADIR="$c_badir" FUZZ_BADJSON="$c_badjson" FUZZ_LIE="$c_lie"
+         FUZZ_TRAP="$c_trap" FUZZ_BADIR="$c_badir" FUZZ_BADJSON="$c_badjson" FUZZ_LIE="$c_lie" \
+         FUZZ_NUL="$c_nul"
   cdir="$work/control"
   mkdir -p "$cdir"
   cp "$mdir/manifest.tsv" "$cdir/"
@@ -482,6 +498,15 @@ SH
       else
         bad "control clean: $name failed through the wrapper ($f_why) - the wrapper is not transparent"
       fi
+    elif [[ "$kind" == nul ]]; then
+      # grep reads a report holding a NUL as binary and prints no
+      # match: the harness called a correct refusal mute (CI 2026-09-28,
+      # m00088, a NUL inserted into a line the renderer echoes).
+      if [[ "$f_verdict" == refused ]]; then
+        ok "control nul: $name, a refusal whose report carries a raw NUL, is still read as a refusal"
+      else
+        bad "control nul: $name gave verdict '$f_verdict' ($f_why) - a report holding a NUL hides its error line from the harness"
+      fi
     elif [[ "$f_verdict" == fail && "$f_stage" == "$want_stage" && -z "$f_known" ]] \
          && grep -qE -- "$want_why" <<< "$f_why $f_detail"; then
       ok "control $kind: $name reported at $f_stage - $f_why${f_detail:+ - ${f_detail:0:60}}"
@@ -497,6 +522,7 @@ lie $c_lie $deadline check exited.0.and.printed.an.error
 badir $c_badir $deadline llc this.line.is.not.LLVM.IR|expected
 badjson $c_badjson $deadline json not.JSON
 clean $c_clean $deadline - -
+nul $c_nul $deadline - -
 ROWS
   unset FUZZ_REAL FUZZ_CRASH FUZZ_HANG FUZZ_MUTE FUZZ_TRAP FUZZ_BADIR FUZZ_BADJSON FUZZ_LIE
 fi
@@ -560,7 +586,7 @@ echo "== 6. the open rows that excused mutants in section 2 =="
 # printed an XFAIL line naming its row, and section 5 holds each row to
 # failing exactly as recorded.
 while IFS=$'\t' read -r stage sig file; do
-  n="$(grep -c "\[open: tests/fuzz/$file\]" "$work/xfail.log" 2>/dev/null || true)"
+  n="$(grep -a -c "\[open: tests/fuzz/$file\]" "$work/xfail.log" 2>/dev/null || true)"
   echo "   OPEN tests/fuzz/$file ($stage /$sig/): excused ${n:-0} of this run's mutants"
 done < "$open_sigs"
 

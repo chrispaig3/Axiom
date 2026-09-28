@@ -29,7 +29,7 @@ row names another.
 | Happens-before, the atomics' meaning and the data-race boundary stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; evidence as R-C3 plus `check-parallel.sh` |
 | Atomics lower to their ordering instructions on 7 targets × 4 levels; SB/MP/counter litmus clean on two threads, beside controls that show the forbidden outcomes (R-C3) | `bash scripts/check-atomics.sh` — 69 pass on H3 (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Executable allocator/arena/region model agrees with the runtime (R-E1, model half) | `scripts/lib/runtime-model.py`; `bash scripts/check-runtime-model.sh` — 13 pass (selftest, 18 trace builds at opt 0+3, canary, hand control, 5 ablations) |
-| Seeded compiler fuzzing: `check` never dies by a signal, trap status or hang and never refuses without a code; JSON refusals are well formed; accepted programs emit IR `llc` accepts - on the mutants run (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `bash scripts/check-fuzz.sh` - 28 pass on H3 (600 mutants from seed 20260927 in 32 s, a planted wrapper compiler's seven failure kinds reported, 8 reproducers replayed: 2 fixed crashes pass, 6 open defects still fail as recorded); `--long` 6,000 mutants |
+| Seeded compiler fuzzing: `check` never dies by a signal, trap status or hang and never refuses without a code; JSON refusals are well formed; accepted programs emit IR `llc` accepts - on the mutants run (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `bash scripts/check-fuzz.sh` - 29 pass on H3 and in the podman linux-aarch64 container (600 mutants from seed 20260927, a planted wrapper compiler's seven failure kinds reported and its NUL-report refusal read as a refusal, 8 reproducers replayed: 2 fixed crashes pass, 6 open defects still fail as recorded); `--long` 6,000 mutants |
 
 ## Open defects and gaps
 
@@ -51,7 +51,7 @@ hardware: `check-parallel.sh` 69/69 (with a `timeout` shim; 12a
 SKIP), `check-diagnostics.sh` 245/245, `check-render-selfhost.sh`
 238/238, `run-stdlib-tests.sh 527` pass with optstable,
 `check-runtime-model.sh` 13/13, `check-atomics.sh` 69/69, `check-chan.sh` 15/15,
-`check-fuzz.sh` 28/28 (and `--long` over 6,000 mutants),
+`check-fuzz.sh` 29/29 (and `--long` over 6,000 mutants),
 `check-doc-drift.sh` green.
 `timeout(1)` is absent from the macOS image, so §12b/§12c fail there
 on the harness; freebsd/windows/darwin-x86_64 execution is
