@@ -321,8 +321,13 @@ fi
 # --------------------------------------------------------------
 echo "== 4. a name this session defined, which no file contains =="
 # --------------------------------------------------------------
+# `.axiom-shared/` is the battery's own output, gitignored like
+# `.axiom-bin/`: its run logs hold THIS gate's earlier output, name
+# included, so a second battery in one checkout aborted here on the
+# first one's log.
 stray="$(grep -rl 'zzsessionhelper' "$repo_root" \
           --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.axiom-bin \
+          --exclude-dir=.axiom-shared \
           --exclude-dir=target --exclude-dir=node_modules 2>/dev/null \
         | grep -v 'tests/replcomp/020-session-name.session' \
         | grep -v 'scripts/check-replcomp.sh')"
