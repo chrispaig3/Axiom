@@ -120,6 +120,20 @@
 ; over, so a header at zero cannot die and a data block at zero cannot
 ; be reclaimed by the header's map. `strAlloc` takes the same retain on
 ; its buffer, for the same reason, and calls it "the header's own share".
+; The bytes `n` elements take. Above 2^59 elements the product is past
+; the 2^62 bytes an allocation can ask for (MM-ALLOC-7a), and at 2^61 it
+; wrapped to 0: `vecWithCapacity` asked for an empty block, answered a
+; vector claiming 2^61 slots, and its pushes wrote over whatever the
+; allocator handed out next. Such a count answers -1, which the
+; allocator refuses before any arithmetic: out of memory, status 70,
+; recoverable (ERR-REC-6; `tests/stdlib/562-vec-capacity-range.ax`).
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: vecBytes (-> Int Int))
+(fn (vecBytes n)
+  (if (> n 576460752303423488)
+    (- 0 1)
+    (* n 8)))
+
 ;@axiom:restrict(no-io,no-foreign)
 (:: vecBuild (-> Int Int (Vec a)))
 ;@axiom:effect(unsafe)
@@ -129,7 +143,7 @@
       1
       cap))
     (v (memAllocMapped 32 4))
-    (d (memAlloc (* n 8)))
+    (d (memAlloc (vecBytes n)))
   )
     {
       (__retain v)
@@ -425,7 +439,7 @@
 (fn (vecReserveExactly v newCap)
   (let (
     (old (vecData v))
-    (bigger (memAlloc (* newCap 8)))
+    (bigger (memAlloc (vecBytes newCap)))
   )
     {
       (__retain bigger)
