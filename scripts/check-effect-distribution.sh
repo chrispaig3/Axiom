@@ -177,6 +177,14 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-28 (29): a macro query waits for its subject
+# (AN-40) and a function's NID is its `fn`'s (AN-41). Compiler view
+# only, 4 rows added (4883 to 4887), none moved: `expQueryMissing`
+# records or emits and `saPutIfAbsent` pushes, both `Alloc,Mut,Unsafe`
+# (2358 to 2360); `expTruncate` pops, `Mut,Unsafe` (130 to 131);
+# `expAnyWaiting` reads, exactly `Unsafe` (1207 to 1208). None names
+# `IO`.
+#
 # RE-PINNED 2026-09-28 (28): AX3089. Compiler view only, 2 rows added
 # (4881 to 4883), none moved: `signatureNeeded` reads a function entry
 # and `emitSignatureNeeded` builds and emits the diagnostic, both
@@ -559,10 +567,10 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2358 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 1207 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2360 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 1208 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 417 "Alloc,IO,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 130 "Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 131 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 49 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 20 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"

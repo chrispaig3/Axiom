@@ -43,10 +43,10 @@ source.
 
 ## Open defects and gaps
 
-- AN-39 and AN-40: two programs a reordering of their declarations
-  refuses, found by `scripts/check-metamorphic.sh`'s second relation
-  and held there as known divergences. AN-41: a function's NID depends
-  on whether its signature or its definition comes last.
+- AN-39: a function with no signature, called from inside its own
+  body or from above its definition, needs its signature (`AX3089`).
+  `scripts/check-metamorphic.sh`'s second relation holds it as its one
+  known divergence.
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
   reentrant; a channel's lock doesn't notice a dead holder; Darwin's
   clock is the realtime one; FreeBSD spins.
@@ -93,7 +93,7 @@ constants.
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 13 pass |
 | `check-fuzz.sh` | 46 pass |
-| `check-metamorphic.sh` | 8 pass |
+| `check-metamorphic.sh` | 10 pass |
 
 Execution on freebsd, windows and darwin-x86_64 has narrower evidence
 ([configurations.md](configurations.md)). Nothing has run on
