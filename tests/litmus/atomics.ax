@@ -13,7 +13,8 @@
 ;        which must show the forbidden outcome, or the zeros above it
 ;        mean only that this harness cannot see a reordering at all.
 ;   mp   message passing. T0 stores data (plain) then flag, T1 loads
-;        flag then data (plain); forbidden is flag 1 with data 0. `sc`
+;        flag and, if it is set, data (plain); forbidden is flag 1 with
+;        data 0. `sc`
 ;        publishes through the atomic flag - the pattern a program
 ;        would actually use - and `plain` makes the flag plain too.
 ;        The witness is how many rounds saw the flag at all: a run in
@@ -190,16 +191,18 @@
       (while (< i n)
         {
           (arrive ctr i)
-          (let ((f (loadFlag flag i mode)))
-            (let ((d (__load64 data i)))
-              (if (== f 1)
-                {
-                  (set seen (+ seen 1))
-                  (if (== d 0)
-                    (set weak (+ weak 1))
-                    0)
-                }
-                0)))
+          ; The data word is read only once the flag says it was
+          ; published. Read before the test, it raced the writer's
+          ; plain store whenever the flag was still 0 (MM-PAR-9), and
+          ; ThreadSanitizer said so.
+          (if (== (loadFlag flag i mode) 1)
+            {
+              (set seen (+ seen 1))
+              (if (== (__load64 data i) 0)
+                (set weak (+ weak 1))
+                0)
+            }
+            0)
           (set i (+ i 1))
         })
       (__store64 out 0 weak)

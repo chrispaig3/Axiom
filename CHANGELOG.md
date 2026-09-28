@@ -74,6 +74,17 @@ output limit, which is inconclusive with or without a plant. The whole
 tracked corpus checks and formats exactly as before. AN-25 to AN-28
 close. After the fixes: 600 mutants 43/43.
 
+### The message-passing litmus reader no longer races — `tests/litmus/atomics.ax`, R-E1 - 2026-09-28
+
+The `mp` reader loaded the data word before testing the flag, so in a
+round where the flag wasn't yet set, that plain load raced the
+writer's plain store, a race by `MM-PAR-9`'s definition that
+ThreadSanitizer reported. It reads the data word only once the flag
+says it was published. Under TSan the `mp sc` row now runs clean at
+`--opt` 0 and 2 (a one-off run: at 500,000 rounds it takes about two
+minutes a level, so `scripts/check-race.sh` doesn't carry it), and
+`scripts/check-atomics.sh` still reads it.
+
 ### A race detector over the thread lowering — `scripts/check-race.sh`, R-E1 - 2026-09-28
 
 ThreadSanitizer runs over `--threads` programs. The gate emits each

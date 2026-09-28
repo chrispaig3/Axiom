@@ -319,14 +319,13 @@ above the rule. The gate checks the list three ways:
 A suppression hides every report with the function in either stack.
 The unsuppressed runs show it hid nothing else on those runs.
 
-`tests/litmus/atomics.ax`'s `mp sc` row has a race of its own. Its
-reader loads the data word before it tests the flag, so in a round
-where the flag isn't set yet, that plain load races the writer's plain
-store. TSan reports it. The row's answer only counts rounds that saw
-the flag, where the load is ordered, so `scripts/check-atomics.sh`'s
-reading of it stands. But the program races by `MM-PAR-9`'s definition,
-and the gate doesn't run it: at the program's fixed 500,000 rounds it
-takes 128 s under TSan.
+`tests/litmus/atomics.ax`'s message-passing reader reads the data word
+only after the flag says it was published. It used to read it first,
+so in a round where the flag wasn't set yet, that plain load raced the
+writer's plain store, and TSan reported it. The fixed `mp sc` row runs
+clean under TSan at `--opt` 0 and 2. The gate doesn't run it, because
+at the program's fixed 500,000 rounds it takes about two minutes a
+level.
 
 ### AddressSanitizer
 
