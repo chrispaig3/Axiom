@@ -258,6 +258,19 @@
         0
       })))
 
+; Insert only when absent, with the one lookup `saPut` makes. The NID
+; variants use it for a signature, which names a function only when no
+; `fn` does (AN-41).
+(pub :: saPutIfAbsent (-> (Vec String) (Vec a) String a Int))
+(pub fn (saPutIfAbsent names vals key val)
+  (if (< (saIdx names key) 0)
+    {
+      (vecPush names key)
+      (vecPush vals val)
+      0
+    }
+    0))
+
 ; Insert-if-absent (stage0's `or_insert`).
 (pub :: saPutSoft (-> (Vec String) (Vec Int) String (Vec Int) Int))
 (pub fn (saPutSoft names vals key val)
@@ -619,7 +632,8 @@
 
 ; One declaration into the maps. The rules are stage0's exactly:
 ; DSig overwrites a function span, DFn only fills an absent one;
-; the nid variant is the LAST declaration mentioning the name;
+; the nid variant is the `fn` when there is one, whichever comes
+; last, and the signature only when there is no `fn` (AN-41);
 ; the axtag set is the last NON-EMPTY one.
 ; A GENERATED declaration is not a symbol. `show` derives a structural
 ; renderer named `show#Point` or `show#(Option Int)`, and the trait
@@ -653,7 +667,14 @@
               name
               (nodeSpan d)
               u)
-            (smNid sm name "DSig:")
+            ; A signature names the function's NID only when no `fn`
+            ; does: moving a `::` below its definition used to make
+            ; the SIGNATURE the last declaration mentioning the name,
+            ; so the function hashed `DSig:` and took a new identity,
+            ; which the compatibility check reads as one function
+            ; removed and another added (AN-41). The `fn` arm below
+            ; always writes `DFn:`.
+            (saPutIfAbsent (memGetWordVec sm 12) (memGetWordVec sm 13) name "DSig:")
             (smTags sm d name)
           }
           (if (== tag TAG_D_FN)

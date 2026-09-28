@@ -25,7 +25,7 @@
 # or faulted), and a named pattern's binders missing from the effect
 # walk. `tests/selfhost/1006-cast-type-operand.ax` and `1007` pin them.
 #
-# FIVE SECTIONS.
+# SIX SECTIONS.
 #   1. The comparator's selftest: each of R1-R3 reported on a planted
 #      difference, the two runtime tables that enumerate every function
 #      allowed to differ, fresh type variables compared by order.
@@ -37,7 +37,10 @@
 #      neither its verdict nor any `symbols` row. Two programs a
 #      reordering refuses are known defects (AN-39, AN-40): each must
 #      still fail exactly as recorded below, so a fix updates the list.
-#   3. Three compilers each rebuilt with one of the fixes taken out
+#   2c. The third relation: moving every `::` to just below its own
+#      `fn` changes no verdict and no `symbols` row, NID included
+#      (AN-41: a NID hashed whichever declaration came last).
+#   3. Four compilers each rebuilt with one of the fixes taken out
 #      (`gate_build_tree`), and the relation required to FAIL under
 #      each: the gate watches the defects it was built on.
 #   4. `--long` only: the compiler's own entry module and every stdlib
@@ -121,14 +124,28 @@ else
   bad "only ${permuted:-0} reordered programs tested (floor 250), ${held:-0} of 2 known divergences seen"
 fi
 
+echo "== 2c. moving a signature below its function changes nothing =="
+rc=0
+( cd "$repo_root" && python3 "$lib" sigmove --axiom "$axc" --jobs "$jobs" "${corpus[@]}" ) \
+  >"$work/sigmove.log" 2>&1 || rc=$?
+summary="$(grep '^reordered ' "$work/sigmove.log" || true)"
+moved="$(sed -nE 's/^reordered [0-9]+ files: ([0-9]+) permuted.*/\1/p' <<<"$summary")"
+if [[ $rc -eq 0 && -n "$moved" && "$moved" -ge 300 ]]; then
+  ok "sigmove: $summary"
+else
+  bad "moving signatures changed something (floor 300 programs): ${summary:-no summary}"
+  grep -E '^(DIVERGED|UNPARSED)' "$work/sigmove.log" | cut -c1-400 | sed 's/^/     /' || true
+fi
+
 echo "== 3. a compiler with a fix taken out fails the relation =="
 trio=(tests/stdlib/020-fmt.ax tests/stdlib/070-vec.ax tests/stdlib/210-struct-variants.ax)
-# `ablate <name> <file> <from> <to>`: rebuild from a copy of self_host/
-# with one exact span replaced, and require section 2's relation to
-# fail on the three programs above. A span that no longer matches
-# exactly once is a failure of this gate, not a pass.
+# `ablate <name> <file> <from> <to> [relation]`: rebuild from a copy of
+# self_host/ with one exact span replaced, and require the relation
+# (section 2's `run` unless named) to fail on the three programs above.
+# A span that no longer matches exactly once is a failure of this gate,
+# not a pass.
 ablate() {
-  local name="$1" file="$2" from="$3" to="$4"
+  local name="$1" file="$2" from="$3" to="$4" relation="${5:-run}"
   local dir="$work/ablate-$name"
   rm -rf "$dir"; mkdir -p "$dir"
   cp -R "$repo_root/self_host" "$dir/self_host"
@@ -150,11 +167,11 @@ PY
     head -20 "$dir/build.log" | sed 's/^/     /'
     return
   fi
-  if ( cd "$repo_root" && AXIOM_STDLIB="$dir/stdlib" python3 "$lib" run --axiom "$dir/axc" --jobs "$jobs" "${trio[@]}" ) \
+  if ( cd "$repo_root" && AXIOM_STDLIB="$dir/stdlib" python3 "$lib" "$relation" --axiom "$dir/axc" --jobs "$jobs" "${trio[@]}" ) \
       >"$dir/run.log" 2>&1; then
     bad "ablation \`$name\`: the relation still holds with the fix taken out"
   else
-    ok "ablation \`$name\`: $(grep -c '^DIVERGED' "$dir/run.log") of ${#trio[@]} programs diverge"
+    ok "ablation \`$name\`: $(grep -c '^DIVERGED' "$dir/run.log") of ${#trio[@]} programs diverge under \`$relation\`"
   fi
 }
 
@@ -171,6 +188,11 @@ ablate "named-pattern" typecheck.ax \
             (patBindersVec (nodeCVec pat) 0 acc)
             0))))))" \
   "          0)))))"
+
+ablate "nid-fn-wins" symbols.ax \
+  "            (saPutIfAbsent (memGetWordVec sm 12) (memGetWordVec sm 13) name \"DSig:\")" \
+  "            (smNid sm name \"DSig:\")" \
+  sigmove
 
 if (( long )); then
   echo "== 4. --long: the compiler and every stdlib module as an entry file =="
