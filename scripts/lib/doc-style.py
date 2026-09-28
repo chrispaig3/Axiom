@@ -386,6 +386,11 @@ def check_gate_rules(text, errors):
 def compare(old, new, errors, info):
     def defs(t):
         return set(RULE_DEF.findall(t)) | set(INV_DEF.findall(t))
+    marker = re.compile(r'^\*\*([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+-[0-9]+(?:\.[0-9]+)*[a-z]?)\b[^\n(]*\(\s*([A-Z])\b', re.M)
+    before = dict(marker.findall(old))
+    for rid, letter in marker.findall(new):
+        if rid in before and before[rid] != letter:
+            errors.append((0, 'rule `%s` changed its status marker from %s to %s' % (rid, before[rid], letter)))
     lost = defs(old) - defs(new)
     added = defs(new) - defs(old)
     if lost:
