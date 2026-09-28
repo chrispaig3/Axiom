@@ -177,6 +177,11 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-28 (26): the effect walk reads a named pattern's
+# binders. Compiler view only, 1 row added (4886 to 4887), none moved:
+# `patBindersVec` walks a vector of sub-patterns into the accumulator,
+# `Alloc,Mut,Unsafe` (2361 to 2362). None names `IO`.
+#
 # RE-PINNED 2026-09-28 (25): the tag rules (AX3077, AX3078). Compiler
 # view only, 8 rows added (4878 to 4886), none moved:
 # `axtagIsPureSpelling`, `emitAxtagPureSpelling`, `checkStrayAxtags`,
@@ -542,7 +547,7 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2361 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2362 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1207 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 417 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 130 "Mut,Unsafe"

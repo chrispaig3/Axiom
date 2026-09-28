@@ -1,0 +1,60 @@
+; expect 0
+; A parameter shadows a top-level function of the same name, and the
+; emitter has to agree with the checker about it. It used to agree
+; only for a function taking parameters: a NULLARY function was
+; looked up before the parameter, so `(fn (k) 100)` beside
+; `(fn (viaParam k) (+ k 1))` compiled the parameter read as
+; `call i64 @k()` and `(viaParam 10)` answered 101. A lambda's
+; parameter and a captured parameter went the same way. A `let`,
+; `match` or `for` binder was always right, because those live in
+; the emitter's symbol table. The same lookup reached across modules:
+; with this file's `e` in scope, `Err$errCode`'s parameter `e` became
+; a call to it, and reading the answer as an `Error` faulted.
+; Each wrong answer sets its own bit.
+(import Vec)
+(import Err)
+
+(:: k Int)
+(fn (k)
+  100)
+
+(:: e Int)
+(fn (e)
+  8)
+
+(:: viaParam (-> Int Int))
+(fn (viaParam k)
+  (+ k 1))
+
+(:: viaLambda (-> Int Int))
+(fn (viaLambda x)
+  ((lambda (k) (+ k 1)) x))
+
+(:: viaCapture (-> Int Int))
+(fn (viaCapture k)
+  ((lambda (y) (+ k y)) 1))
+
+(:: viaLet (-> Int Int))
+(fn (viaLet x)
+  (let ((k x))
+    (+ k 1)))
+
+(:: viaMatch (-> (Option Int) Int))
+(fn (viaMatch o)
+  (match o
+    ((Some k) (+ k 1))
+    ((None) 0)))
+
+(:: acrossModules Int)
+(fn (acrossModules)
+  (errCode (mkError 7 "seven")))
+
+(:: main Int)
+(fn (main)
+  (+ (if (== (viaParam 10) 11) 0 1)
+    (+ (if (== (viaLambda 10) 11) 0 2)
+      (+ (if (== (viaCapture 10) 11) 0 4)
+        (+ (if (== (viaLet 10) 11) 0 8)
+          (+ (if (== (viaMatch (Some 10)) 11) 0 16)
+            (+ (if (== acrossModules 7) 0 32)
+              (if (== (+ k e) 108) 0 64))))))))

@@ -12971,6 +12971,15 @@
       ; property `MM-EXEC-9a`'s note relies on - it answers 0 for
       ; `cast` and every struct/data constructor - so the head having
       ; an entry is exactly "this is a function that could apply it".
+      ;
+      ; A `cast`, `sizeof` or `alignof` head's FIRST argument is a
+      ; type written in expression position, and a type is not a
+      ; reference to anything. Walked as a value, the type variable in
+      ; `Vec.ax`'s `(cast a (memGetWord ...))` resolved to whatever
+      ; top-level function the entry file named `a`: a program
+      ; declaring an IO-performing `a` drew 53 false errors inside
+      ; `stdlib/`, and every file of `tests/stdlib/` stopped compiling
+      ; once one was added (`tests/selfhost/1006-cast-type-operand.ax`).
       (if (&& (== (nodeTag head) TAG_E_VAR) (!= (findFnEnt tc (nodeAName head)) 0))
         (walkEffectsArgVec
           tc
@@ -12981,7 +12990,9 @@
         (walkEffectsVec
           tc
           args
-          0
+          (if (&& (== (nodeTag head) TAG_E_VAR) (&& (== (isCastLike (nodeAName head)) 1) (== (bsIsLocal bound (nodeAName head)) 0)))
+            1
+            0)
           bound
           acc))
       (if (== (nodeTag head) TAG_E_VAR)
@@ -14140,7 +14151,23 @@
             (patBinders (nodeB pat) acc)
             (patBindersHead (nodeA pat) acc)
           }
-          0)))))
+          ; A named pattern, `(Wrap {tag = t})`, keeps its sub-patterns
+          ; in word c, as `capPatBind` and `rgnBindPat` read them. This
+          ; walk alone missed them, so the arm's `t` was a free name:
+          ; with an entry-file function `t` performing IO, a function
+          ; matching on `{tag = t}` drew a false AX3042.
+          (if (== tag TAG_P_CONNAMED)
+            (patBindersVec (nodeCVec pat) 0 acc)
+            0))))))
+
+(pub :: patBindersVec (-> (Vec Int) Int (Vec Int) Int))
+(pub fn (patBindersVec pats i acc)
+  (if (>= i (vecLen pats))
+    0
+    {
+      (patBinders (vecGet pats i) acc)
+      (patBindersVec pats (+ i 1) acc)
+    }))
 
 ; The spine's head of a constructor pattern names the constructor,
 ; not a binder, so only the arguments' binders are collected.

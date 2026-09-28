@@ -21,6 +21,7 @@ source.
 | The twenty-six `Unsafe` primitives are refused under `no-unsafe` and `pure`, and a declaration that calls one says `effect(unsafe)` (R-A6) | `tests/diagnostics/1010-unsafe-primitives.ax` and `tests/diagnostics/1020-unsafe-device-primitives.ax`; `scripts/check-diagnostics.sh`: 255 pass |
 | Links in dead blocks can't be decremented as counts (R-A7) | `tests/stdlib/521-release-filed.ax`; the `MM-LIFE-2k` release path |
 | Foreign joins are refused before waiting, and the owner still joins (R-A8) | §12c: `foreign 78 status 123 answer 42`, for processes and threads, raising and checked |
+| A parameter is read, not called, beside a nullary function of its name; a cast's type operand and a named pattern's binders resolve as written; so an unused declaration changes nothing else (R-A10) | `tests/selfhost/1006-cast-type-operand.ax`, `tests/selfhost/1007-param-shadows-nullary.ax`; `scripts/check-metamorphic.sh`: 334 programs keep the relation, three ablations each red |
 | Count exhaustion traps with 70 before the write, and is recoverable (R-A9) | `tests/stdlib/527-retain-overflow.ax` (`.optstable` 0 to 3); the model's `exhaust` ablation |
 | `vecSet` traps with 77 before it mutates (R-B1) | `tests/stdlib/525-vec-set-bounds.ax` |
 | Pool handles are O(min(n, w)), with one checked-join cell (R-B2) | `tests/stdlib/523-par-pool-bounded.ax` (`.optstable` 0 to 3) |
@@ -88,6 +89,7 @@ constants.
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 13 pass |
 | `check-fuzz.sh` | 46 pass |
+| `check-metamorphic.sh` | 6 pass |
 
 Execution on freebsd, windows and darwin-x86_64 has narrower evidence
 ([configurations.md](configurations.md)). Nothing has run on

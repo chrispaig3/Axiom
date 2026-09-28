@@ -17433,8 +17433,16 @@
                   ; the linear `mangledFor` cost a self-compile 2.2s on
                   ; the scans alone - and then this call site, one of the
                   ; two hottest it was built for, kept asking the scan.
+                  ;
+                  ; A parameter of the function being emitted wins, as
+                  ; it does in the function-value arm below and in the
+                  ; checker, which types it as the parameter. Without
+                  ; that, `(fn (k) 100)` beside `(fn (inc k) (+ k 1))`
+                  ; made `(inc 10)` answer 101, and an entry file's `e`
+                  ; turned `Err$errCode`'s parameter into a call
+                  ; (`tests/selfhost/1007-param-shadows-nullary.ax`).
                   (let ((full (mangledForCg cg name)))
-                    (if (isNullaryFnCg cg full)
+                    (if (&& (isNullaryFnCg cg full) (< (paramIndexOf cg name) 0))
                       (let ((rn (allocReg cg)))
                         (let ((r (regStr rn)))
                           {

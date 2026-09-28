@@ -1,0 +1,42 @@
+; expect 42
+; A type written in expression position names no value. `Vec.ax`
+; reads an element with `(cast a (memGetWord ...))`, where `a` is the
+; element's type variable, and the effect walk used to follow that
+; `a` as a reference: it resolved to this file's function `a`, which
+; performs IO. Every `Vec` function reading an element then performed
+; IO too, 53 declarations in `stdlib/` drew false AX3042 and AX3049
+; errors, and this program did not compile. `t` is the second case:
+; a named pattern's binder, `{tag = t}`, which the same walk read as
+; a free name and so attributed to the function `t` below.
+(import Vec)
+
+;@axiom:effect(io)
+(:: a Int)
+(fn (a)
+  (__syscall3 1 1 0 0))
+
+;@axiom:effect(io)
+(:: t Int)
+(fn (t)
+  (__syscall3 1 1 0 0))
+
+(data Wrapped
+  (Wrap { inner : Int, tag : Int }))
+
+(:: tagOf (-> Wrapped Int))
+(fn (tagOf w)
+  (match w
+    ((Wrap {tag = t}) t)))
+
+(:: second (-> (Vec Int) Int))
+(fn (second v)
+  (vecGet v 1))
+
+(:: main Int)
+(fn (main)
+  (let ((v (vecNew)))
+    {
+      (vecPush v 30)
+      (vecPush v 40)
+      (+ (second v) (tagOf (Wrap 0 2)))
+    }))
