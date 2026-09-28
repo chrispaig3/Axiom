@@ -47,7 +47,7 @@ export function Footer() {
             <span className="brand__word">Axiom</span>
           </a>
           <p>
-            Found a wrong answer, a confusing error, or a claim here that does not hold?{' '}
+            A small language for ambitious ideas. Built in the open, with room for your contribution.{' '}
             <a href={`${REPO}/issues`} target="_blank" rel="noreferrer noopener">
               Open an issue
             </a>
@@ -56,8 +56,7 @@ export function Footer() {
           <p className="footer__fine">
             Axiom {VERSION} · MIT licensed · © 2026 Chris Paige
             <br />
-            Code on this page is coloured by a highlighter that follows the language's own
-            tree-sitter queries, capture for capture.
+            High-level thinking. Native-level control.
           </p>
         </div>
         {COLUMNS.map((c) => (

@@ -4,12 +4,10 @@ import { DOCS, REPO, VERSION } from '../data/site.ts'
 import { GitHub, Menu, Moon, Sun, X } from './Icons.tsx'
 
 const LINKS = [
-  { href: '#why', label: 'Why' },
+  { href: '#why', label: 'Why Axiom' },
   { href: '#tour', label: 'Tour' },
-  { href: '#speed', label: 'Speed' },
-  { href: '#compare', label: 'Compare' },
+  { href: '#speed', label: 'Performance' },
   { href: '#status', label: 'Status' },
-  { href: '#faq', label: 'FAQ' },
 ]
 
 /**
@@ -34,12 +32,12 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
 
   useEffect(() => {
     if (typeof IntersectionObserver !== 'function') return
-    const targets = LINKS.map((l) => document.getElementById(l.href.slice(1))).filter(
+    const targets = ['#top', ...LINKS.map((l) => l.href)].map((href) => document.getElementById(href.slice(1))).filter(
       (el): el is HTMLElement => Boolean(el),
     )
     const io = new IntersectionObserver(
       (entries) => {
-        for (const e of entries) if (e.isIntersecting) setCurrent(`#${e.target.id}`)
+        for (const e of entries) if (e.isIntersecting) setCurrent(e.target.id === 'top' ? null : `#${e.target.id}`)
       },
       { rootMargin: '-45% 0px -50% 0px' },
     )
@@ -109,7 +107,7 @@ export function Nav({ onToggle }: { onToggle: () => void }) {
             <GitHub />
           </a>
           <a className="btn btn--primary btn--sm nav__cta" href="#start">
-            Install
+            Get started
           </a>
           <button
             type="button"

@@ -114,11 +114,11 @@ export function Benchmark() {
   return (
     <section className="section" id="speed" aria-labelledby="speed-h">
       <div className="container">
-        <SectionHead id="speed-h" eyebrow="Performance" title="C speed, a fraction of Rust's size.">
+        <SectionHead id="speed-h" eyebrow="Performance" title="Small binaries. Measured performance.">
           <p>
-            The same Collatz loop in Axiom, Rust and C, on one machine. Axiom hands its LLVM IR to{' '}
-            <code>llc</code>, the backend Rust and clang use, so a loop of arithmetic and branches
-            gets the same machine code.
+            In this Collatz benchmark, Axiom runs within milliseconds of C and Rust, with a binary
+            close to C’s size. One workload, one machine, with the source and method available
+            for you to reproduce.
           </p>
         </SectionHead>
 

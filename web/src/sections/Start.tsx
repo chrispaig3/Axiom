@@ -147,7 +147,7 @@ export function Start() {
   return (
     <section className="section section--alt" id="start" aria-labelledby="start-h">
       <div className="container">
-        <SectionHead id="start-h" eyebrow="Get started" title="Three steps to a native binary.">
+        <SectionHead id="start-h" eyebrow="Get started" title="Your first native binary starts here.">
           <p>
             Axiom needs <code>llc</code> from LLVM and a C compiler for the final link. The compiler
             itself is written in Axiom, so there is no other toolchain to install first.
