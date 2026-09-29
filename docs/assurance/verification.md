@@ -424,9 +424,9 @@ in ways no program can observe.
 - Fuzzing of FFI boundaries and runtime operations. Race detection
   between forked bindings, and a heap sanitizer the arena works with
   (the runtime would have to poison its own free blocks). Schedule
-  exploration, and memory-ordering litmus families beyond the six
-  `scripts/check-atomics.sh` runs (SB, MP, LB, 2+2W, IRIW and a
-  contended counter, R-C3). Allocation, cancellation and failure
+  exploration, and memory-ordering litmus families beyond the twelve
+  `scripts/check-atomics.sh` runs (R-C3): R, S, 3.SB and the
+  dependency and fence variants. Allocation, cancellation and failure
   injection beyond the fault-injected count boundary (527) and the
   `reset_keeping` fixtures (165).
 - Long-duration memory and concurrency stress. Inspection of optimised

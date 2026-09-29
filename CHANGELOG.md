@@ -22,6 +22,30 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Six more litmus families: WRC, ISA2 and coherence — `scripts/check-atomics.sh`, R-C3 - 2026-09-28
+
+`scripts/check-atomics.sh` ran six memory-ordering families. It runs
+twelve now: write-to-read causality (WRC) and ISA2 on three threads,
+and the four coherence tests on one word, CoRR, CoWW, CoWR and CoRW,
+on two. Each seq_cst program must show its forbidden outcome zero
+times in three runs at every `--opt`, and must show the rounds that
+could have produced it. On H3 the witnesses ran from 627 (WRC at
+`-O1`) to 1.3 million.
+
+Each family also runs with the reordering written into the program,
+which sequential consistency allows, and that control must show the
+outcome. For the coherence tests it is the only control there can be:
+x86-64 and AArch64 keep every aligned access to one word coherent,
+plain or atomic, so their plain rows show nothing on any host and are
+reported. WRC's plain row showed its outcome up to four times in
+200,000 rounds on H3, because the core may pass the relay's store
+ahead of its load; it is reported too. A binding's two accesses to the
+word in a coherence test are a pause apart, which is what lets the
+other binding's access land between them often enough to count.
+
+The gate went from 96 checks to 144. Tested by
+`tests/litmus/atomics.ax`.
+
 ### A function that needs its signature says so — `AX3089` - 2026-09-28
 
 A function with no signature is typed by checking its body, and

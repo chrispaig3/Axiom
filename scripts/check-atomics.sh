@@ -50,10 +50,11 @@
 #      byte-identical: that is the invisibility above, measured.
 #
 #   3. LITMUS, ON THIS HOST. tests/litmus/atomics.ax, built with
-#      `--threads` at --opt 0..3, runs six families on two threads (four
-#      for iriw), each printing `<forbidden> <witnessed>`. A run is
-#      500,000 rounds (200,000 for iriw); an atomic row is three runs per
-#      level, and a required control gets up to five runs to show:
+#      `--threads` at --opt 0..3, runs twelve families on two threads
+#      (three for wrc and isa2, four for iriw), each printing
+#      `<forbidden> <witnessed>`. A run is 500,000 rounds (200,000 for
+#      iriw, wrc and isa2); an atomic row is three runs per level, and a
+#      required control gets up to five runs to show:
 #
 #        sb sc | sb fence   forbidden 0 in every run
 #        mp sc              forbidden 0 in every run, flag seen > 0
@@ -62,20 +63,41 @@
 #        2+2w sc            forbidden 0 in every run, x 2 and y 2 > 0
 #        iriw sc            forbidden 0 in every run, each reader's
 #                           half of the outcome seen > 0
+#        wrc sc | isa2 sc   forbidden 0 in every run, the chain (R1 saw
+#                           the write, R2 saw R1's) formed > 0
+#        corr sc            forbidden 0 in every run, reads straddling
+#                           the store > 0
+#        coww sc            forbidden 0 in every run, the reader saw x
+#                           change > 0
+#        cowr sc | corw sc  forbidden 0 in every run, the other
+#                           binding's store read > 0
 #        sb plain           CONTROL: forbidden > 0 in some run
 #        add split          CONTROL: forbidden > 0 in some run
-#        lb | 2+2w | iriw reorder
+#        lb | 2+2w | iriw | wrc | isa2 | corr | coww | cowr | corw reorder
 #                           CONTROL: forbidden > 0 in some run. The
 #                           reordering is written into the program with
 #                           the atomics, so sequential consistency allows
 #                           the outcome and any host can show it: these
-#                           prove the harness sees it when it happens
+#                           prove the harness sees it when it happens.
+#                           For the four coherence families it is the
+#                           only control there can be: x86-64 and AArch64
+#                           keep every aligned access to one word
+#                           coherent, plain or atomic, so their plain
+#                           rows show nothing on any host this runs on
 #        2+2w plain         CONTROL on darwin-aarch64 at -O1..-O3 only;
 #                           reported elsewhere (below)
 #        mp plain           reported, not required - x86 hardware never
 #                           reorders this pattern, so at -O0 there is
 #                           nothing to show and a requirement would fail
 #                           on the one ISA whose answer is "correct"
+#        wrc | isa2 plain   reported, not required. On darwin-aarch64
+#                           wrc plain showed its outcome once or twice
+#                           in some runs of 200,000 rounds (R1's store
+#                           does not depend on its load, so the core may
+#                           pass it ahead); x86-64 is TSO and forbids it
+#        corr | coww | cowr | corw plain
+#                           reported, not required, and expected 0 on
+#                           every host: hardware coherence
 #        lb | iriw plain    reported, not required. x86-64 is TSO, which
 #        2+2w plain         forbids all three outcomes for plain accesses.
 #                           On darwin-aarch64 (Apple M1, 2026-09-28, idle
@@ -102,9 +124,10 @@
 # because the IR names no LSE-capable CPU, and a host with LSE runs
 # those same loops. Section 3 is the rounds run, on this host, at these
 # levels: an absent outcome is evidence, not proof, and a litmus pass
-# on x86 says nothing about AArch64. The six families are the classic
-# two-and-four-thread shapes, not an exhaustive suite: WRC, ISA2, the
-# coherence tests and the rest are not run. The linux-x86_64,
+# on x86 says nothing about AArch64. The twelve families are the classic
+# two-, three- and four-thread shapes, not an exhaustive suite: R, S,
+# 3.SB, the dependency and fence variants and the rest of the catalogue
+# are not run. The linux-x86_64,
 # linux-aarch64 and darwin-aarch64 CI legs are the three hosts it runs
 # on.
 #
@@ -302,7 +325,8 @@ for lvl in 0 1 2 3; do
   if ! "$axc" build --threads --input "$litmus" --output "$bin" --opt "$lvl" > "$work/litmus.O$lvl.build" 2>&1; then
     bad "litmus --threads --opt $lvl did not build:"; sed 's/^/    /' "$work/litmus.O$lvl.build" | head -12; continue
   fi
-  for row in "sb sc" "sb fence" "mp sc" "add sc" "add cas" "lb sc" "2+2w sc" "iriw sc"; do
+  for row in "sb sc" "sb fence" "mp sc" "add sc" "add cas" "lb sc" "2+2w sc" "iriw sc" \
+             "wrc sc" "isa2 sc" "corr sc" "coww sc" "cowr sc" "corw sc"; do
     set -- $row
     forb=0; wit=0; good=1
     for ((k = 0; k < runs; k++)); do
@@ -317,6 +341,10 @@ for lvl in 0 1 2 3; do
       lb)   none="no round had both loads answer 0, so the threads never overlapped" ;;
       2+2w) none="no round ended x 2 and y 2, so the stores never interleaved" ;;
       iriw) none="one reader never saw one write without the other" ;;
+      wrc|isa2) none="no round had R1 see the first write and R2 see R1's, so the chain never formed" ;;
+      corr) none="no round's two reads straddled the store" ;;
+      coww) none="the reader never saw x change" ;;
+      cowr|corw) none="the writer never read the other binding's store" ;;
       *)    none="" ;;
     esac
     if (( forb != 0 )); then
@@ -327,8 +355,9 @@ for lvl in 0 1 2 3; do
       ok "$row -O$lvl: forbidden 0 in $runs runs (witnessed $wit)"
     fi
   done
-  required=("sb plain" "add split" "lb reorder" "2+2w reorder" "iriw reorder")
-  reported=("lb plain" "iriw plain")
+  required=("sb plain" "add split" "lb reorder" "2+2w reorder" "iriw reorder" "wrc reorder" "isa2 reorder"
+            "corr reorder" "coww reorder" "cowr reorder" "corw reorder")
+  reported=("lb plain" "iriw plain" "wrc plain" "isa2 plain" "corr plain" "coww plain" "cowr plain" "corw plain")
   if (( apple && lvl > 0 )); then required+=("2+2w plain"); else reported+=("2+2w plain"); fi
   for row in "${required[@]}"; do
     set -- $row
@@ -362,5 +391,5 @@ if (( failed > 0 )); then
 fi
 echo "check-atomics: $checks checks - the five primitives lower to their ordering"
 echo "               instructions on every target and level, and in the rounds run"
-echo "               two and four threads on this host saw nothing sequential"
-echo "               consistency forbids"
+echo "               two, three and four threads on this host saw nothing"
+echo "               sequential consistency forbids"
