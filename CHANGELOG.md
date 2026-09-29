@@ -22,6 +22,16 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### R, S, 3.SB, fences and LSE — `scripts/check-atomics.sh`, R-C3 - 2026-09-29
+
+The litmus suite gains the R, S and 3.SB families and fenced SB, MP,
+R and S, each with a control that must show the outcome its zeros
+exclude. A new section counts the AArch64 lowering with LSE enabled
+(`ldar`, `stlr`, `ldaddal`, `casal`, `dmb ish`, nothing weaker) and runs
+litmus from an LSE build. The driver itself never builds LSE code,
+because `llc` picks no LSE CPU for any AArch64 target. Dependency
+variants can't be written in a language with one ordering.
+
 ### Fault injection at the handle table — `scripts/check-handles.sh` §7 - 2026-09-29
 
 A single-bit fault in a live handle word is now tested at every bit.

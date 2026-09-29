@@ -566,10 +566,11 @@ jobs:
       # targets at -O0..-O3 - each ordering instruction counted against
       # the fixture's uses, a no-atomics control clean, and IR weakenings
       # required to turn the count red - then store-buffering,
-      # message-passing, load-buffering, 2+2W, counter and the four
-      # coherence litmus tests on two `--threads` threads, WRC and ISA2
-      # on three and IRIW on four, on this runner, beside controls that
-      # must show the outcomes the zeros exclude.
+      # message-passing, load-buffering, 2+2W, R, S, counter and the four
+      # coherence litmus tests on two `--threads` threads, WRC, ISA2 and
+      # 3.SB on three and IRIW on four, the fenced variants, on this
+      # runner, beside controls that must show the outcomes the zeros
+      # exclude; and the LSE lowering, counted and run.
       - name: Atomics lower to their ordering instructions and hold on two threads
         run: ./scripts/check-atomics.sh
 

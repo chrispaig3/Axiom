@@ -36,7 +36,7 @@ source.
 | A channel, mutex, cancellation token or spawn handle is a sealed handle: safe code can't forge one or pass an `Int` or another handle as one, and a freed, forged or rejoined one traps with 85 instead of reading an unmapped page (R-C6, MM-PAR-8) | `tests/diagnostics/1060` to `1066`; `tests/stdlib/570-handle-freed.ax`, `571-handle-table.ax`, `572-spawn-joined-twice.ax`; `scripts/check-handles.sh`: 42 pass, including four ablations |
 | A single-bit fault injected into a live channel's handle word traps 85 before the object is touched, at each of the 64 bits, unless the flip spells the other live channel, which the gate predicts from the two words. This is fault injection at the one boundary the runtime checks, not protection from hardware faults (HZ-E4) | `tests/litmus/handle-bitflip.ax`; `scripts/check-handles.sh` §7 at `--opt` 0 and 2, red with the table's compares removed |
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 69 pass, including eleven ablations and two controls that measure stated limits |
-| Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP, LB, 2+2W, counter and four coherence litmus tests are clean on two threads, WRC and ISA2 on three and IRIW on four, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 144 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
+| Atomics lower to their ordering instructions on 7 targets × 4 levels, and with LSE on the three AArch64 targets. The SB, MP, LB, 2+2W, R, S, counter and four coherence litmus tests are clean on two threads, WRC, ISA2 and 3.SB on three and IRIW on four, with SB, MP, R and S also fenced, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 252 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
 | A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns, steady-state allocation and a blocking call under an interrupt handler across the whole program, enumerates each function's trap statuses, and bounds the stack from AArch64 and x86-64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 49 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
 | Device registers are reached at their own width by volatile accesses the optimiser keeps, with AArch64 barriers, and an instruction the target lacks is `AX4008` (R-D2a) | `scripts/check-embedded.sh` A11 |
@@ -63,14 +63,19 @@ source.
   precondition. A buffer typed `Int` is forged without a cast, so no
   tag marks it. Channels, mutexes, cancellation tokens and spawn
   handles are typed, and forging one takes a tagged `cast` (`MM-PAR-8`).
-- R-C3 limits: twelve litmus families run, not the whole catalogue
-  (no R, S, 3.SB or dependency and fence variants). The LB, IRIW, WRC
-  and ISA2 plain-access controls are reported, not required, because H3
-  shows LB and ISA2 never, IRIW only in bursts and WRC a few times in
-  some runs; each family's reordered-program control is required
-  instead. The coherence families can have no plain control on x86-64
-  or AArch64, which keep one word coherent for every access. No LSE-lowered AArch64 code has been inspected. A litmus
-  zero is evidence, not proof.
+- R-C3 limits: fifteen litmus families run, not the whole catalogue.
+  Dependency variants can't be written: Axiom has one ordering, so a
+  dependency could only order a racing plain read. The fence rows use
+  racing plain accesses, so they measure the compiler and hardware, not
+  the language. The LB, IRIW, WRC, ISA2, R, S and 3.SB plain-access
+  controls are reported, not required; each family's reordered-program
+  control is required instead. The coherence families can have no plain
+  control on x86-64 or AArch64, which keep one word coherent for every
+  access. The driver never builds LSE code: `llc` picks no LSE CPU for
+  any AArch64 target, so the LSE rows inspect code a program only gets
+  by asking for the CPU itself. The new families have no ablation of
+  their own yet; their controls back them. A litmus zero is evidence,
+  not proof.
 - R-E1 remainder: the race detector sees threads only, and only the
   interleavings run, so forked bindings and the task pool have none.
   ASan sees globals, not the arena's heap blocks. The LSP and the REPL
@@ -107,7 +112,7 @@ constants.
 | `check-parallel.sh` | 69 pass, §12a skipped (procfs) |
 | `check-diagnostics.sh` | 270 pass |
 | `check-render-selfhost.sh` | 263 pass |
-| `check-atomics.sh` | 144 pass |
+| `check-atomics.sh` | 252 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |
 | `check-handles.sh` | 42 pass |
