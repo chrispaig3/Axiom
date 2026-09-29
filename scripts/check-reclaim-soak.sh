@@ -306,6 +306,7 @@ cat > "$work/cycles.ax" <<'AX'
   (mut next : Node))
 
 (:: knot (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (knot i)
   (let ((a (Node i (cast Node 0))) (b (Node (+ i 1) (cast Node 0))))
     {
@@ -315,6 +316,7 @@ cat > "$work/cycles.ax" <<'AX'
     }))
 
 (:: chain (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (chain i)
   (let ((b (Node (+ i 1) (cast Node 0))))
     (let ((a (Node i b)))
@@ -345,7 +347,6 @@ cat > "$work/cycles.ax" <<'AX'
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let ((shape (atoiFrom (sysArg 1) 0 0)) (n (atoiFrom (sysArg 2) 0 0)))
     (let ((b0 (- (__axiom_mem_stat 0) (__axiom_mem_stat 1))))
@@ -415,6 +416,7 @@ else
 (import Vec)
 
 (:: pat (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (pat p words tag)
   {
     (for i 0 words
@@ -423,6 +425,7 @@ else
   })
 
 (:: bad (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (bad p words tag)
   (let ((mut k 0))
     {
@@ -557,6 +560,7 @@ cat > "$work/res.ax" <<'AX'
 
 (:: child Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (child)
   (let ((w (memAlloc 16)))
     {
