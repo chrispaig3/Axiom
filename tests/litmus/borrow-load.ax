@@ -1,0 +1,75 @@
+; Four `parallel` bindings borrowing one `String` (MM-PAR-6b), for
+; `scripts/check-race.sh`. Each binding builds and drops list cells that
+; hold the string and slices that share its bytes, `n` times, so each
+; retains and releases the string and its owner thousands of times.
+; Under the borrow scope those retains and releases leave the parent's
+; counts alone, so ThreadSanitizer must see no write to them from a
+; binding; with the scope's lends removed from the IR, the four
+; bindings race on one count word and it must say so.
+;
+; The last line is `ok <sum> count <before> <after>` when every binding
+; saw the whole string and the parent's count came back unchanged, and
+; `bad ...` otherwise.
+(import IO)
+(import Str)
+(import Sys)
+
+(data L (Nil) (Cons String L))
+
+; The count word below a block, read through the unsafe layer.
+(:: countOf (-> String Int))
+;@axiom:effect(unsafe)
+(fn (countOf s)
+  (__load64 (- (cast Int s) 16) 0))
+
+(:: lenAll (-> L Int))
+(fn (lenAll l)
+  (match l
+    ((Nil) 0)
+    ((Cons h t) (+ (strLen h) (lenAll t)))))
+
+(:: churn (-> String Int Int))
+(fn (churn s n)
+  (let (
+    (mut i 0)
+    (mut acc 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let ((l (Cons s (Cons (strSlice s 1 4) (Nil)))))
+            (set acc (+ acc (lenAll l))))
+          (set i (+ i 1))
+        })
+      acc
+    }))
+
+(:: argInt (-> Int Int Int))
+;@axiom:effect(io)
+(fn (argInt i d)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) d)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (n (argInt 1 2000))
+    (s (strConcat "hello, " "world"))
+  )
+    (let (
+      (before (countOf s))
+      (want (* n (+ (strLen s) 4)))
+    )
+      (parallel p ((a (churn s n))
+                   (b (churn s n))
+                   (c (churn s n))
+                   (d (churn s n)))
+        (let ((after (countOf s)))
+          {
+            (if (&& (== a want) (&& (== b want) (&& (== c want) (&& (== d want) (== before after)))))
+              (println "ok {a} count {before} {after}")
+              (println "bad {a} {b} {c} {d} want {want} count {before} {after}"))
+            0
+          })))))

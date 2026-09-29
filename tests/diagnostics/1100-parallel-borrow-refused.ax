@@ -1,0 +1,76 @@
+; MM-PAR-6b: what a `parallel` binding may borrow, and what it still
+; may not capture.
+;
+; A `parallel` binding's thunk may capture a `String` its parent holds:
+; the form lends it for the form's extent, freezing its count, so no
+; binding's retain or release reaches the parent. Nothing else is lent,
+; and nothing is lent to a spawn the program writes by hand, whose
+; parent may run code between the spawn and the join.
+;
+;   1  `byHand` captures a `String` at a hand-written `__par_spawn`.
+;      One AX3064: only `parallel`'s own thunks borrow.
+;   2  `inStruct` captures a struct holding a `String`. One AX3064: a
+;      struct's fields can be set, so it is not borrowable.
+;   3  `optional` captures an `(Option String)`. One AX3064: only a
+;      `String` is borrowable today.
+;   4  `closure` captures a function value. One AX3064: a closure may
+;      hold anything, a mutable `Vec` included.
+;   5  `borrowed` captures a `String` in a `parallel` binding. Silent:
+;      the control, so a rule refusing every string cannot pass this
+;      fixture.
+(import IO)
+(import Str)
+
+(struct Named
+  (name : String)
+  (n : Int))
+
+(:: byHand (-> String Int))
+;@axiom:effect(io)
+(fn (byHand s)
+  (__par_join
+    (__par_spawn
+      (lambda (w) (strLen s))
+      0)))
+
+(:: inStruct (-> Named Int))
+;@axiom:effect(io)
+(fn (inStruct r)
+  (parallel p (
+    (a (strLen r.name))
+    (b 2)
+  )
+    (+ a b)))
+
+(:: optional (-> (Option String) Int))
+;@axiom:effect(io)
+(fn (optional o)
+  (parallel p (
+    (a (match o
+      ((Some s) (strLen s))
+      ((None) 0)))
+    (b 2)
+  )
+    (+ a b)))
+
+(:: closure (-> (-> Int Int) Int))
+;@axiom:effect(io)
+(fn (closure f)
+  (parallel p (
+    (a (f 1))
+    (b 2)
+  )
+    (+ a b)))
+
+(:: borrowed (-> String Int))
+;@axiom:effect(io)
+(fn (borrowed s)
+  (parallel p (
+    (a (strLen s))
+    (b (strLen (strConcat s s)))
+  )
+    (+ a b)))
+
+(:: main Int)
+(fn (main)
+  0)

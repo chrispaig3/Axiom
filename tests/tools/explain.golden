@@ -2493,7 +2493,16 @@ block's count lose an increment, and the block is freed while a live
 reference still names it. Corruption, not a leak (MM-PAR-6,
 docs/memory-model-v2-design.md section 3.2b).
 
-What a binding may share with its parent is a word: a scalar, a
+A `parallel` binding may BORROW a `String` its parent holds
+(MM-PAR-6b): the form freezes the string's count, and every count it
+reaches, before it builds any binding, and restores them after the
+last join, so no binding's retain or release reaches the parent. Only
+`parallel`'s own bindings borrow, because the parent runs nothing
+between its spawns and joins; a hand-written `__par_spawn` lends
+nothing. `tests/diagnostics/1100-parallel-borrow-refused.ax` pins
+what stays refused.
+
+Anything else a binding shares with its parent is a word: a scalar, a
 `Foreign`, or a handle whose module declares it `shared`, such as a
 `Chan`, a `Mutex` or a `CancelToken` (AX3084). Pass anything else
 through the thunk's word argument, or build a copy inside the

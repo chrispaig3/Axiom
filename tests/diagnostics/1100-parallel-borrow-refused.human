@@ -1,38 +1,38 @@
-[1;31merror[AX3064][0m[1m: a concurrent binding captures `v`, which has type `Vec Int` - a mutable container the parent also holds, which a binding could grow while another reads it[0m
-  [1;34m--> [0m656-parallel-container-capture.ax:37:11
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `s`, which has type `String` - a reference the parent also holds[0m
+  [1;34m--> [0m1100-parallel-borrow-refused.ax:33:27
 [1;34m   |[0m
-[1;34m37 |[0m           v
-[1;34m   |[0m           [1;31m^ `v` is bound outside this binding[0m
-[1;34m   |[0m
-  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
-  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
-
-[1;31merror[AX3064][0m[1m: a concurrent binding captures `v`, which has type `Vec Int` - a mutable container the parent also holds, which a binding could grow while another reads it[0m
-  [1;34m--> [0m656-parallel-container-capture.ax:50:11
-[1;34m   |[0m
-[1;34m50 |[0m           v
-[1;34m   |[0m           [1;31m^ `v` is bound outside this binding[0m
+[1;34m33 |[0m       (lambda (w) (strLen s))
+[1;34m   |[0m                           [1;31m^ `s` is bound outside this binding[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
   [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
 
-[1;31merror[AX3064][0m[1m: a concurrent binding captures `v`, which has type `Vec Vec Int` - a mutable container the parent also holds, which a binding could grow while another reads it[0m
-  [1;34m--> [0m656-parallel-container-capture.ax:63:11
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `r`, which has type `Named` - a reference the parent also holds[0m
+  [1;34m--> [0m1100-parallel-borrow-refused.ax:40:16
 [1;34m   |[0m
-[1;34m63 |[0m           v
-[1;34m   |[0m           [1;31m^ `v` is bound outside this binding[0m
+[1;34m40 |[0m     (a (strLen r.name))
+[1;34m   |[0m                [1;31m^ `r` is bound outside this binding[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
   [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
 
-[1;31merror[AX3064][0m[1m: a concurrent binding captures `b`, which has type `Bag` - a reference the parent also holds[0m
-  [1;34m--> [0m656-parallel-container-capture.ax:76:11
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `o`, which has type `Option String` - a reference the parent also holds[0m
+  [1;34m--> [0m1100-parallel-borrow-refused.ax:49:15
 [1;34m   |[0m
-[1;34m76 |[0m           b
-[1;34m   |[0m           [1;31m^ `b` is bound outside this binding[0m
+[1;34m49 |[0m     (a (match o
+[1;34m   |[0m               [1;31m^ `o` is bound outside this binding[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
+  [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3064` for a full explanation
+
+[1;31merror[AX3064][0m[1m: a concurrent binding captures `f`, which has type `(Int -> Int)` - a reference the parent also holds[0m
+  [1;34m--> [0m1100-parallel-borrow-refused.ax:60:9
+[1;34m   |[0m
+[1;34m60 |[0m     (a (f 1))
+[1;34m   |[0m         [1;31m^ `f` is bound outside this binding[0m
 [1;34m   |[0m
   [1;34m = [0m[1mnote: [0mMM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt
   [1;34m = [0m[1;32mhelp: [0mpass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy

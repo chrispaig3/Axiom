@@ -4653,7 +4653,7 @@ design cannot absorb.
   joins in the order written, and a child's completion order isn't
   observable through the form.
 - **No cross-thread reference, values copied or moved: held by refusal
-  (`AX3064`).** The refusal covers a thunk that is a frame-local name
+  (`AX3064`), except a borrowed `String` (`MM-PAR-6b`).** The refusal covers a thunk that is a frame-local name
   of arrow type. It also covers opaque thunks: a conditional, a match,
   a `let` and a brace block are walked to every lambda they can answer,
   and a call result or a field is refused at the shape. Every shape the
@@ -4705,6 +4705,61 @@ What remains belongs to the unsafe layer, and it is a **program
 obligation**: a word that is the address of thread-arena memory,
 laundered through `cast` or stored through a raw address, dangles after
 the join.
+
+**MM-PAR-6b (H). A `parallel` binding may borrow a `String` its parent
+holds.** The binding reads the parent's string, and nothing it does
+changes a count the parent relies on:
+
+```scheme
+(import IO)
+(import Str)
+
+(:: shout (-> String Int))
+;@axiom:effect(io)
+(fn (shout s)
+  (parallel p ((a (strLen s))
+               (b (strLen (strConcat s "!"))))
+    (+ a b)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (shout (strConcat "hello, " "world")))
+```
+
+The form keeps a borrow record. Before it builds any binding, it lends
+the record every `String` a binding captures: the block's count, and
+the count of every block it reaches through a reference map, is saved
+and replaced with -1, the static sentinel that `axiom_retain` and
+`axiom_release` leave alone (`MM-LIFE-2k`). After the last join, and
+before the body runs, every count is put back. So a binding may keep
+the string in a list, slice it or copy it, in either lowering, and the
+parent's counts are exactly what they were. Every retain and release
+between the lends and the return is a no-op on a lent block, the
+bindings' closures included, so the saved count is the one to restore.
+
+It is sound because the parent runs nothing between the lends and the
+return except building the bindings, spawning them and joining them.
+That is why only `parallel`'s own bindings borrow: a hand-written
+`__par_spawn` lends nothing, and a `String` it captures is still
+`AX3064`. A string's bytes and owner are immutable in safe code, so a
+read-only share is the whole of what the binding needs. A `Vec`, a
+struct, an `Option` and a function value are not borrowable and stay
+refused. A trap that unwinds past the form's end leaves the lent
+blocks frozen, which leaks them and nothing else.
+
+The checker lends only what it accepts: each `String` a binding
+captures is added to its form's lend list as the capture is checked,
+and a capture with no list to join is refused. Codegen freezes what
+the list names (`emitParLends`, `__axiom_par_lend`).
+
+Tested by `tests/stdlib/630-parallel-borrow.ax`, which runs at every
+`--opt` in both lowerings and reads the counts back, and
+`tests/diagnostics/1100-parallel-borrow-refused.ax`.
+`scripts/check-race.sh` runs `tests/litmus/borrow-load.ax`, four
+bindings borrowing one string thousands of times, under
+ThreadSanitizer, and the same program with the lends removed must be
+reported.
 
 **MM-PAR-7 (H). No spawned child outlives the scope that could still
 observe it.** Every spawn links its handle page onto a registry that
