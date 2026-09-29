@@ -1,0 +1,40 @@
+; An instruction fetch from data on `baremetal-aarch64`, taken on
+; purpose. `main` writes a `ret` (0xd65f03c0) into an arena block and
+; branches to it with `blr`.
+;
+; Every data page is mapped execute-never (docs/embedded-guide.md
+; section 6), so the fetch is an instruction abort at the current
+; exception level (EC 0x21), a level-3 permission fault (IFSC 0x0F):
+; ESR_EL1 is 0x8600000f, and ELR_EL1 and FAR_EL1 are both the block's
+; address. The program exits 81.
+;
+; `scripts/check-embedded.sh` A18 boots it under QEMU. With the MMU off,
+; as before, the `ret` ran and `NOT REACHED` was printed.
+(import IO)
+(import Mem)
+
+(:: jump (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (jump target)
+  (asm (aarch64 "blr {t}" (in t target) (clobber "x30"))))
+
+(:: plant (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (plant block)
+  {
+    (__vstore32 block 3596551104)
+    __arm_dsb
+    __arm_isb
+    block
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((block (plant (memAlloc 16))))
+    {
+      (println "EXEC DATA PROBE")
+      (jump block)
+      (println "NOT REACHED")
+      0
+    }))

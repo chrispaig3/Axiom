@@ -9400,8 +9400,8 @@
 
 ; The reset vector: QEMU's `-kernel` jumps to the ELF entry with an
 ; UNDEFINED stack, so the first instruction sets `sp` from the
-; linker's `__stack_top` (8 KiB over `.bss`, the device stack the
-; stdlib's UART loop assumes) and the last parks in `wfi` if the
+; linker's `__stack_top` (the top of an 8 KiB stack over an unmapped
+; guard: `baremetalLinkScript` in driver.ax) and the last parks in `wfi` if the
 ; semihosting call ever returns. `naked` comes BEFORE `section` -
 ; the other order does not parse - and a frame would store through
 ; the stack before it exists, which is what `naked` refuses. NOT
@@ -9416,6 +9416,14 @@
 (pub fn (emitBaremetalStart cg)
   {
     (emitLine cg "@__stack_top = external global i8, align 16")
+    (emitLine cg "@__axiom_rx_end = external global i8")
+    (emitLine cg "@__axiom_ro_end = external global i8")
+    (emitLine cg "@__axiom_rw_end = external global i8")
+    (emitLine cg "@__axiom_stack_lo = external global i8")
+    (emitLine cg "@__axiom_exc_lo = external global i8")
+    (emitLine cg "@__axiom_exc_top = external global i8")
+    (emitLine cg "@__axiom_pt = external global i8")
+    (emitMmuTables cg)
     (emitLine cg "define void @_start() naked section \".text.boot\" {")
     (emitLine cg "entry:")
     (emitLine cg "  %sp = ptrtoint ptr @__stack_top to i64")
@@ -9424,8 +9432,15 @@
     ; chose does not trap (it resets to 0 at EL1, and a `Float`, or a
     ; vectorised copy, is then an undefined-instruction exception);
     ; then VBAR_EL1 := the vector table, and an ISB so both are in force
-    ; before `main` runs a single instruction.
+    ; before anything else runs - a fault while the tables are built is
+    ; reported like any other.
     (emitLine cg "  call void asm sideeffect \"mrs x9, cpacr_el1\\0Aorr x9, x9, #0x300000\\0Amsr cpacr_el1, x9\\0Aadrp x9, __axiom_vectors\\0Aadd x9, x9, :lo12:__axiom_vectors\\0Amsr vbar_el1, x9\\0Aisb\", \"~{x9},~{memory}\"()")
+    ; The page tables, built with the MMU still off, then the MMU and
+    ; both caches on. The enable is here and not in the builder: no
+    ; stack data crosses the switch, so nothing written uncached is read
+    ; back through a cache that could hold a stale line for it.
+    (emitLine cg "  call void @__axiom_mmu_tables()")
+    (emitLine cg (strConcat "  call void asm sideeffect \"" (strConcat (mmuEnableAsm) "\", \"~{x9},~{x10},~{memory}\"()")))
     (emitLine cg "  %st = call i64 @main(i64 0, i64 0)")
     (emitLine cg "  store i64 131110, ptr @__axiom_exit_block")
     (emitLine cg "  store i64 %st, ptr getelementptr ([2 x i64], ptr @__axiom_exit_block, i64 0, i64 1)")
@@ -9435,6 +9450,204 @@
     (emitLine cg "}")
     (emitLine cg "")
     cg
+  })
+
+; ------------------------------------------------------------------
+; THE MEMORY MAP (docs/embedded-guide.md section 6): the MMU on, over
+; identity-mapped translation tables `_start` builds before `main`.
+;
+; ONE LEVEL-1 TABLE of 4 GiB (T0SZ 32, 4 KiB granule, so the walk
+; starts at level 1 and entry k covers gigabyte k):
+;   entry 0  a level-2 table for the peripherals. Two 2 MiB blocks are
+;            mapped, Device-nGnRnE and execute-never: 0x08000000 (the
+;            GIC's distributor, CPU interface and redistributors) and
+;            0x09000000 (the PL011 UART, the RTC, fw_cfg, the GPIO).
+;            Everything else below RAM - address 0 included - is not
+;            mapped, so a null or wild pointer is a translation fault.
+;   entry 1  a level-2 table for RAM, each entry a level-3 table of
+;            512 pages, as many as the image needs up to `__axiom_exc_top`.
+; Every page of RAM is mapped by the section it holds (the linker
+; script in `driver.ax` names the boundaries): code read-only and
+; executable, read-only data read-only and execute-never, data, `.bss`
+; and both stacks read-write and execute-never, and the guard below
+; each stack not mapped at all. Nothing past the image is mapped:
+; memory a program uses comes from the arena, which is in `.bss`.
+;
+; Normal memory is inner and outer write-back, read- and
+; write-allocate, inner shareable; MAIR_EL1 attribute 0 is
+; Device-nGnRnE and attribute 1 Normal. SCTLR_EL1 gets M (the MMU),
+; C and I (both caches), A (a misaligned access faults, on Normal
+; memory too, so `+strict-align` still keeps LLVM from writing one and
+; `tests/embedded/fault.ax` still faults), SA (a misaligned stack
+; pointer faults) and WXN (every writable page is execute-never,
+; whatever its descriptor says).
+; ------------------------------------------------------------------
+
+; Stage-1 descriptor bits for the 4 KiB granule: bits 1:0 are 0b11 for
+; a page or a table and 0b01 for a block; bits 4:2 AttrIndx; bit 7
+; AP[2], read-only; bits 9:8 SH, 0b11 inner shareable; bit 10 AF, set
+; because nothing else sets the access flag; bit 53 PXN and bit 54 UXN,
+; execute-never at EL1 and at EL0.
+(pub :: mmuPageNormal Int)
+(pub fn (mmuPageNormal)
+  (+ 3 (+ 4 (+ 768 1024))))
+
+(pub :: mmuXn Int)
+(pub fn (mmuXn)
+  (+ (<< 1 53) (<< 1 54)))
+
+; Code: read-only, executable at EL1 and never at EL0.
+(pub :: mmuAttrCode Int)
+(pub fn (mmuAttrCode)
+  (+ mmuPageNormal (+ 128 (<< 1 54))))
+
+; Read-only data: read-only, execute-never.
+(pub :: mmuAttrRodata Int)
+(pub fn (mmuAttrRodata)
+  (+ mmuPageNormal (+ 128 mmuXn)))
+
+; Data, `.bss` and the stacks: read-write, execute-never.
+(pub :: mmuAttrData Int)
+(pub fn (mmuAttrData)
+  (+ mmuPageNormal mmuXn))
+
+; A 2 MiB peripheral block: a block, AttrIndx 0 (Device-nGnRnE), AF,
+; read-write, execute-never.
+(pub :: mmuAttrDevice Int)
+(pub fn (mmuAttrDevice)
+  (+ 1 (+ 1024 mmuXn)))
+
+; The enable, run by `_start` once the tables are built: MAIR_EL1
+; (0xff00: attribute 0 Device-nGnRnE, attribute 1 Normal write-back),
+; TCR_EL1 (0x80a03520: T0SZ 32, TTBR0 walks inner and outer write-back
+; and inner shareable, a 4 KiB granule, 32-bit physical addresses,
+; TTBR1 walks disabled), TTBR0_EL1, the TLB and the instruction cache
+; invalidated, then SCTLR_EL1 |= 0x8100f (M, A, C, SA, I and WXN).
+(pub :: mmuEnableAsm String)
+(pub fn (mmuEnableAsm)
+  "mov x9, #0xff00\\0Amsr mair_el1, x9\\0Amov x9, #0x3520\\0Amovk x9, #0x80a0, lsl #16\\0Amsr tcr_el1, x9\\0Aadrp x9, __axiom_pt\\0Aadd x9, x9, :lo12:__axiom_pt\\0Amsr ttbr0_el1, x9\\0Aisb\\0Atlbi vmalle1\\0Aic iallu\\0Adsb sy\\0Aisb\\0Amrs x9, sctlr_el1\\0Amov x10, #0x100f\\0Amovk x10, #0x8, lsl #16\\0Aorr x9, x9, x10\\0Amsr sctlr_el1, x9\\0Aisb")
+
+; The builder, with the MMU off, so every store below goes straight to
+; memory. The stores are volatile, which keeps them as written: no
+; merging into wider or unaligned stores the Device memory of an
+; MMU-off core would fault on. Then the lines the tables occupy are
+; invalidated (`dc ivac`), so a stale cache line can't shadow them
+; once the walks are cacheable.
+;
+; One page's descriptor is a chain of selects on its address against
+; the section boundaries, lowest boundary last: code, read-only data,
+; data, the guard (0, not mapped), the stack, the second guard, the
+; fault stack.
+(pub :: emitMmuTables (-> Int Int))
+(pub fn (emitMmuTables cg)
+  {
+    (emitLine cg "define internal void @__axiom_mmu_tables() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %rx = ptrtoint ptr @__axiom_rx_end to i64")
+    (emitLine cg "  %ro = ptrtoint ptr @__axiom_ro_end to i64")
+    (emitLine cg "  %rw = ptrtoint ptr @__axiom_rw_end to i64")
+    (emitLine cg "  %sl = ptrtoint ptr @__axiom_stack_lo to i64")
+    (emitLine cg "  %st = ptrtoint ptr @__stack_top to i64")
+    (emitLine cg "  %xl = ptrtoint ptr @__axiom_exc_lo to i64")
+    (emitLine cg "  %xt = ptrtoint ptr @__axiom_exc_top to i64")
+    (emitLine cg "  %pt = ptrtoint ptr @__axiom_pt to i64")
+    (emitLine cg "  %span = sub i64 %xt, 1073741824")
+    (emitLine cg "  %pages = lshr i64 %span, 12")
+    (emitLine cg "  %nl3a = add i64 %pages, 511")
+    (emitLine cg "  %nl3 = lshr i64 %nl3a, 9")
+    (emitLine cg "  %ntab = add i64 %nl3, 3")
+    (emitLine cg "  %nwords = shl i64 %ntab, 9")
+    (emitLine cg "  %nlines = shl i64 %ntab, 6")
+    (emitLine cg "  %l2d = add i64 %pt, 4096")
+    (emitLine cg "  %l2r = add i64 %pt, 8192")
+    (emitLine cg "  %l3 = add i64 %pt, 12288")
+    (emitLine cg "  br label %zero")
+    ; Every word of every table, zero: an entry nothing below writes is
+    ; invalid, which is what "not mapped" means.
+    (emitLine cg "zero:")
+    (emitLine cg "  %zi = phi i64 [ 0, %entry ], [ %zn, %zero ]")
+    (emitLine cg "  %zo = shl i64 %zi, 3")
+    (emitLine cg "  %za = add i64 %pt, %zo")
+    (emitLine cg "  %zp = inttoptr i64 %za to ptr")
+    (emitLine cg "  store volatile i64 0, ptr %zp")
+    (emitLine cg "  %zn = add i64 %zi, 1")
+    (emitLine cg "  %zmore = icmp ult i64 %zn, %nwords")
+    (emitLine cg "  br i1 %zmore, label %zero, label %links")
+    (emitLine cg "links:")
+    (emitLine cg "  %l1p = inttoptr i64 %pt to ptr")
+    (emitLine cg "  %l1e0 = or i64 %l2d, 3")
+    (emitLine cg "  store volatile i64 %l1e0, ptr %l1p")
+    (emitLine cg "  %l1a1 = add i64 %pt, 8")
+    (emitLine cg "  %l1p1 = inttoptr i64 %l1a1 to ptr")
+    (emitLine cg "  %l1e1 = or i64 %l2r, 3")
+    (emitLine cg "  store volatile i64 %l1e1, ptr %l1p1")
+    ; The two peripheral blocks: level-2 entries 64 (0x08000000) and 72
+    ; (0x09000000), at byte offsets 512 and 576.
+    (emitLine cg "  %dga = add i64 %l2d, 512")
+    (emitLine cg "  %dgp = inttoptr i64 %dga to ptr")
+    (emitLine cg (strConcat "  store volatile i64 " (strConcat (fmtInt (+ 134217728 mmuAttrDevice)) ", ptr %dgp")))
+    (emitLine cg "  %dua = add i64 %l2d, 576")
+    (emitLine cg "  %dup = inttoptr i64 %dua to ptr")
+    (emitLine cg (strConcat "  store volatile i64 " (strConcat (fmtInt (+ 150994944 mmuAttrDevice)) ", ptr %dup")))
+    (emitLine cg "  br label %tabs")
+    (emitLine cg "tabs:")
+    (emitLine cg "  %ti = phi i64 [ 0, %links ], [ %tn, %tabs ]")
+    (emitLine cg "  %to = shl i64 %ti, 12")
+    (emitLine cg "  %tt = add i64 %l3, %to")
+    (emitLine cg "  %td = or i64 %tt, 3")
+    (emitLine cg "  %tso = shl i64 %ti, 3")
+    (emitLine cg "  %tsa = add i64 %l2r, %tso")
+    (emitLine cg "  %tsp = inttoptr i64 %tsa to ptr")
+    (emitLine cg "  store volatile i64 %td, ptr %tsp")
+    (emitLine cg "  %tn = add i64 %ti, 1")
+    (emitLine cg "  %tmore = icmp ult i64 %tn, %nl3")
+    (emitLine cg "  br i1 %tmore, label %tabs, label %pagel")
+    (emitLine cg "pagel:")
+    (emitLine cg "  %pi = phi i64 [ 0, %tabs ], [ %pn, %pagel ]")
+    (emitLine cg "  %po = shl i64 %pi, 12")
+    (emitLine cg "  %pa = add i64 %po, 1073741824")
+    (emitLine cg "  %isx = icmp ult i64 %pa, %rx")
+    (emitLine cg "  %isr = icmp ult i64 %pa, %ro")
+    (emitLine cg "  %isw = icmp ult i64 %pa, %rw")
+    (emitLine cg "  %isg = icmp ult i64 %pa, %sl")
+    (emitLine cg "  %iss = icmp ult i64 %pa, %st")
+    (emitLine cg "  %isg2 = icmp ult i64 %pa, %xl")
+    (emitLine cg (strConcat "  %a5 = select i1 %isg2, i64 0, i64 " (fmtInt mmuAttrData)))
+    (emitLine cg (strConcat "  %a4 = select i1 %iss, i64 " (strConcat (fmtInt mmuAttrData) ", i64 %a5")))
+    ; The guard below the stack: 0, not mapped.
+    (emitLine cg "  %a3 = select i1 %isg, i64 0, i64 %a4")
+    (emitLine cg (strConcat "  %a2 = select i1 %isw, i64 " (strConcat (fmtInt mmuAttrData) ", i64 %a3")))
+    (emitLine cg (strConcat "  %a1 = select i1 %isr, i64 " (strConcat (fmtInt mmuAttrRodata) ", i64 %a2")))
+    (emitLine cg (strConcat "  %a0 = select i1 %isx, i64 " (strConcat (fmtInt mmuAttrCode) ", i64 %a1")))
+    (emitLine cg "  %none = icmp eq i64 %a0, 0")
+    (emitLine cg "  %pd0 = or i64 %pa, %a0")
+    (emitLine cg "  %pd = select i1 %none, i64 0, i64 %pd0")
+    (emitLine cg "  %pso = shl i64 %pi, 3")
+    (emitLine cg "  %psa = add i64 %l3, %pso")
+    (emitLine cg "  %psp = inttoptr i64 %psa to ptr")
+    (emitLine cg "  store volatile i64 %pd, ptr %psp")
+    (emitLine cg "  %pn = add i64 %pi, 1")
+    (emitLine cg "  %pmore = icmp ult i64 %pn, %pages")
+    (emitLine cg "  br i1 %pmore, label %pagel, label %flush")
+    ; `dsb ishst`, then `dsb ish` after the invalidates: the forms for
+    ; tables the walker of this core reads, and not `__arm_dsb`'s
+    ; `dsb sy`, so a count of the primitive's barriers counts only it.
+    (emitLine cg "flush:")
+    (emitLine cg "  call void asm sideeffect \"dsb ishst\", \"~{memory}\"()")
+    (emitLine cg "  br label %inval")
+    (emitLine cg "inval:")
+    (emitLine cg "  %ii = phi i64 [ 0, %flush ], [ %in, %inval ]")
+    (emitLine cg "  %io = shl i64 %ii, 6")
+    (emitLine cg "  %ia = add i64 %pt, %io")
+    (emitLine cg "  call void asm sideeffect \"dc ivac, $0\", \"r,~{memory}\"(i64 %ia)")
+    (emitLine cg "  %in = add i64 %ii, 1")
+    (emitLine cg "  %imore = icmp ult i64 %in, %nlines")
+    (emitLine cg "  br i1 %imore, label %inval, label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  call void asm sideeffect \"dsb ish\", \"~{memory}\"()")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "")
   })
 
 ; ------------------------------------------------------------------
@@ -9594,6 +9807,11 @@
 (pub fn (emitAsmLine cg text)
   (emitLine cg (strConcat "module asm \"" (strConcat text "\""))))
 
+; THE FAULT EXIT RUNS ON ITS OWN STACK. `__axiom_exc_entry` points sp
+; at `__axiom_exc_top` before anything touches memory: a stack overflow
+; faults with sp inside the guard, and the report could not push a
+; frame there. The switch costs nothing on the way back, because the
+; fault exit never goes back.
 (pub :: emitBaremetalVectors (-> Int String Int))
 (pub fn (emitBaremetalVectors cg handler)
   (let ((bound (> (strLen handler) 0)))
@@ -9604,6 +9822,9 @@
       (emitAsmLine cg "__axiom_vectors:")
       (emitVectorSlots cg bound 0)
       (emitAsmLine cg "__axiom_exc_entry:")
+      (emitAsmLine cg "adrp x9, __axiom_exc_top")
+      (emitAsmLine cg "add x9, x9, :lo12:__axiom_exc_top")
+      (emitAsmLine cg "mov sp, x9")
       (emitAsmLine cg "mrs x1, esr_el1")
       (emitAsmLine cg "mrs x2, elr_el1")
       (emitAsmLine cg "mrs x3, far_el1")
@@ -9712,10 +9933,15 @@
   })
 
 ; The fault exit every unbound vector reaches. Its register state is
-; the interrupted code's except x0-x3, which the slot and the entry
-; loaded, so ELR_EL1 names the faulting instruction. Written ONCE: a
-; second exception while reporting the first - the UART itself
+; the interrupted code's except x0-x3 and x9, which the slot and the
+; entry loaded, so ELR_EL1 names the faulting instruction. Written
+; ONCE: a second exception while reporting the first - the UART itself
 ; faulting, say - finds the busy word set and exits without writing.
+;
+; A data abort whose address is in the guard below a stack gets a
+; second line saying so, because a stack overflow is the fault whose
+; registers are hardest to read: ELR is some function's prologue and
+; FAR an address no program named.
 (pub :: emitCpuExceptionFn (-> Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (emitCpuExceptionFn cg)
@@ -9724,6 +9950,7 @@
     (m1 " esr 0x")
     (m2 " elr 0x")
     (m3 " far 0x")
+    (mg "axiom: stack overflow: the fault address is in the guard page below a stack")
   )
     {
       (emitLine cg "@__axiom_exc_busy = internal global i64 0")
@@ -9731,6 +9958,7 @@
       (emitMsgGlobal cg "__axiom_exc_m1" m1)
       (emitMsgGlobal cg "__axiom_exc_m2" m2)
       (emitMsgGlobal cg "__axiom_exc_m3" m3)
+      (emitMsgGlobal cg "__axiom_exc_mg" mg)
       (emitLine cg "@__axiom_exc_nl = private unnamed_addr constant [1 x i8] c\"\\0A\"")
       (emitLine cg "define internal void @__axiom_uart_hex(i64 %v) #0 {")
       (emitLine cg "entry:")
@@ -9750,14 +9978,11 @@
       (emitLine cg "done:")
       (emitLine cg "  ret void")
       (emitLine cg "}")
-      (emitLine cg "define void @__axiom_cpu_exception(i64 %vec, i64 %esr, i64 %elr, i64 %far) #0 {")
+      ; The registers, after the line's opening words, and the guard
+      ; line when the fault is a data abort (EC 0x25) at an address in
+      ; either guard.
+      (emitLine cg "define internal void @__axiom_exc_regs(i64 %vec, i64 %esr, i64 %elr, i64 %far) #0 {")
       (emitLine cg "entry:")
-      (emitLine cg "  %busy = load volatile i64, ptr @__axiom_exc_busy")
-      (emitLine cg "  store volatile i64 1, ptr @__axiom_exc_busy")
-      (emitLine cg "  %again = icmp ne i64 %busy, 0")
-      (emitLine cg "  br i1 %again, label %out, label %say")
-      (emitLine cg "say:")
-      (emitMsgWrite cg "__axiom_exc_m0" m0)
       (emitLine cg "  call void @__axiom_uart_hex(i64 %vec)")
       (emitMsgWrite cg "__axiom_exc_m1" m1)
       (emitLine cg "  call void @__axiom_uart_hex(i64 %esr)")
@@ -9766,6 +9991,38 @@
       (emitMsgWrite cg "__axiom_exc_m3" m3)
       (emitLine cg "  call void @__axiom_uart_hex(i64 %far)")
       (emitMsgWrite cg "__axiom_exc_nl" "\n")
+      (emitLine cg "  %ec = lshr i64 %esr, 26")
+      (emitLine cg "  %dabt = icmp eq i64 %ec, 37")
+      (emitLine cg "  %ga0 = ptrtoint ptr @__axiom_rw_end to i64")
+      (emitLine cg "  %ga1 = ptrtoint ptr @__axiom_stack_lo to i64")
+      (emitLine cg "  %gb0 = ptrtoint ptr @__stack_top to i64")
+      (emitLine cg "  %gb1 = ptrtoint ptr @__axiom_exc_lo to i64")
+      (emitLine cg "  %ina0 = icmp uge i64 %far, %ga0")
+      (emitLine cg "  %ina1 = icmp ult i64 %far, %ga1")
+      (emitLine cg "  %ina = and i1 %ina0, %ina1")
+      (emitLine cg "  %inb0 = icmp uge i64 %far, %gb0")
+      (emitLine cg "  %inb1 = icmp ult i64 %far, %gb1")
+      (emitLine cg "  %inb = and i1 %inb0, %inb1")
+      (emitLine cg "  %ing = or i1 %ina, %inb")
+      (emitLine cg "  %so = and i1 %dabt, %ing")
+      (emitLine cg "  br i1 %so, label %guard, label %done")
+      (emitLine cg "guard:")
+      (emitMsgWrite cg "__axiom_exc_mg" mg)
+      (emitLine cg "  %nlp2 = ptrtoint ptr @__axiom_exc_nl to i64")
+      (emitRuntimeWrite cg "%nlp2" "1")
+      (emitLine cg "  br label %done")
+      (emitLine cg "done:")
+      (emitLine cg "  ret void")
+      (emitLine cg "}")
+      (emitLine cg "define void @__axiom_cpu_exception(i64 %vec, i64 %esr, i64 %elr, i64 %far) #0 {")
+      (emitLine cg "entry:")
+      (emitLine cg "  %busy = load volatile i64, ptr @__axiom_exc_busy")
+      (emitLine cg "  store volatile i64 1, ptr @__axiom_exc_busy")
+      (emitLine cg "  %again = icmp ne i64 %busy, 0")
+      (emitLine cg "  br i1 %again, label %out, label %say")
+      (emitLine cg "say:")
+      (emitMsgWrite cg "__axiom_exc_m0" m0)
+      (emitLine cg "  call void @__axiom_exc_regs(i64 %vec, i64 %esr, i64 %elr, i64 %far)")
       (emitLine cg "  br label %out")
       (emitLine cg "out:")
       (emitBaremetalExit cg "81")
@@ -14088,8 +14345,8 @@
       (emitModuleTail decls nextCg (+ i 1)))))
 
 ; `attributes #0`, per target. The bare target adds `+strict-align`:
-; the port runs with the MMU off, where every data access is Device
-; memory and a misaligned one is an alignment fault, so LLVM may not
+; `_start` sets SCTLR_EL1.A, so a misaligned access is an alignment
+; fault on Normal memory as well as on Device memory, and LLVM may not
 ; merge byte accesses into a wider unaligned one there - which it does
 ; freely where the target allows unaligned access, and aarch64 does.
 ; Every hosted target keeps the line it always had, byte for byte.
@@ -19994,7 +20251,7 @@
 ; that is `__arm_dmb`/`__arm_dsb` for a device, and the atomics
 ; (MM-PAR-9) for another thread. The misaligned address is the caller's
 ; obligation, not checked here - it is UB in the IR and an alignment
-; fault on a core running with the MMU off (docs/embedded-guide.md);
+; fault on baremetal-aarch64, which sets SCTLR_EL1.A (docs/embedded-guide.md);
 ; `stdlib/Mmio.ax` checks it once, where a register handle is made.
 ;
 ; THE AArch64 SET, `__arm_*`, is one inline-assembly statement each,

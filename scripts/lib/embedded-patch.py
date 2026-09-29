@@ -194,6 +194,44 @@ ABLATIONS = {
         '(strConcat "  " r) " = call i64 asm \\"")',
         "A15 - every inline-asm block being sideeffect",
     ),
+    # `_start` builds the tables and never writes SCTLR_EL1: MAIR, TCR
+    # and TTBR0 are set and nothing turns the MMU or the caches on, which
+    # is the port as it was.
+    "mmuoff": (
+        '\\\\0Aorr x9, x9, x10\\\\0Amsr sctlr_el1, x9\\\\0Aisb',
+        '\\\\0Aorr x9, x9, x10\\\\0Aisb',
+        "A16 - the MMU and caches turned on",
+    ),
+    # The guard below the stack is mapped read-write like the stack, so
+    # an overflow runs on into `.bss` and `.data` and faults somewhere
+    # else, or not at all.
+    "guard": (
+        '(emitLine cg "  %a3 = select i1 %isg, i64 0, i64 %a4")',
+        '(emitLine cg (strConcat "  %a3 = select i1 %isg, i64 " (strConcat (fmtInt mmuAttrData) ", i64 %a4")))',
+        "A17 - the guard below the stack not mapped",
+    ),
+    # The fault exit no longer switches to the fault stack: a fault
+    # taken with sp in the guard faults again on its first push, for
+    # ever, and nothing is reported.
+    "excstack": (
+        '(emitAsmLine cg "mov sp, x9")\n      (emitAsmLine cg "mrs x1, esr_el1")',
+        '(emitAsmLine cg "mrs x1, esr_el1")',
+        "A17 - the fault exit running on its own stack",
+    ),
+    # Code is mapped read-write, and WXN - which would make any
+    # writable page execute-never, and so the code unrunnable - is left
+    # off with it. TWO edits, one drill: the property is that code can't
+    # be written, and either edit alone leaves it true or the program
+    # dead.
+    "codewrite": (
+        [("""(pub fn (mmuAttrCode)
+  (+ mmuPageNormal (+ 128 (<< 1 54))))""",
+          """(pub fn (mmuAttrCode)
+  (+ mmuPageNormal (+ 0 (<< 1 54))))"""),
+         ('\\\\0Amovk x10, #0x8, lsl #16', '')],
+        None,
+        "A18 - code read-only",
+    ),
 }
 
 

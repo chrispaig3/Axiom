@@ -162,10 +162,22 @@
 #       clobber; `opt -O2` keeps an unread block, and loses it once
 #       both are removed; AX4008 refuses a reached form with no arm;
 #       under QEMU, `tests/embedded/asm-el.ax` reads CurrentEL at EL1.
+#   A16 THE MMU ON (docs/memory-model.md MM-EXEC-19). `_start` builds
+#       identity-mapped tables and turns the MMU and both caches on;
+#       the descriptors are decoded, not matched; periodic.ax and
+#       dma.ax carry the same `_start`; under QEMU,
+#       `tests/embedded/mmu.ax` reads SCTLR, TCR and MAIR back and the
+#       image's layout symbols are checked. Drill `mmuoff`.
+#   A17 A STACK OVERFLOW ENDS AT THE GUARD. `tests/embedded/overflow.ax`
+#       under QEMU: a translation fault with FAR in the image's own
+#       guard, named, exit 81. Drills `guard` and `excstack`.
+#   A18 CODE READ-ONLY, DATA EXECUTE-NEVER, THE REST UNMAPPED.
+#       `code-write.ax`, `exec-data.ax`, `unmapped.ax` under QEMU, each
+#       ESR and FAR read off the report. Drill `codewrite`.
 #
-# SKIPS. A12-A14's QEMU legs print SKIP, count as skipped and never as
-# ok, and the summary says how many. CI runners have no QEMU, so there
-# they skip - which is said, not passed.
+# SKIPS. The QEMU legs of A12-A18 print SKIP, count as skipped and
+# never as ok, and the summary says how many. CI runners have no QEMU,
+# so there they skip - which is said, not passed.
 #
 # ABLATIONS. `AXIOM_ABLATE=<name>` copies `self_host/` to a scratch
 # directory, breaks ONE thing in `codegen.ax` there, builds every
@@ -173,7 +185,10 @@
 # The patch is applied by exact string match by
 # `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
 # there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all fourteen and requires each to go red.
+# gate can pass. `--ablations` runs all eighteen and requires each to go
+# red. The four from `mmuoff` on each break an IR-level check on every
+# host as well as their QEMU leg, so they go red without QEMU too; with
+# it, the guest's own output goes red beside the IR.
 #
 #   chunk     every target answers 4 KiB                   -> A1
 #   literal   `refill:` goes back to the hardcoded 1 MiB   -> A2, A4
@@ -196,6 +211,11 @@
 #             table, so a fault is a hang again            -> A12
 #   asmfx     an `asm` block with an output is emitted
 #             without `sideeffect`                         -> A15
+#   mmuoff    `_start` never writes SCTLR_EL1, so the MMU
+#             and caches stay off                          -> A16
+#   guard     the guard below the stack is mapped          -> A17
+#   excstack  the fault exit stays on the overflowed stack -> A17
+#   codewrite code is mapped writable (and WXN left off)   -> A18
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
 # discovered: the board itself. The bare-metal TARGET is in the tree -
@@ -208,7 +228,7 @@
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
-#   scripts/check-embedded.sh --ablations  # the fourteen drills, each red
+#   scripts/check-embedded.sh --ablations  # the eighteen drills, each red
 #   AXIOM_ABLATE=literal scripts/check-embedded.sh
 # ---------------------------------------------------------------------
 
@@ -250,7 +270,7 @@ if [[ "${1:-}" == "--ablations" ]]; then
   red=0
   ran=0
   for ab in chunk literal grain strategy cursor oomsig ceiling trapwrite allsilent \
-            volatile barrier refusal vbar asmfx; do
+            volatile barrier refusal vbar asmfx mmuoff guard excstack codewrite; do
     ran=$((ran + 1))
     echo "== ablation: $ab =="
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
@@ -1796,9 +1816,10 @@ echo "== A14. a driver with interrupt and DMA ownership boundaries =="
 #   silent  the doorbell deleted, so the transfer never starts: the
 #           timer's interrupt must end the wait, `dma: timed out`, and
 #           the program answers 1 rather than hanging.
-# With the MMU off the data cache is off (docs/embedded-guide.md section
-# 6), so the cache maintenance is exercised for ordering only, and TCG
-# models no reordering a missing barrier would expose: deleting a DSB
+# The MMU and the data cache are on (A16, docs/embedded-guide.md section
+# 6), so the cache maintenance is what a core with a real cache and a
+# non-coherent DMA master needs. TCG models no cache and no reordering a
+# missing barrier would expose: deleting a clean, an invalidate or a DSB
 # cannot turn this red here, and no drill claims it does.
 dmaprog="$repo_root/tests/embedded/dma.ax"
 [[ -f "$dmaprog" ]] || abort "$dmaprog is gone; A14 has no driver."
@@ -1988,6 +2009,287 @@ if qemu_or_skip "A15 inline assembly at EL1 under QEMU"; then
   fi
 fi
 
+# ---------------------------------------------------------------------
+# The memory map's drills (A16-A18) read two things out of the image
+# that ran: its layout symbols, and the fault report's registers. Both
+# come from the guest and the ELF it booted, never from a number typed
+# here: a FAR "in the guard" is judged against that image's own
+# `__axiom_rw_end` and `__axiom_stack_lo`.
+# ---------------------------------------------------------------------
+# `name=value` for each named symbol in a 64-bit ELF's symbol table.
+elf_syms() {  # elf_syms <elf> <name>...
+  python3 - "$@" <<'PY'
+import struct, sys
+path, want = sys.argv[1], set(sys.argv[2:])
+d = open(path, 'rb').read()
+if d[:4] != b'\x7fELF' or d[4] != 2:
+    sys.exit('not a 64-bit ELF: ' + path)
+shoff, = struct.unpack_from('<Q', d, 0x28)
+shentsize, shnum = struct.unpack_from('<HH', d, 0x3a)
+secs = [struct.unpack_from('<IIQQQQIIQQ', d, shoff + i * shentsize) for i in range(shnum)]
+for s in secs:
+    if s[1] != 2:  # SHT_SYMTAB
+        continue
+    strtab = secs[s[6]]
+    for k in range(s[5] // 24):
+        name_off, info, other, shndx, value, size = struct.unpack_from('<IBBHQQ', d, s[4] + 24 * k)
+        end = d.index(b'\0', strtab[4] + name_off)
+        n = d[strtab[4] + name_off:end].decode()
+        if n in want:
+            print('%s=%d' % (n, value))
+PY
+}
+# Exit 0 when the report on the UART names a FAR in [lo, hi) - and, with
+# a fifth argument, an ELR equal to the FAR. Each bound is a symbol of
+# the image or a number.
+far_in() {  # far_in <elf> <uart> <lo> <hi> [elr=far]
+  local elf="$1" uart="$2" lo="$3" hi="$4" same="${5:-}"
+  python3 - "$uart" "$lo" "$hi" "$same" <<PY
+import re, sys
+uart, lo, hi, same = sys.argv[1:5]
+syms = dict(l.split('=') for l in """$(elf_syms "$elf" "$lo" "$hi")""".split())
+val = lambda x: int(x, 0) if x[0].isdigit() else int(syms[x])
+m = re.search(r' elr 0x([0-9a-f]{16}) far 0x([0-9a-f]{16})', open(uart, errors='replace').read())
+if not m:
+    sys.exit(2)
+elr, far = int(m.group(1), 16), int(m.group(2), 16)
+ok = val(lo) <= far < val(hi) and (not same or elr == far)
+print('far 0x%x in [0x%x, 0x%x)%s: %s' % (far, val(lo), val(hi), ' and elr == far' if same else '', 'yes' if ok else 'NO'))
+sys.exit(0 if ok else 1)
+PY
+}
+# The report line of the first fault, as the guest wrote it.
+fault_line() { grep -m1 '^axiom: unhandled CPU exception at vector ' "$1"; }
+
+# ---------------------------------------------------------------------
+echo
+echo "== A16. the MMU on: identity-mapped tables, Normal RAM, Device peripherals, both caches =="
+# ---------------------------------------------------------------------
+# docs/embedded-guide.md section 6, docs/memory-model.md MM-EXEC-19.
+# `_start` builds identity-mapped translation tables with the MMU off
+# (`emitMmuTables`) and then turns the MMU and both caches on
+# (`mmuEnableAsm`): code read-only and executable, read-only data
+# read-only and execute-never, data, `.bss` and both stacks read-write
+# and execute-never, the guard below each stack and everything past the
+# image not mapped; two 2 MiB Device-nGnRnE blocks for the GIC and for
+# the UART and fw_cfg, and nothing else below RAM.
+#
+# Compile-level, every host: `_start`'s order (vector table, tables,
+# enable, `main`) and every register the enable writes; the builder's
+# descriptors DECODED - read-only, execute-never, attribute index,
+# shareability and the access flag per kind, not their bytes; the guard
+# a 0; periodic.ax and dma.ax (A13, A14) carrying the same `_start`, so
+# those runs are runs with the MMU and caches on; the host untouched.
+# QEMU: `tests/embedded/mmu.ax` reads SCTLR_EL1, TCR_EL1 and MAIR_EL1
+# back, and the image's layout symbols are page aligned, in order, with
+# the 64 KiB guard, the 8 KiB stack, the 4 KiB guard and the 8 KiB
+# fault stack between them.
+#
+# TCG models no caches: C and I read back set, and nothing is cached
+# behind them, so a missing clean or invalidate can't turn anything red
+# here. The cache maintenance in `dma.ax` is now meaningful in principle
+# and still unobservable.
+#
+# Drill: `mmuoff` drops the SCTLR_EL1 write, and mmu.ax reads M = 0.
+mmuprog="$repo_root/tests/embedded/mmu.ax"
+[[ -f "$mmuprog" ]] || abort "$mmuprog is gone; A16 has no probe."
+checks=$((checks + 1))
+prob=0
+if ! emit "$axc" "$bm" "$mmuprog" "$work/mmu.ll"; then
+  bad "mmu.ax does not emit for $bm:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+else
+  awk '/^define void @_start\(\)/{on=1} on{print} on&&/^}/{exit}' "$work/mmu.ll" > "$work/start.ll"
+  order="$(grep -oE 'msr vbar_el1|call void @__axiom_mmu_tables\(\)|msr sctlr_el1|call i64 @main\(' "$work/start.ll" | tr '\n' '|')"
+  [[ "$order" == 'msr vbar_el1|call void @__axiom_mmu_tables()|msr sctlr_el1|call i64 @main(|' ]] \
+    || { bad "\`_start\` runs [$order], not the vector table, the tables, the enable, then main"; prob=1; }
+  for w in 'mov x9, #0xff00\0Amsr mair_el1, x9' 'mov x9, #0x3520\0Amovk x9, #0x80a0, lsl #16\0Amsr tcr_el1, x9' \
+           'msr ttbr0_el1, x9\0Aisb\0Atlbi vmalle1\0Aic iallu\0Adsb sy\0Aisb' \
+           'mov x10, #0x100f\0Amovk x10, #0x8, lsl #16\0Aorr x9, x9, x10\0Amsr sctlr_el1, x9\0Aisb'; do
+    grep -qF -- "$w" "$work/start.ll" || { bad "the enable lacks [$w]"; prob=1; }
+  done
+  awk '/^define internal void @__axiom_mmu_tables\(\)/{on=1} on{print} on&&/^}/{exit}' "$work/mmu.ll" > "$work/tables.ll"
+  got="$(python3 - "$work/tables.ll" <<'PY'
+import re, sys
+ir = open(sys.argv[1]).read()
+def desc(v):
+    kind = {3: 'page', 1: 'block'}.get(v & 3, 'bad')
+    ro = 'ro' if v >> 7 & 1 else 'rw'
+    x = 'x' if not v >> 53 & 1 else 'pxn'
+    return '%s attr%d sh%d af%d %s %s uxn%d' % (kind, v >> 2 & 7, v >> 8 & 3, v >> 10 & 1, ro, x, v >> 54 & 1)
+out = []
+for name, reg in (('code', 'isx'), ('rodata', 'isr'), ('data', 'isw'), ('stack', 'iss'), ('fault-stack', 'isg2')):
+    m = re.search(r'select i1 %' + reg + r', i64 (\d+), i64 %', ir)
+    if name == 'fault-stack':
+        m = re.search(r'select i1 %isg2, i64 0, i64 (\d+)', ir)
+    out.append('%s: %s' % (name, desc(int(m.group(1))) if m else 'MISSING'))
+out.append('guard: %s' % ('0' if re.search(r'%a3 = select i1 %isg, i64 0, i64 %a4', ir) else 'MAPPED'))
+for m in re.finditer(r'store volatile i64 (\d+), ptr %d[gu]p', ir):
+    v = int(m.group(1))
+    out.append('device 0x%08x: %s' % (v & ~0xfff & ((1 << 48) - 1), desc(v)))
+print('\n'.join(out))
+PY
+)"
+  want='code: page attr1 sh3 af1 ro x uxn1
+rodata: page attr1 sh3 af1 ro pxn uxn1
+data: page attr1 sh3 af1 rw pxn uxn1
+stack: page attr1 sh3 af1 rw pxn uxn1
+fault-stack: page attr1 sh3 af1 rw pxn uxn1
+guard: 0
+device 0x08000000: block attr0 sh0 af1 rw pxn uxn1
+device 0x09000000: block attr0 sh0 af1 rw pxn uxn1'
+  if [[ "$got" != "$want" ]]; then
+    bad "the builder's descriptors decode to"; sed 's/^/       /' <<<"$got"
+    echo "     not"; sed 's/^/       /' <<<"$want"; prob=1
+  fi
+fi
+for p in periodic dma; do
+  if ! emit "$axc" "$bm" "$repo_root/tests/embedded/$p.ax" "$work/$p.mmu.ll"; then
+    bad "$p.ax does not emit for $bm"; prob=1
+  elif ! awk '/^define void @_start\(\)/{on=1} on{print} on&&/^}/{exit}' "$work/$p.mmu.ll" | grep -q 'msr sctlr_el1'; then
+    bad "$p.ax's \`_start\` does not turn the MMU on, so A13/A14 ran it with the MMU off"; prob=1
+  fi
+done
+if [[ ! -s "$work/blink.hostvec.ll" ]]; then
+  bad "A12's host IR for blink is missing, so the host's side of the MMU is unchecked"; prob=1
+elif grep -qE '__axiom_mmu_tables|__axiom_pt|msr sctlr_el1|__axiom_exc_top' "$work/blink.hostvec.ll"; then
+  bad "the host's IR carries the MMU's code - a hosted target must not move"; prob=1
+fi
+(( prob )) || note "_start builds the tables, then MAIR, TCR, TTBR0, TLB and I-cache, then SCTLR (M A C SA I WXN), then main; the descriptors decode as mapped; periodic.ax and dma.ax carry it"
+if qemu_or_skip "A16 the MMU under QEMU"; then
+  checks=$((checks + 1))
+  prob=0
+  if ! build_bm mmu.bm "$mmuprog" --target="$bm"; then
+    bad "mmu.ax does not build for $bm:"; sed 's/^/       /' "$work/mmu.bm.build.log" | head -6; prob=1
+  else
+    st="$(qemu_boot "$work/mmu.bm" "$work/mmu.uart" "$work/mmu.qemu.err")"
+    echo "     mmu: exit $st"
+    sed 's/^/     | /' "$work/mmu.uart" | head -3
+    [[ "$st" == 0 ]] || { bad "mmu.ax exits [$st], not 0"; prob=1; }
+    grep -qx 'mmu: M 1 A 1 C 1 SA 1 I 1 WXN 1' "$work/mmu.uart" \
+      || { bad "SCTLR_EL1 does not read back M, A, C, SA, I and WXN set"; prob=1; }
+    grep -qx 'mmu: tcr 2157983008 mair 65280' "$work/mmu.uart" \
+      || { bad "TCR_EL1 and MAIR_EL1 do not read back 0x80a03520 and 0xff00"; prob=1; }
+    lay="$(python3 - <<PY
+syms = dict(l.split('=') for l in """$(elf_syms "$work/mmu.bm" _start __axiom_rx_end __axiom_ro_end __axiom_rw_end __axiom_stack_lo __stack_top __axiom_exc_lo __axiom_exc_top __axiom_pt)""".split())
+v = {k: int(x) for k, x in syms.items()}
+need = ['_start', '__axiom_rx_end', '__axiom_ro_end', '__axiom_rw_end', '__axiom_stack_lo', '__stack_top', '__axiom_exc_lo', '__axiom_exc_top', '__axiom_pt']
+miss = [n for n in need if n not in v]
+if miss:
+    print('missing ' + ' '.join(miss))
+else:
+    errs = []
+    if v['_start'] != 0x40000000: errs.append('_start not at 0x40000000')
+    for n in need[1:]:
+        if v[n] % 4096: errs.append(n + ' not page aligned')
+    if not v['_start'] < v['__axiom_rx_end'] <= v['__axiom_ro_end'] <= v['__axiom_rw_end']: errs.append('sections out of order')
+    for a, b, n in (('__axiom_rw_end', '__axiom_stack_lo', 0x10000), ('__axiom_stack_lo', '__stack_top', 0x2000),
+                    ('__stack_top', '__axiom_exc_lo', 0x1000), ('__axiom_exc_lo', '__axiom_exc_top', 0x2000),
+                    ('__axiom_exc_top', '__axiom_pt', 0)):
+        if v[b] - v[a] != n: errs.append('%s - %s is %d, not %d' % (b, a, v[b] - v[a], n))
+    print('; '.join(errs) or 'ok')
+PY
+)"
+    [[ "$lay" == ok ]] || { bad "the image's layout: $lay"; prob=1; }
+  fi
+  (( prob )) || note "SCTLR_EL1 reads back M A C SA I WXN, TCR and MAIR as written, and the layout is page aligned with both guards (QEMU TCG: no cache is modelled behind C and I)"
+fi
+
+# ---------------------------------------------------------------------
+echo
+echo "== A17. a stack overflow ends at the guard, and says so =="
+# ---------------------------------------------------------------------
+# `tests/embedded/overflow.ax` recurses without end. The first push past
+# the stack's bottom lands in the unmapped 64 KiB below it: a level-3
+# translation fault on a write, ESR_EL1 0x96000047, FAR in [__axiom_rw_end,
+# __axiom_stack_lo) of the image that ran. The fault exit switches to
+# its own stack before it touches memory, writes the report and the
+# stack-overflow line, and exits 81. With the MMU off, as before, the
+# same program ran through the arena into the code and hung.
+#
+# Drills: `guard` maps the guard, so the stack runs on through `.bss`
+# and `.data` and faults elsewhere - a permission fault at read-only
+# data, not a translation fault in the guard; `excstack` leaves the
+# fault exit on the overflowed stack, so it faults on its first push
+# for ever and reports nothing.
+ovprog="$repo_root/tests/embedded/overflow.ax"
+[[ -f "$ovprog" ]] || abort "$ovprog is gone; A17 has no probe."
+# Compile-level, every host: the fault exit's first three instructions
+# point sp at the fault stack, before anything touches memory, and the
+# report's guard test is emitted.
+checks=$((checks + 1))
+prob=0
+entry="$(grep -A4 -xF 'module asm "__axiom_exc_entry:"' "$work/blink.vec.ll" 2>/dev/null | sed 's/^module asm "//; s/"$//' | tr '\n' '|')"
+[[ "$entry" == '__axiom_exc_entry:|adrp x9, __axiom_exc_top|add x9, x9, :lo12:__axiom_exc_top|mov sp, x9|mrs x1, esr_el1|' ]] \
+  || { bad "the fault exit begins [$entry], not a switch to the fault stack before the first access"; prob=1; }
+grep -qF '  %so = and i1 %dabt, %ing' "$work/blink.vec.ll" \
+  || { bad "the report has no test for a fault address in a stack guard"; prob=1; }
+(( prob )) || note "the fault exit switches to the fault stack before its first access, and the report tests FAR against both guards"
+if qemu_or_skip "A17 stack overflow under QEMU"; then
+  checks=$((checks + 1))
+  prob=0
+  if ! build_bm overflow.bm "$ovprog" --target="$bm"; then
+    bad "overflow.ax does not build for $bm:"; sed 's/^/       /' "$work/overflow.bm.build.log" | head -6; prob=1
+  else
+    st="$(qemu_boot "$work/overflow.bm" "$work/overflow.uart" "$work/overflow.qemu.err" virt 30)"
+    echo "     overflow: exit $st"
+    sed 's/^/     | /' "$work/overflow.uart" | head -3
+    [[ "$st" == 81 ]] || { bad "the overflow exits [$st], not 81 - a stack overflow must end at the guard, not run on"; prob=1; }
+    [[ "$(fault_line "$work/overflow.uart")" =~ vector\ 0x0000000000000200\ esr\ 0x0000000096000047\  ]] \
+      || { bad "the report is [$(fault_line "$work/overflow.uart")], not vector 0x200 with ESR 0x96000047 (a level-3 translation fault on a write)"; prob=1; }
+    fin="$(far_in "$work/overflow.bm" "$work/overflow.uart" __axiom_rw_end __axiom_stack_lo)" \
+      || { bad "the fault address is not in the guard below the stack: $fin"; prob=1; }
+    echo "     $fin"
+    grep -qx 'axiom: stack overflow: the fault address is in the guard page below a stack' "$work/overflow.uart" \
+      || { bad "the report does not name the stack overflow"; prob=1; }
+    ! grep -q 'NOT REACHED' "$work/overflow.uart" || { bad "the program ran past its overflow"; prob=1; }
+  fi
+  (( prob )) || note "unbounded recursion ends in a translation fault in the guard below the stack, named, exit 81 (QEMU TCG)"
+fi
+
+# ---------------------------------------------------------------------
+echo
+echo "== A18. code is read-only, data is execute-never, and the rest is not mapped =="
+# ---------------------------------------------------------------------
+# Three faults taken on purpose, each read off the guest's report and
+# judged against the image's own symbols:
+#   code-write.ax  a store to the code region: a level-3 permission fault
+#                  on a write, ESR 0x9600004f, FAR in [0x40000000,
+#                  __axiom_rx_end);
+#   exec-data.ax   a branch into an arena block holding a `ret`: an
+#                  instruction abort, a level-3 permission fault, ESR
+#                  0x8600000f, ELR = FAR in [__axiom_ro_end, __axiom_rw_end);
+#   unmapped.ax    a read of address 0: a level-2 translation fault,
+#                  ESR 0x96000006, FAR 0.
+# With the MMU off, as before, all three ran on and printed NOT REACHED.
+#
+# Drill: `codewrite` maps code read-write (and leaves WXN off, which
+# would otherwise make the code unrunnable), and the store succeeds.
+if qemu_or_skip "A18 the map's protections under QEMU"; then
+  for probe in code-write:0x000000009600004f:1073741824:__axiom_rx_end: \
+               exec-data:0x000000008600000f:__axiom_ro_end:__axiom_rw_end:same \
+               unmapped:0x0000000096000006:0:1:; do
+    IFS=: read -r pname pesr plo phi psame <<<"$probe"
+    checks=$((checks + 1))
+    prob=0
+    psrc="$repo_root/tests/embedded/$pname.ax"
+    [[ -f "$psrc" ]] || abort "$psrc is gone; A18 has no $pname probe."
+    if ! build_bm "$pname.bm" "$psrc" --target="$bm"; then
+      bad "$pname.ax does not build for $bm:"; sed 's/^/       /' "$work/$pname.bm.build.log" | head -6; continue
+    fi
+    st="$(qemu_boot "$work/$pname.bm" "$work/$pname.uart" "$work/$pname.qemu.err" virt 30)"
+    echo "     $pname: exit $st"
+    sed 's/^/     | /' "$work/$pname.uart" | head -2
+    [[ "$st" == 81 ]] || { bad "$pname exits [$st], not 81 - the access must fault"; prob=1; }
+    [[ "$(fault_line "$work/$pname.uart")" =~ vector\ 0x0000000000000200\ esr\ ${pesr}\  ]] \
+      || { bad "$pname's report is [$(fault_line "$work/$pname.uart")], not vector 0x200 with ESR $pesr"; prob=1; }
+    fin="$(far_in "$work/$pname.bm" "$work/$pname.uart" "$plo" "$phi" "$psame")" \
+      || { bad "$pname's fault address is not where the map says: $fin"; prob=1; }
+    echo "     $fin"
+    ! grep -q 'NOT REACHED' "$work/$pname.uart" || { bad "$pname ran past its fault"; prob=1; }
+    (( prob )) || note "$pname faults with ESR $pesr at the address the map predicts (QEMU TCG)"
+  done
+fi
+
 echo
 if (( skipped > 0 )); then
   echo "check-embedded: $skipped QEMU leg(s) SKIPPED - booted nothing, proved nothing, and are not counted below"
@@ -2004,4 +2306,6 @@ echo "                status and the oversized 70 asserted; the device primitive
 echo "                lower to volatile accesses at their widths and to their"
 echo "                AArch64 instructions, and AX4008 refuses what a target lacks;"
 echo "                a periodic step runs on the timer's interrupt within its"
-echo "                budgets, and a DMA driver keeps its ownership protocol"
+echo "                budgets, and a DMA driver keeps its ownership protocol;"
+echo "                the MMU and caches are on, a stack overflow ends at its"
+echo "                guard, and code can't be written or data run"
