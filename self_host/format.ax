@@ -3500,10 +3500,11 @@
 ; Negative-literal fusion.
 ;
 ; The reader keeps `-` and `5` as two atoms (the scan test pins that),
-; but stage0's parser reads an adjacent pair as one literal in
-; expression position - `(+ x -5)` is two arguments. The printer
-; fuses them where the parser would, and only there: patterns and
-; types refuse a bare `-`, exactly as stage0's parsers do.
+; but the parser reads an adjacent pair as one literal, in expression
+; position - `(+ x -5)` is two arguments - and in a pattern: the arm
+; `(-5 1)` and the constructor pattern `(Some -5)` test for minus
+; five (`fpPatWidth`). The printer fuses them where the parser would.
+; Types refuse a bare `-`.
 ; ------------------------------------------------------------------
 (pub :: fpIsMinusAtom (-> Int Bool))
 (pub fn (fpIsMinusAtom n)
@@ -3518,6 +3519,18 @@
       (== (fnEnd m) (fnStart d))
       false)
     false))
+
+; One atom spanning a minus and the number it fuses with, of the
+; number's kind. A null kid list is how this file spells an atom's.
+(pub :: fpFusedAtom (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (fpFusedAtom m d)
+  (mkFNode
+    FN_ATOM
+    (mkFTok (ftKind (fnTok d)) (fnStart m) (fnEnd d))
+    (cast (Vec Int) 0)
+    (fnStart m)
+    (fnEnd d)))
 
 ; The expression elements of `n` from index `from`, with adjacent
 ; minus+number pairs fused into synthetic literal atoms.
@@ -3746,14 +3759,28 @@
 ; How many kids one pattern occupies at position `i` of vec `v`: two
 ; when a bare uppercase ident is followed by a paren group - stage0's
 ; `parse_pattern` fuses `C (h t)` into the constructor pattern
-; `(C h t)` in every pattern position - and one otherwise.
+; `(C h t)` in every pattern position - and two for a negative literal,
+; `-` against its digits, which the lexer reads as one token. One
+; otherwise.
+;
+; The negative literal was refused until 2026-09-29, though `check`
+; accepted it and the program ran: the fuzzer's P4 turned `(2 7)` in
+; `tests/selfhost/380-literal-patterns.ax` into `(-00 7)`, and `fmt`
+; refused with no code. `tests/selfhost/1013-negative-literal-pattern.ax`
+; holds both spellings.
 (pub :: fpPatWidth (-> String (Vec Int) Int Int))
 (pub fn (fpPatWidth src v i)
-  (if (&&
-    (fpIsUpperIdent src (vecGet v i))
-    (if (< (+ i 1) (vecLen v))
-      (== (fnKind (vecGet v (+ i 1))) FN_PAREN)
-      false))
+  (if (||
+    (&&
+      (fpIsUpperIdent src (vecGet v i))
+      (if (< (+ i 1) (vecLen v))
+        (== (fnKind (vecGet v (+ i 1))) FN_PAREN)
+        false))
+    (&&
+      (fpIsMinusAtom (vecGet v i))
+      (if (< (+ i 1) (vecLen v))
+        (fpFusesWith (vecGet v i) (vecGet v (+ i 1)))
+        false)))
     2
     1))
 
@@ -3778,6 +3805,13 @@
 (pub :: fpPatVecAt (-> Int (Vec Int) Int Int))
 (pub fn (fpPatVecAt p v i)
   (let ((src (fpSrc p)))
+    (if (&& (== (fpPatWidth src v i) 2) (fpIsMinusAtom (vecGet v i)))
+      ; A negative literal: one fused atom over both kids, printed as
+      ; the expression path prints it (`fpExprElems`).
+      {
+        (fpPat p (fpFusedAtom (vecGet v i) (vecGet v (+ i 1))))
+        (+ i 2)
+      }
     (if (== (fpPatWidth src v i) 2)
       (let (
         (args (fnKidsVec (vecGet v (+ i 1))))
@@ -3801,7 +3835,7 @@
       {
         (fpPat p (vecGet v i))
         (+ i 1)
-      })))
+      }))))
 
 ; A named-field pattern group's fields: `(Name { w = p, h })`.
 (pub :: fpPatNamed (-> Int Int Int Int))
@@ -3858,10 +3892,11 @@
   )
     (if (== k FN_ATOM)
       (let ((tk (ftKind (fnTok n))))
-        (if (== tk FT_IDENT)
+        (if (|| (== tk FT_IDENT) (== tk FT_MINUS))
           ; An operator run is a name to this compiler's parser, in a
           ; pattern as anywhere else: a parameter or a `let` binder
-          ; spelled `*` shadows the operator in its scope.
+          ; spelled `*` shadows the operator in its scope. A lone `-`
+          ; is scanned as its own kind, and binds the same way.
           (fpP p (fnText src n))
           (if (== tk FT_INT)
             (fpInt p (fnStart n) (fnEnd n))

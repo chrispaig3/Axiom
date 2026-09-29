@@ -1,0 +1,23 @@
+; expect 123
+; A negative literal is a pattern, as in expression position: the
+; lexer reads `-5` as one token, so the arm `(-5 1)` tests for minus
+; five, and so does `(Some -5)` inside a constructor pattern. A lone
+; `-` is a name, and as a pattern it binds. `check` accepted all three
+; and `fmt` refused each with no code, until the fuzzer turned `(2 7)`
+; into `(-00 7)` (`tests/fuzz/negative-literal-pattern.axfuzz`).
+; `scripts/check-fmt.sh` formats a copy of this file and runs it again.
+(:: sign (-> Int Int))
+(fn (sign n)
+  (match n
+    (-5 1)
+    (0 2)
+    (- 3)))
+
+(:: some (-> (Option Int) Int))
+(fn (some o)
+  (match o
+    ((Some -5) 100)
+    (_ 0)))
+
+(fn (main)
+  (+ (some (Some (- 0 5))) (+ (* 10 (sign 0)) (sign 7))))

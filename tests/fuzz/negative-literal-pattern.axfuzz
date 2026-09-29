@@ -1,0 +1,10 @@
+(:: f (-> Int Int))
+(fn (f n)
+  (match n
+    (1 42)
+    (-00 7)
+    (x (* x 10))))
+
+(:: main Int)
+(fn (main)
+  (f 2))
