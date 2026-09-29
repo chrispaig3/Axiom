@@ -18,12 +18,12 @@ source.
 | Join and spawn failures surface as status 78, never as success (R-A3) | The same gate: `foreign 78` in every §12c probe |
 | Thread arenas are returned, so 6,000 threads hold VmSize flat (R-A4) | §12a on H1 and H2 (6.16 GB was mapped before the fix) |
 | The allocator refuses negative sizes and sizes it can't hold (R-A5) | The `6527bea0` fixtures |
-| The twenty-six `Unsafe` primitives are refused under `no-unsafe` and `pure`, and a declaration that calls one says `effect(unsafe)` (R-A6) | `tests/diagnostics/1010-unsafe-primitives.ax` and `tests/diagnostics/1020-unsafe-device-primitives.ax`; `scripts/check-diagnostics.sh`: 270 pass |
+| The thirty-six `Unsafe` primitives, the seven syscalls among them, are refused under `no-unsafe` and `pure`, and a declaration that calls one says `effect(unsafe)` (R-A6) | `tests/diagnostics/1080-unsafe-syscalls.ax`, `tests/diagnostics/1010-unsafe-primitives.ax` and `tests/diagnostics/1020-unsafe-device-primitives.ax`; `scripts/check-diagnostics.sh`: 270 pass |
 | Links in dead blocks can't be decremented as counts (R-A7) | `tests/stdlib/521-release-filed.ax`; the `MM-LIFE-2k` release path |
 | Foreign joins are refused before waiting, and the owner still joins (R-A8) | §12c: `foreign 78 status 123 answer 42`, for processes and threads, raising and checked |
 | A parameter is read, not called, beside a nullary function of its name; a cast's type operand and a named pattern's binders resolve as written; a module's bare call never reaches the entry file; so an unused declaration changes nothing else, and `symbols` numbers an unsigned function's fresh type variables from its own row (R-A10, AN-37) | `tests/selfhost/1006-cast-type-operand.ax`, `tests/stdlib/573-entry-name-shadows-import.ax`, `tests/selfhost/1012-fresh-names.ax`; `scripts/check-metamorphic.sh`: 360 programs keep the first relation, 194 the shadow relation and 361 the fresh-variable relation, eight ablations each red |
 | Count exhaustion traps with 70 before the write, and is recoverable (R-A9) | `tests/stdlib/527-retain-overflow.ax` (`.optstable` 0 to 3); the model's `exhaust` ablation |
-| A standard-library function that hands the kernel or a raw primitive a word its caller supplied says so as a precondition, and a record a trusted function hands on that way is private to its module (R-B10, steps 1 and 2 of 3) | `tests/stdlib/580-kernel-precondition.ax`; `compat/BREAKING`'s `KeyIn` and `HttpReader` rows |
+| A standard-library function that hands the kernel or a raw primitive a word its caller supplied says so as a precondition, a record a trusted function hands on that way is private to its module, and a syscall is an unsafe operation of its own; `IO`'s typed forms check their ranges before the kernel sees them (R-B10, AN-58) | `tests/diagnostics/1080-unsafe-syscalls.ax`, `1081-sys-buffer-calls.ax`; `tests/stdlib/580-kernel-precondition.ax`, `545-no-unsafe-practical.ax`, `610-typed-io-bounds.ax`; `compat/BREAKING`'s R-B10 rows |
 | `vecSet` traps with 77 before it mutates (R-B1) | `tests/stdlib/525-vec-set-bounds.ax` |
 | A million-deep chain is released whole under a 64 KiB stack, and no share is released twice through the safe surface (R-B7) | `tests/stdlib/555-release-deep-chain.ax`, `556-count-balance.ax`; `scripts/check-reclaim-soak.sh` §1 and its recursive-walk ablation |
 | Reuse plateaus under a mixed-size soak, a cycle costs exactly its bytes until a reset, resets leave no stale list head, and `__axiom_mem_stat` reads it all (R-B8) | `tests/stdlib/557-cycle-backlog.ax` to `559-reset-metadata.ax`; `scripts/check-reclaim-soak.sh` §2 to §4, with four ablations |
@@ -65,10 +65,9 @@ source.
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
   reentrant; a dead holder is found only when the kernel says so
   (AN-56); Darwin's clock is the realtime one; FreeBSD spins.
-- AN-58 (R-B10 step 3): `__syscallN` isn't in the unsafe set, so
-  `restrict(no-unsafe)` accepts a direct syscall, and `sysReadFd`,
-  `sysWriteFd`, the path calls, `sysRandomBytes` and the terminal calls
-  still take an `Int` buffer unmarked.
+- R-B10 limits: `Json`, `Intern` and `Rpc`'s reader hand out raw `Int`
+  record handles, forged without a cast. The typed terminal round trip
+  has no pty gate of its own.
 - R-D2b and R-D2e limits: QEMU's TCG models no cache, so no run shows
   a missing clean, invalidate or barrier. Nothing ran on hardware, where
   semihosting's exit is itself an exception and a fault hook must end in
