@@ -1780,16 +1780,21 @@ point can only contain one of the three traps. `ERR-REC-6` in
 [the error model](error-model.md) states what that does and doesn't
 buy.
 
-Two program obligations follow, and nothing checks either:
+Two rules follow. The compiler checks the first, and the second is a
+program obligation:
 
 - **Nothing older than the point may be made to hold what the thunk
-  allocated.** The abort reclaims everything the thunk allocated, and a
-  structure older than the point keeps whatever the thunk stored in it.
-  A `Vec` made before the arm and grown inside the thunk keeps a data
-  block the abort gave back, and the next allocation reuses it. Carry
-  the thunk's answer out as the arming call's result and store it
-  afterwards (`tests/stdlib/561-failed-operations.ax` case 3). This is
-  `MM-ALLOC-16`'s obligation, applied to the reset an abort performs.
+  allocated.** The abort reclaims everything the thunk allocated, so a
+  structure older than the point would keep a block the next
+  allocation reuses. A thunk is checked as a region is: written as a
+  lambda at the call, it is walked by the region pass, and storing
+  anything it allocates into an older structure, such as growing a
+  `Vec` made before the arm, is `AX3060`. A top-level function passed
+  by name captures nothing and passes. Any other thunk is `AX3090`,
+  because its body was never walked there
+  (`tests/diagnostics/1033-recover-escape.ax`). Carry the thunk's
+  answer out as the arming call's result and store it afterwards
+  (`tests/stdlib/561-failed-operations.ax` case 3).
 - **Resources the thunk acquired stay acquired.** A file descriptor
   opened in an aborted extent stays open, a shared mapping stays mapped
   and a mutex stays locked: the runtime can't know they were taken.

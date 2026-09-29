@@ -177,6 +177,15 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-28 (30): the reclamation audit, the recovery-region
+# check and the Vec range. Compiler view only, 10 rows added (4887 to
+# 4897), none moved: the audit's seven runtime emitters (`emitLog2Steps`,
+# `emitLog2StepsFrom`, `famReg`, `emitFloorClass`, `emitMemStatFn`,
+# `emitPrimMemStat`, `emitRecoverCell`) and the region walk's
+# `rgnFormWalk` and `rgnRecoverForm` - eight `Alloc,Mut,Unsafe` (2360 to
+# 2368) and one `Alloc,IO,Mut,Unsafe` (417 to 418) - and `vecBytes`,
+# arithmetic, pure (578 to 579; the stdlib view's pure rows 289 to 290).
+#
 # RE-PINNED 2026-09-28 (29): a macro query waits for its subject
 # (AN-40) and a function's NID is its `fn`'s (AN-41). Compiler view
 # only, 4 rows added (4883 to 4887), none moved: `expQueryMissing`
@@ -567,15 +576,15 @@ have "$(bucket "$work/main.axsym" 'Alloc')" 70 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2360 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 2368 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Unsafe')" 1208 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 417 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 418 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 131 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 49 "Alloc,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 20 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 578 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 579 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
@@ -618,7 +627,7 @@ have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 20 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 2 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Fallible')" 1 "exactly Fallible"
 have "$(bucket "$work/lib.axsym" 'Assert')" 1 "exactly Assert"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 289 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 290 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 5 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 19 "effect-params rows"
 

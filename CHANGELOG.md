@@ -22,6 +22,29 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A recovery point's thunk is checked as a region, and a `Vec` can't wrap its size — `AX3090` - 2026-09-28
+
+The reclamation audit found two ways safe code could reach memory the
+allocator had given back, and both are closed.
+
+A recovery point's abort reclaims everything its thunk allocated, and
+nothing checked that the thunk kept those blocks to itself: a `Vec`
+built before the point and grown inside it kept a reclaimed data block
+after a trap (AN-42). A thunk is now checked as a `region` is. Written
+as a lambda at the call, it is walked by the region pass, and storing
+what it allocates into an older structure is `AX3060`. A top-level
+function passed by name captures nothing and passes. Any other thunk,
+such as a `let`-bound closure or a parameter, is the new `AX3090`,
+because its body was never walked there. Every program in the tree
+that uses recovery still checks. Tested by
+`tests/diagnostics/1033-recover-escape.ax`.
+
+`vecWithCapacity` asked for `(* n 8)` bytes unchecked, so 2^61
+elements asked for 0 and the vector's pushes wrote over later blocks
+(AN-43). A capacity above 2^59 elements is now out of memory, status
+70, recoverable like any refusal. Tested by
+`tests/stdlib/562-vec-capacity-range.ax`.
+
 ### A function that needs its signature says so — `AX3089` - 2026-09-28
 
 A function with no signature is typed by checking its body, and

@@ -76,10 +76,8 @@ source.
   or an asymptotic proof.
 - R-B8 and R-B9 limits: reuse is bounded by each class's peak, so a
   drifting size mix keeps old bands until a reset. There is no cycle
-  collector. A recovery extent must not grow an older structure
-  (AN-42), and doesn't release descriptors, mappings or locks (AN-44).
-- AN-43: `vecWithCapacity` of 2^61 or more elements wraps its byte size
-  and corrupts the heap.
+  collector. A recovery extent doesn't release descriptors, mappings or
+  locks (AN-44).
 
 ## Verified configurations
 
