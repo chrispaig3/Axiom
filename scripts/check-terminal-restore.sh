@@ -225,6 +225,7 @@ cat > "$work/neg.ax" <<'AX'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((buf (memAlloc sysTermStateBytes)))
     {

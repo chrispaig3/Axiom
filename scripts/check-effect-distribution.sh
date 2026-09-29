@@ -586,6 +586,58 @@
 # twin's gain. The stdlib view the same way, 209 rows naming `IO` in
 # both, with `strSplit`, `listDir` and `sysReadDir` now `(Vec String)`.
 #
+# RE-PINNED at the R-B10 merge onto trunk b764c91c: both views measured
+# on the merged tree. The compiler view takes notes 33 and 35 on top of
+# the AN-52..54 pins below (note 34's are the same rows): 14 rows gain
+# `Unsafe` (ten of them name `IO`: `Alloc,IO,Mut` 190 to 182 into
+# `Alloc,IO,Mut,Unsafe` 230 to 238, `Alloc,IO` 38 to 36 into
+# `Alloc,IO,Unsafe` 6 to 8; three `Alloc,Mut` to `Alloc,Mut,Unsafe`;
+# `netAddrZeroRunStart` pure to `Unsafe`) and step A adds three
+# (`unsafeByKernel`, `declCallsSyscall`, `edgesHaveSyscall`): exactly
+# `Alloc,Mut` 1521 to 1519, `Alloc,Mut,Unsafe` 924 to 928, exactly
+# `Unsafe` 486 to 488, pure 1325 to 1324. The stdlib view takes note
+# 33's 12 moves on top of AN-10's pins: `Alloc,Mut` 113 to 110,
+# `Alloc,IO,Mut` 76 to 70, `Alloc,IO` 32 to 30, `Alloc,Mut,Unsafe` 72 to
+# 75, `Unsafe` 88 to 89, `Alloc,IO,Mut,Unsafe` 46 to 52,
+# `Alloc,IO,Unsafe` 7 to 9, pure 398 to 397. Every `IO` bucket's loss is
+# its `Unsafe` twin's gain, so the required/ambient line holds.
+#
+# RE-PINNED 2026-09-29 (35): R-B10 step A, a syscall supports an
+# `effect(unsafe)` claim. Compiler view only, three rows added and none
+# moved: `unsafeByKernel` (exactly `Alloc,Mut`), `declCallsSyscall`
+# (`Alloc,Mut,Unsafe`) and `edgesHaveSyscall` (exactly `Unsafe`). The
+# rule answers a claim and adds nothing to any row, so the stdlib view
+# does not move.
+#
+# RE-PINNED 2026-09-29 (34): trunk's AN-53 and AN-54 merged onto R-B10's
+# first half. Diffed `symbols --calls` rows for d1416466 and the merge
+# with ONE compiler, compiler view only (the stdlib view is unchanged):
+# removed the three `boundWithin` walkers (exactly `Alloc,Mut`), added
+# `castTargetTy`, `binderCollect`, `binderCollectArms` and
+# `binderCollectVec` (exactly `Alloc,Mut`), `binderCollectNames`,
+# `binderSummary` and `headIsLocal` (`Alloc,Mut,Unsafe`) and `boundIn`
+# (exactly `Unsafe`). So exactly `Alloc,Mut` moves 1518 to 1519,
+# `Alloc,Mut,Unsafe` 924 to 927 and exactly `Unsafe` 486 to 487.
+#
+# RE-PINNED 2026-09-29 (33): R-B10's first half. Functions that were
+# tagged trusted but dereferenced or handed on a caller's word
+# (`netAddrText`, `netSetOptInt`, the poll calls, `sysTermRaw`,
+# `sysTimeoutMicros`, `sysSpawn`, `sysReadDir`, Fmt's digit writers)
+# became precondition interfaces, so `Unsafe` now reaches the rows of
+# their callers up to the next trusted declaration. Diffed `symbols
+# --calls` rows for 397f8b18 and this tree with ONE compiler: none
+# added or removed. Compiler view, 14 moved, each gaining exactly
+# `Unsafe`: `netBind`, `netConnect`, `sysRun`, `sysRunPath` and
+# `sysRunSearch` (now precondition interfaces), `netAddrZeroRunStart`
+# (pure to `Unsafe`), and the trusted callers `fmtNat`, `fmtHex`,
+# `fmtHexUpper`, `listDir`, `mkKeyIn`, `termRawEnter`, `pkgWalkModules`
+# and `crateModuleName`. Stdlib view, the same 12 without the two
+# compiler rows. No row moves onto or off `IO`, so the required/ambient
+# line holds. The compiler view's pins also take in AN-52 (397f8b18),
+# which left this gate red: its tree measured exactly `Alloc,Mut` 1521,
+# `Alloc,Mut,Unsafe` 921, exactly `Unsafe` 485 and pure 1322 against
+# pins of 1518, 920, 484 and 1321.
+#
 # RE-PINNED for AN-52, AN-53, AN-54 and the forging scan: the compiler
 # view only, all new rows or rows that shed an allocation. Exactly
 # `Alloc,Mut` 1518 to 1521: eight new (`binderCollect`, its `Vec` and
@@ -645,22 +697,22 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1521 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 190 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1519 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 182 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 33 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 112 "exactly Alloc"
-have "$(bucket "$work/main.axsym" 'Alloc,IO')" 38 "Alloc,IO"
+have "$(bucket "$work/main.axsym" 'Alloc,IO')" 36 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 924 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 486 "exactly Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 230 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 928 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 488 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 238 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 98 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 6 "Alloc,IO,Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Unsafe')" 8 "Alloc,IO,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Mut,Unsafe')" 4 "IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'IO,Unsafe')" 1 "IO,Unsafe"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1325 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1324 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 0 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 7 "effect-params rows"
 
@@ -684,26 +736,26 @@ done
 lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
-have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 113 "exactly Alloc,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 76 "Alloc,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 110 "exactly Alloc,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 70 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 13 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 39 "exactly Alloc"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 32 "Alloc,IO"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 30 "Alloc,IO"
 have "$(bucket "$work/lib.axsym" 'IO')" 35 "exactly IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 7 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 5 "IO,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 72 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Unsafe')" 88 "exactly Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 46 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 75 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Unsafe')" 89 "exactly Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 52 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 59 "Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 6 "Alloc,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 7 "Alloc,IO,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 9 "Alloc,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut,Unsafe')" 0 "Alloc,Assert,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 8 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 2 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Fallible')" 1 "exactly Fallible"
 have "$(bucket "$work/lib.axsym" 'Assert')" 1 "exactly Assert"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 398 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 397 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 5 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 19 "effect-params rows"
 

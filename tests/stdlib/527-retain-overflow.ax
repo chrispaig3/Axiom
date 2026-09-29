@@ -37,5 +37,8 @@
       ; the trap's 70, and `verify-stdlib-out.py` reads a literal tail as
       ; the exit status. If the retain ever stops trapping, this line runs
       ; and the golden says so.
-      (printlnLit (strCStr "UNREACHABLE: the retain past the limit returned"))
+      ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+      ; `println` literal as a line the program prints, and it cannot see
+      ; that the call above traps.
+      (writeStr stdout "UNREACHABLE: the retain past the limit returned\n")
     }))

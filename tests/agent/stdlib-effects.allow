@@ -90,12 +90,12 @@ fmtDigits Fmt.ax Mut,Unsafe
 fmtFloat Fmt.ax Alloc,Mut
 fmtFloatAbs Fmt.ax Alloc,Mut
 fmtFloatPrec Fmt.ax Alloc,Mut
-fmtHex Fmt.ax Alloc,Mut
+fmtHex Fmt.ax Alloc,Mut,Unsafe
 fmtHexDigits Fmt.ax Mut,Unsafe
 fmtHexDigitsUpper Fmt.ax Mut,Unsafe
-fmtHexUpper Fmt.ax Alloc,Mut
+fmtHexUpper Fmt.ax Alloc,Mut,Unsafe
 fmtInt Fmt.ax Alloc,Mut
-fmtNat Fmt.ax Alloc,Mut
+fmtNat Fmt.ax Alloc,Mut,Unsafe
 fmtPadCenter Fmt.ax Alloc,Mut,Unsafe
 fmtPadLeft Fmt.ax Alloc,Mut,Unsafe
 fmtPadRight Fmt.ax Alloc,Mut,Unsafe
@@ -243,7 +243,7 @@ ledWordLeft Edit.ax Alloc,Mut
 ledWordRight Edit.ax Alloc,Mut
 ledYank Edit.ax Alloc,Mut,Unsafe
 ledYankPop Edit.ax Alloc,Mut,Unsafe
-listDir IO.ax Alloc,IO,Mut
+listDir IO.ax Alloc,IO,Mut,Unsafe
 listDirInsert IO.ax Alloc,Mut
 listDirKeep IO.ax Alloc,Mut
 listDirSift IO.ax Mut
@@ -296,7 +296,7 @@ memSet Mem.ax Mut,Unsafe
 memSetFrom Mem.ax Mut,Unsafe
 memSetWord Mem.ax Mut,Unsafe
 mkError Err.ax Alloc
-mkKeyIn Term.ax Alloc,IO,Mut
+mkKeyIn Term.ax Alloc,IO,Mut,Unsafe
 mulChecked Err.ax Alloc
 mutexFree Sync.ax Alloc,IO,Mut
 mutexLock Sync.ax Alloc,IO,Mut
@@ -318,8 +318,9 @@ netAddrText4 Sys.ax Alloc,Mut,Unsafe
 netAddrText6 Sys.ax Alloc,Mut,Unsafe
 netAddrTextPort Sys.ax Alloc,Mut,Unsafe
 netAddrZeroRun Sys.ax Unsafe
-netBind Sys.ax Alloc,IO
-netConnect Sys.ax Alloc,IO
+netAddrZeroRunStart Sys.ax Unsafe
+netBind Sys.ax Alloc,IO,Unsafe
+netConnect Sys.ax Alloc,IO,Unsafe
 netGetGroup Sys.ax Unsafe
 netGetInt32 Sys.ax Unsafe
 netGetWord Sys.ax Unsafe
@@ -484,9 +485,9 @@ sysReadLineFd Sys.ax Alloc,IO,Mut,Unsafe
 sysRename Sys.ax Alloc,IO
 sysResult Sys.ax Alloc
 sysRmdir Sys.ax Alloc,IO
-sysRun Sys.ax Alloc,IO,Mut
-sysRunPath Sys.ax Alloc,IO,Mut
-sysRunSearch Sys.ax Alloc,IO,Mut
+sysRun Sys.ax Alloc,IO,Mut,Unsafe
+sysRunPath Sys.ax Alloc,IO,Mut,Unsafe
+sysRunSearch Sys.ax Alloc,IO,Mut,Unsafe
 sysScratch Sys.ax Alloc,Unsafe
 sysScratchDone Sys.ax Unsafe
 sysSeek Sys.ax IO
@@ -558,7 +559,7 @@ termEditLoop Term.ax Alloc,IO,Mut
 termFlagClear Sys.ax Mut,Unsafe
 termFlagGet Sys.ax Unsafe
 termFlush Term.ax Alloc,IO,Mut
-termRawEnter Term.ax Alloc,IO,Mut
+termRawEnter Term.ax Alloc,IO,Mut,Unsafe
 termRawLeave Term.ax IO
 termReadSize Term.ax IO,Mut,Unsafe
 termWsCols Term.ax Unsafe

@@ -4345,6 +4345,7 @@ the terminal:
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((saved (memAlloc sysTermStateBytes)))
     (if (< (sysTermRaw stdin saved 1) 0)       ; 1 keeps ^C as SIGINT

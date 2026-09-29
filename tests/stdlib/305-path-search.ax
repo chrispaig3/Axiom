@@ -84,6 +84,7 @@
 ; waits, so the parent's line and the child's cannot cross.
 (pub :: probe (-> String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (probe label env)
   {
     (println label)
@@ -100,6 +101,7 @@
 ; the migration itself.
 (:: searchAnswer (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (searchAnswer name)
   (match (sysRunPath name (argv2 name "victim") 0)
     ((Ok code) code)

@@ -31,13 +31,13 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))))
+    (println (strConcat "ok   " label))
+    (println (strConcat "FAIL " label))))
 
 (:: shows (-> String String Int))
 ;@axiom:effect(io)
 (fn (shows label text)
-  (printlnLit (strCStr (strConcat (strConcat label " -> ") text))))
+  (println (strConcat (strConcat label " -> ") text)))
 
 ; Whether a rendering contains a colon, which is how "this v4 address
 ; did not come back as a v6 one" is stated as a property rather than as

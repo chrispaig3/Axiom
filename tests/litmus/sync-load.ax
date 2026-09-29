@@ -123,6 +123,8 @@
 ; ---- timed ---------------------------------------------------------------
 (:: elapsedSince (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (elapsedSince buf t0)
   (- (sysTimeoutMicros buf) t0))
 
@@ -208,6 +210,7 @@
 
 (:: recvWithin (-> Chan Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (recvWithin ch ms)
   (let ((buf (memAlloc 16)))
     (let ((t0 (sysTimeoutMicros buf)))

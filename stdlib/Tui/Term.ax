@@ -92,8 +92,14 @@
 ; answered 0 events, and the same wait after one byte was written
 ; answered 1. The layer is named `net` but it is fd readiness over
 ; kqueue and epoll, and a tty is an fd.
+;
+; PRIVATE, and that is what lets `keyInFill`, `termReadSize` and
+; `termRawEnter` be trusted (docs/memory-model.md MM-EXEC-9e). The
+; `Int` fields are buffers the kernel writes into and `len`/`pos` bound
+; the address a `read` fills; another module can name the type, but
+; only `mkKeyIn` builds one and only this file reads or sets a field.
 ; ------------------------------------------------------------------
-(pub struct KeyIn
+(struct KeyIn
   (fd : Int)
   (buf : String)
   (mut len : Int)
@@ -118,6 +124,7 @@
 ; not an allocation per repaint.
 (pub :: mkKeyIn (-> Int Int KeyIn))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (mkKeyIn fd active)
   (if (== active 0)
     (KeyIn
@@ -338,6 +345,7 @@
 ; `keepSignals` 0: see the header.
 (pub :: termRawEnter (-> KeyIn Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (termRawEnter kin)
   (sysTermRaw 0 kin.save 0))
 

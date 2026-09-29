@@ -193,7 +193,10 @@
                 (println (okBit (mutexLock live)))  ; 1
                 (chanSend c 6)
                 ; Not reached: the unrecovered send above exits 85.
-                (printlnLit (strCStr "UNREACHABLE: the trap returned"))
+                ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+                ; `println` literal as a line the program prints, and it cannot see
+                ; that the call above traps.
+                (writeStr stdout "UNREACHABLE: the trap returned\n")
               }
             )
             ((Err e) 3))

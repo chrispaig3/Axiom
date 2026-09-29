@@ -33,8 +33,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))))
+    (println (strConcat "ok   " label))
+    (println (strConcat "FAIL " label))))
 
 ; A bound, listening, non-blocking socket on `port`, or a negative.
 (:: listenOn (-> Int Int Int Int))
@@ -71,6 +71,8 @@
 
 ; Whether `fd` is among the `n` events in `buf`.
 (:: hasFd (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` holds at least `n` live poll records)
 (fn (hasFd buf n fd)
   (let ((mut i 0))
     (let ((mut found 0))

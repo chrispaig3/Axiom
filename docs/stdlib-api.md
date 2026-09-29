@@ -177,25 +177,24 @@ two differ.
 |---|---|---|---|---|
 | `fmtIntWidth` | value | `(-> Int Int)` |  | Decimal digits in `n`, counting a leading `-` and treating 0 as one digit. |
 | `fmtInt` | value | `(-> Int String)` | `Alloc,Mut` | `n` in base 10 as a `Str`. |
-| `fmtHex` | value | `(-> Int String)` | `Alloc,Mut` |  |
+| `fmtHex` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` |  |
 | `fmtPadLeft` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` padded on the left with spaces to at least `width` bytes. |
 | `fmtPadRight` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` padded on the right with spaces to at least `width` bytes. |
 | `fmtPadCenter` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` centred in `width` bytes. An odd remainder goes to the RIGHT, which is the convention Rust's `{:^}` uses and the one that makes a column of centred labels line up with a left-aligned header. |
 | `fmtPadZerosLeft` | value | `(-> String Int String)` | `Alloc,Mut,Unsafe` | `s` padded on the left with ZEROS to at least `width` bytes, with a leading sign kept in front of them: `-7` at width 4 is `-007` and not `00-7`. That is the whole reason this is not `fmtPadLeft` with a different byte, and it is why the format specifier `{n:04}` can be one call rather than a sign test at every call site. |
-| `fmtHexUpper` | value | `(-> Int String)` | `Alloc,Mut` | Uppercase hexadecimal, for the `{n:X}` specifier. Same digits as `fmtHex`, and deliberately a separate function rather than a flag: the specifier picks one at expansion time, so a branch would be a runtime test of a compile-time constant. |
+| `fmtHexUpper` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | Uppercase hexadecimal, for the `{n:X}` specifier. Same digits as `fmtHex`, and deliberately a separate function rather than a flag: the specifier picks one at expansion time, so a branch would be a runtime test of a compile-time constant. |
 | `fmtFloat` | value | `(-> Float String)` | `Alloc,Mut` | `x` with six decimal places. |
 | `fmtFloatPrec` | value | `(-> Float Int String)` | `Alloc,Mut` | `x` with `places` decimal places, rounded half away from zero. |
 
 ## `Http`
 
-`stdlib/Http.ax` — 27 public names
+`stdlib/Http.ax` — 26 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `httpMaxHead` | value | `Int` |  | The largest request head - request line plus headers plus the blank line - `httpRead` will buffer, in bytes: 16 KiB. A head that has not ended by then is refused as 431. |
 | `httpMaxBody` | value | `Int` |  | The largest `Content-Length` `httpRead` accepts, in bytes: 8 MiB. Larger is 413, and so is a value the parser cannot represent. |
 | `httpReadCap` | value | `Int` |  | The reader's initial buffer, in bytes: 2 KiB, which holds a browser's request head with a few cookies in one read (measured in the header); the buffer doubles up to `httpMaxHead` when a head does not fit. |
-| `HttpReader` | struct |  |  | A buffered reader over a socket: the descriptor, a buffer whose `strLen` is its capacity, how much of it holds data, and how far the parser has consumed. Bytes between `consumed` and `filled` are the request in progress. |
 | `httpReaderNew` | value | `(-> Int HttpReader)` | `Alloc,Mut` | A reader over `fd` with the default buffer. |
 | `httpReaderWith` | value | `(-> Int Int HttpReader)` | `Alloc,Mut` | A reader over `fd` whose buffer starts at `cap` bytes (at least 1). A capacity of 1 makes every `read` answer one byte, which is how tests/stdlib/430-http-parse.ax drives the refill loop through every boundary a slow peer could put a read on, deterministically and in one process. |
 | `HttpReq` | struct |  |  | One parsed request. `path` is percent-decoded with the query stripped; `query` is the raw bytes after `?` (empty when there were none); `hnames` and `hvals` are parallel `Vec`s of Strings, the names ASCII-lowercased, so `httpHeader` needs one spelling; `body` is exactly `Content-Length` bytes, or empty. Every String here is a COPY, never a slice of the reader's buffer, which a later fill may move. |
@@ -245,7 +244,7 @@ two differ.
 | `makeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create the directory `path`, mode 0755. Answers 0, or a negative errno - `-17` (EEXIST) when it is already there. |
 | `makeDirAll` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Create `path` and every missing directory above it. Answers 0, or the negative errno of the first component that could not be made. |
 | `removeDir` | value | `(-> String (Result Int Error))` | `Alloc,IO,Mut` | Remove the EMPTY directory `path`. Answers 0, or a negative errno - `-66`/`-39` (ENOTEMPTY) when it still holds entries. Nothing here removes a tree: that is a loop over `listDir`, and it is the caller's to write, because a library that deletes recursively on one call is a library that deletes the wrong subtree once. |
-| `listDir` | value | `(-> String (Vec String))` | `Alloc,IO,Mut` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
+| `listDir` | value | `(-> String (Vec String))` | `Alloc,IO,Mut,Unsafe` | The entries of the directory `path`, as a Vec of `Str` - sorted by byte, with `.` and `..` removed. |
 | `cwd` | value | `(Result String Error)` | `Alloc,IO,Mut` | The process's working directory as an absolute path: `(Ok path)`, or `(Err e)` whose code is the errno. See `Sys.sysGetCwd` for why this is two different syscalls underneath, and why it stopped answering `""` for every distinct reason it can fail. |
 | `exit` | value | `(-> Int Int)` | `IO` |  |
 | `die` | value | `(-> String Int Int)` | `Alloc,IO,Mut` | Print `s` to standard error and exit with `code`. Never returns. |
@@ -488,8 +487,8 @@ two differ.
 | `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)` carries the errno of a wait that could not be performed. |
 | `sysExitCode` | value | `(-> Int Int)` |  | The exit code carried by a wait status, for a child that exited normally. |
 | `sysTermSignal` | value | `(-> Int Int)` |  | The signal that killed a child, or 0 if it exited normally. |
-| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `path` to completion and answer its exit code. |
-| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,IO,Mut` | Run `name`, searching `PATH` for it when it contains no slash. |
+| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run `path` to completion and answer its exit code. |
+| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Run `name`, searching `PATH` for it when it contains no slash. |
 | `sysGetPid` | value | `Int` | `IO` | The calling process's own id - the per-session suffix scratch files need so two concurrent processes cannot collide. The syscall takes no arguments; the unused ones are simply zero. |
 | `sysNowMicros` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds now, from the platform's cheapest correct clock: Darwin answers gettimeofday's timeval (realtime; Darwin's syscall table has no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via clock_gettime - under the id `clockMonotonicId` names, because the id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is CLOCK_VIRTUAL, the process's CPU time. That one was a literal here until 2026-08-29, and a clock that measures CPU time never runs backwards either, so nothing would have caught it. |
 | `sysNowMonotonic` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Unsafe` | Microseconds from a clock that NEVER steps backwards, or `Err` when this platform has none. The 16-byte buffer is the caller's, as above, so a timing loop allocates nothing on the path that answers. |
@@ -503,7 +502,7 @@ two differ.
 | `netAddrFamily` | value | `(-> Int Int)` | `Unsafe` | The address family in a `sockaddr` - `afInet`, `afInet6`, or whatever else the kernel wrote there. |
 | `netAddrPort` | value | `(-> Int Int)` | `Unsafe` | The port in a `sockaddr`, decoded from network order. This one does NOT branch on the platform or the family: both layouts diverge in the four bytes before it and agree from byte 2 on, so `sin_port` and `sin6_port` are the same two bytes in the same place. |
 | `netAddrSize` | value | `(-> Int Int)` | `Unsafe` | How many bytes of `addr` a syscall must be given, read off the family the buffer carries. This is what `netBind` and `netConnect` pass, and the reason neither of them takes a length. |
-| `netBind` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Bind a socket to an address built by `netAddr4` or `netAddr6`. |
+| `netBind` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Bind a socket to an address built by `netAddr4` or `netAddr6`. |
 | `netListen` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Answers `(Result Int Error)`; `Ok 0` on success. |
 | `netAccept` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Accept a connection, answering `Ok` the new socket or `Err` the errno - `(Result Int Error)` since 2026-09-03; a would-block answer is `Err` carrying EAGAIN, which `netWouldBlock` still recognises from the negated code - and throw the peer's address away. `netAcceptFrom` below keeps it; this is the form for a caller that does not want the buffer, and it passes NULL for both of `accept`'s out-parameters. |
 | `netAcceptFrom` | value | `(-> Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Accept a connection AND KEEP THE PEER'S ADDRESS. Answers the new socket or a negative errno, exactly as `netAccept` does, and fills `addr` with the peer's `sockaddr`, which `netAddrFamily`, `netAddrPort` and `netAddrText` read. |
@@ -511,7 +510,7 @@ two differ.
 | `netAddrText` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | Render an address as text: a dotted quad for `afInet`, RFC 5952 form for `afInet6`. |
 | `netAddrTextPort` | value | `(-> Int String)` | `Alloc,Mut,Unsafe` | The same, with the port, in the form a URL authority uses: `127.0.0.1:80` and `[::1]:80`. |
 | `netSetBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Take a descriptor OUT of non-blocking mode, preserving the other flags it carries. The counterpart of `netSetNonBlocking`, and what a caller that handles one connection synchronously wants from `netAccept`'s result. |
-| `netConnect` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Connect to an address built by `netAddr4` or `netAddr6`. The length comes off the family in the buffer for the same reason `netBind`'s does, and was the same literal 16. |
+| `netConnect` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` | Connect to an address built by `netAddr4` or `netAddr6`. The length comes off the family in the buffer for the same reason `netBind`'s does, and was the same literal 16. |
 | `netShutdown` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO` | Answers `(Result Int Error)`; `Ok 0` on success. |
 | `netSetOptInt` | value | `(-> Int Int Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Set an integer-valued socket option. The value crosses as four bytes in the host's own order, which is what the kernel reads an `int` option as - unlike an address, this one is NOT network order. That is `netPutInt32`, which `netAcceptFrom`'s `socklen_t` cell needs for the same reason. |
 | `netSetNonBlocking` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Put a descriptor into non-blocking mode, preserving the flags it already carries - a bare `F_SETFL` of the one flag would clear the access mode with it. |
@@ -858,21 +857,20 @@ two differ.
 
 ## `Tui.Term`
 
-`stdlib/Tui/Term.ax` — 14 public names
+`stdlib/Tui/Term.ax` — 13 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `termBufBytes` | value | `Int` |  | One `read` takes up to this much. Large enough that a pasted line arrives in one syscall, which is what makes the redraw coalescing below turn a paste into roughly one repaint. |
 | `keyEscTimeoutMs` | value | `Int` |  | How long to wait for the rest of an escape sequence before deciding there is no rest. |
-| `KeyIn` | struct |  |  |  |
-| `mkKeyIn` | value | `(-> Int Int KeyIn)` | `Alloc,IO,Mut` | A reader over `fd`. `active` 0 builds the inert shape: no poll descriptor, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
+| `mkKeyIn` | value | `(-> Int Int KeyIn)` | `Alloc,IO,Mut,Unsafe` | A reader over `fd`. `active` 0 builds the inert shape: no poll descriptor, a one-byte buffer, and nothing ever read - which is what the piped path gets, so that the byte-identical surface pays for none of this. |
 | `keyInPending` | value | `(-> KeyIn Int)` |  | Bytes read but not yet consumed. The redraw coalescing asks this. |
 | `keyInFill` | value | `(-> KeyIn Int Int)` | `Alloc,IO,Mut,Unsafe` |  |
 | `keyNext` | value | `(-> KeyIn KeyEv)` | `Alloc,IO,Mut` |  |
 | `termReadSize` | value | `(-> KeyIn Int)` | `IO,Mut,Unsafe` | Refresh `kin.ws` from the terminal. One ioctl; there is no SIGWINCH handling anywhere in this tree, so the size is asked for rather than delivered. |
 | `termWsCols` | value | `(-> KeyIn Int)` | `Unsafe` | Columns, or 80. A pty that has never been sized answers 0 with a SUCCESSFUL ioctl - Sys.ax states it - so the fallback is on the VALUE and not only on the return code. |
 | `termWsRows` | value | `(-> KeyIn Int)` | `Unsafe` |  |
-| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut` | Enter raw mode on fd 0, saving into `kin.save`. 0, or negative. `keepSignals` 0: see the header. |
+| `termRawEnter` | value | `(-> KeyIn Int)` | `Alloc,IO,Mut,Unsafe` | Enter raw mode on fd 0, saving into `kin.save`. 0, or negative. `keepSignals` 0: see the header. |
 | `termRawLeave` | value | `(-> KeyIn Int)` | `IO` |  |
 | `termFlush` | value | `(-> (Vec String) Int)` | `Alloc,IO,Mut` |  |
 | `termEditLoop` | value | `(-> KeyIn LineEd String (Option String))` | `Alloc,IO,Mut` |  |

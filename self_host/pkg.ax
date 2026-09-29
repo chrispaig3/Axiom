@@ -1285,6 +1285,7 @@
 
 (pub :: pkgWalkModules (-> (Vec Int) String String Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pkgWalkModules out root rel depth)
   (if (> depth 2)
     0

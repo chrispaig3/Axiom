@@ -41,5 +41,8 @@
       ; the trap's 77, and `verify-stdlib-out.py` reads a literal tail as
       ; the exit status. If the write ever stops trapping, this line runs
       ; and the golden says so.
-      (printlnLit (strCStr "UNREACHABLE: the out-of-range write returned"))
+      ; `writeStr` and not `println`: `verify-stdlib-out.py` reads a
+      ; `println` literal as a line the program prints, and it cannot see
+      ; that the call above traps.
+      (writeStr stdout "UNREACHABLE: the out-of-range write returned\n")
     }))

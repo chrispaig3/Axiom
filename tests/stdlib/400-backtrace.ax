@@ -46,6 +46,6 @@
 ;@axiom:effect(io)
 (fn (main)
   {
-    (printlnLit (strCStr "dividing by a zero the compiler cannot see"))
+    (println "dividing by a zero the compiler cannot see")
     (depth1 (- sysArgc 1))
   })

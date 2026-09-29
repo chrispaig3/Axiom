@@ -602,6 +602,34 @@ Tested by `tests/diagnostics/1040-forging-cast.ax` to
 `restrict(no-unsafe)` over `Vec`, `Map`, `Str`, `Chan` and `Task`, keep
 the trusted side compiling.
 
+**MM-EXEC-9e (P). No safe interface hands a caller's word to the
+kernel, or to a primitive, as an address.** A declaration that passes
+a word it didn't make to an address argument of a `__syscallN`, of a
+platform function or of an `Unsafe` primitive **MUST** be a
+precondition interface (`MM-EXEC-9d`). Its precondition names the
+extent the callee reads or writes, such as "`buf` names `count` live
+writable bytes". A declaration that passes only addresses it made
+itself, from a `String`'s bytes or a fresh allocation, is a trusted
+encapsulation. A struct whose fields a trusted function hands on that
+way **MUST** be private to its module, so that only the module builds
+one or reads or sets a field. Another module can still name the type
+in a signature.
+
+Today the socket-address readers, the poll and signal calls,
+`sysTermRaw`, `sysTimeoutMicros`, `sysSpawn` and the `sysRun` family,
+`sysReadDir`, `netBind`, `netConnect`, `printLit`, `printlnLit`,
+`rdReseat` and `Fmt`'s digit writers are precondition interfaces, and
+`KeyIn` and `HttpReader` are private. A body that calls a syscall
+supports an `effect(unsafe)` claim, because the kernel reads and
+writes through the call's arguments
+(`tests/stdlib/580-kernel-precondition.ax`). Not yet: `__syscallN` is
+outside `MM-EXEC-9c`'s set, so a syscall needs no tag. The descriptor
+reads and writes, the path calls, `sysRandomBytes` and the terminal
+calls are still untagged, and `restrict(no-unsafe)` accepts a direct
+`(__syscall3 sysRandomNum 4096 64 0)`. The modules that hand out raw
+`Int` handles to records they allocate (`Json`, `Intern` and `Rpc`'s
+reader) are outside this stage as well.
+
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
 

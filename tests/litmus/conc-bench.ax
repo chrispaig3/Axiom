@@ -63,6 +63,8 @@
 
 (:: spawnRun (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (spawnRun buf n)
   (let (
     (t0 (sysTimeoutMicros buf))
@@ -87,6 +89,8 @@
 
 (:: tasksRun (-> Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (tasksRun buf n w bytes)
   (let ((t0 (sysTimeoutMicros buf)))
     (let (
@@ -251,6 +255,8 @@
 ; ---- latency -----------------------------------------------------------
 (:: one (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (one buf)
   (let ((t0 (sysTimeoutMicros buf)))
     {
@@ -268,6 +274,8 @@
 
 (:: latencyRun (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names 16 live writable bytes)
 (fn (latencyRun buf n)
   (let ((v (vecWithCapacity n)))
     {
@@ -286,6 +294,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (mode (sysArg 1))

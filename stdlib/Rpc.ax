@@ -128,6 +128,7 @@
 ; the new buffer is at least as big as what it has to hold.
 (pub :: rdReseat (-> Int Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`r` is a reader `rdNew` answered, and `addr` names `u` live bytes)
 (pub fn (rdReseat r addr u)
   (let ((buf 
     (strAlloc

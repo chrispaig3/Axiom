@@ -55,8 +55,8 @@
 ;@axiom:effect(io)
 (fn (say okFlag label)
   (if (== okFlag 1)
-    (printlnLit (strCStr (strConcat "ok   " label)))
-    (printlnLit (strCStr (strConcat "FAIL " label)))))
+    (println (strConcat "ok   " label))
+    (println (strConcat "FAIL " label))))
 
 (:: workers Int)
 (fn (workers)

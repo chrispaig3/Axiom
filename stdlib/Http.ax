@@ -205,7 +205,13 @@
 ; `strLen` is its capacity, how much of it holds data, and how far the
 ; parser has consumed. Bytes between `consumed` and `filled` are the
 ; request in progress.
-(pub struct HttpReader
+;
+; PRIVATE: another module can name the type, but only `httpReaderWith`
+; builds one and only this file reads or sets a field. `httpFill` hands
+; the kernel an address inside `buf`, so `buf` must always be a fresh
+; buffer this file allocated and `filled` must stay inside it
+; (docs/memory-model.md MM-EXEC-9e).
+(struct HttpReader
   (fd : Int)
   (mut buf : String)
   (mut filled : Int)
