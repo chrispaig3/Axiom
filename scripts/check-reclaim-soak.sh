@@ -602,8 +602,20 @@ if build "$work/res.ax" "$work/res" 1; then
   if [[ "$cap" != unlimited ]] && (( cap < nfd + 64 )); then
     ( ulimit -n $((nfd + 64)) ) 2>/dev/null || nfd=$(( cap - 64 ))
   fi
-  read -r b1 a1 <<< "$( ( ulimit -n $((nfd + 64)) 2>/dev/null; "$work/res" 1 "$nfd" ) )"
-  read -r b2 a2 <<< "$( ( ulimit -n $((nfd + 64)) 2>/dev/null; "$work/res" 2 "$nfd" ) )"
+  # The next fd is the lowest free number, so a descriptor the caller
+  # left open above stderr is a number no leaked one can take, and the
+  # count comes out high by one for each. CI's runners hand a child two
+  # to four of them. Each probe closes them first, so the numbers the
+  # program opens are contiguous wherever it runs.
+  close_inherited() {
+    local fd
+    for fd in $(ls /dev/fd 2>/dev/null); do
+      [[ "$fd" =~ ^[0-9]+$ ]] && (( fd > 2 && fd != 255 )) && eval "exec $fd>&-" 2>/dev/null
+    done
+    return 0
+  }
+  read -r b1 a1 <<< "$( ( ulimit -n $((nfd + 64)) 2>/dev/null; close_inherited; "$work/res" 1 "$nfd" ) )"
+  read -r b2 a2 <<< "$( ( ulimit -n $((nfd + 64)) 2>/dev/null; close_inherited; "$work/res" 2 "$nfd" ) )"
   if [[ -n "${a1:-}" && -n "${a2:-}" ]] && (( a1 - b1 == nfd && a2 == b2 )); then
     ok "descriptors: $nfd trapped cycles leave $((a1 - b1)) open, one each (the program's to close); the control that closes first leaves $((a2 - b2))"
   else
