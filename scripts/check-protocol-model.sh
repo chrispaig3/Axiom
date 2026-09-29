@@ -186,7 +186,7 @@ cuts = {
   "park": ("Chan.ax", "                (let ((seen (chanPark ch)))\n                  {\n                    (chanUnlock ch)\n                    (chanSleep ch seen)\n                  }))))",
            "                {\n                  (chanUnlock ch)\n                  (let ((seen (chanPark ch)))\n                    (chanSleep ch seen))\n                })))", 2),
   # mutexUnlock's contended release wakes nobody.
-  "wake": ("Sync.ax", "          (syncStore m 0 0)\n          (sysWakeWord m)\n          (Ok 0)", "          (syncStore m 0 0)\n          (Ok 0)", 1),
+  "wake": ("Sync.ax", "            (syncStore m 0 0)\n            (sysWakeWord m)\n            (Ok 0)", "            (syncStore m 0 0)\n            (Ok 0)", 1),
   # A new function reads the lock word.
   "new": ("Chan.ax", "(pub :: chanCap (-> Int Int))",
           "(pub :: chanPeekLock (-> Int Int))\n;@axiom:effect(unsafe)\n(pub fn (chanPeekLock ch)\n  (__atomic_load ch))\n\n(pub :: chanCap (-> Int Int))", 1),
@@ -362,14 +362,18 @@ cut(sync, "                      (let ((code (sysWaitWordTimeout m w slice)))\n 
     "                              (__atomic_add (+ m 40) 1)\n"
     "                              (if (== (__atomic_load m) 0)\n                                (__atomic_add (+ m 48) 1)\n                                0)\n"
     "                            }\n                            0)")
-cut(sync, ";@axiom:effect(io)\n(fn (syncAcquire m b timed)", ";@axiom:effect(io)\n;@axiom:effect(unsafe)\n(fn (syncAcquire m b timed)")
+# A mutex is a sealed handle, so the program reads the two counters
+# through a reader the copy exports rather than from the page itself.
+with open(sync, "a", encoding="utf-8") as f:
+    f.write("\n(pub :: syncSliceCount (-> Mutex Int Int))\n;@axiom:effect(unsafe)\n"
+            "(pub fn (syncSliceCount mx i)\n  (memGetWord (syncAt mx) i))\n")
 prog = os.path.join(d, "liveness.ax")
 # Printed before `(shares res)`, which stays the run's answer.
 cut(prog, "            (shares res)\n",
-    "            (let (\n              (n (memGetWord m 5))\n              (f (memGetWord m 6))\n            )\n"
+    "            (let (\n              (n (syncSliceCount m 5))\n              (f (syncSliceCount m 6))\n            )\n"
     "              (println \"slice-timeouts {n} lock-free {f}\"))\n            (shares res)\n")
 cut(prog, "                (println \"done\")\n                0\n              }\n            )\n            ((Err e) 3))",
-    "                (println \"done\")\n                (let (\n                  (n (+ (memGetWord a 5) (memGetWord b 5)))\n                )\n"
+    "                (println \"done\")\n                (let (\n                  (n (+ (syncSliceCount a 5) (syncSliceCount b 5)))\n                )\n"
     "                  (println \"slice-timeouts {n}\"))\n                0\n              }\n            )\n            ((Err e) 3))")
 PY
 then
