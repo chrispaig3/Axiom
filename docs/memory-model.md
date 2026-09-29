@@ -5483,8 +5483,8 @@ every `--opt` level, width and lowering, on both instruction sets.
 `__intToFloat` rounds to nearest. `__floatToInt` truncates toward
 zero and saturates: a NaN answers 0, and a value beyond `Int`'s range
 answers the nearest end. A different association is a different
-answer: 2,000 terms summed in three chunks and in index order differ in
-their last bits, and both are right.
+answer: 2,000 terms summed in 2, 3, 4 or 8 chunks and in index order
+differ in their last bits, and each is right for its association.
 
 Three limits:
 
@@ -5512,10 +5512,11 @@ messages on fd 2 interleave in the order the parts died.
 
 *Cancellation and timeouts.* A deadline, a grace and a cancellation
 from another binding all read a clock, so whether a task answers or
-answers `sysTimedOut` or `taskCancelledCode` depends on timing. Two things don't: a pool whose token is set before it starts
-answers `taskCancelledCode` for every task, and a pool with no
-deadline, no `failFast` and no token another binding can set has
-nothing timed in it.
+answers `sysTimedOut` or `taskCancelledCode` depends on timing. Two
+things don't: a pool whose token is set before it starts answers
+`taskCancelledCode` for every task, and a pool with no deadline, no
+`failFast` and no token another binding can set has nothing timed in
+it.
 
 *Side effects.* Ordered collection orders the answers, not what the
 parts do. Writes to fd 1, files, shared mappings and channels
@@ -5540,7 +5541,10 @@ interleave as the scheduler ran them.
 - `tests/stdlib/620-par-float-order.ax` and
   `tests/stdlib/621-par-first-failure.ax` pin the bits and the
   failures, and `tests/stdlib/622-float-to-int.ax` the conversion's
-  answers, each at every `--opt` level (`.optstable`).
+  answers, each at every `--opt` level (`.optstable`). The goldens are
+  darwin-aarch64's, and every leg that runs
+  `scripts/run-stdlib-tests.sh` holds its target to the same bits;
+  built for linux-x86_64, the three print them at `--opt` 0 and 2.
 - `scripts/check-parallel.sh` §9 measures the two lowerings' two
   traps.
 
