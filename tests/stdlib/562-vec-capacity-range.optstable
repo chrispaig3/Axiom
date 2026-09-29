@@ -1,0 +1,6 @@
+# Opt-level stability marker for 562-vec-capacity-range.ax.
+#
+# The refusal is ordinary emitted code the optimiser is free to move,
+# and a recovery point's answer has to survive every level:
+# run-stdlib-tests.sh requires the same stdout and exit at --opt 0, 1,
+# 2 and 3 with this file beside the case. Presence is the whole claim.
