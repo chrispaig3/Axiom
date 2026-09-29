@@ -55,6 +55,14 @@ echo "--- 1. user-level cast count does not grow ---"
 # program can build, and `556-count-balance.ax`'s control releases a
 # string's handle by hand through `(cast Int s)`: in both the cast is
 # the subject under test, the MM-VAL-23 reason.
+# Baseline 433 measured 2026-09-29 at the Track C merge: seven arrived.
+# Four are `stdlib/Task.ax`'s and `stdlib/Par.ax`'s spawn handle carried
+# through the recovery point around a spawn, which answers a word, so
+# each pool turns the handle into its word and back (`taskWordOf`,
+# `parHandleOf`); each module states that as its one such cast. Three
+# are forged guards in `tests/litmus/sync-load.ax`,
+# `tests/stdlib/541-sync-mutex.ax` and `570-handle-freed.ax`, whose
+# subject is a guard nothing earned being refused: the MM-VAL-23 reason.
 # Baseline 426 measured 2026-09-29 at the R-B10 merge: eight arrived on
 # trunk after 418 was set, and trunk carried the red. Three are
 # `tests/litmus/handle-bitflip.ax`'s fault injection, which flips one
@@ -126,10 +134,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 426 ]; then
-  ok "user-level (cast count $cast_count <= 426)"
+elif [ "$cast_count" -le 433 ]; then
+  ok "user-level (cast count $cast_count <= 433)"
 else
-  bad "user-level (cast count $cast_count > 426): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 433): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"
