@@ -1,0 +1,56 @@
+; A fault inside the fault hook on `baremetal-aarch64`
+; (docs/embedded-guide.md section 5). `main` takes an alignment fault;
+; the hook writes one marker and then takes a second alignment fault of
+; its own.
+;
+; The second fault must not re-enter the hook. The runtime sees the hook
+; running, writes one more report line - `axiom: CPU exception in the
+; fault handler at ...` - and takes the fixed exit, 81. So the UART
+; carries the first report, `hook entered` once, the second report once,
+; and never `hook survived`.
+;
+; `scripts/check-embedded.sh` A20 boots it under QEMU. With the
+; re-entry guard removed (the `reenter` ablation) the hook runs again on
+; every fault and the guest never finishes.
+(import IO)
+(import Mem)
+(import Str)
+
+(:: uart Int)
+(fn (uart)
+  150994944)
+
+(:: say (-> String Int))
+;@axiom:effect(unsafe)
+(fn (say s)
+  {
+    (for i 0 (strLen s)
+      (__vstore8 uart (strByte s i)))
+    0
+  })
+
+(:: misaligned (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (misaligned a)
+  (__vload32 (+ a 1)))
+
+; The hook's own fault: one byte past a 4-byte boundary.
+;@axiom:isr(fault)
+(:: onFault (-> Int Int Int Int Int Int))
+(fn (onFault status vector esr elr far)
+  {
+    (say "hook entered\n")
+    (misaligned (- far (& far 3)))
+    (say "hook survived\n")
+    42
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "FAULT IN HOOK PROBE")
+    (println (misaligned (memAlloc 16)))
+    (println "NOT REACHED")
+    0
+  })

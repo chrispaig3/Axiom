@@ -179,10 +179,100 @@ else
   fi
 fi
 
+# --------------------------------------------------------------------
+echo
+echo "== 4. the bound handlers: the fault hook's shape, recursion, waiting =="
+# --------------------------------------------------------------------
+# docs/memory-model.md MM-EXEC-18 and MM-EXEC-19. Four fixtures, each
+# with a control inside it that must stay silent:
+#   1090  `isr(fault)` takes five `Int`s and answers one: two wrong
+#         shapes draw AX3010, the declared one nothing;
+#   1091  a bound handler reaching an operation that waits is AX4009:
+#         an IRQ handler reaching `__arm_wfi`, a fault hook reaching a
+#         system call - while a hook halting in `wfi` is accepted;
+#   1092  every `isr` implies `restrict(no-recursion)`: two handlers
+#         reaching a self-call draw AX3049 naming it;
+#   1093  `isr(fault)` implies `no-alloc` like every `isr`.
+# Then one ablation per rule, each a shadow tree with that rule's
+# check answering nothing, under which its fixture must check CLEAN -
+# the proof that the refusals above are the rule's and not the code's.
+fx1090="$repo_root/tests/diagnostics/1090-isr-fault-signature.ax"
+fx1091="$repo_root/tests/diagnostics/1091-isr-waits.ax"
+fx1092="$repo_root/tests/diagnostics/1092-isr-recursion.ax"
+fx1093="$repo_root/tests/diagnostics/1093-isr-fault-alloc.ax"
+for f in "$fx1090" "$fx1091" "$fx1092" "$fx1093"; do
+  [[ -f "$f" ]] || { echo "FAIL: $f is missing"; exit 1; }
+done
+# `refused <fixture> <want lines as code:needle, one per expected diagnostic>`
+refused() {
+  local fx="$1"; shift
+  local base; base="$(basename "$fx" .ax)"
+  "$axc" --diagnostic-format=ai check "$fx" > "$work/$base.out" 2> "$work/$base.err"; local rc=$?
+  local n; n=$(grep -c '^[EW] AX' "$work/$base.err" || true)
+  if [[ "$rc" == 0 ]]; then
+    bad "$base: checked clean, wanted $# refusals"; return
+  fi
+  if [[ "$n" != "$#" ]]; then
+    bad "$base: $n diagnostics, wanted $#:"; head -6 "$work/$base.err" | cut -c1-200 | sed 's/^/     /'; return
+  fi
+  local w
+  for w in "$@"; do
+    if ! grep -q "^E ${w%%:*} .*${w#*:}" "$work/$base.err"; then
+      bad "$base: no ${w%%:*} matching [${w#*:}]"; return
+    fi
+  done
+  ok "$base: $# refusals, each the rule's, and the control silent"
+}
+refused "$fx1090" 'AX3010:AXTAG mismatch on `tooFew`: `isr(fault)` binds the fault hook' \
+                  'AX3010:AXTAG mismatch on `wrongType`: `isr(fault)` binds the fault hook'
+refused "$fx1091" 'AX4009:`onIrq` is bound by `isr(irq)` and waits for an interrupt with IRQs masked: onIrq -> settle -> __arm_wfi' \
+                  'AX4009:`onFault` is bound by `isr(fault)` and reaches a system call.*onFault -> note -> __syscall1'
+refused "$fx1092" 'AX3049:`tick` claims `restrict(no-recursion)`.*tick -> countdown -> countdown' \
+                  'AX3049:`onFault` claims `restrict(no-recursion)`.*onFault -> countdown -> countdown'
+refused "$fx1093" 'AX3049:`onFault` claims `restrict(no-alloc)` and the body performs Alloc'
+
+# One shadow tree per rule. `name~anchor~replacement~fixture` (`~`,
+# because an anchor holds `||`): the edit must land exactly once, the
+# tree must build, and the fixture must then check clean.
+while IFS='~' read -r name anchor repl fx; do
+  abl="$work/abl-$name"
+  rm -rf "$abl"; mkdir -p "$abl"
+  cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/"
+  if ! python3 - "$abl/self_host/typecheck.ax" "$anchor" "$repl" <<'PY'
+import sys
+p, old, new = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(p, encoding="utf-8").read()
+if s.count(old) != 1:
+    sys.exit(1)
+open(p, "w", encoding="utf-8").write(s.replace(old, new))
+PY
+  then
+    bad "ablation $name: the edit did not land - the rule was never broken, so the arm proved nothing"
+    continue
+  fi
+  if ! gate_build_tree "$axiom" "$abl" "$AXIOM_STDLIB" "$work/axc-$name" > "$work/abl-$name.build" 2>&1; then
+    bad "ablation $name: the compiler with the rule deleted would not build"
+    sed 's/^/     /' "$work/abl-$name.build" | head -8
+    continue
+  fi
+  r=0; AXIOM_STDLIB="$abl/stdlib" "$work/axc-$name" --diagnostic-format=ai check "$repo_root/tests/diagnostics/$fx" > /dev/null 2>&1 || r=$?
+  if [[ "$r" == 0 ]]; then
+    ok "ablation $name: with the rule deleted $fx checks clean, so section 4 measures it"
+  else
+    bad "ablation $name: $fx still fails with the rule deleted - section 4 proves nothing about it"
+  fi
+done <<'ABL'
+faultsig~(if (== (isrFaultSigOk tc d) 1)~(if (== (isrFaultSigOk tc d) (isrFaultSigOk tc d))~1090-isr-fault-signature.ax
+waits~(if (|| (!= (nodeTag d) TAG_D_FN) (if (strEq v "irq") false (if (strEq v "fault") false true)))~(if true~1091-isr-waits.ax
+norec~          (if (== (strInVec rs "no-recursion" 0) 1)~          (if true~1092-isr-recursion.ax
+ABL
+
 echo
 if (( failed > 0 )); then
   echo "check-isr: $failed of $((checks + failed)) checks failed"
   exit 1
 fi
 echo "check-isr: $checks checks - parameters refused, allocation refused,"
-echo "           typos suggested, symbols archived, and both halves ablated"
+echo "           typos suggested, symbols archived, and both halves ablated;"
+echo "           the fault hook's shape, recursion and waiting refused, each"
+echo "           rule ablated"

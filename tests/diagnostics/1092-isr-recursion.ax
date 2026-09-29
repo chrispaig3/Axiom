@@ -1,0 +1,40 @@
+; `;@axiom:isr` implies `restrict(no-recursion)` as well as
+; `no-alloc`: a handler runs on a stack it doesn't own, on top of
+; whatever depth that stack had reached, so its own depth must be
+; bounded, and a call graph with no cycle is one the stack bound can
+; bound. A cycle below the handler draws AX3049 naming `no-recursion`,
+; with the cycle in the message, exactly as if the author had written
+; the restriction.
+;
+; `tick` (a bare `isr`) and `onFault` (`isr(fault)`) each reach
+; `countdown`, which calls itself. `flat` is the control: the same tag
+; over a body that loops rather than recurses checks clean.
+(:: countdown (-> Int Int))
+(fn (countdown n)
+  (if (> n 0)
+    (countdown (- n 1))
+    0))
+
+(:: tick Int)
+;@axiom:isr
+(fn (tick)
+  (countdown 3))
+
+(:: onFault (-> Int Int Int Int Int Int))
+;@axiom:isr(fault)
+(fn (onFault status vector esr elr far)
+  (+ status (countdown vector)))
+
+(:: flat Int)
+;@axiom:isr
+(fn (flat)
+  (let ((mut n 3))
+    {
+      (while (> n 0)
+        (set n (- n 1)))
+      n
+    }))
+
+(:: main Int)
+(fn (main)
+  0)

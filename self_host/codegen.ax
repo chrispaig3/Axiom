@@ -9250,7 +9250,7 @@
   (if (== (targetUsesSyscallAsm (memGetWord cg 26)) 1)
     (emitLine cg (strConcat (strConcat "  call i64 asm sideeffect " (strConcat (targetSyscallAsm (memGetWord cg 26)) (strConcat "(i64 " (fmtInt (targetExitNum (memGetWord cg 26)))))) (strConcat ", i64 " (strConcat status ", i64 0, i64 0, i64 0, i64 0, i64 0)"))))
     (if (> (targetUartBase (memGetWord cg 26)) 0)
-      (emitBaremetalExit cg status)
+      (emitBaremetalTrapExit cg status)
       (emitLine cg (strConcat "  call i64 @ExitProcess(i64 " (strConcat status ")"))))))
 
 ; A trap's exit where there is no kernel to exit to: ARM semihosting
@@ -9737,28 +9737,44 @@
       1
       (isrBound acc name (+ i 2)))))
 
-; The functions bound to the IRQ vector, in declaration order.
-(pub :: isrIrqNames (-> (Vec String) Int (Vec String) (Vec String)))
+; The functions bound to vector `v` ("irq" or "fault"), in declaration
+; order.
+(pub :: isrVectorNames (-> (Vec String) String Int (Vec String) (Vec String)))
 ;@axiom:effect(unsafe)
-(pub fn (isrIrqNames bs i acc)
+(pub fn (isrVectorNames bs v i acc)
   (if (>= i (vecLen bs))
     acc
     {
-      (if (strEq (vecGetStr bs (+ i 1)) "irq")
+      (if (strEq (vecGetStr bs (+ i 1)) v)
         {
           (vecPush acc (vecGetStr bs i))
           0
         }
         0)
-      (isrIrqNames bs (+ i 2) acc)
+      (isrVectorNames bs v (+ i 2) acc)
     }))
+
+; The function `;@axiom:isr(fault)` binds as the fault hook, or "" -
+; for a module with none, and for one with two, which AX4008 refuses.
+; Every emitter that changes shape for a hook asks here, so one answer
+; decides all of them. An archive asks too and gets its trap exits
+; routed to `__axiom_trap_entry`, which only an executable's vector
+; table defines; the bare-metal link refuses an archive anyway.
+(pub :: baremetalFaultHandler (-> Int String))
+;@axiom:effect(unsafe)
+(pub fn (baremetalFaultHandler cg)
+  (let ((fs (isrVectorNames (isrBindings (memGetWordVec cg 8) vecNew 0) "fault" 0 vecNew)))
+    (if (== (vecLen fs) 1)
+      (vecGetStr fs 0)
+      "")))
 
 ; What every module does about `isr(...)` bindings, beside `_start`:
 ; on baremetal-aarch64 it writes the vector table and wires the bound
-; handler; everywhere, a binding this target cannot honour - any vector
-; on a hosted target, a vector name the compiler does not bind, two
-; handlers for one vector - leaves an AX4008 marker at top level, where
-; `pruneDeadDefs` cannot delete it, and `main.ax` refuses the module.
+; handlers; everywhere, a binding this target cannot honour - any
+; vector on a hosted target, a vector name the compiler does not bind,
+; two handlers for one vector - leaves an AX4008 marker at top level,
+; where `pruneDeadDefs` cannot delete it, and `main.ax` refuses the
+; module.
 (pub :: emitIsrBinding (-> Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -9767,18 +9783,25 @@
     (bs (isrBindings (memGetWordVec cg 8) vecNew 0))
     (t (memGetWord cg 26))
   )
-    (let ((irqs (isrIrqNames bs 0 vecNew)))
+    (let (
+      (irqs (isrVectorNames bs "irq" 0 vecNew))
+      (faults (isrVectorNames bs "fault" 0 vecNew))
+    )
       {
         (emitIsrMarkers cg bs t 0)
         (if (> (vecLen irqs) 1)
           (emitLine cg (strConcat "; axiom-device-refused `isr(irq)` binds " (strConcat (fmtInt (vecLen irqs)) (strConcat " functions to the one IRQ vector (`" (strConcat (vecGetStr irqs 0) (strConcat "`, `" (strConcat (vecGetStr irqs 1) "`) - bind one handler and dispatch on the interrupt id inside it")))))))
+          0)
+        (if (> (vecLen faults) 1)
+          (emitLine cg (strConcat "; axiom-device-refused `isr(fault)` binds " (strConcat (fmtInt (vecLen faults)) (strConcat " functions to the one fault hook (`" (strConcat (vecGetStr faults 0) (strConcat "`, `" (strConcat (vecGetStr faults 1) "`) - bind one hook and decide inside it")))))))
           0)
         (if (&& (== t 7) (if cgStaticlib false true))
           (emitBaremetalVectors
             cg
             (if (> (vecLen irqs) 0)
               (vecGetStr irqs 0)
-              ""))
+              "")
+            (baremetalFaultHandler cg))
           cg)
       })))
 
@@ -9792,7 +9815,11 @@
         (if (== t 7)
           0
           (emitLine cg (strConcat "; axiom-device-refused `isr(irq)` on `" (strConcat (bareOfSym (vecGetStr bs i)) (strConcat "` binds the IRQ exception vector, and " (strConcat (targetSpelling t) " has no vector table this compiler writes - only baremetal-aarch64 does"))))))
-        (emitLine cg (strConcat "; axiom-device-refused `isr(" (strConcat (vecGetStr bs (+ i 1)) (strConcat (strConcat ")` on `" (strConcat (bareOfSym (vecGetStr bs i)) "` names no vector this compiler binds - the one it binds is `isr(irq)`, on baremetal-aarch64")) "")))))
+        (if (strEq (vecGetStr bs (+ i 1)) "fault")
+          (if (== t 7)
+            0
+            (emitLine cg (strConcat "; axiom-device-refused `isr(fault)` on `" (strConcat (bareOfSym (vecGetStr bs i)) (strConcat "` binds the fault hook every unhandled exception and trap reaches, and " (strConcat (targetSpelling t) " has no vector table this compiler writes - only baremetal-aarch64 does"))))))
+          (emitLine cg (strConcat "; axiom-device-refused `isr(" (strConcat (vecGetStr bs (+ i 1)) (strConcat (strConcat ")` on `" (strConcat (bareOfSym (vecGetStr bs i)) "` names no vector this compiler binds - it binds `isr(irq)` and `isr(fault)`, on baremetal-aarch64")) ""))))))
       (emitIsrMarkers cg bs t (+ i 2))
     }))
 
@@ -9809,12 +9836,26 @@
 
 ; THE FAULT EXIT RUNS ON ITS OWN STACK. `__axiom_exc_entry` points sp
 ; at `__axiom_exc_top` before anything touches memory: a stack overflow
-; faults with sp inside the guard, and the report could not push a
-; frame there. The switch costs nothing on the way back, because the
-; fault exit never goes back.
-(pub :: emitBaremetalVectors (-> Int String Int))
-(pub fn (emitBaremetalVectors cg handler)
-  (let ((bound (> (strLen handler) 0)))
+; faults with sp inside the guard, and the report - or the hook - could
+; not push a frame there. The switch costs nothing on the way back,
+; because the fault exit never goes back.
+;
+; THE FAULT HOOK, when one function is bound with `;@axiom:isr(fault)`:
+; every exit the program did not ask for reaches it once - a CPU
+; exception after its report line, and a software trap (70 to 85) after
+; its sentence, through `__axiom_trap_entry`, which masks D, A, I and F
+; and takes the same stack. It is called with the status the fixed exit
+; would answer, the vector offset (-1 for a software trap), ESR_EL1,
+; ELR_EL1 and FAR_EL1 (0 for a trap), with no recovery point armed, and
+; its answer is the exit status. A second fault while it runs takes the
+; fixed exit and never re-enters it (`@__axiom_exc_busy`: 0 idle, 1 the
+; fixed exit, 2 the hook).
+(pub :: emitBaremetalVectors (-> Int String String Int))
+(pub fn (emitBaremetalVectors cg handler hook)
+  (let (
+    (bound (> (strLen handler) 0))
+    (hooked (> (strLen hook) 0))
+  )
     {
       (emitAsmLine cg ".pushsection .text.vectors,\\22ax\\22,@progbits")
       (emitAsmLine cg ".balign 2048")
@@ -9831,17 +9872,39 @@
       (emitAsmLine cg "bl __axiom_cpu_exception")
       (emitAsmLine cg "1: wfi")
       (emitAsmLine cg "b 1b")
+      (if hooked
+        {
+          (emitAsmLine cg ".globl __axiom_trap_entry")
+          (emitAsmLine cg "__axiom_trap_entry:")
+          (emitAsmLine cg "msr daifset, #0xf")
+          (emitAsmLine cg "adrp x9, __axiom_exc_top")
+          (emitAsmLine cg "add x9, x9, :lo12:__axiom_exc_top")
+          (emitAsmLine cg "mov sp, x9")
+          (emitAsmLine cg "bl __axiom_fault_trap")
+          (emitAsmLine cg "2: wfi")
+          (emitAsmLine cg "b 2b")
+        }
+        cg)
       (if bound
         (emitIrqEntryAsm cg)
         cg)
       (emitAsmLine cg ".popsection")
-      (emitCpuExceptionFn cg)
+      (emitCpuExceptionFn cg hook)
+      (if hooked
+        (emitFaultHookFns cg hook)
+        cg)
       (if bound
-        {
-          (emitIrqDispatch cg handler)
-          (emitLine cg "@llvm.used = appending global [2 x ptr] [ptr @__axiom_cpu_exception, ptr @__axiom_irq_dispatch], section \"llvm.metadata\"")
-        }
-        (emitLine cg "@llvm.used = appending global [1 x ptr] [ptr @__axiom_cpu_exception], section \"llvm.metadata\""))
+        (emitIrqDispatch cg handler)
+        cg)
+      (emitLine
+        cg
+        (if bound
+          (if hooked
+            "@llvm.used = appending global [3 x ptr] [ptr @__axiom_cpu_exception, ptr @__axiom_irq_dispatch, ptr @__axiom_fault_trap], section \"llvm.metadata\""
+            "@llvm.used = appending global [2 x ptr] [ptr @__axiom_cpu_exception, ptr @__axiom_irq_dispatch], section \"llvm.metadata\"")
+          (if hooked
+            "@llvm.used = appending global [2 x ptr] [ptr @__axiom_cpu_exception, ptr @__axiom_fault_trap], section \"llvm.metadata\""
+            "@llvm.used = appending global [1 x ptr] [ptr @__axiom_cpu_exception], section \"llvm.metadata\"")))
       (emitLine cg "")
     }))
 
@@ -9942,15 +10005,22 @@
 ; second line saying so, because a stack overflow is the fault whose
 ; registers are hardest to read: ELR is some function's prologue and
 ; FAR an address no program named.
-(pub :: emitCpuExceptionFn (-> Int Int))
+;
+; With a fault hook bound, the report is written as before and the
+; hook then chooses the exit (`emitFaultHookFns`); a fault while the
+; hook runs is reported once more, as a fault in the fault handler,
+; and takes the fixed 81.
+(pub :: emitCpuExceptionFn (-> Int String Int))
 ;@axiom:effect(unsafe)
-(pub fn (emitCpuExceptionFn cg)
+(pub fn (emitCpuExceptionFn cg hook)
   (let (
     (m0 "axiom: unhandled CPU exception at vector 0x")
     (m1 " esr 0x")
     (m2 " elr 0x")
     (m3 " far 0x")
     (mg "axiom: stack overflow: the fault address is in the guard page below a stack")
+    (mh "axiom: CPU exception in the fault handler at vector 0x")
+    (hooked (> (strLen hook) 0))
   )
     {
       (emitLine cg "@__axiom_exc_busy = internal global i64 0")
@@ -9959,6 +10029,9 @@
       (emitMsgGlobal cg "__axiom_exc_m2" m2)
       (emitMsgGlobal cg "__axiom_exc_m3" m3)
       (emitMsgGlobal cg "__axiom_exc_mg" mg)
+      (if hooked
+        (emitMsgGlobal cg "__axiom_exc_mh" mh)
+        0)
       (emitLine cg "@__axiom_exc_nl = private unnamed_addr constant [1 x i8] c\"\\0A\"")
       (emitLine cg "define internal void @__axiom_uart_hex(i64 %v) #0 {")
       (emitLine cg "entry:")
@@ -10019,15 +10092,93 @@
       (emitLine cg "  %busy = load volatile i64, ptr @__axiom_exc_busy")
       (emitLine cg "  store volatile i64 1, ptr @__axiom_exc_busy")
       (emitLine cg "  %again = icmp ne i64 %busy, 0")
-      (emitLine cg "  br i1 %again, label %out, label %say")
+      (emitLine
+        cg
+        (if hooked
+          "  br i1 %again, label %twice, label %say"
+          "  br i1 %again, label %out, label %say"))
       (emitLine cg "say:")
       (emitMsgWrite cg "__axiom_exc_m0" m0)
       (emitLine cg "  call void @__axiom_exc_regs(i64 %vec, i64 %esr, i64 %elr, i64 %far)")
-      (emitLine cg "  br label %out")
+      (if hooked
+        {
+          ; The hook chooses what happens next, and never comes back here.
+          (emitLine cg "  call void @__axiom_fault_hook(i64 81, i64 %vec, i64 %esr, i64 %elr, i64 %far)")
+          (emitLine cg "  unreachable")
+          ; A fault inside the hook: reported once, then the fixed exit.
+          ; A fault while the report itself is written (busy 1) says
+          ; nothing more.
+          (emitLine cg "twice:")
+          (emitLine cg "  %inhook = icmp eq i64 %busy, 2")
+          (emitLine cg "  br i1 %inhook, label %sayh, label %out")
+          (emitLine cg "sayh:")
+          (emitMsgWrite cg "__axiom_exc_mh" mh)
+          (emitLine cg "  call void @__axiom_exc_regs(i64 %vec, i64 %esr, i64 %elr, i64 %far)")
+          (emitLine cg "  br label %out")
+        }
+        (emitLine cg "  br label %out"))
       (emitLine cg "out:")
       (emitBaremetalExit cg "81")
       (emitLine cg "}")
     }))
+
+; The fault hook's two doors. `@__axiom_fault_hook` marks the hook
+; running, disarms any recovery point (a trap inside the hook exits
+; with its own status; it never unwinds into code the fault
+; abandoned), calls the bound function and exits with its answer.
+; `@__axiom_fault_trap` is where a software trap's exit arrives, on the
+; fault stack with D, A, I and F masked (`__axiom_trap_entry`): the
+; first one runs the hook, and one raised while the hook runs - or
+; while the exit after it runs - exits with its own status, as it would
+; with no hook bound.
+(pub :: emitFaultHookFns (-> Int String Int))
+(pub fn (emitFaultHookFns cg hook)
+  {
+    (emitLine cg "define internal void @__axiom_fault_hook(i64 %st, i64 %vec, i64 %esr, i64 %elr, i64 %far) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  store volatile i64 2, ptr @__axiom_exc_busy")
+    (emitLine cg "  store i64 0, ptr @__axiom_recover_top")
+    (emitLine
+      cg
+      (strConcat
+        "  %r = call i64 @"
+        (strConcat (llvmSym (strDup hook))
+        (if (== (fnTakesEvw cg hook) 1)
+          "(i64 %st, i64 %vec, i64 %esr, i64 %elr, i64 %far, i64 0)"
+          "(i64 %st, i64 %vec, i64 %esr, i64 %elr, i64 %far)"))))
+    (emitLine cg "  store volatile i64 1, ptr @__axiom_exc_busy")
+    (emitBaremetalExit cg "%r")
+    (emitLine cg "}")
+    (emitLine cg "define void @__axiom_fault_trap(i64 %st) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %busy = load volatile i64, ptr @__axiom_exc_busy")
+    (emitLine cg "  %first = icmp eq i64 %busy, 0")
+    (emitLine cg "  br i1 %first, label %hook, label %fixed")
+    (emitLine cg "hook:")
+    (emitLine cg "  call void @__axiom_fault_hook(i64 %st, i64 -1, i64 0, i64 0, i64 0)")
+    (emitLine cg "  unreachable")
+    (emitLine cg "fixed:")
+    (emitLine cg "  store volatile i64 1, ptr @__axiom_exc_busy")
+    (emitBaremetalExit cg "%st")
+    (emitLine cg "}")
+  })
+
+; A trap's exit on the bare target: with a fault hook bound, the trap
+; entry, so the hook sees the status; otherwise the semihosting exit
+; itself. Status 0 - a forked child's clean end, which this target
+; never forks - is never a trap and never reaches the hook. The branch
+; is assembly, `bl` with the status in x0, because the entry is defined
+; in the vector table's assembly and a `declare` would read to the
+; link's grounding pass as a foreign symbol; x30 is left naming the
+; trap site.
+(pub :: emitBaremetalTrapExit (-> Int String Int))
+(pub fn (emitBaremetalTrapExit cg status)
+  (if (&& (> (strLen (baremetalFaultHandler cg)) 0) (if (strEq status "0") false true))
+    {
+      (emitLine cg (strConcat "  call void asm sideeffect \"bl __axiom_trap_entry\", \"{x0},~{x30},~{memory}\"(i64 " (strConcat status ")")))
+      (emitLine cg "  unreachable")
+    }
+    (emitBaremetalExit cg status)))
 
 ; The IRQ vector's call into Axiom: the bound handler, run with no
 ; recovery point armed - a trap inside a handler ends the program with

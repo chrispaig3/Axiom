@@ -462,6 +462,13 @@ def target_name(sym, add, funcs_by_sec):
 
 SYMTAB = '__axiom_symtab'
 IRNAME = r'@("(?:[^"\\]|\\.)*"|[-A-Za-z0-9_$.]+)'
+# The baremetal-aarch64 fault stack (docs/embedded-guide.md section 6):
+# the entry a trap's exit branches to when a fault hook is bound, the two
+# functions the fault exit starts from on that stack, and its size, which
+# the linker script in `self_host/driver.ax` reserves.
+FAULT_STACK_ENTRY = '__axiom_trap_entry'
+FAULT_ROOTS = ('__axiom_cpu_exception', '__axiom_fault_trap')
+FAULT_STACK_BYTES = 8192
 
 
 def ir_facts(ir):
@@ -749,6 +756,14 @@ def stack_bound(axiom, src, target, opt, roots, workdir):
             problems.setdefault(c, []).append('a `blr` the IR shows no indirect call for')
     for f in ir_dynamic:
         problems.setdefault(f, []).append('a dynamically sized alloca')
+    # `__axiom_trap_entry` is assembly in the baremetal-aarch64 vector
+    # table, reached from a trap's exit when `isr(fault)` binds a hook. It
+    # points sp at the fault stack and never returns, so it adds nothing
+    # to the stack the trap was raised on; what runs after it is bounded
+    # from the fault exit's own roots (`FAULT_ROOTS`).
+    fault_entry = any(FAULT_STACK_ENTRY in ts for ts in list(calls.values()) + list(tails.values()))
+    if fault_entry:
+        frames[FAULT_STACK_ENTRY] = 0
     undefined = set()
     for f, ts in list(calls.items()) + list(tails.items()):
         for t in ts:
@@ -766,6 +781,7 @@ def stack_bound(axiom, src, target, opt, roots, workdir):
     charged = {f: v + extra for f, v in frames.items()} if extra else frames
     results = bound_graph(charged, calls, tails, problems, roots, names)
     return dict(results=results, frames=frames, frame_extra=extra, machine='x86-64' if x86 else 'aarch64',
+                fault_entry=fault_entry,
                 indirect_sites=sorted(ir_indirect),
                 indirect_targets=indirect_targets, asm=sorted(ir_asm),
                 symtab_excluded=irf['symtab_excluded'], symtab_users=irf['symtab_users'],
@@ -858,6 +874,9 @@ def build_report(args):
     if 'main' in fns and not fns['main'].builtin:
         roots.append('main')
     isrs = sorted(q for q, f in fns.items() if not f.builtin and f.flag('isr') and f.module == '')
+    # `isr(fault)` binds the fault hook: steady and nonblocking like any
+    # handler, but it runs on the fault stack, not on top of another.
+    fault_hooks = [q for q in isrs if fns[q].metas.get('isr') == 'fault']
     roots += [q for q in isrs if q not in roots]
     for r in args.root:
         if r not in fns:
@@ -891,6 +910,10 @@ def build_report(args):
     if args.stack:
         machine_roots = list(args.stack_root) or (['_start'] if args.target == 'baremetal-aarch64' else ['main'])
         machine_roots += [fns[q].name for q in isrs if fns[q].name not in machine_roots]
+        # A fault hook runs on the fault stack, from the fault exit: bound
+        # that exit - the report, the hook's door and the hook - there.
+        if fault_hooks and args.target == 'baremetal-aarch64':
+            machine_roots += [r for r in FAULT_ROOTS if r not in machine_roots]
         work = tempfile.mkdtemp(prefix='axiom-report.')
         try:
             stack = stack_bound(args.axiom, args.file, args.target, args.opt, machine_roots, work)
@@ -937,17 +960,25 @@ def build_report(args):
                 refuse('RP-8', '%s may block: %s' % (s, last), (hit or [s]) + ([last] if last else []))
         # RP-7
         if stack is not None:
+            # One interrupt's frames sit on top of the interrupted stack;
+            # a fault hook's never do - it runs on the fault stack.
             worst_isr = 0
             for q in isrs:
+                if q in fault_hooks:
+                    continue
                 r = stack['results'].get(fns[q].name)
                 if r and r.get('bounded'):
                     worst_isr = max(worst_isr, r['bytes'])
             for r, res in stack['results'].items():
                 if not res.get('bounded'):
                     refuse('RP-7', 'no stack bound from %s: %s' % (r, res['reason']), res.get('path'))
+            on_fault_stack = [fns[q].name for q in fault_hooks] + list(FAULT_ROOTS)
+            for r, res in stack['results'].items():
+                if res.get('bounded') and r in FAULT_ROOTS and res['bytes'] > FAULT_STACK_BYTES:
+                    refuse('RP-7', 'the fault exit from %s is %d bytes, over the %d-byte fault stack' % (r, res['bytes'], FAULT_STACK_BYTES), res['path'])
             if args.stack_budget is not None:
                 for r, res in stack['results'].items():
-                    if res.get('bounded') and r not in [fns[q].name for q in isrs]:
+                    if res.get('bounded') and r not in [fns[q].name for q in isrs] and r not in on_fault_stack:
                         total = res['bytes'] + worst_isr
                         if total > args.stack_budget:
                             refuse('RP-7', 'stack from %s is %d bytes (%d + %d for one interrupt), over the %d-byte budget' % (r, total, res['bytes'], worst_isr, args.stack_budget), res['path'])
@@ -963,10 +994,11 @@ def build_report(args):
     if stack is None:
         oblige('stack', 'no stack bound computed (run with --stack on an AArch64 or x86-64 ELF target)')
     else:
-        oblige('stack', ('%s: ' % stack['machine']) + ('each frame is charged 8 bytes more for the return address a call pushes, and indirect sites come from the post-opt IR alone (no machine-code cross-check); ' if stack['frame_extra'] else '') + 'frames are llc\'s .stack_sizes for the analysis object; indirect sites %s may reach only address-taken functions %s (no forged code pointers - `__call_word` of an arbitrary word breaks this and is Unsafe)%s; inline assembly in %s is assumed to use no stack beyond its frame; the reset vector and C runtime are outside the object' % (
+        oblige('stack', ('%s: ' % stack['machine']) + ('each frame is charged 8 bytes more for the return address a call pushes, and indirect sites come from the post-opt IR alone (no machine-code cross-check); ' if stack['frame_extra'] else '') + 'frames are llc\'s .stack_sizes for the analysis object; indirect sites %s may reach only address-taken functions %s (no forged code pointers - `__call_word` of an arbitrary word breaks this and is Unsafe)%s; inline assembly in %s is assumed to use no stack beyond its frame; the reset vector and C runtime are outside the object%s' % (
             stack['indirect_sites'] or 'none', stack['indirect_targets'] or 'none',
             ('; the backtrace table @__axiom_symtab is excluded as never called, read only by %s, none of which holds an indirect call' % stack['symtab_users']) if stack.get('symtab_excluded') else '',
-            stack['asm'] or 'none'))
+            stack['asm'] or 'none',
+            ('; %s switches to the %d-byte fault stack and never returns, so a trap\'s exit adds nothing past it, and the fault exit (%s) is bounded on that stack' % (FAULT_STACK_ENTRY, FAULT_STACK_BYTES, ', '.join(FAULT_ROOTS))) if stack.get('fault_entry') else ''))
     for r in roots:
         ts = facts[r]['traps']
         if ts:

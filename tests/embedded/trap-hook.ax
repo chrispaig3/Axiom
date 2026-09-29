@@ -1,0 +1,71 @@
+; A software trap reaching the fault hook on `baremetal-aarch64`
+; (docs/embedded-guide.md section 5). `main` divides by zero outside any
+; recovery point.
+;
+; The trap writes its sentence and backtrace as it does with no hook
+; (status 72, docs/memory-model.md MM-EXEC-16). Then, where it would
+; exit, it takes the fault stack with D, A, I and F masked and calls the
+; hook with status 72, vector -1 (not a CPU exception) and zero for the
+; three registers. The hook writes its marker and answers 42 when the
+; arguments are the trap's, 43 otherwise.
+;
+; `scripts/check-embedded.sh` A19 boots it under QEMU. With the binding
+; ignored (the `hookoff` ablation) the trap's own 72 comes back.
+(import IO)
+(import Str)
+
+(:: uart Int)
+(fn (uart)
+  150994944)
+
+(:: say (-> String Int))
+;@axiom:effect(unsafe)
+(fn (say s)
+  {
+    (for i 0 (strLen s)
+      (__vstore8 uart (strByte s i)))
+    0
+  })
+
+(:: sayHex (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (sayHex v)
+  {
+    (say "0x")
+    (for k 0 16
+      (let ((d (& (>> v (* 4 (- 15 k))) 15)))
+        (__vstore8
+          uart
+          (if (> d 9)
+            (+ d 87)
+            (+ d 48)))))
+    0
+  })
+
+;@axiom:isr(fault)
+(:: onFault (-> Int Int Int Int Int Int))
+(fn (onFault status vector esr elr far)
+  {
+    (say "safe state: status ")
+    (sayHex status)
+    (say " vector ")
+    (sayHex vector)
+    (say "\n")
+    (if (&& (== status 72) (&& (== vector (- 0 1)) (&& (== esr 0) (== far 0))))
+      42
+      43)
+  })
+
+(:: divide (-> Int Int Int))
+(fn (divide a b)
+  (/ a b))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "TRAP HOOK PROBE")
+    (println (divide 10 (- (strLen "x") 1)))
+    (println "NOT REACHED")
+    0
+  })

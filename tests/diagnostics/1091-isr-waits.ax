@@ -1,0 +1,47 @@
+; A handler bound to a vector runs while the code it interrupted is
+; stopped: until it returns, for `isr(irq)`, and for good, for
+; `isr(fault)`. Anything it waits for can't come, so a path from the
+; handler to an operation that waits is AX4009 (isr-waits), with the
+; path in the message.
+;
+; `onIrq` reaches `__arm_wfi` through `settle`: it sleeps with IRQs
+; masked. `onFault` reaches a system call through `note`, where every
+; blocking library call ends. The controls: `quietIrq` waits for
+; nothing, and `haltFault` halts in `wfi`, which a fault hook may do,
+; because never returning is one of the answers it exists to give.
+(:: settle Int)
+;@axiom:effect(io)
+(fn (settle)
+  __arm_wfi)
+
+(:: onIrq Int)
+;@axiom:isr(irq)
+;@axiom:effect(io)
+(fn (onIrq)
+  (settle))
+
+(:: note Int)
+;@axiom:effect(io)
+(fn (note)
+  (__syscall1 20 0))
+
+(:: onFault (-> Int Int Int Int Int Int))
+;@axiom:isr(fault)
+;@axiom:effect(io)
+(fn (onFault status vector esr elr far)
+  (+ status (note)))
+
+(:: quietIrq Int)
+;@axiom:isr(irq)
+(fn (quietIrq)
+  0)
+
+(:: haltFault (-> Int Int Int Int Int Int))
+;@axiom:isr(fault)
+;@axiom:effect(io)
+(fn (haltFault status vector esr elr far)
+  (+ status __arm_wfi))
+
+(:: main Int)
+(fn (main)
+  0)

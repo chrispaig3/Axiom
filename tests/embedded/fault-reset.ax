@@ -1,0 +1,59 @@
+; A fault hook that never returns on `baremetal-aarch64`
+; (docs/embedded-guide.md section 5): it resets the machine.
+;
+; `onFault` writes its marker and asks the firmware for a reset: PSCI
+; SYSTEM_RESET, function 0x84000009, through `hvc`, the conduit QEMU
+; `virt` offers a guest it starts at EL1. On hardware the conduit is the
+; board firmware's choice (`smc` under a secure monitor), and a
+; watchdog is the other common way out. QEMU run with `-no-reboot`
+; exits 0 on a reset, so the UART carries the report, the marker and
+; nothing after it.
+;
+; `scripts/check-embedded.sh` A19 boots it under QEMU. With the binding
+; ignored (the `hookoff` ablation) the fixed 81 comes back.
+(import IO)
+(import Mem)
+(import Str)
+
+(:: uart Int)
+(fn (uart)
+  150994944)
+
+(:: say (-> String Int))
+;@axiom:effect(unsafe)
+(fn (say s)
+  {
+    (for i 0 (strLen s)
+      (__vstore8 uart (strByte s i)))
+    0
+  })
+
+(:: psciSystemReset Int)
+;@axiom:effect(unsafe)
+(fn (psciSystemReset)
+  (asm (aarch64 "hvc #0" (inout r "x0" 2214592521))))
+
+(:: misaligned (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (misaligned a)
+  (__vload32 (+ a 1)))
+
+;@axiom:isr(fault)
+(:: onFault (-> Int Int Int Int Int Int))
+(fn (onFault status vector esr elr far)
+  {
+    (say "safe state: resetting\n")
+    (psciSystemReset)
+    (say "reset returned\n")
+    status
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "FAULT RESET PROBE")
+    (println (misaligned (memAlloc 16)))
+    (println "NOT REACHED")
+    0
+  })

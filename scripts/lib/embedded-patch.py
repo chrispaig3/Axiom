@@ -232,6 +232,23 @@ ABLATIONS = {
         None,
         "A18 - code read-only",
     ),
+    # `isr(fault)` is parsed, checked and then ignored: no module has a
+    # hook, so a fault takes the fixed 81 and a trap its own status.
+    "hookoff": (
+        """  (let ((fs (isrVectorNames (isrBindings (memGetWordVec cg 8) vecNew 0) "fault" 0 vecNew)))
+    (if (== (vecLen fs) 1)""",
+        """  (let ((fs (isrVectorNames (isrBindings (memGetWordVec cg 8) vecNew 0) "fault" 0 vecNew)))
+    (if (== (vecLen fs) 999)""",
+        "A19 - the hook binding reaching the fault exit",
+    ),
+    # A fault while the hook runs goes back into the hook: the guard
+    # that sends it to the fixed exit is gone, so the hook faults, runs
+    # again, faults again, and the guest never finishes.
+    "reenter": (
+        '"  br i1 %again, label %twice, label %say"',
+        '"  br i1 false, label %twice, label %say"',
+        "A20 - a fault inside the hook taking the fixed exit, once",
+    ),
 }
 
 

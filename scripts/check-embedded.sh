@@ -174,8 +174,15 @@
 #   A18 CODE READ-ONLY, DATA EXECUTE-NEVER, THE REST UNMAPPED.
 #       `code-write.ax`, `exec-data.ax`, `unmapped.ax` under QEMU, each
 #       ESR and FAR read off the report. Drill `codewrite`.
+#   A19 THE FAULT HOOK. `isr(fault)`: every trap exit takes the trap
+#       entry, AX4008 off bare metal and for two hooks, the profile
+#       bounds the fault exit; under QEMU the hook chooses the exit
+#       after a fault (`fault-hook.ax`), after a trap (`trap-hook.ax`)
+#       and by resetting (`fault-reset.ax`). Drill `hookoff`.
+#   A20 A FAULT INSIDE THE HOOK. `fault-in-hook.ax` under QEMU: reported
+#       once, the fixed 81, the hook not re-entered. Drill `reenter`.
 #
-# SKIPS. The QEMU legs of A12-A18 print SKIP, count as skipped and
+# SKIPS. The QEMU legs of A12-A20 print SKIP, count as skipped and
 # never as ok, and the summary says how many. CI runners have no QEMU,
 # so there they skip - which is said, not passed.
 #
@@ -185,8 +192,8 @@
 # The patch is applied by exact string match by
 # `scripts/lib/embedded-patch.py`, which ABORTS if the string is not
 # there: an ablation that silently does not apply is a drill proving the
-# gate can pass. `--ablations` runs all eighteen and requires each to go
-# red. The four from `mmuoff` on each break an IR-level check on every
+# gate can pass. `--ablations` runs all twenty and requires each to go
+# red. The six from `mmuoff` on each break an IR-level check on every
 # host as well as their QEMU leg, so they go red without QEMU too; with
 # it, the guest's own output goes red beside the IR.
 #
@@ -216,6 +223,8 @@
 #   guard     the guard below the stack is mapped          -> A17
 #   excstack  the fault exit stays on the overflowed stack -> A17
 #   codewrite code is mapped writable (and WXN left off)   -> A18
+#   hookoff   the `isr(fault)` binding is ignored          -> A19
+#   reenter   a fault inside the hook calls it again       -> A20
 #
 # WHAT THIS GATE DOES NOT COVER, said here rather than left to be
 # discovered: the board itself. The bare-metal TARGET is in the tree -
@@ -228,7 +237,7 @@
 #
 # Usage:
 #   scripts/check-embedded.sh              # the gate
-#   scripts/check-embedded.sh --ablations  # the eighteen drills, each red
+#   scripts/check-embedded.sh --ablations  # the twenty drills, each red
 #   AXIOM_ABLATE=literal scripts/check-embedded.sh
 # ---------------------------------------------------------------------
 
@@ -270,7 +279,7 @@ if [[ "${1:-}" == "--ablations" ]]; then
   red=0
   ran=0
   for ab in chunk literal grain strategy cursor oomsig ceiling trapwrite allsilent \
-            volatile barrier refusal vbar asmfx mmuoff guard excstack codewrite; do
+            volatile barrier refusal vbar asmfx mmuoff guard excstack codewrite hookoff reenter; do
     ran=$((ran + 1))
     echo "== ablation: $ab =="
     if AXIOM_ABLATE="$ab" bash "$self" > "/tmp/embedded-ablate-$ab.log" 2>&1; then
@@ -2010,7 +2019,7 @@ if qemu_or_skip "A15 inline assembly at EL1 under QEMU"; then
 fi
 
 # ---------------------------------------------------------------------
-# The memory map's drills (A16-A18) read two things out of the image
+# The memory map's drills (A16-A20) read two things out of the image
 # that ran: its layout symbols, and the fault report's registers. Both
 # come from the guest and the ELF it booted, never from a number typed
 # here: a FAR "in the guard" is judged against that image's own
@@ -2290,6 +2299,165 @@ if qemu_or_skip "A18 the map's protections under QEMU"; then
   done
 fi
 
+# ---------------------------------------------------------------------
+echo
+echo "== A19. the fault hook: isr(fault) chooses what happens after a fault or a trap =="
+# ---------------------------------------------------------------------
+# docs/embedded-guide.md section 5, docs/memory-model.md MM-EXEC-19.
+# `;@axiom:isr(fault)` binds one function, `(-> Int Int Int Int Int
+# Int)`, that every exit the program did not ask for reaches once: a CPU
+# exception after its report line, a software trap (70-85) after its
+# sentence. It runs on the fault stack with D, A, I and F masked and no
+# recovery point armed, gets the fixed exit's status, the vector offset
+# (-1 for a trap), ESR, ELR and FAR, and answers the exit status - or
+# never returns.
+#
+# Compile-level, every host: with a hook, every trap exit branches to
+# the trap entry and only the four exit doors keep a semihosting exit;
+# without one, fault.ax's traps keep their own and nothing names the
+# hook; AX4008 refuses `isr(fault)` on linux-aarch64 and a second hook;
+# the restricted profile bounds the hook on the fault stack. QEMU:
+#   fault-hook.ax   the alignment fault's report, then the hook's
+#                   marker with its arguments, and the hook's 42;
+#   trap-hook.ax    a division by zero's sentence, then the marker with
+#                   status 72 and vector -1, and 42;
+#   fault-reset.ax  the marker, then PSCI SYSTEM_RESET through `hvc`:
+#                   QEMU (`-no-reboot`) exits 0 and nothing follows.
+#
+# Drill: `hookoff` ignores the binding - 81, 72 and 81 come back, and
+# no marker.
+fhprog="$repo_root/tests/embedded/fault-hook.ax"
+for p in fault-hook trap-hook fault-reset fault-in-hook; do
+  [[ -f "$repo_root/tests/embedded/$p.ax" ]] || abort "tests/embedded/$p.ax is gone; A19/A20 have no probe."
+done
+hlt_fns() { awk '/^define /{f=$0} /hlt 0xf000/{print f}' "$1" | sed -E 's/.*@([^(]+)\(.*/\1/' | sort -u | tr '\n' ' '; }
+checks=$((checks + 1))
+prob=0
+if ! emit "$axc" "$bm" "$fhprog" "$work/fault-hook.ll"; then
+  bad "fault-hook.ax does not emit for $bm:"; sed 's/^/       /' "$work/emit.log" | head -6; prob=1
+else
+  got="$(hlt_fns "$work/fault-hook.ll")"
+  [[ "$got" == '__axiom_cpu_exception __axiom_fault_hook __axiom_fault_trap _start ' ]] \
+    || { bad "with a hook the semihosting exit is in [$got], not only the four exit doors"; prob=1; }
+  ntrap=$(grep -cE '^  call void asm sideeffect "bl __axiom_trap_entry", "\{x0\},~\{x30\},~\{memory\}"\(i64 [0-9]+\)$' "$work/fault-hook.ll" || true)
+  (( ntrap >= 5 )) || { bad "with a hook only $ntrap trap exits branch to the trap entry"; prob=1; }
+  awk '/^define internal void @__axiom_fault_hook\(/{on=1} on{print} on&&/^}/{exit}' "$work/fault-hook.ll" > "$work/hookfn.ll"
+  for w in 'store volatile i64 2, ptr @__axiom_exc_busy' 'store i64 0, ptr @__axiom_recover_top' \
+           '%r = call i64 @onFault(i64 %st, i64 %vec, i64 %esr, i64 %elr, i64 %far)'; do
+    grep -qF -- "$w" "$work/hookfn.ll" || { bad "the hook's door lacks [$w]"; prob=1; }
+  done
+  for w in '__axiom_trap_entry:' 'msr daifset, #0xf' 'bl __axiom_fault_trap'; do
+    grep -qxF "module asm \"$w\"" "$work/fault-hook.ll" || { bad "the trap entry lacks [$w]"; prob=1; }
+  done
+  grep -qF 'call void @__axiom_fault_hook(i64 81, i64 %vec, i64 %esr, i64 %elr, i64 %far)' "$work/fault-hook.ll" \
+    || { bad "the CPU exception exit does not call the hook with status 81"; prob=1; }
+  # A20's guard, at the IR: a second fault goes to `twice`, which sends
+  # one raised inside the hook (busy 2) to the fixed exit, never back.
+  for w in '  br i1 %again, label %twice, label %say' '  %inhook = icmp eq i64 %busy, 2' '  br i1 %inhook, label %sayh, label %out'; do
+    grep -qxF -- "$w" "$work/fault-hook.ll" || { bad "the CPU exception exit lacks [$w]: a fault in the hook could re-enter it"; prob=1; }
+  done
+fi
+if ! emit "$axc" "$bm" "$fault" "$work/fault.nohook.ll"; then
+  bad "fault.ax does not emit for $bm"; prob=1
+else
+  grep -qE '__axiom_fault_hook|__axiom_trap_entry' "$work/fault.nohook.ll" \
+    && { bad "a program with no hook names the hook's code"; prob=1; }
+  [[ "$(hlt_fns "$work/fault.nohook.ll")" == *__axiom_div_by_zero* ]] \
+    || { bad "with no hook a trap no longer exits through its own semihosting call"; prob=1; }
+fi
+cat > "$work/twohooks.ax" <<'AX'
+;@axiom:isr(fault)
+(:: first (-> Int Int Int Int Int Int))
+(fn (first status vector esr elr far)
+  status)
+
+;@axiom:isr(fault)
+(:: second (-> Int Int Int Int Int Int))
+(fn (second status vector esr elr far)
+  status)
+
+(:: main Int)
+(fn (main)
+  0)
+AX
+if emit "$axc" linux-aarch64 "$fhprog" "$work/fh.la.ll" --diagnostic-format=ai \
+   || ! grep -q '^E AX4008 .*`isr(fault)` on `onFault` binds the fault hook' "$work/emit.log"; then
+  bad "isr(fault) was not refused as AX4008 for linux-aarch64:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if emit "$axc" "$bm" "$work/twohooks.ax" "$work/twohooks.ll" --diagnostic-format=ai \
+   || ! grep -q '^E AX4008 .*binds 2 functions to the one fault hook' "$work/emit.log"; then
+  bad "two isr(fault) hooks were not refused as AX4008:"; head -3 "$work/emit.log" | sed 's/^/       /'; prob=1
+fi
+if ! AXIOM="$axc" python3 "$repo_root/scripts/axiom-report.py" --axiom "$axc" --profile restricted \
+      --target "$bm" --stack --stack-budget 4096 "$fhprog" > "$work/fault-hook.report" 2>&1; then
+  bad "the restricted profile refuses fault-hook.ax, or cannot bound it:"; grep -E '^  RP-|^verdict' "$work/fault-hook.report" | head -6 | sed 's/^/       /'; prob=1
+elif ! grep -qE '^  __axiom_cpu_exception: [0-9]+ bytes' "$work/fault-hook.report"; then
+  bad "the report does not bound the fault exit on the fault stack"; prob=1
+fi
+(( prob )) || note "with a hook every trap exit takes the trap entry and the hook's door disarms recovery and calls it; without one nothing moves; AX4008 off bare metal and for two hooks; the profile bounds the fault exit ($(grep -oE '__axiom_cpu_exception: [0-9]+ bytes' "$work/fault-hook.report" | head -1))"
+if qemu_or_skip "A19 the fault hook under QEMU"; then
+  for probe in fault-hook:42 trap-hook:42 fault-reset:0; do
+    pname="${probe%%:*}"; pwant="${probe##*:}"
+    checks=$((checks + 1))
+    prob=0
+    if ! build_bm "$pname.bm" "$repo_root/tests/embedded/$pname.ax" --target="$bm"; then
+      bad "$pname.ax does not build for $bm:"; sed 's/^/       /' "$work/$pname.bm.build.log" | head -6; continue
+    fi
+    st="$(qemu_boot "$work/$pname.bm" "$work/$pname.uart" "$work/$pname.qemu.err" virt 30)"
+    echo "     $pname: exit $st"
+    sed 's/^/     | /' "$work/$pname.uart" | grep -v '^     |   at ' | head -4
+    [[ "$st" == "$pwant" ]] || { bad "$pname exits [$st], not $pwant - the hook did not choose the exit"; prob=1; }
+    ! grep -q 'NOT REACHED' "$work/$pname.uart" || { bad "$pname ran past its fault"; prob=1; }
+    case "$pname" in
+      fault-hook)
+        [[ "$(fault_line "$work/$pname.uart")" =~ vector\ 0x0000000000000200\ esr\ 0x0000000096000021\  ]] \
+          || { bad "fault-hook's report line is missing or wrong"; prob=1; }
+        grep -qx 'safe state: status 0x0000000000000051 vector 0x0000000000000200 esr 0x0000000096000021' "$work/$pname.uart" \
+          || { bad "the hook's marker is missing, or its arguments are not 81, 0x200 and the fault's ESR"; prob=1; }
+        [[ "$(tail -1 "$work/$pname.uart")" == 'safe state: status 0x0000000000000051 vector 0x0000000000000200 esr 0x0000000096000021' ]] \
+          || { bad "something ran after the hook"; prob=1; } ;;
+      trap-hook)
+        grep -qx 'axiom: division by zero' "$work/$pname.uart" || { bad "the trap's own sentence is missing"; prob=1; }
+        grep -qx 'safe state: status 0x0000000000000048 vector 0xffffffffffffffff' "$work/$pname.uart" \
+          || { bad "the hook's marker is missing, or its arguments are not 72 and -1"; prob=1; } ;;
+      fault-reset)
+        grep -qx 'safe state: resetting' "$work/$pname.uart" || { bad "the hook's marker is missing"; prob=1; }
+        ! grep -q 'reset returned' "$work/$pname.uart" || { bad "PSCI SYSTEM_RESET returned"; prob=1; } ;;
+    esac
+    (( prob )) || note "$pname: the hook ran once after the exit's own line, and its answer is the exit ($pwant) (QEMU TCG)"
+  done
+fi
+
+# ---------------------------------------------------------------------
+echo
+echo "== A20. a fault inside the hook takes the fixed exit, once =="
+# ---------------------------------------------------------------------
+# `tests/embedded/fault-in-hook.ax`: the hook writes `hook entered` and
+# faults. The runtime sees the hook running (`@__axiom_exc_busy` is 2),
+# writes one line naming a CPU exception in the fault handler, and exits
+# 81 without calling the hook again.
+#
+# Drill: `reenter` removes that check, so every fault calls the hook
+# again - it faults again, for ever, and the guest never finishes.
+if qemu_or_skip "A20 a fault inside the hook under QEMU"; then
+  checks=$((checks + 1))
+  prob=0
+  if ! build_bm fault-in-hook.bm "$repo_root/tests/embedded/fault-in-hook.ax" --target="$bm"; then
+    bad "fault-in-hook.ax does not build for $bm:"; sed 's/^/       /' "$work/fault-in-hook.bm.build.log" | head -6; prob=1
+  else
+    st="$(qemu_boot "$work/fault-in-hook.bm" "$work/fault-in-hook.uart" "$work/fault-in-hook.qemu.err" virt 20)"
+    echo "     fault-in-hook: exit $st"
+    sed 's/^/     | /' "$work/fault-in-hook.uart" | head -4
+    [[ "$st" == 81 ]] || { bad "a fault inside the hook exits [$st], not the fixed 81"; prob=1; }
+    n=$(grep -cx 'hook entered' "$work/fault-in-hook.uart" || true)
+    [[ "$n" == 1 ]] || { bad "the hook was entered $n times, not once"; prob=1; }
+    n=$(grep -c '^axiom: CPU exception in the fault handler at vector 0x0000000000000200 esr 0x0000000096000021 ' "$work/fault-in-hook.uart" || true)
+    [[ "$n" == 1 ]] || { bad "the fault in the handler was reported $n times, not once"; prob=1; }
+    ! grep -q 'hook survived' "$work/fault-in-hook.uart" || { bad "the hook ran past its own fault"; prob=1; }
+  fi
+  (( prob )) || note "a fault inside the hook is reported once as a fault in the fault handler and takes the fixed 81; the hook is not re-entered (QEMU TCG)"
+fi
+
 echo
 if (( skipped > 0 )); then
   echo "check-embedded: $skipped QEMU leg(s) SKIPPED - booted nothing, proved nothing, and are not counted below"
@@ -2308,4 +2476,5 @@ echo "                AArch64 instructions, and AX4008 refuses what a target lac
 echo "                a periodic step runs on the timer's interrupt within its"
 echo "                budgets, and a DMA driver keeps its ownership protocol;"
 echo "                the MMU and caches are on, a stack overflow ends at its"
-echo "                guard, and code can't be written or data run"
+echo "                guard, code can't be written or data run, and an"
+echo "                isr(fault) hook chooses the exit once"
