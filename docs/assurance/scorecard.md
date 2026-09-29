@@ -18,7 +18,7 @@ source.
 | Join and spawn failures surface as status 78, never as success (R-A3) | The same gate: `foreign 78` in every §12c probe |
 | Thread arenas are returned, so 6,000 threads hold VmSize flat (R-A4) | §12a on H1 and H2 (6.16 GB was mapped before the fix) |
 | The allocator refuses negative sizes and sizes it can't hold (R-A5) | The `6527bea0` fixtures |
-| The twenty-six `Unsafe` primitives are refused under `no-unsafe` and `pure`, and a declaration that calls one says `effect(unsafe)` (R-A6) | `tests/diagnostics/1010-unsafe-primitives.ax` and `tests/diagnostics/1020-unsafe-device-primitives.ax`; `scripts/check-diagnostics.sh`: 255 pass |
+| The twenty-six `Unsafe` primitives are refused under `no-unsafe` and `pure`, and a declaration that calls one says `effect(unsafe)` (R-A6) | `tests/diagnostics/1010-unsafe-primitives.ax` and `tests/diagnostics/1020-unsafe-device-primitives.ax`; `scripts/check-diagnostics.sh`: 270 pass |
 | Links in dead blocks can't be decremented as counts (R-A7) | `tests/stdlib/521-release-filed.ax`; the `MM-LIFE-2k` release path |
 | Foreign joins are refused before waiting, and the owner still joins (R-A8) | §12c: `foreign 78 status 123 answer 42`, for processes and threads, raising and checked |
 | A parameter is read, not called, beside a nullary function of its name; a cast's type operand and a named pattern's binders resolve as written; so an unused declaration changes nothing else (R-A10) | `tests/selfhost/1006-cast-type-operand.ax`, `tests/selfhost/1007-param-shadows-nullary.ax`; `scripts/check-metamorphic.sh`: 334 programs keep the relation, three ablations each red |
@@ -30,6 +30,7 @@ source.
 | Pool handles are O(min(n, w)), with one checked-join cell (R-B2) | `tests/stdlib/523-par-pool-bounded.ax` (`.optstable` 0 to 3) |
 | `MM-RGN-1…7` are normative, with H and P markers (R-B3) | `memory-model.md` §3.6; the `check-region-*.sh` gates |
 | Obligation dispositions are registered (R-B4) | [memory-audit.md](memory-audit.md); `scripts/check-doc-drift.sh` |
+| Forging casts and precondition calls require an unsafe declaration; trusted wrappers admit ordinary code under `no-unsafe` (R-B6) | `tests/diagnostics/1040-forging-cast.ax` to `1043-precondition-tag.ax`; `tests/selfhost/1010-trusted-wrapper.ax`; `tests/stdlib/545-no-unsafe-practical.ax` |
 | No `Vec` is shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; row 5 of `642`; `471` builds inside |
 | A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel (R-C2a) | `tests/stdlib/528-chan.ax`; `scripts/check-chan.sh`: 15 pass |
 | A channel, mutex, cancellation token or spawn handle is a sealed handle: safe code can't forge one or pass an `Int` or another handle as one, and a freed, forged or rejoined one traps with 85 instead of reading an unmapped page (R-C6, MM-PAR-8) | `tests/diagnostics/1060` to `1066`; `tests/stdlib/570-handle-freed.ax`, `571-handle-table.ax`, `572-spawn-joined-twice.ax`; `scripts/check-handles.sh`: 39 pass, including three ablations |
@@ -56,9 +57,11 @@ source.
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
   reentrant; a channel's lock doesn't notice a dead holder; Darwin's
   clock is the realtime one; FreeBSD spins.
-- R-C4 limits: `restrict(no-unsafe)` also refuses `vecPush`, so there
-  is no practical, checkable refusal for a call to an `effect(unsafe)`
-  wrapper, or for a user `cast` of a word into a handle.
+- R-B6 limits: the checker cannot prove that a trusted wrapper makes
+  its raw operations safe, or that a caller meets a stated
+  precondition. A buffer typed `Int` is forged without a cast, so no
+  tag marks it. Channels, mutexes, cancellation tokens and spawn
+  handles are typed, and forging one takes a tagged `cast` (`MM-PAR-8`).
 - R-C3 limits: twelve litmus families run, not the whole catalogue
   (no R, S, 3.SB or dependency and fence variants). The LB, IRIW, WRC
   and ISA2 plain-access controls are reported, not required, because H3
@@ -101,8 +104,8 @@ constants.
 | Gate | Result on H3 |
 |---|---|
 | `check-parallel.sh` | 69 pass, §12a skipped (procfs) |
-| `check-diagnostics.sh` | 255 pass |
-| `check-render-selfhost.sh` | 248 pass |
+| `check-diagnostics.sh` | 270 pass |
+| `check-render-selfhost.sh` | 263 pass |
 | `check-atomics.sh` | 144 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |

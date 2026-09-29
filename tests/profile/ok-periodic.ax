@@ -2,6 +2,7 @@
 
 (:: step (-> Int Int Int))
 ;@axiom:restrict(no-alloc, no-recursion, strict)
+;@axiom:effect(unsafe)
 (fn (step buf i)
   {
     (memSetWord buf (% i 8) (* i i))

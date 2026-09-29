@@ -81,6 +81,7 @@
 ; Sleep `ms` milliseconds on a word nobody changes.
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (nap idle ms)
   {
     (sysWaitWordTimeout idle 0 (* ms 1000000))
@@ -99,6 +100,7 @@
 ; Record this process's pid in word `k` of `page`, then never return.
 (:: stubborn (-> Int Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (stubborn page idle k)
   {
     (memSetWord page k sysGetPid)
@@ -132,6 +134,7 @@
 ; How many of the pids in words `lo .. hi` of `page` no longer exist.
 (:: goneCount (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (goneCount page lo hi)
   (let ((mut gone 0))
     {
@@ -148,6 +151,7 @@
 
 (:: pids2 (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (pids2 page a b)
   (let (
     (p (memGetWord page a))
@@ -161,6 +165,7 @@
 ; Wait until words `lo .. hi` of `page` all hold a pid.
 (:: awaitPids (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (awaitPids page lo hi)
   (let ((mut missing 1))
     {
@@ -266,6 +271,7 @@
 
 (:: trapAfterPid (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (trapAfterPid page)
   {
     (awaitPids page 1 2)
@@ -359,6 +365,7 @@
 
 ; ---- fold / keep -----------------------------------------------------------
 (:: big (-> Int String))
+;@axiom:effect(unsafe)
 (fn (big i)
   (let ((s (strAlloc 4096)))
     {

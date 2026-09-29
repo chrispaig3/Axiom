@@ -145,7 +145,7 @@ p, kind = sys.argv[1], sys.argv[2]
 s = open(p, encoding="utf-8").read()
 cuts = {
   "lock": [
-    ("(fn (chanLock ch)\n  (if (== (__atomic_cas ch 0 1) 0)", "(fn (chanLock ch)\n  (if (== 0 0)"),
+    (";@axiom:effect(unsafe)\n(fn (chanLock ch)\n  (if (== (__atomic_cas ch 0 1) 0)", "(fn (chanLock ch)\n  (if (== 0 0)"),
     ("(fn (chanUnlock ch)\n  (if (== (__atomic_add ch (- 0 1)) 1)", "(fn (chanUnlock ch)\n  (if (== 1 1)"),
   ],
   "notify": [

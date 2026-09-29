@@ -5,6 +5,7 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (let ((path (__addr "axiom-stdlib-test.tmp")))
     (match (sysOpenPath path oWronlyCreateTrunc)

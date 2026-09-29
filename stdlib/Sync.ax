@@ -204,6 +204,7 @@
 
 (:: syncScratchDone (-> Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`b` is a block `syncScratch` answered, handed back once and not used after)
 (fn (syncScratchDone b)
   {
     (__release b)
@@ -339,6 +340,7 @@
 ; Answers the guard, or -1 timed out, or -2 the holder is dead.
 (:: syncAcquire (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (syncAcquire m b timed)
   (let (
     (me syncMe)
@@ -422,6 +424,7 @@
 ; non-positive `nanos` is `mutexTryLock` with a reason.
 (pub :: mutexLockTimeout (-> Mutex Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (mutexLockTimeout mx nanos)
   (let ((m (syncAt mx)))
     (if (== (syncLoad m 3) 1)

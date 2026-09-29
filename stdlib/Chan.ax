@@ -215,6 +215,7 @@
 
 (:: chanScratchDone (-> Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`b` is a block `chanScratch` answered, handed back once and not used after)
 (fn (chanScratchDone b)
   {
     (__release b)
@@ -428,6 +429,7 @@
 ; `chanTrySend`, that says which of the three it was.
 (pub :: chanSendTimeout (-> Chan Int Int (Result Bool Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (chanSendTimeout c v nanos)
   (let (
     (ch (chanAt c))
@@ -484,6 +486,7 @@
 ; takes nothing out of the ring. A non-positive `nanos` is one look.
 (pub :: chanRecvTimeout (-> Chan Int (Result (Option Int) Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (chanRecvTimeout c nanos)
   (let (
     (ch (chanAt c))

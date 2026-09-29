@@ -188,18 +188,22 @@
   (detail : String))
 
 (pub :: rcLabel (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (rcLabel c)
   (memGetWordStr c 0))
 
 (pub :: rcOrigin (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rcOrigin c)
   (memGetWord c 1))
 
 (pub :: rcTag (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rcTag c)
   (memGetWord c 2))
 
 (pub :: rcDetail (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (rcDetail c)
   (memGetWordStr c 3))
 
@@ -266,6 +270,7 @@
     }))
 
 (pub :: replComplCommands (-> (Vec Int) (Vec String) String Int))
+;@axiom:effect(unsafe)
 (pub fn (replComplCommands out seen prefix)
   (let (
     (cs replCommands)
@@ -438,6 +443,7 @@
 ; `lspKeywords` by import, never by copy - see the file header.
 ; ------------------------------------------------------------------
 (pub :: replComplKeywords (-> (Vec Int) (Vec String) String Int))
+;@axiom:effect(unsafe)
 (pub fn (replComplKeywords out seen prefix)
   (let (
     (kws lspKeywords)
@@ -518,6 +524,7 @@
 ; and `self_host/repl.ax`: two strings, in one direction.
 ; ------------------------------------------------------------------
 (pub :: replComplEnvNew (-> String String Int))
+;@axiom:effect(unsafe)
 (pub fn (replComplEnvNew declsSrc pending)
   (let ((e (memAlloc 40)))
     {
@@ -530,6 +537,7 @@
     }))
 
 (pub :: replComplEnvSet (-> Int String String Int))
+;@axiom:effect(unsafe)
 (pub fn (replComplEnvSet e declsSrc pending)
   {
     (memSetWord e 0 declsSrc)
@@ -543,10 +551,12 @@
   })
 
 (pub :: replComplEnvDeclsSrc (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (replComplEnvDeclsSrc e)
   (memGetWordStr e 0))
 
 (pub :: replComplEnvPending (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (replComplEnvPending e)
   (memGetWordStr e 1))
 
@@ -559,6 +569,7 @@
 ; longer has. The walk is `TAG_D_IMPORT`, name in word 1 - the one
 ; `lspPreflight` and `resolveDeclsPhase` both use.
 (pub :: replComplImportKey (-> (Vec Int) String))
+;@axiom:effect(unsafe)
 (pub fn (replComplImportKey decls)
   (let (
     (n (vecLen decls))
@@ -588,6 +599,7 @@
 ; menu that reports a parse failure while the user is mid-word is a
 ; REPL that looks broken exactly when it is not.
 (pub :: replComplEnvDecls (-> Int (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (replComplEnvDecls e)
   (if (!= (memGetWord e 4) 0)
     (memGetWordVec e 4)
@@ -613,6 +625,7 @@
 ; disk a moment later is picked up.
 (pub :: replComplResolved (-> Int (Vec Int) (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (replComplResolved e decls)
   (if (==
     (cast Int decls)
@@ -661,6 +674,7 @@
 ; ------------------------------------------------------------------
 (pub :: replComplFor (-> Int String Bool (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (replComplFor e prefix atCmd)
   (let (
     (out vecNew)
@@ -711,6 +725,7 @@
 ; 1.
 ; ------------------------------------------------------------------
 (pub :: replComplRegion (-> String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (replComplRegion buf cur)
   (let ((word (lspPrefixAt buf cur)))
     (let ((start (- cur (strLen word))))
@@ -742,14 +757,17 @@
           })))))
 
 (pub :: regStart (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (regStart r)
   (memGetWord r 0))
 
 (pub :: regPrefix (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (regPrefix r)
   (memGetWordStr r 1))
 
 (pub :: regAtCmd (-> Int Bool))
+;@axiom:effect(unsafe)
 (pub fn (regAtCmd r)
   (== (memGetWord r 2) 1))
 
@@ -1246,22 +1264,27 @@
   (rows : Int))
 
 (pub :: stStart (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (stStart s)
   (memGetWord s 0))
 
 (pub :: stTyped (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (stTyped s)
   (memGetWordStr s 1))
 
 (pub :: stCands (-> Int (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (stCands s)
   (memGetWordVec s 2))
 
 (pub :: stSel (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (stSel s)
   (memGetWord s 3))
 
 (pub :: stRows (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (stRows s)
   (memGetWord s 4))
 
@@ -1270,6 +1293,7 @@
 ;   1 the new cursor     4 the new state, 0 when idle
 ;   2 the menu text, "" when there is none
 (pub :: replComplAnswer (-> String Int String Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (replComplAnswer buf cur menu rows st)
   (let ((r (memAlloc 40)))
     {
@@ -1282,22 +1306,27 @@
     }))
 
 (pub :: tabBuf (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (tabBuf r)
   (memGetWordStr r 0))
 
 (pub :: tabCur (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tabCur r)
   (memGetWord r 1))
 
 (pub :: tabMenu (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (tabMenu r)
   (memGetWordStr r 2))
 
 (pub :: tabRows (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tabRows r)
   (memGetWord r 3))
 
 (pub :: tabState (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tabState r)
   (memGetWord r 4))
 

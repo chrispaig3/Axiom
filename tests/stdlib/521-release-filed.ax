@@ -30,6 +30,7 @@
   (& p 15))
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (a (memAlloc 32))

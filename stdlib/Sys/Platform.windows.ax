@@ -454,6 +454,7 @@
 ; errno `winErrnoOf` maps the last error to.
 (pub :: platformWriteFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (platformWriteFd fd buf count)
   (let ((cell winCell))
     (let ((ok (& (winWriteFile
@@ -472,6 +473,7 @@
 ; answers too.
 (pub :: platformReadFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (platformReadFd fd buf count)
   (let ((cell winCell))
     (let ((ok (& (winReadFile

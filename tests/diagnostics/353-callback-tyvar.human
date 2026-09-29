@@ -8,21 +8,54 @@
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
 
 [1;31merror[AX3040][0m[1m: `alsoResult` returns type variable `a`, which no parameter mentions, and its body produces that result rather than never returning: the caller chooses the type and a `cast` fabricates the value[0m
-  [1;34m--> [0m353-callback-tyvar.ax:65:5
+  [1;34m--> [0m353-callback-tyvar.ax:66:5
 [1;34m   |[0m
-[1;34m65 |[0m (:: alsoResult (-> (-> a Int) a))
+[1;34m66 |[0m (:: alsoResult (-> (-> a Int) a))
 [1;34m   |[0m     [1;31m^^^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mthree ways out: return a concrete word type and let callers write `cast`; or make it DIVERGE, so every path ends in a call that never returns, which is what makes `for all a` honest; or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
 
 [1;31merror[AX3040][0m[1m: `divDemand` must produce a value of type variable `a`, which no parameter supplies: it occurs inside a function-typed parameter, on the side this function fills in, so the caller chooses the type and a `cast` fabricates the value[0m
-  [1;34m--> [0m353-callback-tyvar.ax:69:5
+  [1;34m--> [0m353-callback-tyvar.ax:70:5
 [1;34m   |[0m
-[1;34m69 |[0m (:: divDemand (-> (-> a Int) a))
+[1;34m70 |[0m (:: divDemand (-> (-> a Int) a))
 [1;34m   |[0m     [1;31m^^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0mmaking the function diverge does not answer this one - the value is fabricated before it returns, or fails to; name a concrete word type in the callback's parameter and let callers write `cast`, or tag the declaration `;@axiom:raw` to put it in the unsafe layer on purpose
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3040` for a full explanation
 
-compilation failed due to 3 previous errors
+[1;31merror[AX3073][0m[1m: `demand` forges `a` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m353-callback-tyvar.ax:53:6
+[1;34m   |[0m
+[1;34m53 |[0m     (cast a 42)))
+[1;34m   |[0m      [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `alsoResult` forges `a` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m353-callback-tyvar.ax:68:4
+[1;34m   |[0m
+[1;34m68 |[0m   (cast a 42))
+[1;34m   |[0m    [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `divDemand` forges `a` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m353-callback-tyvar.ax:74:8
+[1;34m   |[0m
+[1;34m74 |[0m       (cast a 42))
+[1;34m   |[0m        [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 6 previous errors

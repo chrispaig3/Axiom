@@ -168,6 +168,65 @@ answers 25, where the unfixed compiler refuses it, and
 `tests/selfhost/381-macro-type-templates.ax` reversed answers the 32
 it answers as written.
 
+### Unsafe boundaries cover forging casts and caller preconditions — R-B6 - 2026-09-28
+
+A cast that makes a reference out of a word is now an unsafe
+operation. So is a call to a *precondition interface*, a function
+tagged `;@axiom:precondition(...)` beside `;@axiom:effect(unsafe)`.
+A declaration performing either says `;@axiom:effect(unsafe)`, as one
+calling a raw primitive already did, or draws `AX3073`. `(cast Hid 7)`
+checked OK in an untagged function and died with SIGSEGV; it is
+refused now (`tests/diagnostics/1040-forging-cast.ax`). A cast that
+only observes, a cast to the type a value already has, and a cast of a
+value that never returns stay silent. A cast is judged once its body
+is typed, so an empty vector cast to `(Vec String)` and filled with
+`Int`s below the cast is refused as well.
+
+`effect(unsafe)` alone makes a *trusted encapsulation*: its author
+vouches for every well-typed call, and its `Unsafe` stops at it. So
+`restrict(no-unsafe)` now admits ordinary code: a function claiming it
+can push to a `Vec`, fill a `Map`, build strings, use a channel and run
+a task pool (`tests/stdlib/545-no-unsafe-practical.ax`). It still
+refuses a forging cast or a precondition call, directly or through a
+callee that isn't trusted, and names the path
+(`tests/diagnostics/1042-no-unsafe-indirect.ax`). `AX3079` refuses a
+precondition without `effect(unsafe)` and `AX3080` an empty one
+(`tests/diagnostics/1043-precondition-tag.ax`). `symbols` prints
+`#unsafe=trusted` or `#unsafe=precondition` on each tagged row, so a
+program's trusted set is one `grep`.
+
+Breaking, for programs and for claims:
+
+- `AX3073` asks every declaration that doesn't say `effect(unsafe)`.
+  A function claiming only `effect(io)` over a raw primitive compiled
+  before; add `;@axiom:effect(unsafe)`.
+- The standard library's raw layer is 82 precondition interfaces, and
+  a caller of one now says `effect(unsafe)`. They are `Mem`'s words,
+  bytes and copies, `vecGetStr`, `vecGetVec`, `vecPushStr`,
+  `vecPushVec`, `mapGetStr`, the frees (`vecFree`, `mapFree`,
+  `internFree`, `ffiCellFree`), `strWrap`, `strWrapOwned`,
+  `strFromLit`, `cstrLen`, `Ffi`'s cells and word readers,
+  `ffiHandleNew`, `Sys`'s caller-buffer functions (`netAddr4`,
+  `sysNowMicros`, `sysWaitWordTimeout` and their kin) and `taskFold`.
+- `strSplit` answers `(Vec String)`, and so do `listDir` and
+  `sysReadDir`, where they answered a `(Vec Int)` of string handles.
+  Read a segment with `vecGet`; the `(cast String ...)` a caller wrote
+  would now forge. `axsymParseFrom` takes a `(Vec String)`.
+- Effect rows narrowed: a caller of a trusted encapsulation no longer
+  carries `Unsafe`, so `vecPush`'s callers read `#effects=Alloc,Mut`.
+  A `;@axiom:effect(unsafe)` claim whose only unsafe work was such a
+  call is now `AX3010`; delete it.
+- `mapKeyAt` and `mapValAt` trap with status 77 outside
+  `0 .. (mapCap m) - 1`, as `vecGet` does, where they read past the
+  table.
+- `axiom-bindgen` tags a wrapper that reads its out-cell or builds a
+  `Handle` `;@axiom:effect(unsafe)`, and its record-rebuilding loops
+  as precondition interfaces. Regenerate your bindings.
+
+The compiler checks where the boundary is declared, not that a trusted
+body keeps its promise. A buffer typed `Int` is still forged without
+a cast. `memory-model.md` `MM-EXEC-9d` is the rule.
+
 ### The stack bound reads x86-64 machine code — `scripts/axiom-report.py --stack`, R-D1 - 2026-09-28
 
 `--stack` now bounds a program's stack from an x86-64 ELF object as

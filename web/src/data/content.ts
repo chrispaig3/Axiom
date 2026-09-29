@@ -222,7 +222,7 @@ export const FAQS: Faq[] = [
   {
     q: 'Do I have to annotate every function\'s effects?',
     a: [
-      'No. Effects are inferred transitively. Only I/O must be declared, because it is the one effect a caller cannot learn without opening the callee; allocation and mutation are inferred and reported but never demanded. (The one other requirement is local: a function that calls a raw-memory primitive says `effect(unsafe)`.) `restrict(...)` and `pure` are optional, stronger claims you add where they matter.',
+      'No. Only I/O must be declared through the call chain. Allocation and mutation are inferred and reported. A function that performs a raw operation, calls a precondition interface or casts a value into an unrelated reference type declares `effect(unsafe)`. A trusted wrapper contains that obligation for its callers. `restrict(...)` and `pure` add stronger checks where you need them.',
     ],
     link: { label: 'Effects in the reference', href: `${REF}#effects` },
   },

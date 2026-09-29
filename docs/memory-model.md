@@ -508,14 +508,99 @@ twenty-six:
 refuses them with `AX3010`. `__fence`, `__retainref` (a typed value)
 and `__axiom_arena_mark` are outside the set.
 
-`AX3073` is the lexical rule that a declaration *calling* a raw
-primitive says `effect(unsafe)`. It reads all twenty-six (`isUnsafePrim` in
-`self_host/typecheck.ax`), and the fifteen standard-library wrappers
-that call `__retain` or `__release` directly carry `effect(unsafe)`.
+`AX3073` also covers calls to precondition interfaces and casts that
+forge references. `MM-EXEC-9d` defines where a declaration must state
+its unsafe boundary.
 
 Tested by `tests/diagnostics/1010-unsafe-primitives.ax` (the sixteen) and `tests/diagnostics/1020-unsafe-device-primitives.ax` (the ten device primitives). Every row
 draws `AX3073` beside its `AX3049`, except the `pure` row, which draws
 `AX3010`, and the controls (`__fence`, `__retainref`, `__axiom_arena_mark`, and 1020's `fenced` and `slot`), which stay silent under every rule.
+
+**MM-EXEC-9d (H).** A declaration that performs an unsafe operation
+**MUST** say `;@axiom:effect(unsafe)`. There are three unsafe
+operations:
+
+- a primitive in `MM-EXEC-9c`;
+- a call to, or a reference to, a *precondition interface*: a function
+  whose tags say `;@axiom:precondition(...)` as well as
+  `effect(unsafe)`, because its safety depends on what its caller
+  passes, such as `Mem.memGetWord`;
+- a *forging cast*: `(cast T x)`, where `T` is a reference type and
+  `x` isn't already a `T`. The reference types are `String`, `Vec`,
+  `Handle`, a struct, a `data` type with a field, a function, a
+  non-empty tuple, and a type variable, which a caller may instantiate
+  at any of them.
+
+An untagged operation is `AX3073`, even when the declaration claims
+another effect, such as `effect(io)`. Under `effect(pure)` it is
+`AX3010` instead, since a purity claim already answers it.
+
+```scheme refused
+(struct Hid (name : String) (n : Int))
+
+(:: peek (-> Int Int))
+(fn (peek k)
+  (let ((h (cast Hid k)))
+    h.n))
+```
+
+`peek`'s cast draws `AX3073`. It makes a `Hid` out of whatever word it
+is given, so `(peek 7)` reads a field at address 7 and dies with
+SIGSEGV.
+
+A cast that only observes forges nothing, so these stay silent:
+
+- a reference read as an `Int`, or a number converted to another;
+- a `Foreign` read as an `Int`, or back;
+- an `Int` read as a `data` type whose constructors are all nullary,
+  since its values are tags;
+- a value cast to the type it already has;
+- an ascription that chooses the element type of a value nothing else
+  in the body constrains, such as `(:: vecNew (Vec Int))`;
+- a cast of a value that never returns, such as `(cast a (exit 70))`,
+  the diverging spelling `AX3040` accepts.
+
+A cast is judged once its whole body is typed, so the type a value
+ends up with decides. An empty vector cast to `(Vec String)` and then
+filled with `Int`s forges, wherever the push is written.
+
+The two tags give a declaration one of two roles:
+
+- A *trusted encapsulation* says `effect(unsafe)` alone. Its author
+  vouches that every well-typed call is safe, so its `Unsafe` ends at
+  the declaration: a caller's inferred row doesn't carry it, and a
+  caller needs no tag. `vecPush`, `strConcat` and `mapInsert` are
+  trusted.
+- A *precondition interface* says `effect(unsafe)` and
+  `;@axiom:precondition(...)`. The text states what a caller must make
+  true. Every call is an unsafe operation in the caller, so it carries
+  `Unsafe` into the caller's row. `memGetWord`, `vecGetStr`, `vecFree`
+  and `strWrap` are precondition interfaces.
+
+A precondition without `effect(unsafe)` is `AX3079`, and an empty one
+is `AX3080`. `symbols` reports each role as `#unsafe=trusted` or
+`#unsafe=precondition` (the text rides along as `#precondition=`), so
+the trusted set of a program is one `grep`.
+
+`restrict(no-unsafe)` refuses a body that performs an unsafe operation
+or reaches one through a callee that is not a trusted encapsulation,
+and names the path. The walk stops at a trusted declaration. A forging
+cast in a callee that says nothing is found after every body is typed,
+because the checker learns a cast's source type only there; the answer
+does not depend on which is declared first.
+
+The compiler checks where the boundary is declared and that a
+precondition states something. It does not prove that a trusted body
+keeps its promise, or that a caller meets a precondition. Those are
+review obligations, and the trusted set is the list to review
+([assurance/trusted-components.md](assurance/trusted-components.md)).
+
+Tested by `tests/diagnostics/1040-forging-cast.ax` to
+`tests/diagnostics/1043-precondition-tag.ax`. The accepted wrapper in
+`tests/selfhost/1010-trusted-wrapper.ax` and the ordinary workload in
+`tests/stdlib/545-no-unsafe-practical.ax`, which claims
+`restrict(no-unsafe)` over `Vec`, `Map`, `Str`, `Chan` and `Task`, keep
+the trusted side compiling.
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -2033,10 +2118,16 @@ from it:
 ```scheme
 ;@axiom:raw
 (:: getStr (-> Int Int String))
+;@axiom:effect(unsafe)
+;@axiom:precondition(word `i` at `a` holds a live `String`)
 (fn (getStr a i) (cast String (memGetWord a i)))
 
 (memSetWord p 0 (getStr p 0))     ; evidence word 1, releases emitted
 ```
+
+The cast still forges a reference out of a word, so the accessor says
+`effect(unsafe)`, and the word it trusts is its caller's to vouch for
+(`MM-EXEC-9d`).
 
 That is the migration recipe for the `#raw` layer. The accessor's
 declared type must also match what the word holds. A cast inside a
@@ -4691,41 +4782,33 @@ location two bindings can both reach, and the language builds none:
 - what crosses a join is a word;
 - the process lowering shares nothing (`MM-PAR-3`).
 
-So a race needs one of three things:
+So a race needs one of two routes:
 
-- **The unsafe layer.** This means an `Unsafe` primitive, such as a raw
-  address loaded or stored, or an atomic on a word something else
-  accesses plainly. It also means a call to a standard-library wrapper
-  that says `effect(unsafe)`, such as `Mem.ax`'s raw words and their
-  kin (R-A6). A declaration that performs a primitive must say so
-  (`AX3073`), so direct use is always visible. `restrict(no-unsafe)`
-  refuses both. But it also walks through the safe standard library, so
-  it refuses ordinary container code too. A thunk that pushes to a
-  local `Vec` is refused as `work -> Vec$vecPush -> Mem$memSetWord ->
-  __store64`. It is a sufficient check, not a practical one.
+- **The unsafe layer.** A primitive, a call to a precondition
+  interface, or a cast that forges a reference requires
+  `effect(unsafe)` at its declaration (`MM-EXEC-9d`).
+  `restrict(no-unsafe)` refuses them directly and through untrusted
+  callees. It admits a trusted encapsulation such as `vecPush`, whose
+  author takes responsibility for its raw operations. A cast from a
+  word to a handle is one such operation (`MM-VAL-22`).
 - **An `extern` call**, whose side decides (`MM-FFI-7`).
   `restrict(no-foreign)` refuses it, and admits ordinary code.
-- **A `cast` from a word to a handle** (`MM-VAL-22`).
-  `restrict(no-cast)` reads only its own body.
-  `restrict(no-cast:deep)` also refuses the standard library's own
-  typed accessors, which cast by design (`MM-VAL-23`).
 
-That leaves three holes with no refusal that admits ordinary programs:
+That leaves two things the compiler doesn't check:
 
-- a user `cast` of a word into a handle;
-- a call to an `effect(unsafe)` wrapper from a declaration that doesn't
-  itself say so, because `AX3073` fires only where a primitive is
-  called;
-- a word handed to a library function that dereferences it as a
-  buffer, such as `Sys`'s buffer addresses. The function can't tell a
-  forged or freed word from a live one. Channels, mutexes,
+- **What the unsafe layer promises.** A trusted encapsulation vouches
+  for every well-typed call, and a caller of a precondition interface
+  vouches for the condition. The compiler checks where those promises
+  are declared, not that they are kept. The trusted set is the list to
+  review ([assurance/trusted-components.md](assurance/trusted-components.md)).
+- **A buffer typed `Int`.** `Sys` takes buffer addresses as `Int`s.
+  An `Int` is not a reference, so writing `7` where a buffer belongs
+  needs no cast and no tag, and the function can't tell a forged or
+  freed word from a live one. A `Sys` function that only passes a
+  buffer to the kernel carries no tag at all. Channels, mutexes,
   cancellation tokens and spawn handles are typed handles the runtime
-  checks (`MM-PAR-8`), so this hole doesn't reach them.
-
-You can find the first two by reading: the word `cast`, and the
-callee's tag. You can find the third from the parameter's documented
-meaning. Each is a **program obligation** until a claim or a type can
-separate the trusted layer's use from a user's.
+  checks (`MM-PAR-8`), and a `cast` to one is a forging cast, so this
+  hole doesn't reach them.
 
 *Evidence.*
 
@@ -4822,13 +4905,12 @@ lowering. What stays a program obligation is the order: call
 `parallel` form that used it. A free that races another binding's
 operation is a data race (`MM-PAR-9`), which the table doesn't catch.
 
-The public functions claim only `effect(io)`. The raw words are two
-private helpers that say `effect(unsafe)`, which keeps the module a
-safe interface in `MM-PAR-9`'s reading. Their effect rows still carry
-`Unsafe` (`docs/stdlib-api.md`), as `vecPush`'s and `strConcat`'s do.
-A row reports what the implementation reaches, and a claim says what
-the interface asks of its caller. `MM-PAR-9`'s boundary is drawn on the
-claim.
+The raw words are private helpers that say `effect(unsafe)` alone,
+trusted encapsulations (`MM-EXEC-9d`), so `Unsafe` stops at them and
+the public functions' rows don't carry it (`docs/stdlib-api.md`). The
+two timed forms say `effect(unsafe)` themselves, because they hand
+back a scratch block, and they are trusted too. That trust rests on the
+handle obligation above, which the type `Int` can't express.
 
 *Evidence.*
 

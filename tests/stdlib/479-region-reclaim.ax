@@ -59,6 +59,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     ; --- 1. data-construction temporary in a region ---

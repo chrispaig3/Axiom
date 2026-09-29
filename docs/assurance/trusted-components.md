@@ -78,26 +78,55 @@ Twenty-six primitives are `Unsafe`. Sixteen are general
 `__vload64`, `__vstore8`, `__vstore16`, `__vstore32`, `__vstore64`,
 `__arm_dc_cvac` and `__arm_dc_civac`.
 
-A declaration that calls one must say `;@axiom:effect(unsafe)`
-(`AX3073`, an error). So the tag is the trusted list, checked in both
-directions:
+A declaration that performs an unsafe operation must say
+`;@axiom:effect(unsafe)` (`AX3073`, an error). There are three: one of
+those primitives, a call to a precondition interface, and a cast that
+forges a reference (`MM-EXEC-9d` in
+[memory-model.md](../memory-model.md)). The tag gives the declaration
+one of two roles:
 
-| Where | Declarations tagged `effect(unsafe)` | Command |
-|---|---|---|
-| `stdlib/` | 80 | `git grep -h ';@axiom:effect(unsafe)' -- stdlib \| wc -l` |
-| `self_host/` | 22 | `git grep -h ';@axiom:effect(unsafe)' -- self_host \| wc -l` |
+- a *trusted encapsulation*, with the tag alone: its author vouches
+  that every well-typed call is safe, and its callers inherit nothing;
+- a *precondition interface*, with `;@axiom:precondition(...)` beside
+  it: every call is the caller's unsafe operation, and the text says
+  what the caller must make true.
 
-The largest holders are `Chan.ax` (14), `Mem.ax` (11), `Sync.ax` (9),
-`Ffi.ax` (9), `Task.ax` (7) and `Str.ax` (6). Their preconditions are
-the memory contract's program obligations, each with a disposition in
-[memory-audit.md](memory-audit.md). `scripts/axiom-report.py` lists
-exactly the reachable subset of these for a given program, as
-obligations.
+The trusted encapsulations are what a program trusts without being
+asked. Each is a promise the compiler records and doesn't check:
 
-`cast` isn't in the set, because 15% of declarations use it
-(`MM-EXEC-9c`). It is the largest unchecked reinterpretation left: a
-user `cast` of a word into a handle is a program obligation with no
-practical refusal ([requirements.md](requirements.md), R-C4's gaps).
+| Where | Tag lines `effect(unsafe)` | Of those, precondition interfaces | Command |
+|---|---|---|---|
+| `stdlib/` | 280 | 82 | `git grep -hE '^ *;@axiom:(effect\(unsafe\) *$\|precondition\()' -- stdlib \| cut -d'(' -f1 \| sort \| uniq -c` |
+| `self_host/` | 1,525 | 0 | the same, over `self_host` |
+
+A program's own trusted set, the standard library's included, is one
+`grep` over `symbols`:
+
+```bash
+axiom --diagnostic-format=ai symbols main.ax | grep '#unsafe=trusted'
+```
+
+Over a probe that imports every standard module, that lists 193
+trusted encapsulations and 82 precondition interfaces on
+darwin-aarch64. The other five tag lines are in the baremetal and
+Windows `Sys/Platform` files. The precondition interfaces are the raw layer:
+`Mem`'s words and bytes, `Vec`'s and `Map`'s heterogeneous readers and
+their frees, `Str`'s raw constructors, `Ffi`'s cells and handles,
+`Sys`'s caller buffers, and `Task.taskFold`'s step. Their
+preconditions are the memory contract's program obligations, each with
+a disposition in [memory-audit.md](memory-audit.md).
+`scripts/axiom-report.py` lists exactly the reachable subset for a
+given program, as obligations.
+
+In `self_host/` every tag is trusted. The compiler's records and AST
+nodes are `Int` handles made and read only by the compiler, which is
+on the trusted list above.
+
+Two things stay outside the set. A handle or buffer typed `Int`, such
+as a channel handle or a `Sys` buffer address, can be forged without a
+cast, so the interface that reads it trusts its caller without a tag
+saying so (`MM-PAR-8`). And a trusted encapsulation's promise is
+checked by review, not by the compiler.
 
 ## Evidence tools
 

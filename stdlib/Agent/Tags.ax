@@ -292,12 +292,12 @@
   (let ((lines (strSplit text axsymNewline)))
     (axsymParseFrom lines 0 vecNew)))
 
-(pub :: axsymParseFrom (-> (Vec Int) Int (Vec Sym) (Vec Sym)))
+(pub :: axsymParseFrom (-> (Vec String) Int (Vec Sym) (Vec Sym)))
 (pub fn (axsymParseFrom lines i out)
   (if (>= i (vecLen lines))
     out
     {
-      (match (axsymLine (vecGetStr lines i))
+      (match (axsymLine (vecGet lines i))
         ((Some s)
           {
             (vecPush out s)

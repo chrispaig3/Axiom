@@ -44,11 +44,12 @@ transitive effect row, a fixpoint the checker computes), `#calls=`
 its own parameters), `#effects-incomplete` and `#effects-possible=`
 (the row's admissions that it is a bound), `#effect=` (declared
 effects - `#effect=unsafe` is `AX3073`'s checked marker of a body that
-calls an Unsafe primitive directly), `#isr`, `#restrict=`, and
-`#extern`, which `symbols` prints on an `extern` item since this
-profile landed: without it an extern row is a function with no calls
-and `#effects=IO`, which is also what a body writing one syscall looks
-like.
+performs an unsafe operation itself, and `#unsafe=` says whether it is
+a trusted encapsulation or a precondition interface), `#isr`,
+`#restrict=`, and `#extern`, which `symbols` prints on an `extern`
+item since this profile landed: without it an extern row is a function
+with no calls and `#effects=IO`, which is also what a body writing one
+syscall looks like.
 
 The stack half is the object `llc` writes for the same IR at the same
 `--opt`, with `-stack-size-section -function-sections` added: each

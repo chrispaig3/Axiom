@@ -21,6 +21,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     (println "LED ON")

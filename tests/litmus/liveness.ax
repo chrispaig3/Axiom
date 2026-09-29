@@ -78,6 +78,7 @@
 ; waits by length to words 16+8k to 20+8k. Word 15 is the barrier.
 (:: contend (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (contend m res k ms)
   (let (
     (buf (memAlloc 16))
@@ -128,6 +129,7 @@
           4)))))
 
 (:: tallyWait (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (tallyWait res k us)
   (let ((w (+ 16 (+ (* 8 k) (bucketOf us)))))
     {
@@ -137,6 +139,7 @@
 
 (:: shares (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (shares res)
   (let (
     (mut k 0)

@@ -54,6 +54,7 @@
 ; one-byte length then a one-byte family; Linux holds two host-order
 ; family bytes at offset 0. Neither number reaches stdout.
 (:: familyLands (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (familyLands buf fam size)
   (if (== sockaddrHasLenByte 1)
     (if (== (memGetByte buf 0) size)
@@ -72,6 +73,7 @@
 ; are fields `sockaddr_in` does not have, and `netAddr6` leaves them
 ; cleared rather than uninitialised.
 (:: zeroFrom (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (zeroFrom buf at n)
   (if (== n 0)
     1
@@ -80,11 +82,13 @@
       0)))
 
 (:: groupAt (-> Int Int Int))
+;@axiom:effect(unsafe)
 (fn (groupAt buf i)
   (+ (<< (memGetByte buf (+ 8 (* i 2))) 8) (memGetByte buf (+ 9 (* i 2)))))
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   ; ---------------------------------------------------------- v4
   (let (

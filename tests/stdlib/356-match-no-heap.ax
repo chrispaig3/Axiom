@@ -24,6 +24,7 @@
     0))
 
 (:: spin (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (spin n v acc)
   (if (<= n 0)
     acc

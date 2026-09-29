@@ -138,6 +138,7 @@ cat > "$work/probe.ax" <<'AX'
 ; script can compare with `=`.
 (:: hexOf (-> Int Int Int String String))
 
+;@axiom:effect(unsafe)
 (fn (hexOf buf n i acc)
   (if (>= i n)
     acc
@@ -160,6 +161,7 @@ cat > "$work/probe.ax" <<'AX'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (keep (if (strEq (sysArg 1) "0") 0 1))

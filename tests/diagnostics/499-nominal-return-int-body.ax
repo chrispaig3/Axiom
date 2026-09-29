@@ -36,7 +36,8 @@
 ;             return a handle through a declared `Int`, and every one
 ;             of them must stay accepted
 ;   `mkOk`    `(cast Box n)`, the explicit escape, which is what a
-;             function that really does mint a handle from a word says
+;             function that really does mint a handle from a word says,
+;             under `effect(unsafe)` because the cast forges (AX3073)
 ;   `unwrap`  the honest direction, so the case is not vacuous
 (import Str)
 
@@ -64,6 +65,7 @@
   (Pt a b))
 
 (:: mkOk (-> Int Box))
+;@axiom:effect(unsafe)
 (fn (mkOk n)
   (cast Box n))
 

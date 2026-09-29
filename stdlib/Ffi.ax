@@ -59,6 +59,7 @@
 ; adopts a header - so the caller holds one share.
 (pub :: ffiHandleNew (-> Int Int Handle))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`dropFn` is the address of a destructor that takes `ptr` and frees it exactly once)
 (pub fn (ffiHandleNew ptr dropFn)
   ; the foreign form: bit 0 of the shape word. `memAllocMapped`
   ; refuses to set it, by design - this module is the one reviewed
@@ -137,6 +138,8 @@
 ; is Rust's buffer, one is the cell the wrapper allocated - and written
 ; in terms of it so there is one load.
 (pub :: ffiWordAt (-> Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names a live buffer of at least `i` + 1 words)
 (pub fn (ffiWordAt p i)
   (ffiCellWord p i))
 
@@ -144,6 +147,7 @@
 ; `c` must be that live cell, with no outstanding foreign use of it.
 (pub :: ffiCellFree (-> Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`c` is a live cell from `ffiCellNew` or `ffiCellNewN`, freed once, with no foreign use outstanding)
 (pub fn (ffiCellFree c)
   {
     (__release c)
@@ -152,6 +156,7 @@
 
 (pub :: ffiCellWord (-> Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`c` names a live block of at least `i` + 1 words)
 (pub fn (ffiCellWord c i)
   (__load64 c i))
 
@@ -159,6 +164,8 @@
 ; reserves len+1 and zeroes it, so the NUL terminator is already there.
 ; Does NOT free the Rust side: the wrapper calls `ffiFreeBytes` after.
 (pub :: ffiBytesToStr (-> Int Int String))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live bytes)
 (pub fn (ffiBytesToStr p n)
   (if (<= n 0)
     ""
@@ -171,6 +178,8 @@
 ; A Rust `Vec<i64>` copied into an Axiom `Vec`: `p` points at `n`
 ; words. Does NOT free the Rust side: the wrapper calls `ffiFreeWords`.
 (pub :: ffiWordsToVec (-> Int Int (Vec Int)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live words)
 (pub fn (ffiWordsToVec p n)
   (let ((v 
     (vecWithCapacity
@@ -181,6 +190,7 @@
 
 (:: ffiWordsInto (-> (Vec Int) Int Int Int (Vec Int)))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `n` live words)
 (fn (ffiWordsInto v p n i)
   (if (>= i n)
     v
@@ -193,6 +203,8 @@
 ; points at `2n` words, `{bytesPtr, byteLen}` per element. Does NOT
 ; free the Rust side: the wrapper calls `ffiFreeStrList`.
 (pub :: ffiStrsToVec (-> Int Int (Vec String)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `2n` live words, each pair a live byte address and its length)
 (pub fn (ffiStrsToVec p n)
   (let ((v 
     (vecWithCapacity
@@ -203,6 +215,7 @@
 
 (:: ffiStrsInto (-> (Vec String) Int Int Int (Vec String)))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `2n` live words, each pair a live byte address and its length)
 (fn (ffiStrsInto v p n i)
   (if (>= i n)
     v
@@ -217,6 +230,8 @@
 ; `Vec`s: `p` points at `2n` words, `{wordsPtr, len}` per inner list.
 ; Does NOT free the Rust side: the wrapper calls `ffiFreeWordLists`.
 (pub :: ffiWordListsToVec (-> Int Int (Vec (Vec Int))))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `2n` live words, each pair a live word address and its length)
 (pub fn (ffiWordListsToVec p n)
   (let ((v 
     (vecWithCapacity
@@ -227,6 +242,7 @@
 
 (:: ffiWordListsInto (-> (Vec (Vec Int)) Int Int Int (Vec (Vec Int))))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`p` names `2n` live words, each pair a live word address and its length)
 (fn (ffiWordListsInto v p n i)
   (if (>= i n)
     v

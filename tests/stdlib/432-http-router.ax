@@ -71,6 +71,7 @@
 ; Dispatch `r` through `rt` into a file, and answer what was written.
 (:: dispatched (-> HttpRouter HttpReq String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (dispatched rt r)
   (match (sysOpenPath (__addr "out.tmp") oWronlyCreateTrunc)
     ((Err e) (strConcat "ERR open out.tmp: " (errMessage e)))
@@ -118,6 +119,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   ; the files: a static directory with a stylesheet, a binary of
   ; unknown extension and a subdirectory, and a secret beside it

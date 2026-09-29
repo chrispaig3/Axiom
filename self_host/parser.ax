@@ -47,20 +47,24 @@
 ; into the program; stage1 spliced all of them, so a reference to a
 ; private imported name compiled here and was AX3001 there.
 (pub :: nodeVis (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeVis n)
   (memGetWord n 5))
 
 (pub :: nodeAxtags (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeAxtags n)
   (memGetWord n 7))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: nodeAxtagsVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (nodeAxtagsVec n)
   (cast (Vec a) (nodeAxtags n)))
 
 (pub :: setNodeSpan (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (setNodeSpan n sp)
   {
     (memSetWord n 4 sp)
@@ -68,6 +72,7 @@
   })
 
 (pub :: markPub (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (markPub n)
   {
     (if (== n 0)
@@ -82,16 +87,19 @@
 ; TAG_D_SIG/TAG_FIELD, a Vec of field type nodes for TAG_CTOR, a Vec
 ; of tyvar name Strs for TAG_D_DATA.
 (pub :: nodeTy (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeTy n)
   (memGetWord n 6))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: nodeTyVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (nodeTyVec n)
   (cast (Vec a) (nodeTy n)))
 
 (pub :: setNodeTy (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (setNodeTy n t)
   {
     (memSetWord n 6 t)
@@ -459,6 +467,7 @@
   43)
 
 (pub :: nodeTag (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeTag n)
   (memGetWord n 0))
 
@@ -466,12 +475,14 @@
 ; the type system does not model - so this answers the word, and
 ; `nodeAName` answers the reading almost every tag gives it.
 (pub :: nodeA (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeA n)
   (memGetWord n 1))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: nodeAVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (nodeAVec n)
   (cast (Vec a) (nodeA n)))
 
@@ -479,32 +490,38 @@
 ; constructor's. The cast is here, at a return inside a signature that
 ; carries the type - see `nodeCName`.
 (pub :: nodeAName (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (nodeAName n)
   (cast String (nodeA n)))
 
 (pub :: nodeB (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeB n)
   (memGetWord n 2))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: nodeBVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (nodeBVec n)
   (cast (Vec a) (nodeB n)))
 
 ; The String view of word 2. See `nodeCName` for why the cast lives
 ; here and not at the call sites.
 (pub :: nodeBName (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (nodeBName n)
   (cast String (nodeB n)))
 
 (pub :: nodeC (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeC n)
   (memGetWord n 3))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: nodeCVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (nodeCVec n)
   (cast (Vec a) (nodeC n)))
 
@@ -514,6 +531,7 @@
 ; classifies that value's evidence 0 and drops its retain or its
 ; release (docs/memory-model.md MM-LIFE-2e, measured).
 (pub :: nodeCName (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (nodeCName n)
   (cast String (nodeC n)))
 
@@ -575,6 +593,7 @@
   })
 
 (pub :: nodeSpan (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeSpan n)
   (memGetWord n 4))
 
@@ -585,6 +604,7 @@
 ; a machine word, and this split is as close as the language gets
 ; until one exists.
 (pub :: nodeModule (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeModule n)
   (memGetWord n 8))
 
@@ -592,16 +612,19 @@
 ; cast is here, at a return inside a signature that carries the type -
 ; see `nodeCName`.
 (pub :: nodeModuleName (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (nodeModuleName n)
   (cast String (nodeModule n)))
 
 (pub :: nodeFieldNames (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeFieldNames n)
   (memGetWord n 9))
 
 ; The `Vec` view of the same word. The cast is at the return,
 ; not the call sites - see `nodeCName`.
 (pub :: nodeFieldNamesVec (-> Int (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (nodeFieldNamesVec n)
   (cast (Vec a) (nodeFieldNames n)))
 
@@ -621,10 +644,12 @@
 ; (MAC-HYG-3) and resolve through the rename table long before the
 ; free-identifier arm is reached.
 (pub :: nodeDefScope (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeDefScope n)
   (memGetWord n 10))
 
 (pub :: setNodeDefScope (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (setNodeDefScope n)
   {
     (memSetWord n 10 1)
@@ -655,6 +680,7 @@
 ; the difference between a word that cannot alias the block and a
 ; reference that can.
 (pub :: nodeBinderTy (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeBinderTy n)
   (memGetWord n 11))
 
@@ -689,10 +715,12 @@
 ; a lower bound); its readers are the chain walker (`== 1`) and
 ; the region elision (`== 2`).
 (pub :: nodeResWord (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (nodeResWord n)
   (memGetWord n 7))
 
 (pub :: setNodeResWord (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (setNodeResWord n w)
   {
     (memSetWord n 7 w)
@@ -700,6 +728,7 @@
   })
 
 (pub :: setNodeBinderTy (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (setNodeBinderTy n t)
   {
     (memSetWord n 11 t)
@@ -728,14 +757,17 @@
 ; region checker (`typecheck.ax`, `rgnCheckAll`) reads it from.
 ; ------------------------------------------------------------------
 (pub :: tyRegion (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tyRegion t)
   (memGetWord t 7))
 
 (pub :: tyRegionName (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (tyRegionName t)
   (memGetWordStr t 7))
 
 (pub :: tySetRegion (-> Int String Int))
+;@axiom:effect(unsafe)
 (pub fn (tySetRegion t r)
   {
     (memSetWord
@@ -926,9 +958,17 @@
 ; teaches the diagnostic everything it needs by naming its expectation,
 ; and a site that has not been taught yet answers `""`, which reports
 ; AX2003 rather than inventing an expectation it does not have.
+;
+; `value` is a WORD - a node, a vector, a count, whatever the parse
+; function that succeeded built - and each reader takes it back with
+; `memGetWord r 1` at the type it knows. It was declared `(Vec Int)`,
+; which cost every constructor below a `cast` into a reference type and
+; a failure a forged null vector (R-B6): typed `Int`, a success stores
+; its value with an observing cast and a failure stores 0. The shape
+; word is the same either way (`scripts/check-vec-field-shape.sh`).
 (pub struct PResult
   (ok : Int)
-  (value : (Vec Int))
+  (value : Int)
   (pos : Int)
   (exp : String)
   (code : String))
@@ -937,7 +977,7 @@
 (pub fn (pOk v p)
   (PResult
     1
-    (cast (Vec Int) v)
+    (cast Int v)
     p
     ""
     ""))
@@ -949,7 +989,7 @@
 (pub fn (pOkRgn v p rgn)
   (PResult
     1
-    (cast (Vec Int) v)
+    (cast Int v)
     p
     rgn
     ""))
@@ -958,7 +998,7 @@
 (pub fn (pErr p)
   (PResult
     0
-    (cast (Vec Int) 0)
+    0
     p
     ""
     ""))
@@ -967,16 +1007,18 @@
 (pub fn (pErrExp p e)
   (PResult
     0
-    (cast (Vec Int) 0)
+    0
     p
     e
     ""))
 
 (pub :: pResExp (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (pResExp r)
   (memGetWordStr r 3))
 
 (pub :: pResCode (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (pResCode r)
   (memGetWordStr r 4))
 
@@ -991,7 +1033,7 @@
 (pub fn (pErrRemoved p kw)
   (PResult
     0
-    (cast (Vec Int) 0)
+    0
     p
     kw
     "AX2004"))
@@ -1005,7 +1047,7 @@
 (pub fn (pErrCode p c)
   (PResult
     0
-    (cast (Vec Int) 0)
+    0
     p
     ""
     c))
@@ -1018,7 +1060,7 @@
 (pub fn (pErrModSeg p seg)
   (PResult
     0
-    (cast (Vec Int) 0)
+    0
     p
     seg
     "AX2006"))
@@ -1031,7 +1073,7 @@
 (pub fn (pErrSizedTy p n)
   (PResult
     0
-    (cast (Vec Int) 0)
+    0
     p
     n
     "AX3047"))
@@ -1046,7 +1088,7 @@
 (pub fn (pErrExternLib p ch)
   (PResult
     0
-    (cast (Vec Int) 0)
+    0
     p
     ch
     "AX3041"))
@@ -1215,6 +1257,7 @@
       })))
 
 (pub :: parseErrDiag (-> (Vec Int) Int String Int))
+;@axiom:effect(unsafe)
 (pub fn (parseErrDiag tokens r src)
   ; Tested on the CODE rather than inferred from the position: the
   ; overflow token is always a real `(`, so every test below would step
@@ -1737,10 +1780,12 @@
 ; `$`, then the name. That is the spelling `mangleDecl` gives an
 ; imported declaration, so the reference and the definition meet.
 (pub :: mangledFromChain (-> (Vec String) String))
+;@axiom:effect(unsafe)
 (pub fn (mangledFromChain chain)
   (strConcat (strConcat (joinDotted chain 0 "") "$") (vecGetStr chain (- (vecLen chain) 1))))
 
 (pub :: joinDotted (-> (Vec String) Int String String))
+;@axiom:effect(unsafe)
 (pub fn (joinDotted chain i acc)
   (if (>= i (- (vecLen chain) 1))
     acc
@@ -1795,6 +1840,7 @@
 ; of one symbol. The marker stays the same space-joined string,
 ; PREFIX-encoded, and `expMarkerPart` reads it back.
 (pub :: parseDeclName (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseDeclName tokens pos)
   (if (&& (peekIs tokens pos TK_LPAREN) (&& (peekIs tokens (advance pos) TK_IDENT) (strEq (tokenLexeme (vecGet tokens (advance pos))) "syntax/join")))
     (let ((p1 (advance (advance pos))))
@@ -1885,6 +1931,7 @@
 ; EMPTY one is refused: `()` would match a form of zero elements, and
 ; no argument is one, so it is a rule that could never fire.
 (pub :: parseMacroPatArgs (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMacroPatArgs tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (if (== acc 0)
@@ -1916,6 +1963,7 @@
 ; trick `(syntax/join a b)` uses one screen up, and for the same
 ; reason.
 (pub :: parseMacroPatList (-> (Vec Int) Int (Vec Int) (Vec String) (Vec String) (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMacroPatList tokens pos pats names spells reps)
   (if (peekIs tokens pos TK_RPAREN)
     (let ((out vecNew))
@@ -2036,6 +2084,7 @@
 ; Parse an expression list until ), returning a Vec of Expr handles.
 ; ------------------------------------------------------------------
 (pub :: parseExprList (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseExprList tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk acc (advance pos))
@@ -2134,6 +2183,7 @@
     false))
 
 (pub :: parseTopForm (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseTopForm tokens pos)
   (if (peekIs tokens pos TK_DOUBLE_COLON)
     (parseSigDecl tokens (advance pos))
@@ -2250,6 +2300,7 @@
 ; syntax/for parses through the parseTopForm hook above. At least one
 ; declaration is required.
 (pub :: parseDeclFor (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseDeclFor tokens pos)
   (let (
     (sp (tokenSpan (vecGet tokens pos)))
@@ -2276,6 +2327,7 @@
       (pErrExp p1 "("))))
 
 (pub :: parseDeclForBody (-> (Vec Int) Int String Int Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseDeclForBody tokens pos var seq sp acc)
   (if (peekIs tokens pos TK_RPAREN)
     (if (== (vecLen acc) 0)
@@ -2311,6 +2363,7 @@
 ; effect code, and a type it cannot lower is a type it need not
 ; record.
 (pub :: parseEffectDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseEffectDecl tokens pos)
   ; `parseDeclName` for the same reason `data` uses it: an `effect`
   ; template may join its name.
@@ -2347,6 +2400,7 @@
 ; cannot read leaves 0 in the field and only `symbols` is the poorer
 ; for it.
 (pub :: parseEffectOps (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseEffectOps tokens pos ops opFields)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk 0 (advance pos))
@@ -2448,6 +2502,7 @@
       i)))
 
 (pub :: parseExternDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseExternDecl tokens pos)
   (if (peekIs tokens pos TK_STRING)
     ; The library name is validated HERE, at the front end, and not
@@ -2494,6 +2549,7 @@
 ; `opaque`, `drop`) used to be skipped without a word, and `(opaque
 ; Thing ...)` bound an item called `opaque`.
 (pub :: parseExternItems (-> (Vec Int) Int (Vec Int) (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseExternItems tokens pos names items)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk 0 (advance pos))
@@ -2578,6 +2634,7 @@
 ; the old skip, so acceptance is unchanged: only well-formed aliases
 ; gain a node.
 (pub :: parseAliasDecl (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseAliasDecl tokens pos origPos)
   ; `(` as well as an identifier, because the name may be a
   ; `(syntax/join ...)` inside a template. The old guard tested for an
@@ -2630,6 +2687,7 @@
 ; declaration's c slot.
 ; ------------------------------------------------------------------
 (pub :: parseSubtypeDecl (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseSubtypeDecl tokens pos origPos)
   (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0)
@@ -2837,6 +2895,7 @@
     ((Some sp) (+ sp 1))))
 
 (pub :: typeKeywordCanon (-> String String))
+;@axiom:effect(unsafe)
 (pub fn (typeKeywordCanon n)
   (if (strEq n "Int")
     "Int"
@@ -2910,6 +2969,7 @@
 ; consumes it; a missing name after the colons is a parse error, the
 ; same answer the expression side gives.
 (pub :: parseQualifiedTyAtom (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseQualifiedTyAtom tokens pos)
   (let ((chain
     (let ((v vecNew))
@@ -2924,6 +2984,7 @@
           (pOk (mkTCon (memGetWordStr qr 1) vecNew) (memGetWord qr 2)))))))
 
 (pub :: parseTypeAtom (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseTypeAtom tokens pos)
   ; `[T]` is REFUSED, not parsed. The list type checked in signatures
   ; while no literal, no pattern and no runtime representation existed
@@ -2992,6 +3053,7 @@
 
 ; A run of atoms up to the closing paren, which is consumed.
 (pub :: parseTypeAtoms (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseTypeAtoms tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk acc (advance pos))
@@ -3021,6 +3083,7 @@
 ; or one that is not last, are the same refusal - an annotation names
 ; the type whose parentheses it closes, and nothing else.
 (pub :: parseTypeAtomsRgn (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseTypeAtomsRgn tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk acc (advance pos))
@@ -3046,6 +3109,7 @@
 
 ; `pos` is just past the opening paren.
 (pub :: parseTypeParens (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseTypeParens tokens pos)
   (if (peekIs tokens pos TK_RARROW)
     (let ((r (parseTypeAtoms tokens (advance pos) vecNew)))
@@ -3131,6 +3195,7 @@
 ; Parse (:: name (-> ...))
 ; ------------------------------------------------------------------
 (pub :: parseSigDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseSigDecl tokens pos)
   (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0)
@@ -3230,6 +3295,7 @@
     0))
 
 (pub :: spineFlags (-> (Vec Int) Int (Vec Int) (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (spineFlags tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     acc
@@ -3278,6 +3344,7 @@
 ; `tests/diagnostics/955-import-absolute-path.axbad` pins the refusal.
 ; ------------------------------------------------------------------
 (pub :: parseModPath (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseModPath tokens pos)
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0)
@@ -3289,6 +3356,7 @@
         (parseModPathRest tokens (memGetWord nr 2) (memGetWordStr nr 1))))))
 
 (pub :: parseModPathRest (-> (Vec Int) Int String Int))
+;@axiom:effect(unsafe)
 (pub fn (parseModPathRest tokens pos acc)
   (if (peekIs tokens pos TK_DOT)
     (let ((nr (parseIdentName tokens (advance pos))))
@@ -3308,6 +3376,7 @@
 ; Parse (import Module (names...)) / (import Mod.Sub)
 ; ------------------------------------------------------------------
 (pub :: parseImportDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseImportDecl tokens pos)
   (let ((mr (parseModPath tokens pos)))
     (if (== (memGetWord mr 0) 0)
@@ -3338,6 +3407,7 @@
 ; Parse (data Name (Ctor1 ...) (Ctor2) ...)
 ; ------------------------------------------------------------------
 (pub :: parseDataDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseDataDecl tokens pos)
   ; `parseDeclName`, not `parseIdentName`: a `data` template may name
   ; its type with `(syntax/join Box T)`, exactly as a `fn` template
@@ -3375,6 +3445,7 @@
 ; walk - they were two, and a shape one declined and the other did not
 ; drifted the parse position.
 (pub :: collectTyParams (-> (Vec Int) Int (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (collectTyParams tokens pos tvs)
   (if (peekIs tokens pos TK_LPAREN)
     (let ((inPos (advance pos)))
@@ -3437,6 +3508,7 @@
     0))
 
 (pub :: parseConstructors (-> (Vec Int) Int String Int (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseConstructors tokens pos dataName nameSpan acc tvs)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk (setNodeTy (mkDDataAt dataName acc nameSpan) tvs) (advance pos))
@@ -3498,6 +3570,7 @@
           (pErrExp pos "identifier"))))))
 
 (pub :: parseOneCtor (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseOneCtor tokens pos)
   (let ((r0 (parseOneCtorInner tokens pos)))
     (if (== (memGetWord r0 0) 0)
@@ -3511,6 +3584,7 @@
       })))
 
 (pub :: parseOneCtorInner (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseOneCtorInner tokens pos)
   (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0)
@@ -3552,6 +3626,7 @@
 ; treats a comma as separator-or-not, so `{ w : Int h : Int }` parses
 ; the same as `{ w : Int, h : Int }`.
 (pub :: parseNamedFieldTypes (-> (Vec Int) Int (Vec Int) Int (Vec Int) (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseNamedFieldTypes tokens pos flags ctorName tys names)
   (if (peekIs tokens pos TK_RBRACE)
     (if (peekIs tokens (advance pos) TK_RPAREN)
@@ -3603,6 +3678,7 @@
     pos))
 
 (pub :: setCtorFieldNames (-> Int (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (setCtorFieldNames n names)
   {
     (memSetWord n 9 names)
@@ -3620,6 +3696,7 @@
 ; rule above is deliberately unchanged (`(Float)` parenthesised is
 ; still flag 0), so codegen behaves bit-identically.
 (pub :: parseFieldTypes (-> (Vec Int) Int (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseFieldTypes tokens pos flags ctorName tys)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk
@@ -3650,6 +3727,7 @@
 ; represent - the checker treats a nameless TVar as matching anything
 ; and never renders it, so failure here can only under-report.
 (pub :: typeNodeOrWildcard (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (typeNodeOrWildcard r)
   (if (== (memGetWord r 0) 0)
     (mkTVar "")
@@ -3659,6 +3737,7 @@
 ; Parse (struct Name (field1 : Type1) (field2 : Type2) ...)
 ; ------------------------------------------------------------------
 (pub :: parseStructDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseStructDecl tokens pos)
   (let ((nr (parseDeclName tokens pos)))
     (if (== (memGetWord nr 0) 0)
@@ -3835,6 +3914,7 @@
       0)))
 
 (pub :: parseFieldsTv (-> (Vec Int) Int String Int (Vec Int) (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseFieldsTv tokens pos structName nameSpan acc tvs)
   (let ((r (parseFields
     tokens
@@ -3864,6 +3944,7 @@
         }))))
 
 (pub :: parseFields (-> (Vec Int) Int String Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseFields tokens pos structName nameSpan acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk (mkDStructAt structName acc nameSpan) (advance pos))
@@ -3910,6 +3991,7 @@
 ; payload, not a node, and writing a word into it would corrupt the
 ; diagnostic rather than mark a field.
 (pub :: markFieldMut (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (markFieldMut r)
   (if (== (memGetWord r 0) 0)
     r
@@ -3922,6 +4004,7 @@
 ; parser did not mark and on every TAG_FIELD a macro template rebuilt
 ; before `expBuildStructFieldsIn` learned to carry it.
 (pub :: fieldIsMut (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (fieldIsMut f)
   (if (== (memGetWord f 3) 0)
     0
@@ -3929,6 +4012,7 @@
 
 ; Did a field's type parse, and something other than `)` follow it?
 (pub :: fieldTyOverruns (-> (Vec Int) Int Bool))
+;@axiom:effect(unsafe)
 (pub fn (fieldTyOverruns tokens tr)
   (if (== (memGetWord tr 0) 0)
     false
@@ -3937,6 +4021,7 @@
       true)))
 
 (pub :: parseOneFieldNamed (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseOneFieldNamed tokens pos)
   (let ((nr (parseIdentName tokens pos)))
     (if (== (memGetWord nr 0) 0)
@@ -3998,6 +4083,7 @@
 ; parse value of 0 as the clean end of the module - the historical
 ; skipParens trap), and `mkNodeAt` provides one.
 (pub :: parseMacroCall (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMacroCall tokens pos)
   ; A QUALIFIED head - `Pre::when` - is three tokens here, exactly
   ; as it is in expression position, and joins to the same flat
@@ -4106,6 +4192,7 @@
         }))))
 
 (pub :: rewriteRuleLitsIn (-> (Vec Int) (Vec String) (Vec String) (Vec String) (Vec Int) (Vec String) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rewriteRuleLitsIn pats names lits used pats2 names2 i)
   (if (>= i (vecLen pats))
     0
@@ -4176,6 +4263,7 @@
 ; a refusal rather than a silent truncation - the caller then demands
 ; the closing paren and fails there.
 (pub :: parseMacroRules (-> (Vec Int) Int String (Vec Int) (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMacroRules tokens pos macName acc lits)
   (if (if (peekIs tokens pos TK_LPAREN)
     (peekIs tokens (advance pos) TK_LPAREN)
@@ -4249,6 +4337,7 @@
       (pOk acc pos))))
 
 (pub :: parseTplDecls (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseTplDecls tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (if (== (vecLen acc) 0)
@@ -4299,6 +4388,7 @@
 ; (unused for macros); word 3, an expression macro's template, stays
 ; 0, and that pairing is the discriminator everywhere else.
 (pub :: parseDeclMacro (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseDeclMacro tokens pos)
   (let (
     (macName (tokenLexeme (vecGet tokens pos)))
@@ -4338,6 +4428,7 @@
 ; shared by the plain and headered shapes so the two spell one
 ; list, one node and one refusal.
 (pub :: parseDeclMacroRules (-> (Vec Int) Int String Int (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseDeclMacroRules tokens pos macName macSpan lits)
   (if (peekIs tokens (advance pos) TK_LPAREN)
     (let ((rulesR (parseMacroRules
@@ -4371,6 +4462,7 @@
 ; construction rather than by guessing from a template's head, which
 ; the specification records as unsound.
 (pub :: parseEmacroDeclRules (-> (Vec Int) Int String Int (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseEmacroDeclRules tokens pos macName macSpan lits)
   (if (peekIs tokens (advance pos) TK_LPAREN)
     (let ((rulesR (parseEmacroRules
@@ -4405,6 +4497,7 @@
 ; the list, which makes a malformed second rule a refusal rather
 ; than a silent truncation.
 (pub :: parseEmacroRules (-> (Vec Int) Int String (Vec Int) (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseEmacroRules tokens pos macName acc lits)
   (if (if (peekIs tokens pos TK_LPAREN)
     (peekIs tokens (advance pos) TK_LPAREN)
@@ -4472,6 +4565,7 @@
 ; is the multi-rule expression form, so the two spell one template
 ; kind each and no rule guesses its kind from its head.
 (pub :: parseEmacroDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseEmacroDecl tokens pos)
   (let (
     (macName (tokenLexeme (vecGet tokens pos)))
@@ -4500,6 +4594,7 @@
       (pErr p1))))
 
 (pub :: parseMacroDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMacroDecl tokens pos)
   (if (peekIs tokens pos TK_IDENT)
     (parseDeclMacro tokens pos)
@@ -4543,6 +4638,7 @@
 ; Parse (fn (name args...) body) at top level.
 ; ------------------------------------------------------------------
 (pub :: parseFnDecl (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseFnDecl tokens pos)
   (if (peekIs tokens pos TK_LPAREN)
     (let ((headerStart (advance pos)))
@@ -4785,6 +4881,7 @@
 ; stage0's `Expr::span()` for `ETypeSig` delegates to it, and `mkEApp`
 ; copies the head's span to the application.
 (pub :: parseTypeSigExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseTypeSigExpr tokens pos)
   (let ((er (parseExpr tokens pos)))
     (if (== (memGetWord er 0) 0)
@@ -4807,6 +4904,7 @@
 ; (while cond body...) - body takes any number of expressions.
 ; ------------------------------------------------------------------
 (pub :: parseWhileExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseWhileExpr tokens pos)
   (let ((condR (parseExpr tokens pos)))
     (if (== (memGetWord condR 0) 0)
@@ -4950,6 +5048,7 @@
 ; loop. `isPair` is 1 for an `(x i)` binder, which takes the container
 ; shape only: a range counts its own index.
 (pub :: parseForOperands (-> (Vec Int) Int Int String Int String Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseForOperands tokens pos isPair xName xSpan iName iSpan kwSpan)
   (let ((aR (parseExpr tokens pos)))
     (if (== (memGetWord aR 0) 0)
@@ -5162,6 +5261,7 @@
 ; no longer names the word, and the expression is this.
 ; ------------------------------------------------------------------
 (pub :: parseRegionExpr (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseRegionExpr tokens pos kwSpan)
   (if (peekIs tokens pos TK_IDENT)
     (let (
@@ -5221,6 +5321,7 @@
 ; ONE OR MORE BODY EXPRESSIONS, sequenced, as `let` takes them.
 ; ------------------------------------------------------------------
 (pub :: parseParallelExpr (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseParallelExpr tokens pos kwSpan)
   (if (peekIs tokens pos TK_IDENT)
     (let (
@@ -5264,6 +5365,7 @@
 ; `parseBindPairs` does - but without `mut`, which a binding bound once
 ; at its join has nothing to mean by.
 (pub :: parseParBindings (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseParBindings tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk acc (advance pos))
@@ -5352,6 +5454,7 @@
 ; field's own AX3004 anchors at an argument.
 ; ------------------------------------------------------------------
 (pub :: parseStructConExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseStructConExpr tokens pos)
   (if (peekIs tokens pos TK_IDENT)
     (let (
@@ -5382,6 +5485,7 @@
 ; handle body is a bare `(alloc T)` anchors there, and a node with no
 ; span suppresses the diagnostic instead of misplacing it.
 (pub :: parseAllocExpr (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseAllocExpr tokens pos kwSpan)
   (let ((tr (parseType tokens pos)))
     (if (== (memGetWord tr 0) 0)
@@ -5414,6 +5518,7 @@
 ; span; AX3016 and AX3017 both anchor at the name, not at the form.
 ; ------------------------------------------------------------------
 (pub :: parseHandleExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseHandleExpr tokens pos)
   (let ((bodyR (parseExpr tokens pos)))
     (if (== (memGetWord bodyR 0) 0)
@@ -5450,6 +5555,7 @@
 ; the name makes this a parse error rather than a miscompile.
 ; ------------------------------------------------------------------
 (pub :: parseSetExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseSetExpr tokens pos)
   ; stage0 names what a `set` target IS here rather than inheriting
   ; the generic "identifier" its own ident parser would give.
@@ -5483,6 +5589,7 @@
 ; At a `.`: if another `.` follows the field, the field folds into the
 ; base; otherwise it is the store target and the value follows.
 (pub :: parseSetField (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseSetField tokens pos base)
   (if (&& (peekIs tokens pos TK_DOT) (peekIs tokens (advance pos) TK_IDENT))
     (let (
@@ -5579,6 +5686,7 @@
     (curryLam params body sp 0)))
 
 (pub :: parseLamExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseLamExpr tokens pos)
   (let ((kwSp 
     (if (> pos 0)
@@ -5625,6 +5733,7 @@
 ; codegen already lowers as a sequence whose value is the last element.
 ; ------------------------------------------------------------------
 (pub :: parseLetExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseLetExpr tokens pos)
   (if (peekIs tokens pos TK_LPAREN)  ; enter ((n v) ...)
     (let ((br (parseBindPairs tokens (advance pos) vecNew)))
@@ -5654,6 +5763,7 @@
 ; Parse the binding list ((n1 v1) (n2 v2) ...), returning a Vec of
 ; binding pairs carried as TAG_NIL nodes with a=name and b=value.
 (pub :: parseBindPairs (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseBindPairs tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk acc (advance pos))
@@ -5735,6 +5845,7 @@
 ; about the operand rather than the chain.
 ; ------------------------------------------------------------------
 (pub :: parseIfExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseIfExpr tokens pos)
   (let ((testR (parseExpr tokens pos)))
     (if (== (memGetWord testR 0) 0)
@@ -5762,6 +5873,7 @@
 ; where a pair is complete, so all three draw the shape rather than
 ; the generic want.
 (pub :: parseIfTail (-> (Vec Int) Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseIfTail tokens pos test thenEx)
   (let ((eR (parseExpr tokens pos)))
     (if (== (memGetWord eR 0) 0)
@@ -5786,6 +5898,7 @@
 ; Parse (match scrutinee (pat body) ...)
 ; ------------------------------------------------------------------
 (pub :: parseMatchExpr (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMatchExpr tokens pos)
   (let ((scrutR (parseExpr tokens pos)))
     (if (== (memGetWord scrutR 0) 0)
@@ -5809,6 +5922,7 @@
 ; expects to find it and consume it itself. Consuming it here made every
 ; `match` a parse error, since the caller then demanded a second one.
 (pub :: parseMatchArms (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMatchArms tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk acc pos)
@@ -5857,6 +5971,7 @@
 ; body generates nothing and means nothing. BINDS is `parseIterBinder`'s
 ; form: one pair, or several zipped in lockstep.
 (pub :: parseMatchForArm (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMatchForArm tokens pos)
   (let (
     (sp (tokenSpan (vecGet tokens pos)))
@@ -5958,6 +6073,7 @@
     (mkEVarAt cname sp)))
 
 (pub :: namedPatSpineFrom (-> (Vec Int) (Vec Int) (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (namedPatSpineFrom declared names pats i acc)
   (if (>= i (vecLen declared))
     acc
@@ -6009,6 +6125,7 @@
     (declaredHasFieldFrom declared n 0)))
 
 (pub :: declaredHasFieldFrom (-> (Vec Int) String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (declaredHasFieldFrom declared n i)
   (if (>= i (vecLen declared))
     0
@@ -6026,6 +6143,7 @@
 ; means `{ w = w, h = h }`, which is stage0's rule and is resolved
 ; here at parse time, since it needs no knowledge of the declaration.
 (pub :: parseNamedPatFields (-> (Vec Int) Int String Int (Vec Int) (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseNamedPatFields tokens pos cname csp names pats)
   (if (peekIs tokens pos TK_RBRACE)
     (if (peekIs tokens (advance pos) TK_RPAREN)
@@ -6071,6 +6189,7 @@
       (pErr pos))))
 
 (pub :: parseArmPatternArgs (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseArmPatternArgs tokens pos acc)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk acc (advance pos))
@@ -6082,6 +6201,7 @@
           (parseArmPatternArgs tokens (memGetWord r 2) (mkEApp acc (memGetWord r 1))))))))
 
 (pub :: parseMatchArm (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseMatchArm tokens pos)
   (let ((patR (parseArmPattern tokens pos)))
     (if (== (memGetWord patR 0) 0)
@@ -6109,6 +6229,7 @@
   (parseBlockBody tokens pos vecNew))
 
 (pub :: parseBlockBody (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseBlockBody tokens pos acc)
   (if (peekIs tokens pos TK_RBRACE)
     ; An empty `{}` is the same defect one node along. It parsed as a
@@ -6134,6 +6255,7 @@
 ; Function application: (f args...)
 ; ------------------------------------------------------------------
 (pub :: parseAppForm (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseAppForm tokens pos)
   (let ((r (parseExpr tokens pos)))
     (if (== (memGetWord r 0) 0)
@@ -6172,6 +6294,7 @@
     e))
 
 (pub :: parseArgs (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (parseArgs tokens pos fnExpr)
   (if (peekIs tokens pos TK_RPAREN)
     (pOk fnExpr (advance pos))
@@ -6190,6 +6313,7 @@
 ; Parse declarations until EOF.
 ; ------------------------------------------------------------------
 (pub :: parseDecls (-> (Vec Int) Int (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseDecls tokens pos acc)
   (let ((r (parseDecl tokens pos)))
     (if (== (memGetWord r 0) 0)
@@ -6292,6 +6416,7 @@
     }))
 
 (pub :: parseModuleWith (-> (Vec Int) (Vec Int) Int))
+;@axiom:effect(unsafe)
 (pub fn (parseModuleWith tokens axtags)
   ; The depth check runs BEFORE `parseDecls`, because the failure it
   ; prevents is that call exhausting the stack.
@@ -6310,6 +6435,7 @@
             r))))))
 
 (pub :: attachAxtags (-> (Vec Int) Int (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (attachAxtags decls i axtags next)
   (if (>= i (vecLen decls))
     next
@@ -6348,6 +6474,7 @@
 ; nested positions, and were the ones this was written for. Traits
 ; went in 0.6.0 and the macro rules are what is left.
 (pub :: attachAxtagsNested (-> Int (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (attachAxtagsNested d axtags cur)
   ; Expression-rule macros (`emacro`, word 6) hold single expressions,
   ; not declaration vectors, so there is no nested declaration list
@@ -6376,6 +6503,7 @@
 ; `expRuleTpl`'s slot, and the wire format `parseMacroRules` documents
 ; as fixed at 0 and 1.
 (pub :: attachAxtagsRules (-> (Vec Int) Int (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (attachAxtagsRules rules i axtags cur)
   (if (==
     (cast Int rules)
@@ -6387,6 +6515,7 @@
 
 ; The index one past the last tag whose offset precedes `limit`.
 (pub :: axtagsUpto (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (axtagsUpto axtags i limit)
   (if (>= i (vecLen axtags))
     i
@@ -6458,6 +6587,7 @@
 ; no value is still a contract tag, and is reported as a malformed one
 ; rather than silently ignored.
 (pub :: contractKeyOf (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (contractKeyOf t)
   (let ((txt (memGetWordStr t 1)))
     (let ((k 
@@ -6473,6 +6603,7 @@
 ; The expression TEXT of a contract tag, exactly as written, or `""`
 ; when the tag carries no `(...)` at all.
 (pub :: contractTextOf (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (contractTextOf t)
   (let ((txt (memGetWordStr t 1)))
     (match (strFindByte txt 40 0)
@@ -6486,6 +6617,7 @@
 
 ; Where that text starts in the source file.
 (pub :: contractBaseOf (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (contractBaseOf t)
   (let ((txt (memGetWordStr t 1)))
     (match (strFindByte txt 40 0)
@@ -6495,6 +6627,7 @@
 ; Shift every token's span by `base`, in place. A `Span` is
 ; `(start, end)` (core.ax), so this is two words per token.
 (pub :: contractShift (-> (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (contractShift toks i base)
   (if (>= i (vecLen toks))
     0
@@ -6511,6 +6644,7 @@
 ; refusal and not a silent truncation, which is why the EOF test is
 ; here and not left to whoever reads the node.
 (pub :: contractExprOf (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (contractExprOf t)
   (let ((txt (contractTextOf t)))
     (if (== (strLen txt) 0)
@@ -6534,6 +6668,7 @@
 ; `typecheck.ax`, and the reason this is not a scan of the whole
 ; declaration list per function.
 (pub :: contractTagsFor (-> (Vec Int) Int (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (contractTagsFor sigs d)
   (let ((v vecNew))
     {
@@ -6547,6 +6682,7 @@
   (contractTagsFrom v tags 0))
 
 (pub :: contractTagsFrom (-> (Vec Int) (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (contractTagsFrom v tags i)
   (if (==
     (cast Int tags)
@@ -6569,6 +6705,7 @@
   (contractSigIndexFrom decls vecNew 0))
 
 (pub :: contractSigIndexFrom (-> (Vec Int) (Vec Int) Int (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (contractSigIndexFrom decls acc i)
   (if (>= i (vecLen decls))
     acc
@@ -6594,6 +6731,7 @@
         (contractTagCount tags (+ i 1))))))
 
 (pub :: contractSigTags (-> (Vec Int) String Int (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (contractSigTags sigs name i)
   (if (>= i (vecLen sigs))
     (cast (Vec Int) 0)

@@ -55,6 +55,14 @@ echo "--- 1. user-level cast count does not grow ---"
 # program can build, and `556-count-balance.ax`'s control releases a
 # string's handle by hand through `(cast Int s)`: in both the cast is
 # the subject under test, the MM-VAL-23 reason.
+# Baseline 418 measured 2026-09-29, the unsafe boundary merged onto the
+# typed handles: 385 on trunk and 406 on the boundary's branch, from a
+# base of 372.
+# Baseline 406 measured for R-B6: `tests/diagnostics/1040`, `1042`
+# and `tests/selfhost/1010` name 19 casts to pin exactly where a
+# forged reference needs an unsafe declaration, and the renderer
+# goldens quote the lines they flag; the typed split answers
+# (`strSplit`, `listDir`, `sysReadDir`) removed 9.
 # Baseline 372 measured 2026-09-28: one arrived with
 # `tests/selfhost/1006-cast-type-operand.ax`, whose header quotes
 # `Vec.ax`'s `(cast a (memGetWord ...))`: the fixture is about that
@@ -107,10 +115,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 385 ]; then
-  ok "user-level (cast count $cast_count <= 385)"
+elif [ "$cast_count" -le 418 ]; then
+  ok "user-level (cast count $cast_count <= 418)"
 else
-  bad "user-level (cast count $cast_count > 385): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 418): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"
@@ -118,6 +126,7 @@ cat > "$work/cast3.ax" <<'EOF'
 (import Mem)
 (import Str)
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 8)))
     {
@@ -129,6 +138,7 @@ cat > "$work/cast4.ax" <<'EOF'
 (import Mem)
 (import Str)
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 8)))
     {

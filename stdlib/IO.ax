@@ -68,11 +68,13 @@
 ; buffer.
 (:: printLit (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (printLit cstr)
   (sysWriteAllFd stdout cstr (cstrLen cstr 0) 0))
 
 (pub :: printlnLit (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (printlnLit cstr)
   {
     (printLit cstr)
@@ -376,7 +378,7 @@
 ; it needs no scratch allocation, and `Vec` has no comparison sort to
 ; borrow. A directory large enough to notice wants `Sys.sysReadDir`
 ; and its own ordering.
-(pub :: listDir (-> String (Vec Int)))
+(pub :: listDir (-> String (Vec String)))
 ;@axiom:effect(io)
 (pub fn (listDir path)
   (let (
@@ -388,12 +390,21 @@
       out
     }))
 
-(:: listDirKeep (-> (Vec Int) Int (Vec Int) Int))
+; `Vec::vecLen` is QUALIFIED in the two functions below, where every
+; other call in this module is bare. An entry file that declares its
+; own `vecLen` captures a bare `vecLen` in an imported module - at
+; check time and at run time: `(listDir "/")` answered no entries under
+; an entry-file `(fn (vecLen z) 0)`, and 22 without it. The
+; fixtures that pin a `for` loop's hygiene declare exactly that
+; function (`tests/stdlib/466-for-loop.ax`,
+; `tests/diagnostics/626-for-not-a-container.ax`), and with these
+; vectors typed `(Vec String)` the capture stopped type-checking. The
+; qualified spelling names the one this module means.
+(:: listDirKeep (-> (Vec String) Int (Vec String) Int))
 (fn (listDirKeep raw i out)
-  (if (>= i (vecLen raw))
+  (if (>= i (Vec::vecLen raw))
     0
-    (let ((name 
-      (cast String (vecGet raw i))))
+    (let ((name (vecGet raw i)))
       {
         (if (|| (strEq name ".") (strEq name ".."))
           0
@@ -404,34 +415,26 @@
 ; Push, then bubble the new entry down to where it belongs. The Vec
 ; below it is already sorted, so this settles in one comparison when
 ; the listing arrives in order.
-(:: listDirInsert (-> (Vec Int) String Int))
+(:: listDirInsert (-> (Vec String) String Int))
 (fn (listDirInsert v s)
   {
-    (vecPush
-      v
-      (cast Int s))
-    (listDirSift v (- (vecLen v) 1))
+    (vecPush v s)
+    (listDirSift v (- (Vec::vecLen v) 1))
   })
 
-(:: listDirSift (-> (Vec Int) Int Int))
+(:: listDirSift (-> (Vec String) Int Int))
 (fn (listDirSift v i)
   (if (<= i 0)
     0
     (let (
-      (a (cast String (vecGet v (- i 1))))
-      (b (cast String (vecGet v i)))
+      (a (vecGet v (- i 1)))
+      (b (vecGet v i))
     )
       (if (<= (strCmp a b) 0)
         0
         {
-          (vecSet
-            v
-            (- i 1)
-            (cast Int b))
-          (vecSet
-            v
-            i
-            (cast Int a))
+          (vecSet v (- i 1) b)
+          (vecSet v i a)
           (listDirSift v (- i 1))
         }))))
 

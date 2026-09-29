@@ -8,6 +8,17 @@
   [1;34m = [0m[1;32mhelp: [0mwrite one tag line per effect: `;@axiom:effect(io)` and `;@axiom:effect(unsafe)`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3076` for a full explanation
 
+[1;31merror[AX3073][0m[1m: `comma` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1018-effect-tag-list.ax:18:6
+[1;34m   |[0m
+[1;34m18 |[0m     (__load64 p 0)
+[1;34m   |[0m      [1;31m^^^^^^^^ __load64[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
 [1;31merror[AX3076][0m[1m: `effect(io unsafe)` on `blank` names 2 effects, and an `effect(...)` tag names one[0m
   [1;34m--> [0m1018-effect-tag-list.ax:23:6
 [1;34m   |[0m
@@ -18,4 +29,15 @@
   [1;34m = [0m[1;32mhelp: [0mwrite one tag line per effect: `;@axiom:effect(io)` and `;@axiom:effect(unsafe)`
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3076` for a full explanation
 
-compilation failed due to 2 previous errors
+[1;31merror[AX3073][0m[1m: `blank` touches raw memory and its declaration does not say so[0m
+  [1;34m--> [0m1018-effect-tag-list.ax:26:6
+[1;34m   |[0m
+[1;34m26 |[0m     (__load64 p 0)
+[1;34m   |[0m      [1;31m^^^^^^^^ __load64[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 4 previous errors

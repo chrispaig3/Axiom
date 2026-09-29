@@ -3,6 +3,7 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   {
     (when (> 2 1) (printlnLit (__addr "when: pass")))

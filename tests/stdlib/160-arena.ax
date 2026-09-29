@@ -35,6 +35,7 @@
 ; Write a word and read it back, so a returned address is shown to be
 ; usable memory and not merely a plausible-looking number.
 (pub :: usable (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (usable p)
   {
     (memSetWord p 0 987654321)
@@ -43,6 +44,7 @@
 
 (pub :: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (main)
   (let (
     (m __axiom_arena_mark)

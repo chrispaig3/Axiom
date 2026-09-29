@@ -93,6 +93,7 @@
     (climb (+ acc 1000000) (- n 1))))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (mut acc 0)

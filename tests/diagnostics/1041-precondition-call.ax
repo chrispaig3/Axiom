@@ -1,0 +1,68 @@
+; A call to a precondition interface is an unsafe operation of the
+; caller's (R-B6, docs/memory-model.md MM-EXEC-9d). A function whose
+; tags say `effect(unsafe)` and `precondition(...)` is safe only for
+; arguments its caller chose well, so the caller says
+; `;@axiom:effect(unsafe)` or draws AX3073 at the call.
+;
+; `peek` calls `Mem.memGetWord`, `heading` reads a vector slot back as a
+; `String` with `vecGetStr`, and `useLocal` calls `loadAt`, a
+; precondition interface written here. `pure` claims purity over a
+; precondition call, which is AX3010, as a raw primitive under it is.
+;
+; The controls draw nothing. `loadAt` performs the load and states the
+; precondition. `initial` calls `memGetByte` and makes its precondition
+; true itself by checking the length, so it says `effect(unsafe)` alone,
+; a trusted encapsulation: `caller` uses it with no tag, and so does
+; `alsoPure`, whose purity claim holds.
+; `vouched` calls the interface and says `effect(unsafe)`.
+(import Mem)
+(import Str)
+(import Vec)
+
+(:: peek (-> Int Int))
+(fn (peek addr)
+  (memGetWord addr 0))
+
+(:: heading (-> (Vec Int) String))
+(fn (heading v)
+  (vecGetStr v 0))
+
+(:: loadAt (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`a` names a live word)
+(fn (loadAt a)
+  (__load64 a 0))
+
+(:: useLocal (-> Int Int))
+(fn (useLocal a)
+  (loadAt a))
+
+(:: pure (-> Int Int))
+;@axiom:effect(pure)
+(fn (pure a)
+  (loadAt a))
+
+(:: initial (-> String Int))
+;@axiom:effect(unsafe)
+(fn (initial s)
+  (if (== (strLen s) 0)
+    0
+    (memGetByte (strData s) 0)))
+
+(:: caller Int)
+(fn (caller)
+  (+ (initial "axiom") 1))
+
+(:: alsoPure (-> String Int))
+;@axiom:effect(pure)
+(fn (alsoPure s)
+  (initial s))
+
+(:: vouched (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (vouched a)
+  (loadAt a))
+
+(:: main Int)
+(fn (main)
+  (caller))

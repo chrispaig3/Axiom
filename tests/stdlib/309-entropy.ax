@@ -38,6 +38,7 @@
 
 ; How many bytes in [from, to) are non-zero.
 (:: nonZero (-> Int Int Int Int))
+;@axiom:effect(unsafe)
 (fn (nonZero buf from to)
   (let ((mut i from))
     (let ((mut n 0))
@@ -54,6 +55,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((a (memAlloc 1000)))
     (let ((b (memAlloc 64)))

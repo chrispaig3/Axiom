@@ -28,7 +28,6 @@
   (__handle_free kind h))
 
 (:: trapped (-> Int Int Int Int))
-;@axiom:effect(unsafe)
 (fn (trapped op kind h)
   (__axiom_recover
     __axiom_arena_mark
@@ -54,7 +53,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (hs (vecWithCapacity 65536))

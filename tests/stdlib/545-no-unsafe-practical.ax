@@ -1,0 +1,119 @@
+; `restrict(no-unsafe)` admits ordinary library code (R-B6,
+; docs/memory-model.md MM-EXEC-9d). `work` pushes to a `Vec`, fills a
+; `Map`, builds and compares strings, sends words through a channel and
+; runs a task pool, and the restriction holds: every one of those
+; functions is a trusted encapsulation, whose raw loads and stores are
+; its own and not its caller's.
+;
+; `firstByte` is a trusted wrapper written here. Its body calls
+; `memGetByte`, a precondition interface, and makes the precondition
+; true itself by checking the length first, so it says `effect(unsafe)`
+; alone. Its callers, `work` included, say nothing about it.
+(import IO)
+(import Mem)
+(import Str)
+(import Vec)
+(import Map)
+(import Fmt)
+(import Err)
+(import Chan)
+(import Task)
+
+(:: firstByte (-> String Int))
+;@axiom:effect(unsafe)
+(fn (firstByte s)
+  (if (== (strLen s) 0)
+    0
+    (memGetByte (strData s) 0)))
+
+(:: square (-> Int String))
+(fn (square i)
+  (fmtInt (* i i)))
+
+(:: channelSum (-> Int Int))
+;@axiom:effect(io)
+(fn (channelSum n)
+  (match (chanNew 8)
+    ((Err e) (- 0 1))
+    ((Ok ch)
+      (let ((mut sum 0))
+        {
+          (for i 0 n
+            (if (chanSend ch i)
+              0
+              1))
+          (chanClose ch)
+          (let ((mut more 1))
+            (while (== more 1)
+              (match (chanRecv ch)
+                ((Some w)
+                  (set sum (+ sum w))
+                )
+                ((None)
+                  (set more 0)
+                ))))
+          (match (chanFree ch)
+            ((Ok z) sum)
+            ((Err e) (- 0 2)))
+        })
+    )))
+
+(:: taskText (-> (Vec (Result String Error)) String))
+(fn (taskText rs)
+  (let ((mut out ""))
+    {
+      (for i 0 (vecLen rs)
+        (match (vecGet rs i)
+          ((Ok s)
+            (set out (strConcat (strConcat out s) " "))
+          )
+          ((Err e)
+            (set out (strConcat out "err "))
+          )))
+      out
+    }))
+
+(:: work (-> Int Int))
+;@axiom:restrict(no-unsafe)
+;@axiom:effect(io)
+(fn (work n)
+  (let (
+    (v vecNew)
+    (m mapNew)
+  )
+    {
+      (for i 0 n
+        {
+          (vecPush v (* i 3))
+          (mapInsert m i (* i i))
+        })
+      (let (
+        (len (vecLen v))
+        (last (vecGet v (- n 1)))
+        (size (mapLen m))
+        (four (mapGet m 4 0))
+      )
+        {
+          (println "vec {len} last {last}")
+          (println "map {size} at 4: {four}")
+        })
+      (let (
+        (s (strConcat "hello, " "world"))
+        (bytes (strLen s))
+        (first (firstByte s))
+        (same (if (strEq s "hello, world")
+          1
+          0))
+      )
+        (println "{s} {bytes} {first} {same}"))
+      (let ((sum (channelSum n)))
+        (println "channel sum {sum}"))
+      (let ((answers (taskText (taskMap square 4 2 64))))
+        (println "tasks {answers}"))
+      0
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (work 6))

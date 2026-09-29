@@ -155,6 +155,7 @@ fmtPadZerosLeft stdlib/Fmt.ax no-io,no-foreign ok
 fmtSpan self_host/diag.ax no-io,no-foreign ok
 fmtSpanIx self_host/diag.ax no-io,no-foreign ok
 fmtSpanParts self_host/diag.ax no-io,no-foreign ok
+forges tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 half tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
 handRolled tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
@@ -385,12 +386,14 @@ pair tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc violated
 parseConfig tests/diagnostics/371-restrict-no-io.ax no-io violated
 pass tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 pastBom self_host/core.ax no-io,no-alloc,no-foreign ok
+peeks tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 ping tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 plain tests/diagnostics/391-restrict-effect-transparent.ax no-io ok
 powTen stdlib/Fmt.ax no-io,no-alloc,no-foreign ok
 provable tests/diagnostics/393-restrict-strict.ax no-io,strict ok
 pureMath tests/diagnostics/371-restrict-no-io.ax no-io ok
 pushQ self_host/diag.ax no-io,no-foreign ok
+pushes tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe ok
 quiet tests/diagnostics/377-restrict-witness-path.ax no-io,no-alloc ok
 quoteBody self_host/diag.ax no-io,no-foreign ok
 quoteHexDigit self_host/diag.ax no-io,no-foreign ok
@@ -421,6 +424,7 @@ restrictedTwice tests/fmt/syntax-zoo.ax no-io,no-cast ok
 restrictedTwice tests/fmt/syntax-zoo.expected.ax no-io,no-cast ok
 retains tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 rewinds tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
+safely tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe ok
 scaled tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 scanAxtags self_host/lexer.ax no-io,no-foreign ok
 scanStringEnd self_host/lexer.ax no-io,no-alloc,no-foreign ok
@@ -487,6 +491,7 @@ strVecIdx self_host/core.ax no-io,no-alloc,no-foreign ok
 strWrap stdlib/Str.ax no-io,no-foreign ok
 strWrapOwned stdlib/Str.ax no-io,no-foreign ok
 strictOnly tests/diagnostics/393-restrict-strict.ax strict ok
+sum tests/selfhost/1010-trusted-wrapper.ax no-unsafe ok
 sumTo tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 sums tests/diagnostics/372-restrict-no-alloc.ax no-alloc ok
 swaps tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
@@ -569,12 +574,16 @@ viaCap tests/diagnostics/379-restrict-no-recursion.ax no-recursion violated
 viaDeep tests/diagnostics/391-restrict-effect-transparent.ax no-cast:deep unverifiable
 viaField tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
 viaForeign tests/diagnostics/391-restrict-effect-transparent.ax no-foreign unverifiable
+viaForge tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 viaForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
 viaHelper tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
+viaInterface tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 viaIo tests/diagnostics/391-restrict-effect-transparent.ax no-io unverifiable
 viaModule tests/diagnostics/377-restrict-witness-path.ax no-io violated
+viaPeek tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
 viaRec tests/diagnostics/391-restrict-effect-transparent.ax no-recursion unverifiable
 visLen self_host/style.ax no-io,no-alloc,no-foreign ok
+work tests/stdlib/545-no-unsafe-practical.ax no-unsafe ok
 wr16 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 wr32 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated
 wr64 tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe violated

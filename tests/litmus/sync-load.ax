@@ -57,6 +57,7 @@
 ; Sleep `ms` milliseconds on a word nobody changes.
 (:: nap (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (nap idle ms)
   {
     (sysWaitWordTimeout idle 0 (* ms 1000000))
@@ -87,6 +88,7 @@
 
 (:: bump (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (bump m cell n locked)
   {
     (arrive (+ cell 8))
@@ -156,6 +158,7 @@
 ; Hold the lock for `ms`, raising `flag` once it is held.
 (:: holdFor (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (holdFor m flag idle ms)
   (match (mutexLock m)
     ((Ok g)
@@ -171,6 +174,7 @@
 ; Wait for `flag`, then time a lock that may wait `ms`.
 (:: lockAfter (-> Mutex Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (lockAfter m flag ms what)
   (let ((buf (memAlloc 16)))
     {
@@ -212,6 +216,7 @@
 
 (:: timed (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (timed idle ms)
   (let ((buf (memAlloc 16)))
     (match (chanNew 1)
@@ -257,6 +262,7 @@
 ; ---- dead ----------------------------------------------------------------
 (:: holdForever (-> Mutex Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (holdForever m flag idle)
   (match (mutexLock m)
     ((Ok g)
@@ -277,6 +283,7 @@
 
 (:: dead (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (dead idle)
   (match (mutexNew)
     ((Ok m)
@@ -338,6 +345,7 @@
 ; accepted, 2 own unlocks refused, 3 the barrier.
 (:: staleDoubler (-> Mutex Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (staleDoubler m cell n)
   {
     (arrive3 (+ cell 24))
@@ -360,6 +368,7 @@
 
 (:: staleUser (-> Mutex Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (staleUser m cell n)
   {
     (arrive3 (+ cell 24))
@@ -379,6 +388,7 @@
 
 (:: stale (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (stale n)
   (match (mutexNew)
     ((Ok m)
@@ -460,6 +470,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((mode (sysArg 1)))
     (match (sysMapShared 4096)

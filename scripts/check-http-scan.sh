@@ -92,7 +92,7 @@ instrument() {
   seam "$http" "$read_line" || return 1
   [[ "$mode" == ablate ]] && { seam "$http" "$resume_line" || return 1; }
   COUNT="$count_line" TAG="$tag_line" RESUME="$resume_line" READ="$read_line" MODE="$mode" awk '
-    $0 == ENVIRON["TAG"] { print ";@axiom:effect(io)"; print; next }
+    $0 == ENVIRON["TAG"] { print ";@axiom:effect(io)"; print ";@axiom:effect(unsafe)"; print; next }
     $0 == ENVIRON["COUNT"] {
       print "          (let ((_ (sysWriteFd 2 (__addr \"+\") 1))) 0)"; print; next }
     $0 == ENVIRON["READ"] {
@@ -112,6 +112,7 @@ cat > "$work/drive.ax" <<'AX'
 ; end of input and answers the 400 for a head that never ended.
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (match (sysOpenPath (__addr "head.bin") oRdonly)
     ((Err _) 2)

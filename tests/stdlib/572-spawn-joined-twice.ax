@@ -46,7 +46,6 @@
 ; Operation `k` on token `t`, inside a recovery point.
 (:: tokenMisuse (-> Int CancelToken Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (tokenMisuse k t)
   (__axiom_recover
     __axiom_arena_mark

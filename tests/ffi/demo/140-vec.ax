@@ -26,13 +26,13 @@
 (import Vec)
 (import Demo)
 
-; `vecGetStr` is the explicit typed read. It was once the ONLY way to
-; get a String out - `vecGet` answered the raw word, because a `Vec`
-; carried no element type - and now that `ws` is a `(Vec String)` the
-; two agree; this case keeps the explicit one.
+; `ws` is a `(Vec String)`, so `vecGet` answers the `String` itself.
+; `vecGetStr` reads a slot of a vector of any element type as a
+; `String`, which is a precondition its caller vouches for
+; (`effect(unsafe)`, MM-EXEC-9d); a typed vector needs no vouching.
 (pub :: wordAt (-> (Vec String) Int String))
 (pub fn (wordAt v i)
-  (vecGetStr v i))
+  (vecGet v i))
 
 (pub :: sumVec (-> (Vec Int) Int Int Int))
 (pub fn (sumVec v i acc)

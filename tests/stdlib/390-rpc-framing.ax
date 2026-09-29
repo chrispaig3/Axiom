@@ -48,6 +48,7 @@
 ; make it agree with the bytes that follow.
 (:: frameOne (-> String String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (frameOne label header body)
   (let ((path (__addr "axiom-rpc-framing.tmp")))
     {

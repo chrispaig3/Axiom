@@ -1,6 +1,7 @@
 (import Mem)
 
 (:: step (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (step i)
   (let ((p (memAlloc 16)))
     {

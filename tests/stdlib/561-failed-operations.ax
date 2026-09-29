@@ -63,7 +63,6 @@
 
 (:: case1 Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (case1)
   (let ((st 
     (__axiom_recover
@@ -80,7 +79,6 @@
 
 (:: case2 Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (case2)
   (let ((st 
     (__axiom_recover
@@ -141,6 +139,5 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (+ (+ (case1) (case2)) (case3)))

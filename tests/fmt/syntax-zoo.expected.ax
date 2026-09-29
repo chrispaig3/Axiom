@@ -323,6 +323,7 @@
   0)
 
 (:: typed_exprs (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (typed_exprs n)
   (let (
     (s (:: (B 1) (Box Int)))

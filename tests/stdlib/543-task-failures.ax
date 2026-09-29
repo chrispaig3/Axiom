@@ -32,6 +32,7 @@
 
 (:: forever (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (forever idle)
   {
     (while (== 0 0)

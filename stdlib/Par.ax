@@ -121,6 +121,7 @@
 ; negative capacity to one word.
 (pub :: parMapWords (-> (-> Int Int) Int Int (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (parMapWords f n width)
   (let (
     (w (if (< width 1)
@@ -171,6 +172,7 @@
 ; calls `parMapWordsChecked`.
 (:: parJoinChecked (-> Spawn Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (parJoinChecked h cell)
   (let ((w (__proc_join_nr h cell)))
     (let ((st (memGetWord cell 0)))
@@ -191,6 +193,7 @@
 ; failure still raises through the runtime and bypasses these releases.
 (pub :: parMapWordsChecked (-> (-> Int Int) Int Int (Vec (Result Int Error))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (parMapWordsChecked f n width)
   (let (
     (w (if (< width 1)
@@ -241,6 +244,7 @@
 ; the same reason on its own argv helper, and
 ; `tests/stdlib/476-par-pool.ax` term 2 is the case that catches it.
 (pub :: parArgvVector (-> (Vec String) Int))
+;@axiom:effect(unsafe)
 (pub fn (parArgvVector argv)
   (let ((n (vecLen argv)))
     (let ((v (memAlloc (* 8 (+ n 1)))))
@@ -268,6 +272,7 @@
 ; means.
 (pub :: parRunOne (-> (Vec String) (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (parRunOne argv)
   (if (== (vecLen argv) 0)
     (Err (mkError 2 "parRunOne: an empty argv names no program"))

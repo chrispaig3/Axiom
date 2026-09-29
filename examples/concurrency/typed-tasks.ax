@@ -50,6 +50,7 @@
 ; Word `k` of document `d`: letters chosen by a small congruential mix,
 ; 1 to 12 of them, so every document differs and none needs a file.
 (:: wordOf (-> Int Int String))
+;@axiom:effect(unsafe)
 (fn (wordOf d k)
   (let (
     (seed (+ (* d 7919) (* k 104729)))

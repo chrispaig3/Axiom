@@ -111,6 +111,7 @@
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   {
     ; --- 1. fresh call scrutinee in a region ---

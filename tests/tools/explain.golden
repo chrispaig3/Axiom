@@ -85,12 +85,14 @@
   [93mAX3070[0m  a field read on a `data` value that may not have that field  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
-  [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
+  [93mAX3073[0m  a function performs an unsafe operation and does not declare it  (undeclared-unsafe)
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
+  [93mAX3079[0m  a precondition without `effect(unsafe)`  (precondition-without-unsafe)
+  [93mAX3080[0m  a precondition that states nothing  (precondition-empty)
   [93mAX3084[0m  a struct marker that is unknown or does not fit  (struct-marker)
   [93mAX3085[0m  a word struct built outside its module  (word-struct-sealed)
   [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)
@@ -1541,9 +1543,9 @@ not know is metadata, it is recorded, and nothing checks it. That is
 not what this reports.
 
 This reports a key one edit - or one change of case - away from one
-the compiler checks. Seven are: `effect(...)`, `restrict(...)`, `raw`,
-`pre(...)`, `post(...)`, `isr` and `unhandled(trap)` on an `effect`
-declaration. `;@axiom:efect(io)` is not an effect claim. Nothing
+the compiler checks. Eight are: `effect(...)`, `restrict(...)`, `raw`,
+`pre(...)`, `post(...)`, `isr`, `precondition(...)` and
+`unhandled(trap)` on an `effect` declaration. `;@axiom:efect(io)` is not an effect claim. Nothing
 validates it, so a body performing IO under it draws no AX3010 at
 all: the tag reads like a guarantee and buys silence, which is worse
 than writing no tag, because a reader spends trust on it.
@@ -1735,7 +1737,7 @@ that writes a field is accepted, and over one that does not it is
 AX3010. Alloc, Mut and every custom effect are declarable and
 checked - what is special about `IO` is that its ABSENCE is a claim every function up the call chain must answer.
 A declaration required on those distinguishes nothing from
-nothing. `Unsafe` is required too, but LEXICALLY (`AX3073`): only the body that calls the primitive must declare it, so the annotation sits where the unsafety is rather than on every `String` and `Vec` user a transitive rule would tag. `Alloc` and `Mut` stay ambient and stay inferred: `symbols`
+nothing. `Unsafe` is required too, but LEXICALLY (`AX3073`): only the body that performs the unsafe operation must declare it, so the annotation sits where the unsafety is rather than on every `String` and `Vec` user a transitive rule would tag. `Alloc` and `Mut` stay ambient and stay inferred: `symbols`
 still reports them and `handle`/`(Pure)` still measure them.
 
 One shape does not draw this. IO that reaches the row only as
@@ -2608,15 +2610,24 @@ AX3072 - `__addr` of anything but a string literal
 Spell the literal, or read bytes out of a value with `strData` (`stdlib/Str.ax`). Every use in this repository spells the literal; the rule makes that universal.
 
 ### explain AX3073
-AX3073 - a function touches raw memory and does not declare it
+AX3073 - a function performs an unsafe operation and does not declare it
 
-The body calls a raw-memory primitive - `__load8`, `__store8`, `__store8v`, `__load64`, `__store64`, `__alloc` or `__addr` - and the declaration says nothing about it.
+The body performs an unsafe operation, and its declaration does not say `;@axiom:effect(unsafe)`. There are three:
 
-Write `;@axiom:effect(unsafe)` above the declaration: on a line of its own, directly above the `fn` (below the `::` signature when there is one).
+- a raw primitive, such as `__load64`, `__store8`, `__retain` or `__addr`;
+- a call to a precondition interface, a function tagged `;@axiom:precondition(...)` because its safety depends on what its caller passes, such as `Mem.memGetWord`;
+- a forging cast: `(cast T x)` where `T` is a reference - a `String`, a `Vec`, a `Handle`, a struct, a `data` type with a field, a function, a tuple or a type variable - and `x` is not already a `T`.
 
-This fires where the primitive is CALLED, not up the call chain. A transitive refusal through `strData`, `strByte`, `memGetWord` and `memAlloc` would tag every `String` and `Vec` user in the program; the obligation sits at the call site instead, the way AX3071 and AX3072 already refuse a primitive call's shape. A wrapper contains the unsafety, and a caller inherits `Unsafe` in its row - checked against `;@axiom:effect(pure)` and `restrict(no-unsafe)` like any other effect - without drawing this itself.
+    (struct Hid (name : String) (n : Int))
+    (fn (peek k) (let ((h (cast Hid k))) h.n))
 
-A declaration that made ANY effect claim belongs to AX3010 instead: this is the silence half, for the function that claimed nothing.
+Here `peek` makes a `Hid` out of an `Int`, and reading `h.n` reads whatever that word points at.
+
+Write `;@axiom:effect(unsafe)` on a line of its own, directly above the `fn` (below the `::` signature when there is one). That tag alone makes the function a trusted encapsulation: you vouch that every well-typed call to it is safe, and its callers inherit nothing. When its safety depends on its arguments, write `;@axiom:precondition(...)` beside it as well, saying what a caller must make true. Every call to it is then an unsafe operation of the caller's.
+
+A cast that only observes is not unsafe: a reference read as an `Int`, a number converted, a `Foreign` read as an `Int` or back, a value cast to the type it already has. Nor is a cast of a value that never returns, such as `(cast a (exit 70))`.
+
+This fires where the operation is performed, not up the call chain, and it asks every declaration that does not say `effect(unsafe)`, whatever else it claims. An unsafe operation under `effect(pure)` is AX3010 instead.
 
 ### explain AX3074
 AX3074 - a macro parameter standing where the template keeps a name
@@ -2704,6 +2715,26 @@ claim while nothing checked it.
 Write `;@axiom:effect(pure)` above the function, on its `(:: ...)`
 or its `(fn ...)`. The claim is checked as before: a body that
 performs anything draws AX3010.
+
+### explain AX3079
+AX3079 - a precondition without `effect(unsafe)`
+
+A `;@axiom:precondition(...)` tag says what a caller must make true for a call to be safe. It belongs on an unsafe interface, so it rides on `;@axiom:effect(unsafe)`:
+
+    ;@axiom:effect(unsafe)
+    ;@axiom:precondition(`a` names a live word)
+    (fn (loadAt a) (__load64 a 0))
+
+With both tags, every call to the function is an unsafe operation of the caller's (AX3073). A precondition alone would change what callers owe while the function itself claimed nothing. If the body performs nothing unsafe, drop the precondition; otherwise add `;@axiom:effect(unsafe)`.
+
+### explain AX3080
+AX3080 - a precondition that states nothing
+
+`;@axiom:precondition()` names no condition. Every call to the function is an unsafe operation of its caller's, and the precondition is the text that tells the caller what to check: `symbols` prints it as `#precondition=`, and the AX3073 a caller draws quotes it.
+
+Write the condition as a caller would check it:
+
+    ;@axiom:precondition(`buf` names 16 live writable bytes)
 
 ### explain AX3084
 AX3084 - a struct marker that is unknown or does not fit
@@ -3219,12 +3250,14 @@ run `axiom explain --list` to see all known codes
   [93mAX3070[0m  a field read on a `data` value that may not have that field  (unsafe-field-access)
   [93mAX3071[0m  a bare `__store64` of a reference that takes no share  (unretained-store)
   [93mAX3072[0m  `__addr` of anything but a string literal  (addr-nonliteral)
-  [93mAX3073[0m  a function touches raw memory and does not declare it  (undeclared-unsafe)
+  [93mAX3073[0m  a function performs an unsafe operation and does not declare it  (undeclared-unsafe)
   [93mAX3074[0m  a macro parameter standing where the template keeps a name  (macro-parameter-name-position)
   [93mAX3075[0m  renaming and scope resolution part on a macro reference  (scope-divergence)
   [93mAX3076[0m  an `effect(...)` tag naming more than one effect  (effect-tag-list)
   [93mAX3077[0m  a checked AXTAG key on a declaration that can't carry it  (axtag-misplaced)
   [93mAX3078[0m  purity written any way but `effect(pure)`  (pure-tag-spelling)
+  [93mAX3079[0m  a precondition without `effect(unsafe)`  (precondition-without-unsafe)
+  [93mAX3080[0m  a precondition that states nothing  (precondition-empty)
   [93mAX3084[0m  a struct marker that is unknown or does not fit  (struct-marker)
   [93mAX3085[0m  a word struct built outside its module  (word-struct-sealed)
   [93mAX3086[0m  a word struct's field read outside its module  (word-struct-sealed-field)

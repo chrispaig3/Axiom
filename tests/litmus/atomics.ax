@@ -922,7 +922,6 @@
 ; `w`. `reorder` stores `w` first and `v` second. A `w` of 0 means one
 ; store. mode 1 plain, 0 sc, 3 reorder.
 (:: cohWriter (-> Int Int Int Int Int Int Int))
-;@axiom:effect(unsafe)
 (fn (cohWriter x v w ctr n mode)
   (let (
     (mut i 0)

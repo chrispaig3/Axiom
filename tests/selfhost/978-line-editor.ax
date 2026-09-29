@@ -54,6 +54,7 @@
 ; A prompt `w` columns wide, made of spaces so that `visLen` and the
 ; count agree without any escape being involved.
 (:: spacesOf (-> Int String))
+;@axiom:effect(unsafe)
 (fn (spacesOf w)
   (let ((s (strAlloc w)))
     (let ((mut i 0))
@@ -99,6 +100,7 @@
     0))
 
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (ring ledRingNew)

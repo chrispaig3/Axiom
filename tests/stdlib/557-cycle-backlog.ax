@@ -32,6 +32,7 @@
   (mut next : Node))
 
 (:: knot (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (knot i)
   (let (
     (a (Node
@@ -48,6 +49,7 @@
     }))
 
 (:: chain (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (chain i)
   (let ((b 
     (Node
@@ -57,6 +59,7 @@
       (+ a.v b.v))))
 
 (:: broken (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (broken i)
   (let (
     (a (Node
@@ -108,7 +111,6 @@
 
 (:: measure (-> String Int Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (measure name shape)
   (let ((b0 (backlog)))
     (let ((r 
@@ -123,7 +125,6 @@
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (k (measure "knots" 0))

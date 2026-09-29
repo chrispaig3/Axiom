@@ -727,11 +727,12 @@ records as a decision rather than a gap.
 
   `IO` is the one effect required transitively: every function up the
   call chain must answer for it. `Alloc` and `Mut` stay ambient. Of the
-  564 effectful standard-library functions, 180 perform exactly
-  `Alloc,Mut,Unsafe`, so requiring a declaration on those would
-  distinguish nothing (`scripts/check-effect-distribution.sh` pins the
-  count). `Unsafe` is required too, but lexically (`AX3073`): only the
-  body that calls the primitive must declare it.
+  591 effectful standard-library functions, 380 perform `Mut`, so
+  requiring a declaration on those would distinguish nothing
+  (`scripts/check-effect-distribution.sh` pins the distribution).
+  `Unsafe` is required too, but lexically (`AX3073`): only the
+  declaration that performs an unsafe operation must declare it, and a
+  trusted encapsulation ends the obligation for its callers.
 
   Every effect is declarable and checked, not only `IO`.
   `;@axiom:effect(mut)` over a body that writes a field checks OK, and

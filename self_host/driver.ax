@@ -96,6 +96,7 @@
 ; which several tools read back out of their own argv.
 (pub :: runTool (-> String (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (runTool tool args)
   (let ((n (vecLen args)))
     (let ((v (memAlloc (* (+ n 2) 8))))
@@ -125,6 +126,7 @@
       })))
 
 (pub :: fillArgv (-> Int (Vec Int) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (fillArgv v args i n)
   (if (>= i n)
     0
@@ -241,6 +243,7 @@
 ; the way they did.
 (pub :: toolFailDiag (-> String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (toolFailDiag msg help)
   (let (
     (d (mkDiag
@@ -318,6 +321,7 @@
 ; `/libpath:<dir>` and `-l<name>` is `<name>.lib`. Anything else is
 ; copied as it came, which is what `cc` would have done with it too.
 (pub :: appendLinkArgsWindows (-> (Vec Int) (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (appendLinkArgsWindows v linkArgs i)
   (if (==
     (cast Int linkArgs)
@@ -556,6 +560,7 @@
 ; ------------------------------------------------------------------
 (pub :: prepareCrates Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (prepareCrates)
   (let (
     (crates crateDirsOf)
@@ -890,6 +895,7 @@
 ; ------------------------------------------------------------------
 (pub :: buildFailDiag (-> String String String String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (buildFailDiag code slug msg help)
   (let (
     (d (mkDiag
@@ -946,6 +952,7 @@
 ; every library, because the link line does not say which archive
 ; lives where and neither does this.
 (pub :: archivePathsOf (-> (Vec Int) Bool (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (archivePathsOf linkArgs isWin)
   (let (
     (dirs vecNew)
@@ -996,6 +1003,7 @@
 ; declares: one per `extern` block the program or its imports
 ; declare.
 (pub :: externLibsOf (-> String (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (externLibsOf ir)
   (let (
     (out vecNew)
@@ -1046,6 +1054,7 @@
 ; shell could describe the project and the project could not.
 (pub :: effectiveLinkArgs (-> String String (Vec Int) (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (effectiveLinkArgs ir entryDir explicit)
   (let (
     (v vecNew)
@@ -1117,6 +1126,7 @@
 ; can explain.
 (pub :: addCrateDirs (-> (Vec Int) (Vec Int) (Vec Int) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (addCrateDirs v dirs crates)
   (let ((mut c 0))
     {
@@ -1130,6 +1140,7 @@
 
 (pub :: addTargetDirs (-> (Vec Int) (Vec Int) (Vec Int) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (addTargetDirs v dirs td i)
   (if (>= i (vecLen td))
     0
@@ -1140,6 +1151,7 @@
 
 (pub :: addSearchDir (-> (Vec Int) (Vec Int) String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (addSearchDir v dirs list)
   (let (
     (parts (strSplit list 58))
@@ -1209,6 +1221,7 @@
 
 (pub :: libExistsIn (-> (Vec Int) String Int Bool Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (libExistsIn dirs lib i isWin)
   (if (>= i (vecLen dirs))
     false
@@ -1226,6 +1239,7 @@
 ; the missing file rather than this pass inventing one.
 (pub :: readArchives (-> (Vec Int) (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (readArchives paths)
   (let (
     (out vecNew)
@@ -1255,6 +1269,7 @@
 ; 2026-08-22 - let `axffi_trip` ground against `axffi_triple` and die
 ; in the linker with a message about `cc`.
 (pub :: symbolGrounded (-> (Vec Int) String Int Bool))
+;@axiom:effect(unsafe)
 (pub fn (symbolGrounded blobs name i)
   (if (>= i (vecLen blobs))
     false
@@ -1330,6 +1345,7 @@
 
 ; Every `axffi_` name an archive's tables hold, for a did-you-mean.
 (pub :: archiveFfiNames (-> (Vec Int) (Vec a)))
+;@axiom:effect(unsafe)
 (pub fn (archiveFfiNames blobs)
   (let (
     (out vecNew)
@@ -1348,6 +1364,7 @@
     }))
 
 (pub :: collectFfiNames (-> String (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (collectFfiNames blob out from)
   (let ((at (strFindSub blob "axffi_" from)))
     (if (< at 0)
@@ -1369,6 +1386,7 @@
 ; The candidate sharing the longest prefix with `name`, when that
 ; prefix reaches past `axffi_`; "" otherwise.
 (pub :: closestFfiName (-> (Vec Int) String String))
+;@axiom:effect(unsafe)
 (pub fn (closestFfiName names name)
   (let (
     (mut best "")
@@ -1482,6 +1500,7 @@
 
 (pub :: existingPaths (-> (Vec Int) (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (existingPaths paths)
   (let (
     (out vecNew)
@@ -1502,6 +1521,7 @@
 
 (pub :: groundEachSpanned (-> (Vec Int) (Vec Int) (Vec Int) (Vec Int) (Vec Int) Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (groundEachSpanned names blobs paths decls units dfmt i)
   (if (>= i (vecLen names))
     0
@@ -1652,6 +1672,7 @@
       (Some u))))
 
 (:: findExternUnitFrom (-> (Vec Int) String (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (fn (findExternUnitFrom decls sym units i)
   (if (>= i (vecLen decls))
     (- 0 1)
@@ -1706,6 +1727,7 @@
 ; Every `<sym>__sig_...` name an archive holds, as the part after
 ; `__sig_`.
 (pub :: descriptorsOf (-> (Vec Int) String (Vec Int)))
+;@axiom:effect(unsafe)
 (pub fn (descriptorsOf blobs sym)
   (let (
     (out vecNew)
@@ -1726,6 +1748,7 @@
     }))
 
 (pub :: collectPrefixed (-> String String (Vec Int) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (collectPrefixed blob prefix out from)
   (let ((at (strFindSub blob prefix from)))
     (if (< at 0)
@@ -1776,6 +1799,7 @@
         "Int"))))
 
 (pub :: joinPaths (-> (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (joinPaths paths i)
   (if (>= i (vecLen paths))
     ""
@@ -1832,6 +1856,7 @@
 
 (pub :: groundEach (-> (Vec Int) (Vec Int) Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (groundEach names blobs i)
   (if (>= i (vecLen names))
     0
@@ -2463,6 +2488,7 @@
   (nearestSubcommandFrom w subcommandNames 0))
 
 (pub :: nearestSubcommandFrom (-> String (Vec Int) Int String))
+;@axiom:effect(unsafe)
 (pub fn (nearestSubcommandFrom w v i)
   (if (>= i (vecLen v))
     ""

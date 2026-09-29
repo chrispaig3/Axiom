@@ -25,7 +25,9 @@
 ; repository really are raw word reads - `memGetWord`, `vecGet`,
 ; `nodeA` - and `;@axiom:raw` is how one says so. The tag is not
 ; permission and does not make the read safe; it makes the unsafe layer
-; finite and enumerable, which is what `#raw` in AXSYM is for.
+; finite and enumerable, which is what `#raw` in AXSYM is for. Its cast
+; forges an `a` out of a word, so it says `effect(unsafe)` as well
+; (AX3073), and `conjure`, which does not, draws that too.
 (:: conjure (-> Int a))
 (fn (conjure n)
   (cast a n))
@@ -36,6 +38,7 @@
 
 ;@axiom:raw
 (:: declared (-> Int a))
+;@axiom:effect(unsafe)
 (fn (declared n)
   (cast a n))
 

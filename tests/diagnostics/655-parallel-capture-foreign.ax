@@ -83,6 +83,7 @@
 
 (:: hhandle Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (hhandle)
   (let ((h (ffiHandleNew 0 0)))
     (__par_join

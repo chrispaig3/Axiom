@@ -85,6 +85,8 @@
 
 ; A `Vec` of `Glyph` answered by Rust: 2 words per element, rebuilt here.
 (:: __glyphFromWords (-> (Vec Glyph) Int Int Int (Vec Glyph)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`__p` names `__n` * 2 live words)
 (fn (__glyphFromWords __v __p __n __i)
   (if (>= __i __n)
     __v
@@ -99,6 +101,8 @@
 
 ; A `Vec` of `Pixel` answered by Rust: 3 words per element, rebuilt here.
 (:: __pixelFromWords (-> (Vec Pixel) Int Int Int (Vec Pixel)))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`__p` names `__n` * 3 live words)
 (fn (__pixelFromWords __v __p __n __i)
   (if (>= __i __n)
     __v
@@ -153,6 +157,7 @@
 
 (pub :: charsOf (-> String (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (charsOf text)
   (let (
     (__c ffiCellNew)
@@ -169,6 +174,7 @@
 
 (pub :: check (-> Bool (Option Bool)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (check flag)
   (let (
     (__c ffiCellNew)
@@ -188,6 +194,7 @@
 
 (pub :: combine (-> (-> Int Int Int) (-> Int Int Int Int) Int (Option Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (combine f g seed)
   (let (
     (__c ffiCellNew)
@@ -207,6 +214,7 @@
 
 (pub :: concat (-> (Vec String) String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (concat parts)
   (let (
     (__c ffiCellNew)
@@ -233,6 +241,7 @@
 
 (pub :: echo (-> String String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (echo cell)
   (let (
     (__c ffiCellNew)
@@ -249,6 +258,7 @@
 
 (pub :: evens (-> Int (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (evens upto)
   (let (
     (__c ffiCellNew)
@@ -265,6 +275,7 @@
 
 (pub :: fromChars (-> (Vec Int) String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (fromChars cs)
   (let (
     (__c ffiCellNew)
@@ -283,6 +294,7 @@
 
 (pub :: glyphOf (-> Char Glyph))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (glyphOf c)
   (let (
     (__c (ffiCellNewN 2))
@@ -298,6 +310,7 @@
 
 (pub :: glyphsMaybe (-> Int (Option (Vec Glyph))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (glyphsMaybe n)
   (let (
     (__c ffiCellNew)
@@ -319,6 +332,7 @@
 
 (pub :: grid (-> Int (Vec (Vec Int))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (grid n)
   (let (
     (__c ffiCellNew)
@@ -335,6 +349,7 @@
 
 (pub :: lookup (-> Int (Option (Result Thing String))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lookup i)
   (let (
     (__c ffiCellNew)
@@ -361,6 +376,7 @@
 
 (pub :: maybeChar (-> Char (Option Char)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (maybeChar c)
   (let (
     (__c ffiCellNew)
@@ -381,6 +397,7 @@
 
 (pub :: maybeParse (-> String (Result (Option Int) String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (maybeParse text)
   (let (
     (__c ffiCellNew)
@@ -407,6 +424,7 @@
 
 (pub :: maybePieces (-> String (Option (Vec String))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (maybePieces text)
   (let (
     (__c ffiCellNew)
@@ -428,6 +446,7 @@
 
 (pub :: maybePixelTry (-> Int (Result (Option Pixel) String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (maybePixelTry n)
   (let (
     (__c (ffiCellNewN 3))
@@ -458,6 +477,7 @@
 
 (pub :: maybeText (-> Int (Option String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (maybeText n)
   (let (
     (__c ffiCellNew)
@@ -488,6 +508,7 @@
 
 (pub :: parity (-> Int (Vec Int)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (parity n)
   (let (
     (__c ffiCellNew)
@@ -504,6 +525,7 @@
 
 (pub :: pieces (-> String (Vec String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pieces text)
   (let (
     (__c ffiCellNew)
@@ -520,6 +542,7 @@
 
 (pub :: piecesLookup (-> String (Option (Result (Vec String) String))))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (piecesLookup text)
   (let (
     (__c ffiCellNew)
@@ -557,6 +580,7 @@
 
 (pub :: pixelMix (-> Pixel Pixel Thing (Option Pixel)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pixelMix a b t)
   (match a
     ((Pixel __f0 __f1 __f2)
@@ -598,6 +622,7 @@
 
 (pub :: pixelOff Pixel)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pixelOff)
   (let (
     (__c (ffiCellNewN 3))
@@ -614,6 +639,7 @@
 
 (pub :: pixelParse (-> String (Result Pixel String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pixelParse text)
   (let (
     (__c (ffiCellNewN 3))
@@ -639,6 +665,7 @@
 
 (pub :: pixelsDim (-> (Vec Pixel) Int (Vec Pixel)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pixelsDim ps by)
   (let (
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
@@ -659,6 +686,7 @@
 
 (pub :: pixelsTry (-> (Vec Pixel) (Result (Vec Pixel) String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (pixelsTry ps)
   (let (
     (__a0 (__pixelToWords ps (vecWithCapacity (* (vecLen ps) 3)) 0))
@@ -685,6 +713,7 @@
 
 (pub :: ratio (-> Int Int (Result Float String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (ratio a b)
   (let (
     (__c ffiCellNew)
@@ -707,6 +736,7 @@
 
 (pub :: renamed (-> String Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (renamed text n)
   (let (
     (__c ffiCellNew)
@@ -743,6 +773,7 @@
 
 (pub :: thingMaybe (-> Thing (Option Thing)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (thingMaybe t)
   (match t
     ((Thing __h0)
@@ -766,6 +797,7 @@
 
 (pub :: thingNew (-> Int Thing))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (thingNew n)
   (let (
     (__p (cast Int (thingNewRaw n)))
@@ -791,6 +823,7 @@
 
 (pub :: thingTry (-> Int (Result Thing String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (thingTry n)
   (let (
     (__c ffiCellNew)
@@ -820,6 +853,7 @@
 
 (pub :: tryEvens (-> Int (Result (Vec Int) String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (tryEvens upto)
   (let (
     (__c ffiCellNew)
@@ -843,6 +877,7 @@
 
 (pub :: tryGridF64 (-> Int (Result (Vec (Vec Int)) String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (tryGridF64 n)
   (let (
     (__c ffiCellNew)
@@ -866,6 +901,7 @@
 
 (pub :: unitResult (-> Int (Result Int String)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (unitResult n)
   (let (
     (__c ffiCellNew)
@@ -887,6 +923,7 @@
 
 (pub :: wide (-> Int Int Int Int Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (wide a b c d e)
   (let (
     (__c ffiCellNew)
@@ -909,6 +946,7 @@
 
 (pub :: widgetNew Widget)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (widgetNew)
   (let (
     (__p (cast Int widgetNewRaw))

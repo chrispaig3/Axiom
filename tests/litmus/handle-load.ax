@@ -114,7 +114,6 @@
 ; `n` handles of kind 11, each naming an address of its own, made,
 ; checked and freed; answers how many answered a wrong address.
 (:: churnOne (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (churnOne who n)
   (let ((mut wrong 0))
     {
@@ -165,7 +164,6 @@
 ; Meet the sibling, then free `h` inside a recovery point: 1 when the
 ; free returned, 0 when it trapped.
 (:: tryFree (-> Int Int Int))
-;@axiom:effect(unsafe)
 (fn (tryFree bar h)
   (if (==
     (__axiom_recover
@@ -222,7 +220,6 @@
 
 (:: sendAfter (-> Chan Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (sendAfter c)
   (__axiom_recover
     __axiom_arena_mark

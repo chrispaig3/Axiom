@@ -6,6 +6,7 @@
 ; successful read is any non-zero length.
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((src (sysReadFile (__addr "in.ax"))))
     (if (> (strLen src) 0)

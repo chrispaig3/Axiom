@@ -771,3 +771,16 @@
 0.7.7  F  internFree   row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
 0.7.7  F  ffiCellFree  row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
 0.7.7  F  ledFree      row  -> Unsafe: releasing a share is a raw-memory operation (MM-EXEC-9c)
+
+# 0.7.7 - R-B6, MM-EXEC-9d: a cast that makes a reference out of a word
+# is an unsafe operation. These four answered, or took, a `(Vec Int)`
+# whose words were `String` handles, so every caller that read a name
+# back wrote `(cast String ...)` - a forging cast, which now needs
+# `effect(unsafe)`. The vectors are typed `(Vec String)`, and a caller
+# reads a name with `vecGet`. The effect rows narrow too, not listed
+# here because narrowing breaks no caller: a trusted encapsulation's
+# `Unsafe` no longer reaches its callers' rows.
+0.7.7  F  strSplit        (-> String Int (Vec Int)) -> (-> String Int (Vec String)): the segments are Strings (MM-EXEC-9d)
+0.7.7  F  listDir         (-> String (Vec Int)) -> (-> String (Vec String)): the names are Strings (MM-EXEC-9d)
+0.7.7  F  sysReadDir      (-> Int (Vec Int)) -> (-> Int (Vec String)): the names are Strings (MM-EXEC-9d)
+0.7.7  F  axsymParseFrom  (-> (Vec Int) Int (Vec Sym) (Vec Sym)) -> (-> (Vec String) Int (Vec Sym) (Vec Sym)): the lines are Strings (MM-EXEC-9d)

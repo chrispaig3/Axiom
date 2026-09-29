@@ -129,7 +129,6 @@
 
 (:: chanTrapped (-> Int Chan Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (chanTrapped k c)
   (__axiom_recover
     __axiom_arena_mark
@@ -137,7 +136,6 @@
 
 (:: mutexTrapped (-> Int Mutex Int))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (mutexTrapped k m)
   (__axiom_recover
     __axiom_arena_mark
@@ -147,16 +145,17 @@
 ; a channel. Only a `cast` can write either, because `Chan` is sealed; a
 ; cast to a sealed type is a forging cast, the unsafe layer's (MM-VAL-22).
 (:: forged Chan)
+;@axiom:effect(unsafe)
 (fn (forged)
   (cast Chan 1234567))
 
 (:: asChan (-> Mutex Chan))
+;@axiom:effect(unsafe)
 (fn (asChan m)
   (cast Chan m))
 
 (:: main Int)
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (main)
   (match (chanNew 4)
     ((Ok c)

@@ -92,6 +92,7 @@
 ; Construction
 ; ------------------------------------------------------------------
 (:: jsonMake (-> Int a b Int))
+;@axiom:effect(unsafe)
 (fn (jsonMake tag a b)
   (let ((v (memAlloc 24)))
     {
@@ -136,6 +137,7 @@
 ; Inspection
 ; ------------------------------------------------------------------
 (:: jsonTag (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (jsonTag v)
   (if (== v 0)
     JNULL
@@ -146,6 +148,7 @@
   (== (jsonTag v) JNULL))
 
 (pub :: jsonBoolVal (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (jsonBoolVal v)
   (if (== (jsonTag v) JBOOL)
     (memGetWord v 1)
@@ -155,30 +158,35 @@
 ; number, so a caller that must distinguish absence tests `jsonTag`
 ; first - the same contract `Utf8`'s -1 sentinel documents.
 (pub :: jsonInt (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (jsonInt v)
   (if (== (jsonTag v) JNUM)
     (memGetWord v 1)
     0))
 
 (pub :: jsonNumText (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (jsonNumText v)
   (if (== (jsonTag v) JNUM)
     (memGetWordStr v 2)
     ""))
 
 (pub :: jsonStrVal (-> Int String))
+;@axiom:effect(unsafe)
 (pub fn (jsonStrVal v)
   (if (== (jsonTag v) JSTR)
     (memGetWordStr v 1)
     ""))
 
 (pub :: jsonArrLen (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (jsonArrLen v)
   (if (== (jsonTag v) JARR)
     (vecLen (memGetWordVec v 1))
     0))
 
 (pub :: jsonArrGet (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (jsonArrGet v i)
   (if (== (jsonTag v) JARR)
     (if (|| (< i 0) (>= i (vecLen (memGetWordVec v 1))))
@@ -187,6 +195,7 @@
     0))
 
 (pub :: jsonArrPush (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (jsonArrPush v x)
   {
     (if (== (jsonTag v) JARR)
@@ -196,18 +205,21 @@
   })
 
 (pub :: jsonObjLen (-> Int Int))
+;@axiom:effect(unsafe)
 (pub fn (jsonObjLen v)
   (if (== (jsonTag v) JOBJ)
     (vecLen (memGetWordVec v 1))
     0))
 
 (:: jsonObjKeyAt (-> Int Int String))
+;@axiom:effect(unsafe)
 (fn (jsonObjKeyAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v)))
     ""
     (vecGetStr (memGetWordVec v 1) i)))
 
 (:: jsonObjValAt (-> Int Int Int))
+;@axiom:effect(unsafe)
 (fn (jsonObjValAt v i)
   (if (|| (< i 0) (>= i (jsonObjLen v)))
     0
@@ -220,6 +232,7 @@
 ; here deliberately - LSP never sends duplicates, and inventing a
 ; replacement policy would be inventing behaviour no test can pin.
 (pub :: jsonObjPut (-> Int String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (jsonObjPut v k x)
   {
     (if (== (jsonTag v) JOBJ)
@@ -294,6 +307,7 @@
       })))
 
 (:: jsonJoinLen (-> (Vec a) Int))
+;@axiom:effect(unsafe)
 (fn (jsonJoinLen pieces)
   (let (
     (mut k 0)
@@ -309,6 +323,7 @@
     }))
 
 (:: jsonJoinFill (-> (Vec a) String Int))
+;@axiom:effect(unsafe)
 (fn (jsonJoinFill pieces out)
   (let ((mut off 0))
     {
@@ -521,6 +536,7 @@
     }))
 
 (:: jsonWriteInto (-> Int (Vec String) (Vec String)))
+;@axiom:effect(unsafe)
 (fn (jsonWriteInto v pieces)
   (let ((t (jsonTag v)))
     (if (== t JNULL)
@@ -544,6 +560,7 @@
               (jsonWriteObj v pieces))))))))
 
 (:: jsonWriteArr (-> Int (Vec String) (Vec String)))
+;@axiom:effect(unsafe)
 (fn (jsonWriteArr v pieces)
   (let ((items (memGetWordVec v 1)))
     {
@@ -559,6 +576,7 @@
     }))
 
 (:: jsonWriteObj (-> Int (Vec String) (Vec String)))
+;@axiom:effect(unsafe)
 (fn (jsonWriteObj v pieces)
   (let (
     (keys (memGetWordVec v 1))
@@ -593,6 +611,7 @@
 ; so a malformed input costs one pass and cannot loop.
 ; ------------------------------------------------------------------
 (:: jcNew Int)
+;@axiom:effect(unsafe)
 (fn (jcNew)
   (let ((c (memAlloc 16)))
     {
@@ -602,18 +621,22 @@
     }))
 
 (:: jcPos (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (jcPos c)
   (memGetWord c 0))
 
 (:: jcSetPos (-> Int Int Int))
+;@axiom:effect(unsafe)
 (fn (jcSetPos c p)
   (memSetWord c 0 p))
 
 (:: jcBad (-> Int Bool))
+;@axiom:effect(unsafe)
 (fn (jcBad c)
   (!= (memGetWord c 1) 0))
 
 (:: jcFail (-> Int Int))
+;@axiom:effect(unsafe)
 (fn (jcFail c)
   {
     (memSetWord c 1 1)
@@ -772,6 +795,7 @@
 ; concatenation, and the common case - a string with no escape at all -
 ; takes a single slice and allocates nothing.
 (:: jpString (-> String Int String))
+;@axiom:effect(unsafe)
 (fn (jpString src c)
   (if (!= (jcPeek src c) 34)
     {
