@@ -1,0 +1,337 @@
+; A pool whose Nth spawn is refused, for `scripts/check-task.sh` §9
+; (R-B2; docs/memory-model.md MM-PAR-13, `stdlib/Par.ax`). One mode per
+; run, chosen by the first argument; each prints lines the gate reads.
+;
+; THE REFUSAL is made two ways. By default the runtime's handle table is
+; filled but for K slots, so the spawn that asks for the slot after them
+; is refused: the path a fork the kernel refuses takes too
+; (`__axiom_par_finish`, then status 78). K below 0 fills nothing, for a
+; run the gate starts under `ulimit -u 1`. The `kernel` mode makes the
+; KERNEL refuse a fork in the middle of a pool: the fold's first step
+; lowers this process's RLIMIT_NPROC to 1.
+;
+; A stubborn task prints `pid P` and sleeps up to 60 seconds, so only a
+; kill ends it in time. Every mode ends with `ready PID` and then sleeps
+; S seconds, so the gate can ask `kill -0` about every pid while this
+; process lives - a child it has not reaped still answers - and read
+; its address space.
+;
+;   task K N W R L S R rounds, each a recovery point around `taskMap` over
+;                    N stubborn tasks at width W and a byte limit of L,
+;                    with K handle slots free (the pool's token takes
+;                    one). Prints each task's answer, then `round I
+;                    status C free F`: what the recovery point answered
+;                    (1000 plus the answers, or the trap's status) and
+;                    how many handle slots came back.
+;   checked K N W S  `parMapWordsChecked`, one round, the same way.
+;   raising K N W S  `parMapWords`, one round: a refusal raises 78, so
+;                    the round answers 78 and prints no answers.
+;   kernel GET SET RES S
+;                    `taskFold` over four tasks at width 2: task 0
+;                    answers at once and the rest are stubborn. The step
+;                    that takes task 0's answer lowers resource RES to 1
+;                    with the system calls GET and SET, so the kernel
+;                    refuses the next fork. Prints each answer as the
+;                    fold takes it.
+;
+; Filling the table and lowering the limit use the unsafe layer: the
+; three handle primitives and a raw system call.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+(import Err)
+(import Task)
+(import Par)
+
+(:: argInt (-> Int Int))
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)))
+
+; Sleep `ms` milliseconds on a word nobody changes.
+(:: nap (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (nap idle ms)
+  {
+    (sysWaitWordTimeout idle 0 (* ms 1000000))
+    0
+  })
+
+; Print this process's pid, count it in word 1 of `page`, then sleep for
+; up to a minute.
+(:: stubborn (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (stubborn page)
+  (let ((me sysGetPid))
+    {
+      (println "pid {me}")
+      (__atomic_add (+ page 8) 1)
+      (for i 0 600
+        (nap page 100))
+      0
+    }))
+
+; Task `i` of the kernel round: the first answers at once, and every
+; other is stubborn.
+(:: work (-> Int Int Int))
+;@axiom:effect(io)
+(fn (work page i)
+  (if (== i 0)
+    0
+    (stubborn page)))
+
+(:: showResult (-> Int (Result String Error) Int))
+;@axiom:effect(io)
+(fn (showResult i r)
+  (match r
+    ((Ok s) (println "{i} ok {s}"))
+    ((Err e)
+      (let (
+        (c (errCode e))
+        (m (errMessage e))
+      )
+        (println "{i} err {c} {m}"))
+    )))
+
+(:: showWord (-> Int (Result Int Error) Int))
+;@axiom:effect(io)
+(fn (showWord i r)
+  (match r
+    ((Ok v) (println "{i} ok {v}"))
+    ((Err e)
+      (let (
+        (c (errCode e))
+        (m (errMessage e))
+      )
+        (println "{i} err {c} {m}"))
+    )))
+
+; ---- the handle table --------------------------------------------------
+(:: newH (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (newH addr)
+  (__handle_new 9 addr))
+
+(:: freeH (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (freeH h)
+  (__handle_free 9 h))
+
+; Take every free slot; answer how many that was.
+(:: fillAll (-> (Vec Int) Int))
+(fn (fillAll hs)
+  (let (
+    (mut added 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (let ((h (newH (* (+ (vecLen hs) 1) 16))))
+          (if (== h 0)
+            (set going 0)
+            {
+              (vecPush hs h)
+              (set added (+ added 1))
+            })))
+      added
+    }))
+
+; Give `k` slots back.
+(:: freeSome (-> (Vec Int) Int Int))
+(fn (freeSome hs k)
+  {
+    (for i 0 k
+      (freeH (vecPop hs)))
+    k
+  })
+
+; ---- the rounds ----------------------------------------------------------
+; Each is a top-level function, passed to the recovery point by name, so
+; it captures nothing the abort could reclaim (MM-ALLOC-23).
+(:: taskRound (-> Int Int))
+;@axiom:effect(io)
+(fn (taskRound x)
+  (match (sysMapShared 4096)
+    ((Ok page)
+      (let ((rs 
+        (taskMap
+          (lambda (i)
+            {
+              (stubborn page)
+              "late"
+            }
+          )
+          (argInt 3)
+          (argInt 4)
+          (argInt 6))))
+        {
+          (for i 0 (vecLen rs)
+            (showResult i (vecGet rs i)))
+          (+ 1000 (vecLen rs))
+        })
+    )
+    ((Err e) 2)))
+
+(:: checkedRound (-> Int Int))
+;@axiom:effect(io)
+(fn (checkedRound x)
+  (match (sysMapShared 4096)
+    ((Ok page)
+      (let ((rs 
+        (parMapWordsChecked
+          (lambda (i) (stubborn page))
+          (argInt 3)
+          (argInt 4))))
+        {
+          (for i 0 (vecLen rs)
+            (showWord i (vecGet rs i)))
+          (+ 1000 (vecLen rs))
+        })
+    )
+    ((Err e) 2)))
+
+(:: raisingRound (-> Int Int))
+;@axiom:effect(io)
+(fn (raisingRound x)
+  (match (sysMapShared 4096)
+    ((Ok page)
+      (let ((rs 
+        (parMapWords
+          (lambda (i) (stubborn page))
+          (argInt 3)
+          (argInt 4))))
+        (+ 1000 (vecLen rs)))
+    )
+    ((Err e) 2)))
+
+; The round the first argument names.
+(:: oneRound (-> Int Int))
+;@axiom:effect(io)
+(fn (oneRound x)
+  (let ((mode (sysArg 1)))
+    (if (strEq mode "task")
+      (taskRound x)
+      (if (strEq mode "checked")
+        (checkedRound x)
+        (raisingRound x)))))
+
+; `n` rounds, each with `k` handle slots free, or with the table
+; untouched when `k` is below 0.
+(:: rounds (-> Int Int Int))
+;@axiom:effect(io)
+(fn (rounds k n)
+  (let ((hs (vecWithCapacity 65536)))
+    {
+      (for r 0 n
+        {
+          (if (>= k 0)
+            {
+              (fillAll hs)
+              (freeSome hs k)
+            }
+            0)
+          (let ((st (__axiom_recover __axiom_arena_mark oneRound)))
+            (let ((free 
+              (if (>= k 0)
+                (fillAll hs)
+                0)))
+              (println "round {r} status {st} free {free}")))
+        })
+      0
+    }))
+
+; ---- kernel ----------------------------------------------------------------
+; Lower resource `res` to 1, keeping its hard limit: getrlimit into a
+; two-word buffer, then setrlimit with the first word replaced.
+(:: lowerLimit (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (lowerLimit get set res)
+  (let ((buf (memAlloc 16)))
+    (if (== (__syscall2 get res buf) 0)
+      {
+        (memSetWord buf 0 1)
+        (__syscall2 set res buf)
+      }
+      (- 0 1))))
+
+(:: kernelStep (-> Int Int Int Int Int (Result String Error) Int))
+;@axiom:effect(io)
+(fn (kernelStep get set res acc i r)
+  {
+    (showResult i r)
+    (if (== i 0)
+      (let ((rc (lowerLimit get set res)))
+        (println "limit lowered {rc}"))
+      0)
+    (+ acc 1)
+  })
+
+(:: kernelRound (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (kernelRound x)
+  (match (sysMapShared 4096)
+    ((Ok page)
+      (let (
+        (get (argInt 2))
+        (set (argInt 3))
+        (res (argInt 4))
+      )
+        (+
+          1000
+          (taskFold
+            (lambda (i)
+              (if (== (work page i) 0)
+                "first"
+                "late")
+            )
+            4
+            (taskOpts 2 64)
+            0
+            (lambda (acc i r) (kernelStep
+              get
+              set
+              res
+              acc
+              i
+              r)))))
+    )
+    ((Err e) 2)))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let ((mode (sysArg 1)))
+    (match (sysMapShared 4096)
+      ((Ok idle)
+        {
+          (if (strEq mode "task")
+            (rounds (argInt 2) (argInt 5))
+            (if (strEq mode "checked")
+              (rounds (argInt 2) 1)
+              (if (strEq mode "raising")
+                (rounds (argInt 2) 1)
+                (if (strEq mode "kernel")
+                  (let ((st (__axiom_recover __axiom_arena_mark kernelRound)))
+                    (println "round 0 status {st} free 0"))
+                  (println "usage: pool-refuse task K N W R L S | checked K N W S | raising K N W S | kernel GET SET RES S")))))
+          (let ((me sysGetPid))
+            (println "ready {me}"))
+          (let ((s 
+            (argInt
+              (if (strEq mode "task")
+                7
+                5))))
+            (for i 0 (* s 10)
+              (nap idle 100)))
+          0
+        }
+      )
+      ((Err e) 1))))

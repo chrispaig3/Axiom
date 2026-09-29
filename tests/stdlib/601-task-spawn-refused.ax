@@ -1,0 +1,119 @@
+; A task pool whose third spawn is refused (docs/memory-model.md
+; MM-PAR-13, R-B2). The runtime's handle table is filled but for three
+; slots: the pool's token takes one and two tasks take the others, so
+; the third task's spawn is refused, the path a fork the kernel refuses
+; takes too (78). The refused task answers 78 in its slot, the pool is
+; cancelled, the two running tasks are killed and reaped after the grace
+; and answer `taskCancelledCode`, and the fourth never starts. The pool
+; returns through its own cleanup, so every handle slot comes back, and
+; neither task's pid names a process any more.
+; `scripts/check-task.sh` §9 runs the same shape in both lowerings,
+; against the address space and a kernel refusal.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Vec)
+(import Err)
+(import Task)
+
+(:: newH (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (newH addr)
+  (__handle_new 9 addr))
+
+(:: freeH (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (freeH h)
+  (__handle_free 9 h))
+
+; Take every free slot; answer how many that was.
+(:: fillAll (-> (Vec Int) Int))
+(fn (fillAll hs)
+  (let (
+    (mut added 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (let ((h (newH (* (+ (vecLen hs) 1) 16))))
+          (if (== h 0)
+            (set going 0)
+            {
+              (vecPush hs h)
+              (set added (+ added 1))
+            })))
+      added
+    }))
+
+; Record this process's pid in word `i + 1` of `page`, then sleep for up
+; to a minute: only a kill ends it in time.
+(:: stubborn (-> Int Int String))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (stubborn page i)
+  {
+    (memSetWord page (+ i 1) sysGetPid)
+    (for k 0 600
+      (sysWaitWordTimeout page 0 100000000))
+    "late"
+  })
+
+(:: showResult (-> Int (Result String Error) Int))
+;@axiom:effect(io)
+(fn (showResult i r)
+  (match r
+    ((Ok s) (println "{i} ok {s}"))
+    ((Err e)
+      (let (
+        (c (errCode e))
+        (m (errMessage e))
+      )
+        (println "{i} err {c} {m}"))
+    )))
+
+; How many of the pids recorded in words 1 to 4 still name a process.
+(:: aliveCount (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (aliveCount page)
+  (let ((mut alive 0))
+    {
+      (for k 1 5
+        (let ((p (memGetWord page k)))
+          (if (> p 0)
+            (match (sysKill p 0)
+              ((Ok z)
+                (set alive (+ alive 1))
+              )
+              ((Err e) 0))
+            0)))
+      alive
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (sysMapShared 4096)
+    ((Ok page)
+      (let ((hs (vecWithCapacity 65536)))
+        {
+          (fillAll hs)
+          (for k 0 3
+            (freeH (vecPop hs)))
+          (let ((rs 
+            (taskMap
+              (lambda (i) (stubborn page i))
+              4
+              4
+              64)))
+            (for i 0 (vecLen rs)
+              (showResult i (vecGet rs i))))
+          (let ((free (fillAll hs)))
+            (println "handle slots back {free} of 3"))
+          (let ((alive (aliveCount page)))
+            (println "task processes left {alive}"))
+          0
+        })
+    )
+    ((Err e) 1)))

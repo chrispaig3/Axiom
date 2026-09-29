@@ -5318,6 +5318,20 @@ isolation is what makes a task's captures its own.
   delivers each answer inside a `region` (`MM-RGN-1`) and keeps
   nothing. On H3 its peak RSS was 1,888 KiB at 500, 5,000 and 20,000
   tasks of 4 KiB answers.
+- **A refused spawn is a value too.** A spawn the kernel refuses, or
+  one the handle table has no slot for, answers `Err` 78 in its task's
+  slot, or 70 when no page could be mapped for the handle. It cancels
+  the pool as a cancellation does, but leaves the token alone: nothing
+  more starts, the tasks still running get `grace` and are then killed
+  and reaped, and the pool returns through its normal path, which
+  unmaps the slab and frees a private token. The spawn runs inside a
+  recovery point of its own (`taskSpawn`), so the runtime's 78 comes
+  back to the pool instead of unwinding past its cleanup.
+- **`Par`'s pools answer a refusal too.** `stdlib/Par.ax`'s
+  `parMapWordsChecked` answers it in its slots the same way, and kills
+  and joins its running children at once. `parMapWords` raises 78 to
+  its caller as it raises a child's trap, and the runtime's sweep
+  (`MM-PAR-7`) kills and reaps its children.
 - **No child outlives the call** on any path the program has. A normal
   return has joined every child. A trap in the parent in the middle of
   a pool is `MM-PAR-7`'s case: the children are on the spawning
@@ -5350,9 +5364,9 @@ isolation is what makes a task's captures its own.
   can't sweep its own tasks (`MM-PAR-7`'s grandchildren limit). A
   task's own children are the task's responsibility.
 - A raw `sysExitWith` sweeps nothing.
-- A `__proc_spawn` the kernel refuses traps 78 through the runtime, as
-  in `Par.ax`, instead of answering in its slot.
-- A pool's mappings aren't returned on the trap path.
+- A pool's mappings aren't returned when any other trap unwinds
+  through it, such as one in `taskFold`'s step. Its children are still
+  killed and reaped (`MM-PAR-7`).
 - Where no look at a child exists (`sysChildExited` answers `Err`), a
   death without an answer is found at the task's deadline. With no
   deadline, it is found by blocking on the oldest running task's join,
@@ -5394,6 +5408,18 @@ isolation is what makes a task's captures its own.
   sibling thread. A control measures the stated limit: an external
   `SIGKILL` leaves the tasks alive. §5: the fold stays within 1 MiB
   from 500 to 5,000 tasks, and the keeping control must grow by 8 MiB.
+- `tests/stdlib/601-task-spawn-refused.ax` and
+  `tests/stdlib/602-par-spawn-refused.ax`: the third spawn refused,
+  each answer in its slot, the running children gone and every handle
+  slot back, at every `--opt`.
+- `scripts/check-task.sh` §9 refuses a pool's third spawn in both
+  lowerings. The two running tasks' pids are gone while the program
+  still lives, it has no child left, every handle slot comes back, and
+  eight refused rounds with a 128 MiB slab each leave the address space
+  where one round left it. With the recovery point around the spawn
+  taken out, the same eight rounds kept about 900 MiB. The kernel's own
+  refusal is run too: a fold that lowers `RLIMIT_NPROC` mid-pool, and
+  `ulimit -u 1` refusing the first fork.
 - `scripts/check-task.sh` §6 ablates the deadline's kill, the pid the
   kill reads, the child look, the result slot, the byte limit, the
   cancellation's kill, the saturating microseconds conversion and the

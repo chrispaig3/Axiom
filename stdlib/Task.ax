@@ -37,6 +37,10 @@
 ;   Err taskCancelledCode the pool was cancelled: never started, or
 ;                        still running when the grace period ran out,
 ;                        and then SIGKILLed and reaped
+;   Err 78 or 70         its spawn was refused - the kernel refused the
+;                        fork or the handle table was full (78), or no
+;                        page could be mapped for the handle (70) - and
+;                        it never ran; the pool is then cancelled
 ;
 ; The codes above 255 cannot be mistaken for a wait status.
 ;
@@ -71,6 +75,14 @@
 ;     cancelling it cancels every pool using it.
 ;   * `failFast` sets the pool's token at the first task that answers
 ;     an error (not at a cancellation), which cancels the rest as above.
+;   * A SPAWN THAT IS REFUSED cancels the pool too, without touching the
+;     token: the refused task answers the refusal's status (78, or 70),
+;     nothing more starts, running tasks get `grace` and are then
+;     SIGKILLed and reaped, and the pool returns through its normal
+;     path, so the slab is unmapped and a private token freed. The spawn
+;     runs inside a recovery point of its own (`taskSpawn`), which is
+;     how the runtime's refusal - a trap, MM-PAR-7 - comes back here as
+;     a status instead of unwinding past the pool's cleanup.
 ;
 ; NO CHILD OUTLIVES THE CALL on any path the program has. A normal
 ; return joins every child it spawned. A trap in the parent during the
@@ -459,24 +471,27 @@
 
 ; The answer of a joined slot, built in the caller's current region.
 ; `slot` is the slab slot, `status` the joined child's wait status and
-; `why` why it was joined (`taskJoin`).
+; `why` why it was joined (`taskJoin`), or 4 when its spawn was refused
+; and `status` is the refusal's.
 (:: taskResultAt (-> Int Int Int (Result String Error)))
 (fn (taskResultAt slot status why)
   (let (
     (state (taskLoadAt slot))
     (finished (|| (== status 0) (&& (== status 137) (>= why 2))))
   )
-    (if (&& finished (== state 2))
-      (Ok (taskCopyOut slot))
-      (if (&& finished (== state 3))
-        (Err (mkError taskTooLargeCode "task answer over the byte limit"))
-        (if (== status 0)
-          (Err (mkError 78 "task ended without an answer"))
-          (if (&& (== status 137) (== why 2))
-            (Err (mkError sysTimedOut "task past its deadline"))
-            (if (&& (== status 137) (== why 3))
-              (Err (mkError taskCancelledCode "task cancelled"))
-              (Err (mkError status "task trapped")))))))))
+    (if (== why 4)
+      (Err (mkError status "task not started: its spawn was refused"))
+      (if (&& finished (== state 2))
+        (Ok (taskCopyOut slot))
+        (if (&& finished (== state 3))
+          (Err (mkError taskTooLargeCode "task answer over the byte limit"))
+          (if (== status 0)
+            (Err (mkError 78 "task ended without an answer"))
+            (if (&& (== status 137) (== why 2))
+              (Err (mkError sysTimedOut "task past its deadline"))
+              (if (&& (== status 137) (== why 3))
+                (Err (mkError taskCancelledCode "task cancelled"))
+                (Err (mkError status "task trapped"))))))))))
 
 (:: taskCopyOut (-> Int String))
 ;@axiom:effect(unsafe)
@@ -641,11 +656,50 @@
             (- 0 2)
             (- 0 1)))))))
 
+; Spawn `wrapper` on `arg` inside a recovery point of its own, so a
+; refused spawn comes back here as a status rather than trapping past
+; the pool (MM-PAR-7's 78). Answers the handle's word, or the status:
+; 78 when the kernel refused the fork or the handle table was full, 70
+; when the handle's page could not be mapped. The runtime has already
+; given back the page and the thunk's share by then, and a child
+; spawned in the extent is swept by the abort, but none can be: the
+; spawn is all it does. Its one allocation, the mark, is taken back by
+; the `region` around it.
+(:: taskSpawn (-> (-> Int Int) Int Int))
+;@axiom:effect(io)
+(fn (taskSpawn wrapper arg)
+  (region r
+    (__axiom_recover
+      __axiom_arena_mark
+      (lambda (x) (taskWordOf (__proc_spawn wrapper arg))))))
+
+; Whether `taskSpawn` answered a handle: a handle's word is its slot's
+; generation, at least 1, times 2^16 plus the slot, and a status is
+; below 256.
+(:: taskSpawned (-> Int Bool))
+(fn (taskSpawned hw)
+  (>= hw 65536))
+
+; A spawn handle as the word the recovery point can answer, and back.
+; The way back makes a `Spawn` out of a word, so the word must be one
+; `taskSpawn` answered and `taskSpawned` accepted: a `cast` to `Spawn` is
+; not refused as an unsafe operation today (R-C6's limit), so that
+; obligation is this module's, and this is its one such cast.
+(:: taskWordOf (-> Spawn Int))
+(fn (taskWordOf h)
+  (cast Int h))
+
+(:: taskHandleOf (-> Int Spawn))
+(fn (taskHandleOf hw)
+  (cast Spawn hw))
+
 ; Start task `t` in its slot `t % w`. Its deadline runs from the clock
 ; read AFTER the spawn answered, so a task started late in a batch -
 ; after other forks - keeps the whole of its deadline. Slot `s`'s first
 ; task pushes its handle onto `hs`, which grows to `w` in slot order;
-; every later one replaces the handle joined before it.
+; every later one replaces the handle joined before it. Answers 0, or
+; the status of a refused spawn, which the slot then holds as joined
+; with `why` 4: nothing ran, and `hs` is not touched.
 (:: taskStart (-> (Vec Int) (Vec Spawn) (-> Int Int) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
@@ -658,19 +712,30 @@
       (taskStoreAt slot 1)
       (memSetWord slot 1 0)
       (memSetWord slot 2 0)
-      (let ((h (__proc_spawn wrapper (+ (* t w) s))))
-        (if (< t w)
-          (vecPush hs h)
-          (vecSet hs s h)))
-      (taskSetSt
-        st
-        s
-        0
-        (if (> deadlineUs 0)
-          (+ (sysTimeoutMicros clk) deadlineUs)
-          0))
-      (taskSetSt st s 1 0)
-      (taskSetSt st s 2 0)
+      (let ((hw (taskSpawn wrapper (+ (* t w) s))))
+        (if (taskSpawned hw)
+          {
+            (let ((h (taskHandleOf hw)))
+              (if (< t w)
+                (vecPush hs h)
+                (vecSet hs s h)))
+            (taskSetSt
+              st
+              s
+              0
+              (if (> deadlineUs 0)
+                (+ (sysTimeoutMicros clk) deadlineUs)
+                0))
+            (taskSetSt st s 1 0)
+            (taskSetSt st s 2 0)
+            0
+          }
+          {
+            (taskSetSt st s 0 0)
+            (taskSetSt st s 1 hw)
+            (taskSetSt st s 2 4)
+            hw
+          }))
     }))
 
 ; Nanoseconds from `now` to `wake` (microseconds), at least one, and at
@@ -741,10 +806,11 @@
                 (set progress 1)
               }
               0)
-            ; Start what the window allows.
+            ; Start what the window allows. A refused spawn cancels the
+            ; pool as a cancellation does, and leaves the token alone.
             (while (&& (== cancelling 0) (&& (< next n) (< (- next head) w)))
               {
-                (taskStart
+                (if (!= (taskStart
                   st
                   hs
                   wrapper
@@ -753,7 +819,12 @@
                   slab
                   slotBytes
                   clk
-                  deadlineUs)
+                  deadlineUs) 0)
+                  {
+                    (set cancelling 1)
+                    (set graceEnd (+ now graceUs))
+                  }
+                  0)
                 (set next (+ next 1))
                 (set progress 1)
               })

@@ -1,0 +1,7 @@
+0 err 137 parallel slot killed: a later spawn was refused
+1 err 137 parallel slot killed: a later spawn was refused
+2 err 78 parallel slot not started: its spawn was refused
+3 err 78 parallel slot not started: its spawn was refused
+checked: handle slots back 2 of 2
+raising: the recovery point answered 78
+raising: handle slots back 2 of 2

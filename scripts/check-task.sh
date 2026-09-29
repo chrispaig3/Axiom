@@ -11,7 +11,7 @@
 # this gate puts them under load, against the clock, against ablated
 # copies of the library, and checks the processes the pool leaves.
 #
-# SEVEN SECTIONS.
+# NINE SECTIONS.
 #
 #   1. Mutual exclusion. tests/litmus/sync-load.ax: four bindings,
 #      released together, add 1 to one PLAIN shared word N times each
@@ -90,6 +90,23 @@
 #      forked child (`tests/litmus/thread-in-fork.ax`). Linux's raw
 #      fork leaves the child's threads working, so there that drill
 #      cannot go red and is reported as not applicable, not passed.
+#   9. A spawn refused mid-pool (R-B2). tests/litmus/pool-refuse.ax
+#      fills the runtime's handle table but for a few slots, so a pool's
+#      third spawn is refused - the path a fork the kernel refuses takes
+#      too - with two tasks running. `taskMap` must answer 78 in the
+#      refused slot and cancel, `parMapWordsChecked` answer 78 there and
+#      137 for the two it killed, and `parMapWords` raise 78 to the
+#      recovery point. While the program still lives, every pid a task
+#      printed must be gone, it must have no child at all, and every
+#      handle slot must be back; eight refused `taskMap` rounds with a
+#      128 MiB slab each must leave the address space where one left
+#      it. The kernel refuses too: a fold's step lowers RLIMIT_NPROC so
+#      the next fork fails, and `ulimit -u 1` refuses the first (both
+#      skipped under root, which the limit does not bind). Three
+#      ablations: the recovery point around a task's spawn (the rounds
+#      keep their slabs again), the cancellation a refusal starts (the
+#      pool never ends), and the checked pool's kill (its joins never
+#      end).
 #
 # WHAT THE NUMBERS ARE. Peak RSS (`max_rss_kb`), in KiB, of the whole
 # program. Times are the programs' own `sysTimeoutMicros` readings -
@@ -485,6 +502,12 @@ cuts = {
   "guard": [("Sync.ax", "(if (|| (<= guard 0) (!= (syncCasAt m 1 guard 0) guard))", "(if (|| (<= guard 0) (|| (== (syncLoad m 0) 0) (!= (syncLoad m 2) guard)))")],
   # A task is joined on its answer alone, as it first was.
   "exitjoin": [("Task.ax", "        ((Ok b)\n          (if b\n            1\n            (if answered\n              2\n              0))", "        ((Ok b)\n          (if (|| b answered)\n            1\n            0)")],
+  # A refused spawn traps past the pool again: no recovery point.
+  "spawnrp": [("Task.ax", "  (region r\n    (__axiom_recover\n      __axiom_arena_mark\n      (lambda (x) (taskWordOf (__proc_spawn wrapper arg))))))", "  (taskWordOf (__proc_spawn wrapper arg)))")],
+  # A refused spawn no longer cancels the pool.
+  "refusecancel": [("Task.ax", "                  {\n                    (set cancelling 1)\n                    (set graceEnd (+ now graceUs))\n                  }\n                  0)", "                  0\n                  0)")],
+  # The checked pool no longer kills its running slots on a refusal.
+  "parkill": [("Par.ax", "(parKill (vecGet hs (% k w)))", "0")],
   # The microseconds conversion rounds without saturating.
   "micros": [("Task.ax", "    (if (> nanos 9223372036854774808)\n      9223372036854776\n      (/ (+ nanos 999) 1000))", "    (/ (+ nanos 999) 1000)")],
 }[kind]
@@ -654,6 +677,172 @@ case "$(uname -s)" in
     echo "n/a  libcfork: a raw fork leaves a thread working in the child on $(uname -s), so this drill cannot go red here (not counted)"
     ;;
 esac
+
+# ---------------------------------------------------------------------
+echo "== 9. a spawn refused mid-pool: children killed and reaped, mappings back =="
+# tests/litmus/pool-refuse.ax fills the runtime's handle table but for
+# K slots, so the pool's Kth spawn is refused - the path a fork the
+# kernel refuses takes too - while earlier tasks run for a minute. The
+# program prints `ready PID` and waits; while it lives, every pid its
+# tasks printed must be gone (a child it had not reaped would still
+# answer `kill -0`), and it must have no child left at all (`pgrep -P`).
+# Its handle slots must all come back, and its address space must not
+# grow with the rounds: each round's slab is 4 x 32 MiB, so a pool that
+# kept its mappings grows by 128 MiB a round.
+refuse="$repo_root/tests/litmus/pool-refuse.ax"
+# live <out> <cmd...>: run it in the background; at `ready`, record its
+# VSZ (KiB) in $live_vsz, how many printed pids still answer in
+# $live_alive, its children in $live_kids; then wait for it, in $live_rc.
+live() {
+  local out="$1" bg pid p i; shift
+  "$@" > "$out" 2> "$out.err" &
+  bg=$!
+  for i in $(seq 1 600); do
+    grep -q '^ready ' "$out" 2>/dev/null && break
+    kill -0 "$bg" 2>/dev/null || break
+    sleep 0.05
+  done
+  pid="$(sed -n 's/^ready //p' "$out")"
+  live_vsz=""; live_alive=0; live_kids=""; live_pids=""
+  if [[ -n "$pid" ]]; then
+    live_vsz="$(ps -o vsz= -p "$pid" | tr -d ' ')"
+    live_kids="$(pgrep -P "$pid" | tr '\n' ' ')"
+  fi
+  for p in $(sed -n 's/^pid //p' "$out"); do
+    live_pids="$live_pids $p"
+    kill -0 "$p" 2>/dev/null && live_alive=$((live_alive + 1))
+  done
+  live_rc=0
+  ( sleep 60; kill -KILL "$bg" 2>/dev/null ) &
+  local dog=$!
+  wait "$bg" || live_rc=$?
+  kill "$dog" 2>/dev/null; wait "$dog" 2>/dev/null
+  for p in $live_pids; do kill -KILL "$p" 2>/dev/null; done
+  return 0
+}
+# answers <out>: the answer lines and round lines, one per line.
+answers() { grep -v '^pid \|^ready ' "$1"; }
+want_task='0 err 1002 task cancelled
+1 err 1002 task cancelled
+2 err 78 task not started: its spawn was refused
+3 err 1002 task not started: the pool was cancelled'
+want_checked='0 err 137 parallel slot killed: a later spawn was refused
+1 err 137 parallel slot killed: a later spawn was refused
+2 err 78 parallel slot not started: its spawn was refused
+3 err 78 parallel slot not started: its spawn was refused'
+MIB32=33554432
+for lowering in processes threads; do
+  flags=(); [[ "$lowering" == threads ]] && flags=(--threads)
+  bin="$work/refuse-$lowering"
+  if ! build "$bin" "$refuse" ${flags[@]+"${flags[@]}"} --opt 2; then
+    bad "$lowering: pool-refuse did not build"; sed 's/^/    /' "$bin.build" | head -8; continue
+  fi
+  # One round and eight: the answers, the pids, the handles, the VSZ.
+  live "$work/refuse-$lowering-1.out" "$bin" task 3 4 4 1 "$MIB32" 1
+  v1="$live_vsz"; out="$(answers "$work/refuse-$lowering-1.out")"
+  n1="$(wc -w <<< "$live_pids" | tr -d ' ')"
+  if [[ "$live_rc" == 0 && "$out" == "$want_task"$'\n'"round 0 status 1004 free 3" && "$n1" == 2 && "$live_alive" == 0 && -z "$live_kids" ]]; then
+    ok "$lowering taskMap: the third spawn refused; it answered 78, the two running tasks ($live_pids ) were killed and reaped before the pool returned, the fourth never started, and all 3 handle slots came back"
+  else
+    bad "$lowering taskMap refusal: exit $live_rc, pids [$live_pids ] $live_alive alive, children [$live_kids], '$(tr '\n' ';' <<< "$out")'"
+  fi
+  live "$work/refuse-$lowering-8.out" "$bin" task 3 4 4 8 "$MIB32" 1
+  v8="$live_vsz"; out="$(answers "$work/refuse-$lowering-8.out")"
+  rounds_ok="$(grep -c '^round [0-7] status 1004 free 3$' <<< "$out")"
+  if [[ "$live_rc" == 0 && "$rounds_ok" == 8 && "$v1" =~ ^[0-9]+$ && "$v8" =~ ^[0-9]+$ ]] && (( v8 - v1 < 65536 )); then
+    ok "$lowering taskMap: eight refused rounds, every handle back each time; VSZ ${v1} KiB after one round and ${v8} after eight - no slab or token page kept"
+  else
+    bad "$lowering taskMap: eight rounds: exit $live_rc, $rounds_ok of 8 rounds whole, VSZ ${v1:-?} -> ${v8:-?} KiB (a kept 128 MiB slab a round shows as 917,504 KiB)"
+  fi
+  # The checked pool: the refused slot and the ones after answer 78, the
+  # running ones are killed and joined in order.
+  live "$work/refuse-$lowering-c.out" "$bin" checked 2 4 4 1
+  out="$(answers "$work/refuse-$lowering-c.out")"
+  if [[ "$live_rc" == 0 && "$out" == "$want_checked"$'\n'"round 0 status 1004 free 2" && "$live_alive" == 0 && -z "$live_kids" ]]; then
+    ok "$lowering parMapWordsChecked: the third spawn refused; two running slots killed and joined (137), two never started (78), both handles back"
+  else
+    bad "$lowering parMapWordsChecked refusal: exit $live_rc, pids [$live_pids ] $live_alive alive, children [$live_kids], '$(tr '\n' ';' <<< "$out")'"
+  fi
+  # The raising pool: the refusal raises 78 to the caller's recovery
+  # point, and the runtime's sweep is its cleanup.
+  live "$work/refuse-$lowering-r.out" "$bin" raising 2 4 4 1
+  out="$(answers "$work/refuse-$lowering-r.out")"
+  if [[ "$live_rc" == 0 && "$out" == "round 0 status 78 free 2" && "$live_alive" == 0 && -z "$live_kids" ]]; then
+    ok "$lowering parMapWords: the refusal raised 78 to the recovery point, the sweep killed and reaped its children, both handles back"
+  else
+    bad "$lowering parMapWords refusal: exit $live_rc, pids [$live_pids ] $live_alive alive, children [$live_kids], '$(tr '\n' ';' <<< "$out")'"
+  fi
+done
+# The KERNEL refusing: the fold's first step lowers RLIMIT_NPROC to 1,
+# so the next fork answers EAGAIN, and `ulimit -u 1` refuses the first.
+# Root is exempt from the limit, so under root this says so and counts
+# nothing, as check-parallel.sh §12d does.
+case "$(uname -s)-$(uname -m)" in
+  Darwin-*) lim=(33554626 33554627 7) ;;
+  Linux-x86_64) lim=(97 160 6) ;;
+  Linux-aarch64) lim=(163 164 6) ;;
+  *) lim=() ;;
+esac
+bin="$work/refuse-processes"
+if [[ "$(id -u)" == 0 ]]; then
+  echo "SKIP 9 kernel: running as root, which RLIMIT_NPROC does not bind - nothing was refused, and this is not a pass"
+elif [[ ${#lim[@]} == 0 ]]; then
+  echo "SKIP 9 kernel: no setrlimit numbers for $(uname -s)-$(uname -m) here"
+elif [[ -x "$bin" ]]; then
+  live "$work/refuse-kernel.out" "$bin" kernel "${lim[@]}" 1
+  out="$(answers "$work/refuse-kernel.out")"
+  want='0 ok first
+limit lowered 0
+1 err 1002 task cancelled
+2 err 78 task not started: its spawn was refused
+3 err 1002 task not started: the pool was cancelled
+round 0 status 1004 free 0'
+  if [[ "$live_rc" == 0 && "$out" == "$want" && -n "$live_pids" && "$live_alive" == 0 && -z "$live_kids" ]]; then
+    ok "kernel: with RLIMIT_NPROC lowered mid-pool the kernel refused the third fork; it answered 78, the running task ($live_pids ) was killed and reaped, the fourth never started"
+  else
+    bad "kernel refusal mid-pool: exit $live_rc, pids [$live_pids ] $live_alive alive, children [$live_kids], '$(tr '\n' ';' <<< "$out")'"
+  fi
+  for mode in task checked; do
+    args=(task -1 4 4 1 "$MIB32" 0); [[ "$mode" == checked ]] && args=(checked -1 4 4 0)
+    rc=0; out="$(bash -c 'ulimit -u 1 && exec "$@"' _ "$bin" "${args[@]}" 2>/dev/null)" || rc=$?
+    first="$(grep '^0 ' <<< "$out")"
+    if [[ "$rc" == 0 && "$first" == "0 err 78 "* && "$(grep -c ' err ' <<< "$out")" == 4 ]] && grep -q '^round 0 status 1004 ' <<< "$out"; then
+      ok "kernel $mode: under ulimit -u 1 the first fork was refused, and all four slots answered an error ($first)"
+    else
+      bad "kernel $mode under ulimit -u 1: exit $rc, '$(tr '\n' ';' <<< "$out")'"
+    fi
+  done
+fi
+# Ablations, each on a copy of the library (`ablate`, section 6). The
+# recovery point around a task's spawn taken out: the refusal traps past
+# the pool again, the recovery point answers 78, a handle slot and a
+# slab stay behind every round.
+if ablate spawnrp "$refuse"; then
+  live "$work/abl-spawnrp/r1.out" "$work/abl-spawnrp/prog" task 3 4 4 1 "$MIB32" 1; a1="$live_vsz"
+  live "$work/abl-spawnrp/r8.out" "$work/abl-spawnrp/prog" task 3 4 4 8 "$MIB32" 1; a8="$live_vsz"
+  out="$(answers "$work/abl-spawnrp/r8.out")"
+  whole="$(grep -c '^round [0-7] status 1004 free 3$' <<< "$out")"
+  if [[ "$whole" == 8 ]]; then
+    bad "spawnrp: without the recovery point the rounds still came back whole - the check cannot see the refusal escape"
+  elif [[ "$a1" =~ ^[0-9]+$ && "$a8" =~ ^[0-9]+$ ]] && (( a8 - a1 >= 524288 )); then
+    ok "spawnrp: red - the refusal trapped past the pool ('$(grep -m1 '^round' <<< "$out")'), and eight rounds kept $(( (a8 - a1) / 1024 )) MiB more than one"
+  else
+    bad "spawnrp: the rounds broke ('$(grep -m1 '^round' <<< "$out")') but the address space did not grow (${a1:-?} -> ${a8:-?} KiB) - the VSZ reading cannot see a kept slab"
+  fi
+else
+  bad "spawnrp: the ablation did not apply or build"; sed 's/^/    /' "$work/abl-spawnrp/build.log" 2>/dev/null | head -6
+fi
+# The cancellation a refusal starts taken out: the pool starts what it
+# can and then waits for tasks that run for a minute.
+if run_ablation refusecancel "$refuse" 10 "$work/abl-refusecancel/prog" task 3 4 4 1 "$MIB32" 0; then
+  red refusecancel "$([[ "$rc" == 0 && "$(answers <(printf '%s\n' "$out"))" == "$want_task"$'\n'"round 0 status 1004 free 3" ]] && echo 1 || echo 0)"
+  pkill -KILL -f "$work/abl-refusecancel/prog" 2>/dev/null || true
+fi
+# The checked pool's kill taken out: its joins wait for the running slots.
+if run_ablation parkill "$refuse" 10 "$work/abl-parkill/prog" checked 2 4 4 0; then
+  red parkill "$([[ "$rc" == 0 && "$(answers <(printf '%s\n' "$out"))" == "$want_checked"$'\n'"round 0 status 1004 free 2" ]] && echo 1 || echo 0)"
+  pkill -KILL -f "$work/abl-parkill/prog" 2>/dev/null || true
+fi
 
 echo
 if (( failed > 0 )); then

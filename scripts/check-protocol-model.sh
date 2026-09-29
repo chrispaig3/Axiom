@@ -107,7 +107,7 @@ fi
 # Every transcribed step the scenarios execute, and the operations the
 # transcription check matches: what they are on the tree today.
 want_reached=585
-want_matched=310
+want_matched=311
 
 # ---------------------------------------------------------------------
 echo "== 1. the model: every interleaving of the real protocols =="
