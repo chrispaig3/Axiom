@@ -22,6 +22,42 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A negative literal is a pattern `fmt` prints — AN-59 - 2026-09-29
+
+`(match n (-5 1) ...)` and `((Some -5) ...)` test for minus five, and a
+lone `-` in a pattern binds, as it does as a parameter. `check`
+accepted all three and the program ran, but `fmt` read `-` and the
+digits as two patterns and refused the file with no code. It now fuses
+them where the lexer does. The seeded fuzzer found it on CI, turning
+`(2 7)` into `(-00 7)`. Tested by
+`tests/selfhost/1013-negative-literal-pattern.ax`, which
+`scripts/check-fmt.sh` formats and runs, and
+`tests/fuzz/negative-literal-pattern.axfuzz`.
+
+### `symbols` numbers fresh type variables per row — AN-37 - 2026-09-29
+
+An unsigned function's type printed the checker's module-wide counter,
+so `(Int -> (_t3 -> _t3))` became `(Int -> (_t13 -> _t13))` when a
+function was added below it. Each row now numbers its own from `_t0`,
+in the order they appear, in AXSYM, the human table and `.axir`
+headers alike. `scripts/check-metamorphic.sh` §2e appends ten unsigned
+functions to every accepted program and compares every row as written,
+with the fix ablated as its control. Tested by
+`tests/selfhost/1012-fresh-names.ax`.
+
+### Two controls that were blind on a Linux runner — `check-chan.sh`, `check-atomics.sh` - 2026-09-29
+
+`check-chan.sh`'s `notify` ablation, a wake sent to a word nobody
+sleeps on, was judged by the load hanging. Since a waiter sleeps in
+100 ms slices to look for a dead holder, a lost wake is a stall, and
+linux-x86_64 finished the load inside its 20 s. The new §2b measures
+the wake itself: a send reaches a sleeping receiver in tens of
+microseconds at the median, and the ablation's median is about 81 ms.
+`check-atomics.sh`'s ISA2 reorder control raced R1's relay against a
+fixed pause and showed nothing on linux-aarch64 at `-O1` and `-O2`. Its
+R2 now loads `x` first and waits for `z`, as WRC's does, and shows the
+outcome in about three quarters of the rounds on H3.
+
 ### A refused spawn is an answer in its slot — R-B2 - 2026-09-29
 
 A spawn the kernel refuses, or one the handle table has no slot for,
