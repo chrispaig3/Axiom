@@ -1662,8 +1662,14 @@ For constructors with named fields, you can match by name instead. See
 ```scheme
 (match x
   (42 "the answer")
+  (-1 "minus one")
   (_ "anything else"))
 ```
+
+A negative literal is written against its digits, `-1`, as it is in
+an expression.
+
+Tested by `tests/selfhost/1013-negative-literal-pattern.ax`.
 
 ### Nested patterns
 
@@ -4875,9 +4881,10 @@ Tested by `tests/stdlib/581-inline-asm.ax` and `tests/diagnostics/1044-inline-as
 ## Concurrency
 
 Axiom has one concurrency form, `parallel`. It runs a few expressions at
-once and hands their answers back to your code in a fixed order. The
-`Par` module builds a task pool on the same machinery. There's no
-scheduler and no async.
+once and hands their answers back to your code in a fixed order. Four
+modules build on it: `Chan` passes words between bindings, `Sync` has a
+mutex, and `Par` and `Task` run pools of tasks. There's no scheduler
+and no async.
 
 <a id="parallel--bindings-that-run-beside-the-caller"></a>
 
@@ -5109,6 +5116,113 @@ the same way.
 Tested by `tests/stdlib/528-chan.ax` and
 `tests/stdlib/570-handle-freed.ax`.
 
+### Wait with a deadline
+
+`chanSend` and `chanRecv` wait for as long as it takes. Their timed
+forms, `chanSendTimeout` and `chanRecvTimeout`, take a limit in
+nanoseconds and answer `Err` with `sysTimedOut` when it passes:
+
+```scheme
+(import IO)
+(import Sys)
+(import Chan)
+(import Err)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (chanNew 4)
+    ((Ok ch)
+      {
+        (match (chanRecvTimeout ch 20000000)
+          ((Ok (Some v)) (println "received {v}"))
+          ((Ok (None)) (println "closed"))
+          ((Err e)
+            (let ((code (errCode e)))
+              (if (== code sysTimedOut)
+                (println "nothing arrived in 20 ms")
+                (println "failed with {code}")))))
+        (match (chanFree ch)
+          ((Ok z) 0)
+          ((Err e) 1))
+      })
+    ((Err e) 1)))
+```
+
+```text
+nothing arrived in 20 ms
+```
+
+A binding that dies while it holds a channel's lock, for example one
+killed by a signal, leaves the channel *poisoned*. Every waiter wakes
+within about 100 ms, the timed forms answer `Err` with `chanOwnerDead`,
+and `chanPoisoned` answers `true`. Nothing reads the ring the dead
+binding may have left half-written.
+
+A waiter finds a dead holder only when the kernel reports it. A holder
+that is a zombie seen by anyone but its parent, or whose process id the
+kernel has reused, still looks alive. Use the timed forms wherever a
+dead holder must not stop your program.
+
+Tested by `tests/stdlib/540-wait-timeout.ax` and
+`tests/stdlib/590-chan-dead-holder.ax`.
+
+### Guard shared state with a mutex
+
+`Sync`'s `Mutex` gives one binding at a time the right to go on.
+`mutexLock` answers a `MutexGuard`, and `mutexUnlock` takes it back:
+
+```scheme
+(import IO)
+(import Sync)
+(import Err)
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match mutexNew
+    ((Ok m)
+      (match (mutexLock m)
+        ((Ok g)
+          {
+            (match (mutexTryLock m)
+              ((Some other) (println "locked twice"))
+              ((None) (println "held, so a second lock waits")))
+            (match (mutexLockTimeout m 50000000)
+              ((Ok other) (println "locked twice"))
+              ((Err e) (println "a timed lock gave up after 50 ms")))
+            (match (mutexUnlock m g)
+              ((Ok z) (println "unlocked"))
+              ((Err e) (println "not held")))
+            (match (mutexFree m)
+              ((Ok z) 0)
+              ((Err e) 1))
+          })
+        ((Err e) 1)))
+    ((Err e) 1)))
+```
+
+```text
+held, so a second lock waits
+a timed lock gave up after 50 ms
+unlocked
+```
+
+Only a lock call makes a `MutexGuard`, so safe code can't unlock a
+mutex it never locked. An unlock with a guard from another mutex, or
+with one already spent, answers `Err` with `syncNotHeld` and leaves the
+lock alone. Like a channel, a mutex is `shared`, so `parallel` bindings
+may capture it. It works in both lowerings.
+
+The mutex isn't reentrant: the holder that locks again waits for
+itself, as the timed lock above shows. A holder that dies makes the
+next lock answer `Err` with `syncOwnerDead`. The lock isn't fair and
+has no priority inheritance, so a binding can starve, and a program
+with real-time deadlines shouldn't rely on it.
+
+Tested by `tests/stdlib/541-sync-mutex.ax`, which also adds to one
+word from two bindings under the lock.
+
 ### Run a pool of tasks with `Par`
 
 `(parMapWords f n width)` runs `(f i)` for every `i` from `0` up to
@@ -5150,6 +5264,114 @@ the caller has. Each child reads its own copy-on-write copy
 (MM-PAR-3).
 
 Tested by `tests/stdlib/476-par-pool.ax`.
+
+### Run tasks that answer values with `Task`
+
+`Task` runs a pool whose tasks answer a `String`, and gives you one
+`(Result String Error)` per task, in submit order. `(taskMap f n width
+limit)` runs `(f i)` for every `i` from `0` up to `n`, at most `width`
+at a time, and accepts answers of up to `limit` bytes:
+
+```scheme
+(import IO)
+(import Task)
+(import Vec)
+(import Err)
+
+(:: square (-> Int String))
+(fn (square i)
+  (fmtInt (* i i)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((results (taskMap square 5 2 64)))
+    {
+      (for r results
+        (match r
+          ((Ok s) (println s))
+          ((Err e) (let ((code (errCode e))) (println "task failed with {code}")))))
+      0
+    }))
+```
+
+```text
+0
+1
+4
+9
+16
+```
+
+Each task runs in its own process, under `--threads` too, and only its
+answer's bytes come back. To return a record, a `Vec` or a tree,
+encode it in the task and decode it in the parent, for example with
+`Json`. `examples/concurrency/typed-tasks.ax` sends a `struct` holding
+a `Vec` back this way.
+
+Every failure is a value in the task's slot:
+
+| `Err` code | Meaning |
+|---|---|
+| 1 to 255 | the task trapped or died: its exit code, or 128 plus the signal |
+| `taskTooLargeCode` | the answer was longer than `limit`, and none of it crossed |
+| `sysTimedOut` | the task ran past its deadline and was killed |
+| `taskCancelledCode` | the pool was cancelled before the task finished |
+| 78 or 70 | the task's spawn was refused, which also cancels the pool |
+
+Build the options with `taskOpts width limit`, then add a deadline, a
+grace period, fail-fast, or a `CancelToken` shared with other code:
+
+```scheme
+(import IO)
+(import Sys)
+(import Task)
+(import Vec)
+(import Err)
+
+(:: work (-> Int String))
+(fn (work i)
+  (if (== i 2)
+    {
+      (while true
+        0)
+      ""
+    }
+    (fmtInt (* i 10))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((opts (taskWithDeadline (taskOpts 4 64) 200000000)))
+    {
+      (for r (taskMapWith work 4 opts)
+        (match r
+          ((Ok s) (println "answered {s}"))
+          ((Err e)
+            (let ((code (errCode e)))
+              (if (== code sysTimedOut)
+                (println "ran past its deadline")
+                (println "failed with {code}"))))))
+      0
+    }))
+```
+
+```text
+answered 0
+answered 10
+ran past its deadline
+answered 30
+```
+
+`taskCancel` on the token stops the pool from starting anything more.
+Running tasks get the grace period to finish and are then killed. No
+task outlives the call: a return, a trap in your code or a cancellation
+kills and reaps every task that is still running. `taskFold` streams
+the answers through a step function instead of keeping them all, so a
+pool of any length runs in flat memory.
+
+Tested by `tests/stdlib/542-task-codec.ax` and
+`tests/stdlib/543-task-failures.ax`.
 
 ### Where `parallel` is available
 
@@ -5778,11 +6000,19 @@ axiom emit-llvm source.ax -o output.ll
 
 # Lower `parallel` to the platform's threads instead of forked processes
 axiom build --threads --input source.ax --output program
+
+# Carve the heap from a fixed 1 MiB region instead of asking the kernel
+axiom build --heap-ceiling 1048576 --input source.ax --output program
 ```
 
 `--threads` works with `build`, `run` and `test`, on darwin and linux.
 See [parallel](#parallel--bindings-that-run-beside-the-caller) for what
-it buys and what it costs. `--target` and `--opt` are covered in
+it buys and what it costs.
+
+`--heap-ceiling` bounds the heap: when the region is used up, an
+allocation traps with status 70, which a recovery point can catch. A
+program that spawns threads is refused under it with `AX4006`, since
+every thread needs an arena of its own. `--target` and `--opt` are covered in
 [Cross-compilation](#cross-compilation) and
 [Optimisation](#optimisation).
 
@@ -5820,6 +6050,10 @@ The default output is an aligned table for people.
 `--diagnostic-format=ai` gives AXSYM instead, one line per symbol.
 `symbols` has no JSON renderer: with `--diagnostic-format=json` it prints
 AXSYM, with a note on stderr saying so.
+
+A function with no signature can have type variables the checker made
+up. `symbols` numbers them from `_t0` within each row, so
+`(Int -> (_t0 -> _t0))` stays the same when you add other functions.
 
 `--calls` shows the call graph behind each `#effects=` row: the edges
 the effect inference resolved for that function. The two always agree:
