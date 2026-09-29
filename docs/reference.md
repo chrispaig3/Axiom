@@ -2185,23 +2185,42 @@ set, checked against what the declaration says.
 - No tag is a claim too: it says "performs no I/O". A body that does
   I/O under it is an error, `AX3042`.
 
-Only `IO` is required all the way up the call chain. `Alloc`, `Mut`
-and `Unsafe` are inferred and reported, but callers aren't asked to
-declare them. Nearly every function that touches a `String` or a
-`Vec` performs all three, so requiring them would tag most of a
-program and tell a reader nothing. `IO` is the one effect you can't
-learn without opening the callee. `scripts/check-effect-distribution.sh`
-measures that split over the compiler and standard library.
+Only `IO` is required all the way up the call chain. `Alloc` and
+`Mut` are inferred and reported, but callers aren't asked to declare
+them. `Unsafe` marks the declaration that performs an unsafe operation.
+It stops at a trusted wrapper and reaches callers of a precondition
+interface. `scripts/check-effect-distribution.sh` measures the effect
+split over the compiler and standard library.
 
 You can still declare the ambient effects, and a declaration is
 checked. `;@axiom:effect(mut)` over a body that writes a field is
 accepted, and over one that doesn't it's `AX3010`. The same holds for
 a custom effect.
 
-`Unsafe` is required *lexically* (`AX3073`). Only the body that calls
-a raw memory primitive must declare it. Callers of that wrapper
-inherit `Unsafe` in their inferred set, and nothing asks them to
-declare it.
+`Unsafe` is required at the declaration that performs an unsafe
+operation (`AX3073`): a raw primitive, a call to a precondition
+interface, or a cast that makes a reference out of a value of another
+type. Write `;@axiom:effect(unsafe)` above it.
+
+```scheme
+(import Mem)
+
+(:: firstWord (-> Int Int))
+;@axiom:effect(unsafe)
+;@axiom:precondition(`block` names at least one live word)
+(fn (firstWord block)
+  (memGetWord block 0))
+```
+
+The tag alone makes a *trusted wrapper*: it takes responsibility for
+making every well-typed call safe, so its callers need no tag. Add
+`;@axiom:precondition(...)` when safety depends on the caller, as it
+does for `firstWord`. Then every call is the caller's unsafe
+operation, and a caller that doesn't say `effect(unsafe)` draws
+`AX3073`.
+
+The compiler checks the tags and which casts forge. It can't prove
+that a wrapper's checks, or a caller's precondition, are enough.
 
 To see what the compiler inferred, ask `axiom symbols` for its
 machine-readable format. The inferred set is `#effects=`, beside any
@@ -2231,7 +2250,7 @@ The full contract for the inferred set is `MM-EXEC-9a` in
 | `Alloc` | Heap machinery, which is wider than allocation. Any call that reaches `__alloc` (every `Vec`, `Map` and `Str` growth, every `memAlloc`), the `(alloc T)` keyword, the three arena primitives, and `handle`, which installs its handler's evidence. An arena reset counts because it ends every block allocated since the mark. |
 | `Mut` | Heap state that other code can see: a field store `(set base.field v)`, the `__store8` and `__store64` primitives it lowers to, the atomic writers `__atomic_store`, `__atomic_add` and `__atomic_cas`, and `__fence`. That's why `vecPush` and `mapInsert` carry it. `__atomic_load` is a read and doesn't, just as `__load64` doesn't. A `set` on a `mut` local isn't `Mut`, because nothing outside the function can see it. The eight volatile device accesses carry it (a device read can change device state), as do the `__arm_` barriers, timer writes, interrupt masks, cache maintenance and `__arm_set_tpidr` (MM-FFI-8). |
 | `Div` | Divergence. You can write it, but nothing infers it, so `;@axiom:effect(div)` draws `AX3037` (unverifiable), even over a body that plainly never ends. Inferring it would need a termination analysis the compiler doesn't have. |
-| `Unsafe` | Raw memory: twenty-six primitives (`isUnsafePrim`, `memory-model.md` MM-EXEC-9c). The seven `__load8`, `__store8`, `__store8v`, `__load64`, `__store64`, `__alloc` and `__addr`; the nine word primitives (`__retain`, `__release`, `__call_word`, the four atomics, the two arena resets); and the ten device primitives, the volatile accesses `__vload8`…`__vstore64` and the cache operations `__arm_dc_cvac`/`__arm_dc_civac` (MM-FFI-8). `__store8v` is `__store8` with a volatile store, for memory-mapped I/O the optimiser must not delete. A body that calls one of them must declare `;@axiom:effect(unsafe)` (`AX3073`). |
+| `Unsafe` | The twenty-six raw primitives (`MM-EXEC-9c`), a call to a precondition interface, or a cast that forges a reference (`MM-EXEC-9d`). A declaration performing one must say `;@axiom:effect(unsafe)` (`AX3073`). A declaration that also says `;@axiom:precondition(...)` passes the obligation to callers; otherwise it is a trusted wrapper. |
 
 `Err` isn't a built-in effect. A handle list naming it draws `AX3016`,
 as any undeclared name does, and `(effect Err ...)` declares an
@@ -2262,7 +2281,7 @@ declares.
 | Tag | Claims |
 |---|---|
 | `;@axiom:effect(io)` | The function reaches the outside world. Required when it does. |
-| `;@axiom:effect(mut)`, `effect(alloc)`, `effect(unsafe)` | The function performs that ambient effect. `effect(unsafe)` is required on a body that calls a raw memory primitive. |
+| `;@axiom:effect(mut)`, `effect(alloc)`, `effect(unsafe)` | The function performs that ambient effect. `effect(unsafe)` is required for a raw primitive, a precondition call or a forging cast. |
 | `;@axiom:effect(console)` | The function performs a custom effect. The value matches the `effect` declaration case-insensitively. |
 | `;@axiom:effect(pure)` | The function performs nothing. |
 
@@ -2683,12 +2702,13 @@ above the declaration, like any other `;@axiom:` tag.
 | `isr` | an interrupt entry point: no parameters, no allocation | at compile time |
 | `pre(...)`, `post(...)` | a condition on the arguments, or on the result | on every call, at run time |
 | `unhandled(trap)` | reaching this effect with no handler is a deliberate abort | at compile time |
+| `precondition(...)` | beside `effect(unsafe)`: what a caller must make true for a call to be safe, so every call is the caller's unsafe operation | at compile time, that it is stated (`AX3079`, `AX3080`); the condition itself is the caller's to meet |
 | `nolint(...)` | quiet the editor's lint Hints for this declaration | by the language server |
 
-The compiler knows seven keys: `effect`, `raw`, `pre`, `post`,
-`restrict`, `isr` and `unhandled`. Any other key is metadata: the
-compiler records it and doesn't check it, so `agent:readonly` draws
-nothing.
+The compiler knows eight keys: `effect`, `raw`, `pre`, `post`,
+`restrict`, `isr`, `unhandled` and `precondition`. Any other key is
+metadata: the compiler records it and doesn't check it, so
+`agent:readonly` draws nothing.
 
 **Purity is `effect(pure)`.** An effect claim is always an
 `effect(...)` tag, and purity has that one spelling.
@@ -2696,11 +2716,11 @@ nothing.
 wherever it stands.
 
 **A checked key belongs on its declaration.** `effect`, `raw`, `pre`,
-`post`, `restrict` and `isr` are checked on a function, above its
-`(:: ...)` or its `(fn ...)`, and `unhandled` on an `effect`
-declaration. Above a `data`, a `struct`, an import, a macro or an
-alias, the claim would be recorded and never read, so it is
-`AX3077`.
+`post`, `restrict`, `isr` and `precondition` are checked on a
+function, above its `(:: ...)` or its `(fn ...)`, and `unhandled` on
+an `effect` declaration. Above a `data`, a `struct`, an import, a
+macro or an alias, the claim would be recorded and never read, so it
+is `AX3077`.
 
 **One effect per tag.** A body that performs two effects declares
 them on two lines, `;@axiom:effect(io)` and `;@axiom:effect(unsafe)`.
@@ -2791,7 +2811,7 @@ guarantee that nothing checks. Separate names with commas inside one
 |---|---|---|
 | `no-io` | has no `IO` in its effect row | transitive |
 | `no-alloc` | has no `Alloc` in its effect row | transitive |
-| `no-unsafe` | has no `Unsafe` in its effect row | transitive |
+| `no-unsafe` | performs no unsafe operation, including through a callee without a trusted boundary | transitive to a trusted boundary |
 | `no-foreign` | reaches no `extern` item through the call graph | transitive |
 | `no-recursion` | reaches no cycle in the call graph | transitive |
 | `no-cast` | writes no `cast` in its own body | local |
@@ -2805,9 +2825,10 @@ A *transitive* restriction covers everything the function calls. A
 *local* one covers only the code written in this body. The difference
 follows from what each one reads:
 
-- `no-io`, `no-alloc` and `no-unsafe` read the effect row, which is
-  already transitive: a function that calls an IO-performing function
-  has `IO` in its own row.
+- `no-io` and `no-alloc` read the transitive effect row: a function
+  that calls an IO-performing function has `IO` in its own row.
+  `no-unsafe` follows unsafe operations through callees, and stops at
+  a trusted encapsulation (`MM-EXEC-9d`).
 - `no-foreign` walks the call graph that `symbols --calls` prints. The
   row can't tell IO through a syscall from IO through an `extern`, and
   the graph can.
@@ -4250,6 +4271,7 @@ the terminal:
 
 (:: readKey (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (readKey saved)
   (let ((key (memAlloc 1)))
     (match (sysReadFd stdin key 1)
@@ -4550,6 +4572,7 @@ it has no other use. Each has a `Free` (`vecFree`, `mapFree`,
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((names vecNewRef))
     {
@@ -5072,7 +5095,7 @@ needs no C library.
         (counts mapNew))
     {
       (for w words
-        (let ((n (strLen (cast String w))))
+        (let ((n (strLen w)))
           (mapInsert counts n (+ (mapGet counts n 0) 1))))
       (for n (vecSort (mapKeys counts))
         (let ((c (mapGet counts n 0)))
@@ -5246,7 +5269,7 @@ answers:
 (fn (report dir)
   {
     (for name (listDir dir)
-      (let ((p (pathJoin dir (cast String name))))
+      (let ((p (pathJoin dir name)))
         (if (strEq (pathExt p) ".ax")
             (match (fileSize p)
               ((Ok size) (println "{p}  {size}"))
@@ -5262,11 +5285,11 @@ answers:
   (report "stdlib"))
 ```
 
-`listDir` answers a `(Vec Int)` of names, so each one is cast back with
-`(cast String name)`. `fileSize` answers a `Result`, so a size and an
-errno can't be mixed up. Match on it: `(unwrapOr (fileSize p) 0)` would
-report an unreadable file as zero bytes. Use `unwrapOr` only where the
-fallback really means the same as the error ([error-model.md](error-model.md)).
+`listDir` answers a `(Vec String)` of names, sorted, without `.` and
+`..`. `fileSize` answers a `Result`, so a size and an errno can't be
+mixed up. Match on it: `(unwrapOr (fileSize p) 0)` would report an
+unreadable file as zero bytes. Use `unwrapOr` only where the fallback
+really means the same as the error ([error-model.md](error-model.md)).
 
 Three things to know before you use these:
 

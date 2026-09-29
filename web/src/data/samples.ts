@@ -581,7 +581,7 @@ test: 4 pauses recorded, 0 ms slept`,
       (for msg inbox
         (let ((parts (strSplit (strLower msg) 32)))
           (for i 0 (vecLen parts)
-            (let ((w (bare (vecGetStr parts i))))
+            (let ((w (bare (vecGet parts i))))
               (if (>= (strLen w) 4)
                 (let ((id (internIntern words w)))
                   (mapInsert count id (+ 1 (mapGet count id 0))))
@@ -840,10 +840,10 @@ ok   testOlder
 (import Vec)
 
 ; The i-th dotted part as a number; a missing part counts as 0.
-(:: part (-> (Vec Int) Int Int))
+(:: part (-> (Vec String) Int Int))
 (fn (part parts i)
   (if (< i (vecLen parts))
-    (optUnwrapOr (strParseInt (vecGetStr parts i)) 0)
+    (optUnwrapOr (strParseInt (vecGet parts i)) 0)
     0))
 
 ; -1, 0 or 1. Numeric per part, so 0.10.0 is newer than 0.9.4,

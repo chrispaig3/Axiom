@@ -31,13 +31,13 @@ export interface Stat {
 export const STATS: Stat[] = [
   {
     key: 'lines',
-    n: '108,143',
+    n: '110,595',
     label: 'lines of Axiom in the compiler that compiles Axiom',
     evidence: 'cat self_host/*.ax | wc -l',
   },
   {
     key: 'codes',
-    n: '96',
+    n: '98',
     label: 'diagnostic codes, each with a written explanation',
     evidence: 'axiom explain --list',
   },

@@ -53,10 +53,11 @@ root.
 
 | Obligation | Disposition | Evidence |
 |---|---|---|
-| The sixteen `Unsafe` primitives are called only where `effect(unsafe)` is declared and their preconditions hold | Boundary and static: `restrict(no-unsafe)` and `pure` refuse them (`AX3049`, `AX3010`), and `AX3073` reads all sixteen | `tests/diagnostics/1010-unsafe-primitives.ax`; fifteen stdlib wrappers claimed; the unsafe preconditions are stated in the `Mem`, `Vec`, `Map`, `Intern` and `Ffi` headers |
+| The twenty-six `Unsafe` primitives are called only where `effect(unsafe)` is declared and their preconditions hold | Boundary and static: `restrict(no-unsafe)` and `pure` refuse them (`AX3049`, `AX3010`), and `AX3073` reads all twenty-six | `tests/diagnostics/1010-unsafe-primitives.ax`, `tests/diagnostics/1020-unsafe-device-primitives.ax`; the precondition interfaces in `Mem`, `Vec`, `Map`, `Intern` and `Ffi` state their conditions |
 | `__addr` takes a literal's address, and `strCStr` bytes aren't used after the `Str` is gone (`MM-FFI-2a`, `MM-FFI-4`) | Boundary: caller preconditions | Stated; misuse fixtures are absent |
 | A `Handle` destructor runs once, from Rust, with the documented `axiom-allow.txt` symbol set | Dynamic: the release path and the FFI gate | `check-ffi.sh` per-crate allowlists |
-| `cast` preserves the representation its target claims | Boundary: `cast` is the programmer asserting a type the checker can't prove | The `cast-arg-root` gate pins the root rule; misuse is unchecked by design |
+| A cast that makes a reference from another type preserves a valid representation | Static boundary: `AX3073` requires `effect(unsafe)` where the cast forges; `restrict(no-unsafe)` refuses it directly and through untrusted callees. The programmer still validates the word | `tests/diagnostics/1040-forging-cast.ax`, `tests/diagnostics/1042-no-unsafe-indirect.ax` |
+| A precondition interface is called only after its stated condition holds | Static boundary: `AX3073` requires `effect(unsafe)` on the caller; `AX3079` and `AX3080` require the interface to state a nonempty condition. The caller still checks that condition | `tests/diagnostics/1041-precondition-call.ax`, `tests/diagnostics/1043-precondition-tag.ax`; `tests/selfhost/1010-trusted-wrapper.ax` |
 
 ## Closures and containers
 

@@ -27,8 +27,12 @@ validation exists.
 ## The guarantee and its boundary
 
 Take a program that type-checks, has no `;@axiom:effect(unsafe)`
-declaration of its own, calls no `extern` item, and doesn't `cast` a
-word into a reference type. The compiler and runtime keep it from:
+declaration of its own, calls no `extern` item, and passes only live
+handles where a library takes one as an `Int`. Such a program has no
+cast that forges a reference and calls no precondition interface,
+because each needs that tag (`AX3073`). `symbols` marks every tagged
+declaration `#unsafe=` on a row that names its file, so the first
+condition is one `grep`. The compiler and runtime keep it from:
 
 - reading or writing outside a block through a container (`vecGet` and
   `vecSet` trap 77);
