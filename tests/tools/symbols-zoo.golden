@@ -19,37 +19,38 @@ F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-fore
 F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
 F vecWithCapacityRef stdlib/Vec.ax:106:9-27 "(Int -> Vec a)" @4931b5c5fdddadcc #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
 F vecNewRef stdlib/Vec.ax:112:9-18 "Vec a" @a3810b6416057230 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F vecBuild stdlib/Vec.ax:124:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe
-F vecFree stdlib/Vec.ax:164:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe
-F vecOwnsRefs stdlib/Vec.ax:180:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecLen stdlib/Vec.ax:189:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecCap stdlib/Vec.ax:196:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecData stdlib/Vec.ax:209:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecGet stdlib/Vec.ax:254:9-15 "(Vec a -> (Int -> a))" @805a0ea6c155b2f9 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecTry stdlib/Vec.ax:289:9-15 "(Vec a -> (Int -> Option a))" @1057f8a6821016c0 #restrict=no-io,no-foreign #effects=Alloc,Unsafe
-F vecGetStr stdlib/Vec.ax:299:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a44 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecGetVec stdlib/Vec.ax:318:9-18 "(Vec a -> (Int -> Vec b))" @8412825523066371 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecPushStr stdlib/Vec.ax:339:9-19 "(Vec a -> (String -> Vec a))" @25d7fb280bccc022 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F vecPushVec stdlib/Vec.ax:351:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed9282468628f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F vecSet stdlib/Vec.ax:366:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F vecReserve stdlib/Vec.ax:393:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F vecGrownCap stdlib/Vec.ax:410:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign
-F vecReserveExactly stdlib/Vec.ax:423:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe
-F vecPush stdlib/Vec.ax:465:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
-F vecPop stdlib/Vec.ax:495:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F vecLast stdlib/Vec.ax:524:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecClear stdlib/Vec.ax:536:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F vecDropAt stdlib/Vec.ax:552:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
-F vecDropFrom stdlib/Vec.ax:563:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F vecSum stdlib/Vec.ax:583:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecSumFrom stdlib/Vec.ax:588:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecHash stdlib/Vec.ax:601:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecHashFrom stdlib/Vec.ax:606:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
-F vecSwapWords stdlib/Vec.ax:634:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F vecSiftDown stdlib/Vec.ax:645:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F vecSort stdlib/Vec.ax:683:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
-F vecSiftDownBy stdlib/Vec.ax:706:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effects=Mut,Unsafe #effect-params=cmp
-F vecSortBy stdlib/Vec.ax:757:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effects=Mut,Unsafe #effect-params=cmp
+F vecBytes stdlib/Vec.ax:131:5-13 "(Int -> Int)" @b4fe9e3b3f1693ea #restrict=no-io,no-alloc,no-foreign
+F vecBuild stdlib/Vec.ax:138:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe
+F vecFree stdlib/Vec.ax:178:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe
+F vecOwnsRefs stdlib/Vec.ax:194:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecLen stdlib/Vec.ax:203:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecCap stdlib/Vec.ax:210:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecData stdlib/Vec.ax:223:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecGet stdlib/Vec.ax:268:9-15 "(Vec a -> (Int -> a))" @805a0ea6c155b2f9 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecTry stdlib/Vec.ax:303:9-15 "(Vec a -> (Int -> Option a))" @1057f8a6821016c0 #restrict=no-io,no-foreign #effects=Alloc,Unsafe
+F vecGetStr stdlib/Vec.ax:313:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a44 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecGetVec stdlib/Vec.ax:332:9-18 "(Vec a -> (Int -> Vec b))" @8412825523066371 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecPushStr stdlib/Vec.ax:353:9-19 "(Vec a -> (String -> Vec a))" @25d7fb280bccc022 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F vecPushVec stdlib/Vec.ax:365:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed9282468628f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F vecSet stdlib/Vec.ax:380:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F vecReserve stdlib/Vec.ax:407:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F vecGrownCap stdlib/Vec.ax:424:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign
+F vecReserveExactly stdlib/Vec.ax:437:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe
+F vecPush stdlib/Vec.ax:479:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
+F vecPop stdlib/Vec.ax:509:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F vecLast stdlib/Vec.ax:538:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecClear stdlib/Vec.ax:550:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F vecDropAt stdlib/Vec.ax:566:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe
+F vecDropFrom stdlib/Vec.ax:577:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F vecSum stdlib/Vec.ax:597:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecSumFrom stdlib/Vec.ax:602:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecHash stdlib/Vec.ax:615:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecHashFrom stdlib/Vec.ax:620:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe
+F vecSwapWords stdlib/Vec.ax:648:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F vecSiftDown stdlib/Vec.ax:659:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F vecSort stdlib/Vec.ax:697:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe
+F vecSiftDownBy stdlib/Vec.ax:720:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effects=Mut,Unsafe #effect-params=cmp
+F vecSortBy stdlib/Vec.ax:771:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effects=Mut,Unsafe #effect-params=cmp
 F strWrap stdlib/Str.ax:45:9-16 "(Int -> (Int -> String))" @23328120de2f4a36 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
 F strWrapOwned stdlib/Str.ax:68:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe9929cdf4389f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe
 F strAlloc stdlib/Str.ax:90:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe

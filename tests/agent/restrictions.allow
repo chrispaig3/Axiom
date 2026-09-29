@@ -527,6 +527,7 @@ utf8WellFormedAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 utf8Width stdlib/Utf8.ax no-io,no-alloc,no-foreign ok
 vecAppendFrom self_host/core.ax no-io,no-foreign ok
 vecBuild stdlib/Vec.ax no-io,no-foreign ok
+vecBytes stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecCap stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecClear stdlib/Vec.ax no-io,no-alloc,no-foreign ok
 vecData stdlib/Vec.ax no-io,no-alloc,no-foreign ok
