@@ -1,0 +1,65 @@
+; `__floatToInt` truncates toward zero and saturates: a NaN answers 0,
+; a value at or beyond 2^63 the largest `Int`, and one below -2^63 the
+; smallest (docs/memory-model.md MM-PAR-14). Every input answers the
+; same at every `--opt` level, which the `.optstable` beside this file
+; holds. The values are computed at run time, so no level can fold
+; them away, and a NaN is made both ways a program makes one.
+(import IO)
+
+(:: tenTo (-> Int Float))
+(fn (tenTo k)
+  (let ((mut x 1.0))
+    {
+      (for i 0 k
+        (set x (* x 10.0)))
+      x
+    }))
+
+(:: twoTo (-> Int Float))
+(fn (twoTo k)
+  (let ((mut x 1.0))
+    {
+      (for i 0 k
+        (set x (* x 2.0)))
+      x
+    }))
+
+(:: show (-> String Float Int))
+;@axiom:effect(io)
+(fn (show what x)
+  (let ((n (__floatToInt x)))
+    (println "{what} {n}")))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (zero (- (tenTo 0) 1.0))
+    (inf (* (tenTo 300) (tenTo 300)))
+  )
+    {
+      (show "3.99" (+ 3.0 0.99))
+      (show "-3.99" (- 0.0 3.99))
+      (show "-0.5" (- zero 0.5))
+      (show "2^53+1" (+ (twoTo 53) 1.0))
+      (show "2^62" (twoTo 62))
+      (show "2^63" (twoTo 63))
+      (show "-2^63" (- 0.0 (twoTo 63)))
+      (show "-2^64" (- 0.0 (twoTo 64)))
+      (show "1e300" (tenTo 300))
+      (show "-1e300" (- 0.0 (tenTo 300)))
+      (show "inf" inf)
+      (show "-inf" (- 0.0 inf))
+      (show "0/0" (/ zero zero))
+      (show "inf-inf" (- inf inf))
+      ; The same, written as constants converted where they stand, so
+      ; the optimiser folds them. A bare `fptosi` answered these
+      ; differently at each level.
+      (let (
+        (a (__floatToInt (/ 0.0 0.0)))
+        (b (__floatToInt (* 4611686018427387904.0 4.0)))
+        (c (__floatToInt (- 0.0 (* 4611686018427387904.0 4.0))))
+      )
+        (println "folded {a} {b} {c}"))
+      0
+    }))

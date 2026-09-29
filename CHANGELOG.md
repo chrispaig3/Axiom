@@ -22,6 +22,20 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### `__floatToInt` saturates - 2026-09-29
+
+`__floatToInt` of a NaN, an infinity or a value beyond `Int`'s range
+answered LLVM poison, which the optimiser was free to make anything:
+`(__floatToInt (/ 0.0 0.0))` printed 0 at `--opt 0` and 2, 10 or 21
+above it, depending on the code around it, and a folded 2^64 printed
+a word that looked like a heap address. It now truncates toward zero
+and saturates, so a
+NaN answers 0 and an out-of-range value the nearest end of `Int`, at
+every level and on both instruction sets. AArch64 already did this at
+run time; on x86-64 a positive overflow and a NaN answered the smallest
+`Int` and now answer the largest and 0. Tested by
+`tests/stdlib/622-float-to-int.ax`.
+
 ### A refused spawn is an answer in its slot — R-B2 - 2026-09-29
 
 A spawn the kernel refuses, or one the handle table has no slot for,

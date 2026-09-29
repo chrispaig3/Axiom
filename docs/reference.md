@@ -755,6 +755,13 @@ return a `Result`: `addChecked`, `subChecked`, `mulChecked`,
 `Int` with a `Float` is `AX3004`, so convert first with `__intToFloat`.
 `%`, the bitwise operators and the shifts take `Int`s only.
 
+Float arithmetic is IEEE 754 double precision, with nothing fused or
+reordered, so the same operations in the same order give the same bits
+at every `--opt` level. `__floatToInt` truncates toward zero. A NaN
+converts to 0, and a value beyond `Int`'s range to the nearest end.
+
+Tested by `tests/stdlib/622-float-to-int.ax`.
+
 `==` and `!=` on two `String`s compare their contents, so
 `(== "ab" (strConcat "a" "b"))` is `true`. The orderings `<`, `>`,
 `<=` and `>=` don't take strings. Use `strCmp` from `Str` instead.
