@@ -17176,7 +17176,7 @@
       (nodeBVec node)
       1
       0
-      node) 1)
+      (binderSummary node)) 1)
       0
       1)))
 
@@ -22859,7 +22859,7 @@
               name
               body
               1
-              body) 0)))
+              (binderSummary body)) 0)))
               1
               0)))
             (let ((cg1 
@@ -22989,7 +22989,7 @@
       name
       body
       1
-      body) 1)
+      (binderSummary body)) 1)
       0
       1)))
 
@@ -23035,7 +23035,7 @@
 ; `s` and the argument's share is untouched. Only a GLOBAL with a
 ; signature has masks: a parameter or local named like one, bound
 ; outside the let (the symbol table still holds it) or inside its
-; body (`boundWithin`), is a function value nothing signed, as is the
+; body (`binderSummary`), is a function value nothing signed, as is the
 ; binding itself applied, and every argument it is given escapes. A
 ; field of the block that is itself a reference, in value position,
 ; and a `match` binder - a field under another name - are the block
@@ -23055,8 +23055,15 @@
 ;
 ; Every tag this walk does not know answers ESCAPE, so the surface
 ; widens by deliberate edit and never by omission.
+;
+; `bound` is `binderSummary` of the walk's root: every name bound
+; anywhere under it, which `callEscapesArg` asks about each call head.
+; It used to be the root itself, walked again for every call the walk
+; met, so a `let` of n bindings each built by a
+; call took time cubic in n (AN-54: 1,000 bindings took 11 s to reach
+; LLVM IR).
 (pub :: escapes (-> Int String Int Int Int Int))
-(pub fn (escapes cg name e vp root)
+(pub fn (escapes cg name e vp bound)
   (if (== e 0)
     0
     (let ((tg (nodeTag e)))
@@ -23078,7 +23085,7 @@
               name
               (nodeA e)
               0
-              root) 1)
+              bound) 1)
               1
               (if (&& (== vp 1) (== (mentions name (nodeA e)) 1))
                 (if (== (fieldReadIsScalar cg e) 1)
@@ -23101,14 +23108,14 @@
                     name
                     (nodeA e)
                     0
-                    root) 1)
+                    bound) 1)
                     1
                     (escapes
                       cg
                       name
                       (nodeB e)
                       0
-                      root)))
+                      bound)))
                 ; a CALL keeps or answers an argument only as its
                 ; flow masks say (`callEscapesArg`); otherwise a
                 ; callee borrows, and the arguments are walked in
@@ -23118,7 +23125,7 @@
                   e
                   name
                   vp
-                  root) 1)
+                  bound) 1)
                   1
                   ; arithmetic and `&&`/`||` answer an operand's
                   ; word: `(+ (asWord s) 0)` in value position is
@@ -23132,35 +23139,35 @@
                       name
                       (nodeA e)
                       vp2
-                      root) 1)
+                      bound) 1)
                       1
                       (escapes
                         cg
                         name
                         (nodeB e)
                         vp2
-                        root)))))
+                        bound)))))
               (if (== tg TAG_E_IF)
                 (if (== (escapes
                   cg
                   name
                   (nodeA e)
                   0
-                  root) 1)
+                  bound) 1)
                   1
                   (if (== (escapes
                     cg
                     name
                     (nodeB e)
                     vp
-                    root) 1)
+                    bound) 1)
                     1
                     (escapes
                       cg
                       name
                       (nodeC e)
                       vp
-                      root)))
+                      bound)))
                 (if (== tg TAG_E_BEGIN)
                   (escapesSeq
                     cg
@@ -23168,7 +23175,7 @@
                     (nodeAVec e)
                     vp
                     0
-                    root)
+                    bound)
                   (if (== tg TAG_E_MATCH)
                     ; the arms' binders are the scrutinee's fields, owned by
                     ; the block exactly as a field read's answer is: when the
@@ -23179,7 +23186,7 @@
                       name
                       (nodeA e)
                       0
-                      root) 1)
+                      bound) 1)
                       1
                       (if (== (escapesArms
                         cg
@@ -23187,7 +23194,7 @@
                         (nodeBVec e)
                         vp
                         0
-                        root) 1)
+                        bound) 1)
                         1
                         (if (== (mentions name (nodeA e)) 1)
                           (escapesViaBinders
@@ -23195,7 +23202,7 @@
                             (nodeBVec e)
                             vp
                             0
-                            root)
+                            bound)
                           0)))
                     ; `cond` is AX2004: the parser builds none, so no
                     ; arm asks after one's escapes. A variadic `if`
@@ -23219,22 +23226,22 @@
                         name
                         (nodeB e)
                         0
-                        root) 1)
+                        bound) 1)
                         1
                         (if (== (escapes
                           cg
                           name
                           (nodeC e)
                           vp
-                          root) 1)
+                          bound) 1)
                           1
-                          (if (== (mayAlias cg name (nodeB e) root) 1)
+                          (if (== (mayAlias cg name (nodeB e) bound) 1)
                             (escapes
                               cg
                               (nodeAName e)
                               (nodeC e)
                               vp
-                              root)
+                              bound)
                             0)))
                       (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
                         (if (== tg TAG_E_REGION)
@@ -23243,13 +23250,13 @@
                             name
                             (nodeB e)
                             vp
-                            root)
+                            bound)
                           (if (== (escapes
                             cg
                             name
                             (nodeA e)
                             0
-                            root) 1)
+                            bound) 1)
                             1
                             (escapesSeq
                               cg
@@ -23257,7 +23264,7 @@
                               (nodeBVec e)
                               0
                               0
-                              root)))
+                              bound)))
                         (if (== tg TAG_E_SET)
                           ; a slot store takes no share - of what REACHES the slot:
                           ; the binding itself, a word of it, not a length or a sum
@@ -23273,7 +23280,7 @@
                               name
                               (nodeB e)
                               0
-                              root))
+                              bound))
                           (if (== tg TAG_E_SETF)
                             ; `(set b.f v)` retains v into a REFERENCE field (event 5),
                             ; so the base is a borrow and the value walks in argument
@@ -23284,7 +23291,7 @@
                               name
                               (nodeA e)
                               0
-                              root) 1)
+                              bound) 1)
                               1
                               (if (== (fieldReadIsScalar cg e) 1)
                                 (mentions name (nodeC e))
@@ -23293,11 +23300,11 @@
                                   name
                                   (nodeC e)
                                   0
-                                  root)))
+                                  bound)))
                             (mentions name e)))))))))))))))
 
 (pub :: escapesSeq (-> Int String (Vec Int) Int Int Int Int))
-(pub fn (escapesSeq cg name v vp i root)
+(pub fn (escapesSeq cg name v vp i bound)
   (if (==
     (cast Int v)
     0)
@@ -23312,7 +23319,7 @@
           (if (== i (- (vecLen v) 1))
             vp
             0)
-          root)
+          bound)
         1)
         1
         (escapesSeq
@@ -23321,12 +23328,12 @@
           v
           vp
           (+ i 1)
-          root)))))
+          bound)))))
 
 ; A match arm's word 2 is its body, and it inherits the position.
 ; An arm PATTERN cannot mention an outer binding as a value.
 (pub :: escapesArms (-> Int String (Vec Int) Int Int Int Int))
-(pub fn (escapesArms cg name v vp i root)
+(pub fn (escapesArms cg name v vp i bound)
   (if (==
     (cast Int v)
     0)
@@ -23338,7 +23345,7 @@
         name
         (nodeB (vecGet v i))
         vp
-        root) 1)
+        bound) 1)
         1
         (escapesArms
           cg
@@ -23346,7 +23353,7 @@
           v
           vp
           (+ i 1)
-          root)))))
+          bound)))))
 
 ; Does any arm's PATTERN BINDER escape through that arm's body? Each
 ; binder is a field of the scrutinee's block, so the question is the
@@ -23371,7 +23378,7 @@
 ; bind NOTHING grew 0. The 32 bytes were the `Result` block, and the
 ; only thing holding it was `v`, an `Int`.
 (pub :: escapesViaBinders (-> Int (Vec Int) Int Int Int Int))
-(pub fn (escapesViaBinders cg arms vp i root)
+(pub fn (escapesViaBinders cg arms vp i bound)
   (if (==
     (cast Int arms)
     0)
@@ -23390,18 +23397,18 @@
               (nodeB arm)
               vp
               0
-              root) 1)
+              bound) 1)
               1
               (escapesViaBinders
                 cg
                 arms
                 vp
                 (+ i 1)
-                root))))))))
+                bound))))))))
 
 (pub :: escapesAny (-> Int (Vec Int) Int Int Int Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (escapesAny cg names body vp i root)
+(pub fn (escapesAny cg names body vp i bound)
   (if (>= i (vecLen names))
     0
     (if (== (escapes
@@ -23409,7 +23416,7 @@
       (vecGetStr names i)
       body
       vp
-      root) 1)
+      bound) 1)
       1
       (escapesAny
         cg
@@ -23417,14 +23424,14 @@
         body
         vp
         (+ i 1)
-        root))))
+        bound))))
 
 ; Could a `let` initialiser that mentions `name` hand the new binder
 ; a reference into the block? Anything that mentions it may, except
 ; the shapes that can only answer a word: a literal, an operator or
 ; primitive applied to anything, and a read of a scalar field.
 (pub :: mayAlias (-> Int String Int Int Int))
-(pub fn (mayAlias cg name init root)
+(pub fn (mayAlias cg name init bound)
   (if (== (mentions name init) 0)
     0
     (let ((tg (nodeTag init)))
@@ -23436,14 +23443,14 @@
             name
             init
             (spineArity init)
-            root
+            bound
             0)
           (callEscapesArg
             cg
             init
             name
             1
-            root))
+            bound))
         (if (== tg TAG_E_FIELD)
           (if (== (fieldReadIsScalar cg init) 1)
             0
@@ -23451,17 +23458,17 @@
           1)))))
 
 (pub :: mayAliasArgs (-> Int String Int Int Int Int Int))
-(pub fn (mayAliasArgs cg name e n_ root i)
+(pub fn (mayAliasArgs cg name e n_ bound i)
   (if (>= i n_)
     0
-    (if (== (mayAlias cg name (spineArgAt e i) root) 1)
+    (if (== (mayAlias cg name (spineArgAt e i) bound) 1)
       1
       (mayAliasArgs
         cg
         name
         e
         n_
-        root
+        bound
         (+ i 1)))))
 
 ; Does this call let `name` out of the frame? By the callee's own
@@ -23472,14 +23479,14 @@
 ; own (event 2), so the argument's is untouched. Only a GLOBAL with a
 ; signature has masks: a parameter or local named like one - bound
 ; outside the let, where the symbol table still holds it, or inside
-; its body, where only the text does (`boundWithin`) - is a function
+; its body, where only the text does (`binderSummary`) - is a function
 ; value nothing signed, as is the binding itself applied, and every
 ; argument it is given escapes. A raw store's value escapes; a
 ; constructor's arguments are judged below, field by field, by the
 ; walk (a word field takes a `cast`, which escapes on its own).
 (pub :: callEscapesArg (-> Int Int String Int Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (callEscapesArg cg e name vp root)
+(pub fn (callEscapesArg cg e name vp bound)
   (let (
     (hd (spineHead e))
     (n_ (spineArity e))
@@ -23504,7 +23511,7 @@
                   (if (strEq n "__release")
                     (mentionsArgs name e n_ 0)
                     0)))
-              (if (|| (!= (lookupSym cg n) 0) (|| (>= (paramIndexOf cg n) 0) (== (boundWithin n root) 1)))
+              (if (== (headIsLocal cg n bound) 1)
                 (mentionsArgs name e n_ 0)
                 (if (!= (findFSigCg cg (mangledForCg cg n)) 0)
                   ; the STASH mask pairs by form - a word-form park counts
@@ -23634,72 +23641,146 @@
       (flowMask cg e ps vecNew)
     }))
 
-; Does anything under `e` BIND `name` - a `let`, a lambda parameter,
-; a match binder? Mirrors `mentions`, for binders instead of
-; references; an unknown tag answers 1, the direction that trusts no
-; signature.
-(pub :: boundWithin (-> String Int Int))
-(pub fn (boundWithin name e)
+; Does anything under `e` BIND a name - a `let`, a lambda parameter,
+; a match binder? Answered for every name at once: one walk of `e`
+; interns each binder, and notes whether it met a tag it does not
+; know, which answers 1 for any name, the direction that trusts no
+; signature. `(boundIn name (binderSummary e))` is the question.
+; It mirrors `mentions`, for binders instead of references.
+;
+; The summary is a four-word block: word 0 that flag, word 1 the
+; Intern of binders, and words 2 and 3 `headIsLocal`'s memo, an Intern
+; of the call heads asked about and a Vec of their answers by id.
+(pub :: binderSummary (-> Int Int))
+;@axiom:effect(unsafe)
+(pub fn (binderSummary e)
+  (let ((set internNew))
+    (let ((unknown (binderCollect set e)))
+      (let ((blk (memAlloc 32)))
+        {
+          (memSetWord blk 0 unknown)
+          (memSetWord blk 1 set)
+          (memSetWord blk 2 internNew)
+          (memSetWord blk 3 (cast Int (:: vecNew (Vec Int))))
+          blk
+        }))))
+
+; Is call head `n` a function VALUE rather than a signed global: a
+; local, a parameter, or a name bound under the walk's root? Asked of
+; every call the escape walk meets, and answered once per name per
+; walk. The walk emits nothing, so the symbol table and the parameters
+; it reads can't change while one summary is in use, and a `let` of n
+; bindings built by one constructor asks `lookupSym`'s linear scan once
+; per binding instead of once per call (AN-54).
+(pub :: headIsLocal (-> Int String Int Int))
+;@axiom:effect(unsafe)
+(pub fn (headIsLocal cg n bound)
+  (let (
+    (memo (memGetWord bound 2))
+    (answers (memGetWordVec bound 3))
+  )
+    (match (internFind memo n)
+      ((Some id) (vecGet answers id))
+      ((None)
+        (let ((a 
+          (if (|| (!= (lookupSym cg n) 0) (|| (>= (paramIndexOf cg n) 0) (== (boundIn n bound) 1)))
+            1
+            0)))
+          {
+            (internIntern memo n)
+            (vecPush answers a)
+            a
+          })))))
+
+(pub :: boundIn (-> String Int Int))
+;@axiom:effect(unsafe)
+(pub fn (boundIn name sum)
+  (if (== (memGetWord sum 0) 1)
+    1
+    (match (internFind (memGetWord sum 1) name)
+      ((Some _) 1)
+      ((None) 0))))
+
+; Intern every binder under `e`, and answer 1 on a tag this walk
+; does not know. An arm binds its pattern's names; a pattern whose
+; binders can't be read answers 1 as an unknown tag does.
+(pub :: binderCollect (-> Int Int Int))
+(pub fn (binderCollect set e)
   (if (== e 0)
     0
     (let ((tg (nodeTag e)))
       (if (|| (== tg TAG_E_INT) (|| (== tg TAG_E_FLT) (|| (== tg TAG_E_STR) (|| (== tg TAG_E_CHAR) (== tg TAG_E_VAR)))))
         0
         (if (|| (== tg TAG_E_LET) (== tg TAG_E_LETM))
-          (if (strEq (nodeAName e) name)
-            1
-            (if (== (boundWithin name (nodeB e)) 1)
+          {
+            (internIntern set (nodeAName e))
+            (if (== (binderCollect set (nodeB e)) 1)
               1
-              (boundWithin name (nodeC e))))
+              (binderCollect set (nodeC e)))
+          }
           (if (== tg TAG_E_LAM)
-            (if (== (strInVecCg (nodeAVec e) name 0) 1)
-              1
-              (boundWithin name (nodeB e)))
+            {
+              (binderCollectNames set (nodeAVec e) 0)
+              (binderCollect set (nodeB e))
+            }
             (if (== tg TAG_E_MATCH)
-              (if (== (boundWithin name (nodeA e)) 1)
+              (if (== (binderCollect set (nodeA e)) 1)
                 1
-                (boundWithinArms name (nodeBVec e) 0))
+                (binderCollectArms set (nodeBVec e) 0))
               (if (|| (== tg TAG_E_APP) (== tg TAG_E_IF))
-                (if (== (boundWithin name (nodeA e)) 1)
+                (if (== (binderCollect set (nodeA e)) 1)
                   1
-                  (if (== (boundWithin name (nodeB e)) 1)
+                  (if (== (binderCollect set (nodeB e)) 1)
                     1
-                    (boundWithin name (nodeC e))))
+                    (binderCollect set (nodeC e))))
                 (if (== tg TAG_E_SETF)
-                  (if (== (boundWithin name (nodeA e)) 1)
+                  (if (== (binderCollect set (nodeA e)) 1)
                     1
-                    (boundWithin name (nodeC e)))
+                    (binderCollect set (nodeC e)))
                   (if (== tg TAG_E_FIELD)
-                    (boundWithin name (nodeA e))
+                    (binderCollect set (nodeA e))
                     (if (== tg TAG_E_SET)
-                      (boundWithin name (nodeB e))
-                      ; `cond` is AX2004: the parser builds none,
-                      ; so no arm walks one's vector.
+                      (binderCollect set (nodeB e))
                       (if (== tg TAG_E_BEGIN)
-                        (boundWithinVec name (nodeAVec e) 0)
+                        (binderCollectVec set (nodeAVec e) 0)
                         (if (|| (== tg TAG_E_WHILE) (== tg TAG_E_REGION))
                           (if (== tg TAG_E_REGION)
-                            (boundWithin name (nodeB e))
-                            (if (== (boundWithin name (nodeA e)) 1)
+                            (binderCollect set (nodeB e))
+                            (if (== (binderCollect set (nodeA e)) 1)
                               1
-                              (boundWithinVec name (nodeBVec e) 0)))
+                              (binderCollectVec set (nodeBVec e) 0)))
                           1)))))))))))))
 
-(pub :: boundWithinVec (-> String (Vec Int) Int Int))
-(pub fn (boundWithinVec name v i)
+(pub :: binderCollectVec (-> Int (Vec Int) Int Int))
+(pub fn (binderCollectVec set v i)
   (if (==
     (cast Int v)
     0)
     0
     (if (>= i (vecLen v))
       0
-      (if (== (boundWithin name (vecGet v i)) 1)
+      (if (== (binderCollect set (vecGet v i)) 1)
         1
-        (boundWithinVec name v (+ i 1))))))
+        (binderCollectVec set v (+ i 1))))))
 
-; An arm binds its pattern's names.
-(pub :: boundWithinArms (-> String (Vec Int) Int Int))
-(pub fn (boundWithinArms name v i)
+(pub :: binderCollectNames (-> Int (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (binderCollectNames set v i)
+  (if (==
+    (cast Int v)
+    0)
+    0
+    (if (>= i (vecLen v))
+      0
+      {
+        (internIntern
+          set
+          (cast String (vecGet v i)))
+        (binderCollectNames set v (+ i 1))
+      })))
+
+(pub :: binderCollectArms (-> Int (Vec Int) Int Int))
+(pub fn (binderCollectArms set v i)
   (if (==
     (cast Int v)
     0)
@@ -23712,11 +23793,12 @@
             (cast Int bs)
             0)
             1
-            (if (== (strInVecCg bs name 0) 1)
-              1
-              (if (== (boundWithin name (nodeB arm)) 1)
+            {
+              (binderCollectNames set bs 0)
+              (if (== (binderCollect set (nodeB arm)) 1)
                 1
-                (boundWithinArms name v (+ i 1))))))))))
+                (binderCollectArms set v (+ i 1)))
+            }))))))
 
 (pub :: strInVecCg (-> (Vec Int) String Int Int))
 ;@axiom:effect(unsafe)
@@ -23822,7 +23904,7 @@
 ;
 ; This is a SEPARATE walk rather than a flag on the shared one because
 ; the other five callers want the binders as a SCOPE - what names the
-; arm body binds, for shadowing (`boundWithinArms`) and for the flow
+; arm body binds, for shadowing (`binderCollectArms`) and for the flow
 ; environment (`flowMaskArms`, `flowStashesArms`, `tailOwnedArms`,
 ; `collectTailsArms`). A scalar binder is still a binding; it is only
 ; the escape question it cannot answer yes to.

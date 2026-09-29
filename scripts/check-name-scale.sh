@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # A module's PRIVATE declarations must cost no more to resolve than its
-# public ones, and DOUBLING a module's declarations must not quadruple
-# the time to resolve them.
+# public ones, DOUBLING a module's declarations must not quadruple
+# the time to resolve them, and doubling one `let`'s bindings must not
+# multiply the time to emit them by 5.5 (arm 3, near the end).
 #
 # WHY THIS EXISTS, and it is the whole story. `8942644` indexed
 # `findFnEnt`, which had been three linear scans of a ~1,600-entry table
@@ -419,7 +420,10 @@ cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl/" || {
 # and nothing else: `(cast (Vec Int) bares)` at an argument root is a
 # memory-model change (`MM-VAL-22`) on top of the speed change this arm
 # measures, and an ablation that moves two things at once proves
-# neither.
+# neither. The restored scan is a precondition interface, because
+# `vecGetStr` is one (R-B6): an untagged caller is AX3073, and a
+# trusted one would leave `mangleIdxHas`'s own `effect(unsafe)` with
+# nothing to support it (AX3010).
 if ! python3 - "$abl/self_host/namespace.ax" <<'PY'
 import sys
 p = sys.argv[1]
@@ -438,7 +442,8 @@ new = """(pub fn (mangleIdxHas idx bares name)
   })
 
 (pub :: mangleScanIn (-> (Vec String) String Int Bool))
-
+;@axiom:effect(unsafe)
+;@axiom:precondition(every element of `bares` is a live `String`)
 (pub fn (mangleScanIn bares bare i)
   (if (>= i (vecLen bares))
     false
@@ -499,12 +504,15 @@ cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl1/" || {
 # Anchored on the whole function. `fnEntVisibleExact` is one of two
 # lookups with this exact two-branch shape - `fnEntVisibleSuffix` reads
 # slot 26 the same way - so a substitution anchored on the `if` alone
-# would edit whichever came first.
+# would edit whichever came first. The `effect(unsafe)` tag goes with
+# the index read: the scan alone performs no unsafe operation, and a
+# claim with nothing under it is AX3010 (R-B6).
 if ! python3 - "$abl1/self_host/typecheck.ax" <<'PY_ABL'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-old = '''(pub fn (fnEntVisibleExact tc privs name curMod)
+old = ''';@axiom:effect(unsafe)
+(pub fn (fnEntVisibleExact tc privs name curMod)
   (if (== (memGetWord tc 20) 0)
     (findFnEntVisibleExact privs (tcFnsVec tc) name curMod)
     (fnIdxGetVisible (memGetWordVec tc 20) privs name curMod)))'''
@@ -559,6 +567,152 @@ else
   echo "      \`fnEntVisibleExact\` or BOUND has drifted above the scan's cost." >&2
   failed=1
 fi
+
+# --------------------------------------------------------------------
+# Arm 3: bindings in ONE `let`. Doubling them must not multiply the
+# time to reach LLVM IR by LET_BOUND or more (AN-54).
+# --------------------------------------------------------------------
+# The emitter decides, for each binding, whether it escapes, by walking
+# the rest of the `let`, and asked every call it met whether the call's
+# head was a local: a walk of the whole root (`boundWithin`) and a
+# linear scan of the symbols (`lookupSym`), per call, per binding. That
+# is cubic: `(cN (Cell "none"))` 1,000 times took 13.0 s and 2,000 took
+# 109 s. The walk now reads a summary of the root's binders, built once
+# per binding, and memoises each head's answer (`binderSummary`,
+# `headIsLocal` in self_host/codegen.ax), which leaves the walk itself:
+# quadratic, a doubling ratio tending to 4, where a cubic one tends to
+# 8. Each binding here makes two calls, `(Cell (strDup "none"))`, which
+# doubles the cubic term and leaves the memoised walk as it was: from
+# 500 to 1,000 bindings the live compiler went 0.40 s to 1.35 s (x3.4)
+# and the ablated one 1.80 s to 12.8 s (x7.1).
+LET_N="${LET_N:-500}"
+LET_BOUND="${LET_BOUND:-5.50}"
+
+gen_let() { # gen_let <file> <count>
+  local out="$1" n="$2" i
+  {
+    printf '(import IO)\n(struct Cell\n  (name : String))\n\n(:: main Int)\n;@axiom:effect(io)\n(fn (main)\n  (let (\n'
+    for (( i = 0; i < n; i++ )); do printf '    (c%d (Cell (strDup "none")))\n' "$i"; done
+    printf '  )\n    {\n      (println c0.name)\n      0\n    }))\n'
+  } > "$out"
+}
+
+emit_best() { # emit_best <compiler> <n> <reps>: the best emit-llvm time
+  local comp="$1" n="$2" reps="$3" i best="" s e t
+  [[ -f "$work/let$n.ax" ]] || gen_let "$work/let$n.ax" "$n"
+  for (( i = 0; i < reps; i++ )); do
+    s=$(python3 -c 'import time;print(time.monotonic())')
+    if ! ( cd "$work" && "$comp" emit-llvm "let$n.ax" -o "let$n.ll" ) >"$work/let.log" 2>&1; then
+      echo "FAIL: \`emit-llvm let$n.ax\` failed - this arm measured a failure" >&2
+      tail -5 "$work/let.log" >&2
+      exit 1
+    fi
+    e=$(python3 -c 'import time;print(time.monotonic())')
+    t=$(python3 -c "print($e - $s)")
+    if [[ -z "$best" ]] || (( $(python3 -c "print(1 if $t < $best else 0)") )); then best="$t"; fi
+  done
+  printf '%s' "$best"
+}
+
+let_verdict() { # let_verdict <label> <t1> <t2> <n>: 0 under, 1 over, 2 under the floor
+  local r
+  r="$(python3 -c "print('%.2f' % ($3 / $2))")"
+  printf 'check-name-scale: %s let bindings N=%s->%s  %.2fs->%.2fs (x%s, bound %s)\n' \
+    "$1" "$4" "$(( 2 * $4 ))" "$2" "$3" "$r" "$LET_BOUND"
+  if (( $(python3 -c "print(1 if $2 < $FLOOR else 0)") )); then return 2; fi
+  if (( $(python3 -c "print(1 if $r >= $LET_BOUND else 0)") )); then return 1; fi
+  return 0
+}
+
+lt1="$(emit_best "$axc" "$LET_N" "$REPS")"
+lt2="$(emit_best "$axc" "$(( 2 * LET_N ))" "$REPS")"
+let_verdict "live" "$lt1" "$lt2" "$LET_N"
+case $? in
+  0) ;;
+  1)
+    echo "FAIL: doubling one \`let\`'s bindings costs ${LET_BOUND}x or more to emit." >&2
+    echo "      The escape walk has gone back to a per-call scan - see" >&2
+    echo "      \`binderSummary\` and \`headIsLocal\` in self_host/codegen.ax." >&2
+    failed=1 ;;
+  2)
+    echo "FAIL: the small side is under ${FLOOR}s, so the ratio is noise." >&2
+    echo "      Raise LET_N." >&2
+    exit 1 ;;
+esac
+
+# The negative, in a third scratch copy: the defect put back as it was,
+# a scan of the `let`'s binders and of the symbols for every call. The
+# memo alone taken out is not enough to fail, because the symbol scan
+# it saves is cheap beside the walk; the binders' scan is what the
+# per-call walk of the whole `let` cost.
+abl3="$work/tree3"
+mkdir -p "$abl3"
+cp -R "$repo_root/self_host" "$repo_root/stdlib" "$abl3/" || {
+  echo "FAIL: could not copy the tree to ablate for arm 3" >&2; exit 1; }
+if ! python3 - "$abl3/self_host/codegen.ax" <<'PY_LET'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = "              (if (== (headIsLocal cg n bound) 1)"
+new = "              (if (|| (!= (lookupSym cg n) 0) (|| (>= (paramIndexOf cg n) 0) (== (boundInScan n bound) 1)))"
+n = s.count(old)
+if n != 1:
+    sys.exit("the headIsLocal ablation matched %d times, wanted 1" % n)
+s = s.replace(old, new)
+anchor = "(pub :: boundIn (-> String Int Int))"
+if s.count(anchor) != 1:
+    sys.exit("the boundIn anchor matched %d times, wanted 1" % s.count(anchor))
+scan = """(pub :: boundInScan (-> String Int Int))
+;@axiom:effect(unsafe)
+(pub fn (boundInScan name sum)
+  (if (== (memGetWord sum 0) 1)
+    1
+    (let (
+      (set (memGetWord sum 1))
+      (mut i 0)
+      (mut hit 0)
+    )
+      {
+        (while (< i (internCount set))
+          {
+            (if (strEq (internLookup set i) name)
+              (set hit 1)
+              0)
+            (set i (+ i 1))
+          })
+        hit
+      })))
+
+"""
+open(p, "w").write(s.replace(anchor, scan + anchor))
+PY_LET
+then
+  echo "FAIL: could not ablate \`headIsLocal\` - its call or \`boundIn\` has moved, so arm 3" >&2
+  echo "      has no negative. Re-anchor the ablation." >&2
+  exit 1
+fi
+echo "-- rebuilding the compiler with the per-call scan put back --"
+if ! gate_build_tree "$axiom" "$abl3" "$abl3/stdlib" \
+       "$work/axc-letscan" >"$work/letscan.build.log" 2>&1; then
+  echo "FAIL: the arm-3 ablated compiler did not build" >&2
+  sed 's/^/    /' "$work/letscan.build.log" | head -20 >&2
+  exit 1
+fi
+# Best of REPS on the small side, where interference would lower the
+# ratio; one run on the large side, where it could only raise it.
+at1="$(emit_best "$work/axc-letscan" "$LET_N" "$REPS")"
+at2="$(emit_best "$work/axc-letscan" "$(( 2 * LET_N ))" 1)"
+let_verdict "ablated" "$at1" "$at2" "$LET_N"
+case $? in
+  1) echo "check-name-scale: the ablated compiler fails arm 3, so the arm is load-bearing" ;;
+  0)
+    echo "FAIL: the per-call scan put back did NOT fail arm 3, so this arm cannot" >&2
+    echo "      fail on the defect it exists for." >&2
+    failed=1 ;;
+  2)
+    echo "FAIL: the arm-3 ablated compiler's small side is under ${FLOOR}s." >&2
+    failed=1 ;;
+esac
 
 if (( failed )); then
   exit 1

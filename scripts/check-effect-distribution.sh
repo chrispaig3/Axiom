@@ -179,6 +179,16 @@
 # all read `Alloc,Mut,Unsafe` (2198 to 2202). Neither line moves, and
 # every other bucket is frozen again.
 #
+# RE-PINNED 2026-09-29 (34): trunk's AN-53 and AN-54 merged onto R-B10's
+# first half. Diffed `symbols --calls` rows for d1416466 and the merge
+# with ONE compiler, compiler view only (the stdlib view is unchanged):
+# removed the three `boundWithin` walkers (exactly `Alloc,Mut`), added
+# `castTargetTy`, `binderCollect`, `binderCollectArms` and
+# `binderCollectVec` (exactly `Alloc,Mut`), `binderCollectNames`,
+# `binderSummary` and `headIsLocal` (`Alloc,Mut,Unsafe`) and `boundIn`
+# (exactly `Unsafe`). So exactly `Alloc,Mut` moves 1518 to 1519,
+# `Alloc,Mut,Unsafe` 924 to 927 and exactly `Unsafe` 486 to 487.
+#
 # RE-PINNED 2026-09-29 (33): R-B10's first half. Functions that were
 # tagged trusted but dereferenced or handed on a caller's word
 # (`netAddrText`, `netSetOptInt`, the poll calls, `sysTermRaw`,
@@ -634,15 +644,15 @@ echo "== compiler view: symbols --calls self_host/main.ax =="
 rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 (( rows >= 4000 )) && ok "$rows functions listed (floor 4000)" \
   || fail "only $rows functions listed; the floor is 4000 (the corpus moved or the read broke)"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1518 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 1519 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 182 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 33 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 112 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 36 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 23 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 0 "IO,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 924 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/main.axsym" 'Unsafe')" 486 "exactly Unsafe"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 927 "Alloc,Mut,Unsafe"
+have "$(bucket "$work/main.axsym" 'Unsafe')" 487 "exactly Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut,Unsafe')" 238 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Mut,Unsafe')" 98 "Mut,Unsafe"
 have "$(bucket "$work/main.axsym" 'Alloc,Unsafe')" 9 "Alloc,Unsafe"

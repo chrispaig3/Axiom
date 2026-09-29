@@ -22,6 +22,44 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A long `let` compiles in quadratic time, not cubic — AN-54 - 2026-09-29
+
+A `let` of 2,000 bindings, each built by a call, reaches LLVM IR in
+3.6 s rather than 109 s, and 1,000 in 0.87 s rather than 13 s. The
+emitter's escape walk asked, for every call it met, whether the call's
+head was a local, by walking the whole `let` and scanning the symbol
+table. It now reads a summary of the `let`'s binders and remembers each
+answer. The emitted IR is byte-identical across the corpus.
+
+What is left is quadratic, because each binding's walk reads the rest
+of the `let`. `scripts/check-name-scale.sh` bounds a doubling below 5.5
+times, and fails with the per-call scan put back.
+
+### A `cast` to an alias of a function type — AN-53 - 2026-09-29
+
+`(cast Step f)`, with `(type Step = (-> Int Int))`, now has the type
+`Step` stands for, as a signature naming `Step` does. It used to keep
+the alias's name, which no function type matched, so the cast was
+refused with `AX3004`. Tested by `tests/selfhost/1011-cast-arrow-alias.ax`.
+
+### A module's call never reaches your entry file's function — AN-52, R-A10 - 2026-09-29
+
+Your entry file can declare a function with an imported name, and a
+module's calls now keep reaching the module's own. Before this, an
+entry file's `strLen` captured `IO`'s call to `Str`'s, so `println`
+printed nothing, and one of another type got `IO.ax` refused with
+`AX3004`. Your file's own references still reach your function.
+
+The same search found a `main` answering `(Result Int Error)` that
+exited with its `Result`'s address when the entry file declared its
+own `errorText` (AN-55). The dispatch now renders with `Err`'s.
+
+`scripts/check-metamorphic.sh` gains a fourth relation: entry-file
+functions named after the library functions a program calls change
+nothing about it. Tested by
+`tests/stdlib/573-entry-name-shadows-import.ax` and
+`tests/stdlib/574-main-result-shadowed.ax`.
+
 ### A recovery point's thunk is checked as a region, and a `Vec` can't wrap its size — `AX3090` - 2026-09-28
 
 The reclamation audit found two ways safe code could reach memory the
