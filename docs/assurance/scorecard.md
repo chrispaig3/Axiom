@@ -23,6 +23,7 @@ source.
 | Foreign joins are refused before waiting, and the owner still joins (R-A8) | §12c: `foreign 78 status 123 answer 42`, for processes and threads, raising and checked |
 | A parameter is read, not called, beside a nullary function of its name; a cast's type operand and a named pattern's binders resolve as written; a module's bare call never reaches the entry file; so an unused declaration changes nothing else (R-A10) | `tests/selfhost/1006-cast-type-operand.ax`, `tests/stdlib/573-entry-name-shadows-import.ax`; `scripts/check-metamorphic.sh`: 350 programs keep the first relation and 186 the shadow relation, seven ablations each red |
 | Count exhaustion traps with 70 before the write, and is recoverable (R-A9) | `tests/stdlib/527-retain-overflow.ax` (`.optstable` 0 to 3); the model's `exhaust` ablation |
+| A standard-library function that hands the kernel or a raw primitive a word its caller supplied says so as a precondition, and a record a trusted function hands on that way is private to its module (R-B10, steps 1 and 2 of 3) | `tests/stdlib/580-kernel-precondition.ax`; `compat/BREAKING`'s `KeyIn` and `HttpReader` rows |
 | `vecSet` traps with 77 before it mutates (R-B1) | `tests/stdlib/525-vec-set-bounds.ax` |
 | A million-deep chain is released whole under a 64 KiB stack, and no share is released twice through the safe surface (R-B7) | `tests/stdlib/555-release-deep-chain.ax`, `556-count-balance.ax`; `scripts/check-reclaim-soak.sh` §1 and its recursive-walk ablation |
 | Reuse plateaus under a mixed-size soak, a cycle costs exactly its bytes until a reset, resets leave no stale list head, and `__axiom_mem_stat` reads it all (R-B8) | `tests/stdlib/557-cycle-backlog.ax` to `559-reset-metadata.ax`; `scripts/check-reclaim-soak.sh` §2 to §4, with four ablations |
@@ -38,9 +39,10 @@ source.
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 69 pass, including eleven ablations and two controls that measure stated limits |
 | Atomics lower to their ordering instructions on 7 targets × 4 levels, and with LSE on the three AArch64 targets. The SB, MP, LB, 2+2W, R, S, counter and four coherence litmus tests are clean on two threads, WRC, ISA2 and 3.SB on three and IRIW on four, with SB, MP, R and S also fenced, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 252 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
-| A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns, steady-state allocation and a blocking call under an interrupt handler across the whole program, enumerates each function's trap statuses, and bounds the stack from AArch64 and x86-64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 49 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
+| A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns, steady-state allocation, a blocking call under an interrupt handler and unnamed inline assembly across the whole program, enumerates each function's trap statuses, and bounds the stack from AArch64 and x86-64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 52 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
 | Device registers are reached at their own width by volatile accesses the optimiser keeps, with AArch64 barriers, and an instruction the target lacks is `AX4008` (R-D2a) | `scripts/check-embedded.sh` A11 |
 | A periodic step runs on real timer interrupts within a checked profile and a stack budget, and a DMA driver keeps a contract-checked ownership protocol with an interrupt deadline (R-D2c) | `scripts/check-embedded.sh` A13 and A14, under QEMU with drills that must go red. Emulator evidence, not hardware |
+| Inline assembly is refused where it is malformed, emitted only for the target's architecture, kept as a side effect, and an unsafe operation of the declaration holding it; the restricted profile refuses it unless named (R-D2d) | `tests/stdlib/581-inline-asm.ax`, `tests/diagnostics/1044-inline-asm.ax`, `1045-inline-asm-unsafe.ax`; `scripts/check-embedded.sh` A15, with `tests/embedded/asm-el.ax` under QEMU; `scripts/check-report.sh` RP-9 |
 | An unhandled CPU exception on bare metal exits 81 naming the fault, and `isr(irq)` binds the IRQ vector (R-D2b) | `scripts/check-embedded.sh` A12: `tests/embedded/fault.ax` under QEMU exits 81 with ESR `0x96000021`. Emulator evidence, not hardware |
 | The executable allocator, arena and region model agrees with the runtime, size classes and filed count included (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 15 pass |
 | Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 46 pass, on 600 mutants from seed 20260927. All twenty-one reproducers are fixed and replayed as regressions |
@@ -59,6 +61,13 @@ source.
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
   reentrant; a dead holder is found only when the kernel says so
   (AN-56); Darwin's clock is the realtime one; FreeBSD spins.
+- AN-58 (R-B10 step 3): `__syscallN` isn't in the unsafe set, so
+  `restrict(no-unsafe)` accepts a direct syscall, and `sysReadFd`,
+  `sysWriteFd`, the path calls, `sysRandomBytes` and the terminal calls
+  still take an `Int` buffer unmarked.
+- R-D2d limits: `check` doesn't assemble an `asm` template, operands
+  are `Int` words in general-purpose registers, and the instructions
+  are the declaration's to vouch for.
 - R-B6 limits: the checker cannot prove that a trusted wrapper makes
   its raw operations safe, or that a caller meets a stated
   precondition. A buffer typed `Int` is forged without a cast, so no
@@ -118,8 +127,8 @@ constants.
 | `check-task.sh` | 76 pass |
 | `check-handles.sh` | 42 pass |
 | `check-protocol-model.sh` | 137 pass |
-| `check-report.sh` | 49 pass, 0 skipped |
-| `check-embedded.sh` | 35 pass, QEMU legs run |
+| `check-report.sh` | 52 pass, 0 skipped |
+| `check-embedded.sh` | 45 pass, QEMU legs run |
 | `check-runtime-model.sh` | 15 pass |
 | `check-fuzz.sh` | 46 pass |
 | `check-metamorphic.sh` | 15 pass |

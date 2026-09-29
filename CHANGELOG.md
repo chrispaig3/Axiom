@@ -52,6 +52,29 @@ sounds, and `in` is optional in every `for` shape, so existing loops
 are unchanged. `in` is a keyword only after a `for` binder. Tested by
 `tests/stdlib/582-not.ax` and `tests/stdlib/583-for-in.ax`.
 
+### A function that hands the kernel your word says so — R-B10, MM-EXEC-9e - 2026-09-29
+
+About twenty-five standard-library functions were marked as trusted
+while they read a caller's `Int` as an address or handed it to the
+kernel, so under `restrict(no-unsafe)` `(netAddrText 4096)` read
+address 4096. They are precondition interfaces now: the socket-address
+readers, `netBind` and `netConnect`, the poll and signal calls,
+`sysTermRaw`, `sysTimeoutMicros`, `sysSpawn` and the `sysRun` family,
+`sysReadDir`, `printLit`, `rdReseat` and `Fmt`'s digit writers. A
+caller passing its own buffer says `effect(unsafe)` and stays a trusted
+function; one passing its caller's says so with a precondition.
+
+`KeyIn` and `HttpReader` are private to their modules, since a caller
+that could set their fields could aim a read anywhere
+(`compat/BREAKING`). A body whose only raw work is a syscall can now
+carry an `effect(unsafe)` claim.
+
+Not yet: a syscall isn't an unsafe operation, so `restrict(no-unsafe)`
+still accepts a direct `__syscallN`, and `sysReadFd`, `sysWriteFd`, the
+path calls, `sysRandomBytes` and the terminal calls still take an
+unmarked `Int` buffer (AN-58). Tested by
+`tests/stdlib/580-kernel-precondition.ax`.
+
 ### A channel whose holder died is poisoned, and the task pool has a model — AN-10, R-C2, R-E1 - 2026-09-29
 
 A binding killed while holding a channel's lock used to leave it held,
