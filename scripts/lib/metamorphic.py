@@ -47,6 +47,15 @@ own `fn` changes neither the verdict nor any `symbols` row. A NID used
 to hash whichever of a function's two declarations came last, so this
 gave the function a new identity (AN-41).
 
+THE FOURTH RELATION, `shadow`: an entry file's function named like a
+library function changes nothing any module does. A module can't
+import the entry file, so no module's bare reference may reach it.
+For each accepted program this takes the module functions its IR
+calls (`@Mod$name`), keeps the names its entry file never mentions,
+appends `(fn (name) 0)` for each, and applies R1 to R3. Before AN-52
+was fixed, an entry file's `strLen` captured `IO`'s call to `Str`'s,
+at check time and at run time, and `println` printed nothing.
+
 WHAT IT CANNOT SEE. Only names it adds; only programs the compiler
 already accepts (a refused program's free names are exactly the
 names this adds - `tests/diagnostics/1009-macro-for-innermost.ax`
@@ -60,6 +69,7 @@ Usage:
   metamorphic.py run --axiom AXC [--jobs N] FILE...
   metamorphic.py reorder --axiom AXC [--jobs N] [--known FILE] FILE...
   metamorphic.py sigmove --axiom AXC [--jobs N] [--known FILE] FILE...
+  metamorphic.py shadow --axiom AXC [--jobs N] FILE...
   metamorphic.py selftest
 Exit 0 when every accepted program keeps the relation, 1 otherwise.
 """
@@ -126,12 +136,25 @@ def run(axiom, args, cwd):
         return -1, "", "timeout"
 
 
+def rows_by_place(out, fname):
+    """`rows`, keyed by the declaring file too: the shadow relation adds
+    a second row with a module row's name, in the entry file."""
+    table = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) > 2:
+            place = parts[2].split(":")[0].replace(fname, "F")
+            table[(parts[0], parts[1], place)] = norm_row(line, fname)
+    return table
+
+
 def observe(axiom, fname, cwd):
     c = run(axiom, ["check", fname], cwd)
     s = run(axiom, ["symbols", fname], cwd)
     e = run(axiom, ["emit-llvm", fname], cwd) if c[0] == 0 else (None, "", "")
     return {"check": (c[0], c[2].replace(fname, "F")),
             "rows": rows(s[1], fname),
+            "placed": rows_by_place(s[1], fname),
             "defs": defs(e[1]) if e[0] == 0 else None,
             "emit": e[0]}
 
@@ -183,6 +206,84 @@ def one(axiom, path):
         var["rows"] = {k: v.replace(vname, "F") for k, v in var["rows"].items()}
         probs += [("unary " if unary else "nullary ") + p for p in compare(orig, var)]
     return path, "diverged" if probs else "kept", probs
+
+
+# A call to a module's function: `@Mod$name` or `@"Mod.Sub$name"`.
+CALLEE_RE = re.compile(r'call [^@\n]*@"?[A-Za-z0-9_.]+\$([a-z][A-Za-z0-9_]*)"?\(')
+TOKEN_RE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+SHADOW_LIMIT = 12
+
+
+def shadow_names(src, defs_, taken):
+    """The module functions a program's IR calls whose bare names its
+    entry file never mentions, sorted, at most SHADOW_LIMIT."""
+    callees = set()
+    for body in defs_.values():
+        callees |= set(CALLEE_RE.findall(body))
+    mentioned = set(TOKEN_RE.findall(src))
+    return sorted(n for n in callees if n not in mentioned and n not in taken)[:SHADOW_LIMIT]
+
+
+def shadowing(names):
+    out = ["\n; metamorphic: entry-file functions named like library functions"]
+    for n in names:
+        out.append(f"(:: {n} Int)\n(fn ({n}) 0)")
+    return "\n".join(out) + "\n"
+
+
+def one_shadow(axiom, path):
+    path = os.path.abspath(path)
+    cwd, base = os.path.split(path)
+    src = open(path, encoding="utf-8", errors="replace").read()
+    orig = observe(axiom, base, cwd)
+    if orig["check"][0] != 0 or orig["defs"] is None:
+        return path, "refused", []
+    # the entry file's own declarations, generated ones included; the
+    # modules' rows are the names this relation is about
+    taken = declared(src) | {k[1] for k, v in orig["rows"].items() if " F:" in v}
+    names = shadow_names(src, orig["defs"], taken)
+    if not names:
+        return path, "none", []
+    vname = ".shadow-%d-%s" % (os.getpid(), base)
+    vpath = os.path.join(cwd, vname)
+    with open(vpath, "w", encoding="utf-8") as fh:
+        fh.write(src + shadowing(names))
+    try:
+        var = observe(axiom, vname, cwd)
+    finally:
+        os.remove(vpath)
+    var["check"] = (var["check"][0], var["check"][1].replace(vname, "F"))
+    probs = compare(dict(orig, rows=orig["placed"]), dict(var, rows=var["placed"]))
+    return path, "diverged" if probs else "kept", ["shadowing %s: %s" % (",".join(names), p) for p in probs]
+
+
+def cmd_shadow(argv):
+    axiom, jobs, files = None, 4, []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--axiom":
+            axiom = argv[i + 1]; i += 2
+        elif argv[i] == "--jobs":
+            jobs = int(argv[i + 1]); i += 2
+        else:
+            files.append(argv[i]); i += 1
+    if not axiom or not files:
+        print(__doc__)
+        return 2
+    if os.sep in axiom:
+        axiom = os.path.abspath(axiom)
+    counts = {"refused": 0, "kept": 0, "diverged": 0, "none": 0}
+    shadowed = 0
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        for path, verdict, probs in ex.map(lambda f: one_shadow(axiom, f), files):
+            counts[verdict] += 1
+            rel = os.path.relpath(path)
+            if verdict == "diverged":
+                print("DIVERGED %s: %s" % (rel, "; ".join(probs)))
+    print("shadowed %d files: %d kept the relation, %d diverged, %d called no "
+          "library function they don't name, %d refused (not tested)"
+          % (len(files), counts["kept"], counts["diverged"], counts["none"], counts["refused"]))
+    return 1 if counts["diverged"] else 0
 
 
 OPEN, CLOSE = '([{', ')]}'
@@ -471,6 +572,11 @@ def cmd_selftest():
            "sigmove puts each signature just below its function")
     expect(verdict_of((1, 'E AX3004 a:1:1 x "m"\nW AX3037 b:2:2 y "n"')) == (1, ('AX3004', 'AX3037')),
            "a verdict is the exit status and the codes")
+    ir2 = ('define i64 @main() {\n  %.t0 = call i64 @"IO$println"(i64 1)\n'
+           '  %.t1 = call i64 @"Sys.Platform$sysWrite"(i64 1)\n  %.t2 = call i64 @f(i64 1)\n}\n')
+    expect(shadow_names("(fn (main) (println 1))", defs(ir2), set()) == ["sysWrite"],
+           "shadow names a called module function the entry file doesn't mention")
+    expect(shadowing(["strLen"]).count("(fn (strLen) 0)") == 1, "shadow appends one function per name")
     print("selftest: %d failed" % fails)
     return 1 if fails else 0
 
@@ -482,6 +588,8 @@ if __name__ == "__main__":
         sys.exit(cmd_reorder(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "sigmove":
         sys.exit(cmd_reorder(sys.argv[2:], sigs_below))
+    if len(sys.argv) > 1 and sys.argv[1] == "shadow":
+        sys.exit(cmd_shadow(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "selftest":
         sys.exit(cmd_selftest())
     print(__doc__)

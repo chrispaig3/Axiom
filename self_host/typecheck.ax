@@ -4333,12 +4333,55 @@
         (if (== (memGetWord tc 19) 0)
           (let ((e (fnEntExact tc name)))
             (if (!= e 0)
-              e
+              (if (== (fnEntOutOfModuleScope tc m name e) 0)
+                e
+                (let ((s (fnEntSuffix tc name)))
+                  (if (!= s 0)
+                    s
+                    e)))
               (fnEntSuffix tc name)))
           (let ((e (fnEntVisibleExact tc (memGetWordVec tc 27) name (memGetWordStr tc 16))))
             (if (!= e 0)
-              e
+              (if (== (fnEntOutOfModuleScope tc m name e) 0)
+                e
+                (let ((s (fnEntVisibleSuffix tc (memGetWordVec tc 27) name (memGetWordStr tc 16))))
+                  (if (!= s 0)
+                    s
+                    e)))
               (fnEntVisibleSuffix tc (memGetWordVec tc 27) name (memGetWordStr tc 16)))))))))
+
+; 1 when `e`, the exact match for a BARE reference made inside module
+; `m`, may be the entry file's declaration, which no module can see
+; (AN-52). A module can't import the entry file, so an entry-file
+; `strLen` must not answer `IO`'s call to `Str`'s: the lookup then
+; asks the suffix pass for a module's `Mod$name` and keeps `e` only
+; when there is none. A builtin and an effect operation are never the
+; entry file's, and a module's `extern` item or effect operation is
+; also registered as `Mod$name`, so the suffix pass answers the same
+; declaration for them. `mangledForCg` makes the same choice, through
+; the module view `mangleRecordModuleView` records.
+(pub :: fnEntOutOfModuleScope (-> Int Int String Int Int))
+;@axiom:effect(unsafe)
+(pub fn (fnEntOutOfModuleScope tc m name e)
+  (if (== m 0)
+    0
+    (if (!= (memGetWord e 3) 0)
+      0
+      (if (!= (memGetWord e 4) 0)
+        0
+        (if (== (nameHasDollar name 0) 1)
+          0
+          1)))))
+
+; Does `s` contain `$` (36) at or after `i`? Asked without building a
+; string.
+(pub :: nameHasDollar (-> String Int Int))
+(pub fn (nameHasDollar s i)
+  (if (>= i (strLen s))
+    0
+    (if (== (strByte s i) 36)
+      1
+      (nameHasDollar s (+ i 1)))))
 
 ; The same question asked of the whole table rather than of the
 ; visible part of it: used only to tell "there is no such name" from

@@ -42,7 +42,12 @@
 #   2c. The third relation: moving every `::` to just below its own
 #      `fn` changes no verdict and no `symbols` row, NID included
 #      (AN-41: a NID hashed whichever declaration came last).
-#   3. Four compilers each rebuilt with one of the fixes taken out
+#   2d. The fourth relation: an entry-file function named like a
+#      library function the program's modules call changes nothing
+#      (AN-52: an entry file's `strLen` captured `IO`'s call to
+#      `Str`'s, and an entry file's `errorText` turned off the
+#      `main :: Result` dispatch).
+#   3. Seven compilers each rebuilt with one of the fixes taken out
 #      (`gate_build_tree`), and the relation required to FAIL under
 #      each: the gate watches the defects it was built on.
 #   4. `--long` only: the compiler's own entry module and every stdlib
@@ -138,15 +143,38 @@ else
   grep -E '^(DIVERGED|UNPARSED)' "$work/sigmove.log" | cut -c1-400 | sed 's/^/     /' || true
 fi
 
+echo "== 2d. an entry-file function named like a library function changes nothing =="
+rc=0
+( cd "$repo_root" && python3 "$lib" shadow --axiom "$axc" --jobs "$jobs" "${corpus[@]}" ) \
+  >"$work/shadow.log" 2>&1 || rc=$?
+summary="$(grep '^shadowed ' "$work/shadow.log" || true)"
+shadowed="$(sed -nE 's/^shadowed [0-9]+ files: ([0-9]+) kept.*/\1/p' <<<"$summary")"
+if [[ $rc -eq 0 && -n "$shadowed" ]]; then
+  ok "$summary"
+else
+  bad "the shadow relation does not hold: ${summary:-no summary}"
+  grep '^DIVERGED' "$work/shadow.log" | cut -c1-400 | sed 's/^/     /' || true
+  tail -3 "$work/shadow.log" | sed 's/^/     /'
+fi
+# 185 programs called a library function they don't name, and kept
+# the relation, on 2026-09-29.
+if [[ -n "$shadowed" && "$shadowed" -ge 170 ]]; then
+  ok "$shadowed programs tested with their library calls shadowed, at least 170"
+else
+  bad "only ${shadowed:-0} programs were tested with a shadow; the floor is 170"
+fi
+
 echo "== 3. a compiler with a fix taken out fails the relation =="
 trio=(tests/stdlib/020-fmt.ax tests/stdlib/070-vec.ax tests/stdlib/210-struct-variants.ax)
-# `ablate <name> <file> <from> <to> [relation]`: rebuild from a copy of
-# self_host/ with one exact span replaced, and require the relation
-# (section 2's `run` unless named) to fail on the three programs above.
-# A span that no longer matches exactly once is a failure of this gate,
-# not a pass.
+# `ablate <name> <file> <from> <to> [relation [program]]`: rebuild from
+# a copy of self_host/ with one exact span replaced, and require the
+# relation (section 2's `run` unless named) to fail on the three
+# programs above, or on the one program named. A span that no longer
+# matches exactly once is a failure of this gate, not a pass.
 ablate() {
   local name="$1" file="$2" from="$3" to="$4" relation="${5:-run}"
+  local progs=("${trio[@]}")
+  [[ -n "${6:-}" ]] && progs=("$6")
   local dir="$work/ablate-$name"
   rm -rf "$dir"; mkdir -p "$dir"
   cp -R "$repo_root/self_host" "$dir/self_host"
@@ -168,11 +196,11 @@ PY
     head -20 "$dir/build.log" | sed 's/^/     /'
     return
   fi
-  if ( cd "$repo_root" && AXIOM_STDLIB="$dir/stdlib" python3 "$lib" "$relation" --axiom "$dir/axc" --jobs "$jobs" "${trio[@]}" ) \
+  if ( cd "$repo_root" && AXIOM_STDLIB="$dir/stdlib" python3 "$lib" "$relation" --axiom "$dir/axc" --jobs "$jobs" "${progs[@]}" ) \
       >"$dir/run.log" 2>&1; then
     bad "ablation \`$name\`: the relation still holds with the fix taken out"
   else
-    ok "ablation \`$name\`: $(grep -c '^DIVERGED' "$dir/run.log") of ${#trio[@]} programs diverge under \`$relation\`"
+    ok "ablation \`$name\`: $(grep -c '^DIVERGED' "$dir/run.log") of ${#progs[@]} programs diverge under \`$relation\`"
   fi
 }
 
@@ -194,6 +222,21 @@ ablate "nid-fn-wins" symbols.ax \
   "            (saPutIfAbsent (memGetWordVec sm 12) (memGetWordVec sm 13) name \"DSig:\")" \
   "            (smNid sm name \"DSig:\")" \
   sigmove
+
+ablate "module-view" codegen.ax \
+  "((None) (mangledForModCg cg bi name m))" \
+  "((None) (mangledForBareCg cg bi name))" \
+  shadow
+ablate "entry-out-of-scope" typecheck.ax \
+  "(pub fn (fnEntOutOfModuleScope tc m name e)
+  (if (== m 0)" \
+  "(pub fn (fnEntOutOfModuleScope tc m name e)
+  (if (== m m)" \
+  shadow
+ablate "result-renderer" codegen.ax \
+  "(if (== (findFSigCg cg \"Err\$errorText\") 0)" \
+  "(if true" \
+  shadow tests/stdlib/490-main-result-ok.ax
 
 if (( long )); then
   echo "== 4. --long: the compiler and every stdlib module as an entry file =="

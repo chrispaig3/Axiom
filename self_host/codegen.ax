@@ -1128,7 +1128,7 @@
               (internFind bi (strConcat m (strConcat "$" name))))))
             (match hit
               ((Some h) (vecGetStr (memGetWordVec cg 12) (vecGet (vecGet (memGetWordVec cg 40) 0) h)))
-              ((None) (mangledForBareCg cg bi name)))))))))
+              ((None) (mangledForModCg cg bi name m)))))))))
 
 ; The half of `mangledForCg` that no module-local spelling claimed:
 ; `mangledForIn`'s first-match, read out of the index. Field 40 slot 0
@@ -1138,6 +1138,31 @@
 (fn (mangledForBareCg cg bi name)
   (match (internFind bi name)
     ((Some id) (vecGetStr (memGetWordVec cg 13) (vecGet (vecGet (memGetWordVec cg 40) 0) id)))
+    ((None) name)))
+
+; The same, for a reference made inside module `m` (0 in the entry
+; file). A module can't import the entry file, so when the bare slot
+; answers the name unchanged, which is how the entry file holds it,
+; the module view `$name` answers instead if a module recorded one
+; (AN-52; namespace.ax's `mangleRecordModuleView`). Only that case
+; builds the `$name` probe, so a module's calls to names nobody
+; shadows cost what they did.
+(:: mangledForModCg (-> Int Int String String String))
+;@axiom:effect(unsafe)
+(fn (mangledForModCg cg bi name m)
+  (match (internFind bi name)
+    ((Some id)
+      (let ((full (vecGetStr (memGetWordVec cg 13) (vecGet (vecGet (memGetWordVec cg 40) 0) id))))
+        (if (==
+          (cast Int m)
+          0)
+          full
+          (if (strEq full name)
+            (match (internFind bi (strConcat "$" name))
+              ((Some v) (vecGetStr (memGetWordVec cg 13) (vecGet (vecGet (memGetWordVec cg 40) 0) v)))
+              ((None) full))
+            full)))
+    )
     ((None) name)))
 
 ; The three declaration-list scans, through the index; the linear scan
@@ -7819,7 +7844,20 @@
         (let ((local (strConcat m (strConcat "$" name))))
           (if (mangleHasIn (memGetWordVec cg 12) local 0)
             local
-            (mangledForIn (memGetWordVec cg 12) (memGetWordVec cg 13) name 0)))))))
+            (mangledForModIn (memGetWordVec cg 12) (memGetWordVec cg 13) name)))))))
+
+; `mangledForModCg`'s answer by scanning, for the paths with no index.
+(pub :: mangledForModIn (-> (Vec String) (Vec String) String String))
+(pub fn (mangledForModIn bares fulls name)
+  (let ((full (mangledForIn bares fulls name 0)))
+    (if (strEq full name)
+      (if (mangleHasIn bares name 0)
+        (let ((key (strConcat "$" name)))
+          (if (mangleHasIn bares key 0)
+            (mangledForIn bares fulls key 0)
+            full))
+        full)
+      full)))
 
 (pub :: mangledForIn (-> (Vec String) (Vec String) String Int String))
 (pub fn (mangledForIn bares fulls name i)
@@ -10426,6 +10464,20 @@
               (isNamedConTy (vecGet args 1) "Error"))))
         0))))
 
+; The rendering the dispatch calls: `Err`'s own `errorText` when `Err`
+; is loaded, since the `Error` it renders is `Err`'s. Asked by bare
+; name from the entry file, an entry file's own `errorText` of another
+; type used to turn the dispatch off, so `main` answered its `Result`'s
+; address as the exit status (AN-52's shape, found by
+; `scripts/check-metamorphic.sh`'s shadow relation). A program that
+; declares its own `Error` and `errorText` and loads no `Err` still
+; reaches its own.
+(pub :: mainResultErrorText (-> Int String))
+(pub fn (mainResultErrorText cg)
+  (if (== (findFSigCg cg "Err$errorText") 0)
+    (mangledForCg cg "errorText")
+    "Err$errorText"))
+
 (pub :: mainReturnsResult (-> Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (mainReturnsResult cg)
@@ -10436,7 +10488,7 @@
       0
       (if (== (isResultIntErrorTy (memGetWord e 3)) 0)
         0
-        (let ((ee (findFSigCg cg (mangledForCg cg "errorText"))))
+        (let ((ee (findFSigCg cg (mainResultErrorText cg))))
           (if (== ee 0)
             0
             ; the rendering takes an `Error` and answers a `String` -
@@ -10463,7 +10515,7 @@
 ;@axiom:effect(unsafe)
 (pub fn (emitMainResultTail cg wind)
   (let ((okTag (eTag (lookupType (memGetWordVec cg 3) "Ok")))
-        (etext (llvmSym (mangledForCg cg "errorText"))))
+        (etext (llvmSym (mainResultErrorText cg))))
     {
       (emitLine cg "  %mres_tp = inttoptr i64 %r to ptr")
       (emitLine cg "  %mres_tag = load i64, ptr %mres_tp")
