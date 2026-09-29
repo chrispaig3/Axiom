@@ -162,7 +162,7 @@ export const STATUS_SOLID: StatusRow[] = [
 export const STATUS_LIMITS: StatusRow[] = [
   { feature: 'Effects', status: 'Enforced; two limits stated', note: 'Two inference gaps, both stated: unresolvable calls are marked incomplete, and constructor allocation is not counted.' },
   { feature: 'Macros', status: 'Partial', note: 'A template cannot generate `import` or a nested `macro`, or test two binders for sameness.' },
-  { feature: 'Concurrency', status: 'Language form, two lowerings', note: '`parallel` only: no async, no scheduler.' },
+  { feature: 'Concurrency', status: 'Language form, two lowerings', note: '`parallel`, channels, a mutex and task pools; a binding may borrow a `String`. No async, no scheduler.' },
   { feature: 'Region syntax', status: 'Checked scope, and annotated signatures with the escape rule', note: 'Scalars leave a region; typed promotion is planned.' },
   { feature: 'FFI', status: 'Functional', note: 'Rust through `extern` blocks and generated bindings.' },
   { feature: 'Editor support', status: 'Functional', note: 'Language server plus a tree-sitter grammar.' },

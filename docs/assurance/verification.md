@@ -185,6 +185,7 @@ and the gate replays every one.
 | `while-no-body.axfuzz` | P4: `(while (< x 40.0))`, a loop with no body that spins on its condition, checked OK, and the formatter wanted a body and refused it with no code. | **fixed** (`fpWhile`): it prints on one line |
 | `operator-name-template.axfuzz` | P4: `=` is a name to this compiler's parser, and an unexpanded macro template isn't resolved, so `(macro (q x) (+ = 100))` checked OK. The formatter refused every operator outside the retired stage0 parser's list. | **fixed**: the formatter prints such a name as itself |
 | `negative-literal-pattern.axfuzz` | P4: `(-00 7)`, a negative literal pattern, checked OK and ran, and the formatter read `-` and the digits as two patterns and refused it with no code. A lone `-` binder was refused the same way. | **fixed** (`fpPatWidth`, `fpPat`): the formatter fuses them where the lexer does |
+| `subtype-negative-bound.axfuzz` | P4: `(subtype P is Int range -1 .. 10)` checked OK and the formatter read `-` and `1` as two atoms and refused it with no code. | **fixed**: the formatter fuses them as a literal, as it does in a pattern |
 
 No row is open. An open row would carry a signature, an extended regex
 over the failing tool's own words matched at the row's stage: a mutant
@@ -631,9 +632,31 @@ The reordering relation compares no IR. Constructor tags, string constants and
 lambdas are numbered in declaration order, so reordering renames them
 in ways no program can observe.
 
+## The language server, fuzzed
+
+`scripts/lib/lspfuzz.py` drives `axiom lsp` over JSON-RPC in seeded
+sessions: documents drawn from the corpus and mutated, every request
+the server advertises at random positions, edits, and malformed frames
+and messages. `scripts/check-fuzz.sh` §7 runs 200 sessions per push and
+2,000 with `--long`. The server must never die by a signal or hang,
+must frame and answer every well-formed request exactly once, before
+and after a malformed message, and must exit as the protocol says. A
+planted crash and a planted broken frame must each be reported, and a
+capability the fuzzer builds no request for fails the gate.
+
+It found four defects, each fixed with a reproducer under
+`tests/fuzz/lsp/` that fails on the old server. An empty frame ended
+the session. A small document hung the server, because the editor lints
+walked the macro expansion. Two formatting requests killed it: the
+formatter trapped on `(pub` and on an empty effect operation.
+
+What it does not show: the oracles are the protocol's, so a
+well-formed wrong answer passes, and the server's answers are not
+compared with the compiler's.
+
 ## What is still open
 
-- Coverage-guided fuzzing, and fuzzing of the LSP and the REPL. A
+- Coverage-guided fuzzing, and fuzzing of the REPL. A
   miscompilation oracle beyond P5's two optimisation levels, such as a
   reference interpreter.
 - Fuzzing of FFI boundaries and runtime operations. Race detection

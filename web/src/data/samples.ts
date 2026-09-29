@@ -605,10 +605,11 @@ test: 4 pauses recorded, 0 ms slept`,
     lede: "`parallel` runs each binding beside the caller and joins them in the order written: child processes by default, threads under `--threads`, the same output either way.",
     points: [
       { at: "(parallel scan (", text: "The three shards are scanned at once." },
-      { at: "(let ((total (+ us (+ eu apac))))", text: "The body sees all three counts, joined in written order." },
-      { at: "; A join carries one machine word", text: "Only a machine word crosses a join, and the compiler enforces it." },
+      { at: "(nus (errors us 0))", text: "Each binding borrows its shard: the string's count is frozen until the last join, so no binding's retain or release reaches it." },
+      { at: "(let ((total (+ nus (+ neu napac))))", text: "The body sees all three counts, joined in written order." },
+      { at: "; Each binding borrows its shard", text: "What comes back across a join is one machine word, and the compiler enforces it." },
     ],
-    docs: { label: "parallel", href: `${REF}#run-expressions-side-by-side-with-parallel` },
+    docs: { label: "parallel", href: `${REF}#what-a-binding-may-capture` },
     output: `errors  us 1  eu 2  apac 0  total 3`,
     code: `(import IO)
 (import Str)
@@ -622,50 +623,46 @@ test: 4 pauses recorded, 0 ms slept`,
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  ; A join carries one machine word, so a shard answers its count.
-  (parallel scan (
-    (us (errors "INFO up\\nERROR db timeout\\nWARN slow disk\\n" 0))
-    (eu (errors "ERROR db timeout\\nERROR cache miss\\nINFO up\\n" 0))
-    (apac (errors "INFO up\\nWARN slow disk\\nINFO up\\n" 0))
+  ; Each binding borrows its shard, and a join carries one word back.
+  (let (
+    (us "INFO up\\nERROR db timeout\\nWARN slow disk\\n")
+    (eu "ERROR db timeout\\nERROR cache miss\\nINFO up\\n")
+    (apac "INFO up\\nWARN slow disk\\nINFO up\\n")
   )
-    (let ((total (+ us (+ eu apac))))
-      {
-        (println "errors  us {us}  eu {eu}  apac {apac}  total {total}")
-        0
-      })))`,
+    (parallel scan (
+      (nus (errors us 0))
+      (neu (errors eu 0))
+      (napac (errors apac 0))
+    )
+      (let ((total (+ nus (+ neu napac))))
+        {
+          (println "errors  us {nus}  eu {neu}  apac {napac}  total {total}")
+          0
+        }))))`,
     refusal: {
-      label: "Share a string with a binding",
-      note: "A binding that captures a reference the parent also holds is refused, under either lowering, because two threads touching one reference count could free memory still in use.",
+      label: "Share a growing list with a binding",
+      note: "A binding may borrow a `String`, but not a `Vec`: two bindings could grow one buffer at once. The capture is refused under either lowering.",
       code: `(import IO)
-(import Str)
-
-(:: errors (-> String Int Int))
-(fn (errors shard from)
-  (match (strFind shard "ERROR" from)
-    ((None) 0)
-    ((Some at) (+ 1 (errors shard (+ at 1))))))
+(import Vec)
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((eu "ERROR db timeout\\nERROR cache miss\\nINFO up\\n"))
+  (let ((seen 
+    (:: vecNew (Vec Int))))
     (parallel scan (
-      (us (errors "INFO up\\nERROR db timeout\\nWARN slow disk\\n" 0))
-      (e (errors eu 0))
+      (us (vecLen (vecPush seen 1)))
+      (eu 2)
     )
-      (let ((total (+ us e)))
-        {
-          (println "errors  us {us}  eu {e}  total {total}")
-          0
-        }))))`,
-      human: `error[AX3064]: a concurrent binding captures \`eu\`, which has type \`String\` - a reference the parent also holds
-  --> triage.ax:16:18
+      (+ us eu))))`,
+      human: `error[AX3064]: a concurrent binding captures \`seen\`, which has type \`Vec Int\` - a mutable container the parent also holds, which a binding could grow while another reads it
+  --> triage.ax:10:28
    |
-16 |       (e (errors eu 0))
-   |                  ^^ \`eu\` is bound outside this binding
+10 |       (us (vecLen (vecPush seen 1)))
+   |                            ^^^^ \`seen\` is bound outside this binding
    |
    = note: MM-PAR-6: a binding runs BESIDE its parent, and \`axiom_retain\`/\`axiom_release\` are a plain load-add-store rather than an \`atomicrmw\` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on \`--threads\`; \`__proc_spawn\` names the isolated lowering and is exempt
-   = help: pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word
+   = help: pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A \`parallel\` binding may borrow a \`String\` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use \`stdlib/Par.ax\`, whose forked children read their own copy
    = help: run \`axiom explain AX3064\` for a full explanation
 
 compilation failed due to 1 previous error`,

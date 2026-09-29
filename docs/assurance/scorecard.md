@@ -21,7 +21,7 @@ source.
 | The twenty-six `Unsafe` primitives are refused under `no-unsafe` and `pure`, and a declaration that calls one says `effect(unsafe)` (R-A6) | `tests/diagnostics/1010-unsafe-primitives.ax` and `tests/diagnostics/1020-unsafe-device-primitives.ax`; `scripts/check-diagnostics.sh`: 270 pass |
 | Links in dead blocks can't be decremented as counts (R-A7) | `tests/stdlib/521-release-filed.ax`; the `MM-LIFE-2k` release path |
 | Foreign joins are refused before waiting, and the owner still joins (R-A8) | §12c: `foreign 78 status 123 answer 42`, for processes and threads, raising and checked |
-| A parameter is read, not called, beside a nullary function of its name; a cast's type operand and a named pattern's binders resolve as written; a module's bare call never reaches the entry file; so an unused declaration changes nothing else (R-A10) | `tests/selfhost/1006-cast-type-operand.ax`, `tests/stdlib/573-entry-name-shadows-import.ax`; `scripts/check-metamorphic.sh`: 350 programs keep the first relation and 186 the shadow relation, seven ablations each red |
+| A parameter is read, not called, beside a nullary function of its name; a cast's type operand and a named pattern's binders resolve as written; a module's bare call never reaches the entry file; so an unused declaration changes nothing else, and `symbols` numbers an unsigned function's fresh type variables from its own row (R-A10, AN-37) | `tests/selfhost/1006-cast-type-operand.ax`, `tests/stdlib/573-entry-name-shadows-import.ax`, `tests/selfhost/1012-fresh-names.ax`; `scripts/check-metamorphic.sh`: 360 programs keep the first relation, 194 the shadow relation and 361 the fresh-variable relation, eight ablations each red |
 | Count exhaustion traps with 70 before the write, and is recoverable (R-A9) | `tests/stdlib/527-retain-overflow.ax` (`.optstable` 0 to 3); the model's `exhaust` ablation |
 | A standard-library function that hands the kernel or a raw primitive a word its caller supplied says so as a precondition, and a record a trusted function hands on that way is private to its module (R-B10, steps 1 and 2 of 3) | `tests/stdlib/580-kernel-precondition.ax`; `compat/BREAKING`'s `KeyIn` and `HttpReader` rows |
 | `vecSet` traps with 77 before it mutates (R-B1) | `tests/stdlib/525-vec-set-bounds.ax` |
@@ -34,7 +34,8 @@ source.
 | Obligation dispositions are registered (R-B4) | [memory-audit.md](memory-audit.md); `scripts/check-doc-drift.sh` |
 | Forging casts and precondition calls require an unsafe declaration; trusted wrappers admit ordinary code under `no-unsafe` (R-B6) | `tests/diagnostics/1040-forging-cast.ax` to `1043-precondition-tag.ax`; `tests/selfhost/1010-trusted-wrapper.ax`; `tests/stdlib/545-no-unsafe-practical.ax` |
 | No `Vec` is shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; row 5 of `642`; `471` builds inside |
-| A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel (R-C2a) | `tests/stdlib/528-chan.ax`; `scripts/check-chan.sh`: 15 pass |
+| A `parallel` binding may borrow a `String` its parent holds: the form freezes its count, and every count it reaches, from before any binding is built until the last join, so no binding's retain or release reaches the parent in either lowering. A hand-written spawn, a struct, an `Option`, a `Vec` and a function value stay refused (R-C7, MM-PAR-6b) | `tests/stdlib/630-parallel-borrow.ax` (`--opt` 0 to 3, both lowerings, counts read back); `tests/diagnostics/1100-parallel-borrow-refused.ax`; `scripts/check-race.sh`: `tests/litmus/borrow-load.ax` clean under ThreadSanitizer, and a race in `axiom_retain` with the lends deleted from its IR |
+| A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel, and a send reaches a sleeping receiver in tens of microseconds (R-C2a) | `tests/stdlib/528-chan.ax`; `scripts/check-chan.sh`: 37 pass, its `notify` ablation judged by the wake latency (about 81 ms, the end of a 100 ms slice) |
 | A channel, mutex, cancellation token or spawn handle is a sealed handle, and a mutex guard a sealed word: safe code can't forge one or pass an `Int` or another handle as one, and a freed, forged or rejoined one traps with 85 instead of reading an unmapped page (R-C6, MM-PAR-8) | `tests/diagnostics/1060` to `1066`, `1070` and `1071`; `tests/stdlib/570-handle-freed.ax`, `571-handle-table.ax`, `572-spawn-joined-twice.ax`; `scripts/check-handles.sh`: 42 pass, including four ablations |
 | A single-bit fault injected into a live channel's handle word traps 85 before the object is touched, at each of the 64 bits, unless the flip spells the other live channel, which the gate predicts from the two words. This is fault injection at the one boundary the runtime checks, not protection from hardware faults (HZ-E4) | `tests/litmus/handle-bitflip.ax`; `scripts/check-handles.sh` §7 at `--opt` 0 and 2, red with the table's compares removed |
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 99 pass, including its ablations and two controls that measure stated limits |
@@ -42,15 +43,17 @@ source.
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
 | A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns, steady-state allocation, a blocking call under an interrupt handler and unnamed inline assembly across the whole program, enumerates each function's trap statuses, and bounds the stack from AArch64 and x86-64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 52 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
 | Device registers are reached at their own width by volatile accesses the optimiser keeps, with AArch64 barriers, and an instruction the target lacks is `AX4008` (R-D2a) | `scripts/check-embedded.sh` A11 |
-| A periodic step runs on real timer interrupts within a checked profile and a stack budget, and a DMA driver keeps a contract-checked ownership protocol with an interrupt deadline (R-D2c) | `scripts/check-embedded.sh` A13 and A14, under QEMU with drills that must go red. Emulator evidence, not hardware |
+| A periodic step runs on real timer interrupts within a checked profile and a stack budget, and a DMA driver keeps a contract-checked ownership protocol with an interrupt deadline (R-D2c) | `scripts/check-embedded.sh` A13 and A14, under QEMU with the MMU and caches on (A16) and drills that must go red. Emulator evidence, not hardware |
 | Inline assembly is refused where it is malformed, emitted only for the target's architecture, kept as a side effect, and an unsafe operation of the declaration holding it; the restricted profile refuses it unless named (R-D2d) | `tests/stdlib/581-inline-asm.ax`, `tests/diagnostics/1044-inline-asm.ax`, `1045-inline-asm-unsafe.ax`; `scripts/check-embedded.sh` A15, with `tests/embedded/asm-el.ax` under QEMU; `scripts/check-report.sh` RP-9 |
-| An unhandled CPU exception on bare metal exits 81 naming the fault, and `isr(irq)` binds the IRQ vector (R-D2b) | `scripts/check-embedded.sh` A12: `tests/embedded/fault.ax` under QEMU exits 81 with ESR `0x96000021`. Emulator evidence, not hardware |
+| An unhandled CPU exception on bare metal exits 81 naming the fault, and a stack overflow is named as one; `isr(irq)` binds the IRQ vector; `isr(fault)` binds the program's fault policy, which every unrecovered trap and CPU exception reaches once and whose answer is the exit (R-D2b) | `scripts/check-embedded.sh` A12, A19 and A20; `scripts/check-isr.sh` §4: 14 pass. Emulator evidence, not hardware |
+| On bare metal the MMU and both caches are on before `main`: code read-only, data and stacks execute-never, an unmapped guard below the stack, and nothing mapped outside the image and two device blocks, so a stack overflow, a store to code, a branch into data and a null read each end in a reported fault (R-D2e) | `scripts/check-embedded.sh` A16 to A18, with the `mmuoff`, `guard`, `excstack` and `codewrite` drills red. Emulator evidence, not hardware |
 | The executable allocator, arena and region model agrees with the runtime, size classes and filed count included (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 15 pass |
-| Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 46 pass, on 600 mutants from seed 20260927. All twenty-one reproducers are fixed and replayed as regressions |
+| Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2`. The language server, driven by 200 seeded sessions per push, never dies by a signal or hangs, frames and answers every request exactly once, and exits as the protocol says (R-E1, fuzzing half) | `scripts/lib/fuzz.py`, `scripts/lib/lspfuzz.py`; `scripts/check-fuzz.sh`: 62 pass, on 600 mutants from seed 20260927 and the server's §7 with its planted-crash and broken-frame controls. Every reproducer is fixed and replayed as a regression |
 | ThreadSanitizer reports an unlocked shared word and three ablated synchronisers, and nothing in the mutex, the channel, the pipeline example or the seq_cst litmus rows but `MM-PAR-12`'s documented read, whose suppression hides nothing else on the runs made (R-E1, race detector) | `scripts/check-race.sh`: 32 pass on H3 and on linux-aarch64 in a container; `tests/litmus/tsan-suppressions.txt` |
 | The channel, mutex and task-pool protocols are clean in every interleaving of two and three bindings or tasks the model explores, every planted protocol defect is found with its schedule, and the transcription matches the source and a recorded run of the channel (R-E1, protocol model) | `scripts/lib/protocol-model.py`, `scripts/lib/task_model.py`; `scripts/check-protocol-model.sh`: 140 pass, 84 scenarios and 1,309,841 states by default, 107 and 6.95 million with `--long` |
 | A binding that dies holding a channel's lock poisons the channel: every waiter answers within about 100 ms, the timed forms answer `chanOwnerDead`, and nothing touches the half-updated ring (AN-10, R-C2) | `tests/stdlib/590-chan-dead-holder.ax` at `--opt` 0 to 3; `scripts/check-chan.sh` §6 in both lowerings, with the holder test and the child look each ablated red |
 | A lock-order inversion between two mutexes and two bindings each waiting on the other's channel answer `sysTimedOut` on both sides under the timed calls, and stay deadlocked under the untimed ones until a watchdog ends them; the mutex's starvation is measured, not promised (R-C2, AN-17) | `tests/litmus/liveness.ax`; `scripts/check-protocol-model.sh` §5, both lowerings |
+| A pure parallel computation answers the same at every width and in both lowerings: answers in written or submit order, every fold in index order, a float sum over 2,000 tasks bit for bit with the sequential one, and `parMapWords` raising the lowest failing index. `__floatToInt` saturates instead of answering LLVM poison (R-C8, MM-PAR-14) | `scripts/check-task.sh` §10: 21 checks, 4 ablations and a Python cross-check of the bits; `tests/stdlib/620-par-float-order.ax` to `622-float-to-int.ax` |
 | The qualification-readiness package exists and states its limits (R-E2) | [hazards.md](hazards.md), [threats.md](threats.md), [trusted-components.md](trusted-components.md), [tool-qualification.md](tool-qualification.md), [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), [support-policy.md](support-policy.md), [demonstrators.md](demonstrators.md) |
 
 ## Open defects and gaps
@@ -66,6 +69,20 @@ source.
   `restrict(no-unsafe)` accepts a direct syscall, and `sysReadFd`,
   `sysWriteFd`, the path calls, `sysRandomBytes` and the terminal calls
   still take an `Int` buffer unmarked.
+- R-D2b and R-D2e limits: QEMU's TCG models no cache, so no run shows
+  a missing clean, invalidate or barrier. Nothing ran on hardware, where
+  semihosting's exit is itself an exception and a fault hook must end in
+  a reset, a halt or a watchdog. The guard is 64 KiB, so a frame that
+  moves the stack pointer further before touching it steps over it. A
+  wait by polling, or inside `asm`, isn't refused by `AX4009`.
+- R-C7 limits: only a `String` is borrowable; a trap that unwinds past
+  the form leaves the lent blocks frozen, which leaks them; only
+  `parallel`'s own bindings borrow.
+- R-C8 limits: what a clock decides (a deadline, a cancellation,
+  `failFast`), which trap wins under `--threads`, a NaN's payload and
+  the order of what tasks print aren't reproducible. A float literal of
+  2^63 or more, or with 19 or more fractional digits, wraps in the
+  parser (AN-64).
 - R-D2d limits: `check` doesn't assemble an `asm` template, operands
   are `Int` words in general-purpose registers, and the instructions
   are the declaration's to vouch for.
@@ -89,8 +106,9 @@ source.
   not proof.
 - R-E1 remainder: the race detector sees threads only, and only the
   interleavings run, so forked bindings and the task pool have none.
-  ASan sees globals, not the arena's heap blocks. The LSP and the REPL
-  aren't fuzzed, and the miscompilation oracle compares two
+  ASan sees globals, not the arena's heap blocks. The REPL and non-host
+  targets aren't fuzzed; the server's oracles are the protocol's, so a
+  well-formed wrong answer passes; and the miscompilation oracle compares two
   optimisation levels on a sample. The full fuzzing budget runs
   nightly, not per push. The protocol model is a proof about the model
   at two and three bindings and small bounds, not about the
@@ -112,27 +130,29 @@ source.
 ## Verified configurations
 
 H1, H2 and H3 run the gates in CI. E1 is emission only, plus QEMU runs
-where QEMU is installed. The local full battery on H3 passed every
-gate but three, and all three were re-run green after their causes
-were fixed: re-pinned effect counts, a stray Finder file the install
-gate copied, and symbol goldens that listed five new platform
-constants.
+where QEMU is installed. The local full battery on H3, run on the
+merged tree, passed 100 gates and failed 8. All 8 were re-run green
+after their causes were fixed: `parallel` programs whose IR differed
+between two compiles, a `printf | grep -q` pipe that failed a match
+under `pipefail`, and four tree-wide pins that the merges moved.
 
 | Gate | Result on H3 |
 |---|---|
-| `check-parallel.sh` | 69 pass, §12a skipped (procfs) |
-| `check-diagnostics.sh` | 270 pass |
-| `check-render-selfhost.sh` | 263 pass |
+| `check-parallel.sh` | 73 pass, §12a skipped (procfs) |
+| `check-diagnostics.sh` | 288 pass |
+| `check-render-selfhost.sh` | 281 pass |
 | `check-atomics.sh` | 252 pass |
-| `check-chan.sh` | 35 pass |
-| `check-task.sh` | 99 pass |
+| `check-chan.sh` | 37 pass |
+| `check-task.sh` | 126 pass |
 | `check-handles.sh` | 42 pass |
 | `check-protocol-model.sh` | 140 pass |
+| `check-race.sh` | 35 pass |
 | `check-report.sh` | 52 pass, 0 skipped |
-| `check-embedded.sh` | 45 pass, QEMU legs run |
+| `check-embedded.sh` | 57 pass, QEMU legs run |
+| `check-isr.sh` | 14 pass |
 | `check-runtime-model.sh` | 15 pass |
-| `check-fuzz.sh` | 46 pass |
-| `check-metamorphic.sh` | 15 pass |
+| `check-fuzz.sh` | 63 pass |
+| `check-metamorphic.sh` | 19 pass |
 | `check-reclaim-soak.sh` | 22 pass |
 
 Execution on freebsd, windows and darwin-x86_64 has narrower evidence
@@ -162,6 +182,10 @@ These are measurements, not proofs.
 - Two-node knots dropped outside an arena scope cost 64 bytes each,
   7,840 KiB at 10^5 and 64,096 KiB at 10^6; inside a scope reset each
   iteration, 1,632 KiB at both (§3).
+- Every scaling, grain and spawn run in `scripts/bench-concurrency.sh`
+  peaks at 1.7 to 2.1 MiB of RSS in its largest process. A task pool of
+  8 answering 64 B, 64 KiB and 1 MiB peaks at 2.2, 28 and 62 MiB, mostly
+  its shared answer slab.
 - 10,000 recovery points whose thunk answers, traps or nests grow the
   arena by nothing; each fresh mark costs 48 bytes
   (`tests/stdlib/560-recover-record.ax`).
@@ -210,6 +234,40 @@ median in brackets, and each run checks its own answer.
   median, 258 µs at the 99th percentile and 290 µs at worst.
 - Of an uncontended lock and unlock's 129 ns, the `getpid` the lock
   makes for its mark (`MM-PAR-11`) is 113 ns when measured alone.
+
+`scripts/bench-concurrency.sh` also measures what `parallel` and the
+pools buy. Every run's answer is checked against the sequential one,
+commands run round-robin so background load falls on all of them, and
+each figure is the best of 5 with the median in brackets, on H3 (Apple
+M1, 4 performance and 4 efficiency cores) at `--opt 2`. Width 8 spans
+the efficiency cores, so it can't reach 8.
+
+| Speedup over 1.39 s sequential | Width 2 | Width 4 | Width 8 |
+|---|---|---|---|
+| `parallel`, processes | 1.99 (1.69) | 3.29 (2.82) | 4.28 (3.44) |
+| `parallel`, threads | 1.98 (1.94) | 3.10 (2.91) | 3.88 (3.72) |
+| `parMapWords` | 1.98 (1.67) | 3.32 (2.70) | 3.97 (3.45) |
+
+| Speedup, 4 bindings | 7 µs of work each | 68 µs | 684 µs |
+|---|---|---|---|
+| Processes | 0.06 | 0.46 | 1.45 |
+| Threads | 0.29 | 1.21 | 1.93 |
+
+- A spawn and join costs 129 µs (138) a binding as a process and
+  28.5 µs (29.6) as a thread, so a binding pays for itself from about
+  700 µs of work as a process and 70 µs as a thread.
+- Four bindings adding to atomic counters one cache line apart take
+  19.6 ns an add as processes and 18.6 ns as threads; 128 bytes apart,
+  1.9 ns either way. At 64 bytes two counters still share a line (2.6
+  and 3.4 ns), which fits the M1's 128-byte lines.
+- A task costs 94 µs fixed, then 0.16 to 0.19 ns a byte up to 1 MiB.
+- A one-task pool's round trip is 167 µs at the median, 372 µs at the
+  99th percentile and 1,247 µs at worst; in a `--threads` build it is
+  805, 1,663 and 19,393 µs (AN-65). A channel round trip is 7, 22 and
+  301 µs as processes and 6, 29 and 236 µs as threads.
+
+The machine was shared with other work while these ran. The ratios
+are the claim; the seconds move with the load.
 
 No worst-case execution time is claimed for anything.
 
