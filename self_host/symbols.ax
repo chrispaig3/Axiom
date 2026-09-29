@@ -1694,7 +1694,13 @@
                             lines
                             (symLine
                               "F"
-                              (bareOf name)
+                              ; A builtin is never module-qualified, so its whole
+                              ; name is its row's: `parallel$borrow` (MM-PAR-6b)
+                              ; would print as `borrow`, a name nothing can call
+                              ; and no `#calls=` edge spells.
+                              (if (== isB 1)
+                                name
+                                (bareOf name))
                               (if (== (strLen loc) 0)
                                 "-"
                                 loc)
