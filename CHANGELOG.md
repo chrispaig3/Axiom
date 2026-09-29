@@ -22,6 +22,42 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A `parallel` binding may borrow its parent's `String` — MM-PAR-6b - 2026-09-29
+
+A binding could share only a word with its parent, so reading the
+parent's text meant copying it into the binding or forking a `Par`
+pool. Now a `parallel` binding may capture a `String` the parent holds,
+in both lowerings:
+
+```scheme
+(:: shout (-> String Int))
+;@axiom:effect(io)
+(fn (shout s)
+  (parallel p ((a (strLen s))
+               (b (strLen (strConcat s "!"))))
+    (+ a b)))
+```
+
+The form lends the string before it builds any binding: its count, and
+the count of every block it reaches, is saved and frozen at the static
+sentinel that retain and release leave alone, and restored after the
+last join. So a binding can keep the string in a list, slice it or copy
+it, and no binding's retain or release reaches the parent's counts. The
+checker lends exactly the strings a binding captures, and only
+`parallel`'s own bindings borrow: a hand-written `__par_spawn`, a
+struct, an `Option`, a `Vec` and a function value keep `AX3064`, whose
+help and `axiom explain` text now say so.
+
+Tested by `tests/stdlib/630-parallel-borrow.ax`, which reads the counts
+back at every `--opt` in both lowerings, and
+`tests/diagnostics/1100-parallel-borrow-refused.ax`.
+`scripts/check-race.sh` runs four bindings borrowing one string
+thousands of times under ThreadSanitizer, clean, and with the lends
+deleted from the IR the same program must be reported. Without the
+lends, the threaded program also died with `SIGSEGV` at 2,000 rounds:
+the bindings' unordered retains had filed the parent's blocks on their
+own free lists.
+
 ### A negative literal is a pattern `fmt` prints — AN-59 - 2026-09-29
 
 `(match n (-5 1) ...)` and `((Some -5) ...)` test for minus five, and a

@@ -5013,31 +5013,60 @@ Tested by `tests/diagnostics/641-parallel-word.ax` and `tests/diagnostics/640-pa
 
 ### What a binding may capture
 
-Words. A binding that captures a reference its parent also holds is
-`AX3064` at the name:
+Words, and strings. A binding may read a `String` its parent holds:
 
-```scheme refused
+```scheme
 (import IO)
 (import Str)
 
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
-  (let ((name "axiom"))
-    (parallel p ((n (strLen name)))   ; AX3064: `name` is a String
+  (let ((name (strConcat "axi" "om")))
+    (parallel p ((n (strLen name))
+                 (m (strLen (strConcat name "!"))))
+      {
+        (println "{n} {m}")
+        0
+      })))
+```
+
+```text
+5 6
+```
+
+The form lends the string to its bindings. Until the last join, the
+string's reference count is frozen, so no binding's retain or release
+touches the parent's count, in either lowering (MM-PAR-6b). A string's
+bytes can't change in safe code, so a read-only share is all a binding
+needs.
+
+Any other reference the parent holds is `AX3064` at the name:
+
+```scheme refused
+(import IO)
+
+(struct Counter (n : Int))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((c (Counter 1)))
+    (parallel p ((n c.n))   ; AX3064: `c` is a Counter
       n)))
 ```
 
 Under threads, that value would be shared with the parent, and its
 reference count updated from two threads with no fence. The update
 isn't atomic, so an increment could be lost and a block still in use
-freed (MM-PAR-6). The rule is the language's, not the lowering's, so it
-applies without `--threads` too: a program means the same thing however
-it's built.
+freed (MM-PAR-6). A struct's fields can also be set, so a frozen count
+wouldn't make sharing it safe. The rule is the language's, not the
+lowering's, so it applies without `--threads` too: a program means the
+same thing however it's built.
 
 Pass the value in through the thunk's word argument, or build a copy
-inside the binding. To share read-only input with several workers, use
-[`Par`](#run-a-pool-of-tasks-with-par).
+inside the binding. To share other read-only input with several
+workers, use [`Par`](#run-a-pool-of-tasks-with-par).
 
 A bare `Foreign` may be captured: it points into memory Axiom never
 allocated, so there's no count to race. A `Handle` may not, because
@@ -5050,7 +5079,12 @@ A word struct without `shared` may not, and neither may a `Vec`, which
 two bindings could grow at once, or a spawn's `Spawn` handle, which
 only the binding that spawned it may join.
 
-Tested by `tests/diagnostics/655-parallel-capture-foreign.ax` and
+Only `parallel`'s own bindings borrow. A `String` captured by a
+hand-written `__par_spawn` is still `AX3064`, since the parent may run
+code between that spawn and its join.
+
+Tested by `tests/stdlib/630-parallel-borrow.ax`,
+`tests/diagnostics/1100-parallel-borrow-refused.ax` and
 `tests/diagnostics/1064-parallel-capture-handle.ax`.
 
 ### Pass words between bindings with a channel
