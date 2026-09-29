@@ -2,21 +2,23 @@
 
 Every error the compiler reports, classified by the invariant it
 protects, and the decisions taken on the refusals in question.
-`explain --list` reports 96 codes: 85 errors and 11 warnings. The
+`explain --list` reports 98 codes: 87 errors and 11 warnings. The
 classes come from probing the compiler, not from reading the code.
 The probes are in the audit work in this file's history, and each
 decided case names the test that pins it.
 
-- **S**: required for soundness, memory safety or valid semantics. 69
-  codes, all retained. The newest are `AX3077`, a checked tag on a
-  declaration that can't carry it, and `AX3078`, purity written any way
-  but `effect(pure)`: each a claim nothing would have checked.
+- **S**: required for soundness, memory safety or valid semantics. 70
+  codes, all retained. The newest is `AX3090`, a recovery point's thunk
+  the region check can't walk. Unwalked, it could keep a reference to
+  memory the trap reclaims.
 - **T**: a real target or ABI limitation. 5 codes, all retained:
   `AX3026` (runtime symbol reservation), `AX3036` (one-word FFI
   boundary), `AX4003` (toolchain ran), `AX4006` (thread lowering) and
   `AX4008` (a device instruction the target can't execute).
-- **M**: a missing implementation. 7 codes plus 9 secondary arms.
-  Each names a real program that is refused today.
+- **M**: a missing implementation. 8 codes plus 9 secondary arms.
+  Each names a real program that is refused today. The newest is
+  `AX3089`: a function with no signature, called from its own body or
+  from above its definition, needs one.
 - **O**: obsolete or over-broad. 4 codes plus 9 secondary arms. Each
   names a real program refused without a soundness reason.
 
