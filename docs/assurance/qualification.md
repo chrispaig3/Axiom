@@ -18,8 +18,8 @@ A qualification argument would cover:
   toolchain.
 
 Anything outside that tuple, such as another target, another LLVM or
-another `--opt`, needs its own evidence. Today only H1, H2 and H3 run
-the gates, and E1 checks emission. Execution on freebsd, windows and
+another `--opt`, needs its own evidence. Today only H2 and H3 run the
+gates, H1 is source-only, and E1 checks emission. Execution on freebsd, windows and
 darwin-x86_64 is unverified.
 
 ## 2. Standards mapping (strategy only)

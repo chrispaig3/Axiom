@@ -92,6 +92,12 @@ way in CI. See `CONTRIBUTING.md` and `bootstrap/README.md`.
   because every runner GitHub offers would have to emulate an aarch64
   guest. No release archive is published for it, and this policy
   doesn't cover binaries emitted for it until a CI job runs them.
+- **linux-x86_64.** Not a supported target. `README.md`'s Targets
+  section defines supported: a CI job executes what the compiler emits
+  there. This target is source-only. CI builds the compiler on it from
+  the seed, but no CI job runs the test battery there, and no release
+  archive is published for it. This policy doesn't cover binaries emitted for
+  it until a CI job runs them again.
 - **`darwin-x86_64` binaries.** This target is on the supported list
   but is executed by no runner. It predates the rule, as README
   explains, and publishes no archive. Treat binaries emitted for it

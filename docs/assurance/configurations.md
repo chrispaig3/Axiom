@@ -3,19 +3,22 @@
 Evidence only means something alongside the configuration it was
 observed on. [requirements.md](requirements.md) and
 [scorecard.md](scorecard.md) cite the four IDs defined here. A claim
-marked H1–H3 was observed on all three CI runners. A claim with a
-narrower mark names the runner it needs, and the hosts where it is
-skipped or unverified.
+marked H1–H3 is observed on H2 and H3 in CI on every change. H1 is
+source-only, so its part of such a mark is where the claim was last
+observed, not a leg that still runs. A claim with a narrower mark names
+the runner it needs, and the hosts where it is skipped or unverified.
 
 ## Hosted configurations
 
 | ID | Target triple | Runner | OS / arch |
 |---|---|---|---|
-| H1 | linux-x86_64 | ubuntu-latest | Linux / x86-64 |
+| H1 | linux-x86_64 (source-only) | ubuntu-latest | Linux / x86-64 |
 | H2 | linux-aarch64 | ubuntu-24.04-arm | Linux / AArch64 |
 | H3 | darwin-aarch64 | macos-14 | macOS / AArch64 |
 
-All three run the full set of gates in `.github/workflows/ci.yml`.
+H2 and H3 run the full set of gates in `.github/workflows/ci.yml`. H1
+runs only `Bootstrap from seed (linux-x86_64)`: CI builds the compiler
+there from the seed and runs one program with it, and runs no gates.
 `build-shared-axc.sh` builds the compiler under test once from
 `self_host/`, and every gate reuses that build while the source stamp
 matches. `check-gate-lib.sh` shows that this sharing can't hide a
@@ -73,8 +76,8 @@ image, and CI uses both apt llvm-18 and Homebrew llvm.
 
 - §12a (thread-arena VmSize) needs Linux procfs, so it is skipped on H3.
 - `timeout(1)` is missing from the macOS runner image, so §12b and §12c
-  fail there because of the harness, not the property. They pass on H1
-  and H2, and locally with a compatible `timeout` on `PATH`.
+  fail there because of the harness, not the property. They pass on H2,
+  and locally with a compatible `timeout` on `PATH`.
 - Only the thread lowering runs under a race detector
   (`scripts/check-race.sh`), and no sanitizer sees the arena's heap
   blocks. No fault-injection runs exist yet.

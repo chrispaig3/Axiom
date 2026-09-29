@@ -19,9 +19,10 @@ Use exactly one of the configurations in
 Evidence gathered here applies to the configuration it was observed on,
 and to no other.
 
-Execution evidence exists for linux-x86_64, linux-aarch64 and
-darwin-aarch64 in CI, for freebsd-x86_64 and windows-x86_64 on narrower
-CI legs, and for baremetal-aarch64 under QEMU only. No hardware
+Execution evidence exists for linux-aarch64 and darwin-aarch64 in CI,
+for freebsd-x86_64 and windows-x86_64 on narrower CI legs, and for
+baremetal-aarch64 under QEMU only. linux-x86_64 is source-only: CI
+builds the compiler there and runs no gates. No hardware
 validation exists.
 
 ## The guarantee and its boundary

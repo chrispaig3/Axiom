@@ -81,12 +81,11 @@ does.
 syscall ABI and the standard library's platform modules:
 
 ```bash
-axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
+axiom --target=linux-aarch64 emit-llvm main.ax -o main.ll
 ```
 
 Supported: `darwin-aarch64`, `darwin-x86_64`, `freebsd-x86_64`,
-`linux-aarch64`, `linux-x86_64`, `windows-x86_64`. The default is your
-host.
+`linux-aarch64`, `windows-x86_64`. The default is your host.
 
 A target is supported when a CI job executes what the compiler emits
 there. There are two exceptions to know about. `darwin-x86_64` predates
@@ -95,6 +94,12 @@ archive. `freebsd-aarch64` is accepted by `--target`, and its output is
 assembled and checked, but it is not supported: every runner GitHub
 offers would have to emulate an aarch64 FreeBSD guest, which is too
 slow to run the tests.
+
+Source-only: `linux-x86_64`. You can build the compiler there from the
+seed in `bootstrap/`, and CI checks that build on every change, down to
+one program the result compiles and runs. CI doesn't run the test
+battery there, so the target isn't supported, and no prebuilt archive
+is published for it.
 
 ## Quick start
 

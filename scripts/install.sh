@@ -106,14 +106,16 @@ target="$os_name-$arch_name"
 # advisory until it is green. For these, no artifact exists AND the
 # platform carries no promise.
 #
-# SUPPORTED, NOT SHIPPED. linux-x86_64 and freebsd-x86_64 (both
-# 2026-08-30) are a different case and get a different message. Each
-# has a blocking CI leg that runs what the compiler emits there, and
-# will keep having one; what they have no archive for is a
-# distribution decision, not a doubt. linux-x86_64's leg was the
-# slowest and flakiest part of cutting a release; FreeBSD never had a
-# release job at all. A user on either is not on unsupported ground -
-# they just have to run one command.
+# SUPPORTED, NOT SHIPPED. freebsd-x86_64 is a different case and gets
+# a different message. It has a blocking CI leg that runs what the
+# compiler emits there; it has no archive because FreeBSD never had a
+# release job. A user on it is not on unsupported ground - they just
+# have to run one command.
+#
+# SOURCE-ONLY. linux-x86_64 is a third case. CI builds the compiler
+# there from the committed seed on every change (`Bootstrap from seed
+# (linux-x86_64)`), and runs no test battery there, so the build is
+# checked and the target is not supported.
 #
 # freebsd-AARCH64 stays in the not-supported arm below, and the split
 # inside one operating system is the point: same seed, same syscall
@@ -140,9 +142,10 @@ NOTE
 case "$target" in
   linux-x86_64)
     build_it "$target" \
-"It is fully supported and tested - CI runs the whole gate battery on
-  linux-x86_64 on every change - but no prebuilt archive is published
-  for it. Building from the committed seed is the supported path here." ;;
+"It is a source-only target: CI builds the compiler here from the
+  committed seed on every change, but doesn't run the test battery on
+  linux-x86_64, and no prebuilt archive is published for it. Building from that seed
+  is the way to install it here." ;;
   freebsd-x86_64)
     build_it "$target" \
 "It is a supported target - CI boots FreeBSD 14.4 in a VM on every

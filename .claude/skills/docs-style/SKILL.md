@@ -157,9 +157,10 @@ green. The ones that bite most often:
   "probe", "test case" or "corpus" must also contain a `tests/` or
   `scripts/` path. Reword it, or name the path.
 - **Gated sentences stay.** These sentences are read by pattern:
-  - README's `### Targets` section. Its `Supported: ` line, the phrase
+  - README's `### Targets` section. Its `Supported: ` line, its
+    `Source-only: ` line (`scripts/check-release-targets.sh`), the phrase
     "executes what the compiler emits there", and the "executed by no
-    runner" explanation. `docs/reference.md` repeats the list as
+    runner" explanation, with each excused target named in its sentence. `docs/reference.md` repeats the list as
     `Supported targets: `.
   - The version banners `Axiom X.Y.Z - REPL` and `Axiom X.Y.Z (build`:
     one each in README, `docs/reference.md` and `docs/status.md`.

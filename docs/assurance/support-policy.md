@@ -62,8 +62,8 @@ fix closes a row only with a test that fails without it.
 
 ## Regression management
 
-- Every fixed defect keeps its fixture, and a gate that CI runs on H1
-  to H3 runs every fixture.
+- Every fixed defect keeps its fixture, and a gate that CI runs on H2
+  and H3 runs every fixture.
 - A gate is never weakened to pass. A changed expectation is a changed
   golden with its reason in the commit, and a removed check is stated
   in the changelog.

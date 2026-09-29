@@ -16,7 +16,7 @@ source.
 | A recovery point gets a single, correct trap answer (R-A1) | `tests/stdlib/522-parallel-recover.ax`; `scripts/check-parallel.sh` §12b |
 | No child outlives its scope on abort, trap, return or end (R-A2, R-C5) | The same gate, with `kill -0` on the recorded pids; under `--threads`, `scripts/check-task.sh` §4 and its §8 `gkill` ablation |
 | Join and spawn failures surface as status 78, never as success (R-A3) | The same gate: `foreign 78` in every §12c probe |
-| Thread arenas are returned, so 6,000 threads hold VmSize flat (R-A4) | §12a on H1 and H2 (6.16 GB was mapped before the fix) |
+| Thread arenas are returned, so 6,000 threads hold VmSize flat (R-A4) | §12a on H2 (6.16 GB was mapped before the fix) |
 | The allocator refuses negative sizes and sizes it can't hold (R-A5) | The `6527bea0` fixtures |
 | The thirty-six `Unsafe` primitives, the seven syscalls among them, are refused under `no-unsafe` and `pure`, and a declaration that calls one says `effect(unsafe)` (R-A6) | `tests/diagnostics/1080-unsafe-syscalls.ax`, `tests/diagnostics/1010-unsafe-primitives.ax` and `tests/diagnostics/1020-unsafe-device-primitives.ax`; `scripts/check-diagnostics.sh`: 270 pass |
 | Links in dead blocks can't be decremented as counts (R-A7) | `tests/stdlib/521-release-filed.ax`; the `MM-LIFE-2k` release path |
@@ -128,7 +128,7 @@ source.
 
 ## Verified configurations
 
-H1, H2 and H3 run the gates in CI. E1 is emission only, plus QEMU runs
+H2 and H3 run the gates in CI, and H1 is source-only. E1 is emission only, plus QEMU runs
 where QEMU is installed. The local full battery on H3, run on the
 merged tree, passed 100 gates and failed 8. All 8 were re-run green
 after their causes were fixed: `parallel` programs whose IR differed

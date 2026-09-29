@@ -321,10 +321,10 @@ jobs:
     needs: grammar
     strategy:
       fail-fast: false
+      # linux-x86_64 is source-only: `Bootstrap from seed (linux-x86_64)`
+      # builds the compiler there, and no leg runs the gates on it.
       matrix:
         include:
-          - name: linux-x86_64
-            os: ubuntu-latest
           - name: linux-aarch64
             os: ubuntu-24.04-arm
           - name: darwin-aarch64
@@ -726,10 +726,9 @@ jobs:
       # `install.sh`'s refusal arms. Neither way of disagreeing is loud.
       # A target in both uploads an archive the installer will not
       # fetch; a target in neither hands the user a bare `curl` 404
-      # where a sentence belongs. `linux-x86_64` became the first
-      # supported-but-unshipped target on 2026-08-30, which is the
-      # combination that makes the distinction load-bearing rather than
-      # theoretical.
+      # where a sentence belongs. `freebsd-x86_64` and `windows-x86_64`
+      # are supported and unshipped, and `linux-x86_64` is source-only,
+      # so the installer's refusals carry three different sentences.
       - name: The release matrix and the installer's refusals agree
         run: ./scripts/check-release-targets.sh
 
@@ -1590,8 +1589,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: linux-x86_64
-            os: ubuntu-latest
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
@@ -1660,9 +1657,9 @@ jobs:
   # which is the whole content of the word.
   #
   # freebsd-x86_64 is SUPPORTED and UNSHIPPED: no release archive is
-  # built for it, and `install.sh` gives a FreeBSD x86_64 host the
-  # build-from-source paragraph that `linux-x86_64` gets rather than
-  # the not-supported one `darwin-x86_64` gets. freebsd-AARCH64 is
+  # built for it, and `install.sh` gives a FreeBSD x86_64 host a
+  # supported build-from-source paragraph rather than the
+  # not-supported one `darwin-x86_64` gets. freebsd-AARCH64 is
   # unchanged and still unsupported - it has no leg, for the TCG
   # reason recorded below.
   #
@@ -2028,6 +2025,11 @@ jobs:
   # `scripts/reseed.sh` is the fix. Run on both architectures because
   # the seed is per-target and a wrong syscall table in one of them is
   # invisible from the other.
+  #
+  # For linux-x86_64 this leg is the promise itself: the target is
+  # source-only (README, Targets), no Tests leg runs there, and
+  # `check-release-targets.sh` requires this leg for every target README
+  # names so.
   # ---------------------------------------------------------------
   bootstrap-no-rust:
     name: Bootstrap from seed (${{ matrix.name }})

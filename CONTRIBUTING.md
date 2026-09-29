@@ -421,7 +421,7 @@ shows the check can fail at all.
 | `check-contracts.sh` | `;@axiom:pre(...)` and `;@axiom:post(...)` are checked. A violated contract exits 80, its own status among the trap statuses `MM-EXEC-16` reserves in `docs/memory-model.md`, and writes a line naming the kind, the function and the contract as written, at every `--opt` level. A satisfied contract answers what the same program with the tags deleted answers, and only modules that call `@__axiom_contract_fail` define it. `tests/diagnostics/385-contract-malformed.ax` draws seven `AX3050`s and nothing on its controls. A `pre` keeps the tail-call rewrite and a `post` spends it. Three ablations, each required: a compiler whose `expandProgram` lowers no contract, one whose `tcCheckFn` checks none, and one that lets a program's own `__contract` switch its contract off |
 | `check-isr.sh` | `;@axiom:isr` marks an interrupt entry point. It takes no parameters (`AX3010`) and implies `no-alloc`, so an allocation draws `AX3049`; a typo such as `isrr` suggests it (`AX3039`, a warning). With `--emit-staticlib`, a `pub` ISR beside a plain function archives both symbols, and an allocating one is refused. Two ablations, each required: the implication deleted, and an allocation planted in the good probe |
 | `check-report.sh` | `scripts/axiom-report.py` (R-D1): the per-function resource report read off `symbols --calls` (allocation, IO, direct Unsafe use, `#extern`, recursion, calls the graph cannot follow, spawns and joins, kernel entries), the restricted profile's refusals RP-1..RP-7 over `tests/profile/` - each negative fixture refused by exactly the rule its name gives, conforming ones passing - and the stack bound computed from AArch64 machine code, held to the sum of its path's frames and to `llvm-readobj --stack-sizes`. Every rule ablated in a copy of the tool; the bound's cycle check ablated against the selftest and tree recursion |
-| `check-ffi.sh` | Every FFI tier and the symbols each one imports, priced against a per-crate `axiom-allow.txt`, as MM-FFI-5 requires. It runs in its own CI job, on linux-x86_64 and darwin-aarch64, because it needs `cargo` |
+| `check-ffi.sh` | Every FFI tier and the symbols each one imports, priced against a per-crate `axiom-allow.txt`, as MM-FFI-5 requires. It runs in its own CI job, on darwin-aarch64, because it needs `cargo` |
 | `check-packages.sh` | `axiom.pkg`: a project's declared dependencies join the module search path after its own directory and before `$AXIOM_PATH`, and two dependencies providing one module are refused rather than ordered. Every project is built in the gate's work directory, and every module answers a distinct number, so the exit status shows which file the resolver chose. The negative probe removes the manifest and requires the same program to stop resolving |
 | `check-name-scale.sh` | Resolving a module's private names costs no more than resolving its public ones, and doubling a module's declaration count costs under 3.0x rather than a scan's 4x. Both are ratios rather than wall-clock bounds, so a shared runner can't make them flaky. An ablated twin that scans must fail the doubling check |
 | `check-type-namespace.sh` | A type name means what its own module says it means, whatever the import order, and finding that declaration costs a bucket lookup rather than a scan |
@@ -475,9 +475,10 @@ jobs that need a compiler get it through the same composite action,
 
 1. **Tree-sitter grammar.** The checked-in grammar parses every `.ax`
    file in the repository.
-2. **Tests.** The gate battery above, on linux-x86_64, linux-aarch64
-   and darwin-aarch64. Each job provisions a compiler from `bootstrap/`
-   first. Two more legs join them:
+2. **Tests.** The gate battery above, on linux-aarch64 and
+   darwin-aarch64. Each job provisions a compiler from `bootstrap/`
+   first. No Tests leg runs on linux-x86_64, which is source-only (see
+   step 8). Two more legs join them:
    - `Tests (windows-x86_64)`, on `windows-latest`, takes the
      hello-world modules the cross-target job emits on Linux, then
      assembles, links and runs them
@@ -500,7 +501,7 @@ jobs that need a compiler get it through the same composite action,
    budget. So, like darwin-x86_64, it's assembled and
    relocation-checked but executed by no runner. It's the one FreeBSD
    target that isn't supported.
-3. **FFI.** `check-ffi.sh` on linux-x86_64 and darwin-aarch64. The
+3. **FFI.** `check-ffi.sh` on darwin-aarch64. The
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `rust/`
    workspace's own suites run (`cargo test`).
@@ -521,7 +522,9 @@ jobs that need a compiler get it through the same composite action,
    checkout builds the compiler from `bootstrap/` with only `llc` and
    `cc`. This is the job everything rests on: if it fails, nobody can
    build the repository. The usual cause is a stale seed, which
-   `scripts/reseed.sh` fixes.
+   `scripts/reseed.sh` fixes. For linux-x86_64 it's the only leg:
+   README calls that target source-only, and
+   `scripts/check-release-targets.sh` requires this job for it.
 9. **Seed lineage.** `check-seed-lineage.sh` replays the rows of
    `bootstrap/CHAIN` that `bootstrap/CHAIN.checkpoint` doesn't certify,
    and always at least the newest one: the previous seed compiles the
@@ -602,11 +605,14 @@ a binary for it would imply support that doesn't exist.
 there.
 
 The installer refuses the two FreeBSD targets with different messages.
-`freebsd-x86_64` is supported but not shipped, so, like `linux-x86_64`,
-it gets a message saying to build from source. `freebsd-aarch64` isn't
-supported, so it gets the same message as `darwin-x86_64`. Both have a
-seed and the same syscall table, but only `freebsd-x86_64` has a CI leg
-that runs them.
+`freebsd-x86_64` is supported but not shipped, so it gets a message
+saying to build from source. `freebsd-aarch64` isn't supported, so it
+gets the same message as `darwin-x86_64`. Both have a seed and the same
+syscall table, but only `freebsd-x86_64` has a CI leg that runs them.
+
+`linux-x86_64` gets a third message. It's source-only: CI builds the
+compiler there from the seed and doesn't run the test battery on it, so
+the installer says so and points to the seed.
 
 ---
 

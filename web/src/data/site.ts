@@ -76,11 +76,6 @@ export interface Target {
 export const TARGETS: Target[] = [
   { name: 'darwin-aarch64', archive: true, note: 'Apple silicon. Prebuilt archive.' },
   { name: 'linux-aarch64', archive: true, note: 'Prebuilt archive.' },
-  {
-    name: 'linux-x86_64',
-    archive: false,
-    note: 'Its CI leg runs the whole battery. Build from source.',
-  },
   { name: 'freebsd-x86_64', archive: false, note: 'Executed in CI. Build from source.' },
   {
     name: 'windows-x86_64',

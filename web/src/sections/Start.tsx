@@ -134,9 +134,9 @@ const INSTALLS: Tab[] = [
         <Command command={BOOTSTRAP_CMD} />
         <Command command={'export PATH="$PWD/.axiom-bin:$PATH"'} />
         <p className="hint">
-          Every supported host, including <code>linux-x86_64</code>. <code>bootstrap/</code> holds the
-          compiler's own LLVM IR, so this needs nothing but the prerequisites, and no network after
-          the clone.
+          Any macOS, Linux or FreeBSD host, including <code>linux-x86_64</code>, which is
+          source-only. <code>bootstrap/</code> holds the compiler's own LLVM IR, so this needs nothing
+          but the prerequisites, and no network after the clone.
         </p>
       </>
     ),
@@ -250,7 +250,8 @@ export function Start() {
             </div>
             <p className="hint">
               <code>--target</code> emits for any of them from any host; only the final link needs
-              that target's linker.{' '}
+              that target's linker. <code>linux-x86_64</code> is source-only: the compiler builds
+              there from the seed, and CI doesn't run the test battery on it.{' '}
               <a href={`${REPO}#targets`} target="_blank" rel="noreferrer noopener">
                 What "supported" means here
               </a>

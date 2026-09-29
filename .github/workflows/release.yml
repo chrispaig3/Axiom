@@ -15,39 +15,24 @@
 # CI already runs, invoked here for the same reason.
 #
 # WHAT IS SHIPPED, AND WHAT IS NOT. Two targets are built and attached:
-# `linux-aarch64` and `darwin-aarch64`. FIVE are left out, for two
+# `linux-aarch64` and `darwin-aarch64`. FIVE are left out, for three
 # different reasons, which is why the distinction is written down
-# rather than left to the matrix. `darwin-x86_64` and `freebsd-aarch64`
-# are not shipped because they are NOT SUPPORTED - executed by no
-# runner. `linux-x86_64`, `freebsd-x86_64` and `windows-x86_64` are
-# supported, tested on every change, and unshipped by decision.
+# rather than left to the matrix. `freebsd-x86_64` and `windows-x86_64`
+# are supported, tested on every change, and unshipped by decision.
+# `darwin-x86_64` and `freebsd-aarch64` are executed by no runner.
+# `linux-x86_64` is SOURCE-ONLY: CI builds the compiler there from the
+# seed (`Bootstrap from seed (linux-x86_64)` in ci.yml) and runs no
+# test battery on it, so an archive for it would be a binary the
+# battery never saw.
 #
-# `darwin-x86_64` is not shipped because it is NOT SUPPORTED. No runner
-# for it exists anywhere in this repository, so it is assembled and
-# byte-compared but has never been executed. An untested binary with a
-# release attached to it reads as a supported platform; it is not one,
-# and `check-cross-targets.sh` says so in its own words - "Running the
-# result still needs the real hardware."
-#
-# `linux-x86_64` is not shipped even though it IS supported, and stays
-# supported: `ci.yml`'s `Tests (linux-x86_64)` leg runs the whole gate
-# battery on it on every pull request, and nothing about that changes
-# here. What changed on 2026-08-30 is only the artifact. Building it
-# was the slowest leg of the release and the one that failed most
-# often, and every hour spent re-running it bought a tarball for the
-# platform whose users are least likely to need one and most likely to
-# have a toolchain. Building from source is one command and is itself
-# gated (`scripts/bootstrap-from-seed.sh`, `check-bootstrap.sh`).
-#
-# So the rule this file now encodes has TWO axes, not one. Supported
-# says whether a CI leg executes what the compiler emits there;
-# SHIPPED says whether a release carries a prebuilt archive. A target
-# can be supported and unshipped - `linux-x86_64`, and since
-# 2026-08-30 `freebsd-x86_64` and `windows-x86_64` as well -
-# and `scripts/install.sh` must refuse it with a build-from-source
-# message rather than a 404. `scripts/check-release-targets.sh` holds
-# this matrix and that script's refusal list to each other, so the two
-# cannot drift apart silently.
+# So the rule this file encodes has two axes. SUPPORTED says whether a
+# CI leg executes what the compiler emits there; SHIPPED says whether a
+# release carries a prebuilt archive. A target can be supported and
+# unshipped, and `scripts/install.sh` must refuse every unshipped
+# target with a build-from-source message rather than a 404.
+# `scripts/check-release-targets.sh` holds this matrix and that
+# script's refusal list to each other, and README's Source-only line
+# to the bootstrap leg, so none of them can drift apart silently.
 #
 # The seed remains the supported way to build from source on any host,
 # including both of them.

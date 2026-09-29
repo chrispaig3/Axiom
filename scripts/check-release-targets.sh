@@ -28,21 +28,19 @@
 # combination but one is currently real:
 #
 #   supported + shipped      linux-aarch64, darwin-aarch64
-#   supported + unshipped    linux-x86_64, freebsd-x86_64,
-#                            windows-x86_64   (all 2026-08-30)
-#   unsupported + unshipped  darwin-x86_64, freebsd-aarch64
+#   supported + unshipped    freebsd-x86_64, windows-x86_64,
+#                            darwin-x86_64 (explained in README)
+#   unsupported + unshipped  freebsd-aarch64, and linux-x86_64, which
+#                            README names SOURCE-ONLY
 #   unsupported + shipped    forbidden - it is the state that makes an
 #                            untested binary look supported, and the
 #                            check at the bottom refuses it
 #
-# WHY linux-x86_64 IS UNSHIPPED, recorded here because it is the one
-# entry a reader will assume is a mistake. It was dropped from the
-# release on 2026-08-30 for cost, not for doubt: that leg was the
-# slowest and the most frequently re-run part of cutting a release, and
-# the platform it serves is the one whose users are most likely to have
-# a toolchain already. Its CI leg is untouched - `Tests (linux-x86_64)`
-# runs the whole battery on every pull request - and if that ever stops
-# being true, this gate's supported-set check is what notices.
+# SOURCE-ONLY is README's `Source-only:` line: a target CI builds the
+# compiler on from the seed and runs no test battery on. The last section
+# holds each one to exactly that: not on the supported list, not
+# shipped, and with a `Bootstrap from seed (<target>)` leg in ci.yml,
+# since that leg is the whole of what "source-only" promises.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/gate.sh"
 gate_init
@@ -181,6 +179,16 @@ else
   # OR is explained", and an unexplained one fails - silence is what
   # this refuses, not the exception itself.
   targets_section="$(sed -n '/^### Targets/,/^## /p' "$readme")"
+  # A Tests leg only: a `- name: <t>` row of the `test:` job's matrix,
+  # or a job of its own named `Tests (<t>)`. Any `- name: <t>` in the
+  # file would also count `Bootstrap from seed (<t>)`, which builds the
+  # compiler there and executes nothing it emits.
+  test_legs="$( { awk '
+      /^  test:/ { on = 1; next }
+      on && /^  [a-z]/ { exit }
+      on { if (match($0, /^ *- name: [a-z0-9_]+-[a-z0-9_]+ *$/)) { sub(/^ *- name: /, ""); sub(/ *$/, ""); print } }
+    ' "$ci_yml"
+    sed -n 's/^ *name: Tests (\([a-z0-9_]*-[a-z0-9_]*\)) *$/\1/p' "$ci_yml"; } | sort -u)"
   gap=""; excused=""
   for t in $readme_supported; do
     if printf '%s\n' $shipped | grep -x "$t" >/dev/null; then continue; fi
@@ -192,9 +200,12 @@ else
     # freebsd-x86_64 and windows-x86_64 as supported with no CI leg the
     # moment they were promoted, which is a false alarm on the two
     # targets it exists to protect.
-    if grep -qE "name: (Tests \()?$t\)?" "$ci_yml"; then continue; fi
-    if grep -q "$t" <<<"$targets_section" \
-       && grep -qiE "executed by no runner|no runner for it" <<<"$targets_section"; then
+    if printf '%s\n' $test_legs | grep -x "$t" >/dev/null; then continue; fi
+    # The target and the reason in ONE sentence. Anywhere in the section
+    # is vacuous: every supported name is in the section's own
+    # `Supported:` line, so any of them would be excused.
+    if tr '\n' ' ' <<<"$targets_section" | sed 's/\. /.\n/g' \
+       | grep -F -- "\`$t\`" | grep -qiE "executed by no runner|no runner for it"; then
       excused="$excused $t"
     else
       gap="$gap $t"
@@ -259,6 +270,43 @@ else
   fi
 fi
 
+# --------------------------------------------------------------------
+echo
+echo "== a source-only target is built from the seed in CI, and nothing more =="
+# --------------------------------------------------------------------
+# README's `Source-only:` line names the targets CI builds the compiler
+# on and runs no test battery on. Each must be off the supported list, off the
+# release matrix, and have a `Bootstrap from seed (<target>)` leg: the
+# `bootstrap-no-rust` matrix row that spells it `- name: <target>`.
+# A missing line fails rather than passing over nothing.
+source_only="$(sed -n '/^### Targets/,/^## /p' "$readme" \
+  | tr '\n' ' ' \
+  | sed -n 's/.*Source-only: \([^.]*\)\..*/\1/p' \
+  | tr ',' '\n' | tr -d ' `' | grep -E '^[a-z0-9_]+-[a-z0-9_]+$' | sort -u)"
+boot_legs="$(awk '
+  /^  bootstrap-no-rust:/ { on = 1; next }
+  on && /^  [a-z]/ { exit }
+  on { if (match($0, /^ *- name: [a-z0-9_]+-[a-z0-9_]+ *$/)) { sub(/^ *- name: /, ""); sub(/ *$/, ""); print } }
+' "$ci_yml" | sort -u)"
+if [[ -z "$source_only" ]]; then
+  bad "could not read README's \`Source-only:\` line under ### Targets - the checks below would pass vacuously"
+elif [[ -z "$boot_legs" ]]; then
+  bad "ci.yml's bootstrap-no-rust matrix yielded no targets - no source-only target could have its leg"
+else
+  ok "README lists source-only: $(printf '%s ' $source_only)"
+  for t in $source_only; do
+    if printf '%s\n' $readme_supported | grep -x "$t" >/dev/null; then
+      bad "$t is on README's Source-only line AND its Supported list"
+    elif printf '%s\n' $shipped | grep -x "$t" >/dev/null; then
+      bad "$t is source-only and release.yml builds an archive for it"
+    elif ! printf '%s\n' $boot_legs | grep -x "$t" >/dev/null; then
+      bad "$t is source-only and ci.yml has no Bootstrap from seed ($t) leg - nothing checks the build it promises"
+    else
+      ok "$t: not supported, not shipped, and bootstrapped from the seed by ci.yml"
+    fi
+  done
+fi
+
 echo
 if (( failed > 0 )); then
   echo "check-release-targets: $failed of $((checks + failed)) failed"
@@ -268,4 +316,5 @@ echo "check-release-targets: $checks checks - the release matrix and the"
 echo "                       installer's refusal list are disjoint, cover every"
 echo "                       target the compiler accepts, and no target is"
 echo "                       shipped without being supported or left supported"
-echo "                       without a CI leg"
+echo "                       without a CI leg, and every source-only target is"
+echo "                       bootstrapped from the seed in CI"

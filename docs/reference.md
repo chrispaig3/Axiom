@@ -6448,16 +6448,20 @@ server (`axiom lsp`).
 syscall ABI and the standard library's platform modules:
 
 ```bash
-axiom --target=linux-x86_64 emit-llvm main.ax -o main.ll
+axiom --target=linux-aarch64 emit-llvm main.ax -o main.ll
 ```
 
-Supported targets: `darwin-aarch64`, `darwin-x86_64`, `freebsd-x86_64`, `linux-aarch64`, `linux-x86_64`, `windows-x86_64`. Defaults to the host.
+Supported targets: `darwin-aarch64`, `darwin-x86_64`, `freebsd-x86_64`, `linux-aarch64`, `windows-x86_64`. Defaults to the host.
 
 A target is supported when a CI job executes what the compiler emits there.
 `darwin-x86_64` is the exception: no runner executes it, and README's
 [Targets](../README.md#targets) section explains why it stays on the
 list. `--target` also accepts `freebsd-aarch64`: its output is assembled
 and checked, but no runner executes it, so it isn't supported.
+
+`linux-x86_64` is source-only. The compiler builds and runs there from
+the seed, and CI checks that build, but no CI job runs the test battery
+on it, so it isn't supported either.
 
 ### Supported is not the same as shipped
 
