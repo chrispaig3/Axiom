@@ -555,10 +555,14 @@ A cast that only observes forges nothing, so these stay silent:
 - an `Int` read as a `data` type whose constructors are all nullary,
   since its values are tags;
 - a value cast to the type it already has;
-- an ascription that chooses the element type of a value nothing has
-  constrained yet, such as `(:: vecNew (Vec Int))`;
+- an ascription that chooses the element type of a value nothing else
+  in the body constrains, such as `(:: vecNew (Vec Int))`;
 - a cast of a value that never returns, such as `(cast a (exit 70))`,
   the diverging spelling `AX3040` accepts.
+
+A cast is judged once its whole body is typed, so the type a value
+ends up with decides. An empty vector cast to `(Vec String)` and then
+filled with `Int`s forges, wherever the push is written.
 
 The two tags give a declaration one of two roles:
 

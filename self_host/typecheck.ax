@@ -2297,10 +2297,11 @@
 ;                    a precondition interface is pushed here, so AX3073
 ;                    names the call the way it names a primitive.
 ;   43 `forgeSites`  a Vec while `tcCheckFn` checks one body, 0
-;                    otherwise: every forging `cast` in it
-;                    (`castNoteForge`). The source type exists only
-;                    there, which is why a cast is judged while the
-;                    body is checked and not by the effect walk.
+;                    otherwise: every `cast` in it that may forge
+;                    (`castNoteForge`), narrowed to the ones that do
+;                    once the body is typed (`unsafeSettleForges`). The
+;                    source type exists only there, which is why a cast
+;                    is judged with its body and not by the effect walk.
 ;   44 `forgeDecls`  every entry whose body forges, for the pass after
 ;                    the walk (`unsafeLatePass`): a forging callee the
 ;                    walk had not reached yet when its caller's
@@ -11833,11 +11834,13 @@
         ; An INSTANTIATION placeholder on the source side that nothing
         ; pinned says the value's type was never constrained: `vecNew`
         ; is `(Vec _i)` until something typed is pushed, and pinning
-        ; binds `_i` the moment one is (`tyIsMintedVar`). Casting it is
-        ; the ascription `(:: vecNew (Vec Int))` spells, which chooses
-        ; the type rather than forging one. A `_t` placeholder - a
-        ; value whose type the checker does not know - is not this, and
-        ; neither is a variable the signature wrote.
+        ; binds `_i` the moment one is (`tyIsMintedVar`). This is asked
+        ; once the whole body is typed (`unsafeSettleForges`), so a
+        ; placeholder still unpinned then met nothing typed anywhere in
+        ; the body. Casting it is the ascription `(:: vecNew (Vec Int))`
+        ; spells, which chooses the type rather than forging one. A `_t`
+        ; placeholder - a value whose type the checker does not know -
+        ; is not this, and neither is a variable the signature wrote.
         (if (&& (== tb TAG_T_VAR) (== (tyIsMintedVar b) 1))
           1
         (if (!= ta tb)
@@ -11883,26 +11886,52 @@
           0)))))
 
 ; 1 when `(cast tgt x)`, with `x` of type `src`, forges a reference.
-; The target decides whether the cast can forge at all; the source
-; only whether it already IS that reference. A poisoned or unknown
-; source forges nothing new to report: the diagnostic that made it
-; unknown is already on the program.
+; The target decides whether the cast can forge at all
+; (`castMayForge`); the source only whether it already IS that
+; reference.
 (pub :: castForges (-> Int Int Int Int))
 (pub fn (castForges tc tgt src)
+  (if (== (castMayForge tc tgt src) 0)
+    0
+    (if (== (castSameTy tc tgt src) 1)
+      0
+      1)))
+
+; 1 when `(cast tgt x)` can forge at all: its target is a reference, or
+; a type variable a caller may instantiate at one, and the source's
+; type is known. A poisoned or unknown source forges nothing new to
+; report: the diagnostic that made it unknown is already on the
+; program.
+;
+; Whether it DOES forge - whether `x` already is that type - is asked
+; only once the whole body is typed (`unsafeSettleForges`). Pinning
+; binds a body's placeholders as its forms are checked, so the source's
+; type at the cast is not yet its type:
+;
+;     (let ((v vecNew))
+;       (let ((s (cast (Vec String) v)))
+;         { (vecPush v 42) (vecGet s 0) }))
+;
+; reads `v` as `(Vec _i)` at the cast, which `castSameTy` takes for an
+; ascription, and as `(Vec Int)` once the push is checked. Decided at
+; the cast, that program checked OK and read 42 as a `String`: exit 139
+; from a declaration with no tag.
+(pub :: castMayForge (-> Int Int Int Int))
+(pub fn (castMayForge tc tgt src)
   (let ((k (castTyClass tc tgt)))
     (if (|| (== k 0) (== k 3))
       0
       (if (== (tyIsErr (tyResolve src)) 1)
         0
-        (if (== (castSameTy tc tgt src) 1)
-          0
-          1)))))
+        1))))
 
-; Record a forging cast in the body being checked: the node, then the
-; target and source types the message names. Word 43 is a Vec only
-; while `tcWalkDecls` checks a function, so a cast checked anywhere
-; else - a contract, a declaration the walk is not in - records
-; nothing and has no declaration to answer for it.
+; Record a cast that may forge, in the body being checked: the node,
+; then the target and source types the message names. Word 43 is a Vec
+; only while `tcWalkDecls` checks a function, so a cast checked
+; anywhere else - a contract, a declaration the walk is not in -
+; records nothing and has no declaration to answer for it. The body's
+; check ends by keeping only the casts that do forge
+; (`unsafeSettleForges`).
 ;
 ; A cast whose VALUE never returns forges nothing: there is no word to
 ; make a reference of, and the coercion is unreachable. That is the
@@ -11910,7 +11939,7 @@
 ; (`divTailOk`'s `cast` arm), and it is how a diverging function types
 ; its result - `(cast a (exit 70))` in `IO.todo`,
 ; `tests/selfhost/976-diverging-tyvar.ax`'s `panic`. Asked only of a
-; cast that would otherwise forge, so the walk costs nothing on the
+; cast whose target is a reference, so the walk costs nothing on the
 ; observing casts that are most of them.
 (pub :: castNoteForge (-> Int Int Int Int Int Int))
 ;@axiom:effect(unsafe)
@@ -11918,7 +11947,7 @@
   (let ((sites (memGetWord tc 43)))
     (if (== sites 0)
       0
-      (if (&& (== (castForges tc tgt src) 1) (== (divTailOk (memGetWordVec tc 10) val vecNew 0) 0))
+      (if (&& (== (castMayForge tc tgt src) 1) (== (divTailOk (memGetWordVec tc 10) val vecNew 0) 0))
         (let ((v (cast (Vec Int) sites)))
           {
             (vecPush v e)
@@ -18532,11 +18561,14 @@
               ; function's body precedes its AX3010.
               (if (== tag TAG_D_FN)
                 {
-                  ; Word 43 collects the body's forging casts while it
-                  ; is checked (`castNoteForge`), for `checkAxtags` to
-                  ; answer and `unsafeLatePass` to follow.
+                  ; Word 43 collects the body's casts that may forge
+                  ; while it is checked (`castNoteForge`), keeps the ones
+                  ; that do once it is typed (`unsafeSettleForges`), for
+                  ; `checkAxtags` to answer and `unsafeLatePass` to
+                  ; follow.
                   (memSetWord tc 43 (cast Int vecNew))
                   (tcCheckFn tc d)
+                  (unsafeSettleForges tc)
                   (checkAxtags tc d)
                   (unsafeNoteForgeDecl tc d)
                   (memSetWord tc 43 0)
@@ -21615,6 +21647,38 @@
   (if (== (memGetWord tc 43) 0)
     vecNew
     (memGetWordVec tc 43)))
+
+; Once a body is typed: of the casts `castNoteForge` recorded, keep the
+; ones that forge. Every placeholder the body pins is pinned by now, so
+; each source reads as the type it ends up with (`castMayForge` says
+; why the cast itself cannot ask).
+(pub :: unsafeSettleForges (-> Int Int))
+;@axiom:effect(unsafe)
+(pub fn (unsafeSettleForges tc)
+  (if (== (memGetWord tc 43) 0)
+    0
+    (let ((kept vecNew))
+      {
+        (unsafeSettleFrom tc (memGetWordVec tc 43) kept 0)
+        (memSetWord tc 43 (cast Int kept))
+        0
+      })))
+
+(pub :: unsafeSettleFrom (-> Int (Vec Int) (Vec Int) Int Int))
+(pub fn (unsafeSettleFrom tc sites kept i)
+  (if (>= (+ i 2) (vecLen sites))
+    0
+    {
+      (if (== (castForges tc (vecGet sites (+ i 1)) (vecGet sites (+ i 2))) 1)
+        {
+          (vecPush kept (vecGet sites i))
+          (vecPush kept (vecGet sites (+ i 1)))
+          (vecPush kept (vecGet sites (+ i 2)))
+          0
+        }
+        0)
+      (unsafeSettleFrom tc sites kept (+ i 3))
+    }))
 
 ; After a body is checked: a function whose body forges is remembered
 ; (word 44), for the late pass to follow and to charge its row.

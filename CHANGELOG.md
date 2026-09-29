@@ -32,7 +32,9 @@ calling a raw primitive already did, or draws `AX3073`. `(cast Hid 7)`
 checked OK in an untagged function and died with SIGSEGV; it is
 refused now (`tests/diagnostics/1040-forging-cast.ax`). A cast that
 only observes, a cast to the type a value already has, and a cast of a
-value that never returns stay silent.
+value that never returns stay silent. A cast is judged once its body
+is typed, so an empty vector cast to `(Vec String)` and filled with
+`Int`s below the cast is refused as well.
 
 `effect(unsafe)` alone makes a *trusted encapsulation*: its author
 vouches for every well-typed call, and its `Unsafe` stops at it. So
