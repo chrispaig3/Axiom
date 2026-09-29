@@ -12733,7 +12733,7 @@
                 "an unconvertible shape here used to answer a silent wildcard, which unifies with everything: the cast was performed, the result had no type anyone could object to, and a function returning it satisfied any declaration") "not a type"))
               (mkNode TAG_T_ERR 0 0 0)
             }
-            (let ((targetTy (exprToType (vecGet args 0))))
+            (let ((targetTy (castTargetTy tc (vecGet args 0))))
               (let ((subBase 
                 (if (&& (!= targetTy 0) (== (nodeTag targetTy) TAG_T_CON))
                   (tySubtypeBase tc targetTy)
@@ -12875,6 +12875,17 @@
 ; literal, an `if`, a lambda, or a literal nested as an argument, as in
 ; `(:: e (Vec 2))`. The wildcard unifies with everything, so each of
 ; those typed a value as anything at all.
+; A cast's target type, with its aliases expanded as a signature's
+; are. `(cast Step f)` under `(type Step = (-> Int Int))` answered
+; `Step` itself, which no arrow unifies with, so a signature naming
+; the alias's arrow refused the cast with AX3004 (AN-53).
+(pub :: castTargetTy (-> Int Int Int))
+(pub fn (castTargetTy tc e)
+  (let ((t (exprToType e)))
+    (if (== (tyHasAliasCon tc t) 1)
+      (tyExpandAliases tc t 0)
+      t)))
+
 (pub :: castTypeBadPart (-> Int Int))
 (pub fn (castTypeBadPart e)
   (if (== e 0)
