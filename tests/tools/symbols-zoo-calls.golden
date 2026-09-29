@@ -1,85 +1,85 @@
-F memAlloc stdlib/Mem.ax:51:9-17 "(Int -> Int)" @0fd03fba89121d1d #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe #calls=__alloc
-F memAllocMapped stdlib/Mem.ax:88:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=&,-,<<,==,>,>>,__alloc,__load64,__store64,|
-F memMarkArray stdlib/Mem.ax:160:9-21 "(Int -> (Int -> Int))" @d007f6fd2106dcb2 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=&,-,<<,__load64,__store64,|
-F memMarkLeaf stdlib/Mem.ax:195:9-20 "(Int -> Int)" @7d30ebb403b48901 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=&,-,__load64,__store64
-F memCopy stdlib/Mem.ax:243:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memCopyFrom
-F memCopyFrom stdlib/Mem.ax:268:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=+,<,__load8,__store8
-F memSet stdlib/Mem.ax:279:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memSetFrom
-F memSetFrom stdlib/Mem.ax:284:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=+,<,__store8
-F memCmp stdlib/Mem.ax:296:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memCmpFrom
-F memCmpFrom stdlib/Mem.ax:301:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=&&,+,-,<,==,__load8
-F memGetWord stdlib/Mem.ax:330:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=__load64
-F memGetWordStr stdlib/Mem.ax:344:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F memGetWordVec stdlib/Mem.ax:355:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F memSetWord stdlib/Mem.ax:390:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=__retainref,__store64
-F memGetByte stdlib/Mem.ax:403:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=__load8
-F memPutByte stdlib/Mem.ax:409:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=__store8
+F memAlloc stdlib/Mem.ax:51:9-17 "(Int -> Int)" @0fd03fba89121d1d #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe #calls=__alloc #unsafe=trusted
+F memAllocMapped stdlib/Mem.ax:88:9-23 "(Int -> (Int -> Int))" @cdcfd5fd6fed28da #restrict=no-io,no-foreign #effect=unsafe #precondition=every%20word%20`map`%20marks%20holds%20zero%20or%20an%20owned%20reference%20whenever%20the%20block%20can%20be%20released #effects=Alloc,Mut,Unsafe #calls=&,-,<<,==,>,>>,__alloc,__load64,__store64,| #unsafe=precondition
+F memMarkArray stdlib/Mem.ax:161:9-21 "(Int -> (Int -> Int))" @d007f6fd2106dcb2 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`h`%20is%20a%20live%20leaf%20block%20of%20at%20least%20`n`%20words,%20each%20zero%20or%20an%20owned%20reference #effects=Mut,Unsafe #calls=&,-,<<,__load64,__store64,| #unsafe=precondition
+F memMarkLeaf stdlib/Mem.ax:197:9-20 "(Int -> Int)" @7d30ebb403b48901 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`h`%20is%20a%20live%20block,%20and%20the%20shares%20its%20map%20names%20were%20released%20or%20handed%20on%20first #effects=Mut,Unsafe #calls=&,-,__load64,__store64 #unsafe=precondition
+F memCopy stdlib/Mem.ax:246:9-16 "(Int -> (Int -> (Int -> Int)))" @3082f9a36dd5daa5 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`dst`%20and%20`src`%20each%20name%20`count`%20live%20bytes,%20and%20`dst`%20is%20not%20above%20`src`%20where%20they%20overlap #effects=Mut,Unsafe #calls=Mem$memCopyFrom #unsafe=precondition
+F memCopyFrom stdlib/Mem.ax:273:5-16 "(Int -> (Int -> (Int -> (Int -> Int))))" @b67c8b212d3e4815 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`dst`%20and%20`src`%20each%20name%20`count`%20live%20bytes #effects=Mut,Unsafe #calls=+,<,__load8,__store8 #unsafe=precondition
+F memSet stdlib/Mem.ax:285:9-15 "(Int -> (Int -> (Int -> Int)))" @b8cc3a7d70814fa8 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20`count`%20live%20writable%20bytes #effects=Mut,Unsafe #calls=Mem$memSetFrom #unsafe=precondition
+F memSetFrom stdlib/Mem.ax:292:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @65d5b9b99d880178 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20`count`%20live%20writable%20bytes #effects=Mut,Unsafe #calls=+,<,__store8 #unsafe=precondition
+F memCmp stdlib/Mem.ax:305:9-15 "(Int -> (Int -> (Int -> Int)))" @30029e7d2389e32c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`a`%20and%20`b`%20each%20name%20`count`%20live%20bytes #effects=Unsafe #calls=Mem$memCmpFrom #unsafe=precondition
+F memCmpFrom stdlib/Mem.ax:312:5-15 "(Int -> (Int -> (Int -> (Int -> Int))))" @49581b3d94e680f4 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`a`%20and%20`b`%20each%20name%20`count`%20live%20bytes #effects=Unsafe #calls=&&,+,-,<,==,__load8 #unsafe=precondition
+F memGetWord stdlib/Mem.ax:342:9-19 "(Int -> (Int -> Int))" @b5f8fe0f14e0113c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20a%20live%20block%20of%20at%20least%20`index`%20+%201%20words #effects=Unsafe #calls=__load64 #unsafe=precondition
+F memGetWordStr stdlib/Mem.ax:357:9-22 "(Int -> (Int -> String))" @b8fd4c3ebafbabfb #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20a%20live%20block%20of%20at%20least%20`index`%20+%201%20words,%20and%20that%20word%20holds%20a%20live%20`String` #effects=Unsafe #calls=Mem$memGetWord #unsafe=precondition
+F memGetWordVec stdlib/Mem.ax:370:9-22 "(Int -> (Int -> Vec a))" @8de85e3ea2a5f886 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20a%20live%20block%20of%20at%20least%20`index`%20+%201%20words,%20and%20that%20word%20holds%20a%20live%20`Vec`%20of%20the%20element%20type%20the%20caller%20names #effects=Unsafe #calls=Mem$memGetWord #unsafe=precondition
+F memSetWord stdlib/Mem.ax:407:9-19 "(Int -> (Int -> (a -> Int)))" @577fd648169c96a8 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20a%20live%20block%20of%20at%20least%20`index`%20+%201%20words,%20and%20the%20word%20is%20read%20back%20only%20at%20a%20type%20`value`%20has #effects=Mut,Unsafe #calls=__retainref,__store64 #unsafe=precondition
+F memGetByte stdlib/Mem.ax:421:9-19 "(Int -> (Int -> Int))" @b36a11af3f07101e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20at%20least%20`index`%20+%201%20live%20bytes #effects=Unsafe #calls=__load8 #unsafe=precondition
+F memPutByte stdlib/Mem.ax:428:9-19 "(Int -> (Int -> (Int -> Int)))" @a42c84e86afc6d53 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20at%20least%20`index`%20+%201%20live%20writable%20bytes #effects=Mut,Unsafe #calls=__store8 #unsafe=precondition
 F vecDefaultCap stdlib/Vec.ax:81:5-18 "Int" @39b9ebeebcb69140 #restrict=no-io,no-alloc,no-foreign
-F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecDefaultCap,Vec$vecWithCapacity
-F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecBuild
-F vecWithCapacityRef stdlib/Vec.ax:106:9-27 "(Int -> Vec a)" @4931b5c5fdddadcc #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecBuild
-F vecNewRef stdlib/Vec.ax:112:9-18 "Vec a" @a3810b6416057230 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecDefaultCap,Vec$vecWithCapacityRef
-F vecBuild stdlib/Vec.ax:124:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=*,<,==,Mem$memAlloc,Mem$memAllocMapped,Mem$memMarkArray,Mem$memSetWord,__retain
-F vecFree stdlib/Vec.ax:164:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=__release
-F vecOwnsRefs stdlib/Vec.ax:180:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls===,Mem$memGetWord
-F vecLen stdlib/Vec.ax:189:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F vecCap stdlib/Vec.ax:196:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F vecData stdlib/Vec.ax:209:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F vecGet stdlib/Vec.ax:254:9-15 "(Vec a -> (Int -> a))" @805a0ea6c155b2f9 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=<,>=,Mem$memGetWord,Vec$vecData,Vec$vecLen,__indexTrap
-F vecTry stdlib/Vec.ax:289:9-15 "(Vec a -> (Int -> Option a))" @1057f8a6821016c0 #restrict=no-io,no-foreign #effects=Alloc,Unsafe #calls=<,>=,Mem$memGetWord,Vec$vecData,Vec$vecLen
-F vecGetStr stdlib/Vec.ax:299:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a44 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecGet
-F vecGetVec stdlib/Vec.ax:318:9-18 "(Vec a -> (Int -> Vec b))" @8412825523066371 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecGet
-F vecPushStr stdlib/Vec.ax:339:9-19 "(Vec a -> (String -> Vec a))" @25d7fb280bccc022 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecPush,__retainref
-F vecPushVec stdlib/Vec.ax:351:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed9282468628f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Vec$vecPush,__retainref
-F vecSet stdlib/Vec.ax:366:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=<,>=,Mem$memSetWord,Vec$vecData,Vec$vecDropAt,Vec$vecLen,Vec$vecOwnsRefs,__indexTrap
-F vecReserve stdlib/Vec.ax:393:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=<=,Vec$vecCap,Vec$vecGrownCap,Vec$vecReserveExactly
-F vecGrownCap stdlib/Vec.ax:410:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign #calls=*,>=,Vec$vecGrownCap
-F vecReserveExactly stdlib/Vec.ax:423:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=*,Mem$memAlloc,Mem$memCopy,Mem$memMarkArray,Mem$memMarkLeaf,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecOwnsRefs,__release,__retain
-F vecPush stdlib/Vec.ax:465:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=+,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecReserve
-F vecPop stdlib/Vec.ax:495:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=-,==,Mem$memGetWord,Mem$memSetWord,Vec$vecData,Vec$vecLen,__indexTrap
-F vecLast stdlib/Vec.ax:524:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=-,Vec$vecGet,Vec$vecLen
-F vecClear stdlib/Vec.ax:536:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memSetWord,Vec$vecDropFrom,Vec$vecOwnsRefs
-F vecDropAt stdlib/Vec.ax:552:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord,Vec$vecData,__release
-F vecDropFrom stdlib/Vec.ax:563:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=+,>=,Vec$vecDropAt,Vec$vecDropFrom,Vec$vecLen
-F vecSum stdlib/Vec.ax:583:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecSumFrom
-F vecSumFrom stdlib/Vec.ax:588:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=+,>=,Vec$vecGet,Vec$vecLen,Vec$vecSumFrom
-F vecHash stdlib/Vec.ax:601:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Vec$vecHashFrom
-F vecHashFrom stdlib/Vec.ax:606:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=%,*,+,>=,Vec$vecGet,Vec$vecHashFrom,Vec$vecLen
-F vecSwapWords stdlib/Vec.ax:634:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord
-F vecSiftDown stdlib/Vec.ax:645:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords
-F vecSort stdlib/Vec.ax:683:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDown,Vec$vecSwapWords
-F vecSiftDownBy stdlib/Vec.ax:706:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords #effect-params=cmp
-F vecSortBy stdlib/Vec.ax:757:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDownBy,Vec$vecSwapWords #effect-params=cmp
-F strWrap stdlib/Str.ax:45:9-16 "(Int -> (Int -> String))" @23328120de2f4a36 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Str$strWrapOwned
-F strWrapOwned stdlib/Str.ax:68:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe9929cdf4389f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Mem$memAllocMapped,Mem$memSetWord
-F strAlloc stdlib/Str.ax:90:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=+,Mem$memAlloc,Str$strWrapOwned,__retain
-F strFromLit stdlib/Str.ax:113:9-19 "(Int -> String)" @6206421c05dd1a83 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Str$cstrLen,Str$strWrap
-F cstrLen stdlib/Str.ax:119:9-16 "(Int -> (Int -> Int))" @4883f0a813371906 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=+,==,Str$cstrLen,__load8
-F strLen stdlib/Str.ax:130:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F strData stdlib/Str.ax:141:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F strOwner stdlib/Str.ax:150:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Mem$memGetWord
-F strByte stdlib/Str.ax:162:9-16 "(String -> (Int -> Int))" @b744777f3cb15078 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=<,>=,Str$strData,Str$strLen,__load8
-F strCStr stdlib/Str.ax:176:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=Str$strData
-F strIsEmpty stdlib/Str.ax:181:9-19 "(String -> Bool)" @a83222c0759c013b #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls===,Str$strLen
-F strCmp stdlib/Str.ax:192:9-15 "(String -> (String -> Int))" @7d1efca2bc01048e #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=!=,-,<,Mem$memCmp,Str$strData,Str$strLen
-F strEq stdlib/Str.ax:226:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=!=,==,Mem$memCmp,Str$strData,Str$strLen
-F strSlice stdlib/Str.ax:247:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=+,-,<,>,Str$strData,Str$strLen,Str$strOwner,Str$strWrapOwned,__retain
-F strDup stdlib/Str.ax:273:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Mem$memCopy,Str$strAlloc,Str$strData,Str$strLen
-F strConcat stdlib/Str.ax:283:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=+,Mem$memCopy,Str$strAlloc,Str$strData,Str$strLen
-F strFindByte stdlib/Str.ax:328:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls=&&,+,<,==,Str$strByte,Str$strLen
-F strStartsWith stdlib/Str.ax:346:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #effects=Unsafe #calls===,>,Mem$memCmp,Str$strData,Str$strLen
-F strIsDigit stdlib/Str.ax:375:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign #calls=<=,>=
-F strIsAlpha stdlib/Str.ax:382:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign #calls=<=,>=
-F strIsSpace stdlib/Str.ax:396:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
-F strHexVal stdlib/Str.ax:417:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign #calls=&&,+,-,<=,>=
-F strIsHexDigit stdlib/Str.ax:428:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign #calls=Str$strHexVal
-F strSplit stdlib/Str.ax:451:9-17 "(String -> (Int -> Vec Int))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=Str$strSplitFrom,Vec$vecNew
-F strSplitFrom stdlib/Str.ax:460:9-21 "(String -> (Int -> (Int -> (Vec Int -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=+,-,Str$strFindByte,Str$strLen,Str$strSlice,Str$strSplitFrom,Vec$vecPush
-F strFromByte stdlib/Str.ax:496:9-20 "(Byte -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=Str$strAlloc,Str$strData,__store8
-F strLower stdlib/Str.ax:524:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #post=(%3D%3D%20(strLen%20result)%20(strLen%20s)) #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=&&,+,<,<=,==,>=,Str$strAlloc,Str$strByte,Str$strData,Str$strLen,__contract,__store8
-F strFind stdlib/Str.ax:565:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign #effects=Unsafe #calls=&&,+,-,<,<=,==,Mem$memCmp,Str$strData,Str$strLen
-F strTrim stdlib/Str.ax:590:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut,Unsafe #calls=&&,+,-,<,>,Str$strByte,Str$strIsSpace,Str$strLen,Str$strSlice
-F strParseInt stdlib/Str.ax:619:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign #effects=Unsafe #calls=&&,*,+,-,<,==,>,Str$strByte,Str$strIsDigit,Str$strLen,||
+F vecNew stdlib/Vec.ax:87:9-15 "Vec a" @42d7eca69e40111f #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecDefaultCap,Vec$vecWithCapacity
+F vecWithCapacity stdlib/Vec.ax:99:9-24 "(Int -> Vec a)" @a5898d2fb6017e13 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecBuild
+F vecWithCapacityRef stdlib/Vec.ax:106:9-27 "(Int -> Vec a)" @4931b5c5fdddadcc #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecBuild
+F vecNewRef stdlib/Vec.ax:112:9-18 "Vec a" @a3810b6416057230 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Vec$vecDefaultCap,Vec$vecWithCapacityRef
+F vecBuild stdlib/Vec.ax:124:5-13 "(Int -> (Int -> Vec a))" @c08cb1d661682775 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=*,<,==,Mem$memAlloc,Mem$memAllocMapped,Mem$memMarkArray,Mem$memSetWord,__retain #unsafe=trusted
+F vecFree stdlib/Vec.ax:164:9-16 "(Vec a -> Int)" @1e43cc6130f92c1d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20caller%20owns%20the%20share%20it%20releases,%20and%20nothing%20uses%20`v`%20or%20its%20elements'%20storage%20after%20the%20last%20share%20is%20gone #effects=Unsafe #calls=__release #unsafe=precondition
+F vecOwnsRefs stdlib/Vec.ax:181:9-20 "(Vec a -> Bool)" @3ca4292918920a5c #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls===,Mem$memGetWord #unsafe=trusted
+F vecLen stdlib/Vec.ax:191:9-15 "(Vec a -> Int)" @550435a6a8c88c3e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=Mem$memGetWord #unsafe=trusted
+F vecCap stdlib/Vec.ax:199:9-15 "(Vec a -> Int)" @a13fc6a6d379366d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=Mem$memGetWord #unsafe=trusted
+F vecData stdlib/Vec.ax:213:5-12 "(Vec a -> Int)" @f00051722f8ac2c7 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=Mem$memGetWord #unsafe=trusted
+F vecGet stdlib/Vec.ax:259:9-15 "(Vec a -> (Int -> a))" @805a0ea6c155b2f9 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=<,>=,Mem$memGetWord,Vec$vecData,Vec$vecLen,__indexTrap #unsafe=trusted
+F vecTry stdlib/Vec.ax:295:9-15 "(Vec a -> (Int -> Option a))" @1057f8a6821016c0 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Unsafe #calls=<,>=,Mem$memGetWord,Vec$vecData,Vec$vecLen #unsafe=trusted
+F vecGetStr stdlib/Vec.ax:306:9-18 "(Vec a -> (Int -> String))" @588fcc550a528a44 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20element%20at%20`i`%20holds%20a%20live%20`String` #effects=Unsafe #calls=Vec$vecGet #unsafe=precondition
+F vecGetVec stdlib/Vec.ax:327:9-18 "(Vec a -> (Int -> Vec b))" @8412825523066371 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=the%20element%20at%20`i`%20holds%20a%20live%20`Vec`%20of%20the%20element%20type%20the%20caller%20names #effects=Unsafe #calls=Vec$vecGet #unsafe=precondition
+F vecPushStr stdlib/Vec.ax:350:9-19 "(Vec a -> (String -> Vec a))" @25d7fb280bccc022 #restrict=no-io,no-foreign #effect=unsafe #precondition=`v`%20is%20read%20back%20only%20as%20words%20or%20through%20`vecGetStr`%20where%20this%20string%20lands #effects=Alloc,Mut,Unsafe #calls=Vec$vecPush,__retainref #unsafe=precondition
+F vecPushVec stdlib/Vec.ax:364:9-19 "(Vec a -> (Vec b -> Vec a))" @513ed9282468628f #restrict=no-io,no-foreign #effect=unsafe #precondition=`v`%20is%20read%20back%20only%20as%20words%20or%20through%20`vecGetVec`%20where%20this%20vector%20lands #effects=Alloc,Mut,Unsafe #calls=Vec$vecPush,__retainref #unsafe=precondition
+F vecSet stdlib/Vec.ax:381:9-15 "(Vec a -> (Int -> (a -> Vec a)))" @177422a685a6c685 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=<,>=,Mem$memSetWord,Vec$vecData,Vec$vecDropAt,Vec$vecLen,Vec$vecOwnsRefs,__indexTrap #unsafe=trusted
+F vecReserve stdlib/Vec.ax:409:5-15 "(Vec a -> (Int -> Vec a))" @4ae21562c73b1099 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=<=,Vec$vecCap,Vec$vecGrownCap,Vec$vecReserveExactly
+F vecGrownCap stdlib/Vec.ax:426:5-16 "(Int -> (Int -> Int))" @8566e689bac7953e #restrict=no-io,no-alloc,no-foreign #calls=*,>=,Vec$vecGrownCap
+F vecReserveExactly stdlib/Vec.ax:439:5-22 "(Vec a -> (Int -> Vec a))" @1481194b090b7ee7 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=*,Mem$memAlloc,Mem$memCopy,Mem$memMarkArray,Mem$memMarkLeaf,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecOwnsRefs,__release,__retain #unsafe=trusted
+F vecPush stdlib/Vec.ax:481:9-16 "(Vec a -> (a -> Vec a))" @c293060dc287a3bb #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=+,Mem$memSetWord,Vec$vecData,Vec$vecLen,Vec$vecReserve #unsafe=trusted
+F vecPop stdlib/Vec.ax:512:9-15 "(Vec a -> a)" @31549fa694465c32 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=-,==,Mem$memGetWord,Mem$memSetWord,Vec$vecData,Vec$vecLen,__indexTrap #unsafe=trusted
+F vecLast stdlib/Vec.ax:542:9-16 "(Vec a -> a)" @1af3be30b8373b1f #restrict=no-io,no-alloc,no-foreign #calls=-,Vec$vecGet,Vec$vecLen
+F vecClear stdlib/Vec.ax:554:9-17 "(Vec a -> Vec a)" @319fd64658175a30 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=Mem$memSetWord,Vec$vecDropFrom,Vec$vecOwnsRefs #unsafe=trusted
+F vecDropAt stdlib/Vec.ax:571:5-14 "(Vec a -> (Int -> Vec a))" @e7ce0719824ef143 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord,Vec$vecData,__release #unsafe=trusted
+F vecDropFrom stdlib/Vec.ax:582:5-16 "(Vec a -> (Int -> Vec a))" @d177b3044a2fa582 #restrict=no-io,no-alloc,no-foreign #effects=Mut #calls=+,>=,Vec$vecDropAt,Vec$vecDropFrom,Vec$vecLen
+F vecSum stdlib/Vec.ax:602:9-15 "(Vec Int -> Int)" @17aa19a685d446aa #restrict=no-io,no-alloc,no-foreign #calls=Vec$vecSumFrom
+F vecSumFrom stdlib/Vec.ax:607:5-15 "(Vec Int -> (Int -> (Int -> Int)))" @144328c1d8b2116e #restrict=no-io,no-alloc,no-foreign #calls=+,>=,Vec$vecGet,Vec$vecLen,Vec$vecSumFrom
+F vecHash stdlib/Vec.ax:620:9-16 "(Vec Int -> Int)" @4546b24f9c54ce2f #restrict=no-io,no-alloc,no-foreign #calls=Vec$vecHashFrom
+F vecHashFrom stdlib/Vec.ax:625:5-16 "(Vec Int -> (Int -> (Int -> Int)))" @b034751241e15763 #restrict=no-io,no-alloc,no-foreign #calls=%,*,+,>=,Vec$vecGet,Vec$vecHashFrom,Vec$vecLen
+F vecSwapWords stdlib/Vec.ax:653:5-17 "(Int -> (Int -> (Int -> Int)))" @50a2de2394216031 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20holding%20words%20`i`%20and%20`j` #effects=Mut,Unsafe #calls=Mem$memGetWord,Mem$memSetWord #unsafe=precondition
+F vecSiftDown stdlib/Vec.ax:666:5-16 "(Int -> (Int -> (Int -> Int)))" @3be531c7b0b56e85 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20of%20at%20least%20`n`%20words #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords #unsafe=precondition
+F vecSort stdlib/Vec.ax:706:9-16 "(Vec a -> Vec a)" @d7b57bf54b6da257 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDown,Vec$vecSwapWords #unsafe=trusted
+F vecSiftDownBy stdlib/Vec.ax:730:5-18 "(Int -> (Int -> (Int -> ((Int -> (Int -> Int)) -> Int))))" @cce0ed170bd79054 #effect=unsafe #precondition=`d`%20names%20a%20live%20block%20of%20at%20least%20`n`%20words #effects=Mut,Unsafe #calls=*,+,<,==,>,>=,Mem$memGetWord,Vec$vecSwapWords #effect-params=cmp #unsafe=precondition
+F vecSortBy stdlib/Vec.ax:783:9-18 "(Vec a -> ((Int -> (Int -> Int)) -> Vec a))" @05b978068f71d6a2 #effect=unsafe #effects=Mut,Unsafe #calls=-,/,>,>=,Vec$vecData,Vec$vecLen,Vec$vecSiftDownBy,Vec$vecSwapWords #effect-params=cmp #unsafe=trusted
+F strWrap stdlib/Str.ax:45:9-16 "(Int -> (Int -> String))" @23328120de2f4a36 #restrict=no-io,no-foreign #effect=unsafe #precondition=`bytes`%20names%20`len`%20+%201%20live%20bytes%20ending%20in%20a%20NUL,%20and%20they%20outlive%20the%20string #effects=Alloc,Mut,Unsafe #calls=Str$strWrapOwned #unsafe=precondition
+F strWrapOwned stdlib/Str.ax:70:9-21 "(Int -> (Int -> (Int -> String)))" @2bbe9929cdf4389f #restrict=no-io,no-foreign #effect=unsafe #precondition=`bytes`%20names%20`len`%20+%201%20live%20bytes%20ending%20in%20a%20NUL,%20and%20`owner`%20is%200%20or%20the%20owned%20block%20holding%20them #effects=Alloc,Mut,Unsafe #calls=Mem$memAllocMapped,Mem$memSetWord #unsafe=precondition
+F strAlloc stdlib/Str.ax:94:9-17 "(Int -> String)" @b8ec3bb3fe2acd63 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=+,Mem$memAlloc,Str$strWrapOwned,__retain #unsafe=trusted
+F strFromLit stdlib/Str.ax:117:9-19 "(Int -> String)" @6206421c05dd1a83 #restrict=no-io,no-foreign #effect=unsafe #precondition=`cstr`%20names%20live%20NUL-terminated%20bytes%20that%20outlive%20the%20string #effects=Alloc,Mut,Unsafe #calls=Str$cstrLen,Str$strWrap #unsafe=precondition
+F cstrLen stdlib/Str.ax:125:9-16 "(Int -> (Int -> Int))" @4883f0a813371906 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #precondition=`addr`%20names%20live%20bytes%20with%20a%20NUL%20at%20or%20after%20`i` #effects=Unsafe #calls=+,==,Str$cstrLen,__load8 #unsafe=precondition
+F strLen stdlib/Str.ax:137:9-15 "(String -> Int)" @eda5fda2fbb7e0d9 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=Mem$memGetWord #unsafe=trusted
+F strData stdlib/Str.ax:149:9-16 "(String -> Int)" @67465baef4d86a22 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=Mem$memGetWord #unsafe=trusted
+F strOwner stdlib/Str.ax:159:9-17 "(String -> Int)" @8e64d8cc385f2c0d #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=Mem$memGetWord #unsafe=trusted
+F strByte stdlib/Str.ax:172:9-16 "(String -> (Int -> Int))" @b744777f3cb15078 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=<,>=,Str$strData,Str$strLen,__load8 #unsafe=trusted
+F strCStr stdlib/Str.ax:186:9-16 "(String -> Int)" @c481b6861daac77a #restrict=no-io,no-alloc,no-foreign #calls=Str$strData
+F strIsEmpty stdlib/Str.ax:191:9-19 "(String -> Bool)" @a83222c0759c013b #restrict=no-io,no-alloc,no-foreign #calls===,Str$strLen
+F strCmp stdlib/Str.ax:202:9-15 "(String -> (String -> Int))" @7d1efca2bc01048e #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=!=,-,<,Mem$memCmp,Str$strData,Str$strLen #unsafe=trusted
+F strEq stdlib/Str.ax:237:9-14 "(String -> (String -> Bool))" @4ee168f65eaa3fec #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls=!=,==,Mem$memCmp,Str$strData,Str$strLen #unsafe=trusted
+F strSlice stdlib/Str.ax:259:9-17 "(String -> (Int -> (Int -> String)))" @c1ced650f3717fa8 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=+,-,<,>,Str$strData,Str$strLen,Str$strOwner,Str$strWrapOwned,__retain #unsafe=trusted
+F strDup stdlib/Str.ax:285:9-15 "(String -> String)" @a890bfa2d4a6809f #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=Mem$memCopy,Str$strAlloc,Str$strData,Str$strLen #unsafe=trusted
+F strConcat stdlib/Str.ax:296:9-18 "(String -> (String -> String))" @22972c7a28e75fd2 #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=+,Mem$memCopy,Str$strAlloc,Str$strData,Str$strLen #unsafe=trusted
+F strFindByte stdlib/Str.ax:342:9-20 "(String -> (Int -> (Int -> Option Int)))" @38cfa6a2400e724f #restrict=no-io,no-alloc,no-foreign #calls=&&,+,<,==,Str$strByte,Str$strLen
+F strStartsWith stdlib/Str.ax:360:9-22 "(String -> (String -> Bool))" @6f8a115feaeda283 #restrict=no-io,no-alloc,no-foreign #effect=unsafe #effects=Unsafe #calls===,>,Mem$memCmp,Str$strData,Str$strLen #unsafe=trusted
+F strIsDigit stdlib/Str.ax:390:9-19 "(Int -> Bool)" @3896c3e2e54af473 #restrict=no-io,no-alloc,no-foreign #calls=<=,>=
+F strIsAlpha stdlib/Str.ax:397:9-19 "(Int -> Bool)" @92f6658af52ff1ce #restrict=no-io,no-alloc,no-foreign #calls=<=,>=
+F strIsSpace stdlib/Str.ax:411:9-19 "(Int -> Bool)" @d84830fe78ed2530 #restrict=no-io,no-alloc,no-foreign
+F strHexVal stdlib/Str.ax:432:9-18 "(Int -> Option Int)" @9d2dd21191ab219a #restrict=no-io,no-alloc,no-foreign #calls=&&,+,-,<=,>=
+F strIsHexDigit stdlib/Str.ax:443:9-22 "(Int -> Bool)" @2b97165574231c58 #restrict=no-io,no-alloc,no-foreign #calls=Str$strHexVal
+F strSplit stdlib/Str.ax:466:9-17 "(String -> (Int -> Vec String))" @999c5d68d9676692 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=Str$strSplitFrom,Vec$vecNew
+F strSplitFrom stdlib/Str.ax:475:9-21 "(String -> (Int -> (Int -> (Vec String -> Int))))" @5e61889eee5022b6 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=+,-,Str$strFindByte,Str$strLen,Str$strSlice,Str$strSplitFrom,Vec$vecPush
+F strFromByte stdlib/Str.ax:507:9-20 "(Byte -> String)" @cc6843692d250f9c #restrict=no-io,no-foreign #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=Str$strAlloc,Str$strData,__store8 #unsafe=trusted
+F strLower stdlib/Str.ax:535:9-17 "(String -> String)" @8705466b1ec7adbf #restrict=no-io,no-foreign #post=(%3D%3D%20(strLen%20result)%20(strLen%20s)) #effect=unsafe #effects=Alloc,Mut,Unsafe #calls=&&,+,<,<=,==,>=,Str$strAlloc,Str$strByte,Str$strData,Str$strLen,__contract,__store8 #unsafe=trusted
+F strFind stdlib/Str.ax:576:9-16 "(String -> (String -> (Int -> Option Int)))" @e124649e206d9a15 #restrict=no-io,no-foreign #effect=unsafe #effects=Unsafe #calls=&&,+,-,<,<=,==,Mem$memCmp,Str$strData,Str$strLen #unsafe=trusted
+F strTrim stdlib/Str.ax:602:9-16 "(String -> String)" @1659542ba70f16f2 #restrict=no-io,no-foreign #effects=Alloc,Mut #calls=&&,+,-,<,>,Str$strByte,Str$strIsSpace,Str$strLen,Str$strSlice
+F strParseInt stdlib/Str.ax:631:9-20 "(String -> Option Int)" @65f528e7dd0a78ee #restrict=no-io,no-foreign #calls=&&,*,+,-,<,==,>,Str$strByte,Str$strIsDigit,Str$strLen,||
 F errDivideByZero stdlib/Err.ax:47:9-24 "Int" @029f54fed7ccc8c4
 F errOverflow stdlib/Err.ax:51:9-20 "Int" @d27666f207e5c0cc
 F errShiftTooWide stdlib/Err.ax:55:9-24 "Int" @6a505014b69f075b
@@ -88,7 +88,7 @@ F mkError stdlib/Err.ax:69:9-16 "(Int -> (String -> Error))" @a209679fd0d09783 #
 F errCode stdlib/Err.ax:73:9-16 "(Error -> Int)" @cc1e4529d6664c73
 F errMessage stdlib/Err.ax:77:9-19 "(Error -> String)" @c92fba93fdf774cd
 F errContext stdlib/Err.ax:81:9-19 "(Error -> String)" @fe4f05b820694e19
-F errorText stdlib/Err.ax:90:9-18 "(Error -> String)" @f35171f54885d954 #effects=Alloc,Mut,Unsafe #calls===,Str$strConcat,Str$strLen
+F errorText stdlib/Err.ax:90:9-18 "(Error -> String)" @f35171f54885d954 #effects=Alloc,Mut #calls===,Str$strConcat,Str$strLen
 F isOk stdlib/Err.ax:99:9-13 "(Result a e -> Bool)" @ae1736447ed221d1
 F isErr stdlib/Err.ax:105:9-14 "(Result a e -> Bool)" @f7427963ada0c9e2
 F unwrapOr stdlib/Err.ax:111:9-17 "(Result a e -> (a -> a))" @7c65bfd8d6878035
@@ -237,7 +237,7 @@ F waitPollOptions stdlib/Sys/Platform.darwin.ax:1051:9-24 "Int" @4f04cb2dcd714a4
 F apply tests/fmt/syntax-zoo.ax:96:9-14 "((Int -> Int) -> (Int -> Int))" @9fde5fb4f32622ed #effect-params=f
 F literals tests/fmt/syntax-zoo.ax:100:5-13 "(Int -> Int)" @44e294b76be6470b
 F control tests/fmt/syntax-zoo.ax:110:5-12 "(Int -> Int)" @d78a59fa83fe109c #effect=pure #calls=+,<,>
-F counted tests/fmt/syntax-zoo.ax:125:5-12 "(Vec Int -> Int)" @a2afd435642141eb #effects=Unsafe #calls=+,<,Vec$vecGet,Vec$vecLen
+F counted tests/fmt/syntax-zoo.ax:125:5-12 "(Vec Int -> Int)" @a2afd435642141eb #calls=+,<,Vec$vecGet,Vec$vecLen
 F arenaSum tests/fmt/syntax-zoo.ax:135:5-13 "(Int -> Int)" @dc206b96c4c2200d #effects=Alloc #calls=+,<
 F classify tests/fmt/syntax-zoo.ax:142:5-13 "(Int -> Int)" @0c968703c9c681f5 #calls=+,<,==
 F area tests/fmt/syntax-zoo.ax:147:5-9 "(Shape -> Int)" @925bb7869087e3f6 #calls=*
@@ -247,7 +247,7 @@ F ignoresIts tests/fmt/syntax-zoo.ax:173:5-15 "(Int -> (Int -> Int))" @3bd4ee8d4
 F holeExample tests/fmt/syntax-zoo.ax:176:5-16 "Int" @cf2ca28645662d19 #calls=add2
 F misc tests/fmt/syntax-zoo.ax:182:5-9 "(Rec -> Int)" @a624386346f1362f #calls=+
 F keyword_forms tests/fmt/syntax-zoo.ax:196:5-18 "(Int -> Int)" @81b1a8cbfde09fae #effects=Alloc #calls=+
-F qualified tests/fmt/syntax-zoo.ax:204:5-14 "(Int -> Int)" @6e608b2ecabed39f #effects=Alloc,Unsafe #calls=Mem$memAlloc
+F qualified tests/fmt/syntax-zoo.ax:204:5-14 "(Int -> Int)" @6e608b2ecabed39f #effects=Alloc #calls=Mem$memAlloc
 F last tests/fmt/syntax-zoo.ax:208:5-9 "(Int -> Int)" @436b6f6ddf64413b
 F log - "(String -> Int)" #effects=Console
 F send - "(Int -> (Int -> Int))" #effects=Wire
@@ -257,24 +257,24 @@ F scoped tests/fmt/syntax-zoo.ax:223:5-11 "(Int -> Int)" @456a949d82a7c7bf
 F aBox tests/fmt/syntax-zoo.ax:244:5-9 "Box Int" @06331c8640b36edb #effects=Alloc
 F store - "(Box Int -> Int)" #effects=Boxes
 F interiors tests/fmt/syntax-zoo.ax:282:5-14 "(*Box Int -> (Box Int -> Int))" @9ab1e7805f0e9380
-F typed_exprs tests/fmt/syntax-zoo.ax:285:5-16 "(Int -> Int)" @81369cab7bd3cafe #effects=Alloc #calls=+
-F helperD tests/fmt/syntax-zoo.ax:330:5-12 "(Int -> Int)" @882707b1b1adf681
-F zeroParam tests/fmt/syntax-zoo.ax:333:5-14 "Int" @3beac987ddf32d0a
-F bigNums tests/fmt/syntax-zoo.ax:336:5-12 "Int" @dd7253ccf2a8d5b6 #calls=+
-F addTwo tests/fmt/syntax-zoo.ax:339:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac #calls=+
-F spine tests/fmt/syntax-zoo.ax:342:5-10 "Int" @b90b9fd2b6072666 #calls=addTwo
-F redundantParens tests/fmt/syntax-zoo.ax:345:5-20 "(Int -> Int)" @1e81a579343438b5
-F oneBlock tests/fmt/syntax-zoo.ax:348:5-13 "(Int -> Int)" @0a7b44cba65e02ae
-F manyBody tests/fmt/syntax-zoo.ax:351:5-13 "(Int -> Int)" @a31645c57f2b7230
-F curried tests/fmt/syntax-zoo.ax:354:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
-F unitArg tests/fmt/syntax-zoo.ax:363:5-12 "(() -> Int)" @6cefab6aa3adb3a3
-F integerName tests/fmt/syntax-zoo.ax:366:5-16 "(Int -> Int)" @78077a35b687a150
-F negatives tests/fmt/syntax-zoo.ax:372:5-14 "Int" @c1e7a0698a782505 #calls=+,-
-F splitTags tests/fmt/syntax-zoo.ax:405:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #effect=pure #calls=+
-F beside tests/fmt/syntax-zoo.ax:413:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effects=Alloc,IO #calls=+,__axiom_arena_mark,__par_join,__par_spawn
-F alone tests/fmt/syntax-zoo.ax:417:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effects=Alloc,IO #calls=*,+,__axiom_arena_mark,__par_join,__par_spawn
-F restrictedTwice tests/fmt/syntax-zoo.ax:428:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast #calls=*
-F regionKeep tests/fmt/syntax-zoo.ax:435:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
+F typed_exprs tests/fmt/syntax-zoo.ax:285:5-16 "(Int -> Int)" @81369cab7bd3cafe #effect=unsafe #effects=Alloc,Unsafe #calls=+ #unsafe=trusted
+F helperD tests/fmt/syntax-zoo.ax:331:5-12 "(Int -> Int)" @882707b1b1adf681
+F zeroParam tests/fmt/syntax-zoo.ax:334:5-14 "Int" @3beac987ddf32d0a
+F bigNums tests/fmt/syntax-zoo.ax:337:5-12 "Int" @dd7253ccf2a8d5b6 #calls=+
+F addTwo tests/fmt/syntax-zoo.ax:340:5-11 "(Int -> (Int -> Int))" @5d1e51e3da8ca0ac #calls=+
+F spine tests/fmt/syntax-zoo.ax:343:5-10 "Int" @b90b9fd2b6072666 #calls=addTwo
+F redundantParens tests/fmt/syntax-zoo.ax:346:5-20 "(Int -> Int)" @1e81a579343438b5
+F oneBlock tests/fmt/syntax-zoo.ax:349:5-13 "(Int -> Int)" @0a7b44cba65e02ae
+F manyBody tests/fmt/syntax-zoo.ax:352:5-13 "(Int -> Int)" @a31645c57f2b7230
+F curried tests/fmt/syntax-zoo.ax:355:5-12 "(Int -> (Int -> Int))" @8e5e55c0dcd4848b
+F unitArg tests/fmt/syntax-zoo.ax:364:5-12 "(() -> Int)" @6cefab6aa3adb3a3
+F integerName tests/fmt/syntax-zoo.ax:367:5-16 "(Int -> Int)" @78077a35b687a150
+F negatives tests/fmt/syntax-zoo.ax:373:5-14 "Int" @c1e7a0698a782505 #calls=+,-
+F splitTags tests/fmt/syntax-zoo.ax:406:5-14 "(Int -> Int)" @1149cb6053381fbc #no_refactor #effect=pure #calls=+
+F beside tests/fmt/syntax-zoo.ax:414:5-11 "(Int -> Int)" @aa727b9b975db469 #effect=io #effects=Alloc,IO #calls=+,__axiom_arena_mark,__par_join,__par_spawn
+F alone tests/fmt/syntax-zoo.ax:418:5-10 "(Int -> Int)" @03ff16d88044c27e #effect=io #effects=Alloc,IO #calls=*,+,__axiom_arena_mark,__par_join,__par_spawn
+F restrictedTwice tests/fmt/syntax-zoo.ax:429:5-20 "(Int -> Int)" @09253db9ca4471fa #restrict=no-io,no-cast #calls=*
+F regionKeep tests/fmt/syntax-zoo.ax:436:5-15 "(Vec String -> (String -> (a -> Int)))" @a46706b1069fed62
 D Option - "data Option" #ctors=Some,None
 C Some - "(a -> Option a)" #of=Option
 C None - "Option a" #of=Option
@@ -298,13 +298,13 @@ S Rec tests/fmt/syntax-zoo.ax:55:13-16 "struct Rec" @7e8483a9aaef3fde #fields=n:
 S ZooCap tests/fmt/syntax-zoo.ax:249:9-15 "struct ZooCap" @565a8bdeb3d12664 #fields=render:(a -> String)
 S ZooPair tests/fmt/syntax-zoo.ax:252:9-16 "struct ZooPair" @149f38cfa5316df8 #fields=fst:a,snd:b
 S Holder tests/fmt/syntax-zoo.ax:256:9-15 "struct Holder" @39a2b36e5f606cfe #fields=item:Box Int
-S RecTwin tests/fmt/syntax-zoo.ax:396:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
+S RecTwin tests/fmt/syntax-zoo.ax:397:13-20 "struct RecTwin" @1e39f8cfc9405c78 #fields=n:Int,counter:Int,on:Bool,ratio:Float,label:String
 A Count tests/fmt/syntax-zoo.ax:26:11-16 "Int" @910ecfbfa27ddde2
 A BoxedCount tests/fmt/syntax-zoo.ax:247:11-21 "Box Int" @ce5c1ba8305ca704
-M format stdlib/Str.ax:696:13-19 "macro format" @f0b2b594fd323246
+M format stdlib/Str.ax:708:13-19 "macro format" @f0b2b594fd323246
 M try! stdlib/Err.ax:423:13-17 "macro try!" @33e26f813784f1f9
 M twice tests/fmt/syntax-zoo.ax:93:9-14 "macro twice" @a0ee9867b2571b97
-M defRecTwin tests/fmt/syntax-zoo.ax:388:8-18 "macro defRecTwin" @175bc52ff43ee048
+M defRecTwin tests/fmt/syntax-zoo.ax:389:8-18 "macro defRecTwin" @175bc52ff43ee048
 E Console tests/fmt/syntax-zoo.ax:212:9-16 "effect Console" @5e35620abc5f495d
 E Wire tests/fmt/syntax-zoo.ax:215:9-13 "effect Wire" @f3f0a43895c12689
 E Boxes tests/fmt/syntax-zoo.ax:268:9-14 "effect Boxes" @244d27b945c772d1

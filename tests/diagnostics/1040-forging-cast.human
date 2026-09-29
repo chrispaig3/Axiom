@@ -1,0 +1,78 @@
+[1;31merror[AX3073][0m[1m: `toHid` forges `Hid` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m1040-forging-cast.ax:37:13
+[1;34m   |[0m
+[1;34m37 |[0m   (let ((h (cast Hid k)))
+[1;34m   |[0m             [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `toShape` forges `Shape` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m1040-forging-cast.ax:42:4
+[1;34m   |[0m
+[1;34m42 |[0m   (cast Shape k))
+[1;34m   |[0m    [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `toString` forges `String` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m1040-forging-cast.ax:46:4
+[1;34m   |[0m
+[1;34m46 |[0m   (cast String k))
+[1;34m   |[0m    [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `toVec` forges `Vec Int` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m1040-forging-cast.ax:50:4
+[1;34m   |[0m
+[1;34m50 |[0m   (cast (Vec Int) k))
+[1;34m   |[0m    [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `toFn` forges `Step` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m1040-forging-cast.ax:54:13
+[1;34m   |[0m
+[1;34m54 |[0m   (let ((f (cast Step k)))
+[1;34m   |[0m             [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `toAny` forges `a` out of `Int` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m1040-forging-cast.ax:60:4
+[1;34m   |[0m
+[1;34m60 |[0m   (cast a k))
+[1;34m   |[0m    [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `toVecOf` forges `Vec Int` out of `Vec String` with `cast`, and its declaration does not say so[0m
+  [1;34m--> [0m1040-forging-cast.ax:64:4
+[1;34m   |[0m
+[1;34m64 |[0m   (cast (Vec Int) v))
+[1;34m   |[0m    [1;31m^^^^ forges a reference[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 7 previous errors
