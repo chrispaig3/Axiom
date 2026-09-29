@@ -23631,6 +23631,60 @@
       (emitAxtagUnverifiable tc d label)
       0)))
 
+; Is `want` the `Unsafe` a claim names, and does `d`'s own body call
+; `__syscall0` to `__syscall6`? Then `effect(unsafe)` on it is not
+; unsupported (MM-EXEC-9e).
+;
+; A syscall reads and writes this process's memory through its
+; arguments: `read` fills the buffer it is handed, `bind` reads an
+; address, `munmap` frees a mapping. So a declaration that hands a word
+; to the kernel performs the unsafe operation `MM-EXEC-9c` defines, in
+; the kernel and out of the walk's sight, and a precondition on it
+; (`buf` names `count` live writable bytes) is a true statement about a
+; real hazard. Before this, AX3010 refused the tag on any body whose
+; only raw work was the syscall itself, so `sysReadFd` could not say
+; what its caller must make true, and nothing made its callers say so.
+;
+; It answers the CLAIM only. It adds nothing to the row, so no
+; restriction, no caller's row and no AX3073 moves: those follow from
+; the syscall primitives joining `isUnsafePrim`, which needs a seed that
+; accepts the tags this makes possible.
+;
+; The edges are the ones the effect pass recorded on the declaration's
+; entry (word 7), where a syscall is an edge under its own name
+; (`tcNoteCall` in `collectEffects`), so the body is not walked again.
+(pub :: unsafeByKernel (-> Int Int String Int))
+(pub fn (unsafeByKernel tc d want)
+  (if (strEq want (builtinEff "Unsafe"))
+    (declCallsSyscall tc d)
+    0))
+
+(pub :: declCallsSyscall (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (declCallsSyscall tc d)
+  (let (
+    (was (memGetWord tc 16))
+    (_m (memSetWord tc 16 (nodeModule d)))
+    (ent (findFnEnt tc (nodeAName d)))
+    (_m0 (memSetWord tc 16 was))
+  )
+    (if (== ent 0)
+      0
+      (edgesHaveSyscall (memGetWordVec ent 7) 0))))
+
+(pub :: edgesHaveSyscall (-> (Vec Int) Int Int))
+;@axiom:effect(unsafe)
+(pub fn (edgesHaveSyscall calls i)
+  (if (==
+    (cast Int calls)
+    0)
+    0
+    (if (>= i (vecLen calls))
+      0
+      (if (== (isSyscallPrim (vecGetStr calls i)) 1)
+        1
+        (edgesHaveSyscall calls (+ i 1))))))
+
 ; A claimed effect the body does not perform. stage0 suppresses this
 ; when the effect COULD arrive through a callback - but only when the
 ; function has effect-transparent parameters, and this check only
@@ -23644,7 +23698,8 @@
       ; `effMay`: a claimed effect the body MAY perform - through a
       ; value it named, or a dispatch the walk could not resolve - is
       ; not missing. The claim reads the upper bound, as AX3011 does.
-      (if (== (effMay eff want) 1)
+      ; An `Unsafe` claim is met by a syscall too (`unsafeByKernel`).
+      (if (|| (== (effMay eff want) 1) (== (unsafeByKernel tc d want) 1))
         0
         ; stage0 suppresses a claimed-but-absent effect when a
         ; CALLBACK could still supply it: the function has

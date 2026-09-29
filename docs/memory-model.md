@@ -619,11 +619,13 @@ Today the socket-address readers, the poll and signal calls,
 `sysTermRaw`, `sysTimeoutMicros`, `sysSpawn` and the `sysRun` family,
 `sysReadDir`, `netBind`, `netConnect`, `printLit`, `printlnLit`,
 `rdReseat` and `Fmt`'s digit writers are precondition interfaces, and
-`KeyIn` and `HttpReader` are private. Not yet: `__syscallN` is outside
-`MM-EXEC-9c`'s set, so a function whose only unsafe work is a syscall
-can't say `effect(unsafe)`. That leaves the descriptor reads and
-writes, the path calls, `sysRandomBytes` and the terminal calls
-untagged, and `restrict(no-unsafe)` accepts a direct
+`KeyIn` and `HttpReader` are private. A body that calls a syscall
+supports an `effect(unsafe)` claim, because the kernel reads and
+writes through the call's arguments
+(`tests/stdlib/580-kernel-precondition.ax`). Not yet: `__syscallN` is
+outside `MM-EXEC-9c`'s set, so a syscall needs no tag. The descriptor
+reads and writes, the path calls, `sysRandomBytes` and the terminal
+calls are still untagged, and `restrict(no-unsafe)` accepts a direct
 `(__syscall3 sysRandomNum 4096 64 0)`. The modules that hand out raw
 `Int` handles to records they allocate (`Json`, `Intern` and `Rpc`'s
 reader) are outside this stage as well.
