@@ -4626,6 +4626,12 @@
 ; bounds through the expression printer. A lower-only range prints
 ; with no `..`; anything else shaped is a refusal, as a malformed
 ; `type` is.
+;
+; The bounds are read as EXPRESSION elements, so a `-` touching the
+; number after it is one negative literal, as the parser reads it. The
+; reader keeps them two atoms, and counting atoms made `range -1 .. 10`
+; one element too long: `check` accepted the declaration and `fmt`
+; refused it with no code (P4, scripts/check-fuzz.sh).
 (pub :: fpDeclSubtype (-> Int Int Int))
 (pub fn (fpDeclSubtype p n)
   (let (
@@ -4646,33 +4652,34 @@
           false
           true))
         (fpBad p)
-        {
-          (fpP p "(")
-          (fpVis p n)
-          (fpP p "subtype ")
-          (fpP p (fnText src (fnKid n (+ b 1))))
-          (fpP p " is ")
-          (fpType p (fnKid n (+ b 3)))
-          (fpP p " range ")
-          (fpExpr p (fnKid n (+ b 5)))
-          (if (== (fnLen n) (+ b 6))
-            (fpP p ")")
-            (if (||
-              (!= (fnLen n) (+ b 9))
-              (||
-                (if (fpIsAtomText src (fnKid n (+ b 6)) ".")
-                  false
-                  true)
-                (if (fpIsAtomText src (fnKid n (+ b 7)) ".")
-                  false
-                  true)))
-              (fpBad p)
-              {
-                (fpP p " .. ")
-                (fpExpr p (fnKid n (+ b 8)))
-                (fpP p ")")
-              }))
-        }))))
+        (let ((bounds (fpExprElems n (+ b 5))))
+          {
+            (fpP p "(")
+            (fpVis p n)
+            (fpP p "subtype ")
+            (fpP p (fnText src (fnKid n (+ b 1))))
+            (fpP p " is ")
+            (fpType p (fnKid n (+ b 3)))
+            (fpP p " range ")
+            (fpExpr p (vecGet bounds 0))
+            (if (== (vecLen bounds) 1)
+              (fpP p ")")
+              (if (||
+                (!= (vecLen bounds) 4)
+                (||
+                  (if (fpIsAtomText src (vecGet bounds 1) ".")
+                    false
+                    true)
+                  (if (fpIsAtomText src (vecGet bounds 2) ".")
+                    false
+                    true)))
+                (fpBad p)
+                {
+                  (fpP p " .. ")
+                  (fpExpr p (vecGet bounds 3))
+                  (fpP p ")")
+                }))
+          })))))
 
 (pub :: fpDeclSig (-> Int Int Int))
 (pub fn (fpDeclSig p n)

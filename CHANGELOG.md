@@ -22,6 +22,13 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### `axiom fmt` formats a negative `subtype` bound - 2026-09-29
+
+`(subtype Positive is Int range -1 .. 10)` checked OK and `axiom fmt`
+refused it with no code, because the formatter counted `-` and `1` as
+two atoms. It reads the bounds as the parser does now. Tested by
+`tests/fuzz/subtype-negative-bound.axfuzz`.
+
 ### `axiom fmt` refuses `(pub` and an empty effect operation - 2026-09-29
 
 `axiom fmt` on a file holding a bare `(pub`, or an effect with an empty
