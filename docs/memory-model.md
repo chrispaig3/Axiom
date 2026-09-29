@@ -4813,11 +4813,15 @@ That leaves two things the compiler doesn't check:
 
 *Evidence.*
 
-- `scripts/check-atomics.sh`: the instructions, their ablations, and
-  litmus tests on two threads (store buffering, message passing, load
-  buffering, 2+2W, a counter, and the coherence tests CoRR, CoWW, CoWR
-  and CoRW), on three (WRC and ISA2) and on four (IRIW). Not yet: R, S,
-  3.SB and the dependency and fence variants aren't run.
+- `scripts/check-atomics.sh`: the instructions, with and without the
+  LSE atomics, and their ablations. Litmus tests run on two threads
+  (store buffering, message passing, load buffering, 2+2W, R, S, a
+  counter, and the coherence tests CoRR, CoWW, CoWR and CoRW), on three
+  (WRC, ISA2 and 3.SB) and on four (IRIW). Store buffering, message
+  passing, R and S also run with `__fence` between plain accesses.
+  Dependency variants aren't run: with one ordering, the only
+  access a dependency could order is a racing plain read, whose value
+  is undefined.
 - `scripts/check-parallel.sh`: both lowerings answer byte-identically;
   joins, sweeps and foreign-join refusal.
 - `tests/diagnostics/642`, `643`, `644` and `656`: the capture

@@ -1,9 +1,9 @@
 ; Litmus tests for the five atomic primitives, run on two threads, three
-; for wrc and isa2, or four for iriw.
+; for wrc, isa2 and 3.sb, or four for iriw.
 ;
 ; `scripts/check-atomics.sh` builds this with `--threads` and runs it
 ; once per row below; each run prints one line, `<forbidden>
-; <witnessed>`, and the gate decides. Twelve families, each with the
+; <witnessed>`, and the gate decides. Fifteen families, each with the
 ; outcome sequential consistency FORBIDS:
 ;
 ;   sb   store buffering. T0 stores x then loads y, T1 stores y then
@@ -16,7 +16,10 @@
 ;        flag and, if it is set, data (plain); forbidden is flag 1 with
 ;        data 0. `sc`
 ;        publishes through the atomic flag - the pattern a program
-;        would actually use - and `plain` makes the flag plain too.
+;        would actually use - `plain` makes the flag plain too, and
+;        `fence` keeps it plain with `__fence` between each side's two
+;        accesses. `reorder` is the control: with the atomics, T1 loads
+;        data first, then the flag once it is stored.
 ;        The witness is how many rounds saw the flag at all: a run in
 ;        which T1 always read the flag first is not a test.
 ;   add  two threads each add 1 to one word `n` times; forbidden is
@@ -62,6 +65,27 @@
 ; pause. A
 ; `reorder` run that never shows the outcome means this harness could
 ; not see it happen.
+;
+; Three more families, r and s taking all four modes, `fence` among
+; them, and 3.sb all but `fence`:
+;   r    T0 stores x then y, T1 stores 2 to y then loads x; forbidden is
+;        y ending 2 with T1's load answering 0. The witness is y ending
+;        1 with the load answering 1, which only interleaved accesses
+;        give.
+;   s    T0 stores 2 to x then 1 to y, T1 loads y then stores 1 to x;
+;        forbidden is x ending 2 with T1's load answering 1. The witness
+;        is x ending 1 with the load answering 0, likewise.
+;   3.sb store buffering around three bindings: each stores its own
+;        word, then loads the next binding's. Forbidden is all three
+;        loads answering 0. The witness is all three answering 1, the
+;        one outcome no order of whole bindings gives. 200,000 rounds a
+;        run.
+; `fence` puts `__fence` between each binding's two plain accesses.
+; `reorder` swaps T1's two accesses in r and s, with the atomics, and
+; makes the second wait for T0's store to y; in 3.sb each binding loads,
+; waits until all three have, then stores.
+; The `plain` and `fence` rows' accesses race, which MM-PAR-9 leaves
+; undefined, so they measure this compiler and this hardware.
 ;
 ; Four COHERENCE families, on one word x and two bindings. Coherence is
 ; the one ordering x86-64 and AArch64 give every aligned access, plain
@@ -190,7 +214,8 @@
     }))
 
 ; ---- mp ------------------------------------------------------------
-; mode 0 sc (plain data, atomic flag), 1 plain.
+; mode 0 sc (plain data, atomic flag), 1 plain, 2 fence (plain, with
+; `__fence` between), 3 reorder (both stores atomic).
 (:: mpWriter (-> Int Int Int Int Int Int))
 ;@axiom:effect(unsafe)
 (fn (mpWriter data flag ctr n mode)
@@ -199,10 +224,22 @@
       (while (< i n)
         {
           (arrive ctr i)
-          (__store64 data i 1)
-          (if (== mode 0)
-            (__atomic_store (+ flag (* 8 i)) 1)
-            (__store64 flag i 1))
+          (if (== mode 3)
+            {
+              (__atomic_store (+ data (* 8 i)) 1)
+              (__atomic_store (+ flag (* 8 i)) 1)
+            }
+            {
+              (__store64 data i 1)
+              (if (== mode 0)
+                (__atomic_store (+ flag (* 8 i)) 1)
+                (if (== mode 2)
+                  {
+                    __fence
+                    (__store64 flag i 1)
+                  }
+                  (__store64 flag i 1)))
+            })
           (set i (+ i 1))
         })
       0
@@ -217,7 +254,9 @@
     (__load64 flag i)))
 
 ; Writes the forbidden count to out[0] and the rounds that saw the
-; flag to out[1].
+; flag to out[1]. `reorder` loads data first, with the atomics, then
+; waits for the flag to be stored, for at most `waitSpins` loads, and
+; loads it.
 (:: mpReader (-> Int Int Int Int Int Int Int))
 ;@axiom:effect(unsafe)
 (fn (mpReader data flag ctr n mode out)
@@ -230,18 +269,34 @@
       (while (< i n)
         {
           (arrive ctr i)
-          ; The data word is read only once the flag says it was
-          ; published. Read before the test, it raced the writer's
-          ; plain store whenever the flag was still 0 (MM-PAR-9), and
-          ; ThreadSanitizer said so.
-          (if (== (loadFlag flag i mode) 1)
-            {
-              (set seen (+ seen 1))
-              (if (== (__load64 data i) 0)
-                (set weak (+ weak 1))
-                0)
-            }
-            0)
+          (if (== mode 3)
+            (let ((d (__atomic_load (+ data (* 8 i)))))
+              {
+                (waitStored (+ flag (* 8 i)) waitSpins)
+                (if (== (__atomic_load (+ flag (* 8 i))) 1)
+                  {
+                    (set seen (+ seen 1))
+                    (if (== d 0)
+                      (set weak (+ weak 1))
+                      0)
+                  }
+                  0)
+              })
+            ; The data word is read only once the flag says it was
+            ; published. Read before the test, it raced the writer's
+            ; plain store whenever the flag was still 0 (MM-PAR-9), and
+            ; ThreadSanitizer said so.
+            (if (== (loadFlag flag i mode) 1)
+              {
+                (set seen (+ seen 1))
+                (if (== mode 2)
+                  __fence
+                  0)
+                (if (== (__load64 data i) 0)
+                  (set weak (+ weak 1))
+                  0)
+              }
+              0))
           (set i (+ i 1))
         })
       (__store64 out 0 weak)
@@ -1200,6 +1255,341 @@
       (report weak saw)
     }))
 
+; ---- r and s -----------------------------------------------------------
+; T0 of both: stores `v` to round i's word of `first`, then `w` to
+; `second`'s. mode 1 plain, 2 fence (plain, with `__fence` between),
+; otherwise the atomics.
+(:: pairWriter (-> Int Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (pairWriter first v second w ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (if (== mode 1)
+            {
+              (__store64 first i v)
+              (__store64 second i w)
+            }
+            (if (== mode 2)
+              {
+                (__store64 first i v)
+                __fence
+                (__store64 second i w)
+              }
+              {
+                (__atomic_store (+ first (* 8 i)) v)
+                (__atomic_store (+ second (* 8 i)) w)
+              }))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; r's T1: stores 2 to round i's word of y, then loads x's into res[i].
+; `reorder` loads x first, then stores 2 once T0's store to y is
+; visible, waiting for at most `waitSpins` loads.
+(:: rThread (-> Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (rThread xs ys res ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (if (== mode 1)
+            {
+              (__store64 ys i 2)
+              (__store64 res i (__load64 xs i))
+            }
+            (if (== mode 2)
+              {
+                (__store64 ys i 2)
+                __fence
+                (__store64 res i (__load64 xs i))
+              }
+              (if (== mode 3)
+                (let ((r (__atomic_load (+ xs (* 8 i)))))
+                  {
+                    (waitStored (+ ys (* 8 i)) waitSpins)
+                    (__atomic_store (+ ys (* 8 i)) 2)
+                    (__store64 res i r)
+                  })
+                {
+                  (__atomic_store (+ ys (* 8 i)) 2)
+                  (__store64 res i (__atomic_load (+ xs (* 8 i))))
+                })))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; s's T1: loads round i's word of y into res[i], then stores 1 to x's.
+; `reorder` stores x first, then loads y once T0's store to it is
+; visible, waiting for at most `waitSpins` loads.
+(:: sThread (-> Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (sThread xs ys res ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (if (== mode 1)
+            (let ((r (__load64 ys i)))
+              {
+                (__store64 xs i 1)
+                (__store64 res i r)
+              })
+            (if (== mode 2)
+              (let ((r (__load64 ys i)))
+                {
+                  __fence
+                  (__store64 xs i 1)
+                  (__store64 res i r)
+                })
+              (if (== mode 3)
+                {
+                  (__atomic_store (+ xs (* 8 i)) 1)
+                  (waitStored (+ ys (* 8 i)) waitSpins)
+                  (__store64 res i (__atomic_load (+ ys (* 8 i))))
+                }
+                (let ((r (__atomic_load (+ ys (* 8 i)))))
+                  {
+                    (__atomic_store (+ xs (* 8 i)) 1)
+                    (__store64 res i r)
+                  }))))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; Counts the rounds in which `fin`'s word ended `fv` and res[i] answered
+; `rv` (forbidden), and those in which they ended `wf` and `wr`
+; (witnessed), and reports both.
+(:: pairTally (-> Int Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (pairTally fin res fv rv wf wr n)
+  (let (
+    (mut i 0)
+    (mut weak 0)
+    (mut both 0)
+  )
+    {
+      (while (< i n)
+        {
+          (let (
+            (f (__load64 fin i))
+            (r (__load64 res i))
+          )
+            (if (&& (== f fv) (== r rv))
+              (set weak (+ weak 1))
+              (if (&& (== f wf) (== r wr))
+                (set both (+ both 1))
+                0)))
+          (set i (+ i 1))
+        })
+      (report weak both)
+    }))
+
+; r: T0 stores x then y; T1 stores 2 to y, then loads x. Forbidden is y
+; ending 2 with T1's load answering 0; the witness is y ending 1 with
+; the load answering 1, the rounds whose accesses interleaved.
+(:: runR (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runR mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (ys (__alloc (* 8 n)))
+    (res (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+  )
+    {
+      (parallel p (
+        (a (pairWriter
+          xs
+          1
+          ys
+          1
+          ctr
+          n
+          mode))
+        (b (rThread
+          xs
+          ys
+          res
+          ctr
+          n
+          mode))
+      )
+        (+ a b))
+      (pairTally
+        ys
+        res
+        2
+        0
+        1
+        1
+        n)
+    }))
+
+; s: T0 stores 2 to x, then 1 to y; T1 loads y, then stores 1 to x.
+; Forbidden is x ending 2 with T1's load answering 1; the witness is x
+; ending 1 with the load answering 0, the rounds whose accesses
+; interleaved.
+(:: runS (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runS mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (ys (__alloc (* 8 n)))
+    (res (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+  )
+    {
+      (parallel p (
+        (a (pairWriter
+          xs
+          2
+          ys
+          1
+          ctr
+          n
+          mode))
+        (b (sThread
+          xs
+          ys
+          res
+          ctr
+          n
+          mode))
+      )
+        (+ a b))
+      (pairTally
+        xs
+        res
+        2
+        1
+        1
+        0
+        n)
+    }))
+
+; ---- 3.sb --------------------------------------------------------------
+; Load `w` until it reaches `want`, at most `k` times. Answers the loads
+; made.
+(:: waitCount (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (waitCount w want k)
+  (let ((mut j 0))
+    {
+      (while (&& (< j k) (< (__atomic_load w) want))
+        (set j (+ j 1)))
+      j
+    }))
+
+; mode 0 sc, 1 plain, 3 reorder. Stores 1 to round i's word of `mine`,
+; then loads `next`'s into res[i]. `reorder` loads first, adds 1 to
+; round i's word of `gate`, waits for all three bindings to have, for at
+; most `waitSpins` loads, then stores.
+(:: sb3Thread (-> Int Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (sb3Thread mine next res gate ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arriveAll ctr i 3)
+          (if (== mode 1)
+            {
+              (__store64 mine i 1)
+              (__store64 res i (__load64 next i))
+            }
+            (if (== mode 3)
+              (let ((r (__atomic_load (+ next (* 8 i)))))
+                {
+                  (__atomic_add (+ gate (* 8 i)) 1)
+                  (waitCount (+ gate (* 8 i)) 3 waitSpins)
+                  (__atomic_store (+ mine (* 8 i)) 1)
+                  (__store64 res i r)
+                })
+              {
+                (__atomic_store (+ mine (* 8 i)) 1)
+                (__store64 res i (__atomic_load (+ next (* 8 i))))
+              }))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; T0 stores x, loads y; T1 stores y, loads z; T2 stores z, loads x.
+; Forbidden is all three loads answering 0; the witness is all three
+; answering 1, the rounds in which every store preceded every load.
+(:: runSb3 (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runSb3 mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (ys (__alloc (* 8 n)))
+    (zs (__alloc (* 8 n)))
+    (r0 (__alloc (* 8 n)))
+    (r1 (__alloc (* 8 n)))
+    (r2 (__alloc (* 8 n)))
+    (gate (if (== mode 3)
+      (__alloc (* 8 n))
+      0))
+    (ctr (__alloc 8))
+    (mut i 0)
+    (mut weak 0)
+    (mut full 0)
+  )
+    {
+      (parallel p (
+        (a (sb3Thread
+          xs
+          ys
+          r0
+          gate
+          ctr
+          n
+          mode))
+        (b (sb3Thread
+          ys
+          zs
+          r1
+          gate
+          ctr
+          n
+          mode))
+        (c (sb3Thread
+          zs
+          xs
+          r2
+          gate
+          ctr
+          n
+          mode))
+      )
+        (+ a (+ b c)))
+      (while (< i n)
+        {
+          (let ((s (+ (__load64 r0 i) (+ (__load64 r1 i) (__load64 r2 i)))))
+            (if (== s 0)
+              (set weak (+ weak 1))
+              (if (== s 3)
+                (set full (+ full 1))
+                0)))
+          (set i (+ i 1))
+        })
+      (report weak full)
+    }))
+
 (:: modeOf (-> String Int))
 (fn (modeOf s)
   (if (strEq s "sc")
@@ -1216,7 +1606,7 @@
 ;@axiom:effect(io)
 (fn (usage)
   {
-    (println "usage: atomics (sb sc|plain|fence) | (mp sc|plain) | (add sc|split|cas) | (lb|2+2w|iriw|wrc|isa2|corr|coww|cowr|corw sc|plain|reorder)")
+    (println "usage: atomics (sb sc|plain|fence) | (add sc|split|cas) | (mp|r|s sc|plain|fence|reorder) | (3.sb|lb|2+2w|iriw|wrc|isa2|corr|coww|cowr|corw sc|plain|reorder)")
     2
   })
 
@@ -1226,7 +1616,7 @@
   (let (
     (family (sysArg 1))
     (mode (modeOf (sysArg 2)))
-    (n (if (|| (strEq family "iriw") (|| (strEq family "wrc") (strEq family "isa2")))
+    (n (if (|| (strEq family "iriw") (|| (strEq family "wrc") (|| (strEq family "isa2") (strEq family "3.sb"))))
       200000
       500000))
   )
@@ -1234,28 +1624,34 @@
       (usage)
       (if (&& (strEq family "sb") (< mode 3))
         (runSb mode n)
-        (if (&& (strEq family "mp") (< mode 2))
+        (if (strEq family "mp")
           (runMp mode n)
           (if (&& (strEq family "add") (< mode 3))
             (runAdd mode n)
-            (if (&& (strEq family "lb") (!= mode 2))
-              (runLb mode n)
-              (if (&& (strEq family "2+2w") (!= mode 2))
-                (runTwo mode n)
-                (if (&& (strEq family "iriw") (!= mode 2))
-                  (runIriw mode n)
-                  (if (== mode 2)
-                    (usage)
-                    (if (strEq family "wrc")
-                      (runWrc mode n)
-                      (if (strEq family "isa2")
-                        (runIsa2 mode n)
-                        (if (strEq family "corr")
-                          (runCorr mode n)
-                          (if (strEq family "coww")
-                            (runCoww mode n)
-                            (if (strEq family "cowr")
-                              (runCoSelf 1 mode n)
-                              (if (strEq family "corw")
-                                (runCoSelf 0 mode n)
-                                (usage)))))))))))))))))
+            (if (strEq family "r")
+              (runR mode n)
+              (if (strEq family "s")
+                (runS mode n)
+                (if (&& (strEq family "3.sb") (!= mode 2))
+                  (runSb3 mode n)
+                  (if (&& (strEq family "lb") (!= mode 2))
+                    (runLb mode n)
+                    (if (&& (strEq family "2+2w") (!= mode 2))
+                      (runTwo mode n)
+                      (if (&& (strEq family "iriw") (!= mode 2))
+                        (runIriw mode n)
+                        (if (== mode 2)
+                          (usage)
+                          (if (strEq family "wrc")
+                            (runWrc mode n)
+                            (if (strEq family "isa2")
+                              (runIsa2 mode n)
+                              (if (strEq family "corr")
+                                (runCorr mode n)
+                                (if (strEq family "coww")
+                                  (runCoww mode n)
+                                  (if (strEq family "cowr")
+                                    (runCoSelf 1 mode n)
+                                    (if (strEq family "corw")
+                                      (runCoSelf 0 mode n)
+                                      (usage))))))))))))))))))))
