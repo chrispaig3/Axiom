@@ -41,6 +41,13 @@ gate_build_axc axc
 echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
+# Baseline 376 measured 2026-09-28: five arrived with the typed handles.
+# `tests/stdlib/570-handle-freed.ax` and `572-spawn-joined-twice.ax`
+# (two each) spell a forged handle and one handle's word as another
+# kind, which only a cast can write because the types are sealed, and
+# `tests/litmus/sync-load.ax` (one) reads a mutex's page through the
+# unsafe layer to build the stale-guard window. The forging casts are
+# the fixtures' subject: the MM-VAL-23 reason.
 # Baseline 371 measured 2026-09-28: six arrived with
 # `1024-type-part-not-a-type`, whose three goldens echo AX3002's help,
 # "`(cast Int e)`", once per refusal. The fixture pins what a cast's
@@ -88,10 +95,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 371 ]; then
-  ok "user-level (cast count $cast_count <= 371)"
+elif [ "$cast_count" -le 376 ]; then
+  ok "user-level (cast count $cast_count <= 376)"
 else
-  bad "user-level (cast count $cast_count > 371): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 376): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"

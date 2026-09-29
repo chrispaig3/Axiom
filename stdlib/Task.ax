@@ -58,10 +58,13 @@
 ;     task past it is sent SIGKILL and reaped, and answers
 ;     `sysTimedOut`; if it had already finished or died of its own
 ;     accord, that answer wins.
-;   * A TOKEN is one shared word (`taskTokenNew`). `taskCancel` sets it
-;     from anywhere - another binding, a task, the pool itself - and
-;     wakes every pool sleeping on it; `taskCancelled` is the poll a
-;     cooperative task makes. Once a pool sees it set, it starts
+;   * A TOKEN is a `CancelToken` (`taskTokenNew`): a sealed handle
+;     (docs/memory-model.md MM-VAL-10a, MM-PAR-8) naming one shared
+;     page. `taskCancel` sets it from anywhere - another binding, a
+;     task, the pool itself - and wakes every pool sleeping on it;
+;     `taskCancelled` is the poll a cooperative task makes. It is
+;     declared `shared`, so a `parallel` binding may capture it, and a
+;     call on a freed one traps with status 85. Once a pool sees it set, it starts
 ;     nothing more (every unstarted task answers `taskCancelledCode`),
 ;     gives running tasks `grace` nanoseconds to finish, then SIGKILLs
 ;     and reaps what is left. A token the caller passes is shared state:
@@ -96,12 +99,13 @@
 ; oldest running task's join when nothing else can move, and a
 ; cancellation then waits for that join.
 ;
-; THE HANDLE LAYOUT IS BORROWED. A task is killed by the pid in word 0
-; of its `__proc_spawn` handle page (`self_host/codegen.ax`,
-; `emitParCommon`'s layout). Nothing in the type system says so;
-; `scripts/check-task.sh` checks it through the deadline's kill: with
-; the pid read from anywhere else, the task outlives its deadline and
-; the check goes red (the `layout` ablation).
+; A TASK IS KILLED BY ITS PID, which `__spawn_pid` reads from the page
+; its `Spawn` handle names, through the runtime's handle table
+; (MM-PAR-8): the page layout stays the runtime's, and a handle already
+; joined traps with status 85 instead of reading an unmapped page.
+; `scripts/check-task.sh` checks the pid through the deadline's kill:
+; with any other number, the task outlives its deadline and the check
+; goes red (the `layout` ablation).
 ;
 ; DETERMINISM. The RESULTS are in submit order and depend only on what
 ; each task answered - never on scheduling. SIDE EFFECTS are not: tasks
@@ -120,15 +124,15 @@
 ; `width` children at most (clamped to 1..n); `limit` bytes per answer
 ; (0 or more); `deadline` nanoseconds per task from its spawn, 0 for
 ; none; `grace` nanoseconds a running task gets after a cancellation;
-; `failFast` cancels the pool at the first error; `token` is a word from
-; `taskTokenNew`, or 0 for one private to the call.
+; `failFast` cancels the pool at the first error; `token` is `Some` a
+; token from `taskTokenNew`, or `None` for one private to the call.
 (pub struct TaskOpts
   (width : Int)
   (limit : Int)
   (deadline : Int)
   (grace : Int)
   (failFast : Bool)
-  (token : Int))
+  (token : (Option CancelToken)))
 
 ; No deadline, a 100 ms grace, no fail-fast, a private token.
 (pub :: taskOpts (-> Int Int TaskOpts))
@@ -139,7 +143,7 @@
     0
     100000000
     false
-    0))
+    None))
 
 (pub :: taskWithDeadline (-> TaskOpts Int TaskOpts))
 (pub fn (taskWithDeadline o nanos)
@@ -171,7 +175,7 @@
     on
     o.token))
 
-(pub :: taskWithToken (-> TaskOpts Int TaskOpts))
+(pub :: taskWithToken (-> TaskOpts CancelToken TaskOpts))
 (pub fn (taskWithToken o tok)
   (TaskOpts
     o.width
@@ -179,7 +183,7 @@
     o.deadline
     o.grace
     o.failFast
-    tok))
+    (Some tok)))
 
 ; ---- the codes -------------------------------------------------------------
 (pub :: taskCancelledCode Int)
@@ -241,12 +245,10 @@
 (fn (taskAddAt a v)
   (__atomic_add a v))
 
-; The pid in word 0 of a `__proc_spawn` handle page (the header's
-; borrowed layout).
-(:: taskHandlePid (-> Int Int))
-;@axiom:effect(unsafe)
+; The pid a task runs as, read through its live `Spawn` handle.
+(:: taskHandlePid (-> Spawn Int))
 (fn (taskHandlePid h)
-  (__load64 h 0))
+  (__spawn_pid h))
 
 ; A block with a share taken, and the share given back.
 (:: taskScratch (-> Int Int))
@@ -267,31 +269,88 @@
   })
 
 ; ---- the token -------------------------------------------------------------
-; Word 0 the cancelled flag, word 1 the event counter a pool sleeps on.
-(pub :: taskTokenNew (Result Int Error))
+; A cancellation token: one word, a slot in the runtime's handle table
+; (MM-PAR-8) naming a shared page - word 0 the cancelled flag, word 1
+; the event counter a pool sleeps on.
+(pub struct CancelToken word shared
+  (slot : Int))
+
+; The handle table's kind for a token (`Chan.ax`'s is 2, `Sync.ax`'s 3).
+(:: taskKind Int)
+(fn (taskKind)
+  4)
+
+; The page a live token names, or the 85 trap for one that was freed.
+(:: taskTokenAt (-> CancelToken Int))
+;@axiom:effect(unsafe)
+(fn (taskTokenAt t)
+  (__handle_get taskKind t.slot))
+
+; A handle for a fresh page, or 0 when the table has no slot left.
+(:: taskTokenName (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (taskTokenName page)
+  (__handle_new taskKind page))
+
+; Retire a live token's handle and answer its page, or the 85 trap for a
+; token already freed.
+(:: taskTokenRetire (-> CancelToken Int))
+;@axiom:effect(unsafe)
+(fn (taskTokenRetire t)
+  (__handle_free taskKind t.slot))
+
+; A fresh token, not set. `Err` the mapping's error, or EMFILE (24) when
+; the handle table has no slot left.
+(pub :: taskTokenNew (Result CancelToken Error))
 ;@axiom:effect(io)
 (pub fn (taskTokenNew)
-  (sysMapShared 4096))
+  (match (sysMapShared 4096)
+    ((Ok page) (taskTokenNamed page))
+    ((Err e) (Err e))))
+
+; Name a fresh page in the handle table, or unmap it and say why not.
+(:: taskTokenNamed (-> Int (Result CancelToken Error)))
+;@axiom:effect(io)
+(fn (taskTokenNamed page)
+  (let ((h (taskTokenName page)))
+    (if (== h 0)
+      (match (sysUnmapShared page 4096)
+        ((Ok z) (Err (mkError 24 "taskTokenNew: every handle is in use")))
+        ((Err e) (Err (mkError 24 "taskTokenNew: every handle is in use"))))
+      (Ok (CancelToken h)))))
 
 ; Set the token and wake every pool sleeping on it. Idempotent.
-(pub :: taskCancel (-> Int Int))
+(pub :: taskCancel (-> CancelToken Int))
 ;@axiom:effect(io)
-(pub fn (taskCancel tok)
+(pub fn (taskCancel t)
+  (taskCancelAt (taskTokenAt t)))
+
+; Whether the token is set: the poll a cooperative task makes.
+(pub :: taskCancelled (-> CancelToken Bool))
+(pub fn (taskCancelled t)
+  (taskCancelledAt (taskTokenAt t)))
+
+; Unmap a token. Only once no pool and no task can still reach it; the
+; handle is retired first, so every call after this one - a second
+; `taskTokenFree` included - traps with status 85.
+(pub :: taskTokenFree (-> CancelToken (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (taskTokenFree t)
+  (sysUnmapShared (taskTokenRetire t) 4096))
+
+; The two halves above, on the page itself: what the pool and its tasks
+; use once the token's page is in hand.
+(:: taskCancelAt (-> Int Int))
+;@axiom:effect(io)
+(fn (taskCancelAt tok)
   {
     (taskStoreAt tok 1)
     (taskBump tok)
   })
 
-; Whether the token is set: the poll a cooperative task makes.
-(pub :: taskCancelled (-> Int Bool))
-(pub fn (taskCancelled tok)
+(:: taskCancelledAt (-> Int Bool))
+(fn (taskCancelledAt tok)
   (== (taskLoadAt tok) 1))
-
-; Unmap a token. Only once no pool and no task can still reach it.
-(pub :: taskTokenFree (-> Int (Result Int Error)))
-;@axiom:effect(io)
-(pub fn (taskTokenFree tok)
-  (sysUnmapShared tok 4096))
 
 (:: taskBump (-> Int Int))
 ;@axiom:effect(io)
@@ -337,35 +396,36 @@
     }))
 
 ; ---- the parent's half ---------------------------------------------------
-; Per slot, four words of `st`: the handle, the deadline (microseconds on
+; Per slot, three words of `st`: the deadline (microseconds on
 ; `sysTimeoutMicros`'s clock, 0 for none), the wait status, and why it
 ; was joined - 0 not yet, 1 it ended, 2 killed at its deadline, 3 killed
-; at the end of a cancellation's grace.
+; at the end of a cancellation's grace. The slot's `Spawn` handle is
+; word `s` of `hs`.
 (:: taskSt (-> (Vec Int) Int Int Int))
 (fn (taskSt st s k)
-  (vecGet st (+ (* 4 s) k)))
+  (vecGet st (+ (* 3 s) k)))
 
 (:: taskSetSt (-> (Vec Int) Int Int Int Int))
 (fn (taskSetSt st s k v)
   {
-    (vecSet st (+ (* 4 s) k) v)
+    (vecSet st (+ (* 3 s) k) v)
     0
   })
 
 ; Join slot `s`'s child - it has ended, or was just killed - and record
 ; why. Answers 1 when the outcome is an error `failFast` counts: not a
 ; cancellation's kill.
-(:: taskJoin (-> (Vec Int) Int Int Int Int Int Int))
+(:: taskJoin (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int))
 ;@axiom:effect(io)
-(fn (taskJoin st s cell slab slotBytes why)
-  (let ((w (__proc_join_nr (taskSt st s 0) cell)))
+(fn (taskJoin st hs s cell slab slotBytes why)
+  (let ((w (__proc_join_nr (vecGet hs s) cell)))
     (let (
       (status (memGetWord cell 0))
       (state (taskLoadAt (+ slab (* s slotBytes))))
     )
       {
-        (taskSetSt st s 2 status)
-        (taskSetSt st s 3 why)
+        (taskSetSt st s 1 status)
+        (taskSetSt st s 2 why)
         ; The same `finished` test `taskResultAt` makes: a task that
         ; answered and was then SIGKILLed from outside (137, joined as
         ; ended) is delivered as `Err 137`, so it counts for `failFast`.
@@ -377,15 +437,16 @@
       })))
 
 ; Kill slot `s`'s child and join it.
-(:: taskKillJoin (-> (Vec Int) Int Int Int Int Int Int))
+(:: taskKillJoin (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int))
 ;@axiom:effect(io)
-(fn (taskKillJoin st s cell slab slotBytes why)
+(fn (taskKillJoin st hs s cell slab slotBytes why)
   {
-    (match (sysKill (taskHandlePid (taskSt st s 0)) 9)
+    (match (sysKill (taskHandlePid (vecGet hs s)) 9)
       ((Ok z) 0)
       ((Err e) 0))
     (taskJoin
       st
+      hs
       s
       cell
       slab
@@ -442,8 +503,8 @@
   ; CALLER's file, not this one). The arithmetic answers a plain word.
   (let (
     (slot (+ slab (* s slotBytes)))
-    (status (+ 0 (taskSt st s 2)))
-    (why (+ 0 (taskSt st s 3)))
+    (status (+ 0 (taskSt st s 1)))
+    (why (+ 0 (taskSt st s 2)))
   )
     (if (== scoped 1)
       (region r
@@ -476,13 +537,13 @@
     {
       (for t head next
         (let ((s (% t w)))
-          (if (== (taskSt st s 3) 0)
+          (if (== (taskSt st s 2) 0)
             {
               (set running 1)
               (if (>= (taskLoadAt (+ slab (* s slotBytes))) 2)
                 (set answered 1)
                 0)
-              (let ((d (taskSt st s 1)))
+              (let ((d (taskSt st s 0)))
                 (if (&& (> d 0) (|| (< wake 0) (< d wake)))
                   (set wake d)
                   0))
@@ -508,12 +569,12 @@
 ; answered task is joined when the kernel reports its exit, and until
 ; then stays under its deadline and a cancellation's grace like any
 ; other running task.
-(:: taskEnded (-> (Vec Int) Int Int Int Int Int Int))
+(:: taskEnded (-> (Vec Spawn) Int Int Int Int Int Int))
 ;@axiom:effect(io)
-(fn (taskEnded st s slab slotBytes pbuf canPoll)
+(fn (taskEnded hs s slab slotBytes pbuf canPoll)
   (let ((answered (>= (taskLoadAt (+ slab (* s slotBytes))) 2)))
     (if (== canPoll 1)
-      (match (sysChildExited (taskHandlePid (taskSt st s 0)) pbuf)
+      (match (sysChildExited (taskHandlePid (vecGet hs s)) pbuf)
         ((Ok b)
           (if b
             1
@@ -534,11 +595,11 @@
 ; and join it if its deadline or a cancellation's grace has run out.
 ; Answers -1 nothing happened, -2 the look at the child failed, else
 ; `taskJoin`'s answer (1 an error `failFast` counts, 0 not).
-(:: taskCheck (-> (Vec Int) Int Int Int Int Int Int Int Int Int Int))
+(:: taskCheck (-> (Vec Int) (Vec Spawn) Int Int Int Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
-(fn (taskCheck st s now cancelling graceEnd canPoll cell slab slotBytes pbuf)
+(fn (taskCheck st hs s now cancelling graceEnd canPoll cell slab slotBytes pbuf)
   (let ((ended (taskEnded
-    st
+    hs
     s
     slab
     slotBytes
@@ -547,14 +608,16 @@
     (if (== ended 1)
       (taskJoin
         st
+        hs
         s
         cell
         slab
         slotBytes
         1)
-      (if (&& (> (taskSt st s 1) 0) (>= now (taskSt st s 1)))
+      (if (&& (> (taskSt st s 0) 0) (>= now (taskSt st s 0)))
         (taskKillJoin
           st
+          hs
           s
           cell
           slab
@@ -563,6 +626,7 @@
         (if (&& (== cancelling 1) (>= now graceEnd))
           (taskKillJoin
             st
+            hs
             s
             cell
             slab
@@ -574,10 +638,12 @@
 
 ; Start task `t` in its slot `t % w`. Its deadline runs from the clock
 ; read AFTER the spawn answered, so a task started late in a batch -
-; after other forks - keeps the whole of its deadline.
-(:: taskStart (-> (Vec Int) (-> Int Int) Int Int Int Int Int Int Int))
+; after other forks - keeps the whole of its deadline. Slot `s`'s first
+; task pushes its handle onto `hs`, which grows to `w` in slot order;
+; every later one replaces the handle joined before it.
+(:: taskStart (-> (Vec Int) (Vec Spawn) (-> Int Int) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
-(fn (taskStart st wrapper t w slab slotBytes clk deadlineUs)
+(fn (taskStart st hs wrapper t w slab slotBytes clk deadlineUs)
   (let (
     (s (% t w))
     (slot (+ slab (* (% t w) slotBytes)))
@@ -586,16 +652,19 @@
       (taskStoreAt slot 1)
       (memSetWord slot 1 0)
       (memSetWord slot 2 0)
-      (taskSetSt st s 0 (__proc_spawn wrapper (+ (* t w) s)))
+      (let ((h (__proc_spawn wrapper (+ (* t w) s))))
+        (if (< t w)
+          (vecPush hs h)
+          (vecSet hs s h)))
       (taskSetSt
         st
         s
-        1
+        0
         (if (> deadlineUs 0)
           (+ (sysTimeoutMicros clk) deadlineUs)
           0))
+      (taskSetSt st s 1 0)
       (taskSetSt st s 2 0)
-      (taskSetSt st s 3 0)
     }))
 
 ; Nanoseconds from `now` to `wake` (microseconds), at least one, and at
@@ -624,7 +693,8 @@
 ;@axiom:effect(io)
 (fn (taskLoop f n opts sink scoped w limit slotBytes tok slab)
   (let (
-    (st (vecWithCapacity (* 4 w)))
+    (st (vecWithCapacity (* 3 w)))
+    (hs (vecWithCapacity w))
     (cell (taskScratch 8))
     (clk (taskScratch 16))
     (pbuf (taskScratch sysChildPollBytes))
@@ -647,7 +717,7 @@
     (mut nap taskExitNapFirst)
   )
     {
-      (for i 0 (* 4 w)
+      (for i 0 (* 3 w)
         (vecPush st 0))
       (while (< head n)
         (let (
@@ -657,7 +727,7 @@
           {
             (set progress 0)
             ; A cancellation seen for the first time.
-            (if (&& (== cancelling 0) (taskCancelled tok))
+            (if (&& (== cancelling 0) (taskCancelledAt tok))
               {
                 (set cancelling 1)
                 (set graceEnd (+ now graceUs))
@@ -669,6 +739,7 @@
               {
                 (taskStart
                   st
+                  hs
                   wrapper
                   next
                   w
@@ -682,9 +753,10 @@
             ; Join what has ended; kill and join what ran out of time.
             (for t head next
               (let ((s (% t w)))
-                (if (== (taskSt st s 3) 0)
+                (if (== (taskSt st s 2) 0)
                   (let ((r (taskCheck
                     st
+                    hs
                     s
                     now
                     cancelling
@@ -700,13 +772,13 @@
                         {
                           (set progress 1)
                           (if (&& (== r 1) opts.failFast)
-                            (taskCancel tok)
+                            (taskCancelAt tok)
                             0)
                         }
                         0)))
                   0)))
             ; Deliver, in submit order, what has been joined.
-            (while (&& (< head next) (!= (taskSt st (% head w) 3) 0))
+            (while (&& (< head next) (!= (taskSt st (% head w) 2) 0))
               {
                 (taskDeliver
                   sink
@@ -747,16 +819,17 @@
                     (sysWaitWordTimeout (+ tok 8) seen (taskSleepFor now wake))
                     ; No clock can end the wait and no look at a child
                     ; exists: block on the oldest running task's join.
-                    (if (&& (< head next) (== (taskSt st (% head w) 3) 0))
+                    (if (&& (< head next) (== (taskSt st (% head w) 2) 0))
                       (let ((r (taskJoin
                         st
+                        hs
                         (% head w)
                         cell
                         slab
                         slotBytes
                         1)))
                         (if (&& (== r 1) opts.failFast)
-                          (taskCancel tok)
+                          (taskCancelAt tok)
                           0))
                       0))
                 })
@@ -766,6 +839,7 @@
       (taskScratchDone clk)
       (taskScratchDone pbuf)
       (vecFree st)
+      (vecFree hs)
       head
     }))
 
@@ -802,12 +876,19 @@
     )))
 
 ; The token the pool sleeps on: the caller's, or a fresh one.
-(:: taskTokenFor (-> Int (Result Int Error)))
+(:: taskTokenFor (-> (Option CancelToken) (Result CancelToken Error)))
 ;@axiom:effect(io)
 (fn (taskTokenFor tok)
-  (if (== tok 0)
-    taskTokenNew
-    (Ok tok)))
+  (match tok
+    ((Some t) (Ok t))
+    ((None) taskTokenNew)))
+
+; Whether the pool made its token itself, and so frees it.
+(:: taskOwnsToken (-> (Option CancelToken) Bool))
+(fn (taskOwnsToken tok)
+  (match tok
+    ((Some t) false)
+    ((None) true)))
 
 ; The width actually used: at least 1, at most n.
 (:: taskWidth (-> Int Int Int))
@@ -844,8 +925,8 @@
               w
               limit
               (+ 32 (* 8 (/ (+ limit 7) 8)))
-              tok)))
-              (if (== opts.token 0)
+              (taskTokenAt tok))))
+              (if (taskOwnsToken opts.token)
                 (match (taskTokenFree tok)
                   ((Ok z) done)
                   ((Err e) done))

@@ -109,9 +109,12 @@
 ; Run `f i` for every `i` in `0 .. n`, at most `width` at once,
 ; answering the results in SUBMIT order.
 ;
-; `hs` is a ring with at most min(n, w) slots. Slot i % w is reused
-; only after the old child in it has joined; `joined` counts submitted
-; results, not positions in the ring. `out` still holds n results, so
+; `hs` is a ring with at most min(n, w) slots, each a `Spawn`: the
+; handle a spawn answers and its join takes (docs/memory-model.md
+; MM-PAR-8), so a slot joined twice would trap with status 85 rather
+; than read an unmapped page. Slot i % w is reused only after the old
+; child in it has joined; `joined` counts submitted results, not
+; positions in the ring. `out` still holds n results, so
 ; total result storage is O(n), while handle storage is O(min(n, w)).
 ; Capacity is capped by n before allocation: a huge width over a short
 ; or empty input does not ask for a huge ring. Vec clamps an empty or
@@ -166,7 +169,7 @@
 ; PRIVATE, for `parRunWord`'s reason: the lossy-per-slot form is needed
 ; in one place, so it lives there, and a caller who wants the pool
 ; calls `parMapWordsChecked`.
-(:: parJoinChecked (-> Int Int (Result Int Error)))
+(:: parJoinChecked (-> Spawn Int (Result Int Error)))
 ;@axiom:effect(io)
 (fn (parJoinChecked h cell)
   (let ((w (__proc_join_nr h cell)))

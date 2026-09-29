@@ -4,24 +4,31 @@
 #
 # A channel, a mutex and a cancellation token are word structs: sealed
 # types whose word is a slot in a handle table the emitted runtime owns.
-# Every operation asks the table for the object first, so a freed or
-# forged handle traps with status 85 before the object's unmapped pages
-# are touched. The diagnostics corpus holds the static half (1060 to
-# 1065: an `Int` for a channel, a mutex as a channel, the seal, the
-# capture rule and the markers); this gate holds the rest.
+# A spawn handle is the builtin `Spawn`, a slot in the same table. Every
+# operation and every join asks the table for the object first, so a
+# freed or forged handle traps with status 85 before the object's
+# unmapped pages are touched. The diagnostics corpus holds the static
+# half (1060 to 1066: an `Int` for a channel or a spawn handle, a mutex
+# as a channel, the seal, the capture rule and the markers); this gate
+# holds the rest.
 #
 # SIX SECTIONS.
 #
 #   1. Freed and forged handles, at every `--opt`.
 #      tests/stdlib/570-handle-freed.ax runs every channel and mutex
 #      operation on a freed handle, a second free, a forged word and a
-#      mutex's word used as a channel, each inside a recovery point, and
+#      mutex's word used as a channel, each inside a recovery point;
 #      tests/stdlib/571-handle-table.ax the table itself: 65,536 live
 #      handles, the 65,537th refused, a slot reused under a new
-#      generation. Each must exit 85 at --opt 0 to 3 with its golden's
-#      stdout, and 570 must print at least nineteen 85s.
+#      generation; and tests/stdlib/572-spawn-joined-twice.ax a second
+#      join, the pid of a joined binding, forged and other-kind spawn
+#      handles, and a freed cancellation token. Each must exit 85 at
+#      --opt 0 to 3 with its golden's stdout, and 570 must print at
+#      least nineteen 85s.
 #   2. Misuse in both lowerings. A send on a freed channel, a lock of a
-#      freed mutex and a second free exit 85, processes and threads.
+#      freed mutex, a second free and a second join exit 85, processes
+#      and threads; so do the pid of a thread's handle and a forked
+#      binding's handle joined as a thread.
 #   3. The table under concurrency, both lowerings. Four bindings make,
 #      check and free 20,000 handles each at once, and every handle must
 #      answer its own address. Two bindings free one handle at once,
@@ -38,8 +45,9 @@
 #      allocates nothing and takes the handle's check once.
 #   6. Ablations, each required to go red:
 #        get    - a compiler whose `@__axiom_handle_get` skips both state
-#                 compares: the send on a freed channel takes whatever
-#                 the retired slot holds for the ring's address.
+#                 compares: the send on a freed channel, and a second
+#                 join, take whatever the retired slot holds for the
+#                 object's address.
 #        retire - a `Chan.ax` whose `chanFree` unmaps without retiring
 #                 the handle: the same send reads the unmapped ring.
 #        free   - a compiler whose `@__axiom_handle_free` retires without
@@ -69,7 +77,7 @@ sentence="axiom: not a live handle (freed, or never made)"
 load="$repo_root/tests/litmus/handle-load.ax"
 
 echo "== 1. freed and forged handles trap 85 at every --opt =="
-for name in 570-handle-freed 571-handle-table; do
+for name in 570-handle-freed 571-handle-table 572-spawn-joined-twice; do
   src="$repo_root/tests/stdlib/$name.ax"
   golden="$repo_root/tests/stdlib/$name.out"
   for lvl in 0 1 2 3; do
@@ -102,15 +110,28 @@ for lowering in processes threads; do
   if ! (cd "$repo_root" && "$axc" build ${flags[@]+"${flags[@]}"} --opt 2 --input "$load" --output "$bin") > "$bin.build" 2>&1; then
     bad "$lowering: the handle load did not build"; sed 's/^/    /' "$bin.build" | head -6; continue
   fi
-  for mode in freed-send freed-lock double-free; do
+  for mode in freed-send freed-lock double-free double-join; do
+    want=freed; [[ "$mode" == double-join ]] && want=42
     rc=0; out="$(gate_timeout 30 "$bin" "$mode" 2>"$work/err")" || rc=$?
-    if [[ "$rc" == 85 && "$out" == freed && "$(head -1 "$work/err")" == "$sentence" ]]; then
-      ok "$lowering $mode: exit 85 after the free, and nothing past it ran"
+    if [[ "$rc" == 85 && "$out" == "$want" && "$(head -1 "$work/err")" == "$sentence" ]]; then
+      ok "$lowering $mode: exit 85 after the first use, and nothing past it ran"
     else
       bad "$lowering $mode: exit $rc, stdout '$out', stderr '$(head -1 "$work/err")'"
     fi
   done
 done
+# The two kinds of spawn handle. Both lowerings are named explicitly
+# by the primitives, so one build shows both.
+if [[ -x "$work/load-processes" ]]; then
+  for mode in thread-pid cross-join; do
+    rc=0; out="$(gate_timeout 30 "$work/load-processes" "$mode" 2>"$work/err")" || rc=$?
+    if [[ "$rc" == 85 && "$out" == spawned && "$(head -1 "$work/err")" == "$sentence" ]]; then
+      ok "$mode: a spawn handle of the other lowering's kind exits 85"
+    else
+      bad "$mode: exit $rc, stdout '$out', stderr '$(head -1 "$work/err")'"
+    fi
+  done
+fi
 
 echo "== 3. the table under concurrency =="
 field() { printf '%s\n' "$1" | awk -v k="$2" '{for (i = 1; i < NF; i++) if ($i == k) print $(i + 1)}'; }
@@ -252,10 +273,11 @@ if ablate_cc get \
   '        (emitLine cg "  %ok2 = icmp eq i64 %s2, %want")' '        (emitLine cg "  %ok2 = icmp eq i64 %want, %want")'; then
   (cd "$repo_root" && "$work/cc-get/axc" build --opt 2 --input "$load" --output "$work/cc-get/load") > "$work/cc-get/load.build" 2>&1
   rc=0; out="$(gate_timeout 30 "$work/cc-get/load" freed-send 2>/dev/null)" || rc=$?
-  if signal_or_ran "$rc" "$out"; then
-    ok "get: red - with the state compares gone, the send on a freed channel exits $rc ('$(printf '%s' "$out" | tr '\n' ';')') instead of 85"
+  rc2=0; out2="$(gate_timeout 30 "$work/cc-get/load" double-join 2>/dev/null)" || rc2=$?
+  if signal_or_ran "$rc" "$out" && signal_or_ran "$rc2" "$out2"; then
+    ok "get: red - with the state compares gone, the send on a freed channel exits $rc and a second join $rc2, instead of 85"
   else
-    bad "get: the ablated compiler's freed send still exits $rc - the check cannot see the missing compare"
+    bad "get: the ablated compiler's freed send exits $rc and second join $rc2 - the check cannot see the missing compare"
   fi
 else
   bad "get: the compiler ablation did not apply or build"; tail -4 "$work/cc-get/build.log" 2>/dev/null | sed 's/^/    /'
@@ -303,6 +325,6 @@ if (( failed > 0 )); then
   echo "check-handles: $failed failed, $checks passed"
   exit 1
 fi
-echo "check-handles: $checks checks - a freed or forged handle traps 85 at every --opt"
+echo "check-handles: $checks checks - a freed, forged or rejoined handle traps 85 at every --opt"
 echo "               and in both lowerings, the table holds under concurrency, the"
 echo "               capture rule holds in both lowerings, and every ablation goes red"

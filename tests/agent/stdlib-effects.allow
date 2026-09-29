@@ -586,7 +586,9 @@ taskAddAt Task.ax Mut,Unsafe
 taskAllFailed Task.ax Alloc
 taskBump Task.ax IO,Mut,Unsafe
 taskCancel Task.ax IO,Mut,Unsafe
+taskCancelAt Task.ax IO,Mut,Unsafe
 taskCancelled Task.ax Unsafe
+taskCancelledAt Task.ax Unsafe
 taskCheck Task.ax Alloc,IO,Mut,Unsafe
 taskChild Task.ax IO,Mut,Unsafe
 taskCopyOut Task.ax Alloc,Mut,Unsafe
@@ -596,7 +598,6 @@ taskEnded Task.ax Alloc,IO,Mut,Unsafe
 taskEvent Task.ax Unsafe
 taskFold Task.ax Alloc,IO,Mut,Unsafe
 taskFoldOne Task.ax Mut,Unsafe
-taskHandlePid Task.ax Unsafe
 taskJoin Task.ax IO,Mut,Unsafe
 taskKillJoin Task.ax Alloc,IO,Mut,Unsafe
 taskLoadAt Task.ax Unsafe
@@ -612,9 +613,13 @@ taskSetSt Task.ax Mut,Unsafe
 taskSt Task.ax Unsafe
 taskStart Task.ax Alloc,IO,Mut,Unsafe
 taskStoreAt Task.ax Mut,Unsafe
-taskTokenFor Task.ax Alloc,IO
-taskTokenFree Task.ax Alloc,IO
-taskTokenNew Task.ax Alloc,IO
+taskTokenAt Task.ax Unsafe
+taskTokenFor Task.ax Alloc,IO,Mut,Unsafe
+taskTokenFree Task.ax Alloc,IO,Mut,Unsafe
+taskTokenName Task.ax Mut,Unsafe
+taskTokenNamed Task.ax Alloc,IO,Mut,Unsafe
+taskTokenNew Task.ax Alloc,IO,Mut,Unsafe
+taskTokenRetire Task.ax Mut,Unsafe
 taskWakeBy Task.ax Unsafe
 taskWithDeadline Task.ax Alloc
 taskWithFailFast Task.ax Alloc

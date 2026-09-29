@@ -22,6 +22,57 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Spawn handles and cancellation tokens are typed, and a second join traps — `MM-PAR-8` holds - 2026-09-28
+
+**BREAKING.** A spawn primitive answers a `Spawn`, and every join takes
+one. `taskTokenNew` answers a `CancelToken`, which `taskCancel`,
+`taskCancelled`, `taskTokenFree` and `taskWithToken` take, and
+`TaskOpts`'s `token` field is `(Option CancelToken)`. `parallel`,
+`Par` and `taskMap` are unchanged for their callers, and neither the
+primitives nor `Task` has shipped in a release. To migrate a
+hand-written spawn, type the handle `Spawn`, and read a forked child's
+pid with `__spawn_pid` instead of the page's first word:
+
+```scheme
+(:: start (-> Int Spawn))              ; was (-> Int Int)
+(fn (start n)
+  (__proc_spawn (lambda (x) (+ x 1)) n))
+
+(:: pidOf (-> Spawn Int))              ; was (__load64 h 0)
+(fn (pidOf h)
+  (__spawn_pid h))
+```
+
+**A second join traps with status 85.** A spawn names its page in the
+runtime's handle table, the join asks the table for the page before it
+reads it, and the page's end retires the handle on every path. So a
+second join, a checked join after a join, and the pid of a joined
+binding exit 85 instead of reading a page already unmapped. A forked
+binding's handle and a thread's are different kinds: one lowering's
+handle joined by the other's join exits 85, and `__spawn_pid` answers
+only a process's pid. `MM-PAR-8` moves from **P** to **H**: the type
+tracks the handle, a second join traps, and `MM-PAR-7`'s sweep covers a
+handle never joined.
+
+**A binding can't capture a spawn handle** (`AX3064`), because a join
+belongs to the binding that spawned it. A `CancelToken` is declared
+`shared`, so a binding may capture it. `check-parallel.sh` §12c still
+checks the runtime's own refusal of a cross-thread join (78): its
+probes carry the handle's word by `cast`, the unsafe layer.
+
+`Task.ax` reads no page layout any more: the pid comes from
+`__spawn_pid`, so `taskHandlePid` is no longer an unsafe read, and
+`check-task.sh`'s `kill` and `layout` ablations cut the new text. Tested
+by `tests/diagnostics/1066-spawn-handle.ax`,
+`tests/stdlib/572-spawn-joined-twice.ax` and `scripts/check-handles.sh`,
+which now also runs a second join in both lowerings, both cross-kind
+misuses, and a second join under its `get` ablation.
+
+The fuzzer's corpus grew with these fixtures, and its default run then
+reached a `while` with no body, which spins on its condition: `check`
+accepted it and `fmt` refused it with no code. `fpWhile` prints it on
+one line now (AN-50, `tests/fuzz/while-no-body.axfuzz`).
+
 ### Channels and mutexes are typed handles, and a freed one traps — `MM-VAL-10a`, `MM-PAR-8`, `AX3084` to `AX3086`, status 85 - 2026-09-28
 
 **BREAKING.** `chanNew` answers a `Chan` and `mutexNew` a `Mutex`,
@@ -57,9 +108,11 @@ send, receive, lock or unlock on a freed handle exits 85 with `axiom:
 not a live handle (freed, or never made)`, and so do a second free, a
 word the table never issued, and one handle's word used as another
 kind. Before, each read an unmapped page, a segmentation fault or a bus
-error, or whatever the kernel had mapped there since. The trap is recoverable, like the index trap. The
-table is per address space, like the mappings: a forked binding's free
-is its own. A module that names no handle primitive emits none of it.
+error, or whatever the kernel had mapped there since.
+
+The trap is recoverable, like the index trap. The table is per address
+space, like the mappings: a forked binding's free is its own. A module
+that names no handle primitive emits none of it.
 
 The runtime adds three primitives, `__handle_new`, `__handle_get` and
 `__handle_free`, all in the unsafe set. A channel operation costs four

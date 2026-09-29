@@ -1,0 +1,5 @@
+E AX3004 1066-spawn-handle.ax:13:3-4 type-mismatch "type mismatch: expected Int, found Spawn" #"this has type `Spawn`, expected `Int`"
+E AX3004 1066-spawn-handle.ax:31:23-24 type-mismatch "type mismatch: expected Spawn, found Int" #"this has type `Int`, expected `Spawn`"
+E AX3004 1066-spawn-handle.ax:33:16-17 type-mismatch "type mismatch: expected Int, found Spawn" #"this has type `Spawn`, expected `Int`"
+E AX3004 1066-spawn-handle.ax:35:24-25 type-mismatch "type mismatch: expected Chan, found CancelToken" #"this has type `CancelToken`, expected `Chan`"
+E AX3064 1066-spawn-handle.ax:37:32-33 parallel-capture "a concurrent binding captures `h`, which has type `Spawn` - a spawn handle, which only the binding that spawned it may join" #"`h` is bound outside this binding" !"MM-PAR-6: a word struct crosses into a concurrent binding only when its module declares it `shared`, which says every operation on it is safe from several bindings at once; `__proc_spawn` names the isolated lowering and is exempt" ?"join the handle in the binding that spawned it: a spawn handle belongs to the binding that made it, and a join from another thread is refused at run time"

@@ -23,6 +23,13 @@
 ;                send returned, when the binding was a forked child
 ;                whose free was its own; 85 under `--threads`, where
 ;                the free was the parent's too.
+;   double-join  a binding joined twice: the second join exits 85
+;                without reading the unmapped page.
+;   thread-pid   the pid of a thread binding's handle: exits 85, because
+;                a thread's handle is another kind than a process's and
+;                has no pid to answer.
+;   cross-join   a forked binding's handle joined by the thread join:
+;                exits 85 instead of reading the pid as a `pthread_t`.
 (import IO)
 (import Sys)
 (import Str)
@@ -239,6 +246,49 @@
     )
     ((Err e) 2)))
 
+; ---- the kinds of spawn handle --------------------------------------------
+(:: doubleJoin Int)
+;@axiom:effect(io)
+(fn (doubleJoin)
+  (let ((h 
+    (__par_spawn
+      (lambda (x) (+ x 1))
+      41)))
+    {
+      (println (__par_join h))
+      (println (__par_join h))
+      (println "UNREACHABLE: a second join returned")
+      1
+    }))
+
+(:: threadPid Int)
+;@axiom:effect(io)
+(fn (threadPid)
+  (let ((h 
+    (__thread_spawn
+      (lambda (x) (+ x 1))
+      1)))
+    {
+      (println "spawned")
+      (println (__spawn_pid h))
+      (println "UNREACHABLE: a thread's handle answered a pid")
+      1
+    }))
+
+(:: crossJoin Int)
+;@axiom:effect(io)
+(fn (crossJoin)
+  (let ((h 
+    (__proc_spawn
+      (lambda (x) (+ x 1))
+      1)))
+    {
+      (println "spawned")
+      (println (__thread_join h))
+      (println "UNREACHABLE: a process's handle joined as a thread")
+      1
+    }))
+
 (:: main Int)
 ;@axiom:effect(io)
 (fn (main)
@@ -255,7 +305,13 @@
               (race (argInt 2))
               (if (strEq mode "sibling")
                 sibling
-                {
-                  (println "usage: handle-load freed-send | freed-lock | double-free | churn N | race N | sibling")
-                  2
-                }))))))))
+                (if (strEq mode "double-join")
+                  doubleJoin
+                  (if (strEq mode "thread-pid")
+                    threadPid
+                    (if (strEq mode "cross-join")
+                      crossJoin
+                      {
+                        (println "usage: handle-load freed-send | freed-lock | double-free | churn N | race N | sibling | double-join | thread-pid | cross-join")
+                        2
+                      })))))))))))

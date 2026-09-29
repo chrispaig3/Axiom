@@ -1,0 +1,121 @@
+; A spawn handle is joined once, and a cancellation token is freed once
+; (docs/memory-model.md MM-PAR-8): a second join, the pid of a joined
+; binding, a word no spawn answered, another kind of handle used as a
+; spawn's, and every call on a freed token each trap with status 85,
+; on every target and at every `--opt` (the `.optstable`). The join
+; asks the handle table for the binding's page before it reads it, so a
+; handle joined before never reads the unmapped page.
+;
+; The live joins and the live token answer first: those are the
+; controls. Each misuse runs inside a recovery point and must answer
+; 85 there. The last, a second raising join, is not recovered: the
+; program prints the trap's sentence and exits 85.
+(import IO)
+(import Str)
+(import Mem)
+(import Err)
+(import Chan)
+(import Task)
+
+(:: okBit (-> (Result Int Error) Int))
+(fn (okBit r)
+  (match r
+    ((Ok v) 1)
+    ((Err e) 0)))
+
+(:: bit (-> Bool Int))
+(fn (bit b)
+  (if b
+    1
+    0))
+
+; Misuse `k` of spawn handle `h`, inside a recovery point.
+(:: spawnMisuse (-> Int Spawn Int Int))
+;@axiom:effect(io)
+(fn (spawnMisuse k h cell)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      (if (== k 0)
+        (__proc_join h)
+        (if (== k 1)
+          (__proc_join_nr h cell)
+          (__spawn_pid h)))
+    )))
+
+; Operation `k` on token `t`, inside a recovery point.
+(:: tokenMisuse (-> Int CancelToken Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (tokenMisuse k t)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x)
+      (if (== k 0)
+        (taskCancel t)
+        (if (== k 1)
+          (bit (taskCancelled t))
+          (okBit (taskTokenFree t))))
+    )))
+
+; A word no spawn answered, and a channel's word, spelled as a spawn
+; handle. Only a `cast` can write either: a cast to a handle type is a
+; forging cast, the unsafe layer's (MM-VAL-22).
+(:: forged Spawn)
+(fn (forged)
+  (cast Spawn 1234567))
+
+(:: asSpawn (-> Chan Spawn))
+(fn (asSpawn c)
+  (cast Spawn c))
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (main)
+  (let (
+    (cell (memAlloc 8))
+    (h (__proc_spawn
+      (lambda (x) (+ x 1))
+      41))
+    (g (__proc_spawn
+      (lambda (x) (+ x 2))
+      5))
+  )
+    (match taskTokenNew
+      ((Ok t)
+        (match (chanNew 1)
+          ((Ok c)
+            {
+              ; The controls.
+              (println (bit (> (__spawn_pid h) 0)))  ; 1
+              (println (__proc_join h))  ; 42
+              (println (__proc_join_nr g cell))  ; 7
+              (println (memGetWord cell 0))  ; 0
+              (taskCancel t)
+              (println (bit (taskCancelled t)))  ; 1
+              (println (okBit (taskTokenFree t)))  ; 1
+              ; The misuses, each 85.
+              (let ((st (spawnMisuse 0 h cell)))
+                (println "a second join: status {st}"))
+              (let ((st (spawnMisuse 1 g cell)))
+                (println "a second checked join: status {st}"))
+              (let ((st (spawnMisuse 2 h cell)))
+                (println "the pid of a joined binding: status {st}"))
+              (let ((st (spawnMisuse 0 forged cell)))
+                (println "a word no spawn answered: status {st}"))
+              (let ((st (spawnMisuse 0 (asSpawn c) cell)))
+                (println "a channel as a spawn handle: status {st}"))
+              (let ((st (tokenMisuse 0 t)))
+                (println "cancel a freed token: status {st}"))
+              (let ((st (tokenMisuse 1 t)))
+                (println "poll a freed token: status {st}"))
+              (let ((st (tokenMisuse 2 t)))
+                (println "free a token twice: status {st}"))
+              (__proc_join h)
+              (printlnLit (strCStr "UNREACHABLE: the trap returned"))
+            }
+          )
+          ((Err e) 2))
+      )
+      ((Err e) 1))))

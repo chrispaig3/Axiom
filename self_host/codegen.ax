@@ -562,8 +562,8 @@
       ; within one (see `mutFlag`).
       (vecPushVec ps vecNew)
       (vecPush ps 0)
-      ; slot 13: 1 when the module names a handle primitive, so the
-      ; handle table's runtime is emitted (`parScan`,
+      ; slot 13: 1 when the module names a handle primitive or a spawn
+      ; one, so the handle table's runtime is emitted (`parScan`,
       ; `emitHandleRuntime`, MM-PAR-8); 0 leaves the module byte for
       ; byte what it was.
       (vecPush ps 0)
@@ -5879,7 +5879,12 @@
 (pub fn (parScan cg decls)
   {
     (pairSetSlot cg 5 (parAnyNamed decls))
-    (pairSetSlot cg 13 (handleAnyNamed decls))
+    (pairSetSlot
+      cg
+      13
+      (if (== (parAnyNamed decls) 1)
+        1
+        (handleAnyNamed decls)))
     (pairSetSlot
       cg
       10
@@ -6018,12 +6023,48 @@
         cg
       })))
 
+; A spawn's page gets its handle (MM-PAR-8), after the thunk and its
+; word are on it and before any child exists: a table with no slot
+; left fails the spawn as a refused fork does (78), through
+; `@__axiom_par_finish`, which returns the thunk's share and the page.
+; The handle goes in word 13 and its kind in word 14, where `finish`
+; retires it. A forked binding's handle is kind 1 and a thread's kind
+; 5, so a join of one lowering's handle by the other's join traps 85
+; instead of reading a pid as a `pthread_t`, and `__spawn_pid` answers
+; only a process's pid.
+(pub :: emitParNameHandle (-> Int Int Int))
+(pub fn (emitParNameHandle cg kind)
+  {
+    (emitLine cg (strConcat "  %hw = call i64 @__axiom_handle_new(i64 " (strConcat (fmtInt kind) ", i64 %page)")))
+    (emitLine cg "  %hnone = icmp eq i64 %hw, 0")
+    (emitLine cg "  br i1 %hnone, label %nohandle, label %named")
+    (emitLine cg "nohandle:")
+    (emitLine cg "  %dnh = call i64 @__axiom_par_finish(i64 %page)")
+    (emitLine cg "  call i64 @__axiom_par_spawn_failed()")
+    (emitLine cg "  unreachable")
+    (emitLine cg "named:")
+    (emitLine cg "  %p13 = getelementptr i64, ptr %hp, i64 13")
+    (emitLine cg "  store i64 %hw, ptr %p13")
+    (emitLine cg "  %p14 = getelementptr i64, ptr %hp, i64 14")
+    (emitLine cg (strConcat "  store i64 " (strConcat (fmtInt kind) ", ptr %p14")))
+    cg
+  })
+
+; A join's first line: the page the handle `%hw` names, as `%h`, or the
+; 85 trap for a handle that is not a live spawn handle of `kind`.
+(pub :: emitParJoinPage (-> Int Int Int))
+(pub fn (emitParJoinPage cg kind)
+  {
+    (emitLine cg (strConcat "  %h = call i64 @__axiom_handle_get(i64 " (strConcat (fmtInt kind) ", i64 %hw)")))
+    cg
+  })
+
 ; ------------------------------------------------------------------
 ; THE HANDLE TABLE (docs/memory-model.md MM-PAR-8), and status 85.
 ;
-; A typed handle - a channel, a mutex, a cancellation token - is a WORD
-; naming a slot in one table, and the table says whether the slot is
-; live. That is where a handle's liveness has to live: not in the object,
+; A typed handle - a spawn's, a channel, a mutex, a cancellation token -
+; is a WORD naming a slot in one table, and the table says whether the
+; slot is live. That is where a handle's liveness has to live: not in the object,
 ; whose mapping a free unmaps (a check that read it would be the fault
 ; it exists to prevent), and not in the word, which is copied freely.
 ;
@@ -6055,10 +6096,10 @@
 ; parent's mapping in place, and the child's table says so. 65,536
 ; slots of 16 bytes, one megabyte of address space touched a page at a
 ; time; `__handle_new` answers 0 when all are live, which a library
-; answers as an error.
+; answers as an error and a spawn as 78.
 ;
-; A MODULE THAT NAMES NO HANDLE PRIMITIVE EMITS NONE OF THIS (slot 13),
-; so its IR is byte for byte what it was.
+; A MODULE THAT NAMES NO HANDLE OR SPAWN PRIMITIVE EMITS NONE OF THIS
+; (slot 13), so its IR is byte for byte what it was.
 ; ------------------------------------------------------------------
 (pub :: handleAnyNamed (-> (Vec Int) Int))
 (pub fn (handleAnyNamed decls)
@@ -6066,7 +6107,9 @@
     1
     (if (== (declsNamePrim decls "__handle_get" 0) 1)
       1
-      (declsNamePrim decls "__handle_free" 0))))
+      (if (== (declsNamePrim decls "__handle_free" 0) 1)
+        1
+        (declsNamePrim decls "__spawn_pid" 0)))))
 
 (pub :: isHandlePrimName (-> String Bool))
 (pub fn (isHandlePrimName nm)
@@ -6074,7 +6117,9 @@
     true
     (if (strEq nm "__handle_get")
       true
-      (strEq nm "__handle_free"))))
+      (if (strEq nm "__handle_free")
+        true
+        (strEq nm "__spawn_pid")))))
 
 ; The table's slot count and its mapping's length: a 64-byte header
 ; (free-list head, bump index) and 65,536 slots of 16 bytes, rounded up
@@ -6090,10 +6135,32 @@
 
 ; `(__handle_new kind addr)`, `(__handle_get kind h)` and
 ; `(__handle_free kind h)`: two words in, one word out, each a call to
-; the runtime below.
+; the runtime below. `(__spawn_pid h)`: the pid in word 0 of the page a
+; live process spawn's handle names, asked of the table first.
 (pub :: emitPrimHandle (-> String (Vec Int) Int Int))
 ;@axiom:effect(io)
 (pub fn (emitPrimHandle fnName args cg)
+  (if (strEq fnName "__spawn_pid")
+    (let ((cgH (emitExpr (vecGet args 0) cg)))
+      (let (
+        (h (strDup (memGetWordStr cgH 2)))
+        (pg (regStr (allocReg cgH)))
+        (pp (regStr (allocReg cgH)))
+        (r (regStr (allocReg cgH)))
+      )
+        {
+          (emitLine cgH (strConcat "  " (strConcat pg (strConcat " = call i64 @__axiom_handle_get(i64 1, i64 " (strConcat h ")")))))
+          (emitLine cgH (strConcat "  " (strConcat pp (strConcat " = inttoptr i64 " (strConcat pg " to ptr")))))
+          (emitLine cgH (strConcat "  " (strConcat r (strConcat " = load i64, ptr " pp))))
+          (memSetWord cgH 2 r)
+          (memSetWord cgH 14 0)
+          cgH
+        }))
+    (emitPrimHandleCall fnName args cg)))
+
+(pub :: emitPrimHandleCall (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimHandleCall fnName args cg)
   (let ((cgK (emitExpr (vecGet args 0) cg)))
     (let ((k (strDup (memGetWordStr cgK 2))))
       (let ((cgV (emitExpr (vecGet args 1) cgK)))
@@ -6385,7 +6452,9 @@
 ; Under threads a process child also uses 10 and 11, its links on the
 ; process-wide kill list, and 12, set while it is linked there; words 16
 ; to 31 are the siginfo buffer its join's `waitid` writes
-; (`emitParKillList`, `emitParJoinUnlist`).
+; (`emitParKillList`, `emitParJoinUnlist`). Words 13 and 14 are the
+; handle the spawn answered and the handle's kind (`emitParNameHandle`,
+; MM-PAR-8): what a program holds is the handle, never the page.
 ;
 ; WHY A REGISTRY (MM-PAR-7). A child was reachable only through the
 ; handle word its parent held, so every path that dropped the handle
@@ -6451,6 +6520,13 @@
       (emitLine cg "  ret i64 %r")
       (emitLine cg "}")
       (emitLine cg "")
+      ; The page's word 13 is the HANDLE the spawn answered and word 14
+      ; its kind (MM-PAR-8), retired here before the page goes: every
+      ; path that ends a child - a join, a sweep, a failed spawn - comes
+      ; through this function, so a handle outlives its page on none of
+      ; them, and a second join of it finds a retired slot and traps 85
+      ; instead of reading the page this unmaps. 0 is a page that never
+      ; got a handle (the table was full, and the spawn is failing).
       (emitLine cg "define internal i64 @__axiom_par_finish(i64 %h) #0 {")
       (emitLine cg "entry:")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
@@ -6458,6 +6534,16 @@
       (emitLine cg "  %fn = load i64, ptr %p1")
       (emitLine cg "  %p3 = getelementptr i64, ptr %hp, i64 3")
       (emitLine cg "  %res = load i64, ptr %p3")
+      (emitLine cg "  %p13 = getelementptr i64, ptr %hp, i64 13")
+      (emitLine cg "  %hw = load i64, ptr %p13")
+      (emitLine cg "  %named = icmp ne i64 %hw, 0")
+      (emitLine cg "  br i1 %named, label %retire, label %drop")
+      (emitLine cg "retire:")
+      (emitLine cg "  %p14 = getelementptr i64, ptr %hp, i64 14")
+      (emitLine cg "  %hk = load i64, ptr %p14")
+      (emitLine cg "  %was = call i64 @__axiom_handle_free(i64 %hk, i64 %hw)")
+      (emitLine cg "  br label %drop")
+      (emitLine cg "drop:")
       (emitLine cg "  call void @axiom_release(i64 %fn)")
       (emitLine cg (strConcat "  " (parSys cg (fmtInt (targetMunmapNum t)) "i64 %h, i64 4096, i64 0, i64 0, i64 0, i64 0")))
       (emitLine cg "  ret i64 %res")
@@ -6682,6 +6768,7 @@
       (emitLine cg "  store i64 %fn, ptr %p1")
       (emitLine cg "  %p2 = getelementptr i64, ptr %hp, i64 2")
       (emitLine cg "  store i64 %arg, ptr %p2")
+      (emitParNameHandle cg 1)
       ; Under threads the fork and the kill list's link happen inside the
       ; list's lock, so a trap's sweep (`@__axiom_par_gkill`) never runs
       ; between them: a child either is on the list when the sweep walks
@@ -6745,11 +6832,16 @@
           0
         }
         0)
-      (emitLine cg "  ret i64 %page")
+      (emitLine cg "  ret i64 %hw")
       (emitLine cg "}")
       (emitLine cg "")
-      (emitLine cg "define internal i64 @__axiom_par_join_proc(i64 %h) #0 {")
+      ; Every join takes the HANDLE and asks the table for the page it
+      ; names before anything else (`emitParJoinPage`): a handle already
+      ; joined, or a word no spawn answered, traps 85 there, and the
+      ; page below is only ever one that is still mapped.
+      (emitLine cg "define internal i64 @__axiom_par_join_proc(i64 %hw) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 1)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %pid = load i64, ptr %hp")
@@ -6800,8 +6892,9 @@
       ; one will not be the first. A `wait4` that cannot reach the child
       ; at all stores 78, the lost-join status, rather than the 0 the
       ; kernel never wrote.
-      (emitLine cg "define internal i64 @__axiom_par_join_nr_proc(i64 %h, i64 %cell) #0 {")
+      (emitLine cg "define internal i64 @__axiom_par_join_nr_proc(i64 %hw, i64 %cell) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 1)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %pid = load i64, ptr %hp")
@@ -7059,6 +7152,7 @@
       (emitLine cg "  store i64 %fn, ptr %p1")
       (emitLine cg "  %p2 = getelementptr i64, ptr %hp, i64 2")
       (emitLine cg "  store i64 %arg, ptr %p2")
+      (emitParNameHandle cg 5)
       (emitLine cg "  %rc = call i32 @pthread_create(ptr %hp, ptr null, ptr @__axiom_par_entry, ptr %hp)")
       (emitLine cg "  %bad = icmp ne i32 %rc, 0")
       (emitLine cg "  br i1 %bad, label %fail, label %ok")
@@ -7068,7 +7162,7 @@
       (emitLine cg "  unreachable")
       (emitLine cg "ok:")
       (emitLine cg "  call void @__axiom_par_link(i64 %page, i64 2)")
-      (emitLine cg "  ret i64 %page")
+      (emitLine cg "  ret i64 %hw")
       (emitLine cg "}")
       (emitLine cg "")
       ; A `pthread_join` that fails did not wait for the thread, which
@@ -7076,8 +7170,9 @@
       ; path unlinks and traps and deliberately does NOT finish: an
       ; unmapped page under a live thread is a write into whatever maps
       ; there next, and a leaked page is not.
-      (emitLine cg "define internal i64 @__axiom_par_join_thread(i64 %h) #0 {")
+      (emitLine cg "define internal i64 @__axiom_par_join_thread(i64 %hw) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 5)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %t = load i64, ptr %hp")
@@ -7104,8 +7199,9 @@
       ; 6f pins both halves of that sentence. A failed join answers 0
       ; and leaves the page mapped, for the reason the raising join
       ; gives.
-      (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %h, i64 %cell) #0 {")
+      (emitLine cg "define internal i64 @__axiom_par_join_nr_thread(i64 %hw, i64 %cell) #0 {")
       (emitLine cg "entry:")
+      (emitParJoinPage cg 5)
       (emitLine cg "  call void @__axiom_par_check_owner(i64 %h)")
       (emitLine cg "  %hp = inttoptr i64 %h to ptr")
       (emitLine cg "  %t = load i64, ptr %hp")
@@ -20703,7 +20799,9 @@
 ; ------------------------------------------------------------------
 (pub :: scalarTyName (-> String Int))
 (pub fn (scalarTyName n)
-  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (strEq n "Vec"))))))))))))))))
+  (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Foreign") (|| (strEq n "Vec") (strEq n "Spawn")))))))))))))))))
+    ; `Spawn` - the handle a spawn answers (MM-PAR-8): a word naming a
+    ; slot in the handle table, never a block.
     ; `Vec` - a handle to a counted block that this block does NOT
     ; own. It is here for the same ownership reason `Foreign` is and
     ; not because a vector is a number: `stdlib/Vec.ax` says "a

@@ -2659,19 +2659,29 @@
 (pub :: fpWhile (-> Int Int Int))
 (pub fn (fpWhile p n)
   (let ((elems (fpExprElems n 1)))
-    (if (< (vecLen elems) 2)
+    (if (< (vecLen elems) 1)
       (fpBad p)
-      (let ((o (fpOut p)))
+      (if (== (vecLen elems) 1)
+        ; A `while` with no body spins on its condition, and the parser
+        ; reads one (`parseWhileExpr` takes a body list that may be
+        ; empty), so it prints on one line. Refusing it refused, with no
+        ; code, a program `check` accepts (`tests/fuzz/while-no-body.axfuzz`).
         {
           (fpP p "(while ")
           (fpExpr p (vecGet elems 0))
-          (fpP p "\n")
-          (foPushIndent o)
-          (foEmitIndent o)
-          (fpBodyVec p elems 1)
-          (foPopIndent o)
           (fpP p ")")
-        }))))
+        }
+        (let ((o (fpOut p)))
+          {
+            (fpP p "(while ")
+            (fpExpr p (vecGet elems 0))
+            (fpP p "\n")
+            (foPushIndent o)
+            (foEmitIndent o)
+            (fpBodyVec p elems 1)
+            (foPopIndent o)
+            (fpP p ")")
+          })))))
 
 ; `for` prints like `while`: the head line carries everything the loop
 ; is CONTROLLED by, and the body goes on its own indented line. Three

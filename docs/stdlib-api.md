@@ -696,23 +696,24 @@ two differ.
 
 ## `Task`
 
-`stdlib/Task.ax` — 16 public names
+`stdlib/Task.ax` — 17 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
-| `TaskOpts` | struct |  |  | `width` children at most (clamped to 1..n); `limit` bytes per answer (0 or more); `deadline` nanoseconds per task from its spawn, 0 for none; `grace` nanoseconds a running task gets after a cancellation; `failFast` cancels the pool at the first error; `token` is a word from `taskTokenNew`, or 0 for one private to the call. |
+| `TaskOpts` | struct |  |  | `width` children at most (clamped to 1..n); `limit` bytes per answer (0 or more); `deadline` nanoseconds per task from its spawn, 0 for none; `grace` nanoseconds a running task gets after a cancellation; `failFast` cancels the pool at the first error; `token` is `Some` a token from `taskTokenNew`, or `None` for one private to the call. |
 | `taskOpts` | value | `(-> Int Int TaskOpts)` | `Alloc` | No deadline, a 100 ms grace, no fail-fast, a private token. |
 | `taskWithDeadline` | value | `(-> TaskOpts Int TaskOpts)` | `Alloc` |  |
 | `taskWithGrace` | value | `(-> TaskOpts Int TaskOpts)` | `Alloc` |  |
 | `taskWithFailFast` | value | `(-> TaskOpts Bool TaskOpts)` | `Alloc` |  |
-| `taskWithToken` | value | `(-> TaskOpts Int TaskOpts)` | `Alloc` |  |
+| `taskWithToken` | value | `(-> TaskOpts CancelToken TaskOpts)` | `Alloc` |  |
 | `taskCancelledCode` | value | `Int` |  |  |
 | `taskTooLargeCode` | value | `Int` |  |  |
 | `taskPollNanos` | value | `Int` |  | How often a sleeping pool looks at its running children: 10 ms. |
-| `taskTokenNew` | value | `(Result Int Error)` | `Alloc,IO` | Word 0 the cancelled flag, word 1 the event counter a pool sleeps on. |
-| `taskCancel` | value | `(-> Int Int)` | `IO,Mut,Unsafe` | Set the token and wake every pool sleeping on it. Idempotent. |
-| `taskCancelled` | value | `(-> Int Bool)` | `Unsafe` | Whether the token is set: the poll a cooperative task makes. |
-| `taskTokenFree` | value | `(-> Int (Result Int Error))` | `Alloc,IO` | Unmap a token. Only once no pool and no task can still reach it. |
+| `CancelToken` | struct |  |  | A cancellation token: one word, a slot in the runtime's handle table (MM-PAR-8) naming a shared page - word 0 the cancelled flag, word 1 the event counter a pool sleeps on. |
+| `taskTokenNew` | value | `(Result CancelToken Error)` | `Alloc,IO,Mut,Unsafe` | A fresh token, not set. `Err` the mapping's error, or EMFILE (24) when the handle table has no slot left. |
+| `taskCancel` | value | `(-> CancelToken Int)` | `IO,Mut,Unsafe` | Set the token and wake every pool sleeping on it. Idempotent. |
+| `taskCancelled` | value | `(-> CancelToken Bool)` | `Unsafe` | Whether the token is set: the poll a cooperative task makes. |
+| `taskTokenFree` | value | `(-> CancelToken (Result Int Error))` | `Alloc,IO,Mut,Unsafe` | Unmap a token. Only once no pool and no task can still reach it; the handle is retired first, so every call after this one - a second `taskTokenFree` included - traps with status 85. |
 | `taskMap` | value | `(-> (-> Int String) Int Int Int (Vec (Result String Error)))` | `Alloc,IO,Mut,Unsafe` | `f i` for every `i` in `0 .. n`, at most `width` at once, each answer at most `limit` bytes: one `Result` per task in submit order. No deadline, no fail-fast, a private token. |
 | `taskMapWith` | value | `(-> (-> Int String) Int TaskOpts (Vec (Result String Error)))` | `Alloc,IO,Mut,Unsafe` | `taskMap` with every option (`TaskOpts`). |
 | `taskFold` | value | `(-> (-> Int String) Int TaskOpts Int (-> Int Int (Result String Error) Int) Int)` | `Alloc,IO,Mut,Unsafe` | Fold the answers in submit order without keeping them: `step acc i r` for each task, starting from `init`, answering the last `acc`. Each answer - and EVERYTHING `step` allocates - lives only while that `step` runs: the pool builds the answer and calls `step` inside a `region` (MM-RGN-1) that is reset when `step` returns, so memory stays flat however many tasks go through. |

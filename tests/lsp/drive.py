@@ -1637,10 +1637,11 @@ def _tceval(text):
     variable renders `?name`, which collides with no real type - the
     reference only ever equates the variable-free operator rows."""
     text = text.strip()
-    if text in ("mkIntTy", "mkBoolTy", "mkStringTy", "mkFloatTy", "mkCharTy"):
+    if text in ("mkIntTy", "mkBoolTy", "mkStringTy", "mkFloatTy", "mkCharTy",
+                "mkSpawnTy"):
         return ([], {"mkIntTy": "Int", "mkBoolTy": "Bool",
                      "mkStringTy": "String", "mkFloatTy": "Float",
-                     "mkCharTy": "Char"}[text])
+                     "mkCharTy": "Char", "mkSpawnTy": "Spawn"}[text])
     if text.startswith('(mkTVar "') and text.endswith('")'):
         return ([], "?" + text[len('(mkTVar "'):-2])
     if text.startswith("(mkIntArrow ") and text.endswith(")"):

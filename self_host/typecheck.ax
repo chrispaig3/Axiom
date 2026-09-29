@@ -296,6 +296,11 @@
 (pub fn (mkStringTy)
   (mkTCon "String" vecNew))
 
+; The spawn handle (MM-PAR-8): what a spawn primitive answers.
+(pub :: mkSpawnTy Int)
+(pub fn (mkSpawnTy)
+  (mkTCon "Spawn" vecNew))
+
 (pub :: mkI64Ty Int)
 (pub fn (mkI64Ty)
   (mkTCon "I64" vecNew))
@@ -1054,10 +1059,10 @@
 ; below treats every 0 as one. `externTypeRefusal` names it beside
 ; this list already; the answers there do not move either.
 ;
-; The word structs are class 0 as well, and are NOT here:
+; `Spawn` and the word structs are class 0 as well, and are NOT here:
 ; `externTypeRefusal` admits every name on this list to an `extern`
-; signature, and a Rust function answering a sealed handle would forge
-; one. `evClassOf` answers them in an arm of its own (`tcWordTyName`).
+; signature, and a Rust function answering a handle would forge one.
+; `evClassOf` answers them in an arm of its own (`tcWordTyName`).
 (pub :: evScalarName (-> String Int))
 (pub fn (evScalarName n)
   (if (|| (strEq n "Int") (|| (strEq n "Bool") (|| (strEq n "Char") (|| (strEq n "Float") (|| (strEq n "I8") (|| (strEq n "I16") (|| (strEq n "I32") (|| (strEq n "I64") (|| (strEq n "U8") (|| (strEq n "U16") (|| (strEq n "U32") (|| (strEq n "U64") (|| (strEq n "F32") (|| (strEq n "F64") (|| (strEq n "Vec") (strEq n "Foreign"))))))))))))))))
@@ -1281,8 +1286,8 @@
                     0
                     (if (|| (strEq n "String") (strEq n "Handle"))
                       1
-                      ; A WORD STRUCT: one machine word that takes no
-                      ; share (MM-VAL-10a). Asked before
+                      ; A WORD STRUCT, and `Spawn`: one machine word that
+                      ; takes no share (MM-VAL-10a). Asked before
                       ; `evDataTyKnown`, which answers 1 for every
                       ; struct and would retain a handle as if it were
                       ; a block.
@@ -2295,8 +2300,16 @@
   (rgnHasForm : Int)
   (rgnStamping : Int)
   (rgnRefused : (Vec Int))
-  (wordLower : (Vec Int)))
+  (wordLower : (Vec Int))
+  (wordStructs : Int))
 
+; Word 43, `wordStructs`: how many word structs the program declares,
+; counted over every declaration before any is checked
+; (`countWordStructs`). A program that declares none never asks the type
+; index whether a name is one (`tcWordEnt`): that question runs at every
+; call site's evidence, field read and construction, and asked of a
+; program with no word struct it cost `check` of the compiler 58%.
+;
 ; Word 42, `wordLower`: pairs of AST nodes, (site, operand), one per
 ; construction or field read of a WORD struct the checker accepted
 ; (MM-VAL-10a). `wordLowerApply` copies each operand over its site
@@ -3026,15 +3039,28 @@
       ; (`stdlib/Par.ax`, `parMapWordsChecked`). Same lowering rule as
       ; its raising twin: `__par_` follows the flag, the other two
       ; name theirs.
-      (regFnEff fns "__par_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
-      (regFnEff fns "__par_join" (mkIntArrow 1) (builtinEff "IO"))
-      (regFnEff fns "__par_join_nr" (mkIntArrow 2) (builtinEff "IO"))
-      (regFnEff fns "__thread_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
-      (regFnEff fns "__thread_join" (mkIntArrow 1) (builtinEff "IO"))
-      (regFnEff fns "__thread_join_nr" (mkIntArrow 2) (builtinEff "IO"))
-      (regFnEff fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
-      (regFnEff fns "__proc_join" (mkIntArrow 1) (builtinEff "IO"))
-      (regFnEff fns "__proc_join_nr" (mkIntArrow 2) (builtinEff "IO"))
+      ;
+      ; THE HANDLE IS A `Spawn`, not an `Int` (MM-PAR-8): a word the
+      ; type system tracks, which only a spawn answers, only a join
+      ; takes, and no concurrent binding may capture (AX3064). The word
+      ; is a slot in the runtime's handle table, so a join of a handle
+      ; already joined - or of one that never was a handle - traps 85
+      ; before it reads the page the slot named.
+      (regFnEff fns "__par_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO"))
+      (regFnEff fns "__par_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO"))
+      (regFnEff fns "__par_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      (regFnEff fns "__thread_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO"))
+      (regFnEff fns "__thread_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO"))
+      (regFnEff fns "__thread_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      (regFnEff fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO"))
+      (regFnEff fns "__proc_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO"))
+      (regFnEff fns "__proc_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      ; The pid a forked binding runs as, read from the page its handle
+      ; names - `stdlib/Task.ax` kills a task past its deadline with it.
+      ; The handle is checked first, as a join checks it (85), and a
+      ; thread's handle is another kind and traps too, so the page
+      ; layout stays the runtime's and no library reads it.
+      (regFn fns "__spawn_pid" (mkTArr mkSpawnTy mkIntTy))
       ; The HANDLE TABLE (MM-PAR-8, `emitHandleRuntime` in codegen.ax):
       ; `(__handle_new kind addr)` answers a fresh handle word naming
       ; `addr`, or 0 when the table is full; `(__handle_get kind h)`
@@ -3161,7 +3187,8 @@
           0
           0
           vecNew
-          vecNew))))
+          vecNew
+          (countWordStructs allDecls 0 0)))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
           ; The builtin `Option` went into `datas` before this record
@@ -5385,10 +5412,14 @@
 ;     from every binding at once - and no other word struct (AX3064,
 ;     `capReport`).
 ;
+; `Spawn`, the builtin handle a spawn answers, is a word too, and is
+; never shared: a join from another thread is refused at run time (78,
+; `MM-PAR-7`).
+;
 ; What the word MEANS is its module's business. The standard library's
-; handles (`Chan`, `Mutex`, `CancelToken`) hold a slot in the runtime's
-; handle table (`__handle_new`, MM-PAR-8), so a freed or forged one
-; traps 85 instead of touching an unmapped page.
+; handles (`Chan`, `Mutex`, `CancelToken`) and `Spawn` hold a slot in
+; the runtime's handle table (`__handle_new`, MM-PAR-8), so a freed or
+; forged one traps 85 instead of touching an unmapped page.
 ; ------------------------------------------------------------------
 ; The struct declaration a bare or qualified NAME denotes, IGNORING
 ; visibility: whether a type is a word is a fact about its declaration,
@@ -5447,20 +5478,38 @@
             0
             (memGetWord te 3)))))))
 
-; The word struct a type NAME denotes, or 0.
+; The word struct a type NAME denotes, or 0 - at once when the program
+; declares none (word 43).
 (pub :: tcWordEnt (-> Int String Int))
 (pub fn (tcWordEnt tc n)
-  (let ((ent (findStructAnyVis tc n)))
-    (if (== (structEntIsWord ent) 1)
-      ent
-      0)))
+  (if (== (memGetWord tc 43) 0)
+    0
+    (let ((ent (findStructAnyVis tc n)))
+      (if (== (structEntIsWord ent) 1)
+        ent
+        0))))
 
-; Is `n` a word type?
+; How many of `ds`, from `i`, are struct declarations marked `word`.
+(pub :: countWordStructs (-> (Vec Int) Int Int Int))
+(pub fn (countWordStructs ds i acc)
+  (if (>= i (vecLen ds))
+    acc
+    (let ((d (vecGet ds i)))
+      (countWordStructs
+        ds
+        (+ i 1)
+        (if (&& (== (nodeTag d) TAG_D_STRUCT) (structIsWord d))
+          (+ acc 1)
+          acc)))))
+
+; Is `n` a word type: a word struct, or `Spawn`?
 (pub :: tcWordTyName (-> Int String Int))
 (pub fn (tcWordTyName tc n)
-  (if (!= (tcWordEnt tc n) 0)
+  (if (strEq n "Spawn")
     1
-    0))
+    (if (!= (tcWordEnt tc n) 0)
+      1
+      0)))
 
 ; The same question of a type NODE: resolved, alias-expanded, and
 ; applied to no arguments (a word struct takes none).
@@ -5477,16 +5526,18 @@
             0
             (tcWordTyName tc (nodeAName ty))))))))
 
-; A word type a concurrent binding may NOT capture: a word struct its
-; module did not declare `shared`.
+; A word type a concurrent binding may NOT capture: `Spawn`, and a
+; word struct its module did not declare `shared`.
 (pub :: tyIsUnsharedWord (-> Int Int Int))
 (pub fn (tyIsUnsharedWord tc ty0)
   (if (== (tyIsWordTy tc ty0) 0)
     0
     (let ((n (nodeAName (tyExpandAliases tc (tyResolve ty0) 0))))
-      (if (== (structEntIsShared (tcWordEnt tc n)) 1)
-        0
-        1))))
+      (if (strEq n "Spawn")
+        1
+        (if (== (structEntIsShared (tcWordEnt tc n)) 1)
+          0
+          1)))))
 
 ; Two module words - a String or 0 for the entry file - naming one
 ; module.
@@ -5514,7 +5565,8 @@
       1)))
 
 ; Does type `ty` mention, anywhere in it, a word type the declaration
-; being checked may not make: a word struct another module declared?
+; being checked may not make: `Spawn`, or a word struct another module
+; declared?
 ; This is the question a FORGING cast asks - `(cast Chan w)` outside
 ; `Chan.ax` makes a handle out of a word the table never issued, and
 ; `(cast (Vec Chan) v)` a vector of them. The unsafe layer owns casts
@@ -5543,7 +5595,9 @@
 
 (pub :: tyForgesWordName (-> Int String Int))
 (pub fn (tyForgesWordName tc n)
-  (wordSealedHere tc (tcWordEnt tc n)))
+  (if (strEq n "Spawn")
+    1
+    (wordSealedHere tc (tcWordEnt tc n))))
 
 (pub :: tyForgesWordVec (-> Int (Vec Int) Int Int))
 (pub fn (tyForgesWordVec tc xs i)
@@ -10005,8 +10059,8 @@
     0
   })
 
-; A captured word struct its module did not declare `shared`. Same
-; code, because it is the same rule (MM-PAR-6: what a binding may share
+; A captured word struct its module did not declare `shared`, or a
+; `Spawn`. Same code, because it is the same rule (MM-PAR-6: what a binding may share
 ; with its parent); its own message, because the fix is different - the
 ; value is a word, and the question is what its module built it for.
 (pub :: emitCaptureUnshared (-> Int String Int Int Int))
@@ -10017,10 +10071,14 @@
       "AX3064"
       "parallel-capture"
       span
-      (strConcat (strConcat (strConcat (strConcat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty)) "` - a handle its module did not declare `shared`")
+      (strConcat (strConcat (strConcat (strConcat "a concurrent binding captures `" name) "`, which has type `") (tyRender ty)) (if (strEq (tyRender ty) "Spawn")
+        "` - a spawn handle, which only the binding that spawned it may join"
+        "` - a handle its module did not declare `shared`"))
       0
       0
-      (strConcat (strConcat "use the handle only in the binding that holds it, or have its module declare `(struct " (tyRender ty)) " word shared ...)` if every operation on it is safe from several bindings at once")
+      (if (strEq (tyRender ty) "Spawn")
+        "join the handle in the binding that spawned it: a spawn handle belongs to the binding that made it, and a join from another thread is refused at run time"
+        (strConcat (strConcat "use the handle only in the binding that holds it, or have its module declare `(struct " (tyRender ty)) " word shared ...)` if every operation on it is safe from several bindings at once"))
       "MM-PAR-6: a word struct crosses into a concurrent binding only when its module declares it `shared`, which says every operation on it is safe from several bindings at once; `__proc_spawn` names the isolated lowering and is exempt") (strConcat (strConcat "`" name) "` is bound outside this binding")))
     0
   })

@@ -2870,7 +2870,16 @@
                       ; holder does. A builtin for the reason `Foreign` is.
                       (if (strEq n "Handle")
                         "Handle"
-                        (cast String 0)))))))))))))
+                        ; `Spawn` - what a spawn primitive answers and a
+                        ; join takes (docs/memory-model.md MM-PAR-8): one
+                        ; machine word, a slot in the runtime's handle
+                        ; table, never shared between bindings. A builtin
+                        ; for `Foreign`'s reason: the checker, which
+                        ; types the primitives, and the emitter, which
+                        ; must never count one, have to agree about it.
+                        (if (strEq n "Spawn")
+                          "Spawn"
+                          (cast String 0))))))))))))))
 
 (pub :: lexStartsLower (-> String Int))
 (pub fn (lexStartsLower s)

@@ -712,7 +712,7 @@ statuses. A program **MUST NOT** reuse them as a normal result:
 | 80 | a violated `;@axiom:pre(...)`/`post(...)` contract | measured by `scripts/check-contracts.sh` §1: a violated `pre`/`post` prints ``axiom: precondition failed in `half`: (> n 0)`` to fd 2, prints the backtrace, and exits 80 at every `--opt` level. Inside `__axiom_recover` it answers 80 to the arming call |
 | 81 | an unhandled CPU exception on `baremetal-aarch64` | measured under QEMU (TCG): `tests/embedded/fault.ax` takes an alignment fault; the vector table writes the vector offset, ESR, ELR and FAR to the UART and exits 81 (`MM-EXEC-18`, `scripts/check-embedded.sh` A12). Not recoverable: no armed recovery point is jumped to |
 | 82 | an atomic whose address is not 8-byte aligned (`emitAtomicAlignGuard`, `MM-PAR-9`) | measured: `tests/stdlib/544-misaligned-atomic.ax` hands each of the four atomics an address 4 bytes into a word inside a recovery point, which answers 82 each time, then prints `axiom: misaligned atomic access` to fd 2 and exits 82, at every `--opt` level |
-| 85 | a handle that isn't live: a freed, forged or other-kind channel or mutex, or a second free of one (`@__axiom_handle_dead`, `MM-PAR-8`) | measured: `tests/stdlib/570-handle-freed.ax` runs every channel and mutex operation on a freed handle, a second free, a forged word and a mutex's word used as a channel, each inside a recovery point, which answers 85 each time, then prints `axiom: not a live handle (freed, or never made)` to fd 2 and exits 85, at every `--opt` level. `tests/stdlib/571-handle-table.ax` pins the table: 65,536 live handles, the next refused, and a reused slot under a new generation |
+| 85 | a handle that isn't live: a freed, forged or other-kind channel, mutex or cancellation token, a second free of one, or a spawn handle joined twice or by the other lowering's join (`@__axiom_handle_dead`, `MM-PAR-8`) | measured: `tests/stdlib/570-handle-freed.ax` runs every channel and mutex operation on a freed handle, a second free, a forged word and a mutex's word used as a channel, each inside a recovery point, which answers 85 each time, then prints `axiom: not a live handle (freed, or never made)` to fd 2 and exits 85, at every `--opt` level. `tests/stdlib/572-spawn-joined-twice.ax` does the same for a second join, the pid of a joined binding and a freed token, and `tests/stdlib/571-handle-table.ax` pins the table: 65,536 live handles, the next refused, and a reused slot under a new generation |
 
 `(__indexTrap)` never returns, so it fits every result type. It exists
 because traps are `internal` LLVM functions emitted by the runtime
@@ -4340,13 +4340,15 @@ design cannot absorb.
   the class rule refuses beside them. A `Foreign` stays accepted, for
   `MM-FFI-7`'s reason.
 - **A captured handle: admitted when its type says so.** A word struct
-  its module declares `shared` (`MM-VAL-10a`), such as `Chan` and
-  `Mutex`, is one word the module built for use from several bindings
-  at once, so `AX3064` admits it in either lowering. A word struct
-  without `shared` is refused with its own message.
-  `tests/diagnostics/1064-parallel-capture-handle.ax` pins both, at
-  `parallel` and at `__thread_spawn`, and `scripts/check-handles.sh`
-  holds them under `build` and `build --threads`.
+  its module declares `shared` (`MM-VAL-10a`), such as `Chan`, `Mutex`
+  and `CancelToken`, is one word the module built for use from several
+  bindings at once, so `AX3064` admits it in either lowering. A word
+  struct without `shared` is refused with its own message, and so is a
+  `Spawn` (`MM-PAR-8`), because a join belongs to the binding that
+  spawned it. `tests/diagnostics/1064-parallel-capture-handle.ax` and
+  `tests/diagnostics/1066-spawn-handle.ax` pin them, at `parallel` and
+  at `__thread_spawn`, and `scripts/check-handles.sh` holds them under
+  `build` and `build --threads`.
 
 **MM-PAR-6a (H). A thread-lowered binding returns its arena when it
 ends.** Under the thread lowering every mutable runtime global is
@@ -4424,16 +4426,16 @@ task port and `pthread_create` faulted. Tested by
 `tests/litmus/thread-in-fork.ax` and `scripts/check-task.sh` §8's
 `libcfork` ablation.
 
-Four limits:
+Three limits:
 
 - A killed child can't sweep its own children, so the grandchildren of
   a killed binding are reparented, not killed.
 - A raw exit (`sysExitWith`) sweeps nothing.
 - A thread can't be interrupted, so a sweep of a binding that never
   finishes never finishes.
-- A handle is a word, so joining one twice is refused only while the
-  registry can see it. A handle whose page was already unmapped is a
-  dangling address (`MM-PAR-8`).
+
+A handle joined twice isn't one of them: the second join traps with
+status 85 before it reads the page (`MM-PAR-8`).
 
 What it costs: the registry adds two thread-local globals, so the
 eight of `MM-PAR-3` become ten in a module that spawns
@@ -4444,22 +4446,58 @@ three more words per process page, a `waitid` per process join, and,
 on Darwin, the `fork` import. A module that names no spawn primitive emits none of it,
 and its output is byte for byte what it would be without the registry.
 
-**MM-PAR-8 (P). A spawn handle SHALL be a value the type system
-tracks, joined exactly once.** Today a handle is an `Int`. The
-`parallel` form never exposes one, and `stdlib/Par.ax` joins every
-handle it spawns exactly once by construction. But a program that
-spells the raw primitives can join one twice, or never.
+**MM-PAR-8 (H). A spawn handle SHALL be a value the type system
+tracks, joined exactly once.** A spawn primitive answers a `Spawn`,
+and only a join, a checked join and `__spawn_pid` take one. `Spawn` is
+a builtin word type that nothing but the runtime can build or open, so
+an `Int` joined, a handle used as an `Int` and a function declared
+`Int` that answers one are `AX3004`. A concurrent binding may not
+capture one (`AX3064`), because a join belongs to the binding that
+spawned it (`MM-PAR-7`'s 78).
 
-`MM-PAR-7`'s registry turns the never into a sweep, and the
-cross-thread join into status 78. A second join of an unmapped page
-still reads whatever maps there next. That stays a program obligation
-until the handle has a type that its join consumes.
+The handle is a slot in the runtime's handle table, and the table says
+whether the slot is live. A join asks the table for the binding's page
+before it reads it, and the page's end retires the slot
+(`@__axiom_par_finish`, on every path: a join, a sweep, a failed
+spawn). So *at most once* is checked: a second join, a checked join
+after a join, and the pid of a joined binding trap with status 85 and
+never read the unmapped page. *At least once* is `MM-PAR-7`'s sweep. A
+forked binding's handle and a thread's are different kinds, so one
+lowering's handle joined by the other's join traps 85 too, and
+`__spawn_pid` answers only a process's pid.
 
-The table this rule needs exists, and channels and mutexes use it
-(`MM-PAR-10`, `MM-PAR-11`, §10.7): a handle is a sealed word
-(`MM-VAL-10a`) naming a slot with a generation, and a freed or forged
-one traps with status 85 before its object is touched. Spawn handles
-don't use it yet.
+The same table carries the standard library's handles: a channel
+(`MM-PAR-10`), a mutex (`MM-PAR-11`) and a cancellation token
+(`MM-PAR-13`), each a word struct its module declares `shared`
+(`MM-VAL-10a`). Every operation asks the table for the object first,
+so a freed, forged or other-kind handle traps 85, and so does a second
+free.
+
+*The table.* A handle word is `(generation << 16) | index`. A slot
+holds a state, the generation with a live bit and a kind, and the
+address it names. A get reads the state on both sides of the address
+and reads nothing the object owns. A free retires the slot with one
+compare-and-swap, so of two frees exactly one returns. There are
+65,536 slots per address space, like the mappings they describe,
+mapped on first use and lock-free. A module that names no handle or
+spawn primitive emits none of it. §10.7 records why liveness lives in
+a table.
+
+*Limits.* A free that races another binding's operation on the same
+handle is a data race (`MM-PAR-9`): the table catches every use ordered
+after the free, not one already in flight. A `cast` to a handle type
+forges one, which is the unsafe layer's (`MM-VAL-22`). At most 65,536
+handles are live at once: a spawn beyond that is refused as a refused
+fork is (78), and a library call answers `EMFILE`.
+
+*Evidence.* `tests/stdlib/570-handle-freed.ax`,
+`tests/stdlib/571-handle-table.ax` and
+`tests/stdlib/572-spawn-joined-twice.ax`, at every `--opt`;
+`tests/diagnostics/1060-handle-int-for-chan.ax` to
+`tests/diagnostics/1066-spawn-handle.ax`; `scripts/check-handles.sh`:
+both lowerings, 80,000 handles made and freed by four bindings at once,
+racing frees, both kinds of spawn handle, the capture rule under
+`build --threads`, and three ablations.
 
 **MM-PAR-9 (H). What orders memory between bindings, what the atomics
 mean, and what a race is.** This rule says when one binding's write is
@@ -4561,9 +4599,9 @@ That leaves three holes with no refusal that admits ordinary programs:
   called;
 - a word handed to a library function that dereferences it as a
   buffer, such as `Sys`'s buffer addresses. The function can't tell a
-  forged or freed word from a live one. Channels and mutexes are typed
-  handles the runtime checks (`MM-PAR-8`), so this hole doesn't reach
-  them.
+  forged or freed word from a live one. Channels, mutexes,
+  cancellation tokens and spawn handles are typed handles the runtime
+  checks (`MM-PAR-8`), so this hole doesn't reach them.
 
 You can find the first two by reading: the word `cast`, and the
 callee's tag. You can find the third from the parameter's documented
@@ -4908,9 +4946,11 @@ isolation is what makes a task's captures its own.
   before the kill answers that instead. Durations are converted to
   microseconds with saturation, so a deadline or grace near the
   largest `Int` means for ever.
-- **Cancellation** uses a token: a shared word from `taskTokenNew`
-  that `taskCancel` sets from anywhere, a sibling binding or a task,
-  and `taskCancelled` polls. A pool that sees it set starts nothing
+- **Cancellation** uses a token: a `CancelToken` from `taskTokenNew`,
+  a handle naming a shared word, which `taskCancel` sets from anywhere,
+  a sibling binding or a task, and `taskCancelled` polls. A binding may
+  capture it, and a call on a freed one traps with status 85
+  (`MM-PAR-8`). A pool that sees it set starts nothing
   more, and every unstarted task answers `taskCancelledCode` (1002).
   Running tasks get `grace` to finish, then the pool kills and reaps
   the rest, which answer 1002. `failFast` sets the pool's token at the
@@ -4974,18 +5014,13 @@ isolation is what makes a task's captures its own.
 
 *Program obligations.*
 
-- A task is killed by the pid in word 0 of its `__proc_spawn` handle
-  page. `self_host/codegen.ax` owns that layout and this module borrows
-  it. The gate checks it end to end: a wrong pid leaves the task alive
-  and turns the check red.
 - `taskFold`'s step may keep only what its `Int` accumulator carries.
   The region check sees the pool's call but not into the step's
   captures. A step that stores an answer, or grows a captured `Vec`,
   names reclaimed memory, which is why `taskFold` claims
   `effect(unsafe)`.
 - A token passed in is shared state: cancelling it cancels every pool
-  using it.
-- The token and the handles are `Int`s (`MM-PAR-8`).
+  using it. Free it only once no pool and no task can still use it.
 
 *Evidence.*
 
@@ -5011,8 +5046,8 @@ isolation is what makes a task's captures its own.
   sibling thread. A control measures the stated limit: an external
   `SIGKILL` leaves the tasks alive. §5: the fold stays within 1 MiB
   from 500 to 5,000 tasks, and the keeping control must grow by 8 MiB.
-- `scripts/check-task.sh` §6 ablates the deadline's kill, the borrowed
-  layout, the child look, the result slot, the byte limit, the
+- `scripts/check-task.sh` §6 ablates the deadline's kill, the pid the
+  kill reads, the child look, the result slot, the byte limit, the
   cancellation's kill, the saturating microseconds conversion and the
   exit wait, each on a copy of the library, and each turns its check
   red. §8 ablates the runtime's kill list and Darwin's libSystem fork
@@ -5345,7 +5380,7 @@ opposite of that rule's status.
 | Regions | RGN-1…4, 5a, 6 | RGN-7 | RGN-5 | — |
 | Mutation | MUT-1…5a | — | — | MUT-6 |
 | Lifetimes | LIFE-1, 3, 4, 6, 2g…2i, 2k | LIFE-7 | LIFE-2a…2f (superseded by ALLOC-22), LIFE-5 (superseded by LIFE-4/RGN-6) | LIFE-2 |
-| Parallelism | PAR-1…5, 6a, 7, 9…13 | PAR-6, PAR-8 | — | — |
+| Parallelism | PAR-1…5, 6a, 7…13 | PAR-6 | — | — |
 | Foreign | FFI-1…7 | — | — | — |
 
 `MM-VAL-21` is in no column. It is neither held, planned nor refused,
@@ -5451,7 +5486,7 @@ only written down.
 | `tests/stdlib/522-parallel-recover.ax` | PAR-7's recovery half: a trapping forked binding inside a recovery point answers 72 once, where the unfixed compiler printed twice |
 | `tests/diagnostics/1010-unsafe-primitives.ax` | EXEC-9c: the nine primitives refused under `restrict(no-unsafe)` and `pure`, with three controls silent |
 | `scripts/check-parallel.sh` section 12 | PAR-6a and PAR-7: thread churn holds address space flat, and no child outlives an abort, a trap or `main` |
-| `scripts/check-handles.sh` | VAL-10a and PAR-8: a freed or forged channel or mutex traps 85 at every `--opt` and in both lowerings; the table holds under four bindings at once and exactly one of two racing frees returns; the capture rule holds under `build --threads`; a record holding a handle maps as one holding an `Int`; three ablations each go red |
+| `scripts/check-handles.sh` | VAL-10a and PAR-8: a freed or forged channel or mutex, and a spawn handle joined twice or of the other lowering's kind, trap 85 at every `--opt` and in both lowerings; the table holds under four bindings at once and exactly one of two racing frees returns; the capture rule holds under `build --threads`; a record holding a handle maps as one holding an `Int`; three ablations each go red |
 | `tests/selfhost/500-while-mut.ax` | MUT-1 in constant stack |
 | `tests/diagnostics/465-set-on-parameter.ax`, `466-set-captured.ax` | MUT-1a: both refusals, byte-pinned in all three renderings |
 | `tests/diagnostics/471-reserved-runtime-name.ax` | ALLOC-8's refusal arm (`AX3026`) |
@@ -5682,9 +5717,10 @@ concurrency library a library.
 
 ### 10.7 Why a handle is a sealed word with its liveness in a table
 
-A channel and a mutex each name a shared mapping that a free unmaps.
-Typed as an `Int`, any word would pass as one, and a freed one would
-point at an unmapped page. We weighed three designs.
+A channel, a mutex and a cancellation token each name a shared mapping
+that a free unmaps, and a spawn handle names the page its join reads
+and then unmaps. Typed as an `Int`, any word would pass as one, and a
+freed one would point at an unmapped page. We weighed three designs.
 
 - **A word type the checker seals, which we chose.** It is one
   uncounted word, distinct to the checker, built and opened only by

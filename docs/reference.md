@@ -2068,7 +2068,8 @@ Add `shared` when every operation the module offers on the type is
 safe from several bindings at once, as in `(struct Chan word shared
 (slot : Int))`. A `parallel` binding may capture a shared handle
 ([What a binding may capture](#what-a-binding-may-capture)). The
-standard library's `Chan` and `Mutex` are declared this way.
+standard library's `Chan`, `Mutex` and `CancelToken` are declared this
+way.
 
 Tested by `tests/diagnostics/1062-handle-sealed-build.ax` and
 `tests/diagnostics/1065-struct-marker.ax`.
@@ -4915,11 +4916,12 @@ A bare `Foreign` may be captured: it points into memory Axiom never
 allocated, so there's no count to race. A `Handle` may not, because
 it's a counted block that carries a destructor.
 
-A handle whose type is declared `shared` may be captured too: a `Chan`
-or a `Mutex` is one word its module built for use from every binding at
-once ([Make a handle other modules can't forge](#make-a-handle-other-modules-cant-forge)).
+A handle whose type is declared `shared` may be captured too: a
+`Chan`, a `Mutex` or a `CancelToken` is one word its module built for
+use from every binding at once ([Make a handle other modules can't forge](#make-a-handle-other-modules-cant-forge)).
 A word struct without `shared` may not, and neither may a `Vec`, which
-two bindings could grow at once.
+two bindings could grow at once, or a spawn's `Spawn` handle, which
+only the binding that spawned it may join.
 
 Tested by `tests/diagnostics/655-parallel-capture-foreign.ax` and
 `tests/diagnostics/1064-parallel-capture-handle.ax`.
@@ -5051,11 +5053,15 @@ A spawn the kernel refuses exits with status 78 on every target.
 The parser desugars `parallel` into `let`s over pairs of primitives.
 `__par_spawn`/`__par_join` follow `--threads`, while
 `__thread_spawn`/`__thread_join` and `__proc_spawn`/`__proc_join` name
-their lowering. Each spawn is `(-> (-> Int Int) Int Int)`, each join is
-`(-> Int Int)`, and all of them carry `IO`.
+their lowering. Each spawn is `(-> (-> Int Int) Int Spawn)`, each join
+is `(-> Spawn Int)`, and all of them carry `IO`. A `Spawn` is a handle:
+an `Int` isn't one, a binding may not capture one, and a join of a
+handle already joined exits with status 85 without touching the
+binding's page. `(__spawn_pid h)` answers the pid a forked binding runs
+as.
 
 Each join has a non-raising twin: `__par_join_nr`, `__thread_join_nr`
-and `__proc_join_nr`, each `(-> Int Int Int)` over a handle and an
+and `__proc_join_nr`, each `(-> Spawn Int Int)` over a handle and an
 out-cell. It stores the child's decoded wait status (0, an exit code,
 or 128 plus the signal) instead of re-raising it. It answers the
 thunk's word, or 0 when the child never answered. `parallel` always
@@ -5257,7 +5263,7 @@ regenerates it on every run to keep it exact.
 | `Par` | `parMapWords`, a bounded pool of concurrent tasks joined in submit order. `parRunAll` is the same pool over external commands, and `parRunOne`/`parArgvVector` are the pieces underneath. |
 | `Chan` | `chanNew`, a bounded channel of words between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings, in shared memory so forked children and threads both see it. The channel is a `Chan`, a handle only this module makes, and a call on a freed one exits with status 85. `chanSend`/`chanRecv` block while it is full or empty, and `chanClose` ends the stream. Also `chanTrySend`, `chanTryRecv`, `chanLen`, `chanClosed`, `chanCap`, `chanFree`. `chanSendTimeout`/`chanRecvTimeout` wait at most a given time and answer `Err` code `sysTimedOut` when it runs out ([memory-model.md](memory-model.md) `MM-PAR-10`, `MM-PAR-12`). |
 | `Sync` | `mutexNew`, a mutex between [`parallel`](#parallel--bindings-that-run-beside-the-caller) bindings in a shared word, in both lowerings. The mutex is a `Mutex`, a handle only this module makes, and a call on a freed one exits with status 85. `mutexLock`/`mutexTryLock`/`mutexLockTimeout` answer a guard that `mutexUnlock` takes back (an unlock the caller did not earn is `Err` `syncNotHeld`), a holder found dead poisons it (`syncOwnerDead`, `mutexOwnerDead`), `mutexFree`. No fairness, no priority inheritance, not reentrant ([memory-model.md](memory-model.md) `MM-PAR-11`). |
-| `Task` | `taskMap`/`taskMapWith`: `(-> Int String)` tasks in forked children, at most `width` at once, one `(Result String Error)` each in submit order. Answers cross as bytes under a per-task limit (`taskTooLargeCode`), a trap answers its wait status, a deadline kills and reaps (`sysTimedOut`), a token cancels (`taskTokenNew`, `taskCancel`, `taskCancelled`, `taskCancelledCode`), `failFast`; `TaskOpts` via `taskOpts` and `taskWith*`; `taskFold` streams the answers without keeping them ([memory-model.md](memory-model.md) `MM-PAR-13`). |
+| `Task` | `taskMap`/`taskMapWith`: `(-> Int String)` tasks in forked children, at most `width` at once, one `(Result String Error)` each in submit order. Answers cross as bytes under a per-task limit (`taskTooLargeCode`), a trap answers its wait status, a deadline kills and reaps (`sysTimedOut`), a token cancels (`taskTokenNew` answers a `CancelToken` handle; `taskCancel`, `taskCancelled`, `taskCancelledCode`), `failFast`; `TaskOpts` via `taskOpts` and `taskWith*`; `taskFold` streams the answers without keeping them ([memory-model.md](memory-model.md) `MM-PAR-13`). |
 | `Http` | Serving HTTP. The parser `httpRead` over a buffered `HttpReader` (`httpReaderNew`/`httpReaderWith`). The `HttpReq` record with `httpHeader`/`httpHasHeader`/`httpQueryParam`/`httpDecode`. The writer `httpRespond`/`httpRespondRaw`/`httpFail`, with `httpStatusText` and `httpContentType`. The router `routerNew`/`routeAdd`/`routeStatic`/`routeNotFound`/`routeDispatch` over `HttpHandler` cells. Also `httpPathSafe`, `httpServeFile`, `httpServeOne`, and the limits `httpMaxHead`/`httpMaxBody`. |
 | `Test` | `assertEq`, `assertNe`, `assertStrEq`, `assertTrue`, `assertFalse`, `testFail`, and the `Assert` effect a failed assertion performs, which `axiom test` uses to find and isolate failures (error-model.md ERR-REC-6). |
 | `Agent.Tags` | Reads the AXSYM stream, not the compiler's internals: `axsymParse`, `axsymLine`, and the accessors over one parsed line, `symTag`, `symHasTag`, `symEffects`, `symDerivedPure`, `symAgentTag`, `symHasAgentTag` ([agent-harness.md](agent-harness.md) §3.2). |
