@@ -22,6 +22,14 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### `axiom fmt` refuses `(pub` and an empty effect operation - 2026-09-29
+
+`axiom fmt` on a file holding a bare `(pub`, or an effect with an empty
+`()` operation, trapped with 77 and took the server's `formatting`
+down with it. Both are refusals now, exit 1, with the file untouched.
+Tested by `tests/fmt/parity/240-effect-empty-op-refused.axp` and
+`241-bare-pub-refused.axp`.
+
 ### The server's lints read the code you wrote - 2026-09-29
 
 The editor-only lints walked the tree after macro expansion, which
