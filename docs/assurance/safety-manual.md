@@ -144,6 +144,11 @@ the stack from the stack bound, with a margin.
   devices ([tool-qualification.md](tool-qualification.md)).
 - No protection against hardware faults such as bit flips, ECC errors
   or radiation upsets. Language memory safety doesn't address them.
+  One boundary detects some: a single-bit fault in a live channel,
+  mutex, token or spawn handle traps 85, unless the flip spells another
+  live handle of the same kind (`scripts/check-handles.sh` §7). A flip
+  anywhere else, in a `Vec`'s length, a count word or the object a
+  handle names, isn't detected.
 - No structural coverage measurement of your program. The compiler's
   own coverage is measured ([tool-qualification.md](tool-qualification.md)).
 - No qualified tool, no certification, and no independent assessment.

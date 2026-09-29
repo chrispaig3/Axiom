@@ -22,6 +22,16 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Fault injection at the handle table — `scripts/check-handles.sh` §7 - 2026-09-29
+
+A single-bit fault in a live handle word is now tested at every bit.
+Flipping any of the 64 bits of a live channel's word traps 85 before
+the channel is touched, except a flip that spells another live channel,
+which no check can tell apart; the gate predicts that bit from the two
+words and requires it. This is the one boundary the runtime checks. A
+bit flip anywhere else isn't detected, as `docs/assurance/hazards.md`
+HZ-E4 says. Tested by `tests/litmus/handle-bitflip.ax`.
+
 ### A long `let` compiles in quadratic time, not cubic — AN-54 - 2026-09-29
 
 A `let` of 2,000 bindings, each built by a call, reaches LLVM IR in

@@ -53,11 +53,21 @@
 #        free   - a compiler whose `@__axiom_handle_free` retires without
 #                 comparing: a double free returns, and the race frees
 #                 twice a round.
+#   7. A single-bit fault in a live handle word, at every bit and at
+#      --opt 0 and 2 (`tests/litmus/handle-bitflip.ax`): each of the 64
+#      flips of a live channel's word either traps 85 before the mapping
+#      is touched, or spells the other live channel, which no check can
+#      tell from the real one. The gate predicts which bits do the
+#      latter from the two words and requires exactly those. With the
+#      `get` ablation's compiler, some flip does neither.
 #
 # LIMITS. A load that passed is evidence on the runs made. A free that
 # races another binding's operation on the same handle is a data race
 # (MM-PAR-9) and is not checked: the table catches every use ordered
-# after the free.
+# after the free. Section 7 injects faults at the table only: a flip in
+# memory the runtime doesn't check, such as a `Vec`'s length, a count
+# word or the object a handle names, isn't detected, and only one flip
+# at a time is tried.
 #
 # Usage: check-handles.sh
 set -uo pipefail
@@ -318,6 +328,57 @@ if ablate_cc free '        (emitLine cg "  %mine = extractvalue { i64, i1 } %cx,
   fi
 else
   bad "free: the compiler ablation did not apply or build"; tail -4 "$work/cc-free/build.log" 2>/dev/null | sed 's/^/    /'
+fi
+
+echo "== 7. a single-bit fault in a live handle word traps 85, unless it spells another live handle =="
+bitflip="$repo_root/tests/litmus/handle-bitflip.ax"
+# flips <binary>: "<detected>|<aliased bits>|<wrong k:exit:stdout ...>"
+flips() {
+  local bin="$1" k rc out words wa wb det=0 alias="" wrong="" want
+  words="$(gate_timeout 30 "$bin" -1 2>/dev/null | sed -n 's/^words //p')"
+  wa="${words% *}"; wb="${words#* }"
+  if [[ ! "$wa" =~ ^[0-9]+$ || ! "$wb" =~ ^[0-9]+$ ]]; then echo "0||no words"; return; fi
+  for (( k = 0; k < 64; k++ )); do
+    rc=0; out="$(gate_timeout 30 "$bin" "$k" 2>"$work/flip.err")" || rc=$?
+    want=85
+    (( (wa ^ (1 << k)) == wb )) && want=b
+    if [[ "$want" == b && $rc -eq 0 && "$out" == b ]]; then
+      alias+=" $k"
+    elif [[ "$want" == 85 && $rc -eq 85 ]] && grep -q "not a live handle" "$work/flip.err"; then
+      det=$((det + 1))
+    else
+      wrong+=" $k:$rc:${out:-_}"
+    fi
+  done
+  echo "$det|${alias# }|${wrong# }"
+}
+for lvl in 0 2; do
+  bin="$work/bitflip.O$lvl"
+  if ! (cd "$repo_root" && "$axc" build --opt "$lvl" --input "$bitflip" --output "$bin") > "$bin.build" 2>&1; then
+    bad "bitflip --opt $lvl did not build"; sed 's/^/    /' "$bin.build" | head -8; continue
+  fi
+  rc=0; ctl="$(gate_timeout 30 "$bin" -1 2>/dev/null | tail -1)" || rc=$?
+  if [[ $rc -ne 0 || "$ctl" != a ]]; then
+    bad "bitflip -O$lvl control: the unflipped handle answered '$ctl', exit $rc, not 'a'"; continue
+  fi
+  IFS='|' read -r det alias wrong <<<"$(flips "$bin")"
+  if [[ -z "$wrong" && -n "$alias" && $(( det + $(wc -w <<<"$alias") )) -eq 64 ]]; then
+    ok "bitflip -O$lvl: $det of 64 single-bit faults trap 85; bit $alias spells the other live channel, as the words predict"
+  else
+    bad "bitflip -O$lvl: $det trapped 85, aliased [$alias], wrong [$wrong]"
+  fi
+done
+if [[ -x "$work/cc-get/axc" ]]; then
+  bin="$work/cc-get/bitflip"
+  (cd "$repo_root" && "$work/cc-get/axc" build --opt 2 --input "$bitflip" --output "$bin") > "$bin.build" 2>&1
+  IFS='|' read -r det alias wrong <<<"$(flips "$bin")"
+  if [[ -n "$wrong" ]]; then
+    ok "bitflip ablated: red - with the state compares gone, $(( $(wc -w <<<"$wrong") )) flips neither trap nor alias"
+  else
+    bad "bitflip ablated: every flip still traps or aliases, so section 7 cannot see the table's compares"
+  fi
+else
+  bad "bitflip ablated: the get ablation's compiler is missing, so section 7 has no negative"
 fi
 
 echo

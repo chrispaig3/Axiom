@@ -33,7 +33,8 @@ source.
 | Forging casts and precondition calls require an unsafe declaration; trusted wrappers admit ordinary code under `no-unsafe` (R-B6) | `tests/diagnostics/1040-forging-cast.ax` to `1043-precondition-tag.ax`; `tests/selfhost/1010-trusted-wrapper.ax`; `tests/stdlib/545-no-unsafe-practical.ax` |
 | No `Vec` is shared between `--threads` siblings (R-C1) | `tests/diagnostics/656-parallel-container-capture.ax`; row 5 of `642`; `471` builds inside |
 | A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel (R-C2a) | `tests/stdlib/528-chan.ax`; `scripts/check-chan.sh`: 15 pass |
-| A channel, mutex, cancellation token or spawn handle is a sealed handle: safe code can't forge one or pass an `Int` or another handle as one, and a freed, forged or rejoined one traps with 85 instead of reading an unmapped page (R-C6, MM-PAR-8) | `tests/diagnostics/1060` to `1066`; `tests/stdlib/570-handle-freed.ax`, `571-handle-table.ax`, `572-spawn-joined-twice.ax`; `scripts/check-handles.sh`: 39 pass, including three ablations |
+| A channel, mutex, cancellation token or spawn handle is a sealed handle: safe code can't forge one or pass an `Int` or another handle as one, and a freed, forged or rejoined one traps with 85 instead of reading an unmapped page (R-C6, MM-PAR-8) | `tests/diagnostics/1060` to `1066`; `tests/stdlib/570-handle-freed.ax`, `571-handle-table.ax`, `572-spawn-joined-twice.ax`; `scripts/check-handles.sh`: 42 pass, including four ablations |
+| A single-bit fault injected into a live channel's handle word traps 85 before the object is touched, at each of the 64 bits, unless the flip spells the other live channel, which the gate predicts from the two words. This is fault injection at the one boundary the runtime checks, not protection from hardware faults (HZ-E4) | `tests/litmus/handle-bitflip.ax`; `scripts/check-handles.sh` §7 at `--opt` 0 and 2, red with the table's compares removed |
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 69 pass, including eleven ablations and two controls that measure stated limits |
 | Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP, LB, 2+2W, counter and four coherence litmus tests are clean on two threads, WRC and ISA2 on three and IRIW on four, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 144 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
@@ -109,7 +110,7 @@ constants.
 | `check-atomics.sh` | 144 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |
-| `check-handles.sh` | 39 pass |
+| `check-handles.sh` | 42 pass |
 | `check-protocol-model.sh` | 77 pass |
 | `check-report.sh` | 49 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |

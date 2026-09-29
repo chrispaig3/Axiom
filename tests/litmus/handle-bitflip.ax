@@ -1,0 +1,67 @@
+; A single-bit fault in a live handle word, at the one boundary the
+; runtime checks: the handle table (docs/memory-model.md MM-PAR-8).
+; `scripts/check-handles.sh` section 7 runs it once per bit.
+;
+; Two live channels, `a` then `b`. `handle-bitflip K` flips bit K of
+; `a`'s word and sends 7 on the result. The table must refuse the word
+; (status 85, before the mapping is touched) unless the flip happens to
+; spell another live channel, which no check can tell from the real
+; one: then the word arrives in that channel, and this prints `b`.
+; `handle-bitflip -1` flips nothing, prints both handle words for the
+; gate to predict that case, and then `a`.
+;
+; A flip in memory the runtime doesn't check, such as a `Vec`'s length
+; or a count word, isn't detected, and this doesn't claim otherwise.
+(import IO)
+(import Str)
+(import Fmt)
+(import Sys)
+(import Err)
+(import Chan)
+
+; `c`'s word with bit `k` flipped.
+(:: flipped (-> Chan Int Chan))
+;@axiom:effect(unsafe)
+(fn (flipped c k)
+  (cast Chan (^ (cast Int c) (<< 1 k))))
+
+(:: wordOf (-> Chan Int))
+(fn (wordOf c)
+  (cast Int c))
+
+(:: made (-> (Result Chan Error) Chan))
+;@axiom:effect(io)
+(fn (made r)
+  (match r
+    ((Ok c) c)
+    ((Err e) (cast Chan (die "chanNew failed" 1)))))
+
+(:: got (-> Chan Bool))
+;@axiom:effect(io)
+(fn (got c)
+  (match (chanTryRecv c)
+    ((Some v) (== v 7))
+    ((None) false)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (k (match (strParseInt (sysArg 1))
+      ((Some n) n)
+      ((None) (- 0 1))))
+    (a (made (chanNew 4)))
+    (b (made (chanNew 4)))
+  )
+    {
+      (if (< k 0)
+        (println (strConcat "words " (strConcat (fmtInt (wordOf a)) (strConcat " " (fmtInt (wordOf b))))))
+        0)
+      (chanSend (if (< k 0) a (flipped a k)) 7)
+      (println (if (got a)
+        "a"
+        (if (got b)
+          "b"
+          "neither")))
+      0
+    }))

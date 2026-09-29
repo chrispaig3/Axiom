@@ -4707,7 +4707,8 @@ fork is (78), and a library call answers `EMFILE`.
 `tests/diagnostics/1066-spawn-handle.ax`; `scripts/check-handles.sh`:
 both lowerings, 80,000 handles made and freed by four bindings at once,
 racing frees, both kinds of spawn handle, the capture rule under
-`build --threads`, and three ablations.
+`build --threads`, a single-bit fault at each of a live handle's 64
+bits (`tests/litmus/handle-bitflip.ax`), and four ablations.
 
 **MM-PAR-9 (H). What orders memory between bindings, what the atomics
 mean, and what a race is.** This rule says when one binding's write is
