@@ -22,6 +22,15 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The server's lints read the code you wrote - 2026-09-29
+
+The editor-only lints walked the tree after macro expansion, which
+rewrites it in place. A macro that uses its parameter twice, nested 40
+deep, expands to a graph with 2^40 paths, so a 219-byte document hung
+the server on open and on every code action while `axiom check`
+answered at once. The lints now read the written tree, as they always
+claimed to. Tested by `tests/fuzz/lsp/lint-dag.lspfuzz`.
+
 ### An empty message no longer ends a language-server session - 2026-09-29
 
 A frame with `Content-Length: 0` made the server exit as if the editor

@@ -18,3 +18,4 @@
 # named `@ROOT@` so it replays on any host; `lspfuzz.py run --transcript`
 # prints what it sends and what comes back.
 empty-body.lspfuzz	fixed	-	-	a frame whose body is empty (`Content-Length: 0`) ended the session: `rpcRead` answered "" for it and for the end of the stream alike, so the server read it as the client hanging up and exited 1 with every request behind it unanswered. `rpcReadMsg` answers `Some ""` for the frame and `None` for the end (fixed in stdlib/Rpc.ax, self_host/lsp.ax)
+lint-dag.lspfuzz	fixed	-	-	a 219-byte document hung the server for good: a macro that uses its parameter twice, nested 40 deep, expands to a DAG with 2^40 paths, and the editor-only lints walked the EXPANDED tree - `expandProgram` rewrites `decls` in place - on every publish and every code action, though `lspLintDoc` promised the written one. The lints now run over the written tree, taken before expansion (fixed in self_host/lsp.ax `lspCheckDoc`, `lspCodeAction`)

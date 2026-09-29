@@ -534,7 +534,20 @@
                 ; Once, not per diagnostic: `lspPathToUri`
                 ; is IO, and a related location names the
                 ; document being published.
+                ;
+                ; The lints are taken FIRST, while `decls` is
+                ; still the tree the author wrote:
+                ; `expandProgram` rewrites it in place, and a
+                ; lint over the rewritten tree broke both of
+                ; `lspLintDoc`'s promises - it saw what macros
+                ; expand to, and it walked their output, which
+                ; is a DAG. A macro that uses its parameter
+                ; twice, nested 115 deep, is 2^115 paths through
+                ; a few thousand nodes; `axiom check` answered in
+                ; a second and the server never answered again
+                ; (found by `scripts/lib/lspfuzz.py`).
                 (let (
+                  (lints (lspLintRaw src decls))
                   (bares vecNew)
                   (fulls vecNew)
                   (mods vecNew)
@@ -600,9 +613,32 @@
                                     0)
                                   (set i (+ i 1))
                                 }))
-                            (lspLintDoc out src ix decls)
+                            (lspJsonAppend out lints 0)
                             out
                           })))))))))))))
+
+; The editor-only lints of a document's raw parse tree, as a JSON
+; array: `lspLintDoc` into an array of their own, so `lspCheckDoc` can
+; take them before expansion rewrites the tree and publish them after
+; the checker's diagnostics.
+(pub :: lspLintRaw (-> String (Vec Int) Int))
+(pub fn (lspLintRaw src decls)
+  (let ((out jsonArr))
+    {
+      (lspLintDoc out src (lspLineIndex src) decls)
+      out
+    }))
+
+; Push every element of the JSON array `from`, from index `i`, onto
+; `out`.
+(pub :: lspJsonAppend (-> Int Int Int Int))
+(pub fn (lspJsonAppend out from i)
+  (if (>= i (jsonArrLen from))
+    0
+    {
+      (jsonArrPush out (jsonArrGet from i))
+      (lspJsonAppend out from (+ i 1))
+    }))
 
 ; ------------------------------------------------------------------
 ; Editor-only lints.
@@ -10087,6 +10123,7 @@
               decls
               ix
               want))
+            (lintRecs (lspLintRecs src decls))
             (path (lspUriToPath uri))
             (out jsonArr)
           )
@@ -10147,6 +10184,7 @@
                             uri
                             ix
                             decls
+                            lintRecs
                             want)
                           (lspUnhandledAssists
                             out
@@ -10554,12 +10592,15 @@
         d
         (lspLintOwnerDecl decls owner (+ i 1))))))
 
-; Both lint assists for every live record the request meets.
-(pub :: lspLintAssists (-> Int String String (Vec Int) (Vec Int) Int Int))
+; Both lint assists for every live record the request meets. `recs`
+; is `lspLintRecs` over the WRITTEN tree, which `lspCodeAction` takes
+; before `lspFixExpand` rewrites it, for `lspCheckDoc`'s reason: a walk
+; over what expansion made is a walk over a DAG, and one nested macro
+; made it 2^115 paths long.
+(pub :: lspLintAssists (-> Int String String (Vec Int) (Vec Int) (Vec Int) Int Int))
 ;@axiom:effect(unsafe)
-(pub fn (lspLintAssists out src uri ix decls want)
+(pub fn (lspLintAssists out src uri ix decls recs want)
   (let (
-    (recs (lspLintRecs src decls))
     (seen vecNew)
     (mut i 0)
   )
