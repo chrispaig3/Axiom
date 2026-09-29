@@ -83,14 +83,14 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 model="$repo_root/scripts/lib/protocol-model.py"
 if (( long )); then
-  want_scenarios=54; want_states=25000000; budget=14400; trace_n=300; starve_ms=5000
+  want_scenarios=87; want_states=6500000; budget=3600; trace_n=300; starve_ms=5000
 else
-  want_scenarios=38; want_states=2000000; budget=1800; trace_n=50; starve_ms=1500
+  want_scenarios=66; want_states=1200000; budget=900; trace_n=50; starve_ms=1500
 fi
 # Every transcribed step the scenarios execute, and the operations the
 # transcription check matches: what they are on the tree today.
-want_reached=290
-want_matched=183
+want_reached=371
+want_matched=213
 
 # ---------------------------------------------------------------------
 echo "== 1. the model: every interleaving of the real protocols =="
@@ -136,11 +136,12 @@ else
   bad "coverage: '${cov:-none}' (want gaps 0 and at least $want_reached reached)"
 fi
 an10="$(sed -n 's/^AN10 //p' "$work/run.txt")"
-if [[ "$an10" == deadlock ]]; then
-  ok "AN-10 reproduced: a sender killed holding the lock leaves the timed receiver asleep in chanLock for good"
-  sed -n '/^AN-10 /,/^AN10 /p' "$work/run.txt" | sed '1d;$d' | sed 's/^/  /'
+an10_states="$(sed -nE 's/^AN-10 .*: ([0-9]+) states$/\1/p' "$work/run.txt")"
+if [[ "$an10" == clean && -n "$an10_states" ]]; then
+  ok "AN-10 closed: a sender killed anywhere, the lock held or not, and every timed receive still answers ($an10_states states)"
 else
-  bad "AN-10: the model should find the documented deadlock, and found '${an10:-nothing}'"
+  bad "AN-10: the model should find the killed sender's scenario clean, and found '${an10:-nothing}':"
+  sed -n '/^AN-10 /,/^AN10 /p' "$work/run.txt" | sed '1d;$d' | sed 's/^/  /'
 fi
 
 # ---------------------------------------------------------------------
@@ -148,6 +149,8 @@ echo "== 2. planted defects: each found, as what it is, with its schedule =="
 rc=0; gate_timeout "$budget" python3 "$model" defects > "$work/defects.txt" 2>&1 || rc=$?
 for name in "park after release" "notify reads the announcement before the change" \
             "chan release without a wake" "chan notify without a wake" "chan lock by load then store" \
+            "chan dead-holder test removed" "chan lock wait without a slice" "chan child look removed" \
+            "chan poison without its compare-and-swap" \
             "mutex release without a wake" "mutex lock by load then store" "mutex waiter without its mark" \
             "mutex guard compared with the counter" "mutex dead-holder test without its re-read"; do
   line="$(grep -F "RED $name:" "$work/defects.txt" | head -1)"
@@ -183,8 +186,8 @@ import os, shutil, sys
 src, base = sys.argv[1], sys.argv[2]
 cuts = {
   # chanSend and chanRecv park after releasing the lock.
-  "park": ("Chan.ax", "                (let ((seen (chanPark ch)))\n                  {\n                    (chanUnlock ch)\n                    (chanSleep ch seen)\n                  }))))",
-           "                {\n                  (chanUnlock ch)\n                  (let ((seen (chanPark ch)))\n                    (chanSleep ch seen))\n                })))", 2),
+  "park": ("Chan.ax", "                (let ((seen (chanPark ch)))\n                  {\n                    (chanUnlock ch me)\n                    (chanSleep ch seen)\n                  }))))))",
+           "                {\n                  (chanUnlock ch me)\n                  (let ((seen (chanPark ch)))\n                    (chanSleep ch seen))\n                }))))", 2),
   # mutexUnlock's contended release wakes nobody.
   "wake": ("Sync.ax", "            (syncStore m 0 0)\n            (sysWakeWord m)\n            (Ok 0)", "            (syncStore m 0 0)\n            (Ok 0)", 1),
   # A new function reads the lock word.
