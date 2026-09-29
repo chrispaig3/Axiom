@@ -1,0 +1,436 @@
+; A binding that dies holding a channel's lock, for
+; `scripts/check-chan.sh` (AN-10, MM-PAR-10). One mode per run, chosen by
+; the first argument; each prints lines the gate reads.
+;
+;   exact      a forked holder takes the lock word exactly as `chanLock`
+;              takes it, and hangs. Three bindings - built as processes
+;              or, under `--threads`, as threads - wait on it: one asleep
+;              on the ring before the holder came (`ring-waiter`), one
+;              asleep on the lock word (`lock-waiter`), and a killer that
+;              first makes a 200 ms timed receive while the holder lives
+;              (`alive-timed`, which must answer 1001 no sooner), then
+;              SIGKILLs and reaps it (`holder-status`) and makes a 2 s
+;              timed receive (`dead-timed`, 1004). Each prints its answer
+;              and the microseconds since the kill. Then every other
+;              call on the poisoned channel prints what it answered.
+;   parent     the holder is killed and NOT reaped: a zombie, which
+;              `kill(pid, 0)` still answers for. Its parent's untimed
+;              receive must find it dead anyway (`parent-untimed`).
+;   sweep R    AN-10 as it happens: rounds, each a recovery point in
+;              which a forked binding hammers the channel with sends and
+;              receives until the parent traps, and the abort's sweep
+;              SIGKILLs and reaps it wherever it is - inside the lock or
+;              not. After each, a receive and a send must answer, and
+;              the round is counted poisoned or clean. The lock is held
+;              for a few nanoseconds of each call, so most rounds miss
+;              it: this runs until five rounds were poisoned, or R rounds.
+;              Prints `sweep N poisoned P clean C odd O worst-ms M`.
+;
+; Taking the lock the way `chanLock` does reads `stdlib/Chan.ax`'s layout
+; - word 0 is the lock, marked with the holder's pid times 4, and the
+; handle table's kind 2 is a channel - which a test may borrow through the
+; unsafe layer.
+(import IO)
+(import Sys)
+(import Str)
+(import Mem)
+(import Err)
+(import Chan)
+
+(:: argInt (-> Int Int))
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)))
+
+(:: zero Int)
+(fn (zero)
+  0)
+
+(:: now (-> Int Int))
+;@axiom:effect(io)
+(fn (now buf)
+  (sysTimeoutMicros buf))
+
+; Sleep `us` microseconds on a word nobody changes.
+(:: nap (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (nap idle us)
+  {
+    (sysWaitWordTimeout idle 0 (* us 1000))
+    0
+  })
+
+(:: say (-> String Int Int))
+;@axiom:effect(io)
+(fn (say what v)
+  {
+    (println "{what} {v}")
+    0
+  })
+
+(:: codeOf (-> (Result (Option Int) Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok o)
+      (match o
+        ((Some v) 0)
+        ((None) (- 0 1)))
+    )
+    ((Err e) (errCode e))))
+
+(:: bit (-> Bool Int))
+(fn (bit b)
+  (if b
+    1
+    0))
+
+; The ring a live channel names, the way `Chan.ax`'s `chanAt` asks the
+; handle table: the handle's word, unwrapped, and the kind for a channel.
+(:: ringOf (-> Chan Int))
+;@axiom:effect(unsafe)
+(fn (ringOf c)
+  (__handle_get
+    2
+    (cast Int c)))
+
+(:: word (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (word a i)
+  (__atomic_load (+ a (* 8 i))))
+
+(:: put (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (put a i v)
+  {
+    (__atomic_store (+ a (* 8 i)) v)
+    0
+  })
+
+; Wait until word `i` of `a` holds `v` (checked every millisecond).
+(:: until (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (until idle a i v)
+  {
+    (while (!= (word a i) v)
+      (nap idle 1000))
+    0
+  })
+
+; The pid of a forked binding, through its live `Spawn` handle.
+(:: handlePid (-> Spawn Int))
+(fn (handlePid h)
+  (__spawn_pid h))
+
+; ---- the holder -----------------------------------------------------------
+; Take the channel's lock word exactly as `chanLock`'s compare-and-swap
+; does, say so in word 0 of `flag`, and hang holding it.
+(:: holdLock (-> Chan Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (holdLock c flag idle)
+  (let ((ring (ringOf c)))
+    (if (== (__atomic_cas ring 0 (* sysGetPid 4)) 0)
+      {
+        (put flag 0 1)
+        (while (== 0 0)
+          (nap idle 1000000))
+        0
+      }
+      9)))
+
+(:: spawnHolder (-> Chan Int Int Spawn))
+;@axiom:effect(io)
+(fn (spawnHolder c flag idle)
+  (__proc_spawn
+    (lambda (x) (holdLock c flag idle))
+    0))
+
+; ---- exact ----------------------------------------------------------------
+; Words of `flag`: 0 the holder holds, 1 the kill's clock reading.
+(:: ringWaiter (-> Chan Int Int Int))
+;@axiom:effect(io)
+(fn (ringWaiter c flag idle)
+  (let (
+    (buf (memAlloc 16))
+    (r (chanRecv c))
+  )
+    (let (
+      (us (- (now buf) (word flag 1)))
+      (got (recvName r))
+      (p (bit (chanPoisoned c)))
+    )
+      {
+        (println "ring-waiter {got} poisoned {p} {us}")
+        0
+      })))
+
+(:: lockWaiter (-> Chan Int Int Int))
+;@axiom:effect(io)
+(fn (lockWaiter c flag idle)
+  {
+    (until idle flag 0 1)
+    (let (
+      (buf (memAlloc 16))
+      (r (chanRecv c))
+    )
+      (let (
+        (us (- (now buf) (word flag 1)))
+        (got (recvName r))
+        (p (bit (chanPoisoned c)))
+      )
+        {
+          (println "lock-waiter {got} poisoned {p} {us}")
+          0
+        }))
+  })
+
+(:: recvName (-> (Option Int) String))
+(fn (recvName r)
+  (match r
+    ((Some v) "some")
+    ((None) "none")))
+
+(:: killer (-> Chan Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (killer c flag idle)
+  (let (
+    (ring (ringOf c))
+    (buf (memAlloc 16))
+    (cell (memAlloc 8))
+  )
+    {
+      ; The ring waiter has announced itself (word 2) before the holder
+      ; exists, so it sleeps on the ring, not on the lock.
+      (until idle ring 2 1)
+      (let ((h (spawnHolder c flag idle)))
+        {
+          (until idle flag 0 1)
+          ; The lock waiter has marked the word contended: it sleeps on it.
+          (while (== (% (word ring 0) 2) 0)
+            (nap idle 1000))
+          (let ((t0 (now buf)))
+            (let (
+              (code (codeOf (chanRecvTimeout c 200000000)))
+              (us (- (now buf) t0))
+            )
+              (println "alive-timed {code} {us}")))
+          (put flag 1 (now buf))
+          (match (sysKill (handlePid h) 9)
+            ((Ok z) 0)
+            ((Err e) 0))
+          (__proc_join_nr h cell)
+          (say "holder-status" (memGetWord cell 0))
+          (let (
+            (code (codeOf (chanRecvTimeout c 2000000000)))
+            (us (- (now buf) (word flag 1)))
+          )
+            (println "dead-timed {code} {us}"))
+          0
+        })
+    }))
+
+; Every call on a poisoned channel, and what it answered.
+(:: aftermath (-> Chan Int))
+;@axiom:effect(io)
+(fn (aftermath c)
+  {
+    (say "send" (bit (chanSend c 5)))
+    (say "try-send" (bit (chanTrySend c 5)))
+    (say "recv-none" (bit (isNone (chanRecv c))))
+    (say "try-recv-none" (bit (isNone (chanTryRecv c))))
+    (say
+      "send-timed"
+      (match (chanSendTimeout c 5 100000000)
+        ((Ok b) (bit b))
+        ((Err e) (errCode e))))
+    (say "recv-timed" (codeOf (chanRecvTimeout c 100000000)))
+    (say "close" (chanClose c))
+    (say "closed" (bit (chanClosed c)))
+    (say "len" (chanLen c))
+    (say "poisoned" (bit (chanPoisoned c)))
+    (say
+      "free"
+      (match (chanFree c)
+        ((Ok z) 1)
+        ((Err e) 0)))
+  })
+
+(:: isNone (-> (Option Int) Bool))
+(fn (isNone o)
+  (match o
+    ((Some v) false)
+    ((None) true)))
+
+(:: exact (-> Int Int))
+;@axiom:effect(io)
+(fn (exact idle)
+  (match (chanNew 1)
+    ((Ok c)
+      (match (sysMapShared 4096)
+        ((Ok flag)
+          {
+            (parallel p (
+              (a (ringWaiter c flag idle))
+              (b (lockWaiter c flag idle))
+              (k (killer c flag idle))
+            )
+              (+ a (+ b k)))
+            (aftermath c)
+          }
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- parent ---------------------------------------------------------------
+(:: parent (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (parent idle)
+  (match (chanNew 1)
+    ((Ok c)
+      (match (sysMapShared 4096)
+        ((Ok flag)
+          (let (
+            (buf (memAlloc 16))
+            (cell (memAlloc 8))
+            (h (spawnHolder c flag idle))
+          )
+            {
+              (until idle flag 0 1)
+              (let ((t0 (now buf)))
+                {
+                  (match (sysKill (handlePid h) 9)
+                    ((Ok z) 0)
+                    ((Err e) 0))
+                  ; Not joined: the holder is a zombie until after the receive.
+                  (let (
+                    (got (recvName (chanRecv c)))
+                    (p (bit (chanPoisoned c)))
+                    (us (- (now buf) t0))
+                  )
+                    (println "parent-untimed {got} poisoned {p} {us}"))
+                })
+              (__proc_join_nr h cell)
+              (say "holder-status" (memGetWord cell 0))
+              (match (chanFree c)
+                ((Ok z) 0)
+                ((Err e) 3))
+            })
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- sweep ----------------------------------------------------------------
+; Send and receive for ever: most of the time inside the lock or next to
+; it, so the sweep lands inside it in some rounds.
+(:: hammer (-> Chan Int))
+;@axiom:effect(io)
+(fn (hammer c)
+  {
+    (while (== 0 0)
+      {
+        (chanTrySend c 1)
+        (chanTryRecv c)
+      })
+    0
+  })
+
+(:: spawnHammer (-> Chan Spawn))
+;@axiom:effect(io)
+(fn (spawnHammer c)
+  (__proc_spawn
+    (lambda (x) (hammer c))
+    0))
+
+; One round: a recovery point around `doomed`, answering its status.
+(:: round (-> Chan Int Int Int))
+;@axiom:effect(io)
+(fn (round c idle us)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x) (doomed c idle us))))
+
+; Start the hammer, let it run `us`, then trap: the abort sweeps it.
+(:: doomed (-> Chan Int Int Int))
+;@axiom:effect(io)
+(fn (doomed c idle us)
+  (let ((h (spawnHammer c)))
+    {
+      (nap idle us)
+      (/ 1 zero)
+    }))
+
+(:: sweep (-> Int Int Int))
+;@axiom:effect(io)
+(fn (sweep idle rounds)
+  (let (
+    (buf (memAlloc 16))
+    (mut poisoned 0)
+    (mut clean 0)
+    (mut worst 0)
+    (mut odd 0)
+    (mut i 0)
+  )
+    {
+      (while (&& (< i rounds) (< poisoned 5))
+        {
+          (set i (+ i 1))
+          (match (chanNew 1)
+            ((Ok c)
+              (let ((st (round c idle (+ 200 (* (% i 7) 130)))))
+                (let ((t0 (now buf)))
+                  (let (
+                    (r (chanTryRecv c))
+                    (s (chanTrySend c 2))
+                    (us (- (now buf) t0))
+                  )
+                    {
+                      (if (> us worst)
+                        (set worst us)
+                        0)
+                      (if (chanPoisoned c)
+                        (if (&& (isNone r) (== (bit s) 0))
+                          (set poisoned (+ poisoned 1))
+                          (set odd (+ odd 1)))
+                        (set clean (+ clean 1)))
+                      (if (!= st 72)
+                        (set odd (+ odd 1))
+                        0)
+                      (match (chanFree c)
+                        ((Ok z) 0)
+                        ((Err e) 0))
+                    })))
+            )
+            ((Err e)
+              (set odd (+ odd 1))
+            ))
+        })
+      (let ((ms (/ worst 1000)))
+        (println "sweep {i} poisoned {poisoned} clean {clean} odd {odd} worst-ms {ms}"))
+      0
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (sysMapShared 4096)
+    ((Ok idle)
+      (let ((mode (sysArg 1)))
+        (if (strEq mode "exact")
+          (exact idle)
+          (if (strEq mode "parent")
+            (parent idle)
+            (if (strEq mode "sweep")
+              (sweep idle (argInt 2))
+              {
+                (println "usage: chan-dead (exact | parent | sweep R)")
+                2
+              }))))
+    )
+    ((Err e) 1)))

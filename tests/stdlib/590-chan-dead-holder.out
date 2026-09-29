@@ -1,0 +1,15 @@
+alive-timed 1001
+alive-poisoned 0
+holder-status 137
+send 0
+poisoned 1
+try-send 0
+recv-none 1
+try-recv-none 1
+send-timed 1004
+recv-timed 1004
+close 0
+closed 1
+len 0
+cap 2
+free 1

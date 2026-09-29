@@ -8,7 +8,7 @@
 # time and across forked processes; this gate puts it under load and
 # checks the properties a fixture cannot.
 #
-# FIVE SECTIONS.
+# SIX SECTIONS.
 #
 #   1. Load. tests/litmus/chan-load.ax sends 1..3N from three producers
 #      to three consumers, at capacities 1 and 64, in BOTH lowerings
@@ -38,11 +38,27 @@
 #                 re-check the ring and never need the wake.
 #   5. Retained memory. The --threads load at N and 10N: peak RSS must
 #      not grow by more than 8 MiB while ten times the words go through.
+#   6. A binding that dies holding the lock (AN-10), in both lowerings,
+#      tests/litmus/chan-dead.ax. `exact`: a forked holder takes the
+#      lock word as `chanLock` does and is SIGKILLed and reaped with a
+#      binding asleep on the ring and one asleep on the lock; each must
+#      answer None, poisoned, within a second, a timed receive beside
+#      the LIVE holder must answer sysTimedOut no sooner than asked, and
+#      every call on the poisoned channel must answer its stated status.
+#      `parent`: the holder killed and not reaped, a zombie, whose
+#      parent's untimed receive must still find it dead. `sweep`:
+#      recovered traps, each sweeping a binding that hammers the channel,
+#      wherever it is, until five have left the lock held; every round
+#      must answer, and at least one must have left it held, or the
+#      check saw nothing. Ablations on a
+#      copy of the library - the dead-holder test that never finds one,
+#      and the look at the waiter's own child removed - must each leave
+#      the probe with no answer.
 #
 # LIMITS. Load that passed is evidence on the runs made, on this host;
 # the lock and the protocol are not proved. FreeBSD spins instead of
 # blocking (`waitWordKind` 0) and is not run here. The channel carries
-# words only, has no timeout, and its handle is an `Int` - the
+# words only, and `chanSend` and `chanRecv` have no timeout - the
 # obligations `stdlib/Chan.ax`'s header states.
 #
 # Usage: check-chan.sh
@@ -145,8 +161,10 @@ p, kind = sys.argv[1], sys.argv[2]
 s = open(p, encoding="utf-8").read()
 cuts = {
   "lock": [
-    (";@axiom:effect(unsafe)\n(fn (chanLock ch)\n  (if (== (__atomic_cas ch 0 1) 0)", "(fn (chanLock ch)\n  (if (== 0 0)"),
-    ("(fn (chanUnlock ch)\n  (if (== (__atomic_add ch (- 0 1)) 1)", "(fn (chanUnlock ch)\n  (if (== 1 1)"),
+    # The unsafe claim goes with the compare-and-swap, the lock's one raw
+    # operation, or the copy would not compile.
+    (";@axiom:effect(unsafe)\n(fn (chanLock ch me b timed)\n  (if (== (__atomic_cas ch 0 me) 0)", "(fn (chanLock ch me b timed)\n  (if (== 0 0)"),
+    ("(fn (chanUnlock ch me)\n  (if (== (__atomic_cas ch me 0) me)", "(fn (chanUnlock ch me)\n  (if (== me me)"),
   ],
   "notify": [
     # The wake goes to word 6, the closed flag, which nobody sleeps on;
@@ -202,10 +220,137 @@ else
   bad "no threads binary for the RSS run"
 fi
 
+# ---------------------------------------------------------------------
+echo "== 6. a binding that dies holding the lock (AN-10) =="
+dead="$repo_root/tests/litmus/chan-dead.ax"
+# dead_build <dir> <lowering> [stdlib]: chan-dead.ax built into <dir>.
+dead_build() {
+  local dir="$1" lowering="$2" lib="${3:-$repo_root/stdlib}" f=()
+  [[ "$lowering" == threads ]] && f=(--threads)
+  mkdir -p "$dir"
+  (cd "$repo_root" && AXIOM_STDLIB="$lib" "$axc" build ${f[@]+"${f[@]}"} --opt 2 --input "$dead" --output "$dir/dead-$lowering") \
+    > "$dir/dead-$lowering.build" 2>&1
+}
+# line <text> <first word>: the rest of the first line starting with it.
+line() { printf '%s\n' "$1" | awk -v k="$2" '$1 == k { $1 = ""; sub(/^ /, ""); print; exit }'; }
+# soon <us>: answered within a second of the kill.
+soon() { [[ "$1" =~ ^[0-9]+$ ]] && (( $1 <= 1000000 )); }
+want_after='send 0
+try-send 0
+recv-none 1
+try-recv-none 1
+send-timed 1004
+recv-timed 1004
+close 0
+closed 1
+len 0
+poisoned 1
+free 1'
+for lowering in processes threads; do
+  if ! dead_build "$work/dead" "$lowering"; then
+    bad "$lowering: chan-dead did not build"; head -8 "$work/dead/dead-$lowering.build" | sed 's/^/    /'; continue
+  fi
+  bin="$work/dead/dead-$lowering"
+  # exact: a holder killed inside the lock, three bindings waiting on it.
+  rc=0; out="$(gate_timeout 30 "$bin" exact 2>&1)" || rc=$?
+  alive="$(line "$out" alive-timed)"; set -- $alive; acode="${1:-}"; aus="${2:-}"
+  if [[ "$acode" == 1001 && "$aus" =~ ^[0-9]+$ ]] && (( aus >= 200000 && aus <= 1000000 )); then
+    ok "$lowering: a timed receive while the holder lives answers sysTimedOut after $((aus / 1000)) ms of 200"
+  else
+    bad "$lowering: the timed receive beside a live holder answered '$alive' (exit $rc)"
+  fi
+  for who in ring-waiter lock-waiter; do
+    got="$(line "$out" "$who")"; set -- $got
+    if [[ "${1:-}" == none && "${2:-}" == poisoned && "${3:-}" == 1 ]] && soon "${4:-}"; then
+      ok "$lowering: the $who asleep before the kill answered None, poisoned, $((${4} / 1000)) ms after it"
+    else
+      bad "$lowering: the $who answered '$got' (exit $rc) - wanted 'none poisoned 1' within a second of the kill"
+    fi
+  done
+  dt="$(line "$out" dead-timed)"; set -- $dt
+  if [[ "$rc" == 0 && "$(line "$out" holder-status)" == 137 && "${1:-}" == 1004 ]] && soon "${2:-}"; then
+    ok "$lowering: the holder died of SIGKILL (137), and the killer's timed receive answered chanOwnerDead after $((${2} / 1000)) ms"
+  else
+    bad "$lowering: exact exit $rc: $(printf '%s' "$out" | tr '\n' ';')"
+  fi
+  after="$(printf '%s\n' "$out" | sed -n '/^send /,$p')"
+  if [[ "$after" == "$want_after" ]]; then
+    ok "$lowering: on the poisoned channel send and try-send answer False, the receives None, the timed forms 1004, close changes nothing, closed is True, len 0, and it frees"
+  else
+    bad "$lowering: the poisoned channel's answers: '$(tr '\n' ';' <<< "$after")'"
+  fi
+  # parent: the holder killed and not reaped, a zombie only its parent
+  # can see through.
+  rc=0; out="$(gate_timeout 30 "$bin" parent 2>&1)" || rc=$?
+  got="$(line "$out" parent-untimed)"; set -- $got
+  if [[ "$rc" == 0 && "${1:-}" == none && "${3:-}" == 1 ]] && soon "${4:-}"; then
+    ok "$lowering: a zombie holder's parent: its untimed receive answered None, poisoned, $((${4} / 1000)) ms after the kill"
+  else
+    bad "$lowering: parent exit $rc, '$(tr '\n' ';' <<< "$out")'"
+  fi
+  # sweep: AN-10 as it happens, a recovered trap's sweep killing a
+  # binding wherever it is in its calls on the channel.
+  # The lock is held for nanoseconds of each call, so most rounds miss
+  # it; the probe runs until five rounds left it held, or 2,000 rounds.
+  rc=0; out="$(gate_timeout 120 "$bin" sweep 2000 2>&1)" || rc=$?
+  set -- $(line "$out" sweep)
+  if [[ "$rc" == 0 && "${1:-}" =~ ^[0-9]+$ && "${3:-}" =~ ^[0-9]+$ && "${5:-}" =~ ^[0-9]+$ && "${7:-}" == 0 && "${9:-}" =~ ^[0-9]+$ ]] \
+      && (( ${3} >= 1 && ${3} + ${5} == ${1} && ${9} <= 1000 )); then
+    ok "$lowering: $1 recovered traps swept a binding mid-channel: $3 left the lock held and were poisoned, $5 clean, every call answered within ${9} ms"
+  elif [[ "$rc" == 0 && "${3:-}" == 0 ]]; then
+    bad "$lowering: no sweep landed inside the lock, so the check saw nothing ('$out')"
+  else
+    bad "$lowering: sweep exit $rc, '$out' - a round did not answer"
+  fi
+done
+# Ablations on a copy of the library, built in both lowerings: each must
+# leave the probe with no answer.
+ablate_dead() {
+  local kind="$1" dir="$work/dead-$1"
+  rm -rf "$dir"; mkdir -p "$dir"
+  cp -R "$repo_root/stdlib" "$dir/stdlib"
+  python3 - "$dir/stdlib/Chan.ax" "$kind" <<'PY' || return 1
+import sys
+p, kind = sys.argv[1], sys.argv[2]
+s = open(p, encoding="utf-8").read()
+cuts = {
+  # The dead-holder test never finds one: kill's ESRCH and the look ignored.
+  "holder": [("        ((Ok r) (chanChildEnded owner))\n        ((Err e) (== (errCode e) 3))))))",
+              "        ((Ok r) false)\n        ((Err e) false)))))")],
+  # Only the look at the waiter's own child goes: a zombie looks alive.
+  "look": [("        ((Ok r) (chanChildEnded owner))", "        ((Ok r) false)")],
+}[kind]
+for old, new in cuts:
+    if s.count(old) != 1:
+        sys.exit("seam %r found %d times, wanted 1" % (old[:40], s.count(old)))
+    s = s.replace(old, new)
+open(p, "w", encoding="utf-8").write(s)
+PY
+  dead_build "$dir" processes "$dir/stdlib" && dead_build "$dir" threads "$dir/stdlib"
+}
+for pair in holder:exact holder:sweep look:parent; do
+  kind="${pair%%:*}"; mode="${pair#*:}"
+  if [[ ! -x "$work/dead-$kind/dead-threads" ]] && ! ablate_dead "$kind"; then
+    bad "$kind: the ablation did not apply or build"; tail -4 "$work/dead-$kind"/*.build 2>/dev/null | sed 's/^/    /'; continue
+  fi
+  for lowering in processes threads; do
+    args=("$mode"); limit=5
+    [[ "$mode" == sweep ]] && { args=(sweep 2000); limit=30; }
+    rc=0; out="$(gate_timeout "$limit" "$work/dead-$kind/dead-$lowering" "${args[@]}" 2>&1)" || rc=$?
+    sleep 0.3; pkill -KILL -f "$work/dead-$kind/dead-$lowering" 2>/dev/null || true
+    if [[ "$rc" == 124 ]]; then
+      ok "$kind $mode ($lowering): red - no answer in $limit s, the channel stuck as AN-10 left it"
+    else
+      bad "$kind $mode ($lowering): the ablated channel still answered (exit $rc, '$(tr '\n' ';' <<< "$out" | cut -c1-120)')"
+    fi
+  done
+done
+
 echo
 if (( failed > 0 )); then
   echo "check-chan: $failed failed, $checks passed"
   exit 1
 fi
 echo "check-chan: $checks checks - every word sent was received exactly once, in both"
-echo "            lowerings, a waiter sleeps in the kernel, and both ablations turn it red"
+echo "            lowerings, a waiter sleeps in the kernel, a holder that dies poisons the"
+echo "            channel rather than hanging it, and every ablation turns it red"

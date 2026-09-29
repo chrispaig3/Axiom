@@ -16,6 +16,9 @@
 ;                unlock, N times; K 1 is the uncontended cost.
 ;   chan N       one binding sends 1..N through a 64-word channel, one
 ;                receives and sums them.
+;   chan1 N      one binding sends each of 1..N and receives it back, on
+;                a 64-word channel no other binding touches: the
+;                uncontended cost of a send and a receive.
 ;   latency N    N pools of one task each, one after another; prints the
 ;                50th, 90th and 99th percentile and the worst round trip.
 (import IO)
@@ -213,6 +216,38 @@
     )
     ((Err e) 1)))
 
+; ---- chan1 -------------------------------------------------------------
+; One binding sends a word and receives it back, N times, on a 64-word
+; channel nobody else touches: two uncontended calls, each one lock and
+; one unlock, per word.
+(:: chanOneRun (-> Int Int Int))
+;@axiom:effect(io)
+(fn (chanOneRun buf n)
+  (match (chanNew 64)
+    ((Ok ch)
+      (let (
+        (t0 (sysTimeoutMicros buf))
+        (mut sum 0)
+      )
+        {
+          (for i 1 (+ n 1)
+            {
+              (chanSend ch i)
+              (match (chanRecv ch)
+                ((Some v)
+                  (set sum (+ sum v))
+                )
+                ((None) 0))
+            })
+          (let ((us (- (sysTimeoutMicros buf) t0)))
+            {
+              (let ((_ (chanFree ch))) 0)
+              (report "chan1" sum (/ (* n (+ n 1)) 2) us)
+            })
+        })
+    )
+    ((Err e) 1)))
+
 ; ---- latency -----------------------------------------------------------
 (:: one (-> Int Int))
 ;@axiom:effect(io)
@@ -264,9 +299,11 @@
           (mutexRun buf (argInt 2) (argInt 3))
           (if (strEq mode "chan")
             (chanRun buf (argInt 2))
-            (if (strEq mode "latency")
-              (latencyRun buf (argInt 2))
-              {
-                (println "usage: conc-bench spawn N | tasks N W B | mutex N K | chan N | latency N")
-                2
-              })))))))
+            (if (strEq mode "chan1")
+              (chanOneRun buf (argInt 2))
+              (if (strEq mode "latency")
+                (latencyRun buf (argInt 2))
+                {
+                  (println "usage: conc-bench spawn N | tasks N W B | mutex N K | chan N | chan1 N | latency N")
+                  2
+                }))))))))

@@ -45,7 +45,8 @@ source.
 | The executable allocator, arena and region model agrees with the runtime, size classes and filed count included (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 15 pass |
 | Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 46 pass, on 600 mutants from seed 20260927. All twenty-one reproducers are fixed and replayed as regressions |
 | ThreadSanitizer reports an unlocked shared word and three ablated synchronisers, and nothing in the mutex, the channel, the pipeline example or the seq_cst litmus rows but `MM-PAR-12`'s documented read, whose suppression hides nothing else on the runs made (R-E1, race detector) | `scripts/check-race.sh`: 32 pass on H3 and on linux-aarch64 in a container; `tests/litmus/tsan-suppressions.txt` |
-| The channel and mutex protocols are clean in every interleaving of two and three bindings the model explores, every planted protocol defect is found with its schedule, and the transcription matches the source and a recorded run of the channel (R-E1, protocol model) | `scripts/lib/protocol-model.py`; `scripts/check-protocol-model.sh`: 77 pass, 38 scenarios and 2,127,649 states; `tests/litmus/chan-trace.ax` |
+| The channel, mutex and task-pool protocols are clean in every interleaving of two and three bindings or tasks the model explores, every planted protocol defect is found with its schedule, and the transcription matches the source and a recorded run of the channel (R-E1, protocol model) | `scripts/lib/protocol-model.py`, `scripts/lib/task_model.py`; `scripts/check-protocol-model.sh`: 137 pass, 84 scenarios and 1,309,841 states by default, 107 and 6.95 million with `--long` |
+| A binding that dies holding a channel's lock poisons the channel: every waiter answers within about 100 ms, the timed forms answer `chanOwnerDead`, and nothing touches the half-updated ring (AN-10, R-C2) | `tests/stdlib/590-chan-dead-holder.ax` at `--opt` 0 to 3; `scripts/check-chan.sh` §6 in both lowerings, with the holder test and the child look each ablated red |
 | A lock-order inversion between two mutexes and two bindings each waiting on the other's channel answer `sysTimedOut` on both sides under the timed calls, and stay deadlocked under the untimed ones until a watchdog ends them; the mutex's starvation is measured, not promised (R-C2, AN-17) | `tests/litmus/liveness.ax`; `scripts/check-protocol-model.sh` §5, both lowerings |
 | The qualification-readiness package exists and states its limits (R-E2) | [hazards.md](hazards.md), [threats.md](threats.md), [trusted-components.md](trusted-components.md), [tool-qualification.md](tool-qualification.md), [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), [support-policy.md](support-policy.md), [demonstrators.md](demonstrators.md) |
 
@@ -56,8 +57,8 @@ source.
   `scripts/check-metamorphic.sh`'s second relation holds it as its one
   known divergence.
 - R-C2 limits: no fairness or priority inheritance; the mutex isn't
-  reentrant; a channel's lock doesn't notice a dead holder; Darwin's
-  clock is the realtime one; FreeBSD spins.
+  reentrant; a dead holder is found only when the kernel says so
+  (AN-56); Darwin's clock is the realtime one; FreeBSD spins.
 - R-B6 limits: the checker cannot prove that a trusted wrapper makes
   its raw operations safe, or that a caller meets a stated
   precondition. A buffer typed `Int` is forged without a cast, so no
@@ -83,8 +84,8 @@ source.
   optimisation levels on a sample. The full fuzzing budget runs
   nightly, not per push. The protocol model is a proof about the model
   at two and three bindings and small bounds, not about the
-  implementation; the mutex and the timed forms have no replay, and
-  the task pool has no model.
+  implementation; the mutex, the timed forms and the task pool have no
+  replay, and the pool's clock is the model's.
 - `MM-PAR-7` limits: reparented grandchildren and uninterruptible
   sweeps.
 - R-C6 limits: a free that races another binding's use of the same
@@ -113,10 +114,10 @@ constants.
 | `check-diagnostics.sh` | 270 pass |
 | `check-render-selfhost.sh` | 263 pass |
 | `check-atomics.sh` | 252 pass |
-| `check-chan.sh` | 15 pass |
-| `check-task.sh` | 69 pass |
+| `check-chan.sh` | 35 pass |
+| `check-task.sh` | 76 pass |
 | `check-handles.sh` | 42 pass |
-| `check-protocol-model.sh` | 77 pass |
+| `check-protocol-model.sh` | 137 pass |
 | `check-report.sh` | 49 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 15 pass |
@@ -183,7 +184,14 @@ median in brackets, and each run checks its own answer.
 | `parallel` spawn and join, per binding | 71.5 µs (73.7) | 15.5 µs (16.0) |
 | Mutex lock and unlock, uncontended | 129 ns (129) | 131 ns (132) |
 | Mutex lock and unlock, four bindings contending, per operation | 121 ns (124) | 119 ns (120) |
-| Channel, one sender to one receiver, capacity 64, per word | 793 ns (963) | 812 ns (911) |
+
+- Since AN-10's lock, a channel call marks the lock with its process
+  id. An uncontended send and receive costs 269 ns a word, of which
+  about 240 ns is the one `getpid` a call makes, against 22.5 ns
+  before. One sender to one receiver, capacity 64, costs 165 ns a
+  word, against 840 ns. Both on H3 at `--opt 2`, alike in both
+  lowerings (`chan1` and `chan` modes). A cheaper mark needs a process
+  id the runtime refreshes after a fork.
 
 - A task pool at width 8 costs 51 µs of wall time per task with
   64-byte answers, 54 µs with 4 KiB answers and 66 µs with 64 KiB ones,

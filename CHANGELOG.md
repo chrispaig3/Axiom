@@ -22,6 +22,30 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A channel whose holder died is poisoned, and the task pool has a model — AN-10, R-C2, R-E1 - 2026-09-29
+
+A binding killed while holding a channel's lock used to leave it held,
+and every later call blocked, the timed forms included. The lock word
+now names its holder, as the mutex's does. Every wait sleeps in slices
+of at most 100 ms and then asks whether the holder is alive. A dead
+holder poisons the channel: sends answer `False`, receives `None`, the
+timed forms `Err` with the new `chanOwnerDead`, and `chanPoisoned`
+says why. The timed forms now count the wait for the lock against
+their deadline, and the calls that lock carry `Alloc` in their effect
+rows, for the error they can build.
+
+The cost is a `getpid` per call: an uncontended send and receive went
+from 22.5 ns to 269 ns a word, while one sender to one receiver went
+from 840 ns to 165 ns. `scripts/bench-concurrency.sh` gains the
+uncontended `chan1` mode.
+
+The protocol model now covers the task pool: every task answers one
+slot in submit order, at most `w` children run, nothing starts after a
+cancellation, and every child is reaped, in every interleaving of two
+and three tasks. Nine planted pool defects are found. Tested by
+`tests/stdlib/590-chan-dead-holder.ax`, `scripts/check-chan.sh` §6 and
+`scripts/check-protocol-model.sh`.
+
 ### R, S, 3.SB, fences and LSE — `scripts/check-atomics.sh`, R-C3 - 2026-09-29
 
 The litmus suite gains the R, S and 3.SB families and fenced SB, MP,

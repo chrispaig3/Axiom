@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # What the concurrency primitives cost on this machine: spawn and join
 # in both lowerings, a task's round trip and its answer's copy, the
-# mutex with and without contention, a channel's throughput, and the
-# spread of a task's latency. `docs/assurance/scorecard.md` quotes the
-# figures.
+# mutex with and without contention, a channel's throughput and its
+# uncontended send and receive, and the spread of a task's latency.
+# `docs/assurance/scorecard.md` quotes the figures.
 #
 #   scripts/bench-concurrency.sh            # REPS runs of each, best and median
 #   REPS=9 OPT=2 scripts/bench-concurrency.sh
@@ -87,6 +87,8 @@ N_CHAN=200000
 for lowering in processes threads; do
   read -r best med < <(run "$lowering" chan "$N_CHAN")
   echo "channel, 1 sender to 1 receiver, capacity 64, $lowering: $(per "$best" "$N_CHAN" 1000) ns per word (median $(per "$med" "$N_CHAN" 1000))"
+  read -r best med < <(run "$lowering" chan1 "$N_CHAN")
+  echo "channel, uncontended send and receive, $lowering: $(per "$best" "$N_CHAN" 1000) ns per word (median $(per "$med" "$N_CHAN" 1000))"
 done
 
 out="$(gate_timeout 300 "$work/cb-processes" latency 500 2>&1)" || { echo "error: latency failed: $out" >&2; exit 1; }
