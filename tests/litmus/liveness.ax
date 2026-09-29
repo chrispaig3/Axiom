@@ -1,0 +1,386 @@
+; Deadlock and starvation, measured apart from data races, for
+; `scripts/check-protocol-model.sh` (R-C2, R-E1; MM-PAR-10, MM-PAR-11,
+; AN-17). One mode per run, each printing lines the gate reads:
+;
+;   starve MS          four bindings, released together, take one mutex
+;                      in a tight loop for MS milliseconds, adding 1 to a
+;                      plain shared word under it. Each prints `binding K
+;                      acquisitions A worst-wait-us W waits B0 B1 B2 B3
+;                      B4`: how many of its waits for the lock took under
+;                      1 ms, 1-10 ms, 10-95 ms, 95-110 ms and more. Then
+;                      `count C of T`, and `ok` when C is the acquisitions
+;                      summed. The mutex promises exclusion, which the
+;                      count checks, and no fairness, which the shares
+;                      measure. A waiter's sleep is a 100 ms slice, so a
+;                      lost wake would show as waits piled up just past
+;                      100 ms, in B3.
+;   inversion timed MS two bindings each take one of two mutexes, meet at
+;                      a barrier, then ask for the other's with a timed
+;                      lock of MS milliseconds, and meet again before
+;                      letting go, so neither lock is released while the
+;                      other side waits. Prints `side K CODE US`: both
+;                      must answer sysTimedOut (1001).
+;   inversion untimed  the same with mutexLock: the documented deadlock.
+;                      Prints `side K holds` from each, then never ends.
+;   inversion ordered  the control: both sides take the two mutexes in
+;                      the same order, and it prints `done`.
+;   pair timed MS      two bindings, each waiting to receive what the
+;                      other sends first, with a timed receive of MS
+;                      milliseconds. Prints `side K CODE US`: both must
+;                      answer 1001.
+;   pair untimed       the same with chanRecv: prints `side K waits` from
+;                      each, then never ends.
+;   pair ordered       the control: one side sends before it receives,
+;                      and it prints `done`.
+(import IO)
+(import Str)
+(import Sys)
+(import Mem)
+(import Err)
+(import Chan)
+(import Sync)
+
+(:: argInt (-> Int Int))
+;@axiom:effect(io)
+(fn (argInt i)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) 0)))
+
+; Arrive at the barrier at `bar` and spin until `n` bindings have.
+(:: arrive (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (arrive bar n)
+  {
+    (__atomic_add bar 1)
+    (while (< (__atomic_load bar) n)
+      0)
+    0
+  })
+
+(:: codeOf (-> (Result Int Error) Int))
+(fn (codeOf r)
+  (match r
+    ((Ok g) 0)
+    ((Err e) (errCode e))))
+
+(:: recvCode (-> (Result (Option Int) Error) Int))
+(fn (recvCode r)
+  (match r
+    ((Ok (Some v)) 0)
+    ((Ok (None)) (- 0 1))
+    ((Err e) (errCode e))))
+
+; ---- starve ----------------------------------------------------------------
+; Binding k's run: lock, add 1 to word 0 of `res`, unlock, until `ms`
+; milliseconds have passed. Its acquisitions go to word 2k+1 of `res`,
+; its longest wait for the lock, in microseconds, to word 2k+2, and its
+; waits by length to words 16+8k to 20+8k. Word 15 is the barrier.
+(:: contend (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (contend m res k ms)
+  (let (
+    (buf (memAlloc 16))
+    (mut count 0)
+    (mut worst 0)
+    (mut going 1)
+  )
+    {
+      (arrive (+ res 120) 4)
+      (let ((end (+ (sysTimeoutMicros buf) (* ms 1000))))
+        (while (== going 1)
+          (let ((t0 (sysTimeoutMicros buf)))
+            (match (mutexLock m)
+              ((Ok g)
+                (let ((waited (- (sysTimeoutMicros buf) t0)))
+                  {
+                    (memSetWord res 0 (+ (memGetWord res 0) 1))
+                    (codeOf (mutexUnlock m g))
+                    (set count (+ count 1))
+                    (if (> waited worst)
+                      (set worst waited)
+                      0)
+                    (tallyWait res k waited)
+                    (if (>= (sysTimeoutMicros buf) end)
+                      (set going 0)
+                      0)
+                  })
+              )
+              ((Err e)
+                (set going 0)
+              )))))
+      (memSetWord res (+ 1 (* 2 k)) count)
+      (memSetWord res (+ 2 (* 2 k)) worst)
+      0
+    }))
+
+; Which of five lengths a wait of `us` microseconds was.
+(:: bucketOf (-> Int Int))
+(fn (bucketOf us)
+  (if (< us 1000)
+    0
+    (if (< us 10000)
+      1
+      (if (< us 95000)
+        2
+        (if (< us 110000)
+          3
+          4)))))
+
+(:: tallyWait (-> Int Int Int Int))
+(fn (tallyWait res k us)
+  (let ((w (+ 16 (+ (* 8 k) (bucketOf us)))))
+    {
+      (memSetWord res w (+ (memGetWord res w) 1))
+      0
+    }))
+
+(:: shares (-> Int Int))
+;@axiom:effect(io)
+(fn (shares res)
+  (let (
+    (mut k 0)
+    (mut total 0)
+  )
+    {
+      (while (< k 4)
+        (let (
+          (a (memGetWord res (+ 1 (* 2 k))))
+          (w (memGetWord res (+ 2 (* 2 k))))
+          (h (+ 16 (* 8 k)))
+        )
+          {
+            (let (
+              (b0 (memGetWord res h))
+              (b1 (memGetWord res (+ h 1)))
+              (b2 (memGetWord res (+ h 2)))
+              (b3 (memGetWord res (+ h 3)))
+              (b4 (memGetWord res (+ h 4)))
+            )
+              (println "binding {k} acquisitions {a} worst-wait-us {w} waits {b0} {b1} {b2} {b3} {b4}"))
+            (set total (+ total a))
+            (set k (+ k 1))
+          }))
+      (let ((c (memGetWord res 0)))
+        (if (== c total)
+          (println "count {c} of {total} ok")
+          (println "count {c} of {total}")))
+      0
+    }))
+
+(:: starve (-> Int Int))
+;@axiom:effect(io)
+(fn (starve ms)
+  (match (mutexNew)
+    ((Ok m)
+      (match (sysMapShared 4096)
+        ((Ok res)
+          {
+            (parallel p (
+              (a (contend m res 0 ms))
+              (b (contend m res 1 ms))
+              (c (contend m res 2 ms))
+              (d (contend m res 3 ms))
+            )
+              (+ a (+ b (+ c d))))
+            (shares res)
+          }
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- inversion -------------------------------------------------------------
+; Lock `m` within `ms` milliseconds, or wait for ever when `ms` is 0.
+(:: lockWithin (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (lockWithin m ms)
+  (if (> ms 0)
+    (mutexLockTimeout m (* ms 1000000))
+    (mutexLock m)))
+
+; Side k takes `first`, meets its sibling at the barrier, then asks for
+; `second`, timed (`ms` > 0) or not. It meets its sibling again before
+; it lets go of what it holds, so the inversion lasts until both sides
+; have given up.
+(:: inverted (-> Int Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (inverted k first second bar ms)
+  (let ((buf (memAlloc 16)))
+    (match (mutexLock first)
+      ((Ok g)
+        {
+          (println "side {k} holds")
+          (arrive bar 2)
+          (let ((t0 (sysTimeoutMicros buf)))
+            (let ((r (lockWithin second ms)))
+              {
+                (let (
+                  (code (codeOf r))
+                  (us (- (sysTimeoutMicros buf) t0))
+                )
+                  (println "side {k} {code} {us}"))
+                (arrive (+ bar 8) 2)
+                (match r
+                  ((Ok h) (codeOf (mutexUnlock second h)))
+                  ((Err e) 0))
+                (codeOf (mutexUnlock first g))
+              }))
+        }
+      )
+      ((Err e) 1))))
+
+; Both sides take `a` and then `b`, the order that cannot deadlock.
+(:: ordered (-> Int Int Int))
+;@axiom:effect(io)
+(fn (ordered a b)
+  (match (mutexLock a)
+    ((Ok g)
+      (match (mutexLock b)
+        ((Ok h) (+ (codeOf (mutexUnlock b h)) (codeOf (mutexUnlock a g))))
+        ((Err e) 1))
+    )
+    ((Err e) 1)))
+
+(:: inversion (-> Int Int Int))
+;@axiom:effect(io)
+(fn (inversion how ms)
+  (match (mutexNew)
+    ((Ok a)
+      (match (mutexNew)
+        ((Ok b)
+          (match (sysMapShared 4096)
+            ((Ok bar)
+              {
+                (if (== how 2)
+                  (parallel p (
+                    (x (ordered a b))
+                    (y (ordered a b))
+                  )
+                    (+ x y))
+                  (parallel q (
+                    (x (inverted
+                      1
+                      a
+                      b
+                      bar
+                      ms))
+                    (y (inverted
+                      2
+                      b
+                      a
+                      bar
+                      ms))
+                  )
+                    (+ x y)))
+                (println "done")
+                0
+              }
+            )
+            ((Err e) 3))
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+; ---- pair ------------------------------------------------------------------
+; Side k waits to receive on `mine`, then sends what it got on `theirs`:
+; each waits for the other. Timed when `ms` > 0.
+(:: waitFor (-> Int Int Int Int Int))
+;@axiom:effect(io)
+(fn (waitFor k mine theirs ms)
+  (let ((buf (memAlloc 16)))
+    (if (> ms 0)
+      (let ((t0 (sysTimeoutMicros buf)))
+        (let ((r (chanRecvTimeout mine (* ms 1000000))))
+          (let (
+            (code (recvCode r))
+            (us (- (sysTimeoutMicros buf) t0))
+          )
+            {
+              (println "side {k} {code} {us}")
+              0
+            })))
+      {
+        (println "side {k} waits")
+        (match (chanRecv mine)
+          ((Some v)
+            (if (chanSend theirs v)
+              0
+              1)
+          )
+          ((None) 0))
+      })))
+
+; The control: this side sends first, then receives the answer.
+(:: sendFirst (-> Int Int Int))
+;@axiom:effect(io)
+(fn (sendFirst mine theirs)
+  (if (chanSend theirs 7)
+    (match (chanRecv mine)
+      ((Some v) 0)
+      ((None) 1))
+    1))
+
+(:: pair (-> Int Int Int))
+;@axiom:effect(io)
+(fn (pair how ms)
+  (match (chanNew 1)
+    ((Ok c1)
+      (match (chanNew 1)
+        ((Ok c2)
+          {
+            (if (== how 2)
+              (parallel p (
+                (x (sendFirst c1 c2))
+                (y (waitFor 2 c2 c1 0))
+              )
+                (+ x y))
+              (parallel q (
+                (x (waitFor 1 c1 c2 ms))
+                (y (waitFor 2 c2 c1 ms))
+              )
+                (+ x y)))
+            (println "done")
+            0
+          }
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))
+
+(:: howOf (-> String Int))
+(fn (howOf s)
+  (if (strEq s "timed")
+    0
+    (if (strEq s "untimed")
+      1
+      (if (strEq s "ordered")
+        2
+        (- 0 1)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (mode (sysArg 1))
+    (how (howOf (sysArg 2)))
+  )
+    (if (strEq mode "starve")
+      (starve (argInt 2))
+      (if (&& (strEq mode "inversion") (>= how 0))
+        (inversion
+          how
+          (if (== how 0)
+            (argInt 3)
+            0))
+        (if (&& (strEq mode "pair") (>= how 0))
+          (pair
+            how
+            (if (== how 0)
+              (argInt 3)
+              0))
+          {
+            (println "usage: liveness starve MS | (inversion|pair) (timed MS|untimed|ordered)")
+            2
+          })))))

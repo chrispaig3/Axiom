@@ -1,0 +1,123 @@
+; The channel's protocol, recorded, for `scripts/check-protocol-model.sh`
+; (R-E1, MM-PAR-10). Two senders each send N words, s*1000+1 to
+; s*1000+N for sender s; a third binding closes the channel once both
+; have finished; two receivers drain it. Prints `ok <count> <sum>` when
+; every word arrived exactly once, `bad ...` otherwise, and then frees
+; the channel. Usage: chan-trace CAP N.
+;
+; Against the tree's standard library this is a small load test. The
+; gate builds it against an instrumented copy of `stdlib/Chan.ax` whose
+; `chanFree` first prints every operation the bindings made on the
+; channel's words, in the order they made them, and
+; `scripts/lib/protocol-model.py replay` drives the model with that
+; record, requiring each answer the implementation recorded to be the
+; model's.
+(import IO)
+(import Str)
+(import Sys)
+(import Chan)
+
+(:: argInt (-> Int Int Int))
+;@axiom:effect(io)
+(fn (argInt i d)
+  (match (strParseInt (sysArg i))
+    ((Some v) v)
+    ((None) d)))
+
+; Send s*1000+1 .. s*1000+n; answer how many went in.
+(:: send (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (send ch s n)
+  (let (
+    (mut k 1)
+    (mut sent 0)
+  )
+    {
+      (while (<= k n)
+        {
+          (if (chanSend ch (+ (* s 1000) k))
+            (set sent (+ sent 1))
+            0)
+          (set k (+ k 1))
+        })
+      sent
+    }))
+
+; Both senders, then the close.
+(:: feed (-> Int Int Int))
+;@axiom:effect(io)
+(fn (feed ch n)
+  (parallel q (
+    (a (send ch 1 n))
+    (b (send ch 2 n))
+  )
+    {
+      (chanClose ch)
+      (+ a b)
+    }))
+
+; Receive to the end of the stream; answer sum * 4096 + count.
+(:: drain (-> Int Int))
+;@axiom:effect(io)
+(fn (drain ch)
+  (let (
+    (mut sum 0)
+    (mut count 0)
+    (mut going 1)
+  )
+    {
+      (while (== going 1)
+        (match (chanRecv ch)
+          ((Some v)
+            {
+              (set sum (+ sum v))
+              (set count (+ count 1))
+            }
+          )
+          ((None)
+            (set going 0)
+          )))
+      (+ (* sum 4096) count)
+    }))
+
+; What 2n words from two senders add up to.
+(:: wantSum (-> Int Int))
+(fn (wantSum n)
+  (+ (* 3000 n) (* n (+ n 1))))
+
+(:: run (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (run ch cap n)
+  (parallel p (
+    (fed (feed ch n))
+    (r1 (drain ch))
+    (r2 (drain ch))
+  )
+    (let (
+      (count (+ (% r1 4096) (% r2 4096)))
+      (sum (+ (/ r1 4096) (/ r2 4096)))
+    )
+      {
+        (if (&& (== fed (* 2 n)) (&& (== count (* 2 n)) (== sum (wantSum n))))
+          (println "ok {count} {sum}")
+          (println "bad fed {fed} count {count} sum {sum}"))
+        (match (chanFree ch)
+          ((Ok z) 0)
+          ((Err e) 1))
+      })))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (cap (argInt 1 1))
+    (n (argInt 2 50))
+  )
+    (match (chanNew cap)
+      ((Ok ch) (run ch cap n))
+      ((Err e)
+        {
+          (println "no channel")
+          1
+        }
+      ))))

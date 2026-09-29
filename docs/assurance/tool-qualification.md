@@ -29,7 +29,7 @@ them, and must re-derive every row below.
 | `axiom build` (the compiler and its emitted runtime) with `opt`, `llc`, `cc` and `ld.lld` | A development tool: its output becomes part of the airborne, in-vehicle or on-board software | Only if the application verifies the executable object code against its requirements |
 | `scripts/axiom-report.py` | A verification tool: it can fail to detect a recursion, an allocation or an unbounded stack | Its refusals can be re-checked by hand from `symbols` and the object. The absence of a refusal can't |
 | The gate battery (`scripts/check-*.sh`) | Verification tools for the compiler itself | They are the evidence, and each is ablated |
-| `scripts/lib/fuzz.py`, `scripts/lib/runtime-model.py` | Verification tools for the compiler and runtime | Planted controls and mutation witnesses run on every invocation |
+| `scripts/lib/fuzz.py`, `scripts/lib/runtime-model.py`, `scripts/lib/protocol-model.py` | Verification tools for the compiler, the runtime and the concurrency library | Planted controls and mutation witnesses run on every invocation |
 | `scripts/measure-coverage.sh` | A measurement of structural coverage of the compiler's object code | Its instrument is checked before each use (below) |
 
 ## Tool operational requirements

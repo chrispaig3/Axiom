@@ -330,7 +330,7 @@ jobs:
           - name: darwin-aarch64
             os: macos-14
     runs-on: ${{ matrix.os }}
-    # eighty-nine of the gates below build the compiler under test from
+    # ninety of the gates below build the compiler under test from
     # `self_host/`, each producing a compiler that emits identical IR.
     # One step builds it; `gate_build_axc` reuses it while the tree's
     # source stamp matches, rebuilds when it does not, and REFUSES when
@@ -593,6 +593,20 @@ jobs:
       # turning it red - and runs examples/concurrency/.
       - name: A mutex excludes, timed waits keep time, and tasks fail, time out and cancel in their slots
         run: ./scripts/check-task.sh
+
+      # R-E1's schedule exploration and R-C2's liveness limits:
+      # `scripts/lib/protocol-model.py` explores every interleaving of two
+      # and three bindings running the transcribed Chan.ax and Sync.ax
+      # protocols - exclusion, exactly-once FIFO delivery, close, the
+      # guard, poisoning, and no lost wakeup or deadlock - and must find
+      # each of ten planted protocol defects with its schedule; the
+      # transcription is checked against stdlib/, and a recorded run of
+      # the channel replays through the model. Then, on this runner, the
+      # mutex's starvation is measured, and a lock-order inversion and a
+      # channel pair must time out under the timed calls and stay
+      # deadlocked under a watchdog without them.
+      - name: The protocols hold in every interleaving explored, and deadlock is measured apart from races
+        run: ./scripts/check-protocol-model.sh
 
       # R-E1's race detector: ThreadSanitizer over `--threads` programs.
       # sync-load's unlocked control must be reported as a data race; the
@@ -1940,10 +1954,12 @@ jobs:
       - name: Every row of bootstrap/CHAIN replays, and the anchor's probes go red
         run: ./scripts/check-seed-lineage.sh --full
 
-  # The long evidence. A push runs the fuzzer's 600-mutant sample and the
-  # model's traces at `--opt` 0 and 3; the budgets behind them - 6,000
-  # mutants, and every trace at every level - are minutes each, so they
-  # run here, nightly and on the button, rather than on every push. A
+  # The long evidence. A push runs the fuzzer's 600-mutant sample, the
+  # model's traces at `--opt` 0 and 3, and the protocol model at its
+  # small bounds; the budgets behind them - 6,000 mutants, every trace at
+  # every level, and three bindings sending two words each - are minutes
+  # each, so they run here, nightly and on the button, rather than on
+  # every push. A
   # budget nobody runs is a claim nobody checks; scheduling it keeps the
   # coverage, and a red here is a red like any other.
   long-evidence:
@@ -1959,6 +1975,8 @@ jobs:
         run: ./scripts/check-runtime-model.sh --long
       - name: The metamorphic relation over the compiler and every stdlib module
         run: ./scripts/check-metamorphic.sh --long
+      - name: The protocol model at its larger bounds, and longer liveness runs
+        run: ./scripts/check-protocol-model.sh --long
 
   reproducible:
     name: Reproducible build

@@ -22,6 +22,51 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The channel and mutex protocols, in every interleaving — `scripts/check-protocol-model.sh`, R-E1, R-C2 - 2026-09-29
+
+`stdlib/Chan.ax` and `stdlib/Sync.ax` were checked by load: the
+interleavings the hardware happened to make. A new executable model,
+`scripts/lib/protocol-model.py`, writes their protocols down step by
+step, each step citing the spelling it transcribes. It explores every
+interleaving of two and three bindings at small bounds: 38 scenarios
+and 2,127,649 states, with spurious wakeups, timeouts, kills and reaps
+as environment steps. Every scenario is clean: exclusion, exactly-once
+FIFO delivery, close and drain, the mutex's guard and poisoning, and no
+lost wakeup, deadlock or livelock. The model also finds AN-10, a sender
+killed holding the channel's lock.
+
+Ten protocol mistakes are planted in the transcription, and each is
+found as what it is, with a printed schedule:
+
+- a waiter that parks after the release;
+- a changer that reads the waiter count before its change;
+- a release, or a notify, that wakes nobody;
+- a lock taken by a plain load and store, in either protocol;
+- a waiter without its mark;
+- the guard compared with the counter;
+- a dead-holder test without its re-read.
+
+One placement that looks like a mistake is correct: the announcement
+in word 2 may move after the release, as long as the change counter is
+read under the lock. The model shows it clean in 580,387 states.
+
+The model is tied to the implementation twice. The gate requires every
+cited operation, 183 of them, to still be in its function in
+`stdlib/`, in order. And an instrumented copy of `Chan.ax` records a
+run of `tests/litmus/chan-trace.ax`, five forked bindings and about
+5,200 operations, which the model replays operation by operation, each
+answer the model's. A library whose change counter counts in twos
+passes the program's own check, and the replay refuses it.
+
+On the machine, `tests/litmus/liveness.ax` measures deadlock and
+starvation apart from races, in both lowerings. A lock-order inversion
+between two mutexes, and two bindings each waiting on the other's
+channel, answer `sysTimedOut` on both sides under the timed calls, and
+stay deadlocked under the untimed ones until a watchdog ends them,
+beside controls in a safe order that finish. Four bindings contending
+for one mutex are exact, with their shares and worst waits reported.
+Calls one new gate; the count sites state ninety gates.
+
 ### Six more litmus families: WRC, ISA2 and coherence — `scripts/check-atomics.sh`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` ran six memory-ordering families. It runs
@@ -222,7 +267,7 @@ every stdlib module as entry files, nightly. The fixes are pinned by
 `tests/selfhost/1006-cast-type-operand.ax` and
 `tests/selfhost/1007-param-shadows-nullary.ax`, which dies with
 SIGSEGV on the unfixed compiler. Calls one new gate; the count sites
-state eighty-nine gates.
+state ninety gates.
 
 ### Purity is written one way, and a tag must sit where it is checked — `AX3077`, `AX3078` - 2026-09-28
 
@@ -411,7 +456,7 @@ in `docs/assurance/verification.md`.
 action and `scripts/run-gates-linux.sh`'s image install
 `libclang-rt-dev`; CI sets `AXIOM_TSAN_REQUIRED=1`, so a missing
 runtime fails there and skips elsewhere. Calls one new gate; the count
-sites state eighty-nine gates.
+sites state ninety gates.
 ### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` §3 ran three litmus families, store
@@ -735,7 +780,7 @@ as the control); RSS flat from 500 to 5,000 folded tasks beside a
 keeping control that must grow; nine ablations on copies of the
 library each turning it red; and the three new programs in
 `examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
-new gate; the count sites state eighty-nine gates.
+new gate; the count sites state ninety gates.
 
 An independent review before landing found six defects, two confirmed
 by probes. The mutex compared an unlock's guard against the guard
@@ -892,7 +937,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-eighty-nine gates. Specified in `docs/restricted-profile.md`.
+ninety gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -960,7 +1005,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state eighty-nine gates.
+state ninety gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -1001,7 +1046,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-eighty-nine gates.
+ninety gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -1050,7 +1095,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-eighty-nine gates.
+ninety gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -1080,7 +1125,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state eighty-nine gates.
+sites state ninety gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -1321,7 +1366,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state eighty-nine gates.
+checks). Calls one new gate; the count sites state ninety gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -1338,7 +1383,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state eighty-nine gates, and the battery has
+gate; the count sites state ninety gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`

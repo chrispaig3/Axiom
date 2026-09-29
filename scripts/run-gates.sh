@@ -131,7 +131,11 @@ NOTRUN_WHY='needs --emit DIR on any host and --run DIR on a Windows runner; a ba
 # willingness to drain them while fifteen compilers are running, and a
 # short read is indistinguishable at the assertion from a server that
 # lost data.
-SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net|repl-history)\.sh$'
+#
+# `check-protocol-model` reads the clock: its timed locks and receives
+# must answer within [T, T + 800 ms], and its starvation run measures
+# waits. Its model also runs four worker processes of its own.
+SERIAL_RE='check-(bootstrap|container-reclaim|recover|steady-state|memory-baseline|arena-reset-rate|name-scale|type-namespace|degenerate|stack-depth|stack-bound|concurrent-run|reproducible|ffi|seed-provenance|lsp-selfhost|compat|net|repl-history|protocol-model)\.sh$'
 
 # THE TWO REPL GATES ARE NOT HERE, and they were nearly added on
 # 2026-08-31 on the strength of a comment. `check-repl-selfhost.sh`'s

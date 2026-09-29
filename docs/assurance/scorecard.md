@@ -39,6 +39,8 @@ source.
 | The executable allocator, arena and region model agrees with the runtime (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 13 pass |
 | Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 46 pass, on 600 mutants from seed 20260927. All nineteen reproducers are fixed and replayed as regressions |
 | ThreadSanitizer reports an unlocked shared word and three ablated synchronisers, and nothing in the mutex, the channel, the pipeline example or the seq_cst litmus rows but `MM-PAR-12`'s documented read, whose suppression hides nothing else on the runs made (R-E1, race detector) | `scripts/check-race.sh`: 32 pass on H3 and on linux-aarch64 in a container; `tests/litmus/tsan-suppressions.txt` |
+| The channel and mutex protocols are clean in every interleaving of two and three bindings the model explores, every planted protocol defect is found with its schedule, and the transcription matches the source and a recorded run of the channel (R-E1, protocol model) | `scripts/lib/protocol-model.py`; `scripts/check-protocol-model.sh`: 77 pass, 38 scenarios and 2,127,649 states; `tests/litmus/chan-trace.ax` |
+| A lock-order inversion between two mutexes and two bindings each waiting on the other's channel answer `sysTimedOut` on both sides under the timed calls, and stay deadlocked under the untimed ones until a watchdog ends them; the mutex's starvation is measured, not promised (R-C2, AN-17) | `tests/litmus/liveness.ax`; `scripts/check-protocol-model.sh` §5, both lowerings |
 | The qualification-readiness package exists and states its limits (R-E2) | [hazards.md](hazards.md), [threats.md](threats.md), [trusted-components.md](trusted-components.md), [tool-qualification.md](tool-qualification.md), [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), [support-policy.md](support-policy.md), [demonstrators.md](demonstrators.md) |
 
 ## Open defects and gaps
@@ -66,7 +68,10 @@ source.
   ASan sees globals, not the arena's heap blocks. The LSP and the REPL
   aren't fuzzed, and the miscompilation oracle compares two
   optimisation levels on a sample. The full fuzzing budget runs
-  nightly, not per push.
+  nightly, not per push. The protocol model is a proof about the model
+  at two and three bindings and small bounds, not about the
+  implementation; the mutex and the timed forms have no replay, and
+  the task pool has no model.
 - `MM-PAR-7` limits: reparented grandchildren, uninterruptible sweeps
   and unmapped-handle words (`MM-PAR-8`, planned).
 - R-B5 (`MM-FFI-7`): the checker can't see foreign code, so a
@@ -91,6 +96,7 @@ constants.
 | `check-atomics.sh` | 144 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |
+| `check-protocol-model.sh` | 77 pass |
 | `check-report.sh` | 49 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 13 pass |
@@ -126,6 +132,13 @@ These are measured latencies on H3, not bounds.
   other gates (`scripts/check-task.sh` §2).
 - A cancellation from a sibling binding at 300 ms, with a 100 ms grace,
   ends the pool in about 450 ms (`scripts/check-task.sh` §3).
+- In a lock-order inversion, a 200 ms timed lock answers
+  `sysTimedOut` on both sides after 201 to 203 ms, and so does a timed
+  receive in a channel pair (`scripts/check-protocol-model.sh` §5).
+- Four bindings contending for one mutex for 1.5 s made about 1.1
+  million acquisitions in each lowering. The largest share was 1.04
+  to 1.14 times the smallest, and the longest single wait 3.9 to
+  10.4 ms (the same gate).
 - A mutex whose holder was killed and reaped answers `syncOwnerDead`
   101 ms later to a timed lock, and at once to an untimed one.
 

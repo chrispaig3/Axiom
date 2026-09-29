@@ -4634,6 +4634,16 @@ claim.
   over ten times the words.
 - `scripts/check-platform-constants.sh`: the library's `mmap` and
   `munmap` numbers agree with the runtime's on all six targets.
+- `scripts/check-protocol-model.sh`: the protocol, transcribed step by
+  step in `scripts/lib/protocol-model.py`, is clean in every
+  interleaving of two and three bindings at capacities 1 and 2 with
+  one to three words: exactly once, FIFO per sender, close and drain,
+  and no lost wakeup or deadlock. A waiter that parks after releasing
+  the lock, or a release or notify that wakes nobody, is found with its
+  schedule. A run recorded on an instrumented copy of this library
+  replays through the model operation by operation. Two bindings each
+  waiting to receive from the other time out under `chanRecvTimeout`
+  and stay blocked under `chanRecv`.
 
 **MM-PAR-11 (H). A mutex excludes between bindings, in both
 lowerings.** In `stdlib/Sync.ax`, `mutexNew` maps one page,
@@ -4736,8 +4746,22 @@ outside it is a data race (`MM-PAR-9`).
   instead, which accepts the stale guard in the window), each on a copy
   of the library, and each turns its check red.
 
-A load test that passes is evidence about the runs made. The protocol
-isn't proved.
+- `scripts/check-protocol-model.sh` explores the protocol, transcribed
+  in `scripts/lib/protocol-model.py`, in every interleaving of two and
+  three bindings in both lowerings, with a stale guard, a timed lock, a
+  try-lock and a holder killed at any step. Every state keeps
+  exclusion, refuses the stale guard and poisons only for a dead
+  holder, and no lost wakeup or deadlock is reachable. A lock taken by
+  a plain load and store, a release without its wake, a waiter without
+  its mark, the guard compared with the counter and the dead-holder
+  test without its re-read are each found with a schedule. On the
+  machine, a lock-order inversion answers `sysTimedOut` on both sides
+  under `mutexLockTimeout` and deadlocks under `mutexLock`, and four
+  contending bindings' shares and worst waits are measured.
+
+A load test that passes is evidence about the runs made, and the model
+is a proof about the model at its bounds. The implementation isn't
+proved.
 
 **MM-PAR-12 (H). A wait may be bounded, and says why it ended.**
 `sysWaitWordTimeout addr expected nanos` blocks while the word at
