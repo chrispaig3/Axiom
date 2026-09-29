@@ -22,6 +22,30 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### A refused spawn is an answer in its slot — R-B2 - 2026-09-29
+
+A spawn the kernel refuses, or one the handle table has no slot for,
+used to trap 78 past the pool, leaving `Task`'s slab mapped and `Par`'s
+checked pool with no answers. Now the refused task answers `Err` 78 in
+its slot (70 when no page could be mapped), nothing more starts, the
+running tasks are killed and reaped, and the pool returns its mappings.
+`parMapWordsChecked` does the same for its slots. `parMapWords` still
+raises 78 to its caller, whose recovery point sweeps the children.
+Tested by `tests/stdlib/601-task-spawn-refused.ax`,
+`602-par-spawn-refused.ax` and `scripts/check-task.sh` §9.
+
+### A mutex guard is a sealed `MutexGuard` — R-C6, AN-56 - 2026-09-29
+
+`mutexLock`, `mutexTryLock` and `mutexLockTimeout` answer a
+`MutexGuard`, and `mutexUnlock` takes one, where each used an `Int`. So
+`(mutexUnlock m 1)`, or a guard captured by another binding, no longer
+checks. A program that stored a guard as an `Int` stores the
+`MutexGuard` instead (`compat/BREAKING`). A waiter whose lock holder is
+its own child, dead but not yet joined, now finds it with `waitid`, as
+a channel's waiter does, and the mutex answers `syncOwnerDead` rather
+than timing out. Tested by `tests/diagnostics/1070-mutex-guard-int.ax`,
+`1071-mutex-guard-sealed.ax` and `tests/stdlib/600-mutex-dead-child.ax`.
+
 ### Inline assembly: `asm` — MM-FFI-9, `AX3091` - 2026-09-29
 
 `asm` runs an instruction no primitive covers. A form gives one arm
