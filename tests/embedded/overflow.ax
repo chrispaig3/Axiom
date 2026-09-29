@@ -1,0 +1,39 @@
+; A stack overflow on `baremetal-aarch64`, taken on purpose: a recursion
+; with no base case. `dive` stores its depth through a volatile access,
+; so no call can be removed, and it subtracts after the call, so LLVM
+; can't turn it into a loop (subtraction isn't associative).
+;
+; The stack is 8 KiB, and the 64 KiB below it is an unmapped guard
+; (docs/embedded-guide.md section 6). The first push past the stack's
+; bottom is a translation fault there: a data abort at the current
+; exception level (EC 0x25), a write (WnR), a level-3 translation fault
+; (DFSC 0x07), so ESR_EL1 is 0x96000047 and FAR_EL1 is in the guard. The
+; fault exit switches to its own stack before touching memory, reports
+; the registers, adds the stack-overflow line, and exits 81.
+;
+; `scripts/check-embedded.sh` A17 boots it under QEMU and reads FAR
+; against the image's own `__axiom_rw_end` and `__axiom_stack_lo`. With
+; the guard mapped (the `guard` ablation) the stack runs on through
+; `.bss` and `.data` and faults somewhere else, or not at all; with the
+; MMU off, as before, it ran through the arena and into the code and
+; hung.
+(import IO)
+(import Mem)
+
+(:: dive (-> Int Int Int))
+;@axiom:effect(unsafe)
+(fn (dive cell n)
+  {
+    (__vstore64 cell n)
+    (- (dive cell (+ n 1)) n)
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "OVERFLOW PROBE")
+    (println (dive (memAlloc 16) 0))
+    (println "NOT REACHED")
+    0
+  })

@@ -1,7 +1,7 @@
 ; A synchronous exception on `baremetal-aarch64`, taken on purpose: a
 ; 32-bit volatile load from an address one byte past a 16-byte-aligned
-; block. The port runs with the MMU off, so every data access is Device
-; memory and a misaligned one is an alignment fault (QEMU enforces it,
+; block. `_start` sets SCTLR_EL1.A, so a misaligned access is an
+; alignment fault on the arena's Normal memory (QEMU enforces it,
 ; measured: ESR_EL1 0x96000021 - EC 0x25, a data abort at the current
 ; exception level, DFSC 0x21, alignment).
 ;

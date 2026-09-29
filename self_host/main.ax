@@ -375,7 +375,7 @@
                   msg
                   0
                   0
-                  "the volatile accesses (`__vload8`..`__vstore64`) lower on every target; the barriers and the two counter reads (`__arm_dmb`, `__arm_dsb`, `__arm_isb`, `__arm_cntvct`, `__arm_cntfrq`) on any AArch64 target; everything else in the `__arm_` family, and an `isr(irq)` binding to the IRQ vector, only on baremetal-aarch64. Build for a target that has it, or keep the call off every path `main` reaches - a function nothing calls is pruned before this check"))
+                  "the volatile accesses (`__vload8`..`__vstore64`) lower on every target; the barriers and the two counter reads (`__arm_dmb`, `__arm_dsb`, `__arm_isb`, `__arm_cntvct`, `__arm_cntfrq`) on any AArch64 target; everything else in the `__arm_` family, an `isr(irq)` binding to the IRQ vector and an `isr(fault)` binding to the fault hook, only on baremetal-aarch64. Build for a target that has it, or keep the call off every path `main` reaches - a function nothing calls is pruned before this check"))
                 0
               }))
           (deviceRefusals ir mds seen e)

@@ -1,0 +1,27 @@
+; A read of address 0 on `baremetal-aarch64`, taken on purpose.
+;
+; Below RAM only the two peripheral blocks the port uses are mapped
+; (docs/embedded-guide.md section 6), so address 0 has no translation:
+; the level-2 table for the first gigabyte has no entry for it. The read
+; is a data abort at the current exception level (EC 0x25), a level-2
+; translation fault (DFSC 0x06), so ESR_EL1 is 0x96000006 and FAR_EL1 is
+; 0. The program exits 81.
+;
+; `scripts/check-embedded.sh` A18 boots it under QEMU. With the MMU off,
+; as before, the read reached QEMU's flash and answered a number.
+(import IO)
+
+(:: peek (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (peek a)
+  (__vload64 a))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "UNMAPPED PROBE")
+    (println (peek 0))
+    (println "NOT REACHED")
+    0
+  })

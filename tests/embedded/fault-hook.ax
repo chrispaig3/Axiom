@@ -1,0 +1,78 @@
+; An application-defined fault policy on `baremetal-aarch64`
+; (docs/embedded-guide.md section 5): `;@axiom:isr(fault)` binds
+; `onFault` as the fault hook, and `main` takes the same alignment fault
+; as `tests/embedded/fault.ax`.
+;
+; The runtime writes its report line first, as it does with no hook.
+; Then it calls the hook on the fault stack, with D, A, I and F masked
+; and no recovery point armed, passing the status the fixed exit would
+; answer (81), the vector offset (0x200), ESR_EL1, ELR_EL1 and FAR_EL1.
+; The hook writes its safe-state marker straight to the UART - it may
+; not allocate, so no `println` - and answers the exit status: 42 when
+; the arguments are the alignment fault's, 43 otherwise.
+;
+; `scripts/check-embedded.sh` A19 boots it under QEMU and requires the
+; report, the marker and 42. With the binding ignored (the `hookoff`
+; ablation) the fixed exit comes back: 81, and no marker.
+(import IO)
+(import Mem)
+(import Str)
+
+(:: uart Int)
+(fn (uart)
+  150994944)
+
+(:: say (-> String Int))
+;@axiom:effect(unsafe)
+(fn (say s)
+  {
+    (for i 0 (strLen s)
+      (__vstore8 uart (strByte s i)))
+    0
+  })
+
+(:: sayHex (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (sayHex v)
+  {
+    (say "0x")
+    (for k 0 16
+      (let ((d (& (>> v (* 4 (- 15 k))) 15)))
+        (__vstore8
+          uart
+          (if (> d 9)
+            (+ d 87)
+            (+ d 48)))))
+    0
+  })
+
+;@axiom:isr(fault)
+(:: onFault (-> Int Int Int Int Int Int))
+(fn (onFault status vector esr elr far)
+  {
+    (say "safe state: status ")
+    (sayHex status)
+    (say " vector ")
+    (sayHex vector)
+    (say " esr ")
+    (sayHex esr)
+    (say "\n")
+    (if (&& (== status 81) (&& (== vector 512) (&& (== esr 2516582433) (== (& far 1) 1))))
+      42
+      43)
+  })
+
+(:: misaligned (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (misaligned a)
+  (__vload32 (+ a 1)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println "FAULT HOOK PROBE")
+    (println (misaligned (memAlloc 16)))
+    (println "NOT REACHED")
+    0
+  })

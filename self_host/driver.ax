@@ -359,14 +359,37 @@
 ; addresses, so `.text.boot` - and with it `_start`, the ENTRY -
 ; must sit in RAM: `virt` maps it at 0x40000000. `KEEP` because
 ; nothing calls `_start` and a `--gc-sections` future must not eat
-; the entry; `__stack_top` 8 KiB over `.bss`, the device stack the
-; stdlib's UART loop assumes and the reset vector sets. A generated
-; file rather than a checked-in one: the installed compiler carries
-; its port with it, and `check-embedded.sh` A10 boots what this
-; writes.
+; the entry. A generated file rather than a checked-in one: the
+; installed compiler carries its port with it, and
+; `check-embedded.sh` boots what this writes.
+;
+; THE LAYOUT IS THE MEMORY MAP (docs/embedded-guide.md section 6).
+; `_start` turns the MMU on over identity-mapped page tables that
+; `emitMmuTables` builds from the symbols defined here, one 4 KiB
+; page at a time, so every boundary below is page aligned:
+;
+;   0x40000000       code: `.text.boot`, `.text` (the vector table
+;                    is `.text.vectors`)          read-only, executable
+;   __axiom_rx_end   `.rodata`, `.eh_frame`, `.got` (a static link
+;                    fills the GOT, nothing writes it at run time)
+;                                                 read-only, execute-never
+;   __axiom_ro_end   `.data`, `.bss` (the arena)  read-write, execute-never
+;   __axiom_rw_end   64 KiB GUARD                 not mapped
+;   __axiom_stack_lo the stack, 8 KiB, growing down from __stack_top
+;                                                 read-write, execute-never
+;   __stack_top      4 KiB guard                  not mapped
+;   __axiom_exc_lo   the fault stack, 8 KiB: the fault exit switches
+;                    to it, so a stack that overflowed into its guard
+;                    can still be reported     read-write, execute-never
+;   __axiom_exc_top  the page tables (`__axiom_pt`), built by `_start`
+;                    before the MMU is on, and not mapped after it
+;
+; The guard below the stack is 64 KiB, not one page, so a frame
+; that moves the stack pointer by more than a page before touching
+; it still lands in the guard; the compiler emits no frame that large.
 (pub :: baremetalLinkScript String)
 (pub fn (baremetalLinkScript)
-  "ENTRY(_start)\nSECTIONS {\n  . = 0x40000000;\n  .text.boot : { KEEP(*(.text.boot)) }\n  .text : { *(.text*) }\n  .rodata : { *(.rodata*) }\n  .data : { *(.data*) }\n  .bss : { *(.bss*) *(COMMON) }\n  . = ALIGN(16);\n  __stack_top = . + 0x2000;\n}\n")
+  "ENTRY(_start)\nSECTIONS {\n  . = 0x40000000;\n  .text.boot : { KEEP(*(.text.boot)) }\n  .text : { *(.text*) }\n  . = ALIGN(4096);\n  __axiom_rx_end = .;\n  .rodata : { *(.rodata*) }\n  .eh_frame : { *(.eh_frame*) }\n  .got : { *(.got) *(.got.plt) }\n  . = ALIGN(4096);\n  __axiom_ro_end = .;\n  .data : { *(.data*) }\n  .bss : { *(.bss*) *(COMMON) }\n  . = ALIGN(4096);\n  __axiom_rw_end = .;\n  . = . + 0x10000;\n  __axiom_stack_lo = .;\n  . = . + 0x2000;\n  __stack_top = .;\n  . = . + 0x1000;\n  __axiom_exc_lo = .;\n  . = . + 0x2000;\n  __axiom_exc_top = .;\n  __axiom_pt = .;\n}\n")
 
 (pub :: assembleAndLink (-> String String String Int (Vec Int) Bool Bool Int))
 ;@axiom:effect(io)

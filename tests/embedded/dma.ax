@@ -25,10 +25,10 @@
 ; never completes ends in `dma: timed out` rather than a hang; the gate
 ; builds a copy that never rings the doorbell and requires exactly that.
 ;
-; The port runs with the MMU off, so the data cache is off and the cache
-; maintenance is exercised for ordering only (docs/embedded-guide.md
-; section 6). The device speaks big-endian; every field is swapped in
-; software (section 4).
+; The port runs with the MMU and the data cache on, so the maintenance
+; is what a real cache needs; QEMU's TCG models no cache, so nothing here
+; can show a missing one (docs/embedded-guide.md section 6). The device
+; speaks big-endian; every field is swapped in software (section 4).
 (import IO)
 (import Mem)
 

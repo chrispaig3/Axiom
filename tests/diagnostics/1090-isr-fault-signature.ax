@@ -1,0 +1,27 @@
+; `;@axiom:isr(fault)` binds the fault hook. The runtime calls it with
+; five `Int`s - the status the fixed exit would answer, the vector
+; offset, ESR_EL1, ELR_EL1 and FAR_EL1 - and its `Int` answer is the
+; exit status. The call passes five words whatever the declaration
+; says, so a declaration that says anything else contradicts the tag:
+; AX3010 (axtag-mismatch), at the declaration.
+;
+; `tooFew` takes two parameters and `wrongType` takes a `String` first.
+; `hook` is the control: the declared shape checks clean.
+(:: tooFew (-> Int Int Int))
+;@axiom:isr(fault)
+(fn (tooFew status vector)
+  status)
+
+(:: wrongType (-> String Int Int Int Int Int))
+;@axiom:isr(fault)
+(fn (wrongType status vector esr elr far)
+  vector)
+
+(:: hook (-> Int Int Int Int Int Int))
+;@axiom:isr(fault)
+(fn (hook status vector esr elr far)
+  status)
+
+(:: main Int)
+(fn (main)
+  0)

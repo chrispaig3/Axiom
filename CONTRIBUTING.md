@@ -220,8 +220,8 @@ only what it declares.
    that justified it.
 
 Run `axiom fmt` over every file you touch. Don't assume the tree is
-already in the formatter's normal form: `axiom fmt --check` passes 762
-of the 824 `.ax` files in the repository and flags 62. It checks one
+already in the formatter's normal form: `axiom fmt --check` passes 775
+of the 837 `.ax` files in the repository and flags 62. It checks one
 file at a time, so this lists the ones that need formatting:
 
 ```bash
@@ -567,12 +567,6 @@ they're up to whoever cuts the release:
 3. **Write the `CHANGELOG.md` entry**, under a heading that starts
    `## <version>` like the ones before it. `release.yml` publishes that
    section as the release notes, and stops if it's missing or empty.
-   GitHub takes at most 125,000 characters, so a section over 120,000
-   opens with a short highlights block ending at the line
-   `<!-- release-notes: end of highlights -->`. The release then
-   publishes the highlights and a link to the whole section, and stops
-   if the line is missing. Credit contributors by their GitHub handle
-   in the highlights as well as in their entries.
    `check-doc-drift.sh` checks the changelog like any other prose
    document.
 4. **Don't stamp anything by hand.** `release.yml` builds the archive

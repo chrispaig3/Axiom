@@ -1,0 +1,22 @@
+; The fault hook runs after the program has failed, on the fault stack,
+; and possibly in the middle of an allocation the failure interrupted,
+; so `isr(fault)` implies `restrict(no-alloc)` like every `isr`. A hook
+; that allocates draws AX3049 naming `no-alloc`, with the path to where
+; the allocation enters: here `strConcat`, one hop down.
+;
+; `record` is the control: a hook that allocates nothing checks clean.
+(import Str)
+
+(:: onFault (-> Int Int Int Int Int Int))
+;@axiom:isr(fault)
+(fn (onFault status vector esr elr far)
+  (+ status (strLen (strConcat "fault" "!"))))
+
+(:: record (-> Int Int Int Int Int Int))
+;@axiom:isr(fault)
+(fn (record status vector esr elr far)
+  (+ status (strLen "fault")))
+
+(:: main Int)
+(fn (main)
+  0)

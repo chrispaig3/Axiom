@@ -129,12 +129,24 @@ recovered.
 
 On baremetal-aarch64 the exit is a semihosting `SYS_EXIT`, which means
 something under a debugger or QEMU. On hardware without a debugger the
-image stops in a `wfi` loop. Before stopping, an unhandled exception
-writes the vector offset and `ESR_EL1`, `ELR_EL1` and `FAR_EL1` to the
-UART (`MM-EXEC-18`). Supply your own fault policy: a watchdog, and a
-decision about what a synchronous fault means for your device. The
-port runs with the MMU off, so there is no guard below the stack. Size
-the stack from the stack bound, with a margin.
+`hlt` it uses is itself an exception, and the image goes no further.
+Before stopping, an unhandled exception writes the vector offset and
+`ESR_EL1`, `ELR_EL1` and `FAR_EL1` to the UART (`MM-EXEC-18`).
+
+Supply your own fault policy with `;@axiom:isr(fault)`
+(`MM-EXEC-19`). Every unrecovered trap and CPU exception reaches that
+one function after its report, on its own stack with interrupts
+masked, and its answer is the exit. On a board it should never return:
+reset through the firmware, halt in a safe state, or stop feeding a
+watchdog. What a synchronous fault means for your device is your
+decision, and the embedded guide lists what the hook may and may not
+do.
+
+The port runs with the MMU on: code is read-only, data is
+execute-never, and an unmapped 64 KiB guard sits below the stack. A
+stack overflow is therefore a reported fault, not silent corruption,
+but it still ends the program. Size the stack from the stack bound,
+with a margin.
 
 ## What isn't provided
 

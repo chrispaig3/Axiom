@@ -22,6 +22,33 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### Bare metal: the MMU on, and a fault policy of your own — MM-EXEC-19, `AX4009` - 2026-09-29
+
+`baremetal-aarch64` now runs with the MMU and both caches on. `_start`
+builds identity-mapped tables before `main`: code read-only, data and
+stacks execute-never, an unmapped 64 KiB guard below the stack, and
+below RAM only the GIC's and the UART's 2 MiB blocks. A stack overflow,
+which ran through the arena into the code and hung, is now a
+translation fault in the guard, reported as a stack overflow. A store
+to code, a branch into data and a read of address 0 fault too. The
+fault exit runs on its own 8 KiB stack.
+
+`;@axiom:isr(fault)` binds one function, `(-> Int Int Int Int Int
+Int)`, that every unhandled CPU exception and unrecovered trap reaches
+once after its report, with the status, the vector offset (-1 for a
+trap), ESR, ELR and FAR. Its answer is the exit status, or it never
+returns: a halt, or a PSCI reset. A fault inside it takes the fixed 81
+without calling it again. With no hook bound every exit is unchanged.
+
+Every `isr` now implies `restrict(no-recursion)` beside `no-alloc`, so
+a recursive handler that compiled before is refused (`AX3049`). A
+handler bound to a vector that reaches `__arm_wfi` (an IRQ handler) or
+a system call is the new `AX4009`. The restricted profile bounds a
+fault hook on the fault stack rather than charging it as an interrupt.
+
+Tested by `scripts/check-embedded.sh` A16 to A20 under QEMU TCG, each
+with a drill that goes red, and `scripts/check-isr.sh` §4.
+
 ### A negative literal is a pattern `fmt` prints — AN-59 - 2026-09-29
 
 `(match n (-5 1) ...)` and `((Some -5) ...)` test for minus five, and a

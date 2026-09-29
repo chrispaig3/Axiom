@@ -1,0 +1,58 @@
+; What `_start` left in the MMU's registers on `baremetal-aarch64`
+; (docs/embedded-guide.md section 6), read back with `mrs`.
+;
+; SCTLR_EL1 must have M (the MMU), A (alignment checking), C (the data
+; cache), SA (stack-pointer alignment checking), I (the instruction
+; cache) and WXN (writable implies execute-never) set; TCR_EL1 must be
+; 0x80a03520 and MAIR_EL1 0xff00. The program prints the six bits and
+; both registers and answers 0 only if all of them are as `_start`
+; wrote them.
+;
+; `scripts/check-embedded.sh` A16 boots it under QEMU. QEMU's TCG
+; accepts C and I and models no cache behind them, so the bits say the
+; caches are enabled, not that anything was cached.
+(import IO)
+
+(:: sctlr Int)
+;@axiom:effect(unsafe)
+(fn (sctlr)
+  (asm (aarch64 "mrs {r}, sctlr_el1" (out r))))
+
+(:: tcr Int)
+;@axiom:effect(unsafe)
+(fn (tcr)
+  (asm (aarch64 "mrs {r}, tcr_el1" (out r))))
+
+(:: mair Int)
+;@axiom:effect(unsafe)
+(fn (mair)
+  (asm (aarch64 "mrs {r}, mair_el1" (out r))))
+
+(:: bit (-> Int Int Int))
+(fn (bit v k)
+  (& (>> v k) 1))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (s (sctlr))
+    (t (tcr))
+    (m (mair))
+    (bm (bit s 0))
+    (ba (bit s 1))
+    (bc (bit s 2))
+    (bsa (bit s 3))
+    (bi (bit s 12))
+    (bw (bit s 19))
+  )
+    {
+      (println "mmu: M {bm} A {ba} C {bc} SA {bsa} I {bi} WXN {bw}")
+      (println "mmu: tcr {t} mair {m}")
+      (if (&& (== (+ bm (+ ba (+ bc (+ bsa (+ bi bw))))) 6) (&& (== t 2157983008) (== m 65280)))
+        {
+          (println "ok")
+          0
+        }
+        1)
+    }))

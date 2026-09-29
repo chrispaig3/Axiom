@@ -1,0 +1,37 @@
+; A store to the code region on `baremetal-aarch64`, taken on purpose.
+; `here` reads its own address with `adr`, and `main` writes back the
+; word it finds there - the same value, so the store would change
+; nothing if it were allowed.
+;
+; Code pages are mapped read-only (docs/embedded-guide.md section 6), so
+; the store is a permission fault: a data abort at the current exception
+; level (EC 0x25), a write (WnR), a level-3 permission fault (DFSC
+; 0x0F). ESR_EL1 is 0x9600004f, FAR_EL1 is the address `here` answered,
+; and the program exits 81.
+;
+; `scripts/check-embedded.sh` A18 boots it under QEMU and reads FAR
+; against the image's `__axiom_rx_end`. With code mapped writable (the
+; `codewrite` ablation) the store succeeds and `NOT REACHED` is printed;
+; with the MMU off, as before, it was printed too.
+(import IO)
+
+(:: here Int)
+;@axiom:effect(unsafe)
+(fn (here)
+  (asm (aarch64 "adr {p}, ." (out p))))
+
+(:: rewrite (-> Int Int))
+;@axiom:effect(unsafe)
+(fn (rewrite p)
+  (__vstore32 p (__vload32 p)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let ((p (here)))
+    {
+      (println "CODE WRITE PROBE")
+      (rewrite p)
+      (println "NOT REACHED")
+      0
+    }))
