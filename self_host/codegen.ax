@@ -5611,7 +5611,13 @@
                 true
                 (if (strEq nm "__proc_join")
                   true
-                  (strEq nm "__proc_join_nr"))))))))))
+                  (|| (strEq nm "__proc_join_nr") (isParBorrowName nm)))))))))))
+
+; `parallel`'s borrow scope (MM-PAR-6b): only the desugaring names
+; these, since a `$` is no identifier a program can write.
+(pub :: isParBorrowName (-> String Bool))
+(pub fn (isParBorrowName nm)
+  (|| (strEq nm "parallel$borrow") (|| (strEq nm "parallel$return") (strEq nm "parallel$lends"))))
 
 (pub :: isParSpawnName (-> String Bool))
 (pub fn (isParSpawnName nm)
@@ -6027,9 +6033,63 @@
 (pub :: emitPrimPar (-> String (Vec Int) Int Int))
 ;@axiom:effect(io)
 (pub fn (emitPrimPar fnName args cg)
-  (if (isParSpawnName fnName)
-    (emitPrimParSpawn fnName args cg)
-    (emitPrimParJoin fnName args cg)))
+  (if (isParBorrowName fnName)
+    (emitPrimParBorrow fnName args cg)
+    (if (isParSpawnName fnName)
+      (emitPrimParSpawn fnName args cg)
+      (emitPrimParJoin fnName args cg))))
+
+; `(parallel$borrow 0)` answers a fresh borrow record,
+; `(parallel$lends b {s ...})` lends it each `String` the checker put in
+; the block (`capBorrowLend`), and `(parallel$return b)` restores every
+; count lent to it, then frees it.
+(pub :: emitPrimParBorrow (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+(pub fn (emitPrimParBorrow fnName args cg)
+  (if (strEq fnName "parallel$lends")
+    (emitParLends args cg)
+    (emitPrimParBorrowOne fnName args cg)))
+
+(pub :: emitParLends (-> (Vec Int) Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (emitParLends args cg)
+  (let ((cgB (emitExpr (vecGet args 0) cg)))
+    (let (
+      (b (strDup (memGetWordStr cgB 2)))
+      (xs (nodeAVec (vecGet args 1)))
+      (mut c cgB)
+      (mut i 0)
+    )
+      {
+        (while (< i (vecLen xs))
+          {
+            (set c (emitVar (vecGet xs i) c))
+            (emitLine c (strConcat "  call void @__axiom_par_lend(i64 " (strConcat b (strConcat ", i64 " (strConcat (memGetWordStr c 2) ")")))))
+            (set i (+ i 1))
+          })
+        (memSetWord c 2 "0")
+        (memSetWord c 14 0)
+        c
+      })))
+
+(pub :: emitPrimParBorrowOne (-> String (Vec Int) Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (emitPrimParBorrowOne fnName args cg)
+  (let ((cgA (emitExpr (vecGet args 0) cg)))
+    (let (
+      (a (strDup (memGetWordStr cgA 2)))
+      (r (regStr (allocReg cgA)))
+    )
+      {
+        (if (strEq fnName "parallel$borrow")
+          (emitLine cgA (strConcat (strConcat "  " r) " = call i64 @__axiom_par_borrow()"))
+          (emitLine cgA (strConcat (strConcat "  " r) (strConcat " = call i64 @__axiom_par_return(i64 " (strConcat a ")")))))
+        (memSetWord cgA 2 r)
+        (memSetWord cgA 14 0)
+        cgA
+      })))
 
 ; `(spawn thunk word)`. The thunk is owned by the handle from here to
 ; the join, which releases it: a lambda built AT the call moves its
@@ -6115,6 +6175,261 @@
 ; a primitive (slot 5). The process half declares nothing; the thread
 ; half declares the two pthread entry points and is emitted only under
 ; `cgThreads`, so a module lowered to processes stays at zero imports.
+; ------------------------------------------------------------------
+; MM-PAR-6b: `parallel`'s borrow scope, in six functions.
+;
+; A borrow record is three words, `[entries, len, cap]`; an entry is
+; two, `(block, saved count)`. `__axiom_par_lend` takes one `String` a
+; binding borrows, before any binding's closure is built: that block
+; and every block it reaches through reference maps whose count is not
+; negative has the count saved and replaced by -1, the static sentinel
+; `axiom_retain` and `axiom_release` both leave alone (MM-LIFE-2k). So
+; nothing a binding does changes a count the parent relies on, in
+; either lowering. `__axiom_par_return` puts every count back, last lent
+; first, before the form's body runs.
+;
+; EVERY RETAIN AND RELEASE BETWEEN THE LENDS AND THE RETURN IS A NO-OP
+; on a lent block, the closures' own included: they are built after the
+; lends and released at the joins, before the return. So the saved
+; count is exactly the count to restore, with nothing to adjust.
+;
+; SOUND BECAUSE THE PARENT RUNS NOTHING BETWEEN THE LENDS AND THE
+; RETURN but closure construction, spawns and joins. That is why only
+; the desugaring of `parallel` names these, and why the checker lets
+; only its thunks capture a `String`, and only one it lent
+; (`capBorrowLend`). A trap that unwinds past the return leaves the lent
+; blocks frozen, which leaks them and nothing else.
+; ------------------------------------------------------------------
+(pub :: emitParBorrowRuntime (-> Int Int))
+(pub fn (emitParBorrowRuntime cg)
+  {
+    (emitLine cg "define internal i64 @__axiom_par_borrow() #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %r = call i64 @axiom_alloc(i64 24)")
+    (emitLine cg "  %hc = add i64 %r, -16")
+    (emitLine cg "  %hcp = inttoptr i64 %hc to ptr")
+    (emitLine cg "  store i64 1, ptr %hcp")
+    (emitLine cg "  %p0 = inttoptr i64 %r to ptr")
+    (emitLine cg "  store i64 0, ptr %p0")
+    (emitLine cg "  %a1 = add i64 %r, 8")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  store i64 0, ptr %p1")
+    (emitLine cg "  %a2 = add i64 %r, 16")
+    (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
+    (emitLine cg "  store i64 0, ptr %p2")
+    (emitLine cg "  ret i64 %r")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; One entry appended, the entry array doubled when full. The copy
+    ; is a loop: generated code calls no libc, and `llvm.memcpy` may
+    ; lower to `memcpy`.
+    (emitLine cg "define internal void @__axiom_par_push(i64 %rec, i64 %h, i64 %saved) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %p0 = inttoptr i64 %rec to ptr")
+    (emitLine cg "  %a1 = add i64 %rec, 8")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  %a2 = add i64 %rec, 16")
+    (emitLine cg "  %p2 = inttoptr i64 %a2 to ptr")
+    (emitLine cg "  %buf = load i64, ptr %p0")
+    (emitLine cg "  %len = load i64, ptr %p1")
+    (emitLine cg "  %cap = load i64, ptr %p2")
+    (emitLine cg "  %full = icmp eq i64 %len, %cap")
+    (emitLine cg "  br i1 %full, label %grow, label %put")
+    (emitLine cg "grow:")
+    (emitLine cg "  %cap2 = shl i64 %cap, 1")
+    (emitLine cg "  %none = icmp eq i64 %cap, 0")
+    (emitLine cg "  %ncap = select i1 %none, i64 8, i64 %cap2")
+    (emitLine cg "  %nbytes = mul i64 %ncap, 16")
+    (emitLine cg "  %nb = call i64 @axiom_alloc(i64 %nbytes)")
+    (emitLine cg "  %nbc = add i64 %nb, -16")
+    (emitLine cg "  %nbcp = inttoptr i64 %nbc to ptr")
+    (emitLine cg "  store i64 1, ptr %nbcp")
+    (emitLine cg "  %words = mul i64 %len, 2")
+    (emitLine cg "  br label %copy")
+    (emitLine cg "copy:")
+    (emitLine cg "  %ci = phi i64 [ 0, %grow ], [ %ci1, %copyone ]")
+    (emitLine cg "  %cdone = icmp uge i64 %ci, %words")
+    (emitLine cg "  br i1 %cdone, label %copied, label %copyone")
+    (emitLine cg "copyone:")
+    (emitLine cg "  %coff = shl i64 %ci, 3")
+    (emitLine cg "  %csrc = add i64 %buf, %coff")
+    (emitLine cg "  %csrcp = inttoptr i64 %csrc to ptr")
+    (emitLine cg "  %cw = load i64, ptr %csrcp")
+    (emitLine cg "  %cdst = add i64 %nb, %coff")
+    (emitLine cg "  %cdstp = inttoptr i64 %cdst to ptr")
+    (emitLine cg "  store i64 %cw, ptr %cdstp")
+    (emitLine cg "  %ci1 = add i64 %ci, 1")
+    (emitLine cg "  br label %copy")
+    (emitLine cg "copied:")
+    (emitLine cg "  %hadbuf = icmp ne i64 %buf, 0")
+    (emitLine cg "  br i1 %hadbuf, label %freeold, label %setnew")
+    (emitLine cg "freeold:")
+    (emitLine cg "  call void @axiom_release(i64 %buf)")
+    (emitLine cg "  br label %setnew")
+    (emitLine cg "setnew:")
+    (emitLine cg "  store i64 %nb, ptr %p0")
+    (emitLine cg "  store i64 %ncap, ptr %p2")
+    (emitLine cg "  br label %put")
+    (emitLine cg "put:")
+    (emitLine cg "  %b = load i64, ptr %p0")
+    (emitLine cg "  %eoff = mul i64 %len, 16")
+    (emitLine cg "  %e0 = add i64 %b, %eoff")
+    (emitLine cg "  %e0p = inttoptr i64 %e0 to ptr")
+    (emitLine cg "  store i64 %h, ptr %e0p")
+    (emitLine cg "  %e1 = add i64 %e0, 8")
+    (emitLine cg "  %e1p = inttoptr i64 %e1 to ptr")
+    (emitLine cg "  store i64 %saved, ptr %e1p")
+    (emitLine cg "  %len1 = add i64 %len, 1")
+    (emitLine cg "  store i64 %len1, ptr %p1")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; One block: frozen and recorded when its count is live; a static,
+    ; a block already lent and an immediate are left alone.
+    (emitLine cg "define internal void @__axiom_par_visit(i64 %rec, i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %imm = icmp slt i64 %h, 4096")
+    (emitLine cg "  br i1 %imm, label %done, label %chk")
+    (emitLine cg "chk:")
+    (emitLine cg "  %hc = add i64 %h, -16")
+    (emitLine cg "  %hcp = inttoptr i64 %hc to ptr")
+    (emitLine cg "  %c = load i64, ptr %hcp")
+    (emitLine cg "  %neg = icmp slt i64 %c, 0")
+    (emitLine cg "  br i1 %neg, label %done, label %freeze")
+    (emitLine cg "freeze:")
+    (emitLine cg "  call void @__axiom_par_push(i64 %rec, i64 %h, i64 %c)")
+    (emitLine cg "  store i64 -1, ptr %hcp")
+    (emitLine cg "  br label %done")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; Every reference word of block `b`, by its shape (MM-LIFE-2d): the
+    ; bitmap of a record, or all `n` words of an array block, whose
+    ; length sits where a record keeps its bitmap. A foreign block's
+    ; payload is not Axiom's to walk.
+    (emitLine cg "define internal void @__axiom_par_kids(i64 %rec, i64 %b) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %imm = icmp slt i64 %b, 4096")
+    (emitLine cg "  br i1 %imm, label %done, label %shape")
+    (emitLine cg "shape:")
+    (emitLine cg "  %sq = add i64 %b, -8")
+    (emitLine cg "  %sqp = inttoptr i64 %sq to ptr")
+    (emitLine cg "  %shw = load i64, ptr %sqp")
+    (emitLine cg "  %form = and i64 %shw, 1")
+    (emitLine cg "  %foreign = icmp ne i64 %form, 0")
+    (emitLine cg "  br i1 %foreign, label %done, label %kind")
+    (emitLine cg "kind:")
+    (emitLine cg "  %map = lshr i64 %shw, 16")
+    (emitLine cg "  %aform = and i64 %shw, 32768")
+    (emitLine cg "  %isarr = icmp ne i64 %aform, 0")
+    (emitLine cg "  br i1 %isarr, label %arr, label %bits")
+    (emitLine cg "arr:")
+    (emitLine cg "  %ai = phi i64 [ 0, %kind ], [ %ai1, %arrone ]")
+    (emitLine cg "  %aend = icmp uge i64 %ai, %map")
+    (emitLine cg "  br i1 %aend, label %done, label %arrone")
+    (emitLine cg "arrone:")
+    (emitLine cg "  %aoff = shl i64 %ai, 3")
+    (emitLine cg "  %aw = add i64 %b, %aoff")
+    (emitLine cg "  %awp = inttoptr i64 %aw to ptr")
+    (emitLine cg "  %av = load i64, ptr %awp")
+    (emitLine cg "  call void @__axiom_par_visit(i64 %rec, i64 %av)")
+    (emitLine cg "  %ai1 = add i64 %ai, 1")
+    (emitLine cg "  br label %arr")
+    (emitLine cg "bits:")
+    (emitLine cg "  %m = phi i64 [ %map, %kind ], [ %m1, %bitnext ]")
+    (emitLine cg "  %bi = phi i64 [ 0, %kind ], [ %bi1, %bitnext ]")
+    (emitLine cg "  %mzero = icmp eq i64 %m, 0")
+    (emitLine cg "  br i1 %mzero, label %done, label %bittest")
+    (emitLine cg "bittest:")
+    (emitLine cg "  %bit = and i64 %m, 1")
+    (emitLine cg "  %isref = icmp ne i64 %bit, 0")
+    (emitLine cg "  br i1 %isref, label %bitref, label %bitnext")
+    (emitLine cg "bitref:")
+    (emitLine cg "  %boff = shl i64 %bi, 3")
+    (emitLine cg "  %bw = add i64 %b, %boff")
+    (emitLine cg "  %bwp = inttoptr i64 %bw to ptr")
+    (emitLine cg "  %bv = load i64, ptr %bwp")
+    (emitLine cg "  call void @__axiom_par_visit(i64 %rec, i64 %bv)")
+    (emitLine cg "  br label %bitnext")
+    (emitLine cg "bitnext:")
+    (emitLine cg "  %m1 = lshr i64 %m, 1")
+    (emitLine cg "  %bi1 = add i64 %bi, 1")
+    (emitLine cg "  br label %bits")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; The block itself, then every entry this lend added, walked in
+    ; turn for what it reaches: the entry list is the work queue, so
+    ; there is no recursion and no depth limit.
+    (emitLine cg "define internal void @__axiom_par_lend(i64 %rec, i64 %h) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %a1 = add i64 %rec, 8")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  %start = load i64, ptr %p1")
+    (emitLine cg "  call void @__axiom_par_visit(i64 %rec, i64 %h)")
+    (emitLine cg "  br label %deep")
+    (emitLine cg "deep:")
+    (emitLine cg "  %i = phi i64 [ %start, %entry ], [ %i1, %deepone ]")
+    (emitLine cg "  %len = load i64, ptr %p1")
+    (emitLine cg "  %end = icmp uge i64 %i, %len")
+    (emitLine cg "  br i1 %end, label %done, label %deepone")
+    (emitLine cg "deepone:")
+    (emitLine cg "  %p0 = inttoptr i64 %rec to ptr")
+    (emitLine cg "  %buf = load i64, ptr %p0")
+    (emitLine cg "  %eoff = mul i64 %i, 16")
+    (emitLine cg "  %e0 = add i64 %buf, %eoff")
+    (emitLine cg "  %e0p = inttoptr i64 %e0 to ptr")
+    (emitLine cg "  %eh = load i64, ptr %e0p")
+    (emitLine cg "  call void @__axiom_par_kids(i64 %rec, i64 %eh)")
+    (emitLine cg "  %i1 = add i64 %i, 1")
+    (emitLine cg "  br label %deep")
+    (emitLine cg "done:")
+    (emitLine cg "  ret void")
+    (emitLine cg "}")
+    (emitLine cg "")
+    ; Last lent, first restored. Then the entry array and the record go
+    ; back.
+    (emitLine cg "define internal i64 @__axiom_par_return(i64 %rec) #0 {")
+    (emitLine cg "entry:")
+    (emitLine cg "  %p0 = inttoptr i64 %rec to ptr")
+    (emitLine cg "  %buf = load i64, ptr %p0")
+    (emitLine cg "  %a1 = add i64 %rec, 8")
+    (emitLine cg "  %p1 = inttoptr i64 %a1 to ptr")
+    (emitLine cg "  %len = load i64, ptr %p1")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "loop:")
+    (emitLine cg "  %i = phi i64 [ %len, %entry ], [ %i1, %one ]")
+    (emitLine cg "  %end = icmp eq i64 %i, 0")
+    (emitLine cg "  br i1 %end, label %free, label %one")
+    (emitLine cg "one:")
+    (emitLine cg "  %i1 = add i64 %i, -1")
+    (emitLine cg "  %eoff = mul i64 %i1, 16")
+    (emitLine cg "  %e0 = add i64 %buf, %eoff")
+    (emitLine cg "  %e0p = inttoptr i64 %e0 to ptr")
+    (emitLine cg "  %eh = load i64, ptr %e0p")
+    (emitLine cg "  %e1 = add i64 %e0, 8")
+    (emitLine cg "  %e1p = inttoptr i64 %e1 to ptr")
+    (emitLine cg "  %es = load i64, ptr %e1p")
+    (emitLine cg "  %hc = add i64 %eh, -16")
+    (emitLine cg "  %hcp = inttoptr i64 %hc to ptr")
+    (emitLine cg "  store i64 %es, ptr %hcp")
+    (emitLine cg "  br label %loop")
+    (emitLine cg "free:")
+    (emitLine cg "  %hadbuf = icmp ne i64 %buf, 0")
+    (emitLine cg "  br i1 %hadbuf, label %freebuf, label %freerec")
+    (emitLine cg "freebuf:")
+    (emitLine cg "  call void @axiom_release(i64 %buf)")
+    (emitLine cg "  br label %freerec")
+    (emitLine cg "freerec:")
+    (emitLine cg "  call void @axiom_release(i64 %rec)")
+    (emitLine cg "  ret i64 0")
+    (emitLine cg "}")
+    (emitLine cg "")
+    cg
+  })
+
 (pub :: emitParRuntime (-> Int Int))
 ;@axiom:effect(unsafe)
 (pub fn (emitParRuntime cg)
@@ -6125,6 +6440,7 @@
         (emitParTrap cg)
         (emitParCommon cg)
         (emitParProc cg)
+        (emitParBorrowRuntime cg)
         (if (cgThreads cg)
           (emitParThread cg)
           0)
@@ -6132,6 +6448,7 @@
       }
       {
         (emitParUnsupported cg)
+        (emitParBorrowRuntime cg)
         cg
       })))
 

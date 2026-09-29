@@ -72,8 +72,10 @@
 #      a reported race with the list loaded: the mutex's compare-and-
 #      swap (stdlib/Sync.ax, as scripts/check-task.sh cuts it), the
 #      channel's lock (stdlib/Chan.ax, as scripts/check-chan.sh cuts
-#      it), and `add sc`'s `atomicrmw` made a plain load and store in
-#      the emitted IR.
+#      it), `add sc`'s `atomicrmw` made a plain load and store in
+#      the emitted IR, and tests/litmus/borrow-load.ax with `parallel`'s
+#      lends deleted from its IR (MM-PAR-6b), which section 3 runs
+#      clean with them.
 #   6. AddressSanitizer, briefly. Axiom's heap is its own arena, carved
 #      from pages the runtime maps itself, so ASan cannot see a heap
 #      block's bounds or a freed block's reuse; it sees globals, and
@@ -134,9 +136,11 @@ sync="$repo_root/tests/litmus/sync-load.ax"
 chan="$repo_root/tests/litmus/chan-load.ax"
 pipe="$repo_root/examples/concurrency/pipeline.ax"
 atom="$repo_root/tests/litmus/atomics.ax"
+borrow="$repo_root/tests/litmus/borrow-load.ax"
 reliance='Sys$sysWaitWordTimeout'
 N=2000   # increments per binding in sync-load's modes
 C=500    # words per producer in chan-load
+B=2000   # rounds per binding in borrow-load
 
 # finish: the verdict. A SKIP is its own count, never a pass.
 finish() {
@@ -382,6 +386,7 @@ for lvl in 0 2; do
   build "$work/chan-O$lvl" "$chan" "$lvl"
   build "$work/pipe-O$lvl" "$pipe" "$lvl"
   build "$work/atom-O$lvl" "$atom" "$lvl"
+  build "$work/borrow-O$lvl" "$borrow" "$lvl"
 done
 if [[ -f "$work/sync-O0.prep" ]]; then
   echo "   sync-load at -O0: $(cat "$work/sync-O0.prep")"
@@ -436,6 +441,13 @@ for lvl in 0 2; do
   bin="$work/pipe-O$lvl"
   if built "$bin" "pipeline -O$lvl"; then
     clean "pipe-O$lvl" "-O$lvl examples/concurrency/pipeline.ax" "ok" "$bin"
+  fi
+  # MM-PAR-6b: four bindings borrow one `String` and retain and release
+  # it thousands of times; the lent counts are frozen, so no binding
+  # writes a word another reads.
+  bin="$work/borrow-O$lvl"
+  if built "$bin" "borrow-load -O$lvl"; then
+    clean "borrow-O$lvl" "-O$lvl borrow-load (four bindings borrowing one String)" "ok *" "$bin" "$B"
   fi
   bin="$work/atom-O$lvl"
   if built "$bin" "atomics -O$lvl"; then
@@ -579,6 +591,28 @@ PY
     fi
   else
     bad "atomic: the IR ablation did not apply"
+  fi
+fi
+
+# The borrow scope's lends removed from borrow-load's IR: the bindings
+# then retain and release the parent's string and its owner themselves,
+# a plain load and store on one count word from four threads.
+if [[ -f "$work/borrow-O0.ll" ]]; then
+  if python3 - "$work/borrow-O0.ll" "$work/abl-borrow.ll" <<'PY'
+import sys
+lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
+kept = [l for l in lines if not l.lstrip().startswith("call void @__axiom_par_lend(")]
+if len(lines) - len(kept) < 1:
+    sys.exit("no lend call in borrow-load's IR")
+open(sys.argv[2], "w", encoding="utf-8").write("\n".join(kept))
+PY
+  then
+    from_ll "$work/abl-borrow" "$work/abl-borrow.ll" 0 || true
+    if built "$work/abl-borrow" "the ablated borrow program"; then
+      red "borrow (MM-PAR-6b's lends removed)" abl-borrow axiom_retain "$work/abl-borrow" "$B"
+    fi
+  else
+    bad "borrow: the IR ablation did not apply"
   fi
 fi
 

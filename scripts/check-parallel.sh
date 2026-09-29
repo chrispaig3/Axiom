@@ -14,6 +14,9 @@
 #
 #   tests/stdlib/470-parallel.ax        seven terms, words in and out
 #   tests/stdlib/471-parallel-trap.ax   a binding that traps, status 77
+#   tests/stdlib/630-parallel-borrow.ax bindings borrowing the parent's
+#                                       strings (MM-PAR-6b), counts read
+#                                       back after the form
 #
 # THE ASSERTIONS, in the order a reader of the design would ask them:
 #
@@ -141,10 +144,11 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 fx470="$repo_root/tests/stdlib/470-parallel.ax"
 fx471="$repo_root/tests/stdlib/471-parallel-trap.ax"
-[[ -f "$fx470" && -f "$fx471" ]] || { echo "FAIL: the two fixtures are missing"; exit 1; }
+fx630="$repo_root/tests/stdlib/630-parallel-borrow.ax"
+[[ -f "$fx470" && -f "$fx471" && -f "$fx630" ]] || { echo "FAIL: the three fixtures are missing"; exit 1; }
 
 # --------------------------------------------------------------------
-echo "== 1. both fixtures, both lowerings, the same bytes =="
+echo "== 1. the fixtures, both lowerings, the same bytes =="
 # --------------------------------------------------------------------
 run_case() {  # <fixture> <flag-or-empty> <tag> -> writes $work/<tag>.out and .status
   local fx="$1" flag="$2" tag="$3"
@@ -158,8 +162,12 @@ run_case "$fx470" ""          p470 || true
 run_case "$fx470" "--threads" t470 || true
 run_case "$fx471" ""          p471 || true
 run_case "$fx471" "--threads" t471 || true
+# MM-PAR-6b: bindings borrowing the parent's strings, whose counts it
+# reads back after the form.
+run_case "$fx630" ""          p630 || true
+run_case "$fx630" "--threads" t630 || true
 
-for c in 470 471; do
+for c in 470 471 630; do
   if [[ -f "$work/p$c.status" && -f "$work/t$c.status" ]]; then
     if cmp -s "$work/p$c.out" "$work/t$c.out" && [[ "$(cat "$work/p$c.status")" == "$(cat "$work/t$c.status")" ]]; then
       ok "$c: processes and threads answer the same stdout ($(wc -l < "$work/p$c.out" | tr -d ' ') lines) and exit $(cat "$work/p$c.status")"
@@ -169,13 +177,16 @@ for c in 470 471; do
     fi
   fi
 done
-# And against the checked-in golden, so "the same" is not "the same wrong".
-if cmp -s "$work/p470.out" "$repo_root/tests/stdlib/470-parallel.out"; then
-  ok "470: and the bytes are the fixture's golden"
-else
-  bad "470: the process lowering disagrees with tests/stdlib/470-parallel.out"
-  diff "$work/p470.out" "$repo_root/tests/stdlib/470-parallel.out" | head -10 | sed 's/^/     /'
-fi
+# And against the checked-in goldens, so "the same" is not "the same wrong".
+for g in 470-parallel 630-parallel-borrow; do
+  c="${g%%-*}"
+  if cmp -s "$work/p$c.out" "$repo_root/tests/stdlib/$g.out"; then
+    ok "$c: and the bytes are the fixture's golden"
+  else
+    bad "$c: the process lowering disagrees with tests/stdlib/$g.out"
+    diff "$work/p$c.out" "$repo_root/tests/stdlib/$g.out" | head -10 | sed 's/^/     /'
+  fi
+done
 
 # --------------------------------------------------------------------
 echo

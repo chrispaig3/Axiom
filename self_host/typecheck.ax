@@ -2336,7 +2336,15 @@
   (rgnRefused : (Vec Int))
   (wordLower : (Vec Int))
   (wordStructs : Int)
-  (unsafe : UState))
+  (unsafe : UState)
+  (parLends : (Vec Int)))
+
+; Word 45, `parLends`: `parallel`'s borrow placeholders (MM-PAR-6b), two
+; words per form checked so far - the borrow record's name node, whose
+; spelling carries the form's number, and the brace block of
+; `(parallel$lends b {})`. `capBorrowLend` appends to that block each
+; `String` a thunk of the same form captures, so codegen lends exactly
+; what the bindings borrow.
 
 ; Word 43, `wordStructs`: how many word structs the program declares,
 ; counted over every declaration before any is checked
@@ -3163,6 +3171,15 @@
       (regFnEff fns "__proc_spawn" (mkTArr (mkTArr mkIntTy mkIntTy) (mkTArr mkIntTy mkSpawnTy)) (builtinEff "IO"))
       (regFnEff fns "__proc_join" (mkTArr mkSpawnTy mkIntTy) (builtinEff "IO"))
       (regFnEff fns "__proc_join_nr" (mkTArr mkSpawnTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
+      ; `parallel`'s borrow scope (MM-PAR-6b): `(parallel$borrow 0)`
+      ; answers a fresh borrow record, codegen lends it each thunk's
+      ; captures, and `(parallel$return b)` restores their counts. The
+      ; `$` keeps both out of a program's reach: only the desugaring in
+      ; `self_host/parser.ax` names them, around spawns and joins that
+      ; run nothing else.
+      (regFnEff fns "parallel$borrow" (mkTArr mkIntTy mkIntTy) (builtinEff "IO"))
+      (regFnEff fns "parallel$return" (mkTArr mkIntTy mkIntTy) (builtinEff "IO"))
+      (regFnEff fns "parallel$lends" (mkTArr mkIntTy (mkTArr mkIntTy mkIntTy)) (builtinEff "IO"))
       ; The pid a forked binding runs as, read from the page its handle
       ; names - `stdlib/Task.ax` kills a task past its deadline with it.
       ; The handle is checked first, as a join checks it (85), and a
@@ -3297,7 +3314,8 @@
           vecNew
           vecNew
           (countWordStructs allDecls 0 0)
-          (UState 0 0 vecNew vecNew)))))
+          (UState 0 0 vecNew vecNew)
+          vecNew))))
         {
           (memSetWord tc 30 (tyIdxNew (vecLen allDecls)))
           ; The builtin `Option` went into `datas` before this record
@@ -9787,8 +9805,13 @@
   ; reaches a spawn from `parallel`'s desugaring, which always emits
   ; a literal lambda, and none is in the corpus - so the refusal
   ; costs nothing measured and leaves no shape accepted unseen.
+  ;
+  ; A `parallel` BINDING'S THUNK may borrow (MM-PAR-6b): the desugaring
+  ; names its parameter `parallel$_`, which no program can spell, and
+  ; wraps its spawns in a borrow scope, so a captured `String` is read
+  ; under a frozen count. Every other spawn keeps the refusal.
   (if (== (nodeTag lam) TAG_E_LAM)
-    (capReport tc (capScanInto (nodeB lam) (capBoundOf (nodeAVec lam)) vecNew) 0 vecNew)
+    (capReportFor tc (capScanInto (nodeB lam) (capBoundOf (nodeAVec lam)) vecNew) 0 vecNew (capSpawnBorrowId lam))
     (if (!= (nodeTag lam) TAG_E_VAR)
       (capThunkCheck tc lam)
       (capThunkVar tc lam vecNew))))
@@ -10219,6 +10242,108 @@
 ; this has to agree with.
 (pub :: capReport (-> Int (Vec Int) Int (Vec Int) Int))
 (pub fn (capReport tc occ i seen)
+  (capReportFor tc occ i seen ""))
+
+; `(parallel$lends b {})`, which only `parallel`'s desugaring writes
+; (MM-PAR-6b): the borrow record is checked as any name is, the block is
+; not checked at all - it is empty now, and what `capBorrowLend` puts in
+; it later is a frame-local `String` by construction - and the pair is
+; recorded for the form's thunks to find.
+(pub :: checkParLends (-> Int Int Int))
+;@axiom:effect(unsafe)
+(pub fn (checkParLends tc e)
+  (let ((bvar (nodeB (nodeA e))))
+    {
+      (checkExprH tc bvar 0)
+      (vecPush (memGetWordVec tc 45) bvar)
+      (vecPush (memGetWordVec tc 45) (nodeB e))
+      mkIntTy
+    }))
+
+; A `parallel` binding's thunk: a lambda whose parameter the desugaring
+; named `parallel$_` and the form's number. Answers that number, or ""
+; for any other lambda, whose captures keep AX3064's refusal.
+(pub :: capSpawnBorrowId (-> Int String))
+;@axiom:effect(unsafe)
+(pub fn (capSpawnBorrowId lam)
+  (let ((ps (nodeAVec lam)))
+    (if (== (vecLen ps) 1)
+      (let ((pn (vecGetStr ps 0)))
+        (if (strStartsWith pn "parallel$_")
+          (strSlice pn 10 (- (strLen pn) 10))
+          ""))
+      "")))
+
+(pub :: capSpawnBorrows (-> Int Int))
+(pub fn (capSpawnBorrows lam)
+  (if (> (strLen (capSpawnBorrowId lam)) 0)
+    1
+    0))
+
+; The borrow block of the form numbered `id`: the most recent placeholder
+; whose record is named `parallel$b` and that number, or 0.
+(pub :: capBorrowBlock (-> Int String Int))
+;@axiom:effect(unsafe)
+(pub fn (capBorrowBlock tc id)
+  (let (
+    (v (memGetWordVec tc 45))
+    (want (strConcat "parallel$b" id))
+    (mut i (- (vecLen v) 2))
+    (mut found 0)
+  )
+    {
+      (while (&& (>= i 0) (== found 0))
+        {
+          (if (strEq (nodeAName (vecGet v i)) want)
+            (set found (vecGet v (+ i 1)))
+            0)
+          (set i (- i 2))
+        })
+      found
+    }))
+
+; Lend `name` in the form numbered `id`: append it to that form's borrow
+; block once. Answers 1 when the form's placeholder was found, and 0
+; when it was not - then the capture is refused, since nothing would
+; freeze its count.
+(pub :: capBorrowLend (-> Int String String Int Int))
+(pub fn (capBorrowLend tc id name span)
+  (let ((blk (capBorrowBlock tc id)))
+    (if (== blk 0)
+      0
+      (let ((xs (nodeAVec blk)))
+        {
+          (if (capBlockNames xs name 0)
+            0
+            {
+              (vecPush xs (mkEVarAt name span))
+              0
+            })
+          1
+        }))))
+
+(pub :: capBlockNames (-> (Vec Int) String Int Bool))
+(pub fn (capBlockNames xs name i)
+  (if (>= i (vecLen xs))
+    false
+    (if (strEq (nodeAName (vecGet xs i)) name)
+      true
+      (capBlockNames xs name (+ i 1)))))
+
+; A type a `parallel` binding may borrow: a value reachable only through
+; blocks nothing can mutate from safe code. Today that is `String`,
+; whose bytes and owner chain are immutable.
+(pub :: capTyBorrowable (-> Int Int))
+(pub fn (capTyBorrowable ty)
+  (let ((rt (tyResolve ty)))
+    (if (== rt 0)
+      0
+      (if (&& (== (nodeTag rt) TAG_T_CON) (strEq (nodeAName rt) "String"))
+        1
+        0))))
+
+(pub :: capReportFor (-> Int (Vec Int) Int (Vec Int) String Int))
+(pub fn (capReportFor tc occ i seen borrow)
   (if (>= i (vecLen occ))
     0
     (let ((v (vecGet occ i)))
@@ -10296,7 +10421,7 @@
                     ; declared so is refused like any other value the
                     ; binding has no business holding.
                     (let ((cls (evClassOf tc ty)))
-                      (if (|| (!= cls 0) (== (capTyIsVec ty) 1))
+                      (if (&& (|| (!= cls 0) (== (capTyIsVec ty) 1)) (capNotBorrowed tc borrow name ty (nodeSpan v)))
                         {
                           (vecPush seen (nodeA v))
                           (emitSpawnCapture
@@ -10316,8 +10441,18 @@
                               (nodeSpan v))
                           }
                           0)))))))))
-        (capReport tc occ (+ i 1) seen)
+        (capReportFor tc occ (+ i 1) seen borrow)
       })))
+
+; A capture a `parallel` thunk may keep: a `String` (`capTyBorrowable`)
+; lent to the thunk's own form. Answers true - refuse it - otherwise.
+(pub :: capNotBorrowed (-> Int String String Int Int Bool))
+(pub fn (capNotBorrowed tc borrow name ty span)
+  (if (== (strLen borrow) 0)
+    true
+    (if (== (capTyBorrowable ty) 0)
+      true
+      (== (capBorrowLend tc borrow name span) 0))))
 
 ; A captured type that is a `Vec`, after resolution: the one class-0
 ; name whose handle is a mutable heap buffer (`capReport`).
@@ -10354,7 +10489,7 @@
                 "` - a type this checker cannot classify, so it cannot promise the block's count is untouched"))))
           0
           0
-          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding: what the binding may share with its parent is a word. To share read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy"
+          "pass the value in through the thunk's word argument instead of capturing it, or build a copy of it inside the binding. A `parallel` binding may borrow a `String` its parent holds; anything else it shares with its parent is a word. To share other read-only input with several workers, use `stdlib/Par.ax`, whose forked children read their own copy"
           "MM-PAR-6: a binding runs BESIDE its parent, and `axiom_retain`/`axiom_release` are a plain load-add-store rather than an `atomicrmw` - two threads touching one block's count lose an increment and free a block a live reference still names. The rule is the language's and not the lowering's, so it does not depend on `--threads`; `__proc_spawn` names the isolated lowering and is exempt")
         (strConcat (strConcat "`" name) "` is bound outside this binding")))
     0
@@ -10711,8 +10846,10 @@
                     (nodeB (nodeA e))
                     (nodeB e)
                     head)
-                  (if (&& (== headIsVar 1) (&& (strEq hname "__contract") (== (spineArgs e 0) 2)))
-                    (checkContractForm tc e)
+                  (if (&& (== headIsVar 1) (&& (|| (strEq hname "__contract") (strEq hname "parallel$lends")) (== (spineArgs e 0) 2)))
+                    (if (strEq hname "parallel$lends")
+                      (checkParLends tc e)
+                      (checkContractForm tc e))
                     (if (&& (== headIsVar 1) (== (isCastLike hname) 1))
                       (checkCastForm tc e hname)
                       (if (&& (== headIsVar 1) (== (isMacroName tc hname) 1))

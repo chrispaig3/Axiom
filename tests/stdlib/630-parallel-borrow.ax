@@ -1,0 +1,64 @@
+; A `parallel` binding borrows a `String` its parent holds (MM-PAR-6b).
+;
+; Each binding reads the parent's string and keeps it in structures of
+; its own: list cells hold it, a slice shares its bytes, and a concat
+; copies it. A nested `parallel` inside a binding borrows the same
+; string again, and a slice the parent cut before the form. After the
+; form the string's count is what it was before, read through the
+; unsafe layer, so no binding's retain or release reached it. The
+; answers are the same in both lowerings; `scripts/check-parallel.sh`
+; builds this file with and without `--threads`.
+(import IO)
+(import Str)
+
+(data L (Nil) (Cons String L))
+
+; The count word below a block, read through the unsafe layer.
+(:: countOf (-> String Int))
+;@axiom:effect(unsafe)
+(fn (countOf s)
+  (__load64 (- (cast Int s) 16) 0))
+
+(:: lenAll (-> L Int))
+(fn (lenAll l)
+  (match l
+    ((Nil) 0)
+    ((Cons h t) (+ (strLen h) (lenAll t)))))
+
+(:: work (-> String Int Int))
+(fn (work s k)
+  (let ((l (Cons s (Cons (strSlice s 1 3) (Cons (strConcat s s) (Nil))))))
+    (+ k (lenAll l))))
+
+; A binding that runs a `parallel` of its own over the borrowed string.
+(:: nested (-> String Int))
+;@axiom:effect(io)
+(fn (nested s)
+  (parallel q ((x (work s 10))
+               (y (strLen s)))
+    (+ x y)))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (let (
+    (s (strConcat "hello, " "world"))
+    (head (strSlice (strConcat "parallel " "borrow") 0 8))
+  )
+    (let (
+      (before (countOf s))
+      (hbefore (countOf head))
+    )
+      (parallel p ((a (work s 1))
+                   (b (work head 2))
+                   (c (nested s))
+                   (d (strLen (strConcat head s))))
+        {
+          (println "{a} {b} {c} {d}")
+          (let (
+            (after (countOf s))
+            (hafter (countOf head))
+          )
+            (println "counts {before} {after} {hbefore} {hafter}"))
+          0
+        }))))
