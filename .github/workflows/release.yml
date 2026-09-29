@@ -290,6 +290,30 @@ jobs:
           fi
           echo "release notes: $(wc -c < "$notes") characters, $(wc -l < "$notes") lines"
 
+          # A SECTION TOO LONG FOR ONE RELEASE BODY publishes its
+          # highlights. 0.7.6's section, with everything since 0.7.5
+          # folded in, measured about 173,000 bytes against the same
+          # 125,000-character ceiling. Such a section opens with a
+          # highlights block that ends at the line
+          # `<!-- release-notes: end of highlights -->`, and the body
+          # is that block plus a link to the whole section at the tag.
+          # A long section with no marker stops the release instead of
+          # being cut at an arbitrary line.
+          if (( $(wc -c < "$notes") > 120000 )); then
+            short="$(mktemp)"
+            if ! awk '/^<!-- release-notes: end of highlights -->$/ { found = 1; exit }
+                      { print }
+                      END { exit !found }' "$notes" > "$short"; then
+              echo "FAIL: the '## $v' section is over 120,000 characters and has no" >&2
+              echo "      '<!-- release-notes: end of highlights -->' line to end its highlights." >&2
+              exit 1
+            fi
+            printf '\nThe full notes for %s are in [CHANGELOG.md](%s/%s/blob/%s/CHANGELOG.md).\n' \
+              "$v" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> "$short"
+            notes="$short"
+            echo "release notes: the highlights, $(wc -c < "$notes") characters, and a link to the rest"
+          fi
+
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "Axiom $v" \
             --notes-file "$notes" \

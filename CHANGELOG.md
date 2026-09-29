@@ -2906,7 +2906,7 @@ enough outside it that the assertion still catches a real mismatch, an
 assertion that always passes being worse than none - and
 `tests/agent/stdlib-effects.allow` and the generated
 `docs/stdlib-api.md` both carry the new name. Contributed by
-@JessicaTemplet.
+@JessicaTemplet in PR #33.
 
 ### A test may be marked expected to fail — `scripts/check-test-runner.sh`
 
@@ -2931,7 +2931,7 @@ control, a tagged assertion failure, a tagged division by zero, a
 tagged assertion that unexpectedly holds, and the tag read off a `::`
 signature - one real failure among the five, and the golden pins the
 exact `xfail`/`FAIL` line for each. Setup/teardown and running tests
-in parallel are still not here. Contributed by @JessicaTemplet.
+in parallel are still not here. Contributed by @JessicaTemplet in PR #33.
 
 ### A repeating pattern binds each binder to a sequence — `tests/selfhost/397-nested-repeat.ax`
 
