@@ -486,6 +486,7 @@
 ; Name a fresh ring in the handle table, or unmap it and say why not.
 (:: chanNamed (-> Int Int (Result Chan Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (chanNamed ch len)
   (let ((h (chanName ch)))
     (if (== h 0)
@@ -851,6 +852,7 @@
 ; It takes no lock, so a poisoned channel is freed like any other.
 (pub :: chanFree (-> Chan (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (chanFree c)
   (let ((ch (chanRetire c)))
     (sysUnmapShared ch (chanGet ch 7))))

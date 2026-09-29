@@ -7,6 +7,7 @@
 
 (:: syscaller (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (syscaller n)
   (__syscall3 1 n 0 0))
 

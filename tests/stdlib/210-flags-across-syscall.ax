@@ -7,18 +7,26 @@
 ; template; the IR-level assertion lives in check-cross-targets.sh,
 ; and THIS case pins the runtime behavior - on a regressed compiler
 ; it does not fail, it hangs, which is loud enough.
+;
+; The write is `sysWriteFd`, one `write(2)` of zero bytes, and not
+; `sysWriteAllFd`: that loop answers a zero-byte request without asking
+; the kernel at all, so a countdown over it crossed no syscall. `main`
+; hands the kernel a word it made, address 0 for no bytes, so it says
+; `effect(unsafe)`.
 (import IO)
 (import Sys)
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((mut n 1000))
     {
       (while (> n 0)
         {
           ; write of zero bytes: a real syscall with no output.
-          (sysWriteAllFd 1 0 0 0)
+          (let ((_ (sysWriteFd 1 0 0)))
+            0)
           (set n (- n 1))
         })
       (println n)

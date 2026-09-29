@@ -163,6 +163,8 @@
 ; and what let it go.
 (pub :: sysWriteFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live bytes)
 (pub fn (sysWriteFd fd buf count)
   (if (== usesSyscallAbi 1)
     (sysResult "sysWriteFd" (__syscall3 sysWrite fd buf count))
@@ -207,6 +209,8 @@
 ; only when a write fails.
 (pub :: sysWriteAllFd (-> Int Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live bytes)
 (pub fn (sysWriteAllFd fd buf count done)
   (if (>= done count)
     done
@@ -226,6 +230,8 @@
 ; pays for no block on the bytes-arrived path.
 (pub :: sysReadFd (-> Int Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `count` live writable bytes)
 (pub fn (sysReadFd fd buf count)
   (if (== usesSyscallAbi 1)
     (sysResult "sysReadFd" (__syscall3 sysRead fd buf count))
@@ -239,6 +245,8 @@
 ; things about. As an `Int` they were all "negative".
 (pub :: sysOpenPath (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysOpenPath path flags)
   (sysResult "sysOpenPath" (sysOpenRaw path flags)))
 
@@ -254,11 +262,15 @@
 ; is the shared implementation under it.
 (:: sysOpenRaw (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (fn (sysOpenRaw path flags)
   (sysOpenPathMode path flags 420))
 
 (:: sysOpenPathMode (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (fn (sysOpenPathMode path flags mode)
   (if (== openNeedsDirFd 1)
     (__syscall4
@@ -283,16 +295,19 @@
 ; function in the library that closes a descriptor already allocated.
 (pub :: sysCloseFd (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sysCloseFd fd)
   (sysResult "sysCloseFd" (__syscall1 sysClose fd)))
 
 (:: sysSeek (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (sysSeek fd offset whence)
   (__syscall3 sysLseek fd offset whence))
 
 (pub :: sysExitWith (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sysExitWith code)
   {
     (if (== usesSyscallAbi 1)
@@ -334,6 +349,8 @@
 ; as missing.
 (pub :: sysReadFile (-> Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysReadFile path)
   (let ((fd (sysOpenRaw path oRdonly)))
     (if (sysFailed fd)
@@ -453,6 +470,8 @@
 ; string on disk under a name.
 (pub :: sysWriteFile (-> Int String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysWriteFile path s)
   (sysResult
     "sysWriteFile"
@@ -481,6 +500,8 @@
 ; by hand does not have that property.
 (pub :: sysAppendFile (-> Int String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysAppendFile path s)
   (sysResult
     "sysAppendFile"
@@ -514,6 +535,8 @@
 ; growing a second one.
 (pub :: sysRename (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`old` and `new` each name live NUL-terminated bytes)
 (pub fn (sysRename old new)
   (sysResult
     "sysRename"
@@ -533,6 +556,8 @@
 ; `openNeedsDirFd` capability rather than growing a second one.
 (pub :: sysUnlink (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysUnlink path)
   (sysResult
     "sysUnlink"
@@ -549,6 +574,8 @@
 ; growing a second one. `path` must be NUL-terminated - `strCStr`.
 (pub :: sysMkdir (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysMkdir path mode)
   (sysResult
     "sysMkdir"
@@ -569,6 +596,8 @@
 ; than refuse with EISDIR.
 (pub :: sysRmdir (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysRmdir path)
   (sysResult
     "sysRmdir"
@@ -586,6 +615,8 @@
 ; walk out of; before it, no Axiom program could make a symlink at all.
 (pub :: sysSymlink (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`target` and `link` each name live NUL-terminated bytes)
 (pub fn (sysSymlink target link)
   (sysResult
     "sysSymlink"
@@ -628,6 +659,8 @@
 ; `tests/stdlib/432-http-router.ax` plants the links it must refuse.
 (pub :: sysOpenBeneath (-> Int String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`root` names live NUL-terminated bytes)
 (pub fn (sysOpenBeneath root rel)
   (let ((dirfd (sysOpenRaw root (| oRdonly oDirectory))))
     (sysResult
@@ -648,6 +681,7 @@
 ; which this closes. Answers the last segment's descriptor, or -errno.
 (:: sysBeneathFrom (-> Int String Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (sysBeneathFrom dirfd rel at)
   (let (
     (stop (match (strFindByte rel 47 at)
@@ -696,6 +730,8 @@
 ; integer.
 (pub :: sysFileExists (-> Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysFileExists path)
   (let ((fd (sysOpenRaw path oRdonly)))
     (if (< fd 0)
@@ -717,6 +753,8 @@
 ; one alone was never going to answer both.
 (pub :: sysFileSize (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysFileSize path)
   (sysResult
     "sysFileSize"
@@ -746,6 +784,8 @@
 ; for a question every program reading a path has.
 (pub :: sysReadErrno (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysReadErrno path)
   (let ((fd (sysOpenRaw path oRdonly)))
     (if (sysFailed fd)
@@ -772,6 +812,8 @@
 ; wrongly for.
 (pub :: sysIsDir (-> Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`path` names live NUL-terminated bytes)
 (pub fn (sysIsDir path)
   (== (sysReadErrno path) eIsDir))
 
@@ -858,6 +900,8 @@
 ; rule for a short read.
 (:: sysReadDirLoop (-> Int Int Int (Vec String) Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `sysDirBufBytes` live writable bytes and `pos` 8)
 (fn (sysReadDirLoop fd buf pos out)
   (let ((n 
     (if (== dirReadNeedsPosition 1)
@@ -901,6 +945,7 @@
 ; returns is refused by it.
 (:: sysReadDirDecode (-> Int Int Int (Vec String) Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names at least `n` live bytes)
 (fn (sysReadDirDecode buf off n out)
   ; 18 is the last byte of `d_reclen` on both layouts; without room for
   ; it there is no length to read.
@@ -1452,6 +1497,7 @@
 ; syscall takes no arguments; the unused ones are simply zero.
 (pub :: sysGetPid Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sysGetPid)
   (__syscall3 sysGetPidNum 0 0 0))
 
@@ -1601,6 +1647,7 @@
 ; a reason that has nothing to do with what went wrong.
 (pub :: netSocketTcp (Result Int Error))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (netSocketTcp)
   (sysResult "netSocketTcp" (__syscall3 sysSocketNum afInet sockStream 0)))
 
@@ -1618,6 +1665,7 @@
 ; three targets and is what holds the number to its platform.
 (pub :: netSocketTcp6 (Result Int Error))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (netSocketTcp6)
   (sysResult "netSocketTcp6" (__syscall3 sysSocketNum afInet6 sockStream 0)))
 
@@ -1825,6 +1873,7 @@
 ; Answers `(Result Int Error)`; `Ok 0` on success.
 (pub :: netListen (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (netListen fd backlog)
   (sysResult "netListen" (__syscall3 sysListenNum fd backlog 0)))
 
@@ -1861,6 +1910,7 @@
 ; defined answer on both.
 (pub :: netAccept (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (netAccept fd)
   (sysResult "netAccept" (netAcceptFinish (__syscall4
     sysAcceptNum
@@ -2171,6 +2221,7 @@
 ; nothing.
 (pub :: netSetBlocking (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (netSetBlocking fd)
   (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
     (sysResult
@@ -2198,6 +2249,7 @@
 ; Answers `(Result Int Error)`; `Ok 0` on success.
 (pub :: netShutdown (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (netShutdown fd how)
   (sysResult "netShutdown" (__syscall3 sysShutdownNum fd how 0)))
 
@@ -2242,6 +2294,7 @@
 ; skin over it, rather than the other way round.
 (:: netSetNonBlockingRaw (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (netSetNonBlockingRaw fd)
   (let ((fl (__syscall3 sysFcntlNum fd fGetFl 0)))
     (if (< fl 0)
@@ -2323,6 +2376,7 @@
 ; A readiness descriptor, as `(Result Int Error)`.
 (pub :: netPollCreate (Result Int Error))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (netPollCreate)
   (sysResult "netPollCreate" (__syscall3 sysPollCreateNum 0 0 0)))
 
@@ -2504,6 +2558,8 @@
 ; length does not have to special-case an empty one.
 (pub :: sysRandomBytes (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `n` live writable bytes)
 (pub fn (sysRandomBytes buf n)
   (sysResult
     "sysRandomBytes"
@@ -2722,6 +2778,7 @@
 ; already gone" and "the signal was delivered" were both an Int.
 (pub :: sysKill (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sysKill pid signo)
   (sysResult "sysKill" (__syscall3 sysKillNum pid signo 0)))
 
@@ -2752,6 +2809,7 @@
 ; and can never corrupt a sibling's.
 (pub :: sysForkProcess Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sysForkProcess)
   (let ((r (__syscall5
     sysFork
@@ -2812,6 +2870,8 @@
 ; `Sys.Platform`.
 (:: sysIoctl (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`arg` names the live extent `req` reads or writes)
 (fn (sysIoctl fd req arg)
   (__syscall3 sysIoctlNum fd req arg))
 
@@ -2878,6 +2938,7 @@
 ; which.
 (pub :: sysIsatty (-> Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sysIsatty fd)
   (if (== ttyUsesTermios 0)
     false
@@ -2892,6 +2953,8 @@
 ; original first.
 (pub :: sysTermSave (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`save` names `sysTermStateBytes` live writable bytes)
 (pub fn (sysTermSave fd save)
   (if (== ttyUsesTermios 0)
     termUnsupported
@@ -2909,6 +2972,8 @@
 ; leaving, a half-typed line is not handed to the shell.
 (pub :: sysTermRestore (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`state` names `sysTermStateBytes` live bytes a save filled)
 (pub fn (sysTermRestore fd state)
   (if (== ttyUsesTermios 0)
     termUnsupported
@@ -3041,6 +3106,8 @@
 ; Treat 0 as "unknown" and fall back to 80x24.
 (pub :: sysTermSize (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `sysTermSizeBytes` live writable bytes)
 (pub fn (sysTermSize fd buf)
   (if (== ttyUsesTermios 0)
     termUnsupported
@@ -3220,6 +3287,7 @@
 ; single join is (MM-PAR-8).
 (pub :: sysMapShared (-> Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (sysMapShared len)
   (sysResult "sysMapShared" (__syscall6
     sysMmapNum
@@ -3232,6 +3300,8 @@
 
 (pub :: sysUnmapShared (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` and `len` name a whole mapping `sysMapShared` answered, and nothing reads or writes it afterwards)
 (pub fn (sysUnmapShared addr len)
   (sysResult "sysUnmapShared" (__syscall3 sysMunmapNum addr len 0)))
 
@@ -3261,6 +3331,8 @@
 ; passed on - the census reads a body with a branch of its own that way.
 (pub :: sysWaitWord (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (pub fn (sysWaitWord addr expected)
   (if (== waitWordKind 0)
     0
@@ -3271,6 +3343,8 @@
 
 (:: sysWaitWordRaw (-> Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (fn (sysWaitWordRaw addr expected)
   (if (== waitWordKind 1)
     (__syscall6
@@ -3306,6 +3380,7 @@
 
 (:: sysWakeWordRaw (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (sysWakeWordRaw addr)
   (if (== waitWordKind 1)
     (__syscall6
@@ -3453,6 +3528,8 @@
 ; kernel's raw answer.
 (:: sysUlockWait (-> Int Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`addr` names a live, 8-byte aligned word)
 (fn (sysUlockWait addr expected us)
   (__syscall4
     sysWaitWordNum

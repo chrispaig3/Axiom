@@ -806,3 +806,53 @@
 0.7.7  F  mutexTryLock      (-> Mutex (Option Int)) -> (-> Mutex (Option MutexGuard)): the guard is sealed (MM-PAR-11)
 0.7.7  F  mutexLockTimeout  (-> Mutex Int (Result Int Error)) -> (-> Mutex Int (Result MutexGuard Error)): the guard is sealed (MM-PAR-11)
 0.7.7  F  mutexUnlock       (-> Mutex Int (Result Int Error)) -> (-> Mutex MutexGuard (Result Int Error)): the guard is sealed (MM-PAR-11)
+
+# 0.7.7 - R-B10's third step, MM-EXEC-9c and MM-EXEC-9e (AN-58): the
+# seven `__syscallN` primitives are `Unsafe`, because the kernel reads
+# and writes through their arguments. Every `Sys` call that hands the
+# kernel a caller's address to read or write is a precondition
+# interface now, so an untagged call to one is AX3073 and a
+# `restrict(no-unsafe)` caller is AX3049. `IO` has the typed form of
+# each: a `String` path, a `String` buffer and range, a fresh string of
+# entropy, a sealed terminal state. These rows widen to `Unsafe`, and
+# their callers must say `effect(unsafe)` or move to `IO`.
+0.7.7  F  sysReadFd       row -> Unsafe, precondition: `buf` names `count` live writable bytes; use IO.readInto (MM-EXEC-9e)
+0.7.7  F  sysWriteFd      row -> Unsafe, precondition: `buf` names `count` live bytes; use IO.writeSlice (MM-EXEC-9e)
+0.7.7  F  sysWriteAllFd   row -> Unsafe, precondition: `buf` names `count` live bytes; use IO.writeStr (MM-EXEC-9e)
+0.7.7  F  sysOpenPath     row -> Unsafe, precondition: `path` names live NUL-terminated bytes; use IO.openPath (MM-EXEC-9e)
+0.7.7  F  sysRename       row -> Unsafe, precondition on both paths; use IO.renamePath (MM-EXEC-9e)
+0.7.7  F  sysUnlink       row -> Unsafe, precondition on the path; use IO.removeFile (MM-EXEC-9e)
+0.7.7  F  sysMkdir        row -> Unsafe, precondition on the path; use IO.makeDir or IO.makeDirMode (MM-EXEC-9e)
+0.7.7  F  sysRmdir        row -> Unsafe, precondition on the path; use IO.removeDir (MM-EXEC-9e)
+0.7.7  F  sysFileExists   row -> Unsafe, precondition on the path; use IO.fileExists (MM-EXEC-9e)
+0.7.7  F  sysFileSize     row -> Unsafe, precondition on the path; use IO.fileSize (MM-EXEC-9e)
+0.7.7  F  sysRandomBytes  row -> Unsafe, precondition: `buf` names `n` live writable bytes; use IO.randomBytes (MM-EXEC-9e)
+0.7.7  F  sysTermSave     row -> Unsafe, precondition on the state buffer; use IO.termSave (MM-EXEC-9e)
+0.7.7  F  sysTermRestore  row -> Unsafe, precondition on the state buffer; use IO.termRestore (MM-EXEC-9e)
+0.7.7  F  sysTermSize     row -> Unsafe, precondition on the size buffer; use IO.termSize (MM-EXEC-9e)
+# These rows already carried `Unsafe` at 0.7.6, through a callee, so the
+# surface diff does not show them; each is a precondition interface
+# now, and an untagged call is AX3073 where it was accepted.
+0.7.7  F  sysReadFile     precondition: `path` names live NUL-terminated bytes; use IO.readFile (MM-EXEC-9e)
+0.7.7  F  sysWriteFile    precondition: `path` names live NUL-terminated bytes; use IO.writeFile (MM-EXEC-9e)
+0.7.7  F  sysAppendFile   precondition: `path` names live NUL-terminated bytes; use IO.appendFile (MM-EXEC-9e)
+0.7.7  F  sysIsDir        precondition: `path` names live NUL-terminated bytes; use IO.isDir (MM-EXEC-9e)
+0.7.7  F  sysReadErrno    precondition: `path` names live NUL-terminated bytes; use IO.readErrno (MM-EXEC-9e)
+0.7.7  F  readFileLit     precondition: `cstr` names live NUL-terminated bytes; use readFile (MM-EXEC-9e)
+0.7.7  F  httpRespondRaw  precondition: `addr` names `len` live bytes; use httpRespond (MM-EXEC-9e)
+# Trusted encapsulations that make a syscall themselves: each row
+# carries the `Unsafe` of the syscall it makes, and, a trusted row
+# being where `Unsafe` stops, no caller's row or tag changes.
+0.7.7  F  sysCloseFd      row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  sysExitWith     row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  sysGetPid       row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  sysKill         row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  sysForkProcess  row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  netSocketTcp    row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  netSocketTcp6   row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  netListen       row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  netAccept       row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  netShutdown     row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  netSetBlocking  row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  netPollCreate   row -> Unsafe: it makes a syscall itself; callers inherit nothing (MM-EXEC-9c)
+0.7.7  F  termRawLeave    row -> Unsafe: it restores from `KeyIn`'s own buffer; callers inherit nothing (MM-EXEC-9e)

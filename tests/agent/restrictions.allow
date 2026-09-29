@@ -57,6 +57,7 @@ bareOfFrom self_host/core.ax no-io,no-foreign ok
 bothWays tests/diagnostics/391-restrict-effect-transparent.ax no-io violated
 bridges tests/diagnostics/374-restrict-no-foreign.ax no-foreign violated
 builds tests/diagnostics/372-restrict-no-alloc.ax no-alloc violated
+caller tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe ok
 calls tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 casts tests/diagnostics/375-restrict-unverifiable.ax no-cast violated
 catStrs self_host/diag.ax no-io,no-foreign ok
@@ -130,6 +131,7 @@ fabricates tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 fenced tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
 fenced tests/diagnostics/1020-unsafe-device-primitives.ax no-unsafe ok
 fhalf tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
+fillsAt tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 findNewline self_host/lexer.ax no-io,no-alloc,no-foreign ok
 floats tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap ok
 floats tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped ok
@@ -156,6 +158,9 @@ fmtSpan self_host/diag.ax no-io,no-foreign ok
 fmtSpanIx self_host/diag.ax no-io,no-foreign ok
 fmtSpanParts self_host/diag.ax no-io,no-foreign ok
 forges tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe violated
+h0 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+h1 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+h2 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 half tests/selfhost/466-restrict-no-untrapped-runs.ax no-untrapped ok
 handRolled tests/diagnostics/394-restrict-no-wrap-exempt.ax no-wrap violated
 handoff tests/diagnostics/375-restrict-unverifiable.ax no-io unverifiable
@@ -378,6 +383,7 @@ native tests/diagnostics/374-restrict-no-foreign.ax no-foreign ok
 nested tests/diagnostics/373-restrict-no-cast.ax no-cast violated
 nested tests/diagnostics/383-restrict-no-wrap.ax no-wrap violated
 nested tests/diagnostics/396-restrict-no-untrapped.ax no-untrapped violated
+noUnsafe tests/diagnostics/1081-sys-buffer-calls.ax no-unsafe violated
 none tests/diagnostics/384-restrict-no-alloc-ctor.ax no-alloc ok
 orderDiags self_host/diag.ax no-io,no-foreign ok
 ownForm tests/diagnostics/377-restrict-witness-path.ax no-alloc violated
@@ -425,6 +431,13 @@ restrictedTwice tests/fmt/syntax-zoo.ax no-io,no-cast ok
 restrictedTwice tests/fmt/syntax-zoo.expected.ax no-io,no-cast ok
 retains tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
 rewinds tests/diagnostics/1010-unsafe-primitives.ax no-unsafe violated
+s0 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+s1 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+s2 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+s3 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+s4 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+s5 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
+s6 tests/diagnostics/1080-unsafe-syscalls.ax no-unsafe violated
 safely tests/diagnostics/1042-no-unsafe-indirect.ax no-unsafe ok
 scaled tests/selfhost/465-restrict-no-wrap-runs.ax no-wrap ok
 scanAxtags self_host/lexer.ax no-io,no-foreign ok
@@ -509,6 +522,7 @@ tuiCat stdlib/Tui/Edit.ax no-io,no-foreign ok
 tuiVisLen stdlib/Tui/Edit.ax no-io,no-alloc,no-foreign ok
 twice tests/diagnostics/376-restrict-unknown-name.ax no-io,no-io ok
 typed tests/diagnostics/1010-unsafe-primitives.ax no-unsafe ok
+typed tests/diagnostics/1081-sys-buffer-calls.ax no-unsafe ok
 unescByte self_host/core.ax no-io,no-alloc,no-foreign ok
 unitIndexes self_host/diag.ax no-io,no-foreign ok
 utf8CharAt stdlib/Utf8.ax no-io,no-alloc,no-foreign ok

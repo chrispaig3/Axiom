@@ -1,0 +1,138 @@
+; The seven syscall primitives are `Unsafe` (docs/memory-model.md
+; MM-EXEC-9c): the kernel reads and writes this process's memory
+; through their arguments, so a `read` handed a word writes wherever
+; the word points. Each of them passed `restrict(no-unsafe)` until
+; R-B10's third step, and `pure` refused a syscall only for its IO.
+;
+; One declaration per primitive under `restrict(no-unsafe)`: each is
+; refused as AX3049 at its name, and draws AX3073 beside it because it
+; does not say `effect(unsafe)`. `fillsAt` is the call AN-58 named, the
+; kernel told to write 64 random bytes at address 4096.
+;
+; The handle table's three primitives are in the same set (MM-PAR-8):
+; each takes or answers an address its caller will dereference. They
+; were refused already, and `h0` to `h2` pin them beside the syscalls,
+; so the set's list in the memory model has a row for every name.
+;
+; `quiet` claims `pure` over a syscall and draws AX3010 naming `Unsafe`
+; beside `IO`. `ioOnly` claims `effect(io)` and not `effect(unsafe)`,
+; which is AX3073 on its own. The controls stay silent: `declared`
+; says `effect(unsafe)` with its precondition, `wrapped` makes that
+; precondition true from a `String` it holds, and `caller` claims
+; `restrict(no-unsafe)` over the trusted `wrapped`.
+(import Sys)
+(import Str)
+
+;@axiom:restrict(no-unsafe)
+(:: s0 (-> Int Int))
+;@axiom:effect(io)
+(fn (s0 n)
+  (__syscall0 n))
+
+;@axiom:restrict(no-unsafe)
+(:: s1 (-> Int Int))
+;@axiom:effect(io)
+(fn (s1 n)
+  (__syscall1 n 0))
+
+;@axiom:restrict(no-unsafe)
+(:: s2 (-> Int Int))
+;@axiom:effect(io)
+(fn (s2 n)
+  (__syscall2 n 0 0))
+
+;@axiom:restrict(no-unsafe)
+(:: s3 (-> Int Int))
+;@axiom:effect(io)
+(fn (s3 n)
+  (__syscall3 n 0 0 0))
+
+;@axiom:restrict(no-unsafe)
+(:: s4 (-> Int Int))
+;@axiom:effect(io)
+(fn (s4 n)
+  (__syscall4
+    n
+    0
+    0
+    0
+    0))
+
+;@axiom:restrict(no-unsafe)
+(:: s5 (-> Int Int))
+;@axiom:effect(io)
+(fn (s5 n)
+  (__syscall5
+    n
+    0
+    0
+    0
+    0
+    0))
+
+;@axiom:restrict(no-unsafe)
+(:: s6 (-> Int Int))
+;@axiom:effect(io)
+(fn (s6 n)
+  (__syscall6
+    n
+    0
+    0
+    0
+    0
+    0
+    0))
+
+;@axiom:restrict(no-unsafe)
+(:: fillsAt Int)
+;@axiom:effect(io)
+(fn (fillsAt)
+  (__syscall3 sysRandomNum 4096 64 0))
+
+;@axiom:restrict(no-unsafe)
+(:: h0 (-> Int Int))
+(fn (h0 w)
+  (__handle_new 1 w))
+
+;@axiom:restrict(no-unsafe)
+(:: h1 (-> Int Int))
+(fn (h1 w)
+  (__handle_get 1 w))
+
+;@axiom:restrict(no-unsafe)
+(:: h2 (-> Int Int))
+(fn (h2 w)
+  (__handle_free 1 w))
+
+(:: quiet (-> Int Int))
+;@axiom:effect(pure)
+(fn (quiet n)
+  (__syscall1 n 0))
+
+(:: ioOnly (-> Int Int))
+;@axiom:effect(io)
+(fn (ioOnly fd)
+  (__syscall3 sysWrite fd 0 0))
+
+(:: declared (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`buf` names `n` live bytes)
+(fn (declared buf n)
+  (__syscall3 sysWrite 1 buf n))
+
+(:: wrapped (-> String Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (wrapped s)
+  (declared (strData s) (strLen s)))
+
+;@axiom:restrict(no-unsafe)
+(:: caller Int)
+;@axiom:effect(io)
+(fn (caller)
+  (wrapped "hi\n"))
+
+(:: main Int)
+(fn (main)
+  0)

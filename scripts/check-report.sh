@@ -184,7 +184,7 @@ tick .......... isr
 main AI....S.TB
 peek AIU.....TB
 Mem$memAlloc A.U.....T.
-Sys$sysWriteFd AI.....KTB
+Sys$sysWriteFd AIU....KTB
 roots main,tick
 ROWS
 fi

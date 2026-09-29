@@ -1,6 +1,7 @@
 (:: w Int)
 ;@axiom:restrct(no-io)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (w)
   {
     (__syscall3 1 1 0 0)

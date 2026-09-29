@@ -1,0 +1,332 @@
+[1;31merror[AX3073][0m[1m: `readsAt` calls `sysReadFd`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:27:4
+[1;34m   |[0m
+[1;34m27 |[0m   (sysReadFd 0 buf 64))
+[1;34m   |[0m    [1;31m^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysReadFd` requires: `buf` names `count` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `writesFrom` calls `sysWriteFd`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:32:4
+[1;34m   |[0m
+[1;34m32 |[0m   (sysWriteFd 1 buf 64))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysWriteFd` requires: `buf` names `count` live bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `writesAllFrom` calls `sysWriteAllFd`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:37:4
+[1;34m   |[0m
+[1;34m37 |[0m   (sysWriteAllFd 1 buf 64 0))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysWriteAllFd` requires: `buf` names `count` live bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `opensAt` calls `sysOpenPath`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:42:4
+[1;34m   |[0m
+[1;34m42 |[0m   (sysOpenPath path oRdonly))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysOpenPath` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `readsFileAt` calls `sysReadFile`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:47:4
+[1;34m   |[0m
+[1;34m47 |[0m   (sysReadFile path))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysReadFile` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `writesFileAt` calls `sysWriteFile`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:52:4
+[1;34m   |[0m
+[1;34m52 |[0m   (sysWriteFile path "x"))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysWriteFile` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `appendsAt` calls `sysAppendFile`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:57:4
+[1;34m   |[0m
+[1;34m57 |[0m   (sysAppendFile path "x"))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysAppendFile` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `renamesAt` calls `sysRename`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:62:4
+[1;34m   |[0m
+[1;34m62 |[0m   (sysRename old new))
+[1;34m   |[0m    [1;31m^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysRename` requires: `old` and `new` each name live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `unlinksAt` calls `sysUnlink`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:67:4
+[1;34m   |[0m
+[1;34m67 |[0m   (sysUnlink path))
+[1;34m   |[0m    [1;31m^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysUnlink` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `mkdirsAt` calls `sysMkdir`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:72:4
+[1;34m   |[0m
+[1;34m72 |[0m   (sysMkdir path sysDirMode))
+[1;34m   |[0m    [1;31m^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysMkdir` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `rmdirsAt` calls `sysRmdir`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:77:4
+[1;34m   |[0m
+[1;34m77 |[0m   (sysRmdir path))
+[1;34m   |[0m    [1;31m^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysRmdir` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `linksAt` calls `sysSymlink`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:82:4
+[1;34m   |[0m
+[1;34m82 |[0m   (sysSymlink target link))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysSymlink` requires: `target` and `link` each name live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `opensBeneathAt` calls `sysOpenBeneath`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:87:4
+[1;34m   |[0m
+[1;34m87 |[0m   (sysOpenBeneath root "x"))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysOpenBeneath` requires: `root` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `existsAt` calls `sysFileExists`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:92:4
+[1;34m   |[0m
+[1;34m92 |[0m   (sysFileExists path))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysFileExists` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `sizesAt` calls `sysFileSize`, whose safety depends on its caller, and its declaration does not say so[0m
+  [1;34m--> [0m1081-sys-buffer-calls.ax:97:4
+[1;34m   |[0m
+[1;34m97 |[0m   (sysFileSize path))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0m`sysFileSize` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+  [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+           [1;35m;@axiom:effect(unsafe)[0m
+  [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `errnoAt` calls `sysReadErrno`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:102:4
+[1;34m    |[0m
+[1;34m102 |[0m   (sysReadErrno path))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysReadErrno` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `dirAt` calls `sysIsDir`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:107:4
+[1;34m    |[0m
+[1;34m107 |[0m   (sysIsDir path))
+[1;34m    |[0m    [1;31m^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysIsDir` requires: `path` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `fillsAt` calls `sysRandomBytes`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:112:4
+[1;34m    |[0m
+[1;34m112 |[0m   (sysRandomBytes buf 64))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysRandomBytes` requires: `buf` names `n` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `savesAt` calls `sysTermSave`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:117:4
+[1;34m    |[0m
+[1;34m117 |[0m   (sysTermSave 0 buf))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysTermSave` requires: `save` names `sysTermStateBytes` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `restoresAt` calls `sysTermRestore`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:122:4
+[1;34m    |[0m
+[1;34m122 |[0m   (sysTermRestore 0 buf))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysTermRestore` requires: `state` names `sysTermStateBytes` live bytes a save filled. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `sizesTermAt` calls `sysTermSize`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:127:4
+[1;34m    |[0m
+[1;34m127 |[0m   (sysTermSize 0 buf))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysTermSize` requires: `buf` names `sysTermSizeBytes` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `unmapsAt` calls `sysUnmapShared`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:132:4
+[1;34m    |[0m
+[1;34m132 |[0m   (sysUnmapShared addr 4096))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysUnmapShared` requires: `addr` and `len` name a whole mapping `sysMapShared` answered, and nothing reads or writes it afterwards. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `waitsAt` calls `sysWaitWord`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:137:4
+[1;34m    |[0m
+[1;34m137 |[0m   (sysWaitWord addr 0))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysWaitWord` requires: `addr` names a live, 8-byte aligned word. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `readsLitAt` calls `readFileLit`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:142:4
+[1;34m    |[0m
+[1;34m142 |[0m   (readFileLit path))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`readFileLit` requires: `cstr` names live NUL-terminated bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `respondsFrom` calls `httpRespondRaw`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:147:4
+[1;34m    |[0m
+[1;34m147 |[0m   (httpRespondRaw
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`httpRespondRaw` requires: `addr` names `len` live bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+[1;31merror[AX3010][0m[1m: AXTAG mismatch on `pureRead`: `effect(pure)` claim contradicted: body performs Alloc, IO, Unsafe[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:156:6
+[1;34m    |[0m
+[1;34m156 |[0m (fn (pureRead buf)
+[1;34m    |[0m      [1;31m^^^^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
+
+[1;31merror[AX3049][0m[1m: `noUnsafe` claims `restrict(no-unsafe)` and the body performs Unsafe: noUnsafe -> Sys$sysRandomBytes[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:162:6
+[1;34m    |[0m
+[1;34m162 |[0m (fn (noUnsafe buf)
+[1;34m    |[0m      [1;31m^^^^^^^^[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0mSys$sysRandomBytes (stdlib/Sys.ax:2563:10-24)
+   [1;34m = [0m[1;32mhelp: [0ma restriction is a CLAIM the author wrote, and this is the compiler answering it. `no-io`, `no-alloc`, `no-unsafe`, `no-foreign`, `no-cast:deep` and `no-recursion` are transitive - the effect row and the call graph are fixpoints over every callee - and the path in the message is the chain of resolved calls (`symbols --calls` spells each hop the same way) from this declaration to where the effect enters, or around the cycle, so the fix is at a named place rather than somewhere below. Make the body keep the claim, or delete the tag, which WITHDRAWS the claim rather than answering it; an unrestricted function is never asked
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3049` for a full explanation
+
+[1;31merror[AX3073][0m[1m: `noUnsafe` calls `sysRandomBytes`, whose safety depends on its caller, and its declaration does not say so[0m
+   [1;34m--> [0m1081-sys-buffer-calls.ax:163:4
+[1;34m    |[0m
+[1;34m163 |[0m   (sysRandomBytes buf 64))
+[1;34m    |[0m    [1;31m^^^^^^^^^^^^^^ a precondition interface[0m
+[1;34m    |[0m
+   [1;34m = [0m[1mnote: [0m`sysRandomBytes` requires: `buf` names `n` live writable bytes. A call to it is safe only when its caller makes that true, which is what `effect(unsafe)` here says this declaration does
+   [1;34m = [0m[1;32mhelp: [0mwrite `;@axiom:effect(unsafe)` above the declaration[1;35m ~>[0m
+            [1;35m;@axiom:effect(unsafe)[0m
+   [1;34m = [0m[1;32mhelp: [0mthis fires where the unsafe operation is performed, not up the call chain. The tag alone makes the declaration a trusted encapsulation, whose callers inherit nothing; write `;@axiom:precondition(...)` beside it as well when its safety depends on what its caller passes. If the operation is not wanted here the fix is to stop performing it, not to stop saying so
+   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3073` for a full explanation
+
+compilation failed due to 28 previous errors

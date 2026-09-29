@@ -40,6 +40,7 @@
 ; sitting on the other side of one import.
 (pub :: writeStr (-> Int String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (writeStr fd s)
   (sysWriteAllFd fd (strData s) (strLen s) 0))
 
@@ -53,6 +54,7 @@
 ; is only ever handed bytes `s` holds.
 (pub :: writeSlice (-> Int String Int Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (writeSlice fd s start len)
   (if (ioOutside s start len)
     __indexTrap
@@ -173,11 +175,14 @@
 ; and MM-VAL-7's retain are stated once, in `sysReadFile`.
 (pub :: readFileLit (-> Int String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:precondition(`cstr` names live NUL-terminated bytes)
 (pub fn (readFileLit cstr)
   (sysReadFile cstr))
 
 (pub :: readFile (-> String String))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (readFile path)
   (readFileLit (ioPath path)))
 
@@ -240,6 +245,7 @@
 ; Answers `(Ok bytes)`, or `(Err e)` whose code is the errno.
 (pub :: writeFile (-> String String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (writeFile path s)
   (ioResult (sysWriteFile (ioPath path) s) "writeFile" path))
 
@@ -247,6 +253,7 @@
 ; `(Ok bytes)`, or `(Err e)` whose code is the errno.
 (pub :: appendFile (-> String String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (appendFile path s)
   (ioResult (sysAppendFile (ioPath path) s) "appendFile" path))
 
@@ -258,6 +265,7 @@
 ; except AArch64 Linux, where they are one call and a flag.
 (pub :: removeFile (-> String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (removeFile path)
   (ioResult (sysUnlink (ioPath path)) "removeFile" path))
 
@@ -270,6 +278,7 @@
 ; two spellings are for.
 (pub :: renamePath (-> String String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (renamePath old new)
   (ioResult (sysRename (ioPath old) (ioPath new)) "renamePath" old))
 
@@ -278,6 +287,7 @@
 ; 0644. The descriptor is the caller's to close with `sysCloseFd`.
 (pub :: openPath (-> String Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (openPath path flags)
   (ioResult (sysOpenPath (ioPath path) flags) "openPath" path))
 
@@ -287,6 +297,7 @@
 ; rules and why it walks one segment at a time.
 (pub :: openBeneath (-> String String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (openBeneath root rel)
   (ioResult (sysOpenBeneath (ioPath root) rel) "openBeneath" rel))
 
@@ -294,6 +305,7 @@
 ; `(Ok 0)`, or `(Err e)` - EEXIST when `link` is already there.
 (pub :: makeSymlink (-> String String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (makeSymlink target link)
   (ioResult (sysSymlink (ioPath target) (ioPath link)) "makeSymlink" link))
 
@@ -319,12 +331,14 @@
 ; a directory included. `isDir` separates them.
 (pub :: fileExists (-> String Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (fileExists path)
   (sysFileExists (ioPath path)))
 
 ; True when `path` names a directory.
 (pub :: isDir (-> String Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (isDir path)
   (sysIsDir (ioPath path)))
 
@@ -335,6 +349,7 @@
 ; first if that matters. See `Sys.sysFileSize`.
 (pub :: fileSize (-> String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (fileSize path)
   (ioResult (sysFileSize (ioPath path)) "fileSize" path))
 
@@ -346,6 +361,7 @@
 ; "the file is empty" from "there is no file" asks this first.
 (pub :: readErrno (-> String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (readErrno path)
   (sysReadErrno (ioPath path)))
 
@@ -353,6 +369,7 @@
 ; errno - `-17` (EEXIST) when it is already there.
 (pub :: makeDir (-> String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (makeDir path)
   (ioResult (sysMkdir (ioPath path) sysDirMode) "makeDir" path))
 
@@ -361,6 +378,7 @@
 ; or `(Err e)`.
 (pub :: makeDirMode (-> String Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (makeDirMode path mode)
   (ioResult (sysMkdir (ioPath path) mode) "makeDirMode" path))
 
@@ -414,6 +432,7 @@
 ; one call is a library that deletes the wrong subtree once.
 (pub :: removeDir (-> String (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (removeDir path)
   (ioResult (sysRmdir (ioPath path)) "removeDir" path))
 
@@ -638,6 +657,7 @@
 ; `readAll` and `readLine` are the forms that answer a fresh string.
 (pub :: readInto (-> Int String Int Int (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (readInto fd buf at count)
   (if (ioOutside buf at count)
     __indexTrap
@@ -652,6 +672,7 @@
 ; the program with status 77.
 (pub :: randomBytes (-> Int (Result String Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (randomBytes n)
   (if (< n 0)
     __indexTrap
@@ -684,6 +705,7 @@
 ; terminal.
 (pub :: termSave (-> Int (Result TermState Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (termSave fd)
   (let ((st (TermState fd (memAlloc (ioTermStateCap)))))
     (ioTermAnswer (sysTermSave fd st.save) st "termSave")))
@@ -711,6 +733,7 @@
 ; `(Ok 0)`, or `(Err e)`.
 (pub :: termRestore (-> TermState (Result Int Error)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (termRestore st)
   (sysResult "termRestore" (sysTermRestore st.fd st.save)))
 

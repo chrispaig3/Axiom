@@ -2796,6 +2796,7 @@ TRACE_AX = r'''
 (:: trFree (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
+;@axiom:precondition(`ch` names a live, traced ring, unmapped here, that nothing touches afterwards)
 (fn (trFree ch)
   (let (
     (t (trArea ch))

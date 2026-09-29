@@ -759,6 +759,12 @@ prim_case "__fence"                     "(__fence)"                            "
 # alone - and would read `Alloc,IO` the day that changes, which is the
 # right answer then too.
 prim_case "__par_spawn"                 "(__par_spawn (lambda (x) x) n)"       "IO"
+# The syscall primitives themselves carry `IO` and, since R-B10's third
+# step, `Unsafe`: the kernel reads and writes this process's memory
+# through their arguments (MM-EXEC-9c). Before it, this row read `IO`
+# alone and a `no-unsafe` function could make `read(2)` write anywhere.
+prim_case "__syscall3"                  "(__syscall3 n 0 0 0)"                 "IO,Unsafe"
+prim_case "__syscall0"                  "(__syscall0 n)"                       "IO,Unsafe"
 prim_case "__par_join"                  "(__par_join n)"                       "IO"
 prim_case "__thread_spawn"              "(__thread_spawn (lambda (x) x) n)"    "IO"
 prim_case "__proc_join"                 "(__proc_join n)"                      "IO"

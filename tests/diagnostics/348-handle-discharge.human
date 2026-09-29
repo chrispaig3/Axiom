@@ -1,24 +1,24 @@
 [1;31merror[AX3010][0m[1m: AXTAG mismatch on `launders`: `effect(pure)` claim contradicted: body performs IO[0m
-  [1;34m--> [0m348-handle-discharge.ax:58:6
+  [1;34m--> [0m348-handle-discharge.ax:59:6
 [1;34m   |[0m
-[1;34m58 |[0m (fn (launders n)
+[1;34m59 |[0m (fn (launders n)
 [1;34m   |[0m      [1;31m^^^^^^^^[0m
 [1;34m   |[0m
   [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3010` for a full explanation
 
 [1;31merror[AX3011][0m[1m: effect mismatch: unhandled effect `IO`[0m
-   [1;34m--> [0m348-handle-discharge.ax:110:8
+   [1;34m--> [0m348-handle-discharge.ax:111:8
 [1;34m    |[0m
-[1;34m110 |[0m       (shout n)
+[1;34m111 |[0m       (shout n)
 [1;34m    |[0m        [1;31m^^^^^[0m
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3011` for a full explanation
 
 [1;31merror[AX3010][0m[1m: AXTAG mismatch on `guarded`: `effect(pure)` claim contradicted: body performs IO[0m
-   [1;34m--> [0m348-handle-discharge.ax:107:6
+   [1;34m--> [0m348-handle-discharge.ax:108:6
 [1;34m    |[0m
-[1;34m107 |[0m (fn (guarded n)
+[1;34m108 |[0m (fn (guarded n)
 [1;34m    |[0m      [1;31m^^^^^^^[0m
 [1;34m    |[0m
    [1;34m = [0m[1;32mhelp: [0man AXTAG is a CLAIM, and this is the compiler answering it: make the body match the tag, or correct the tag to what the body does. Deleting the tag also silences this, and an untagged function is never checked - but that WITHDRAWS the claim rather than answering it, and every reader that trusted the tag loses the guarantee. A claim the walk cannot check is AX3037 and stays a warning; this code fires only where the walk has an answer

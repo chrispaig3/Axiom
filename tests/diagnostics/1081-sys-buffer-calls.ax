@@ -1,0 +1,185 @@
+; Every `Sys` call that hands the kernel an address its caller chose is
+; a precondition interface (docs/memory-model.md MM-EXEC-9e), so a call
+; to one is an unsafe operation in the caller. Before R-B10's third
+; step these took an `Int` and said nothing: `(sysReadFd 0 buf 64)`
+; with `buf` any word was ordinary safe code, and the kernel wrote 64
+; bytes wherever `buf` pointed.
+;
+; One untagged declaration per interface, each refused as AX3073 at the
+; call: the descriptor reads and writes, the path calls, entropy, the
+; terminal calls, the shared-memory unmap and wait, and the raw forms
+; in `IO` and `Http`. `pureRead` claims `pure` over `sysReadFd` and draws
+; AX3010 instead. `noUnsafe` claims `restrict(no-unsafe)` over
+; `sysRandomBytes` and draws AX3049 beside its AX3073.
+;
+; The controls stay silent under `restrict(no-unsafe)`: `typed` does
+; the same work through the typed companions in `IO`, which take a
+; `String` or answer a fresh one.
+(import Sys)
+(import IO)
+(import Http)
+(import Str)
+(import Err)
+
+;@axiom:effect(io)
+(:: readsAt (-> Int (Result Int Error)))
+(fn (readsAt buf)
+  (sysReadFd 0 buf 64))
+
+;@axiom:effect(io)
+(:: writesFrom (-> Int (Result Int Error)))
+(fn (writesFrom buf)
+  (sysWriteFd 1 buf 64))
+
+;@axiom:effect(io)
+(:: writesAllFrom (-> Int Int))
+(fn (writesAllFrom buf)
+  (sysWriteAllFd 1 buf 64 0))
+
+;@axiom:effect(io)
+(:: opensAt (-> Int (Result Int Error)))
+(fn (opensAt path)
+  (sysOpenPath path oRdonly))
+
+;@axiom:effect(io)
+(:: readsFileAt (-> Int String))
+(fn (readsFileAt path)
+  (sysReadFile path))
+
+;@axiom:effect(io)
+(:: writesFileAt (-> Int (Result Int Error)))
+(fn (writesFileAt path)
+  (sysWriteFile path "x"))
+
+;@axiom:effect(io)
+(:: appendsAt (-> Int (Result Int Error)))
+(fn (appendsAt path)
+  (sysAppendFile path "x"))
+
+;@axiom:effect(io)
+(:: renamesAt (-> Int Int (Result Int Error)))
+(fn (renamesAt old new)
+  (sysRename old new))
+
+;@axiom:effect(io)
+(:: unlinksAt (-> Int (Result Int Error)))
+(fn (unlinksAt path)
+  (sysUnlink path))
+
+;@axiom:effect(io)
+(:: mkdirsAt (-> Int (Result Int Error)))
+(fn (mkdirsAt path)
+  (sysMkdir path sysDirMode))
+
+;@axiom:effect(io)
+(:: rmdirsAt (-> Int (Result Int Error)))
+(fn (rmdirsAt path)
+  (sysRmdir path))
+
+;@axiom:effect(io)
+(:: linksAt (-> Int Int (Result Int Error)))
+(fn (linksAt target link)
+  (sysSymlink target link))
+
+;@axiom:effect(io)
+(:: opensBeneathAt (-> Int (Result Int Error)))
+(fn (opensBeneathAt root)
+  (sysOpenBeneath root "x"))
+
+;@axiom:effect(io)
+(:: existsAt (-> Int Bool))
+(fn (existsAt path)
+  (sysFileExists path))
+
+;@axiom:effect(io)
+(:: sizesAt (-> Int (Result Int Error)))
+(fn (sizesAt path)
+  (sysFileSize path))
+
+;@axiom:effect(io)
+(:: errnoAt (-> Int Int))
+(fn (errnoAt path)
+  (sysReadErrno path))
+
+;@axiom:effect(io)
+(:: dirAt (-> Int Bool))
+(fn (dirAt path)
+  (sysIsDir path))
+
+;@axiom:effect(io)
+(:: fillsAt (-> Int (Result Int Error)))
+(fn (fillsAt buf)
+  (sysRandomBytes buf 64))
+
+;@axiom:effect(io)
+(:: savesAt (-> Int Int))
+(fn (savesAt buf)
+  (sysTermSave 0 buf))
+
+;@axiom:effect(io)
+(:: restoresAt (-> Int Int))
+(fn (restoresAt buf)
+  (sysTermRestore 0 buf))
+
+;@axiom:effect(io)
+(:: sizesTermAt (-> Int Int))
+(fn (sizesTermAt buf)
+  (sysTermSize 0 buf))
+
+;@axiom:effect(io)
+(:: unmapsAt (-> Int (Result Int Error)))
+(fn (unmapsAt addr)
+  (sysUnmapShared addr 4096))
+
+;@axiom:effect(io)
+(:: waitsAt (-> Int Int))
+(fn (waitsAt addr)
+  (sysWaitWord addr 0))
+
+;@axiom:effect(io)
+(:: readsLitAt (-> Int String))
+(fn (readsLitAt path)
+  (readFileLit path))
+
+;@axiom:effect(io)
+(:: respondsFrom (-> Int Int))
+(fn (respondsFrom addr)
+  (httpRespondRaw
+    1
+    200
+    "text/plain"
+    addr
+    64))
+
+(:: pureRead (-> Int (Result Int Error)))
+;@axiom:effect(pure)
+(fn (pureRead buf)
+  (sysReadFd 0 buf 64))
+
+;@axiom:restrict(no-unsafe)
+(:: noUnsafe (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (noUnsafe buf)
+  (sysRandomBytes buf 64))
+
+;@axiom:restrict(no-unsafe)
+(:: typed (-> String Int))
+;@axiom:effect(io)
+(fn (typed path)
+  (let ((buf (strAlloc 64)))
+    {
+      (writeStr 1 (readFile path))
+      (match (readInto 0 buf 0 64)
+        ((Ok n) (writeSlice 1 buf 0 n))
+        ((Err e) 0))
+      (match (randomBytes 16)
+        ((Ok r) (strLen r))
+        ((Err e) 0))
+      (match (termSize 0)
+        ((Ok sz) sz.cols)
+        ((Err e) 0))
+    }))
+
+(:: main Int)
+(fn (main)
+  0)
