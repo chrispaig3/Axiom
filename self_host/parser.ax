@@ -5366,7 +5366,8 @@
                             (if (== (vecLen exprs) 1)
                               (vecGet exprs 0)
                               (mkEBegin exprs))
-                            kwSpan)
+                            kwSpan
+                            pos)
                           afterBody)))))))))
         (pErrExp (advance pos) "`(` opening the binding list - `(parallel p ((x e) ...) body)`")))
     (pErrExp pos "the name of the join region - `(parallel p ((x e) ...) body)`")))
@@ -5405,6 +5406,13 @@
 ; THE BORROW SCOPE (MM-PAR-6b). Around the spawns and the joins sits
 ; one borrow record, named for this form (`parallel$b` and the form's
 ; number, as its thunks' parameter is `parallel$_` and the same number).
+; The number is the index of the form's first token after `parallel`,
+; which the same source always gives: a span would do as well within a
+; file, but the span word carries more than a position, and the first
+; version built from it named the same lambda's parameter differently
+; on two compiles (check-reproducible). An index is unique within a
+; file, and the checker only matches a form's thunks to it while that
+; file's forms are being checked.
 ; Before any thunk is built, `(parallel$lends b {})` lends it the
 ; strings the bindings borrow: the checker fills the block with each
 ; `String` a thunk of this form captures (`capBorrowLend`), and codegen
@@ -5415,14 +5423,9 @@
 ; nothing between the lends and the return but spawns and joins, which
 ; is what makes the scope sound, and why a hand-written `__par_spawn`
 ; gets no such record.
-(pub :: mkParallel (-> String Int (Vec Int) Int Int Int))
-(pub fn (mkParallel rname rspan binds body kwSpan)
-  (let (
-    (id (parIndexName
-      (if (< kwSpan 0)
-        (- 0 kwSpan)
-        kwSpan)))
-  )
+(pub :: mkParallel (-> String Int (Vec Int) Int Int Int Int))
+(pub fn (mkParallel rname rspan binds body kwSpan formPos)
+  (let ((id (parIndexName formPos)))
     (let ((bname (strConcat "parallel$b" id)))
       (mkELetAt rname (mkEVarAt "__axiom_arena_mark" kwSpan) (mkELetAt bname (mkEApp (mkEVarAt "parallel$borrow" kwSpan) (mkEInt 0)) (mkELetAt "parallel$l" (mkEApp (mkEApp (mkEVarAt "parallel$lends" kwSpan) (mkEVarAt bname kwSpan)) (mkEBegin vecNew)) (parSpawnLets binds 0 (parJoinLets binds 0 (mkELetAt "parallel$r" (mkEApp (mkEVarAt "parallel$return" kwSpan) (mkEVarAt bname kwSpan)) body kwSpan) kwSpan) kwSpan id) kwSpan) kwSpan) rspan))))
 
