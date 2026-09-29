@@ -1,0 +1,49 @@
+; A frame whose body is empty is a message, not the end of the stream.
+;
+; `Content-Length: 0` is a whole frame with the empty string as its
+; body. `rpcRead` answers "" for it and for the end of the stream alike,
+; so the language server read a peer's empty message as the peer
+; hanging up. `rpcReadMsg` tells them apart: `Some` the body of every
+; whole frame, the empty one included, and `None` only when no whole
+; frame is left (tests/fuzz/lsp/empty-body.lspfuzz is the server's
+; half).
+(import IO)
+(import Err)
+(import Rpc)
+(import Str)
+
+(:: show (-> String (Option String) Int))
+;@axiom:effect(io)
+(fn (show label got)
+  (match got
+    ((Some body)
+      (let ((n (strLen body)))
+        (println "{label}: Some, {n} bytes: [{body}]"))
+    )
+    ((None) (println "{label}: None"))))
+
+(pub :: main Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (main)
+  (let ((path (__addr "axiom-rpc-empty-frame.tmp")))
+    {
+      (let ((_ (sysWriteFile path "Content-Length: 0\r\n\r\nContent-Length: 2\r\n\r\n{}Content-Length: 0\r\n\r\n")))
+        0)
+      (match (sysOpenPath path oRdonly)
+        ((Err e) (die "open for read failed" 1))
+        ((Ok fd)
+          (let ((r (rdNew fd)))
+            {
+              (show "first, empty" (rpcReadMsg r))
+              (show "second" (rpcReadMsg r))
+              (show "third, empty and last" (rpcReadMsg r))
+              (show "end of the stream" (rpcReadMsg r))
+              (let ((_ (sysCloseFd fd)))
+                0)
+              0
+            })
+        ))
+      (unwrapOr (removeFile "axiom-rpc-empty-frame.tmp") 0)
+      0
+    }))

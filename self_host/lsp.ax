@@ -14004,12 +14004,18 @@
     {
       (while (== running 1)
         {
-          (let ((body (rpcRead r)))
-            (if (== (strLen body) 0)
-              ; The client went away without saying `exit`. Stopping is
-              ; the only option; the status is the one `exit` would have
-              ; given for a session that never had `shutdown`.
+          (match (rpcReadMsg r)
+            ; The client went away without saying `exit`, or its
+            ; framing broke. Stopping is the only option; the status
+            ; is the one `exit` would have given for a session that
+            ; never had `shutdown`.
+            ((None)
               (set running 0)
+            )
+            ; A frame whose body is empty is a malformed message like
+            ; any other that is not JSON, and dropped below; it is not
+            ; the end of the stream.
+            ((Some body)
               (let ((msg (jsonParse body)))
                 (if (== msg 0)
                   ; Unparseable JSON. There is no id to answer with,
@@ -14081,7 +14087,8 @@
                                             ; a notification must not be.
                                             (if (== id 0)
                                               0
-                                              (lspError id (- 0 32601) (strConcat "method not found: " method))))))))))))))))))))
+                                              (lspError id (- 0 32601) (strConcat "method not found: " method))))))))))))))))))
+            ))
           ; The boundary. Everything this message touched goes back,
           ; except the store and the reader's unconsumed bytes, which
           ; travel down to the waterline in one block.

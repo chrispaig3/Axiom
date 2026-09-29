@@ -1,0 +1,20 @@
+# Minimized reproducers of what the language-server fuzzer
+# (scripts/lib/lspfuzz.py, scripts/check-fuzz.sh section 7) found.
+# Tab-separated:
+#
+#   file  status  stage  signature  what
+#
+# status    `fixed`: section 7 replays the session and it must now pass
+#           every oracle (no signal, no hang, well-formed frames and
+#           JSON-RPC, every request answered, the right exit status) - a
+#           regression test. `open`: it must still fail, at `stage`, with
+#           the oracle's reason matching `signature` (an extended regex);
+#           an open row that stops failing, or fails differently, turns
+#           the gate red.
+# stage     signal | hang | frame | jsonrpc | answer | exit (`-` for a
+#           fixed row).
+#
+# A `.lspfuzz` file is the session itself, JSON Lines, with the tree
+# named `@ROOT@` so it replays on any host; `lspfuzz.py run --transcript`
+# prints what it sends and what comes back.
+empty-body.lspfuzz	fixed	-	-	a frame whose body is empty (`Content-Length: 0`) ended the session: `rpcRead` answered "" for it and for the end of the stream alike, so the server read it as the client hanging up and exited 1 with every request behind it unanswered. `rpcReadMsg` answers `Some ""` for the frame and `None` for the end (fixed in stdlib/Rpc.ax, self_host/lsp.ax)

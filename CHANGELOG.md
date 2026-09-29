@@ -22,6 +22,17 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### An empty message no longer ends a language-server session - 2026-09-29
+
+A frame with `Content-Length: 0` made the server exit as if the editor
+had gone away, leaving every request behind it unanswered. `rpcRead`
+answered "" for that frame and for the end of the stream alike. The
+new `rpcReadMsg` answers `Some ""` for the frame and `None` for the
+end, and the server drops the empty message like any other that isn't
+JSON. `rpcRead` keeps its behaviour. Tested by
+`tests/stdlib/623-rpc-empty-frame.ax` and
+`tests/fuzz/lsp/empty-body.lspfuzz`.
+
 ### What a parallel run keeps the same — MM-PAR-14 - 2026-09-29
 
 A new rule says what is reproducible about a pure parallel computation.
