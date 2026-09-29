@@ -5447,6 +5447,103 @@ isolation is what makes a task's captures its own.
   in copies of the compiler. §7 builds and runs the three programs in
   `examples/concurrency/`, which check themselves, in both lowerings.
 
+**MM-PAR-14 (H). A pure parallel computation answers what its parts
+answered, combined in index order, whatever finished first.** This
+rule says which parts of a parallel computation's answer are
+reproducible and which are not. It covers `parallel` bindings, `Par`'s
+pools (`parMapWords`, `parMapWordsChecked`) and `Task`'s
+(`taskMap`, `taskMapWith`, `taskFold`), at any width and in both
+lowerings.
+
+A workload is *pure* here when every binding and task computes from
+its argument and its captures alone. It reads no clock, pid, input or
+shared mapping, and nothing another task writes.
+
+*Result order.* A `parallel` form joins in the order written
+(`MM-PAR-6`). The pools answer in submit order: slot `i` holds task
+`i`'s answer (`MM-PAR-5`). The width decides only how many run at once.
+
+*Reduction order.* Every combination the language and the library make
+is in index order. `taskFold`'s step sees the answers in submit order,
+so it is the left fold `step(... step(step(init, 0, r0), 1, r1) ...)`
+at every width. A `parallel` body combines the joined words as its
+source says. No library fold combines in completion order, and none
+exposes it. What a program builds itself can: a fold over what one
+channel receives from several senders sees the words in the order the
+sends took the channel's lock, which is the scheduler's order. The
+price of index order is `MM-PAR-5`'s: a slow task holds back the tasks
+`width` places behind it.
+
+*Floating point.* `+`, `-`, `*` and `/` on `Float` are IEEE 754
+binary64 operations, rounded to nearest. The emitter writes no
+fast-math flag, no `fmuladd` and no fp-math attribute, and neither
+`opt` nor `llc` adds contraction or reassociation where the IR doesn't
+ask. So the same operations in the same order give the same bits at
+every `--opt` level, width and lowering, on both instruction sets.
+`__intToFloat` rounds to nearest. `__floatToInt` truncates toward
+zero and saturates: a NaN answers 0, and a value beyond `Int`'s range
+answers the nearest end. A different association is a different
+answer: 2,000 terms summed in three chunks and in index order differ in
+their last bits, and both are right.
+
+Three limits:
+
+- A NaN's payload and sign are the hardware's, so only its NaN-ness is
+  reproducible.
+- `fmtFloat` rounds to six places. Send a `Float` between tasks as the
+  `Int` of its bits (`cast`), which is exact.
+- A float literal is converted by the parser in two roundings, and one
+  whose integer part is 2^63 or more, or with 19 or more fractional
+  digits, wraps. Reproducible, but not the nearest double.
+
+*Errors.* When several parts fail:
+
+| Construct | The failure the caller sees | Deterministic |
+|---|---|---|
+| `parallel`, processes | the first binding in written order whose child failed | yes |
+| `parallel`, threads | whichever binding trapped first | no |
+| `parMapWords` | the status of the lowest failing index: the joins run in submit order and the first failed join raises | yes |
+| `parMapWordsChecked`, `taskMap`, `taskMapWith`, `taskFold` | every failure, each in its own slot with its own status | yes |
+| any pool with `failFast` | the first failure the pool *observes* cancels the rest; which slots answer 1002 is the clock's | no |
+
+A refused spawn (78, or 70) is the environment's answer, not the
+workload's, and where it lands depends on the kernel. The trap
+messages on fd 2 interleave in the order the parts died.
+
+*Cancellation and timeouts.* A deadline, a grace and a cancellation
+from another binding all read a clock, so whether a task answers or
+answers `sysTimedOut` or `taskCancelledCode` depends on timing. Two things don't: a pool whose token is set before it starts
+answers `taskCancelledCode` for every task, and a pool with no
+deadline, no `failFast` and no token another binding can set has
+nothing timed in it.
+
+*Side effects.* Ordered collection orders the answers, not what the
+parts do. Writes to fd 1, files, shared mappings and channels
+interleave as the scheduler ran them.
+
+*Evidence.*
+
+- `scripts/check-task.sh` §10 adds 2,000 terms through `taskFold`,
+  `taskMap`, `parMapWords` and `parMapWordsChecked` at widths 1, 2, 3,
+  4 and 8 in both lowerings, with the tasks made to finish out of
+  order. Each answer is the sequential sum's bits, and Python's IEEE
+  doubles compute the same bits.
+- The same section runs `parallel` with 1 to 8 bindings, each equal to
+  the chunked association. The reverse, pairwise and chunked sums each
+  differ from index order, which shows the data can see an order.
+- `parMapWords` raises the lowest failing index's 77 in fifteen runs
+  per lowering, while 72 and 82 arrive first.
+- The IR, and `opt` and `llc -O3` output, hold no contraction or
+  reassociation, beside controls whose IR asks for each and shows it.
+- Two ablations turn the section red: a pool that delivers in
+  completion order, and a raising pool that joins newest first.
+- `tests/stdlib/620-par-float-order.ax` and
+  `tests/stdlib/621-par-first-failure.ax` pin the bits and the
+  failures, and `tests/stdlib/622-float-to-int.ax` the conversion's
+  answers, each at every `--opt` level (`.optstable`).
+- `scripts/check-parallel.sh` §9 measures the two lowerings' two
+  traps.
+
 ---
 
 ## 7. Foreign memory

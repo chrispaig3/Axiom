@@ -1,0 +1,116 @@
+; When several tasks fail, which failure a caller sees
+; (docs/memory-model.md MM-PAR-14). Task 10 traps LAST, with 77 (an
+; index out of range) after 100 ms; task 12 traps at once with 72
+; (division by zero) and task 14 at once with 82 (a misaligned atomic).
+;
+; The per-slot pools answer every failure in its own slot. The raising
+; pool, `parMapWords`, joins in submit order and raises the first
+; failure it joins, so it raises task 10's 77 however soon 72 and 82
+; arrived. The traps' own messages go to fd 2 in whatever order the
+; tasks died, which is why this fixture has no `.err`.
+(import IO)
+(import Sys)
+(import Mem)
+(import Vec)
+(import Fmt)
+(import Err)
+(import Par)
+(import Task)
+
+; Sleep `ms` milliseconds on a word of its own that nobody changes.
+(:: nap (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (nap ms)
+  (let ((idle (memAlloc 8)))
+    {
+      (memSetWord idle 0 0)
+      (sysWaitWordTimeout idle 0 (* ms 1000000))
+      0
+    }))
+
+(:: work (-> Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (work i)
+  (if (== i 10)
+    {
+      (nap 100)
+      (let ((v vecNew))
+        {
+          (vecPush v 1)
+          (vecGet v (+ i 5))
+        })
+    }
+    (if (== i 12)
+      (/ i (- i 12))
+      (if (== i 14)
+        (__atomic_load (+ (memAlloc 16) 4))
+        (* i i)))))
+
+(:: showWords (-> String (Vec (Result Int Error)) Int))
+;@axiom:effect(io)
+(fn (showWords what rs)
+  (let ((mut good 0))
+    {
+      (for i 0 (vecLen rs)
+        (match (vecGet rs i)
+          ((Ok w)
+            (if (== w (* i i))
+              (set good (+ good 1))
+              (println "{what}: slot {i} answered {w}"))
+          )
+          ((Err e)
+            (let ((c (errCode e)))
+              (println "{what}: slot {i} failed with {c}"))
+          )))
+      (println "{what}: {good} slots answered")
+      0
+    }))
+
+(:: showTexts (-> String (Vec (Result String Error)) Int))
+;@axiom:effect(io)
+(fn (showTexts what rs)
+  (let ((mut good 0))
+    {
+      (for i 0 (vecLen rs)
+        (match (vecGet rs i)
+          ((Ok s)
+            (set good (+ good 1))
+          )
+          ((Err e)
+            (let ((c (errCode e)))
+              (println "{what}: slot {i} failed with {c}"))
+          )))
+      (println "{what}: {good} slots answered")
+      0
+    }))
+
+; The raising pool at `width`, inside a recovery point: what it raised.
+(:: raised (-> Int Int))
+;@axiom:effect(io)
+(fn (raised width)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x) (vecLen (parMapWords work 20 width)))))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (showWords "parMapWordsChecked" (parMapWordsChecked work 20 8))
+    (showTexts
+      "taskMap"
+      (taskMap
+        (lambda (i) (fmtInt (work i)))
+        20
+        8
+        32))
+    (for k 1 5
+      (let (
+        (w (* k 2))
+        (st (raised w))
+      )
+        (println "parMapWords at width {w}: raised {st}")))
+    0
+  })

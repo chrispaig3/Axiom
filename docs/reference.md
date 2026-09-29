@@ -5158,6 +5158,28 @@ the caller has. Each child reads its own copy-on-write copy
 
 Tested by `tests/stdlib/476-par-pool.ax`.
 
+### What stays the same from run to run
+
+When every binding and task computes from its own inputs alone, the
+answer doesn't depend on which one finished first:
+
+- Answers come back in the order written or submitted, at every width
+  and in both lowerings.
+- `taskFold` combines them in that order too, so a `Float` sum over
+  tasks has the same bits as a loop adding the same values in turn. A
+  sum grouped another way, in chunks say, rounds differently.
+- When several tasks fail, `parMapWords` raises the lowest-numbered
+  task's status. `parMapWordsChecked` and `taskMap` answer every
+  failure in its own slot.
+
+What can change between runs is anything a clock decides (a deadline,
+a cancellation, `failFast`), which trap wins when two bindings fail
+under `--threads`, and the order of what the tasks print. MM-PAR-14 in
+[memory-model.md](memory-model.md) has the full rule.
+
+Tested by `tests/stdlib/620-par-float-order.ax` and
+`tests/stdlib/621-par-first-failure.ax`.
+
 ### Where `parallel` is available
 
 - **Linux and darwin** have both lowerings.

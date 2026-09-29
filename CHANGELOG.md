@@ -22,18 +22,32 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### What a parallel run keeps the same — MM-PAR-14 - 2026-09-29
+
+A new rule says what is reproducible about a pure parallel computation.
+Answers come back in the order written or submitted, and `taskFold`
+combines them in that order, so a `Float` sum over 2,000 tasks has the
+bits of the loop that adds the same terms in turn, at widths 1 to 8 and
+in both lowerings. No library fold combines in completion order.
+`parMapWords` raises the lowest failing task's status however soon the
+others failed, and the checked pools answer every failure in its slot.
+What stays the clock's is stated too: deadlines, cancellation,
+`failFast`, which trap wins under `--threads`, and every side effect.
+Tested by `tests/stdlib/620-par-float-order.ax`,
+`621-par-first-failure.ax` and `scripts/check-task.sh` §10, which
+recomputes the sums in Python and turns red on a completion-order pool.
+
 ### `__floatToInt` saturates - 2026-09-29
 
 `__floatToInt` of a NaN, an infinity or a value beyond `Int`'s range
-answered LLVM poison, which the optimiser was free to make anything:
+answered LLVM poison, which the optimiser was free to make anything.
 `(__floatToInt (/ 0.0 0.0))` printed 0 at `--opt 0` and 2, 10 or 21
-above it, depending on the code around it, and a folded 2^64 printed
-a word that looked like a heap address. It now truncates toward zero
-and saturates, so a
-NaN answers 0 and an out-of-range value the nearest end of `Int`, at
-every level and on both instruction sets. AArch64 already did this at
-run time; on x86-64 a positive overflow and a NaN answered the smallest
-`Int` and now answer the largest and 0. Tested by
+above it, and a folded 2^64 printed a word that looked like a heap
+address. It now truncates toward zero and saturates: a NaN answers 0
+and an out-of-range value the nearest end of `Int`, at every level
+and on both instruction sets. AArch64 already did this at run time. On
+x86-64 a positive overflow and a NaN answered the smallest `Int`, and
+now answer the largest and 0. Tested by
 `tests/stdlib/622-float-to-int.ax`.
 
 ### A refused spawn is an answer in its slot — R-B2 - 2026-09-29
