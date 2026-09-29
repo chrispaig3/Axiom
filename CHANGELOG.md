@@ -22,6 +22,20 @@ its changelog too.
      heading makes the gate read NOTHING and fail - measured on the 0.7.0
      tag, which is how this comment came to be here. -->
 
+### The language server is fuzzed — R-E1 - 2026-09-29
+
+`scripts/lib/lspfuzz.py` drives `axiom lsp` with seeded sessions:
+documents from the tracked corpus, often mutated, then every request
+the server advertises at random and impossible positions, edits,
+messages that are not JSON or not JSON-RPC, broken framing, and a
+shutdown. A session passes when the server never dies by a signal or
+hangs, writes only well-formed frames and JSON-RPC, answers every
+request once, and exits with the status `shutdown` and `exit` call
+for. `scripts/check-fuzz.sh` section 7 runs 200 sessions per push and
+2,000 with `--long`, beside a planted crash and a planted broken frame
+that must each be reported. It found four defects, fixed below, and
+replays each as a regression from `tests/fuzz/lsp/`.
+
 ### `axiom fmt` formats a negative `subtype` bound - 2026-09-29
 
 `(subtype Positive is Int range -1 .. 10)` checked OK and `axiom fmt`

@@ -42,7 +42,7 @@
 #       2026-09-27: all 115 corpus files with no `main` are llc-clean
 #       with the stub and none of them is without it.
 #
-# SIX SECTIONS.
+# SEVEN SECTIONS.
 #
 #   1. The generator: its selftest (splitmix64's published outputs, a
 #      pinned digest of 200 mutants of an in-memory corpus - the check
@@ -90,6 +90,24 @@
 #      the harness's summary sentence, and an empty detail matches
 #      nothing: a silent signal death can never be excused. Section 5
 #      refuses a signature that would match an empty message.
+#   7. The language server (`scripts/lib/lspfuzz.py`, whose header states
+#      the sessions and the oracles). Its selftest (a pinned digest of
+#      60 sessions over an in-memory corpus, the oracle refusing
+#      thirteen malformed outputs and relaxing after a broken frame);
+#      every capability `initialize` advertises is one the sessions
+#      exercise; this run's sessions generated twice, in two processes,
+#      byte-identical; then every
+#      session through `axiom lsp` - no signal, no hang past the
+#      deadline, every frame and message well formed, every request
+#      answered exactly once (after a malformed message too), and the
+#      exit status `shutdown` and `exit` call for. Floors: every
+#      request kind answered, and at least one broken frame, one
+#      malformed message, one edit and one clean shutdown sent. Three
+#      controls through a planted wrapper server: one that dies by
+#      SIGSEGV and one that writes a frame one byte long must each be
+#      reported as what it is, and an untouched one must pass. Last,
+#      the stored reproducers in `tests/fuzz/lsp/MANIFEST`, held as
+#      section 5 holds the compiler's.
 #
 # LIMITS, stated because a green gate invites reading more into it.
 # Green means: these mutants, at this seed, on this host, met P1-P3.
@@ -101,15 +119,20 @@
 # valid IR is invisible here. The deadline measures hangs, not speed:
 # the `long` edit is capped below a measured superlinear cliff (see
 # fuzz.py `op_long`). Not fuzzed: `build`/`run` (linking, execution),
-# the formatter, the LSP, the REPL, `--target` other than the host,
-# and every command-line flag.
+# the formatter beyond P4 and the server's `formatting`, the REPL,
+# `--target` other than the host, and every command-line flag. The
+# server's sessions are protocol-shaped: an answer that is well formed
+# and wrong passes, and its documents are the corpus's neighbourhood.
 #
-# Usage: check-fuzz.sh [--long] [--seed N] [--count N] [--only I] [--keep DIR]
-#   --long     the scheduled budget: 6,000 mutants instead of 600
+# Usage: check-fuzz.sh [--long] [--seed N] [--count N] [--lsp-count N]
+#                      [--only I] [--keep DIR]
+#   --long     the scheduled budget: 6,000 mutants instead of 600, and
+#              2,000 server sessions instead of 200
+#   --lsp-count N  another number of server sessions
 #   --seed N   another seed (the default is fixed, so CI is repeatable)
 #   --count N  another count
 #   --only I   generate and run mutant I of the seed alone - the
-#              reproduce command every failure prints; skips 3-6
+#              reproduce command every failure prints; skips 3-7
 #   --keep DIR copy every failing mutant (with --only, that mutant
 #              whatever its verdict) and its tool output into DIR
 set -uo pipefail
@@ -123,22 +146,24 @@ command -v python3 >/dev/null || { echo "FAIL: python3 is not on PATH"; exit 1; 
 
 seed=20260927
 count=600
+lsp_count=200
 diff_max=30
 only=""
 keep=""
 while (( $# )); do
   case "$1" in
-    --long) count=6000 diff_max=300 ;;
+    --long) count=6000 diff_max=300 lsp_count=2000 ;;
     --seed) seed="$2"; shift ;;
     --count) count="$2"; shift ;;
+    --lsp-count) lsp_count="$2"; shift ;;
     --only) only="$2"; shift ;;
     --keep) keep="$2"; shift ;;
-    *) echo "usage: $0 [--long] [--seed N] [--count N] [--only I] [--keep DIR]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--long] [--seed N] [--count N] [--lsp-count N] [--only I] [--keep DIR]" >&2; exit 2 ;;
   esac
   shift
 done
-for v in "$seed" "$count" ${only:+"$only"}; do
-  [[ "$v" =~ ^[0-9]+$ ]] || { echo "usage: --seed, --count and --only take a number, not '$v'" >&2; exit 2; }
+for v in "$seed" "$count" "$lsp_count" ${only:+"$only"}; do
+  [[ "$v" =~ ^[0-9]+$ ]] || { echo "usage: --seed, --count, --lsp-count and --only take a number, not '$v'" >&2; exit 2; }
 done
 [[ -n "$keep" ]] && { mkdir -p "$keep" || exit 2; keep="$(cd "$keep" && pwd)"; }
 
@@ -599,7 +624,7 @@ fi
 
 if [[ -n "$only" ]]; then
   echo
-  echo "check-fuzz: $checks passed, $failed failed (--only $only: sections 3-6 skipped)"
+  echo "check-fuzz: $checks passed, $failed failed (--only $only: sections 3-7 skipped)"
   (( failed == 0 )); exit
 fi
 
@@ -895,6 +920,158 @@ while IFS=$'\t' read -r stage sig file; do
   n="$(grep -a -c "\[open: tests/fuzz/$file\]" "$work/xfail.log" 2>/dev/null || true)"
   echo "   OPEN tests/fuzz/$file ($stage /$sig/): excused ${n:-0} of this run's mutants"
 done < "$open_sigs"
+
+# ---------------------------------------------------------------------
+echo "== 7. the language server: $lsp_count seeded sessions over JSON-RPC =="
+# scripts/lib/lspfuzz.py writes each session up front from the seed and
+# the corpus, runs `axiom lsp` on it and judges what came back. A
+# session answers `ok`, or `fail` with the oracle that caught it: signal,
+# hang, frame, jsonrpc, answer or exit. The deadline is per session, and
+# measures a hang, not speed: the slowest of 10,000 sessions took 17 s.
+lspfuzz="$repo_root/scripts/lib/lspfuzz.py"
+lspsrv="$axc lsp"
+lspdir="$work/lsp"
+lsp_deadline=120
+if out="$(python3 "$lspfuzz" selftest 2>&1)"; then
+  ok "$out"
+else
+  bad "the server fuzzer's selftest failed:"; echo "$out" | sed 's/^/    /'
+fi
+if out="$(python3 "$lspfuzz" caps --server "$lspsrv" 2>&1)"; then
+  ok "every capability the server advertises has requests in the sessions ($(tail -1 <<< "$out"))"
+else
+  bad "the server advertises what scripts/lib/lspfuzz.py builds no request for - add it to CAP_METHODS: $(tr '\n' ' ' <<< "$out")"
+fi
+lspgen() {  # <out dir> <hash seed>
+  PYTHONHASHSEED="$2" python3 "$lspfuzz" gen --seed "$seed" --count "$lsp_count" \
+    --corpus "$work/corpus" --root "$repo_root" --out "$1"
+}
+if ! l1="$(lspgen "$lspdir" 0 2>&1)" || ! l2="$(lspgen "$work/lsp2" 1 2>&1)"; then
+  bad "the session generator failed:"; printf '%s\n%s\n' "$l1" "${l2:-}" | sed 's/^/    /'
+elif [[ "$l1" == "$l2" ]] && diff -r "$lspdir" "$work/lsp2" > /dev/null; then
+  read -r _ ldigest _ <<< "$l1"
+  ok "seed $seed: $lsp_count sessions, byte-identical from two processes (digest ${ldigest:0:16})"
+else
+  bad "seed $seed generated different sessions in two processes: '$l1' vs '$l2'"
+fi
+rm -rf "$work/lsp2"
+t0=$SECONDS
+python3 "$lspfuzz" batch --server "$lspsrv" --root "$repo_root" --dir "$lspdir" \
+  --deadline "$lsp_deadline" --jobs 4 > "$work/lsp.out" 2> "$work/lsp.err"
+lstats="$(sed -n 's/^stats //p' "$work/lsp.out")"
+n_lfail=0
+while IFS=$'\t' read -r name verdict stage why; do
+  [[ "$verdict" == fail ]] || continue
+  n_lfail=$((n_lfail + 1))
+  bad "server session $name: $stage - $why ($(grep "^$name	" "$lspdir/manifest.tsv" | cut -f2 | cut -c1-120))"
+  echo "    reproduce: python3 scripts/lib/lspfuzz.py one --seed $seed --index $((10#${name#s})) --corpus <(git ls-files '*.ax') --root . --out s.lspfuzz"
+  echo "               python3 scripts/lib/lspfuzz.py run --server '.axiom-bin/axiom lsp' --root \"\$PWD\" --transcript s.lspfuzz"
+  if [[ -n "$keep" ]]; then
+    cp "$lspdir/$name.lspfuzz" "$keep/" 2>/dev/null
+    echo "    kept: $keep/$name.lspfuzz"
+  fi
+done < <(grep -v '^stats ' "$work/lsp.out")
+if [[ -z "$lstats" ]]; then
+  bad "the session runner reported no statistics: $(tail -3 "$work/lsp.err" | tr '\n' ' ')"
+else
+  echo "   $lsp_count sessions in $((SECONDS - t0))s: $(python3 -c 'import json,sys; s=json.loads(sys.argv[1]); print("%d requests answered (%d with a result that is not empty, %d errors), %d edits, %d malformed messages, %d broken frames, %d clean shutdowns; slowest %s" % (s["answered"], s["nonnull"], s["errors"], s["changes"], s["malformed"], s["breaks"], s["clean"], s["slowest"]))' "$lstats")"
+  (( n_lfail == 0 )) && ok "no session killed the server, hung it, broke a frame or the protocol, went unanswered or ended with the wrong status"
+  floors="$(python3 - "$lspfuzz" "$lstats" "$lsp_count" <<'PY'
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("lspfuzz", sys.argv[1])
+L = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(L)
+s = json.loads(sys.argv[2])
+bad = []
+if s["sessions"] != int(sys.argv[3]):
+    bad.append("%d of %s sessions ran" % (s["sessions"], sys.argv[3]))
+missing = [m for m in L.METHODS if s["methods"].get(m, 0) == 0]
+if missing:
+    bad.append("never answered: " + ", ".join(missing))
+for k, what in (("breaks", "broken frame"), ("malformed", "malformed message"),
+                ("changes", "edit"), ("clean", "clean shutdown"), ("nonnull", "result that is not empty")):
+    if s[k] < 1:
+        bad.append("no %s was sent or seen" % what)
+print("; ".join(bad) if bad else "ok %d request kinds answered" % len(L.METHODS))
+PY
+)"
+  if [[ "$floors" == ok* ]]; then
+    ok "floors: ${floors#ok }, and at least one broken frame, malformed message, edit, clean shutdown and non-empty result"
+  else
+    bad "floors: $floors - a property no session reached was not tested"
+  fi
+fi
+# Controls: a wrapper around the real server that dies by SIGSEGV after
+# its second answer, and one that writes its second frame's length one
+# byte long, must each be reported as what it is; the same wrapper
+# passing everything through must pass. The session is the first that
+# passed, ends in a clean shutdown and asks at least three things.
+ctl=""
+while IFS=$'\t' read -r name verdict _; do
+  [[ "$verdict" == ok ]] || continue
+  row="$(grep "^$name	" "$lspdir/manifest.tsv")"
+  [[ "$row" == *"end clean"* ]] || continue
+  [[ "$(grep -c '"x": "answer"' "$lspdir/$name.lspfuzz")" -ge 4 ]] || continue
+  ctl="$name"; break
+done < <(grep -v '^stats ' "$work/lsp.out")
+if [[ -z "$ctl" ]]; then
+  bad "no session was fit to carry the controls (passed, clean shutdown, three requests)"
+else
+  while read -r mode want; do
+    got="$(python3 "$lspfuzz" run --root "$repo_root" --deadline 60 \
+      --server "python3 $lspfuzz planted --real '$lspsrv' --mode $mode --after 2" "$lspdir/$ctl.lspfuzz" 2>&1)"
+    IFS=$'\t' read -r _ verdict stage why <<< "$got"
+    if [[ "$mode" == clean && "$verdict" == ok ]]; then
+      ok "control clean: $ctl through the untouched wrapper still passes"
+    elif [[ "$mode" != clean && "$verdict" == fail && "$stage" == "$want" ]]; then
+      ok "control $mode: $ctl reported at $stage - ${why:0:90}"
+    else
+      bad "control $mode: $ctl gave '$verdict' '$stage' ($why) - wanted $want; the oracle cannot see this failure"
+    fi
+  done <<ROWS
+crash signal
+frame frame
+clean -
+ROWS
+fi
+# The stored reproducers, held as section 5 holds the compiler's.
+lmanifest="$repo_root/tests/fuzz/lsp/MANIFEST"
+if [[ ! -f "$lmanifest" ]]; then
+  bad "tests/fuzz/lsp/MANIFEST is missing"
+else
+  ls "$repo_root/tests/fuzz/lsp" | grep '\.lspfuzz$' | LC_ALL=C sort > "$work/lsp-on-disk"
+  awk -F'\t' '!/^#/ && NF {print $1}' "$lmanifest" | LC_ALL=C sort > "$work/lsp-listed"
+  if cmp -s "$work/lsp-on-disk" "$work/lsp-listed"; then
+    ok "tests/fuzz/lsp: $(wc -l < "$work/lsp-listed" | tr -d ' ') reproducers, each listed in MANIFEST once"
+  else
+    bad "tests/fuzz/lsp and its MANIFEST disagree:"; diff "$work/lsp-on-disk" "$work/lsp-listed" | sed 's/^/    /'
+  fi
+  while IFS=$'\t' read -r file status stage sig what; do
+    [[ -z "$file" || "$file" == \#* ]] && continue
+    [[ -f "$repo_root/tests/fuzz/lsp/$file" ]] || continue
+    got="$(python3 "$lspfuzz" run --server "$lspsrv" --root "$repo_root" --deadline 60 "$repo_root/tests/fuzz/lsp/$file" 2>&1)"
+    IFS=$'\t' read -r _ verdict gstage why <<< "$got"
+    case "$status" in
+      fixed)
+        if [[ "$verdict" == ok ]]; then
+          ok "fixed $file: ${what:0:100}"
+        else
+          bad "REGRESSION $file: $gstage - $why (was fixed: ${what:0:100})"
+        fi ;;
+      open)
+        if [[ -z "$sig" ]] || grep -qE -- "$sig" <<< ""; then
+          bad "$file: an OPEN row needs a signature that does not match an empty reason - got /$sig/"
+        elif [[ "$verdict" == fail && "$gstage" == "$stage" ]] && grep -qE -- "$sig" <<< "$why"; then
+          ok "XFAIL $file: still fails at $stage - $why (OPEN: ${what:0:80})"
+        elif [[ "$verdict" == fail ]]; then
+          bad "$file fails DIFFERENTLY: $gstage - $why; MANIFEST says $stage /$sig/"
+        else
+          bad "$file no longer fails: mark it fixed in tests/fuzz/lsp/MANIFEST"
+        fi ;;
+      *) bad "$file: status '$status' is neither fixed nor open" ;;
+    esac
+  done < "$lmanifest"
+fi
 
 echo
 echo "check-fuzz: $checks passed, $failed failed"
