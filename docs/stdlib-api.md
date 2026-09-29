@@ -67,23 +67,25 @@ two differ.
 
 ## `Chan`
 
-`stdlib/Chan.ax` — 13 public names
+`stdlib/Chan.ax` — 15 public names
 
 | Name | Kind | Type | Effects | Summary |
 |---|---|---|---|---|
 | `Chan` | struct |  |  | A channel: one word, a slot in the runtime's handle table (MM-PAR-8) naming the ring's mapping. |
+| `chanOwnerDead` | value | `Int` |  | What a timed call answers on a channel whose lock holder died: the mutex's `syncOwnerDead`, the same code for the same event. Above 255, like `sysTimedOut`, so it cannot be mistaken for a wait status. |
 | `chanNew` | value | `(-> Int (Result Chan Error))` | `Alloc,IO,Mut` | A channel of `cap` words, 1 <= cap <= 1,048,576. Answers the handle, or the mapping's error; a capacity out of range is EINVAL (22 on every target with a syscall ABI), and a handle table with no slot left is EMFILE (24). |
-| `chanSend` | value | `(-> Chan Int Bool)` | `IO,Mut` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - and then `v` was not sent. |
-| `chanRecv` | value | `(-> Chan (Option Int))` | `IO,Mut` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream. |
-| `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out with the ring still full - and then `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which of the three it was. |
-| `chanRecvTimeout` | value | `(-> Chan Int (Result (Option Int) Error))` | `Alloc,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out with the ring still empty and open - the defined answer on timeout, which takes nothing out of the ring. A non-positive `nanos` is one look. |
-| `chanTrySend` | value | `(-> Chan Int Bool)` | `IO,Mut` | Send without waiting: `True` if `v` went into the ring, `False` if it did not - full or closed, which `chanClosed` tells apart, as it does for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
-| `chanTryRecv` | value | `(-> Chan (Option Int))` | `IO,Mut` | Receive without waiting: the oldest word, or `None` when there is none right now - empty, whether or not it is closed; `chanClosed` tells the two apart. |
-| `chanClose` | value | `(-> Chan Int)` | `IO,Mut` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. |
-| `chanClosed` | value | `(-> Chan Bool)` | `IO,Mut` |  |
-| `chanLen` | value | `(-> Chan Int)` | `IO,Mut` | Words in the ring now. |
+| `chanSend` | value | `(-> Chan Int Bool)` | `Alloc,IO,Mut` | Send `v`, waiting while the ring is full. `True` once it is in the ring; `False` if the channel is closed - before the call or while it waited - or poisoned (`chanPoisoned`), and then `v` was not sent. |
+| `chanRecv` | value | `(-> Chan (Option Int))` | `Alloc,IO,Mut` | Receive the oldest word, waiting while the ring is empty and open. `None` once the channel is closed AND drained - the end of the stream - or poisoned (`chanPoisoned`). |
+| `chanSendTimeout` | value | `(-> Chan Int Int (Result Bool Error))` | `Alloc,IO,Mut,Unsafe` | `chanSend`, waiting at most `nanos` nanoseconds - for the lock and for room. `Ok True` once `v` is in the ring; `Ok False` if the channel is closed; `Err` with code `sysTimedOut` when the time ran out first, and `Err` with code `chanOwnerDead` when the channel is poisoned - and in each of those `v` was not sent. The ring is looked at once more after the last wait, so a slot that opened as the time ran out is taken rather than refused. A non-positive `nanos` is one look, like `chanTrySend`, that says which it was. |
+| `chanRecvTimeout` | value | `(-> Chan Int (Result (Option Int) Error))` | `Alloc,IO,Mut,Unsafe` | `chanRecv`, waiting at most `nanos` nanoseconds - for the lock and for a word. `Ok (Some w)` the oldest word; `Ok None` the end of the stream (closed and drained); `Err` with code `sysTimedOut` when the time ran out first - the defined answer on timeout, which takes nothing out of the ring - and `Err` with code `chanOwnerDead` when the channel is poisoned. A non-positive `nanos` is one look. |
+| `chanTrySend` | value | `(-> Chan Int Bool)` | `Alloc,IO,Mut` | Send without waiting for room: `True` if `v` went into the ring, `False` if it did not - full, closed or poisoned, which `chanClosed` and `chanPoisoned` tell apart, as they do for `chanTryRecv`. A `Bool` rather than a three-way `Int`: a -1 for "closed" is the sentinel convention the error model is migrating away from (`tests/compat/verify-compat.py`). |
+| `chanTryRecv` | value | `(-> Chan (Option Int))` | `Alloc,IO,Mut` | Receive without waiting for a word: the oldest word, or `None` when there is none right now - empty, whether or not it is closed, or poisoned; `chanClosed` and `chanPoisoned` tell them apart. |
+| `chanClose` | value | `(-> Chan Int)` | `Alloc,IO,Mut` | End the stream. Idempotent. Every waiter wakes: a sender to be refused, a receiver to drain and then see `None`. A poisoned channel has ended already, and this changes nothing. |
+| `chanClosed` | value | `(-> Chan Bool)` | `Alloc,IO,Mut` | Whether the stream has ended: closed, or poisoned. |
+| `chanPoisoned` | value | `(-> Chan Bool)` |  | Whether a binding died holding this channel's lock, which poisoned it (the module header's "a holder that dies"). Takes no lock. |
+| `chanLen` | value | `(-> Chan Int)` | `Alloc,IO,Mut` | Words in the ring now; 0 on a poisoned channel, which yields none. |
 | `chanCap` | value | `(-> Chan Int)` |  |  |
-| `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. |
+| `chanFree` | value | `(-> Chan (Result Int Error))` | `Alloc,IO,Mut` | Unmap the channel. Only once no binding can still reach it - after the `parallel` form that used it (the module header's obligation). The handle is retired before the ring is unmapped, so every call made after this one - a second `chanFree` included - traps with status 85. It takes no lock, so a poisoned channel is freed like any other. |
 
 ## `Err`
 

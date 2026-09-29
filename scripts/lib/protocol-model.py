@@ -780,6 +780,7 @@ NOT_MODELLED = {
         "chanSliceNanos": "a constant, the slice",
         "chanPoisonMark": "a constant, the poisoned lock word, checked in WRAPPERS",
         "chanOwnerDead": "a constant, the timed forms' code for a poisoned channel",
+        "chanYes": "reads a look's answer: `Ok True` is 1, anything else 0, the model's look",
         "chanStep": "the charge rule, checked in WRAPPERS",
         "chanGet": "the plain load of a lock-protected word, checked in WRAPPERS",
         "chanPut": "the plain store to a lock-protected word, checked in WRAPPERS",

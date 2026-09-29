@@ -141,6 +141,13 @@
       }
       9)))
 
+(:: spawnHolder (-> Chan Int Int Spawn))
+;@axiom:effect(io)
+(fn (spawnHolder c flag idle)
+  (__proc_spawn
+    (lambda (x) (holdLock c flag idle))
+    0))
+
 ; ---- exact ----------------------------------------------------------------
 ; Words of `flag`: 0 the holder holds, 1 the kill's clock reading.
 (:: ringWaiter (-> Chan Int Int Int))
@@ -199,9 +206,7 @@
       ; The ring waiter has announced itself (word 2) before the holder
       ; exists, so it sleeps on the ring, not on the lock.
       (until idle ring 2 1)
-      (let ((h (__proc_spawn
-        (lambda (x) (holdLock c flag idle))
-        0)))
+      (let ((h (spawnHolder c flag idle)))
         {
           (until idle flag 0 1)
           ; The lock waiter has marked the word contended: it sleeps on it.
@@ -293,9 +298,7 @@
           (let (
             (buf (memAlloc 16))
             (cell (memAlloc 8))
-            (h (__proc_spawn
-              (lambda (x) (holdLock c flag idle))
-              0))
+            (h (spawnHolder c flag idle))
           )
             {
               (until idle flag 0 1)
@@ -338,13 +341,26 @@
     0
   })
 
+(:: spawnHammer (-> Chan Spawn))
+;@axiom:effect(io)
+(fn (spawnHammer c)
+  (__proc_spawn
+    (lambda (x) (hammer c))
+    0))
+
+; One round: a recovery point around `doomed`, answering its status.
+(:: round (-> Chan Int Int Int))
+;@axiom:effect(io)
+(fn (round c idle us)
+  (__axiom_recover
+    __axiom_arena_mark
+    (lambda (x) (doomed c idle us))))
+
 ; Start the hammer, let it run `us`, then trap: the abort sweeps it.
 (:: doomed (-> Chan Int Int Int))
 ;@axiom:effect(io)
 (fn (doomed c idle us)
-  (let ((h (__proc_spawn
-    (lambda (x) (hammer c))
-    0)))
+  (let ((h (spawnHammer c)))
     {
       (nap idle us)
       (/ 1 zero)
@@ -367,9 +383,7 @@
           (set i (+ i 1))
           (match (chanNew 1)
             ((Ok c)
-              (let ((st (__axiom_recover
-                __axiom_arena_mark
-                (lambda (x) (doomed c idle (+ 200 (* (% i 7) 130)))))))
+              (let ((st (round c idle (+ 200 (* (% i 7) 130)))))
                 (let ((t0 (now buf)))
                   (let (
                     (r (chanTryRecv c))
@@ -391,8 +405,11 @@
                       (match (chanFree c)
                         ((Ok z) 0)
                         ((Err e) 0))
-                    }))))
-            ((Err e) (set odd (+ odd 1))))
+                    })))
+            )
+            ((Err e)
+              (set odd (+ odd 1))
+            ))
         })
       (let ((ms (/ worst 1000)))
         (println "sweep {i} poisoned {poisoned} clean {clean} odd {odd} worst-ms {ms}"))
@@ -414,5 +431,6 @@
               {
                 (println "usage: chan-dead (exact | parent | sweep R)")
                 2
-              })))))
+              }))))
+    )
     ((Err e) 1)))

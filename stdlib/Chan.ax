@@ -242,13 +242,18 @@
 ;@axiom:effect(unsafe)
 (fn (chanChildEnded pid)
   (let ((buf (chanBlock sysChildPollBytes)))
-    (let ((ended (match (sysChildExited pid buf)
-      ((Ok b) b)
-      ((Err e) false))))
+    (let ((ended (chanYes (sysChildExited pid buf))))
       {
         (chanBlockDone buf)
         ended
       })))
+
+; `Ok True`, and nothing else, is yes: a look that failed has seen nothing.
+(:: chanYes (-> (Result Bool Error) Bool))
+(fn (chanYes r)
+  (match r
+    ((Ok b) b)
+    ((Err e) false)))
 
 ; Take the word from the dead holder's mark `w` to the poison mark -
 ; only if it still holds `w` - and wake every binding asleep on the lock

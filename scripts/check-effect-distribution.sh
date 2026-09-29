@@ -586,6 +586,24 @@
 # twin's gain. The stdlib view the same way, 209 rows naming `IO` in
 # both, with `strSplit`, `listDir` and `sysReadDir` now `(Vec String)`.
 #
+# RE-PINNED for AN-10: the channel's lock names its holder and a dead
+# one poisons it (stdlib/Chan.ax, MM-PAR-10). The stdlib view only. The
+# lock's slow path now takes a scratch block (the timed wait's, and the
+# `waitid` look's), so the seven public calls that lock -
+# `chanSend`, `chanRecv`, `chanTrySend`, `chanTryRecv`, `chanClose`,
+# `chanClosed`, `chanLen` - move from `IO,Mut` (12 to 5) to
+# `Alloc,IO,Mut`, which also gains `chanHolderDead` (68 to 76);
+# `chanLock` and `chanSleep` move from `IO,Mut,Unsafe` to
+# `Alloc,IO,Mut,Unsafe` with the new `chanAcquire` and `chanChildEnded`
+# (42 to 46), and `chanPoison` lands in `IO,Mut,Unsafe` (9 to 8); the new
+# `chanMe` is exactly `IO` (34 to 35), `chanBlock` `Alloc,Unsafe` (5 to
+# 6), `chanIsPoisoned` and `chanBlockDone` exactly `Unsafe` in place of
+# `chanScratchDone` (87 to 88), `chanMarkWaiting` `Mut,Unsafe` in place
+# of `chanXchg`, and six new pure rows (`chanOwnerDead`,
+# `chanPoisonMark`, `chanPoisoned`, `chanLockSlice`, `chanOutOfTime`,
+# `chanYes`; 392 to 398). No row moved off `IO`: the five new rows that
+# name it are new functions, and every moved row still names it.
+#
 # Every bucket is pinned exactly. A refactor that moves functions
 # between buckets fails here, and the failure is a conversation about
 # whether the required/ambient line still sits where it was measured -
@@ -655,25 +673,25 @@ lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 113 "exactly Alloc,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 68 "Alloc,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 76 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 13 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 39 "exactly Alloc"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 32 "Alloc,IO"
-have "$(bucket "$work/lib.axsym" 'IO')" 34 "exactly IO"
+have "$(bucket "$work/lib.axsym" 'IO')" 35 "exactly IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 7 "Alloc,Assert,IO,Mut"
-have "$(bucket "$work/lib.axsym" 'IO,Mut')" 12 "IO,Mut"
+have "$(bucket "$work/lib.axsym" 'IO,Mut')" 5 "IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 72 "Alloc,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Unsafe')" 87 "exactly Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 42 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Unsafe')" 88 "exactly Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 46 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 59 "Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 5 "Alloc,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 6 "Alloc,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 7 "Alloc,IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut,Unsafe')" 0 "Alloc,Assert,IO,Mut,Unsafe"
-have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 9 "IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'IO,Mut,Unsafe')" 8 "IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'IO,Unsafe')" 2 "IO,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Fallible')" 1 "exactly Fallible"
 have "$(bucket "$work/lib.axsym" 'Assert')" 1 "exactly Assert"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 392 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 398 "pure (neither row nor mark)"
 have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 5 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 19 "effect-params rows"
 
