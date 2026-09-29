@@ -1232,9 +1232,11 @@
           (vecPush v "(fn (__repl_result _dummy) ")
           (vecPush v body)
           (vecPush v ")\n(:: main Int)\n;@axiom:effect(io)\n")
-          (vecPush v (if (strEq tyStr "Char")
-            ";@axiom:effect(unsafe)\n"
-            ""))
+          (vecPush
+            v
+            (if (strEq tyStr "Char")
+              ";@axiom:effect(unsafe)\n"
+              ""))
           (vecPush v "(fn (main) { ")
           (vecPush v printExpr)
           (vecPush v " 0 })")
