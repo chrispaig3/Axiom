@@ -17,8 +17,10 @@
 # asserts is the property that makes the graph worth reading:
 #
 #   CONTAINMENT. For every declaration, every effect of every callee is
-#   an effect of the caller. That is not a nice-to-have - it is the
-#   statement that `#calls=` and `#effects=` are two views of one walk.
+#   an effect of the caller, except `Unsafe` on a callee marked
+#   `#unsafe=trusted`: its boundary ends that obligation (MM-EXEC-9d).
+#   That is the statement that `#calls=` and `#effects=` are two views
+#   of one walk.
 #   If it ever fails, one of them is lying and an `Agent.Policy` reading
 #   either learns something false.
 #
@@ -184,10 +186,12 @@ for line in open(sys.argv[1]):
     else:
         base = span.rsplit(':', 1)[0].rsplit(':', 1)[0].split('/')[-1]
         mod = (base[:-3] if base.endswith('.ax') else base).split('.')[0]
+    trusted = '#unsafe=trusted' in line
     key = (mod, name)
     prev = rows.get(key)
     rows[key] = (effs | (prev[0] if prev else set()),
-                 calls or (prev[1] if prev else []))
+                 calls or (prev[1] if prev else []),
+                 trusted or (prev[2] if prev else False))
 
 bare = {}
 for (mod, name), v in rows.items():
@@ -200,13 +204,15 @@ def lookup(callee):
     return bare.get(callee)
 
 violations, rowless = [], []
-for (mod, name), (effs, calls) in rows.items():
+for (mod, name), (effs, calls, _trusted) in rows.items():
     for callee in calls:
         target = lookup(callee)
         if target is None:
             rowless.append((mod, name, callee))
             continue
         missing = target[0] - effs
+        if target[2]:
+            missing.discard('Unsafe')
         if missing:
             violations.append((mod, name, callee, ','.join(sorted(missing))))
 
@@ -244,7 +250,7 @@ if other:
 # still printed, because it is the thing a reader will see in the
 # stream, and it is no longer asserted.
 callees = sorted({r[2] for r in generated})
-print(f"ok   {len(rows)} rows, every edge resolved, no callee effect escapes its caller")
+print(f"ok   {len(rows)} rows, every edge resolved, no effect escapes a caller except through a trusted unsafe boundary")
 print(f"ok   {len(generated)} edges name a trait implementation, over "
       f"{len(callees)} distinct names, which have no row "
       f"(the open symbols.ax gap, named in this gate's header)")

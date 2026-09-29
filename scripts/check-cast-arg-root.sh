@@ -41,6 +41,11 @@ gate_build_axc axc
 echo "--- 1. user-level cast count does not grow ---"
 # self_host/ is excluded: (cast Int ...) there is compiler plumbing
 # for untyped words, not the user-level laundering MM-VAL-22 names.
+# Baseline 403 measured for R-B6: `tests/diagnostics/1040`, `1042`
+# and `tests/selfhost/1010` name 17 casts to pin exactly where a
+# forged reference needs an unsafe declaration, and the renderer
+# goldens quote the lines they flag; the typed split answers
+# (`strSplit`, `listDir`, `sysReadDir`) removed 9.
 # Baseline 372 measured 2026-09-28: one arrived with
 # `tests/selfhost/1006-cast-type-operand.ax`, whose header quotes
 # `Vec.ax`'s `(cast a (memGetWord ...))`: the fixture is about that
@@ -93,10 +98,10 @@ echo "--- 1. user-level cast count does not grow ---"
 cast_count="$(git -C "$repo_root" grep -h -o '(cast ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 372 ]; then
-  ok "user-level (cast count $cast_count <= 372)"
+elif [ "$cast_count" -le 403 ]; then
+  ok "user-level (cast count $cast_count <= 403)"
 else
-  bad "user-level (cast count $cast_count > 372): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 403): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. arg-root cast still leaks (does not free early) ---"
@@ -104,6 +109,7 @@ cat > "$work/cast3.ax" <<'EOF'
 (import Mem)
 (import Str)
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 8)))
     {
@@ -115,6 +121,7 @@ cat > "$work/cast4.ax" <<'EOF'
 (import Mem)
 (import Str)
 (:: main Int)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((p (memAlloc 8)))
     {

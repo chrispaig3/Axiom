@@ -712,6 +712,7 @@ cat > "$work/nrpar.ax" <<'NRPAR'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((cell (memAlloc 8)))
     (let ((h (__par_spawn (lambda (w) (+ w 41)) 1)))
@@ -730,6 +731,7 @@ cat > "$work/nrtrap.ax" <<'NRTRAP'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((cell (memAlloc 8)))
     (let ((h (__par_spawn (lambda (w) (/ 10 w)) 0)))
@@ -1278,6 +1280,7 @@ cat > "$work/refuse-handle.ax" <<'HANDLE'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((h (ffiHandleNew 0 0)))
     (__par_join (__par_spawn (lambda (w) { h w }) 0))))
@@ -1380,6 +1383,7 @@ cat > "$work/orphan.ax" <<'ORPHAN'
 ; The monotonic clock in microseconds, or 0 where it is refused.
 (:: nowUs (-> Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (nowUs buf)
   (match (sysNowMonotonic buf)
     ((Ok t) t)
@@ -1443,6 +1447,7 @@ cat > "$work/orphan.ax" <<'ORPHAN'
   })
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((mode (sysArg 1)))
     (if (strEq mode "abort")
@@ -1511,6 +1516,7 @@ for kind in proc thread; do
 (import Mem)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (cell (memAlloc 8))

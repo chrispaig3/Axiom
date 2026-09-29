@@ -110,6 +110,7 @@ cat > "$work/b_runall.ax" <<'AX'
 
 (:: main Int)
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let ((cmds vecNew))
     {

@@ -70,12 +70,13 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 N=1000000
 REPS=5
 
-probe() {  # <name> <mark-expr> <reset-expr>
+probe() {  # <name> <mark-expr> <reset-expr> [<tag line>]
   cat > "$work/$1.ax" <<AX
 (import IO)
 
 (:: main Int)
 
+${4:-}
 ;@axiom:effect(io)
 (fn (main)
   (let (
@@ -142,7 +143,9 @@ best_ms() {  # <binary> -> milliseconds; the program's answer lands in $work/ans
 # --------------------------------------------------------------------
 echo "== three spellings of one program, $N iterations =="
 # --------------------------------------------------------------------
-probe live    '__axiom_arena_mark' '(__axiom_arena_reset m)'
+# The reset is a raw primitive, so the one spelling that performs it
+# declares `effect(unsafe)` (AX3073); the tag moves no emitted byte.
+probe live    '__axiom_arena_mark' '(__axiom_arena_reset m)' ';@axiom:effect(unsafe)'
 probe noreset '__axiom_arena_mark' '(+ 0 0)'
 probe nomark  '0'                  '(+ 0 0)'
 

@@ -270,7 +270,9 @@ PY
   printf '%s' "$?"
 }
 
-# The checker half: `cast`'s surplus goes unstamped again. The needle
+# The checker half: `cast`'s surplus goes unstamped again. It starts at
+# argument 2 because `checkCastForm` checks the value, argument 1, itself
+# (it keeps the value's type for the forging rule, R-B6). The needle
 # is the multi-line call the formatter writes; a single-line spelling
 # fails the verbatim match and proves nothing (measured 2026-09-19,
 # when both needles below matched zero times and the gate went red
@@ -280,9 +282,9 @@ rc_b="$(ablate_and_run checker self_host/typecheck.ax \
         tc
         args
         e
-        1
+        2
         (vecLen args))' \
-  '(checkArgsFromIndex tc args 1)')" || rc_b=""
+  '(checkArgsFromIndex tc args 2)')" || rc_b=""
 if [[ -z "$rc_b" ]]; then
   bad "could not ablate the checker half - nothing was proven"
 elif [[ "$rc_b" == "$surplus_want" ]]; then

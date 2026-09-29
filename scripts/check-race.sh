@@ -511,7 +511,7 @@ cuts = {
   "lock": [("Sync.ax",
     "  (if (== (syncLoad m 3) 1)\n    (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n    (let ((me syncMe))\n      (if (== (syncCas m 0 me) 0)",
     "  (if (== (syncLoad m 3) 1)\n    (Err (mkError syncOwnerDead \"mutexLock: the holder died holding it\"))\n    (let ((me syncMe))\n      (if (== 0 0)")],
-  "chan": [("Chan.ax", "(fn (chanLock ch)\n  (if (== (__atomic_cas ch 0 1) 0)", "(fn (chanLock ch)\n  (if (== 0 0)"),
+  "chan": [("Chan.ax", ";@axiom:effect(unsafe)\n(fn (chanLock ch)\n  (if (== (__atomic_cas ch 0 1) 0)", "(fn (chanLock ch)\n  (if (== 0 0)"),
            ("Chan.ax", "(fn (chanUnlock ch)\n  (if (== (__atomic_add ch (- 0 1)) 1)", "(fn (chanUnlock ch)\n  (if (== 1 1)")],
 }[kind]
 for f, old, new in cuts:
@@ -599,6 +599,7 @@ else
 
 (:: peek (-> Int Int Int))
 ;@axiom:effect(unsafe)
+;@axiom:precondition(the probe reads past `p` on purpose, for ASan to report)
 (fn (peek p i)
   (__load64 p i))
 

@@ -279,6 +279,7 @@ cat > "$work/us/ref.ax" <<'AX'
 (:: main Int)
 
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   (let (
     (a1 (memGetWord __axiom_arena_mark 0))

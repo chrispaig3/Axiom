@@ -395,6 +395,7 @@ cat > "$work/fit.ax" <<'AX'
 
 (pub :: chain (-> Int Int Int))
 
+;@axiom:effect(unsafe)
 (pub fn (chain n acc)
   (if (<= n 0)
     acc

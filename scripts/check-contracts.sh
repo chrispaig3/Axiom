@@ -518,7 +518,8 @@ ablate "no-checking" typecheck.ax \
 # still asks whether the body LOOKS lowered - which is what keeps this
 # probe a probe of section 6 rather than of the port.
 ablate "guard-restored" expand.ax \
-  "(pub fn (expLowerOne d tags)
+  ";@axiom:effect(unsafe)
+(pub fn (expLowerOne d tags)
   (if (== (vecLen tags) 0)
     0" \
   "(pub :: expWasLowered (-> Int Int))
@@ -556,6 +557,7 @@ ablate "guard-restored" expand.ax \
   )
 )
 
+;@axiom:effect(unsafe)
 (pub fn (expLowerOne d tags)
   (if (|| (== (vecLen tags) 0) (== (expWasLowered (nodeC d)) 1))
     0" \

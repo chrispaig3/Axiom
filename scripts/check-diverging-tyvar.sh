@@ -237,6 +237,7 @@ cat > "$work/shapes.ax" <<'AX'
 
 ; 7. an endless loop, and a coercion after it that never happens
 (:: pLoop (-> String a))
+;@axiom:effect(unsafe)
 
 (fn (pLoop m)
   (let ((mut i 0))
@@ -291,9 +292,9 @@ echo "== the escape hatch, on either half of a declaration =="
 # this was a warning and would cost a refused program now.
 for where in sig fn; do
   if [[ "$where" == sig ]]; then
-    printf ';@axiom:raw\n(:: rawGet (-> Int a))\n\n(fn (rawGet w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw.ax"
+    printf ';@axiom:raw\n(:: rawGet (-> Int a))\n;@axiom:effect(unsafe)\n(fn (rawGet w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw.ax"
   else
-    printf '(:: rawGet (-> Int a))\n\n;@axiom:raw\n(fn (rawGet w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw.ax"
+    printf '(:: rawGet (-> Int a))\n\n;@axiom:raw\n;@axiom:effect(unsafe)\n(fn (rawGet w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw.ax"
   fi
   rc="$(check_of raw.ax)"
   if (( rc == 0 )); then
@@ -304,7 +305,7 @@ for where in sig fn; do
 done
 # And the tag is not a blanket: an untagged declaration in the same
 # file is still refused, so the exemption is per-declaration.
-printf ';@axiom:raw\n(:: rawGet (-> Int a))\n\n(fn (rawGet w) (cast a w))\n\n(:: alsoRaw (-> Int a))\n\n(fn (alsoRaw w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw2.ax"
+printf ';@axiom:raw\n(:: rawGet (-> Int a))\n;@axiom:effect(unsafe)\n(fn (rawGet w) (cast a w))\n\n(:: alsoRaw (-> Int a))\n;@axiom:effect(unsafe)\n(fn (alsoRaw w) (cast a w))\n\n(:: main Int)\n\n(fn (main) 0)\n' > "$work/raw2.ax"
 rc="$(check_of raw2.ax)"
 if (( rc == 1 )) && grep -q 'alsoRaw' "$work/out" && ! grep -q '`rawGet`' "$work/out"; then
   ok "the tag exempts its own declaration and not its neighbour"
@@ -367,7 +368,7 @@ done
 # subtract, they do not overlap - and it must be the returned-variable
 # one, because that is the arm a divergence fixpoint can still answer.
 n="$(grep -c 'error\[AX3040\]' "$work/out" || true)"
-a="$(grep -c '`alsoResult`' "$work/out" || true)"
+a="$(grep 'AX3040' "$work/out" | grep -c '`alsoResult`' || true)"
 if (( n == 3 )) && (( a == 1 )) && grep -q '`alsoResult` returns type variable' "$work/out"; then
   ok "alsoResult draws one diagnostic, from the returned-variable arm"
 else
@@ -492,7 +493,7 @@ echo "== what the diagnostic is guarding, run rather than argued =="
 # built and RUN here, and it dies - which is the whole claim. A gate
 # that only asserted "a diagnostic appears" would pass just as well
 # against a rule that refused correct programs for a made-up reason.
-printf '(import Str)\n\n;@axiom:raw\n(:: demand (-> (-> a Int) Int))\n\n(fn (demand f) (f (cast a 42)))\n\n(:: main Int)\n\n(fn (main) (demand strLen))\n' > "$work/boom.ax"
+printf '(import Str)\n\n;@axiom:raw\n(:: demand (-> (-> a Int) Int))\n;@axiom:effect(unsafe)\n(fn (demand f) (f (cast a 42)))\n\n(:: main Int)\n\n(fn (main) (demand strLen))\n' > "$work/boom.ax"
 rc="$(check_of boom.ax)"
 ( cd "$work" && "$axc" run boom.ax ) >/dev/null 2>&1
 run=$?

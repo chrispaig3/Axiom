@@ -340,7 +340,7 @@ mkchain() {
     for (( i = 0; i < depth; i++ )); do
       printf '(:: f%d (-> Int Int))\n\n' "$i"
       if (( i == depth - 1 )); then
-        printf '(fn (f%d p) { (memSetWord p 0 (memAlloc 8)) 0 })\n\n' "$i"
+        printf ';@axiom:effect(unsafe)\n(fn (f%d p) { (memSetWord p 0 (memAlloc 8)) 0 })\n\n' "$i"
       else
         printf '(fn (f%d p) (f%d p))\n\n' "$i" "$(( i + 1 ))"
       fi

@@ -610,7 +610,7 @@ fi
 case "$(uname -s)" in
   Darwin)
     fx="$repo_root/tests/litmus/thread-in-fork.ax"
-    if ablate_cc libcfork '    (let ((t (memGetWord cg 26)))\n      (if (|| (== t 0) (== t 1))\n        1\n        0))\n    0))' '    0\n    0))'; then
+    if ablate_cc libcfork ';@axiom:effect(unsafe)\n(pub fn (parLibcFork cg)\n  (if (cgThreads cg)\n    (let ((t (memGetWord cg 26)))\n      (if (|| (== t 0) (== t 1))\n        1\n        0))\n    0))' '(pub fn (parLibcFork cg)\n  (if (cgThreads cg)\n    0\n    0))'; then
       (cd "$repo_root" && "$work/cc-libcfork/axc" build --input "$fx" --output "$work/cc-libcfork/prog") > "$work/cc-libcfork/prog.build" 2>&1
       rc=0; gate_timeout 30 "$work/cc-libcfork/prog" > "$work/cc-libcfork/out" 2>/dev/null || rc=$?
       if [[ "$rc" != 0 ]] && ! grep -q '^raw fork: 42$' "$work/cc-libcfork/out"; then
