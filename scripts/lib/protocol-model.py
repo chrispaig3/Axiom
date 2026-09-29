@@ -18,8 +18,8 @@ bounds.
 HOW THE PROTOCOLS ARE WRITTEN DOWN. Each function the protocols run is a
 short program in a tiny instruction set (`FUNCTIONS` below), written in
 the order of its source text, and every step that touches a shared word
-cites the exact spelling it transcribes: `('acas', 'r', 'ch', '0', '1',
-'(__atomic_cas ch 0 1)')` is `chanLock`'s first compare-and-swap. The
+cites the exact spelling it transcribes: `('acas', 'r', 'ch', '0', 'me',
+'(__atomic_cas ch 0 me)')` is `chanLock`'s first compare-and-swap. The
 `transcription` command reads the real files and requires every cited
 spelling to occur in its function, in the model's order, and every
 function in the two modules to be either modelled or listed in
