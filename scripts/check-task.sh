@@ -171,11 +171,22 @@ for lowering in processes threads; do
     else
       bad "$lowering -O$lvl: locked run exit $rc, '$out'"
     fi
-    rc=0; out="$(gate_timeout 120 "$bin" excl 0 "$N" 2>&1)" || rc=$?
-    if [[ "$rc" == 0 && "$out" =~ lost\ ([0-9]+)$ ]] && (( BASH_REMATCH[1] > 0 )); then
-      ok "$lowering -O$lvl: the unlocked control lost ${BASH_REMATCH[1]} of $((4 * N)) - the count can see a race"
+    # The control may take up to five runs, as check-atomics' controls
+    # do: four bindings that never overlap lose nothing, and on
+    # linux-aarch64 one run of the unlocked control lost no update at
+    # -O2 under processes and at -O0 under threads (CI run 36584155583).
+    lost=0; tries=0
+    while (( lost == 0 && tries < 5 )); do
+      tries=$((tries + 1))
+      rc=0; out="$(gate_timeout 120 "$bin" excl 0 "$N" 2>&1)" || rc=$?
+      if [[ "$rc" == 0 && "$out" =~ lost\ ([0-9]+)$ ]]; then
+        lost="${BASH_REMATCH[1]}"
+      fi
+    done
+    if (( lost > 0 )); then
+      ok "$lowering -O$lvl: the unlocked control lost $lost of $((4 * N)) on run $tries - the count can see a race"
     else
-      bad "$lowering -O$lvl: the unlocked control showed no lost update ('$out', exit $rc) - this host cannot show the race the locked run is held to"
+      bad "$lowering -O$lvl: the unlocked control showed no lost update in $tries runs ('$out', exit $rc) - this host cannot show the race the locked run is held to"
     fi
   done
 done
