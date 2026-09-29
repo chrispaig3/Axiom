@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""An executable model of the channel and mutex protocols, explored exhaustively.
+"""An executable model of the channel, mutex and task-pool protocols, explored exhaustively.
 
 `stdlib/Chan.ax` (MM-PAR-10) and `stdlib/Sync.ax` (MM-PAR-11, MM-PAR-12)
 build a bounded channel and a mutex out of the five atomics and a kernel
-wait on a word. Their headers state the protocols in prose: the channel's
-three-state lock, its change counter and the waiter announcement in word
-2; the mutex's lock word that names its holder, its guard, and its
-dead-holder test. The load gates (`scripts/check-chan.sh`,
-`scripts/check-task.sh`, `scripts/check-race.sh`) run them and see the
-interleavings the hardware happened to make. This file is the other
-half: the same steps, transcribed, and every interleaving of two and
-three bindings at small bounds.
+wait on a word. Their headers state the protocols in prose: the lock
+word that names its holder, which both share, and its dead-holder test
+and poisoning; the channel's change counter and the waiter announcement
+in word 2; the mutex's guard. `stdlib/Task.ax` (MM-PAR-13) runs a pool of
+forked tasks on a token and a slab; its transcription is in
+`task_model.py`, which this file installs. The load gates
+(`scripts/check-chan.sh`, `scripts/check-task.sh`,
+`scripts/check-race.sh`) run them and see the interleavings the hardware
+happened to make. This file is the other half: the same steps,
+transcribed, and every interleaving of two and three bindings at small
+bounds.
 
 HOW THE PROTOCOLS ARE WRITTEN DOWN. Each function the protocols run is a
 short program in a tiny instruction set (`FUNCTIONS` below), written in
@@ -32,7 +35,9 @@ excludes, so mutual exclusion is checked in every state, and a planted
 lock that does not exclude is found as exactly that. A binding a wake
 resumes runs its local steps at once, for the same reason. Bindings that
 run the same driver with the same arguments and pid are interchangeable,
-so each state is stored once, with them sorted.
+so each state is stored once, with them sorted. And a frame's dead locals
+- written before they are next read - are zeroed as a state is stored
+(`liveness`), so two states that differ only in one are one state.
 
 THE KERNEL WAIT is Linux's `futex` and Darwin's `__ulock_wait`: one step
 compares the word with the expected value and either returns (the word
@@ -41,7 +46,11 @@ a wake on that word, and by nothing else in the protocol's own steps. Two
 more ways out are ENVIRONMENT transitions, explored in every state but
 never counted as progress: a spurious wakeup, and the timeout of a timed
 wait. A kill and the parent's reap of a killed or finished process are
-environment transitions too, in the scenarios that model a dying binding.
+environment transitions too, in the scenarios that model a dying binding;
+a binding whose parent is another binding is reaped by nobody, and only
+that parent's `waitid` look sees it exit. The task pool adds a clock that
+moves while the pool waits and nothing else can step, and a sleep that
+only the clock ends (`task_model.py`).
 
 WHAT IS CHECKED, in every reachable state:
   mutual exclusion   at most one binding holds a lock;
@@ -54,9 +63,13 @@ WHAT IS CHECKED, in every reachable state:
                      appears; a receive answers the end of the stream only
                      when the ring is empty and closed, and a timed-out
                      receive only when it was empty and open;
-  the mutex's word   a stale guard is refused, only the holder releases,
-                     a mutex is poisoned only when the word names a holder
-                     that is dead, and a poisoned mutex is never taken.
+  the lock word      a stale guard is refused, only the holder releases,
+                     a mutex or channel is poisoned only when its word names
+                     a holder that died holding it, a poisoned one is never
+                     taken, and a call answers "poisoned" only when it is;
+  the task pool      what `task_model.py` states: every task answers its own
+                     slot once, the pool stays within its width, sleeps past
+                     no deadline or grace, and reaps every child.
 And, over the whole graph, liveness in the model's terms: from every
 reachable state, every binding can still finish using protocol steps
 alone (plus timeouts and reaps where a scenario says the protocol relies
@@ -68,22 +81,24 @@ when none does, and as a LIVELOCK when steps remain but none leads out.
 one but those `UNREACHABLE` names is a gap in the scenarios.
 
 WHAT IT IS NOT. A proof about the model, at its bounds, not about the
-implementation: two bindings with one to three words each and three
-bindings with one (four and two under --long), capacities 1 and 2, and
-one slice of time (two under --long). The link between the two is the
-`transcription` check (the cited operations are still there, in this
-order) and `replay`, which drives the model with the operation sequence
-an instrumented build recorded and requires every recorded answer to be
-the model's. Replay covers the channel's untimed calls under the process
-lowering, where a pid names each binding; the mutex and the timed forms
-have none. Outside the model: the memory model (every access is a step
-in one sequentially consistent order, which MM-PAR-9 promises for the
-atomics and the lock gives the plain words; the lowering is
+implementation: two bindings with one to four words each and three
+bindings with one and two (six and three under --long, and four
+bindings), capacities 1 and 2, one and two slices of time; two and three
+tasks at widths 1 to 3. The link between the two is the `transcription`
+check (the cited operations are still there, in this order) and
+`replay`, which drives the model with the operation sequence an
+instrumented build recorded and requires every recorded answer to be the
+model's. Replay covers the channel's untimed calls under the process
+lowering, where a pid names each binding; the mutex, the timed forms and
+the pool have none. Outside the model: the memory model (every access is
+a step in one sequentially consistent order, which MM-PAR-9 promises for
+the atomics and the lock gives the plain words; the lowering is
 `scripts/check-atomics.sh`'s subject); Linux's 32-bit futex compare
 (MM-PAR-10's caveat); FreeBSD's spin; the clock beyond "a slice ends or
-it does not"; pid reuse and a zombie holder (MM-PAR-11's stated limits);
-the handle's lifetime and a forged guard; the task pool; and every
-scenario larger than the bounds.
+it does not", except the pool's; pid reuse, and a zombie holder seen by
+any process but its parent (the stated limits of MM-PAR-10 and
+MM-PAR-11); the handle's lifetime and a forged guard; and every scenario
+larger than the bounds.
 
 Usage:
   protocol-model.py run [--long]           explore every scenario; exit 1 on any finding or gap
@@ -123,7 +138,15 @@ import sys
 #   ('pid', dst)                         this binding's pid
 #   ('kill0', dst, pid)                  kill(pid, 0): 0 alive, 3 ESRCH
 #   ('look', dst, pid)                   waitid WNOWAIT: 1 when pid is the looker's own
-#                                        child and has exited unreaped, else 0
+#                                        child and has exited unreaped, else 0 (-1
+#                                        where the scenario has no look)
+#   ('clock', dst)                       the clock `sysTimeoutMicros` reads
+#   ('spawn', dst, arg, child)           start binding `child` with `arg`; dst its pid
+#   ('join', dst, pid)                   wait for the child to exit, reap it; dst its status
+#   ('kill9', dst, pid)                  SIGKILL: an alive child exits 137; 3 when reaped
+#   ('sleepuntil', dst, addr, exp, at)   the kernel's wait, timed out only once the
+#                                        clock reaches `at`
+#   ('block',)                           wait for ever: only a kill ends it
 #   ('choose', dst, choices)             a nondeterministic local choice
 #   ('ghost', hook, [args])              bookkeeping the checks read
 #   ('assert', cond, message)
@@ -136,12 +159,20 @@ import sys
 CHAN = "Chan.ax"
 SYNC = "Sync.ax"
 SYS = "Sys.ax"
+# The files the transcription is checked against. `task_model.py` adds
+# Task.ax, with the process operations its functions must hold.
+SOURCES = [CHAN, SYNC, SYS]
+PROCESS_OPS = {}
+# Functions answering more scenarios, each taking `long`.
+EXTRA_SCENARIOS = []
 
-VISIBLE = frozenset(("aload", "astore", "aadd", "acas", "uload", "wait", "wake", "kill0", "look"))
+VISIBLE = frozenset(("aload", "astore", "aadd", "acas", "uload", "wait", "wake", "kill0", "look",
+                     "clock", "spawn", "join", "kill9", "sleepuntil", "block"))
 ARITY = {  # operands before the optional spelling
     "set": 2, "if": 2, "goto": 1, "call": 3, "ret": 1, "aload": 2, "astore": 2,
     "aadd": 3, "acas": 4, "uload": 2, "pload": 2, "pstore": 2, "wait": 4, "wake": 1,
     "pid": 1, "kill0": 2, "look": 2, "choose": 2, "ghost": 2, "assert": 2,
+    "clock": 1, "spawn": 3, "join": 2, "kill9": 2, "sleepuntil": 4, "block": 0,
 }
 
 # name -> (params, locals, (file, source function) or None, body)
@@ -860,8 +891,16 @@ class Code:
             return (op, E(a[0]), sp)
         if op == "pid":
             return (op, V(a[0]), sp)
-        if op in ("kill0", "look"):
+        if op in ("kill0", "look", "join", "kill9"):
             return (op, V(a[0]), E(a[1]), sp)
+        if op == "clock":
+            return (op, V(a[0]), sp)
+        if op == "spawn":
+            return (op, V(a[0]), E(a[1]), E(a[2]), sp)
+        if op == "sleepuntil":
+            return (op, V(a[0]), E(a[1]), E(a[2]), E(a[3]), sp)
+        if op == "block":
+            return (op, sp)
         if op == "choose":
             return (op, V(a[0]), E(a[1]), sp)
         if op == "ghost":
@@ -908,8 +947,16 @@ def liveness(code):
             dst, ex = a[0], [a[1]]
         elif op == "call":
             dst, ex = a[0], list(a[2])
-        elif op in ("aload", "uload", "pload", "kill0", "look", "choose"):
+        elif op in ("aload", "uload", "pload", "kill0", "look", "choose", "join", "kill9"):
             dst, ex = a[0], [a[1]]
+        elif op == "spawn":
+            dst, ex = a[0], [a[1], a[2]]
+        elif op == "sleepuntil":
+            dst, ex = a[0], [a[1], a[2], a[3]]
+        elif op == "clock":
+            dst, ex = a[0], []
+        elif op == "block":
+            ex = []
         elif op in ("aadd", "acas", "wait"):
             dst, ex = a[0], list(a[1:4]) if op != "wait" else [a[1], a[2]]
         elif op == "pid":
@@ -1144,6 +1191,14 @@ class Scenario:
         # the model's parent never does; every other binding is the
         # environment's child, reaped by a reap transition.
         self.parents = dict(parents or {})
+        # The task pool's: whether `sysChildExited` exists, the clock's
+        # word and its horizon, each child's exit-status word, and the
+        # bindings that start unspawned (`N`).
+        self.lookable = True
+        self.clock = None
+        self.horizon = 0
+        self.exitword = {}
+        self.unspawned = frozenset()
         self.what = what
         self.drains = drains
 
@@ -1257,6 +1312,8 @@ def scenarios(long=False):
     out.append(S("mutex processes: a killable holder, a waiter and a timed waiter", "sync", sync_mem(),
                  [("locker", (0, 1)), ("locker", (0, 1)), ("timedLocker", (0, 1))], killable=(0,),
                  progress=("n", "t", "r")))
+    for more in EXTRA_SCENARIOS:
+        out.extend(more(long))
     return out
 
 
@@ -1417,12 +1474,17 @@ class Model:
             code = self.codes[fn]
             c.bs.append(("R", ((fn, 0, tuple(args) + (0,) * code.nlocs),), None))
         c.procs = ["A"] * self.n if sc.procs else []
+        for b in sc.unspawned:
+            c.bs[b] = ("N",) + c.bs[b][1:]
+            c.procs[b] = "-"
         c.ghost = sc.ghost0()
         c.work = {}
         c.desc = None
         c.woken = []
         outs = [c]
         for b in range(self.n):
+            if b in sc.unspawned:
+                continue
             nxt = []
             for cc in outs:
                 nxt.extend(self.run(cc, b, False))
@@ -1480,6 +1542,8 @@ class Model:
                 elif op == "ret":
                     val = ins[1](*L)
                     frames.pop()
+                    if not frames and b in self.sc.exitword:
+                        c.mem[self.sc.exitword[b]] = val
                     if frames:
                         caller = frames[-1]
                         cins = codes[caller[0]].ins[caller[1]]
@@ -1558,9 +1622,80 @@ class Model:
                     t = self.sc.pids.index(pid) if pid in self.sc.pids else None
                     ended = (t is not None and c.procs and c.procs[t] == "Z"
                              and self.sc.parents.get(t) == b)
-                    L[ins[1]] = 1 if ended else 0
+                    L[ins[1]] = (1 if ended else 0) if self.sc.lookable else -1
                     fr[1] += 1
-                    self._say(c, b, code, ins, pid, "its child has exited" if ended else "not an exited child of it")
+                    self._say(c, b, code, ins, pid, ("its child has exited" if ended else "not an exited child of it")
+                              if self.sc.lookable else "no look exists: Err")
+                elif op == "clock":
+                    L[ins[1]] = c.mem[self.sc.clock]
+                    fr[1] += 1
+                    self._say(c, b, code, ins, self.sc.clock, "reads %d" % c.mem[self.sc.clock])
+                elif op == "spawn":
+                    arg = ins[2](*L)
+                    k = ins[3](*L)
+                    if c.procs[k] != "-":
+                        raise Violation("spawn", "B%d spawned B%d twice" % (b + 1, k + 1))
+                    wk = c.thaw(k)
+                    kf = wk[1][0]
+                    kf[2][codes[kf[0]].vars.index("arg")] = arg
+                    wk[0] = "R"
+                    c.procs[k] = "A"
+                    c.woken.append(k)
+                    L[ins[1]] = self.sc.pids[k]
+                    fr[1] += 1
+                    self._say(c, b, code, ins, arg, "starts B%d" % (k + 1))
+                elif op == "join":
+                    pid = ins[2](*L)
+                    k = self.sc.pids.index(pid)
+                    if c.procs[k] == "X":
+                        raise Violation("joined twice", "B%d joined B%d, which was already reaped" % (b + 1, k + 1))
+                    if c.procs[k] == "Z":
+                        c.procs[k] = "X"
+                        L[ins[1]] = c.mem[self.sc.exitword[k]]
+                        fr[1] += 1
+                        self._say(c, b, code, ins, pid, "reaps B%d: status %d" % (k + 1, L[ins[1]]))
+                    else:
+                        w[0] = "S"
+                        w[2] = -100 - k
+                        self._say(c, b, code, ins, pid, "waits for B%d to exit" % (k + 1))
+                        out.append(c)
+                        break
+                elif op == "kill9":
+                    pid = ins[2](*L)
+                    k = self.sc.pids.index(pid)
+                    if c.procs[k] == "A":
+                        wk = c.thaw(k)
+                        wk[0], wk[1], wk[2] = "K", [], None
+                        c.procs[k] = "Z"
+                        c.mem[self.sc.exitword[k]] = 137
+                        self.g_tKilled(c, b, k)
+                        L[ins[1]] = 0
+                        said = "B%d dies (137)" % (k + 1)
+                    else:
+                        L[ins[1]] = 3 if c.procs[k] == "X" else 0
+                        said = "B%d has already exited" % (k + 1)
+                    fr[1] += 1
+                    self._say(c, b, code, ins, pid, said)
+                elif op == "sleepuntil":
+                    a = ins[2](*L)
+                    e = ins[3](*L)
+                    if c.mem[a] != e:
+                        L[ins[1]] = 2
+                        fr[1] += 1
+                        self._say(c, b, code, ins, a, "the word differs: returns")
+                    else:
+                        w[0] = "S"
+                        w[2] = a
+                        self._say(c, b, code, ins, a, "sleeps until the clock reads %d (word %d holds %d)"
+                                  % (ins[4](*L), a, e))
+                        out.append(c)
+                        break
+                elif op == "block":
+                    w[0] = "S"
+                    w[2] = -1
+                    self._say(c, b, code, ins, -1, "blocks for ever")
+                    out.append(c)
+                    break
                 elif op == "choose":
                     alts = ins[2](*L)
                     fr[1] += 1
@@ -1737,6 +1872,8 @@ class Model:
                         out.append(("n", b, self.freeze(cc), cc.desc))
                 except Violation as v:
                     out.append(("n", b, v, c.desc))
+            elif st == "S" and self.codes[bs[b][1][-1][0]].ins[bs[b][1][-1][1]][0] in ("sleepuntil", "join", "block"):
+                out.extend(self.task_successors(s, b, describe))
             elif st == "S":
                 fr = bs[b][1][-1]
                 timed = self.codes[fr[0]].ins[fr[1]][4]
@@ -1769,10 +1906,83 @@ class Model:
                     if describe:
                         c.desc.append(("env", b, "is reaped by its parent"))
                     out.append(("r", b, self.freeze(c), c.desc))
+        if sc.clock is not None:
+            out.extend(self.tick(s, describe))
         return out
 
+    # The task pool's environment: a sleep that the clock ends, a join
+    # that a child's exit ends, and the clock itself.
+    def task_successors(self, s, b, describe):
+        out = []
+        fr = s[1][b][1][-1]
+        ins = self.codes[fr[0]].ins[fr[1]]
+        op = ins[0]
+        if op == "sleepuntil":
+            at = ins[4](*fr[2])
+            moves = [("s", 0, "spurious wakeup")]
+            if s[0][self.sc.clock] >= at:
+                moves.append(("t", 1, "the clock reaches %d: the wait times out" % at))
+            for cls, answer, what in moves:
+                c = self.ctx(s, describe)
+                self._resume(c, b, answer)
+                c.woken.append(b)
+                if describe:
+                    c.desc.append(("env", b, what))
+                try:
+                    for cc in self.settle([c]):
+                        out.append((cls, b, self.freeze(cc), cc.desc))
+                except Violation as v:
+                    out.append((cls, b, v, c.desc))
+        elif op == "join":
+            k = self.sc.pids.index(ins[2](*fr[2]))
+            if s[2][k] == "Z":
+                c = self.ctx(s, describe)
+                c.procs[k] = "X"
+                self._resume(c, b, c.mem[self.sc.exitword[k]])
+                c.woken.append(b)
+                if describe:
+                    c.desc.append(("env", b, "B%d has exited: the join reaps it, status %d"
+                                   % (k + 1, c.mem[self.sc.exitword[k]])))
+                try:
+                    for cc in self.settle([c]):
+                        out.append(("n", b, self.freeze(cc), cc.desc))
+                except Violation as v:
+                    out.append(("n", b, v, c.desc))
+        return out
+
+    def tick(self, s, describe):
+        """One unit of time, while the pool sleeps or waits in a join and no
+        other binding can step, up to the scenario's horizon."""
+        sc = self.sc
+        now = s[0][sc.clock]
+        st, frames, _ = s[1][0]
+        if now >= sc.horizon or st != "S":
+            return []
+        # Maximal progress: a step no binding waits on takes no time, so
+        # the clock moves only once every other binding is asleep, blocked,
+        # finished or not started.
+        if any(bb[0] == "R" for bb in s[1][1:]):
+            return []
+        fr = frames[-1]
+        ins = self.codes[fr[0]].ins[fr[1]]
+        if ins[0] == "sleepuntil":
+            if now >= ins[4](*fr[2]):
+                return []
+        elif ins[0] != "join":
+            return []
+        c = self.ctx(s, describe)
+        if describe:
+            c.desc.append(("env", 0, "the clock moves to %d" % (now + 1)))
+        try:
+            if ins[0] == "sleepuntil":
+                self.g_tAsleepAt(c, now, frames)
+            c.mem[sc.clock] = now + 1
+            return [("c", 0, self.freeze(c), c.desc)]
+        except Violation as v:
+            return [("c", 0, v, c.desc)]
+
     def terminal(self, s):
-        return all(b[0] in ("D", "K") for b in s[1])
+        return all(b[0] in ("D", "K", "N") for b in s[1])
 
     def final_check(self, s):
         g = dict(zip(self.gkeys, s[3]))
@@ -1792,10 +2002,19 @@ class Model:
             return "finished"
         if st == "K":
             return "killed"
+        if st == "N":
+            return "not started"
         if st == "S":
             fr = frames[-1]
             code = self.codes[fr[0]]
             ins = code.ins[fr[1]]
+            if ins[0] == "join":
+                return "waiting in %s to reap pid %d" % (names, ins[2](*fr[2]))
+            if ins[0] == "block":
+                return "blocked for ever in %s" % names
+            if ins[0] == "sleepuntil":
+                return "asleep in %s, on word %d expecting %d (it holds %d), until the clock reads %d (it reads %d)" % (
+                    names, sleep, ins[3](*fr[2]), s[0][sleep], ins[4](*fr[2]), s[0][self.sc.clock])
             e = ins[3](*fr[2])
             return "asleep in %s, on word %d expecting %d (it holds %d)" % (names, sleep, e, s[0][sleep])
         return "runnable in " + names
@@ -2236,7 +2455,7 @@ def source_functions(text):
 
 def check_source(stdlib, verbose=True):
     texts = {}
-    for f in (CHAN, SYNC, SYS):
+    for f in SOURCES:
         p = os.path.join(stdlib, f)
         texts[f] = open(p, encoding="utf-8").read()
     fns = {f: source_functions(t) for f, t in texts.items()}
@@ -2280,19 +2499,22 @@ def check_source(stdlib, verbose=True):
         if verbose:
             print("     %s:%d %s: wrapper `%s`" % (f, line0 + text.count("\n", 0, k), sname, sp.replace("\n", " ")))
         matched += 1
-    # Coverage: every function in the two modules is modelled or excused.
-    modelled = {src[1] for (_, _, src, _) in FUNCTIONS.values() if src and src[0] in (CHAN, SYNC)}
-    for f in (CHAN, SYNC):
+    # Coverage: every function in the modules is modelled or excused.
+    modules = [f for f in SOURCES if f != SYS]
+    modelled = {src for (_, _, src, _) in FUNCTIONS.values() if src and src[0] in modules}
+    for f in modules:
         for sname in fns[f]:
-            if sname not in modelled and sname not in NOT_MODELLED[f]:
+            if (f, sname) not in modelled and sname not in NOT_MODELLED[f]:
                 failures.append("%s %s: neither modelled nor listed in NOT_MODELLED" % (f, sname))
         for sname in NOT_MODELLED[f]:
             if sname not in fns[f]:
                 failures.append("%s %s: listed in NOT_MODELLED and gone from the source" % (f, sname))
-        # Every atomic and every wait or wake sits in a function the model
-        # transcribes or a wrapper it checks. Comments are blanked first.
+        # Every atomic and every wait or wake - and in Task.ax every process
+        # operation - sits in a function the model transcribes or a wrapper
+        # it checks. Comments are blanked first.
         code_only = re.sub(r";[^\n]*", lambda m: " " * len(m.group(0)), texts[f])
-        for m in re.finditer(r"__atomic_\w+|sysWaitWord\w*|sysWakeWord\w*", code_only):
+        ops = r"__atomic_\w+|sysWaitWord\w*|sysWakeWord\w*" + ("|" + PROCESS_OPS[f] if f in PROCESS_OPS else "")
+        for m in re.finditer(ops, code_only):
             line = texts[f].count("\n", 0, m.start()) + 1
             owner = None
             for sname, (l0, text) in fns[f].items():
@@ -2300,7 +2522,7 @@ def check_source(stdlib, verbose=True):
                     owner = sname
             if owner is None:
                 continue  # a comment outside any function
-            if owner not in modelled and owner not in {w[1] for w in WRAPPERS}:
+            if (f, owner) not in modelled and owner not in {w[1] for w in WRAPPERS if w[0] == f}:
                 failures.append("%s:%d %s: `%s` is in a function the model does not transcribe"
                                 % (f, line, owner, m.group(0)))
     return matched, failures
@@ -2795,6 +3017,22 @@ def replay(path, verbose=False):
     stats["bindings"] = len(pids)
     stats["roles"] = ", ".join(roles)
     return len(events), failures, stats
+
+
+# ---------------------------------------------------------------------
+# The task pool (stdlib/Task.ax), in a module of its own.
+# ---------------------------------------------------------------------
+
+def _install_task_model():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "task_model", os.path.join(os.path.dirname(os.path.abspath(__file__)), "task_model.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.install(globals())
+
+
+_install_task_model()
 
 
 # ---------------------------------------------------------------------

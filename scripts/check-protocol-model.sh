@@ -1,41 +1,55 @@
 #!/usr/bin/env bash
-# The channel and mutex protocols: every interleaving in a model, and
-# their deadlock and starvation limits on the machine (R-E1, R-C2,
-# R-C2a; docs/memory-model.md MM-PAR-10, MM-PAR-11, MM-PAR-12).
+# The channel, mutex and task-pool protocols: every interleaving in a
+# model, and the deadlock and starvation limits on the machine (R-E1,
+# R-C2, R-C2a; docs/memory-model.md MM-PAR-10 to MM-PAR-13).
 #
 # `stdlib/Chan.ax` and `stdlib/Sync.ax` build a channel and a mutex from
-# the five atomics and a kernel wait on a word. `check-chan.sh`,
+# the five atomics and a kernel wait on a word, and `stdlib/Task.ax` a
+# pool of forked tasks with deadlines and cancellation. `check-chan.sh`,
 # `check-task.sh` and `check-race.sh` run them under load and see the
 # interleavings the hardware happened to make. This gate explores all of
-# them at small bounds, in `scripts/lib/protocol-model.py`, and then
-# measures on the real binary what the load gates do not: deadlock and
-# starvation, apart from races.
+# them at small bounds, in `scripts/lib/protocol-model.py` and the pool's
+# `scripts/lib/task_model.py`, and then measures on the real binary what
+# the load gates do not: deadlock and starvation, apart from races.
 #
 # FIVE SECTIONS.
 #
 #   1. The model. Every interleaving of two and three bindings running
 #      the transcribed protocols, at the bounds the model's `scenarios`
-#      states (capacities 1 and 2, one to three words, one-slice time
-#      budgets; more under --long), with spurious wakeups, timeouts,
-#      kills and reaps as environment steps. Every scenario must be
-#      clean: mutual exclusion, exactly-once FIFO delivery, close and
-#      end of stream, the mutex's guard and poisoning, and no lost
-#      wakeup, deadlock or livelock in the model's terms. Floors: the
-#      scenario count, the states explored, a kernel wait reached in
-#      every scenario, and every transcribed step executed but the two
-#      the model names as unreachable. The model must also find AN-10,
-#      the documented deadlock of a sender killed holding the lock.
+#      states (capacities 1 and 2, one to four words, one- and two-slice
+#      time budgets; more under --long), with spurious wakeups, timeouts,
+#      kills and reaps as environment steps; and the task pool with two
+#      and three tasks at widths 1 to 3, each task's body one of seven
+#      behaviours, and a clock. Every scenario must be clean: mutual
+#      exclusion, exactly-once FIFO delivery, close and end of stream,
+#      the mutex's guard and poisoning, the channel's poisoning only by a
+#      holder that died holding its lock, every task answering exactly
+#      its own slot in submit order, at most `w` children and `w`
+#      handles, nothing started after a cancellation, no sleep past a
+#      running task's deadline or a cancellation's grace, every child
+#      reaped when the pool returns, and no lost wakeup, deadlock or
+#      livelock in the model's terms. Floors: the scenario count, the
+#      states explored, a kernel wait reached in every scenario, and
+#      every transcribed step executed but the three the model names as
+#      unreachable. AN-10's scenario - a sender killed holding the
+#      channel's lock - must be clean.
 #   2. Planted defects. Each protocol mistake the design exists to
 #      prevent - a waiter that parks after releasing the lock, a changer
 #      that reads the waiter count before its change, a release or a
 #      notify that wakes nobody, a lock taken by a plain load and store,
 #      a waiter that sleeps without its mark, a guard compared with the
-#      counter, a dead-holder test that does not re-read the word - must
-#      be found as the kind of failure it is, with its schedule printed.
+#      counter, a dead-holder test that does not re-read the word; the
+#      channel's dead-holder test, its sliced lock wait, its look at the
+#      waiter's own child and its poisoning compare-and-swap each taken
+#      back; and the pool's deadline kill, its wake times, its grace
+#      kill, its wait for an exit, its slot, its stop on cancellation,
+#      its bounded handles and its reaping, each broken - must be found
+#      as the kind of failure it is, with its schedule printed.
 #   3. The transcription. Every operation the model cites must still be
 #      in its function in stdlib/, in the model's order, and every
-#      function that touches a channel or mutex word must be modelled or
-#      excused. Three mutated copies of the library must each fail it.
+#      function that touches a channel or mutex word, or a task's
+#      process, must be modelled or excused. Four mutated copies of the
+#      library must each fail it.
 #   4. Replay. An instrumented copy of Chan.ax records every operation
 #      on a channel word in the order it happened;
 #      tests/litmus/chan-trace.ax runs five forked bindings on it, and
@@ -57,10 +71,12 @@
 #
 # LIMITS. The model is a proof about the model, at its bounds: every
 # access is one step in a sequentially consistent order, the kernel
-# wait is futex's compare-and-sleep, and Linux's 32-bit compare, the
-# clock, pid reuse, zombies and anything larger than the bounds are
-# outside it. Sections 3 and 4 tie it to the source and to one run of
-# the channel; the mutex has no replay. Section 5 is the runs made, on
+# wait is futex's compare-and-sleep, and Linux's 32-bit compare, pid
+# reuse, a zombie seen by any process but its parent, and anything
+# larger than the bounds are outside it. The task pool's clock is the
+# model's: it moves only while the pool waits and nothing else can
+# step. Sections 3 and 4 tie it to the source and to one run of the
+# channel; the mutex and the pool have no replay. Section 5 is the runs made, on
 # this host: a zero is evidence, and the shares are a measurement, not a
 # promise either way.
 #
@@ -83,14 +99,14 @@ bad() { echo "FAIL $*"; failed=$((failed + 1)); }
 
 model="$repo_root/scripts/lib/protocol-model.py"
 if (( long )); then
-  want_scenarios=87; want_states=6500000; budget=3600; trace_n=300; starve_ms=5000
+  want_scenarios=107; want_states=6900000; budget=3600; trace_n=300; starve_ms=5000
 else
-  want_scenarios=66; want_states=1200000; budget=900; trace_n=50; starve_ms=1500
+  want_scenarios=84; want_states=1300000; budget=900; trace_n=50; starve_ms=1500
 fi
 # Every transcribed step the scenarios execute, and the operations the
 # transcription check matches: what they are on the tree today.
-want_reached=371
-want_matched=213
+want_reached=579
+want_matched=307
 
 # ---------------------------------------------------------------------
 echo "== 1. the model: every interleaving of the real protocols =="
@@ -151,6 +167,10 @@ for name in "park after release" "notify reads the announcement before the chang
             "chan release without a wake" "chan notify without a wake" "chan lock by load then store" \
             "chan dead-holder test removed" "chan lock wait without a slice" "chan child look removed" \
             "chan poison without its compare-and-swap" \
+            "task deadline kill removed" "task wake ignores deadlines" "task grace kill removed" \
+            "task joined on its answer alone" "task answers into its neighbour's slot" \
+            "task started after the cancellation" "task handle pushed for every task" \
+            "task killed and not joined" "task wake ignores the grace" \
             "mutex release without a wake" "mutex lock by load then store" "mutex waiter without its mark" \
             "mutex guard compared with the counter" "mutex dead-holder test without its re-read"; do
   line="$(grep -F "RED $name:" "$work/defects.txt" | head -1)"
@@ -190,6 +210,8 @@ cuts = {
            "                {\n                  (chanUnlock ch me)\n                  (let ((seen (chanPark ch)))\n                    (chanSleep ch seen))\n                }))))", 2),
   # mutexUnlock's contended release wakes nobody.
   "wake": ("Sync.ax", "            (syncStore m 0 0)\n            (sysWakeWord m)\n            (Ok 0)", "            (syncStore m 0 0)\n            (Ok 0)", 1),
+  # A task's deadline kill sends signal 0 (check-task.sh's kill ablation).
+  "kill": ("Task.ax", "(sysKill (taskHandlePid (vecGet hs s)) 9)", "(sysKill (taskHandlePid (vecGet hs s)) 0)", 1),
   # A new function reads the lock word.
   "new": ("Chan.ax", "(pub :: chanCap (-> Chan Int))",
           "(pub :: chanPeekLock (-> Int Int))\n;@axiom:effect(unsafe)\n(pub fn (chanPeekLock ch)\n  (__atomic_load ch))\n\n(pub :: chanCap (-> Chan Int))", 1),
@@ -204,7 +226,7 @@ for kind, (f, old, new, count) in cuts.items():
         sys.exit("seam %s: found %d times, wanted %d" % (kind, s.count(old), count))
     open(p, "w", encoding="utf-8").write(s.replace(old, new))
 PY
-for pair in "park:chanSend" "wake:mutexUnlock" "new:chanPeekLock"; do
+for pair in "park:chanSend" "wake:mutexUnlock" "kill:taskKillJoin" "new:chanPeekLock"; do
   kind="${pair%%:*}"; fn="${pair#*:}"
   [[ -d "$work/tx/$kind" ]] || continue
   rc=0; out="$(python3 "$model" transcription "$work/tx/$kind" --quiet 2>&1)" || rc=$?
@@ -411,6 +433,6 @@ if (( failed > 0 )); then
   exit 1
 fi
 echo "check-protocol-model: $checks checks - the model finds no failure in the transcribed"
-echo "                      protocols and finds every planted one; the transcription and a"
-echo "                      recorded run agree with it; timed calls end deadlocks and"
-echo "                      untimed ones stay deadlocked"
+echo "                      channel, mutex and task pool and finds every planted one; the"
+echo "                      transcription and a recorded run agree with it; timed calls end"
+echo "                      deadlocks and untimed ones stay deadlocked"
