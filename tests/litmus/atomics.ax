@@ -1,9 +1,9 @@
-; Litmus tests for the five atomic primitives, run on two threads, or
-; four for iriw.
+; Litmus tests for the five atomic primitives, run on two threads, three
+; for wrc and isa2, or four for iriw.
 ;
 ; `scripts/check-atomics.sh` builds this with `--threads` and runs it
 ; once per row below; each run prints one line, `<forbidden>
-; <witnessed>`, and the gate decides. Six families, each with the
+; <witnessed>`, and the gate decides. Twelve families, each with the
 ; outcome sequential consistency FORBIDS:
 ;
 ;   sb   store buffering. T0 stores x then loads y, T1 stores y then
@@ -40,16 +40,54 @@
 ;        in the same round. 200,000 rounds a run rather than 500,000,
 ;        because four threads cost more per round, and much more on a
 ;        host with fewer than four cores.
+;   wrc  write-to-read causality, on three bindings. W stores x; R1
+;        loads x, then stores y; R2 loads y, then x. Forbidden is R1
+;        seeing x and R2 seeing y without x: R1's store, made after it
+;        saw x, is visible while x is not. The witness is the rounds in
+;        which R1 saw x and R2 saw y, the chain the outcome needs.
+;   isa2 the same chain through three words. W stores x, then y; R1
+;        loads y, then stores z; R2 loads z, then x. Forbidden is R1
+;        seeing y and R2 seeing z without x; the witness is the rounds
+;        in which R1 saw y and R2 saw z. Both run 200,000 rounds.
 ;
-; In these three, `sc` uses the atomics, and `plain` the same accesses
+; In these five, `sc` uses the atomics, and `plain` the same accesses
 ; with `__load64`/`__store64` - the control, whose outcome the hardware
 ; may or may not show. `reorder` writes the reordering each family looks
 ; for into the program, with the atomics, so the forbidden outcome
 ; becomes one sequential consistency allows: lb stores before it loads,
 ; 2+2w swaps each thread's two stores, and iriw gives each reader its
 ; own copy of the other writer's word, stored after a pause, so W0
-; reaches R2 first and W1 reaches R3 first. A `reorder` run that never
-; shows the outcome means this harness could not see it happen.
+; reaches R2 first and W1 reaches R3 first. wrc's R2 loads x first and
+; y after a pause, and isa2's W stores y first and x after a pause. A
+; `reorder` run that never shows the outcome means this harness could
+; not see it happen.
+;
+; Four COHERENCE families, on one word x and two bindings. Coherence is
+; the one ordering x86-64 and AArch64 give every aligned access, plain
+; or atomic, so a `plain` run is expected to show nothing, and says
+; nothing about the harness. Their `reorder` programs are the controls:
+; each writes the violation into the program with the atomics.
+;   corr two reads of one word may not go backwards. W stores 1; R loads
+;        x twice. Forbidden is 1 then 0; the witness is 0 then 1, the
+;        rounds whose reads straddled the store. `reorder` reports the
+;        later load as the first.
+;   coww two writes by one binding are seen in their order. W stores 1
+;        then 2; R loads x twice. Forbidden is R seeing 2 then 1, or x
+;        not ending with W's last store; the witness is the rounds in
+;        which R saw x change. `reorder` stores 2, then 1.
+;   cowr a binding reads its own write or a later one. W stores 1 then
+;        loads x; O stores 2. Forbidden is W's load answering 0, or 2
+;        while x ends 1 (O's store both after and before W's). The
+;        witness is the rounds in which W read O's 2. `reorder` loads
+;        before it stores, and only the second half is counted: a load
+;        before any store may rightly answer 0.
+;   corw a binding cannot read its own later write. W loads x then
+;        stores 1; O stores 2. Forbidden is W's load answering 1, or 2
+;        while x ends 2; the witness is the rounds in which W read O's 2.
+;        `reorder` stores, then loads, and only the second half is
+;        counted.
+; A binding's two accesses to x are a pause apart in every mode, so the
+; other binding's access lands between them often enough to count.
 ;
 ; Every round of every family but add uses FRESH zeroed words
 ; (MM-ALLOC-6), so no location is ever reset while another thread may
@@ -649,6 +687,498 @@
             hb)))
     }))
 
+; ---- wrc and isa2 ----------------------------------------------------
+; mode 1 plain, 0 sc, 3 reorder. Stores 1 to round i's word of `first`,
+; then of `second`; `reorder` stores `second` first, pauses, then stores
+; `first` (isa2's writer; wrc's writes one word and passes 0 as `second`).
+(:: chainWriter (-> Int Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chainWriter first second ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arriveAll ctr i 3)
+          (if (== mode 1)
+            {
+              (__store64 first i 1)
+              (if (== second 0)
+                0
+                (__store64 second i 1))
+            }
+            (if (|| (== mode 0) (== second 0))
+              {
+                (__atomic_store (+ first (* 8 i)) 1)
+                (if (== second 0)
+                  0
+                  (__atomic_store (+ second (* 8 i)) 1))
+              }
+              {
+                (__atomic_store (+ second (* 8 i)) 1)
+                (pause ctr pauseSpins)
+                (__atomic_store (+ first (* 8 i)) 1)
+              }))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; Loads round i's word of `src` into res[i], then stores 1 to `dst`'s.
+(:: chainRelay (-> Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chainRelay src dst res ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arriveAll ctr i 3)
+          (if (== mode 1)
+            (let ((v (__load64 src i)))
+              {
+                (__store64 dst i 1)
+                (__store64 res i v)
+              })
+            (let ((v (__atomic_load (+ src (* 8 i)))))
+              {
+                (__atomic_store (+ dst (* 8 i)) 1)
+                (__store64 res i v)
+              }))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; Loads round i's word of `first` into rf[i], then `second`'s into
+; rs[i]. `reorder` loads `second` first, pauses, then loads `first`.
+(:: chainReader (-> Int Int Int Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chainReader first second rf rs ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arriveAll ctr i 3)
+          (if (== mode 1)
+            (let ((a (__load64 first i)))
+              {
+                (__store64 rs i (__load64 second i))
+                (__store64 rf i a)
+              })
+            (if (== mode 3)
+              (let ((b (__atomic_load (+ second (* 8 i)))))
+                {
+                  (pause ctr pauseSpins)
+                  (__store64 rf i (__atomic_load (+ first (* 8 i))))
+                  (__store64 rs i b)
+                })
+              (let ((a (__atomic_load (+ first (* 8 i)))))
+                {
+                  (__store64 rs i (__atomic_load (+ second (* 8 i))))
+                  (__store64 rf i a)
+                })))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; Counts the rounds in which r1 and r2 both answered 1 (the chain), and
+; among them the rounds in which r3 answered 0 (forbidden).
+(:: chainTally (-> Int Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (chainTally r1 r2 r3 n)
+  (let (
+    (mut i 0)
+    (mut weak 0)
+    (mut chain 0)
+  )
+    {
+      (while (< i n)
+        {
+          (if (&& (== (__load64 r1 i) 1) (== (__load64 r2 i) 1))
+            {
+              (set chain (+ chain 1))
+              (if (== (__load64 r3 i) 0)
+                (set weak (+ weak 1))
+                0)
+            }
+            0)
+          (set i (+ i 1))
+        })
+      (report weak chain)
+    }))
+
+; W stores x; R1 loads x, stores y; R2 loads y, then x. `reorder` is
+; R2's: it loads x first.
+(:: runWrc (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runWrc mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (ys (__alloc (* 8 n)))
+    (r1 (__alloc (* 8 n)))
+    (r2 (__alloc (* 8 n)))
+    (r3 (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+  )
+    {
+      (parallel p (
+        (a (chainWriter
+          xs
+          0
+          ctr
+          n
+          mode))
+        (b (chainRelay
+          xs
+          ys
+          r1
+          ctr
+          n
+          mode))
+        (c (chainReader
+          ys
+          xs
+          r2
+          r3
+          ctr
+          n
+          mode))
+      )
+        (+ a (+ b c)))
+      (chainTally r1 r2 r3 n)
+    }))
+
+; W stores x, then y; R1 loads y, stores z; R2 loads z, then x.
+; `reorder` is W's: it stores y first.
+(:: runIsa2 (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runIsa2 mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (ys (__alloc (* 8 n)))
+    (zs (__alloc (* 8 n)))
+    (r1 (__alloc (* 8 n)))
+    (r2 (__alloc (* 8 n)))
+    (r3 (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+  )
+    {
+      (parallel p (
+        (a (chainWriter
+          xs
+          ys
+          ctr
+          n
+          mode))
+        (b (chainRelay
+          ys
+          zs
+          r1
+          ctr
+          n
+          mode))
+        (c (chainReader
+          zs
+          xs
+          r2
+          r3
+          ctr
+          n
+          (if (== mode 3)
+            0
+            mode)))
+      )
+        (+ a (+ b c)))
+      (chainTally r1 r2 r3 n)
+    }))
+
+; ---- coherence --------------------------------------------------------
+; Round i's word of x: a plain load under mode 1, otherwise an atomic one.
+(:: loadAt (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (loadAt x i mode)
+  (if (== mode 1)
+    (__load64 x i)
+    (__atomic_load (+ x (* 8 i)))))
+
+; Round i's word of x set to v: plainly under mode 1, otherwise atomically.
+(:: storeAt (-> Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (storeAt x i v mode)
+  {
+    (if (== mode 1)
+      (__store64 x i v)
+      (__atomic_store (+ x (* 8 i)) v))
+    0
+  })
+
+; The storing side: round i's word of x gets `v`, then, a pause later,
+; `w`. `reorder` stores `w` first and `v` second. A `w` of 0 means one
+; store. mode 1 plain, 0 sc, 3 reorder.
+(:: cohWriter (-> Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (cohWriter x v w ctr n mode)
+  (let (
+    (mut i 0)
+    (first (if (&& (== mode 3) (!= w 0))
+      w
+      v))
+    (second (if (&& (== mode 3) (!= w 0))
+      v
+      w))
+  )
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (storeAt x i first mode)
+          (if (== second 0)
+            0
+            {
+              (pause ctr pauseSpins)
+              (storeAt x i second mode)
+            })
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; Two loads of round i's word of x, a pause apart, into r1[i] then
+; r2[i]; `swap` 1 reports the later load as r1, corr's reordering.
+(:: cohReader (-> Int Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (cohReader x r1 r2 swap ctr n mode)
+  (let ((mut i 0))
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (let ((a (loadAt x i mode)))
+            {
+              (pause ctr pauseSpins)
+              (let ((b (loadAt x i mode)))
+                (if (== swap 1)
+                  {
+                    (__store64 r1 i b)
+                    (__store64 r2 i a)
+                  }
+                  {
+                    (__store64 r1 i a)
+                    (__store64 r2 i b)
+                  }))
+            })
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; One store of 1 and one load of round i's word of x, a pause apart,
+; the load's answer into r1[i]. `own` 1 stores then loads (cowr), 0
+; loads then stores (corw); `reorder` swaps the two.
+(:: cohSelf (-> Int Int Int Int Int Int Int))
+;@axiom:effect(unsafe)
+(fn (cohSelf x r1 own ctr n mode)
+  (let (
+    (mut i 0)
+    (storeFirst (if (== own 1)
+      (if (== mode 3)
+        0
+        1)
+      (if (== mode 3)
+        1
+        0)))
+  )
+    {
+      (while (< i n)
+        {
+          (arrive ctr i)
+          (if (== storeFirst 1)
+            {
+              (storeAt x i 1 mode)
+              (pause ctr pauseSpins)
+              (__store64 r1 i (loadAt x i mode))
+            }
+            (let ((a (loadAt x i mode)))
+              {
+                (pause ctr pauseSpins)
+                (storeAt x i 1 mode)
+                (__store64 r1 i a)
+              }))
+          (set i (+ i 1))
+        })
+      0
+    }))
+
+; corr: W stores 1; R loads twice. Forbidden 1 then 0; witness 0 then 1.
+(:: runCorr (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runCorr mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (r1 (__alloc (* 8 n)))
+    (r2 (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+    (mut i 0)
+    (mut weak 0)
+    (mut both 0)
+  )
+    {
+      (parallel p (
+        (a (cohWriter
+          xs
+          1
+          0
+          ctr
+          n
+          mode))
+        (b (cohReader
+          xs
+          r1
+          r2
+          (if (== mode 3)
+            1
+            0)
+          ctr
+          n
+          mode))
+      )
+        (+ a b))
+      (while (< i n)
+        {
+          (let (
+            (a (__load64 r1 i))
+            (b (__load64 r2 i))
+          )
+            (if (&& (== a 1) (== b 0))
+              (set weak (+ weak 1))
+              (if (&& (== a 0) (== b 1))
+                (set both (+ both 1))
+                0)))
+          (set i (+ i 1))
+        })
+      (report weak both)
+    }))
+
+; coww: W stores 1 then 2; R loads twice. Forbidden R seeing 2 then 1,
+; or x not ending with W's last store; witness R seeing x change.
+(:: runCoww (-> Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runCoww mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (r1 (__alloc (* 8 n)))
+    (r2 (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+    (last (if (== mode 3)
+      1
+      2))
+    (mut i 0)
+    (mut weak 0)
+    (mut moved 0)
+  )
+    {
+      (parallel p (
+        (a (cohWriter
+          xs
+          1
+          2
+          ctr
+          n
+          mode))
+        (b (cohReader
+          xs
+          r1
+          r2
+          0
+          ctr
+          n
+          mode))
+      )
+        (+ a b))
+      (while (< i n)
+        {
+          (let (
+            (a (__load64 r1 i))
+            (b (__load64 r2 i))
+          )
+            {
+              (if (|| (&& (== a 2) (== b 1)) (!= (__load64 xs i) last))
+                (set weak (+ weak 1))
+                0)
+              (if (!= a b)
+                (set moved (+ moved 1))
+                0)
+            })
+          (set i (+ i 1))
+        })
+      (report weak moved)
+    }))
+
+; cowr (own 1) and corw (own 0): W stores 1 and loads, in the order
+; `own` says; O stores 2. Forbidden: W's load answering what coherence
+; excludes for its own store (0 for cowr, 1 for corw, counted except
+; under `reorder`), or 2 while x ends as it cannot (1 for cowr, 2 for
+; corw). The witness is the rounds in which W read O's 2.
+(:: runCoSelf (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (runCoSelf own mode n)
+  (let (
+    (xs (__alloc (* 8 n)))
+    (r1 (__alloc (* 8 n)))
+    (ctr (__alloc 8))
+    (ownBad (if (== own 1)
+      0
+      1))
+    (endBad (if (== own 1)
+      1
+      2))
+    (mut i 0)
+    (mut weak 0)
+    (mut saw 0)
+  )
+    {
+      (parallel p (
+        (a (cohSelf
+          xs
+          r1
+          own
+          ctr
+          n
+          mode))
+        (b (cohWriter
+          xs
+          2
+          0
+          ctr
+          n
+          mode))
+      )
+        (+ a b))
+      (while (< i n)
+        {
+          (let ((r (__load64 r1 i)))
+            {
+              (if (|| (&& (== r 2) (== (__load64 xs i) endBad)) (&& (!= mode 3) (== r ownBad)))
+                (set weak (+ weak 1))
+                0)
+              (if (== r 2)
+                (set saw (+ saw 1))
+                0)
+            })
+          (set i (+ i 1))
+        })
+      (report weak saw)
+    }))
+
 (:: modeOf (-> String Int))
 (fn (modeOf s)
   (if (strEq s "sc")
@@ -665,7 +1195,7 @@
 ;@axiom:effect(io)
 (fn (usage)
   {
-    (println "usage: atomics (sb sc|plain|fence) | (mp sc|plain) | (add sc|split|cas) | (lb|2+2w|iriw sc|plain|reorder)")
+    (println "usage: atomics (sb sc|plain|fence) | (mp sc|plain) | (add sc|split|cas) | (lb|2+2w|iriw|wrc|isa2|corr|coww|cowr|corw sc|plain|reorder)")
     2
   })
 
@@ -675,7 +1205,7 @@
   (let (
     (family (sysArg 1))
     (mode (modeOf (sysArg 2)))
-    (n (if (strEq family "iriw")
+    (n (if (|| (strEq family "iriw") (|| (strEq family "wrc") (strEq family "isa2")))
       200000
       500000))
   )
@@ -693,4 +1223,18 @@
                 (runTwo mode n)
                 (if (&& (strEq family "iriw") (!= mode 2))
                   (runIriw mode n)
-                  (usage))))))))))
+                  (if (== mode 2)
+                    (usage)
+                    (if (strEq family "wrc")
+                      (runWrc mode n)
+                      (if (strEq family "isa2")
+                        (runIsa2 mode n)
+                        (if (strEq family "corr")
+                          (runCorr mode n)
+                          (if (strEq family "coww")
+                            (runCoww mode n)
+                            (if (strEq family "cowr")
+                              (runCoSelf 1 mode n)
+                              (if (strEq family "corw")
+                                (runCoSelf 0 mode n)
+                                (usage)))))))))))))))))

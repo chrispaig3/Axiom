@@ -45,6 +45,75 @@ elements asked for 0 and the vector's pushes wrote over later blocks
 70, recoverable like any refusal. Tested by
 `tests/stdlib/562-vec-capacity-range.ax`.
 
+### The channel and mutex protocols, in every interleaving — `scripts/check-protocol-model.sh`, R-E1, R-C2 - 2026-09-29
+
+`stdlib/Chan.ax` and `stdlib/Sync.ax` were checked by load: the
+interleavings the hardware happened to make. A new executable model,
+`scripts/lib/protocol-model.py`, writes their protocols down step by
+step, each step citing the spelling it transcribes. It explores every
+interleaving of two and three bindings at small bounds: 38 scenarios
+and 2,127,649 states, with spurious wakeups, timeouts, kills and reaps
+as environment steps. Every scenario is clean: exclusion, exactly-once
+FIFO delivery, close and drain, the mutex's guard and poisoning, and no
+lost wakeup, deadlock or livelock. The model also finds AN-10, a sender
+killed holding the channel's lock.
+
+Ten protocol mistakes are planted in the transcription, and each is
+found as what it is, with a printed schedule:
+
+- a waiter that parks after the release;
+- a changer that reads the waiter count before its change;
+- a release, or a notify, that wakes nobody;
+- a lock taken by a plain load and store, in either protocol;
+- a waiter without its mark;
+- the guard compared with the counter;
+- a dead-holder test without its re-read.
+
+One placement that looks like a mistake is correct: the announcement
+in word 2 may move after the release, as long as the change counter is
+read under the lock. The model shows it clean in 580,387 states.
+
+The model is tied to the implementation twice. The gate requires every
+cited operation, 183 of them, to still be in its function in
+`stdlib/`, in order. And an instrumented copy of `Chan.ax` records a
+run of `tests/litmus/chan-trace.ax`, five forked bindings and about
+5,200 operations, which the model replays operation by operation, each
+answer the model's. A library whose change counter counts in twos
+passes the program's own check, and the replay refuses it.
+
+On the machine, `tests/litmus/liveness.ax` measures deadlock and
+starvation apart from races, in both lowerings. A lock-order inversion
+between two mutexes, and two bindings each waiting on the other's
+channel, answer `sysTimedOut` on both sides under the timed calls, and
+stay deadlocked under the untimed ones until a watchdog ends them,
+beside controls in a safe order that finish. Four bindings contending
+for one mutex are exact, with their shares and worst waits reported.
+Calls one new gate; the count sites state ninety-two gates.
+
+### Six more litmus families: WRC, ISA2 and coherence — `scripts/check-atomics.sh`, R-C3 - 2026-09-28
+
+`scripts/check-atomics.sh` ran six memory-ordering families. It runs
+twelve now: write-to-read causality (WRC) and ISA2 on three threads,
+and the four coherence tests on one word, CoRR, CoWW, CoWR and CoRW,
+on two. Each seq_cst program must show its forbidden outcome zero
+times in three runs at every `--opt`, and must show the rounds that
+could have produced it. On H3 the witnesses ran from 627 (WRC at
+`-O1`) to 1.3 million.
+
+Each family also runs with the reordering written into the program,
+which sequential consistency allows, and that control must show the
+outcome. For the coherence tests it is the only control there can be:
+x86-64 and AArch64 keep every aligned access to one word coherent,
+plain or atomic, so their plain rows show nothing on any host and are
+reported. WRC's plain row showed its outcome up to four times in
+200,000 rounds on H3, because the core may pass the relay's store
+ahead of its load; it is reported too. A binding's two accesses to the
+word in a coherence test are a pause apart, which is what lets the
+other binding's access land between them often enough to count.
+
+The gate went from 96 checks to 144. Tested by
+`tests/litmus/atomics.ax`.
+
 ### A function that needs its signature says so — `AX3089` - 2026-09-28
 
 A function with no signature is typed by checking its body, and
@@ -177,7 +246,7 @@ a `Vec` grown inside an aborted extent keeps a reclaimed block and
 `__axiom_recover` needs no `effect(unsafe)`; AN-43, `vecWithCapacity`
 wraps its byte size at 2^61 elements; AN-44, the resources above;
 AN-45, a closure passed in and returned leaks 32 bytes a call. Calls
-one new gate; the count sites state ninety-one gates.
+one new gate; the count sites state ninety-two gates.
 
 ### Arming a recovery point allocates nothing — `MM-ALLOC-23`, R-B9 - 2026-09-28
 
@@ -323,7 +392,8 @@ every stdlib module as entry files, nightly. The fixes are pinned by
 `tests/selfhost/1006-cast-type-operand.ax` and
 `tests/selfhost/1007-param-shadows-nullary.ax`, which dies with
 SIGSEGV on the unfixed compiler. Calls one new gate; the count sites
-state ninety-one gates.
+state ninety-two gates.
+
 ### Spawn handles and cancellation tokens are typed, and a second join traps — `MM-PAR-8` holds - 2026-09-28
 
 **BREAKING.** A spawn primitive answers a `Spawn`, and every join takes
@@ -426,7 +496,7 @@ renderings; `tests/stdlib/570-handle-freed.ax` and
 `scripts/check-handles.sh` is new: the traps in both lowerings, the
 table under four bindings at once and under racing frees, the capture
 rule under `build` and `build --threads`, and three ablations that
-each turn it red. The count sites state ninety-one gates.
+each turn it red. The count sites state ninety-two gates.
 `scripts/check-trap-statuses.sh` counts twelve statuses; its docs-table
 ablation read only the `80` row, so it passed without its own rewrite,
 and now reads every `8x` row.
@@ -618,7 +688,8 @@ in `docs/assurance/verification.md`.
 action and `scripts/run-gates-linux.sh`'s image install
 `libclang-rt-dev`; CI sets `AXIOM_TSAN_REQUIRED=1`, so a missing
 runtime fails there and skips elsewhere. Calls one new gate; the count
-sites state ninety-one gates.
+sites state ninety-two gates.
+
 ### Load buffering, 2+2W and IRIW litmus tests — `tests/litmus/atomics.ax`, R-C3 - 2026-09-28
 
 `scripts/check-atomics.sh` §3 ran three litmus families, store
@@ -653,6 +724,7 @@ Waiting after 64 spins lost the rounds' overlap, and after 256 made an
 against 69, in 18.6 s against 13.2 s, and in 26.4 s with every core
 busy. WRC, ISA2 and the coherence tests remain unrun, as
 `docs/assurance/requirements.md` and `docs/assurance/scorecard.md` say.
+
 ### The formatter and a second optimisation level join the fuzzer; `match` arms must agree — `scripts/check-fuzz.sh`, R-E1 - 2026-09-28
 
 The fuzzer held a mutant `check` accepted only to `emit-llvm` and `llc`
@@ -942,7 +1014,7 @@ as the control); RSS flat from 500 to 5,000 folded tasks beside a
 keeping control that must grow; nine ablations on copies of the
 library each turning it red; and the three new programs in
 `examples/concurrency/`. Fixtures `tests/stdlib/540`-`543`. Calls one
-new gate; the count sites state ninety-one gates.
+new gate; the count sites state ninety-two gates.
 
 An independent review before landing found six defects, two confirmed
 by probes. The mutex compared an unlock's guard against the guard
@@ -1099,7 +1171,7 @@ be, every bound equal to the sum of its path, and the tool's ELF reader
 agreeing with `llvm-readobj --stack-sizes` on every frame; each rule
 ablated in a copy of the tool, and the bound's cycle check ablated
 against the selftest and tree recursion. The count sites state
-ninety-one gates. Specified in `docs/restricted-profile.md`.
+ninety-two gates. Specified in `docs/restricted-profile.md`.
 
 ### The documentation, rewritten in the website's voice — `.claude/skills/docs-style/SKILL.md`
 
@@ -1167,7 +1239,7 @@ when a diagnostic quotes non-ASCII source (two sites).
 `docs/assurance/verification.md` lists them with the measurements,
 including a compile time that grows faster than quadratically in one
 `let`'s bindings. Calls one new gate; the count sites
-state ninety-one gates.
+state ninety-two gates.
 
 ### A bounded channel between bindings — `stdlib/Chan.ax`, `scripts/check-chan.sh` - 2026-09-27
 
@@ -1208,7 +1280,7 @@ word handed to a library function that dereferences it. Found on the
 way: on a case-insensitive filesystem a program named `chan.ax` that
 says `(import Chan)` imports ITSELF, because the source's own directory
 is searched first. Calls one new gate; the count sites state
-ninety-one gates.
+ninety-two gates.
 
 ### What orders memory between bindings — `MM-PAR-9` - 2026-09-27
 
@@ -1257,7 +1329,7 @@ with `ldaxr`/`stlxr` whatever its ordering (so that ablation runs at
 LSE-capable CPU. Scope is stated in the gate and in
 `docs/assurance/requirements.md` R-C3: a litmus zero is evidence on the
 rounds run, not proof. Calls one new gate; the count sites state
-ninety-one gates.
+ninety-two gates.
 
 ### The S4 verdict measures code, not file bytes - 2026-09-27
 
@@ -1287,7 +1359,7 @@ witness red at a named check. Scope and non-scope are stated in the
 model's docstring and `docs/assurance/verification.md`; a green run
 is agreement on the traces run, at the levels run, on the host it
 ran on — not a proof of anything else. Calls one new gate; the count
-sites state ninety-one gates.
+sites state ninety-two gates.
 
 ### The count limit traps instead of wrapping - 2026-09-27
 
@@ -1528,7 +1600,7 @@ where scopes would take the for-binding - and must diverge under
 verify while checking clean and answering 41 without it. The corpus
 leg passes by absence and the control leg fails if verify ever goes
 silent, so the gate cannot pass vacuously. Held by the gate itself (2
-checks). Calls one new gate; the count sites state ninety-one gates.
+checks). Calls one new gate; the count sites state ninety-two gates.
 
 ### S4 verdict: the binary win with the RSS win intact — `scripts/check-region-verdict.sh`
 
@@ -1545,7 +1617,7 @@ full-ablation deltas 18/23/21/24/21/26/10 with identical answers and a
 the stamp system: the §2.5 trailing word was evaluated against the
 runtime and declined in a dated design-note entry, and two slice-era
 "next slice" comments now point at the built slices. Calls one new
-gate; the count sites state ninety-one gates, and the battery has
+gate; the count sites state ninety-two gates, and the battery has
 ninety-six.
 
 ### Inlay hints read `let` binders' value shapes — `tests/lsp/drive.py`
@@ -1999,6 +2071,7 @@ other non-converging one); its `cond`-removal fixtures arrived as
 requires. The two new helpers move the effect-distribution pins by
 exactly their own rows (`scripts/check-effect-distribution.sh`,
 re-pinned 2026-09-21 with the row-by-row diff: added 2, removed 0).
+
 ### `cond` is removed; `if` is variadic — `tests/selfhost/710-variadic-if-tco.ax`, `tests/stdlib/260-variadic-if.ax`
 
 `(if t1 b1 t2 b2 ... els)` is the nested chain `(if t1 b1 (if t2 b2 ... els))`, built by the parser — one tag, no new keyword, no second set of branch rules. The `cond` keyword is `AX2004` in expression position and at the top level (`axiom explain AX2004` carries the migration advice), the `cond2`/`cond3` prelude helpers are gone (`compat/BREAKING`, `0.7.6 M cond2`, `0.7.6 M cond3`), and every in-tree use is rewritten (`tests/stdlib/482`/`483`/`484-region-*.ax`, `tests/selfhost/370-pre-import.ax`, the `fmt` zoo and parity bank). One deliberate semantic change: `cond` never joined clause bodies, while `if` joins its branches, so migrated branches of different types report `AX3004`. The `710` TCO case moves unchanged in spirit — there is no lowering pre-pass left to order, which is the shape that used to break.
@@ -3073,6 +3146,7 @@ every arm. `check-stdlib-api.sh` goes 9 checks → 23.
 - `examples/web` and `scripts/check-web.sh` are deleted;
   `scripts/check-examples.sh` keeps the examples sweep. Nothing outside
   this repository can have depended on either.
+
 ### `IO` could write to a descriptor and could not read one
 
 `IO` wrote to any descriptor and read a file by name, and had no way
@@ -3482,6 +3556,7 @@ and `check-lsp-selfhost.sh` (the LSP's `textDocument/formatting` runs
 the same `fmtFormat`), `check-render-selfhost.sh` and
 `check-diagnostics.sh` for the two touched compiler sources, and
 `check-doc-drift.sh` for the counts.
+
 ### The arena asked for a megabyte, and only ever asked `mmap` for it
 
 `docs/embedded-proposal.md` 4.1 and 4.2, the two rows its section 4
@@ -3533,6 +3608,7 @@ would have read the host's megabyte - and that correction, the trap
 sentence, and the fact that a statically-carved arena has no thread
 lowering (`--threads` on one is refused as AX4006) are written up in
 the document beside the items they belong to.
+
 ### Two front-door claims were stale, and twenty `explain` pages were a sentence each
 
 Every one of these was confirmed by a probe before it was changed, and
@@ -3668,6 +3744,7 @@ correction: move the contract trap to 80, or accept the collision and
 say so in both tables. Rewriting the prose from 76 to 77 — the obvious
 reading, and the one this started as — would have written the collision
 into the documents whose purpose is that it cannot happen.
+
 ### A fix printed `\n`, `axiom frobnicate` was a file, and `--help` contradicted README on targets
 
 Three things at the front door, each confirmed by probe against 0.7.5,
@@ -4663,6 +4740,7 @@ a red that is an answer.
 fallen four arms behind the table it guards, so the range the count had
 most recently moved through was the range the guard could not see. It
 now runs to the table's end. sixty-five gates call `gate_build_axc`.
+
 ### `.axir`: the compiler's dataflow summary, written down and read back
 
 `FnEnt` word 8 has been an interprocedural dataflow summary since stage

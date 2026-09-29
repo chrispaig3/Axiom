@@ -1,12 +1,13 @@
 # Verification programme (R-E1)
 
 This page covers what the executable model, the compiler fuzzer, the
-race detector and the metamorphic relation check, how each gate runs,
-what they found, and what none of them covers. It goes with R-E1 and
-R-A10 in [requirements.md](requirements.md). The scope statements of
-record are three docstrings and a gate header:
+race detector, the protocol model and the metamorphic relation check,
+how each gate runs, what they found, and what none of them covers. It
+goes with R-E1 and R-A10 in [requirements.md](requirements.md). The
+scope statements of record are four docstrings and a gate header:
 `scripts/lib/runtime-model.py` for the model, `scripts/lib/fuzz.py`
-for the fuzzer, `scripts/lib/metamorphic.py` for the relation and
+for the fuzzer, `scripts/lib/protocol-model.py` for the protocol
+model, `scripts/lib/metamorphic.py` for the relation and
 `scripts/check-race.sh` for the race detector.
 
 ## The model
@@ -366,6 +367,206 @@ start under qemu's user-mode emulation.
   go through the C library, one function isn't inlined, and every
   access calls into the TSan runtime.
 
+## The channel and mutex protocols
+
+`scripts/lib/protocol-model.py` writes down the protocols of
+`stdlib/Chan.ax` and `stdlib/Sync.ax` step by step, and explores every
+interleaving of two and three bindings running them, at small bounds.
+`scripts/check-protocol-model.sh` runs it, checks the transcription
+against the source, replays a recorded run of the channel through it,
+and measures deadlock and starvation on the real binary.
+
+### What the model is
+
+Each function the protocols run is a short program in a small
+instruction set, written in the order of its source text. Every step
+that touches a shared word cites the spelling it transcribes:
+`chanLock`'s first step is `(__atomic_cas ch 0 1)`.
+
+A step is one access to a shared word: an atomic load, store, add or
+compare-and-swap, `sysWaitWordTimeout`'s plain entry load, a kernel
+wait, a wake, or `kill(pid, 0)`. The plain `chanGet` and `chanPut`
+accesses, which only the lock's holder makes, run inside the step
+before them. That is sound only while the lock excludes, so mutual
+exclusion is checked in every state.
+
+The kernel wait is `futex`'s compare-and-sleep: a sleeping binding
+leaves only when a wake on its word arrives. Spurious wakeups, a timed
+wait's timeout, a kill and the parent's reap are environment steps.
+They are explored in every state and never count as progress, except
+where a scenario relies on them: the timed calls on timeouts, and the
+discovery of a dead holder on a timeout and a reap. Bindings running
+the same program with the same pid are interchangeable, so each state
+is stored once, with them sorted.
+
+### What it checks
+
+In every state:
+
+- at most one binding holds a lock;
+- a word is received only as the oldest word accepted and not yet
+  received, so none is lost, duplicated or reordered, and each
+  sender's words are accepted in the order it sent them;
+- no send is accepted once the channel is closed, and a send that
+  answered `False` or timed out is never received;
+- a receive answers the end of the stream only when the ring is empty
+  and closed, and a timed-out receive only when it was empty and open;
+- a stale guard is refused, only the holder releases the lock, a mutex
+  is poisoned only when its word names a holder that is dead, and a
+  poisoned mutex is never taken.
+
+Over the whole graph, every reachable state must still be able to
+reach the end, where every binding has finished, by protocol steps. A
+state that can't is a *lost wakeup* when a sleeping binding's
+condition already holds: the lock is free, the ring has a word or
+room, or the channel is closed. It is a *deadlock* when no such
+condition holds, and a *livelock* when steps remain but none leads
+out.
+
+### Bounds and results
+
+The default run explores 38 scenarios and 2,127,649 states, on four
+processes, in about 16 seconds on H3:
+
+- a sender and a receiver at capacities 1 and 2, with one to three
+  words;
+- two senders and a receiver, and a sender and two receivers, with one
+  word each;
+- the timed forms with one slice of time, the non-blocking forms and
+  `chanClosed`, and sends refused by a close in each form;
+- the mutex with two and three bindings in both lowerings, a stale
+  guard beside one and two lockers, a timed lock, a try-lock, and a
+  holder killed at any step beside an untimed and a timed waiter.
+
+Every scenario is clean, and in every one some binding sleeps in the
+kernel. Every transcribed step runs in some scenario but two that no
+caller reaches: `sysWaitWordTimeout`'s non-positive wait, and
+`kill(pid, 0)` answering an error other than `ESRCH`. `--long`,
+nightly, explores 54 scenarios and 26,160,575 states: it adds a fourth
+word, three bindings with two words each, and two slices of time.
+Three forked mutex bindings locking twice each passed five million
+states, so that shape runs under threads alone, where the shared pid
+makes the bindings interchangeable.
+
+The model also finds AN-10. A sender killed holding the channel's lock
+leaves the receiver asleep in `chanLock` for good, its timed receive
+included. The gate requires that finding, so the liveness check is
+seen to find a real deadlock.
+
+### Planted defects
+
+Each mistake below is planted in the transcription, and must be found
+as the kind of failure it is, with its schedule printed.
+
+| Planted | Found as | States |
+|---|---|---|
+| A waiter parks, announcing itself and reading the counter, after releasing the lock | lost wakeup | 9,331 |
+| A changer reads the waiter count before it takes the lock, and wakes only if that read saw one | lost wakeup | 9,817 |
+| `chanUnlock`'s contended release wakes nobody | lost wakeup | 4,639 |
+| `chanNotify` sees a waiter and wakes nobody | lost wakeup | 5,089 |
+| `chanLock` takes the word by a plain load and store | mutual exclusion | 16 |
+| `mutexUnlock`'s contended release wakes nobody | lost wakeup | 6,541 |
+| `mutexLock` takes the word by a plain load and store | mutual exclusion | 28 |
+| A waiter sleeps without setting bit 0 | lost wakeup | 3,755 |
+| `mutexUnlock` compares the guard with the counter | unearned unlock | 215 |
+| The dead-holder test poisons without re-reading the word | false poisoning | 731 |
+
+Two placements that look like mistakes are correct, and the model
+shows why. Moving only the waiter's announcement after the release,
+while the counter is still read under the lock, is clean in 580,387
+states: a change after the release bumps the counter, so the waiter's
+kernel compare fails. What must stay under the lock is the counter
+read, which `chanPark` makes beside the announcement. And
+`chanNotify` reads the announcement outside the lock, after the
+release. That is safe because the read follows the change; the planted
+read before the change loses a wake.
+
+### Tied to the implementation
+
+The transcription check reads `stdlib/`. It finds all 183 cited
+operations in their functions, in the model's order. Every function in
+`Chan.ax` and `Sync.ax` is modelled or listed with its reason, and
+every atomic, wait and wake in them sits in a modelled function or a
+checked wrapper. Three mutated copies of the library, each of which
+still compiles, must fail it: `chanSend` and `chanRecv` parking after
+the release, `mutexUnlock` without its wake, and a new function that
+reads the lock word.
+
+Replay is the stronger link. The gate makes a copy of `Chan.ax` that
+holds a trace lock around every operation on a channel word and
+records it, so the record's order is the order the operations
+happened in. `tests/litmus/chan-trace.ax` runs two senders, a closer
+and two receivers on it, as forked processes. The model then takes the
+record one operation at a time: each must be the recorded binding's
+next step, on the same word with the same operands, and must get the
+model's answer.
+
+On H3 a run at capacity 1 records about 5,200 operations, 280 of them
+kernel waits, and every one is the model's. Two controls must be
+refused: a library whose change counter counts in twos, which the
+program's own check passes, and a record with one operation cut.
+
+### What the model does not show
+
+- It is a proof about the model at its bounds, not about the
+  implementation. Programs with more bindings, more words or longer
+  waits aren't explored.
+- Every access is a step in one sequentially consistent order. That is
+  what `MM-PAR-9` promises for the atomics, and what the lock gives the
+  plain words. Whether the compiler's lowering keeps it is
+  `scripts/check-atomics.sh`'s subject.
+- The kernel wait is modelled as `futex`'s contract. Linux's 32-bit
+  compare and FreeBSD's spin are outside it, and time is whole slices:
+  a clock step is none or all of one.
+- Pid reuse and a zombie holder, `MM-PAR-11`'s stated limits, aren't
+  modelled, and neither is the handle's lifetime nor a forged guard.
+- The mutex and the timed forms have no replay. The replay covers the
+  untimed channel calls under the process lowering, because a pid
+  names the binding in the record and threads share one.
+
+## Deadlock and starvation
+
+`tests/litmus/liveness.ax` measures on the machine, in both lowerings,
+what the load gates don't separate from races.
+`scripts/check-protocol-model.sh` §5 runs it.
+
+Starvation, AN-17: four bindings take one mutex in a tight loop for
+1.5 s, adding 1 to a plain shared word under it. The gate requires the
+count to be exact and reports the rest, because the mutex promises
+exclusion and not fairness. On H3, in two runs of the gate, the shares
+were even: the four bindings made about 1.1 million acquisitions in
+each lowering, and the largest share was 1.04 to 1.05 times the
+smallest forked and 1.10 to 1.14 under threads. The longest single
+wait was 3.9 to 10.4 ms, for a lock held for microseconds. A run while
+other work loaded H3 saw waits of 35 to 147 ms.
+
+A lost wake in the mutex would be survived, because a waiter sleeps in
+slices of 100 ms. So the gate counts, on a copy of `Sync.ax`, every
+lock wait a slice ended. A 350 ms timed inversion must count some, and
+counted 8. Under the starvation load the count is reported. On H3 it
+was 0 in both lowerings, over about a million acquisitions each: every
+wait ended by a wake or a changed word.
+
+The nightly `--long` run contends for 5 s. There the worst waits grew
+to 42 to 78 ms while the shares stayed within 1.03 of each other, and
+the count of waits a slice ended was still 0, over about four million
+acquisitions in each lowering. A longer run finds a longer tail, which
+is what a lock with no fairness does.
+
+Deadlock: two bindings each take one of two mutexes, meet at a
+barrier, and ask for the other's. With `mutexLockTimeout` both sides
+answer `sysTimedOut` within [T, T + 800 ms]: at 201 to 203 ms of 200
+on H3. With `mutexLock` they deadlock, as documented. A 2 s watchdog
+must end the run, both sides must have reported holding their first
+mutex, and no process may be left. The same program with both sides
+taking the mutexes in one order must finish, which shows the watchdog
+saw the deadlock and not a slow run. Two bindings each waiting to
+receive what the other sends first are held to the same three checks,
+with `chanRecvTimeout` and `chanRecv`.
+
+These are the runs made, on this host. A bound on time holds on those
+runs, and a loaded host can exceed any slack.
+
 ## Metamorphic compiler testing
 
 `scripts/check-metamorphic.sh` checks one relation: a declaration
@@ -429,9 +630,11 @@ in ways no program can observe.
 - Fuzzing of FFI boundaries and runtime operations. Race detection
   between forked bindings, and a heap sanitizer the arena works with
   (the runtime would have to poison its own free blocks). Schedule
-  exploration, and memory-ordering litmus families beyond the six
-  `scripts/check-atomics.sh` runs (SB, MP, LB, 2+2W, IRIW and a
-  contended counter, R-C3). Allocation, cancellation and failure
+  exploration beyond the channel and mutex protocols at the model's
+  bounds: the task pool (`stdlib/Task.ax`), larger bounds, and a
+  replay of the mutex and the timed forms. Memory-ordering litmus
+  families beyond the twelve `scripts/check-atomics.sh` runs (R-C3):
+  R, S, 3.SB and the dependency and fence variants. Allocation, cancellation and failure
   injection beyond the fault-injected count boundary (527) and the
   `reset_keeping` fixtures (165).
 - Long-duration memory and concurrency stress. Inspection of optimised

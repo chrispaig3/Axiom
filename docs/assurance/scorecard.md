@@ -34,7 +34,7 @@ source.
 | A bounded channel carries every word once between bindings, in both lowerings, blocking in the kernel (R-C2a) | `tests/stdlib/528-chan.ax`; `scripts/check-chan.sh`: 15 pass |
 | A channel, mutex, cancellation token or spawn handle is a sealed handle: safe code can't forge one or pass an `Int` or another handle as one, and a freed, forged or rejoined one traps with 85 instead of reading an unmapped page (R-C6, MM-PAR-8) | `tests/diagnostics/1060` to `1066`; `tests/stdlib/570-handle-freed.ax`, `571-handle-table.ax`, `572-spawn-joined-twice.ax`; `scripts/check-handles.sh`: 39 pass, including three ablations |
 | A mutex excludes and refuses every unearned unlock, a dead holder poisons it, every blocking call has a timed form, and tasks answer typed results by serialization with each failure, deadline and cancellation in its slot (R-C2) | `tests/stdlib/540-wait-timeout.ax` to `543-task-failures.ax`; `scripts/check-task.sh`: 69 pass, including eleven ablations and two controls that measure stated limits |
-| Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP, LB, 2+2W and counter litmus tests are clean on two threads and IRIW on four, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 96 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
+| Atomics lower to their ordering instructions on 7 targets × 4 levels. The SB, MP, LB, 2+2W, counter and four coherence litmus tests are clean on two threads, WRC and ISA2 on three and IRIW on four, beside controls that show the forbidden outcomes (R-C3) | `scripts/check-atomics.sh`: 144 pass (`tests/litmus/atomics.ax`, `tests/stdlib/440-atomics.ax`) |
 | Happens-before, the meaning of the atomics and the data-race boundary are stated normatively (R-C4) | `docs/memory-model.md` `MM-PAR-9`; the R-C3 evidence plus `scripts/check-parallel.sh` |
 | A restricted profile refuses recursion, unfollowable calls, unnamed foreign items, spawns, steady-state allocation and a blocking call under an interrupt handler across the whole program, enumerates each function's trap statuses, and bounds the stack from AArch64 and x86-64 machine code (R-D1) | `scripts/axiom-report.py`; `scripts/check-report.sh`: 49 pass. `tests/profile/ok-periodic.ax` is bounded at 192 bytes and `tests/embedded/blink.ax` at 320 |
 | Device registers are reached at their own width by volatile accesses the optimiser keeps, with AArch64 barriers, and an instruction the target lacks is `AX4008` (R-D2a) | `scripts/check-embedded.sh` A11 |
@@ -43,6 +43,8 @@ source.
 | The executable allocator, arena and region model agrees with the runtime, size classes and filed count included (R-E1, model half) | `scripts/lib/runtime-model.py`; `scripts/check-runtime-model.sh`: 15 pass |
 | Seeded compiler fuzzing: on the mutants run, `check` never dies by a signal, trap status or hang, never refuses without a code, writes well-formed JSON and terminal-safe reports; accepted programs emit IR that `llc` accepts, format to a fixed point that still checks, and on a sample answer the same at `--opt 0` and `--opt 2` (R-E1, fuzzing half) | `scripts/lib/fuzz.py`; `scripts/check-fuzz.sh`: 46 pass, on 600 mutants from seed 20260927. All twenty-one reproducers are fixed and replayed as regressions |
 | ThreadSanitizer reports an unlocked shared word and three ablated synchronisers, and nothing in the mutex, the channel, the pipeline example or the seq_cst litmus rows but `MM-PAR-12`'s documented read, whose suppression hides nothing else on the runs made (R-E1, race detector) | `scripts/check-race.sh`: 32 pass on H3 and on linux-aarch64 in a container; `tests/litmus/tsan-suppressions.txt` |
+| The channel and mutex protocols are clean in every interleaving of two and three bindings the model explores, every planted protocol defect is found with its schedule, and the transcription matches the source and a recorded run of the channel (R-E1, protocol model) | `scripts/lib/protocol-model.py`; `scripts/check-protocol-model.sh`: 77 pass, 38 scenarios and 2,127,649 states; `tests/litmus/chan-trace.ax` |
+| A lock-order inversion between two mutexes and two bindings each waiting on the other's channel answer `sysTimedOut` on both sides under the timed calls, and stay deadlocked under the untimed ones until a watchdog ends them; the mutex's starvation is measured, not promised (R-C2, AN-17) | `tests/litmus/liveness.ax`; `scripts/check-protocol-model.sh` §5, both lowerings |
 | The qualification-readiness package exists and states its limits (R-E2) | [hazards.md](hazards.md), [threats.md](threats.md), [trusted-components.md](trusted-components.md), [tool-qualification.md](tool-qualification.md), [safety-manual.md](safety-manual.md), [anomalies.md](anomalies.md), [support-policy.md](support-policy.md), [demonstrators.md](demonstrators.md) |
 
 ## Open defects and gaps
@@ -57,18 +59,23 @@ source.
 - R-C4 limits: `restrict(no-unsafe)` also refuses `vecPush`, so there
   is no practical, checkable refusal for a call to an `effect(unsafe)`
   wrapper, or for a user `cast` of a word into a handle.
-- R-C3 limits: six litmus families run, not the whole catalogue (no
-  WRC, ISA2 or coherence tests). The LB and IRIW plain-access controls
-  are reported, not required, because H3 shows LB never and IRIW only
-  in bursts; each family's reordered-program control is required
-  instead. No LSE-lowered AArch64 code has been inspected. A litmus
+- R-C3 limits: twelve litmus families run, not the whole catalogue
+  (no R, S, 3.SB or dependency and fence variants). The LB, IRIW, WRC
+  and ISA2 plain-access controls are reported, not required, because H3
+  shows LB and ISA2 never, IRIW only in bursts and WRC a few times in
+  some runs; each family's reordered-program control is required
+  instead. The coherence families can have no plain control on x86-64
+  or AArch64, which keep one word coherent for every access. No LSE-lowered AArch64 code has been inspected. A litmus
   zero is evidence, not proof.
 - R-E1 remainder: the race detector sees threads only, and only the
   interleavings run, so forked bindings and the task pool have none.
   ASan sees globals, not the arena's heap blocks. The LSP and the REPL
   aren't fuzzed, and the miscompilation oracle compares two
   optimisation levels on a sample. The full fuzzing budget runs
-  nightly, not per push.
+  nightly, not per push. The protocol model is a proof about the model
+  at two and three bindings and small bounds, not about the
+  implementation; the mutex and the timed forms have no replay, and
+  the task pool has no model.
 - `MM-PAR-7` limits: reparented grandchildren and uninterruptible
   sweeps.
 - R-C6 limits: a free that races another binding's use of the same
@@ -96,10 +103,11 @@ constants.
 | `check-parallel.sh` | 69 pass, §12a skipped (procfs) |
 | `check-diagnostics.sh` | 255 pass |
 | `check-render-selfhost.sh` | 248 pass |
-| `check-atomics.sh` | 96 pass |
+| `check-atomics.sh` | 144 pass |
 | `check-chan.sh` | 15 pass |
 | `check-task.sh` | 69 pass |
 | `check-handles.sh` | 39 pass |
+| `check-protocol-model.sh` | 77 pass |
 | `check-report.sh` | 49 pass, 0 skipped |
 | `check-embedded.sh` | 35 pass, QEMU legs run |
 | `check-runtime-model.sh` | 15 pass |
@@ -147,6 +155,13 @@ These are measured latencies on H3, not bounds.
   other gates (`scripts/check-task.sh` §2).
 - A cancellation from a sibling binding at 300 ms, with a 100 ms grace,
   ends the pool in about 450 ms (`scripts/check-task.sh` §3).
+- In a lock-order inversion, a 200 ms timed lock answers
+  `sysTimedOut` on both sides after 201 to 203 ms, and so does a timed
+  receive in a channel pair (`scripts/check-protocol-model.sh` §5).
+- Four bindings contending for one mutex for 1.5 s made about 1.1
+  million acquisitions in each lowering. The largest share was 1.04
+  to 1.14 times the smallest, and the longest single wait 3.9 to
+  10.4 ms (the same gate).
 - A mutex whose holder was killed and reaped answers `syncOwnerDead`
   101 ms later to a timed lock, and at once to an untimed one.
 
