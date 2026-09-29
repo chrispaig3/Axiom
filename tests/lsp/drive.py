@@ -5159,13 +5159,42 @@ shutil.rmtree(CADIR2, ignore_errors=True)
 # anything.
 
 
-def run_measured(argv, payload, cwd):
-    """Run a child on `payload` and answer (stdout, exit status, peak
-    RSS in KiB). `os.wait4` gives the rusage of THIS child, which
+def proc_kib(who, field):
+    """A KiB field of Linux's /proc/<who>/status (`VmHWM`, `VmRSS`), or
+    None when there is no such process or it holds no memory."""
+    try:
+        with open("/proc/%s/status" % who, encoding="ascii") as f:
+            for ln in f:
+                if ln.startswith(field + ":"):
+                    return int(ln.split()[1])
+    except OSError:
+        pass
+    return None
+
+
+def run_measured(argv, payload, last, cwd):
+    """Run a child on `payload` and then `last`, and answer (stdout,
+    exit status, the child's peak RSS in KiB, what `wait4` reported in
+    KiB, this driver's RSS in KiB at the fork, or None off Linux).
+    `os.wait4` gives the rusage of THIS child, which
     `RUSAGE_CHILDREN` does not - it reports a maximum over every child
-    so far, so a smaller second run would read as the larger first."""
+    so far, so a smaller second run would read as the larger first.
+
+    On Linux `wait4` cannot see the server's peak either. `execve`
+    folds the peak of the address space it replaces into the process's
+    `maxrss`, and the child forked here replaces a copy of this driver,
+    so `wait4` answers at least the driver's own resident set at the
+    fork: tens of MiB by this section, above anything the server
+    holds. The server's own address space starts empty at the exec,
+    and its peak is `VmHWM`, read once `shutdown` is answered and
+    before `last` (the `exit`) is sent. On Darwin the exec starts the
+    count afresh and `wait4` is the server's own."""
+    import threading
+    import time
+    linux = sys.platform.startswith("linux")
     rfd, wfd = os.pipe()
     orfd, owfd = os.pipe()
+    driver = proc_kib("self", "VmRSS") if linux else None
     pid = os.fork()
     if pid == 0:                                    # child
         os.dup2(rfd, 0)
@@ -5180,7 +5209,6 @@ def run_measured(argv, payload, cwd):
     # Feed and drain concurrently: the payload is larger than a pipe
     # buffer and the server answers as it reads, so writing it all
     # before reading deadlocks both ends.
-    import threading
     chunks = []
 
     def drain():
@@ -5190,10 +5218,25 @@ def run_measured(argv, payload, cwd):
                 return
             chunks.append(b)
 
+    def shutdown_answered():
+        try:
+            msgs, _ = unframe(b"".join(chunks))
+        except ValueError:                          # a frame half read
+            return False
+        return any(m.get("id") == 2 for m in msgs)
+
     t = threading.Thread(target=drain)
     t.start()
     try:
         os.write(wfd, payload)
+    except BrokenPipeError:
+        pass
+    deadline = time.monotonic() + 60
+    while t.is_alive() and not shutdown_answered() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    hwm = proc_kib(pid, "VmHWM") if linux else None
+    try:
+        os.write(wfd, last)
     except BrokenPipeError:
         pass
     os.close(wfd)
@@ -5201,8 +5244,8 @@ def run_measured(argv, payload, cwd):
     os.close(orfd)
     _, status, ru = os.wait4(pid, 0)
     # Darwin reports bytes, Linux kilobytes.
-    kib = ru.ru_maxrss // 1024 if sys.platform == "darwin" else ru.ru_maxrss
-    return b"".join(chunks), status, kib
+    waited = ru.ru_maxrss // 1024 if sys.platform == "darwin" else ru.ru_maxrss
+    return b"".join(chunks), status, (hwm if linux else waited), waited, driver
 
 
 MEM_SRC = open(os.path.join(fixdir, "060-outline.ax"), encoding="utf-8").read()
@@ -5218,55 +5261,37 @@ def edit_session(n):
         ms.append({"jsonrpc": "2.0", "method": "textDocument/didChange",
                    "params": {"textDocument": {"uri": mem_uri, "version": i + 2},
                               "contentChanges": [{"text": MEM_SRC + "\n; %d\n" % i}]}})
-    ms += [{"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None},
-           {"jsonrpc": "2.0", "method": "exit", "params": None}]
-    return b"".join(frame(m) for m in ms)
+    ms.append({"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None})
+    return (b"".join(frame(m) for m in ms),
+            frame({"jsonrpc": "2.0", "method": "exit", "params": None}))
 
 
 SMALL, BIG_N = 5, 200
 SLOPE_CEILING_KIB = 2048     # over 195 further edits
 
-# THE ABSOLUTE CEILING IS PER-PLATFORM, and it has to be, because the
-# same flat session measures 13x apart on the two. Measured 2026-08-31
-# on the same tree:
+# THE ABSOLUTE CEILING is the server's own peak, and it is one number
+# on both platforms because both now measure the same thing. Darwin
+# reads it from `wait4`: 2,944 KiB at 5 edits and 3,104 KiB at 200 on
+# 2026-09-29, and 12,288 is 4x that. Linux reads it as VmHWM, since
+# what `wait4` answers there is this driver's resident set carried
+# through the exec (see `run_measured`). The Linux ceilings before this
+# one, 40,960 and 51,200, were derived from that driver number and so
+# bounded drive.py rather than the server. On Linux the check prints
+# both, so the two stay told apart.
 #
-#   darwin-aarch64   2,336 KiB at 5 edits, 2,512 KiB at 200
-#   linux-aarch64   33,464 KiB at 200        (reproduced under podman)
-#   linux-x86_64    33,544 KiB at 200        (CI, run 33424865965)
-#
-# One ceiling of 32,768 covered both until 0.6.1 crossed it on the two
-# Linux legs. It was derived on Darwin, where it sits 13x above the
-# measurement and therefore asserts NOTHING - a ceiling nothing can
-# reach is the same defect as a check that cannot fail, and it hid the
-# fact that the Linux number had never been bounded at all.
-#
-# THE SLOPE ARM IS THE LEAK CHECK AND IT PASSES ON BOTH. That is what
-# says the difference is a working set and not a growth: 176 KiB over
-# 195 edits on Darwin, and under the 2,048 KiB ceiling on Linux, where
-# the absolute arm is what went red. The gap is the runtime's chunk
-# behaviour under glibc against Darwin's, not the server keeping
-# anything per edit.
-#
-# Each is derived from its own platform's measurement with the margin
-# stated, rather than rounded up until it passed: Darwin 12,288 is 4.9x
-# its 2,512, and Linux 40,960 is 1.22x its 33,544. The Darwin number is
-# TIGHTENED here - 2.7x lower than the 32,768 it replaces - because a
-# ceiling that only one platform can reach is only half a check.
-#
-# The Linux number is re-derived for 0.7.6 the same way. Its compiler's
-# IR grew 8.2% (13.0 MB to 14.1 MB, 207 more functions) and the session
-# grew with it: 41,148 KiB at 5 edits and 41,460 KiB at 200 on
-# linux-x86_64 (CI run 36628053287), where 0.7.5-era trunk measured
-# 40,292 and 40,668. The slope stayed at 312 KiB, so the start moved and
-# the session did not grow. Linux 51,200 is 1.23x its 41,460, the margin
-# the 40,960 had over 33,544.
-ABSOLUTE_CEILING_KIB = 12288 if sys.platform == "darwin" else 51200
+# THE SLOPE ARM IS THE LEAK CHECK: the same session at 5 edits and at
+# 200, so a server that keeps something per edit grows between the two
+# and one that reclaims does not.
+ABSOLUTE_CEILING_KIB = 12288
 
 why = None
 rss = {}
+seen = {}
 for n in (SMALL, BIG_N):
-    out, st, kib = run_measured([stage1, "lsp"], edit_session(n), fixdir)
+    payload, last = edit_session(n)
+    out, st, kib, waited, driver = run_measured([stage1, "lsp"], payload, last, fixdir)
     rss[n] = kib
+    seen[n] = (waited, driver)
     msgs, tail = unframe(out)
     pubs = [m for m in msgs if m.get("method") == "textDocument/publishDiagnostics"]
     answered = {m["id"] for m in msgs if "id" in m}
@@ -5279,8 +5304,20 @@ for n in (SMALL, BIG_N):
                " - it did not process every edit, so its memory means nothing")
     elif 2 not in answered:
         why = f"{n}-edit session never answered shutdown"
+    elif kib is None:
+        why = (f"{n}-edit session: no VmHWM in /proc/<pid>/status after the"
+               " shutdown answer, so the server's own peak was not read")
     if why:
         break
+
+# On Linux, what `wait4` said and what this driver held at the fork: the
+# number every earlier Linux ceiling was set against, and where it came
+# from.
+driver_note = ""
+if sys.platform.startswith("linux") and BIG_N in seen:
+    waited, driver = seen[BIG_N]
+    driver_note = (f"; wait4 answered {waited} KiB at {BIG_N} edits, this"
+                   f" driver held {driver} KiB at the fork")
 
 if not why:
     slope = rss[BIG_N] - rss[SMALL]
@@ -5301,13 +5338,13 @@ if not why:
                f" working set, not a leak)")
 
 if why:
-    print(f"FAIL editing-session-is-flat: {why}")
+    print(f"FAIL editing-session-is-flat: {why}{driver_note}")
     failed += 1
 else:
     print(f"ok   editing-session-is-flat ({rss[SMALL]} KiB at {SMALL} edits, "
           f"{rss[BIG_N]} KiB at {BIG_N}, grew {rss[BIG_N] - rss[SMALL]} KiB, "
           f"under {SLOPE_CEILING_KIB} slope and {ABSOLUTE_CEILING_KIB} absolute "
-          f"on {sys.platform}, every edit checked)")
+          f"on {sys.platform}, every edit checked{driver_note})")
     passed += 1
 
 # =====================================================================
