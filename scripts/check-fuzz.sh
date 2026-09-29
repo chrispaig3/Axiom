@@ -775,7 +775,13 @@ ROWS
   # without one.
   c_fmt=""
   for n in ${fmt_passed[@]+"${fmt_passed[@]}"}; do [[ "$n" != "$c_clean" ]] && { c_fmt="$n"; break; }; done
-  c_diff="${diff_agreed[0]:-}"
+  # Distinct from the other two: `fmt` rewrites its file in place, so a
+  # mutant shared with the fmtbreak control reaches this one already
+  # planted, and the plant it is meant to see never runs.
+  c_diff=""
+  for n in ${diff_agreed[@]+"${diff_agreed[@]}"}; do
+    [[ "$n" != "$c_fmt" && "$n" != "$c_clean" ]] && { c_diff="$n"; break; }
+  done
   if [[ -z "$c_fmt" || -z "$c_diff" ]]; then
     bad "the run left no mutant for the P4 or P5 control (${#ok_names[@]} accepted, ${#diff_names[@]} eligible for P5)"
   else
